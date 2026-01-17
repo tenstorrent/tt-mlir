@@ -12,6 +12,9 @@ if [[ "$2" == "--check-only" ]]; then
     CHECK_ONLY=true
 fi
 
+CURRENT_TT_METAL_VERSION=$(grep 'set(TT_METAL_VERSION' third_party/CMakeLists.txt | sed 's/.*"\(.*\)".*/\1/')
+echo "Current tt-metal version: $CURRENT_TT_METAL_VERSION"
+
 REPO=tenstorrent/tt-mlir
 BASE_IMAGE_NAME=ghcr.io/$REPO/tt-mlir-base-ubuntu-22-04
 CI_IMAGE_NAME=ghcr.io/$REPO/tt-mlir-ci-ubuntu-22-04
@@ -57,6 +60,7 @@ build_and_push() {
             --progress=plain \
             $target \
             --build-arg FROM_TAG=$DOCKER_TAG \
+            --build-arg TT_METAL_VERSION=$CURRENT_TT_METAL_VERSION \
             -t $image_name:$DOCKER_TAG \
             -t $image_name:latest \
             -f $dockerfile .

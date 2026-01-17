@@ -179,6 +179,45 @@ def TTNNTuplifyTensors: Pass<"ttnn-tuplify-tensors", "::mlir::ModuleOp"> {
   ];
 }
 
+def TTNNPrepareModuleForExport : Pass<"ttnn-prepare-module-for-export", "::mlir::ModuleOp"> {
+  let summary = "Prepare module for Python module export.";
+  let description = [{
+    This pass prepares the module for export as a Python module by:
+    1. Renaming the first public (non-private, non-const-eval) function to "forward"
+    2. Adding a device argument to the function signature
+    3. Replacing all ttnn.get_device ops with the device function argument
+
+    Given a forward function like this:
+
+    ```mlir
+    func.func @add(%arg0: tuple<tensor<32x32xbf16>, tensor<32x32xbf16>>) -> tuple<tensor<32x32xbf16>> {
+      %0 = ttcore.get_tuple_element %arg0[0] : (tuple<tensor<32x32xbf16>, tensor<32x32xbf16>>) -> tensor<32x32xbf16>
+      %1 = ttcore.get_tuple_element %arg0[1] : (tuple<tensor<32x32xbf16>, tensor<32x32xbf16>>) -> tensor<32x32xbf16>
+      %2 = "ttnn.get_device"() : () -> !ttnn.device
+      %3 = "ttnn.to_device"(%0, %2) : (tensor<32x32xbf16, !ttnn.device) -> tensor<32x32xbf16>
+      %4 = "ttnn.to_device"(%1, %2) : (tensor<32x32xbf16, !ttnn.device) -> tensor<32x32xbf16>
+      %5 = "ttnn.add"(%3, %4) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+      %6 = ttcore.tuple %5 : tuple<tensor<32x32xbf16>>
+      return %6 : tuple<tensor<32x32xbf16>>
+    }
+    ```
+
+    The pass will return:
+
+    ```mlir
+    func.func @forward(%arg0: tuple<tensor<32x32xbf16>, tensor<32x32xbf16>>, %arg1: !ttnn.device) -> tuple<tensor<32x32xbf16>> {
+      %0 = ttcore.get_tuple_element %arg0[0] : (tuple<tensor<32x32xbf16>, tensor<32x32xbf16>>) -> tensor<32x32xbf16>
+      %1 = ttcore.get_tuple_element %arg0[1] : (tuple<tensor<32x32xbf16>, tensor<32x32xbf16>>) -> tensor<32x32xbf16>
+      %2 = "ttnn.to_device"(%0, %arg1) : (tensor<32x32xbf16, !ttnn.device) -> tensor<32x32xbf16>
+      %3 = "ttnn.to_device"(%1, %arg1) : (tensor<32x32xbf16, !ttnn.device) -> tensor<32x32xbf16>
+      %4 = "ttnn.add"(%2, %3) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+      %5 = ttcore.tuple %4 : tuple<tensor<32x32xbf16>>
+      return %5 : tuple<tensor<32x32xbf16>>
+    }
+    ```
+  }];
+}
+
 def TTNNPrepareConv2dWeightsAndBias : Pass<"ttnn-prepare-conv2d-weights-and-bias", "::mlir::ModuleOp"> {
   let summary = "Optimize Conv2d ops by inserting PrepareConv2dWeights and PrepareConv2dBias ops before them.";
   let description = [{
@@ -280,7 +319,11 @@ def TTNNOperationValidationAndFallback: Pass<"ttnn-operation-validation-and-fall
     Option<"tensorL1UsageCap",
            "tensor-l1-usage-cap",
            "float", /*default=*/"1.0",
-           "Limit L1 memory usage to this fraction of available space (0.0-1.0)">
+           "Limit L1 memory usage to this fraction of available space (0.0-1.0)">,
+    Option<"maxFallbackAttempts",
+           "max-fallback-attempts",
+           "uint32_t", /*default=*/"10000",
+           "Maximum number of fallback configurations to try before giving up (0 = unlimited)">
   ];
 }
 
@@ -393,6 +436,68 @@ def TTNNCollectPerfMetrics: Pass<"ttnn-collect-perf-metrics", "::mlir::ModuleOp"
     Option<"ttnnEnableTrace", "ttnn-enable-trace", "bool", /*default=*/"false",
            "Collect metrics only for the main traced function">
   ];
+}
+
+def TTNNSetComputeKernelConfig: Pass<"ttnn-set-compute-kernel-config", "::mlir::ModuleOp"> {
+  let summary = "Set default ComputeKernelConfig attributes for operations.";
+  let description = [{
+    This pass sets default ComputeKernelConfig attributes for TTNN operations that support
+    the ComputeKernelConfigOpInterface. It only sets parameter values that are not already
+    defined, preserving any existing configuration decisions made by earlier compiler passes.
+
+    Behaviour:
+    - If an operation has no compute_config attribute, a new compute config is created with override values
+    - If an operation has a compute_config but a specific parameter (e.g., math_fidelity) is
+      unset (std::nullopt), the override value is applied for that parameter only
+    - If a parameter is already set in the compute_config, it is not overridden, preserving
+      the existing compiler decision
+
+    This allows setting default values for ComputeKernelConfig parameters while respecting
+    any explicit configuration choices made by prior passes.
+
+    Example usage:
+    ttmlir-opt --ttnn-set-compute-kernel-config="math-fidelity=hifi4" input.mlir
+    ttmlir-opt --ttnn-set-compute-kernel-config="math-fidelity=lofi fp32-dest-acc-en=true" input.mlir
+  }];
+
+  let options = [
+    Option<"mathFidelity", "math-fidelity", "::mlir::tt::ttnn::OptionalMathFidelity", /*default=*/"::mlir::tt::ttnn::OptionalMathFidelity::HiFi4",
+           "Set default math_fidelity (lofi, hifi2, hifi3, hifi4)">,
+    Option<"mathApproxMode", "math-approx-mode", "bool", /*default=*/"false",
+           "Set default math_approx_mode">,
+    Option<"fp32DestAccEn", "fp32-dest-acc-en", "bool", /*default=*/"true",
+           "Set default fp32_dest_acc_en">,
+    Option<"packerL1Acc", "packer-l1-acc", "bool", /*default=*/"false",
+           "Set default packer_l1_acc">,
+    Option<"dstFullSyncEn", "dst-full-sync-en", "bool", /*default=*/"false",
+           "Set default dst_full_sync_en">
+  ];
+}
+
+def TTNNRecoverStructure: Pass<"ttnn-recover-structure", "::mlir::ModuleOp"> {
+  let summary = "Recover program structure by splitting IR into multiple functions based on source locations.";
+  let description = [{
+    This pass analyzes TTNN operations and extracts Python source location information
+    from each operation. It then groups operations by their originating Python functions
+    and creates new MLIR functions based on these groups, effectively recovering the
+    original program structure from the flattened MLIR representation.
+  }];
+}
+
+def TTNNSimplifyLocsForCodegen: Pass<"ttnn-simplify-locs-for-codegen", "::mlir::ModuleOp"> {
+  let summary = "Simplify location information for code generation.";
+  let description = [{
+    This pass simplifies location information by removing nested locations from NameLocs.
+    It only processes TTNN dialect operations and skips UnknownLocs.
+  }];
+}
+
+def TTNNRemoveDeallocs: Pass<"ttnn-remove-deallocs", "::mlir::ModuleOp"> {
+  let summary = "Remove all ttnn.deallocate operations for debugging.";
+  let description = [{
+    This pass removes all ttnn.deallocate operations from the IR.
+    Useful for debugging purposes to isolate issues related to deallocation.
+  }];
 }
 
 #endif

@@ -391,6 +391,11 @@ def D2MGenericLowerDMAs : Pass<"d2m-generic-lower-dmas", "::mlir::ModuleOp"> {
     %tx = d2m.dma %stream [%1, %iter2], %cb0
     ```
   }];
+  let options = [
+    Option<"debugCoalescingInference", "debug-d2m-coalescing-inference", "bool", /*default=*/"false",
+           "Enable debug mode for coalescing inference. Runs both analytical and sampling-based "
+           "coalescing checks and prints debug output comparing them.">,
+  ];
 }
 
 def D2MGenericRegionsToFuncs : Pass<"d2m-generic-regions-to-funcs", "::mlir::ModuleOp"> {
@@ -733,6 +738,56 @@ def D2MMaterializeViewReturns : Pass<"d2m-materialize-view-returns", "::mlir::Mo
   let dependentDialects = ["::mlir::tt::d2m::D2MDialect", "::mlir::tt::ttcore::TTCoreDialect"];
 }
 
+def D2MDecomposeMasking : Pass<"d2m-decompose-masking", "::mlir::ModuleOp"> {
+  let summary = "Decompose block_mask ops into linalg.generic with tile arithmetic";
+  let description = [{
+    This pass decomposes high-level `block_mask` operations into linalg.generic
+    with per-tile masking using primitive tile arithmetic. The block_mask op
+    operates at block level (memref of tiles) and masks tiles that are completely
+    outside the logical tensor bounds with a specified OOBVal.
+
+    The decomposition creates a linalg.generic that iterates over tiles and:
+    1. Get current tile indices from linalg.index
+    2. Compute global element offset: tileIdx * 32 (tile size)
+    3. Check if entire tile is OOB: globalOffset >= logicalBound
+    4. Combine row/col OOB flags with OR (any dimension OOB means tile is OOB)
+    5. Blend: result = input * select(oob, 0, 1) + select(oob, fill, 0)
+
+    The pass uses arith.select to avoid inf*0=NaN issues when fill is infinity.
+
+    Example transformation:
+    ```mlir
+    // Before:
+    d2m.block_mask %input, %output, %rows, %cols, <zero>
+        : (memref<2x2x!ttcore.tile<32x32, f32>>, memref<2x2x!ttcore.tile<32x32, f32>>)
+
+    // After:
+    linalg.generic ... {
+      %row = linalg.index 0 : index
+      %col = linalg.index 1 : index
+      %globalRow = arith.muli %row, %c32 : index
+      %globalCol = arith.muli %col, %c32 : index
+      %rowOOB = arith.cmpi sge, %globalRow, %rows : index
+      %colOOB = arith.cmpi sge, %globalCol, %cols : index
+      %oob = arith.ori %rowOOB, %colOOB : i1
+      %mulFactor = arith.select %oob, %zero, %one : f32
+      %addend = arith.select %oob, %fillVal, %zero : f32
+      %scaled = d2m.tile_mul %in, %mulFactor
+      %result = d2m.tile_add %scaled, %addend
+      linalg.yield %result
+    }
+    ```
+
+    This pass should run after LowerToLayout and before LinalgToAffine.
+  }];
+  let dependentDialects = [
+    "::mlir::tt::d2m::D2MDialect",
+    "::mlir::memref::MemRefDialect",
+    "::mlir::arith::ArithDialect",
+    "::mlir::linalg::LinalgDialect"
+  ];
+}
+
 def D2MScalarizeConstTensors : Pass<"d2m-scalarize-const-tensors", "::mlir::ModuleOp"> {
   let summary = "Scalarize constant tensor inputs in d2m.generic operations";
   let description = [{
@@ -781,4 +836,30 @@ def D2MScalarizeConstTensors : Pass<"d2m-scalarize-const-tensors", "::mlir::Modu
   }];
   let dependentDialects = ["::mlir::tt::d2m::D2MDialect", "::mlir::arith::ArithDialect"];
 }
+
+def D2MDecomposeComplexPermute: Pass<"d2m-decompose-complex-permute", "::mlir::ModuleOp"> {
+  let summary = "Decompose complex permute operations into inner/outer permutes.";
+  let description = [{
+    This pass decomposes complex permute operations into a sequence of inner and outer
+    permutes. An inner permute swaps only the last two dimensions, while an outer permute
+    handles any other permutation on the outer dimensions.
+
+    The permute will at most be decomposed into an Outer -> Inner -> Outer permute.
+
+    Example:
+      Before:
+        %0 = "ttir.permute"(%input, %output) {permutation = array<i64: 0, 3, 1, 2>}
+            : (tensor<2x3x4x5xf32>, tensor<2x5x3x4xf32>) -> tensor<2x5x3x4xf32>
+
+      After:
+        // First: inner permute (swap last two dimensions)
+        %1 = "ttir.permute"(%input, %tmp1) {permutation = array<i64: 0, 1, 3, 2>}
+            : (tensor<2x3x4x5xf32>, tensor<2x3x5x4xf32>) -> tensor<2x3x5x4xf32>
+        // Then: outer permute
+        %2 = "ttir.permute"(%1, %output) {permutation = array<i64: 0, 3, 1, 2>}
+            : (tensor<2x3x5x4xf32>, tensor<2x5x3x4xf32>) -> tensor<2x5x3x4xf32>
+  }];
+}
+
+
 #endif

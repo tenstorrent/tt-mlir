@@ -49,9 +49,14 @@ if (USE_TTNN_JIT_WHEEL)
     OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/build/.ttnn-jit-installed
   )
 
+  add_custom_target(ttnn-jit-deps
+    COMMENT "ttnn-jit dependencies"
+    DEPENDS _ttnn_jit _ttmlir_runtime TTMLIRPythonModules
+  )
+
   add_custom_target(ttnn-jit ALL
     COMMENT "ttnn-jit package"
-    DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/build/.ttnn-jit-installed _ttnn_jit _ttmlir_runtime TTMLIRPythonModules)
+    DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/build/.ttnn-jit-installed ttnn-jit-deps)
 
   set_target_properties(JITCPP PROPERTIES
     INSTALL_RPATH "${JIT_WHEEL_RPATHS}"
@@ -89,6 +94,8 @@ else ()
         _src/conversions.py
         _src/op_registry.py
         _src/return_modifier.py
+        _src/jit_functions.py
+        _src/tracing_compiler.py
   )
 
   add_mlir_python_modules(TTNNJITModules

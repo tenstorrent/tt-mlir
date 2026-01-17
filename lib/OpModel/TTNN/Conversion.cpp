@@ -516,6 +516,11 @@ getConv2dConfig(const std::optional<Conv2dConfigAttr> &conv2dConfig) {
         conv2dConfig->getEnableKernelStrideFolding().getValue();
   }
 
+  if (conv2dConfig->getConfigTensorsInDram()) {
+    config.config_tensors_in_dram =
+        conv2dConfig->getConfigTensorsInDram().getValue();
+  }
+
   return config;
 }
 
@@ -657,9 +662,13 @@ TTNNLayoutAttr getLayoutAttrFromTensorSpec(MLIRContext *context,
 
   BufferType bufferType =
       getBufferType(tensorSpec.memory_config().buffer_type());
-  auto memoryLayoutAttr = TensorMemoryLayoutAttr::get(
-      context,
-      getTensorMemoryLayout(tensorSpec.memory_config().memory_layout()));
+
+  auto memoryLayoutAttr =
+      bufferType == BufferType::SystemMemory
+          ? TensorMemoryLayoutAttr{}
+          : TensorMemoryLayoutAttr::get(
+                context, getTensorMemoryLayout(
+                             tensorSpec.memory_config().memory_layout()));
 
   ttcore::GridAttr gridAttr = ttcore::GridAttr::get(context);
   if (isL1BufferType(bufferType)) {
@@ -704,6 +713,121 @@ getSDPAProgramConfig(
   }
 
   return sdpaConfig;
+}
+
+std::optional<std::string> getScatterReductionType(
+    const std::optional<ttcore::ReduceTypeAttr> &reduceTypeAttr) {
+  assert(reduceTypeAttr && *reduceTypeAttr &&
+         "reduceTypeAttr doesn't contain value");
+  switch (reduceTypeAttr.value().getValue()) {
+  case ttcore::ReduceType::Sum:
+    return "add";
+  case ttcore::ReduceType::Max:
+    return "amax";
+  case ttcore::ReduceType::Min:
+    return "amin";
+  case ttcore::ReduceType::Prod:
+    return "multiply";
+  case ttcore::ReduceType::Invalid:
+    return std::nullopt;
+  case ttcore::ReduceType::Mean:
+  case ttcore::ReduceType::Std:
+  case ttcore::ReduceType::Var:
+    // These reduction types are not supported by scatter operation
+    llvm_unreachable("Unsupported reduction type");
+  }
+}
+
+std::optional<::ttnn::operations::matmul::MatmulProgramConfig>
+getMatmulProgramConfig(mlir::Attribute programConfigAttr) {
+  if (!programConfigAttr) {
+    return std::nullopt;
+  }
+
+  if (auto config = mlir::dyn_cast<MatmulMultiCoreReuseProgramConfigAttr>(
+          programConfigAttr)) {
+    CoreCoordAttr gridSize = config.getComputeWithStorageGridSize();
+    return ::ttnn::operations::matmul::MatmulMultiCoreReuseProgramConfig{
+        .compute_with_storage_grid_size =
+            ::tt::tt_metal::CoreCoord{gridSize.getX(), gridSize.getY()},
+        .in0_block_w = config.getIn0BlockW(),
+        .out_subblock_h = config.getOutSubblockH(),
+        .out_subblock_w = config.getOutSubblockW(),
+        .per_core_M = config.getPerCoreM(),
+        .per_core_N = config.getPerCoreN()};
+  }
+
+  if (auto config =
+          mlir::dyn_cast<MatmulMultiCoreReuseMultiCastProgramConfigAttr>(
+              programConfigAttr)) {
+    CoreCoordAttr gridSize = config.getComputeWithStorageGridSize();
+    std::optional<::ttnn::operations::unary::UnaryWithParam> fusedActivation =
+        std::nullopt;
+    if (auto actAttr = config.getFusedActivation()) {
+      fusedActivation = getUnaryWithParams(actAttr);
+    }
+    return ::ttnn::operations::matmul::
+        MatmulMultiCoreReuseMultiCastProgramConfig{
+            .compute_with_storage_grid_size =
+                ::tt::tt_metal::CoreCoord{gridSize.getX(), gridSize.getY()},
+            .in0_block_w = config.getIn0BlockW(),
+            .out_subblock_h = config.getOutSubblockH(),
+            .out_subblock_w = config.getOutSubblockW(),
+            .out_block_h = config.getOutBlockH(),
+            .out_block_w = config.getOutBlockW(),
+            .per_core_M = config.getPerCoreM(),
+            .per_core_N = config.getPerCoreN(),
+            .transpose_mcast = config.getTransposeMcast(),
+            .fused_activation = fusedActivation,
+            .fuse_batch = config.getFuseBatch()};
+  }
+
+  if (auto config =
+          mlir::dyn_cast<MatmulMultiCoreReuseMultiCast1DProgramConfigAttr>(
+              programConfigAttr)) {
+    CoreCoordAttr gridSize = config.getComputeWithStorageGridSize();
+    std::optional<::ttnn::operations::unary::UnaryWithParam> fusedActivation =
+        std::nullopt;
+    if (auto actAttr = config.getFusedActivation()) {
+      fusedActivation = getUnaryWithParams(actAttr);
+    }
+    return ::ttnn::operations::matmul::
+        MatmulMultiCoreReuseMultiCast1DProgramConfig{
+            .compute_with_storage_grid_size =
+                ::tt::tt_metal::CoreCoord{gridSize.getX(), gridSize.getY()},
+            .in0_block_w = config.getIn0BlockW(),
+            .out_subblock_h = config.getOutSubblockH(),
+            .out_subblock_w = config.getOutSubblockW(),
+            .out_block_h = config.getOutBlockH(),
+            .out_block_w = config.getOutBlockW(),
+            .per_core_M = config.getPerCoreM(),
+            .per_core_N = config.getPerCoreN(),
+            .fuse_batch = config.getFuseBatch(),
+            .fused_activation = fusedActivation,
+            .mcast_in0 = config.getMcastIn0(),
+            .gather_in0 = config.getGatherIn0(),
+            .hop_cores = getCoreRangeSet(config.getHopCores()),
+            .num_global_cb_receivers = config.getNumGlobalCbReceivers(),
+            .untilize_out = config.getUntilizeOut()};
+  }
+
+  if (auto config = mlir::dyn_cast<
+          MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttr>(
+          programConfigAttr)) {
+    std::optional<::ttnn::operations::unary::UnaryWithParam> fusedActivation =
+        std::nullopt;
+    if (auto actAttr = config.getFusedActivation()) {
+      fusedActivation = getUnaryWithParams(actAttr);
+    }
+    return ::ttnn::operations::matmul::
+        MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig{
+            .in0_block_w = config.getIn0BlockW(),
+            .per_core_M = config.getPerCoreM(),
+            .per_core_N = config.getPerCoreN(),
+            .fused_activation = fusedActivation};
+  }
+
+  return std::nullopt;
 }
 
 } // namespace conversion

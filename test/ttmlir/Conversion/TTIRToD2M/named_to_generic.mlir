@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttcore-register-device --ttir-to-d2m --d2m-grid-selection -o %t %s
+// RUN: ttmlir-opt --ttcore-register-device --ttir-to-d2m --d2m-materialize-view-returns --d2m-grid-selection -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
 !ttype = tensor<128x96xf32>
@@ -286,5 +286,16 @@ module {
     // CHECK: d2m.tile_where
     %0 = "ttir.where"(%cond, %true_val, %false_val) : (!ttype, !ttype, !ttype) -> !ttype
     return %0 : !ttype
+  }
+
+  // CHECK-LABEL: func @named_slice_static
+  func.func @named_slice_static(%arg0: tensor<96x96xf32>) -> tensor<32x32xf32> {
+    // CHECK-NOT: slice
+    // CHECK: %[[DEVICE_TENSOR:.*]] = d2m.to_layout %arg0
+    // CHECK: %[[UNIT_GRID_VIEW:.*]] = d2m.view_layout %[[DEVICE_TENSOR]]
+    // CHECK: "d2m.stream_layout"(%[[UNIT_GRID_VIEW]], %{{.*}})
+    // CHECK: d2m.generic
+    %0 = "ttir.slice_static"(%arg0) <{begins = [1 : i32, 0 : i32], ends = [96 : i32, 64 : i32], step = [3 : i32, 2 : i32]}> : (tensor<96x96xf32>) -> tensor<32x32xf32>
+    return %0 : tensor<32x32xf32>
   }
 }

@@ -162,10 +162,11 @@ def TTKernel_TypecastTileInitOp : TTKernel_InitOp<"typecast_tile_init"> {
       Must be run before typecast_tile.
     }];
 
-    let arguments = (ins);
+    let arguments = (ins TTCore_DataTypeAttr:$in_dtype,
+                         TTCore_DataTypeAttr:$out_dtype);
 
     let assemblyFormat = [{
-      `(` `)` attr-dict `:` functional-type(operands, results)
+      `(` $in_dtype `,` $out_dtype `)` attr-dict `:` functional-type(operands, results)
     }];
 }
 
@@ -1279,40 +1280,8 @@ def TTKernel_CeilTileOp : TTKernel_SFPUOp<"ceil_tile", [TTKernel_UnaryOpTrait]> 
     }];
 }
 
-def TTKernel_CeilTileF32Op : TTKernel_SFPUOp<"ceil_tile_float32", [TTKernel_UnaryOpTrait]> {
-    let summary = "Ceil f32 tile in the DST at specified index.";
-    let description = [{
-      Performs element-wise computation of ceil operation
-      DST[dst0_index] <- ceil(DST[dst0_index])
-      on DST register operands. The DST register buffer must be in
-      acquired state via *tile_regs_acquire* call.
-    }];
-
-    let arguments = (ins IndexLike:$dst0_index);
-
-    let assemblyFormat = [{
-      `(` $dst0_index `)` attr-dict `:` functional-type(operands, results)
-    }];
-}
-
 def TTKernel_FloorTileOp : TTKernel_SFPUOp<"floor_tile", [TTKernel_UnaryOpTrait]> {
     let summary = "Floor tile in the DST at specified index.";
-    let description = [{
-      Performs element-wise computation of floor operation
-      DST[dst0_index] <- floor(DST[dst0_index])
-      on DST register operands. The DST register buffer must be in
-      acquired state via *tile_regs_acquire* call.
-    }];
-
-    let arguments = (ins IndexLike:$dst0_index);
-
-    let assemblyFormat = [{
-      `(` $dst0_index `)` attr-dict `:` functional-type(operands, results)
-    }];
-}
-
-def TTKernel_FloorTileF32Op : TTKernel_SFPUOp<"floor_tile_float32", [TTKernel_UnaryOpTrait]> {
-    let summary = "Floor f32 tile in the DST at specified index.";
     let description = [{
       Performs element-wise computation of floor operation
       DST[dst0_index] <- floor(DST[dst0_index])
@@ -2326,6 +2295,46 @@ def TTKernel_NocAsyncReadOnePacketWithStateOp : TTKernel_Op<"noc_async_read_one_
     }];
 }
 
+def TTKernel_NocAsyncReadSetTridOp : TTKernel_Op<"noc_async_read_set_trid", [TTKernel_TridNocOpTrait]> {
+    let summary = "NocAsyncReadSetTrid";
+    let description = [{
+      Sets the transaction ID for subsequent NOC reads. TRID is 0-15, NOC is 0 or 1.
+
+      Example:
+      ```
+      ttkernel.noc_async_read_set_trid(%trid, %noc_idx) : (i32, i8) -> ()
+      ```
+    }];
+
+    let arguments = (ins I32:$trid, Optional<I8>:$noc);
+
+    let assemblyFormat = [{
+      `(` $trid (`,` $noc^)? `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_NocAsyncReadOnePacketWithStateWithTridOp : TTKernel_Op<"noc_async_read_one_packet_with_state_with_trid", [TTKernel_TridNocOpTrait]> {
+    let summary = "NocAsyncReadOnePacketWithStateWithTrid";
+    let description = [{
+      Issues a one-packet NOC read with a specific transaction ID. TRID is 0-15, NOC is 0 or 1.
+
+      Example:
+      ```
+      // Must set TRID before calling.
+      // ttkernel.noc_async_read_set_trid(%trid, %noc_idx) : (i32, i8) -> ()
+      ttkernel.noc_async_read_one_packet_with_state_with_trid(%src_base, %src_addr, %dst_l1, %trid, %noc_idx) : (i32, i32, i32, i32, i8) -> ()
+      // TRID-specific barrier should follow.
+      // ttkernel.noc_async_read_barrier_with_trid(%trid, %noc_idx) : (i32, i8) -> ()
+      ```
+    }];
+
+    let arguments = (ins I32:$srcBaseAddr, I32:$srcAddr, AnyTypeOf<[I32, TTKernel_L1Addr]>:$dstLocalL1Addr, I32:$trid, Optional<I8>:$noc);
+
+    let assemblyFormat = [{
+      `(` $srcBaseAddr `,` $srcAddr `,` $dstLocalL1Addr `,` $trid (`,` $noc^)? `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
 def TTKernel_NocAsyncReadBarrierOp : TTKernel_Op<"noc_async_read_barrier", [TTKernel_DeviceZoneOpTrait]> {
     let summary = "NocAsyncReadBarrier";
     let description = [{
@@ -2334,6 +2343,24 @@ def TTKernel_NocAsyncReadBarrierOp : TTKernel_Op<"noc_async_read_barrier", [TTKe
 
     let assemblyFormat = [{
       `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_NocAsyncReadBarrierWithTridOp : TTKernel_Op<"noc_async_read_barrier_with_trid", [TTKernel_DeviceZoneOpTrait, TTKernel_TridNocOpTrait]> {
+    let summary = "NocAsyncReadBarrierWithTrid";
+    let description = [{
+      Waits for outstanding read transactions matching a transaction ID. TRID is 0-15, NOC is 0 or 1.
+
+      Example:
+      ```
+      ttkernel.noc_async_read_barrier_with_trid(%trid, %noc_idx) : (i32, i8) -> ()
+      ```
+    }];
+
+    let arguments = (ins I32:$trid, Optional<I8>:$noc);
+
+    let assemblyFormat = [{
+      `(` $trid (`,` $noc^)? `)` attr-dict `:` functional-type(operands, results)
     }];
 }
 
@@ -2365,6 +2392,46 @@ def TTKernel_NocAsyncWriteTileOp : TTKernel_Op<"noc_async_write_tile"> {
     }];
 }
 
+def TTKernel_NocAsyncWriteSetTridOp : TTKernel_Op<"noc_async_write_set_trid", [TTKernel_TridNocOpTrait]> {
+    let summary = "NocAsyncWriteSetTrid";
+    let description = [{
+      Sets the transaction ID for subsequent NOC writes. TRID is 0-15, NOC is 0 or 1.
+
+      Example:
+      ```
+      ttkernel.noc_async_write_set_trid(%trid, %noc_idx) : (i32, i8) -> ()
+      ```
+    }];
+
+    let arguments = (ins I32:$trid, Optional<I8>:$noc);
+
+    let assemblyFormat = [{
+      `(` $trid (`,` $noc^)? `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_NocAsyncWriteOnePacketWithTridOp : TTKernel_Op<"noc_async_write_one_packet_with_trid", [TTKernel_TridNocOpTrait]> {
+    let summary = "NocAsyncWriteOnePacketWithTrid";
+    let description = [{
+      Issues a one-packet NOC write with a specific transaction ID. TRID is 0-15, NOC is 0 or 1.
+
+      Example:
+      ```
+      // Must set TRID before calling.
+      // ttkernel.noc_async_write_set_trid(%trid, %noc_idx) : (i32, i8) -> ()
+      ttkernel.noc_async_write_one_packet_with_trid(%l1_src, %dst_noc, %size, %trid, %noc_idx) : (i32, !ttkernel.noc_addr, i32, i32, i8) -> ()
+      // TRID-specific barrier should follow.
+      // ttkernel.noc_async_write_barrier_with_trid(%trid, %noc_idx) : (i32, i8) -> ()
+      ```
+    }];
+
+    let arguments = (ins I32:$srcLocalL1Addr, TTKernel_NocAddr:$dstNocAddr, I32:$size, I32:$trid, Optional<I8>:$noc);
+
+    let assemblyFormat = [{
+      `(` $srcLocalL1Addr `,` $dstNocAddr `,` $size `,` $trid (`,` $noc^)? `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
 def TTKernel_NocAsyncWriteBarrierOp : TTKernel_Op<"noc_async_write_barrier", [TTKernel_DeviceZoneOpTrait]> {
     let summary = "NocAsyncWriteBarrier";
     let description = [{
@@ -2373,6 +2440,44 @@ def TTKernel_NocAsyncWriteBarrierOp : TTKernel_Op<"noc_async_write_barrier", [TT
 
     let assemblyFormat = [{
       `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_NocAsyncWriteBarrierWithTridOp : TTKernel_Op<"noc_async_write_barrier_with_trid", [TTKernel_DeviceZoneOpTrait, TTKernel_TridNocOpTrait]> {
+    let summary = "NocAsyncWriteBarrierWithTrid";
+    let description = [{
+      Waits for outstanding write transactions matching a transaction ID. TRID is 0-15, NOC is 0 or 1.
+
+      Example:
+      ```
+      ttkernel.noc_async_write_barrier_with_trid(%trid, %noc_idx) : (i32, i8) -> ()
+      ```
+    }];
+
+    let arguments = (ins I32:$trid, Optional<I8>:$noc);
+
+    let assemblyFormat = [{
+      `(` $trid (`,` $noc^)? `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_ResetNocTridBarrierCounterOp : TTKernel_Op<"reset_noc_trid_barrier_counter"> {
+    let summary = "ResetNocTridBarrierCounter";
+    let description = [{
+      Resets the barrier counters for a set of transaction IDs on a given NOC. Mask bits correspond to TRIDs 0-15; NOC is 0 or 1.
+
+      Example:
+      ```
+      ttkernel.reset_noc_trid_barrier_counter(%mask, %noc_idx) : (i32, i8) -> ()
+      ```
+    }];
+
+    let arguments = (ins I32:$idMask, Optional<I8>:$noc);
+
+    let hasVerifier = 1;
+
+    let assemblyFormat = [{
+      `(` $idMask (`,` $noc^)? `)` attr-dict `:` functional-type(operands, results)
     }];
 }
 
@@ -2504,11 +2609,10 @@ def TTKernel_NocSemaphoreSetMulticastLoopbackOp : TTKernel_Op<"noc_semaphore_set
     let arguments = (ins TTKernel_Semaphore:$src_local_l1_addr,
                          TTKernel_NocAddr:$dst_noc_addr_multicast,
                          I32:$num_dests,
-                         BoolAttr:$linked,
-                         BoolAttr:$multicast_path_reserve);
+                         OptionalAttr<BoolAttr>:$linked);
 
     let assemblyFormat = [{
-      `(` $src_local_l1_addr `,` $dst_noc_addr_multicast `,` $num_dests `,` $linked `,` $multicast_path_reserve `)` attr-dict `:` functional-type(operands, results)
+      `(` $src_local_l1_addr `,` $dst_noc_addr_multicast `,` $num_dests (`,` $linked^)? `)` attr-dict `:` functional-type(operands, results)
     }];
 }
 
@@ -2518,7 +2622,7 @@ def TTKernel_NocSemaphoreSetMulticastLoopbackOp : TTKernel_Op<"noc_semaphore_set
 
 def TTKernel_ArgResultType : AnyTypeOf<[I32, TTKernel_CB, TTKernel_L1Addr]>;
 
-def TTKernel_GetArgValOp : TTKernel_Op<"get_arg_val"> {
+def TTKernel_GetArgValOp : TTKernel_Op<"get_arg_val", [Pure]> {
     let summary = "Get runtime arg value.";
     let description = [{
       Get runtime argument value at specified index.
@@ -2533,7 +2637,7 @@ def TTKernel_GetArgValOp : TTKernel_Op<"get_arg_val"> {
     }];
 }
 
-def TTKernel_GetCommonArgValOp : TTKernel_Op<"get_common_arg_val"> {
+def TTKernel_GetCommonArgValOp : TTKernel_Op<"get_common_arg_val", [Pure]> {
     let summary = "Get common runtime arg value.";
     let description = [{
       Get runtime argument value at specified index. (Indexes from different location compared to get_arg_val)
@@ -2804,18 +2908,52 @@ def TTKernel_NocAsyncWriteMulticastLoopbackSrcOp : TTKernel_Op<"noc_async_write_
 // TTKernel TensorAccessor operations
 //===----------------------------------------------------------------------===//
 
-def TTKernel_TensorAccessorArgsOp : TTKernel_Op<"TensorAccessorArgs"> {
+def TTKernel_TensorAccessorArgsOp : TTKernel_Op<"TensorAccessorArgs",
+    [AttrSizedOperandSegments]> {
   let summary = "TensorAccessorArgs";
   let description = [{
     TensorAccessorArgs struct constructor.
+
+    CTA (compile-time args) and CRTA (compile/runtime args) offsets are determined as follows.
+    1. If cta_expr is provided: use the constexpr string expression.
+    2. Else if `prev_args` is provided, use chaining:
+      `prev_args.next_compile_time_args_offset()` (for CTA) or
+      `prev_args.next_common_runtime_args_offset()` (for CRTA).
+    3. Otherwise, use cta_base/crta_base integer constants.
+
+    Examples:
+    ```mlir
+    // Literal offsets
+    %c0 = arith.constant 0 : i32
+    %args = ttkernel.TensorAccessorArgs(%c0, %c0) : (i32, i32) -> !ttkernel.TensorAccessorArgs
+    // Generates: TensorAccessorArgs<0, 0>()
+
+    // CTA+CRTA chaining (common pattern)
+    %args_src = ttkernel.TensorAccessorArgs(%c0, %c0) : (i32, i32) -> !ttkernel.TensorAccessorArgs
+    %args_dst = ttkernel.TensorAccessorArgs(prev = %args_src) : (!ttkernel.TensorAccessorArgs) -> !ttkernel.TensorAccessorArgs
+    // Generates: TensorAccessorArgs<args_src.next_compile_time_args_offset(), args_src.next_common_runtime_args_offset()>()
+
+    // Selective override: chain CTA from prev, use literal CRTA
+    %args_custom = ttkernel.TensorAccessorArgs(prev = %args_src) {crta_expr = "0"} : (!ttkernel.TensorAccessorArgs) -> !ttkernel.TensorAccessorArgs
+    // Generates: TensorAccessorArgs<args_src.next_compile_time_args_offset(), 0>()
+
+    // Constexpr expression (no chaining)
+    %args_expr = ttkernel.TensorAccessorArgs(%c0, %c0) {cta_expr = "get_offset()"} : (i32, i32) -> !ttkernel.TensorAccessorArgs
+    // Generates: TensorAccessorArgs<get_offset(), 0>()
+    ```
   }];
 
-  let arguments = (ins I32:$cta_base, I32:$crta_base);
+  let arguments = (ins
+    Optional<I32>:$cta_base,
+    Optional<I32>:$crta_base,
+    Optional<TTKernel_TensorAccessorArgs>:$prev_args,
+    OptionalAttr<StrAttr>:$cta_expr,
+    OptionalAttr<StrAttr>:$crta_expr
+  );
   let results = (outs TTKernel_TensorAccessorArgs:$result);
 
-  let assemblyFormat = [{
-    `(` $cta_base `,` $crta_base `)` attr-dict `:` functional-type(operands, results)
-  }];
+  let hasCustomAssemblyFormat = 1;
+  let hasVerifier = 1;
 }
 
 def TTKernel_TensorAccessorOp : TTKernel_Op<"TensorAccessor"> {
@@ -3026,7 +3164,7 @@ def TTKernel_DPrintOp : TTKernel_Op<"dprint", [MemoryEffects<[MemRead, MemWrite]
       rewriter.create<ttkernel::DPrintOp>(loc, "nocY={} nocX={} addr={}\\n",
                                         nocY, nocX, addr);
       ```
-      ```mlir
+      ```
       ttkernel.dprint("virtY {} virtX {} addr {}\\n", %14, %15, %13) : (index, index, i32)
       ```
       Notes:

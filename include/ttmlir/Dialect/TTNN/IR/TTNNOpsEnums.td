@@ -61,6 +61,8 @@ def TTNN_ReduceType_Max  : I32EnumAttrCase<"Max",  2, "max">;
 def TTNN_ReduceType_Min  : I32EnumAttrCase<"Min",  3, "min">;
 def TTNN_ReduceType_Std  : I32EnumAttrCase<"Std",  4, "std">;
 def TTNN_ReduceType_Var  : I32EnumAttrCase<"Var",  5, "var">;
+def TTNN_ReduceType_Prod  : I32EnumAttrCase<"Prod",  6, "prod">;
+def TTNN_ReduceType_Invalid  : I32EnumAttrCase<"Invalid",  7, "invalid">;
 
 def TTNN_ReduceType: I32EnumAttr<"ReduceType", "TTNN Reduce Operation Type",
                           [
@@ -70,6 +72,8 @@ def TTNN_ReduceType: I32EnumAttr<"ReduceType", "TTNN Reduce Operation Type",
                            TTNN_ReduceType_Min,
                            TTNN_ReduceType_Std,
                            TTNN_ReduceType_Var,
+                           TTNN_ReduceType_Prod,
+                           TTNN_ReduceType_Invalid,
                           ]> {
   let genSpecializedAttr = 0;
   let cppNamespace = "::mlir::tt::ttnn::operations::reduction";
@@ -255,6 +259,18 @@ def TTNN_ShardOrientation : I32EnumAttr<"ShardOrientation", "TTNN ShardOrientati
   let cppNamespace = "::mlir::tt::ttnn";
 }
 
+def TTNN_ShardDistributionStrategy_RoundRobin1D : I32EnumAttrCase<"RoundRobin1D", 0, "round_robin_1d">;
+def TTNN_ShardDistributionStrategy_Grid2D : I32EnumAttrCase<"Grid2D", 1, "grid_2d">;
+
+def TTNN_ShardDistributionStrategy : I32EnumAttr<"ShardDistributionStrategy", "TTNN ShardDistributionStrategy",
+                           [
+                            TTNN_ShardDistributionStrategy_RoundRobin1D,
+                            TTNN_ShardDistributionStrategy_Grid2D,
+                           ]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::mlir::tt::ttnn";
+}
+
 def TTNN_MathFidelityLoFi : I32EnumAttrCase<"LoFi", 0, "lofi">;
 def TTNN_MathFidelityHiFi2 : I32EnumAttrCase<"HiFi2", 2, "hifi2">;
 def TTNN_MathFidelityHiFi3 : I32EnumAttrCase<"HiFi3", 3, "hifi3">;
@@ -266,6 +282,24 @@ def TTNN_MathFidelity : I32EnumAttr<"MathFidelity", "TT MathFidelity",
                             TTNN_MathFidelityHiFi2,
                             TTNN_MathFidelityHiFi3,
                             TTNN_MathFidelityHiFi4,
+                           ]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::mlir::tt::ttnn";
+}
+
+def TTNN_OptionalMathFidelityLoFi : I32EnumAttrCase<"LoFi", 0, "lofi">;
+def TTNN_OptionalMathFidelityHiFi2 : I32EnumAttrCase<"HiFi2", 2, "hifi2">;
+def TTNN_OptionalMathFidelityHiFi3 : I32EnumAttrCase<"HiFi3", 3, "hifi3">;
+def TTNN_OptionalMathFidelityHiFi4 : I32EnumAttrCase<"HiFi4", 4, "hifi4">;
+def TTNN_OptionalMathFidelityUndefined : I32EnumAttrCase<"Undefined", 5, "undefined">;
+
+def TTNN_OptionalMathFidelity : I32EnumAttr<"OptionalMathFidelity", "TT OptionalMathFidelity",
+                           [
+                            TTNN_OptionalMathFidelityLoFi,
+                            TTNN_OptionalMathFidelityHiFi2,
+                            TTNN_OptionalMathFidelityHiFi3,
+                            TTNN_OptionalMathFidelityHiFi4,
+                            TTNN_OptionalMathFidelityUndefined,
                            ]> {
   let genSpecializedAttr = 0;
   let cppNamespace = "::mlir::tt::ttnn";

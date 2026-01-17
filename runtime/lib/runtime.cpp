@@ -111,6 +111,19 @@ uint32_t getNumShards(Tensor tensor) {
       });
 }
 } // namespace detail
+Layout getTensorLayout(Tensor tensor) {
+  using RetType = Layout;
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() -> RetType { return ::tt::runtime::ttnn::getTensorLayout(tensor); },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("getTensorLayout", DeviceRuntime::TTMetal);
+      },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("getTensorLayout",
+                                    HostRuntime::Distributed);
+      });
+}
 
 void setMlirHome(std::string_view mlirHome) {
 #if defined(DEVICE_RUNTIME_ENABLED)
@@ -863,6 +876,22 @@ std::vector<Tensor> toHost(Tensor tensor, bool untilize, bool blocking) {
       },
       [&]() -> RetType {
         return ::tt::runtime::distributed::toHost(tensor, untilize, blocking);
+      });
+}
+
+std::vector<Tensor> getDeviceTensors(Tensor tensor) {
+  using RetType = std::vector<Tensor>;
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() -> RetType {
+        return ::tt::runtime::ttnn::getDeviceTensors(tensor);
+      },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("getDeviceTensors", DeviceRuntime::TTMetal);
+      },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("getDeviceTensors",
+                                    HostRuntime::Distributed);
       });
 }
 

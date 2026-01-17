@@ -9,6 +9,7 @@ declare_mlir_python_sources(BuilderSources
     base/builder_utils.py
     base/builder_runtime.py
     base/builder_apis.py
+    base/builder_enums.py
 
     # ttir subpackage files
     ttir/__init__.py
@@ -17,6 +18,7 @@ declare_mlir_python_sources(BuilderSources
     # stablehlo subpackage files
     stablehlo/__init__.py
     stablehlo/stablehlo_builder.py
+    stablehlo/shardy_parallelization_utils.py
 
     # d2m subpackage files
     d2m/__init__.py

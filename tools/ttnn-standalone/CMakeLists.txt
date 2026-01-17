@@ -32,6 +32,7 @@ install(
     workarounds.hpp
     compile_so.hpp
     compile_so.cpp
+    emitc_compiler.py
   DESTINATION tools/ttnn-standalone
   COMPONENT TTNNStandalone
 )
@@ -84,7 +85,7 @@ set(INCLUDE_DIRS
     ${CPM_SOURCE_CACHE}/boost/1359e136761ab2d10afa1c4e21086c8d824735cd/libs/core/include
     ${CPM_SOURCE_CACHE}/nlohmann_json/798e0374658476027d9723eeb67a262d0f3c8308/include
     ${CPM_SOURCE_CACHE}/spdlog/b1c2586bb5c35a7929362e87f62433eb68206873/include
-    ${CPM_SOURCE_CACHE}/tt-logger/5d45c661affa374c5656335a77010ab503f96a99/include
+    ${CPM_SOURCE_CACHE}/tt-logger/87c1a5f2e9d2dd011200eb49c86426c26dec719e/include
 
     # Metalium
     ${METAL_SRC_DIR}

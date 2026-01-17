@@ -115,7 +115,7 @@ class Perf:
         Perf.register_arg(
             name="--enable-program-cache",
             type=bool,
-            default=False,
+            default=True,
             choices=[True, False],
             help="enable program cache in ttnn runtime",
         )
@@ -167,6 +167,20 @@ class Perf:
             default="",
             choices=None,
             help="comma-separated list of operation types to filter out from perf results (e.g., 'const_eval,input_layout_conversion')",
+        )
+        Perf.register_arg(
+            name="--dump-kernels",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="dump the kernels to disk (/tmp) as they are being executed",
+        )
+        Perf.register_arg(
+            name="--load-kernels",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="pickup the kernels from disk (/tmp) instead of the flatbuffer, must have previously run with --dump-kernels",
         )
 
     def __init__(self, args={}, logger=None, artifacts=None):
@@ -435,6 +449,12 @@ class Perf:
 
                     if self["--disable-ttrt-callbacks"]:
                         command_options += " --disable-ttrt-callbacks "
+
+                    if self["--dump-kernels"]:
+                        command_options += " --dump-kernels "
+
+                    if self["--load-kernels"]:
+                        command_options += " --load-kernels "
 
                     ttrt_executable_path = shutil.which("ttrt")
                     test_command = (

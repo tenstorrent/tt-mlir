@@ -701,7 +701,7 @@ def D2M_TileUntilizeBlockOp : D2M_GenericRegionComputeOp<"tile_untilize_block",
     let hasVerifier = 1;
 }
 
-def D2M_TileTypecastOp : D2M_GenericRegionComputeUnaryDstOp<"tile_typecast"> {
+def D2M_TileTypecastOp : D2M_GenericRegionComputeUnaryDstOp<"tile_typecast", [D2M_SkipOpEltwiseFusionTrait]> {
     let summary = "D2M Tile Typecast Op";
     let description = [{
         The `tile_typecast` operation casts the input tile to the desired dataformat.
@@ -709,6 +709,62 @@ def D2M_TileTypecastOp : D2M_GenericRegionComputeUnaryDstOp<"tile_typecast"> {
 
     let arguments = (ins TTCore_Tile:$input);
     let results = (outs TTCore_Tile:$result);
+}
+
+//===----------------------------------------------------------------------===//
+// D2M Masking Ops
+//===----------------------------------------------------------------------===//
+
+def D2M_BlockMaskOp : D2M_GenericRegionComputeOp<"block_mask",
+  [ DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
+  , DeclareOpInterfaceMethods<BufferizableOpInterface, [ "bufferizesToMemoryRead"
+                                                       , "bufferizesToMemoryWrite"
+                                                       , "bufferize"
+                                                       , "getAliasingValues"
+                                                       , "getBufferType"
+                                                       ]>
+  , D2M_SkipOpEltwiseFusionTrait
+  ]> {
+    let summary = "Mask block elements outside logical bounds with fill value";
+    let description = [{
+        The `block_mask` operation masks elements in a block/memref that fall outside
+        the logical tensor bounds, replacing them with a specified fill value.
+
+        This op operates at the block level (memref of tiles) and handles both complete
+        tile masking (tiles entirely outside bounds) and partial tile masking (tiles
+        that straddle the boundary).
+
+        The logical_rows and logical_cols are Index values specifying the logical
+        dimensions for this core's shard. These can be computed dynamically based on
+        the core's position in the grid, enabling multicore support.
+
+        This is a high-level op that gets decomposed in a later pass into tile iteration
+        with per-tile masking logic.
+
+        Example:
+        ```mlir
+        d2m.block_mask %input, %output, %logical_rows, %logical_cols, <zero>
+            : (memref<2x3x!ttcore.tile<32x32, f32>>, memref<2x3x!ttcore.tile<32x32, f32>>)
+        ```
+    }];
+
+    let arguments = (ins
+        AnyRankedTensorOrMemRef:$input,
+        AnyRankedTensorOrMemRef:$output,
+        Index:$logical_rows,
+        Index:$logical_cols,
+        TTCore_OOBValAttr:$fill_value);
+
+    let assemblyFormat = [{
+        $input `,` $output `,` $logical_rows `,` $logical_cols `,` $fill_value attr-dict
+        `:` `(` type($input) `,` type($output) `)`
+    }];
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+    let hasVerifier = 1;
 }
 
 def D2M_DstReinterpretCastOp : D2M_GenericRegionOp<"dst_reinterpret_cast"> {
@@ -759,7 +815,7 @@ def D2M_AcquireDstOp : D2M_GenericRegionComputeOp<"acquire_dst",
     let assemblyFormat = [{ `(` `)` attr-dict `:` type($result) }];
 }
 
-def D2M_TileTransposeOp : D2M_GenericRegionComputeOp<"tile_transpose"> {
+def D2M_TileTransposeOp : D2M_GenericRegionComputeOp<"tile_transpose", D2M_TileComputeOpTraitBundle> {
     let summary = "D2M Tile Transpose Op";
     let description = [{
         The `tile_transpose` operation computes the transpose of the input tile.
@@ -1548,11 +1604,41 @@ def D2M_IterIndexOp : D2M_IndexOp<"iter_index"> {
     }];
 }
 
-def D2M_CoreIndexOp : D2M_IndexOp<"core_index"> {
+def D2M_CoreIndexOp : D2M_GenericRegionOp<"core_index",
+  [ Pure
+  , DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>
+  , DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>
+  , DeclareOpInterfaceMethods<InferTypeOpInterface, ["inferReturnTypes"]>
+  ]> {
     let summary = "Core Index op.";
     let description = [{
       Return the index of this core's coordinate inside the generic op's grid dimension.
     }];
+
+    // Optional physical-to-virtual grid mapping. When present, this op returns
+    // the virtualized core coordinate for `dim`.
+    let arguments = (ins
+      ConfinedAttr<I64Attr, [IntMinValue<0>]>:$dim,
+      OptionalAttr<AffineMapAttr>:$phys_to_virt_map
+    );
+
+    let results = (outs Index:$result);
+    let assemblyFormat = [{ `(` $dim `)` attr-dict `:` type($result) }];
+    let hasFolder = true;
+
+    let builders =
+    [
+      OpBuilder<(ins "int64_t":$dim),
+      [{
+        build($_builder, $_state, $_builder.getIndexType(),
+              $_builder.getI64IntegerAttr(dim), nullptr);
+      }]>,
+      OpBuilder<(ins "int64_t":$dim, "mlir::AffineMap":$map),
+      [{
+        build($_builder, $_state, $_builder.getIndexType(),
+              $_builder.getI64IntegerAttr(dim), mlir::AffineMapAttr::get(map));
+      }]>
+    ];
 }
 
 //===----------------------------------------------------------------------===//

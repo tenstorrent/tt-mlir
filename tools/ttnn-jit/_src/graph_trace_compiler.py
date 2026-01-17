@@ -110,6 +110,10 @@ class GraphToIRTranslator:
         Extracts buffer_type, memory_layout, and shard_spec from the captured
         tensor specification string.
 
+        Supports the new tt-metal serialization formats (PR #34263):
+        - ShardSpec: ShardSpec{grid=[{"start":{"x":0,"y":0},"end":{"x":7,"y":7}}],shape=[128, 128],...}
+        - NdShardSpec (JSON): {"shard_shape":[...], "grid":[{"start":{"x":...},...}], ...}
+
         Args:
             output_info_str: String like "Tensor(storage=DeviceStorage(),tensor_spec=...)"
 
@@ -138,40 +142,49 @@ class GraphToIRTranslator:
             config["memory_layout"] = layout_match.group(1)
 
         # Extract shard_shape if sharded
-        # Format: shard_spec=ShardSpec(...,shape={64, 128},...)
-        # Note: Use .*? for non-greedy match since ShardSpec contains nested parens
+        # ShardSpec format: ShardSpec{...shape=[128, 128]...}
         shard_shape_match = re.search(
-            r"shard_spec=ShardSpec\(.*?shape=\{([^}]+)\}", output_info_str
+            r"ShardSpec\{[^}]*shape=\[([^\]]+)\]", output_info_str
         )
         if shard_shape_match:
             shape_str = shard_shape_match.group(1)
             config["shard_shape"] = [int(x.strip()) for x in shape_str.split(",")]
+        else:
+            # NdShardSpec JSON format: "shard_shape":[128, 128]
+            shard_shape_match = re.search(
+                r'"shard_shape":\s*\[([^\]]+)\]', output_info_str
+            )
+            if shard_shape_match:
+                shape_str = shard_shape_match.group(1)
+                config["shard_shape"] = [int(x.strip()) for x in shape_str.split(",")]
 
         # Extract grid if sharded
-        # Format: grid={[(x=0,y=0) - (x=0,y=0)]}
-        # This represents a grid from (x_min, y_min) to (x_max, y_max)
-        # Note: Multiple CoreRanges are not supported in JIT/D2M
-        # Only parse grid from ShardSpec, not from NdShardSpec (which may also contain grid)
-        grid_pattern = r"shard_spec=ShardSpec\(.*?grid=\{\[\(x=(\d+),y=(\d+)\)\s*-\s*\(x=(\d+),y=(\d+)\)\]\}"
-        grid_match = re.search(grid_pattern, output_info_str)
-        grid_matches = [grid_match.groups()] if grid_match else []
+        # Format: grid=[{"start":{"x":0,"y":0},"end":{"x":7,"y":7}}]
+        # Also matches NdShardSpec JSON: "grid":[{"start":{"x":0,"y":0},"end":{"x":7,"y":7}}]
+        # Note: The same grid may appear twice (once in shard_spec, once in nd_shard_spec)
+        # We only error if we find truly different CoreRanges
+        grid_pattern = r'"start":\{"x":(\d+),"y":(\d+)\},"end":\{"x":(\d+),"y":(\d+)\}'
+        grid_matches = re.findall(grid_pattern, output_info_str)
 
-        if len(grid_matches) > 1:
-            print(f"Multiple CoreRanges detected in output_info:")
-            print(f"  output_info: {output_info_str}")
-            print(f"  Found {len(grid_matches)} CoreRange(s):")
-            for i, match in enumerate(grid_matches):
-                x_min, y_min, x_max, y_max = map(int, match)
-                print(
-                    f"    CoreRange {i+1}: (x={x_min},y={y_min}) - (x={x_max},y={y_max})"
+        if len(grid_matches) > 0:
+            # Check if all matches are identical (duplicates from shard_spec and nd_shard_spec)
+            unique_grids = set(grid_matches)
+            if len(unique_grids) > 1:
+                print(f"Multiple different CoreRanges detected in output_info:")
+                print(f"  output_info: {output_info_str}")
+                print(f"  Found {len(unique_grids)} unique CoreRange(s):")
+                for i, match in enumerate(unique_grids):
+                    x_min, y_min, x_max, y_max = map(int, match)
+                    print(
+                        f"    CoreRange {i+1}: (x={x_min},y={y_min}) - (x={x_max},y={y_max})"
+                    )
+                raise BaseException(
+                    f"Multiple different CoreRanges in grid attribute are not supported in JIT/D2M. "
+                    f"Found {len(unique_grids)} unique CoreRange(s) in output_info. "
+                    f"Only single CoreRange grids are currently supported."
                 )
-            raise BaseException(
-                f"Multiple CoreRanges in grid attribute are not supported in JIT/D2M. "
-                f"Found {len(grid_matches)} CoreRange(s) in output_info. "
-                f"Only single CoreRange grids are currently supported."
-            )
 
-        if len(grid_matches) == 1:
+            # Use the first match (all are identical)
             x_min, y_min, x_max, y_max = map(int, grid_matches[0])
             # Grid size is (max - min + 1) for each dimension
             # But TTNN uses (width, height) while compiler uses (height, width)
@@ -341,7 +354,7 @@ class GraphToIRTranslator:
                 affine_map,
                 grid,
                 memref,
-                memory_layout_enum,
+                memory_layout_enum.value,
                 tensor_mesh,
                 exact_grid,
             )
@@ -716,5 +729,15 @@ class GraphToIRTranslator:
             # Return the last result
             final_vertex = self.levelized_graph_ir.find_output_vertex()
             if final_vertex is not None:
-                final_result = operation_results[final_vertex.counter]
+                # Final vertex could be either a tensor argument or an operation result
+                if final_vertex.counter in operation_results:
+                    final_result = operation_results[final_vertex.counter]
+                # Edge case: no ops are run and we are returning input tensor.
+                elif final_vertex.counter in tensor_arg_map:
+                    final_result = tensor_arg_map[final_vertex.counter]
+                else:
+                    raise ValueError(
+                        f"Final vertex {final_vertex.counter} not found in "
+                        f"operation_results or tensor_arg_map"
+                    )
                 func.ReturnOp([final_result])

@@ -24,6 +24,8 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/LinearOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/MultiplyOpDecompositionRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/PagedUpdateCacheOpRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/PointToPointOpRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/RMSNormConfigRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ReduceScatterOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/RotaryEmbeddingOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ScaledDotProductAttentionDecodeConfigRewritePattern.h"
@@ -494,6 +496,10 @@ private:
       return op.emitOpError() << "std is not supported";
     case ttcore::ReduceType::Var:
       return op.emitOpError() << "var is not supported";
+    case ttcore::ReduceType::Prod:
+      return op.emitOpError() << "prod is not supported";
+    case ttcore::ReduceType::Invalid:
+      return op.emitOpError() << "invalid is not supported";
     }
     return success();
   }
@@ -586,7 +592,9 @@ public:
           workarounds::decomposition::
               ScaledDotProductAttentionDecodeConfigRewritePattern,
           workarounds::decomposition::
-              ScaledDotProductAttentionPadTileDimsRewritePattern>(
+              ScaledDotProductAttentionPadTileDimsRewritePattern,
+          workarounds::decomposition::PointToPointOpRewritePattern,
+          workarounds::decomposition::RMSNormConfigRewritePattern>(
           &getContext());
 
       runRewritePatterns(std::move(patterns),
@@ -638,6 +646,7 @@ private:
 
 const std::set<mlir::StringRef>
     TTNNWorkarounds::TTNNWorkarounds::enabledOpsForWorkaroundWithOptimizer = {
-        ttnn::WhereOp::getOperationName(), ttnn::FullOp::getOperationName()};
+        ttnn::WhereOp::getOperationName(), ttnn::FullOp::getOperationName(),
+        ttnn::EmbeddingOp::getOperationName()};
 
 } // namespace mlir::tt::ttnn

@@ -4,8 +4,9 @@
 
 import pytest
 import torch
+import os
 from typing import List, Optional
-from builder.base.builder_utils import Operand, Shape
+from builder.base.builder_utils import Operand, Shape, get_artifact_dir
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_apis import compile_and_execute_ttir
 
@@ -137,7 +138,7 @@ def test_batch_norm_decomposition(
             builder.set_operand_goldens({conv2d_0: conv_result})
             return batch_norm_0
 
-    output = compile_and_execute_ttir(
+    compile_and_execute_ttir(
         module,
         test_base=request.node.name,
         output_root=request.config.getoption(
@@ -146,8 +147,15 @@ def test_batch_norm_decomposition(
         device=device,
         system_desc_path=request.config.getoption("--sys-desc"),
         pipeline_options=["enable-fusing-conv2d-with-multiply-pattern=true"],
+        save_artifacts=True,
     )
-    assert check_op(output, "conv2d") and not check_op(output, "batch_norm")
+    output_path = os.path.join(
+        get_artifact_dir(
+            request.config.getoption("--path"), "TTIRBuilder", request.node.name
+        ),
+        "ttnn_compiled.mlir",
+    )
+    assert check_op(output_path, "conv2d") and not check_op(output_path, "batch_norm")
 
 
 @pytest.mark.xfail(
@@ -196,7 +204,7 @@ def test_conv_activation_fusing(
             conv_weight_data = torch.randn(shapes[1], dtype=dtypes[1])
             conv_bias_data = torch.randn(shapes[2], dtype=dtypes[2])
 
-            # Calculate golden output using torch operations
+            # Calculate golden output_path using torch operations
             input_tensor_data_rs = input_tensor_data.transpose(-2, -1).transpose(-3, -2)
             conv_result = torch.nn.functional.conv2d(
                 input_tensor_data_rs,
@@ -247,14 +255,21 @@ def test_conv_activation_fusing(
             )
             return activation_op
 
-    output = compile_and_execute_ttir(
+    compile_and_execute_ttir(
         module,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
         device=device,
+        save_artifacts=True,
     )
-    assert check_op(output, "conv2d") and not check_op(output, activation)
+    output_path = os.path.join(
+        get_artifact_dir(
+            request.config.getoption("--path"), "TTIRBuilder", request.node.name
+        ),
+        "ttnn_compiled.mlir",
+    )
+    assert check_op(output_path, "conv2d") and not check_op(output_path, activation)
 
 
 @pytest.mark.xfail(
@@ -343,15 +358,22 @@ def test_conv_silu_decomposed_fusing(
             )
             return silu_decomposed
 
-    output = compile_and_execute_ttir(
+    compile_and_execute_ttir(
         module,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
         device=device,
+        save_artifacts=True,
+    )
+    output_path = os.path.join(
+        get_artifact_dir(
+            request.config.getoption("--path"), "TTIRBuilder", request.node.name
+        ),
+        "ttnn_compiled.mlir",
     )
     assert (
-        check_op(output, "conv2d")
-        and not check_op(output, "sigmoid")
-        and not check_op(output, "multiply")
+        check_op(output_path, "conv2d")
+        and not check_op(output_path, "sigmoid")
+        and not check_op(output_path, "multiply")
     )

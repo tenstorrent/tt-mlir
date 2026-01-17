@@ -2629,7 +2629,7 @@ def TTIR_EmbeddingBackwardOp : TTIR_NamedOp<"embedding_backward"> {
     let description = [{
       The `embedding_backward` operation computes the gradient of the embedding operation with respect to the weight tensor.
 
-      This operation takes an input tensor of indices, the original weight tensor, and the gradient tensor from the forward pass.
+      This operation takes an input tensor of indices, the original weight tensor, and the gradient tensor from previous backpropagation steps.
       It computes how the embedding weights should be updated during backpropagation by accumulating gradients at the appropriate
       indices in the weight tensor.
 
@@ -2638,7 +2638,7 @@ def TTIR_EmbeddingBackwardOp : TTIR_NamedOp<"embedding_backward"> {
       // Embedding backward
       %input = ... : tensor<2x3xi32>  // Original indices used in the forward pass
       %weight = ... : tensor<10x4xf32>  // Original embedding table
-      %in_gradient = ... : tensor<2x3x4xf32>  // Gradient from the forward pass
+      %in_gradient = ... : tensor<2x3x4xf32>  // Gradient from previous backpropagation steps
       %result = ttir.embedding_backward(%input, %weight, %in_gradient) :
           (tensor<2x3xi32>, tensor<10x4xf32>, tensor<2x3x4xf32>) -> tensor<10x4xf32>
 
@@ -2646,7 +2646,7 @@ def TTIR_EmbeddingBackwardOp : TTIR_NamedOp<"embedding_backward"> {
       // [[0, 2, 5],
       //  [7, 1, 9]]
 
-      // Input gradient tensor (from forward pass):
+      // Input gradient tensor (from previous backpropagation steps):
       // [[[0.1, 0.2, 0.3, 0.4],  // gradient for embedding of index 0
       //   [0.5, 0.6, 0.7, 0.8],  // gradient for embedding of index 2
       //   [...]],                 // gradient for embedding of index 5
@@ -2954,6 +2954,8 @@ def TTIR_RepeatOp : TTIR_NamedOp<"repeat"> {
   let results = (outs AnyRankedTensor:$result);
 
   let hasVerifier = 1;
+
+  let hasFolder = 1;
 }
 
 def TTIR_RepeatInterleaveOp : TTIR_NamedOp<"repeat_interleave"> {
@@ -3895,6 +3897,74 @@ def TTIR_ReshapeOp: TTIR_NamedOp<"reshape", [TTIR_TensorManipulation]> {
     let hasFolder = 1;
 }
 
+def TTIR_RearrangeOp : TTIR_NamedOp<"rearrange", [TTIR_TensorManipulation]> {
+    let summary = "Tensor rearrange operation.";
+    let description = [{
+      The `rearrange` operation reshapes, transposes, and reorganizes tensor dimensions using an
+      intuitive notation inspired by Einstein notation. This operation takes an input tensor and
+      transforms it according to a pattern string that describes how dimensions should be rearranged.
+      The pattern uses named axes and supports splitting, merging, and reordering dimensions in a
+      single operation. This operation is commonly used in neural networks for dimension manipulation,
+      such as converting between different data layouts, splitting/merging dimensions, or transposing
+      axes.
+
+      Example:
+      ```mlir
+      // Transpose a 2D tensor (equivalent to transpose)
+      %input = ... : tensor<2x3xf32>  // Input tensor with shape [2,3]
+      %result = ttir.rearrange(%input) {pattern = "h w -> w h"} : (tensor<2x3xf32>) -> tensor<3x2xf32>
+
+      // Flatten spatial dimensions of a 4D tensor (batch, channel, height, width)
+      %input = ... : tensor<1x3x4x4xf32>  // Input tensor with shape [1,3,4,4]
+      %result = ttir.rearrange(%input) {pattern = "b c h w -> b c (h w)"} :
+                (tensor<1x3x4x4xf32>) -> tensor<1x3x16xf32>
+
+      // Split a dimension into two dimensions
+      %input = ... : tensor<2x12xf32>  // Input tensor with shape [2,12]
+      %result = ttir.rearrange(%input) {pattern = "b (h w) -> b h w", axes_lengths = {h = 3, w = 4}} :
+                (tensor<2x12xf32>) -> tensor<2x3x4xf32>
+
+      // Rearrange image patches (batch, height, width, channels) to sequence format
+      %input = ... : tensor<8x16x16x3xf32>  // Input tensor with shape [8,16,16,3]
+      %result = ttir.rearrange(%input) {pattern = "b h w c -> b (h w) c"} :
+                (tensor<8x16x16x3xf32>) -> tensor<8x256x3xf32>
+      ```
+
+      Inputs:
+      - `input` (Tensor): The input tensor to rearrange.
+
+      Attributes:
+      - `pattern` (String): A string describing the rearrangement pattern. The pattern consists of
+        two parts separated by "->": the left side describes the input axes and the right side
+        describes the output axes. Named axes can be reordered, merged using parentheses "()",
+        or split using parentheses with known dimensions. Examples: "b c h w -> b (c h w)",
+        "b (h w) -> b h w", "h w c -> c h w".
+      - `axes_lengths` (UNSUPPORTED #6339): A mapping of axis names to their lengths when splitting
+        dimensions. Required when decomposing a dimension into multiple dimensions. Example:
+        {h = 3, w = 4} when splitting a dimension of size 12 into h and w.
+
+      Output:
+      - `result` (Tensor): The rearranged tensor.
+
+      Note: The total number of elements in the input tensor must equal the total number of elements
+      in the output tensor. When merging dimensions, their sizes are multiplied. When splitting
+      dimensions, the product of the split dimensions must equal the original dimension size. All
+      axis names in the pattern must be unique within each side of the arrow, and axes can be
+      reordered freely between input and output patterns.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input, Builtin_StringAttr:$pattern);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+
+    let extraClassDeclaration = [{
+        static mlir::FailureOr<AffineMap> getInvPatternMap(mlir::MLIRContext* context, StringRef pattern, ArrayRef<int64_t> shape);
+        mlir::FailureOr<AffineMap> getInvPatternMap();
+    }];
+}
+
 def TTIR_PadOp: TTIR_NamedOp<"pad"> {
     let summary = "Tensor padding operation.";
     let description = [{
@@ -4685,8 +4755,9 @@ def TTIR_ScatterOp : TTIR_NamedOp<"scatter"> {
       - `input` (Tensor): The tensor being updated.
       - `index` (Tensor): Indices where values will be written to.
       - `source` (Tensor): The values to scatter into the input tensor.
-      - `output` (Tensor): The output tensor shape.
       - `dim` (int32_t): The dimension along which to scatter.
+      - `scatter_reduce_type` (Enum): The scatter reduce type to use (SUM, PROD, MIN, MAX, INVALID).
+
 
     Example:
     ```mlir
@@ -4694,16 +4765,18 @@ def TTIR_ScatterOp : TTIR_NamedOp<"scatter"> {
     %input = ... : tensor<8xf32>        // Input tensor
     %indices = ... : tensor<3xi32>      // Indices tensor
     %source = ... : tensor<3xf32>       // Source values to scatter
-    %result = ttir.scatter(%input, %indices, %source) <{
-        dim = 0
-    }> : (tensor<8xf32>, tensor<3xi32>, tensor<3xf32>) -> tensor<8xf32>
+    %result = ttir.scatter_in_dim(%input, %indices, %source) {
+        dim = 0, scatter_reduce_type = "SUM"
+    } : tensor<8xf32>, tensor<3xi32>, tensor<3xf32> -> tensor<8xf32>
     ```
   }];
 
   let arguments = (ins AnyRankedTensor:$input,
                        AnyRankedTensor:$index,
                        AnyRankedTensor:$source,
-                       I32Attr:$dim);
+                       I32Attr:$dim,
+                       TTCore_ReduceTypeAttr:$scatter_reduce_type
+                       );
 
   let results = (outs AnyRankedTensor:$result);
 

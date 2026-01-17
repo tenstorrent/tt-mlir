@@ -6,9 +6,6 @@
 // RUN: FileCheck %s --input-file=%t.mlir
 // RUN: ttmlir-translate --ttnn-to-flatbuffer -o %t.ttnn %t.mlir
 
-// Test basic const-eval CPU hoisting with parameter + constant ops.
-// The const-eval subgraph (subtract on parameters/constants) should be hoisted to CPU module.
-
 module {
   // CHECK: ttcore.device_module {
 
@@ -29,5 +26,32 @@ module {
     %2 = "ttir.multiply"(%0, %1) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
 
     return %2 : tensor<32x32xbf16>
+  }
+
+  // CHECK-LABEL: func.func @forward_merge_return_multiple_values
+  func.func @forward_merge_return_multiple_values(
+                    %arg0: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<input>},
+                    %arg1: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>},
+                    %arg2: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>},
+                    %arg3: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>}) -> tensor<32x32xbf16> {
+    // CHECK: ttcore.load_cached{{.*}} : {{.*}} -> {{.*}}, {{.*}}
+
+    // CHECK: "ttnn.add"
+    %0 = "ttir.add"(%arg0, %arg1) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+
+    // CHECK-NOT: "ttnn.add"
+    %1 = "ttir.add"(%arg1, %arg2)  : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+    %2 = "ttir.add"(%arg2, %arg3)  : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+
+    // CHECK-NOT: "ttnn.multiply"
+    %3 = "ttir.multiply"(%1, %2) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+
+    // CHECK: "ttnn.multiply"
+    %4 = "ttir.multiply"(%0, %3) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+
+    // CHECK: "ttnn.multiply"
+    %5 = "ttir.multiply"(%4, %2) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+
+    return %5 : tensor<32x32xbf16>
   }
 }

@@ -64,7 +64,9 @@ mlir::LogicalResult d2m::EmptyOp::bufferize(
 
   // Don't bufferize if tensor has a ttnn_layout; lowering to ttnn generic.
   if (options.allowUnknownOps &&
-      mlir::isa<ttnn::TTNNLayoutAttr>(getResult().getType().getEncoding())) {
+      (mlir::isa<ttnn::TTNNLayoutAttr>(getResult().getType().getEncoding()) ||
+       mlir::isa<ttnn::TTNNNDLayoutAttr>(
+           getResult().getType().getEncoding()))) {
     return success();
   }
   ::llvm::SmallVector<mlir::Value> invocationStack;
@@ -422,6 +424,38 @@ ToLayoutOp::getBufferType(mlir::Value value,
   return ttcore::getBufferType(value.getType(), /*isView=*/false);
 }
 
+bool ToLayoutOp::isHostToDevice() {
+  const bool hostInput =
+      mlir::cast<mlir::RankedTensorType>(getInput().getType()).getEncoding() ==
+          nullptr ||
+      mlir::isa<mlir::tt::ttcore::TensorMeshAttr>(
+          mlir::cast<mlir::RankedTensorType>(getInput().getType())
+              .getEncoding());
+  const bool hostOutput =
+      mlir::cast<mlir::RankedTensorType>(getOutput().getType()).getEncoding() ==
+          nullptr ||
+      mlir::isa<mlir::tt::ttcore::TensorMeshAttr>(
+          mlir::cast<mlir::RankedTensorType>(getOutput().getType())
+              .getEncoding());
+  return hostInput && !hostOutput;
+}
+
+bool ToLayoutOp::isDeviceToHost() {
+  const bool hostInput =
+      mlir::cast<mlir::RankedTensorType>(getInput().getType()).getEncoding() ==
+          nullptr ||
+      mlir::isa<mlir::tt::ttcore::TensorMeshAttr>(
+          mlir::cast<mlir::RankedTensorType>(getInput().getType())
+              .getEncoding());
+  const bool hostOutput =
+      mlir::cast<mlir::RankedTensorType>(getOutput().getType()).getEncoding() ==
+          nullptr ||
+      mlir::isa<mlir::tt::ttcore::TensorMeshAttr>(
+          mlir::cast<mlir::RankedTensorType>(getOutput().getType())
+              .getEncoding());
+  return !hostInput && hostOutput;
+}
+
 //===----------------------------------------------------------------------===//
 // ToDeviceOp
 //===----------------------------------------------------------------------===//
@@ -777,7 +811,7 @@ mlir::LogicalResult StreamLayoutOp::verify() {
       *this, "input", "storage", getInput().getType(), getStorage().getType(),
       /*checkSameElementType*/ true,
       /*checkSameMemorySpace*/ false,
-      /*checkSameRank*/ true,
+      /*checkSameRank*/ false,
       /*checkSameGridShape*/ false,
       /*checkSameShardShape*/ false);
   if (failed(inputStorageVerification)) {
@@ -799,7 +833,7 @@ mlir::LogicalResult StreamLayoutOp::verify() {
       *this, "input", "result", getInput().getType(), getResult().getType(),
       /*checkSameElementType*/ true,
       /*checkSameMemorySpace*/ true,
-      /*checkSameRank*/ true,
+      /*checkSameRank*/ false,
       /*checkSameGridShape*/ false,
       /*checkSameShardShape*/ false);
   if (failed(inputResultVerification)) {
@@ -1011,6 +1045,12 @@ mlir::OpFoldResult d2m::ViewLayoutOp::fold(FoldAdaptor adaptor) {
   // This avoids complexities around layout composing affine maps
   // with a bunch of irreducible operations like floorDiv and mod.
   if (!consecutiveView.isReblockOnly() || !isReblockOnly()) {
+    return nullptr;
+  }
+
+  // Don't fold through reinterpretLayout views - they legitimately change
+  // logical shape and cannot be skipped.
+  if (consecutiveView.getReinterpretLayout()) {
     return nullptr;
   }
 

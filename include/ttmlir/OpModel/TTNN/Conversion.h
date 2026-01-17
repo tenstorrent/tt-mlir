@@ -140,6 +140,12 @@ std::optional<::ttnn::operations::transformer::SDPAProgramConfig>
 getSDPAProgramConfig(
     const std::optional<SDPAProgramConfigAttr> &sdpaProgramConfig);
 
+std::optional<std::string> getScatterReductionType(
+    const std::optional<ttcore::ReduceTypeAttr> &reduceTypeAttr);
+
+std::optional<::ttnn::operations::matmul::MatmulProgramConfig>
+getMatmulProgramConfig(mlir::Attribute programConfigAttr);
+
 } // namespace conversion
 } // namespace mlir::tt::ttnn::op_model
 

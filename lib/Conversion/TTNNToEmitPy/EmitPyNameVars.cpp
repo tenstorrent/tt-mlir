@@ -80,10 +80,22 @@ public:
 
     // Handle func::FuncOp operations:
     module.walk([&](func::FuncOp funcOp) {
+      if (funcOp.isDeclaration()) {
+        return;
+      }
+
       for (unsigned i = 0; i < funcOp.getNumArguments(); ++i) {
-        std::string argName = funcOp.getNumArguments() > 1
-                                  ? "input_" + std::to_string(i)
-                                  : "input";
+        std::string argName;
+
+        // Check if an emitpy.name attribute already exists for this argument.
+        // If so, use it instead of generating a new name.
+        if (auto existingNameAttr =
+                funcOp.getArgAttrOfType<StringAttr>(i, "emitpy.name")) {
+          argName = existingNameAttr.getValue().str();
+        } else {
+          argName = funcOp.getNumArguments() > 1 ? "input_" + std::to_string(i)
+                                                 : "input";
+        }
 
         // Check if parameter name collides with the function name
         if (reservedNames.contains(argName)) {

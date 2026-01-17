@@ -8,13 +8,33 @@ import re
 import platform
 from functools import reduce
 import operator
+import os
 import torch
 import subprocess
 from typing import Any, Dict, List, Tuple, Optional
 import math
+import sys
+from pathlib import Path
+
+# Add tt-alchemist utils.py to path for EmitPy tests
+TT_MLIR_HOME = Path(os.environ.get("TT_MLIR_HOME", os.getcwd())).resolve()
+utils_path = os.path.join(TT_MLIR_HOME, "tools/tt-alchemist/templates/python/local")
+if utils_path not in sys.path:
+    sys.path.append(utils_path)
+
+# Add TTNN to path for EmitPy tests
+TT_METAL_RUNTIME_ROOT = Path(
+    os.environ.get("TT_METAL_RUNTIME_ROOT", os.getcwd())
+).resolve()
+sys.path.append(os.path.join(TT_METAL_RUNTIME_ROOT, "ttnn"))
+
+import utils
+import ttnn
 
 ALL_BACKENDS = set(["ttnn", "ttmetal", "emitc", "emitpy"])
 ALL_SYSTEMS = set(["n150", "n300", "llmbox", "tg", "p150", "p300"])
+ALL_ENVIRONMENTS = set(["silicon", "sim"])
+ALL_CONFIGS = ALL_BACKENDS | ALL_SYSTEMS | ALL_ENVIRONMENTS
 
 
 _current_device = None
@@ -55,6 +75,8 @@ def _get_device_for_target(target: str, mesh_shape: Tuple[int, int], pytestconfi
             and _current_device_mesh_shape == mesh_shape
         ):
             return _current_device
+        elif _current_device_target == "emitpy":
+            ttnn.close_mesh_device(_current_device)
         else:  # Cache miss, need to teardown
             print(
                 f"Found new target {target} with mesh shape {mesh_shape}, closing device for {_current_device_target} with {_current_device_mesh_shape}"
@@ -63,48 +85,66 @@ def _get_device_for_target(target: str, mesh_shape: Tuple[int, int], pytestconfi
             tt_runtime.runtime.set_fabric_config(
                 tt_runtime.runtime.FabricConfig.DISABLED
             )
-            _current_device = None
-            _current_device_target = None
-            _current_device_mesh_shape = None
+        _current_device = None
+        _current_device_target = None
+        _current_device_mesh_shape = None
 
     # Open new device for target
     print(f"Opening device for {target} with mesh shape {mesh_shape}")
 
-    mesh_options = tt_runtime.runtime.MeshDeviceOptions()
-    system_desc = fbb_as_dict(
-        tt_runtime.binary.load_system_desc_from_path(pytestconfig.option.sys_desc)
-    )["system_desc"]
-    board_id = get_board_id(system_desc)
+    if target == "emitpy":
+        device = utils.DeviceGetter.get_device(mesh_shape)
 
-    if pytestconfig.getoption("--disable-eth-dispatch") or board_id in ["p150", "p300"]:
-        mesh_options.dispatch_core_type = tt_runtime.runtime.DispatchCoreType.WORKER
     else:
-        mesh_options.dispatch_core_type = tt_runtime.runtime.DispatchCoreType.ETH
+        mesh_options = tt_runtime.runtime.MeshDeviceOptions()
+        system_desc = fbb_as_dict(
+            tt_runtime.binary.load_system_desc_from_path(pytestconfig.option.sys_desc)
+        )["system_desc"]
+        board_id = get_board_id(system_desc)
 
-    # Start with a small mesh shape that should work for most tests
-    # Tests requiring larger meshes will be handled appropriately
-    mesh_options.mesh_shape = mesh_shape
+        if pytestconfig.getoption("--disable-eth-dispatch") or board_id in [
+            "p150",
+            "p300",
+        ]:
+            mesh_options.dispatch_core_type = tt_runtime.runtime.DispatchCoreType.WORKER
+        else:
+            mesh_options.dispatch_core_type = tt_runtime.runtime.DispatchCoreType.ETH
 
-    device_runtime_enum = None
+        # Start with a small mesh shape that should work for most tests
+        # Tests requiring larger meshes will be handled appropriately
+        mesh_options.mesh_shape = mesh_shape
 
-    if target == "ttnn":
-        device_runtime_enum = tt_runtime.runtime.DeviceRuntime.TTNN
-    elif target == "ttmetal":
-        device_runtime_enum = tt_runtime.runtime.DeviceRuntime.TTMetal
-    else:
-        raise ValueError(f"Only TTNN and TTMetal devices are supported, got {target}")
+        device_runtime_enum = None
 
-    tt_runtime.runtime.set_current_device_runtime(device_runtime_enum)
-    if math.prod(mesh_shape) > 1:
-        tt_runtime.runtime.set_fabric_config(tt_runtime.runtime.FabricConfig.FABRIC_1D)
-    device = tt_runtime.runtime.open_mesh_device(mesh_options)
-    print(
-        f"Device opened for test session with target {target} & mesh shape {mesh_options.mesh_shape}."
-    )
+        if target in ["ttnn", "emitc"]:
+            device_runtime_enum = tt_runtime.runtime.DeviceRuntime.TTNN
+        elif target == "ttmetal":
+            device_runtime_enum = tt_runtime.runtime.DeviceRuntime.TTMetal
+        else:
+            raise ValueError(
+                f"Only TTNN and TTMetal devices are supported, got {target}"
+            )
+
+        tt_runtime.runtime.set_current_device_runtime(device_runtime_enum)
+        if math.prod(mesh_shape) > 1:
+            tt_runtime.runtime.set_fabric_config(
+                tt_runtime.runtime.FabricConfig.FABRIC_1D
+            )
+        device = tt_runtime.runtime.open_mesh_device(mesh_options)
+        print(
+            f"Device opened for test session with target {target} & mesh shape {mesh_options.mesh_shape}."
+        )
     _current_device = device
     _current_device_target = target
     _current_device_mesh_shape = mesh_shape
     return _current_device
+
+
+def _get_current_environment():
+    if "TT_METAL_SIMULATOR" in os.environ:
+        return "sim"
+
+    return "silicon"
 
 
 def is_x86_machine():
@@ -161,7 +201,7 @@ def device(request, pytestconfig):
         target = request.node.callspec.params.get("target", "ttnn")
 
         # Support for other backends coming soon.
-        if target not in ["ttnn", "ttmetal"]:
+        if target not in ["ttnn", "ttmetal", "emitpy", "emitc"]:
             return None
 
         mesh_shape = request.node.callspec.params.get("mesh_shape", (1, 1))
@@ -196,6 +236,59 @@ def pytest_addoption(parser):
         action="store_true",
         help="disable putting dispatch on ethernet cores - place it on worker cores instead; necessary on blackhole",
     )
+    parser.addoption(
+        "--dump-kernels",
+        action="store_true",
+        help="Dump kernels to disk as they are being executed",
+    )
+    parser.addoption(
+        "--load-kernels",
+        action="store_true",
+        help="Load kernels from disk (requires previous --dump-kernels run)",
+    )
+    parser.addoption(
+        "--kernel-source-dir",
+        action="store",
+        default="",
+        help="Directory to save/load kernels (defaults to /tmp)",
+    )
+    parser.addoption(
+        "--use-loc-for-kernel-name",
+        action="store_true",
+        help="Use location info for kernel filenames when dumping",
+    )
+
+
+@pytest.fixture(scope="session", autouse=True)
+def configure_debug_env(pytestconfig):
+    """
+    Configure runtime debug environment at session start.
+
+    This must run before any device operations as debug::Env is a
+    singleton that's initialized on first access. The first call to
+    DebugEnv.get() locks in the configuration for the entire process.
+
+    Options:
+        --dump-kernels: Dump kernels to disk during execution
+        --load-kernels: Load kernels from disk for execution
+        --kernel-source-dir: Directory for kernel files (default: /tmp)
+        --use-loc-for-kernel-name: Use location info for kernel filenames
+    """
+    dump_kernels = pytestconfig.getoption("--dump-kernels")
+    load_kernels = pytestconfig.getoption("--load-kernels")
+    kernel_source_dir = pytestconfig.getoption("--kernel-source-dir")
+    use_loc_for_kernel_name = pytestconfig.getoption("--use-loc-for-kernel-name")
+
+    # Only initialize if any kernel debug option is specified
+    if dump_kernels or load_kernels or kernel_source_dir or use_loc_for_kernel_name:
+        tt_runtime.runtime.DebugEnv.get(
+            dump_kernels,  # dumpKernels
+            load_kernels,  # loadKernels
+            use_loc_for_kernel_name,  # useLocForKernelName
+            kernel_source_dir,  # kernelSourceDir
+            True,  # deviceAddressValidation (safe default)
+            False,  # blockingCQ
+        )
 
 
 def get_board_id(system_desc) -> str:
@@ -486,6 +579,42 @@ def pytest_runtest_call(item: pytest.Item):
         _safe_add_property(item, "failure_stage", failure_stage)
 
 
+def _mark_item_for_skip(
+    item,
+    current_target,
+    board_id,
+    current_environment,
+    marker_name,
+    skip_handler_fn,
+    negate_check=False,
+):
+    for marker in item.iter_markers(name=marker_name):
+        for platform_config in marker.args:
+
+            # All of the operations we need to do on these are set membership based
+            platform_config = set(platform_config)
+
+            reason = marker.kwargs.get("reason", "")
+
+            # Verify this is a valid configuration
+            if not platform_config <= ALL_CONFIGS:
+                outliers = platform_config - ALL_CONFIGS
+                raise ValueError(
+                    f"Invalid {marker_name}: {platform_config}, invalid entries: {outliers}. Please ensure that all entries in the config are members of {ALL_CONFIGS}"
+                )
+
+            should_skip = platform_config <= set(
+                [current_target, board_id, current_environment]
+            )
+
+            # For only_config we want to skip if config is NOT in the allowed list
+            if negate_check:
+                should_skip = not should_skip
+
+            if should_skip:
+                skip_handler_fn(item, platform_config, reason)
+
+
 def pytest_collection_modifyitems(config, items):
     valid_items = []
     deselected = []
@@ -521,82 +650,56 @@ def pytest_collection_modifyitems(config, items):
                 current_target = param[1]
                 break
 
-        for marker in item.iter_markers(name="skip_config"):
-            for platform_config in marker.args:
+        current_environment = _get_current_environment()
+        board_id = get_board_id(system_desc)
 
-                # All of the operations we need to do on these are set membership based
-                platform_config = set(platform_config)
+        def skip_config_handler(item, platform_config, reason):
+            item.add_marker(
+                pytest.mark.skip(
+                    reason=f"Operation not supported on following platform/target combination: {platform_config}. {reason}"
+                )
+            )
 
-                reason = marker.kwargs.get("reason", "")
+        def only_config_handler(item, platform_config, reason):
+            item.add_marker(
+                pytest.mark.skip(
+                    reason=f"Test only runs on following platform/target combination: {platform_config}. {reason}"
+                )
+            )
 
-                # Verify this is a valid configuration
-                if not platform_config <= ALL_BACKENDS.union(ALL_SYSTEMS):
-                    outliers = platform_config - ALL_BACKENDS.union(ALL_SYSTEMS)
-                    raise ValueError(
-                        f"Invalid skip config: {platform_config}, invalid entries: {outliers}. Please ensure that all entries in the config are members of {ALL_SYSTEMS} or {ALL_BACKENDS}"
-                    )
+        def skip_exec_handler(item, platform_config, reason):
+            # Set skip_exec attribute on the item instead of marking as skipped
+            item.skip_exec = True
+            xfail_reason = f"Execution skipped for platform/target combination: {platform_config}. {reason}"
+            item.skip_exec_reason = xfail_reason
+            # Mark test as xfail so it's expected to fail
+            item.add_marker(pytest.mark.xfail(reason=xfail_reason, strict=False))
 
-                board_id = get_board_id(system_desc)
-
-                if platform_config <= set([current_target, board_id]):
-                    item.add_marker(
-                        pytest.mark.skip(
-                            reason=f"Operation not supported on following platform/target combination: {platform_config}. {reason}"
-                        )
-                    )
-
-        for marker in item.iter_markers(name="only_config"):
-            for platform_config in marker.args:
-
-                # All of the operations we need to do on these are set membership based
-                platform_config = set(platform_config)
-
-                reason = marker.kwargs.get("reason", "")
-
-                # Verify this is a valid configuration
-                if not platform_config <= ALL_BACKENDS.union(ALL_SYSTEMS):
-                    outliers = platform_config - ALL_BACKENDS.union(ALL_SYSTEMS)
-                    raise ValueError(
-                        f"Invalid only_config: {platform_config}, invalid entries: {outliers}. Please ensure that all entries in the config are members of {ALL_SYSTEMS} or {ALL_BACKENDS}"
-                    )
-
-                board_id = get_board_id(system_desc)
-
-                # Skip if the current config is NOT in the allowed list
-                if not platform_config <= set([current_target, board_id]):
-                    item.add_marker(
-                        pytest.mark.skip(
-                            reason=f"Test only runs on following platform/target combination: {platform_config}. {reason}"
-                        )
-                    )
-
-        # Mark tests with skip_exec to skip execution but allow compilation
-        for marker in item.iter_markers(name="skip_exec"):
-            for platform_config in marker.args:
-
-                # All of the operations we need to do on these are set membership based
-                platform_config = set(platform_config)
-
-                reason = marker.kwargs.get("reason", "")
-
-                # Verify this is a valid configuration
-                if not platform_config <= ALL_BACKENDS.union(ALL_SYSTEMS):
-                    outliers = platform_config - ALL_BACKENDS.union(ALL_SYSTEMS)
-                    raise ValueError(
-                        f"Invalid skip_exec config: {platform_config}, invalid entries: {outliers}. Please ensure that all entries in the config are members of {ALL_SYSTEMS} or {ALL_BACKENDS}"
-                    )
-
-                board_id = get_board_id(system_desc)
-
-                if platform_config <= set([current_target, board_id]):
-                    # Set skip_exec attribute on the item instead of marking as skipped
-                    item.skip_exec = True
-                    xfail_reason = f"Execution skipped for platform/target combination: {platform_config}. {reason}"
-                    item.skip_exec_reason = xfail_reason
-                    # Mark test as xfail so it's expected to fail
-                    item.add_marker(
-                        pytest.mark.xfail(reason=xfail_reason, strict=False)
-                    )
+        _mark_item_for_skip(
+            item,
+            current_target,
+            board_id,
+            current_environment,
+            "skip_config",
+            skip_config_handler,
+        )
+        _mark_item_for_skip(
+            item,
+            current_target,
+            board_id,
+            current_environment,
+            "only_config",
+            only_config_handler,
+            negate_check=True,
+        )
+        _mark_item_for_skip(
+            item,
+            current_target,
+            board_id,
+            current_environment,
+            "skip_exec",
+            skip_exec_handler,
+        )
 
     # Update the items list (collected tests)
     items[:] = valid_items
@@ -613,8 +716,12 @@ def pytest_collection_modifyitems(config, items):
 def pytest_sessionfinish(session):
     global _current_device, _current_device_target, _current_device_mesh_shape
     if _current_device is not None:
-        print("Closing device for end of session")
-        tt_runtime.runtime.close_mesh_device(_current_device)
+        print("\nClosing device for end of session")
+        if _current_device_target == "emitpy":
+            ttnn.close_mesh_device(_current_device)
+        else:
+            tt_runtime.runtime.close_mesh_device(_current_device)
+
         _current_device = None
         _current_device_target = None
         _current_device_mesh_shape = None

@@ -6,7 +6,9 @@ func.func @test_typecast(%arg0: tensor<64x128xf32>) -> (tensor<64x128xi32>, tens
   %0 = "ttir.empty"() : () -> tensor<64x128xi32>
   // CHECK: emitc.call_opaque "copy_tile_init"
   // CHECK-NEXT: emitc.call_opaque "copy_tile"
-  // CHECK-NEXT: emitc.call_opaque "typecast_tile_init"
+  // CHECK-NEXT: emitc.call_opaque "typecast_tile_init"() {template_args =
+  // CHECK-SAME: #emitc.opaque<"static_cast<std::underlying_type_t<DataFormat>>(DataFormat::Float32)">
+  // CHECK-SAME: #emitc.opaque<"static_cast<std::underlying_type_t<DataFormat>>(DataFormat::Int32)">
   // CHECK-NEXT: emitc.call_opaque "typecast_tile"(%{{[0-9]+}}) {template_args =
   // CHECK-SAME: #emitc.opaque<"static_cast<std::underlying_type_t<DataFormat>>(DataFormat::Float32)">
   // CHECK-SAME: #emitc.opaque<"static_cast<std::underlying_type_t<DataFormat>>(DataFormat::Int32)">
@@ -14,7 +16,9 @@ func.func @test_typecast(%arg0: tensor<64x128xf32>) -> (tensor<64x128xi32>, tens
   %2 = "ttir.empty"() : () -> tensor<64x128xbf16>
   // CHECK: emitc.call_opaque "copy_tile_init"
   // CHECK-NEXT: emitc.call_opaque "copy_tile"
-  // CHECK-NEXT: emitc.call_opaque "typecast_tile_init"
+  // CHECK-NEXT: emitc.call_opaque "typecast_tile_init"() {template_args =
+  // CHECK-SAME: #emitc.opaque<"static_cast<std::underlying_type_t<DataFormat>>(DataFormat::Int32)">
+  // CHECK-SAME: #emitc.opaque<"static_cast<std::underlying_type_t<DataFormat>>(DataFormat::Float16_b)">
   // CHECK-NEXT: emitc.call_opaque "typecast_tile"(%{{[0-9]+}}) {template_args =
   // CHECK-SAME: #emitc.opaque<"static_cast<std::underlying_type_t<DataFormat>>(DataFormat::Int32)">
   // CHECK-SAME: #emitc.opaque<"static_cast<std::underlying_type_t<DataFormat>>(DataFormat::Float16_b)">

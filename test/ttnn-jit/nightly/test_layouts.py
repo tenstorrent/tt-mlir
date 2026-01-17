@@ -10,6 +10,11 @@ import itertools
 
 from utils import (
     run_op_test,
+    all_close_check,
+)
+
+from op_definitions import (
+    abs,
 )
 
 
@@ -81,10 +86,6 @@ DRAM_INTERLEAVED_SHAPE_GRIDS.extend(
         )
     ]
 )
-
-
-def abs(input_tensor):
-    return ttnn.abs(input_tensor)
 
 
 @pytest.mark.parametrize(
@@ -224,3 +225,77 @@ def test_dram_interleaved_shapes(device, shape, op):
         buffer_type=ttnn.BufferType.DRAM,
         enable_cache=True,
     )
+
+
+ND_LAYOUT_TEST_CASES = [
+    ((4, 64, 64), (2, 32, 32), (1, 3)),
+    ((8, 64, 64), (2, 32, 32), (3, 3)),
+    ((2, 64, 64), (2, 32, 32), (0, 3)),
+    ((4, 32, 64), (2, 32, 32), (0, 3)),
+    ((4, 64, 32), (2, 32, 32), (0, 3)),
+    ((2, 32, 32), (2, 32, 32), (0, 0)),
+    # 4D cases
+    ((1, 4, 64, 64), (1, 2, 32, 32), (1, 3)),
+    ((2, 2, 64, 64), (1, 1, 32, 32), (3, 3)),
+]
+
+
+def create_nd_tensor(device, shape, shard_shape, max_grid):
+    torch.manual_seed(0)
+    core_ranges = ttnn.CoreRangeSet(
+        {
+            ttnn.CoreRange(
+                ttnn.CoreCoord(0, 0),
+                ttnn.CoreCoord(*max_grid),
+            )
+        }
+    )
+
+    nd_shard_spec = ttnn.NdShardSpec(
+        list(shard_shape),
+        core_ranges,
+    )
+    memory_config = ttnn.MemoryConfig(
+        buffer_type=ttnn.BufferType.L1,
+        nd_shard_spec=nd_shard_spec,
+    )
+
+    torch_tensor = torch.randn(tuple(shape), dtype=torch.float16)
+    nd_sharded = ttnn.from_torch(
+        torch_tensor,
+        dtype=ttnn.bfloat16,
+        layout=ttnn.TILE_LAYOUT,
+        device=device,
+        memory_config=memory_config,
+    )
+    return nd_sharded
+
+
+@pytest.mark.parametrize(
+    "shape, shard_shape, max_grid",
+    ND_LAYOUT_TEST_CASES,
+    ids=[
+        f"shape:{shape}-shard:{shard_shape}-grid:{max_grid}"
+        for shape, shard_shape, max_grid in ND_LAYOUT_TEST_CASES
+    ],
+)
+@pytest.mark.parametrize("frontend", ["ast", "tracing"])
+def test_nd_ttnn_layout(device, shape, shard_shape, max_grid, frontend):
+    nd_input_tensor = create_nd_tensor(device, shape, shard_shape, max_grid)
+    op_jit = ttnn_jit.jit(
+        debug=True,
+        enable_cache=False,
+        frontend=frontend,
+    )(abs)
+    output_tensor = op_jit(nd_input_tensor)
+
+    # We cannot run the TTNN op with an ND tensor as no op supports it, including to_memory_config.
+    dram_input_tensor = ttnn.from_torch(
+        nd_input_tensor.cpu().to_torch(),
+        dtype=ttnn.bfloat16,
+        layout=ttnn.TILE_LAYOUT,
+        device=device,
+        memory_config=ttnn.DRAM_MEMORY_CONFIG,
+    )
+    golden_output_tensor = ttnn.abs(dram_input_tensor)
+    assert all_close_check(output_tensor, golden_output_tensor)

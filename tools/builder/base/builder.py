@@ -11,11 +11,17 @@ import re
 from collections import OrderedDict
 
 from ttmlir.ir import *
-from ttmlir.dialects import tensor, quant, func, ttir, ttcore, stablehlo, ttnn
+from ttmlir.dialects import tensor, quant, func, ttir, ttcore, stablehlo, ttnn, debug
 from ttmlir.passes import GoldenTensor, DataType
 from golden import GoldenMapTensor, get_golden_function
 
-from builder.base.builder_utils import process_multi_return_result, TypeInfo
+from builder.base.builder_utils import (
+    process_multi_return_result,
+    TypeInfo,
+    tag,
+    parse,
+    split,
+)
 
 
 class BuilderMeta(type):
@@ -51,8 +57,9 @@ class Builder(metaclass=BuilderMeta):
         self._force_graph_level_check = False
 
         # Keep a list of inputs and outputs in order so we know how to store them in golden map.
-        self._ordered_inputs: List[Operand] = []
-        self._ordered_outputs: List[Operand] = []
+        # ordered dict determines program order when comparing goldens during runtime
+        # func_op: [[ordered_inputs], [ordered_outputs]]
+        self._func_ops_generated: Dict[func.FuncOp, List[List[Operand]]] = {}
 
         # Explicity set goldens to store. If empty, store all goldens.
         self._goldens_to_store: List[Operand] = []
@@ -85,6 +92,14 @@ class Builder(metaclass=BuilderMeta):
             self._meshes[name] = mesh
 
         self._mesh_shape = tuple(mesh_dict[0].values())
+
+        # Internal values to keep track
+        self._root_module_insertion_point = None
+        self._current_module_insertion_point = None
+        self._cpu_module_insertion_point = None
+        self._hoisted_cpu_functions: List[str] = []
+        self._nested_funcs: List[str] = []
+        self._func_name_to_op: Dict[str, func.FuncOp] = {}
 
     # ----- Class helper methods -----
 
@@ -154,31 +169,57 @@ class Builder(metaclass=BuilderMeta):
         return self._mesh_shape
 
     @property
-    def golden_map(self) -> Dict[str, Dict[int, GoldenMapTensor]]:
-        golden_info: Dict[str, Dict[int, GoldenMapTensor]] = {}
+    def golden_map(
+        self,
+    ) -> Tuple[
+        Dict[int, Dict[str, Dict[int, GoldenMapTensor]]],
+        Dict[str, Dict[int, GoldenMapTensor]],
+    ]:
+        # { program_index: {loc: {device_id: GoldenMapTensor} } }
+        input_output_golden_info: Dict[int, Dict[str, Dict[int, GoldenMapTensor]]] = {}
+        intermediate_golden_info: Dict[str, Dict[int, GoldenMapTensor]] = {}
 
         if self._disable_golden_check:
-            return golden_info
+            return input_output_golden_info, intermediate_golden_info
 
         # If no specific golden is marked to be stored, store all goldens.
         if len(self._goldens_to_store) == 0:
             self._goldens_to_store = list(self._goldens.keys())
 
-        # Always store inputs into golden map.
-        for index, input in enumerate(self._ordered_inputs):
-            loc = f"input_{index}"
-            golden_info[loc] = self._get_golden_tensor(input)
-
-        # Store outputs into golden map if they are marked to be stored.
-        for index, output in enumerate(self._ordered_outputs):
-            if output not in self._goldens_to_store:
+        # Iterate through all functions generated to collect their inputs and outputs.
+        programs = []
+        for func_op, ordered_values in self._func_ops_generated.items():
+            if (
+                func_op.name.value in self._hoisted_cpu_functions
+                or func_op.name.value in self._nested_funcs
+            ):
                 continue
 
-            loc = f"output_{index}"
-            golden_info[loc] = self._get_golden_tensor(output)
+            programs.append(ordered_values)
+
+        for program_index, ordered_values in enumerate(programs):
+            input_output_golden_info[program_index] = {}
+            ordered_inputs, ordered_outputs = ordered_values
+
+            # Always store inputs into golden map.
+            for index, input in enumerate(ordered_inputs):
+                loc = f"input_{index}"
+                input_output_golden_info[program_index][loc] = self._get_golden_tensor(
+                    input
+                )
+
+            # Store outputs into golden map if they are marked to be stored.
+            for index, output in enumerate(ordered_outputs):
+                if output not in self._goldens_to_store:
+                    continue
+
+                loc = f"output_{index}"
+                input_output_golden_info[program_index][loc] = self._get_golden_tensor(
+                    output
+                )
 
         if self._force_graph_level_check:
-            return golden_info
+            return input_output_golden_info, intermediate_golden_info
 
         # Store other operands into golden map if they are marked to be stored.
         for operand, golden_map_tensor in self._goldens.items():
@@ -190,9 +231,9 @@ class Builder(metaclass=BuilderMeta):
 
             loc = self._operand_to_loc.get(operand, None)
             self._loc_to_operand[loc] = operand
-            golden_info[loc] = golden_map_tensor
+            intermediate_golden_info[loc] = golden_map_tensor
 
-        return golden_info
+        return input_output_golden_info, intermediate_golden_info
 
     def get_shape(self, input: Operand) -> Shape:
         return self._get_type(input).shape
@@ -245,6 +286,25 @@ class Builder(metaclass=BuilderMeta):
 
         loc = str(operand.owner.location)
         self._bypass_ops.append(loc)
+
+    def set_arg_attribute(
+        self, operand: Operand, new_attr_name: str, new_attr: Attribute
+    ):
+        func_op = operand.owner.owner
+
+        arg_attr_list = func_op.arg_attrs
+        new_arg_attr_list = []
+        for arg_number, arg_attrs in enumerate(arg_attr_list):
+            if arg_number == operand.arg_number:
+                new_arg_attr = {}
+                for attr in arg_attrs:
+                    new_arg_attr[attr.name.value] = attr
+                new_arg_attr[new_attr_name] = new_attr
+                new_arg_attr_list.append(DictAttr.get(new_arg_attr))
+            else:
+                new_arg_attr_list.append(arg_attrs)
+
+        func_op.arg_attrs = ArrayAttr.get(new_arg_attr_list)
 
     # ----- Private methods -----
 
@@ -574,11 +634,12 @@ class Builder(metaclass=BuilderMeta):
     ) -> List[GoldenMapTensor]:
         return [self._goldens[operand] for operand in operands]
 
-    def _set_input_ordering(self, inputs: List[Operand]):
-        self._ordered_inputs = inputs
-
-    def _set_output_ordering(self, outputs: List[Operand]):
-        self._ordered_outputs = outputs
+    def _get_location(self) -> Location:
+        stack = inspect.stack()
+        caller_frame = stack[2]
+        filename = caller_frame.filename
+        lineno = caller_frame.lineno
+        return Location.name(f"{filename}:{lineno}")
 
     # ----- Shared Empty Operations -----
 
@@ -617,6 +678,7 @@ class Builder(metaclass=BuilderMeta):
         grid: Optional[Tuple[int, int]] = None,
         index_map: Optional[AffineMap] = None,
         memory_layout=None,  # Will default to ttcore.TensorMemoryLayout.Sharded in the utility
+        dim_alignments: Optional[Tuple[int, ...]] = None,
     ):
         """Create a metal tensor layout using the shared implementation."""
         from builder.base.builder_apis import get_metal_tensor_layout
@@ -639,6 +701,67 @@ class Builder(metaclass=BuilderMeta):
             grid,
             index_map,
             memory_layout,
+            dim_alignments,
+        )
+
+    # ----- Operations -----
+
+    def call(
+        self,
+        nested_func: Callable,
+        original_inputs: List[Operand],
+        loc: Optional[str] = None,
+    ):
+        fn_input_types = []
+        for operand in original_inputs:
+            fn_input_types.append(operand.type)
+
+        ordered_inputs = []
+        ordered_outputs = []
+
+        with InsertionPoint(self._current_module_insertion_point):
+
+            @func.func(*fn_input_types, name=nested_func.__name__)
+            def decorated_func(*inputs):
+                input_goldens: Dict[Operand, GoldenMapTensor] = {}
+                for index, (new_operand, original_operand) in enumerate(
+                    zip(inputs, original_inputs)
+                ):
+                    input_goldens[new_operand] = self._get_golden_tensor(
+                        original_operand
+                    )
+
+                self._set_goldens(input_goldens)
+                ordered_inputs.extend(inputs)
+
+                result = nested_func(*inputs, self)
+
+                outputs = result if hasattr(result, "__iter__") else [result]
+                output_goldens: Dict[Operand, GoldenMapTensor] = {}
+                for op in outputs:
+                    output_goldens[op] = self._get_golden_tensor(op)
+                self._set_goldens(output_goldens)
+                ordered_outputs.extend(outputs)
+
+                return process_multi_return_result(result)
+
+        new_func_op = decorated_func.func_op
+        new_func_op.sym_visibility = StringAttr.get("private")
+        self._func_ops_generated[new_func_op] = [ordered_inputs, ordered_outputs]
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        call_op = func.CallOp(new_func_op, original_inputs, loc=loc)
+        for index, output in enumerate(ordered_outputs):
+            self._set_golden_tensor(
+                call_op.results[index], self._get_golden_tensor(output)
+            )
+
+        return (
+            call_op.results[0] if len(call_op.results) == 1 else tuple(call_op.results)
         )
 
     # ----- Parse module ----
@@ -647,7 +770,10 @@ class Builder(metaclass=BuilderMeta):
         self,
         parsed_op: Operation,
         global_dict: Dict[Operand, Operand],
-    ) -> Tuple[Operation, Dict[Operand, GoldenMapTensor]]:
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        if isinstance(parsed_op, func.CallOp):
+            return self.parse_call_op(parsed_op, global_dict)
+
         parsed_function = self.get_parser_from_opview(type(parsed_op))
         return parsed_function(self, parsed_op, global_dict)
 
@@ -671,11 +797,50 @@ class Builder(metaclass=BuilderMeta):
         ]
 
     def parse_root_module(
-        self, parsed_root_module: Module, golden_inputs: List[torch.tensor]
+        self, parsed_root_module: Module, golden_inputs: Dict[str, [List[torch.tensor]]]
     ):
+        found_cpu_module = False
+
+        for entry in parsed_root_module.body.operations:
+            if isinstance(entry, ttcore.CPUModuleOp):
+                found_cpu_module = True
+                builtin_module = entry.regions[0].blocks[0].operations[0]
+                for op in builtin_module.regions[0].blocks[0].operations:
+                    if isinstance(op, func.FuncOp):
+                        self._hoisted_cpu_functions.append(op.name.value)
+                        self._func_name_to_op[op.name.value] = op
+            elif isinstance(entry, ttcore.DeviceModuleOp):
+                builtin_module = entry.regions[0].blocks[0].operations[0]
+                for op in builtin_module.regions[0].blocks[0].operations:
+                    if isinstance(op, func.FuncOp):
+                        self._func_name_to_op[op.name.value] = op
+
+                        for block in op.body:
+                            for inner_op in block.operations:
+                                if isinstance(inner_op, func.CallOp):
+                                    self._nested_funcs.append(inner_op.callee.value)
+            elif isinstance(entry, func.FuncOp):
+                self._func_name_to_op[entry.name.value] = entry
+
+                for block in entry.body:
+                    for inner_op in block.operations:
+                        if isinstance(inner_op, func.CallOp):
+                            self._nested_funcs.append(inner_op.callee.value)
+
         new_root_module = Module.create()
+        self._root_module_insertion_point = new_root_module.body
+        self._current_module_insertion_point = new_root_module.body
 
         with InsertionPoint(new_root_module.body):
+            if found_cpu_module:
+                cpu_module_op = ttcore.CPUModuleOp()
+                region = cpu_module_op.regions[0]
+                block = Block.create_at_start(region)
+                new_module = Module.create()
+                cloned_op = new_module.operation.clone()
+                cpu_module_op.regions[0].blocks[0].append(cloned_op.operation)
+                self._cpu_module_insertion_point = cloned_op.regions[0].blocks[0]
+
             for entry in parsed_root_module.body.operations:
                 if isinstance(entry, ttcore.DeviceModuleOp):
                     device_module_op = ttcore.DeviceModuleOp()
@@ -688,48 +853,130 @@ class Builder(metaclass=BuilderMeta):
                         new_builtin_module.operation
                     )
                 elif isinstance(entry, func.FuncOp):
+                    if entry.name.value in self._nested_funcs:
+                        continue
                     self.parse_func(entry, golden_inputs)
 
         return new_root_module
 
     def parse_builtin_module(
-        self, parsed_builtin_module: Module, golden_inputs: List[torch.tensor]
+        self,
+        parsed_builtin_module: Module,
+        golden_inputs: Dict[str, [List[torch.tensor]]],
     ):
         new_builtin_module = Module.create()
         cloned_op = new_builtin_module.operation.clone()
+        self._current_module_insertion_point = cloned_op.regions[0].blocks[0]
 
-        for entry in parsed_builtin_module.regions[0].blocks[0].operations:
-            if isinstance(entry, func.FuncOp):
-                new_func = self.parse_func(entry, golden_inputs)
-                cloned_op.regions[0].blocks[0].append(new_func)
+        with InsertionPoint(cloned_op.regions[0].blocks[0]):
+            for entry in parsed_builtin_module.regions[0].blocks[0].operations:
+                if isinstance(entry, func.FuncOp):
+                    if entry.name.value in self._nested_funcs:
+                        continue
+                    new_func = self.parse_func(entry, golden_inputs)
 
         return cloned_op
 
-    def parse_func(self, parsed_func: func.FuncOp, golden_inputs: List[torch.tensor]):
+    def parse_func(
+        self, parsed_func: func.FuncOp, golden_inputs: Dict[str, [List[torch.tensor]]]
+    ):
         fn_input_types = self.get_input_types(parsed_func)
 
-        if len(golden_inputs) == 0:
+        parsed_func_golden_inputs = []
+        if parsed_func.name.value in golden_inputs.keys():
+            parsed_func_golden_inputs = golden_inputs[parsed_func.name.value]
+        else:
             for ttype in fn_input_types:
                 shape = ttype.shape
-                dtype = self._get_datatype_from_torch_dtype(ttype.element_type)
-                # Handle scalar tensors (empty shape)
-                if len(shape) == 0:
-                    golden_input = torch.randn(1, dtype=dtype).squeeze()
+                dtype = self._get_torch_dtype_from_type(ttype.element_type)
+
+                if dtype.is_floating_point or dtype.is_complex:
+                    if len(shape) == 0:
+                        golden_input = torch.randn(1, dtype=dtype).squeeze()
+                    else:
+                        golden_input = torch.randn(*shape, dtype=dtype)
+                    parsed_func_golden_inputs.append(golden_input)
+                elif dtype == torch.bool:
+                    if len(shape) == 0:
+                        golden_input = torch.randint(0, 2, (), dtype=dtype)
+                    else:
+                        golden_input = torch.randint(0, 2, shape, dtype=dtype)
+                    parsed_func_golden_inputs.append(golden_input)
                 else:
-                    golden_input = torch.randn(*shape, dtype=dtype)
-                golden_inputs.append(golden_input)
+                    if len(shape) == 0:
+                        golden_input = torch.randint(0, 256, (), dtype=dtype)
+                    else:
+                        golden_input = torch.randint(0, 256, shape, dtype=dtype)
+                    parsed_func_golden_inputs.append(golden_input)
+
+        ordered_inputs = []
+        ordered_outputs = []
 
         @func.func(*fn_input_types, name=parsed_func.name.value)
         def decorated_func(*inputs):
             golden_dict = {}
-            for operand, torch_golden in zip(inputs, golden_inputs):
+            for operand, torch_golden in zip(inputs, parsed_func_golden_inputs):
                 golden_dict[operand] = torch_golden
 
             input_goldens: Dict[
                 Operand, GoldenMapTensor
             ] = self._create_builder_golden_from_torch_tensor(golden_dict)
             self._set_goldens(input_goldens)
-            self._set_input_ordering(inputs)
+            ordered_inputs.extend(inputs)
+
+            global_dict = {}
+            for i, arg in enumerate(parsed_func.arguments):
+                global_dict[arg] = inputs[i]
+
+            global_result = None
+            for block in parsed_func.body:
+                for op in block.operations:
+                    if isinstance(op, func.ReturnOp):
+                        global_result = tuple(
+                            global_dict[operand] for operand in op.operands
+                        )
+                    elif isinstance(op, ttir.EmptyOp):
+                        continue
+                    else:
+                        (
+                            parsed_op,
+                            op_golden_dictionary,
+                        ) = self._build_op_from_parsed_op(op, global_dict)
+                        global_dict.update(op_golden_dictionary)
+
+            outputs = (
+                global_result
+                if hasattr(global_result, "__iter__")
+                else (global_result,)
+            )
+            output_goldens: Dict[Operand, GoldenMapTensor] = {}
+            for op in outputs:
+                output_goldens[op] = self._get_golden_tensor(op)
+            self._set_goldens(output_goldens)
+            ordered_outputs.extend(outputs)
+
+            return process_multi_return_result(global_result)
+
+        new_func_op = decorated_func.func_op
+        self._func_ops_generated[new_func_op] = [ordered_inputs, ordered_outputs]
+        return new_func_op
+
+    def parse_nested_func(
+        self, parsed_func: func.FuncOp, golden_inputs: List[GoldenMapTensor]
+    ):
+        fn_input_types = self.get_input_types(parsed_func)
+
+        ordered_inputs = []
+        ordered_outputs = []
+
+        @func.func(*fn_input_types, name=parsed_func.name.value)
+        def decorated_func(*inputs):
+            input_goldens = {}
+            for operand, golden_map_tensor in zip(inputs, golden_inputs):
+                input_goldens[operand] = golden_map_tensor
+
+            self._set_goldens(input_goldens)
+            ordered_inputs.extend(inputs)
 
             global_dict = {}
             for i, arg in enumerate(parsed_func.arguments):
@@ -758,11 +1005,143 @@ class Builder(metaclass=BuilderMeta):
             for op in outputs:
                 output_goldens[op] = self._get_golden_tensor(op)
             self._set_goldens(output_goldens)
-            self._set_output_ordering(list(outputs))
+            ordered_outputs.extend(outputs)
 
             return process_multi_return_result(global_result)
 
-        return decorated_func.func_op
+        new_func_op = decorated_func.func_op
+        new_func_op.sym_visibility = StringAttr.get("private")
+        self._func_ops_generated[new_func_op] = [ordered_inputs, ordered_outputs]
+        return new_func_op
+
+    def parse_call_op(
+        self,
+        parsed_op: func.CallOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[Operand, GoldenMapTensor]]:
+        is_hoisted = False
+        parsed_op_attributes = parsed_op.attributes
+        parsed_op_callee_value = parsed_op.callee.value
+        parsed_op_operands = parsed_op.operands
+
+        for attr in parsed_op_attributes:
+            if attr.name == "ttir.cpu_hoisted_call":
+                is_hoisted = True
+                break
+
+        if is_hoisted:
+            insertion_point = self._cpu_module_insertion_point
+            hoisted_func_name = parsed_op_callee_value
+            hoisted_func_name_clean = hoisted_func_name.removesuffix("_decl")
+            nested_func_op = self._func_name_to_op[hoisted_func_name_clean]
+
+            new_golden_inputs = []
+            for operand in parsed_op_operands:
+                owner0 = operand.owner
+                if isinstance(owner0, Block):
+                    queried_operand = operand
+                else:
+                    queried_operand = owner0.result
+
+                new_golden_inputs.append(
+                    self._get_golden_tensor(global_dict[queried_operand])
+                )
+
+            with InsertionPoint(insertion_point):
+                new_func_op = self.parse_nested_func(nested_func_op, new_golden_inputs)
+
+            with InsertionPoint(self._current_module_insertion_point):
+                private_func_op = func.FuncOp(
+                    type=new_func_op.type, name=hoisted_func_name, visibility="private"
+                )
+                private_func_op.attributes["ttir.cpu_hoisted_func"] = UnitAttr.get(
+                    self._ctx
+                )
+
+            self._nested_funcs.append(private_func_op.name.value)
+
+            new_operands = [global_dict[operand] for operand in parsed_op_operands]
+            call_op = func.CallOp(private_func_op, new_operands)
+            call_op_result = call_op.results
+            call_op.attributes["ttir.cpu_hoisted_call"] = UnitAttr.get(self._ctx)
+
+            ordered_inputs, ordered_outputs = self._func_ops_generated[new_func_op]
+            for index, output in enumerate(ordered_outputs):
+                self._set_golden_tensor(
+                    call_op_result[index], self._get_golden_tensor(output)
+                )
+
+            op_map_dictionary = {}
+            parsed_op_results = parsed_op.results
+            for old_result, new_result in zip(parsed_op_results, call_op.results):
+                op_map_dictionary[old_result] = new_result
+
+            return call_op, op_map_dictionary
+
+        else:
+            insertion_point = self._current_module_insertion_point
+            nested_func_op = self._func_name_to_op[parsed_op.callee.value]
+            new_golden_inputs = []
+            for operand in parsed_op.operands:
+                owner0 = operand.owner
+                if isinstance(owner0, Block):
+                    queried_operand = operand
+                else:
+                    queried_operand = owner0.result
+
+                new_golden_inputs.append(
+                    self._get_golden_tensor(global_dict[queried_operand])
+                )
+
+            with InsertionPoint(insertion_point):
+                new_func_op = self.parse_nested_func(nested_func_op, new_golden_inputs)
+
+            new_operands = [global_dict[operand] for operand in parsed_op.operands]
+            call_op = func.CallOp(new_func_op, new_operands)
+
+            ordered_inputs, ordered_outputs = self._func_ops_generated[new_func_op]
+            for index, output in enumerate(ordered_outputs):
+                self._set_golden_tensor(
+                    call_op.results[index], self._get_golden_tensor(output)
+                )
+
+            op_map_dictionary = {}
+            for old_result, new_result in zip(parsed_op.results, call_op.results):
+                op_map_dictionary[old_result] = new_result
+
+        return call_op, op_map_dictionary
+
+    def split_call_op(
+        self,
+        old_op: func.CallOp,
+    ) -> Tuple[Module, TTIRBuilder]:
+        is_hoisted = False
+        for attr in old_op.attributes:
+            if attr.name == "ttir.cpu_hoisted_call":
+                is_hoisted = True
+                break
+
+        if is_hoisted:
+            sub_modules_and_builders = []
+        else:
+            nested_func_op = self._func_name_to_op[old_op.callee.value]
+            sub_modules_and_builders = []
+
+            for block in nested_func_op.body:
+                for op in block.operations:
+                    if isinstance(op, func.ReturnOp) or isinstance(
+                        op,
+                        ttir.EmptyOp,
+                    ):
+                        continue
+                    elif isinstance(op, func.CallOp):
+                        sub_op_module_builder = self.split_call_op(op)
+                        sub_modules_and_builders.append(sub_op_module_builder)
+                    else:
+                        sub_op_module_builder = self.split_op(op)
+                        sub_modules_and_builders.append(sub_op_module_builder)
+
+        return sub_modules_and_builders
 
     # ----- Helper decorator functions ----
 
@@ -778,26 +1157,36 @@ class Builder(metaclass=BuilderMeta):
                 for shape, dtype in zip(input_shapes, input_types)
             ]
 
+            ordered_inputs = []
+            ordered_outputs = []
+
             @func.func(*fn_input_types, name=fn.__name__)
             def decorated_func(*inputs):
-                input_goldens: Dict[Operand, GoldenMapTensor] = {}
-                for index, (operand, dtype) in enumerate(zip(inputs, input_types)):
-                    input_goldens[operand] = self._generate_golden_tensor(
-                        operand, dtype
-                    )
-                self._set_goldens(input_goldens)
-                self._set_input_ordering(inputs)
+                if not self._disable_golden_check:
+                    input_goldens: Dict[Operand, GoldenMapTensor] = {}
+                    for index, (operand, dtype) in enumerate(zip(inputs, input_types)):
+                        input_goldens[operand] = self._generate_golden_tensor(
+                            operand, dtype
+                        )
+                    self._set_goldens(input_goldens)
+                ordered_inputs.extend(inputs)
 
                 result = fn(*inputs, self)
 
                 outputs = result if hasattr(result, "__iter__") else [result]
-                output_goldens: Dict[Operand, GoldenMapTensor] = {}
-                for op in outputs:
-                    output_goldens[op] = self._get_golden_tensor(op)
-                self._set_goldens(output_goldens)
-                self._set_output_ordering(outputs)
+
+                if not self._disable_golden_check:
+                    output_goldens: Dict[Operand, GoldenMapTensor] = {}
+                    for op in outputs:
+                        output_goldens[op] = self._get_golden_tensor(op)
+                    self._set_goldens(output_goldens)
+                ordered_outputs.extend(outputs)
 
                 return process_multi_return_result(result)
+
+            new_func_op = decorated_func.func_op
+            self._func_ops_generated[new_func_op] = [ordered_inputs, ordered_outputs]
+            return new_func_op
 
         return wrapper
 
@@ -807,11 +1196,12 @@ class Builder(metaclass=BuilderMeta):
             region = device_module_op.regions[0]
             block = Block.create_at_start(region)
             new_module = Module.create()
-
-            with InsertionPoint(new_module.body):
-                root_func(self)
-
             cloned_op = new_module.operation.clone()
+            self._current_module_insertion_point = cloned_op.regions[0].blocks[0]
+
+            with InsertionPoint(cloned_op.regions[0].blocks[0]):
+                new_func = root_func(self)
+
             device_module_op.regions[0].blocks[0].append(cloned_op.operation)
             return device_module_op
 
@@ -823,12 +1213,102 @@ class Builder(metaclass=BuilderMeta):
             region = cpu_module_op.regions[0]
             block = Block.create_at_start(region)
             new_module = Module.create()
-
-            with InsertionPoint(new_module.body):
-                root_func(self)
-
             cloned_op = new_module.operation.clone()
+            self._current_module_insertion_point = cloned_op.regions[0].blocks[0]
+
+            with InsertionPoint(cloned_op.regions[0].blocks[0]):
+                new_func = root_func(self)
+
             cpu_module_op.regions[0].blocks[0].append(cloned_op.operation)
             return cpu_module_op
 
         return wrapper(self)
+
+    # ----- Debug dialect operations ----
+
+    @tag(debug.AnnotateOp)
+    def annotate(
+        self,
+        operand: Operand,
+        annotation: str,
+        loc: Optional[str] = None,
+    ) -> OpResult:
+        debug_op = self.get_opview_from_method(Builder.annotate)
+        annotation_attr = StringAttr.get(annotation)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = debug_op(
+            operand,
+            annotation=annotation_attr,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(operand)
+            op_golden_function = get_golden_function(debug_op)
+            golden_output = op_golden_function(input0, annotation_attr)
+            self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @tag(debug.BreakpointOp)
+    def breakpoint(
+        self,
+        operand: Operand,
+        loc: Optional[str] = None,
+    ) -> OpResult:
+        debug_op = self.get_opview_from_method(Builder.breakpoint)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = debug_op(
+            operand,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(operand)
+            op_golden_function = get_golden_function(debug_op)
+            golden_output = op_golden_function(input0)
+            self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @tag(debug.MemorySnapshotOp)
+    def memory_snapshot(
+        self,
+        operand: Operand,
+        file_path: str,
+        loc: Optional[str] = None,
+    ) -> OpResult:
+        debug_op = self.get_opview_from_method(Builder.memory_snapshot)
+        file_path_attr = StringAttr.get(file_path)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = debug_op(
+            operand,
+            file_path=file_path_attr,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(operand)
+            op_golden_function = get_golden_function(debug_op)
+            golden_output = op_golden_function(input0, file_path_attr)
+            self._set_golden_tensor(op_result, golden_output)
+
+        return op_result

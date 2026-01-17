@@ -23,6 +23,8 @@
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 
 #include "mlir/IR/BuiltinTypes.h"
+#include "llvm/ADT/TypeSwitch.h"
+
 #include <cstdint>
 #include <numeric>
 #include <optional>
@@ -522,8 +524,17 @@ static bool isDefinedByOp(mlir::Value value) {
   }
   Conv2dParams params = *expectedParams;
 
-  if (!isDefinedByOp<mlir::tt::ttnn::PrepareConv2dWeightsOp>(getWeight()) &&
-      !isDefinedByOp<mlir::tt::ttcore::LoadCachedOp>(getWeight())) {
+  // Check if weight is from PrepareConv2dWeightsOp, LoadCachedOp, or already in
+  // prepared format.
+  // Prepared weights have shape [1, 1, K*K*C_in, C_out] instead
+  // of [C_out, C_in, K, K]
+  bool isWeightPrepared =
+      isDefinedByOp<mlir::tt::ttnn::PrepareConv2dWeightsOp>(getWeight()) ||
+      isDefinedByOp<mlir::tt::ttcore::LoadCachedOp>(getWeight()) ||
+      (getWeight().getType().getDimSize(0) == 1 &&
+       getWeight().getType().getDimSize(1) == 1);
+
+  if (!isWeightPrepared) {
     // Only check when the weight is not prepared because it changes the shape
     // and ordering of dims.
     if (getWeight().getType().getDimSize(WEIGHT_OUT_CHANNEL) !=
@@ -1279,8 +1290,7 @@ void mlir::tt::ttnn::FullOp::build(mlir::OpBuilder &builder,
   // tensor type.
   //
   RankedTensorType output = getResult().getType();
-
-  TTNNLayoutAttr layoutAttr = mlir::cast<TTNNLayoutAttr>(output.getEncoding());
+  mlir::Attribute encoding = output.getEncoding();
 
   // Shape
   //
@@ -1290,28 +1300,44 @@ void mlir::tt::ttnn::FullOp::build(mlir::OpBuilder &builder,
                          << output.getShape();
   }
 
-  // DataType and Layout
-  //
-  if (getLayout() != layoutAttr.getLayout()) {
-    return emitOpError("Layout mismatch between op and layoutAttr.");
-  }
-  if (getDtype() != layoutAttr.getDataType()) {
-    return emitOpError("Data type mismatch between op and layoutAttr.");
-  }
+  // Helper lambda to verify layout attributes generically
+  auto verifyLayoutAttr = [&](auto layoutAttr) -> LogicalResult {
+    // DataType and Layout
+    //
+    if (getLayout() != layoutAttr.getLayout()) {
+      return emitOpError("Layout mismatch between op and layoutAttr.");
+    }
+    if (getDtype() != layoutAttr.getDataType()) {
+      return emitOpError("Data type mismatch between op and layoutAttr.");
+    }
 
-  // MemoryConfig
-  // Compare internal attrs with output tensor attrs.
-  //
-  if (getMemoryConfig().getBufferType().getValue() !=
-      layoutAttr.getBufferType()) {
-    return emitOpError("Buffer type mismatch between op and layoutAttr.");
-  }
-  if (getMemoryConfig().getTensorMemoryLayout() != layoutAttr.getMemLayout()) {
-    return emitOpError(
-        "Tensor memory layout mismatch between op and layoutAttr.");
-  }
+    // MemoryConfig
+    // Compare internal attrs with output tensor attrs.
+    //
+    if (getMemoryConfig().getBufferType().getValue() !=
+        layoutAttr.getBufferType()) {
+      return emitOpError("Buffer type mismatch between op and layoutAttr.");
+    }
+    if (getMemoryConfig().getTensorMemoryLayout() !=
+        layoutAttr.getMemLayout()) {
+      return emitOpError(
+          "Tensor memory layout mismatch between op and layoutAttr.");
+    }
 
-  return success();
+    return success();
+  };
+
+  // Use TypeSwitch to handle both TTNNLayoutAttr and TTNNNDLayoutAttr
+  return llvm::TypeSwitch<mlir::Attribute, mlir::LogicalResult>(encoding)
+      .Case<TTNNLayoutAttr>([&](TTNNLayoutAttr layoutAttr) {
+        return verifyLayoutAttr(layoutAttr);
+      })
+      .template Case<TTNNNDLayoutAttr>([&](TTNNNDLayoutAttr layoutAttr) {
+        return verifyLayoutAttr(layoutAttr);
+      })
+      .Default([&](mlir::Attribute) {
+        return emitOpError() << "Unsupported layout encoding type";
+      });
 }
 
 //===----------------------------------------------------------------------===//
@@ -2852,84 +2878,6 @@ mlir::tt::ttnn::ReduceScatterOp::fold(FoldAdaptor adaptor) {
 }
 
 //===----------------------------------------------------------------------===//
-// CollectivePermuteOp
-//===----------------------------------------------------------------------===//
-
-// CollectivePermuteOp verification
-::mlir::LogicalResult CollectivePermuteOp::verify() {
-  auto sourceTargetPairs = getSourceTargetPairs().getValues<int64_t>();
-
-  // Check that the rank of sourceTargetPairs is 2D.
-  llvm::ArrayRef<int64_t> sourceTargetPairsShape =
-      getSourceTargetPairs().getType().getShape();
-  const size_t sourceTargetPairsRank = sourceTargetPairsShape.size();
-
-  if (sourceTargetPairsRank != 2) {
-    return emitOpError("The rank of source target pairs must be 2, got rank = ")
-           << sourceTargetPairsRank;
-  }
-
-  /* Check that the 'src' values and 'dest' values in sourceTargetPairs is
-  unique. Given a 2D rank tensor of source target pairs eg. [['src', 'target'],
-  ['src', 'target'] ...], we need to ensure that each 'src' is unique and each
-  'target' is unique.
-  */
-  auto areElementsUnique = [](const auto &sourceTargetPairs) -> bool {
-    for (size_t i = 0; i < sourceTargetPairs.size(); i++) {
-      int target = sourceTargetPairs[i];
-      for (size_t j = i + 2; j < sourceTargetPairs.size(); j += 2) {
-        if (sourceTargetPairs[j] == target) {
-          return false;
-        }
-      }
-    }
-
-    return true;
-  };
-
-  if (!areElementsUnique(sourceTargetPairs)) {
-    return emitOpError(
-        "There are duplicate 'src' or 'dest' devices in source target pairs");
-  }
-
-  return success();
-}
-
-::mlir::OpFoldResult
-mlir::tt::ttnn::CollectivePermuteOp::fold(FoldAdaptor adaptor) {
-  ::mlir::DenseIntElementsAttr srcTargetPairs = getSourceTargetPairs();
-
-  // Filter out self-mapping src-target pairs.
-  auto elements = srcTargetPairs.getValues<APInt>();
-  SmallVector<APInt> filteredPairs;
-  for (size_t idx = 0; idx < elements.size(); idx += 2) {
-    auto src = elements[idx];
-    auto target = elements[idx + 1];
-    if (src == target) {
-      continue;
-    }
-    filteredPairs.push_back(src);
-    filteredPairs.push_back(target);
-  }
-
-  if (filteredPairs.empty()) {
-    // No permutations left. Exclude this op.
-    return getInput();
-  }
-
-  // There are effective permutations left.
-  if (srcTargetPairs.getNumElements() !=
-      static_cast<int64_t>(filteredPairs.size())) {
-    // Update source_target_pairs if changed.
-    std::array<int64_t, 2> shape = {
-        static_cast<int64_t>(filteredPairs.size() / 2), 2};
-    auto newType =
-        RankedTensorType::get(shape, srcTargetPairs.getType().getElementType());
-    setSourceTargetPairsAttr(DenseIntElementsAttr::get(newType, filteredPairs));
-  }
-  return {};
-}
-//===----------------------------------------------------------------------===//
 // MeshShardOp
 //===----------------------------------------------------------------------===//
 // NOTE: This legacy mesh_shard path only handles the "identity" variant.
@@ -4353,16 +4301,8 @@ mlir::tt::ttnn::ScaledDotProductAttentionDecodeOp::verify() {
 
   RankedTensorType queryType = getQuery().getType();
   RankedTensorType keyType = getKey().getType();
-  RankedTensorType valueType = getValue().getType();
   RankedTensorType resultType = getResult().getType();
 
-  if (queryType != resultType) {
-    return emitOpError("Query and result must have the same type");
-  }
-
-  if (keyType != valueType) {
-    return emitOpError("Key and value must have the same type");
-  }
   if (queryType.getShape().size() != 4) {
     return emitOpError("Query must be a 4D tensor");
   }

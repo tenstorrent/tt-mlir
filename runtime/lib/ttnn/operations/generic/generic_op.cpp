@@ -6,7 +6,6 @@
 #include "tt-metalium/program_descriptors.hpp"
 #include "tt/runtime/detail/common/common.h"
 #include "tt/runtime/detail/common/logger.h"
-#include "tt/runtime/detail/ttnn/ttnn.h"
 #include "tt/runtime/detail/ttnn/types/program_desc_cache.h"
 
 #include "tt/runtime/detail/ttnn/utils.h"
@@ -17,6 +16,7 @@ namespace tt::runtime::ttnn::operations::generic_op {
 static ::tt::tt_metal::SemaphoreDescriptor createSemaphoreDescriptor(
     const ::tt::target::ttnn::SemaphoreDescriptor &kernelSemaphoreDescriptor) {
   return ::tt::tt_metal::SemaphoreDescriptor{
+      .id = kernelSemaphoreDescriptor.id(),
       .core_type = tt::runtime::ttnn::utils::toCoreType(
           kernelSemaphoreDescriptor.core_type()),
       .core_ranges = tt::runtime::ttnn::utils::toTTNNCoreRangeSet(
@@ -177,6 +177,23 @@ static std::vector<uint32_t> createKernelArgs(
   return coreArgs;
 }
 
+static ::tt::tt_metal::KernelDescriptor::RuntimeArgs createRuntimeArgs(
+    const flatbuffers::Vector<
+        flatbuffers::Offset<::tt::target::ttnn::CoreRuntimeArgs>> *rtArgs,
+    const std::vector<::ttnn::Tensor> &ioTensors) {
+  ::tt::tt_metal::KernelDescriptor::RuntimeArgs runtimeArgs;
+  if (rtArgs) {
+    for (const auto *coreRtArgs : *rtArgs) {
+      const auto *coreCoord = coreRtArgs->core_coord();
+      ::tt::tt_metal::CoreCoord coord(coreCoord->x(), coreCoord->y());
+      ::tt::tt_metal::KernelDescriptor::CoreRuntimeArgs coreArgs =
+          createKernelArgs(*coreRtArgs->args(), ioTensors);
+      runtimeArgs.emplace_back(coord, std::move(coreArgs));
+    }
+  }
+  return runtimeArgs;
+}
+
 static ::tt::tt_metal::KernelDescriptor
 createKernelDescriptor(const ::tt::target::ttnn::KernelDescriptor &kernelDesc,
                        const std::vector<::ttnn::Tensor> &ioTensors) {
@@ -187,23 +204,9 @@ createKernelDescriptor(const ::tt::target::ttnn::KernelDescriptor &kernelDesc,
       createKernelArgs(*kernelDesc.common_rt_args(), ioTensors);
   ::tt::tt_metal::KernelDescriptor::CompileTimeArgs compileTimeArgs =
       createKernelArgs(*kernelDesc.ct_args());
+  ::tt::tt_metal::KernelDescriptor::RuntimeArgs runtimeArgs =
+      createRuntimeArgs(kernelDesc.rt_args(), ioTensors);
 
-  ::tt::tt_metal::KernelDescriptor::RuntimeArgs runtimeArgs;
-  if (kernelDesc.rt_args()) {
-    auto sizeX = kernelDesc.rt_args()->size();
-    auto sizeY = kernelDesc.rt_args()->Get(0)->args()->size();
-    runtimeArgs.resize(
-        sizeX,
-        std::vector<::tt::tt_metal::KernelDescriptor::CoreRuntimeArgs>(sizeY));
-    for (unsigned int i = 0; i < sizeX; i++) {
-      for (unsigned int j = 0; j < sizeY; j++) {
-        ::tt::tt_metal::KernelDescriptor::CoreRuntimeArgs coreRuntimeArgs =
-            createKernelArgs(*kernelDesc.rt_args()->Get(i)->args()->Get(j),
-                             ioTensors);
-        runtimeArgs[i][j] = coreRuntimeArgs;
-      }
-    }
-  }
   ::tt::tt_metal::KernelDescriptor kernelDescriptor = {
       .kernel_source = kernelSource,
       .source_type = convertSourceType(kernelDesc.source_type()),
@@ -251,22 +254,7 @@ void overrideArgs(
     kernel.compile_time_args = createKernelArgs(*kernelDesc->ct_args());
     kernel.common_runtime_args =
         createKernelArgs(*kernelDesc->common_rt_args(), ioTensors);
-
-    if (kernelDesc->rt_args()) {
-      auto sizeX = kernelDesc->rt_args()->size();
-      auto sizeY = kernelDesc->rt_args()->Get(0)->args()->size();
-      kernel.runtime_args.resize(
-          sizeX, std::vector<::tt::tt_metal::KernelDescriptor::CoreRuntimeArgs>(
-                     sizeY));
-      for (unsigned int x = 0; x < sizeX; x++) {
-        for (unsigned int y = 0; y < sizeY; y++) {
-          ::tt::tt_metal::KernelDescriptor::CoreRuntimeArgs coreRuntimeArgs =
-              createKernelArgs(*kernelDesc->rt_args()->Get(x)->args()->Get(y),
-                               ioTensors);
-          kernel.runtime_args[x][y] = coreRuntimeArgs;
-        }
-      }
-    }
+    kernel.runtime_args = createRuntimeArgs(kernelDesc->rt_args(), ioTensors);
   }
   for (size_t i = 0; i < programDescriptor->cbs.size(); ++i) {
     const auto *cbDesc = programDesc->cbs()->Get(i);
@@ -288,7 +276,8 @@ void run(const ::tt::target::ttnn::GenericOp *op, ProgramContext &context) {
         tensorPool.getTTNNTensorAndValidate(op->io_tensors()->Get(i));
   }
 
-  auto programDescCache = context.getExecutableHandle().getProgramDescCache();
+  std::shared_ptr<::tt::runtime::ProgramDescCache> programDescCache =
+      context.getExecutableHandle().getProgramDescCache();
 
   auto *programDesc = op->program();
 

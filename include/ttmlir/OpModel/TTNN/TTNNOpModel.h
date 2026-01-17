@@ -479,13 +479,16 @@ struct OpModel<ScatterOp> {
       ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
       TTNNLayoutAttr inputLayout, llvm::ArrayRef<int64_t> indexShape,
       TTNNLayoutAttr indexLayout, llvm::ArrayRef<int64_t> sourceShape,
-      TTNNLayoutAttr sourceLayout, int32_t dim, TTNNLayoutAttr outputLayout);
+      TTNNLayoutAttr sourceLayout, int32_t dim,
+      std::optional<ttcore::ReduceTypeAttr> optReduction,
+      TTNNLayoutAttr outputLayout);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
                llvm::ArrayRef<int64_t> indexShape, TTNNLayoutAttr indexLayout,
                llvm::ArrayRef<int64_t> sourceShape, TTNNLayoutAttr sourceLayout,
-               int32_t dim, TTNNLayoutAttr outputLayout);
+               int32_t dim, std::optional<ttcore::ReduceTypeAttr> optReduction,
+               TTNNLayoutAttr outputLayout);
 };
 
 //===----------------------------------------------------------------------===//
@@ -970,7 +973,9 @@ struct OpModel<LinearOp> {
       TTNNLayoutAttr inputLayoutB,
       std::optional<llvm::ArrayRef<int64_t>> biasShape,
       std::optional<TTNNLayoutAttr> biasLayout, TTNNLayoutAttr outputLayout,
-      bool transposeA, bool transposeB);
+      bool transposeA, bool transposeB,
+      std::optional<llvm::StringRef> activation,
+      std::optional<mlir::Attribute> programConfigAttr = std::nullopt);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputShapeA, TTNNLayoutAttr inputLayoutA,
@@ -990,7 +995,8 @@ struct OpModel<MatmulOp> {
       ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShapeA,
       TTNNLayoutAttr inputLayoutA, llvm::ArrayRef<int64_t> inputShapeB,
       TTNNLayoutAttr inputLayoutB, TTNNLayoutAttr outputLayout, bool transposeA,
-      bool transposeB);
+      bool transposeB, std::optional<llvm::StringRef> activation = std::nullopt,
+      std::optional<mlir::Attribute> programConfigAttr = std::nullopt);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputShapeA, TTNNLayoutAttr inputLayoutA,

@@ -1,6 +1,7 @@
 include "ttmlir/Target/Common/types.fbs";
 include "ttmlir/Target/Common/debug_info.fbs";
 include "ttmlir/Target/TTNN/types.fbs";
+include "ttmlir/Target/TTNN/operations/debug.fbs";
 include "ttmlir/Target/TTNN/operations/ccl.fbs";
 include "ttmlir/Target/TTNN/operations/get_device.fbs";
 include "ttmlir/Target/TTNN/operations/conv.fbs";
@@ -39,7 +40,6 @@ union OpType {
   BatchNormTrainingOp,
   BeginTraceCaptureOp,
   CaptureOrExecuteTraceOp,
-  CollectivePermuteOp,
   ConcatOp,
   ConcatenateHeadsOp,
   RotaryEmbeddingLlamaOp,
@@ -121,6 +121,9 @@ union OpType {
   WriteTensorOp,
   DumpTensorOp,
   LoadTensorOp,
+  AnnotateOp,
+  BreakpointOp,
+  MemorySnapshotOp,
 }
 
 table Operation {

@@ -8,7 +8,6 @@
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wunused-private-field"
 
-#include "tt/runtime/debug.h"
 #include "tt/runtime/perf.h"
 #include "tt/runtime/runtime.h"
 #include "tt/runtime/types.h"
@@ -104,6 +103,7 @@ void Env::setProgramMetadata(const std::string &programMetadata) {
 
 namespace debug {
 
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
 // Stub for debug::Env::get
 const Env &Env::get(bool dumpKernelsToDisk, bool loadKernelsFromDisk,
                     bool useLocForKernelName, std::string kernelSourceDir,
@@ -131,6 +131,14 @@ void Stats::removeStat(const std::string &stat) { __builtin_trap(); }
 void Stats::clear() { __builtin_trap(); }
 
 std::string Stats::toString() const { __builtin_trap(); }
+#endif
+
+void logMemoryState(
+    const std::unordered_map<tt::runtime::MemoryBufferType,
+                             tt::runtime::MemoryView> &memoryState,
+    std::string_view prefix) {
+  __builtin_trap();
+}
 
 } // namespace debug
 
@@ -145,7 +153,7 @@ void Flatbuffer::store(const char *path) const { __builtin_trap(); }
 
 // Stubs for Binary methods
 Binary::Binary(std::shared_ptr<void> handle)
-    : Flatbuffer(handle), binaryId(0), tensorCache(nullptr) {}
+    : Flatbuffer(handle), binaryId(0) {}
 std::string Binary::getMlirAsJson() const { __builtin_trap(); }
 std::uint32_t Binary::getNumPrograms() const { __builtin_trap(); }
 std::string Binary::getProgramInputsAsJson(std::uint32_t programIndex) const {
@@ -252,6 +260,7 @@ void shutdownDistributedRuntime() { __builtin_trap(); }
 std::vector<Tensor> toHost(Tensor tensor, bool untilize, bool blocking) {
   __builtin_trap();
 }
+std::vector<Tensor> getDeviceTensors(Tensor tensor) { __builtin_trap(); }
 void updateTensorInPool(CallbackContext programContextHandle,
                         TensorRef tensorRef, Tensor srcTensor) {
   __builtin_trap();

@@ -1,9 +1,12 @@
-add_subdirectory(ttmlir-opt)
-add_subdirectory(ttmlir-lsp-server)
+if(TTMLIR_ENABLE_TOOLS)
+  add_subdirectory(ttmlir-opt)
+  add_subdirectory(ttmlir-lsp-server)
+endif()
 
 if(TTMLIR_ENABLE_BINDINGS_PYTHON AND MLIR_ENABLE_BINDINGS_PYTHON)
   add_subdirectory(builder)
   add_subdirectory(golden)
+  add_subdirectory(profiler)
 
   if (TTMLIR_ENABLE_PYKERNEL)
     add_subdirectory(pykernel)
@@ -23,8 +26,10 @@ if(TTMLIR_ENABLE_BINDINGS_PYTHON AND MLIR_ENABLE_BINDINGS_PYTHON)
   add_subdirectory(op-by-op-infra)
 endif()
 
-add_subdirectory(ttmlir-translate)
-add_subdirectory(ttnn-standalone)
+if(TTMLIR_ENABLE_TOOLS)
+  add_subdirectory(ttmlir-translate)
+  add_subdirectory(ttnn-standalone)
+endif()
 
 # TTMLIR_ENABLE_RUNTIME is needed because tt-metal doesn't build without it => can't install TT-NN dependencies
 if (TTMLIR_ENABLE_ALCHEMIST AND TTMLIR_ENABLE_RUNTIME)
