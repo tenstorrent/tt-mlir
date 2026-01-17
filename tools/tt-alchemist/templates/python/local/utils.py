@@ -49,21 +49,21 @@ class DeviceGetter:
 
 
 # Wrapper to abstract const-eval logic out of runtime funcs to keep them
-# cleaner. Invokes constEvalFunc iff outputs is empty.
-def constEvalFuncWrapper(constEvalFunc, inputs, outputs):
-    if not outputs:
-        outputs = constEvalFunc(inputs)
-    return outputs
+# cleaner. Invokes constEvalFunc iff key is not in cacheDict.
+def constEvalFuncWrapper(constEvalFunc, inputs, cacheDict, key):
+    if key not in cacheDict:
+        cacheDict[key] = constEvalFunc(inputs)
+    return cacheDict[key]
 
 
 # Wrapper to abstract const-eval logic out of runtime funcs to keep them
-# cleaner. Invokes constEvalFunc iff outputs is empty.
+# cleaner. Invokes constEvalFunc iff key is not in cacheDict.
 # This is an overload of constEvalFuncWrapper for const-eval functions that
 # take zero arguments.
-def constEvalFuncWrapperZeroArg(constEvalFunc, outputs):
-    if not outputs:
-        outputs = constEvalFunc()
-    return outputs
+def constEvalFuncWrapperZeroArg(constEvalFunc, cacheDict, key):
+    if key not in cacheDict:
+        cacheDict[key] = constEvalFunc()
+    return cacheDict[key]
 
 
 def get_scalar_from_tensor(tensor: ttnn.Tensor) -> int:

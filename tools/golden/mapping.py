@@ -1563,6 +1563,180 @@ def index_golden(
     return torch.index_select(input_tensor, dim=dim, index=index)
 
 
+def gather_golden(
+    input_tensor: GoldenMapTensor,
+    start_indices_tensor: GoldenMapTensor,
+    **kwargs,
+) -> GoldenMapTensor:
+    """
+    Golden function for gather operation with TTIR parameter names.
+
+    Parameters
+    ----------
+    input_tensor : GoldenMapTensor
+        Input tensor to gather from
+    start_indices_tensor : GoldenMapTensor
+        Tensor containing starting indices
+    **kwargs : dict
+        Keyword arguments including gather attributes as MLIR attributes
+
+    Returns
+    -------
+    GoldenMapTensor
+        Gathered tensor
+    """
+
+    # helpers
+    def _isGoldenMapTensor(x):
+        return isinstance(x, GoldenMapTensor)
+
+    def _first_shard(x):
+        return x.shard_at(0) if _isGoldenMapTensor(x) else x
+
+    def _assert_replicated(t):
+        ref = t.shard_at(0)
+        for device_id, shard in t.shard_map.items():
+            if not torch.equal(shard, ref):
+                raise ValueError("gather golden expects replicated tensors")
+
+    # ----- unpack attrs -----
+    offset_dims = unpack_mlir_attr(kwargs.get("offset_dims", []))
+    collapsed_slice_dims = unpack_mlir_attr(kwargs.get("collapsed_slice_dims", []))
+    operand_batching_dims = unpack_mlir_attr(kwargs.get("operand_batching_dims", []))
+    start_indices_batching_dims = unpack_mlir_attr(
+        kwargs.get("start_indices_batching_dims", [])
+    )
+    start_index_map = unpack_mlir_attr(kwargs.get("start_index_map", []))
+    index_vector_dim = unpack_mlir_attr(kwargs.get("index_vector_dim", 0))
+    slice_sizes = unpack_mlir_attr(kwargs.get("slice_sizes", []))
+    indices_are_sorted = unpack_mlir_attr(kwargs.get("indices_are_sorted", False))
+
+    x = input_tensor
+    idx = start_indices_tensor
+    device = x.device if hasattr(x, "device") else None
+
+    # validate/comute using shard-0 (torch), then slice the wrapper
+    if _isGoldenMapTensor(idx):
+        _assert_replicated(idx)
+    x0 = _first_shard(x)
+    idx0 = _first_shard(idx)
+
+    # ---- validate attrs ----
+    rank = x0.dim()
+    assert len(slice_sizes) == rank, "slice_sizes must match operand dimensions"
+    assert set(collapsed_slice_dims) == set(
+        start_index_map
+    ), "gathe golden assumes collapsed_slice_dims == start_index_map"
+    assert (
+        len(operand_batching_dims) == 0 and len(start_indices_batching_dims) == 0
+    ), "Batching dims not supported in this golden"
+    for d in collapsed_slice_dims:
+        assert slice_sizes[d] == 1, "collapsed dims must have slice size 1"
+
+    if idx0.dim() == 0:
+        idx0 = idx0.unsqueeze(0)
+    if len(start_index_map) == 1 and index_vector_dim == idx0.ndim:
+        pass
+    else:
+        # Expect the conventional "last dim holds the vector"
+        assert (
+            index_vector_dim == idx0.ndim - 1
+        ), "This golden expects index_vector_dim == last dimension for multi-d indices"
+
+    # Determine batch shape and flatten indices to [B, K]
+    if idx0.ndim == 1:  # simple path, K == 1
+        batch_shape = idx0.shape  # [N]
+        K = 1
+        idx_flat0 = idx0.reshape(-1, 1).long()
+    else:
+        K = idx0.shape[-1]
+        assert K == len(
+            start_index_map
+        ), "index vector length must match start_index_map"
+        batch_shape = idx0.shape[:-1]
+        idx_flat0 = idx0.reshape(-1, K).long()
+
+    # Bounds check (might help avoid segfaults)
+    for d in range(rank):
+        if d not in start_index_map:
+            assert slice_sizes[d] <= x0.size(d), "slice size too large for operand"
+    for k, d in enumerate(start_index_map):
+        valid_max = x0.size(d) - slice_sizes[d]
+        if torch.any(idx_flat0[:, k] < 0) or torch.any(idx_flat0[:, k] > valid_max):
+            print(d)
+            raise IndexError(
+                "gather start indices out of bounds for operand dim {}".format(d)
+            )
+
+    # Build the natural slice_shape (operand order, skipping collapsed dims)
+    slice_dims_natural = [d for d in range(rank) if d not in collapsed_slice_dims]
+    natural_slice_shape = [slice_sizes[d] for d in slice_dims_natural]
+
+    # Number of non-collapsed dims must match offset_dims count
+    assert len(slice_dims_natural) == len(
+        offset_dims
+    ), "offset_dims must have one entry per non-collapsed slice dim"
+
+    # For each batch vector of indices, slice x accordingly
+    B = int(torch.tensor(batch_shape).prod()) if len(batch_shape) > 0 else 1
+    slices = []
+    for b in range(B):
+        starts = [0] * rank
+        ends = [0] * rank
+        # Fill starts/ends from index vector for mapped dims
+        for k, d in enumerate(start_index_map):
+            starts[d] = int(idx_flat0[b, k].item())
+            ends[d] = starts[d] + slice_sizes[d]
+        # For the other dims, start at 0 (or clamp) and take slice_sizes[d]
+        for d in range(rank):
+            if d not in start_index_map:
+                starts[d] = 0
+                ends[d] = slice_sizes[d]
+
+        # Build the per-dim slice
+        slicer = tuple(slice(starts[d], ends[d]) for d in range(rank))
+        sub = x[slicer]  # shape equals slice_sizes in operand order
+
+        # Remove collapsed dims (size-1) to get natural slice shape
+        if len(collapsed_slice_dims) > 0:
+            sub = sub.squeeze(dim=tuple(sorted(collapsed_slice_dims)))
+
+        slices.append(sub)
+
+    # Stack over batch
+    if len(slices) == 1 and batch_shape == ():
+        gathered = slices[0]
+    else:
+        gathered = torch.stack(slices, dim=0).reshape(
+            *batch_shape, *natural_slice_shape
+        )
+
+    # position the slice dims inside the result according to offset_dims.
+    # Current order: [B0, B1, ..., Slice0, Slice1, ...]
+    batch_rank = len(batch_shape)
+    slice_rank = len(natural_slice_shape)
+    result_rank = batch_rank + slice_rank
+
+    remaining_positions = [p for p in range(result_rank) if p not in offset_dims]
+    assert (
+        len(remaining_positions) == batch_rank
+    ), "offset_dims inconsistent with batch rank"
+
+    desired_index_for_current = [None] * result_rank
+    # map batch dims
+    for b_i in range(batch_rank):
+        desired_index_for_current[b_i] = remaining_positions[b_i]
+    # map slice dims
+    for s_i in range(slice_rank):
+        desired_index_for_current[batch_rank + s_i] = offset_dims[s_i]
+
+    # Permute if needed
+    if desired_index_for_current != list(range(result_rank)):
+        gathered = gathered.permute(*desired_index_for_current)
+
+    return gathered.to(device=device)
+
+
 def tilize_golden(
     input_tensor: GoldenMapTensor, tilize=True, **kwargs
 ) -> GoldenMapTensor:
@@ -2133,6 +2307,58 @@ def index_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
 
     indices = torch.arange(begin, end, step, device=input_tensor.device)
     return torch.index_select(input_tensor, dim, indices)
+
+
+def dynamic_slice_golden(
+    input_tensor: GoldenMapTensor,
+    **kwargs,
+) -> GoldenMapTensor:
+    """
+    Golden function for dynamic_slice operation.
+
+    Parameters
+    ----------
+    input_tensor : GoldenMapTensor
+        Input tensor to slice
+    *start_indices_tensors : GoldenMapTensor
+        One tensor per dimension, each providing the start index for that dimension.
+        Scalars or rank-1 tensors are supported; values are interpreted as integers.
+    **kwargs : dict
+        Keyword arguments including 'slice_sizes' as MLIR attribute
+
+    Returns
+    -------
+    GoldenMapTensor
+        Dynamically sliced tensor
+    """
+
+    start_indices_tensors = unpack_mlir_attr(kwargs.get("start_indices", []))
+    slice_sizes = unpack_mlir_attr(kwargs.get("slice_sizes", []))
+    rank = len(slice_sizes)
+    assert rank == len(start_indices_tensors), "start_indices_tensors must match rank"
+
+    # Extract start indices (use shard-0 for validation)
+    starts: List[int] = []
+    x0 = input_tensor.shard_at(0)
+    for d, st in enumerate(start_indices_tensors):
+        val0 = st if not isinstance(st, GoldenMapTensor) else st.shard_at(0)
+        starts.append(val0)
+
+        # Bounds check
+        max_valid = x0.size(d) - slice_sizes[d]
+        if starts[d] < 0 or starts[d] > max_valid:
+            raise IndexError(
+                f"dynamic_slice start index out of bounds for dim {d}: {starts[d]} not in [0,{max_valid}]"
+            )
+
+    # Build slices
+    slicers = tuple(slice(starts[d], starts[d] + slice_sizes[d]) for d in range(rank))
+
+    shard_map = {}
+    for device_id, shard in input_tensor.shard_map.items():
+        shard_map[device_id] = shard[slicers]
+
+    return GoldenMapTensor(shard_map, input_tensor.mesh_shape)
 
 
 def repeat_interleave_golden(
@@ -3739,6 +3965,47 @@ def ttir_isfinite_golden(
     return torch.isfinite(input_tensor).to(dtype)
 
 
+def ttir_embedding_backward_golden(
+    indices_tensor: GoldenMapTensor,
+    weight_tensor: GoldenMapTensor,
+    in_gradient_tensor: GoldenMapTensor,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    # Get the shape of the weight tensor (num_embeddings, embedding_dim)
+    num_embeddings = weight_tensor.size()[0]
+    embedding_dim = weight_tensor.size()[1]
+
+    def compute_embedding_backward(
+        indices_shard: torch.Tensor,
+        in_gradient_shard: torch.Tensor,
+    ) -> torch.Tensor:
+        # Initialize output gradient with zeros
+        grad_weight = torch.zeros(
+            num_embeddings, embedding_dim, dtype=in_gradient_shard.dtype
+        )
+
+        # Flatten indices and gradients for easier accumulation
+        indices_flat = indices_shard.to(torch.int64).flatten()
+        grad_flat = in_gradient_shard.reshape(-1, embedding_dim)
+
+        # Accumulate gradients at the corresponding indices
+        grad_weight.index_add_(0, indices_flat, grad_flat)
+
+        return grad_weight.to(dtype)
+
+    # Apply the computation shard-wise and return a GoldenMapTensor
+    result_shards = {}
+    for device_id in indices_tensor.shard_map.keys():
+        indices_shard = indices_tensor.shard_map[device_id]
+        in_gradient_shard = in_gradient_tensor.shard_map[device_id]
+        result_shards[device_id] = compute_embedding_backward(
+            indices_shard, in_gradient_shard
+        )
+
+    return GoldenMapTensor(result_shards, indices_tensor.mesh_shape)
+
+
 ################ StableHLO Op Golden Functions ###############
 
 
@@ -3830,8 +4097,7 @@ def stablehlo_constant_golden(value: DenseElementsAttr) -> GoldenMapTensor:
         value = value.get_splat_value()
         torch_tensor = torch.full(shape, value.value, dtype=dtype)
     else:
-        flat_values = [elem for elem in value]
-        torch_tensor = torch.tensor(flat_values, dtype=dtype).reshape(shape)
+        torch_tensor = torch.tensor(np.array(value), dtype=dtype).reshape(shape)
 
     return GoldenMapTensor({0: torch_tensor.reshape(shape)}, (1, 1))
 
@@ -4994,6 +5260,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.SoftmaxOp: softmax_golden,
     ttir.MatmulOp: matmul_golden,
     ttir.EmbeddingOp: embedding_golden,
+    ttir.EmbeddingBackwardOp: ttir_embedding_backward_golden,
     ttir.Upsample2dOp: upsample2d_golden,
     ttir.BatchNormInferenceOp: ttir_batch_norm_inference_golden,
     ttir.BatchNormTrainingOp: ttir_batch_norm_training_golden,
@@ -5081,6 +5348,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     stablehlo.ShiftRightLogicalOp: stablehlo_shift_right_logical_golden,
     stablehlo.ReverseOp: stablehlo_reverse_golden,
     stablehlo.DotGeneralOp: dot_general_golden,
+    stablehlo.DynamicSliceOp: dynamic_slice_golden,
     stablehlo.DynamicUpdateSliceOp: stablehlo_dynamic_update_slice_golden,
     # StableHLO tensor manipulation operations
     stablehlo.TransposeOp: stablehlo_transpose_golden,

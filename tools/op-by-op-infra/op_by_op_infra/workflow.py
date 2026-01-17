@@ -12,7 +12,9 @@ from typing import List, Optional
 from ttmlir.ir import Module
 
 from . import workflow_internal
+from .mlir_module_splitter import MLIRModuleSplitter
 from .pydantic_models import OpTest
+from .utils import OpWrapper
 
 
 def run_op_by_op_workflow(
@@ -73,4 +75,68 @@ def run_op_by_op_workflow(
         execution_results,
         frontend=frontend,
         model_name=model_name,
+    )
+
+
+def extract_ops_from_module(
+    module: Module | str, *, origin_model: str = ""
+) -> List[OpWrapper]:
+    """
+    Extracts operations from a module without executing them.
+
+    Parameters
+    ----------
+    module : Module | str
+        MLIR module (or module string) to extract ops from
+    origin_model : str
+        Name of the model this module originated from
+
+    Returns
+    -------
+    List[OpWrapper]
+        List of wrapped operations extracted from the module
+    """
+    splitter = MLIRModuleSplitter()
+    sub_ops = splitter.split(module, origin_model=origin_model)
+    return sub_ops
+
+
+def execute_extracted_ops(
+    ops: List[OpWrapper],
+    *,
+    compile_only: bool = False,
+    frontend: Optional[str] = None,
+    debug_print: bool = False,
+) -> List[OpTest]:
+    """
+    Takes a list of OpWrappers, makes a submodule out of each, compiles and executes them.
+
+    Behavior is identical to split_and_execute but operates on pre-extracted ops.
+
+    Parameters
+    ----------
+    ops : List[OpWrapper]
+        List of wrapped operations to execute
+    compile_only : bool
+        If True, only compiles without executing on device
+    debug_print : bool
+        If True, prints module at each compilation step (stablehlo -> ttir -> ttnn)
+
+    Returns
+    -------
+    List[OpTest]
+        List of OpTest pydantic models with execution results
+    """
+    executor = workflow_internal.MLIRModuleExecutor(
+        compile_only, debug_print=debug_print
+    )
+    execution_results = []
+
+    for op in workflow_internal.progress_bar(ops, desc="Executing submodules..."):
+        sub_module = op.as_module()
+        execution_result = executor.execute(sub_module)
+        execution_results.append(execution_result)
+
+    return workflow_internal.convert_results_to_pydantic_models(
+        execution_results, frontend=frontend
     )

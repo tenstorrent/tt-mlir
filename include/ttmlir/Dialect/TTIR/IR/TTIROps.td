@@ -2629,7 +2629,7 @@ def TTIR_EmbeddingBackwardOp : TTIR_NamedOp<"embedding_backward"> {
     let description = [{
       The `embedding_backward` operation computes the gradient of the embedding operation with respect to the weight tensor.
 
-      This operation takes an input tensor of indices, the original weight tensor, and the gradient tensor from the forward pass.
+      This operation takes an input tensor of indices, the original weight tensor, and the gradient tensor from previous backpropagation steps.
       It computes how the embedding weights should be updated during backpropagation by accumulating gradients at the appropriate
       indices in the weight tensor.
 
@@ -2638,7 +2638,7 @@ def TTIR_EmbeddingBackwardOp : TTIR_NamedOp<"embedding_backward"> {
       // Embedding backward
       %input = ... : tensor<2x3xi32>  // Original indices used in the forward pass
       %weight = ... : tensor<10x4xf32>  // Original embedding table
-      %in_gradient = ... : tensor<2x3x4xf32>  // Gradient from the forward pass
+      %in_gradient = ... : tensor<2x3x4xf32>  // Gradient from previous backpropagation steps
       %result = ttir.embedding_backward(%input, %weight, %in_gradient) :
           (tensor<2x3xi32>, tensor<10x4xf32>, tensor<2x3x4xf32>) -> tensor<10x4xf32>
 
@@ -2646,7 +2646,7 @@ def TTIR_EmbeddingBackwardOp : TTIR_NamedOp<"embedding_backward"> {
       // [[0, 2, 5],
       //  [7, 1, 9]]
 
-      // Input gradient tensor (from forward pass):
+      // Input gradient tensor (from previous backpropagation steps):
       // [[[0.1, 0.2, 0.3, 0.4],  // gradient for embedding of index 0
       //   [0.5, 0.6, 0.7, 0.8],  // gradient for embedding of index 2
       //   [...]],                 // gradient for embedding of index 5

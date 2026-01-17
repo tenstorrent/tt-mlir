@@ -274,25 +274,15 @@ void createTTIRToTTNNDevicePipeline(
     }
 
     // Apply ComputeKernelConfig settings before analysis passes.
-    // This ensures that analysis passes see the configured values.
-    // Check if math fidelity is explicitly set (CLI or programmatic).
-    bool mathFidelityExplicitlySet =
-        options.computeCfgMathFidelitySet ||
-        (options.computeCfgMathFidelity.getNumOccurrences() > 0);
+    // Create options struct and forward pipeline options.
+    TTNNSetComputeKernelConfigOptions setConfigOptions;
 
-    // Run pass only when at least one compute config option is explicitly set.
-    if (mathFidelityExplicitlySet || options.computeCfgFp32DestAccEn) {
-      // Create options struct and forward pipeline options.
-      TTNNSetComputeKernelConfigOptions setConfigOptions;
+    // Forward the OptionalMathFidelity value directly
+    setConfigOptions.mathFidelity = options.computeCfgMathFidelity.getValue();
+    setConfigOptions.fp32DestAccEn = options.computeCfgFp32DestAccEn.getValue();
 
-      // Forward math fidelity only if explicitly set.
-      if (mathFidelityExplicitlySet) {
-        setConfigOptions.mathFidelity = options.computeCfgMathFidelity;
-      }
-
-      // Forward fp32DestAccEn value (defaults to true).
-      setConfigOptions.fp32DestAccEn = options.computeCfgFp32DestAccEn;
-
+    if (setConfigOptions.fp32DestAccEn ||
+        setConfigOptions.mathFidelity != OptionalMathFidelity::Undefined) {
       devicePm.addPass(createTTNNSetComputeKernelConfig(setConfigOptions));
     }
 
@@ -330,6 +320,30 @@ void createTTIRToTTNNDevicePipeline(
           mlir::tt::ttnn::createTTNNCollectPerfMetrics(metricsOptions));
     }
   }
+}
+
+void createRecoverStructureXLATorchPipeline(
+    OpPassManager &pm, const RecoverStructureXLATorchPipelineOptions &options) {
+  // Simplify locations to remove nested location information
+  //
+  // The nested locations appear for parameters, and describe original parameter
+  // names, among other info, and will be useful for naming variables in the
+  // generated code.
+  //
+  pm.addPass(createTTNNSimplifyLocsForCodegen());
+
+  // Recover program structure by splitting IR into functions based on source
+  // locations
+  //
+  pm.addPass(createTTNNRecoverStructure());
+
+  // TODO (#6297): This is a temporary workaround - deallocs aren't properly
+  // placed in structure recovery pass yet. They are often called before a
+  // tensor is last used. A good approach today is to leave deallocs in the IR
+  // and (re)move them with an LLM later, by asking it to move deallocs to after
+  // last use.
+  //
+  pm.addPass(createTTNNRemoveDeallocs());
 }
 
 // Pipeline which lowers the Device module from TTNN to EmitC dialect.
@@ -381,6 +395,10 @@ void createTTNNToEmitPyDevicePipeline(
   auto &devicePm = pm.nest<ttcore::DeviceModuleOp>().nest<mlir::ModuleOp>();
 
   devicePm.addPass(createTTNNAdjustDeallocs());
+  if (options.tryRecoverStructure) {
+    createRecoverStructureXLATorchPipeline(
+        devicePm, RecoverStructureXLATorchPipelineOptions());
+  }
 
   // Apply EmitPy-specific workarounds before conversion
   devicePm.addPass(createTTNNEmitPyWorkarounds());
@@ -500,6 +518,21 @@ void createTTIRToEmitPyPipeline(OpPassManager &pm,
   pm.addPass(createEmitPyLinkModulesPass());
 }
 
+// Complete pipeline for lowering TTNN to EmitPy.
+//
+// This pipeline is used when the input is already in TTNN dialect, and assumes
+// the CPU module is still in TTIR.
+//
+// Device module: TTNN -> EmitPy.
+// CPU module: TTIR -> TTNN -> EmitPy (with golden functions).
+//
+void createTTNNToEmitPyPipeline(
+    OpPassManager &pm, const TTNNToEmitPyDevicePipelineOptions &options) {
+  createTTNNToEmitPyDevicePipeline(pm, options);
+  createTTIRToEmitPyCPUPipeline(pm);
+  pm.addPass(createEmitPyLinkModulesPass());
+}
+
 //===----------------------------------------------------------------------===//
 // Pipeline registration.
 //===----------------------------------------------------------------------===//
@@ -540,5 +573,21 @@ void registerTTNNPipelines() {
   mlir::PassPipelineRegistration<mlir::tt::ttnn::TTIRToEmitPyPipelineOptions>(
       "ttir-to-emitpy-pipeline", "Pipeline lowering TTIR to EmitPy.",
       mlir::tt::ttnn::createTTIRToEmitPyPipeline);
+
+  // TTNN to EmitPy pipeline.
+  //
+  mlir::PassPipelineRegistration<
+      mlir::tt::ttnn::TTNNToEmitPyDevicePipelineOptions>(
+      "ttnn-to-emitpy-pipeline", "Pipeline lowering TTNN to EmitPy.",
+      mlir::tt::ttnn::createTTNNToEmitPyPipeline);
+
+  // Recover Structure XLA/Torch pipeline.
+  //
+  mlir::PassPipelineRegistration<
+      mlir::tt::ttnn::RecoverStructureXLATorchPipelineOptions>(
+      "recover-structure-xla-torch-pipeline",
+      "Pipeline to recover structure from TTNN IR for code generation from "
+      "XLA/Torch. ",
+      mlir::tt::ttnn::createRecoverStructureXLATorchPipeline);
 }
 } // namespace mlir::tt::ttnn

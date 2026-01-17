@@ -581,18 +581,24 @@ private:
   }
 
   bool shouldForceInputSystemMemory(BlockArgument arg) const {
+    func::FuncOp owningFunc = cast<func::FuncOp>(arg.getOwner()->getParentOp());
+
+    // For block arguments which are maked as conv2d weights leave them on host.
+    uint32_t argIdx = arg.getArgNumber();
+    if (owningFunc.getArgAttr(argIdx, ttmlir::utils::g_conv2dWeightAttrName)) {
+      return true;
+    }
+
+    // If function is marked as const-eval leave inputs as is.
+    // TTNNConstEvalInputsToSystemMemory pass will handle them.
+    if (owningFunc->hasAttr(ttmlir::utils::g_constEvalAttrName)) {
+      return false;
+    }
+
     for (Operation *user : arg.getUsers()) {
       if (shouldMeshShardOpForceSystemMemory(user)) {
         return true;
       }
-    }
-
-    // For block arguments which are maked as conv2d weights leave them on host.
-    func::FuncOp owningFunc = cast<func::FuncOp>(arg.getOwner()->getParentOp());
-    uint32_t argIdx = arg.getArgNumber();
-
-    if (owningFunc.getArgAttr(argIdx, ttmlir::utils::g_conv2dWeightAttrName)) {
-      return true;
     }
 
     return false;

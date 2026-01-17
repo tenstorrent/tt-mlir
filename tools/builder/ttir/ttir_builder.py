@@ -4216,7 +4216,7 @@ class TTIRBuilder(Builder):
                         )
                         concat_builder._set_golden_tensor(new_op_result, golden_output)
                         for input_operand, input_golden_tensor in zip(
-                            old_op.inputs, input_tensors
+                            inputs, input_tensors
                         ):
                             concat_builder._set_golden_tensor(
                                 input_operand, input_golden_tensor
@@ -9546,6 +9546,165 @@ class TTIRBuilder(Builder):
                 ]
 
         return slice_module, slice_builder
+
+    ############### ttir.EmbeddingBackwardOp ###############
+
+    @tag(ttir.EmbeddingBackwardOp)
+    def embedding_backward(
+        self,
+        input: Operand,
+        weight: Operand,
+        in_gradient: Operand,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttir_op = self.get_opview_from_method(TTIRBuilder.embedding_backward)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(weight)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        input_tensor = self._get_golden_tensor(input)
+        weight_tensor = self._get_golden_tensor(weight)
+        in_gradient_tensor = self._get_golden_tensor(in_gradient)
+
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(
+            input_tensor, weight_tensor, in_gradient_tensor, mlir_output_type
+        )
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir_op(
+            result,
+            input,
+            weight,
+            in_gradient,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(ttir.EmbeddingBackwardOp)
+    def embedding_backward_parser(
+        self,
+        old_op: ttir.EmbeddingBackwardOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.embedding_backward_parser)
+        input = global_dict[old_op.input]
+        weight = global_dict[old_op.weight]
+        in_gradient = global_dict[old_op.in_gradient]
+        result = old_op.result.type
+
+        new_op = ttir_op(
+            result,
+            input,
+            weight,
+            in_gradient,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        if not self._disable_golden_check:
+            input_tensor = self._get_golden_tensor(input)
+            weight_tensor = self._get_golden_tensor(weight)
+            in_gradient_tensor = self._get_golden_tensor(in_gradient)
+            op_golden_function = get_golden_function(ttir_op)
+            golden_output = op_golden_function(
+                input_tensor, weight_tensor, in_gradient_tensor, result.element_type
+            )
+            self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(ttir.EmbeddingBackwardOp)
+    def embedding_backward_split(
+        self,
+        old_op: ttir.EmbeddingBackwardOp,
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(TTIRBuilder.embedding_backward_split)
+
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
+
+            embedding_backward_module = Module.create()
+            embedding_backward_builder = TTIRBuilder(old_ctx, old_loc)
+            op_input_types = [
+                old_op.input.type,
+                old_op.weight.type,
+                old_op.in_gradient.type,
+            ]
+
+            with InsertionPoint(embedding_backward_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="embedding_backward_module")
+                def decorated_func(*inputs):
+                    input = inputs[0]
+                    weight = inputs[1]
+                    in_gradient = inputs[2]
+                    result = old_op.result.type
+
+                    new_op = ttir_op(
+                        result, input, weight, in_gradient, loc=old_op.location
+                    )
+                    new_op_result = new_op.result
+
+                    if not self._disable_golden_check:
+                        input_tensor = self._get_golden_tensor(old_op.input)
+                        weight_tensor = self._get_golden_tensor(old_op.weight)
+                        in_gradient_tensor = self._get_golden_tensor(old_op.in_gradient)
+                        op_golden_function = get_golden_function(ttir_op)
+                        golden_output = op_golden_function(
+                            input_tensor,
+                            weight_tensor,
+                            in_gradient_tensor,
+                            result.element_type,
+                        )
+                        embedding_backward_builder._set_golden_tensor(
+                            new_op_result, golden_output
+                        )
+                        embedding_backward_builder._set_golden_tensor(
+                            input, input_tensor
+                        )
+                        embedding_backward_builder._set_golden_tensor(
+                            weight, weight_tensor
+                        )
+                        embedding_backward_builder._set_golden_tensor(
+                            in_gradient, in_gradient_tensor
+                        )
+                        ordered_inputs.extend([input, weight, in_gradient])
+                        ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                embedding_backward_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return embedding_backward_module, embedding_backward_builder
 
     def get_dimension_size(
         self, in0: Operand, dimension: int = 0, unit_attrs: Optional[List[str]] = None

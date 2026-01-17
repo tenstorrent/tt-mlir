@@ -2843,9 +2843,10 @@ createOp(FlatbufferObjectCache &cache, SplitQueryKeyValueAndSplitHeadsOp op) {
       toFlatbuffer(cache, op.getNumKvHeads());
   bool transposeKey = op.getTransposeKey();
 
-  auto memoryConfig = op.getMemoryConfig()
-                          ? toFlatbuffer(cache, op.getMemoryConfig().value())
-                          : 0;
+  auto memoryConfig =
+      op.getMemoryConfig()
+          ? toFlatbuffer(cache, *op.getMemoryConfig())
+          : getMemoryConfigFromTensorTypeIfNeeded(cache, op.getQuery());
 
   return ::tt::target::ttnn::CreateSplitQueryKeyValueAndSplitHeadsOp(
       *cache.fbb, inputTensor, inputKVTensor, outQuery, outKey, outValue,

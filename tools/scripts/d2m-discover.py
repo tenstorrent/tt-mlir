@@ -22,6 +22,25 @@ from ttmlir.dialects import func, ttir
 # Operations matching these names will be excluded from analysis.
 OP_IGNORELIST = [
     "func.return",
+    # ttcore
+    "ttcore.load_cached",
+    # ttnn
+    "ttnn.get_device",
+    "ttnn.paged_update_cache",
+    "ttnn.softmax",
+    "ttnn.assign",  # This op is used for ccl workaround
+    "ttnn.all_gather",
+    "ttnn.reduce_scatter",
+    "ttnn.all_reduce",
+    "ttnn.mesh_shard",
+    "ttnn.point_to_point",
+    # ttir
+    "ttir.mesh_shard",
+    "ttir.all_gather",
+    "ttir.reduce_scatter",
+    "ttir.all_reduce",
+    "ttir.point_to_point",
+    "ttir.all_to_all",
 ]
 
 
@@ -120,7 +139,7 @@ def find_connected_components(module):
     # Recurse into top-level func.func ops and func.func ops inside ttcore.device_module
     for entry in module.body.operations:
         op_name = entry.operation.name
-        if op_name == "func.func":
+        if op_name == "func.func" and entry.operation.is_public():
             process_func_op(entry, uf, op_map)
         elif op_name == "ttcore.device_module":
             # Recurse into device_module to find nested func.func ops
@@ -131,7 +150,11 @@ def find_connected_components(module):
                         for region in nested_op.operation.regions:
                             for block in region:
                                 for nested_op in block.operations:
-                                    if nested_op.operation.name == "func.func":
+                                    if nested_op.operation.name == "func.func" and (
+                                        "sym_visibility" not in nested_op.attributes
+                                        or nested_op.attributes["sym_visibility"]
+                                        == "public"
+                                    ):
                                         process_func_op(nested_op, uf, op_map)
 
     # Group operations by their component representative
@@ -152,12 +175,19 @@ def print_components(components):
 
     print(f"Found {len(components)} connected component(s) of size > 1:\n")
 
+    unique_ops = set()
+
     for i, ops in enumerate(components, 1):
         print(f"Component {i} ({len(ops)} operations):")
         for op in ops:
             loc_str = get_location_str(op.location)
+            unique_ops.add(op.name)
             print(f"  - {op.name} @ {loc_str}")
         print()
+
+    print("Unique operations across all components:")
+    for op_name in sorted(unique_ops):
+        print(f"  - {op_name}")
 
 
 def topological_sort(ops):

@@ -116,7 +116,8 @@ toHostSingleTensor(const ::tt::runtime::ttnn::TTNNTensorWrapper &tensorWrapper,
 
   // If untilize is true and the data type can be untilized on device
   bool untilizeOnDevice =
-      untilize && utils::canUntilizeDataTypeOnDevice(inputTensor.dtype());
+      untilize && utils::canUntilizeOnDevice(inputTensor.dtype(),
+                                             inputTensor.memory_config());
   // If blackhole workarounds are enabled, only untilize on device if the
   // architecture is not blackhole
   if (::tt::runtime::workaround::Env::get().blackholeWorkarounds) {
@@ -734,6 +735,26 @@ std::vector<::tt::runtime::Tensor> toHost(::tt::runtime::Tensor tensor,
   }
 
   return hostTensors;
+}
+
+std::vector<::tt::runtime::Tensor>
+getDeviceTensors(::tt::runtime::Tensor tensor) {
+  const ::tt::runtime::ttnn::TTNNTensorWrapper &tensorWrapper =
+      tensor.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN);
+
+  std::vector<::ttnn::Tensor> ttnnTensors =
+      ::ttnn::distributed::get_device_tensors(tensorWrapper.getTensor());
+
+  std::vector<Tensor> runtime_tensors;
+  runtime_tensors.reserve(ttnnTensors.size());
+
+  for (const ::ttnn::Tensor &ttnnTensor : ttnnTensors) {
+    runtime_tensors.emplace_back(utils::createRuntimeTensorFromTTNN(
+        ttnnTensor, tensorWrapper.getMeshEvent(),
+        tensorWrapper.shouldRetain()));
+  }
+
+  return runtime_tensors;
 }
 
 ::tt::runtime::Tensor toLayout(::tt::runtime::Tensor tensor, Device device,
