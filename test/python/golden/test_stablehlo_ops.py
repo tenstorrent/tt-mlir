@@ -4,13 +4,13 @@
 
 import pytest
 import torch
-from typing import Callable, List, Optional, Tuple
+from typing import Callable, List, Optional
 from collections import OrderedDict
 
-from builder.base.builder_utils import Operand, Shape, TypeInfo
+from builder.base.builder_utils import Operand, Shape
 from builder.stablehlo.stablehlo_builder import StableHLOBuilder
 from builder.base.builder_apis import compile_and_execute_shlo
-from test_utils import shape_str, shapes_list_str, Marks
+from test_utils import shape_str, Marks
 
 pytestmark = pytest.mark.frontend("shlo")
 
@@ -402,8 +402,6 @@ def module_broadcast_in_dim(builder: StableHLOBuilder):
         )
 
 
-@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
-@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 @pytest.mark.parametrize(
     "test_fn",
