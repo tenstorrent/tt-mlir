@@ -224,15 +224,15 @@ def EmitPyLinkModules : Pass<"emitpy-link-modules", "::mlir::ModuleOp"> {
     module {
       ttcore.cpu_module {
         module {
-          func.func @hoisted_function() { ... }  // Definition of hoisted function
+          func.func @cpu_hoisted_function() { ... }  // Definition of hoisted function
         }
       }
       ttcore.device_module {
         module {
           emitpy.import "ttnn"
-          func.func private @hoisted_function_decl()  // Stub declaration
+          func.func private @hoisted_function()  // Stub declaration
           func.func @device_function() {
-            call @hoisted_function_decl()  // Call to hoisted function
+            call @cpu_hoisted_function()  // Call to hoisted function
           }
         }
       }

@@ -27,10 +27,12 @@ namespace mlir::tt {
 inline std::string hashFuncOp(func::FuncOp func) {
   auto originalSymName = func.getSymName();
 
-  // RAII guard to restore the original symbol name on scope exit.
-  // This ensures exception safety and proper cleanup in all code paths.
-  auto restoreSymName = llvm::make_scope_exit(
-      [&func, originalSymName]() { func.setSymName(originalSymName); });
+  // RAII guard to undo the temporary changes made to the function
+  // during hashing.
+  auto undoTempChanges = llvm::make_scope_exit([&func, originalSymName]() {
+    func.setSymName(originalSymName);
+    func.walk([&](func::CallOp callOp) { callOp->removeAttr("callee_hash"); });
+  });
 
   // Since the function (symbol) name is a part of the dumped form and does
   // not impact the semantics of the function, we temporarily set it to a
@@ -40,6 +42,8 @@ inline std::string hashFuncOp(func::FuncOp func) {
 
   // For each of the call ops, we first need to hash the callee function and
   // encode the produced hash in the call op.
+  // Recursive call chains are unlikely to be present in practice, so we do not
+  // attempt to detect and handle them here.
   func.walk([&](func::CallOp callOp) {
     if (auto calleeFunc =
             func->getParentOfType<mlir::ModuleOp>().lookupSymbol<func::FuncOp>(
@@ -55,9 +59,6 @@ inline std::string hashFuncOp(func::FuncOp func) {
   llvm::raw_string_ostream os(s);
 
   func.print(os, flags);
-
-  // Remove the callee_hash attributes to restore the original IR.
-  func.walk([&](func::CallOp callOp) { callOp->removeAttr("callee_hash"); });
 
   auto digest = llvm::SHA256::hash(llvm::ArrayRef<uint8_t>(
       reinterpret_cast<const uint8_t *>(s.data()), s.size()));
