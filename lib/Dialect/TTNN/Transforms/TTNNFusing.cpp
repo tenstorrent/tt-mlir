@@ -1003,12 +1003,21 @@ class SplitQKVFromSlicesPattern : public mlir::OpRewritePattern<MatMulOpType> {
   struct SliceReshapeChain {
     SliceStaticOp sliceOp;
     ReshapeOp reshapeOp;
+    PermuteOp permuteOp; // Optional: present if reshape is [B,S,H,D]
     int64_t numHeads;
     int64_t headDim;
     int64_t seqLen;
     int64_t sliceStart;
     int64_t sliceEnd;
     std::optional<QKVRole> role;
+
+    // Returns the final output op (permute if present, else reshape)
+    Operation *getFinalOp() { return permuteOp ? permuteOp : reshapeOp; }
+
+    // Returns the final output type
+    RankedTensorType getFinalType() {
+      return permuteOp ? permuteOp.getType() : reshapeOp.getType();
+    }
   };
 
   // Holds information about the concat feeding the matmul RHS,
@@ -1346,8 +1355,36 @@ private:
         return std::nullopt;
       }
 
-      return ConcatInfo{foundConcat,
-                        llvm::SmallVector<Value>(loadCached.getInputs())};
+      // Build weightInputs by mapping concat inputs to loadCached inputs.
+      // Each concat input traces back to a block arg, whose index corresponds
+      // to the loadCached input at that position.
+      llvm::SmallVector<Value> weightInputs;
+      auto loadCachedInputs = loadCached.getInputs();
+      for (Value concatInput : foundConcat.getInputs()) {
+        // Trace concat input back through permutes to find block arg.
+        Value v = concatInput;
+        while (Operation *defOp = v.getDefiningOp()) {
+          if (auto permuteOp = mlir::dyn_cast<PermuteOp>(defOp)) {
+            v = permuteOp.getInput();
+          } else {
+            break;
+          }
+        }
+
+        auto blockArg = mlir::dyn_cast<BlockArgument>(v);
+        if (!blockArg) {
+          return std::nullopt;
+        }
+
+        unsigned argIndex = blockArg.getArgNumber();
+        if (argIndex >= loadCachedInputs.size()) {
+          return std::nullopt;
+        }
+
+        weightInputs.push_back(loadCachedInputs[argIndex]);
+      }
+
+      return ConcatInfo{foundConcat, std::move(weightInputs)};
     }
 
     return std::nullopt;
@@ -1422,6 +1459,37 @@ private:
         return false;
       }
 
+      // Detect dimension ordering: [B,S,H,D] vs [B,H,S,D]
+      // For [B,S,H,D]: B * S == matmul[0]  (dim1 is seq)
+      // For [B,H,S,D]: B * S == matmul[0]  (dim2 is seq)
+      bool isBSHD = (reshapeShape[0] * reshapeShape[1] == matmulShape[0]);
+      bool isBHSD = (reshapeShape[0] * reshapeShape[2] == matmulShape[0]);
+
+      PermuteOp permuteOp = nullptr;
+      ArrayRef<int64_t> finalShape = reshapeShape;
+
+      if (isBSHD && !isBHSD) {
+        // Unambiguously [B,S,H,D] - require permute [0,2,1,3] to get [B,H,S,D]
+        if (!reshapeOp.getResult().hasOneUse()) {
+          return false;
+        }
+        permuteOp =
+            dyn_cast<PermuteOp>(*reshapeOp.getResult().getUsers().begin());
+        if (!permuteOp) {
+          return false;
+        }
+        auto perm = permuteOp.getPermutation();
+        if (perm != ArrayRef<int64_t>{0, 2, 1, 3}) {
+          return false;
+        }
+        finalShape = permuteOp.getType().getShape();
+      } else if (!isBHSD) {
+        // Neither pattern matches
+        return false;
+      }
+      // If both isBSHD and isBHSD (S==H), assume [B,H,S,D] - validation will
+      // catch errors
+
       // Find sliced dimension and bounds
       auto dimAndBounds = findSlicedDimensionWithBounds(sliceOp, matmulShape);
       if (!dimAndBounds.has_value()) {
@@ -1439,9 +1507,10 @@ private:
       chains.push_back({
           sliceOp,
           reshapeOp,
-          reshapeShape[O_NUM_HEADS],
-          reshapeShape[O_HEAD_DIM],
-          reshapeShape[O_SEQ_LEN],
+          permuteOp,
+          finalShape[O_NUM_HEADS],
+          finalShape[O_HEAD_DIM],
+          finalShape[O_SEQ_LEN],
           sliceStart,
           sliceEnd,
           std::nullopt,
@@ -1483,10 +1552,10 @@ private:
                                     SliceReshapeChain &kChain,
                                     SliceReshapeChain &vChain) const {
 
-    // Get dimensions from the reshape outputs
-    auto qReshapeShape = qChain.reshapeOp.getType().getShape();
-    int64_t batchSize = qReshapeShape[O_BATCH];
-    int64_t seqLen = qReshapeShape[O_SEQ_LEN];
+    // Get dimensions from chain (already extracted from final shape)
+    auto qFinalShape = qChain.getFinalType().getShape();
+    int64_t batchSize = qFinalShape[O_BATCH];
+    int64_t seqLen = qChain.seqLen;
 
     // Calculate total hidden dimension from the matmul output
     auto matmulShape = matmulOp.getType().getShape();
@@ -1517,17 +1586,18 @@ private:
     // For GQA, pass num_kv_heads; for MHA, omit it (op defaults to num_heads)
     auto splitOp = rewriter.create<SplitQueryKeyValueAndSplitHeadsOp>(
         matmulOp.getLoc(),
-        TypeRange{qChain.reshapeOp.getType(), kChain.reshapeOp.getType(),
-                  vChain.reshapeOp.getType()},
+        TypeRange{qChain.getFinalType(), kChain.getFinalType(),
+                  vChain.getFinalType()},
         inputReshape.getResult(),
         Value(), // no separate KV input - use single fused tensor
         rewriter.getUI32IntegerAttr(qChain.numHeads),
         isGQA ? rewriter.getUI32IntegerAttr(kChain.numHeads) : IntegerAttr(),
         rewriter.getBoolAttr(false) /*transpose_key*/, MemoryConfigAttr());
 
-    rewriter.replaceOp(qChain.reshapeOp, splitOp.getQuery());
-    rewriter.replaceOp(kChain.reshapeOp, splitOp.getKey());
-    rewriter.replaceOp(vChain.reshapeOp, splitOp.getValue());
+    // Replace final op (permute if present, else reshape)
+    rewriter.replaceOp(qChain.getFinalOp(), splitOp.getQuery());
+    rewriter.replaceOp(kChain.getFinalOp(), splitOp.getKey());
+    rewriter.replaceOp(vChain.getFinalOp(), splitOp.getValue());
 
     return mlir::success();
   }
