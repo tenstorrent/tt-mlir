@@ -5387,7 +5387,53 @@ mlir::tt::ttir::PagedScaledDotProductAttentionDecodeOp::verify() {
 }
 
 ::mlir::LogicalResult mlir::tt::ttir::DispatchD2MOp::verify() {
+  Region &body = getBody();
+  if (body.empty()) {
+    return emitOpError("Body region must not be empty.");
+  }
+
+  // Body must contain exactly one func.func
+  func::FuncOp mainFunc = nullptr;
+  for (Operation &op : body.front()) {
+    if (auto funcOp = mlir::dyn_cast<func::FuncOp>(&op)) {
+      if (mainFunc) {
+        return emitOpError("Body region must contain exactly one func.func.");
+      }
+      mainFunc = funcOp;
+    }
+  }
+
+  if (!mainFunc) {
+    return emitOpError("Body region must contain a func.func.");
+  }
+
+  // Verify return types match op results
+  if (mainFunc.getNumResults() != getNumResults()) {
+    return emitOpError("D2M function must have ")
+           << getNumResults() << " return values, got "
+           << mainFunc.getNumResults();
+  }
+
+  for (auto [idx, pair] : llvm::enumerate(
+           llvm::zip(getResults().getTypes(), mainFunc.getResultTypes()))) {
+    auto [resultType, funcResultType] = pair;
+    if (resultType != funcResultType) {
+      return emitOpError("D2M function return type ")
+             << idx << " mismatch: expected " << resultType << ", got "
+             << funcResultType;
+    }
+  }
+
   return success();
+}
+
+func::FuncOp mlir::tt::ttir::DispatchD2MOp::lookupD2MMainFunc() {
+  for (Operation &op : getBody().front()) {
+    if (auto funcOp = mlir::dyn_cast<func::FuncOp>(&op)) {
+      return funcOp;
+    }
+  }
+  return nullptr;
 }
 
 } // namespace mlir::tt::ttir
