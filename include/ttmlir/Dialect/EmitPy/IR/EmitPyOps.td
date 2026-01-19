@@ -230,9 +230,9 @@ def EmitPy_ClassOp : EmitPy_Op<"class", [Symbol, SymbolTable, IsolatedFromAbove,
 
     ```mlir
     emitpy.class @Model(#emitpy.opaque<"torch.nn.Module">) {
-      func.func @__init__(%self: !emitpy.opaque<"Model">) {
+      func.func @__init__(%self: !emitpy.class<"Model">) {
         %w = emitpy.call_opaque "ttnn.load_weight"() : () -> !emitpy.opaque<"ttnn.Tensor">
-        emitpy.set_attr %self, "weight", %w : (!emitpy.opaque<"Model">, !emitpy.opaque<"ttnn.Tensor">)
+        emitpy.set_attr %self, "weight", %w : (!emitpy.class<"Model">, !emitpy.opaque<"ttnn.Tensor">)
         return
       }
     }

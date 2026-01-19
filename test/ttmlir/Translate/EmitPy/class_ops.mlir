@@ -7,21 +7,21 @@
 // CHECK: return ttnn.matmul(input, self.weight)
 module {
   emitpy.class @Model(#emitpy.opaque<"torch.nn.Module">) {
-    func.func @__init__(%self: !emitpy.opaque<"Model">) {
+    func.func @__init__(%self: !emitpy.class<"Model">) {
       %0 = emitpy.expression : -> !emitpy.opaque<"ttnn.Tensor"> {
       ^bb0():
         %1 = emitpy.call_opaque "ttnn.load_weight"() : () -> !emitpy.opaque<"ttnn.Tensor">
         emitpy.yield %1 : !emitpy.opaque<"ttnn.Tensor">
       }
-      emitpy.set_attr %self, "weight", %0 : (!emitpy.opaque<"Model">, !emitpy.opaque<"ttnn.Tensor">)
+      emitpy.set_attr %self, "weight", %0 : (!emitpy.class<"Model">, !emitpy.opaque<"ttnn.Tensor">)
       return
     }
 
-    func.func @forward(%self: !emitpy.opaque<"Model">,
+    func.func @forward(%self: !emitpy.class<"Model">,
                        %input: !emitpy.opaque<"ttnn.Tensor"> {emitpy.name = "input"}) -> !emitpy.opaque<"ttnn.Tensor"> {
-      %0 = emitpy.expression(%self, %input) : (!emitpy.opaque<"Model">, !emitpy.opaque<"ttnn.Tensor">) -> !emitpy.opaque<"ttnn.Tensor"> {
-      ^bb0(%s: !emitpy.opaque<"Model">, %i: !emitpy.opaque<"ttnn.Tensor">):
-        %w = emitpy.get_attr %s, "weight" : (!emitpy.opaque<"Model">) -> !emitpy.opaque<"ttnn.Tensor">
+      %0 = emitpy.expression(%self, %input) : (!emitpy.class<"Model">, !emitpy.opaque<"ttnn.Tensor">) -> !emitpy.opaque<"ttnn.Tensor"> {
+      ^bb0(%s: !emitpy.class<"Model">, %i: !emitpy.opaque<"ttnn.Tensor">):
+        %w = emitpy.get_attr %s, "weight" : (!emitpy.class<"Model">) -> !emitpy.opaque<"ttnn.Tensor">
         %r = emitpy.call_opaque "ttnn.matmul"(%i, %w) : (!emitpy.opaque<"ttnn.Tensor">, !emitpy.opaque<"ttnn.Tensor">) -> !emitpy.opaque<"ttnn.Tensor">
         emitpy.yield %r : !emitpy.opaque<"ttnn.Tensor">
       }

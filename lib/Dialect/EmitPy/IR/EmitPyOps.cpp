@@ -226,6 +226,16 @@ LogicalResult ClassOp::verify() {
                                     << expectedReceiver << "' via emitpy.name";
           }
         }
+        if (methodKind != "classmethod") {
+          auto classType = dyn_cast<ClassType>(funcOp.getArgument(0).getType());
+          if (!classType) {
+            return op.emitOpError("self argument must have !emitpy.class type");
+          }
+          if (classType.getName() != getSymName()) {
+            return op.emitOpError() << "self type must match class name '"
+                                    << getSymName() << "'";
+          }
+        }
       }
       continue;
     }

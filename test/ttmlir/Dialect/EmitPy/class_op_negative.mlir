@@ -4,10 +4,10 @@
 module {
   // expected-error @+1 {{class body must have at most one __init__}}
   emitpy.class @TooManyInits {
-    func.func @__init__(%self: !emitpy.opaque<"C">) {
+    func.func @__init__(%self: !emitpy.class<"TooManyInits">) {
       return
     }
-    func.func @__init__(%self: !emitpy.opaque<"C">) {
+    func.func @__init__(%self: !emitpy.class<"TooManyInits">) {
       return
     }
   }
@@ -19,7 +19,7 @@ module {
 module {
   emitpy.class @InitReturnsValue {
     // expected-error @+1 {{'func.func' op __init__ must not return a value}}
-    func.func @__init__(%self: !emitpy.opaque<"C">) -> index {
+    func.func @__init__(%self: !emitpy.class<"InitReturnsValue">) -> index {
       %0 = emitpy.literal "0" : index
       return %0 : index
     }
@@ -32,7 +32,7 @@ module {
 module {
   emitpy.class @BadMethodKind {
     // expected-error @+1 {{emitpy.method_kind must be one of 'instance', 'staticmethod', or 'classmethod'}}
-    func.func @f(%self: !emitpy.opaque<"C">) attributes {emitpy.method_kind = "bogus"} {
+    func.func @f(%self: !emitpy.class<"BadMethodKind">) attributes {emitpy.method_kind = "bogus"} {
       return
     }
   }
@@ -57,6 +57,30 @@ module {
   emitpy.class @ClassMethodBadArgName {
     // expected-error @+1 {{first argument must be named 'cls' via emitpy.name}}
     func.func @make(%self: !emitpy.opaque<"C"> {emitpy.name = "self"}) attributes {emitpy.method_kind = "classmethod"} {
+      return
+    }
+  }
+}
+
+// -----
+
+// Test: self argument must be ClassType
+module {
+  emitpy.class @SelfNotClassType {
+    // expected-error @+1 {{self argument must have !emitpy.class type}}
+    func.func @forward(%self: !emitpy.opaque<"C">) {
+      return
+    }
+  }
+}
+
+// -----
+
+// Test: Receiver type must match class name when using ClassType
+module {
+  emitpy.class @MismatchedReceiver {
+    // expected-error @+1 {{self type must match class name 'MismatchedReceiver'}}
+    func.func @forward(%self: !emitpy.class<"Other">) {
       return
     }
   }
