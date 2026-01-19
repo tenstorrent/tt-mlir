@@ -157,15 +157,20 @@ def subprocess_get_system_descriptor(request, disable_eth_dispatch_on_blackhole=
     folder_name = "-".join([request.fspath.basename, request.node.name, "artifacts"])
     artifacts_dir = f"{os.getcwd()}/{folder_name}"
 
+    ttrt_query_cmd = [
+        "ttrt",
+        "query",
+        "--save-artifacts",
+        "--artifact-dir",
+        artifacts_dir,
+    ]
+
+    # See issue: https://github.com/tenstorrent/tt-metal/issues/23600
+    if disable_eth_dispatch_on_blackhole:
+        ttrt_query_cmd.append("--disable-eth-dispatch")
+
     result = subprocess.run(
-        [
-            "ttrt",
-            "query",
-            "--save-artifacts",
-            "--artifact-dir",
-            artifacts_dir,
-            "--disable-eth-dispatch" if disable_eth_dispatch_on_blackhole else "",
-        ],
+        ttrt_query_cmd,
         capture_output=True,
         text=True,
     )
