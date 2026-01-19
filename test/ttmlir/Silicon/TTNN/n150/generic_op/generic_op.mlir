@@ -94,7 +94,7 @@
 // CHECK: module attributes {ttcore.system_desc = #system_desc}
 // CHECK: ttcore.device @default_device
 module {
-  func.func @test(%arg0: tensor<32x32xf32, #dram_layout>) -> tensor<32x32xf32, #dram_layout> {
+  func.func @test(%arg0: tensor<32x32xf32, #dram_layout>) -> tensor<32x32xf32, #dram_layout> attributes {tt.function_type = "forward_device"} {
     %0 = "ttnn.get_device"() <{mesh_offset = #ttnn<mesh_offset 0x0>, mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
 
     // Move single tile from DRAM to L1
@@ -110,7 +110,7 @@ module {
 
     return %3 : tensor<32x32xf32, #dram_layout>
   }
-  func.func private @read_kernel() attributes {ttkernel.arg_spec = #ttkernel.arg_spec< rt_args = [<arg_type = buffer_address, operand_index = 0>] ct_args = [<arg_type = cb_port, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<noc>} {
+  func.func private @read_kernel() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec< rt_args = [<arg_type = buffer_address, operand_index = 0>] ct_args = [<arg_type = cb_port, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<noc>} {
     %0 = "emitc.constant"() <{value = 1 : i32}> : () -> i32
     %1 = "emitc.constant"() <{value = 4096 : i32}> : () -> i32
 
@@ -129,7 +129,7 @@ module {
     emitc.call_opaque "cb_push_back"(%3, %0) : (!emitc.opaque<"::tt::CB">, i32) -> ()
     return
   }
-  func.func private @compute_kernel() attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+  func.func private @compute_kernel() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
     %0 = "emitc.constant"() <{value = 1 : i32}> : () -> i32
     %1 = "emitc.constant"() <{value = 0 : index}> : () -> !emitc.size_t
 
@@ -157,7 +157,7 @@ module {
     emitc.call_opaque "cb_pop_front"(%2, %0) : (!emitc.opaque<"::tt::CB">, i32) -> ()
     return
   }
-  func.func private @write_kernel() attributes {ttkernel.arg_spec = #ttkernel.arg_spec< rt_args = [<arg_type = buffer_address, operand_index = 0>] ct_args = [<arg_type = cb_port, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<noc>} {
+  func.func private @write_kernel() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec< rt_args = [<arg_type = buffer_address, operand_index = 0>] ct_args = [<arg_type = cb_port, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<noc>} {
     %0 = "emitc.constant"() <{value = 1 : i32}> : () -> i32
     %1 = "emitc.constant"() <{value = 4096 : i32}> : () -> i32
 

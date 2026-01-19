@@ -20,6 +20,7 @@
 #include "ttmlir/Dialect/TTNN/Transforms/TTNNToCpp.h"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
+#include "ttmlir/FunctionTypes.h"
 #include "ttmlir/Target/Common/Target.h"
 #include "ttmlir/Target/Common/types_generated.h"
 #include "ttmlir/Target/LLVM/LLVMToDynamicLib.h"
@@ -33,6 +34,7 @@
 #include "ttmlir/Target/Utils/FuncOpToProgram.h"
 #include "ttmlir/Target/Utils/MLIRToFlatbuffer.h"
 #include "ttmlir/Target/Utils/Utils.h"
+#include "ttmlir/Utils.h"
 #include "ttmlir/Version.h"
 
 #include "mlir/Dialect/EmitC/IR/EmitC.h"
@@ -3759,71 +3761,53 @@ std::shared_ptr<void> ttnnToFlatbuffer(
   size_t programIdx = 0;
   llvm::StringMap<uint32_t> programIdxMap;
 
-  auto populateProgramIdxMap =
-      [&](std::function<bool(func::FuncOp)> shouldSkip) -> void {
-    moduleOp->walk([&](func::FuncOp func) {
-      if (shouldSkip(func)) {
-        return;
-      }
-      programIdxMap[func.getSymName().str()] = programIdx++;
-    });
-  };
+  // Gather functions to generate programs for.
+  auto programFuncs = std::vector<func::FuncOp>();
 
-  // Preserve original ordering by skipping const-eval and tracein the first
-  // pass.
-  populateProgramIdxMap([](func::FuncOp func) {
-    return ttmlir::utils::isConstEvalFunc(func) ||
-           ttnn::utils::isTTNNTraceFunc(func) ||
-           func->hasAttr(ttkernel::ThreadTypeAttr::name);
+  moduleOp->walk([&](func::FuncOp func) {
+    if (ttmlir::utils::isForwardDeviceFunc(func) ||
+        ttmlir::utils::isConstEvalFunc(func) ||
+        ttmlir::utils::isTraceFunc(func)) {
+      programFuncs.push_back(func);
+    }
   });
-  // Add const-eval funcs after normal funcs.
-  populateProgramIdxMap(
-      [](func::FuncOp func) { return !ttmlir::utils::isConstEvalFunc(func); });
-  // Finally add trace funcs.
-  populateProgramIdxMap(
-      [](func::FuncOp func) { return !ttnn::utils::isTTNNTraceFunc(func); });
+
+  // Sort funcs to preserve original ordering by placing forward funcs first.
+  //
+  // std::stable_sort internally uses std::get_temporary_buffer which is
+  // deprecated in C++17. The deprecation is in the standard library
+  // implementation, not our usage.
+  // NOLINTNEXTLINE
+  std::stable_sort(programFuncs.begin(), programFuncs.end(),
+                   [](func::FuncOp a, func::FuncOp b) {
+                     return ttmlir::utils::isForwardDeviceFunc(a) >
+                            ttmlir::utils::isForwardDeviceFunc(b);
+                   });
+
+  // Populate program index map.
+  for (auto func : programFuncs) {
+    programIdxMap[func.getSymName().str()] = programIdx++;
+  }
 
   std::vector<::flatbuffers::Offset<::tt::target::ttnn::Program>> programs;
 
   auto constEvalFuncHashes = computeConstEvalFuncHashesSHA256(moduleOp);
 
-  auto generatePrograms = [&](std::function<bool(func::FuncOp)> shouldSkip,
-                              bool isPrivate) -> void {
-    moduleOp->walk([&](func::FuncOp func) {
-      if (shouldSkip(func)) {
-        return;
-      }
-      Program<::tt::target::ttnn::Operation> program =
-          funcOpToProgram<::tt::target::ttnn::Operation>(
-              cache, func, emitTTNNOperation, tensorValueToFlatbuffer,
-              programIdxMap, constEvalFuncHashes);
+  // Generate programs for each function.
+  for (auto func : programFuncs) {
+    Program<::tt::target::ttnn::Operation> program =
+        funcOpToProgram<::tt::target::ttnn::Operation>(
+            cache, func, emitTTNNOperation, tensorValueToFlatbuffer,
+            programIdxMap, constEvalFuncHashes);
 
-      ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(func);
+    ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(func);
 
-      ::tt::target::Dim2d meshShape = deviceToFlatbufferMeshShape(deviceAttr);
+    ::tt::target::Dim2d meshShape = deviceToFlatbufferMeshShape(deviceAttr);
 
-      programs.push_back(::tt::target::ttnn::CreateProgramDirect(
-          fbb, program.name, &program.inputs, &program.outputs, &program.ops,
-          &dylibs, debugInfo, isPrivate, &meshShape));
-    });
-  };
-
-  // Again, process original funcs in order first to preserve input order.
-  generatePrograms(
-      [](func::FuncOp func) {
-        return ttmlir::utils::isConstEvalFunc(func) ||
-               ttnn::utils::isTTNNTraceFunc(func) ||
-               func->hasAttr(ttkernel::ThreadTypeAttr::name);
-      },
-      /*isPrivate=*/false);
-  // Then process const-eval funcs in 2nd pass.
-  generatePrograms(
-      [](func::FuncOp func) { return !ttmlir::utils::isConstEvalFunc(func); },
-      /*isPrivate=*/true);
-  // Finally process trace funcs.
-  generatePrograms(
-      [](func::FuncOp func) { return !ttnn::utils::isTTNNTraceFunc(func); },
-      /*isPrivate=*/true);
+    programs.push_back(::tt::target::ttnn::CreateProgramDirect(
+        fbb, program.name, &program.inputs, &program.outputs, &program.ops,
+        &dylibs, debugInfo, func.isPrivate(), &meshShape));
+  }
 
   auto binary = ::tt::target::ttnn::CreateTTNNBinaryDirect(
       fbb, &binaryVersion, ::tt::target::ttnn::binary_bfbs_schema_hash,
@@ -3848,6 +3832,16 @@ LogicalResult translateTTNNToFlatbuffer(
                              std::unordered_map<std::uint32_t, GoldenTensor>>
         &goldenMap,
     const std::vector<std::pair<std::string, std::string>> &moduleCache) {
+  ModuleOp rootModule = dyn_cast<ModuleOp>(op);
+  if (!rootModule) {
+    return op->emitError("expected ModuleOp as top level operation");
+  }
+
+  // Verify that all functions have function type attributes.
+  if (failed(ttmlir::utils::verifyFunctionTypes(rootModule))) {
+    return failure();
+  }
+
   std::shared_ptr<void> data = ttnnToFlatbuffer(op, goldenMap, moduleCache);
   std::size_t size = ::flatbuffers::GetSizePrefixedBufferLength(
       static_cast<const uint8_t *>(data.get()));

@@ -8,6 +8,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
+#include "ttmlir/FunctionTypes.h"
 #include "ttmlir/Utils.h"
 
 #include "llvm/ADT/SmallVector.h"
@@ -213,7 +214,7 @@ public:
     moduleOp->walk([&](func::FuncOp funcOp) {
       // We only want to process forward functions.
       //
-      if (funcOp.isDeclaration() || ttmlir::utils::isConstEvalFunc(funcOp)) {
+      if (!ttmlir::utils::isForwardDeviceFunc(funcOp)) {
         return;
       }
 
