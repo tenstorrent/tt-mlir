@@ -383,8 +383,7 @@ struct DecomposeBlockMaskPattern : OpRewritePattern<BlockMaskOp> {
           rewriter, loc, 0, lastValidRow + 1, coreY, shardTileRows);
       auto [colStart, colEnd] = computeLocalBounds(
           rewriter, loc, lastValidCol + 1, totalTileCols, coreX, shardTileCols);
-      auto loop = createLocalLoop(rowStart, rowEnd, colStart, colEnd, emitFill);
-      insertionPoint = loop;
+      createLocalLoop(rowStart, rowEnd, colStart, colEnd, emitFill);
     }
 
     rewriter.eraseOp(op);
