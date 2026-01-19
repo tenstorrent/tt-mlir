@@ -4,12 +4,14 @@
 
 #include "operations/generic/generic_op.h"
 #include "tt-metalium/program_descriptors.hpp"
+#include "tt-metalium/experimental/mesh_program_descriptor.hpp"
 #include "tt/runtime/detail/common/common.h"
 #include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/ttnn/types/program_desc_cache.h"
 
 #include "tt/runtime/detail/ttnn/utils.h"
 #include "ttmlir/Target/TTNN/operations/generic_op_generated.h"
+#include <tt-metalium/mesh_coord.hpp>
 
 namespace tt::runtime::ttnn::operations::generic_op {
 
@@ -244,6 +246,25 @@ createProgramDescriptor(
   return programDescriptor;
 }
 
+static std::shared_ptr<::tt::tt_metal::experimental::MeshProgramDescriptor>
+createMeshProgramDescriptor(
+    const ::tt::target::ttnn::MeshProgramDescriptor *meshProgramDesc,
+    const std::vector<::ttnn::Tensor> &ioTensors) {
+  auto meshProgramDescriptor =
+      std::make_shared<::tt::tt_metal::experimental::MeshProgramDescriptor>();
+  for (const auto *meshProgram : *meshProgramDesc->mesh_programs()) {
+    const tt::target::ttnn::MeshCoordRange *deviceRange =
+        meshProgram->device_range();
+    auto programDescriptor =
+        createProgramDescriptor(meshProgram->program(), ioTensors);
+    tt::tt_metal::distributed::MeshCoordinateRange meshCoordinateRange =
+        tt::runtime::ttnn::utils::toTTNNMeshCoordinateRange(*deviceRange);
+    meshProgramDescriptor->mesh_programs.emplace_back(
+        meshCoordinateRange, std::move(*programDescriptor));
+  }
+  return meshProgramDescriptor;
+}
+
 void overrideArgs(
     const ::tt::target::ttnn::ProgramDescriptor *programDesc,
     const std::vector<::ttnn::Tensor> &ioTensors,
@@ -279,29 +300,52 @@ void run(const ::tt::target::ttnn::GenericOp *op, ProgramContext &context) {
   std::shared_ptr<::tt::runtime::ProgramDescCache> programDescCache =
       context.getExecutableHandle().getProgramDescCache();
 
-  auto *programDesc = op->program();
+  switch (op->program_type()) {
+  case ::tt::target::ttnn::ProgramType::ProgramDescriptor: {
+    const tt::target::ttnn::ProgramDescriptor *programDesc = op->program_as_ProgramDescriptor();
 
-  std::size_t hash = ttsl::hash::hash_objects_with_default_seed(
-      programDesc, programDescCache, ioTensors);
-  std::shared_ptr<void> cachedPtr = programDescCache->get(hash);
+    std::size_t hash = ttsl::hash::hash_objects_with_default_seed(
+        programDesc, programDescCache, ioTensors);
+    std::shared_ptr<void> cachedPtr = programDescCache->get(hash);
 
-  std::shared_ptr<::tt::tt_metal::ProgramDescriptor> programDescriptor;
-  if (cachedPtr) {
-    programDescriptor =
-        std::static_pointer_cast<::tt::tt_metal::ProgramDescriptor>(cachedPtr);
-    overrideArgs(programDesc, ioTensors, programDescriptor);
-  } else {
-    programDescriptor = createProgramDescriptor(programDesc, ioTensors);
-    programDescriptor->custom_program_hash =
-        reinterpret_cast<ttsl::hash::hash_t>(hash);
-    programDescCache->insert(hash,
-                             std::static_pointer_cast<void>(programDescriptor));
+    std::shared_ptr<::tt::tt_metal::ProgramDescriptor> programDescriptor;
+    if (cachedPtr) {
+      programDescriptor =
+          std::static_pointer_cast<::tt::tt_metal::ProgramDescriptor>(
+              cachedPtr);
+      overrideArgs(programDesc, ioTensors, programDescriptor);
+    } else {
+      programDescriptor = createProgramDescriptor(programDesc, ioTensors);
+      programDescriptor->custom_program_hash =
+          reinterpret_cast<ttsl::hash::hash_t>(hash);
+      programDescCache->insert(
+          hash, std::static_pointer_cast<void>(programDescriptor));
+    }
+
+    ::ttnn::Tensor outputTensor =
+        ::ttnn::generic_op(ioTensors, *programDescriptor);
+    tensorPool.insertTTNNTensorAndValidate(op->io_tensors()->Get(size - 1),
+                                           outputTensor);
+    break;
   }
+  case ::tt::target::ttnn::ProgramType::MeshProgramDescriptor: {
+    // TODO(vtangTT): Add caching support for MeshProgramDescriptor.
+    const tt::target::ttnn::MeshProgramDescriptor *meshProgramDesc =
+        op->program_as_MeshProgramDescriptor();
+    std::shared_ptr<::tt::tt_metal::experimental::MeshProgramDescriptor>
+        meshProgramDescriptor =
+            createMeshProgramDescriptor(meshProgramDesc, ioTensors);
 
-  ::ttnn::Tensor outputTensor =
-      ::ttnn::generic_op(ioTensors, *programDescriptor);
-  tensorPool.insertTTNNTensorAndValidate(op->io_tensors()->Get(size - 1),
-                                         outputTensor);
+    ::ttnn::Tensor outputTensor =
+        ::ttnn::generic_op(ioTensors, *meshProgramDescriptor);
+    tensorPool.insertTTNNTensorAndValidate(op->io_tensors()->Get(size - 1),
+                                           outputTensor);
+    break;
+  }
+  default: {
+    LOG_FATAL("Unknown program type in generic_op");
+  }
+  }
 }
 
 } // namespace tt::runtime::ttnn::operations::generic_op
