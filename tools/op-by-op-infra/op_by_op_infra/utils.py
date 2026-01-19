@@ -200,7 +200,13 @@ class OpWrapper:
         self.results = [
             Result(f"%res{i}", result.type) for i, result in enumerate(op.results)
         ]
-        self.attributes = attrs
+        # Convert attributes to string to avoid MLIR context issues
+        if attrs is not None:
+            self.attributes_str = (
+                "{" + ",\n".join(f"{a.name} = {a.attr}" for a in attrs) + "}"
+            )
+        else:
+            self.attributes_str = "{}"
         self.origin_model = [origin_model]
 
     def __str__(self) -> str:
@@ -260,16 +266,8 @@ class OpWrapper:
             return_type = "()"
             return_stmt = "return"
 
-        # Handle special case of modules that carry attributes.
-        if self.attributes is not None:
-            attrs = (
-                "{" + ",\n".join(f"{a.name} = {a.attr}" for a in self.attributes) + "}"
-            )
-        else:
-            attrs = "{}"
-
         return (
-            f"module attributes {attrs} {{ \n"
+            f"module attributes {self.attributes_str} {{ \n"
             f'  func.func @main({unpacked_operands}) -> ({return_type}) attributes {{tt.function_type = "forward_device"}} {{ \n'
             f"{preserved_body}"
             f"    {self.op_string} \n"
@@ -360,18 +358,10 @@ class TTNNOpWrapper(OpWrapper):
             return_type = "()"
             return_stmt = "return"
 
-        # Handle special case of modules that carry attributes.
-        if self.attributes is not None:
-            attrs = (
-                "{" + ",\n".join(f"{a.name} = {a.attr}" for a in self.attributes) + "}"
-            )
-        else:
-            attrs = "{}"
-
         return (
             f"module {{ \n"
             f"ttcore.device_module {{ \n"
-            f"builtin.module attributes {attrs} {{ \n"
+            f"builtin.module attributes {self.attributes_str} {{ \n"
             f"  {self.tt_device_op_string} \n"
             f"  {self.func_op_string}"
             f'  func.func @main({unpacked_operands}) -> {return_type} attributes {{tt.function_type = "forward_device"}} {{ \n'
