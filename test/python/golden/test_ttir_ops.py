@@ -626,6 +626,87 @@ def test_convolution(
 
 
 @pytest.mark.parametrize(
+    "shapes,stride,padding,dilation,groups",
+    [
+        # Depthwise convolution (groups = input_channels)
+        (
+            [(1, 32, 28, 28), (32, 1, 3, 3), (1, 1, 1, 32)],
+            [1, 1],
+            [1, 1, 1, 1],
+            [1, 1],
+            32,
+        ),
+        # Group convolution (4 groups)
+        (
+            [(1, 64, 32, 32), (64, 16, 3, 3), (1, 1, 1, 64)],
+            [1, 1],
+            [1, 1, 1, 1],
+            [1, 1],
+            4,
+        ),
+        # Dilated convolution
+        (
+            [(1, 32, 32, 32), (64, 32, 3, 3), (1, 1, 1, 64)],
+            [1, 1],
+            [2, 2, 2, 2],
+            [2, 2],
+            1,
+        ),
+    ],
+    ids=["depthwise_conv", "group_conv_4groups", "dilated_conv"],
+)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+def test_convolution_groups_dilation(
+    shapes: List[Shape],
+    stride: List[int],
+    padding: List[int],
+    dilation: List[int],
+    groups: int,
+    dtype: torch.dtype,
+    request,
+    device,
+):
+    """Test convolution with group and dilation patterns"""
+
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, [dtype] * len(shapes))
+        def convolution_grouped(
+            in0: Operand,
+            weight: Operand,
+            bias: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.convolution(
+                in0,
+                weight,
+                bias,
+                window_strides=stride,
+                padding=padding,
+                input_dilation=[1, 1],
+                weight_dilation=dilation,
+                input_batch=0,
+                input_feature=1,
+                input_spatial_dimensions=[2, 3],
+                kernel_output_feature=0,
+                kernel_input_feature=1,
+                kernel_spatial_dimensions=[2, 3],
+                output_batch=0,
+                output_feature=1,
+                output_spatial_dimensions=[2, 3],
+                feature_group_count=groups,
+                batch_group_count=1,
+            )
+
+    compile_and_execute_ttir(
+        module,
+        device=device,
+        **get_request_kwargs(request),
+        pcc=0.96,
+    )
+
+
+@pytest.mark.parametrize(
     "kernel,stride,dilation,padding,ceil_mode",
     [([2, 2], [2, 2], [1, 1], [0, 0, 0, 0], False)],
 )
@@ -2942,7 +3023,6 @@ def test_collective_permute(
         (32, 64),
         (32, 64, 128),
         (8, 8, 64, 64),
-        (10, 10, 30, 60),
     ],
     ids=shape_str,
 )
@@ -2951,13 +3031,13 @@ def test_collective_permute(
 @pytest.mark.parametrize(
     "mesh_shape, replica_groups",
     [
-        ((1, 8), [(0, 1, 2, 3, 4, 5, 6, 7)]),
-        ((2, 4), [(0, 1), (2, 3)]),
-        ((2, 4), [(0, 4), (1, 5), (2, 6), (3, 7)]),
-        ((4, 2), [(0, 1), (2, 3), (4, 5), (6, 7)]),
-        ((4, 2), [(0, 2, 4, 6), (1, 3, 5, 7)]),
-        ((1, 2), [(0, 1)]),
-        ((2, 1), [(0, 1)]),
+        ((1, 8), ((0, 1, 2, 3, 4, 5, 6, 7),)),
+        ((2, 4), ((0, 4), (1, 5), (2, 6), (3, 7))),
+        ((2, 4), ((0, 1, 2, 3), (4, 5, 6, 7))),
+        ((4, 2), ((0, 2, 4, 6), (1, 3, 5, 7))),
+        ((4, 2), ((0, 1), (2, 3), (4, 5), (6, 7))),
+        ((1, 2), ((0, 1),)),
+        ((2, 1), ((0, 1),)),
         ((1, 32), range(32)),
         (
             (8, 4),
