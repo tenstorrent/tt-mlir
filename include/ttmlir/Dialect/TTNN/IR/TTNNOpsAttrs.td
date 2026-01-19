@@ -784,7 +784,7 @@ def TTNN_MeshRangeAttr : TTNN_Attr<"MeshRange", "mesh_range"> {
   let parameters = (ins "MeshOffsetAttr":$start_coord, "MeshOffsetAttr":$end_coord);
   let assemblyFormat = "`<` custom<CoordBracketStyle>($start_coord) `,` custom<CoordBracketStyle>($end_coord) `>`";
 
-  let genVerifyDecl = 1;
+  // let genVerifyDecl = 1;
 }
 
 def TTNN_TTNNLayoutAttr: TTNN_Attr<"TTNNLayout", "ttnn_layout"> {
@@ -1103,10 +1103,12 @@ def TTNN_MeshProgramDescriptorAttr : TTNN_Attr<"MeshProgramDescriptor", "mesh_pr
   }];
 
   let parameters = (ins ArrayRefParameter<"MeshProgramAttr">:$mesh_programs);
-  let assemblyFormat = "'<' 'mesh_programs' '=' `[` $mesh_programs `]` '>'";
+  let assemblyFormat = "`<` `[` $mesh_programs `]` `>`";
 
   let genVerifyDecl = 1;
 }
+
+def TTNN_GenericProgramAttr : AnyAttrOf<[TTNN_ProgramAttr, TTNN_MeshProgramDescriptorAttr]>;
 
 def TTNN_TraceIdAttr : TTNN_Attr<"TraceId", "trace_id"> {
   let summary = "TTNN Trace ID attribute";

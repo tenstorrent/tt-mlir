@@ -1150,6 +1150,18 @@ DeviceComputeKernelConfigAttr::withDstFullSyncEn(bool value) const {
   return ::llvm::success();
 }
 
+::llvm::LogicalResult MeshProgramAttr::verify(
+  ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+  MeshRangeAttr meshRange, ProgramAttr program) {
+  return ::llvm::success();
+}
+
+::llvm::LogicalResult MeshProgramDescriptorAttr::verify(
+  ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+  ::llvm::ArrayRef<MeshProgramAttr> meshPrograms) {
+  return ::llvm::success();
+}
+
 ::llvm::LogicalResult KernelCBAttr::verify(
     ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
     uint32_t totalSize, CoreRangeSetAttr coreRanges,
