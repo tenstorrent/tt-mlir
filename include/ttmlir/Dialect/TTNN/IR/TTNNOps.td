@@ -21,6 +21,7 @@ include "mlir/Interfaces/SideEffectInterfaces.td"
 include "mlir/IR/BuiltinAttributes.td"
 include "mlir/IR/CommonTypeConstraints.td"
 include "mlir/IR/CommonAttrConstraints.td"
+include "mlir/IR/SymbolInterfaces.td"
 
 def TTNN_GetDeviceOp : TTNN_Op<"get_device", [TTCore_DuplicateConstEvalTrait]> {
     let summary = "Get Device op.";
@@ -2937,6 +2938,61 @@ def TTNN_GenericOp : TTNN_Op<"generic", [TTNN_MemoryConfigOpInterface, MemoryEff
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
     let hasVerifier = 1;
+}
+
+def TTNN_DispatchD2MOp : Op<TTNN_Dialect, "dispatch_d2m",
+  [AttrSizedOperandSegments,
+   DestinationStyleOpInterface,
+   SingleBlock,
+   NoTerminator,
+   SymbolTable,
+   DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
+   TTNN_WorkaroundInterface]> {
+  let summary = "Dispatch D2M compiled subgraph.";
+  let description = [{
+    Holds a D2M-compiled subgraph consisting of an entry function containing
+    ttnn.generic ops and zero or more kernel functions.
+
+    Before TTNNMaterializeD2M runs, the body contains a single func.func with
+    TTIR ops converted from ttir.dispatch_d2m.
+
+    After TTNNMaterializeD2M runs, the body contains:
+    - The D2M function (specified by `d2m_func`) with ttnn.generic ops
+    - One or more kernel functions referenced by the generic ops
+
+    TTNNCollaspeD2M will inline the D2M function body at the call site and
+    move the kernel functions to the parent module scope with unique prefixes.
+
+    Example:
+    ```mlir
+    ```
+  }];
+
+  let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
+                       Variadic<AnyRankedTensor>:$outputs,
+                       SymbolRefAttr:$d2m_func);
+
+  let results = (outs Variadic<AnyRankedTensor>:$results);
+
+  let regions = (region SizedRegion<1>:$body);
+
+  let hasVerifier = 1;
+
+  let assemblyFormat = [{
+    $d2m_func attr-dict `\n`
+    `ins` `(` $inputs `:` type($inputs) `)` `\n`
+    `outs` `(` $outputs `:` type($outputs) `)` $body (`:` type($results)^)?
+  }];
+
+  let extraClassDeclaration = [{
+    MutableOperandRange getDpsInitsMutable() {
+      return getOutputsMutable();
+    }
+
+    func::FuncOp lookupD2MMainFunc();
+
+    SmallVector<func::FuncOp> getKernelFuncs();
+  }];
 }
 
 def TTNN_RotaryEmbeddingLlamaOp : TTNN_Op<"rotary_embedding_llama", [TTNN_MemoryConfigOpInterface, TTNN_ComputeKernelConfigOpInterface]> {
