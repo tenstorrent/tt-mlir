@@ -24,6 +24,7 @@ from ttnn_jit._src import (
     get_current_system_desc,
     create_runtime_device_from_ttnn,
 )
+from ttnn_jit._src.memory_analyzer import MemoryAnalyzer
 
 
 class JitFunction:
@@ -104,10 +105,21 @@ class JitFunction:
 
     def __call__(self, *args, **kwargs):
         """Execute the JIT-compiled function."""
+        device = args[0].device() if args else None
+        assert device is not None, "Device is required"
+
         if not self.system_desc_path:
-            self.system_desc_path = self._query_and_save_system_desc(
-                args[0].device() if args else None
-            )
+            self.system_desc_path = self._query_and_save_system_desc(device)
+
+        memory_analyzer = MemoryAnalyzer(device)
+        memory_analyzer.print_stats()
+        memory_analyzer.dump_memory_info()
+        print(
+            f"Largest free L1 block (bank 0): {memory_analyzer.get_largest_free_l1_block()}"
+        )
+        print(
+            f"Largest free DRAM block (bank 0): {memory_analyzer.get_largest_free_dram_block()}"
+        )
 
         sig = self._validate_arguments(args, kwargs)
         param_names = list(sig.parameters.keys())
