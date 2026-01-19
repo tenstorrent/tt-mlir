@@ -89,6 +89,7 @@ if (TTMLIR_ENABLE_RUNTIME)
       ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common
       ${PROJECT_SOURCE_DIR}/runtime/python/include
   )
+  target_include_directories(_mlir_runtime_utils SYSTEM PRIVATE "$<BUILD_INTERFACE:${TTMETAL_INCLUDE_DIRS}>")
   target_link_libraries(_mlir_runtime_utils
     PRIVATE
     TTRuntimeTTNNUtils
