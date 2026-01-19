@@ -17,6 +17,7 @@
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
 
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Quant/IR/Quant.h"
 #include "mlir/Dialect/Quant/IR/QuantTypes.h"
 #include "mlir/IR/Attributes.h"
@@ -2932,6 +2933,38 @@ public:
                                                 op.getConcatDim(),
                                                 /*memory_config=*/nullptr);
 
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class DispatchD2MOpConversionPattern
+    : public OpConversionPattern<ttir::DispatchD2MOp> {
+public:
+  using OpConversionPattern<ttir::DispatchD2MOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::DispatchD2MOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    func::FuncOp mainFunc = op.lookupD2MMainFunc();
+
+    auto d2mFuncAttr =
+        SymbolRefAttr::get(rewriter.getContext(), mainFunc.getSymName());
+    SmallVector<Type> resultTypes;
+    if (failed(this->getTypeConverter()->convertTypes(op->getResultTypes(),
+                                                      resultTypes))) {
+      return failure();
+    }
+
+    auto ttnnOp = rewriter.create<ttnn::DispatchD2MOp>(
+        op.getLoc(), resultTypes, adaptor.getInputs(), adaptor.getOutputs(),
+        d2mFuncAttr);
+
+    // Move the body region (keeping subgraph in TTIR dialect)
+    ttnnOp.getBody().takeBody(op.getBody());
+
+    rewriter.replaceOp(op, ttnnOp.getResults());
     return success();
   }
 };
