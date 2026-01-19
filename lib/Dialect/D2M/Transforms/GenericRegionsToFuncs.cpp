@@ -5,6 +5,7 @@
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 
 #include "ttmlir/Dialect/D2M/IR/D2MOpsInterfaces.h"
+#include "ttmlir/FunctionTypes.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
@@ -97,6 +98,8 @@ public:
         func.setPrivate();
         func->setAttr(d2m::ThreadAttr::name, threadAttrWithoutSym);
         func.getBody().takeBody(region);
+        ttmlir::utils::setFunctionType(func,
+                                       ttmlir::utils::FunctionType::Kernel);
         builder.setInsertionPointToEnd(&func.getBody().front());
         builder.create<func::ReturnOp>(generic.getLoc());
         threads.push_back(threadAttrWithSym);

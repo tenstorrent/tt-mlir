@@ -6,6 +6,7 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
+#include "ttmlir/FunctionTypes.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
@@ -378,13 +379,14 @@ static void hoistOperationsToFunction(CPUHoistedOpsDescriptor &descriptor,
     hoistedFunc->setAttr("result_ranks", builder.getI64ArrayAttr(getTensorRanks(
                                              descriptor.outputValues)));
 
-    // Mark the hoisted function with the HoistedFuncAttr.
-    hoistedFunc->setAttr(CPUHoistedFuncAttr::name,
-                         mlir::UnitAttr::get(context));
+    // Set the function type to ForwardCPU.
+    ttmlir::utils::setFunctionType(hoistedFunc,
+                                   ttmlir::utils::FunctionType::ForwardCPU);
   }
 
-  // Mark the local function with the HoistedFuncAttr.
-  localFunc->setAttr(CPUHoistedFuncAttr::name, mlir::UnitAttr::get(context));
+  // Set the function type to ForwardCPUDeclaration.
+  ttmlir::utils::setFunctionType(
+      localFunc, ttmlir::utils::FunctionType::ForwardCPUDeclaration);
 
   // Create the call using already converted inputs.
   auto callOp = opBuilder.create<mlir::func::CallOp>(

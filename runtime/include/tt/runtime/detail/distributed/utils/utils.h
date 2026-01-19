@@ -14,7 +14,8 @@ namespace tt::runtime::distributed::utils {
 
 std::string getWorkerExecutableCommand(
     std::uint16_t port,
-    const std::optional<std::string> &workerPathOpt = std::nullopt);
+    const std::optional<std::string> &workerPathOpt = std::nullopt,
+    const std::optional<std::string> &hostnameOpt = std::nullopt);
 
 uint32_t getNumProcesses(const std::string &rankBindingPath);
 

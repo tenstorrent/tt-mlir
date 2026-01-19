@@ -1,4 +1,5 @@
 add_mlir_dialect_library(MLIRTTTransforms
+        MarkFunctionsAsForward.cpp
         OptimizationBarrierFold.cpp
         TTCoreModuleWrap.cpp
         TTCoreOneShotBufferize.cpp

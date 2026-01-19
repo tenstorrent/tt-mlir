@@ -1,5 +1,5 @@
 // REQUIRES: opmodel
-// RUN: ttmlir-opt --ttcore-register-device --ttnn-optimizer="memory-layout-analysis-enabled=true" %s --mlir-print-local-scope -o %t.mlir --mlir-print-local-scope
+// RUN: ttmlir-opt --ttcore-register-device --ttcore-mark-functions-as-forward --ttnn-optimizer="memory-layout-analysis-enabled=true" %s --mlir-print-local-scope -o %t.mlir --mlir-print-local-scope
 // RUN: FileCheck %s --input-file=%t.mlir
 
 // This test verifies that the RoPE (Rotary Position Embedding) operation

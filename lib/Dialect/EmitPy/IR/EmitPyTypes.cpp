@@ -34,6 +34,15 @@ void EmitPyDialect::registerTypes() {
   return success();
 }
 
+::mlir::LogicalResult mlir::tt::emitpy::ClassType::verify(
+    llvm::function_ref<mlir::InFlightDiagnostic()> emitError,
+    llvm::StringRef name) {
+  if (name.empty()) {
+    return emitError() << "expected non-empty string in !emitpy.class type";
+  }
+  return success();
+}
+
 void DictType::print(::mlir::AsmPrinter &printer) const {
   auto keyType = getKeyType();
   auto valueType = getValueType();

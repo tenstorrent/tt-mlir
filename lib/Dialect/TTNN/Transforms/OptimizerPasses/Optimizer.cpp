@@ -25,6 +25,7 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
+#include "ttmlir/FunctionTypes.h"
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
 #include "ttmlir/Support/Logger.h"
 #include "ttmlir/Utils.h"
@@ -276,8 +277,8 @@ public:
     tracePossibleLayouts(tensorTypePossibleLayouts);
 
     moduleOp->walk([&](func::FuncOp func) {
-      // Filter out all const-eval functions.
-      if (ttmlir::utils::isConstEvalFunc(func)) {
+      // Apply analysis only on forward functions.
+      if (!ttmlir::utils::isForwardDeviceFunc(func)) {
         return;
       }
 
@@ -379,7 +380,9 @@ public:
     // No further analysis.
     //
     moduleOp->walk([&](func::FuncOp func) {
-      if (ttmlir::utils::isConstEvalFunc(func)) {
+      // Apply analysis only on forward functions.
+      //
+      if (!ttmlir::utils::isForwardDeviceFunc(func)) {
         return;
       }
 

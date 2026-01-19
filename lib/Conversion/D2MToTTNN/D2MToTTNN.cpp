@@ -361,16 +361,36 @@ public:
                   ConversionPatternRewriter &rewriter) const final {
     MLIRContext *ctx = rewriter.getContext();
     auto tensorType = cast<RankedTensorType>(op.getResult().getType());
-    auto layoutAttr = cast<ttnn::TTNNLayoutAttr>(tensorType.getEncoding());
+    auto encoding = tensorType.getEncoding();
     auto shape = ttnn::ShapeAttr::get(ctx, tensorType.getShape());
-    auto dtype = ttcore::DataTypeAttr::get(ctx, layoutAttr.getDataType());
-    auto layout = ttnn::LayoutAttr::get(ctx, layoutAttr.getLayout());
+
+    ttcore::DataTypeAttr dtype;
+    ttnn::LayoutAttr layout;
+    ttnn::MemoryConfigAttr memcfg;
 
     // Reuses the existing ttnn.get_device op if present, else create one.
     auto device = ttnn::utils::getOrInsertDevice(rewriter, op);
     auto deviceAttr = ttcore::lookupDevice(op);
-    auto memcfg =
-        ttnn::MemoryConfigAttr::get(layoutAttr, deviceAttr.getWorkerGrid());
+
+    // Handle both TTNNLayoutAttr and TTNNNDLayoutAttr
+    if (auto layoutAttr = mlir::dyn_cast<ttnn::TTNNLayoutAttr>(encoding)) {
+      dtype = ttcore::DataTypeAttr::get(ctx, layoutAttr.getDataType());
+      layout = ttnn::LayoutAttr::get(ctx, layoutAttr.getLayout());
+      memcfg =
+          ttnn::MemoryConfigAttr::get(layoutAttr, deviceAttr.getWorkerGrid());
+    } else if (auto ndLayoutAttr =
+                   mlir::dyn_cast<ttnn::TTNNNDLayoutAttr>(encoding)) {
+      dtype = ttcore::DataTypeAttr::get(ctx, ndLayoutAttr.getDataType());
+      layout = ttnn::LayoutAttr::get(ctx, ndLayoutAttr.getLayout());
+      auto bufferType =
+          ttnn::BufferTypeAttr::get(ctx, ndLayoutAttr.getBufferType());
+      auto ndShardSpec = ttnn::NDShardSpecAttr::get(ndLayoutAttr);
+      memcfg = ttnn::MemoryConfigAttr::get(
+          ctx, ndLayoutAttr.getMemLayout(), bufferType,
+          /*shardSpec=*/std::nullopt, ndShardSpec);
+    } else {
+      return rewriter.notifyMatchFailure(op, "unsupported encoding type");
+    }
 
     rewriter.replaceOpWithNewOp<ttnn::EmptyOp>(op, tensorType, device, shape,
                                                dtype, layout, memcfg);
@@ -389,21 +409,40 @@ public:
                   ConversionPatternRewriter &rewriter) const final {
     MLIRContext *ctx = rewriter.getContext();
     auto tensorType = cast<RankedTensorType>(op.getResult().getType());
-    auto layoutAttr = cast<ttnn::TTNNLayoutAttr>(tensorType.getEncoding());
+    auto encoding = tensorType.getEncoding();
 
     // Convert DenseI32ArrayAttr shape to ttnn::ShapeAttr
     auto shapeI32 = adaptor.getShape();
     SmallVector<int64_t> shapeI64(shapeI32.begin(), shapeI32.end());
     auto shape = ttnn::ShapeAttr::get(ctx, shapeI64);
 
-    auto dtype = ttcore::DataTypeAttr::get(ctx, layoutAttr.getDataType());
-    auto layout = ttnn::LayoutAttr::get(ctx, layoutAttr.getLayout());
+    ttcore::DataTypeAttr dtype;
+    ttnn::LayoutAttr layout;
+    ttnn::MemoryConfigAttr memcfg;
 
     // Reuses the existing ttnn.get_device op if present, else create one.
     auto device = ttnn::utils::getOrInsertDevice(rewriter, op);
     auto deviceAttr = ttcore::lookupDevice(op);
-    auto memcfg =
-        ttnn::MemoryConfigAttr::get(layoutAttr, deviceAttr.getWorkerGrid());
+
+    // Handle both TTNNLayoutAttr and TTNNNDLayoutAttr
+    if (auto layoutAttr = mlir::dyn_cast<ttnn::TTNNLayoutAttr>(encoding)) {
+      dtype = ttcore::DataTypeAttr::get(ctx, layoutAttr.getDataType());
+      layout = ttnn::LayoutAttr::get(ctx, layoutAttr.getLayout());
+      memcfg =
+          ttnn::MemoryConfigAttr::get(layoutAttr, deviceAttr.getWorkerGrid());
+    } else if (auto ndLayoutAttr =
+                   mlir::dyn_cast<ttnn::TTNNNDLayoutAttr>(encoding)) {
+      dtype = ttcore::DataTypeAttr::get(ctx, ndLayoutAttr.getDataType());
+      layout = ttnn::LayoutAttr::get(ctx, ndLayoutAttr.getLayout());
+      auto bufferType =
+          ttnn::BufferTypeAttr::get(ctx, ndLayoutAttr.getBufferType());
+      auto ndShardSpec = ttnn::NDShardSpecAttr::get(ndLayoutAttr);
+      memcfg = ttnn::MemoryConfigAttr::get(
+          ctx, ndLayoutAttr.getMemLayout(), bufferType,
+          /*shardSpec=*/std::nullopt, ndShardSpec);
+    } else {
+      return rewriter.notifyMatchFailure(op, "unsupported encoding type");
+    }
 
     rewriter.replaceOpWithNewOp<ttnn::FullOp>(op, tensorType, device, shape,
                                               adaptor.getFillValue(), dtype,

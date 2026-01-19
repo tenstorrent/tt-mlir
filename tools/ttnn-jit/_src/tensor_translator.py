@@ -7,6 +7,7 @@ from ttmlir.dialects import ttnn, ttcore
 from ttnn_jit._src.conversions import (
     ttcore_dtype_from_ttnn_dtype,
     ttcore_dtype_from_mlir_dtype,
+    mlir_memory_layout_from_ttnn_memory_layout,
 )
 import math
 
@@ -134,7 +135,10 @@ def _calculate_tile_shape(shape):
 
 def _get_physical_grid_shape(tensor_arg):
     # IMPORTANT: TTNN writes grids as (width, height) but compiler expects (height, width). This function returns (width, height).
-    core_range_set = tensor_arg.memory_config().shard_spec.grid
+    if tensor_arg.memory_config().nd_shard_spec is not None:
+        core_range_set = tensor_arg.memory_config().nd_shard_spec.grid
+    else:
+        core_range_set = tensor_arg.memory_config().shard_spec.grid
     number_of_core_ranges = len(core_range_set.ranges())
     if number_of_core_ranges != 1:
         raise ValueError(
@@ -202,6 +206,47 @@ def _create_dram_tensor_layout(ctx, tensor_arg):
     )
 
 
+def _create_nd_sharded_tensor_layout(context, tensor_arg):
+    data_type = ttcore_dtype_from_ttnn_dtype(tensor_arg.dtype)
+    tile_type = ttcore.ir.TileType.get(context, TILE_HEIGHT, TILE_WIDTH, data_type)
+
+    shard_spec = tensor_arg.memory_config().nd_shard_spec
+    assert shard_spec is not None, "Expected an ND sharded tensor"
+
+    # TTNN writes grids as (width, height) but compiler expects (height, width)
+    grid_shape = _get_physical_grid_shape(tensor_arg)
+    grid = ttcore.ir.GridAttr.get(context, list(reversed(grid_shape)))
+
+    # Create memref, tile type only.
+    shard_shape = list(shard_spec.shard_shape)
+    shard_shape[-2] = shard_shape[-2] // TILE_HEIGHT
+    shard_shape[-1] = shard_shape[-1] // TILE_WIDTH
+    buffer_type = ttnn.ir.BufferTypeAttr.get(context, ttnn.BufferType.L1)
+    memref = MemRefType.get(shard_shape, tile_type, None, buffer_type)
+
+    mem_layout = ttnn.ir.TensorMemoryLayoutAttr.get(
+        context,
+        mlir_memory_layout_from_ttnn_memory_layout(
+            tensor_arg.memory_config().memory_layout
+        ),
+    )
+    shard_orientation = ttnn.ir.ShardOrientationAttr.get(
+        context, int(shard_spec.orientation.value)
+    )
+    shard_distribution_strategy = ttnn.ir.ShardDistributionStrategyAttr.get(
+        context, int(shard_spec.shard_distribution_strategy.value)
+    )
+    ttnn_layout = ttnn.ir.TTNNNDLayoutAttr.get(
+        context,
+        grid,
+        memref,
+        mem_layout,
+        int(shard_spec.orientation.value),
+        int(shard_spec.shard_distribution_strategy.value),
+    )
+    return ttnn_layout
+
+
 def _is_dram_layout(layout):
     return (
         ttnn.ir.BufferTypeAttr.maybe_downcast(layout.memref.memory_space).value
@@ -217,13 +262,30 @@ def _check_layout_supported(tensor_arg):
         )
 
     mem_config = tensor_arg.memory_config()
+    legacy_sharded = mem_config.shard_spec is not None
+    nd_sharded = mem_config.is_sharded() and mem_config.shard_spec is None
+
     if mem_config.is_sharded():
-        if mem_config.shard_spec is None:
-            raise ValueError(
-                "Tensor is sharded but no legacy shard spec is present. ND Sharded tensors are not supported yet."
-            )
         if mem_config.buffer_type.value == ttnn.BufferType.DRAM:
             raise ValueError("Sharded DRAM tensors are not supported.")
+        if (
+            legacy_sharded
+            and mem_config.shard_spec.orientation.value
+            == ttnn.ShardOrientation.ColMajor
+        ):
+            raise ValueError("Column major sharding is not supported.")
+        if (
+            nd_sharded
+            and mem_config.nd_shard_spec.orientation.value
+            == ttnn.ShardOrientation.ColMajor
+        ):
+            raise ValueError("Column major sharding is not supported.")
+        if (
+            nd_sharded
+            and mem_config.nd_shard_spec.shard_distribution_strategy.value
+            == ttnn.ShardDistributionStrategy.Grid2D
+        ):
+            raise ValueError("Grid2D distribution strategy is not supported.")
 
     if mem_config.buffer_type.value == ttnn.BufferType.L1:
         if mem_config.memory_layout == ttnn.TensorMemoryLayout.Interleaved:
@@ -292,8 +354,8 @@ def _create_tensor_layout_with_shape(
     affine_map = _get_collapsed_linear_affine_map(ctx, new_shape, new_grid_shape)
 
     new_shard_shape = [
-        new_shape[0] // new_grid_shape[0] // 32,
-        new_shape[1] // new_grid_shape[1] // 32,
+        new_shape[0] // new_grid_shape[0] // TILE_HEIGHT,
+        new_shape[1] // new_grid_shape[1] // TILE_WIDTH,
     ]
     buffer_type = ttnn.ir.BufferTypeAttr.get(ctx, mem_space)
     with Location.unknown(ctx):
@@ -353,7 +415,12 @@ def create_tensor_layout(ctx, tensor_arg):
     mem_config = tensor_arg.memory_config()
 
     if mem_config is not None and mem_config.is_sharded():
-        return _create_sharded_tensor_layout(ctx, tensor_arg)
+        if mem_config.shard_spec is None:
+            # Tensor is sharded, but there is no (legacy) shard spec.
+            # This means the sharding scheme can only be represented by an ND shard spec.
+            return _create_nd_sharded_tensor_layout(ctx, tensor_arg)
+        else:
+            return _create_sharded_tensor_layout(ctx, tensor_arg)
     else:
         return _create_dram_tensor_layout(ctx, tensor_arg)
 

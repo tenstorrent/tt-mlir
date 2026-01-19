@@ -1638,6 +1638,166 @@ private:
 };
 } // namespace
 
+namespace {
+
+// Pattern detection - Analyze gather indices to detect replicate padding:
+// - Verify single dimension gather
+// - Look for pattern like [0, 0, 0, 1, 2, 3] (leading repeated zeros = front
+// padding)
+// - Or [0, 1, 2, 3, 3, 3] (trailing repeated max = back padding)
+// Lower to slice+repeat+concat:
+// Example:
+// Input: tensor<1x768x4x60x106xbf16>
+// index_vector_dim = 2
+// Indices: [0, 0, 0, 1, 2, 3] (detected: frontPad=2, backPad=0, dim=2)
+// Slice first frame: tensor<1x768x1x60x106xbf16> (dim=2, start=0, end=1)
+// Repeat 2x: tensor<1x768x2x60x106xbf16>
+// Concat: tensor<1x768x2x60x106xbf16> + tensor<1x768x4x60x106xbf16> ->
+// tensor<1x768x6x60x106xbf16>
+// This is done to avoid OOM issues when padding is large.
+struct GatherToSliceRepeatConcatConversionPattern
+    : public OpConversionPattern<ttir::GatherOp> {
+  using OpConversionPattern<ttir::GatherOp>::OpConversionPattern;
+
+  // Benefit is 2 because this pattern is more specific than the
+  // GatherToEmbeddingConversionPattern.
+  GatherToSliceRepeatConcatConversionPattern(TypeConverter &typeConverter,
+                                             MLIRContext *context)
+      : OpConversionPattern<ttir::GatherOp>(typeConverter, context,
+                                            /*benefit=*/2) {}
+  LogicalResult checkBasicLegality(ttir::GatherOp op,
+                                   PatternRewriter &rewriter) const {
+    if (op.getStartIndexMap().size() != 1) {
+      return rewriter.notifyMatchFailure(op,
+                                         "Start index map must be of size 1");
+    }
+    auto indices = op.getStartIndices().getDefiningOp<ttir::ConstantOp>();
+    if (!indices) {
+      return rewriter.notifyMatchFailure(op,
+                                         "Start indices must be a constant op");
+    }
+    return success();
+  }
+  LogicalResult
+  matchAndRewrite(ttir::GatherOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    LogicalResult err = checkBasicLegality(op, rewriter);
+    if (not err.succeeded()) {
+      return err;
+    }
+
+    auto inputType = mlir::cast<RankedTensorType>(adaptor.getInput().getType());
+    auto inputShape = inputType.getShape();
+    int64_t indexedDim = op.getStartIndexMap()[0];
+    int64_t maxIndex = inputShape[indexedDim] - op.getSliceSizes()[indexedDim];
+    int64_t sliceSize = op.getSliceSizes()[indexedDim];
+    int32_t starts = 0, ends = 0, lastIndex = 0;
+    // It is expected that the indices are consecutive and in ascending order.
+    // Like [0,0,0,1,2,3,4,5,5,5,5,5].
+    // Number of starts and number of ends are calculated by counting the number
+    // of consecutive zeros and max index. In the end, starts and ends are
+    // decremented by 1 because they appear once in the original array. In the
+    // example above: [0,0,0,1,2,3,4,5,5,5,5,5] = [0,0] + [0,1,2,3,4,5] +
+    // [5,5,5,5]
+
+    auto slicedIndices =
+        op.getStartIndices().getDefiningOp<ttir::ConstantOp>().getValue();
+    for (auto index : slicedIndices.getValues<llvm::APInt>()) {
+      if (index == 0) {
+        starts++;
+      }
+      if (index == maxIndex) {
+        ends++;
+      }
+      if (!((index - lastIndex == 1) || (index == lastIndex && index == 0) ||
+            (index == lastIndex && index == maxIndex))) {
+        return rewriter.notifyMatchFailure(op,
+                                           "Indices are not in valid order");
+      }
+      lastIndex = index.getSExtValue();
+    }
+    if (lastIndex != maxIndex) {
+      return rewriter.notifyMatchFailure(
+          op, "Not all indices are present in the original array");
+    }
+
+    starts--;
+    ends--;
+
+    SmallVector<Value> slicesToConcat;
+
+    slicesToConcat = createSlices(starts, indexedDim, sliceSize, inputShape,
+                                  inputType, rewriter, op);
+
+    slicesToConcat.push_back(op.getInput());
+
+    slicesToConcat.append(createSlices(ends, indexedDim, sliceSize, inputShape,
+                                       inputType, rewriter, op));
+
+    Value result = rewriter.create<ttir::ConcatOp>(
+        op.getLoc(), op.getType(), slicesToConcat,
+        rewriter.getSI32IntegerAttr(static_cast<int32_t>(indexedDim)));
+
+    rewriter.replaceOp(op, result);
+    return success();
+  }
+
+private:
+  std::tuple<SmallVector<int32_t>, SmallVector<int32_t>, SmallVector<int32_t>>
+  buildSliceArrays(int32_t start, int32_t end, int64_t indexedDim,
+                   ArrayRef<int64_t> inputShape) const {
+    SmallVector<int32_t> beginsArr(inputShape.size(), 0);
+    SmallVector<int32_t> endsArr(inputShape);
+    SmallVector<int32_t> stepArr(inputShape.size(), 1);
+    beginsArr[indexedDim] = start;
+    endsArr[indexedDim] = end;
+    return {beginsArr, endsArr, stepArr};
+  }
+
+  SmallVector<int64_t>
+  computeSliceResultShape(int64_t start, int64_t end, int64_t indexedDim,
+                          ArrayRef<int64_t> inputShape) const {
+    SmallVector<int64_t> resultShape(inputShape);
+    resultShape[indexedDim] = end - start;
+    return resultShape;
+  }
+
+  SmallVector<Value>
+  createSlices(int32_t numberOfRepeats, int32_t indexedDim, int32_t sliceSize,
+               ArrayRef<int64_t> inputShape, RankedTensorType inputType,
+               ConversionPatternRewriter &rewriter, ttir::GatherOp op) const {
+    SmallVector<Value> slices;
+    if (numberOfRepeats > 0) {
+      auto [begins, endsArr, step] =
+          buildSliceArrays(0, sliceSize, indexedDim, inputShape);
+      auto sliceShape =
+          computeSliceResultShape(0, sliceSize, indexedDim, inputShape);
+      auto sliceType = RankedTensorType::get(
+          sliceShape, inputType.getElementType(), inputType.getEncoding());
+
+      Value slice = rewriter.create<ttir::SliceStaticOp>(
+          op.getLoc(), sliceType, op.getInput(),
+          rewriter.getI32ArrayAttr(begins), rewriter.getI32ArrayAttr(endsArr),
+          rewriter.getI32ArrayAttr(step));
+
+      if (numberOfRepeats > 1) {
+        SmallVector<int64_t> repeatShape(sliceShape);
+        repeatShape[indexedDim] = numberOfRepeats;
+        auto repeatType = RankedTensorType::get(
+            repeatShape, inputType.getElementType(), inputType.getEncoding());
+        SmallVector<int64_t> repeatDims(inputShape.size(), 1);
+        repeatDims[indexedDim] = numberOfRepeats;
+
+        slice = rewriter.create<ttir::RepeatOp>(
+            op.getLoc(), repeatType, slice,
+            rewriter.getDenseI64ArrayAttr(repeatDims));
+      }
+      slices.push_back(slice);
+    }
+    return slices;
+  }
+};
+} // namespace
 //===----------------------------------------------------------------------===//
 /*
 Below is the implementation of the DotGeneralOp decomposition into MatmulOp,
@@ -3199,6 +3359,7 @@ void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
   patterns.add<Legalize1DConvolutionPattern>(typeConverter, ctx);
   patterns.add<ConvolutionToConv2dPattern>(typeConverter, ctx);
   patterns.add<ConvolutionToConv3dPattern>(typeConverter, ctx);
+  patterns.add<GatherToSliceRepeatConcatConversionPattern>(typeConverter, ctx);
   patterns.add<GatherToEmbeddingConversionPattern>(typeConverter, ctx);
   patterns.add<SelectToSliceConversionPattern>(typeConverter, ctx);
   patterns.add<ArangeForceLastDimensionPattern>(typeConverter, ctx);

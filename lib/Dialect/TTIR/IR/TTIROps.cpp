@@ -3019,10 +3019,12 @@ mlir::LogicalResult mlir::tt::ttir::TTNNMetalLayoutCastOp::verify() {
 
   const bool inputIsTTNNTensor =
       maybeInputTensor &&
-      mlir::isa<mlir::tt::ttnn::TTNNLayoutAttr>(maybeInputAttr);
+      (mlir::isa<mlir::tt::ttnn::TTNNLayoutAttr>(maybeInputAttr) ||
+       mlir::isa<mlir::tt::ttnn::TTNNNDLayoutAttr>(maybeInputAttr));
   const bool outputIsTTNNTensor =
       maybeOutputTensor &&
-      mlir::isa<mlir::tt::ttnn::TTNNLayoutAttr>(maybeOutputAttr);
+      (mlir::isa<mlir::tt::ttnn::TTNNLayoutAttr>(maybeOutputAttr) ||
+       mlir::isa<mlir::tt::ttnn::TTNNNDLayoutAttr>(maybeOutputAttr));
 
   const bool inputIsMetalTensor =
       maybeInputTensor &&
@@ -3116,8 +3118,11 @@ mlir::LogicalResult mlir::tt::ttir::TTNNMetalLayoutCastOp::bufferize(
 
   if (mlir::isa<mlir::tt::ttcore::MetalLayoutAttr>(inputEncoding)) {
     // metal_layout -> ttnn_layout becomes memref -> ttnn_layout
-    TT_assertv(mlir::isa<mlir::tt::ttnn::TTNNLayoutAttr>(outputEncoding),
-               "Output tensor must have a ttnn_layout");
+    bool isTTNNLayout =
+        mlir::isa<mlir::tt::ttnn::TTNNLayoutAttr>(outputEncoding) ||
+        mlir::isa<mlir::tt::ttnn::TTNNNDLayoutAttr>(outputEncoding);
+    TT_assertv(isTTNNLayout,
+               "Output tensor must have ttnn_layout or ttnn_nd_layout");
     auto maybeInputBuf =
         mlir::bufferization::getBuffer(rewriter, getInput(), options, state);
     if (failed(maybeInputBuf)) {
@@ -3127,8 +3132,11 @@ mlir::LogicalResult mlir::tt::ttir::TTNNMetalLayoutCastOp::bufferize(
                                                        *maybeInputBuf);
   } else if (mlir::isa<mlir::tt::ttcore::MetalLayoutAttr>(outputEncoding)) {
     // ttnn_layout -> metal_layout becomes ttnn_layout -> memref
-    TT_assertv(mlir::isa<mlir::tt::ttnn::TTNNLayoutAttr>(inputEncoding),
-               "Input tensor must have a ttnn_layout");
+    bool isTTNNLayout =
+        mlir::isa<mlir::tt::ttnn::TTNNLayoutAttr>(inputEncoding) ||
+        mlir::isa<mlir::tt::ttnn::TTNNNDLayoutAttr>(inputEncoding);
+    TT_assertv(isTTNNLayout,
+               "Input tensor must have ttnn_layout or ttnn_nd_layout");
     ::llvm::SmallVector<mlir::Value> dummy;
     auto bufferType = getBufferType(getResult(), options, state, dummy);
     if (failed(bufferType)) {
@@ -4965,6 +4973,58 @@ mlir::tt::ttir::SplitQueryKeyValueAndSplitHeadsOp::verify() {
   }
 
   // Verify bias tensor shape if present.
+  if (getBias()) {
+    RankedTensorType biasType = getBias().getType();
+    if (biasType.getShape() != normalizedShape) {
+      return emitOpError("bias tensor shape must match normalized_shape");
+    }
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// LayerNormOp
+//===----------------------------------------------------------------------===//
+::mlir::LogicalResult mlir::tt::ttir::LayerNormOp::verify() {
+  RankedTensorType inputType = getInput().getType();
+  RankedTensorType outputType = getResult().getType();
+
+  if (inputType.getShape() != outputType.getShape()) {
+    return emitOpError("input and output must have the same shape");
+  }
+
+  ArrayRef<int64_t> inputShape = inputType.getShape();
+  ArrayRef<int64_t> normalizedShape = getNormalizedShape();
+
+  if (normalizedShape.empty()) {
+    return emitOpError("normalized_shape cannot be empty");
+  }
+
+  if (normalizedShape.size() > inputShape.size()) {
+    return emitOpError(
+        "normalized_shape has more dimensions than input tensor");
+  }
+
+  // Check that the trailing dimensions of input match normalized_shape.
+  // For example, if input shape is [2, 3, 4, 5] and normalized_shape is [4, 5],
+  // then we check that input shape's last two dimensions (4, 5) match
+  // normalized_shape.
+  size_t offset = inputShape.size() - normalizedShape.size();
+  for (size_t i = 0; i < normalizedShape.size(); ++i) {
+    if (inputShape[offset + i] != normalizedShape[i]) {
+      return emitOpError("normalized_shape dimensions must match trailing "
+                         "dimensions of input tensor");
+    }
+  }
+
+  if (getWeight()) {
+    RankedTensorType weightType = getWeight().getType();
+    if (weightType.getShape() != normalizedShape) {
+      return emitOpError("weight tensor shape must match normalized_shape");
+    }
+  }
+
   if (getBias()) {
     RankedTensorType biasType = getBias().getType();
     if (biasType.getShape() != normalizedShape) {

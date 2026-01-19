@@ -38,34 +38,6 @@ def test_l1_interleaved_not_supported(device, frontend):
 
 
 @pytest.mark.parametrize("frontend", ["ast", "graph_capture"])
-def test_nd_sharded_not_supported(device, frontend):
-    if frontend == "graph_capture":
-        pytest.skip("Using graph capture results in error from ttnn, not JIT frontend.")
-
-    with pytest.raises(
-        ValueError,
-        match="Tensor is sharded but no legacy shard spec is present. ND Sharded tensors are not supported yet.",
-    ):
-        shape = (4, 512, 768)
-        core_ranges = ttnn.CoreRangeSet(
-            {ttnn.CoreRange(ttnn.CoreCoord(0, 0), ttnn.CoreCoord(1, 3))}
-        )
-
-        tensor_spec = ttnn.TensorSpec(
-            shape=shape,
-            dtype=ttnn.float32,
-            layout=ttnn.TILE_LAYOUT,
-            buffer_type=ttnn.BufferType.L1,
-        ).sharded_across_dims([0, 1], core_ranges)
-
-        torch_tensor = torch.randn(shape)
-        ttnn_tensor = ttnn.from_torch(torch_tensor, spec=tensor_spec, device=device)
-
-        op_jit = ttnn_jit.jit(debug=True, frontend=frontend)(exp)
-        output_tensor = op_jit(ttnn_tensor)
-
-
-@pytest.mark.parametrize("frontend", ["ast", "graph_capture"])
 def test_row_major_layout_not_supported(device, frontend):
 
     with pytest.raises(

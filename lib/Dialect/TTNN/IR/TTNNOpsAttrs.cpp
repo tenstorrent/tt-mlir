@@ -1328,3 +1328,7 @@ bool TTNNNDLayoutAttr::isInterleaved() const {
 bool TTNNNDLayoutAttr::isSharded() const {
   return getMemLayout().getValue() != TensorMemoryLayout::Interleaved;
 }
+
+mlir::Type TTNNNDLayoutAttr::getElementType() const {
+  return getMemref().getElementType();
+}

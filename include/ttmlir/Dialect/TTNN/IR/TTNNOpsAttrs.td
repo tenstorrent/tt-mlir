@@ -257,10 +257,12 @@ def TTNN_TTNNNDLayoutAttr: TTNN_Attr<"TTNNNDLayout", "ttnn_nd_layout"> {
    bool isInterleaved() const;
    bool isSharded() const;
    BufferType getBufferType() const;
+   bool isDeviceBufferType() const { return ::mlir::tt::ttnn::isDeviceBufferType(getBufferType()); }
    bool isTiled() const;
    llvm::SmallVector<int64_t> getScalarShardShape() const;
    Layout getLayout() const;
    ttcore::DataType getDataType() const;
+   Type getElementType() const;
  }];
 }
 
@@ -743,7 +745,7 @@ def TTNN_Conv3dConfigAttr : TTNN_Attr<"Conv3dConfig", "conv3d_config"> {
   let summary = "TTNN Conv3dConfig attribute";
   let description = [{
     Configuration parameters for TTNN conv3d operations.
-    Controls performance tuning parameters like block sizes and data formats.
+    Controls performance tuning parameters like block sizes, data formats, and grid configuration.
   }];
 
   let parameters = (ins
@@ -752,7 +754,8 @@ def TTNN_Conv3dConfigAttr : TTNN_Attr<"Conv3dConfig", "conv3d_config"> {
     OptionalParameter<"std::optional<uint32_t>">:$w_out_block,
     OptionalParameter<"std::optional<uint32_t>">:$h_out_block,
     OptionalParameter<"std::optional<uint32_t>">:$c_out_block,
-    OptionalParameter<"std::optional<uint32_t>">:$c_in_block
+    OptionalParameter<"std::optional<uint32_t>">:$c_in_block,
+    OptionalParameter<"std::optional<ttcore::GridAttr>">:$compute_with_storage_grid_size
   );
 
   let assemblyFormat = "`<` struct(params) `>`";

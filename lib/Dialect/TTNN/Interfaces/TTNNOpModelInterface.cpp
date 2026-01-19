@@ -3865,6 +3865,75 @@ RMSNormOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// LayerNormOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+struct LayerNormOptionalArgs {
+  std::optional<llvm::ArrayRef<int64_t>> weightShape = std::nullopt;
+  std::optional<TTNNLayoutAttr> weightLayout = std::nullopt;
+  std::optional<llvm::ArrayRef<int64_t>> biasShape = std::nullopt;
+  std::optional<TTNNLayoutAttr> biasLayout = std::nullopt;
+};
+static LayerNormOptionalArgs
+unpackLayerNormOptionalArgs(const std::vector<TTNNLayoutAttr> &inputs,
+                            LayerNormOp op) {
+  LayerNormOptionalArgs ret;
+  if (inputs.size() == 2) {
+    if (op.getWeight()) {
+      ret.weightShape = op.getWeight().getType().getShape();
+      ret.weightLayout = inputs[1];
+    } else if (op.getBias()) {
+      ret.biasShape = op.getBias().getType().getShape();
+      ret.biasLayout = inputs[1];
+    }
+  }
+  if (inputs.size() == 3) {
+    ret.weightShape = op.getWeight().getType().getShape();
+    ret.biasShape = op.getBias().getType().getShape();
+    ret.weightLayout = inputs[1];
+    ret.biasLayout = inputs[2];
+  }
+  return ret;
+}
+
+llvm::Expected<op_model::OpConstraints>
+LayerNormOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                              const OpConfig &opConfig) {
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(getOperation()).getWorkerGrid();
+
+  const auto inputShape = getInput().getType().getShape();
+
+  LayerNormOptionalArgs optionalArgs =
+      unpackLayerNormOptionalArgs(inputs, *this);
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<LayerNormOp>::getOpConstraints, *this, deviceGrid,
+      inputShape, inputs[0], optionalArgs.weightShape,
+      optionalArgs.weightLayout, optionalArgs.biasShape,
+      optionalArgs.biasLayout, getEpsilon(), opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+LayerNormOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                          const OpConfig &opConfig) {
+  const auto inputShape = getInput().getType().getShape();
+
+  LayerNormOptionalArgs optionalArgs =
+      unpackLayerNormOptionalArgs(inputs, *this);
+
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<LayerNormOp>::getOpRuntime, *this, inputShape,
+      inputs[0], optionalArgs.weightShape, optionalArgs.weightLayout,
+      optionalArgs.biasShape, optionalArgs.biasLayout, getEpsilon(),
+      opConfig.outputLayout);
+}
+
+//===----------------------------------------------------------------------===//
 // ClampScalarOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 

@@ -5,8 +5,8 @@
 #include "ttmlir/Conversion/TTNNToEmitPy/TTNNToEmitPy.h"
 #include "ttmlir/Dialect/EmitPy/IR/EmitPyOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
-#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
+#include "ttmlir/FunctionTypes.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Builders.h"
@@ -172,8 +172,7 @@ public:
     OpBuilder builder(&getContext());
     llvm::SmallVector<func::FuncOp> declarations;
     for (auto funcOp : deviceModule.getOps<func::FuncOp>()) {
-      if (!funcOp->hasAttr(ttir::CPUHoistedFuncAttr::name) ||
-          !funcOp.isDeclaration()) {
+      if (!ttmlir::utils::isForwardCPUDeclarationFunc(funcOp)) {
         continue;
       }
 

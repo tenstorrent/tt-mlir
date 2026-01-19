@@ -1907,6 +1907,13 @@ public:
       if (conv3dConfig->getCInBlock()) {
         rso << "config.C_in_block = " << *conv3dConfig->getCInBlock() << "; ";
       }
+      if (conv3dConfig->getComputeWithStorageGridSize()) {
+        auto gridAttr = *conv3dConfig->getComputeWithStorageGridSize();
+        rso << "config.compute_with_storage_grid_size = "
+               "tt::tt_metal::CoreCoord{"
+            << gridAttr.getShape()[0] << ", " << gridAttr.getShape()[1]
+            << "}; ";
+      }
     }
 
     rso << "return config; }()";

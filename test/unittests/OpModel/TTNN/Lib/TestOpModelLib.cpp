@@ -4392,6 +4392,142 @@ const auto rmsNormTestValues = ::testing::Values(
 
 INSTANTIATE_TEST_SUITE_P(RMSNormTests, OpModelRMSNormParam, rmsNormTestValues);
 
+//===----------------------------------------------------------------------===//
+// LayerNormOp Tests
+//===----------------------------------------------------------------------===//
+
+class OpModelLayerNormParam
+    : public OpModelTest,
+      public testing::WithParamInterface<
+          std::tuple<detail::TestTensor,                // input
+                     detail::TestTensor,                // output
+                     std::optional<detail::TestTensor>, // weight
+                     std::optional<detail::TestTensor>, // bias
+                     float,                             // epsilon
+                     detail::ExpectedResult             // expected result
+                     >> {};
+
+TEST_P(OpModelLayerNormParam, LayerNormParam) {
+  auto params = GetParam();
+  const auto [inputShape, inputTensorLayout, inputBufferType,
+              inputVirtualGrid] = std::get<0>(params);
+  const auto [outputShape, outputTensorLayout, outputBufferType,
+              outputVirtualGrid] = std::get<1>(params);
+  const auto weightOpt = std::get<2>(params);
+  const auto biasOpt = std::get<3>(params);
+  const auto epsilon = llvm::APFloat(std::get<4>(params));
+  const auto expectedResult = std::get<5>(params);
+  const auto expectedLegal = expectedResult.expectedLegal;
+
+  const TTNNLayoutAttr inputLayout = CreateTiledLayout(
+      inputShape, inputBufferType, inputTensorLayout, inputVirtualGrid);
+  const TTNNLayoutAttr outputLayout = CreateTiledLayout(
+      outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
+
+  // Create optional layouts for weight and bias
+  std::optional<llvm::ArrayRef<int64_t>> weightShape = std::nullopt;
+  std::optional<TTNNLayoutAttr> weightLayout = std::nullopt;
+  if (weightOpt.has_value()) {
+    const auto &[shape, layout, bufferType, virtualGrid] = weightOpt.value();
+    weightShape = shape;
+    weightLayout = CreateTiledLayout(shape, bufferType, layout, virtualGrid);
+  }
+
+  std::optional<llvm::ArrayRef<int64_t>> biasShape = std::nullopt;
+  std::optional<TTNNLayoutAttr> biasLayout = std::nullopt;
+  if (biasOpt.has_value()) {
+    const auto &[shape, layout, bufferType, virtualGrid] = biasOpt.value();
+    biasShape = shape;
+    biasLayout = CreateTiledLayout(shape, bufferType, layout, virtualGrid);
+  }
+
+  // Test getOpConstraints
+  auto constraintsExp = op_model::OpModel<LayerNormOp>::getOpConstraints(
+      CreateWorkerGrid(), inputShape, inputLayout, weightShape, weightLayout,
+      biasShape, biasLayout, epsilon, outputLayout);
+
+  EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
+  if (constraintsExp) {
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
+                outputLayoutReadBack] = constraintsExp.get();
+    EXPECT_GE(cbSize, 0);
+    EXPECT_GE(l1PeakSize, 0);
+    EXPECT_GE(totalPeakSize, 0);
+    EXPECT_GE(outputSize, 0);
+  } else {
+    llvm::consumeError(constraintsExp.takeError());
+  }
+
+  // Test getOpRuntime
+  auto runtimeExp = op_model::OpModel<LayerNormOp>::getOpRuntime(
+      inputShape, inputLayout, weightShape, weightLayout, biasShape, biasLayout,
+      epsilon, outputLayout);
+
+  EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    llvm::consumeError(runtimeExp.takeError());
+  }
+}
+
+// Shared test values for LayerNormOp operations
+const auto layerNormTestValues = ::testing::Values(
+    // Test case 1: Basic LayerNorm with all optional tensors (weight and bias)
+    std::make_tuple(
+        detail::TestTensor{{1, 32, 128, 128},
+                           TensorMemoryLayout::Interleaved,
+                           BufferType::DRAM},
+        detail::TestTensor{{1, 32, 128, 128},
+                           TensorMemoryLayout::Interleaved,
+                           BufferType::DRAM},
+        std::make_optional(detail::TestTensor{
+            {128}, TensorMemoryLayout::Interleaved, BufferType::DRAM}),
+        std::make_optional(detail::TestTensor{
+            {128}, TensorMemoryLayout::Interleaved, BufferType::DRAM}),
+        1e-12f, detail::ExpectedResult{true}),
+
+    // Test case 2: LayerNorm without optional tensors (only input)
+    std::make_tuple(
+        detail::TestTensor{
+            {1, 64, 64, 64}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::TestTensor{
+            {1, 64, 64, 64}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        std::nullopt, std::nullopt, 1e-12f, detail::ExpectedResult{true}),
+
+    // Test case 3: LayerNorm with L1 memory buffers
+    std::make_tuple(
+        detail::TestTensor{
+            {1, 32, 32, 32}, TensorMemoryLayout::Interleaved, BufferType::L1},
+        detail::TestTensor{
+            {1, 32, 32, 32}, TensorMemoryLayout::Interleaved, BufferType::L1},
+        std::make_optional(detail::TestTensor{
+            {32}, TensorMemoryLayout::Interleaved, BufferType::L1}),
+        std::make_optional(detail::TestTensor{
+            {32}, TensorMemoryLayout::Interleaved, BufferType::L1}),
+        1e-12f, detail::ExpectedResult{true}),
+
+    // Test case 4: LayerNorm with only weight (no bias)
+    std::make_tuple(
+        detail::TestTensor{
+            {2, 16, 64, 64}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::TestTensor{
+            {2, 16, 64, 64}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        std::make_optional(detail::TestTensor{
+            {64}, TensorMemoryLayout::Interleaved, BufferType::DRAM}),
+        std::nullopt, 1e-8f, detail::ExpectedResult{true}),
+
+    // Test case 5: LayerNorm with different epsilon value
+    std::make_tuple(
+        detail::TestTensor{
+            {1, 16, 32, 32}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::TestTensor{
+            {1, 16, 32, 32}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        std::nullopt, std::nullopt, 1e-6f, detail::ExpectedResult{true}));
+
+INSTANTIATE_TEST_SUITE_P(LayerNormTests, OpModelLayerNormParam,
+                         layerNormTestValues);
+
 // ==== ConstantOp Tests ====
 
 template <typename DataType, typename MLIRType>

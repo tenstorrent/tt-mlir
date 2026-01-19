@@ -39,6 +39,24 @@ def EmitPy_OpaqueType : EmitPy_Type<"Opaque", "opaque"> {
   let genVerifyDecl = 1;
 }
 
+def EmitPy_ClassType : EmitPy_Type<"Class", "class"> {
+  let summary = "EmitPy class type";
+
+  let description = [{
+    A type representing a Python class defined in EmitPy.
+
+    Example:
+
+    ```mlir
+    !emitpy.class<"Model">
+    ```
+  }];
+
+  let parameters = (ins StringRefParameter<"the class name">:$name);
+  let assemblyFormat = "`<` $name `>`";
+  let genVerifyDecl = 1;
+}
+
 def EmitPy_DictType : EmitPy_Type<"Dict", "dict"> {
   let summary = "EmitPy dictionary type";
 
@@ -66,6 +84,6 @@ def EmitPy_DictType : EmitPy_Type<"Dict", "dict"> {
 }
 
 // Type constraint that matches any EmitPy dialect type
-def EmitPy_Type : AnyTypeOf<[EmitPy_OpaqueType, EmitPy_DictType]>;
+def EmitPy_Type : AnyTypeOf<[EmitPy_OpaqueType, EmitPy_ClassType, EmitPy_DictType]>;
 
 #endif // TTMLIR_TTMLIR_DIALECT_EMITPY_IR_EMITPYTYPES_TD
