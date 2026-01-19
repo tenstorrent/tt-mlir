@@ -298,14 +298,6 @@ void dprint(Arg &&arg, ArgV&&... argv) {
       builder->create<emitc::VerbatimOp>(loc, experimentalPaddingLLKs);
     }
 
-    if (hasCall("experimental::write_row_index_tile") ||
-        hasCall("experimental::write_col_index_tile")) {
-      auto experimentalIndexTileLLKs =
-          StringRef(experimental_index_tile_llks_generated,
-                    experimental_index_tile_llks_generated_len);
-      builder->create<emitc::VerbatimOp>(loc, experimentalIndexTileLLKs);
-    }
-
     if (hasVerbatim("experimental::invoke_sfpi")) {
       builder->create<emitc::VerbatimOp>(
           loc, StringRef(experimental_invoke_sfpi_llks_generated,
