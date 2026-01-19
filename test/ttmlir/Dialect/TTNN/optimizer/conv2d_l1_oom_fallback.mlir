@@ -1,8 +1,9 @@
 // REQUIRES: opmodel
-// RUN: ttmlir-opt --ttcore-register-device --ttnn-operation-validation-and-fallback %s | FileCheck %s
+// RUN: ttmlir-opt --ttcore-register-device --ttnn-operation-validation-and-fallback -o %t %s
+// RUN: FileCheck %s --input-file=%t
 //
 // This test verifies that when a Conv2d operation with conv2d_slice_config=<l1_full>
-// causes L1 OOM, the optimizer fallback pass fixes by removing or replacing the slice config
+// causes L1 OOM, the optimizer fallback pass fixes by replacing the slice config
 // to allow DRAM usage instead.
 
 #dram = #ttnn.buffer_type<dram>
@@ -17,7 +18,7 @@ module {
     %0 = "ttnn.get_device"() <{mesh_offset = #ttnn<mesh_offset 0x0>, mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
 
     // Conv2d with conv2d_slice_config=<l1_full> which will cause L1 OOM
-    // The fallback should remove or replace this attribute
+    // The fallback should replace this attribute
     // CHECK: ttnn.conv2d
     // CHECK-NOT: conv2d_slice_config = #ttnn.conv2d_slice_config<l1_full
     %result = "ttnn.conv2d"(%arg0, %arg1, %arg2, %0) <{

@@ -802,22 +802,22 @@ bool tryConfigFallbacks(Operation *operation,
   Conv2dConfigAttr originalConfigAttr =
       conv2dAttrs.conv2dConfig.has_value()
           ? conv2dAttrs.conv2dConfig.value()
-          : Conv2dConfigAttr::getDefault(operation->getContext());
+          : Conv2dConfigAttr::get(operation->getContext());
 
-  // Create search space focused on act_block_h_override
-  // Try all multiples of 32 from 1024 down to 32
-  Conv2dConfigSearchSpace searchSpace;
-  searchSpace.actBlockHOverride.push_back(0);
+  // Create search spaces for act_block_h_override
+  // L1Full supports 0; DRAM slices don't
+  // TODO(bmalesevic, #6634): Remove when tt-metal backend supports
+  // act_block_h=0 with DRAM slicing
+  Conv2dConfigSearchSpace l1SearchSpace;
+  l1SearchSpace.actBlockHOverride.push_back(0);
   for (uint32_t val = 1024; val >= 32; val -= 32) {
-    searchSpace.actBlockHOverride.push_back(val);
+    l1SearchSpace.actBlockHOverride.push_back(val);
   }
 
-  TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
-               "Trying config fallbacks for operation {} at {} with {} "
-               "act_block_h_override values",
-               operation->getName(), operation->getLoc(),
-               searchSpace.actBlockHOverride.size());
-
+  Conv2dConfigSearchSpace dramSearchSpace;
+  for (uint32_t val = 1024; val >= 32; val -= 32) {
+    dramSearchSpace.actBlockHOverride.push_back(val);
+  }
   // Use Conv2dConfigParams to unset act_block_h_override so the generator
   // will iterate through the search space values
   Conv2dConfigParams configParams(originalConfigAttr);
@@ -844,26 +844,20 @@ bool tryConfigFallbacks(Operation *operation,
                 Conv2dSliceType::DramHeight};
 
             for (Conv2dSliceType sliceType : sliceConfigsToTry) {
-              Conv2dConfigSearchSpace currentSearchSpace = searchSpace;
+              // Use l1SearchSpace for L1Full (includes 0), dramSearchSpace for
+              // DRAM slices (excludes 0)
+              const Conv2dConfigSearchSpace &currentSearchSpace =
+                  (sliceType == Conv2dSliceType::L1Full) ? l1SearchSpace
+                                                         : dramSearchSpace;
 
               auto conv2dSliceConfig = Conv2dSliceConfigAttr::get(
                   convOp->getContext(), sliceType, 0);
               convOp.setConv2dSliceConfigAttr(conv2dSliceConfig);
 
-              // Remove act_block_h_override=0 for DRAM slice configs
-              // TODO(bmalesevic, #6634): Remove when tt-metal backend supports
-              // act_block_h=0
-              if (sliceType != Conv2dSliceType::L1Full) {
-                currentSearchSpace.actBlockHOverride.erase(
-                    std::remove(currentSearchSpace.actBlockHOverride.begin(),
-                                currentSearchSpace.actBlockHOverride.end(), 0),
-                    currentSearchSpace.actBlockHOverride.end());
-              }
-
               Conv2dConfigGenerator configGenerator(
                   &convOp, baseConfig, currentSearchSpace, filterOutFn);
 
-              TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
+              TTMLIR_TRACE(ttmlir::LogComponent::OpValidation,
                            "Trying slice config: {} with {} act_block_h values",
                            stringifyEnum(sliceType),
                            currentSearchSpace.actBlockHOverride.size());
@@ -920,11 +914,11 @@ bool tryConfigFallbacks(Operation *operation,
           // slice config attribute is supported
           .Case<ttnn::ConvTranspose2dOp>([&](ttnn::ConvTranspose2dOp convOp) {
             Conv2dConfigGenerator configGenerator(&convOp, baseConfig,
-                                                  searchSpace, filterOutFn);
+                                                  l1SearchSpace, filterOutFn);
 
-            TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
+            TTMLIR_TRACE(ttmlir::LogComponent::OpValidation,
                          "Trying config fallback with {} act_block_h values",
-                         searchSpace.actBlockHOverride.size());
+                         l1SearchSpace.actBlockHOverride.size());
 
             // Iterate through generated configs
             while (Conv2dConfigAttr configAttr =
