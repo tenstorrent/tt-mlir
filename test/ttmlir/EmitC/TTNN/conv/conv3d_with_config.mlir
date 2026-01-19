@@ -18,7 +18,8 @@
   w_out_block = 1,
   h_out_block = 1,
   c_out_block = 32,
-  c_in_block = 32
+  c_in_block = 32,
+  compute_with_storage_grid_size = #ttcore.grid<8x8>
 >
 
 func.func @conv3d_with_config(%arg0: tensor<1x8x28x28x32xbf16, #ttnn_layout>, %arg1: tensor<32x32x3x3x3xbf16, #ttnn_layout1>, %arg2: tensor<1x1x1x1x32xbf16, #ttnn_layout2>) -> tensor<1x6x26x26x32xbf16, #ttnn_layout3> {

@@ -1507,8 +1507,8 @@ public:
         adaptor.getInput(), reshapedWeight, reshapedBias, device,
         inChannelsAttr, outChannelsAttr, batchSizeAttr, inputDepthAttr,
         inputHeightAttr, inputWidthAttr, kernelSizeAttr, *strideAttr,
-        *paddingAttr, paddingModeAttr, groupsAttr, outputDtypeAttr,
-        /*conv3d_config=*/nullptr, /*compute_config=*/nullptr);
+        *paddingAttr, paddingModeAttr, groupsAttr, outputDtypeAttr, nullptr,
+        nullptr);
 
     return success();
   }
