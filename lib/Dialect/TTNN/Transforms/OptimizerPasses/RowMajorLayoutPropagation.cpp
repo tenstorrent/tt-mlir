@@ -29,6 +29,7 @@
 #include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/Error.h"
 
+#include <cassert>
 #include <queue>
 #include <utility>
 #include <vector>
@@ -81,9 +82,6 @@ public:
 
       llvm::DenseMap<Operation *, Layout> opLayoutConstraints;
       propagateRowMajorLayout(func, rowMajorArgs, opLayoutConstraints);
-
-      // After propagation, insert ToLayoutOps before returns where needed
-      insertToLayoutOpsBeforeReturns(func, rewriter);
     });
 #endif // TTMLIR_ENABLE_OPMODEL
   }
@@ -196,11 +194,14 @@ private:
 
   // Propagates RowMajor layout through the function starting from the given
   // argument values. Updates the operation result types in-place. Stops when
-  // reaching operations that return Tiled layouts.
+  // reaching operations that return Tiled layouts. Inserts ToLayoutOps before
+  // ReturnOp when actual layout differs from expected function signature.
   void
   propagateRowMajorLayout(func::FuncOp func,
                           const llvm::SmallVector<Value> &rowMajorArgs,
                           llvm::DenseMap<Operation *, Layout> &constraints) {
+    IRRewriter rewriter(func.getContext());
+    FunctionType funcType = func.getFunctionType();
 
     std::queue<Value> worklist = {};
 
@@ -214,6 +215,12 @@ private:
 
       for (auto &use : current.getUses()) {
         Operation *user = use.getOwner();
+
+        if (auto returnOp = mlir::dyn_cast<func::ReturnOp>(user)) {
+          handleReturnOp(rewriter, funcType, returnOp, use.getOperandNumber(),
+                         current);
+          continue;
+        }
 
         llvm::Expected<TTNNLayoutAttr> rmOutputLayout =
             opStopsRowMajorPropagation(user, use.getOperandNumber());
@@ -310,6 +317,62 @@ private:
     return result.actualOutputLayout;
   }
 
+  // Handles ReturnOp during propagation. Checks if actual layout matches
+  // expected function signature and inserts ToLayoutOp if needed for tilizing.
+  void handleReturnOp(IRRewriter &rewriter, FunctionType funcType,
+                      func::ReturnOp returnOp, unsigned operandIdx,
+                      Value previousOp) {
+    auto actualTensorType =
+        mlir::dyn_cast<RankedTensorType>(previousOp.getType());
+    assert(actualTensorType && "Expected ranked tensor type");
+
+    auto actualLayout =
+        mlir::dyn_cast_or_null<TTNNLayoutAttr>(actualTensorType.getEncoding());
+    assert(actualLayout && "Expected layout attribute");
+    assert(!actualLayout.isTiled() &&
+           "Expected row major as propagation result");
+
+    // Extract expected layout from function signature and check if conversion
+    // needed
+    Type expectedReturnType = funcType.getResult(operandIdx);
+    auto expectedTensorType =
+        mlir::dyn_cast<RankedTensorType>(expectedReturnType);
+    if (!expectedTensorType) {
+      return;
+    }
+    auto expectedLayout = mlir::dyn_cast_or_null<TTNNLayoutAttr>(
+        expectedTensorType.getEncoding());
+    if (!expectedLayout || !expectedLayout.isTiled()) {
+      return;
+    }
+
+    TTMLIR_DEBUG(ttmlir::LogComponent::RMPropagation,
+                 "Inserting ToLayoutOp before return for operand {}: "
+                 "actual layout {} -> expected layout {}",
+                 operandIdx, actualLayout, expectedLayout);
+
+    rewriter.setInsertionPoint(returnOp);
+
+    Type scalarElementType = ttcore::dataTypeToElementType(
+        rewriter.getContext(), expectedLayout.getDataType());
+    RankedTensorType targetType = RankedTensorType::get(
+        actualTensorType.getShape(), scalarElementType, expectedLayout);
+
+    auto toLayoutOp = rewriter.create<ttnn::ToLayoutOp>(
+        returnOp.getLoc(), targetType, previousOp,
+        ttnn::LayoutAttr::get(rewriter.getContext(),
+                              expectedLayout.getLayout()),
+        ttcore::DataTypeAttr::get(rewriter.getContext(),
+                                  expectedLayout.getDataType()),
+        ttnn::MemoryConfigAttr::get(
+            rewriter.getContext(), expectedLayout.getMemLayout(),
+            ttnn::BufferTypeAttr::get(rewriter.getContext(),
+                                      expectedLayout.getBufferType()),
+            /*shardSpec=*/std::nullopt));
+
+    returnOp.setOperand(operandIdx, toLayoutOp.getResult());
+  }
+
   // Extract OpConfig from operation's IR
   OpConfig extractOpConfigFromIR(Operation *operation) {
     // Precondition: operation must have at least one result.
@@ -336,82 +399,6 @@ private:
         });
 
     return config;
-  }
-
-  // Insert ToLayoutOps before return statements where the actual tensor layout
-  // (row-major) doesn't match the expected function return type (tiled).
-  void insertToLayoutOpsBeforeReturns(func::FuncOp func, IRRewriter &rewriter) {
-    FunctionType funcType = func.getFunctionType();
-
-    func.walk([&](func::ReturnOp returnOp) {
-      assert(returnOp.getNumOperands() == funcType.getNumResults() &&
-             "Return operand count must match function result count");
-
-      for (unsigned i = 0; i < returnOp.getNumOperands(); ++i) {
-        Value returnValue = returnOp.getOperand(i);
-
-        // Get actual layout of the value being returned
-        auto actualTensorType =
-            mlir::dyn_cast<RankedTensorType>(returnValue.getType());
-        if (!actualTensorType) {
-          continue;
-        }
-
-        auto actualLayout = mlir::dyn_cast_or_null<TTNNLayoutAttr>(
-            actualTensorType.getEncoding());
-        if (!actualLayout) {
-          continue;
-        }
-
-        // Get expected layout from function signature
-        Type expectedReturnType = funcType.getResult(i);
-        auto expectedTensorType =
-            mlir::dyn_cast<RankedTensorType>(expectedReturnType);
-        if (!expectedTensorType) {
-          continue;
-        }
-
-        auto expectedLayout = mlir::dyn_cast_or_null<TTNNLayoutAttr>(
-            expectedTensorType.getEncoding());
-        if (!expectedLayout) {
-          continue;
-        }
-
-        // Check if we need to insert a ToLayoutOp
-        // If actual is row-major and expected is tiled, insert ToLayoutOp
-        // (following OperationValidationAndFallback pattern)
-        if (!actualLayout.isTiled() && expectedLayout.isTiled()) {
-          TTMLIR_DEBUG(ttmlir::LogComponent::RMPropagation,
-                       "Inserting ToLayoutOp before return for operand {}: "
-                       "actual layout {} -> expected layout {}",
-                       i, actualLayout, expectedLayout);
-
-          OpBuilder builder(returnOp->getContext());
-          builder.setInsertionPoint(returnOp);
-
-          // Create the target type with tiled layout
-          Type scalarElementType = ttcore::dataTypeToElementType(
-              builder.getContext(), expectedLayout.getDataType());
-          RankedTensorType targetType = RankedTensorType::get(
-              actualTensorType.getShape(), scalarElementType, expectedLayout);
-
-          auto toLayoutOp = builder.create<ttnn::ToLayoutOp>(
-              returnOp.getLoc(), targetType, returnValue,
-              ttnn::LayoutAttr::get(builder.getContext(),
-                                    expectedLayout.getLayout()),
-              ttcore::DataTypeAttr::get(builder.getContext(),
-                                        expectedLayout.getDataType()),
-              ttnn::MemoryConfigAttr::get(
-                  builder.getContext(), expectedLayout.getMemLayout(),
-                  ttnn::BufferTypeAttr::get(builder.getContext(),
-                                            expectedLayout.getBufferType()),
-                  /*shardSpec=*/std::nullopt));
-
-          // Update the return to use the new ToLayoutOp result
-          returnOp.setOperand(i, toLayoutOp.getResult());
-        }
-      }
-    });
   }
 };
 
