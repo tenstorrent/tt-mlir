@@ -1736,6 +1736,13 @@ public:
     ArrayRef<int64_t> inputShape = inputType.getShape();
     Type elementType = inputType.getElementType();
 
+    // ConcatenateHeads expects exactly 4D input:
+    // [batch_size, num_heads, sequence_size, head_size]
+    if (inputType.getRank() != 4) {
+      return rewriter.notifyMatchFailure(
+          op, "ConcatenateHeads requires 4D input tensor");
+    }
+
     auto resultType = dyn_cast<RankedTensorType>(
         this->getTypeConverter()->convertType(op.getResult().getType()));
     assert(resultType && "Result type must be a ranked tensor type.");
@@ -2459,15 +2466,8 @@ public:
     auto shapeOp =
         rewriter.create<tosa::ConstShapeOp>(op.getLoc(), shapeType, attr);
 
-    auto reshapeOp = rewriter.create<tosa::ReshapeOp>(op.getLoc(), resultType,
-                                                      input, shapeOp);
-
-    // Handle DPS semantics - directly copy to output.
-    ttir::EmptyOp output = rewriter.create<ttir::EmptyOp>(
-        op.getLoc(), resultType.getShape(), resultType.getElementType());
-    auto copyOp = rewriter.create<linalg::CopyOp>(
-        op.getLoc(), ValueRange{reshapeOp}, ValueRange{output});
-    rewriter.replaceOp(op, copyOp.getResult(0));
+    rewriter.replaceOpWithNewOp<tosa::ReshapeOp>(op, resultType, input,
+                                                 shapeOp);
 
     return success();
   }
