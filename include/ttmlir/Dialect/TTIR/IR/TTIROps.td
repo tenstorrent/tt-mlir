@@ -20,6 +20,7 @@ include "mlir/IR/BuiltinAttributes.td"
 include "mlir/IR/CommonTypeConstraints.td"
 include "mlir/IR/CommonAttrConstraints.td"
 include "mlir/IR/OpBase.td"
+include "mlir/IR/SymbolInterfaces.td"
 
 class TTIR_DPSOp<string mnemonic, list<Trait> traits = []> :
     TTIR_Op<mnemonic, [TTIROpInterface, DestinationStyleOpInterface] # traits> {
@@ -141,27 +142,47 @@ def TTIR_TTNNMetalLayoutCastOp : TTIR_Op<"ttnn_metal_layout_cast",
   let hasCanonicalizer = 1;
 }
 
-def TTIR_DispatchD2MOp : TTIR_Op<"dispatch_d2m"> {
-  let summary = "Dispatch subgraph module to D2M backend.";
+def TTIR_DispatchD2MOp : TTIR_Op<"dispatch_d2m",
+  [AttrSizedOperandSegments,
+   DestinationStyleOpInterface,
+   SingleBlock,
+   NoTerminator,
+   SymbolTable]> {
+  let summary = "Dispatch subgraph to D2M backend.";
   let description = [{
-    Dispatch a subgraph (contained in a nested module) to the D2M backend. The subgraph will
-    be lowered to one or more ttnn.generic ops. The D2M compiler must respect the input/output shapes/layouts,
-    but will have full control over intermediate tensors.
+    Dispatch a subgraph to the D2M backend. The subgraph will be lowered to one
+    or more ttnn.generic ops. The D2M compiler must respect the input/output
+    shapes/layouts, but will have full control over intermediate tensors.
 
-    The `subgraph` attribute references a nested module containing the subgraph to compile.
-    The module should contain a function with the same name as the module that serves as the
-    entry point.
+    This op is converted 1-1 to ttnn.dispatch_d2m during TTIRToTTNN conversion.
+
+    Example:
+    ```mlir
+
+    ```
   }];
 
-  let arguments = (ins FlatSymbolRefAttr:$subgraph,
-                       Variadic<AnyRankedTensor>:$inputs);
+  let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
+                       Variadic<AnyRankedTensor>:$outputs);
 
-  let results = (outs AnyRankedTensor:$output);
+  let results = (outs Variadic<AnyRankedTensor>:$results);
+
+  let regions = (region SizedRegion<1>:$body);
 
   let hasVerifier = 1;
 
   let assemblyFormat = [{
-    `(` $subgraph `,` `[` $inputs `]` `)` attr-dict `:` functional-type($inputs, $output)
+    attr-dict `\n`
+    `ins` `(` $inputs `:` type($inputs) `)` `\n`
+    `outs` `(` $outputs `:` type($outputs) `)` $body (`:` type($results)^)?
+  }];
+
+  let extraClassDeclaration = [{
+    MutableOperandRange getDpsInitsMutable() {
+      return getOutputsMutable();
+    }
+
+    func::FuncOp lookupD2MMainFunc();
   }];
 }
 

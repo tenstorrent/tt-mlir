@@ -1,16 +1,19 @@
+// RUN: ttmlir-opt
+// UNSUPPORTED: true
+// ttmlir-opt --ttnn-materialize-d2m test/ttmlir/Dialect/TTIR/dispatch_d2m/materialize.mlir
+#l1 = #ttnn.buffer_type<l1>
+#ttnn_layout = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>, <block_sharded>, exactGrid = true>
 
 module {
-  func.func @ttnn_graph(%arg0: tensor<64x64xbf16>, %arg1: tensor<64x64xbf16>) -> tensor<64x64xbf16> {
-    %0 = "ttir.dispatch_d2m"(%arg0, %arg1) {subgraph = @d2m_subgraph} : (tensor<64x64xbf16>, tensor<64x64xbf16>) -> tensor<64x64xbf16>
-    return %0 : tensor<64x64xbf16>
-  }
-
-  module @d2m_subgraph {
-    func.func @d2m_subgraph(%arg0: tensor<64x64xbf16>, %arg1: tensor<64x64xbf16>) -> tensor<64x64xbf16> {
-      %0 = "ttir.add"(%arg0, %arg1) : (tensor<64x64xbf16>, tensor<64x64xbf16>) -> tensor<64x64xbf16>
-      %1 = "ttir.subtract"(%0, %arg0) : (tensor<64x64xbf16>, tensor<64x64xbf16>) -> tensor<64x64xbf16>
-      %2 = "ttir.exp"(%1) : (tensor<64x64xbf16>) -> tensor<64x64xbf16>
-      return %2 : tensor<64x64xbf16>
-    }
+  func.func @ttnn_graph(%arg0: tensor<64x64xbf16, #ttnn_layout>, %arg1: tensor<64x64xbf16, #ttnn_layout>, %out: tensor<64x64xbf16, #ttnn_layout>) -> tensor<64x64xbf16, #ttnn_layout> {
+    %0 = ttnn.dispatch_d2m @d2m_subgraph
+        ins(%arg0, %arg1 : tensor<64x64xbf16, #ttnn_layout>, tensor<64x64xbf16, #ttnn_layout>)
+        outs(%out : tensor<64x64xbf16, #ttnn_layout>) {
+      func.func @d2m_subgraph(%a: tensor<64x64xbf16, #ttnn_layout>, %b: tensor<64x64xbf16, #ttnn_layout>) -> tensor<64x64xbf16, #ttnn_layout> {
+        %0 = "ttir.add"(%a, %b) : (tensor<64x64xbf16, #ttnn_layout>, tensor<64x64xbf16, #ttnn_layout>) -> tensor<64x64xbf16, #ttnn_layout>
+        return %0 : tensor<64x64xbf16, #ttnn_layout>
+      }
+    } : tensor<64x64xbf16, #ttnn_layout>
+    return %0 : tensor<64x64xbf16, #ttnn_layout>
   }
 }

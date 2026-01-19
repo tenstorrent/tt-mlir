@@ -6,6 +6,7 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreTraits.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsResources.h"
 
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
@@ -4737,6 +4738,76 @@ mlir::tt::ttnn::PagedScaledDotProductAttentionDecodeOp::verify() {
   }
 
   return success();
+}
+
+//===----------------------------------------------------------------------===//
+// DispatchD2MOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttnn::DispatchD2MOp::verify() {
+  Region &body = getBody();
+  if (body.empty()) {
+    return emitOpError("Body region must not be empty.");
+  }
+
+  func::FuncOp mainFunc = lookupD2MMainFunc();
+  if (!mainFunc) {
+    return emitOpError("Could not find D2M function '")
+           << getD2mFunc() << "' in body region.";
+  }
+
+  // Verify return types match op results
+  if (mainFunc.getNumResults() != getNumResults()) {
+    return emitOpError("D2M function must have ")
+           << getNumResults() << " return values, got "
+           << mainFunc.getNumResults();
+  }
+
+  for (auto [idx, pair] : llvm::enumerate(
+           llvm::zip(getResults().getTypes(), mainFunc.getResultTypes()))) {
+    auto [resultType, funcResultType] = pair;
+    if (resultType != funcResultType) {
+      return emitOpError("D2M function return type ")
+             << idx << " mismatch: expected " << resultType << ", got "
+             << funcResultType;
+    }
+  }
+
+  return success();
+}
+
+func::FuncOp mlir::tt::ttnn::DispatchD2MOp::lookupD2MMainFunc() {
+  StringRef mainName = getD2mFunc().getRootReference();
+  for (Operation &op : getBody().front()) {
+    if (auto funcOp = mlir::dyn_cast<func::FuncOp>(&op)) {
+      if (funcOp.getSymName() == mainName) {
+        return funcOp;
+      }
+    }
+  }
+  return nullptr;
+}
+
+SmallVector<func::FuncOp> mlir::tt::ttnn::DispatchD2MOp::getKernelFuncs() {
+  SmallVector<func::FuncOp> kernels;
+  StringRef mainName = getD2mFunc().getRootReference();
+  for (Operation &op : getBody().front()) {
+    if (auto funcOp = mlir::dyn_cast<func::FuncOp>(&op)) {
+      if (funcOp.getSymName() != mainName) {
+        kernels.push_back(funcOp);
+      }
+    }
+  }
+  return kernels;
+}
+
+void mlir::tt::ttnn::DispatchD2MOp::getEffects(
+    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
+        &effects) {
+  effects.emplace_back(MemoryEffects::Read::get(),
+                       SideEffects::DefaultResource::get());
+  effects.emplace_back(MemoryEffects::Write::get(),
+                       SideEffects::DefaultResource::get());
 }
 
 } // namespace mlir::tt::ttnn
