@@ -813,7 +813,9 @@ class Builder(metaclass=BuilderMeta):
                 builtin_module = entry.regions[0].blocks[0].operations[0]
                 for op in builtin_module.regions[0].blocks[0].operations:
                     if isinstance(op, func.FuncOp):
-                        self._func_name_to_op[op.name.value] = op
+                        # Only add functions with bodies, not declarations
+                        if not op.is_external:
+                            self._func_name_to_op[op.name.value] = op
 
                         for block in op.body:
                             for inner_op in block.operations:
