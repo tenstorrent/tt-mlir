@@ -8,7 +8,7 @@ from typing import Callable, List, Optional, Tuple, Union
 from collections import OrderedDict
 from functools import reduce
 import operator
-from conftest import x86_only
+from conftest import x86_only, get_request_kwargs
 
 from builder.base.builder_utils import Operand, Shape, TypeInfo
 from builder.ttir.ttir_builder import TTIRBuilder
@@ -62,9 +62,7 @@ def test_hoisted_logical_not(
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )
@@ -84,10 +82,8 @@ def test_clamp_scalar(shape: Shape, max_arg: float, min_arg: float, request, dev
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -108,10 +104,8 @@ def test_clamp_tensor(shapes: List[Shape], request, device):
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -155,10 +149,8 @@ def test_dot_general(
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -211,9 +203,7 @@ def test_div(shape: Shape, dtype: torch.dtype, target: str, request, device):
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )
@@ -242,9 +232,7 @@ def test_hoisted_div(shape: Shape, dtype: torch.dtype, target: str, request, dev
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )
@@ -267,10 +255,8 @@ def test_linear(shapes: List[Shape], request, device):
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -291,10 +277,8 @@ def test_broadcast(shape: List[int], broadcast_dimensions: List[int], request, d
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -362,10 +346,8 @@ def test_conv2d(
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -416,7 +398,7 @@ def test_conv2d_consteval(
     compile_and_execute_ttir(
         module,
         argument_types_string="conv2d_consteval=input,parameter,parameter",
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         device=device,
     )
 
@@ -472,9 +454,7 @@ def test_hoisted_conv2d(
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )
@@ -529,10 +509,8 @@ def test_conv_transpose2d(
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -642,94 +620,8 @@ def test_convolution(
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
-        pcc=0.98,
-    )
-
-
-@pytest.mark.parametrize(
-    "shapes,stride,padding,dilation,groups",
-    [
-        # Depthwise convolution (groups = input_channels)
-        (
-            [(1, 32, 28, 28), (32, 1, 3, 3), (1, 1, 1, 32)],
-            [1, 1],
-            [1, 1, 1, 1],
-            [1, 1],
-            32,
-        ),
-        # Group convolution (4 groups)
-        (
-            [(1, 64, 32, 32), (64, 16, 3, 3), (1, 1, 1, 64)],
-            [1, 1],
-            [1, 1, 1, 1],
-            [1, 1],
-            4,
-        ),
-        # Dilated convolution
-        (
-            [(1, 32, 32, 32), (64, 32, 3, 3), (1, 1, 1, 64)],
-            [1, 1],
-            [2, 2, 2, 2],
-            [2, 2],
-            1,
-        ),
-    ],
-    ids=["depthwise_conv", "group_conv_4groups", "dilated_conv"],
-)
-@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-def test_convolution_groups_dilation(
-    shapes: List[Shape],
-    stride: List[int],
-    padding: List[int],
-    dilation: List[int],
-    groups: int,
-    dtype: torch.dtype,
-    request,
-    device,
-):
-    """Test convolution with group and dilation patterns"""
-
-    def module(builder: TTIRBuilder):
-        @builder.func(shapes, [dtype] * len(shapes))
-        def convolution_grouped(
-            in0: Operand,
-            weight: Operand,
-            bias: Operand,
-            builder: TTIRBuilder,
-            unit_attrs: Optional[List[str]] = None,
-        ):
-            return builder.convolution(
-                in0,
-                weight,
-                bias,
-                window_strides=stride,
-                padding=padding,
-                input_dilation=[1, 1],
-                weight_dilation=dilation,
-                input_batch=0,
-                input_feature=1,
-                input_spatial_dimensions=[2, 3],
-                kernel_output_feature=0,
-                kernel_input_feature=1,
-                kernel_spatial_dimensions=[2, 3],
-                output_batch=0,
-                output_feature=1,
-                output_spatial_dimensions=[2, 3],
-                feature_group_count=groups,
-                batch_group_count=1,
-            )
-
-    compile_and_execute_ttir(
-        module,
-        test_base=request.node.name,
-        device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
-        pcc=0.96,
     )
 
 
@@ -769,10 +661,8 @@ def test_max_pool2d(
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -817,9 +707,7 @@ def test_hoisted_max_pool2d(
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )
@@ -873,10 +761,8 @@ def test_avg_pool2d(
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -936,10 +822,8 @@ def test_batch_norm(
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -1000,10 +884,8 @@ def test_batch_norm_training(
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -1048,10 +930,8 @@ def test_embedding_backward(
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -1187,10 +1067,8 @@ def test_pooling(
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -1210,10 +1088,8 @@ def test_index(
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -1236,13 +1112,7 @@ def test_select(
                 unit_attrs=unit_attrs,
             )
 
-    compile_and_execute_ttir(
-        module,
-        test_base=request.node.name,
-        device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
-    )
+    compile_and_execute_ttir(module, device=device, **get_request_kwargs(request))
 
 
 # TODO (ctod): These three nullary tensor creation ops can probably be combined in some way.
@@ -1258,10 +1128,8 @@ def test_zeros(shape: Shape, dtype: torch.dtype, request, device):
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -1277,10 +1145,8 @@ def test_ones(shape: Shape, dtype: torch.dtype, request, device):
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -1305,10 +1171,8 @@ def test_rand(
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -1334,9 +1198,7 @@ def test_callable_initialization_basic(
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )
@@ -1359,9 +1221,7 @@ def test_callable_initialization_zeros(
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )
@@ -1384,9 +1244,7 @@ def test_callable_initialization_ones(
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )
@@ -1417,9 +1275,7 @@ def test_callable_initialization_eye(
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )
@@ -1445,9 +1301,7 @@ def test_callable_initialization_mixed(
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )
@@ -1471,9 +1325,7 @@ def test_callable_initialization_custom_lambda(
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )
@@ -1517,10 +1369,8 @@ def test_reverse(shape: Shape, dims: List[int], request, device):
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -1546,10 +1396,8 @@ def test_upsample2d(shapes: List[Shape], scale_factor: List[int], request, devic
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -1582,10 +1430,8 @@ def test_arange(
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -1603,10 +1449,8 @@ def test_cumsum(shapes: List[Shape], dim: int, request, device):
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -1631,10 +1475,8 @@ def test_fill_cache(shapes: List[Shape], request, device):
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -1658,10 +1500,8 @@ def test_softmax(shape: Shape, dimension: int, numeric_stable: bool, request, de
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -1684,10 +1524,8 @@ def test_update_cache(shapes: List[Shape], dtypes: List[torch.dtype], request, d
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -1726,10 +1564,8 @@ def test_quantize(
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -1770,10 +1606,8 @@ def test_dequantize(
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -1822,10 +1656,8 @@ def test_requantize(
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -1985,11 +1817,9 @@ def test_cpu_hoistable_single_operand_ops(
     """Test unary ops that support CPU hoisting"""
     compile_and_execute_ttir(
         module,
-        test_base=f"{request.node.name}",
         target=target,
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
     )
 
 
@@ -2021,11 +1851,9 @@ def test_hoisted_permute(shapes, permutation, request, target: str, device):
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         target=target,
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -2062,11 +1890,9 @@ def test_hoisted_slice(
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         target=target,
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -2084,11 +1910,9 @@ def test_hoisted_where(shapes, request, target: str, device):
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         target=target,
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -2114,11 +1938,9 @@ def test_hoisted_reshape(
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         target=target,
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -2148,11 +1970,9 @@ def test_hoisted_transpose(input_shape, dims, dtype, request, target: str, devic
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         target=target,
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -2172,10 +1992,8 @@ def test_hoisted_squeeze(shape: Shape, dim: int, target: str, request, device):
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         target=target,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
         device=device,
     )
 
@@ -2220,9 +2038,7 @@ def test_unary_ops_int32(
         test_fn,
         inputs_shapes=[shape],
         inputs_types=[dtype],
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
         pipeline_options=pipeline_options,
@@ -2256,9 +2072,7 @@ def test_matmul(
     pipeline_options = []
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
         pipeline_options=pipeline_options,
@@ -2295,9 +2109,7 @@ def test_unique_ops(
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )
@@ -2323,11 +2135,9 @@ def test_hoisted_reduce_or(
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         target=target,
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -2358,11 +2168,9 @@ def test_hoisted_broadcast(shape, broadcast_dims, request, target: str, device):
 
     compile_and_execute_ttir(
         module,
-        test_base=f"{request.node.name}",
+        **get_request_kwargs(request),
         target=target,
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -2457,11 +2265,9 @@ def test_gather(
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         target=target,
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -2514,11 +2320,9 @@ def test_hoisted_gather(
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         target=target,
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -2569,11 +2373,9 @@ def test_hoisted_dot_general(
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         target=target,
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -2603,11 +2405,9 @@ def test_hoisted_matmul(
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         target=target,
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -2665,10 +2465,8 @@ def test_rms_norm(
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
     )
 
@@ -2749,9 +2547,7 @@ def test_mesh_shard_devices(
         mesh_name="mesh",
         device=device,
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
     )
 
 
@@ -2840,9 +2636,7 @@ def test_all_gather(
         mesh_name="mesh",
         device=device,
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
     )
 
 
@@ -2932,9 +2726,7 @@ def test_all_reduce(
         mesh_name="mesh",
         device=device,
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
     )
 
 
@@ -3027,9 +2819,7 @@ def test_reduce_scatter(
         mesh_name="mesh",
         device=device,
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
     )
 
 
@@ -3142,9 +2932,7 @@ def test_collective_permute(
         mesh_name="mesh",
         device=device,
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
     )
 
 
@@ -3154,6 +2942,7 @@ def test_collective_permute(
         (32, 64),
         (32, 64, 128),
         (8, 8, 64, 64),
+        (10, 10, 30, 60),
     ],
     ids=shape_str,
 )
@@ -3162,13 +2951,13 @@ def test_collective_permute(
 @pytest.mark.parametrize(
     "mesh_shape, replica_groups",
     [
-        ((1, 8), ((0, 1, 2, 3, 4, 5, 6, 7),)),
-        ((2, 4), ((0, 4), (1, 5), (2, 6), (3, 7))),
-        ((2, 4), ((0, 1, 2, 3), (4, 5, 6, 7))),
-        ((4, 2), ((0, 2, 4, 6), (1, 3, 5, 7))),
-        ((4, 2), ((0, 1), (2, 3), (4, 5), (6, 7))),
-        ((1, 2), ((0, 1),)),
-        ((2, 1), ((0, 1),)),
+        ((1, 8), [(0, 1, 2, 3, 4, 5, 6, 7)]),
+        ((2, 4), [(0, 1), (2, 3)]),
+        ((2, 4), [(0, 4), (1, 5), (2, 6), (3, 7)]),
+        ((4, 2), [(0, 1), (2, 3), (4, 5), (6, 7)]),
+        ((4, 2), [(0, 2, 4, 6), (1, 3, 5, 7)]),
+        ((1, 2), [(0, 1)]),
+        ((2, 1), [(0, 1)]),
         ((1, 32), range(32)),
         (
             (8, 4),
@@ -3248,9 +3037,7 @@ def test_all_to_all(
         mesh_name="mesh",
         device=device,
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
     )
 
 
@@ -3341,9 +3128,7 @@ def test_collective_broadcast(
         mesh_name="mesh",
         device=device,
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
     )
 
 
@@ -3367,9 +3152,7 @@ def test_multi_return_support(
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         device=device,
     )
 
@@ -3392,9 +3175,7 @@ def test_triple_return_support(
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         device=device,
     )
 
@@ -3414,9 +3195,7 @@ def test_multiple_function(target, request, device):
 
     compile_and_execute_ttir(
         my_module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         device=device,
         target=target,
     )
@@ -3441,9 +3220,7 @@ def test_device_cpu_module(target, request, device):
 
     compile_and_execute_ttir(
         my_module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         device=device,
         target=target,
     )
@@ -3471,9 +3248,7 @@ def test_nested_function_calls(target, request, device):
 
     compile_and_execute_ttir(
         my_module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         device=device,
         target=target,
     )

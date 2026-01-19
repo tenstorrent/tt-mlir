@@ -208,6 +208,38 @@ def device(request, pytestconfig):
     return _get_device_for_target(target, mesh_shape, pytestconfig)
 
 
+def get_request_kwargs(request):
+    """
+    Extracts and organizes request-related arguments into a dictionary.
+
+    Parameters
+    ----------
+    request : pytest.FixtureRequest
+        The pytest request object.
+
+    Returns
+    -------
+    Dict[str, Any]
+        A dictionary containing request-related arguments.
+    """
+    check_pcc = not request.config.getoption("--disable-pcc")
+    return {
+        "test_base": request.node.name,
+        "output_root": request.config.getoption("--path"),
+        "system_desc_path": request.config.getoption("--sys-desc"),
+        "save_artifacts": request.config.getoption("--save-artifacts"),
+        "print_ir": request.config.getoption("--print-ir"),
+        "check_atol": request.config.getoption("--check-atol"),
+        "check_rtol": request.config.getoption("--check-rtol"),
+        "enable_intermediate_verification": request.config.getoption(
+            "--enable-intermediate-verification"
+        ),
+        "disable_golden": request.config.getoption("--disable-golden"),
+        "skip_exec": request.config.getoption("--skip-exec"),
+        "check_pcc": check_pcc,
+    }
+
+
 def pytest_addoption(parser):
     parser.addoption(
         "--path",
@@ -256,6 +288,46 @@ def pytest_addoption(parser):
         "--use-loc-for-kernel-name",
         action="store_true",
         help="Use location info for kernel filenames when dumping",
+    )
+    parser.addoption(
+        "--save-artifacts",
+        action="store_true",
+        help="Save generated artifacts (flatbuffers, mlir files, etc.) to disk",
+    )
+    parser.addoption(
+        "--print-ir",
+        action="store_true",
+        help="Print the MLIR of the compiled module to stdout",
+    )
+    parser.addoption(
+        "--check-atol",
+        action="store_true",
+        help="Enable absolute tolerance check. Raises an exception if tolerance is exceeded.",
+    )
+    parser.addoption(
+        "--check-rtol",
+        action="store_true",
+        help="Enable relative tolerance check. Raises an exception if tolerance is exceeded.",
+    )
+    parser.addoption(
+        "--enable-intermediate-verification",
+        action="store_true",
+        help="Enable runtime callbacks to verify intermediate outputs match golden outputs.",
+    )
+    parser.addoption(
+        "--disable-golden",
+        action="store_true",
+        help="Disable golden comparison and use random inputs.",
+    )
+    parser.addoption(
+        "--skip-exec",
+        action="store_true",
+        help="Skip execution of the compiled flatbuffer.",
+    )
+    parser.addoption(
+        "--disable-pcc",
+        action="store_true",
+        help="Disable PCC check.",
     )
 
 
