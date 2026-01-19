@@ -366,6 +366,9 @@ LogicalResult translateKernelFuncToCpp(func::FuncOp entry,
     return failure();
   }
 
+  // Ensure the EmitC dialect is loaded since we create EmitC ops during translation.
+  entry.getContext()->loadDialect<emitc::EmitCDialect>();
+
   ThreadType threadType =
       entry->getAttrOfType<ThreadTypeAttr>(ThreadTypeAttr::name).getValue();
   FailureOr<mlir::ModuleOp> kernelModule =
