@@ -3289,7 +3289,8 @@ def TTIR_Conv2dOp : TTIR_NamedOp<"conv2d", [DeclareOpInterfaceMethods<TTIR_Quant
       ```
 
       Inputs:
-      - `input` (AnyRankedTensor): expected in the following format (N, H_in, W_in, C) where:
+      - `input` (AnyRankedTensor): 4D tensor where dimension indices are controlled by `batch_dim`, `height_dim`,
+        `width_dim`, and `channel_dim` attributes. Default layout is NHWC (N, H_in, W_in, C) where:
         - N is the batch size
         - H_in is the height of the input planes
         - W_in is the width of the input planes
@@ -3300,7 +3301,8 @@ def TTIR_Conv2dOp : TTIR_NamedOp<"conv2d", [DeclareOpInterfaceMethods<TTIR_Quant
         - G is the number of groups
         - K_H is the height of the kernel
         - K_W is the width of the kernel
-      - `bias` Optional<AnyRankedTensor>: expected in the following format (1, 1, 1, O).
+      - `bias` Optional<AnyRankedTensor>: bias tensor with output channels at position specified by `channel_dim`.
+        Default format is (1, 1, 1, O).
 
       Attributes:
       - `stride` (i32 | array<2xi32>):
@@ -3314,9 +3316,14 @@ def TTIR_Conv2dOp : TTIR_NamedOp<"conv2d", [DeclareOpInterfaceMethods<TTIR_Quant
         - i32: Same dilation for height and width dimensions (dH = dW = value).
         - array<2xi32>: [dH, dW] where dH is dilation for height and dW is dilation for width.
       - `groups` (i32): Number of blocked connections from input channels to output channels. Input and output channels must both be divisible by groups.
+      - `batch_dim` (i64): Index of the batch dimension in input/output tensors. Default: 0.
+      - `height_dim` (i64): Index of the height dimension in input/output tensors. Default: 1.
+      - `width_dim` (i64): Index of the width dimension in input/output tensors. Default: 2.
+      - `channel_dim` (i64): Index of the channel dimension in input/output tensors. Default: 3.
 
       Output:
-      - `result` AnyRankedTensor: expected in the following format (N, H_out, W_out, O) where:
+      - `result` AnyRankedTensor: 4D tensor with same layout as input (controlled by dimension attributes).
+        Default format is (N, H_out, W_out, O) where:
         - `H_out = (H_in + pT + pB - dH * (K_H - 1) - 1) / sH + 1`
         - `W_out = (W_in + pL + pR - dW * (K_W - 1) - 1) / sW + 1`
     }];
@@ -3476,7 +3483,8 @@ def TTIR_ConvTranspose2dOp : TTIR_NamedOp<"conv_transpose2d", [DeclareOpInterfac
       ```
 
       Inputs:
-      - `input` AnyRankedTensor: expected in the following format (N, H_in, W_in, C) where:
+      - `input` AnyRankedTensor: 4D tensor where dimension indices are controlled by `batch_dim`, `height_dim`,
+        `width_dim`, and `channel_dim` attributes. Default layout is NHWC (N, H_in, W_in, C) where:
         - N is the batch size
         - H_in is the height of the input planes
         - W_in is the width of the input planes
@@ -3487,7 +3495,8 @@ def TTIR_ConvTranspose2dOp : TTIR_NamedOp<"conv_transpose2d", [DeclareOpInterfac
         - G is the number of groups
         - K_H is the height of the kernel
         - K_W is the width of the kernel
-      - `bias` Optional<AnyRankedTensor>: expected in the following format (1, 1, 1, O).
+      - `bias` Optional<AnyRankedTensor>: bias tensor with output channels at position specified by `channel_dim`.
+        Default format is (1, 1, 1, O).
 
       Attributes:
       - `stride` (i32 | array<2xi32>): Controls the stride for the cross-correlation.
@@ -3495,9 +3504,14 @@ def TTIR_ConvTranspose2dOp : TTIR_NamedOp<"conv_transpose2d", [DeclareOpInterfac
       - `output_padding` (i32 | array<2xi32>): Controls the additional size added to one side of the output shape.
       - `dilation` (i32 | array<2xi32>): Controls the spacing between the kernel points
       - `groups` i32: Controls the connections between inputs and outputs. Must be divisible by input and output channels.
+      - `batch_dim` (i64): Index of the batch dimension in input/output tensors. Default: 0.
+      - `height_dim` (i64): Index of the height dimension in input/output tensors. Default: 1.
+      - `width_dim` (i64): Index of the width dimension in input/output tensors. Default: 2.
+      - `channel_dim` (i64): Index of the channel dimension in input/output tensors. Default: 3.
 
       Output:
-      - `result` AnyRankedTensor: expected in the following format (N, H_out, W_out, O) where:
+      - `result` AnyRankedTensor: 4D tensor with same layout as input (controlled by dimension attributes).
+        Default format is (N, H_out, W_out, O) where:
         - H_out = (H_in - 1) * stride[0] - (padding_top + padding_bottom) + dilation[0] * (K_H - 1) + output_padding[0] + 1
         - W_out = (W_in - 1) * stride[1] - (padding_left + padding_right) + dilation[1] * (K_W - 1) + output_padding[1] + 1
     }];

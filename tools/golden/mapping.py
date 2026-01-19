@@ -449,8 +449,15 @@ def cbrt_golden(x: GoldenMapTensor) -> GoldenMapTensor:
 def conv2d_golden(
     input_tensor: GoldenMapTensor,
     weight: GoldenMapTensor,
-    bias: Optional[GoldenMapTensor] = None,
-    **kwargs,
+    bias: Optional[GoldenMapTensor],
+    stride: Union[IntegerAttr, DenseI32ArrayAttr],
+    padding: Union[IntegerAttr, DenseI32ArrayAttr],
+    dilation: Union[IntegerAttr, DenseI32ArrayAttr],
+    groups: IntegerAttr,
+    batch_dim: IntegerAttr,
+    height_dim: IntegerAttr,
+    width_dim: IntegerAttr,
+    channel_dim: IntegerAttr,
 ) -> GoldenMapTensor:
     """
     Custom golden function for conv2d with layout transformation.
@@ -461,14 +468,24 @@ def conv2d_golden(
         Input tensor for convolution
     weight : GoldenMapTensor
         Convolution weight tensor
-    bias : GoldenMapTensor, optional
-        Optional bias tensor (default: None)
-    **kwargs : dict
-        Keyword arguments containing:
-        - stride: Union[int, List[int]] - Stride for convolution (default: 1)
-        - padding: Union[int, List[int]] - Padding for convolution (default: 0)
-        - dilation: Union[int, List[int]] - Dilation for convolution (default: 1)
-        - groups: int - Number of groups for grouped convolution (default: 1)
+    bias : Optional[GoldenMapTensor]
+        Optional bias tensor
+    stride : Union[IntegerAttr, DenseI32ArrayAttr]
+        Stride for convolution
+    padding : Union[IntegerAttr, DenseI32ArrayAttr]
+        Padding for convolution
+    dilation : Union[IntegerAttr, DenseI32ArrayAttr]
+        Dilation for convolution
+    groups : IntegerAttr
+        Number of groups for grouped convolution
+    batch_dim : IntegerAttr
+        Batch dimension index
+    height_dim : IntegerAttr
+        Height dimension index
+    width_dim : IntegerAttr
+        Width dimension index
+    channel_dim : IntegerAttr
+        Channel dimension index
 
     Returns
     -------
@@ -479,21 +496,15 @@ def conv2d_golden(
     if bias is not None:
         bias = bias.squeeze()  # Removes all dims of size 1
 
-    # Get parameters from ttir_kwargs
-    stride = kwargs.get("stride", 1)
-    padding = kwargs.get("padding", 0)
-    dilation = kwargs.get("dilation", 1)
-    groups = kwargs.get("groups", 1)
-
     stride = unpack_mlir_attr(stride)
     padding = unpack_mlir_attr(padding)
     dilation = unpack_mlir_attr(dilation)
     groups = unpack_mlir_attr(groups)
 
-    batch_dim = unpack_mlir_attr(kwargs.get("batch_dim", 0))
-    height_dim = unpack_mlir_attr(kwargs.get("height_dim", 1))
-    width_dim = unpack_mlir_attr(kwargs.get("width_dim", 2))
-    channel_dim = unpack_mlir_attr(kwargs.get("channel_dim", 3))
+    batch_dim = unpack_mlir_attr(batch_dim)
+    height_dim = unpack_mlir_attr(height_dim)
+    width_dim = unpack_mlir_attr(width_dim)
+    channel_dim = unpack_mlir_attr(channel_dim)
 
     # Compute permutation to convert any layout to NCHW (batch=0, channel=1, height=2, width=3).
     to_nchw_perm = [batch_dim, channel_dim, height_dim, width_dim]
@@ -569,8 +580,16 @@ def conv2d_golden(
 def conv_transpose2d_golden(
     input_tensor: GoldenMapTensor,
     weight: GoldenMapTensor,
-    bias: Optional[GoldenMapTensor] = None,
-    **kwargs,
+    bias: Optional[GoldenMapTensor],
+    stride: Union[IntegerAttr, DenseI32ArrayAttr],
+    padding: Union[IntegerAttr, DenseI32ArrayAttr],
+    output_padding: Union[IntegerAttr, DenseI32ArrayAttr],
+    dilation: Union[IntegerAttr, DenseI32ArrayAttr],
+    groups: IntegerAttr,
+    batch_dim: IntegerAttr,
+    height_dim: IntegerAttr,
+    width_dim: IntegerAttr,
+    channel_dim: IntegerAttr,
 ) -> GoldenMapTensor:
     """
     Custom golden function for conv_transpose2d with layout transformation.
@@ -583,37 +602,53 @@ def conv_transpose2d_golden(
         Convolution weight tensor
     bias : Optional[GoldenMapTensor]
         Optional bias tensor
-    **kwargs : dict
-        Keyword arguments containing:
-        - stride: Union[int, List[int]] - Stride for transposed convolution
-        - padding: Union[int, List[int]] - Padding for transposed convolution
-        - output_padding: Union[int, List[int]] - Additional size added to output shape
-        - dilation: Union[int, List[int]] - Dilation of the kernel
-        - groups: int - Number of blocked connections from input to output channels
+    stride : Union[IntegerAttr, DenseI32ArrayAttr]
+        Stride for transposed convolution
+    padding : Union[IntegerAttr, DenseI32ArrayAttr]
+        Padding for transposed convolution
+    output_padding : Union[IntegerAttr, DenseI32ArrayAttr]
+        Additional size added to output shape
+    dilation : Union[IntegerAttr, DenseI32ArrayAttr]
+        Dilation of the kernel
+    groups : IntegerAttr
+        Number of blocked connections from input to output channels
+    batch_dim : IntegerAttr
+        Batch dimension index
+    height_dim : IntegerAttr
+        Height dimension index
+    width_dim : IntegerAttr
+        Width dimension index
+    channel_dim : IntegerAttr
+        Channel dimension index
 
     Returns
     -------
     GoldenMapTensor
         Result of 2D transposed convolution with layout transformation
     """
-    # Get parameters from ttir_kwargs
-    stride = kwargs.get("stride", 1)
-    padding = kwargs.get("padding", 0)
-    output_padding = kwargs.get("output_padding", 0)
-    dilation = kwargs.get("dilation", 1)
-    groups = kwargs.get("groups", 1)
-
     stride = unpack_mlir_attr(stride)
     padding = unpack_mlir_attr(padding)
     output_padding = unpack_mlir_attr(output_padding)
     dilation = unpack_mlir_attr(dilation)
     groups = unpack_mlir_attr(groups)
+
+    batch_dim = unpack_mlir_attr(batch_dim)
+    height_dim = unpack_mlir_attr(height_dim)
+    width_dim = unpack_mlir_attr(width_dim)
+    channel_dim = unpack_mlir_attr(channel_dim)
+
     if bias is not None:
         bias = bias.squeeze()
 
-    # Reorganize input and output tensors, golden and ttir functions have different expected tensor shapes
+    # Compute permutation to convert any layout to NCHW (batch=0, channel=1, height=2, width=3).
+    to_nchw_perm = [batch_dim, channel_dim, height_dim, width_dim]
+
+    is_nchw = to_nchw_perm == [0, 1, 2, 3]
+
     copied_input_tensor = input_tensor.clone()
-    copied_input_tensor = copied_input_tensor.transpose(-2, -1).transpose(-3, -2)
+    if not is_nchw:
+        copied_input_tensor = copied_input_tensor.permute(to_nchw_perm)
+
     result = torch.nn.functional.conv_transpose2d(
         copied_input_tensor,
         weight,
@@ -624,7 +659,13 @@ def conv_transpose2d_golden(
         dilation=dilation,
         groups=groups,
     )
-    result = result.transpose(-3, -2).transpose(-2, -1)
+
+    # Permute output back to original layout if we permuted the input.
+    if not is_nchw:
+        from_nchw_perm = [0] * 4
+        for i, p in enumerate(to_nchw_perm):
+            from_nchw_perm[p] = i
+        result = result.permute(from_nchw_perm)
     return result
 
 
