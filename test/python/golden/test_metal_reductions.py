@@ -62,10 +62,8 @@ def test_sum(
     compile_and_execute_ttir(
         create_reductions_constrained_inputs(shape, "sum", dim_arg, keep_dim),
         target=target,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         print_ir=True,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
         device=device,
         atol=shape[0] * shape[1] * 0.0005,  # 5e-4
     )
@@ -89,9 +87,7 @@ def test_max(
     compile_and_execute_ttir(
         create_reductions_constrained_inputs(shape, "max", dim_arg, keep_dim),
         target=target,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         print_ir=True,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
         device=device,
     )

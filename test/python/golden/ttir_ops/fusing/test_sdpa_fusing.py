@@ -458,9 +458,7 @@ def test_sdpa_split_scale_robust_softmax(
     output = compile_and_execute_ttir(
         module_sdpa,
         target=target,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         device=device,
         compile_options=["enable-optimizer=true"],
     )
@@ -638,9 +636,7 @@ def test_sdpa_single_scale_simple_softmax(
     output = compile_and_execute_ttir(
         module_sdpa_with_mask if use_mask else module_sdpa_no_mask,
         target=target,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         device=device,
         compile_options=["enable-optimizer=true"],
     )

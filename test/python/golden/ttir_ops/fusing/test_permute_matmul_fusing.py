@@ -92,12 +92,9 @@ def test_permute_matmul_lhs_fusion_enabled(
     """Test that permute on LHS is fused into matmul when flag is enabled (default)."""
     compile_and_execute_ttir(
         create_permute_matmul_lhs(lhs_shape, rhs_shape),
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
+        **get_request_kwargs(request),
         device=device,
-        system_desc_path=request.config.getoption("--sys-desc"),
         pipeline_options=["enable-permute-matmul-fusion=true"],
-        save_artifacts=True,
     )
     output_path = os.path.join(
         get_artifact_dir(
@@ -126,12 +123,9 @@ def test_permute_matmul_lhs_fusion_disabled(
     """Test that permute on LHS is NOT fused into matmul when flag is disabled."""
     compile_and_execute_ttir(
         create_permute_matmul_lhs(lhs_shape, rhs_shape),
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
+        **get_request_kwargs(request),
         device=device,
-        system_desc_path=request.config.getoption("--sys-desc"),
         pipeline_options=["enable-permute-matmul-fusion=false"],
-        save_artifacts=True,
     )
     output_path = os.path.join(
         get_artifact_dir(
@@ -163,12 +157,9 @@ def test_permute_matmul_rhs_fusion_enabled(
     """Test that permute on RHS is fused into matmul when flag is enabled."""
     compile_and_execute_ttir(
         create_permute_matmul_rhs(lhs_shape, rhs_shape),
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
+        **get_request_kwargs(request),
         device=device,
-        system_desc_path=request.config.getoption("--sys-desc"),
         pipeline_options=["enable-permute-matmul-fusion=true"],
-        save_artifacts=True,
     )
     output_path = os.path.join(
         get_artifact_dir(

@@ -147,9 +147,7 @@ def test_rotary_embedding(
     output = compile_and_execute_ttir(
         module,
         target=target,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         device=device,
     )
 
@@ -222,9 +220,7 @@ def test_rotary_embedding_failure(
     output = compile_and_execute_ttir(
         module,
         target=target,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         device=device,
         pipeline_options=["disable-workarounds=true"],
     )

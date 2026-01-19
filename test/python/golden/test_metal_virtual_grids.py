@@ -142,9 +142,7 @@ def test_virtual_grid_eltwise(
     compile_and_execute_ttir(
         module,
         device=device,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}} ",
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
     )

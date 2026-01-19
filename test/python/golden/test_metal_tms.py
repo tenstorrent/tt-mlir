@@ -11,6 +11,7 @@ This test suite validates TM operations like permute, transpose, reshape, etc.
 import pytest
 import torch
 from typing import List, Tuple
+from conftest import get_request_kwargs
 
 from builder.base.builder_utils import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
@@ -100,9 +101,7 @@ def test_permute(shape: Shape, permutation: List[int], target: str, request, dev
         permute_module,
         target=target,
         device=device,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '}}}",
     )
 
@@ -270,9 +269,5 @@ def test_reshape(
         target=target,
         device=device,
         custom_pipeline="ttir-to-ttmetal-pipeline",
-        test_base=request.node.name,
-        save_artifacts=True,
-        print_ir=False,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
     )

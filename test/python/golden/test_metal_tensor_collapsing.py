@@ -133,7 +133,5 @@ def test_uncollapsed_tensors(
         custom_pipeline=pipeline,
         test_base=f"{request.node.name}_{test_name}_{'collapsed' if collapse_tensors else 'non_collapsed'}",
         print_ir=True,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
         device=device,
     )

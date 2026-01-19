@@ -273,9 +273,7 @@ def test_unary_ops(
     pipeline_options = []
     compile_and_execute_ttnn(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
         pipeline_options=pipeline_options,
@@ -306,9 +304,7 @@ def test_bitwise_unary_ops(
 
     compile_and_execute_ttnn(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )
@@ -351,9 +347,7 @@ def test_unary_ops_with_float_param(
     pipeline_options = []
     compile_and_execute_ttnn(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
         pipeline_options=pipeline_options,
@@ -412,6 +406,4 @@ def test_cpu_hoistable_unary_ops(
         module,
         test_base=f"{request.node.name}",
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
     )

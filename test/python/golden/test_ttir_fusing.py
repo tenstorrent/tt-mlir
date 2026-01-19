@@ -4,6 +4,7 @@
 
 import pytest
 import torch
+from conftest import get_request_kwargs
 import os
 from typing import List, Optional
 from builder.base.builder_utils import Operand, Shape, get_artifact_dir
@@ -140,14 +141,9 @@ def test_batch_norm_decomposition(
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption(
-            "--path",
-        ),
+        **get_request_kwargs(request),
         device=device,
-        system_desc_path=request.config.getoption("--sys-desc"),
         pipeline_options=["enable-fusing-conv2d-with-multiply-pattern=true"],
-        save_artifacts=True,
     )
     output_path = os.path.join(
         get_artifact_dir(
@@ -257,11 +253,8 @@ def test_conv_activation_fusing(
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         device=device,
-        save_artifacts=True,
     )
     output_path = os.path.join(
         get_artifact_dir(
@@ -360,11 +353,8 @@ def test_conv_silu_decomposed_fusing(
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         device=device,
-        save_artifacts=True,
     )
     output_path = os.path.join(
         get_artifact_dir(

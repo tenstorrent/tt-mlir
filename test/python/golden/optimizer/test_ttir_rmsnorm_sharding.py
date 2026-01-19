@@ -94,10 +94,8 @@ def test_rmsnorm_sharding(
 
     output_file_mlir = compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
+        **get_request_kwargs(request),
         device=device,
-        system_desc_path=request.config.getoption("--sys-desc"),
         pipeline_options=[
             "enable-optimizer=true",
             "memory-layout-analysis-enabled=true",

@@ -92,10 +92,8 @@ def test_conv2d_compute_config(
 
     compile_and_execute_ttir(
         test_module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
+        **get_request_kwargs(request),
         device=device,
-        system_desc_path=request.config.getoption("--sys-desc"),
         pipeline_options=pipeline_options,
         target="ttnn",
         print_ir=True,  # Print IR after each pass to see TTNN IR with compute config
@@ -139,10 +137,8 @@ def test_sum_compute_config(request, device, math_fidelity, fp32_dest_acc_en):
 
     compile_and_execute_ttir(
         test_module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
+        **get_request_kwargs(request),
         device=device,
-        system_desc_path=request.config.getoption("--sys-desc"),
         pipeline_options=pipeline_options,
         target="ttnn",
         print_ir=True,
@@ -186,10 +182,8 @@ def test_softmax_compute_config(request, device, math_fidelity, fp32_dest_acc_en
 
     compile_and_execute_ttir(
         test_module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
+        **get_request_kwargs(request),
         device=device,
-        system_desc_path=request.config.getoption("--sys-desc"),
         pipeline_options=pipeline_options,
         target="ttnn",
         print_ir=True,
@@ -234,10 +228,8 @@ def test_matmul_compute_config(request, device, math_fidelity, fp32_dest_acc_en)
 
     compile_and_execute_ttir(
         test_module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
+        **get_request_kwargs(request),
         device=device,
-        system_desc_path=request.config.getoption("--sys-desc"),
         pipeline_options=pipeline_options,
         target="ttnn",
         print_ir=True,
@@ -281,10 +273,8 @@ def test_rmsnorm_compute_config(request, device, math_fidelity, fp32_dest_acc_en
 
     compile_and_execute_ttir(
         test_module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
+        **get_request_kwargs(request),
         device=device,
-        system_desc_path=request.config.getoption("--sys-desc"),
         pipeline_options=pipeline_options,
         target="ttnn",
         print_ir=True,

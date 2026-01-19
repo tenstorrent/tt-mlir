@@ -57,10 +57,8 @@ def test_triple_exp_f32(shape: Shape, target: str, request, device):
         target=target,
         device=device,
         pipeline_options=pipeline_options,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         save_artifacts=True,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
         print_ir=True,
         pcc=0.988,  # Adjusted for bfp8
     )
@@ -88,10 +86,8 @@ def test_exp_f32(shape: Shape, target: str, request, device):
         target=target,
         device=device,
         pipeline_options=pipeline_options,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         save_artifacts=True,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
         print_ir=True,
     )
 
@@ -118,10 +114,8 @@ def test_cos_bf16(shape: Shape, target: str, request, device):
         target=target,
         device=device,
         pipeline_options=pipeline_options,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         save_artifacts=True,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
         print_ir=True,
     )
 
@@ -165,10 +159,8 @@ def test_matmul_f32(
         target=target,
         device=device,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
-        test_base=request.node.name,
-        save_artifacts=True,
+        **get_request_kwargs(request),
         print_ir=True,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        save_artifacts=True,
         pcc=0.94,  # Adjusted for bfp8
     )

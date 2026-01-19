@@ -55,9 +55,7 @@ def test_ternary_ops(
     pipeline_options = []
     compile_and_execute_ttir(
         test_fn(dtype),
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
         pipeline_options=pipeline_options,
@@ -132,9 +130,7 @@ def test_ternary_eltwise_ops_implicit_broadcast(
 
     compile_and_execute_ttir(
         module_implicit_broadcast,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )

@@ -4,6 +4,7 @@
 
 import pytest
 import torch
+from conftest import get_request_kwargs
 from typing import Callable, List, Optional, Tuple
 from collections import OrderedDict
 
@@ -409,9 +410,7 @@ def module_subtract(builder: StableHLOBuilder):
 def test_binary_ops(test_fn: Callable, target: str, request, device):
     compile_and_execute_shlo(
         test_fn,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )
@@ -456,9 +455,7 @@ def test_unary_ops(
 
     compile_and_execute_shlo(
         test_fn,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )
@@ -509,9 +506,7 @@ def test_reshape(
 
     compile_and_execute_shlo(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )
@@ -528,9 +523,7 @@ def test_reshape(
 def test_ternary_ops(test_fn: Callable, target: str, request, device):
     compile_and_execute_shlo(
         test_fn,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )
@@ -555,9 +548,7 @@ def test_reshape_mismatch_raises(target, request, device):
     with pytest.raises(Exception):
         compile_and_execute_shlo(
             module,
-            test_base=request.node.name,
-            output_root=request.config.getoption("--path"),
-            system_desc_path=request.config.getoption("--sys-desc"),
+            **get_request_kwargs(request),
             target=target,
             device=device,
         )
@@ -603,9 +594,7 @@ def test_dot_general(
 
     compile_and_execute_shlo(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target="ttnn",
         device=device,
     )
@@ -650,9 +639,7 @@ def test_transpose(
 
     compile_and_execute_shlo(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )
@@ -694,9 +681,7 @@ def test_pad(
 
     compile_and_execute_shlo(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )
@@ -734,9 +719,7 @@ def test_concatenate(
 
     compile_and_execute_shlo(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )
@@ -763,9 +746,7 @@ def test_stablehlo_multi_return_support(
 
     compile_and_execute_shlo(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )
@@ -789,9 +770,7 @@ def test_logical_binary_ops(
 ):
     compile_and_execute_shlo(
         test_fn,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
         pcc=-1.0,
@@ -816,9 +795,7 @@ def test_logical_unary_ops(
 
     compile_and_execute_shlo(
         module_not_,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
         pcc=-1.0,
@@ -855,9 +832,7 @@ def test_slice(
 
     compile_and_execute_shlo(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )
@@ -889,9 +864,7 @@ def test_constant(
 
     compile_and_execute_shlo(
         constant_fn,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )
@@ -933,9 +906,7 @@ def test_dynamic_slice(
 
     compile_and_execute_shlo(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )
@@ -958,9 +929,7 @@ def test_bitwise_binary_ops(
 ):
     compile_and_execute_shlo(
         test_fn,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )
@@ -984,9 +953,7 @@ def test_bitwise_unary_ops(
 
     compile_and_execute_shlo(
         module_not_,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )
@@ -1041,9 +1008,7 @@ def test_reduce_sum(
 
     compile_and_execute_shlo(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )
@@ -1068,9 +1033,7 @@ def test_reduce_max(
 
     compile_and_execute_shlo(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )
@@ -1095,9 +1058,7 @@ def test_reduce_min(
 
     compile_and_execute_shlo(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )
@@ -1182,9 +1143,7 @@ def test_max_pool_2d(
 
     compile_and_execute_shlo(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )
@@ -1228,9 +1187,7 @@ def test_avg_pool_2d(
 
     compile_and_execute_shlo(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )
@@ -1253,9 +1210,7 @@ def test_reverse(shapes, dtype, dimensions, target: str, request, device):
 
     compile_and_execute_shlo(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )
@@ -1265,9 +1220,7 @@ def test_reverse(shapes, dtype, dimensions, target: str, request, device):
 def test_select(target: str, request, device):
     compile_and_execute_shlo(
         module_select,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )
@@ -1354,9 +1307,7 @@ def test_batch_norm_training_op(test_fn: Callable, target: str, request, device)
 
     compile_and_execute_shlo(
         test_fn,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )
@@ -1372,9 +1323,7 @@ def test_batch_norm_training_op(test_fn: Callable, target: str, request, device)
 def test_batch_norm_inference_op(test_fn: Callable, target: str, request, device):
     compile_and_execute_shlo(
         test_fn,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )
@@ -1390,9 +1339,7 @@ def test_batch_norm_inference_op(test_fn: Callable, target: str, request, device
 def test_batch_norm_grad_op(test_fn: Callable, target: str, request, device):
     compile_and_execute_shlo(
         test_fn,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )
@@ -1440,9 +1387,7 @@ def test_all_gather(target: str, request, device):
 
     compile_and_execute_shlo(
         module_all_gather,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
         mesh_dict=OrderedDict([("x", 1), ("y", 1)]),

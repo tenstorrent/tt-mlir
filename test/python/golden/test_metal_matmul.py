@@ -5,6 +5,7 @@
 import pytest
 import torch
 from typing import List
+from conftest import get_request_kwargs
 
 from test_utils import shape_str
 
@@ -68,10 +69,8 @@ def test_matmul_single_core_8otpc(m: int, k: int, n: int, target: str, request, 
         target=target,
         device=device,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         print_ir=True,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -100,10 +99,8 @@ def test_matmul_multi_core_8otpc(m: int, k: int, n: int, target: str, request, d
         target=target,
         device=device,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         print_ir=True,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -149,11 +146,9 @@ def test_matmul_ttnn_shapes_single_buffered(
         target=target,
         device=device,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
-        test_base=request.node.name,
-        save_artifacts=True,
+        **get_request_kwargs(request),
         print_ir=True,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        save_artifacts=True,
         skip_exec=getattr(request.node, "skip_exec", False),
     )
 
@@ -197,11 +192,9 @@ def test_matmul_ttnn_shapes_double_buffered(
         target=target,
         device=device,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         save_artifacts=True,
         print_ir=True,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
         skip_exec=getattr(request.node, "skip_exec", False),
     )
 
@@ -252,10 +245,8 @@ def test_matmul_1d_shapes(
         target=target,
         device=device,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         save_artifacts=True,
         print_ir=True,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
         skip_exec=getattr(request.node, "skip_exec", False),
     )

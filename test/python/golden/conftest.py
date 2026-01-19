@@ -222,22 +222,28 @@ def get_request_kwargs(request):
     Dict[str, Any]
         A dictionary containing request-related arguments.
     """
-    check_pcc = not request.config.getoption("--disable-pcc")
-    return {
+    kwargs = {
         "test_base": request.node.name,
         "output_root": request.config.getoption("--path"),
         "system_desc_path": request.config.getoption("--sys-desc"),
-        "save_artifacts": request.config.getoption("--save-artifacts"),
-        "print_ir": request.config.getoption("--print-ir"),
-        "check_atol": request.config.getoption("--check-atol"),
-        "check_rtol": request.config.getoption("--check-rtol"),
-        "enable_intermediate_verification": request.config.getoption(
-            "--enable-intermediate-verification"
-        ),
-        "disable_golden": request.config.getoption("--disable-golden"),
-        "skip_exec": request.config.getoption("--skip-exec"),
-        "check_pcc": check_pcc,
     }
+    if request.config.getoption("--save-artifacts"):
+        kwargs["save_artifacts"] = True
+    if request.config.getoption("--print-ir"):
+        kwargs["print_ir"] = True
+    if request.config.getoption("--check-atol"):
+        kwargs["check_atol"] = True
+    if request.config.getoption("--check-rtol"):
+        kwargs["check_rtol"] = True
+    if request.config.getoption("--enable-intermediate-verification"):
+        kwargs["enable_intermediate_verification"] = True
+    if request.config.getoption("--disable-golden"):
+        kwargs["disable_golden"] = True
+    if request.config.getoption("--skip-exec"):
+        kwargs["skip_exec"] = True
+    if request.config.getoption("--disable-pcc"):
+        kwargs["check_pcc"] = False
+    return kwargs
 
 
 def pytest_addoption(parser):
