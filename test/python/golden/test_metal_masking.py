@@ -377,7 +377,6 @@ def test_partial_tile_masking(
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
-        print_ir="/tmp/ir_dumps",  # DEBUG: dump IR after each pass to this directory
     )
 
 

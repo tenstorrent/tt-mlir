@@ -33,10 +33,10 @@ namespace mlir::tt::d2m {
 namespace {
 
 //===----------------------------------------------------------------------===//
-// Wrapper types to abstract over affine vs memref/scf ops
+// Wrapper types to abstract over affine vs memref/scf ops.
 //===----------------------------------------------------------------------===//
 
-// Wrapper for load operations (affine::AffineLoadOp or memref::LoadOp)
+// Wrapper for load operations (affine::AffineLoadOp or memref::LoadOp).
 class LoadOpVariant {
 public:
   LoadOpVariant() = default;
@@ -90,7 +90,7 @@ public:
     return nullptr;
   }
 
-  // Get indices for memref ops, empty for affine (uses map)
+  // Get indices for memref ops, empty for affine (uses map).
   ValueRange getIndices() const {
     if (isMemref()) {
       return getMemref().getIndices();
@@ -98,7 +98,7 @@ public:
     return ValueRange{};
   }
 
-  // Create from a Value's defining op
+  // Create from a Value's defining op.
   static LoadOpVariant fromValue(Value v) {
     if (auto affineLoad = v.getDefiningOp<affine::AffineLoadOp>()) {
       return LoadOpVariant(affineLoad);
@@ -113,7 +113,7 @@ private:
   std::variant<std::monostate, affine::AffineLoadOp, memref::LoadOp> op;
 };
 
-// Wrapper for store operations (affine::AffineStoreOp or memref::StoreOp)
+// Wrapper for store operations (affine::AffineStoreOp or memref::StoreOp).
 class StoreOpVariant {
 public:
   StoreOpVariant() = default;
@@ -167,7 +167,7 @@ public:
     return nullptr;
   }
 
-  // Get indices for memref ops
+  // Get indices for memref ops.
   ValueRange getIndices() const {
     if (isMemref()) {
       return getMemref().getIndices();
@@ -175,7 +175,7 @@ public:
     return ValueRange{};
   }
 
-  // Try to cast from Operation*
+  // Try to cast from Operation*, store empty monostate otherwise.
   static StoreOpVariant fromOperation(Operation *op) {
     if (auto affineStore = dyn_cast<affine::AffineStoreOp>(op)) {
       return StoreOpVariant(affineStore);
@@ -190,7 +190,7 @@ private:
   std::variant<std::monostate, affine::AffineStoreOp, memref::StoreOp> op;
 };
 
-// Wrapper for loop operations (affine::AffineForOp or scf::ForOp)
+// Wrapper for loop operations (affine::AffineForOp or scf::ForOp).
 class ForOpVariant {
 public:
   ForOpVariant() = default;
@@ -233,7 +233,7 @@ public:
     getOperation()->setAttr(name, value);
   }
 
-  // Try to cast from Operation*
+  // Try to cast from Operation*, store empty monostate otherwise.
   static ForOpVariant fromOperation(Operation *op) {
     if (auto affineFor = dyn_cast<affine::AffineForOp>(op)) {
       return ForOpVariant(affineFor);
@@ -248,14 +248,10 @@ private:
   std::variant<std::monostate, affine::AffineForOp, scf::ForOp> op;
 };
 
-//===----------------------------------------------------------------------===//
-// Main pass implementation
-//===----------------------------------------------------------------------===//
-
 struct OperationTypes {
   bool hasComputeOps = false;
   bool hasLinalgGeneric = false;
-  bool hasMarkedLoops = false; // affine.for or scf.for with d2m.linalg_root
+  bool hasMarkedLoops = false; // For loop op with d2m.linalg_root.
 };
 
 static bool hasTileMatmul(linalg::GenericOp linalgGenericOp) {
@@ -285,12 +281,12 @@ public:
     int dstSlice = -1;
     std::set<int64_t> guardDims = {};
 
-    // Constructor for loads
+    // Constructor for loads.
     LoadStoreRecord(LoadOpVariant load, std::optional<d2m::TileBcastOp> bcast,
                     int dstSlice, const std::set<int64_t> &guardDims)
         : load(load), bcast(bcast), dstSlice(dstSlice), guardDims(guardDims) {}
 
-    // Constructor for stores
+    // Constructor for stores.
     LoadStoreRecord(StoreOpVariant store, int dstSlice,
                     const std::set<int64_t> &guardDims)
         : store(store), dstSlice(dstSlice), guardDims(guardDims) {}
@@ -388,9 +384,6 @@ public:
       } else {
         inputStack.push_back(currSliceIndex);
       }
-
-      LDBG() << "========== ALLOCATE ==========";
-      LDBG() << "Allocated slot " << currSliceIndex;
 
       return currSliceIndex;
     }
@@ -495,8 +488,7 @@ public:
             gOp, "linalg.generic operations were not converted to loops");
       }
 
-      // Process loops marked by LinalgToAffine pass (both affine.for and
-      // scf.for)
+      // Process loops marked by LinalgToAffine pass.
       block.walk([&](Operation *op) {
         ForOpVariant forOp = ForOpVariant::fromOperation(op);
         if (!forOp.isValid()) {
@@ -534,7 +526,7 @@ public:
 
     Location loc = gOp.getLoc();
 
-    // 1. Collect relevant DST accesses
+    // 1. Collect relevant DST accesses.
     auto [copyInfos, dstIntermediates] =
         isScheduled
             ? collectDstAccessesScheduled(
@@ -545,20 +537,20 @@ public:
       return false;
     }
 
-    // 2. Insert acquire dst
+    // 2. Insert acquire dst.
     AcquireDstOp acquireDst =
         insertAcquireDst(rewriter, loc, region, copyInfos,
                          outermostInnerComputeLoop, dstCapacity);
     Value dst = acquireDst.getResult();
 
-    // 3. Generate data copy loops to/from dst
+    // 3. Generate data copy loops to/from dst.
     if (isScheduled) {
       dataCopyGenerateScheduled(rewriter, loc, dst, copyInfos);
     } else {
       dataCopyGenerate(rewriter, loc, dst, copyInfos);
     }
 
-    // 4. Fix intermediate results through DST
+    // 4. Fix the passing of intermediate results through the DST.
     fixDstIntermediateResults(rewriter, loc, dst, dstIntermediates);
 
     return true;
@@ -631,7 +623,7 @@ public:
     TT_assertv(maxDstSlice < static_cast<int>(dstCapacity),
                "Insufficient DST capacity for all operands.");
 
-    // DST is 1D array of tile slots (flat indexing for scratch tile support)
+    // DST is 1D array of tile slots (flat indexing for scratch tile support).
     MemRefType dstType = MemRefType::get(
         {static_cast<int64_t>(dstCapacity)}, elemType,
         mlir::AffineMap::getMultiDimIdentityMap(1, rewriter.getContext()),
@@ -687,7 +679,7 @@ public:
 
       if (!isConstantIndexed) {
         for (int64_t dim : nonParticipatingLoopDims) {
-          // For bcast, check parallel; otherwise check reduction
+          // For bcast, check parallel; otherwise check reduction.
           if (bcast.has_value()) {
             TT_assert(iteratorTypes[dim] == ttcore::IteratorType::Parallel);
           } else {
@@ -705,7 +697,7 @@ public:
     }
   }
 
-  // Collect a single store
+  // Collect a single store.
   static void collectDstStore(GenericOp gOp, StoreOpVariant store,
                               CopyInfoMap &copyInfos, int dstSlice,
                               Operation *outermostInnerComputeLoop) {
@@ -717,7 +709,7 @@ public:
     iter->second.recordStore(store, dstSlice);
   }
 
-  // Walk all compute ops in the region and collect loads/stores
+  // Walk all compute ops in the region and collect loads/stores.
   static DstAccessCollection
   collectDstAccesses(GenericOp gOp, Region &region,
                      Operation *outermostInnerComputeLoop) {
@@ -732,7 +724,7 @@ public:
                              ttcore::MemorySpace::RegisterDst;
       };
 
-      // Collect CB->DST loads for this op's operands
+      // Collect CB->DST loads for this op's operands.
       for (int64_t operandIdx : computeOp.getOperandsLoadFromDstRegister()) {
         if (computeOp.isScalarOperand(operandIdx)) {
           continue;
@@ -809,7 +801,7 @@ public:
     return {copyInfos, dstIntermediates};
   }
 
-  // Scheduled path collection
+  // Collect scheduled path.
   static DstAccessCollection
   collectDstAccessesScheduled(GenericOp gOp, Region &region,
                               Operation *outermostInnerComputeLoop,
@@ -931,7 +923,7 @@ public:
       }
     });
 
-    // Handle passthrough case (load directly stored without compute)
+    // Handle passthrough case (load directly stored without compute).
     region.walk([&](Operation *storeOpGeneric) {
       StoreOpVariant store = StoreOpVariant::fromOperation(storeOpGeneric);
       if (!store.isValid()) {
@@ -969,20 +961,20 @@ public:
     return {copyInfos, dstIntermediates};
   }
 
-  // Generate data copy for non-scheduled path
+  // Generate data copy for non-scheduled path.
   static void dataCopyGenerate(PatternRewriter &rewriter, Location loc,
                                Value dst, const CopyInfoMap &copyInfos) {
     for (const auto &[loopNestOrOp, copyInfo] : copyInfos) {
       rewriter.setInsertionPointAfter(loopNestOrOp);
       auto insertionPointAfterLoopNest = rewriter.saveInsertionPoint();
 
-      // Process loads
+      // Process loads and load-bcasts.
       rewriter.setInsertionPoint(loopNestOrOp);
       for (auto &record : copyInfo.loads) {
         AffineMap dstAccessMap =
             AffineMap::getConstantMap(record.dstSlice, rewriter.getContext());
 
-        // Generate CB->DST copy
+        // Generate CB->DST copy op.
         rewriter.setInsertionPoint(loopNestOrOp);
         if (record.load.isAffine()) {
           auto affineLoad = record.load.getAffine();
@@ -1001,7 +993,7 @@ public:
           rewriter.create<affine::AffineStoreOp>(
               record.getLoc(), valueToStore, dst, dstAccessMap, ValueRange{});
 
-          // Replace original load
+          // Replace original load op.
           rewriter.setInsertionPoint(affineLoad);
           auto dstLoad = rewriter.create<affine::AffineLoadOp>(
               record.getLoc(), dst, dstAccessMap, ValueRange{});
@@ -1028,7 +1020,7 @@ public:
           rewriter.create<affine::AffineStoreOp>(
               record.getLoc(), valueToStore, dst, dstAccessMap, ValueRange{});
 
-          // Replace original load
+          // Replace original load op.
           rewriter.setInsertionPoint(memrefLoad);
           auto dstLoad = rewriter.create<affine::AffineLoadOp>(
               record.getLoc(), dst, dstAccessMap, ValueRange{});
@@ -1042,13 +1034,13 @@ public:
         }
       }
 
-      // Process stores
+      // Process stores.
       rewriter.restoreInsertionPoint(insertionPointAfterLoopNest);
       for (auto &record : copyInfo.stores) {
         AffineMap dstAccessMap =
             AffineMap::getConstantMap(record.dstSlice, rewriter.getContext());
 
-        // Generate DST->CB copy
+        // Generate DST->CB copy.
         auto dstLoad = rewriter.create<affine::AffineLoadOp>(
             record.getLoc(), dst, dstAccessMap, ValueRange{});
         Value valueToStore = dstLoad.getResult();
@@ -1068,7 +1060,7 @@ public:
               record.getLoc(), valueToStore, affineStore.getMemRef(),
               affineStore.getMap(), affineStore.getIndices());
 
-          // Replace original store
+          // Replace original store op.
           rewriter.setInsertionPoint(affineStore);
           auto dstType = mlir::cast<MemRefType>(dst.getType());
           Value storeValue = affineStore.getValue();
@@ -1087,7 +1079,7 @@ public:
                                            memrefStore.getMemRef(),
                                            memrefStore.getIndices());
 
-          // Replace original store
+          // Replace original store op.
           rewriter.setInsertionPoint(memrefStore);
           auto dstType = mlir::cast<MemRefType>(dst.getType());
           Value storeValue = memrefStore.getValue();
@@ -1105,21 +1097,21 @@ public:
     }
   }
 
-  // Generate data copy for scheduled path (in-place stores)
+  // Generate data copy for scheduled path (in-place stores).
   static void dataCopyGenerateScheduled(PatternRewriter &rewriter, Location loc,
                                         Value dst,
                                         const CopyInfoMap &copyInfos) {
     for (const auto &[loopNestOrOp, copyInfo] : copyInfos) {
       rewriter.setInsertionPoint(loopNestOrOp);
 
-      // Process loads
+      // Process load ops.
       for (auto &record : copyInfo.loads) {
         AffineMap dstAccessMap =
             AffineMap::getConstantMap(record.dstSlice, rewriter.getContext());
 
         rewriter.setInsertionPoint(record.load.getOperation());
 
-        // Generate CB->DST copy
+        // Generate CB->DST copy.
         Value cbLoadResult;
         if (record.load.isAffine()) {
           auto affineLoad = record.load.getAffine();
@@ -1137,7 +1129,7 @@ public:
         rewriter.create<affine::AffineStoreOp>(record.getLoc(), cbLoadResult,
                                                dst, dstAccessMap, ValueRange{});
 
-        // Replace original load with DST load
+        // Replace original load with DST load.
         auto dstLoad = rewriter.create<affine::AffineLoadOp>(
             record.getLoc(), dst, dstAccessMap, ValueRange{});
 
@@ -1148,7 +1140,7 @@ public:
         }
       }
 
-      // Process stores in-place
+      // Process stores in-place.
       for (auto &record : copyInfo.stores) {
         AffineMap dstAccessMap =
             AffineMap::getConstantMap(record.dstSlice, rewriter.getContext());
@@ -1167,12 +1159,12 @@ public:
                   .getResult();
         }
 
-        // Step 1: Store to DST
+        // Step 1: Store to DST.
         rewriter.setInsertionPoint(record.store.getOperation());
         auto dstStore = rewriter.create<affine::AffineStoreOp>(
             storeLoc, valueToStore, dst, dstAccessMap, ValueRange{});
 
-        // Step 2: Load from DST and store to CB
+        // Step 2: Load from DST and store to CB.
         rewriter.setInsertionPointAfter(dstStore);
         auto dstLoad = rewriter.create<affine::AffineLoadOp>(
             storeLoc, dst, dstAccessMap, ValueRange{});
@@ -1199,16 +1191,10 @@ public:
 
         rewriter.eraseOp(record.store.getOperation());
       }
-
-      // Mark loop to prevent fission
-      ForOpVariant forOp = ForOpVariant::fromOperation(loopNestOrOp);
-      if (forOp.isValid()) {
-        forOp.setAttr("d2m.no_fission", rewriter.getUnitAttr());
-      }
     }
   }
 
-  // Fix intermediate results through DST
+  // Fix intermediate results through DST.
   static void
   fixDstIntermediateResults(PatternRewriter &rewriter, Location loc, Value dst,
                             const DstIntermediatesMap &dstIntermediates) {
@@ -1417,11 +1403,14 @@ public:
     ModuleOp moduleOp = getOperation();
 
     // Check precondition: linalg.generic ops should be converted to affine,
-    // EXCEPT those with tile_matmul when useTileMatmul=false
+    // EXCEPT those with tile_matmul when useTileMatmul=false (they'll be
+    // handled by the tile_matmul_block rewrite in the pattern).
     WalkResult walkResult = moduleOp->walk([&](linalg::GenericOp op) {
+      // Allow linalg ops with tile_matmul when useTileMatmul=false.
       if (!useTileMatmul && hasTileMatmul(op)) {
         return WalkResult::advance();
       }
+      // All other linalg ops should have been converted.
       return WalkResult::interrupt();
     });
 
