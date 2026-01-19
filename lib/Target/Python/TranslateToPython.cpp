@@ -172,13 +172,17 @@ struct PythonEmitter {
 
   /// RAII helper function to manage entering/exiting Python class scopes.
   struct ClassScope {
-    ClassScope(PythonEmitter &emitter) : emitter(emitter) {
+    ClassScope(PythonEmitter &emitter) : emitter(&emitter) {
       emitter.classDepth++;
     }
-    ~ClassScope() { emitter.classDepth--; }
+    ~ClassScope() { emitter->classDepth--; }
 
   private:
-    PythonEmitter &emitter;
+    // Non-owning pointer: ClassScope is a stack guard created inside
+    // printOperation(PythonEmitter&, ClassOp) and destroyed before that call
+    // returns. The PythonEmitter object is owned by translateToPython and
+    // outlives all nested ClassScope instances, so this pointer cannot dangle.
+    PythonEmitter *emitter;
   };
 
   /// Reserve a name to prevent collisions.
