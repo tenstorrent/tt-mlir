@@ -29,6 +29,11 @@ cmake --build env/build
 # ANCHOR_END: environment_build
 EOT
 
+# Install tt-exalens
+RUN source env/activate && \
+    third_party/tt-metal/src/tt-metal/scripts/install_debugger.sh && \
+    pip install -r third_party/tt-metal/src/tt-metal/tools/triage/requirements.txt
+
 # Final stage
 FROM ghcr.io/tenstorrent/tt-mlir/tt-mlir-base-ubuntu-22-04:${FROM_TAG} AS ci
 
