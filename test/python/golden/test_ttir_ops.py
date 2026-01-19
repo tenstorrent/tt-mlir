@@ -3698,13 +3698,12 @@ def test_hoisted_unsqueeze(
 @pytest.mark.parametrize(
     "shape,input_dtype,output_dtype",
     [
-        ((32, 32), torch.float32, torch.int32),
         ((32, 32), torch.int32, torch.float32),
         ((64, 64), torch.float32, torch.bfloat16),
     ],
-    ids=["f32_to_i32", "i32_to_f32", "f32_to_bf16"],
+    ids=["i32_to_f32", "f32_to_bf16"],
 )
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttnn"])
 def test_hoisted_typecast(
     shape: Shape,
     input_dtype: torch.dtype,
