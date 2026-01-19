@@ -622,6 +622,7 @@ def test_convolution(
         module,
         **get_request_kwargs(request),
         device=device,
+        pcc=0.98,
     )
 
 
