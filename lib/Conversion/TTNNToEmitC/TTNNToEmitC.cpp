@@ -3325,6 +3325,39 @@ public:
 };
 } // namespace
 
+// LayerNormOp conversion pattern
+//
+namespace {
+class LayerNormOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::LayerNormOp> {
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::LayerNormOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::LayerNormOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::LayerNormOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getEpsilon()),
+        emitter.emit(srcOp.getWeight()),
+        emitter.emit(srcOp.getBias()),
+        emitter.emit(/* residual_input_tensor= */ std::nullopt),
+        emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
+        emitter.emit(/* program_config= */ std::nullopt),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // PermuteOp conversion pattern
 //
 namespace {
@@ -4520,12 +4553,12 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
 
   // Other ops
   //
-  patterns.add<
-      SoftmaxOpConversionPattern, EmbeddingOpConversionPattern,
-      DefaultOpConversionPattern<mlir::tt::ttnn::EmbeddingBackwardOp>,
-      MorehCumSumOpConversionPattern, BatchNormInferenceOpConversionPattern,
-      BatchNormTrainingOpConversionPattern, RMSNormOpConversionPattern>(
-      typeConverter, ctx);
+  patterns.add<SoftmaxOpConversionPattern, EmbeddingOpConversionPattern,
+               DefaultOpConversionPattern<mlir::tt::ttnn::EmbeddingBackwardOp>,
+               MorehCumSumOpConversionPattern,
+               BatchNormInferenceOpConversionPattern,
+               BatchNormTrainingOpConversionPattern, RMSNormOpConversionPattern,
+               LayerNormOpConversionPattern>(typeConverter, ctx);
 
   // CCL ops
   //
