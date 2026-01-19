@@ -155,9 +155,10 @@ jobs:
         exalens_install_script=scripts/install_debugger.sh
         python_interpreter_location="$(which python)"
         sed -i "s|python3|$python_interpreter_location|g" $exalens_install_script
-        # version 2 without clang tidy install
-        # apt install clang-tidy -y -q
-        PATH="/usr/bin:$PATH" $exalens_install_script
+        apt install clang-tidy -y -q
+        # version 3 without path override install
+        # PATH="/usr/bin:$PATH" $exalens_install_script
+        $exalens_install_script
         pip install -r tools/triage/requirements.txt
         cd ../..
         export TT_METAL_DISPATCH_TIMEOUT_COMMAND_TO_EXECUTE="$python_interpreter_location $(pwd)/temp/tt-metal/tools/tt-triage.py 1>&2"
