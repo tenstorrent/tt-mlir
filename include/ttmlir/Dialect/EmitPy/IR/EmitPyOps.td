@@ -241,7 +241,7 @@ def EmitPy_ClassOp : EmitPy_Op<"class", [Symbol, SymbolTable, IsolatedFromAbove,
 
   let arguments = (ins
     SymbolNameAttr:$sym_name,
-    OptionalAttr<ArrayAttr>:$bases
+    OptionalAttr<ArrayAttr>:$base_classes
   );
 
   let regions = (region SizedRegion<1>:$body);

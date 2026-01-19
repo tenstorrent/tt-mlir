@@ -176,10 +176,11 @@ LogicalResult ClassOp::verify() {
     return failure();
   }
 
-  if (auto bases = getBases()) {
-    for (Attribute base : *bases) {
+  if (auto baseClasses = getBaseClasses()) {
+    for (Attribute base : *baseClasses) {
       if (!isa<SymbolRefAttr, OpaqueAttr>(base)) {
-        return emitOpError("bases must be symbol refs or #emitpy.opaque");
+        return emitOpError(
+            "base_classes must be symbol refs or #emitpy.opaque");
       }
     }
   }
@@ -250,11 +251,12 @@ LogicalResult ClassOp::verify() {
 void ClassOp::print(OpAsmPrinter &p) {
   p << " ";
   p.printSymbolName(getSymName());
-  if (auto bases = getBases()) {
-    if (!bases->empty()) {
+  if (auto baseClasses = getBaseClasses()) {
+    if (!baseClasses->empty()) {
       p << "(";
-      llvm::interleaveComma(
-          *bases, p, [&](Attribute baseAttr) { p.printAttribute(baseAttr); });
+      llvm::interleaveComma(*baseClasses, p, [&](Attribute baseAttr) {
+        p.printAttribute(baseAttr);
+      });
       p << ")";
     }
   }
@@ -262,7 +264,7 @@ void ClassOp::print(OpAsmPrinter &p) {
   bool hasExtraAttrs = false;
   for (NamedAttribute attr : getOperation()->getAttrs()) {
     StringRef name = attr.getName();
-    if (name == getSymNameAttrName() || name == "bases") {
+    if (name == getSymNameAttrName() || name == "base_classes") {
       continue;
     }
     hasExtraAttrs = true;
@@ -270,8 +272,9 @@ void ClassOp::print(OpAsmPrinter &p) {
   }
   if (hasExtraAttrs) {
     p << " attributes ";
-    p.printOptionalAttrDict(getOperation()->getAttrs(),
-                            /*elidedAttrs=*/{getSymNameAttrName(), "bases"});
+    p.printOptionalAttrDict(
+        getOperation()->getAttrs(),
+        /*elidedAttrs=*/{getSymNameAttrName(), "base_classes"});
   }
   p << " ";
   p.printRegion(getBody(), /*printEntryBlockArgs=*/false,
@@ -286,22 +289,23 @@ ParseResult ClassOp::parse(OpAsmParser &parser, OperationState &result) {
   result.addAttribute(mlir::SymbolTable::getSymbolAttrName(), nameAttr);
 
   if (succeeded(parser.parseOptionalLParen())) {
-    SmallVector<Attribute> bases;
+    SmallVector<Attribute> baseClasses;
     if (failed(parser.parseOptionalRParen())) {
       do {
         Attribute baseAttr;
         if (parser.parseAttribute(baseAttr)) {
           return failure();
         }
-        bases.push_back(baseAttr);
+        baseClasses.push_back(baseAttr);
       } while (succeeded(parser.parseOptionalComma()));
 
       if (parser.parseRParen()) {
         return failure();
       }
     }
-    if (!bases.empty()) {
-      result.addAttribute("bases", ArrayAttr::get(parser.getContext(), bases));
+    if (!baseClasses.empty()) {
+      result.addAttribute("base_classes",
+                          ArrayAttr::get(parser.getContext(), baseClasses));
     }
   }
 

@@ -631,12 +631,13 @@ static LogicalResult printOperation(PythonEmitter &emitter, ClassOp classOp) {
   raw_indented_ostream &os = emitter.ostream();
 
   os << "class " << classOp.getSymName();
-  if (auto bases = classOp.getBases()) {
-    if (!bases->empty()) {
+  if (auto baseClasses = classOp.getBaseClasses()) {
+    if (!baseClasses->empty()) {
       os << "(";
-      if (failed(interleaveCommaWithError(*bases, os, [&](Attribute baseAttr) {
-            return emitClassBase(baseAttr, os);
-          }))) {
+      if (failed(interleaveCommaWithError(*baseClasses, os,
+                                          [&](Attribute baseAttr) {
+                                            return emitClassBase(baseAttr, os);
+                                          }))) {
         return classOp.emitOpError("invalid class base attribute");
       }
       os << ")";
