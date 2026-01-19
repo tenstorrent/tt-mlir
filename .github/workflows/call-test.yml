@@ -147,6 +147,24 @@ jobs:
         # Run Tests
         source env/activate
 
+        # tt-triage enabling
+        mkdir temp
+        cd temp
+        git clone https://github.com/tenstorrent/tt-metal.git
+        cd tt-metal
+        exalens_install_script=scripts/install_debugger.sh
+        python_interpreter_location="$(which python)"
+        sed -i "s|python3|$python_interpreter_location|g" $exalens_install_script
+        apt install clang-tidy -y -q
+        PATH="/usr/bin:$PATH" $exalens_install_script
+        pip install -r tools/triage/requirements.txt
+        cd ../..
+        export TT_METAL_DISPATCH_TIMEOUT_COMMAND_TO_EXECUTE="$python_interpreter_location $(pwd)/temp/tt-metal/tools/tt-triage.py 1>&2"
+        export TT_METAL_OPERATION_TIMEOUT_SECONDS=1
+        echo "validate env vars"
+        echo "$TT_METAL_DISPATCH_TIMEOUT_COMMAND_TO_EXECUTE"
+        echo "$TT_METAL_OPERATION_TIMEOUT_SECONDS"
+
         MACHINE_IP=$(hostname -I | awk '{print $1}')
         export no_proxy="${no_proxy:+$no_proxy,}localhost,${MACHINE_IP}"
         export NO_PROXY="${NO_PROXY:+$NO_PROXY,}localhost,${MACHINE_IP}"
