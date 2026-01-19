@@ -166,7 +166,7 @@ def EmitPy_GetAttrOp : EmitPy_Op<"get_attr", [Pure, PyExpressionInterface]> {
     Example:
 
     ```mlir
-    %w = emitpy.get_attr %self, "weight" : (!emitpy.opaque<"Model">) -> !emitpy.opaque<"ttnn.Tensor">
+    %w = emitpy.get_attr %self, "weight" : (!emitpy.class<"Model">) -> !emitpy.opaque<"ttnn.Tensor">
     ```
     ```python
     # Code emitted:
