@@ -1440,9 +1440,11 @@ public:
 
       if (padLow < 0 || padHigh < 0) {
         int64_t spatialDim = spatialDims[i];
-        sliceBegins[spatialDim] = std::abs(std::min(0L, padLow));
+        sliceBegins[spatialDim] =
+            std::abs(std::min(static_cast<int64_t>(0), padLow));
         sliceEnds[spatialDim] =
-            convOutputShape[spatialDim] - std::abs(std::min(0L, padHigh));
+            convOutputShape[spatialDim] -
+            std::abs(std::min(static_cast<int64_t>(0), padHigh));
       }
     }
 

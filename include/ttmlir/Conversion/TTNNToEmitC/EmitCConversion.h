@@ -60,6 +60,10 @@ struct BufferType;
 
 struct QueueId;
 
+struct WormholeComputeKernelConfig;
+
+enum class MathFidelity;
+
 namespace types {
 struct ShardOrientation;
 } // namespace types
@@ -237,6 +241,11 @@ struct TypeName<::ttnn::Tensor> {
 };
 
 template <>
+struct TypeName<::ttnn::WormholeComputeKernelConfig> {
+  inline static const std::string value = "::ttnn::WormholeComputeKernelConfig";
+};
+
+template <>
 struct TypeName<::ttnn::operations::unary::UnaryWithParam> {
   inline static const std::string value =
       "::ttnn::operations::unary::UnaryWithParam";
@@ -323,6 +332,11 @@ struct TypeName<::ttnn::operations::reduction::ReduceType> {
 template <>
 struct TypeName<::ttnn::QueueId> {
   inline static const std::string value = "::ttnn::QueueId";
+};
+
+template <>
+struct TypeName<::ttnn::MathFidelity> {
+  inline static const std::string value = "::MathFidelity";
 };
 
 template <>
@@ -862,6 +876,99 @@ struct EmitCTypeConverter<::ttnn::QueueId> {
   convert(T &&value) {
     return TypeNameV<::ttnn::QueueId> + "(" +
            std::to_string(static_cast<uint8_t>(value)) + ")";
+  }
+};
+
+// Specialization for MathFidelity
+template <>
+struct EmitCTypeConverter<::ttnn::MathFidelity> {
+  static std::string convert(ttnn::MathFidelity mathFidelity) {
+    std::string buf;
+    llvm::raw_string_ostream rso(buf);
+    rso << TypeNameV<::ttnn::MathFidelity> << "::";
+    switch (mathFidelity) {
+    case ttnn::MathFidelity::LoFi:
+      rso << "LoFi";
+      break;
+    case ttnn::MathFidelity::HiFi2:
+      rso << "HiFi2";
+      break;
+    case ttnn::MathFidelity::HiFi3:
+      rso << "HiFi3";
+      break;
+    case ttnn::MathFidelity::HiFi4:
+      rso << "HiFi4";
+      break;
+    }
+    return buf;
+  }
+};
+
+// Specialization for DeviceComputeKernelConfig (as WormholeComputeKernelConfig)
+template <>
+struct EmitCTypeConverter<::ttnn::WormholeComputeKernelConfig> {
+  static std::optional<std::string> convert(mlir::Attribute attr) {
+    auto configAttr =
+        mlir::dyn_cast_if_present<ttnn::DeviceComputeKernelConfigAttr>(attr);
+    if (!configAttr) {
+      return {};
+    }
+    return convert(configAttr);
+  }
+
+  static std::string convert(ttnn::DeviceComputeKernelConfigAttr attr) {
+    std::string buf;
+    llvm::raw_string_ostream rso(buf);
+    rso << TypeNameV<::ttnn::WormholeComputeKernelConfig> << "{";
+
+    bool first = true;
+
+    // math_fidelity
+    if (auto mathFidelity = attr.getMathFidelity()) {
+      if (!first) {
+        rso << ", ";
+      }
+      first = false;
+      rso << ".math_fidelity = "
+          << EmitCTypeConverter<::ttnn::MathFidelity>::convert(*mathFidelity);
+    }
+    // math_approx_mode
+    if (auto mathApproxMode = attr.getMathApproxMode()) {
+      if (!first) {
+        rso << ", ";
+      }
+      first = false;
+      rso << ".math_approx_mode = "
+          << (mathApproxMode.getValue() ? "true" : "false");
+    }
+    // fp32_dest_acc_en
+    if (auto fp32DestAccEn = attr.getFp32DestAccEn()) {
+      if (!first) {
+        rso << ", ";
+      }
+      first = false;
+      rso << ".fp32_dest_acc_en = "
+          << (fp32DestAccEn.getValue() ? "true" : "false");
+    }
+    // packer_l1_acc
+    if (auto packerL1Acc = attr.getPackerL1Acc()) {
+      if (!first) {
+        rso << ", ";
+      }
+      first = false;
+      rso << ".packer_l1_acc = " << (packerL1Acc.getValue() ? "true" : "false");
+    }
+    // dst_full_sync_en
+    if (auto dstFullSyncEn = attr.getDstFullSyncEn()) {
+      if (!first) {
+        rso << ", ";
+      }
+      rso << ".dst_full_sync_en = "
+          << (dstFullSyncEn.getValue() ? "true" : "false");
+    }
+
+    rso << "}";
+    return buf;
   }
 };
 

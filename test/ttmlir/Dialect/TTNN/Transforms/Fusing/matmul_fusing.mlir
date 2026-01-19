@@ -27,6 +27,19 @@ module {
     }
 }
 
+// Test fusing gelu activation into matmul operation
+module {
+    func.func @matmul_gelu(%arg0: tensor<64x128xbf16>, %arg1: tensor<128x256xbf16>) -> tensor<64x256xbf16> {
+        // CHECK: %[[MATMUL:[0-9]+]] = "ttnn.matmul"(%arg0, %arg1)
+        // CHECK-SAME: activation = "gelu"
+        // CHECK-NOT: ttnn.gelu
+        // CHECK: return %[[MATMUL]]
+        %0 = "ttnn.matmul"(%arg0, %arg1) <{transpose_a = false, transpose_b = false}> : (tensor<64x128xbf16>, tensor<128x256xbf16>) -> tensor<64x256xbf16>
+        %1 = "ttnn.gelu"(%0) : (tensor<64x256xbf16>) -> tensor<64x256xbf16>
+        return %1 : tensor<64x256xbf16>
+    }
+}
+
 // Test matmul without activation (should not be modified)
 module {
     func.func @matmul_no_activation(%arg0: tensor<64x128xbf16>, %arg1: tensor<128x256xbf16>) -> tensor<64x256xbf16> {

@@ -7,6 +7,7 @@
 
 #include "ttmlir/Dialect/TTCore/Utils/PopulateArgumentTypes.h"
 #include "ttmlir/Dialect/TTIR/Pipelines/TTIRPipelines.h"
+#include "ttmlir/Dialect/TTNN/Utils/MathFidelityParser.h"
 #include "ttmlir/Dialect/TTNN/Utils/MemoryLayoutAnalysisParams.h"
 #include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
 
@@ -348,6 +349,31 @@ struct TTIRToTTNNDevicePipelineOptions
           "matrix multiplication and convolution operations to bfp8_b."),
       llvm::cl::init(false)};
 
+  // ComputeKernelConfig options
+  // Note: computeCfgMathFidelity default value is HiFi4
+  // And computeCfgFp32DestAccEn default value is true.
+  // This is done as part of generality effort,
+  // to boost accuracy on all operations exposing compute kernel config by
+  // default.
+  Option<OptionalMathFidelity> computeCfgMathFidelity{
+      *this, "compute-cfg-math-fidelity",
+      llvm::cl::desc("Set math fidelity for all ttnn operations exposing "
+                     "compute kernel config."),
+      llvm::cl::values(
+          clEnumValN(OptionalMathFidelity::LoFi, "lofi", "Low fidelity math"),
+          clEnumValN(OptionalMathFidelity::HiFi2, "hifi2", "High fidelity 2"),
+          clEnumValN(OptionalMathFidelity::HiFi3, "hifi3", "High fidelity 3"),
+          clEnumValN(OptionalMathFidelity::HiFi4, "hifi4", "High fidelity 4"),
+          clEnumValN(OptionalMathFidelity::Undefined, "undefined",
+                     "Undefined math fidelity")),
+      llvm::cl::init(OptionalMathFidelity::HiFi4)};
+
+  Option<bool> computeCfgFp32DestAccEn{
+      *this, "compute-cfg-fp32-dest-acc-en",
+      llvm::cl::desc("Set fp32 destination accumulation for all ttnn "
+                     "operations exposing compute kernel config."),
+      llvm::cl::init(true)};
+
   Option<bool> ttnnPerfMetricsEnabled{
       *this, "ttnn-perf-metrics-enabled",
       llvm::cl::desc("Enable performance metrics collection."),
@@ -458,6 +484,12 @@ struct TTNNToEmitPyDevicePipelineOptions
   Option<std::string> tensorLoadFilePrefix{
       *this, "tensor-load-file-prefix",
       llvm::cl::desc("Prefix for input tensor files"), llvm::cl::init("arg")};
+
+  Option<bool> tryRecoverStructure{
+      *this, "try-recover-structure",
+      llvm::cl::desc("Enable pipelines and passes that try to recover "
+                     "structure of the original IR/code."),
+      llvm::cl::init(false)};
 };
 
 // TTIR to TTNN backend pipeline options.
@@ -486,6 +518,12 @@ struct TTIRToEmitPyPipelineOptions : public TTIRToTTNNDevicePipelineOptions,
                                      public TTNNToEmitPyDevicePipelineOptions {
 };
 
+// Recover Structure XLA/Torch pipeline options.
+struct RecoverStructureXLATorchPipelineOptions
+    : public PassPipelineOptions<RecoverStructureXLATorchPipelineOptions> {
+  // Add any future options here if needed
+};
+
 //===----------------------------------------------------------------------===//
 // End-to-end pipelines, which lower TTIR to various TTNN targets.
 //===----------------------------------------------------------------------===//
@@ -498,6 +536,12 @@ void createTTIRToEmitCPipeline(OpPassManager &pm,
 
 void createTTIRToEmitPyPipeline(OpPassManager &pm,
                                 const TTIRToEmitPyPipelineOptions &options);
+
+void createTTNNToEmitPyPipeline(
+    OpPassManager &pm, const TTNNToEmitPyDevicePipelineOptions &options);
+
+void createRecoverStructureXLATorchPipeline(
+    OpPassManager &pm, const RecoverStructureXLATorchPipelineOptions &options);
 
 void registerTTNNPipelines();
 } // namespace mlir::tt::ttnn

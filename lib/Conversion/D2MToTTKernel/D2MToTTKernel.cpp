@@ -12,6 +12,8 @@
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h"
 #include "ttmlir/Utils.h"
 
+#include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
+#include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Affine/ViewLikeInterfaceUtils.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
@@ -651,6 +653,13 @@ public:
       } else {
         rewriter.create<InitOp>(op->getLoc());
       }
+    } else if constexpr (std::is_same_v<InitOp, ttkernel::TypecastTileInitOp>) {
+      const auto inDtype =
+          mlir::cast<ttcore::TileType>(op.getInput().getType()).getDataType();
+      const auto outDtype =
+          mlir::cast<ttcore::TileType>(op.getResult().getType()).getDataType();
+      rewriter.create<ttkernel::TypecastTileInitOp>(op->getLoc(), inDtype,
+                                                    outDtype);
     } else {
       rewriter.create<InitOp>(op->getLoc());
     }
@@ -1183,6 +1192,11 @@ public:
             op.getLoc(), op.getMcastShape()[0], op.getMcastShape()[1]);
         auto numDests = rewriter.create<arith::IndexCastOp>(
             op.getLoc(), rewriter.getI32Type(), numDestsIdx);
+        auto numDestsMinusOne = rewriter.create<arith::SubIOp>(
+            op.getLoc(), numDests,
+            rewriter.create<arith::ConstantOp>(op.getLoc(),
+                                               rewriter.getI32Type(),
+                                               rewriter.getI32IntegerAttr(1)));
         auto mcastAddr =
             rewriter.create<ttkernel::ExperimentalGetNocMulticastAddrOp>(
                 op.getLoc(), virtX, virtY, virtMcastEndX, virtMcastEndY,
@@ -1191,8 +1205,8 @@ public:
           // If src and dst refer to the same memref, we do not loopback mcast
           // Dests are one less because the sender core is not included
           rewriter.create<ttkernel::NocAsyncWriteMulticastOp>(
-              op.getLoc(), srcL1Start, mcastAddr, transferSize, numDests,
-              nullptr, nullptr, nullptr);
+              op.getLoc(), srcL1Start, mcastAddr, transferSize,
+              numDestsMinusOne, nullptr, nullptr, nullptr);
         } else {
           // If src != dst, we loopback mcast
           rewriter.create<ttkernel::NocAsyncWriteMulticastLoopbackSrcOp>(
@@ -1202,12 +1216,8 @@ public:
       } else {
         // Local L1 to Local L1 local data movement lowering
         // Get local coordinates using myY and myX ops
-        auto myY = rewriter.create<d2m::CoreIndexOp>(
-            op.getLoc(), rewriter.getIndexType(),
-            rewriter.getI64IntegerAttr(0));
-        auto myX = rewriter.create<d2m::CoreIndexOp>(
-            op.getLoc(), rewriter.getIndexType(),
-            rewriter.getI64IntegerAttr(1));
+        auto myY = rewriter.create<ttkernel::MyLogicalYOp>(op.getLoc());
+        auto myX = rewriter.create<ttkernel::MyLogicalXOp>(op.getLoc());
         // Convert local coordinates to virtual coordinates
         auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
             rewriter, op.getLoc(), chipDesc, ValueRange{myY, myX});
@@ -1257,16 +1267,38 @@ public:
   matchAndRewrite(d2m::CoreIndexOp op, d2m::CoreIndexOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
 
-    assert(op.getDim() == 0 ||
-           op.getDim() == 1 &&
-               "Expected core index dim to be in range 0-1, failing.");
-    if (op.getDim()) {
-      auto coreIndex = rewriter.create<ttkernel::MyLogicalXOp>(op.getLoc());
-      rewriter.replaceOp(op, coreIndex);
-    } else {
-      auto coreIndex = rewriter.create<ttkernel::MyLogicalYOp>(op.getLoc());
-      rewriter.replaceOp(op, coreIndex);
+    Value logicalY = rewriter.create<ttkernel::MyLogicalYOp>(op.getLoc());
+    Value logicalX = rewriter.create<ttkernel::MyLogicalXOp>(op.getLoc());
+
+    // If no virtualization mapping, preserve legacy behavior.
+    // Note: phys_to_virt_map is optional on the op.
+    auto mapAttr = op.getPhysToVirtMapAttr();
+    if (!mapAttr || mapAttr.getValue().isEmpty()) {
+      TT_assertv((op.getDim() == 0 || op.getDim() == 1),
+                 "Expected core index dim to be in range 0-1 with no "
+                 "virtualization mapping, failing.");
+      rewriter.replaceOp(op, op.getDim() ? logicalX : logicalY);
+      return success();
     }
+
+    mlir::AffineMap map = mapAttr.getValue();
+
+    // The existing grid mapping includes a leading device index result, so we
+    // select (dim + 1).
+    const unsigned resultIdx = static_cast<unsigned>(op.getDim() + 1);
+    TT_assertv(resultIdx < map.getNumResults(),
+               "Expected result index to be less than the number of results, "
+               "failing.");
+    // The resultIdx is the index of the result that corresponds to the dim of
+    // the core index op, this new map has one result, required for use with
+    // affine apply op.
+    mlir::AffineMap selectedMap =
+        mlir::AffineMap::get(map.getNumDims(), map.getNumSymbols(),
+                             {map.getResult(resultIdx)}, rewriter.getContext());
+
+    Value virtDim = rewriter.create<mlir::affine::AffineApplyOp>(
+        op.getLoc(), selectedMap, ValueRange{logicalY, logicalX});
+    rewriter.replaceOp(op, virtDim);
     return success();
   }
 };
@@ -1529,6 +1561,10 @@ public:
           op.getLoc(), op.getMcastShape()[0], op.getMcastShape()[1]);
       Value numDests = rewriter.create<arith::IndexCastOp>(
           op.getLoc(), rewriter.getI32Type(), numDestsIdx);
+      Value numDestsMinusOne = rewriter.create<arith::SubIOp>(
+          op.getLoc(), numDests,
+          rewriter.create<arith::ConstantOp>(op.getLoc(), rewriter.getI32Type(),
+                                             rewriter.getI32IntegerAttr(1)));
       auto mcastAddr =
           rewriter.create<ttkernel::ExperimentalGetNocMulticastAddrOp>(
               op.getLoc(), virtX, virtY, virtMcastEndX, virtMcastEndY,
@@ -1539,7 +1575,7 @@ public:
       rewriter.create<ttkernel::NocSemaphoreSetOp>(op.getLoc(), semaphorePtr,
                                                    value);
       rewriter.replaceOpWithNewOp<ttkernel::NocSemaphoreSetMulticastOp>(
-          op, semaphoreAddr, mcastAddr, numDests, nullptr, nullptr);
+          op, semaphoreAddr, mcastAddr, numDestsMinusOne, nullptr, nullptr);
     }
 
     return success();
@@ -1665,6 +1701,10 @@ void populateD2MToTTKernelPatterns(
   patterns.add<ttkernel::D2MGetGlobalOperandRewriter>(typeConverter, ctx, ttnnMode);
   patterns.add<ttkernel::D2MDMAReadRewriter>(typeConverter, ctx, &associatedDMAWaits, &cbProducerConsumer);
   patterns.add<ttkernel::D2MDMAWriteRewriter>(typeConverter, ctx, &associatedDMAWaits, &cbProducerConsumer);
+
+  // This is needed to lower affine apply ops that may be generated when
+  // `d2m.core_index` is used with a `phys_to_virt_map`.
+  populateAffineToStdConversionPatterns(patterns);
   // clang-format on
 }
 

@@ -345,6 +345,8 @@ class EmitPy:
                         and node.name != "main"
                         and node.name[0:18] != "create_inputs_for_"
                         and not node.name.__contains__("_const_eval_")
+                        # TODO(dmilinkovic): this is getting out of hand, issue #6386.
+                        and not node.name.__contains__("hoisted_")
                     ):
                         program_names.append(node.name)
 
@@ -364,7 +366,7 @@ class EmitPy:
                         ):
                             continue
 
-                        self.logging.debug(
+                        self.logging.warning(
                             f"evaluating program={program_name} for python file={dylib.file_path}"
                         )
                         create_program_inputs = "create_inputs_for_" + program_name
@@ -379,7 +381,7 @@ class EmitPy:
 
                             # Save input tensors before they get deallocated
                             if self["--save-artifacts"]:
-                                program_folder = f"{self.artifacts.get_dylib_emitpy_folder_path(dylib)}/program_{program_index}"
+                                program_folder = f"{self.artifacts.get_emitpy_dylib_folder_path(dylib)}/program_{program_index}"
                                 for i, input_tensor in enumerate(inputs):
                                     input_tensor = ttnn.from_device(input_tensor)
                                     torch_input = input_tensor.to_torch()
@@ -405,7 +407,7 @@ class EmitPy:
                             )
 
                             if self["--save-artifacts"]:
-                                program_folder = f"{self.artifacts.get_dylib_emitpy_folder_path(dylib)}/program_{program_index}"
+                                program_folder = f"{self.artifacts.get_emitpy_dylib_folder_path(dylib)}/program_{program_index}"
                                 for i, output in enumerate(dylib_outputs):
                                     ttnn_output = ttnn.from_device(output)
                                     torch_output = ttnn_output.to_torch()
@@ -506,7 +508,7 @@ class EmitPy:
 
                         # Save artifacts before they get deallocated
                         if self["--save-artifacts"]:
-                            program_folder = f"{self.artifacts.get_dylib_emitpy_folder_path(dylib)}/program_{program_index}"
+                            program_folder = f"{self.artifacts.get_emitpy_dylib_folder_path(dylib)}/program_{program_index}"
                             for i, input_tensor in enumerate(torch_inputs):
                                 self.artifacts.save_torch_tensor(
                                     program_folder,
@@ -548,7 +550,7 @@ class EmitPy:
                             )
 
                             if self["--save-artifacts"]:
-                                program_folder = f"{self.artifacts.get_dylib_emitpy_folder_path(dylib)}/program_{program_index}"
+                                program_folder = f"{self.artifacts.get_emitpy_dylib_folder_path(dylib)}/program_{program_index}"
                                 for i, output in enumerate(torch_dylib_outputs):
                                     self.artifacts.save_torch_tensor(
                                         program_folder,

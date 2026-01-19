@@ -190,6 +190,9 @@ void wait(const std::vector<Tensor> &tensors,
 std::vector<Tensor> toHost(Tensor tensor, bool untilize = false,
                            bool blocking = true);
 
+// Returns vector of device tensors from provided sharded tensor.
+std::vector<Tensor> getDeviceTensors(Tensor tensor);
+
 Tensor toLayout(Tensor tensor, Device device, Layout layout,
                 std::optional<bool> retain = std::nullopt);
 

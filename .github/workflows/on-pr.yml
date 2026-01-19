@@ -84,6 +84,7 @@ jobs:
         projects: [
           { name: "tenstorrent/tt-forge-fe", workflow-name: "on-pr.yml" },
           { name: "tenstorrent/tt-xla", workflow-name: "manual-test.yml" },
+          { name: "tenstorrent/tt-xla", workflow-name: "manual-benchmark.yml" }
         ]
     env:
       GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
@@ -93,11 +94,22 @@ jobs:
       - name: Trigger ${{ env.TARGET_REPO }} tests
         shell: bash
         run: |
-          if [[ "${{ env.TARGET_REPO }}" == "tenstorrent/tt-xla" ]]; then
+          if [[ "${{ env.TARGET_REPO }}" == "tenstorrent/tt-xla" && "${{ env.WORKFLOW_NAME }}" == "manual-test.yml" ]]; then
             gh workflow run ${{ env.WORKFLOW_NAME }} \
               --repo ${{ env.TARGET_REPO }} --ref main \
               --raw-field mlir_override=${{ github.event.pull_request.head.sha }} \
-              --raw-field test_suite=basic-test.json:model-test-push.json:model-test-extended.json
+              --raw-field test_suite=mlir-uplift-qualification.json
+
+          elif [[ "${{ env.TARGET_REPO }}" == "tenstorrent/tt-xla" && "${{ env.WORKFLOW_NAME }}" == "manual-benchmark.yml" ]]; then
+            # Perf benchmark in tt-xla/tt-forge against uplifted tt-mlir + tt-metal
+            gh workflow run ${{ env.WORKFLOW_NAME }} \
+              --repo ${{ env.TARGET_REPO }} --ref main \
+              --raw-field mlir_override=${{ github.event.pull_request.head.sha }} \
+              --raw-field same_branch=false \
+              --raw-field tt_forge_branch=main \
+              --raw-field test_filter= \
+              --raw-field sh-runner=false
+
           else
             gh workflow run ${{ env.WORKFLOW_NAME }} \
               --repo ${{ env.TARGET_REPO }} --ref main \

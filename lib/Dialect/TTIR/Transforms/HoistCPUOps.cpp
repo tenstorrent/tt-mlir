@@ -287,7 +287,7 @@ static void hoistOperationsToFunction(CPUHoistedOpsDescriptor &descriptor,
       mlir::FunctionType::get(context, argumentTypes, resultTypes);
 
   llvm::SmallString<64> localFunctionName(descriptor.funcName);
-  localFunctionName += "_decl";
+  localFunctionName += ttir::kCPUHoistedDeclSuffix;
   auto localFunc = llvm::dyn_cast_if_present<func::FuncOp>(
       sourceModule.lookupSymbol(localFunctionName));
 

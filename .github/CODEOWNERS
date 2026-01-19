@@ -22,6 +22,10 @@ LICENSE @nsmithtt
 /lib/CAPI/ @tapspatel
 /python/ @tapspatel
 
+# Debug Dialect
+include/ttmlir/Dialect/Debug @tapspatel
+lib/Dialect/Debug @tapspatel
+
 # StableHLO Dialect
 include/ttmlir/Dialect/StableHLO @tenstorrent/forge-developers-mlir-stablehlo
 lib/Dialect/StableHLO @tenstorrent/forge-developers-mlir-stablehlo

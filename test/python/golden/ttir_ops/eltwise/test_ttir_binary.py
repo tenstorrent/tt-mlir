@@ -738,6 +738,7 @@ implicit_bcast_inner_2D_shapes = [
 ]
 
 
+@pytest.mark.skip_config(["p150"], ["p300"], reason="See issue #6565")
 @pytest.mark.parametrize("shape", implicit_bcast_inner_2D_shapes, ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
 @pytest.mark.parametrize("target", ["ttmetal"])

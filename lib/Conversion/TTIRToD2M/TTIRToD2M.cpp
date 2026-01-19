@@ -42,11 +42,16 @@ protected:
 
   static bool isTTNNTensor(Type type) {
     auto tensor = mlir::dyn_cast<RankedTensorType>(type);
-    return tensor &&
-           mlir::isa_and_nonnull<ttnn::TTNNLayoutAttr>(tensor.getEncoding());
+    if (!tensor) {
+      return false;
+    }
+
+    return mlir::isa_and_nonnull<ttnn::TTNNLayoutAttr>(tensor.getEncoding()) ||
+           mlir::isa_and_nonnull<ttnn::TTNNNDLayoutAttr>(tensor.getEncoding());
   }
 
-  void assertTTNNLayoutSupported(ttnn::TTNNLayoutAttr ttnnLayout) const {
+  template <typename LayoutAttr>
+  void assertTTNNLayoutSupported(LayoutAttr ttnnLayout) const {
     assert(ttnnLayout.isDeviceBufferType() && "Must be a device tensor");
 
     // With these assumptions we can use the default alignment and dim
@@ -57,56 +62,143 @@ protected:
         mlir::cast<ttcore::TileType>(ttnnLayout.getElementType()).getHeight() ==
             ttcore::TileType::getDefaultShape()[0] &&
         "Only default tile shape is supported");
+    assert(
+        mlir::cast<ttcore::TileType>(ttnnLayout.getElementType()).getWidth() ==
+            ttcore::TileType::getDefaultShape()[1] &&
+        "Only default tile shape is supported");
+  }
+
+  std::tuple<AffineMap, llvm::SmallVector<int64_t>>
+  getImpliedNDGrid(mlir::ConversionPatternRewriter &rewriter,
+                   ArrayRef<int64_t> tensorShape,
+                   ttnn::TTNNNDLayoutAttr ttnnLayout) const {
+    llvm::ArrayRef<int64_t> shardShape = ttnnLayout.getMemref().getShape();
+    assert(shardShape.size() == tensorShape.size() &&
+           "shard shape and tensor shape must have same rank");
+
+    llvm::SmallVector<int64_t> impliedGrid;
+    for (size_t i = 0; i < tensorShape.size(); ++i) {
+      assert(shardShape[i] != 0 && "shard shape entry must not be zero");
+      assert(tensorShape[i] % shardShape[i] == 0 &&
+             "tensor dims must be divisible by shard dims for virtual grid");
+      impliedGrid.push_back(tensorShape[i] / shardShape[i]);
+    }
+
+    // Divide out the tile shape for the last two dimensions
+    impliedGrid[impliedGrid.size() - 1] /=
+        ttcore::TileType::getDefaultShape()[0];
+    impliedGrid[impliedGrid.size() - 2] /=
+        ttcore::TileType::getDefaultShape()[1];
+
+    llvm::SmallVector<int64_t> ttnnGridShape(ttnnLayout.getGrid().getShape());
+    auto [fwdMap, _] = ttmlir::d2m::utils::grids::createCoreVirtMaps(
+        rewriter.getContext(), impliedGrid, ttnnGridShape);
+    return {fwdMap, impliedGrid};
+  }
+
+  std::tuple<AffineMap, llvm::SmallVector<int64_t>>
+  getLegacyGrid(mlir::ConversionPatternRewriter &rewriter,
+                ttnn::TTNNLayoutAttr ttnnLayout) const {
+    bool legacyWithVirtualGrid = ttnnLayout.getMemLayout().getValue() ==
+                                     ttnn::TensorMemoryLayout::HeightSharded ||
+                                 ttnnLayout.getMemLayout().getValue() ==
+                                     ttnn::TensorMemoryLayout::WidthSharded;
+
+    llvm::SmallVector<int64_t> ttnnGridShape(ttnnLayout.getGrid().getShape());
+    if (!legacyWithVirtualGrid) {
+      return {AffineMap::get(rewriter.getContext()), ttnnGridShape};
+    }
+
+    llvm::SmallVector<int64_t> virtualGrid = ttnnGridShape;
+    if (ttnnLayout.getMemLayout().getValue() ==
+        ttnn::TensorMemoryLayout::HeightSharded) {
+      virtualGrid = {ttnnGridShape[0] * ttnnGridShape[1], 1};
+    } else {
+      virtualGrid = {1, ttnnGridShape[0] * ttnnGridShape[1]};
+    }
+    auto [fwdMap, _] = ttmlir::d2m::utils::grids::createCoreVirtMaps(
+        rewriter.getContext(), virtualGrid, ttnnGridShape);
+    return {fwdMap, virtualGrid};
+  }
+
+  std::tuple<AffineMap, llvm::SmallVector<int64_t>>
+  getGridAndAffineMapForTTNNTensor(mlir::ConversionPatternRewriter &rewriter,
+                                   RankedTensorType tensorType) const {
+
+    if (auto ttnnLayout =
+            mlir::dyn_cast<ttnn::TTNNLayoutAttr>(tensorType.getEncoding())) {
+      return getLegacyGrid(rewriter, ttnnLayout);
+    }
+
+    if (auto ndLayout =
+            mlir::dyn_cast<ttnn::TTNNNDLayoutAttr>(tensorType.getEncoding())) {
+      return getImpliedNDGrid(rewriter, tensorType.getShape(), ndLayout);
+    }
+
+    llvm_unreachable("Unsupported layout for TTNN Tensor");
+  }
+
+  DenseIntElementsAttr
+  getCollapsedIntervalsForTTNNTensor(mlir::ConversionPatternRewriter &rewriter,
+                                     Attribute ttnnLayout) const {
+    if (mlir::isa_and_nonnull<ttnn::TTNNLayoutAttr>(ttnnLayout)) {
+      auto i64Ty = IntegerType::get(rewriter.getContext(), 64);
+      auto intervalTy = RankedTensorType::get({1, 2}, i64Ty);
+      // This corresponds to collapsing all leading dimensions into the height
+      // dimension.
+      return DenseIntElementsAttr::get(intervalTy,
+                                       llvm::ArrayRef<int64_t>({0, -1}));
+    }
+
+    if (mlir::isa_and_nonnull<ttnn::TTNNNDLayoutAttr>(ttnnLayout)) {
+      auto emptyIntervalType = RankedTensorType::get(
+          {0, 2}, IntegerType::get(rewriter.getContext(), 64));
+      // There is no collapsing of dimensions for ND layouts.
+      return DenseIntElementsAttr::get(emptyIntervalType, ArrayRef<int64_t>{});
+    }
+
+    llvm_unreachable("Unsupported layout for TTNN Tensor");
+  }
+
+  template <typename LayoutAttr>
+  std::tuple<ttcore::MemorySpace, Type, ttcore::TensorMemoryLayout>
+  extractLayoutInfo(LayoutAttr layout) const {
+    return {layout.getBufferType() == ttnn::BufferType::DRAM
+                ? ttcore::MemorySpace::DeviceDRAM
+                : ttcore::MemorySpace::DeviceL1,
+            layout.getElementType(),
+            layout.getMemLayout().getValue() ==
+                    ttnn::TensorMemoryLayout::Interleaved
+                ? ttcore::TensorMemoryLayout::Interleaved
+                : ttcore::TensorMemoryLayout::Sharded};
   }
 
   RankedTensorType
   getMetalTensorFromTTNNTensor(mlir::ConversionPatternRewriter &rewriter,
                                Value value) const {
     auto tensorType = mlir::cast<mlir::RankedTensorType>(value.getType());
-    auto ttnnLayout =
-        mlir::cast<ttnn::TTNNLayoutAttr>(tensorType.getEncoding());
+    Attribute ttnnLayout = tensorType.getEncoding();
 
-    assertTTNNLayoutSupported(ttnnLayout);
-
-    ttcore::MemorySpace memSpace =
-        ttnnLayout.getBufferType() == ttnn::BufferType::DRAM
-            ? ttcore::MemorySpace::DeviceDRAM
-            : ttcore::MemorySpace::DeviceL1;
-
-    auto i64Ty = IntegerType::get(rewriter.getContext(), 64);
-    auto intervalTy = RankedTensorType::get({1, 2}, i64Ty);
-    DenseIntElementsAttr collapsedIntervals =
-        DenseIntElementsAttr::get(intervalTy, llvm::ArrayRef<int64_t>({0, -1}));
-
-    ttcore::TensorMemoryLayout memLayout =
-        (ttnnLayout.getMemLayout().getValue() ==
-         ttnn::TensorMemoryLayout::Interleaved)
-            ? ttcore::TensorMemoryLayout::Interleaved
-            : ttcore::TensorMemoryLayout::Sharded;
-
-    llvm::SmallVector<int64_t> dimAlignments(tensorType.getShape().size(), 1);
-    dimAlignments[dimAlignments.size() - 1] = 32;
-    dimAlignments[dimAlignments.size() - 2] = 32;
-
-    bool needVirtualGrid = ttnnLayout.getMemLayout().getValue() ==
-                               ttnn::TensorMemoryLayout::HeightSharded ||
-                           ttnnLayout.getMemLayout().getValue() ==
-                               ttnn::TensorMemoryLayout::WidthSharded;
-    AffineMap indexAffineMap = AffineMap::get(rewriter.getContext());
-    llvm::SmallVector<int64_t> ttnnGridShape(ttnnLayout.getGrid().getShape());
-    llvm::SmallVector<int64_t> optimalGrid = ttnnGridShape;
-    if (needVirtualGrid) {
-      if (ttnnLayout.getMemLayout().getValue() ==
-          ttnn::TensorMemoryLayout::HeightSharded) {
-        optimalGrid = {ttnnGridShape[0] * ttnnGridShape[1], 1};
-      } else if (ttnnLayout.getMemLayout().getValue() ==
-                 ttnn::TensorMemoryLayout::WidthSharded) {
-        optimalGrid = {1, ttnnGridShape[0] * ttnnGridShape[1]};
+    auto [memSpace, elementType, memLayout] = [&]()
+        -> std::tuple<ttcore::MemorySpace, Type, ttcore::TensorMemoryLayout> {
+      if (auto ndLayout = mlir::dyn_cast<ttnn::TTNNNDLayoutAttr>(ttnnLayout)) {
+        return extractLayoutInfo(ndLayout);
       }
-      auto [fwdMap, _] = ttmlir::d2m::utils::grids::createCoreVirtMaps(
-          rewriter.getContext(), optimalGrid, ttnnGridShape);
-      indexAffineMap = fwdMap;
-    }
+      if (auto layout = mlir::dyn_cast<ttnn::TTNNLayoutAttr>(ttnnLayout)) {
+        return extractLayoutInfo(layout);
+      }
+      llvm_unreachable("Unsupported layout for TTNN Tensor");
+    }();
+
+    DenseIntElementsAttr collapsedIntervals =
+        getCollapsedIntervalsForTTNNTensor(rewriter, ttnnLayout);
+    llvm::SmallVector<int64_t> dimAlignments(tensorType.getShape().size(), 1);
+    dimAlignments[dimAlignments.size() - 1] =
+        ttcore::TileType::getDefaultShape()[0];
+    dimAlignments[dimAlignments.size() - 2] =
+        ttcore::TileType::getDefaultShape()[1];
+    auto [indexAffineMap, optimalGrid] =
+        getGridAndAffineMapForTTNNTensor(rewriter, tensorType);
 
     auto metalLayout = ttcore::MetalLayoutAttr::get(
         rewriter.getContext(), tensorType.getShape(), ttcore::OOBVal::Undef,
@@ -118,7 +210,6 @@ protected:
     llvm::SmallVector<int64_t> shardedShape = metalLayout.getDeviceShape(
         optimalGrid, ttcore::TileType::getDefaultShape());
 
-    Type elementType = ttnnLayout.getElementType();
     return mlir::RankedTensorType::get(shardedShape, elementType, metalLayout);
   }
 
@@ -128,7 +219,8 @@ protected:
   Value createOptimalLayoutOp(Value value, ttcore::MemorySpace memSpace,
                               bool tiled, bool noCollapse,
                               mlir::ConversionPatternRewriter &rewriter) const {
-    if (isTTNNTensor(value.getType())) {
+    bool isTTNN = isTTNNTensor(value.getType());
+    if (isTTNN) {
       assert(ttnnMode && "Unexpected TTNN tensor as op operand");
       auto metalTensorType = getMetalTensorFromTTNNTensor(rewriter, value);
       auto metalCastOp = rewriter.create<ttir::TTNNMetalLayoutCastOp>(
@@ -141,8 +233,11 @@ protected:
         // Reblock L1 operand to unit grid to align with other operands while
         // preserving original TTNN tensor shape. These views will be removed in
         // GridSelection by insertTTNNDRAMStreams().
+        llvm::SmallVector<int64_t> unitGrid(
+            metalTensorType.getShape().size() / 2, 1);
         auto unitReblockingView = rewriter.create<d2m::ViewLayoutOp>(
-            value.getLoc(), d2m::utils::reblockTensor(metalTensorType, {1, 1}),
+            value.getLoc(),
+            d2m::utils::reblockTensor(metalTensorType, unitGrid),
             metalCastOp->getResult(0));
         return unitReblockingView.getResult();
       }
@@ -1045,7 +1140,7 @@ public:
                      ttcore::MemorySpace defaultInputMemSpace,
                      ttcore::MemorySpace defaultOutputMemSpace, bool ttnnMode,
                      bool /*collapseTensors*/)
-      : OpConversionPattern<ConcreteOp>(typeConverter, ctx),
+      : OpConversionPattern<ConcreteOp>(typeConverter, ctx, /*benefit=*/2),
         D2MNamedRewriterCommon(defaultInputMemSpace, defaultOutputMemSpace,
                                ttnnMode, /*collapseTensors*/ false) {}
 
@@ -1538,9 +1633,9 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
     D2MTensorManipulationOpRewriter<ttir::RearrangeOp, rearrangeLogicalMap>,
     D2MTensorManipulationOpRewriter<ttir::ReshapeOp, reshapeLogicalMap>,
     D2MTensorManipulationOpRewriter<ttir::SliceStaticOp, sliceLogicalMap>,
-    // Permute (handles tranpose ops, since they're canonicalized into permutes).
-    D2MTensorManipulationOpRewriter<ttir::PermuteOp, permuteLogicalMap>,
-    D2MPermuteRewriter
+    // Permute (handles transpose ops, since they're canonicalized into permutes).
+    D2MPermuteRewriter,
+    D2MTensorManipulationOpRewriter<ttir::PermuteOp, permuteLogicalMap>
   >(typeConverter, ctx, defaultInputMemSpace, defaultOutputMemSpace, ttnnMode, collapseTensors);
 
 

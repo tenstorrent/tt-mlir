@@ -120,14 +120,14 @@ void createTTNNPipelineAnalysisPasses(
   }
 }
 
-void createTTNNPipelineLoweringPasses(
-    OpPassManager &pm, const TTIRToTTNNDevicePipelineOptions &options) {
+void createTTNNPipelineLoweringPasses(OpPassManager &pm,
+                                      bool removeDeadValuesEnabled = false) {
   // Add pass to add layout information.
   pm.addPass(createTTNNLayout());
   // Add pass to convert TTIR to TTNN.
   pm.addPass(createConvertTTIRToTTNNPass());
   // Add pass to remove unused values.
-  if (options.removeDeadValuesEnabled) {
+  if (removeDeadValuesEnabled) {
     pm.addPass(mlir::createRemoveDeadValuesPass());
   }
 }
@@ -263,7 +263,7 @@ void createTTIRToTTNNDevicePipeline(
     auto &devicePm = pm.nest<ttcore::DeviceModuleOp>().nest<mlir::ModuleOp>();
 
     // Run TTNN lowering passes on Device module.
-    createTTNNPipelineLoweringPasses(devicePm, options);
+    createTTNNPipelineLoweringPasses(devicePm, options.removeDeadValuesEnabled);
     createTTNNFusingPass(devicePm, options);
 
     createTTNNPipelineWorkaroundPass(devicePm, options);
@@ -272,6 +272,20 @@ void createTTIRToTTNNDevicePipeline(
     if (options.experimentalBfp8Weights) {
       devicePm.addPass(createTTNNWeightBFP8Conversion());
     }
+
+    // Apply ComputeKernelConfig settings before analysis passes.
+    // Create options struct and forward pipeline options.
+    TTNNSetComputeKernelConfigOptions setConfigOptions;
+
+    // Forward the OptionalMathFidelity value directly
+    setConfigOptions.mathFidelity = options.computeCfgMathFidelity.getValue();
+    setConfigOptions.fp32DestAccEn = options.computeCfgFp32DestAccEn.getValue();
+
+    if (setConfigOptions.fp32DestAccEn ||
+        setConfigOptions.mathFidelity != OptionalMathFidelity::Undefined) {
+      devicePm.addPass(createTTNNSetComputeKernelConfig(setConfigOptions));
+    }
+
     createTTNNPipelineAnalysisPasses(devicePm, options);
     // We need to re-run const-eval to pick up const prepare conv2d weight ops
     // split during the analysis passes.
@@ -306,6 +320,30 @@ void createTTIRToTTNNDevicePipeline(
           mlir::tt::ttnn::createTTNNCollectPerfMetrics(metricsOptions));
     }
   }
+}
+
+void createRecoverStructureXLATorchPipeline(
+    OpPassManager &pm, const RecoverStructureXLATorchPipelineOptions &options) {
+  // Simplify locations to remove nested location information
+  //
+  // The nested locations appear for parameters, and describe original parameter
+  // names, among other info, and will be useful for naming variables in the
+  // generated code.
+  //
+  pm.addPass(createTTNNSimplifyLocsForCodegen());
+
+  // Recover program structure by splitting IR into functions based on source
+  // locations
+  //
+  pm.addPass(createTTNNRecoverStructure());
+
+  // TODO (#6297): This is a temporary workaround - deallocs aren't properly
+  // placed in structure recovery pass yet. They are often called before a
+  // tensor is last used. A good approach today is to leave deallocs in the IR
+  // and (re)move them with an LLM later, by asking it to move deallocs to after
+  // last use.
+  //
+  pm.addPass(createTTNNRemoveDeallocs());
 }
 
 // Pipeline which lowers the Device module from TTNN to EmitC dialect.
@@ -354,18 +392,16 @@ void createTTNNToEmitCDevicePipeline(
 //
 void createTTNNToEmitPyDevicePipeline(
     OpPassManager &pm, const TTNNToEmitPyDevicePipelineOptions &options) {
-  pm.addPass(createTTNNAdjustDeallocs());
+  auto &devicePm = pm.nest<ttcore::DeviceModuleOp>().nest<mlir::ModuleOp>();
 
-  // Unwrapping the device module.
-  //
-  // TODO(dmilinkovic): Should be replaced by merging device and CPU modules
-  // by linking CPU-hoisted function declarations in Device module
-  // with their definitions from CPU module - issue #6099.
-  //
-  pm.addPass(ttcore::createTTCoreUnwrapDeviceModulePass());
+  devicePm.addPass(createTTNNAdjustDeallocs());
+  if (options.tryRecoverStructure) {
+    createRecoverStructureXLATorchPipeline(
+        devicePm, RecoverStructureXLATorchPipelineOptions());
+  }
 
   // Apply EmitPy-specific workarounds before conversion
-  pm.addPass(createTTNNEmitPyWorkarounds());
+  devicePm.addPass(createTTNNEmitPyWorkarounds());
 
   if (options.targetModule) {
     // In module path, run tuplification with forced settings and add device
@@ -375,26 +411,52 @@ void createTTNNToEmitPyDevicePipeline(
     //
     TTNNTuplifyTensorsOptions tuplifyOptions;
     tuplifyOptions.tuplifyInputIfEmpty = true;
-    pm.addPass(createTTNNTuplifyTensors(tuplifyOptions));
-    pm.addPass(createTTNNPrepareModuleForExport());
+    devicePm.addPass(createTTNNTuplifyTensors(tuplifyOptions));
+    devicePm.addPass(createTTNNPrepareModuleForExport());
   } else {
     // In canonical path, run tuplification + input generation/loading.
     //
-    pm.addPass(createTTNNTuplifyTensors());
+    devicePm.addPass(createTTNNTuplifyTensors());
 
     if (options.loadInputTensorsFromDisk) {
       TTNNLoadInputTensorsOptions loadOptions;
       loadOptions.tensorLoadDirectory = options.tensorLoadDirectory;
       loadOptions.tensorLoadFilePrefix = options.tensorLoadFilePrefix;
-      pm.addPass(createTTNNLoadInputTensors(loadOptions));
+      devicePm.addPass(createTTNNLoadInputTensors(loadOptions));
     } else {
-      pm.addPass(createTTNNCreateInputGenerators());
+      devicePm.addPass(createTTNNCreateInputGenerators());
     }
   }
 
-  pm.addPass(createConvertTTNNToEmitPyPass());
+  devicePm.addPass(createConvertTTNNToEmitPyPass());
 
-  pm.addPass(createEmitPyNameVarsPass());
+  devicePm.addPass(createEmitPyNameVarsPass());
+}
+
+// Pipeline which lowers the CPU module from TTIR to EmitPy using
+// TTNN golden functions.
+//
+void createTTIRToEmitPyCPUPipeline(OpPassManager &pm) {
+  auto &cpuPm = pm.nest<ttcore::CPUModuleOp>().nest<mlir::ModuleOp>();
+
+  // Prepare CPU module TTIR ops for TTNN lowering.
+  //
+  cpuPm.addPass(mlir::tt::ttir::createTTIRFusing());
+  cpuPm.addPass(mlir::tt::createTTIRToTTIRDecompositionPass());
+  cpuPm.addPass(mlir::tt::ttir::createTTIRFusing());
+  cpuPm.addPass(ttir::createTTIRFlattenSlidingWindow());
+
+  // Lower CPU module to TTNN.
+  //
+  createTTNNPipelineLoweringPasses(cpuPm);
+
+  // Lower CPU module to EmitPy.
+  //
+  ConvertTTNNToEmitPyOptions options;
+  options.enableGoldenMode = true;
+  cpuPm.addPass(createConvertTTNNToEmitPyPass(options));
+
+  cpuPm.addPass(createEmitPyNameVarsPass());
 }
 
 //===----------------------------------------------------------------------===//
@@ -447,11 +509,28 @@ void createTTIRToEmitPyPipeline(OpPassManager &pm,
   createTTIRToTTNNDevicePipeline(pm, options);
   createTTNNToEmitPyDevicePipeline(pm, options);
 
-  // TODO(dmilinkovic): Lower CPU module to EmitPy using TTNN golden functions -
-  // issue #6099.
+  // Lower CPU module to EmitPy using TTNN golden functions.
   //
+  createTTIRToEmitPyCPUPipeline(pm);
 
-  // TODO(dmilinkovic): Merge Device and CPU modules - issue #6099.
+  // Link Device and CPU modules into the root module.
+  //
+  pm.addPass(createEmitPyLinkModulesPass());
+}
+
+// Complete pipeline for lowering TTNN to EmitPy.
+//
+// This pipeline is used when the input is already in TTNN dialect, and assumes
+// the CPU module is still in TTIR.
+//
+// Device module: TTNN -> EmitPy.
+// CPU module: TTIR -> TTNN -> EmitPy (with golden functions).
+//
+void createTTNNToEmitPyPipeline(
+    OpPassManager &pm, const TTNNToEmitPyDevicePipelineOptions &options) {
+  createTTNNToEmitPyDevicePipeline(pm, options);
+  createTTIRToEmitPyCPUPipeline(pm);
+  pm.addPass(createEmitPyLinkModulesPass());
 }
 
 //===----------------------------------------------------------------------===//
@@ -494,5 +573,21 @@ void registerTTNNPipelines() {
   mlir::PassPipelineRegistration<mlir::tt::ttnn::TTIRToEmitPyPipelineOptions>(
       "ttir-to-emitpy-pipeline", "Pipeline lowering TTIR to EmitPy.",
       mlir::tt::ttnn::createTTIRToEmitPyPipeline);
+
+  // TTNN to EmitPy pipeline.
+  //
+  mlir::PassPipelineRegistration<
+      mlir::tt::ttnn::TTNNToEmitPyDevicePipelineOptions>(
+      "ttnn-to-emitpy-pipeline", "Pipeline lowering TTNN to EmitPy.",
+      mlir::tt::ttnn::createTTNNToEmitPyPipeline);
+
+  // Recover Structure XLA/Torch pipeline.
+  //
+  mlir::PassPipelineRegistration<
+      mlir::tt::ttnn::RecoverStructureXLATorchPipelineOptions>(
+      "recover-structure-xla-torch-pipeline",
+      "Pipeline to recover structure from TTNN IR for code generation from "
+      "XLA/Torch. ",
+      mlir::tt::ttnn::createRecoverStructureXLATorchPipeline);
 }
 } // namespace mlir::tt::ttnn

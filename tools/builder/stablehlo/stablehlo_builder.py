@@ -2986,6 +2986,186 @@ class StableHLOBuilder(Builder):
 
         return slice_module, slice_builder
 
+    ############### stablehlo.DynamicSliceOp ###############
+
+    @tag(stablehlo.DynamicSliceOp)
+    def dynamic_slice(
+        self,
+        operand: Operand,
+        start_indices: List[Operand],
+        slice_sizes: List[int],
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpResult:
+        # If all start indices are Python ints, use static slice
+        if all(isinstance(i, int) for i in start_indices):
+            limit_indices = [s + sz for s, sz in zip(start_indices, slice_sizes)]
+            strides = [1] * len(start_indices)
+            return self.slice(
+                operand,
+                start_indices,
+                limit_indices,
+                strides,
+                loc=loc,
+                unit_attrs=unit_attrs,
+                sharding_attr=sharding_attr,
+            )
+
+        # Otherwise, ensure every start index is a Value (wrap ints as constants)
+        start_indices_vals = [
+            (
+                self.constant(torch.tensor(i, dtype=torch.int64)).result
+                if isinstance(i, int)
+                else i
+            )
+            for i in start_indices
+        ]
+
+        stablehlo_op = self.get_opview_from_method(StableHLOBuilder.dynamic_slice)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = stablehlo_op(
+            operand,
+            start_indices_vals,
+            slice_sizes=slice_sizes,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if sharding_attr is not None:
+            op.operation.attributes["sdy.sharding"] = sharding_attr
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            operand_tensor = self._get_golden_tensor(operand)
+            start_indices_tensors = [
+                self._get_golden_tensor(idx) for idx in start_indices_vals
+            ]
+            op_golden_function = get_golden_function(stablehlo_op)
+            golden_output = op_golden_function(
+                operand_tensor,
+                start_indices_tensors,
+                slice_sizes,
+                op.result.type.element_type,
+            )
+            self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(stablehlo.DynamicSliceOp)
+    def dynamic_slice_parser(
+        self,
+        old_op: stablehlo.DynamicSliceOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        stablehlo_op = self.get_opview_from_parser(
+            StableHLOBuilder.dynamic_slice_parser
+        )
+
+        operand = global_dict[old_op.operand]
+        start_indices = [global_dict[idx] for idx in old_op.start_indices]
+        slice_sizes = list(old_op.slice_sizes)
+
+        new_op = stablehlo_op(
+            operand,
+            start_indices,
+            slice_sizes=slice_sizes,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        if not self._disable_golden_check:
+            operand_tensor = self._get_golden_tensor(operand)
+            start_indices_tensors = [
+                self._get_golden_tensor(idx) for idx in start_indices
+            ]
+            op_golden_function = get_golden_function(stablehlo_op)
+            golden_output = op_golden_function(
+                operand_tensor,
+                start_indices_tensors,
+                slice_sizes,
+                new_op_result.type.element_type,
+            )
+            self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {old_op.result: new_op_result}
+        return new_op, op_map_dictionary
+
+    @split(stablehlo.DynamicSliceOp)
+    def dynamic_slice_split(
+        self,
+        old_op: stablehlo.DynamicSliceOp,
+    ) -> Tuple[Module, StableHLOBuilder]:
+        stablehlo_op = self.get_opview_from_split(StableHLOBuilder.dynamic_slice_split)
+
+        old_context = old_op.context
+        old_loc = Location.unknown(old_context)
+        with old_context, old_loc:
+            dynamic_slice_module = Module.create()
+            dynamic_slice_builder = StableHLOBuilder(old_context, old_loc)
+
+            op_input_types = [old_op.operand.type] + [
+                idx.type for idx in old_op.start_indices
+            ]
+            slice_sizes = list(old_op.slice_sizes)
+
+            with InsertionPoint(dynamic_slice_module.body):
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="dynamic_slice_module")
+                def decorated_func(*inputs):
+                    operand = inputs[0]
+                    start_indices = inputs[1:]
+
+                    new_op = stablehlo_op(
+                        operand,
+                        start_indices,
+                        slice_sizes=slice_sizes,
+                        loc=old_op.location,
+                    )
+                    new_op_result = new_op.result
+
+                    if not self._disable_golden_check:
+                        op_golden_function = get_golden_function(stablehlo_op)
+                        operand_tensor = self._get_golden_tensor(old_op.operand)
+                        start_indices_tensors = [
+                            self._get_golden_tensor(idx) for idx in old_op.start_indices
+                        ]
+                        golden_output = op_golden_function(
+                            operand_tensor,
+                            start_indices_tensors,
+                            slice_sizes,
+                            new_op_result.type.element_type,
+                        )
+                        dynamic_slice_builder._set_golden_tensor(
+                            new_op_result, golden_output
+                        )
+                        dynamic_slice_builder._set_golden_tensor(
+                            operand, operand_tensor
+                        )
+
+                        ordered_inputs.extend([operand] + list(start_indices))
+                        ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                dynamic_slice_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return dynamic_slice_module, dynamic_slice_builder
+
     ############### stablehlo.TransposeOp ###############
 
     @tag(stablehlo.TransposeOp)
@@ -3112,6 +3292,181 @@ class StableHLOBuilder(Builder):
                 ]
 
         return transpose_module, transpose_builder
+
+    ############### stablehlo.PadOp ###############
+
+    @tag(stablehlo.PadOp)
+    def pad(
+        self,
+        in0: Operand,
+        padding_value: Operand,
+        padding: List[int],
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpResult:
+        stablehlo_op = self.get_opview_from_method(StableHLOBuilder.pad)
+        element_type = in0.type.element_type
+
+        rank = len(in0.type.shape)
+        edge_low = [padding[2 * i] for i in range(rank)]
+        edge_high = [padding[2 * i + 1] for i in range(rank)]
+        # Currently adding PadOp to support interior padding with [0,0..0] only
+        interior = [0] * rank
+
+        edge_low_attr = DenseI64ArrayAttr.get(edge_low)
+        edge_high_attr = DenseI64ArrayAttr.get(edge_high)
+        interior_attr = DenseI64ArrayAttr.get(interior)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = stablehlo_op(
+            in0,
+            padding_value,
+            edge_low_attr,
+            edge_high_attr,
+            interior_attr,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if sharding_attr is not None:
+            op.operation.attributes["sdy.sharding"] = sharding_attr
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            padding_value_golden = self._get_golden_tensor(padding_value)
+            op_golden_function = get_golden_function(stablehlo_op)
+            golden_output = op_golden_function(
+                input0,
+                padding_value_golden,
+                edge_low_attr,
+                edge_high_attr,
+                interior_attr,
+                op_result.type.element_type,
+            )
+            self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(stablehlo.PadOp)
+    def pad_parser(
+        self,
+        old_op: stablehlo.PadOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        stablehlo_op = self.get_opview_from_parser(StableHLOBuilder.pad_parser)
+        in0 = global_dict[old_op.operand]
+        padding_value = global_dict[old_op.padding_value]
+        edge_low_attr = old_op.edge_padding_low
+        edge_high_attr = old_op.edge_padding_high
+        interior_attr = old_op.interior_padding
+
+        new_op = stablehlo_op(
+            in0,
+            padding_value,
+            edge_low_attr,
+            edge_high_attr,
+            interior_attr,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            padding_value_golden = self._get_golden_tensor(padding_value)
+            op_golden_function = get_golden_function(stablehlo_op)
+            golden_output = op_golden_function(
+                input0,
+                padding_value_golden,
+                edge_low_attr,
+                edge_high_attr,
+                interior_attr,
+                old_op.result.type.element_type,
+            )
+            self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(stablehlo.PadOp)
+    def pad_split(
+        self,
+        old_op: stablehlo.PadOp,
+    ) -> Tuple[Module, StableHLOBuilder]:
+        stablehlo_op = self.get_opview_from_split(StableHLOBuilder.pad_split)
+
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
+            pad_module = Module.create()
+            pad_builder = StableHLOBuilder(old_ctx, old_loc)
+            op_input_types = [old_op.operand.type, old_op.padding_value.type]
+
+            with InsertionPoint(pad_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="pad_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    padding_value = inputs[1]
+                    edge_low_attr = old_op.edge_padding_low
+                    edge_high_attr = old_op.edge_padding_high
+                    interior_attr = old_op.interior_padding
+
+                    new_op = stablehlo_op(
+                        in0,
+                        padding_value,
+                        edge_low_attr,
+                        edge_high_attr,
+                        interior_attr,
+                        loc=old_op.location,
+                    )
+                    new_op_result = new_op.result
+
+                    if not self._disable_golden_check:
+                        input0 = self._get_golden_tensor(old_op.operand)
+                        padding_value_golden = self._get_golden_tensor(
+                            old_op.padding_value
+                        )
+                        op_golden_function = get_golden_function(stablehlo_op)
+                        golden_output = op_golden_function(
+                            input0,
+                            padding_value_golden,
+                            edge_low_attr,
+                            edge_high_attr,
+                            interior_attr,
+                            old_op.result.type.element_type,
+                        )
+                        pad_builder._set_golden_tensor(new_op_result, golden_output)
+                        pad_builder._set_golden_tensor(in0, input0)
+                        pad_builder._set_golden_tensor(
+                            padding_value, padding_value_golden
+                        )
+                        ordered_inputs.append(in0)
+                        ordered_inputs.append(padding_value)
+                        ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                pad_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return pad_module, pad_builder
 
     ############### stablehlo.ReshapeOp ###############
 
@@ -4167,7 +4522,7 @@ class StableHLOBuilder(Builder):
         stablehlo_op = self.get_opview_from_method(StableHLOBuilder.select)
 
         if output_type is None:
-            mlir_output_type = self.get_type(pred)
+            mlir_output_type = self.get_type(on_true)
         else:
             mlir_output_type = self._get_type_from_torch_dtype(output_type)
 
@@ -6578,7 +6933,10 @@ class StableHLOBuilder(Builder):
 
         with old_ctx, old_loc:
             for func_op in module.body.operations:
-                if func_op.name.value in builder._nested_funcs:
+                if (
+                    not isinstance(func_op, func.FuncOp)
+                    or func_op.name.value in builder._nested_funcs
+                ):
                     continue
 
                 for block in func_op.body:

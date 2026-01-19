@@ -162,10 +162,11 @@ def TTKernel_TypecastTileInitOp : TTKernel_InitOp<"typecast_tile_init"> {
       Must be run before typecast_tile.
     }];
 
-    let arguments = (ins);
+    let arguments = (ins TTCore_DataTypeAttr:$in_dtype,
+                         TTCore_DataTypeAttr:$out_dtype);
 
     let assemblyFormat = [{
-      `(` `)` attr-dict `:` functional-type(operands, results)
+      `(` $in_dtype `,` $out_dtype `)` attr-dict `:` functional-type(operands, results)
     }];
 }
 
@@ -2608,11 +2609,10 @@ def TTKernel_NocSemaphoreSetMulticastLoopbackOp : TTKernel_Op<"noc_semaphore_set
     let arguments = (ins TTKernel_Semaphore:$src_local_l1_addr,
                          TTKernel_NocAddr:$dst_noc_addr_multicast,
                          I32:$num_dests,
-                         BoolAttr:$linked,
-                         BoolAttr:$multicast_path_reserve);
+                         OptionalAttr<BoolAttr>:$linked);
 
     let assemblyFormat = [{
-      `(` $src_local_l1_addr `,` $dst_noc_addr_multicast `,` $num_dests `,` $linked `,` $multicast_path_reserve `)` attr-dict `:` functional-type(operands, results)
+      `(` $src_local_l1_addr `,` $dst_noc_addr_multicast `,` $num_dests (`,` $linked^)? `)` attr-dict `:` functional-type(operands, results)
     }];
 }
 
@@ -2622,7 +2622,7 @@ def TTKernel_NocSemaphoreSetMulticastLoopbackOp : TTKernel_Op<"noc_semaphore_set
 
 def TTKernel_ArgResultType : AnyTypeOf<[I32, TTKernel_CB, TTKernel_L1Addr]>;
 
-def TTKernel_GetArgValOp : TTKernel_Op<"get_arg_val"> {
+def TTKernel_GetArgValOp : TTKernel_Op<"get_arg_val", [Pure]> {
     let summary = "Get runtime arg value.";
     let description = [{
       Get runtime argument value at specified index.
@@ -2637,7 +2637,7 @@ def TTKernel_GetArgValOp : TTKernel_Op<"get_arg_val"> {
     }];
 }
 
-def TTKernel_GetCommonArgValOp : TTKernel_Op<"get_common_arg_val"> {
+def TTKernel_GetCommonArgValOp : TTKernel_Op<"get_common_arg_val", [Pure]> {
     let summary = "Get common runtime arg value.";
     let description = [{
       Get runtime argument value at specified index. (Indexes from different location compared to get_arg_val)

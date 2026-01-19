@@ -11,11 +11,17 @@ import re
 from collections import OrderedDict
 
 from ttmlir.ir import *
-from ttmlir.dialects import tensor, quant, func, ttir, ttcore, stablehlo, ttnn
+from ttmlir.dialects import tensor, quant, func, ttir, ttcore, stablehlo, ttnn, debug
 from ttmlir.passes import GoldenTensor, DataType
 from golden import GoldenMapTensor, get_golden_function
 
-from builder.base.builder_utils import process_multi_return_result, TypeInfo
+from builder.base.builder_utils import (
+    process_multi_return_result,
+    TypeInfo,
+    tag,
+    parse,
+    split,
+)
 
 
 class BuilderMeta(type):
@@ -1217,3 +1223,92 @@ class Builder(metaclass=BuilderMeta):
             return cpu_module_op
 
         return wrapper(self)
+
+    # ----- Debug dialect operations ----
+
+    @tag(debug.AnnotateOp)
+    def annotate(
+        self,
+        operand: Operand,
+        annotation: str,
+        loc: Optional[str] = None,
+    ) -> OpResult:
+        debug_op = self.get_opview_from_method(Builder.annotate)
+        annotation_attr = StringAttr.get(annotation)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = debug_op(
+            operand,
+            annotation=annotation_attr,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(operand)
+            op_golden_function = get_golden_function(debug_op)
+            golden_output = op_golden_function(input0, annotation_attr)
+            self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @tag(debug.BreakpointOp)
+    def breakpoint(
+        self,
+        operand: Operand,
+        loc: Optional[str] = None,
+    ) -> OpResult:
+        debug_op = self.get_opview_from_method(Builder.breakpoint)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = debug_op(
+            operand,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(operand)
+            op_golden_function = get_golden_function(debug_op)
+            golden_output = op_golden_function(input0)
+            self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @tag(debug.MemorySnapshotOp)
+    def memory_snapshot(
+        self,
+        operand: Operand,
+        file_path: str,
+        loc: Optional[str] = None,
+    ) -> OpResult:
+        debug_op = self.get_opview_from_method(Builder.memory_snapshot)
+        file_path_attr = StringAttr.get(file_path)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = debug_op(
+            operand,
+            file_path=file_path_attr,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(operand)
+            op_golden_function = get_golden_function(debug_op)
+            golden_output = op_golden_function(input0, file_path_attr)
+            self._set_golden_tensor(op_result, golden_output)
+
+        return op_result

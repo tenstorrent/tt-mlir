@@ -395,9 +395,14 @@ createConv2dConfig(const ::tt::target::ttnn::Conv2dConfig *config) {
         *config->enable_kernel_stride_folding();
   }
 
-  if (config->config_tensors_in_dram()) {
-    conv2dConfig.config_tensors_in_dram = *config->config_tensors_in_dram();
-  }
+  // TODO(vkovacevic): Failing with tt-metal error:
+  // "CB page size 64 should be greater than the config tensor page size 132"
+  // Disabled until fixed in tt-metal
+  // https://github.com/tenstorrent/tt-metal/issues/35207
+
+  // if (config->config_tensors_in_dram()) {
+  //   conv2dConfig.config_tensors_in_dram = *config->config_tensors_in_dram();
+  // }
 
   return conv2dConfig;
 }
@@ -594,7 +599,7 @@ allocateTensorOnDevice(const ::tt::target::ttnn::TensorRef *tensorRef,
       ::ttnn::TensorLayout(ttnnDataType, ::ttnn::PageConfig(ttnnLayout),
                            *memoryConfig));
   ::ttnn::Tensor deviceTensor =
-      ::tt::tt_metal::allocate_tensor_on_device(tensorSpec, &meshDevice);
+      ::tt::tt_metal::create_device_tensor(tensorSpec, &meshDevice);
   return deviceTensor;
 }
 

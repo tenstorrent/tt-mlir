@@ -37,9 +37,11 @@ set(ttmlir_export_targets
   MLIRTTKernelTransforms
 
   # Other dialects
+  MLIRDebugDialect
   MLIRSFPIDialect
   MLIRLLVMTransforms
   MLIREmitPyDialect
+  MLIREmitPyInterfaces
   MLIRD2MDialect
   MLIRD2MAllocation
   MLIRD2MAnalysis

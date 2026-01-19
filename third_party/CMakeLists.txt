@@ -1,6 +1,6 @@
 include(ExternalProject)
 
-set(TT_METAL_VERSION "dcae048e5901b2528f5eba67180bb2bc0c227481")
+set(TT_METAL_VERSION "8f16e2b8044d8473b57d1acfb36f4456be66624f")
 
 # Suppress install logs to avoid cluttering the build output
 set(CMAKE_INSTALL_MESSAGE NEVER)
@@ -13,11 +13,8 @@ else()
 endif()
 message(STATUS "Setting tt-metal CPM cache to: ${CPM_SOURCE_CACHE}")
 
-if (CMAKE_BUILD_TYPE STREQUAL "Release")
-  set(TTMETAL_BUILD_DIR ${TTMLIR_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/build)
-else()
-  set(TTMETAL_BUILD_DIR ${TTMLIR_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/build_Debug)
-endif()
+set(TTMETAL_BUILD_DIR ${TTMLIR_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/build_${CMAKE_BUILD_TYPE})
+set(TTMETAL_BUILD_SYMLINK ${TTMLIR_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/build)
 set(TTMETAL_LIBRARY_DIR ${TTMETAL_BUILD_DIR}/lib)
 
 set(TRACY_INCLUDE_DIRS
@@ -43,7 +40,7 @@ set(TTMETAL_INCLUDE_DIRS
   ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_stl
   ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_stl/tt_stl
   ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_eager
-  ${TTMETAL_BUILD_DIR}/include
+  ${TTMETAL_BUILD_SYMLINK}/include
   ${CPM_SOURCE_CACHE}/reflect/f93e77475670eaeacf332927dfe8b50e3f3812e0
   ${CPM_SOURCE_CACHE}/nanomsg/28cc32d5bdb6a858fe53b3ccf7e923957e53eada/include
   ${CPM_SOURCE_CACHE}/fmt/69912fb6b71fcb1f7e5deca191a2bb4748c4e7b6/include
@@ -51,7 +48,7 @@ set(TTMETAL_INCLUDE_DIRS
   ${CPM_SOURCE_CACHE}/boost/1359e136761ab2d10afa1c4e21086c8d824735cd/libs/core/include
   ${CPM_SOURCE_CACHE}/nlohmann_json/798e0374658476027d9723eeb67a262d0f3c8308/include
   ${CPM_SOURCE_CACHE}/spdlog/b1c2586bb5c35a7929362e87f62433eb68206873/include
-  ${CPM_SOURCE_CACHE}/tt-logger/5d45c661affa374c5656335a77010ab503f96a99/include
+  ${CPM_SOURCE_CACHE}/tt-logger/87c1a5f2e9d2dd011200eb49c86426c26dec719e/include
   ${CPM_SOURCE_CACHE}/xtl/0_8_0_patched/include
   ${CPM_SOURCE_CACHE}/xtensor/0_26_0_patched/include
   ${CPM_SOURCE_CACHE}/xtensor-blas/0_22_0_patched/include
@@ -129,6 +126,14 @@ ExternalProject_Add(
 )
 
 ExternalProject_Add_StepTargets(tt-metal download update configure)
+
+ExternalProject_Add_Step(tt-metal create_build_symlink
+  COMMAND ${CMAKE_COMMAND} -E rm -f ${TTMETAL_BUILD_SYMLINK}
+  COMMAND ${CMAKE_COMMAND} -E create_symlink ${TTMETAL_BUILD_DIR} ${TTMETAL_BUILD_SYMLINK}
+  COMMENT "Creating symlink: build -> build_${CMAKE_BUILD_TYPE}"
+  DEPENDEES build
+)
+
 set_target_properties(tt-metal-download PROPERTIES EXCLUDE_FROM_ALL TRUE)
 set_target_properties(tt-metal-update PROPERTIES EXCLUDE_FROM_ALL TRUE)
 set_target_properties(tt-metal-configure PROPERTIES EXCLUDE_FROM_ALL TRUE)
@@ -221,8 +226,8 @@ install(
 )
 install(
   DIRECTORY
-    ${CPM_SOURCE_CACHE}/tt-logger/5d45c661affa374c5656335a77010ab503f96a99/include
-  DESTINATION tt-metal/.cpmcache/tt-logger/5d45c661affa374c5656335a77010ab503f96a99
+    ${CPM_SOURCE_CACHE}/tt-logger/87c1a5f2e9d2dd011200eb49c86426c26dec719e/include
+  DESTINATION tt-metal/.cpmcache/tt-logger/87c1a5f2e9d2dd011200eb49c86426c26dec719e
   COMPONENT TTNNStandalone
   EXCLUDE_FROM_ALL
 )

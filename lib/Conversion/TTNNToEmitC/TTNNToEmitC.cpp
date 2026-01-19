@@ -664,8 +664,9 @@ public:
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
         /*dtype=*/emitter.emit(std::nullopt),
         /*program_config=*/emitter.emit(std::nullopt),
-        emitter.emit(std::nullopt),
         emitter.emit(srcOp.getActivation()),
+        emitter.template emit<::ttnn::WormholeComputeKernelConfig>(
+            srcOp.getComputeConfig()),
     };
 
     emitter.replaceOp(*this, args);
@@ -704,6 +705,8 @@ public:
         /*dtype=*/emitter.emit(std::nullopt),
         /*program_config=*/emitter.emit(std::nullopt),
         emitter.emit(srcOp.getActivation()),
+        emitter.template emit<::ttnn::WormholeComputeKernelConfig>(
+            srcOp.getComputeConfig()),
     };
     // ANCHOR_END: adding_an_op_matmul_ttnn_to_emitc_array_attrs
 
@@ -759,6 +762,7 @@ public:
         emitter.emit(/*count_include_pad=*/srcOp.getCountIncludePad()),
         emitter.emit(/*divisor_override=*/std::nullopt),
         emitter.getMemoryConfig(srcOp.getResult()),
+        /*dram_slice_config=*/emitter.emit(std::nullopt),
         emitter.emit(srcOp.getAppliedShardScheme()),
         emitter.emit(/*compute_kernel_config=*/std::nullopt),
         emitter.emit(/*deallocate_input=*/false),
@@ -816,6 +820,7 @@ public:
         emitter.template emit<std::array<uint32_t, 2>>(srcOp.getDilationAttr()),
         emitter.emit(srcOp.getCeilMode()),
         emitter.getMemoryConfig(srcOp.getResult()),
+        /*dram_slice_config=*/emitter.emit(std::nullopt),
         emitter.emit(srcOp.getAppliedShardScheme()),
         emitter.emit(/*deallocate_input=*/false),
         emitter.emit(
@@ -880,6 +885,7 @@ public:
         emitter.template emit<std::array<uint32_t, 2>>(srcOp.getDilationAttr()),
         emitter.emit(srcOp.getCeilMode()),
         emitter.getMemoryConfig(srcOp.getResult()),
+        /*dram_slice_config=*/emitter.emit(std::nullopt),
         emitter.emit(srcOp.getAppliedShardScheme()),
         /*deallocate_input=*/emitter.emit(false),
         /*reallocate_halo_output=*/
@@ -1081,7 +1087,8 @@ public:
         emitter.emit(srcOp.getInput()),
         emitter.emit(srcOp.getDimension()),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
-        emitter.emit(/*compute_kernel_config=*/std::nullopt),
+        emitter.template emit<::ttnn::WormholeComputeKernelConfig>(
+            srcOp.getComputeConfig()),
         emitter.emit(srcOp.getNumericStable()),
     };
 
@@ -1189,6 +1196,8 @@ public:
         emitter.template emit<::ttsl::SmallVector<int32_t>>(srcOp.getDimArg()),
         emitter.emit(srcOp.getKeepDim()),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
+        emitter.template emit<::ttnn::WormholeComputeKernelConfig>(
+            srcOp.getComputeConfig()),
     };
 
     emitter.replaceOp(*this, args);
@@ -1316,7 +1325,8 @@ public:
         emitter.emit(srcOp.getInputDtype()),
         emitter.emit(srcOp.getOutputDtype()),
         emitter.emit(srcOp.getConv2dConfig()),
-        /*compute_config_=*/emitter.emit(std::nullopt),
+        emitter.template emit<::ttnn::WormholeComputeKernelConfig>(
+            srcOp.getComputeConfig()),
         /*dram_slice_config=*/emitter.emit(std::nullopt),
     };
 
@@ -1374,7 +1384,8 @@ public:
         emitter.emit(srcOp.getInputDtype()),
         emitter.emit(srcOp.getOutputDtype()),
         emitter.emit(srcOp.getConv2dConfig()),
-        /*compute_config_=*/emitter.emit(std::nullopt),
+        emitter.template emit<::ttnn::WormholeComputeKernelConfig>(
+            srcOp.getComputeConfig()),
     };
 
     emitter.replaceOp(*this, args);
@@ -1436,7 +1447,8 @@ public:
         emitter.emit(srcOp.getInputDtype()),
         emitter.emit(srcOp.getOutputDtype()),
         emitter.emit(srcOp.getConv2dConfig()),
-        /*compute_config_=*/emitter.emit(std::nullopt),
+        emitter.template emit<::ttnn::WormholeComputeKernelConfig>(
+            srcOp.getComputeConfig()),
         emitter.emit(srcOp.getMirrorKernel()),
     };
 
@@ -1497,7 +1509,8 @@ public:
         emitter.emit(srcOp.getInputDtype()),
         emitter.emit(srcOp.getOutputDtype()),
         emitter.emit(srcOp.getConv2dConfig()),
-        /*compute_config_=*/emitter.emit(std::nullopt),
+        emitter.template emit<::ttnn::WormholeComputeKernelConfig>(
+            srcOp.getComputeConfig()),
     };
 
     emitter.replaceOp(*this, args);
@@ -1544,7 +1557,8 @@ public:
         emitter.emit(srcOp.getDtype()),
         emitter.emit(srcOp.getBias()),
         emitter.emit(srcOp.getConv2dConfig()),
-        /*compute_config=*/emitter.emit(std::nullopt),
+        emitter.template emit<::ttnn::WormholeComputeKernelConfig>(
+            srcOp.getComputeConfig()),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
         emitter.emit(srcOp.getConv2dSliceConfigAttr()),
     };
@@ -1600,7 +1614,8 @@ public:
         emitter.emit(srcOp.getPaddingMode()),
         emitter.emit(srcOp.getGroups()),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
-        emitter.emit(std::nullopt), // compute_config - not yet supported
+        emitter.template emit<::ttnn::WormholeComputeKernelConfig>(
+            srcOp.getComputeConfig()),
     };
 
     emitter.replaceOp(*this, args);
@@ -1647,7 +1662,8 @@ public:
         emitter.emit(srcOp.getDtype()),
         emitter.emit(srcOp.getBias()),
         emitter.emit(srcOp.getConv2dConfig()),
-        /*compute_config=*/emitter.emit(std::nullopt),
+        emitter.template emit<::ttnn::WormholeComputeKernelConfig>(
+            srcOp.getComputeConfig()),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
     };
 
@@ -3047,6 +3063,8 @@ public:
         emitter.emit(srcOp.getBias()),
         emitter.emit(/* output= */ std::nullopt),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
+        emitter.template emit<::ttnn::WormholeComputeKernelConfig>(
+            srcOp.getComputeConfig()),
     };
 
     emitter.replaceOp(*this, args);
@@ -3086,6 +3104,8 @@ public:
         emitter.emit(srcOp.getBias()),
         emitter.emit(/* output= */ std::nullopt),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
+        emitter.template emit<::ttnn::WormholeComputeKernelConfig>(
+            srcOp.getComputeConfig()),
     };
 
     // ttnn::batch_norm with training=true returns the output tensor and
@@ -3294,7 +3314,8 @@ public:
         emitter.emit(/* residual_input_tensor= */ std::nullopt),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
         emitter.emit(/* program_config= */ std::nullopt),
-        emitter.emit(/* compute_kernel_config= */ std::nullopt),
+        emitter.template emit<::ttnn::WormholeComputeKernelConfig>(
+            srcOp.getComputeConfig()),
     };
 
     emitter.replaceOp(*this, args);
