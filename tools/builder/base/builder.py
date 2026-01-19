@@ -1010,7 +1010,9 @@ class Builder(metaclass=BuilderMeta):
             return process_multi_return_result(global_result)
 
         new_func_op = decorated_func.func_op
-        new_func_op.sym_visibility = StringAttr.get("private")
+        new_func_op.attributes["tt.function_type"] = StringAttr.get(
+            "forward_cpu", self._ctx
+        )
         self._func_ops_generated[new_func_op] = [ordered_inputs, ordered_outputs]
         return new_func_op
 
@@ -1054,8 +1056,8 @@ class Builder(metaclass=BuilderMeta):
                 private_func_op = func.FuncOp(
                     type=new_func_op.type, name=hoisted_func_name, visibility="private"
                 )
-                private_func_op.attributes["ttir.cpu_hoisted_func"] = UnitAttr.get(
-                    self._ctx
+                private_func_op.attributes["tt.function_type"] = StringAttr.get(
+                    "forward_cpu_declaration", self._ctx
                 )
 
             self._nested_funcs.append(private_func_op.name.value)

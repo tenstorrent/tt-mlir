@@ -9,6 +9,7 @@
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
+#include "ttmlir/FunctionTypes.h"
 #include "ttmlir/Utils.h"
 #include <atomic>
 
@@ -217,13 +218,8 @@ private:
     builder.setInsertionPoint(funcOp);
     auto traceFuncOp = builder.create<func::FuncOp>(
         funcOp.getLoc(), traceFuncName, traceFuncType);
-    traceFuncOp->setAttr(g_TTNNTraceAttrName, builder.getUnitAttr());
-
-    // Mark trace_0_main as the main model function for metrics collection
-    if (traceFuncIndex == 0) {
-      traceFuncOp->setAttr(ttmlir::utils::g_traceMainAttrName,
-                           builder.getUnitAttr());
-    }
+    ttmlir::utils::setFunctionType(traceFuncOp,
+                                   ttmlir::utils::FunctionType::TraceMain);
 
     traceFuncOp.setAllArgAttrs(inputAttrs);
     traceFuncOp.setPrivate();
@@ -335,7 +331,9 @@ private:
     auto runAndCaptureTraceFunc = builder.create<func::FuncOp>(
         funcOp.getLoc(), runAndCaptureTraceFuncName,
         runAndCaptureTraceFuncType);
-    runAndCaptureTraceFunc->setAttr(g_TTNNTraceAttrName, builder.getUnitAttr());
+    ttmlir::utils::setFunctionType(
+        runAndCaptureTraceFunc,
+        ttmlir::utils::FunctionType::TraceRunAndCapture);
     if (traceFunc.getAllArgAttrs()) {
       runAndCaptureTraceFunc.setAllArgAttrs(traceFunc.getAllArgAttrs());
     }
@@ -471,7 +469,8 @@ private:
     builder.setInsertionPoint(funcOp);
     auto executeTraceFunc = builder.create<func::FuncOp>(
         funcOp.getLoc(), executeTraceFuncName, executeTraceFuncType);
-    executeTraceFunc->setAttr(g_TTNNTraceAttrName, builder.getUnitAttr());
+    ttmlir::utils::setFunctionType(executeTraceFunc,
+                                   ttmlir::utils::FunctionType::TraceExecute);
     executeTraceFunc.setPrivate();
 
     // Build the body of the function
@@ -586,13 +585,8 @@ private:
   }
 
   mlir::LogicalResult processFuncOp(func::FuncOp funcOp) {
-    // skip const-eval functions
-    if (ttmlir::utils::isConstEvalFunc(funcOp)) {
-      return mlir::success();
-    }
-
-    // skip trace functions
-    if (utils::isTTNNTraceFunc(funcOp)) {
+    // Skip non-forward functions.
+    if (!ttmlir::utils::isForwardDeviceFunc(funcOp)) {
       return mlir::success();
     }
 
