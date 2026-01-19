@@ -1398,23 +1398,6 @@ def test_batch_norm_grad_op(test_fn: Callable, target: str, request, device):
     )
 
 
-def module_iota(builder: StableHLOBuilder):
-    @builder.func([], [])
-    def iota(
-        builder: StableHLOBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        builder.set_graph_level_check(True)
-        output = builder._create_ranked_tensor_type(
-            [4, 5], builder._get_type_from_torch_dtype(torch.float32)
-        )
-        return builder.iota(
-            output=output,
-            iota_dimension=0,
-            unit_attrs=unit_attrs,
-        )
-
-
 @pytest.mark.parametrize(
     "output_shape, output_type, iota_dimension",
     [
@@ -1446,17 +1429,73 @@ def test_iota(
     device,
 ):
     def module(builder: StableHLOBuilder):
-        @builder.func([], [])
+        @builder.func([output_shape], [output_type])
         def iota(
+            in0: Operand,
             builder: StableHLOBuilder,
             unit_attrs: Optional[List[str]] = None,
         ):
             builder.set_graph_level_check(True)
-            output = builder._create_ranked_tensor_type(
-                output_shape, builder._get_type_from_torch_dtype(output_type)
-            )
             return builder.iota(
-                output=output,
+                output=in0.type,
+                iota_dimension=iota_dimension,
+                unit_attrs=unit_attrs,
+            )
+
+    compile_and_execute_shlo(
+        module,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        device=device,
+    )
+
+
+@pytest.mark.parametrize(
+    "output_shape, output_type, iota_dimension",
+    [
+        ([4, 5], torch.float32, 0),
+        ([4, 5], torch.float32, 1),
+        ([2, 3, 4], torch.float32, 0),
+        ([2, 3, 4], torch.float32, 1),
+        ([2, 3, 4], torch.float32, 2),
+        ([32, 64], torch.bfloat16, 0),
+        ([32, 64], torch.bfloat16, 1),
+    ],
+    ids=[
+        "shape_4x5_dim0",
+        "shape_4x5_dim1",
+        "shape_2x3x4_dim0",
+        "shape_2x3x4_dim1",
+        "shape_2x3x4_dim2",
+        "shape_32x64_bf16_dim0",
+        "shape_32x64_bf16_dim1",
+    ],
+)
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_dynamic_iota(
+    output_shape: List[int],
+    output_type: torch.dtype,
+    iota_dimension: int,
+    target: str,
+    request,
+    device,
+):
+    def module(builder: StableHLOBuilder):
+        @builder.func([output_shape], [output_type])
+        def dynamic_iota(
+            in0: Operand,
+            builder: StableHLOBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            builder.set_graph_level_check(True)
+            shape_tensor = builder.constant(
+                torch.tensor(output_shape, dtype=torch.int64)
+            )
+            return builder.dynamic_iota(
+                output=in0.type,
+                output_shape=shape_tensor,
                 iota_dimension=iota_dimension,
                 unit_attrs=unit_attrs,
             )
