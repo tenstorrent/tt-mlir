@@ -44,6 +44,11 @@ void AcquireDstOp::getAsmResultNames(
   setNameFn(getResult(), "dst");
 }
 
+void ScratchAllocateOp::getAsmResultNames(
+    function_ref<void(Value, StringRef)> setNameFn) {
+  setNameFn(getResult(), "scratch");
+}
+
 // Helper to extract element type from ranked tensor or memref
 static Type getElemType(Type ty) {
   if (auto rt = dyn_cast<RankedTensorType>(ty)) {

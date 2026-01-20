@@ -171,7 +171,8 @@ void createTTIRToTTMetalMiddleendPipeline(
     ;
   }
   pm.addPass(d2m::createD2MOpScheduler(opSchedulerOptions));
-
+  pm.addPass(d2m::createD2MSpillAndScratch());
+  pm.addPass(d2m::createD2MFPUScratchFission());
   d2m::D2MInsertDstRegisterAccessOptions insertDstRegisterAccessOptions;
   {
     insertDstRegisterAccessOptions.useTileMatmul = options.useTileMatmul;
