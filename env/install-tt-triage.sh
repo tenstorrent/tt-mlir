@@ -12,7 +12,7 @@ wget -O install_debugger.sh "https://raw.githubusercontent.com/tenstorrent/tt-me
 wget -O ttexalens_ref.txt "https://raw.githubusercontent.com/tenstorrent/tt-metal/${TT_METAL_VERSION}/scripts/ttexalens_ref.txt"
 wget -O requirements.txt "https://raw.githubusercontent.com/tenstorrent/tt-metal/${TT_METAL_VERSION}/tools/triage/requirements.txt"
 
-chmod u+x install_debugger.sh 
+chmod u+x install_debugger.sh
 ./install_debugger.sh
 
 pip install --no-cache-dir -r requirements.txt
