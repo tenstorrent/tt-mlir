@@ -124,6 +124,7 @@ jobs:
         mkdir -p tt-triage
         curl -L "https://github.com/tenstorrent/tt-metal/archive/${TT_METAL_VERSION}.tar.gz" \
           | tar -xz -C tt-triage --strip-components=1 \
+              tt-metal-${TT_METAL_VERSION}/scripts/ttexalens_ref.txt \
               tt-metal-${TT_METAL_VERSION}/tools/tt-triage.py \
               tt-metal-${TT_METAL_VERSION}/tools/triage
 
