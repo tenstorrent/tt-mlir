@@ -17,7 +17,9 @@ add_mlir_dialect_library(MLIRD2MTransforms
         MaterializeViewReturns.cpp
         ElementwiseFusion.cpp
         OpScheduler.cpp
+        FPUScratchFission.cpp
         SFPUTileLoopFission.cpp
+        SpillAndScratch.cpp
         GlobalDataFormatConversion.cpp
         RankNormalization.cpp
         ScalarizeConstTensors.cpp

@@ -2015,6 +2015,48 @@ def D2M_CoreIndexOp : D2M_GenericRegionOp<"core_index",
 // D2M Remote Access ops (Used in TTMetal Lowering)
 //===----------------------------------------------------------------------===//
 
+//===----------------------------------------------------------------------===//
+// D2M Scratch Space Ops (Used in FPU Fusion with L1 Spilling)
+//===----------------------------------------------------------------------===//
+
+def D2M_ScratchAllocateOp : D2M_GenericRegionOp<"scratch_allocate",
+  [ MemoryEffects<[MemAlloc]>
+  , DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>
+  ]> {
+    let summary = "Allocate a slice of scratch space from the L1 scratchpad region.";
+    let description = [{
+      The `scratch_allocate` operation allocates a contiguous slice of tiles from
+      the L1 scratchpad region. This is used during FPU fusion with L1 spilling
+      to hold intermediate results that are spilled from the DST register.
+
+      The scratchpad region is a dedicated area of L1 memory reserved for
+      intermediate fusion results. Each scratch_allocate returns a memref view
+      into this region.
+
+      Eventually, this op will lower to a memref.subview of a larger master
+      scratchpad buffer allocated by the d2m.allocate pass.
+
+      Example:
+      ```mlir
+      %scratch = d2m.scratch_allocate {num_tiles = 2 : i64}
+          : memref<2x!ttcore.tile<32x32, f32>, #l1>
+      ```
+    }];
+
+    let arguments = (ins I64Attr:$num_tiles);
+    let results = (outs DeviceL1MemRef:$result);
+
+    let assemblyFormat = [{
+      attr-dict `:` type($result)
+    }];
+
+    let builders = [
+      OpBuilder<(ins "MemRefType":$resultType, "int64_t":$numTiles), [{
+        build($_builder, $_state, resultType, $_builder.getI64IntegerAttr(numTiles));
+      }]>
+    ];
+}
+
 def D2M_GetGlobalOperandOp : D2M_GenericRegionOp<"get_global_operand", [Pure]> {
     let summary = "Get global operand op.";
     let description = [{

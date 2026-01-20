@@ -141,6 +141,155 @@ def D2MGenericTileComputeLoops : Pass<"d2m-generic-tile-compute-loops", "::mlir:
   let dependentDialects = ["mlir::tt::d2m::D2MDialect"];
 }
 
+def D2MSpillAndScratch : Pass<"d2m-spill-and-scratch", "::mlir::ModuleOp"> {
+  let summary = "Insert L1 scratch allocations and spill/reload stores for FPU fusion.";
+  let description = [{
+    This pass transforms compute regions marked with `d2m.scratch_space_loop` to
+    insert L1 scratchpad spilling for intermediate results. It performs:
+
+    1. **Loop Identification**: Finds `scf.for` loops tagged with the
+       `d2m.scratch_space_loop` attribute (inserted by the two-phase tiling pass).
+
+    2. **Compute DAG Analysis**: Identifies leaf ops (whose results are consumed
+       by other ops) and parent ops (that consume intermediate results).
+
+    3. **Scratch Allocation**: Inserts `d2m.scratch_allocate` ops before the loop
+       for each intermediate result that needs spilling.
+
+    4. **Spill Insertion**: After each leaf op, inserts `affine.store` to spill
+       the result to the corresponding scratch buffer.
+
+    5. **Reload Insertion**: Before the parent op, inserts `affine.load` to reload
+       the intermediate from scratch, and rewires the parent to use the loaded value.
+
+    This pass keeps everything in a single loop body. The subsequent `FPUScratchFission`
+    pass will split into separate loop nests.
+
+    Example transformation:
+    ```mlir
+    // Before (post linalg-to-affine):
+    scf.for %i = ... {d2m.scratch_space_loop} {
+      affine.for ... {
+        %a = affine.load %input0[...]
+        %b = affine.load %input1[...]
+        %c = affine.load %input2[...]
+        %d = affine.load %input3[...]
+
+        %e = d2m.tile_add %c, %d        // E = c + d (leaf)
+        %f = d2m.tile_add %a, %b        // F = a + b (leaf)
+        %g = d2m.tile_add %f, %e        // G = F + E (parent)
+
+        affine.store %g, %output[...]
+      }
+    }
+
+    // After:
+    %scratch0 = d2m.scratch_allocate {num_tiles = 2} : memref<2x!ttcore.tile<...>, #l1>
+    %scratch1 = d2m.scratch_allocate {num_tiles = 2} : memref<2x!ttcore.tile<...>, #l1>
+    scf.for %i = ... {d2m.scratch_space_loop} {
+      affine.for ... {
+        %a = affine.load %input0[...]
+        %b = affine.load %input1[...]
+        %c = affine.load %input2[...]
+        %d = affine.load %input3[...]
+
+        %e = d2m.tile_add %c, %d        // E = c + d
+        affine.store %e, %scratch0[...]  // SPILL E
+
+        %f = d2m.tile_add %a, %b        // F = a + b
+        affine.store %f, %scratch1[...]  // SPILL F
+
+        %e_reload = affine.load %scratch0[...]  // RELOAD E
+        %f_reload = affine.load %scratch1[...]  // RELOAD F
+        %g = d2m.tile_add %f_reload, %e_reload  // G = F + E
+
+        affine.store %g, %output[...]
+      }
+    }
+    ```
+  }];
+
+  let dependentDialects = [
+    "::mlir::tt::d2m::D2MDialect",
+    "::mlir::scf::SCFDialect",
+    "::mlir::affine::AffineDialect",
+    "::mlir::memref::MemRefDialect"
+  ];
+}
+
+def D2MFPUScratchFission : Pass<"d2m-fpu-scratch-fission", "::mlir::ModuleOp"> {
+  let summary = "Fission loops at scratch store boundaries for FPU fusion.";
+  let description = [{
+    This pass performs loop fission on compute regions that have been processed
+    by the SpillAndScratch pass. It splits a single loop nest (containing multiple
+    compute operations with spill/reload) into separate loop nests, one per store.
+
+    The fission is based on finding "cut points" - stores to scratch buffers or
+    L1 memory. For each store, we walk backwards on the dependency graph to find
+    all operations that contribute to that store, then create a separate cloned
+    loop nest containing only those operations.
+
+    This pass should run after `d2m-spill-and-scratch` and before
+    `d2m-insert-dst-register-access`.
+
+    Example transformation:
+    ```mlir
+    // Before (single loop with spill/reload):
+    scf.for %i = ... {d2m.scratch_space_loop} {
+      affine.for ... {
+        %c = affine.load %input_c[...]
+        %d = affine.load %input_d[...]
+        %E = d2m.tile_add %c, %d
+        affine.store %E, %scratch0[...]      // cut point 1
+
+        %a = affine.load %input_a[...]
+        %b = affine.load %input_b[...]
+        %F = d2m.tile_add %a, %b
+        affine.store %F, %scratch1[...]      // cut point 2
+
+        %E_reload = affine.load %scratch0[...]
+        %F_reload = affine.load %scratch1[...]
+        %G = d2m.tile_add %E_reload, %F_reload
+        affine.store %G, %output[...]        // cut point 3
+      }
+    }
+
+    // After (three separate loop nests):
+    scf.for %i = ... {d2m.scratch_space_loop} {
+      affine.for ... {
+        %c = affine.load %input_c[...]
+        %d = affine.load %input_d[...]
+        %E = d2m.tile_add %c, %d
+        affine.store %E, %scratch0[...]
+      }
+    }
+    scf.for %i = ... {d2m.scratch_space_loop} {
+      affine.for ... {
+        %a = affine.load %input_a[...]
+        %b = affine.load %input_b[...]
+        %F = d2m.tile_add %a, %b
+        affine.store %F, %scratch1[...]
+      }
+    }
+    scf.for %i = ... {d2m.scratch_space_loop} {
+      affine.for ... {
+        %E_reload = affine.load %scratch0[...]
+        %F_reload = affine.load %scratch1[...]
+        %G = d2m.tile_add %E_reload, %F_reload
+        affine.store %G, %output[...]
+      }
+    }
+    ```
+  }];
+
+  let dependentDialects = [
+    "::mlir::tt::d2m::D2MDialect",
+    "::mlir::scf::SCFDialect",
+    "::mlir::affine::AffineDialect",
+    "::mlir::memref::MemRefDialect"
+  ];
+}
+
 def D2MLinalgToAffine : Pass<"d2m-linalg-to-affine", "::mlir::ModuleOp"> {
   let summary = "Convert linalg.generic operations to affine loops";
   let description = [{
