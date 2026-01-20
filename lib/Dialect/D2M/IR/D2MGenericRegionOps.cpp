@@ -1723,6 +1723,17 @@ mlir::LogicalResult YieldOp::verify() {
 
   return ::mlir::success();
 }
+mlir::LogicalResult SpatialYieldOp::verify() {
+  auto spatial = getOperation()->getParentOfType<SpatialOp>();
+  if (!spatial
+      //|| !generic.hasPureTensorSemantics()
+  ) {
+    return emitOpError()
+           << "used outside of generic op with pure tensor semantics";
+  }
+
+  return ::mlir::success();
+}
 
 bool PushOp::bufferizesToMemoryRead(
     mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
