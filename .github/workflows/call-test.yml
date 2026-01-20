@@ -160,6 +160,10 @@ jobs:
         # Run Tests
         source env/activate
 
+        echo $TT_METAL_DISPATCH_TIMEOUT_COMMAND_TO_EXECUTE
+
+        export TT_METAL_DISPATCH_TIMEOUT_COMMAND_TO_EXECUTE="python tt-triage/tools/tt-triage.py 1>&2"
+
         MACHINE_IP=$(hostname -I | awk '{print $1}')
         export no_proxy="${no_proxy:+$no_proxy,}localhost,${MACHINE_IP}"
         export NO_PROXY="${NO_PROXY:+$NO_PROXY,}localhost,${MACHINE_IP}"
