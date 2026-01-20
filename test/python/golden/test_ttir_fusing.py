@@ -143,6 +143,7 @@ def test_batch_norm_decomposition(
         module,
         **get_request_kwargs(request),
         device=device,
+        save_artifacts=True,
         pipeline_options=["enable-fusing-conv2d-with-multiply-pattern=true"],
     )
     output_path = os.path.join(

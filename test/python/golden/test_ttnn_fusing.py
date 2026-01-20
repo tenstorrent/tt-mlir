@@ -76,6 +76,7 @@ def test_matmul_activation_fusing(
         module,
         **get_request_kwargs(request),
         device=device,
+        save_artifacts=True,
     )
     output_path = os.path.join(
         get_artifact_dir(
@@ -147,6 +148,7 @@ def test_linear_activation_fusing(
         module,
         **get_request_kwargs(request),
         device=device,
+        save_artifacts=True,
     )
     output_path = os.path.join(
         get_artifact_dir(

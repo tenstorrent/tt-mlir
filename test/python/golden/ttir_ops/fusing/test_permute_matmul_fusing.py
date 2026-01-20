@@ -95,6 +95,7 @@ def test_permute_matmul_lhs_fusion_enabled(
         create_permute_matmul_lhs(lhs_shape, rhs_shape),
         **get_request_kwargs(request),
         device=device,
+        save_artifacts=True,
         pipeline_options=["enable-permute-matmul-fusion=true"],
     )
     output_path = os.path.join(
@@ -126,6 +127,7 @@ def test_permute_matmul_lhs_fusion_disabled(
         create_permute_matmul_lhs(lhs_shape, rhs_shape),
         **get_request_kwargs(request),
         device=device,
+        save_artifacts=True,
         pipeline_options=["enable-permute-matmul-fusion=false"],
     )
     output_path = os.path.join(
@@ -160,6 +162,7 @@ def test_permute_matmul_rhs_fusion_enabled(
         create_permute_matmul_rhs(lhs_shape, rhs_shape),
         **get_request_kwargs(request),
         device=device,
+        save_artifacts=True,
         pipeline_options=["enable-permute-matmul-fusion=true"],
     )
     output_path = os.path.join(
