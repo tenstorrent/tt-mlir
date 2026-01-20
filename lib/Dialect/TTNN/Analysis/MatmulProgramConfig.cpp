@@ -5,6 +5,7 @@
 #include "ttmlir/Dialect/TTNN/Analysis/MatmulProgramConfig.h"
 
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
+#include "ttmlir/Dialect/TTNN/Interfaces/TTNNTensorSpecInterface.h"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
@@ -13,6 +14,37 @@
 namespace mlir::tt::ttnn {
 
 static inline int64_t divUp(int64_t a, int64_t b) { return (a + b - 1) / b; }
+
+// Compute the maximum number of tiles that can fit in the destination register.
+// This depends on the compute kernel config settings:
+//   - Base: 16 tiles (for standard 32x32 tiles)
+//   - If dst_full_sync_en = false: divide by 2 -> 8 tiles (typical case)
+//   - If fp32_dest_acc_en = true: divide by 2 -> 4 tiles
+// If config is null or properties are not set, returns default of 8.
+static int64_t getMaxSubblockSize(DeviceComputeKernelConfigAttr computeConfig) {
+  // Default max subblock size (assumes dst_full_sync_en=false which is typical)
+  int64_t maxSubblockSize = 8;
+
+  if (!computeConfig) {
+    return maxSubblockSize;
+  }
+
+  // If dst_full_sync_en is explicitly set to true, we have double the registers
+  if (auto dstFullSyncAttr = computeConfig.getDstFullSyncEn()) {
+    if (dstFullSyncAttr.getValue()) {
+      maxSubblockSize *= 2;
+    }
+  }
+
+  // If fp32_dest_acc_en is explicitly set to true, registers are halved
+  if (auto fp32DestAccAttr = computeConfig.getFp32DestAccEn()) {
+    if (fp32DestAccAttr.getValue()) {
+      maxSubblockSize /= 2;
+    }
+  }
+
+  return maxSubblockSize;
+}
 
 // Find the largest divisor of 'value' that is <= 'maxDivisor'.
 static inline int64_t largestDivisorUpTo(int64_t value, int64_t maxDivisor) {
@@ -45,7 +77,8 @@ static inline int64_t largestDivisorUpTo(int64_t value, int64_t maxDivisor) {
 //   - out_block_w % out_subblock_w == 0
 //
 // Register constraints:
-//   - out_subblock_w * out_subblock_h <= available_reg_count (typically 8)
+//   - out_subblock_w * out_subblock_h <= available_reg_count
+//     (4-16 depending on fp32_dest_acc_en and dst_full_sync_en)
 //
 // L1 memory constraints:
 //   - Circular buffers for input/output tiles must fit in L1 memory.
@@ -61,11 +94,10 @@ static inline int64_t largestDivisorUpTo(int64_t value, int64_t maxDivisor) {
 //
 // Generate MatmulMultiCoreReuseMultiCast1DProgramConfig for width/height
 // sharded output.
-static mlir::Attribute
-generateMatmul1DProgramConfig(MLIRContext *ctx, int64_t Mt, int64_t Nt,
-                              int64_t Kt, TTNNLayoutAttr outputLayout,
-                              TensorMemoryLayout outputMemLayout,
-                              UnaryWithParamAttr fusedActivation) {
+static mlir::Attribute generateMatmul1DProgramConfig(
+    MLIRContext *ctx, int64_t Mt, int64_t Nt, int64_t Kt,
+    TTNNLayoutAttr outputLayout, TensorMemoryLayout outputMemLayout,
+    UnaryWithParamAttr fusedActivation, int64_t maxSubblockSize) {
   auto [gridX, gridY] = utils::getPhysicalGridDimensions(outputLayout);
   int64_t numCores = gridX * gridY;
 
@@ -105,7 +137,7 @@ generateMatmul1DProgramConfig(MLIRContext *ctx, int64_t Mt, int64_t Nt,
   int64_t outSubblockH = 1;
   // out_subblock_w must divide out_block_w (== perCoreN) evenly.
   // See matmul_op.cpp constraints: out_block_w % out_subblock_w == 0.
-  int64_t outSubblockW = largestDivisorUpTo(outBlockW, 8);
+  int64_t outSubblockW = largestDivisorUpTo(outBlockW, maxSubblockSize);
 
   auto gridAttr = CoreCoordAttr::get(ctx, gridX, gridY);
   auto hopCoresAttr = CoreRangeSetAttr::get(ctx, {});
@@ -124,7 +156,8 @@ generateMatmul1DProgramConfig(MLIRContext *ctx, int64_t Mt, int64_t Nt,
 static mlir::Attribute
 generateMatmul2DProgramConfig(MLIRContext *ctx, int64_t Mt, int64_t Nt,
                               int64_t Kt, TTNNLayoutAttr outputLayout,
-                              UnaryWithParamAttr fusedActivation) {
+                              UnaryWithParamAttr fusedActivation,
+                              int64_t maxSubblockSize) {
   auto [gridX, gridY] = utils::getPhysicalGridDimensions(outputLayout);
 
   int64_t perCoreM = divUp(Mt, gridY);
@@ -135,7 +168,7 @@ generateMatmul2DProgramConfig(MLIRContext *ctx, int64_t Mt, int64_t Nt,
 
   // out_subblock_w must divide out_block_w (== perCoreN) evenly.
   // See matmul_op.cpp constraints: out_block_w % out_subblock_w == 0.
-  int64_t outSubblockW = largestDivisorUpTo(perCoreN, 8);
+  int64_t outSubblockW = largestDivisorUpTo(perCoreN, maxSubblockSize);
   int64_t outBlockH = perCoreM;
   int64_t outBlockW = perCoreN;
 
@@ -212,13 +245,21 @@ generateMatmulProgramConfig(Operation *op, TTNNLayoutAttr outputLayout) {
   UnaryWithParamAttr fusedActivation =
       ttnn::utils::getActivationAttr(ctx, activation);
 
+  // Get compute kernel config from the operation to determine max subblock size
+  DeviceComputeKernelConfigAttr computeConfig = nullptr;
+  if (auto computeConfigOp = dyn_cast<TTNNComputeKernelConfigOpInterface>(op)) {
+    computeConfig = computeConfigOp.getComputeConfigAttr();
+  }
+  int64_t maxSubblockSize = getMaxSubblockSize(computeConfig);
+
   if (outputMemLayout == TensorMemoryLayout::BlockSharded) {
     return generateMatmul2DProgramConfig(ctx, Mt, Nt, Kt, outputLayout,
-                                         fusedActivation);
+                                         fusedActivation, maxSubblockSize);
   }
 
   return generateMatmul1DProgramConfig(ctx, Mt, Nt, Kt, outputLayout,
-                                       outputMemLayout, fusedActivation);
+                                       outputMemLayout, fusedActivation,
+                                       maxSubblockSize);
 }
 
 } // namespace mlir::tt::ttnn
