@@ -2,6 +2,8 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+from queue import Full
+import ttnn
 import pytest
 import torch
 from collections import OrderedDict
@@ -69,28 +71,25 @@ def test_fabric_p2p(target: str, request, mesh_shape, fabric_config, device):
         golden_input_output_tensors,
         {},
         device=device,
-        check_pcc=True,  # Enable PCC check for meaningful comparison
+        check_pcc=True,
+        check_atol=True,
+        check_rtol=True,
     )
-
-    print("\n=== DEBUG: output_tensors structure ===")
-    print(f"output_tensors keys: {output_tensors.keys()}")
-    print(f"output_tensors: {output_tensors}")
     
     program_outputs = output_tensors["program_0"]
     actual_output = program_outputs["device_output_0"]
     
-    print("\n=== ACTUAL OUTPUT TENSOR (256x768, 128x192 per device) ===")
-    print(f"Device 0 region [0:128, 0:192]: unique values = {torch.unique(actual_output[0:128, 0:192])}")
-    print(f"Device 1 region [0:128, 192:384]: unique values = {torch.unique(actual_output[0:128, 192:384])}")
-    print(f"Device 2 region [0:128, 384:576]: unique values = {torch.unique(actual_output[0:128, 384:576])}")
-    print(f"Device 3 region [0:128, 576:768]: unique values = {torch.unique(actual_output[0:128, 576:768])}")
-    print(f"Device 4 region [128:256, 0:192]: unique values = {torch.unique(actual_output[128:256, 0:192])}")
-    print(f"Device 5 region [128:256, 192:384]: unique values = {torch.unique(actual_output[128:256, 192:384])}")
-    print(f"Device 6 region [128:256, 384:576]: unique values = {torch.unique(actual_output[128:256, 384:576])}")
-    print(f"Device 7 region [128:256, 576:768]: unique values = {torch.unique(actual_output[128:256, 576:768])}")
+    print(f"Device 0 region [0:128, 0:192]: = \n{actual_output[0:128, 0:192]}")
+    print(f"Device 1 region [0:128, 192:384]: = \n{actual_output[0:128, 192:384]}")
+    print(f"Device 2 region [0:128, 384:576]: = \n{actual_output[0:128, 384:576]}")
+    print(f"Device 3 region [0:128, 576:768]: = \n{actual_output[0:128, 576:768]}")
+    print(f"Device 4 region [128:256, 0:192]: = \n{actual_output[128:256, 0:192]}")
+    print(f"Device 5 region [128:256, 192:384]: = \n{actual_output[128:256, 192:384]}")
+    print(f"Device 6 region [128:256, 384:576]: = \n{actual_output[128:256, 384:576]}")
+    print(f"Device 7 region [128:256, 576:768]: = \n{actual_output[128:256, 576:768]}")
 
 
-@pytest.mark.frontend("ttnn")
+@pytest.mark.frontend("ttnn")  
 @pytest.mark.parametrize("fabric_config", [tt_runtime.runtime.FabricConfig.FABRIC_2D])
 @pytest.mark.parametrize("target", ["ttnn"])
 @pytest.mark.parametrize("mesh_shape", [(2, 4)])
@@ -100,6 +99,11 @@ def test_fabric_p2p_ttnn_generic(target: str, request, mesh_shape, fabric_config
     The kernel writes data from device 0 to device 1.
     Input is 64x128, distributed across 2x4 mesh (8 devices), each gets 32x32.
     After P2P, device 1's shard should contain device 0's data.
+    
+    Uses separate input and output tensors (not in-place):
+    - input_0: source data (device 0 has value 1.0)
+    - input_1: pre-allocated output tensor (initialized to zeros)
+    - output_0: expected result (device 1's region should have 1.0 after P2P)
     """
     mlir_path = os.path.join(
         os.path.dirname(__file__),
@@ -121,6 +125,8 @@ def test_fabric_p2p_ttnn_generic(target: str, request, mesh_shape, fabric_config
     #   rows [32:64]:  cols [0:32]->dev4, [32:64]->dev5, [64:96]->dev6, [96:128]->dev7
     
     full_shape = (64, 128)
+    
+    # Input tensor (arg0): source data with distinct values per device
     input_tensor = torch.zeros(full_shape, dtype=torch.bfloat16)
     input_tensor[0:32, 0:32] = 1.0    # device 0
     input_tensor[0:32, 32:64] = 2.0   # device 1
@@ -131,44 +137,39 @@ def test_fabric_p2p_ttnn_generic(target: str, request, mesh_shape, fabric_config
     input_tensor[32:64, 64:96] = 7.0  # device 6
     input_tensor[32:64, 96:128] = 8.0 # device 7
     
-    # device 1's region gets device 0's value (1.0)
-    output_tensor = input_tensor.clone()
-    output_tensor[0:32, 32:64] = 1.0  # device 1 now has device 0's data
+    output_preallocated = input_tensor.clone()
+    
+    # Expected output: device 1's region gets device 0's value of 1.0
+    # All other regions remain 0 
+    expected_output = output_preallocated.clone()
+    expected_output[0:32, 32:64] = 1.0  # device 1 now has device 0's data
     
     golden_input_output_tensors = {}
     golden_input_output_tensors[0] = {
         "input_0": GoldenMapTensor({0: input_tensor}, (1, 1)),
-        "output_0": GoldenMapTensor({0: output_tensor}, (1, 1)),
+        "input_1": GoldenMapTensor({0: output_preallocated}, (1, 1)),
+        "output_0": GoldenMapTensor({0: expected_output}, (1, 1)),
     }
 
-    # The MLIR is already in TTNN dialect, so we just translate to flatbuffer directly
-    # Use save_artifacts to inspect actual output
     _, output_tensors = execute_fb(
         ttnn_to_flatbuffer_bin(module),
         golden_input_output_tensors,
         {},
         device=device,
         check_pcc=True,
-        # check_atol=True,
-        # check_rtol=True,
-        # atol=0.01,        # Allow small tolerance for bfloat16
+        check_atol=True,
+        check_rtol=True,
     )
-    
-    # Print actual output to debug
-    print("\n=== DEBUG: output_tensors structure ===")
-    print(f"output_tensors keys: {output_tensors.keys()}")
-    print(f"output_tensors: {output_tensors}")
     
     program_outputs = output_tensors["program_0"]
     actual_output = program_outputs["device_output_0"]
-    
-    print("\n=== ACTUAL OUTPUT TENSOR ===")
-    print(f"Device 0 region [0:32, 0:32]: unique values = {torch.unique(actual_output[0:32, 0:32])}")
-    print(f"Device 1 region [0:32, 32:64]: unique values = {torch.unique(actual_output[0:32, 32:64])}")
-    print(f"Device 2 region [0:32, 64:96]: unique values = {torch.unique(actual_output[0:32, 64:96])}")
-    print(f"Device 3 region [0:32, 96:128]: unique values = {torch.unique(actual_output[0:32, 96:128])}")
-    print(f"Device 4 region [32:64, 0:32]: unique values = {torch.unique(actual_output[32:64, 0:32])}")
-    print(f"Device 5 region [32:64, 32:64]: unique values = {torch.unique(actual_output[32:64, 32:64])}")
-    print(f"Device 6 region [32:64, 64:96]: unique values = {torch.unique(actual_output[32:64, 64:96])}")
-    print(f"Device 7 region [32:64, 96:128]: unique values = {torch.unique(actual_output[32:64, 96:128])}")
+
+    print(f"Device 0 region [0:32, 0:32]: = \n{actual_output[0:32, 0:32]}")
+    print(f"Device 1 region [0:32, 32:64]: = \n{actual_output[0:32, 32:64]}")
+    print(f"Device 2 region [0:32, 64:96]: = \n{actual_output[0:32, 64:96]}")
+    print(f"Device 3 region [0:32, 96:128]: = \n{actual_output[0:32, 96:128]}")
+    print(f"Device 4 region [32:64, 0:32]: = \n{actual_output[32:64, 0:32]}")
+    print(f"Device 5 region [32:64, 32:64]: = \n{actual_output[32:64, 32:64]}")
+    print(f"Device 6 region [32:64, 64:96]: = \n{actual_output[32:64, 64:96]}")
+    print(f"Device 7 region [32:64, 96:128]: = \n{actual_output[32:64, 96:128]}")
 
