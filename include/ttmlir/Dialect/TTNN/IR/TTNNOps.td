@@ -2940,9 +2940,9 @@ def TTNN_GenericOp : TTNN_Op<"generic", [TTNN_MemoryConfigOpInterface, MemoryEff
 def TTNN_DispatchD2MOp : Op<TTNN_Dialect, "dispatch_d2m",
   [AttrSizedOperandSegments,
    DestinationStyleOpInterface,
+   IsolatedFromAbove,
    SingleBlock,
    NoTerminator,
-   SymbolTable,
    DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
    TTNN_WorkaroundInterface]> {
   let summary = "Dispatch D2M compiled subgraph.";
@@ -2950,10 +2950,10 @@ def TTNN_DispatchD2MOp : Op<TTNN_Dialect, "dispatch_d2m",
     Holds a D2M-compiled subgraph consisting of an entry function containing
     ttnn.generic ops and zero or more kernel functions.
 
-    Before TTNNMaterializeD2M runs, the body contains a single func.func with
-    TTIR ops converted from ttir.dispatch_d2m.
+    Before TTNNMaterializeD2M runs, the nested module contains a single
+    func.func with TTIR ops converted from ttir.dispatch_d2m.
 
-    After TTNNMaterializeD2M runs, the body contains:
+    After TTNNMaterializeD2M runs, the nested module contains:
     - The D2M function (specified by `d2m_func`) with ttnn.generic ops
     - One or more kernel functions referenced by the generic ops
 
@@ -2962,6 +2962,30 @@ def TTNN_DispatchD2MOp : Op<TTNN_Dialect, "dispatch_d2m",
 
     Example:
     ```mlir
+    // Before D2M compilation
+    %result = ttnn.dispatch_d2m @d2m_subgraph
+        ins(%a : tensor<...>)
+        outs(%out : tensor<...>) {
+      module {
+        func.func @d2m_subgraph(...) -> tensor<...> {
+          // ttir subgraph
+        }
+      }
+    } : tensor<...>
+
+    // After D2M
+    %result = ttnn.dispatch_d2m @d2m_subgraph
+        ins(%a : tensor<...>)
+        outs(%out : tensor<...>) {
+      module {
+        func.func @d2m_subgraph(...) -> tensor<...> {
+          ttnn.generic ...
+          // more generic ops subgraph didn't fully fuse
+        }
+        func.func private @kernel0() { ... }
+        ... other kernel functions
+      }
+    } : tensor<...>
     ```
   }];
 
@@ -2986,8 +3010,13 @@ def TTNN_DispatchD2MOp : Op<TTNN_Dialect, "dispatch_d2m",
       return getOutputsMutable();
     }
 
+    // Returns the ModuleOp inside the body region.
+    ModuleOp getNestedModule();
+
+    // Returns the D2M function inside the nested module.
     func::FuncOp lookupD2MMainFunc();
 
+    // Returns all kernel functions inside the nested module.
     SmallVector<func::FuncOp> getKernelFuncs();
   }];
 }
