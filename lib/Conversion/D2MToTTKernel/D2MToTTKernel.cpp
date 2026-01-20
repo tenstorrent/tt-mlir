@@ -357,6 +357,7 @@ using ComputeOpMap = OpMap<
   std::pair<d2m::TileAbsOp,         std::pair<ttkernel::AbsTileInitOp,             ttkernel::AbsTileOp>>,
   std::pair<d2m::TileBitwiseNotOp,  std::pair<ttkernel::BitwiseNotTileInitOp,      ttkernel::BitwiseNotTileOp>>,
   std::pair<d2m::TileCeilOp,        std::pair<ttkernel::RoundingTileInitOp,        ttkernel::CeilTileOp>>,
+  std::pair<d2m::TileClampScalarOp, std::pair<ttkernel::ClampScalarTileInitOp,     ttkernel::ClampScalarTileOp>>,
   std::pair<d2m::TileCosOp,         std::pair<ttkernel::CosTileInitOp,             ttkernel::CosTileOp>>,
   std::pair<d2m::TileErfOp,         std::pair<ttkernel::ErfTileInitOp,             ttkernel::ErfTileOp>>,
   std::pair<d2m::TileErfcOp,        std::pair<ttkernel::ErfcTileInitOp,            ttkernel::ErfcTileOp>>,
@@ -384,7 +385,6 @@ using ComputeOpMap = OpMap<
   std::pair<d2m::TileLtzOp,         std::pair<ttkernel::LtzTileInitOp,             ttkernel::LtzTileOp>>,
   std::pair<d2m::TileLezOp,         std::pair<ttkernel::LezTileInitOp,             ttkernel::LezTileOp>>,
   std::pair<d2m::TileTypecastOp,    std::pair<ttkernel::TypecastTileInitOp,        ttkernel::TypecastTileOp>>,
-  std::pair<d2m::TileClampScalarOp, std::pair<ttkernel::ClampScalarTileInitOp,     ttkernel::ClampScalarTileOp>>,
 
   // Elementwise SFPU Binary (can also handle scalar operands).
   std::pair<d2m::TileAddOp,         std::pair<ttkernel::AddBinaryTilesInitOp,      ttkernel::AddBinaryTilesOp>>,
@@ -1649,6 +1649,7 @@ void populateD2MToTTKernelPatterns(
                ttkernel::D2MSFPUOpsRewriter<d2m::TileAbsOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileBitwiseNotOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileCeilOp>,
+               ttkernel::D2MSFPUOpsRewriter<d2m::TileClampScalarOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileCosOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileErfOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileErfcOp>,
@@ -1676,7 +1677,6 @@ void populateD2MToTTKernelPatterns(
                ttkernel::D2MSFPUOpsRewriter<d2m::TileLtzOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileLezOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileTypecastOp>,
-               ttkernel::D2MSFPUOpsRewriter<d2m::TileClampScalarOp>,
 
                // Elementwise SFPU Binary (also handles scalar operands).
                ttkernel::D2MSFPUOpsRewriter<d2m::TileAddOp>,

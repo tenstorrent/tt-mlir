@@ -455,18 +455,12 @@ public:
 
 private:
   static constexpr bool isComparisonOp =
-      std::is_same_v<TileOp, d2m::TileEqzOp> ||
-      std::is_same_v<TileOp, d2m::TileNezOp> ||
-      std::is_same_v<TileOp, d2m::TileGtzOp> ||
-      std::is_same_v<TileOp, d2m::TileGezOp> ||
-      std::is_same_v<TileOp, d2m::TileLtzOp> ||
-      std::is_same_v<TileOp, d2m::TileLezOp>;
-
-  static constexpr bool isClampTensorOp =
-      std::is_same_v<ConcreteOp, ttir::ClampTensorOp>;
-
-  static constexpr bool isClampScalarOp =
-      std::is_same_v<ConcreteOp, ttir::ClampScalarOp>;
+      std::is_same_v<ConcreteOp, ttir::EqualOp> ||
+      std::is_same_v<ConcreteOp, ttir::NotEqualOp> ||
+      std::is_same_v<ConcreteOp, ttir::GreaterThanOp> ||
+      std::is_same_v<ConcreteOp, ttir::GreaterEqualOp> ||
+      std::is_same_v<ConcreteOp, ttir::LessThanOp> ||
+      std::is_same_v<ConcreteOp, ttir::LessEqualOp>;
 
   static std::pair<SmallVector<mlir::AffineMap>,
                    SmallVector<d2m::TileBcastType>>
@@ -608,13 +602,13 @@ private:
       // For comparison ops, first subtract then compare with zero.
       yield = bbBuilder.create<d2m::TileSubOp>(loc, resultTypes, operands);
       yield = bbBuilder.create<TileOp>(loc, resultTypes, yield);
-    } else if constexpr (isClampTensorOp) {
+    } else if constexpr (std::is_same_v<ConcreteOp, ttir::ClampTensorOp>) {
       // Decompose into maximum(input, min) then minimum(result, max).
       yield = bbBuilder.create<d2m::TileMaximumOp>(
           loc, resultTypes, ValueRange{operands[0], operands[1]});
       yield = bbBuilder.create<d2m::TileMinimumOp>(
           loc, resultTypes, ValueRange{yield, operands[2]});
-    } else if constexpr (isClampScalarOp) {
+    } else if constexpr (std::is_same_v<ConcreteOp, ttir::ClampScalarOp>) {
       yield =
           bbBuilder.create<TileOp>(loc, resultTypes[0], operands[0], opAttrs);
     } else if constexpr (std::is_same_v<ConcreteOp, ttir::LogicalAndOp>) {
@@ -715,7 +709,7 @@ private:
 
         // Collect attributes to forward to tile ops (e.g., min/max for clamp).
         SmallVector<NamedAttribute> opAttrs;
-        if constexpr (isClampScalarOp) {
+        if constexpr (std::is_same_v<ConcreteOp, ttir::ClampScalarOp>) {
           opAttrs.push_back(rewriter.getNamedAttr("min", op.getMinAttr()));
           opAttrs.push_back(rewriter.getNamedAttr("max", op.getMaxAttr()));
         }
