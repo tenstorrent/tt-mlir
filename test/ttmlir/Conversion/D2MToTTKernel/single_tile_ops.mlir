@@ -1429,6 +1429,34 @@ module {
   }
 
   //===----------------------------------------------------------------------===//
+  // TTIR Clamp (scalar) operations
+  //===----------------------------------------------------------------------===//
+
+  func.func @test_clamp_scalar_lowering(%in0: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>,
+                                        %out: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>) {
+    d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map_, #map_], iterator_types = [#parallel_, #parallel_], threads = [#d2m.thread<compute>]}
+        ins(%in0 : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>)
+        outs(%out : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>)  {
+    ^compute0(%arg0_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>, %arg1_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>):
+      %cb0 = d2m.wait %arg0_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
+      %cb1 = d2m.reserve %arg1_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
+      linalg.generic {indexing_maps = [#map_, #map_], iterator_types = ["parallel", "parallel"]} ins(%cb0 : memref<1x1x!ttype_f32, #l1_>) outs(%cb1 : memref<1x1x!ttype_f32, #l1_>) {
+      ^bb0(%arg0: !ttype_f32, %arg1: !ttype_f32):
+        // CHECK-NOT: d2m.tile_clamp_scalar
+        // CHECK: ttkernel.init_sfpu
+        // CHECK: ttkernel.copy_tile_init(%[[CB0:.+]]) :
+        // CHECK-NEXT: ttkernel.copy_tile(%[[CB0]], %{{.+}}, %{{.+}}) :
+        // CHECK: ttkernel.clamp_tile_init
+        // CHECK: ttkernel.clamp_tile
+        %0 = "d2m.tile_clamp_scalar"(%arg0) <{min = 2.000000e+00 : f32, max = 5.000000e+00 : f32}> : (!ttype_f32) -> !ttype_f32
+        // CHECK: ttkernel.pack_tile
+        linalg.yield %0 : !ttype_f32
+      }
+    }
+    return
+  }
+
+  //===----------------------------------------------------------------------===//
   // TTIR Where (Ternary) operations
   //===----------------------------------------------------------------------===//
 

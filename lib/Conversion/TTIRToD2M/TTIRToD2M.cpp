@@ -455,12 +455,12 @@ public:
 
 private:
   static constexpr bool isComparisonOp =
-      std::is_same_v<TileOp, d2m::TileEqzOp> ||
-      std::is_same_v<TileOp, d2m::TileNezOp> ||
-      std::is_same_v<TileOp, d2m::TileGtzOp> ||
-      std::is_same_v<TileOp, d2m::TileGezOp> ||
-      std::is_same_v<TileOp, d2m::TileLtzOp> ||
-      std::is_same_v<TileOp, d2m::TileLezOp>;
+      std::is_same_v<ConcreteOp, ttir::EqualOp> ||
+      std::is_same_v<ConcreteOp, ttir::NotEqualOp> ||
+      std::is_same_v<ConcreteOp, ttir::GreaterThanOp> ||
+      std::is_same_v<ConcreteOp, ttir::GreaterEqualOp> ||
+      std::is_same_v<ConcreteOp, ttir::LessThanOp> ||
+      std::is_same_v<ConcreteOp, ttir::LessEqualOp>;
 
   static std::pair<SmallVector<mlir::AffineMap>,
                    SmallVector<d2m::TileBcastType>>
@@ -584,7 +584,8 @@ private:
                            mlir::ConversionPatternRewriter &rewriter,
                            mlir::Location loc, const size_t numInputs,
                            const size_t numOutputs,
-                           ArrayRef<d2m::TileBcastType> tileBcastTypes) const {
+                           ArrayRef<d2m::TileBcastType> tileBcastTypes,
+                           ArrayRef<NamedAttribute> opAttrs = {}) const {
     auto operands = llvm::to_vector(bbArgs.take_front(numInputs));
     mlir::TypeRange resultTypes = bbArgs.take_back(numOutputs);
 
@@ -601,6 +602,15 @@ private:
       // For comparison ops, first subtract then compare with zero.
       yield = bbBuilder.create<d2m::TileSubOp>(loc, resultTypes, operands);
       yield = bbBuilder.create<TileOp>(loc, resultTypes, yield);
+    } else if constexpr (std::is_same_v<ConcreteOp, ttir::ClampTensorOp>) {
+      // Decompose into maximum(input, min) then minimum(result, max).
+      yield = bbBuilder.create<d2m::TileMaximumOp>(
+          loc, resultTypes, ValueRange{operands[0], operands[1]});
+      yield = bbBuilder.create<d2m::TileMinimumOp>(
+          loc, resultTypes, ValueRange{yield, operands[2]});
+    } else if constexpr (std::is_same_v<ConcreteOp, ttir::ClampScalarOp>) {
+      yield =
+          bbBuilder.create<TileOp>(loc, resultTypes[0], operands[0], opAttrs);
     } else if constexpr (std::is_same_v<ConcreteOp, ttir::LogicalAndOp>) {
       // LogicalAnd: NEZ(a) * NEZ(b) - both must be non-zero.
       auto nezA =
@@ -697,6 +707,13 @@ private:
         SmallVector<mlir::utils::IteratorType> linalgIteratorTypes =
             iteratorTypeTTIRToLinalg(rewriter, iteratorTypes);
 
+        // Collect attributes to forward to tile ops (e.g., min/max for clamp).
+        SmallVector<NamedAttribute> opAttrs;
+        if constexpr (std::is_same_v<ConcreteOp, ttir::ClampScalarOp>) {
+          opAttrs.push_back(rewriter.getNamedAttr("min", op.getMinAttr()));
+          opAttrs.push_back(rewriter.getNamedAttr("max", op.getMaxAttr()));
+        }
+
         auto linalgGeneric = rewriter.create<mlir::linalg::GenericOp>(
             loc,
             /* result tensor types */
@@ -708,7 +725,8 @@ private:
             [&](mlir::OpBuilder &bbBuilder, mlir::Location bbLoc,
                 mlir::ValueRange bbArgs) {
               createComputeRegion(bbBuilder, bbLoc, bbArgs, rewriter, loc,
-                                  numInputs, numOutputs, tileBcastTypes);
+                                  numInputs, numOutputs, tileBcastTypes,
+                                  opAttrs);
             });
 
         rewriter.create<d2m::YieldOp>(loc, linalgGeneric->getResults());
@@ -1607,60 +1625,60 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   // clang-format off
   patterns.add<
     // Elementwise.
-    D2MNamedElementwiseRewriter<ttir::AbsOp,         d2m::TileAbsOp>,
-    D2MNamedElementwiseRewriter<ttir::AddOp,         d2m::TileAddOp>,
-    D2MNamedElementwiseRewriter<ttir::BitwiseAndOp,  d2m::TileBitwiseAndOp>,
-    D2MNamedElementwiseRewriter<ttir::BitwiseNotOp,  d2m::TileBitwiseNotOp>,
-    D2MNamedElementwiseRewriter<ttir::BitwiseOrOp,   d2m::TileBitwiseOrOp>,
-    D2MNamedElementwiseRewriter<ttir::BitwiseXorOp,  d2m::TileBitwiseXorOp>,
-    D2MNamedElementwiseRewriter<ttir::CeilOp,        d2m::TileCeilOp>,
-    D2MNamedElementwiseRewriter<ttir::CosOp,         d2m::TileCosOp>,
-    D2MNamedElementwiseRewriter<ttir::DivOp,         d2m::TileDivOp>,
-    D2MNamedElementwiseRewriter<ttir::ErfOp,         d2m::TileErfOp>,
-    D2MNamedElementwiseRewriter<ttir::ErfcOp,        d2m::TileErfcOp>,
-    D2MNamedElementwiseRewriter<ttir::ExpOp,         d2m::TileExpOp>,
-    D2MNamedElementwiseRewriter<ttir::FloorOp,       d2m::TileFloorOp>,
-    D2MNamedElementwiseRewriter<ttir::GeluOp,        d2m::TileGeluOp>,
-    D2MNamedElementwiseRewriter<ttir::HardsigmoidOp, d2m::TileHardsigmoidOp>,
-    D2MNamedElementwiseRewriter<ttir::LogOp,         d2m::TileLogOp>,
-    D2MNamedElementwiseRewriter<ttir::LogicalAndOp,  d2m::TileMulOp>,
-    D2MNamedElementwiseRewriter<ttir::LogicalNotOp,  d2m::TileLogicalNotOp>,
-    D2MNamedElementwiseRewriter<ttir::LogicalOrOp,   d2m::TileAddOp>,
-    D2MNamedElementwiseRewriter<ttir::LogicalXorOp,  d2m::TileSubOp>,
-    D2MNamedElementwiseRewriter<ttir::MultiplyOp,    d2m::TileMulOp>,
-    D2MNamedElementwiseRewriter<ttir::MaximumOp,     d2m::TileMaximumOp>,
-    D2MNamedElementwiseRewriter<ttir::MinimumOp,     d2m::TileMinimumOp>,
-    D2MNamedElementwiseRewriter<ttir::NegOp,         d2m::TileNegativeOp>,
-    D2MNamedElementwiseRewriter<ttir::PowOp,         d2m::TilePowOp>,
-    D2MNamedElementwiseRewriter<ttir::ReciprocalOp,  d2m::TileRecipOp>,
-    D2MNamedElementwiseRewriter<ttir::ReluOp,        d2m::TileReluOp>,
-    D2MNamedElementwiseRewriter<ttir::RsqrtOp,       d2m::TileRsqrtOp>,
-    D2MNamedElementwiseRewriter<ttir::SigmoidOp,     d2m::TileSigmoidOp>,
-    D2MNamedElementwiseRewriter<ttir::SignOp,        d2m::TileSignOp>,
-    D2MNamedElementwiseRewriter<ttir::SiluOp,        d2m::TileSiluOp>,
-    D2MNamedElementwiseRewriter<ttir::SinOp,         d2m::TileSinOp>,
-    D2MNamedElementwiseRewriter<ttir::SqrtOp,        d2m::TileSqrtOp>,
-    D2MNamedElementwiseRewriter<ttir::SubtractOp,    d2m::TileSubOp>,
-    D2MNamedElementwiseRewriter<ttir::TanOp,         d2m::TileTanOp>,
-    D2MNamedElementwiseRewriter<ttir::TanhOp,        d2m::TileTanhOp>,
-    D2MNamedElementwiseRewriter<ttir::WhereOp,       d2m::TileWhereOp>,
-
+    D2MNamedElementwiseRewriter<ttir::AbsOp,             d2m::TileAbsOp>,
+    D2MNamedElementwiseRewriter<ttir::AddOp,             d2m::TileAddOp>,
+    D2MNamedElementwiseRewriter<ttir::BitwiseAndOp,      d2m::TileBitwiseAndOp>,
+    D2MNamedElementwiseRewriter<ttir::BitwiseNotOp,      d2m::TileBitwiseNotOp>,
+    D2MNamedElementwiseRewriter<ttir::BitwiseOrOp,       d2m::TileBitwiseOrOp>,
+    D2MNamedElementwiseRewriter<ttir::BitwiseXorOp,      d2m::TileBitwiseXorOp>,
+    D2MNamedElementwiseRewriter<ttir::CeilOp,            d2m::TileCeilOp>,
+    D2MNamedElementwiseRewriter<ttir::ClampScalarOp,     d2m::TileClampScalarOp>,
+    D2MNamedElementwiseRewriter<ttir::ClampTensorOp,     d2m::TileMaximumOp>,
+    D2MNamedElementwiseRewriter<ttir::CosOp,             d2m::TileCosOp>,
+    D2MNamedElementwiseRewriter<ttir::DivOp,             d2m::TileDivOp>,
+    D2MNamedElementwiseRewriter<ttir::ErfOp,             d2m::TileErfOp>,
+    D2MNamedElementwiseRewriter<ttir::ErfcOp,            d2m::TileErfcOp>,
+    D2MNamedElementwiseRewriter<ttir::ExpOp,             d2m::TileExpOp>,
+    D2MNamedElementwiseRewriter<ttir::FloorOp,           d2m::TileFloorOp>,
+    D2MNamedElementwiseRewriter<ttir::GeluOp,            d2m::TileGeluOp>,
+    D2MNamedElementwiseRewriter<ttir::HardsigmoidOp,     d2m::TileHardsigmoidOp>,
+    D2MNamedElementwiseRewriter<ttir::LogOp,             d2m::TileLogOp>,
+    D2MNamedElementwiseRewriter<ttir::LogicalAndOp,      d2m::TileMulOp>,
+    D2MNamedElementwiseRewriter<ttir::LogicalNotOp,      d2m::TileLogicalNotOp>,
+    D2MNamedElementwiseRewriter<ttir::LogicalOrOp,       d2m::TileAddOp>,
+    D2MNamedElementwiseRewriter<ttir::LogicalXorOp,      d2m::TileSubOp>,
+    D2MNamedElementwiseRewriter<ttir::MultiplyOp,        d2m::TileMulOp>,
+    D2MNamedElementwiseRewriter<ttir::MaximumOp,         d2m::TileMaximumOp>,
+    D2MNamedElementwiseRewriter<ttir::MinimumOp,         d2m::TileMinimumOp>,
+    D2MNamedElementwiseRewriter<ttir::NegOp,             d2m::TileNegativeOp>,
+    D2MNamedElementwiseRewriter<ttir::PowOp,             d2m::TilePowOp>,
+    D2MNamedElementwiseRewriter<ttir::ReciprocalOp,      d2m::TileRecipOp>,
+    D2MNamedElementwiseRewriter<ttir::ReluOp,            d2m::TileReluOp>,
+    D2MNamedElementwiseRewriter<ttir::RsqrtOp,           d2m::TileRsqrtOp>,
+    D2MNamedElementwiseRewriter<ttir::SigmoidOp,         d2m::TileSigmoidOp>,
+    D2MNamedElementwiseRewriter<ttir::SignOp,            d2m::TileSignOp>,
+    D2MNamedElementwiseRewriter<ttir::SiluOp,            d2m::TileSiluOp>,
+    D2MNamedElementwiseRewriter<ttir::SinOp,             d2m::TileSinOp>,
+    D2MNamedElementwiseRewriter<ttir::SqrtOp,            d2m::TileSqrtOp>,
+    D2MNamedElementwiseRewriter<ttir::SubtractOp,        d2m::TileSubOp>,
+    D2MNamedElementwiseRewriter<ttir::TanOp,             d2m::TileTanOp>,
+    D2MNamedElementwiseRewriter<ttir::TanhOp,            d2m::TileTanhOp>,
+    D2MNamedElementwiseRewriter<ttir::WhereOp,           d2m::TileWhereOp>,
     // Comparison.
-    D2MNamedElementwiseRewriter<ttir::EqualOp,        d2m::TileEqzOp>,
-    D2MNamedElementwiseRewriter<ttir::NotEqualOp,     d2m::TileNezOp>,
-    D2MNamedElementwiseRewriter<ttir::GreaterThanOp,  d2m::TileGtzOp>,
-    D2MNamedElementwiseRewriter<ttir::GreaterEqualOp, d2m::TileGezOp>,
-    D2MNamedElementwiseRewriter<ttir::LessThanOp,     d2m::TileLtzOp>,
-    D2MNamedElementwiseRewriter<ttir::LessEqualOp,    d2m::TileLezOp>,
-
+    D2MNamedElementwiseRewriter<ttir::EqualOp,           d2m::TileEqzOp>,
+    D2MNamedElementwiseRewriter<ttir::NotEqualOp,        d2m::TileNezOp>,
+    D2MNamedElementwiseRewriter<ttir::GreaterThanOp,     d2m::TileGtzOp>,
+    D2MNamedElementwiseRewriter<ttir::GreaterEqualOp,    d2m::TileGezOp>,
+    D2MNamedElementwiseRewriter<ttir::LessThanOp,        d2m::TileLtzOp>,
+    D2MNamedElementwiseRewriter<ttir::LessEqualOp,       d2m::TileLezOp>,
     // Reduction.
-    D2MNamedReductionRewriter<ttir::MaxOp,          d2m::TileReduceMaxOp>,
-    D2MNamedReductionRewriter<ttir::SumOp,          d2m::TileReduceSumOp>,
+    D2MNamedReductionRewriter<ttir::MaxOp,               d2m::TileReduceMaxOp>,
+    D2MNamedReductionRewriter<ttir::SumOp,               d2m::TileReduceSumOp>,
     // Data movement.
-    D2MNamedElementwiseRewriter<ttir::TypecastOp,     d2m::TileTypecastOp>,
+    D2MNamedElementwiseRewriter<ttir::TypecastOp,        d2m::TileTypecastOp>,
     // Tensor manipulation/View ops.
-    D2MTensorManipulationOpRewriter<ttir::RearrangeOp, rearrangeLogicalMap>,
-    D2MTensorManipulationOpRewriter<ttir::ReshapeOp, reshapeLogicalMap>,
+    D2MTensorManipulationOpRewriter<ttir::RearrangeOp,   rearrangeLogicalMap>,
+    D2MTensorManipulationOpRewriter<ttir::ReshapeOp,     reshapeLogicalMap>,
     D2MTensorManipulationOpRewriter<ttir::SliceStaticOp, sliceLogicalMap>,
     // Permute (handles transpose ops, since they're canonicalized into permutes).
     D2MPermuteRewriter,
