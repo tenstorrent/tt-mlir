@@ -2948,6 +2948,10 @@ public:
   matchAndRewrite(ttir::DispatchD2MOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     func::FuncOp mainFunc = op.lookupD2MMainFunc();
+    if (!mainFunc) {
+      return rewriter.notifyMatchFailure(
+          op, "Could not find main function in nested module.");
+    }
 
     auto d2mFuncAttr =
         SymbolRefAttr::get(rewriter.getContext(), mainFunc.getSymName());
@@ -2961,7 +2965,7 @@ public:
         op.getLoc(), resultTypes, adaptor.getInputs(), adaptor.getOutputs(),
         d2mFuncAttr);
 
-    // Move the body region (keeping subgraph in TTIR dialect)
+    // Move the body region, subgraph stays in TTIR dialect.
     ttnnOp.getBody().takeBody(op.getBody());
 
     rewriter.replaceOp(op, ttnnOp.getResults());

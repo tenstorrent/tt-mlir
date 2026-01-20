@@ -146,8 +146,7 @@ def TTIR_DispatchD2MOp : TTIR_Op<"dispatch_d2m",
   [AttrSizedOperandSegments,
    DestinationStyleOpInterface,
    SingleBlock,
-   NoTerminator,
-   SymbolTable]> {
+   NoTerminator]> {
   let summary = "Dispatch subgraph to D2M backend.";
   let description = [{
     Dispatch a subgraph to the D2M backend. The subgraph will be lowered to one
@@ -158,7 +157,16 @@ def TTIR_DispatchD2MOp : TTIR_Op<"dispatch_d2m",
 
     Example:
     ```mlir
-
+    %result = ttir.dispatch_d2m
+        ins(%a, %b : tensor<...>, tensor<...>)
+        outs(%out : tensor<...>) {
+      module {
+        func.func @subgraph(%arg0: tensor<...>, %arg1: tensor<...>, %arg2: tensor<...>) -> tensor<...> {
+          ...
+          return %0 : tensor<...>
+        }
+      }
+    } : tensor<...>
     ```
   }];
 
@@ -182,6 +190,10 @@ def TTIR_DispatchD2MOp : TTIR_Op<"dispatch_d2m",
       return getOutputsMutable();
     }
 
+    // Returns the ModuleOp inside the body region.
+    ModuleOp getNestedModule();
+
+    // Returns the D2M function inside the nested module.
     func::FuncOp lookupD2MMainFunc();
   }];
 }

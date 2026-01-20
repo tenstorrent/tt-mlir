@@ -5401,19 +5401,34 @@ mlir::tt::ttir::PagedScaledDotProductAttentionDecodeOp::verify() {
     return emitOpError("Body region must not be empty.");
   }
 
-  // Body must contain exactly one func.func
-  func::FuncOp mainFunc = nullptr;
+  // Body must contain exactly one ModuleOp
+  ModuleOp nestedModule = getNestedModule();
+  if (!nestedModule) {
+    return emitOpError("Body region must contain a module.");
+  }
+  int moduleCount = 0;
   for (Operation &op : body.front()) {
-    if (auto funcOp = mlir::dyn_cast<func::FuncOp>(&op)) {
-      if (mainFunc) {
-        return emitOpError("Body region must contain exactly one func.func.");
-      }
-      mainFunc = funcOp;
+    if (mlir::isa<ModuleOp>(&op)) {
+      moduleCount++;
     }
   }
+  if (moduleCount != 1) {
+    return emitOpError("Body region must contain exactly one module.");
+  }
 
+  // The nested module must contain exactly one func.func
+  func::FuncOp mainFunc = lookupD2MMainFunc();
   if (!mainFunc) {
-    return emitOpError("Body region must contain a func.func.");
+    return emitOpError("Nested module must contain a func.func.");
+  }
+  int funcCount = 0;
+  for (Operation &op : nestedModule.getBody()->getOperations()) {
+    if (mlir::isa<func::FuncOp>(&op)) {
+      funcCount++;
+    }
+  }
+  if (funcCount != 1) {
+    return emitOpError("Nested module must contain exactly one func.func.");
   }
 
   // Verify return types match op results
@@ -5436,8 +5451,21 @@ mlir::tt::ttir::PagedScaledDotProductAttentionDecodeOp::verify() {
   return success();
 }
 
-func::FuncOp mlir::tt::ttir::DispatchD2MOp::lookupD2MMainFunc() {
+ModuleOp mlir::tt::ttir::DispatchD2MOp::getNestedModule() {
   for (Operation &op : getBody().front()) {
+    if (auto moduleOp = mlir::dyn_cast<ModuleOp>(&op)) {
+      return moduleOp;
+    }
+  }
+  return nullptr;
+}
+
+func::FuncOp mlir::tt::ttir::DispatchD2MOp::lookupD2MMainFunc() {
+  ModuleOp nestedModule = getNestedModule();
+  if (!nestedModule) {
+    return nullptr;
+  }
+  for (Operation &op : nestedModule.getBody()->getOperations()) {
     if (auto funcOp = mlir::dyn_cast<func::FuncOp>(&op)) {
       return funcOp;
     }
