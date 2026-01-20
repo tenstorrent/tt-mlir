@@ -3,7 +3,8 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-TT_METAL_VERSION=$(grep 'set(TT_METAL_VERSION' third_party/CMakeLists.txt | sed 's/.*"\(.*\)".*/\1/')
+PROJECT_ROOT=$(git rev-parse --show-toplevel)
+TT_METAL_VERSION=$(grep 'set(TT_METAL_VERSION' $PROJECT_ROOT/third_party/CMakeLists.txt | sed 's/.*"\(.*\)".*/\1/')
 
 mkdir temp
 cd temp
