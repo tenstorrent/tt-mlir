@@ -112,9 +112,11 @@ static SmallVector<int64_t> calculateOptimalSubblockSizes(
 namespace {
 struct D2MGenericComputeRewriter : public OpRewritePattern<linalg::GenericOp> {
   D2MGenericComputeRewriter(MLIRContext *context,
-                            unsigned maxDstPhysicalSizeTiles)
+                            unsigned maxDstPhysicalSizeTiles,
+                            bool enableTwoPhaseDestTiling)
       : OpRewritePattern<linalg::GenericOp>(context),
-        maxDstPhysicalSizeTiles(maxDstPhysicalSizeTiles) {}
+        maxDstPhysicalSizeTiles(maxDstPhysicalSizeTiles),
+        enableTwoPhaseDestTiling(enableTwoPhaseDestTiling) {}
 
   LogicalResult matchAndRewrite(linalg::GenericOp op,
                                 PatternRewriter &rewriter) const final {
@@ -125,14 +127,14 @@ struct D2MGenericComputeRewriter : public OpRewritePattern<linalg::GenericOp> {
     // Be conservative: disable loop subblocking if any of the compute op loads
     // more than one DST operand, or isn't in-place w.r.t. DST operands.
     bool optimizeSubblocking = true;
-    op.getRegion().walk([&](OperandLoadStoreRegisterOpInterface computeOp) {
-      optimizeSubblocking = optimizeSubblocking && computeOp.getDstRegInPlace();
-      optimizeSubblocking =
-          optimizeSubblocking &&
-          (computeOp.getOperandsLoadFromDstRegister().size() == 1);
-      return optimizeSubblocking ? WalkResult::advance()
-                                 : WalkResult::interrupt();
-    });
+    // op.getRegion().walk([&](OperandLoadStoreRegisterOpInterface computeOp) {
+    //   optimizeSubblocking = optimizeSubblocking &&
+    //   computeOp.getDstRegInPlace(); optimizeSubblocking =
+    //       optimizeSubblocking &&
+    //       (computeOp.getOperandsLoadFromDstRegister().size() == 1);
+    //   return optimizeSubblocking ? WalkResult::advance()
+    //                              : WalkResult::interrupt();
+    // });
 
     TT_assert(op.getRegion().hasOneBlock());
     TT_assertv(op.getOutputs().size() == 1u,
@@ -140,12 +142,18 @@ struct D2MGenericComputeRewriter : public OpRewritePattern<linalg::GenericOp> {
     auto outputTensor =
         mlir::cast<MemRefType>(op.getOutputs().front().getType());
 
+    Type largestDstType = utils::getRegionLargestDstElemType(op.getRegion());
+    const unsigned baseDstCapacity =
+        ttcore::getOpChipDescAttr(op).getDstLogicalSizeTiles(
+            largestDstType, false, maxDstPhysicalSizeTiles);
+
     SmallVector<int64_t> subblockSizes(outputTensor.getShape().size(), 1);
     if (optimizeSubblocking) {
-      Type largestDstType = utils::getRegionLargestDstElemType(op.getRegion());
-      const unsigned dstCapacity =
-          ttcore::getOpChipDescAttr(op).getDstLogicalSizeTiles(
-              largestDstType, false, maxDstPhysicalSizeTiles);
+      // For two-phase tiling, first phase tiles to 2×DST capacity.
+      unsigned dstCapacity = baseDstCapacity;
+      if (enableTwoPhaseDestTiling) {
+        dstCapacity *= 2;
+      }
 
       subblockSizes = calculateOptimalSubblockSizes(
           op.getIndexingMapsArray(), op.getInputs(), outputTensor.getShape(),
@@ -165,11 +173,71 @@ struct D2MGenericComputeRewriter : public OpRewritePattern<linalg::GenericOp> {
       return failure();
     }
 
+    // Phase 2: If two-phase tiling is enabled, tile the inner linalg.generic
+    // again from 2×DST to 1×DST. This creates an inner loop that iterates
+    // twice per outer iteration.
+    if (enableTwoPhaseDestTiling && optimizeSubblocking) {
+      auto innerOp =
+          dyn_cast<linalg::GenericOp>(tiledGeneric.value().op.getOperation());
+      if (!innerOp) {
+        return failure();
+      }
+
+      auto innerOutputTensor =
+          mlir::cast<MemRefType>(innerOp.getOutputs().front().getType());
+
+      SmallVector<int64_t> phase2SubblockSizes = calculateOptimalSubblockSizes(
+          innerOp.getIndexingMapsArray(), innerOp.getInputs(),
+          innerOutputTensor.getShape(), baseDstCapacity);
+
+      // Verify that two-phase tiling is valid: the inner output shape must
+      // divide evenly by the subblock sizes to produce exactly 2 iterations.
+      // TODO(jdesousa): Implement iteration peeling for non-divisible cases.
+      int64_t totalIterations = 1;
+      ArrayRef<int64_t> innerShape = innerOutputTensor.getShape();
+      for (size_t i = 0; i < innerShape.size(); ++i) {
+        TT_assertv(
+            innerShape[i] % phase2SubblockSizes[i] == 0,
+            "Two-phase dest tiling requires output shape to divide evenly by "
+            "subblock sizes. Iteration peeling not yet implemented.");
+        totalIterations *= innerShape[i] / phase2SubblockSizes[i];
+      }
+      TT_assertv(totalIterations == 2,
+                 "Two-phase dest tiling expects exactly 2 iterations in the "
+                 "inner loop (got {0}). Iteration peeling not yet implemented.",
+                 totalIterations);
+
+      linalg::LinalgTilingOptions phase2TilingOptions;
+      phase2TilingOptions.setTileSizes(phase2SubblockSizes);
+      FailureOr<linalg::TiledLinalgOp> phase2TiledGeneric =
+          linalg::tileLinalgOp(rewriter, innerOp, phase2TilingOptions);
+      if (failed(phase2TiledGeneric)) {
+        return failure();
+      }
+
+      // Tag the outermost loop from phase 2 tiling with d2m.scratch_space_loop
+      // attribute for downstream passes (e.g., fission, scratch allocation).
+      if (!phase2TiledGeneric.value().loops.empty()) {
+        Operation *outermostLoop = phase2TiledGeneric.value().loops.front();
+        outermostLoop->setAttr("d2m.scratch_space_loop",
+                               rewriter.getUnitAttr());
+      }
+
+      // Erase the intermediate linalg.generic from phase 1 - it has been
+      // replaced by the tiled version from phase 2.
+      rewriter.eraseOp(innerOp);
+
+      // Replace the original op with the tiled version from phase 2.
+      rewriter.replaceOp(op, phase2TiledGeneric.value().op);
+      return success();
+    }
+
     rewriter.replaceOp(op, tiledGeneric.value().op);
     return success();
   }
 
   unsigned maxDstPhysicalSizeTiles = 0;
+  bool enableTwoPhaseDestTiling = false;
 };
 } // namespace
 
@@ -183,8 +251,9 @@ public:
   void runOnOperation() final {
     MLIRContext *ctx = &getContext();
     RewritePatternSet patterns(ctx);
-    patterns.add<D2MGenericComputeRewriter>(ctx,
-                                            maxDstPhysicalSizeTiles.getValue());
+    patterns.add<D2MGenericComputeRewriter>(
+        ctx, maxDstPhysicalSizeTiles.getValue(),
+        enableTwoPhaseDestTiling.getValue());
     walkAndApplyPatterns(getOperation(), std::move(patterns));
   }
 };
