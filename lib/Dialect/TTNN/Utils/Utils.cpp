@@ -9,7 +9,6 @@
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Utils.h"
 
-#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Quant/IR/QuantTypes.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/Location.h"
@@ -276,10 +275,6 @@ std::optional<ShardSpecAttr> createShardSpecIfNeeded(
                            shardGridAttr, deviceGridAttr);
   }
   return shardSpecAttr;
-}
-
-bool isTTNNTraceFunc(func::FuncOp funcOp) {
-  return funcOp->hasAttr(g_TTNNTraceAttrName);
 }
 
 bool isTTNNHoistGenericViaD2MOp(mlir::Operation *op) {

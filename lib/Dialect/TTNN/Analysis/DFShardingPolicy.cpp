@@ -13,6 +13,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Dialect/TTNN/Validation/OpConstraintValidation.h"
+#include "ttmlir/FunctionTypes.h"
 #include "ttmlir/Scheduler/Scheduler.h"
 #include "ttmlir/Support/Logger.h"
 #include "ttmlir/Utils.h"
@@ -1098,7 +1099,7 @@ void DFShardingPolicy::run() {
   func::FuncOp funcToProcess = nullptr;
 
   rootOp->walk([&](func::FuncOp func) {
-    if (ttmlir::utils::isConstEvalFunc(func)) {
+    if (!ttmlir::utils::isForwardDeviceFunc(func)) {
       return;
     }
 

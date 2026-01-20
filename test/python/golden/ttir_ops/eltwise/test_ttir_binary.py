@@ -172,9 +172,6 @@ binary_ops = [
     div,
     gelu_backward | Marks(pytest.mark.skip_config(["ttmetal"])),
     gelu_backward_tanh | Marks(pytest.mark.skip_config(["ttmetal"])),
-    logical_and | Marks(pytest.mark.skip_config(["ttmetal"])),
-    logical_or | Marks(pytest.mark.skip_config(["ttmetal"])),
-    logical_xor | Marks(pytest.mark.skip_config(["ttmetal"])),
     maximum,
     minimum,
     multiply,
@@ -208,6 +205,64 @@ def test_binary_ops(
     compile_and_execute_ttir(
         module,
         **get_request_kwargs(request),
+        target=target,
+        device=device,
+        pipeline_options=pipeline_options,
+    )
+
+
+# Logical binary ops with custom golden tensors containing mix of 0s and non-0s
+logical_ops = [
+    logical_and,
+    logical_or,
+    logical_xor,
+]
+
+
+@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
+@pytest.mark.parametrize("test_fn", logical_ops)
+def test_logical_ops(
+    test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request, device
+):
+    def module(builder: TTIRBuilder):
+        @builder.func([shape, shape], [dtype, dtype])
+        def logical_op_fn(in0: Operand, in1: Operand, builder: TTIRBuilder) -> Operand:
+            # Create golden tensors with a mix of 0s and non-0s to test edge cases.
+            # Pattern: alternating rows of zeros and non-zeros for variety.
+            golden0 = torch.zeros(shape, dtype=dtype)
+            golden1 = torch.zeros(shape, dtype=dtype)
+
+            # in0: first half rows are non-zero, second half are zero
+            golden0[: shape[0] // 2, :] = torch.randn(shape[0] // 2, shape[1])
+            # in1: alternating columns of zero and non-zero
+            golden1[:, ::2] = torch.randn(shape[0], shape[1] // 2)
+
+            # Compute expected output based on logical operation.
+            bool0 = golden0 != 0
+            bool1 = golden1 != 0
+            if test_fn.__name__ == "logical_and":
+                output_golden = (bool0 & bool1).to(dtype)
+            elif test_fn.__name__ == "logical_or":
+                output_golden = (bool0 | bool1).to(dtype)
+            elif test_fn.__name__ == "logical_xor":
+                output_golden = (bool0 ^ bool1).to(dtype)
+            else:
+                raise ValueError(f"Unknown logical op: {test_fn.__name__}")
+
+            result = test_fn(in0, in1, builder)
+            builder.set_goldens(
+                inputs={in0: golden0, in1: golden1}, outputs={result: output_golden}
+            )
+            return result
+
+    pipeline_options = []
+    compile_and_execute_ttir(
+        module,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
         device=device,
         pipeline_options=pipeline_options,

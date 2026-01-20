@@ -68,47 +68,6 @@ def test_hoisted_logical_not(
     )
 
 
-@pytest.mark.parametrize("shape", [(64, 128)], ids=shape_str)
-@pytest.mark.parametrize("max_arg,min_arg", [(3.0, 2.0)])
-def test_clamp_scalar(shape: Shape, max_arg: float, min_arg: float, request, device):
-    def module(builder: TTIRBuilder):
-        @builder.func([shape], [torch.float32])
-        def clamp_scalar(
-            in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
-        ):
-            return builder.clamp_scalar(
-                in0, max_arg=max_arg, min_arg=min_arg, unit_attrs=unit_attrs
-            )
-
-    compile_and_execute_ttir(
-        module,
-        **get_request_kwargs(request),
-        device=device,
-    )
-
-
-@pytest.mark.parametrize(
-    "shapes", [[(32, 64), (32, 64), (32, 64)]], ids=shapes_list_str
-)
-def test_clamp_tensor(shapes: List[Shape], request, device):
-    def module(builder: TTIRBuilder):
-        @builder.func(shapes, [torch.float32, torch.float32, torch.float32])
-        def clamp_tensor(
-            in0: Operand,
-            in1: Operand,
-            in2: Operand,
-            builder: TTIRBuilder,
-            unit_attrs: Optional[List[str]] = None,
-        ):
-            return builder.clamp_tensor(in0, in1, in2, unit_attrs=unit_attrs)
-
-    compile_and_execute_ttir(
-        module,
-        **get_request_kwargs(request),
-        device=device,
-    )
-
-
 @pytest.mark.parametrize(
     "shapes,batch_dims_lhs,contract_dims_lhs,batch_dims_rhs,contract_dims_rhs",
     [
@@ -2549,6 +2508,68 @@ def test_rms_norm(
         module,
         **get_request_kwargs(request),
         device=device,
+        target=target,
+    )
+
+
+@pytest.mark.parametrize(
+    "shape,normalized_shape",
+    [
+        ((32, 128), [128]),
+        ((2, 4, 64), [64]),
+    ],
+)
+@pytest.mark.parametrize("has_weight", [True, False])
+@pytest.mark.parametrize("has_bias", [True, False])
+@pytest.mark.parametrize("target", ["ttnn", "emitpy"])
+def test_layer_norm(
+    shape: Shape,
+    normalized_shape: List[int],
+    has_weight: bool,
+    has_bias: bool,
+    target: str,
+    request,
+    device,
+):
+    # Determine input shapes
+    shapes = [shape]
+    if has_weight:
+        shapes.append(tuple(normalized_shape))
+    if has_bias:
+        shapes.append(tuple(normalized_shape))
+
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, [torch.float32] * len(shapes))
+        def layer_norm(*inputs, unit_attrs: Optional[List[str]] = None):
+
+            builder = inputs[-1]
+            # Extract inputs based on test configuration
+            in0 = inputs[0]
+            weight = None
+            bias = None
+
+            if has_weight and len(inputs) > 1:
+                weight = inputs[1]
+            if has_bias:
+                if has_weight and len(inputs) > 2:
+                    bias = inputs[2]
+                elif not has_weight and len(inputs) > 1:
+                    bias = inputs[1]
+
+            return builder.layer_norm(
+                in0,
+                normalized_shape=normalized_shape,
+                weight=weight,
+                bias=bias,
+                unit_attrs=unit_attrs,
+            )
+
+    compile_and_execute_ttir(
+        module,
+        test_base=request.node.name,
+        device=device,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
     )
 

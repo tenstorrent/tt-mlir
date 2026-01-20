@@ -6,6 +6,7 @@
 
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/Transforms/TTNNRecoverStructureUtils.h"
+#include "ttmlir/FunctionTypes.h"
 #include "ttmlir/Support/Logger.h"
 #include "ttmlir/Utils.h"
 
@@ -95,7 +96,7 @@ public:
 
 private:
   bool isCandidateFn(func::FuncOp funcOp) {
-    return !funcOp.isPrivate() && !ttmlir::utils::isConstEvalFunc(funcOp) &&
+    return ttmlir::utils::isForwardDeviceFunc(funcOp) &&
            !funcOp.getFunctionType().getInputs().empty();
   }
 
@@ -577,6 +578,10 @@ private:
       // Mark as private for now.
       //
       newFunc.setPrivate();
+
+      // Set type to ForwardDevice.
+      ttmlir::utils::setFunctionType(
+          newFunc, ttmlir::utils::FunctionType::ForwardDevice);
 
       // Store the function in the map.
       //

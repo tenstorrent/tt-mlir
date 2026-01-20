@@ -357,6 +357,7 @@ using ComputeOpMap = OpMap<
   std::pair<d2m::TileAbsOp,         std::pair<ttkernel::AbsTileInitOp,             ttkernel::AbsTileOp>>,
   std::pair<d2m::TileBitwiseNotOp,  std::pair<ttkernel::BitwiseNotTileInitOp,      ttkernel::BitwiseNotTileOp>>,
   std::pair<d2m::TileCeilOp,        std::pair<ttkernel::RoundingTileInitOp,        ttkernel::CeilTileOp>>,
+  std::pair<d2m::TileClampScalarOp, std::pair<ttkernel::ClampScalarTileInitOp,     ttkernel::ClampScalarTileOp>>,
   std::pair<d2m::TileCosOp,         std::pair<ttkernel::CosTileInitOp,             ttkernel::CosTileOp>>,
   std::pair<d2m::TileErfOp,         std::pair<ttkernel::ErfTileInitOp,             ttkernel::ErfTileOp>>,
   std::pair<d2m::TileErfcOp,        std::pair<ttkernel::ErfcTileInitOp,            ttkernel::ErfcTileOp>>,
@@ -732,6 +733,19 @@ public:
           mlir::cast<ttcore::TileType>(op.getResult().getType()).getDataType();
       rewriter.create<ttkernel::TypecastTileOp>(
           op->getLoc(), adaptor.getInput(), inDtype, outDtype);
+    } else if constexpr (std::is_same_v<SFPUOp, ttkernel::ClampScalarTileOp>) {
+      // ClampScalarOp has min/max F32 attributes that need to be bitcast to i32
+      auto loc = op->getLoc();
+      auto minFloat = rewriter.create<arith::ConstantOp>(
+          loc, rewriter.getF32FloatAttr(op.getMin().convertToFloat()));
+      auto maxFloat = rewriter.create<arith::ConstantOp>(
+          loc, rewriter.getF32FloatAttr(op.getMax().convertToFloat()));
+      auto minParam = rewriter.create<arith::BitcastOp>(
+          loc, rewriter.getI32Type(), minFloat);
+      auto maxParam = rewriter.create<arith::BitcastOp>(
+          loc, rewriter.getI32Type(), maxFloat);
+      rewriter.create<ttkernel::ClampScalarTileOp>(loc, adaptor.getInput(),
+                                                   minParam, maxParam);
     } else if constexpr (arity == 1) {
       rewriter.create<SFPUOp>(op->getLoc(), adaptor.getInput());
     } else if constexpr (arity == 2) {
@@ -1635,6 +1649,7 @@ void populateD2MToTTKernelPatterns(
                ttkernel::D2MSFPUOpsRewriter<d2m::TileAbsOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileBitwiseNotOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileCeilOp>,
+               ttkernel::D2MSFPUOpsRewriter<d2m::TileClampScalarOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileCosOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileErfOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileErfcOp>,
