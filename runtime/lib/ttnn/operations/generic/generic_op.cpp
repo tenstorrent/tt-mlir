@@ -3,15 +3,16 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "operations/generic/generic_op.h"
-#include "tt-metalium/program_descriptors.hpp"
-#include "tt-metalium/experimental/mesh_program_descriptor.hpp"
 #include "tt/runtime/detail/common/common.h"
 #include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/ttnn/types/program_desc_cache.h"
-
 #include "tt/runtime/detail/ttnn/utils.h"
 #include "ttmlir/Target/TTNN/operations/generic_op_generated.h"
+
+#include <tt-metalium/experimental/fabric/fabric.hpp>
+#include <tt-metalium/experimental/mesh_program_descriptor.hpp>
 #include <tt-metalium/mesh_coord.hpp>
+#include <tt-metalium/program_descriptors.hpp>
 
 namespace tt::runtime::ttnn::operations::generic_op {
 
@@ -246,22 +247,120 @@ createProgramDescriptor(
   return programDescriptor;
 }
 
+static void appendFabricConnectionArgs(
+    ::tt::tt_metal::ProgramDescriptor &programDescriptor,
+    const tt::tt_fabric::FabricNodeId &srcFabricNodeId) {
+  LOG_INFO("appendFabricConnectionArgs: ENTERED - srcFabricNodeId chip_id=",
+           srcFabricNodeId.chip_id, ", mesh_id=", srcFabricNodeId.mesh_id.get(),
+           ", num_kernels=", programDescriptor.kernels.size());
+
+  // TODO(vtangTT): need to detect this somehow
+  // bool isCcl = true;
+
+  static const std::vector<tt::tt_fabric::RoutingDirection> allRoutingDirections = {
+      tt::tt_fabric::RoutingDirection::E, tt::tt_fabric::RoutingDirection::W,
+      tt::tt_fabric::RoutingDirection::N, tt::tt_fabric::RoutingDirection::S};
+
+  for (size_t kernelIdx = 0; kernelIdx < programDescriptor.kernels.size();
+       ++kernelIdx) {
+    auto &kernel = programDescriptor.kernels[kernelIdx];
+    std::vector<tt::tt_metal::CoreCoord> cores =
+        tt::tt_metal::corerange_to_cores(kernel.core_ranges);
+
+    LOG_INFO("appendFabricConnectionArgs: kernelIdx=", kernelIdx,
+             ", num_cores=", cores.size());
+
+    for (uint32_t coreIdx = 0; coreIdx < cores.size(); ++coreIdx) {
+      const auto &core = cores[coreIdx];
+      tt::tt_metal::KernelHandle kernelHandle =
+          static_cast<tt::tt_metal::KernelHandle>(kernelIdx);
+
+      std::vector<uint32_t> rtArgs;
+      for (auto &[rtCore, rtCoreArgs] : kernel.runtime_args) {
+        if (rtCore == core) {
+          rtArgs = rtCoreArgs;
+          break;
+        }
+      }
+
+      auto numConnectionsIdx = rtArgs.size();
+      rtArgs.push_back(0);
+      LOG_INFO("appendFabricConnectionArgs: calling "
+               "append_routing_plane_connection_manager_rt_args for core=(",
+               core.x, ",", core.y, "), coreIdx=", coreIdx);
+      uint32_t numConnections =
+          tt::tt_fabric::append_routing_plane_connection_manager_rt_args<::tt::tt_metal::ProgramDescriptor>(
+              srcFabricNodeId, allRoutingDirections,
+              {coreIdx}, // connection_link_indices
+              programDescriptor, kernelHandle, core, rtArgs,
+              tt::tt_fabric::FabricApiType::Mesh);
+      LOG_INFO("appendFabricConnectionArgs: numConnections=", numConnections,
+               ", rtArgs.size()=", rtArgs.size());
+      rtArgs[numConnectionsIdx] = numConnections;
+
+      // Store updated args back
+      bool found = false;
+      for (auto &[rtCore, rtCoreArgs] : kernel.runtime_args) {
+        if (rtCore == core) {
+          rtCoreArgs = std::move(rtArgs);
+          found = true;
+          break;
+        }
+      }
+      if (!found) {
+        kernel.runtime_args.emplace_back(core, std::move(rtArgs));
+      }
+    }
+    // Log the defines that were added to this kernel
+    LOG_INFO("appendFabricConnectionArgs: kernel ", kernelIdx, " now has ",
+             kernel.defines.size(), " defines:");
+    for (const auto &[key, value] : kernel.defines) {
+      LOG_INFO("  define: ", key, "=", value);
+    }
+  }
+}
+
 static std::shared_ptr<::tt::tt_metal::experimental::MeshProgramDescriptor>
 createMeshProgramDescriptor(
     const ::tt::target::ttnn::MeshProgramDescriptor *meshProgramDesc,
     const std::vector<::ttnn::Tensor> &ioTensors) {
+  ::ttnn::MeshDevice *meshDevice = ioTensors[0].device();
+  LOG_ASSERT(meshDevice, "Tensor must be on a mesh device");
+
   auto meshProgramDescriptor =
       std::make_shared<::tt::tt_metal::experimental::MeshProgramDescriptor>();
   for (const auto *meshProgram : *meshProgramDesc->mesh_programs()) {
     const tt::target::ttnn::MeshCoordRange *deviceRange =
         meshProgram->device_range();
-    auto programDescriptor =
-        createProgramDescriptor(meshProgram->program(), ioTensors);
     tt::tt_metal::distributed::MeshCoordinateRange meshCoordinateRange =
         tt::runtime::ttnn::utils::toTTNNMeshCoordinateRange(*deviceRange);
-    meshProgramDescriptor->mesh_programs.emplace_back(
-        meshCoordinateRange, std::move(*programDescriptor));
+
+    // Iterate over all devices in the range and create a separate
+    // ProgramDescriptor for each with device-specific fabric connection args
+    for (const auto &deviceCoord : meshCoordinateRange) {
+      // Create a fresh copy of the program descriptor for this device
+      auto programDescriptor =
+          createProgramDescriptor(meshProgram->program(), ioTensors);
+
+      LOG_INFO("createMeshProgramDescriptor: deviceCoord=(", deviceCoord[0],
+               ",", deviceCoord[1], "), calling get_fabric_node_id");
+      tt::tt_fabric::FabricNodeId srcFabricNodeId =
+          meshDevice->get_fabric_node_id(deviceCoord);
+      LOG_INFO("createMeshProgramDescriptor: got srcFabricNodeId chip_id=",
+               srcFabricNodeId.chip_id, ", mesh_id=",
+               srcFabricNodeId.mesh_id.get(),
+               ", calling appendFabricConnectionArgs");
+      appendFabricConnectionArgs(*programDescriptor, srcFabricNodeId);
+
+      // Create a single-device range for this device
+      tt::tt_metal::distributed::MeshCoordinateRange singleDeviceRange(
+          deviceCoord);
+      meshProgramDescriptor->mesh_programs.emplace_back(
+          singleDeviceRange, std::move(*programDescriptor));
+    }
   }
+  LOG_INFO("createMeshProgramDescriptor: Returning with ",
+           meshProgramDescriptor->mesh_programs.size(), " mesh programs");
   return meshProgramDescriptor;
 }
 
@@ -332,14 +431,18 @@ void run(const ::tt::target::ttnn::GenericOp *op, ProgramContext &context) {
     // TODO(vtangTT): Add caching support for MeshProgramDescriptor.
     const tt::target::ttnn::MeshProgramDescriptor *meshProgramDesc =
         op->program_as_MeshProgramDescriptor();
+    LOG_INFO("run: Creating MeshProgramDescriptor...");
     std::shared_ptr<::tt::tt_metal::experimental::MeshProgramDescriptor>
         meshProgramDescriptor =
             createMeshProgramDescriptor(meshProgramDesc, ioTensors);
 
+    LOG_INFO("run: Calling ttnn::generic_op with MeshProgramDescriptor...");
     ::ttnn::Tensor outputTensor =
         ::ttnn::generic_op(ioTensors, *meshProgramDescriptor);
+    LOG_INFO("run: ttnn::generic_op returned successfully");
     tensorPool.insertTTNNTensorAndValidate(op->io_tensors()->Get(size - 1),
                                            outputTensor);
+    LOG_INFO("run: Inserted output tensor into tensor pool");
     break;
   }
   default: {
