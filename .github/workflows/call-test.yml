@@ -117,6 +117,17 @@ jobs:
           ttrt query --save-artifacts
         fi
 
+    - name: Download tt-triage files
+      shell: bash
+      run: |
+        TT_METAL_VERSION=$(grep 'set(TT_METAL_VERSION' third_party/CMakeLists.txt | sed 's/.*"\(.*\)".*/\1/')
+        mkdir -p tt-triage
+        curl -L "https://github.com/tenstorrent/tt-metal/archive/${TT_METAL_VERSION}.tar.gz" \
+          | tar -xz -C tt-triage --strip-components=1 \
+              tt-metal-${TT_METAL_VERSION}/scripts/ttexalens_ref.txt \
+              tt-metal-${TT_METAL_VERSION}/tools/tt-triage.py \
+              tt-metal-${TT_METAL_VERSION}/tools/triage
+
     - name: Run Lit Tests
       shell: bash
       run: |
@@ -143,9 +154,8 @@ jobs:
         TTRT_LOGGER_LEVEL: "WARNING"
         LOGURU_LEVEL: "ERROR"
         TT_METAL_LOGGER_LEVEL: "FATAL"
-        # TT_METAL_DISPATCH_TIMEOUT_COMMAND_TO_EXECUTE: "python $(pwd)/temp/tt-metal/tools/tt-triage.py 1>&2"
-        TT_METAL_DISPATCH_TIMEOUT_COMMAND_TO_EXECUTE: "caught a hang"
-        TT_METAL_OPERATION_TIMEOUT_SECONDS: 10
+        TT_METAL_DISPATCH_TIMEOUT_COMMAND_TO_EXECUTE: "python $(pwd)/tt-triage/tt-triage.py 1>&2"
+        TT_METAL_OPERATION_TIMEOUT_SECONDS: 20
       run: |
         # Run Tests
         source env/activate
