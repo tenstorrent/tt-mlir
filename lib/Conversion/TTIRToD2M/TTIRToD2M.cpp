@@ -601,6 +601,32 @@ private:
       // For comparison ops, first subtract then compare with zero.
       yield = bbBuilder.create<d2m::TileSubOp>(loc, resultTypes, operands);
       yield = bbBuilder.create<TileOp>(loc, resultTypes, yield);
+    } else if constexpr (std::is_same_v<ConcreteOp, ttir::LogicalAndOp>) {
+      // LogicalAnd: NEZ(a) * NEZ(b) - both must be non-zero.
+      auto nezA =
+          bbBuilder.create<d2m::TileNezOp>(loc, resultTypes, operands[0]);
+      auto nezB =
+          bbBuilder.create<d2m::TileNezOp>(loc, resultTypes, operands[1]);
+      yield = bbBuilder.create<d2m::TileMulOp>(loc, resultTypes,
+                                               ValueRange{nezA, nezB});
+    } else if constexpr (std::is_same_v<ConcreteOp, ttir::LogicalOrOp>) {
+      // LogicalOr: NEZ(NEZ(a) + NEZ(b)) - at least one must be non-zero.
+      auto nezA =
+          bbBuilder.create<d2m::TileNezOp>(loc, resultTypes, operands[0]);
+      auto nezB =
+          bbBuilder.create<d2m::TileNezOp>(loc, resultTypes, operands[1]);
+      auto sum = bbBuilder.create<d2m::TileAddOp>(loc, resultTypes,
+                                                  ValueRange{nezA, nezB});
+      yield = bbBuilder.create<d2m::TileNezOp>(loc, resultTypes, sum);
+    } else if constexpr (std::is_same_v<ConcreteOp, ttir::LogicalXorOp>) {
+      // LogicalXor: NEZ(NEZ(a) - NEZ(b)) - exactly one must be non-zero.
+      auto nezA =
+          bbBuilder.create<d2m::TileNezOp>(loc, resultTypes, operands[0]);
+      auto nezB =
+          bbBuilder.create<d2m::TileNezOp>(loc, resultTypes, operands[1]);
+      auto diff = bbBuilder.create<d2m::TileSubOp>(loc, resultTypes,
+                                                   ValueRange{nezA, nezB});
+      yield = bbBuilder.create<d2m::TileNezOp>(loc, resultTypes, diff);
     } else {
       yield = bbBuilder.create<TileOp>(loc, resultTypes, operands);
     }
@@ -1597,7 +1623,10 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
     D2MNamedElementwiseRewriter<ttir::GeluOp,        d2m::TileGeluOp>,
     D2MNamedElementwiseRewriter<ttir::HardsigmoidOp, d2m::TileHardsigmoidOp>,
     D2MNamedElementwiseRewriter<ttir::LogOp,         d2m::TileLogOp>,
+    D2MNamedElementwiseRewriter<ttir::LogicalAndOp,  d2m::TileMulOp>,
     D2MNamedElementwiseRewriter<ttir::LogicalNotOp,  d2m::TileLogicalNotOp>,
+    D2MNamedElementwiseRewriter<ttir::LogicalOrOp,   d2m::TileAddOp>,
+    D2MNamedElementwiseRewriter<ttir::LogicalXorOp,  d2m::TileSubOp>,
     D2MNamedElementwiseRewriter<ttir::MultiplyOp,    d2m::TileMulOp>,
     D2MNamedElementwiseRewriter<ttir::MaximumOp,     d2m::TileMaximumOp>,
     D2MNamedElementwiseRewriter<ttir::MinimumOp,     d2m::TileMinimumOp>,
