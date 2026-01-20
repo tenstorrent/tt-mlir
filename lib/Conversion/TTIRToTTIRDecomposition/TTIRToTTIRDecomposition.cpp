@@ -1899,6 +1899,51 @@ private:
 };
 } // namespace
 
+// The following pattern rewriter will replace a pooling op with a FullOp in the
+// case where the pooling operation is applied to the result of a FullOp.
+namespace {
+template <typename Pool2dOp>
+class PoolingToFullOp : public OpConversionPattern<Pool2dOp> {
+public:
+  using OpConversionPattern<Pool2dOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(Pool2dOp op, typename Pool2dOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttir::FullOp fullOp =
+        dyn_cast_or_null<ttir::FullOp>(op.getInput().getDefiningOp());
+    if (!fullOp) {
+      return failure();
+    }
+
+    std::variant<int64_t, float> fillValue =
+        isa<IntegerAttr>(fullOp.getFillValue())
+            ? dyn_cast<IntegerAttr>(fullOp.getFillValue())
+                  .getValue()
+                  .getSExtValue()
+            : dyn_cast<FloatAttr>(fullOp.getFillValue())
+                  .getValue()
+                  .convertToFloat();
+
+    mlir::Attribute fillValueAttr =
+        std::holds_alternative<int64_t>(fillValue)
+            ? cast<mlir::Attribute>(
+                  IntegerAttr::get(IntegerType::get(rewriter.getContext(), 32),
+                                   std::get<int64_t>(fillValue)))
+            : cast<mlir::Attribute>(
+                  FloatAttr::get(Float32Type::get(rewriter.getContext()),
+                                 std::get<float>(fillValue)));
+
+    rewriter.replaceOp(
+        op, rewriter.create<ttir::FullOp>(op.getLoc(), op.getResult().getType(),
+                                          fillValueAttr));
+
+    return success();
+  }
+};
+} // namespace
+
 // IndexSelectOp is converted to a series of SliceStaticOp and potentially a
 // ConcatOp if the sliced dimension is sliced multiple times. For example, if
 // the input tensor is
@@ -2828,6 +2873,8 @@ void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
                                              RewritePatternSet &patterns,
                                              TypeConverter &typeConverter,
                                              DecompMode decompConfig) {
+  patterns.add<PoolingToFullOp<ttir::MaxPool2dOp>>(typeConverter, ctx);
+  patterns.add<PoolingToFullOp<ttir::AvgPool2dOp>>(typeConverter, ctx);
   patterns.add<IndexToSliceConversionPattern>(typeConverter, ctx);
   patterns.add<Legalize1DConvolutionPattern>(typeConverter, ctx);
   patterns.add<ConvolutionToConv2dPattern>(typeConverter, ctx);
