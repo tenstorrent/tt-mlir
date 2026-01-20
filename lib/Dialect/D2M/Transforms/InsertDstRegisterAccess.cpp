@@ -422,39 +422,43 @@ public:
     return types;
   }
 
-  static std::pair<MemRefType, int>
-  inferCbInfoFromAllAccesses(const CopyInfoMap &copyInfos) {
-    MemRefType canonicalType = nullptr;
+  // Returns the tile element type and max DST slice index from all accesses.
+  // DST is treated as a flat 1D array of tiles, so we only need the element
+  // type (not the CB shape) since different CBs may have different shapes
+  // (e.g., 4x4 main input vs 1x1 mask tiles).
+  static std::pair<Type, int>
+  inferDstInfoFromAllAccesses(const CopyInfoMap &copyInfos) {
+    Type elementType = nullptr;
     int maxDstSlice = -1;
 
-    auto updateCanonicalType = [&](MemRefType memref, int idx) {
-      if (canonicalType == nullptr) {
-        canonicalType = memref;
-      } else {
-        TT_assertv(memref.getShape() == canonicalType.getShape(),
-                   "Multiple interpretations of DST not supported.");
+    auto updateInfo = [&](MemRefType memref, int idx) {
+      // Use the first element type seen for DST allocation.
+      // Different element types are allowed (e.g., typecast f16 -> f32);
+      // DstReinterpretCastOp handles type conversions.
+      if (elementType == nullptr) {
+        elementType = memref.getElementType();
       }
       maxDstSlice = std::max(maxDstSlice, idx);
     };
 
     for (auto [loopNest, copyInfo] : copyInfos) {
       for (auto &[loadOp, bcastOp, idx, guardDims] : copyInfo.loads) {
-        updateCanonicalType(loadOp.getMemRefType(), idx);
+        updateInfo(loadOp.getMemRefType(), idx);
       }
       for (auto &[storeOp, bcastOp, idx, guardDims] : copyInfo.stores) {
-        updateCanonicalType(storeOp.getMemRefType(), idx);
+        updateInfo(storeOp.getMemRefType(), idx);
       }
       // Also process memref ops (scheduled path).
       for (auto &[loadOp, bcastOp, idx, guardDims] : copyInfo.memrefLoads) {
-        updateCanonicalType(loadOp.getMemRefType(), idx);
+        updateInfo(loadOp.getMemRefType(), idx);
       }
       for (auto &[storeOp, bcastOp, idx, guardDims] : copyInfo.memrefStores) {
-        updateCanonicalType(storeOp.getMemRefType(), idx);
+        updateInfo(storeOp.getMemRefType(), idx);
       }
     }
-    TT_assert(canonicalType != nullptr);
+    TT_assert(elementType != nullptr);
     TT_assert(maxDstSlice >= 0);
-    return {canonicalType, maxDstSlice};
+    return {elementType, maxDstSlice};
   }
 
   static AcquireDstOp insertAcquireDst(PatternRewriter &rewriter, Location loc,
@@ -484,17 +488,14 @@ public:
       rewriter.setInsertionPointToStart(&region.front());
     }
 
-    auto [cbType, maxDstSlice] = inferCbInfoFromAllAccesses(copyInfos);
-    // Calculate dst shape as N slices of cb shape.
-    const int64_t volume = ttmlir::utils::volume(cbType.getShape());
-    TT_assert(volume <= dstCapacity);
-    const int64_t numDstSlices = dstCapacity / volume;
-    TT_assertv(maxDstSlice < numDstSlices,
+    auto [elementType, maxDstSlice] = inferDstInfoFromAllAccesses(copyInfos);
+    // Create DST as a flat 1D array of tiles. Each slot holds one tile,
+    // regardless of the CB shape it came from.
+    TT_assertv(maxDstSlice < static_cast<int64_t>(dstCapacity),
                "Insufficient DST capacity for all operands.");
-    SmallVector<int64_t> dstShape({numDstSlices});
-    dstShape.append(cbType.getShape().begin(), cbType.getShape().end());
+    SmallVector<int64_t> dstShape({static_cast<int64_t>(dstCapacity)});
     MemRefType dstType =
-        MemRefType::get(dstShape, cbType.getElementType(),
+        MemRefType::get(dstShape, elementType,
                         mlir::AffineMap::getMultiDimIdentityMap(
                             dstShape.size(), rewriter.getContext()),
                         rewriter.getAttr<ttcore::MemorySpaceAttr>(
@@ -654,8 +655,12 @@ public:
       auto iteratorTypes = gOp.getIteratorTypesValue();
 
       for (int64_t dim : nonParticipatingLoopDims) {
-        TT_assert(iteratorTypes[dim] == ttcore::IteratorType::Reduction);
-        guardDims.insert(dim);
+        // Only add reduction dims to guardDims - these need loop guards to
+        // ensure CB<->DST copies happen at the correct iteration.
+        // Parallel non-participating dims are broadcasts and don't need guards.
+        if (iteratorTypes[dim] == ttcore::IteratorType::Reduction) {
+          guardDims.insert(dim);
+        }
       }
     }
 
@@ -986,24 +991,6 @@ public:
     }
   }
 
-  // Extract loop induction variables from the outermost loop operation.
-  // This collects induction variables from all nested loops in the nest.
-  static SmallVector<Value> extractLoopInductionVars(Operation *outermostLoop) {
-    SmallVector<Value> loopInductionVars;
-    if (!outermostLoop) {
-      return loopInductionVars;
-    }
-
-    // Collect induction variables from all loops in the nest.
-    outermostLoop->walk([&](affine::AffineForOp loop) {
-      loopInductionVars.push_back(loop.getBody()->getArgument(0));
-    });
-
-    // Reverse to get innermost loops first.
-    std::reverse(loopInductionVars.begin(), loopInductionVars.end());
-    return loopInductionVars;
-  }
-
   // Rewrite stores to use dst register based on allocation map.
   static void
   fixDstIntermediateResults(PatternRewriter &rewriter, Location loc, Value dst,
@@ -1012,42 +999,19 @@ public:
     if (!dstType) {
       return;
     }
-    const unsigned dstRank = dstType.getRank();
 
     // Iterate directly through dst register allocation entries.
     for (const auto &[op, dstInfo] : dstIntermediates) {
       int dstSlice = dstInfo.dstSlice;
-      SmallVector<Value> loopInductionVars =
-          extractLoopInductionVars(dstInfo.outermostLoop);
 
       // Store the result of this operation to dst register.
       rewriter.setInsertionPoint(op);
 
-      SmallVector<Value> storeIndices;
-
-      // Build store indices: [dstSlice, loop_vars..., 0, 0, ...] using loop
-      // induction variables for the dimensions that correspond to loops.
-      storeIndices.push_back(
-          rewriter.create<arith::ConstantIndexOp>(loc, dstSlice));
-
-      // Use induction variables from the allocation.
-      storeIndices.append(loopInductionVars);
-
-      // Pad with zeros for remaining dimensions.
-      while (storeIndices.size() < dstRank) {
-        storeIndices.push_back(rewriter.create<arith::ConstantIndexOp>(loc, 0));
-      }
-
-      // Ensure storeIndices matches the destination memref rank.
-      assert(storeIndices.size() == dstRank &&
-             "storeIndices size must match destination memref rank. If it's "
-             "greater, probably need to use getNonParticipatingLoopDims to "
-             "skip loop dimensions: "
-             "https://github.com/tenstorrent/tt-mlir/pull/"
-             "5081#discussion_r2376709558");
-
+      // DST is a flat 1D array, so we just need the dstSlice as the index.
+      // Use a constant affine map for the access.
       auto storeMap =
-          AffineMap::getMultiDimIdentityMap(dstRank, rewriter.getContext());
+          AffineMap::getConstantMap(dstSlice, rewriter.getContext());
+      SmallVector<Value> storeIndices = {};
 
       rewriter.setInsertionPointAfter(op);
 
@@ -1096,6 +1060,7 @@ public:
 
   // Returns the indices and the map for the load store from L1 and Dst.
   //   tuple(l1AccessMap, l1AccessIndices, dstAccessMap, dstAccessIndices).
+  // DST is a flat 1D array, so dstAccessMap is just a constant index.
   static std::tuple<AffineMap, SmallVector<Value>, AffineMap,
                     SmallVector<Value>>
   buildIndices(PatternRewriter &rewriter, Location loc,
@@ -1107,9 +1072,10 @@ public:
           return irMapper.lookupOrDefault(index);
         }));
 
-    AffineMap dstAccessMap = map.insertResult(
-        getAffineConstantExpr(dstSlice, rewriter.getContext()), 0);
-    SmallVector<Value> dstAccessIndices = l1AccessIndices;
+    // DST is a flat 1D array indexed by dstSlice only.
+    AffineMap dstAccessMap =
+        AffineMap::getConstantMap(dstSlice, rewriter.getContext());
+    SmallVector<Value> dstAccessIndices = {};
     return {l1AccessMap, l1AccessIndices, dstAccessMap, dstAccessIndices};
   }
 
@@ -1348,6 +1314,39 @@ public:
         }
       }
     });
+
+    // Also collect simple copy patterns: memref.load -> memref.store with no
+    // compute in between. These are generated by DecomposeMasking for the
+    // "interior" region where no masking is needed.
+    // Without DST handling, these would become PackTileOp without a
+    // TileRegsAcquireOp, causing crashes in TTKernelControlDstSection.
+    auto isL1Memspace = [](Value memref) {
+      return ttcore::getMemorySpace(memref) == ttcore::MemorySpace::DeviceL1;
+    };
+
+    region.walk([&](memref::StoreOp store) {
+      // Only handle stores to L1 (CB).
+      if (!isL1Memspace(store.getMemRef())) {
+        return;
+      }
+
+      // Check if the value being stored comes directly from a memref.load.
+      auto load = store.getValue().getDefiningOp<memref::LoadOp>();
+      if (!load || !isL1Memspace(load.getMemRef())) {
+        return;
+      }
+
+      // This is a simple copy (load from L1 -> store to L1, no compute).
+      // It needs DST handling: CB -> DST -> CB.
+      auto [iter, _] = copyInfos.try_emplace(outermostInnerComputeLoop);
+
+      // Each simple copy needs its own DST slot for the iteration.
+      // We use a single slot per iteration (allocated once per loop entry).
+      int dstSlice = 0; // Simple copies all use slot 0.
+      iter->second.record(load, dstSlice, std::set<int64_t>{});
+      iter->second.record(store, dstSlice, std::set<int64_t>{});
+    });
+
     return {copyInfos, dstIntermediates};
   }
 
