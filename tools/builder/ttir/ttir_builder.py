@@ -23,6 +23,40 @@ from golden import *
 
 
 class TTIRBuilder(Builder):
+    """
+    Builder for constructing TTIR (Tenstorrent IR) dialect operations.
+
+    TTIRBuilder extends the base Builder class to provide methods for
+    constructing TTIR operations with automatic golden tensor verification.
+    TTIR is the high-level intermediate representation used in the TT-MLIR
+    compiler stack before lowering to hardware-specific dialects.
+
+    This class provides operation builders for a wide range of tensor
+    operations including:
+    - Element-wise operations (add, multiply, relu, etc.)
+    - Matrix operations (matmul, conv2d, etc.)
+    - Reduction operations (sum, mean, max, etc.)
+    - Data movement operations (reshape, transpose, concat, etc.)
+    - Collective operations (all_reduce, all_gather, etc.)
+
+    Each operation method is decorated with @tag to register it in the
+    operation dispatch map, and automatically handles golden tensor
+    computation for verification.
+
+    Examples
+    --------
+    ::
+
+        from builder.ttir.ttir_builder import TTIRBuilder
+        from builder.base.builder_apis import build_module
+
+        def my_module(builder: TTIRBuilder):
+            @builder.func([[64, 128], [64, 128]], [torch.float32, torch.float32])
+            def add_func(in0, in1, builder):
+                return builder.add(in0, in1)
+
+        module = build_module(my_module, TTIRBuilder)
+    """
 
     # ----- Methods -----
 
@@ -36,17 +70,62 @@ class TTIRBuilder(Builder):
         ] = OrderedDict([("x", 1), ("y", 1)]),
         disable_golden_check: bool = False,
     ):
+        """
+        Initialize a TTIRBuilder instance.
+
+        Parameters
+        ----------
+        ctx : Context
+            MLIR context for creating operations and types.
+        location : Location
+            Default MLIR location for operations created by this builder.
+        mesh_name : Union[List[str], str], optional
+            Name(s) of the device mesh(es). Defaults to "mesh".
+        mesh_dict : Union[List[OrderedDict[str, int]], OrderedDict[str, int]], optional
+            Dictionary specifying mesh dimensions. Defaults to a 1x1 mesh.
+        disable_golden_check : bool, optional
+            If True, skip golden tensor computation. Defaults to False.
+        """
         super().__init__(ctx, location, mesh_name, mesh_dict, disable_golden_check)
 
     # ----- Private methods ----
 
     def _get_empty_op(self, tensor_type: RankedTensorType) -> OpResult:
-        """Get TTIR-specific empty operation."""
+        """
+        Create an empty tensor operation with the given type.
+
+        Parameters
+        ----------
+        tensor_type : RankedTensorType
+            The MLIR tensor type for the empty tensor.
+
+        Returns
+        -------
+        OpResult
+            The result of the TTIR EmptyOp.
+        """
         return ttir.EmptyOp(tensor_type).result
 
     def _organize_eltwise_ttir(
         self, inputs: List[Operand], output_type: RankedTensorType
     ):
+        """
+        Organize arguments for TTIR element-wise operations.
+
+        TTIR ops expect the output type first, followed by inputs.
+
+        Parameters
+        ----------
+        inputs : List[Operand]
+            Input operands to the operation.
+        output_type : RankedTensorType
+            The output tensor type.
+
+        Returns
+        -------
+        Tuple
+            Arguments organized as (output_type, *inputs).
+        """
         return (output_type, *inputs)
 
     def _op_proxy(
@@ -64,6 +143,47 @@ class TTIRBuilder(Builder):
         loc: Optional[Union[str, Location]] = None,
         skip_golden: bool = False,
     ) -> Any:
+        """
+        Proxy method for creating TTIR operations with golden verification.
+
+        This is the core method used by most operation builders. It handles:
+        - Computing output shape and type via golden functions
+        - Creating the MLIR operation
+        - Setting unit attributes
+        - Computing and storing golden tensors for verification
+
+        Parameters
+        ----------
+        op_ttir_function : Callable
+            The TTIR operation class/function to invoke.
+        inputs : List[Operand]
+            Input operands to the operation.
+        unit_attrs : List[str], optional
+            List of unit attribute names to set on the operation.
+        organize_ttir_args : Callable, optional
+            Function to organize MLIR op arguments. Defaults to element-wise.
+        organize_golden_args : Callable, optional
+            Function to organize golden function arguments.
+        output_shape : Shape, optional
+            Explicit output shape (if not using golden inference).
+        output_type : Type, optional
+            Explicit output element type (if not using golden inference).
+        output_create_fn : Callable, optional
+            Custom function to create the output tensor type.
+        golden_kwargs : dict, optional
+            Keyword arguments for the golden function.
+        ttir_kwargs : dict, optional
+            Keyword arguments for the TTIR operation.
+        loc : Union[str, Location], optional
+            Location for the operation.
+        skip_golden : bool, optional
+            If True, skip golden computation. Defaults to False.
+
+        Returns
+        -------
+        Any
+            The result of the operation (typically OpResult).
+        """
         if not golden_kwargs:
             golden_kwargs = ttir_kwargs
 
@@ -7525,6 +7645,30 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """
+        Perform element-wise addition of two tensors.
+
+        Computes out = in0 + in1 element-wise. Inputs must be broadcastable
+        to a common shape.
+
+        Parameters
+        ----------
+        in0 : Operand
+            First input tensor.
+        in1 : Operand
+            Second input tensor.
+        output_type : torch.dtype, optional
+            Data type for the output tensor. If None, uses the type of in0.
+        loc : str, optional
+            Location string for the operation.
+        unit_attrs : List[str], optional
+            List of unit attribute names to set on the operation.
+
+        Returns
+        -------
+        OpResult
+            The result tensor containing the element-wise sum.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.add)
 
         if output_type is None:
@@ -8667,6 +8811,27 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """
+        Compute the absolute value of a tensor element-wise.
+
+        Computes out = |in0| element-wise.
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor.
+        output_type : torch.dtype, optional
+            Data type for the output tensor. If None, uses the type of in0.
+        loc : str, optional
+            Location string for the operation.
+        unit_attrs : List[str], optional
+            List of unit attribute names to set on the operation.
+
+        Returns
+        -------
+        OpResult
+            The result tensor containing the absolute values.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.abs)
 
         if output_type is None:
@@ -11783,6 +11948,29 @@ class TTIRBuilder(Builder):
         bias: Optional[Operand] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpView:
+        """
+        Perform matrix multiplication of two tensors.
+
+        Computes out = in0 @ in1, optionally adding a bias term.
+        For 2D inputs, this is standard matrix multiplication.
+        For higher-dimensional inputs, batch matrix multiplication is performed.
+
+        Parameters
+        ----------
+        in0 : Operand
+            First input tensor (left operand).
+        in1 : Operand
+            Second input tensor (right operand).
+        bias : Operand, optional
+            Optional bias tensor to add to the result.
+        unit_attrs : List[str], optional
+            List of unit attribute names to set on the operation.
+
+        Returns
+        -------
+        OpView
+            The result tensor from matrix multiplication.
+        """
         inputs = [in0, in1]
         if bias:
             inputs.append(bias)
