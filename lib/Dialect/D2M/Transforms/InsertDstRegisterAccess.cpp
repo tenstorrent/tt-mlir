@@ -538,9 +538,12 @@ public:
     }
 
     // 2. Insert acquire dst.
+    // For scheduled (scf.for) loops, insert inside the loop body for
+    // per-iteration DST. For affine.for loops, insert before the loop.
     AcquireDstOp acquireDst =
         insertAcquireDst(rewriter, loc, region, copyInfos,
-                         outermostInnerComputeLoop, dstCapacity);
+                         outermostInnerComputeLoop, dstCapacity,
+                         /*insertInsideLoop=*/isScheduled);
     Value dst = acquireDst.getResult();
 
     // 3. Generate data copy loops to/from dst.
@@ -611,10 +614,26 @@ public:
                                        Region &region,
                                        const CopyInfoMap &copyInfos,
                                        Operation *outermostInnerComputeLoop,
-                                       unsigned dstCapacity) {
+                                       unsigned dstCapacity,
+                                       bool insertInsideLoop = false) {
     assert(!copyInfos.empty());
     if (outermostInnerComputeLoop) {
-      rewriter.setInsertionPoint(outermostInnerComputeLoop);
+      // For scf.for loops (scheduled path), insert acquire INSIDE the loop body
+      // so each iteration gets fresh DST registers. This is needed for cases
+      // like partial tiling where simple loops repeatedly use fixed tiles.
+      //
+      // For affine.for loops (matmul path), insert acquire BEFORE the loop
+      // so DST is shared across iterations for accumulation.
+      if (insertInsideLoop) {
+        if (auto scfFor = dyn_cast<scf::ForOp>(outermostInnerComputeLoop)) {
+          rewriter.setInsertionPointToStart(scfFor.getBody());
+        } else {
+          // Fallback: insert before the loop if not scf.for
+          rewriter.setInsertionPoint(outermostInnerComputeLoop);
+        }
+      } else {
+        rewriter.setInsertionPoint(outermostInnerComputeLoop);
+      }
     } else {
       rewriter.setInsertionPointToStart(&region.front());
     }
@@ -969,15 +988,19 @@ public:
       auto insertionPointAfterLoopNest = rewriter.saveInsertionPoint();
 
       // Process loads and load-bcasts.
-      rewriter.setInsertionPoint(loopNestOrOp);
+      // Insert CB->DST load at the SAME LOCATION as the original load (inside
+      // the loop), not before the loop. The original load uses loop induction
+      // variables that are only valid inside the loop body.
       for (auto &record : copyInfo.loads) {
         AffineMap dstAccessMap =
             AffineMap::getConstantMap(record.dstSlice, rewriter.getContext());
 
-        // Generate CB->DST copy op.
-        rewriter.setInsertionPoint(loopNestOrOp);
         if (record.load.isAffine()) {
           auto affineLoad = record.load.getAffine();
+
+          // Generate CB->DST copy op at the original load location (inside
+          // loop).
+          rewriter.setInsertionPoint(affineLoad);
           auto cbLoad = rewriter.create<affine::AffineLoadOp>(
               record.getLoc(), affineLoad.getMemRef(), affineLoad.getMap(),
               affineLoad.getIndices());
@@ -993,8 +1016,7 @@ public:
           rewriter.create<affine::AffineStoreOp>(
               record.getLoc(), valueToStore, dst, dstAccessMap, ValueRange{});
 
-          // Replace original load op.
-          rewriter.setInsertionPoint(affineLoad);
+          // Replace original load op with DST load.
           auto dstLoad = rewriter.create<affine::AffineLoadOp>(
               record.getLoc(), dst, dstAccessMap, ValueRange{});
           if (record.bcast.has_value()) {
@@ -1006,6 +1028,10 @@ public:
           }
         } else {
           auto memrefLoad = record.load.getMemref();
+
+          // Generate CB->DST copy op at the original load location (inside
+          // loop).
+          rewriter.setInsertionPoint(memrefLoad);
           auto cbLoad = rewriter.create<memref::LoadOp>(
               record.getLoc(), memrefLoad.getMemRef(), memrefLoad.getIndices());
           Value valueToStore = cbLoad.getResult();
@@ -1020,8 +1046,7 @@ public:
           rewriter.create<affine::AffineStoreOp>(
               record.getLoc(), valueToStore, dst, dstAccessMap, ValueRange{});
 
-          // Replace original load op.
-          rewriter.setInsertionPoint(memrefLoad);
+          // Replace original load op with DST load.
           auto dstLoad = rewriter.create<affine::AffineLoadOp>(
               record.getLoc(), dst, dstAccessMap, ValueRange{});
           if (record.bcast.has_value()) {
@@ -1035,32 +1060,17 @@ public:
       }
 
       // Process stores.
-      rewriter.restoreInsertionPoint(insertionPointAfterLoopNest);
+      // Insert DST->CB store at the SAME LOCATION as the original store (inside
+      // the loop), not after the loop. The original store uses loop induction
+      // variables that are only valid inside the loop body.
       for (auto &record : copyInfo.stores) {
         AffineMap dstAccessMap =
             AffineMap::getConstantMap(record.dstSlice, rewriter.getContext());
 
-        // Generate DST->CB copy.
-        auto dstLoad = rewriter.create<affine::AffineLoadOp>(
-            record.getLoc(), dst, dstAccessMap, ValueRange{});
-        Value valueToStore = dstLoad.getResult();
-
-        auto cbType = record.getMemRefType();
-        if (valueToStore.getType() != cbType.getElementType()) {
-          valueToStore =
-              rewriter
-                  .create<d2m::DstReinterpretCastOp>(
-                      record.getLoc(), cbType.getElementType(), valueToStore)
-                  .getResult();
-        }
-
         if (record.store.isAffine()) {
           auto affineStore = record.store.getAffine();
-          rewriter.create<affine::AffineStoreOp>(
-              record.getLoc(), valueToStore, affineStore.getMemRef(),
-              affineStore.getMap(), affineStore.getIndices());
 
-          // Replace original store op.
+          // Replace original store with DST store first.
           rewriter.setInsertionPoint(affineStore);
           auto dstType = mlir::cast<MemRefType>(dst.getType());
           Value storeValue = affineStore.getValue();
@@ -1071,15 +1081,32 @@ public:
                         record.getLoc(), dstType.getElementType(), storeValue)
                     .getResult();
           }
-          rewriter.replaceOpWithNewOp<affine::AffineStoreOp>(
-              affineStore, storeValue, dst, dstAccessMap, ValueRange{});
+          rewriter.create<affine::AffineStoreOp>(
+              record.getLoc(), storeValue, dst, dstAccessMap, ValueRange{});
+
+          // Generate DST->CB copy at the same location (inside loop).
+          auto dstLoad = rewriter.create<affine::AffineLoadOp>(
+              record.getLoc(), dst, dstAccessMap, ValueRange{});
+          Value valueToStore = dstLoad.getResult();
+
+          auto cbType = record.getMemRefType();
+          if (valueToStore.getType() != cbType.getElementType()) {
+            valueToStore =
+                rewriter
+                    .create<d2m::DstReinterpretCastOp>(
+                        record.getLoc(), cbType.getElementType(), valueToStore)
+                    .getResult();
+          }
+          rewriter.create<affine::AffineStoreOp>(
+              record.getLoc(), valueToStore, affineStore.getMemRef(),
+              affineStore.getMap(), affineStore.getIndices());
+
+          // Erase original store.
+          rewriter.eraseOp(affineStore);
         } else {
           auto memrefStore = record.store.getMemref();
-          rewriter.create<memref::StoreOp>(record.getLoc(), valueToStore,
-                                           memrefStore.getMemRef(),
-                                           memrefStore.getIndices());
 
-          // Replace original store op.
+          // Replace original store with DST store first.
           rewriter.setInsertionPoint(memrefStore);
           auto dstType = mlir::cast<MemRefType>(dst.getType());
           Value storeValue = memrefStore.getValue();
@@ -1090,10 +1117,31 @@ public:
                         record.getLoc(), dstType.getElementType(), storeValue)
                     .getResult();
           }
-          rewriter.replaceOpWithNewOp<affine::AffineStoreOp>(
-              memrefStore, storeValue, dst, dstAccessMap, ValueRange{});
+          rewriter.create<affine::AffineStoreOp>(
+              record.getLoc(), storeValue, dst, dstAccessMap, ValueRange{});
+
+          // Generate DST->CB copy at the same location (inside loop).
+          auto dstLoad = rewriter.create<affine::AffineLoadOp>(
+              record.getLoc(), dst, dstAccessMap, ValueRange{});
+          Value valueToStore = dstLoad.getResult();
+
+          auto cbType = record.getMemRefType();
+          if (valueToStore.getType() != cbType.getElementType()) {
+            valueToStore =
+                rewriter
+                    .create<d2m::DstReinterpretCastOp>(
+                        record.getLoc(), cbType.getElementType(), valueToStore)
+                    .getResult();
+          }
+          rewriter.create<memref::StoreOp>(record.getLoc(), valueToStore,
+                                           memrefStore.getMemRef(),
+                                           memrefStore.getIndices());
+
+          // Erase original store.
+          rewriter.eraseOp(memrefStore);
         }
       }
+      (void)insertionPointAfterLoopNest; // No longer used - stores are in-place
     }
   }
 
