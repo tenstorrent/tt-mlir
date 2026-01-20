@@ -120,13 +120,18 @@ jobs:
     - name: Download tt-triage files
       shell: bash
       run: |
-        TT_METAL_VERSION=$(grep 'set(TT_METAL_VERSION' third_party/CMakeLists.txt | sed 's/.*"\(.*\)".*/\1/')
-        mkdir -p tt-triage
-        curl -L "https://github.com/tenstorrent/tt-metal/archive/${TT_METAL_VERSION}.tar.gz" \
-          | tar -xz -C tt-triage --strip-components=1 \
-              tt-metal-${TT_METAL_VERSION}/scripts/ttexalens_ref.txt \
-              tt-metal-${TT_METAL_VERSION}/tools/tt-triage.py \
-              tt-metal-${TT_METAL_VERSION}/tools/triage
+        # TT_METAL_VERSION=$(grep 'set(TT_METAL_VERSION' third_party/CMakeLists.txt | sed 's/.*"\(.*\)".*/\1/')
+        # mkdir -p tt-triage
+        # curl -L "https://github.com/tenstorrent/tt-metal/archive/${TT_METAL_VERSION}.tar.gz" \
+        #   | tar -xz -C tt-triage --strip-components=1 \
+        #       tt-metal-${TT_METAL_VERSION}/scripts/ttexalens_ref.txt \
+        #       tt-metal-${TT_METAL_VERSION}/tools/tt-triage.py \
+        #       tt-metal-${TT_METAL_VERSION}/tools/triage
+
+        mkdir temp
+        cd temp
+        git clone https://github.com/tenstorrent/tt-metal.git
+        cd ..
 
     - name: Run Lit Tests
       shell: bash
@@ -159,13 +164,8 @@ jobs:
         # Run Tests
         source env/activate
 
-        ls -R tt-triage
-        pip freeze
-
-        export TT_METAL_DISPATCH_TIMEOUT_COMMAND_TO_EXECUTE="python $(pwd)/tt-triage/tools/tt-triage.py 1>&2"
+        export TT_METAL_DISPATCH_TIMEOUT_COMMAND_TO_EXECUTE="python $(pwd)/temp/tt-metal/tools/tt-triage.py 1>&2"
         echo $TT_METAL_DISPATCH_TIMEOUT_COMMAND_TO_EXECUTE
-
-        cat $(pwd)/tt-triage/tools/tt-triage.py
 
         MACHINE_IP=$(hostname -I | awk '{print $1}')
         export no_proxy="${no_proxy:+$no_proxy,}localhost,${MACHINE_IP}"
