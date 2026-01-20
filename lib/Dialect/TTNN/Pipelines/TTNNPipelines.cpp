@@ -18,6 +18,7 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/Transforms/Passes.h"
 
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/Passes.h"
 
@@ -310,26 +311,6 @@ void createTTIRToTTNNDevicePipeline(
       }
     }
 
-#ifdef TTMLIR_ENABLE_OPMODEL
-    if (options.d2mFallbackEnabled) {
-      devicePm.addPass(createConvertTTNNToTTIRPass());
-
-      // Run the D2M frontend/middleend/backend pipelines directly.
-      // We can't use createTTIRToTTMetalPipeline because we're already nested
-      // inside DeviceModuleOp.ModuleOp and that function tries to create its
-      // own DeviceModuleOp wrapper.
-      ttmetal::TTIRToTTMetalPipelineOptions ttmetalOptions;
-      ttmetalOptions.systemDescPath = options.systemDescPath;
-      ttmetalOptions.mockSystemDescArch = options.mockSystemDescArch;
-      ttmetalOptions.meshShape = llvm::to_vector(options.meshShape);
-      ttmetalOptions.ttnnMode = true;
-
-      ttmetal::createTTIRToTTMetalFrontendPipeline(devicePm, ttmetalOptions);
-      ttmetal::createTTIRToTTMetalMiddleendPipeline(devicePm, ttmetalOptions);
-      ttmetal::createTTIRToTTMetalBackendPipeline(devicePm, ttmetalOptions);
-    }
-#endif
-
     createTTNNPipelineLayoutDecompositionPass(devicePm, options);
     if (options.enableTrace) {
       devicePm.addPass(tt::ttnn::createTTNNTraceHoistTransform());
@@ -490,6 +471,20 @@ void createTTIRToEmitPyCPUPipeline(OpPassManager &pm) {
   cpuPm.addPass(createEmitPyNameVarsPass());
 }
 
+void createTTNNPipelineD2MPass(OpPassManager &pm) {
+  auto &d2mPm = pm.nest<func::FuncOp>()
+                    .nest<ttnn::DispatchD2MOp>()
+                    .nest<mlir::ModuleOp>();
+
+  // Can't use createTTIRToTTMetalPipeline because TTCoreWrapDeviceModulePass
+  // only works on top-level modules (doesn't run module has a parent op).
+  ttmetal::TTIRToTTMetalPipelineOptions ttmetalOptions;
+  ttmetalOptions.ttnnMode = true;
+  ttmetal::createTTIRToTTMetalFrontendPipeline(d2mPm, ttmetalOptions);
+  ttmetal::createTTIRToTTMetalMiddleendPipeline(d2mPm, ttmetalOptions);
+  ttmetal::createTTIRToTTMetalBackendPipeline(d2mPm, ttmetalOptions);
+}
+
 //===----------------------------------------------------------------------===//
 // End-to-end pipelines.
 //===----------------------------------------------------------------------===//
@@ -620,5 +615,12 @@ void registerTTNNPipelines() {
       "Pipeline to recover structure from TTNN IR for code generation from "
       "XLA/Torch. ",
       mlir::tt::ttnn::createRecoverStructureXLATorchPipeline);
+
+  // TTNN D2M pipeline - runs D2M compilation on TTNN dispatch_d2m ops.
+  //
+  mlir::PassPipelineRegistration<>(
+      "ttnn-through-d2m-pipeline",
+      "Pipeline to compile D2M subgraphs inside ttnn.dispatch_d2m ops.",
+      [](OpPassManager &pm) { mlir::tt::ttnn::createTTNNPipelineD2MPass(pm); });
 }
 } // namespace mlir::tt::ttnn
