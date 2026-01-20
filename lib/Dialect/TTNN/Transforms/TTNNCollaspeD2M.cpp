@@ -52,7 +52,7 @@ private:
     func::FuncOp mainFunc = dispatchOp.lookupD2MMainFunc();
     if (!mainFunc) {
       return dispatchOp.emitOpError("could not find D2M function '")
-             << dispatchOp.getD2mFunc() << "' in body region";
+             << dispatchOp.getD2mFunc() << "' in nested module";
     }
 
     // Copy all kernel funcs to the parent module with unique names.
