@@ -14,6 +14,7 @@ from ttmlir.ir import *
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_apis import compile_and_execute_ttir
 from test_utils import Marks
+from conftest import get_request_kwargs
 
 pytestmark = pytest.mark.frontend("ttir")
 

@@ -10,7 +10,7 @@ from typing import Callable, List, Optional, Tuple, Union
 from collections import OrderedDict
 from functools import reduce
 import operator
-from conftest import x86_only
+from conftest import x86_only, get_request_kwargs
 
 from ttmlir.dialects import ttir, ttcore
 from builder.base.builder_utils import Operand, Shape, TypeInfo

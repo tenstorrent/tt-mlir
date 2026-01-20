@@ -13,6 +13,7 @@ from ttmlir.dialects import ttir
 from builder.base.builder_utils import Operand, Shape, TypeInfo
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_apis import compile_and_execute_ttir
+from conftest import get_request_kwargs
 
 from test_metal_matmul import create_matmul_constrained_inputs
 

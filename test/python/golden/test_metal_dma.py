@@ -12,6 +12,7 @@ from ttmlir.ir import *
 from builder.base.builder_utils import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_apis import compile_and_execute_ttir
+from conftest import get_request_kwargs
 
 pytestmark = pytest.mark.frontend("ttir")
 
