@@ -7,9 +7,11 @@ module {
     %0 = ttir.dispatch_d2m
         ins(%arg0, %arg1 : tensor<64x64xbf16>, tensor<64x64xbf16>)
         outs(%out : tensor<64x64xbf16>) {
-      func.func @d2m_subgraph(%a: tensor<64x64xbf16>, %b: tensor<64x64xbf16>) -> tensor<64x64xbf16> {
-        %0 = "ttir.add"(%a, %b) : (tensor<64x64xbf16>, tensor<64x64xbf16>) -> tensor<64x64xbf16>
-        return %0 : tensor<64x64xbf16>
+      builtin.module {
+        func.func @d2m_subgraph(%a: tensor<64x64xbf16>, %b: tensor<64x64xbf16>) -> tensor<64x64xbf16> {
+          %0 = "ttir.add"(%a, %b) : (tensor<64x64xbf16>, tensor<64x64xbf16>) -> tensor<64x64xbf16>
+          return %0 : tensor<64x64xbf16>
+        }
       }
     } : tensor<64x64xbf16>
     return %0 : tensor<64x64xbf16>

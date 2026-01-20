@@ -550,6 +550,8 @@ void createTTNNToEmitPyPipeline(
 void createRecoverStructureXLATorchPipeline(
     OpPassManager &pm, const RecoverStructureXLATorchPipelineOptions &options);
 
+void createTTNNPipelineD2MPass(OpPassManager &pm);
+
 void registerTTNNPipelines();
 } // namespace mlir::tt::ttnn
 
