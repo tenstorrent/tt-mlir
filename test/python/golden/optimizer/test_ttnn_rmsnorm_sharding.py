@@ -10,6 +10,7 @@ import torch
 from builder.base.builder_utils import Shape
 from builder.base.builder_apis import compile_and_execute_ttnn
 from builder.ttnn.ttnn_builder import TTNNBuilder
+from conftest import get_request_kwargs
 
 # Temporarily disabled: RMSNorm with sharded input causes crash in metal.
 pytestmark = [

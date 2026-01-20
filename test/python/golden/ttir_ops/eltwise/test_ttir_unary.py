@@ -5,7 +5,7 @@
 import pytest
 import torch
 from typing import Callable, List, Optional
-from conftest import x86_only
+from conftest import x86_only, get_request_kwargs
 from builder.base.builder_utils import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_apis import (
