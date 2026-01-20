@@ -130,7 +130,7 @@ class TenstorrentResNetModel:
         return x
 
 
-def profile_with_trace(model, batch_size, layer_size, device, num_iter=1):
+def profile_with_trace(model, batch_size, layer_size, device, num_iter=10):
     """
     Profiles performance using TTNN Trace and Replay.
     """
