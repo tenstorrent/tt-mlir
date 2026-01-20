@@ -151,6 +151,7 @@ void createTTIRToTTMetalMiddleendPipeline(
   {
     tileComputeLoopsOptions.maxDstPhysicalSizeTiles =
         options.maxDstPhysicalSizeTiles;
+    tileComputeLoopsOptions.enableTwoPhaseDestTiling = true;
   }
   pm.addPass(d2m::createD2MGenericTileComputeLoops(tileComputeLoopsOptions));
   d2m::D2MLinalgToAffineOptions linalgToAffineOptions;
