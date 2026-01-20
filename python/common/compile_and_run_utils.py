@@ -38,6 +38,8 @@ class ModuleDialect(Enum):
 
         if "= stablehlo." in str_repr:
             return ModuleDialect.STABLE_HLO
+        elif '= "stablehlo.' in str_repr:
+            return ModuleDialect.STABLE_HLO
         elif '= "ttir.' in str_repr:
             return ModuleDialect.TTIR
         elif '= "ttnn.' in str_repr:
