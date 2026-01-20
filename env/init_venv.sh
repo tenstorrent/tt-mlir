@@ -31,4 +31,4 @@ pip install --no-cache-dir -r $ENV_DIR/build-requirements.txt
 pip install --no-cache-dir -r $ENV_DIR/ttnn-requirements.txt
 pip install --no-cache-dir -r $ENV_DIR/../test/python/requirements.txt
 
-./tt-triage-requirements.sh || echo "Warning: tt-triage-requirements.sh failed; continuing"
+$ENV_DIR/install-tt-triage.sh || echo "Warning: install-tt-triage.sh failed; continuing"
