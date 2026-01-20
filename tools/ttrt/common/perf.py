@@ -168,6 +168,13 @@ class Perf:
             choices=None,
             help="comma-separated list of operation types to filter out from perf results (e.g., 'const_eval,input_layout_conversion')",
         )
+        Perf.register_arg(
+            name="--fabric-config",
+            type=str,
+            default="fabric_1d",
+            choices=None,
+            help="Select fabric topology: disabled, fabric_1d, fabric_1d_ring, fabric_2d, fabric_2d_torus_x, fabric_2d_torus_y, fabric_2d_torus_xy or custom (case-insensitive, default: fabric_1d)",
+        )
 
     def __init__(self, args={}, logger=None, artifacts=None):
         for name, attributes in Perf.registered_args.items():
@@ -435,6 +442,9 @@ class Perf:
 
                     if self["--disable-ttrt-callbacks"]:
                         command_options += " --disable-ttrt-callbacks "
+
+                    if self["--fabric-config"] is not None:
+                        command_options += f" --fabric-config {self['--fabric-config']} "
 
                     ttrt_executable_path = shutil.which("ttrt")
                     test_command = (
