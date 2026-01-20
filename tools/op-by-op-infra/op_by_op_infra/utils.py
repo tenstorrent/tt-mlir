@@ -173,6 +173,13 @@ class OpWrapper:
 
             operand_mapping[original_name] = standardized_name
 
+        # Walk through regions to find additional preserved ops referenced from outer scope
+        if hasattr(op, "regions"):
+            next_pres_idx = len(op.operands)
+            self._collect_region_external_refs(
+                op, preserved_ops, operand_mapping, next_pres_idx
+            )
+
         # Build result mapping
         result_mapping = {}
         for i, result in enumerate(op.results):
@@ -208,6 +215,55 @@ class OpWrapper:
         else:
             self.attributes_str = "{}"
         self.origin_model = [origin_model]
+
+    def _collect_region_external_refs(
+        self,
+        op: OpView,
+        preserved_ops: dict,
+        operand_mapping: dict,
+        next_pres_idx: int,
+    ) -> None:
+        """
+        Walk through all regions in the operation to find values referenced from outer scope.
+
+        Adds any preserved operations (like stablehlo.constant) that are referenced inside
+        regions but not already in the preserved_ops dict.
+        """
+        for region in op.regions:
+            for block in region.blocks:
+                # Get block argument names to skip them (they're not external refs)
+                block_arg_names = set()
+                for arg in block.arguments:
+                    block_arg_names.add(arg.get_name())
+
+                for inner_op in block.operations:
+                    for operand in inner_op.operands:
+                        value_name = operand.get_name()
+
+                        # Skip if already mapped (it's a direct operand of the main op)
+                        if value_name in operand_mapping:
+                            continue
+
+                        # Skip if it's a block argument (not an external reference)
+                        if value_name in block_arg_names:
+                            continue
+
+                        # This is an external reference - check if it comes from a preserved op
+                        defining_op = operand.owner
+                        if (
+                            defining_op
+                            and hasattr(defining_op, "name")
+                            and defining_op.name in PRESERVED_OP_NAMES
+                        ):
+                            # Add this preserved op if we haven't seen this value before
+                            if value_name not in operand_mapping:
+                                standardized_name = f"%pres{next_pres_idx}"
+                                preserved_ops[next_pres_idx] = (
+                                    value_name,
+                                    str(defining_op),
+                                )
+                                operand_mapping[value_name] = standardized_name
+                                next_pres_idx += 1
 
     def __str__(self) -> str:
         return self.op_string
