@@ -1088,7 +1088,7 @@ def TTNN_MeshProgramAttr : TTNN_Attr<"MeshProgram", "mesh_program"> {
   }];
 
   let parameters = (ins "MeshRangeAttr":$mesh_range, "ProgramAttr":$program);
-  let assemblyFormat = "`<` $mesh_range `:` $program `>`";
+  let assemblyFormat = "`<` `range` `=` qualified($mesh_range) `,` `program` `=` qualified($program) `>`";
 
   let genVerifyDecl = 1;
 }
@@ -1100,7 +1100,7 @@ def TTNN_MeshProgramDescriptorAttr : TTNN_Attr<"MeshProgramDescriptor", "mesh_pr
   }];
 
   let parameters = (ins ArrayRefParameter<"MeshProgramAttr">:$mesh_programs);
-  let assemblyFormat = "`<` `[` $mesh_programs `]` `>`";
+  let assemblyFormat = "`<` `[` qualified($mesh_programs) `]` `>`";
 
   let genVerifyDecl = 1;
 }
