@@ -1669,3 +1669,22 @@ def module_uniform_dequantize(builder: StableHLOBuilder):
     ):
         builder.set_graph_level_check(True)
         return builder.uniform_dequantize(in0, unit_attrs=unit_attrs)
+
+
+@pytest.mark.parametrize(
+    "test_fn",
+    [
+        pytest.param(module_uniform_quantize, id="uniform_quantize"),
+        pytest.param(module_uniform_dequantize, id="uniform_dequantize"),
+    ],
+)
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_quantization_ops(test_fn: Callable, target: str, request, device):
+    compile_and_execute_shlo(
+        test_fn,
+        test_base=request.node.name,
+        target=target,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        device=device,
+    )

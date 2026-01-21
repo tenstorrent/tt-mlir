@@ -1174,46 +1174,19 @@ def requantize_golden(
 
 
 def stablehlo_uniform_quantize_golden(
-    input_tensor: GoldenMapTensor, output_type
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
 ) -> GoldenMapTensor:
-    """
-    Golden function for stablehlo uniform_quantize operation.
+    element_type = output_type_mlir.element_type
 
-    Performs element-wise conversion of floating-point tensor to quantized tensor.
-    The quantization parameters (scale, zero_point) are extracted from the output type.
-
-    Parameters
-    ----------
-    input_tensor : GoldenMapTensor
-        Input floating-point tensor to quantize
-    output_type : Type
-        MLIR output type containing quantization parameters
-
-    Returns
-    -------
-    GoldenMapTensor
-        Quantized tensor as integer representation
-    """
-    from mlir.ir import RankedTensorType
-    from mlir import ir as mlir_ir
-
-    # Extract quantization parameters from the output type
-    # The output_type should be a RankedTensorType with a quantized element type
-    element_type = output_type.element_type
-
-    # Get scale and zero point from the quantized type
-    # For uniform quantized types, we can access these attributes
     if hasattr(element_type, "scale") and hasattr(element_type, "zero_point"):
         scale = element_type.scale
         zero_point = element_type.zero_point
-        # Determine the storage type (int8, uint8, etc.)
         storage_type = element_type.storage_type
         if "i8" in str(storage_type):
             dtype = torch.qint8
         else:
             dtype = torch.quint8
     else:
-        # Default quantization parameters if not available
         scale = 1.0
         zero_point = 0
         dtype = torch.qint8
@@ -1224,21 +1197,6 @@ def stablehlo_uniform_quantize_golden(
 def stablehlo_uniform_dequantize_golden(
     input_tensor: GoldenMapTensor,
 ) -> GoldenMapTensor:
-    """
-    Golden function for stablehlo uniform_dequantize operation.
-
-    Performs element-wise conversion of quantized tensor to floating-point tensor.
-
-    Parameters
-    ----------
-    input_tensor : GoldenMapTensor
-        Input quantized tensor to dequantize
-
-    Returns
-    -------
-    GoldenMapTensor
-        Dequantized floating-point tensor
-    """
     return torch.dequantize(input_tensor)
 
 
