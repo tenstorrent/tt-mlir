@@ -10,8 +10,6 @@
 #include "ttmlir/Dialect/D2M/IR/D2MOpsInterfaces.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
-#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
-#include "ttmlir/Support/Logger.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
@@ -21,8 +19,6 @@
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/AffineExpr.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
-
-#include <numeric>
 
 namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MLOWERLOADSTOREOPSTODMA
@@ -254,6 +250,367 @@ static size_t calculateCoalescingFactorWithFallback(
   }
 
   return coalescingFactor;
+}
+
+static CBType getCBTypeForOperand(Value operand) {
+  auto memrefType = mlir::cast<MemRefType>(operand.getType());
+  auto shapedType = mlir::cast<ShapedType>(memrefType);
+  auto layout = ttcore::getDeviceLayout(shapedType);
+  auto shardShape = llvm::to_vector(layout.getShardShape(shapedType));
+  auto shardMemrefType =
+      MemRefType::get(shardShape, memrefType.getElementType(),
+                      /*layout=*/nullptr, memrefType.getMemorySpace());
+  return CBType::get(shardMemrefType);
+}
+
+static DenseI64ArrayAttr remapScratchInputs(OpBuilder &builder,
+                                            DenseI64ArrayAttr oldScratchInputs,
+                                            const int64_t expandedInputIndex,
+                                            const int64_t extraInputs) {
+  if (!oldScratchInputs || oldScratchInputs.size() == 0) {
+    return nullptr;
+  }
+
+  SmallVector<int64_t> remapped;
+  remapped.reserve(oldScratchInputs.size());
+  for (int64_t scratchInput : oldScratchInputs.asArrayRef()) {
+    remapped.push_back(scratchInput > expandedInputIndex
+                           ? scratchInput + extraInputs
+                           : scratchInput);
+  }
+  return builder.getDenseI64ArrayAttr(remapped);
+}
+
+static LogicalResult expandCompositeRemoteLoad(IRRewriter &rewriter,
+                                               RemoteLoadOp remoteLoad,
+                                               ValueRange expandedInputs,
+                                               int64_t concatDim) {
+  assert(remoteLoad.isExplicitCBForm());
+  ttcore::DeviceAttr device = ttcore::lookupDevice(remoteLoad);
+
+  int64_t gridRank = static_cast<int64_t>(remoteLoad.getIndices().size());
+  assert(concatDim >= 0 && concatDim < gridRank);
+
+  auto compositeType = mlir::cast<MemRefType>(remoteLoad.getMemref().getType());
+  TT_assert(compositeType.getRank() == 2 * gridRank);
+
+  const int64_t concatGridDim = concatDim;
+  const int64_t concatShardDim = concatDim + gridRank;
+
+  // Number of tiles in the composite view's concat dim, potentially aligned-up.
+  auto compositeDeviceShape = compositeType.getShape();
+  const int64_t compositeExtent = compositeDeviceShape[concatGridDim] *
+                                  compositeDeviceShape[concatShardDim];
+
+  // Number of tiles for each & all of the composite view inputs.
+  int64_t totalInputExtent = 0;
+  SmallVector<int64_t> inputExtents;
+  SmallVector<AffineMap> inputMemoryMaps;
+  SmallVector<SmallVector<int64_t>> inputShardShapes;
+
+  for (Value input : expandedInputs) {
+    auto inputType = mlir::cast<MemRefType>(input.getType());
+    TT_assert(inputType.getRank() == compositeType.getRank());
+    auto inputDeviceShape = inputType.getShape();
+    const int64_t inputExtent =
+        inputDeviceShape[concatGridDim] * inputDeviceShape[concatShardDim];
+
+    totalInputExtent += inputExtent;
+    inputExtents.push_back(inputExtent);
+    inputMemoryMaps.push_back(getMemoryMap(device, input, /*isRemote=*/true));
+    inputShardShapes.emplace_back(inputDeviceShape.drop_front(gridRank).begin(),
+                                  inputDeviceShape.drop_front(gridRank).end());
+  }
+  TT_assert(totalInputExtent <= compositeExtent);
+
+  Value cb = remoteLoad.getCb();
+  AffineMap localMemoryMap = getMemoryMap(device, cb, /*isRemote=*/false);
+
+  rewriter.setInsertionPoint(remoteLoad);
+
+  Location loc = remoteLoad.getLoc();
+  Value reservedCB = rewriter.create<ReserveOp>(loc, cb).getResult();
+
+  SmallVector<Value> gridIndices(remoteLoad.getIndices());
+  SmallVector<int64_t> outputShardShape(
+      remoteLoad.getCbType().getUnderlyingAs<MemRefType>().getShape());
+  TT_assert(outputShardShape.size() == static_cast<size_t>(gridRank));
+
+  auto emitDMAReadForInput = [&](OpBuilder &builder, Location innerLoc,
+                                 ValueRange shardIters, Value globalConcatIdx,
+                                 const int inputIdx, const int pieceOffset) {
+    // Calculate the full index (grid x shard) of the current input tile.
+    SmallVector<Value> inputFullIdx(2 * gridRank);
+    for (int dim = 0; dim < gridRank; dim++) {
+      Value globalDimIdx = nullptr;
+      if (dim == concatGridDim) {
+        // Shift-back the output's tile index with this input's cumulative
+        // offset so it points to the right tile of the input.
+        if (pieceOffset == 0) {
+          globalDimIdx = globalConcatIdx;
+        } else {
+          Value offsetVal = builder.create<arith::ConstantOp>(
+              innerLoc, builder.getIndexType(),
+              builder.getIndexAttr(pieceOffset));
+          globalDimIdx = builder.create<arith::SubIOp>(
+              innerLoc, globalConcatIdx, offsetVal);
+        }
+      } else {
+        // Otherwise it's just: grid_idx * tiles_per_shard + shard_idx.
+        Value outShardExtent = builder.create<arith::ConstantOp>(
+            innerLoc, builder.getIndexType(),
+            builder.getIndexAttr(outputShardShape[dim]));
+        Value baseIdx = builder.create<arith::MulIOp>(
+            innerLoc, gridIndices[dim], outShardExtent);
+        globalDimIdx =
+            builder.create<arith::AddIOp>(innerLoc, baseIdx, shardIters[dim]);
+      }
+
+      Value inShardExtent = builder.create<arith::ConstantOp>(
+          innerLoc, builder.getIndexType(),
+          builder.getIndexAttr(inputShardShapes[inputIdx][dim]));
+      // grid_idx = idx // shard_size
+      Value inputGridIdx =
+          builder.create<arith::DivSIOp>(innerLoc, globalDimIdx, inShardExtent);
+      // shard_idx = idx % shard_size
+      Value inputShardIdx =
+          builder.create<arith::RemSIOp>(innerLoc, globalDimIdx, inShardExtent);
+
+      inputFullIdx[dim] = inputGridIdx;
+      inputFullIdx[dim + gridRank] = inputShardIdx;
+    }
+
+    SmallVector<Value> remoteIndices =
+        applyMap(builder, innerLoc, inputMemoryMaps[inputIdx], inputFullIdx,
+                 /*isRemote=*/true);
+    SmallVector<Value> localIndices = applyMap(
+        builder, innerLoc, localMemoryMap, shardIters, /*isRemote=*/false);
+
+    // One tile at a time, no coalescing.
+    Value dmaTx = builder.create<DMAReadOp>(
+        innerLoc, expandedInputs[inputIdx], remoteIndices, reservedCB,
+        localIndices, builder.getI64IntegerAttr(1));
+    builder.create<DMAWaitOp>(innerLoc, dmaTx);
+  };
+
+  auto [lbs, ubs, steps] = getLoopBounds(rewriter, loc, outputShardShape);
+
+  scf::buildLoopNest(
+      rewriter, loc, lbs, ubs, steps,
+      [&](OpBuilder &loopBuilder, Location innerLoc, ValueRange shardIters) {
+        // Global index along the concat dim of a given tile:
+        // idx = grid_idx * tiles_per_shard + shard_idx
+        Value concatShardExtent = loopBuilder.create<arith::ConstantOp>(
+            innerLoc, loopBuilder.getIndexType(),
+            loopBuilder.getIndexAttr(outputShardShape[concatDim]));
+        Value baseConcatIdx = loopBuilder.create<arith::MulIOp>(
+            innerLoc, gridIndices[concatGridDim], concatShardExtent);
+        Value globalConcatIdx = loopBuilder.create<arith::AddIOp>(
+            innerLoc, baseConcatIdx, shardIters[concatDim]);
+
+        // Recursively generate the if-else chain for all inputs.
+        std::function<void(OpBuilder &, size_t, int64_t)> emitIfElseChain =
+            [&](OpBuilder &builder, const int inputIdx, const int startOffset) {
+              // Base case: reaching the end of the chain (the last 'else').
+              if (inputIdx + 1 == static_cast<int>(expandedInputs.size())) {
+                emitDMAReadForInput(builder, innerLoc, shardIters,
+                                    globalConcatIdx, inputIdx, startOffset);
+                return;
+              }
+
+              // Recursive case:
+              // - Emit DMA reads for the current input's contribution.
+              // - Recurse into the 'else' branch for the next input.
+              const int boundary = startOffset + inputExtents[inputIdx];
+              Value boundaryVal = builder.create<arith::ConstantOp>(
+                  innerLoc, builder.getIndexType(),
+                  builder.getIndexAttr(boundary));
+              Value cond = builder.create<arith::CmpIOp>(
+                  innerLoc, arith::CmpIPredicate::ult, globalConcatIdx,
+                  boundaryVal);
+
+              auto ifOp = builder.create<scf::IfOp>(innerLoc, TypeRange{}, cond,
+                                                    /*hasElse=*/true);
+
+              OpBuilder thenBuilder = ifOp.getThenBodyBuilder();
+              emitDMAReadForInput(thenBuilder, innerLoc, shardIters,
+                                  globalConcatIdx, inputIdx, startOffset);
+
+              OpBuilder elseBuilder = ifOp.getElseBodyBuilder();
+              emitIfElseChain(elseBuilder, inputIdx + 1, boundary);
+            };
+
+        // Skip out-of-bound portions if the output was aligned up.
+        if (totalInputExtent < compositeExtent) {
+          Value totalExtentVal = loopBuilder.create<arith::ConstantOp>(
+              innerLoc, loopBuilder.getIndexType(),
+              loopBuilder.getIndexAttr(totalInputExtent));
+          Value inBounds = loopBuilder.create<arith::CmpIOp>(
+              innerLoc, arith::CmpIPredicate::ult, globalConcatIdx,
+              totalExtentVal);
+          auto guardOp = loopBuilder.create<scf::IfOp>(
+              innerLoc, TypeRange{}, inBounds, /*hasElse=*/false);
+          OpBuilder guardBuilder = guardOp.getThenBodyBuilder();
+          emitIfElseChain(guardBuilder, /*inputIdx=*/0, /*startOffset=*/0);
+        } else {
+          emitIfElseChain(loopBuilder, /*inputIdx=*/0, /*startOffset=*/0);
+        }
+      });
+
+  rewriter.create<PushOp>(loc, cb);
+  rewriter.eraseOp(remoteLoad);
+
+  return success();
+}
+
+static LogicalResult expandCompositeViewsInGeneric(IRRewriter &rewriter,
+                                                   GenericOp gOp) {
+  CompositeViewOp compositeView = nullptr;
+  gOp.walk([&](RemoteLoadOp remoteLoad) {
+    auto maybeCompositeView =
+        remoteLoad.getMemref().getDefiningOp<CompositeViewOp>();
+    if (maybeCompositeView) {
+      assert(compositeView == nullptr &&
+             "Unsupported multiple composite views in one GenericOp.");
+      compositeView = maybeCompositeView;
+    }
+  });
+  assert(compositeView != nullptr);
+
+  SmallVector<Value> compositeInputs = compositeView.getCompositeInputs();
+  assert(compositeInputs.size() > 1);
+
+  int64_t compositeOperandIdx = gOp.getOperandIndex(compositeView.getResult());
+  int64_t oldNumInputs = static_cast<int64_t>(gOp.getInputs().size());
+  int64_t extraNumInputs = static_cast<int64_t>(compositeInputs.size() - 1);
+
+  // Step 1: recreate the GenericOp w/ expanded list of inputs.
+  SmallVector<Value> newInputs;
+  newInputs.reserve(oldNumInputs + extraNumInputs);
+  for (auto [idx, input] : llvm::enumerate(gOp.getInputs())) {
+    if (static_cast<int64_t>(idx) == compositeOperandIdx) {
+      newInputs.append(compositeInputs.begin(), compositeInputs.end());
+      continue;
+    }
+    newInputs.push_back(input);
+  }
+
+  SmallVector<CBType> expandedCBArgTypes;
+  expandedCBArgTypes.reserve(compositeInputs.size());
+  for (Value input : compositeInputs) {
+    expandedCBArgTypes.push_back(getCBTypeForOperand(input));
+  }
+
+  DenseI64ArrayAttr newScratchInputs =
+      remapScratchInputs(rewriter, gOp.getScratchInputsAttr(),
+                         compositeOperandIdx, extraNumInputs);
+
+  rewriter.setInsertionPoint(gOp);
+  auto newGOp = rewriter.create<GenericOp>(
+      gOp.getLoc(), gOp.getResultTypes(), newInputs, gOp.getOutputs(),
+      gOp.getAdditionalArgs(), gOp.getGrid(), gOp.getBlockFactors(),
+      gOp.getIndexingMaps(), gOp.getIteratorTypes(), gOp.getThreads(),
+      newScratchInputs, gOp.getNumRegions());
+
+  // Step 2: populate the new GenericOp with regions.
+  for (auto [oldRegion, newRegion] :
+       llvm::zip(gOp.getRegions(), newGOp.getRegions())) {
+    Block *oldBlock = &oldRegion.front();
+
+    // Step 2.1: expanded the list of block arguments accordingly.
+    SmallVector<Type> newBlockArgTypes;
+    newBlockArgTypes.reserve(oldBlock->getNumArguments() + extraNumInputs);
+    SmallVector<Location> newBlockArgLocs;
+    newBlockArgLocs.reserve(oldBlock->getNumArguments() + extraNumInputs);
+
+    for (auto [oldArgIdx, oldArg] : llvm::enumerate(oldBlock->getArguments())) {
+      if (static_cast<int64_t>(oldArgIdx) == compositeOperandIdx) {
+        for (auto cbType : expandedCBArgTypes) {
+          newBlockArgTypes.push_back(cbType);
+          newBlockArgLocs.push_back(oldArg.getLoc());
+        }
+        continue;
+      }
+      newBlockArgTypes.push_back(oldArg.getType());
+      newBlockArgLocs.push_back(oldArg.getLoc());
+    }
+
+    Block *newBlock = rewriter.createBlock(&newRegion, newRegion.end(),
+                                           newBlockArgTypes, newBlockArgLocs);
+    rewriter.setInsertionPointToStart(newBlock);
+
+    // Step 2.2: clone the regions over with correct block argument mappings.
+    IRMapping mapping;
+    unsigned newArgIdx = 0;
+    for (auto [oldArgIdx, oldArg] : llvm::enumerate(oldBlock->getArguments())) {
+      // Old use of the composite view operand's CB are conservatively mapped to
+      // the 1st expanded input CB.
+      mapping.map(oldArg, newBlock->getArgument(newArgIdx));
+      if (static_cast<int64_t>(oldArgIdx) == compositeOperandIdx) {
+        newArgIdx += expandedCBArgTypes.size();
+      } else {
+        newArgIdx++;
+      }
+    }
+
+    for (Operation &op : oldBlock->without_terminator()) {
+      rewriter.clone(op, mapping);
+    }
+    if (oldBlock->mightHaveTerminator()) {
+      rewriter.clone(*oldBlock->getTerminator(), mapping);
+    }
+  }
+
+  // Step 3: lower the composite remote load in the new GenericOp.
+  RemoteLoadOp clonedCompositeLoad = nullptr;
+  newGOp.walk([&](RemoteLoadOp remoteLoad) {
+    auto maybeCompositeView =
+        remoteLoad.getMemref().getDefiningOp<CompositeViewOp>();
+    if (maybeCompositeView) {
+      assert(remoteLoad.getMemref() == compositeView.getResult());
+      assert(clonedCompositeLoad == nullptr);
+      clonedCompositeLoad = remoteLoad;
+    }
+  });
+  assert(clonedCompositeLoad != nullptr);
+
+  auto expandedGenericInputs =
+      newGOp.getInputs().slice(compositeOperandIdx, compositeInputs.size());
+  if (failed(expandCompositeRemoteLoad(rewriter, clonedCompositeLoad,
+                                       expandedGenericInputs,
+                                       compositeView.getDim()))) {
+    return failure();
+  }
+  rewriter.replaceOp(gOp, newGOp.getResults());
+
+  assert(compositeView->use_empty());
+  rewriter.eraseOp(compositeView);
+
+  return success();
+}
+
+static LogicalResult expandCompositeViews(ModuleOp moduleOp) {
+  IRRewriter rewriter(moduleOp.getContext());
+  SmallVector<GenericOp> genericsToExpand;
+
+  moduleOp.walk([&](GenericOp gOp) {
+    gOp.walk([&](RemoteLoadOp remoteLoad) {
+      if (remoteLoad.getMemref().getDefiningOp<CompositeViewOp>()) {
+        genericsToExpand.push_back(gOp);
+        return WalkResult::interrupt();
+      }
+      return WalkResult::advance();
+    });
+  });
+
+  for (GenericOp gOp : genericsToExpand) {
+    if (failed(expandCompositeViewsInGeneric(rewriter, gOp))) {
+      return failure();
+    }
+  }
+
+  moduleOp.walk([&](CompositeViewOp compositeView) { assert(false); });
+  return success();
 }
 
 namespace {
@@ -806,6 +1163,11 @@ public:
       D2MLowerLoadStoreOpsToDMA>::D2MLowerLoadStoreOpsToDMABase;
 
   void runOnOperation() final {
+    if (failed(expandCompositeViews(getOperation()))) {
+      signalPassFailure();
+      return;
+    }
+
     RewritePatternSet patterns(&getContext());
     patterns.add<D2MLowerRemoteLoadRewritePattern>(&getContext(),
                                                    debugCoalescingInference);

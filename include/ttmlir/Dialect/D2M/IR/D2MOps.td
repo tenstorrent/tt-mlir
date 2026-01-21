@@ -50,6 +50,35 @@ def D2M_ViewLayoutOp
   let hasCanonicalizer = 1;
 }
 
+def D2M_CompositeViewOp : D2M_Op<"composite_view",
+                                 [Pure, D2M_ViewOpInterface,
+                                  DeclareOpInterfaceMethods<D2M_ViewOpInterface,
+                                                            ["getInput",
+                                                             "isComposite",
+                                                             "getCompositeInputs"]>,
+                                  DeclareOpInterfaceMethods<BufferizableOpInterface,
+                                                            ["bufferizesToMemoryRead",
+                                                             "bufferizesToMemoryWrite",
+                                                             "bufferize",
+                                                             "getAliasingValues",
+                                                             "getBufferType"]>]> {
+  let summary = "Piecewise view over multiple input tensors";
+  let description = [{
+    Represents a piecewise-affine view that aggregates multiple input tensors
+    along a certain dimension.
+  }];
+
+  // Use AnyRankedTensorOrMemRef because it survives the bufferization pass.
+  // Add DenseI64ArrayAttr:$xxx for logical sizes / cumulative offsets along the dim to avoid on-the-fly recalculation in the kernel?
+  // Add `AffineMapArrayAttr:$input_maps` for per-input affine maps (offset, view, bcast, transpose, strides, ...)?
+  let arguments = (ins Variadic<AnyRankedTensorOrMemRef>:$inputs, SI32Attr:$dim);
+
+  let results = (outs AnyRankedTensorOrMemRef:$result);
+
+  let hasVerifier = 1;
+  // let hasFolder = 1;
+}
+
 //===----------------------------------------------------------------------===//
 // Layout transition and streaming ops (D2M variants)
 //===----------------------------------------------------------------------===//
