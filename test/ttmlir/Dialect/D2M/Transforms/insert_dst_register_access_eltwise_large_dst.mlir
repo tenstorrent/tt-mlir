@@ -66,8 +66,9 @@ module {
           ^bb0(%in: !ttcore.tile<32x32, f32>, %in_17: !ttcore.tile<32x32, f32>, %out: !ttcore.tile<32x32, f32>):
             %0 = "d2m.tile_div"(%in, %in_17) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
             // CHECK: %[[DIV_RESULT:.*]] = "d2m.tile_div"(%[[DST0_VAL:.*]], %[[DST1_VAL:.*]]) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
-            // CHECK: affine.store %[[DIV_RESULT]], %[[DST:.*]][2] : memref<8x!ttcore.tile<32x32, f32>, #dst>
-            // CHECK: %[[DST_DIV:.*]] = affine.load %[[DST]][2] : memref<8x!ttcore.tile<32x32, f32>, #dst>
+            // Intermediate result stored with linearized index (i + j + dstSlice)
+            // CHECK: affine.store %[[DIV_RESULT]], %[[DST:.*]][{{.*}}] : memref<8x!ttcore.tile<32x32, f32>, #dst>
+            // CHECK: %[[DST_DIV:.*]] = affine.load %[[DST]][{{.*}}] : memref<8x!ttcore.tile<32x32, f32>, #dst>
             %1 = "d2m.tile_recip"(%0) : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
             // CHECK: %[[RECIP_RESULT:.*]] = "d2m.tile_recip"(%[[DST_DIV]]) : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
             // Final result stored with linearized index (i + j + dstSlice)
@@ -104,12 +105,12 @@ module {
           ^bb0(%in: !ttcore.tile<32x32, f32>, %in_17: !ttcore.tile<32x32, f32>, %out: !ttcore.tile<32x32, f32>):
             %0 = "d2m.tile_sub"(%in, %in_17) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
             // CHECK: %[[SUB_RESULT:.*]] = "d2m.tile_sub"(%[[DST0_VAL:.*]], %[[DST1_VAL:.*]]) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
-            // CHECK: affine.store %[[SUB_RESULT]], %[[DST:.*]][2] : memref<8x!ttcore.tile<32x32, f32>, #dst>
-            // CHECK: %[[DST_SUB:.*]] = affine.load %[[DST]][2] : memref<8x!ttcore.tile<32x32, f32>, #dst>
+            // CHECK: affine.store %[[SUB_RESULT]], %[[DST:.*]][{{.*}}] : memref<8x!ttcore.tile<32x32, f32>, #dst>
+            // CHECK: %[[DST_SUB:.*]] = affine.load %[[DST]][{{.*}}] : memref<8x!ttcore.tile<32x32, f32>, #dst>
             %1 = "d2m.tile_eqz"(%0) : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
             // CHECK: %[[EQZ1_RESULT:.*]] = "d2m.tile_eqz"(%[[DST_SUB]]) : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
-            // CHECK: affine.store %[[EQZ1_RESULT]], %[[DST]][2] : memref<8x!ttcore.tile<32x32, f32>, #dst>
-            // CHECK: %[[DST_EQZ1:.*]] = affine.load %[[DST]][2] : memref<8x!ttcore.tile<32x32, f32>, #dst>
+            // CHECK: affine.store %[[EQZ1_RESULT]], %[[DST]][{{.*}}] : memref<8x!ttcore.tile<32x32, f32>, #dst>
+            // CHECK: %[[DST_EQZ1:.*]] = affine.load %[[DST]][{{.*}}] : memref<8x!ttcore.tile<32x32, f32>, #dst>
             %2 = "d2m.tile_eqz"(%1) : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
             // CHECK: %[[EQZ2_RESULT:.*]] = "d2m.tile_eqz"(%[[DST_EQZ1]]) : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
             // Final result stored with linearized index (i + j + dstSlice)

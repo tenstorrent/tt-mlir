@@ -993,6 +993,68 @@ public:
     }
   }
 
+  // Build linearized DST access map and indices from enclosing affine.for
+  // loops. This is used for intermediate results in fused compute chains.
+  // Returns {accessMap, accessIndices} where accessMap computes:
+  //   dstSlice + d0 * stride0 + d1 * stride1 + ...
+  static std::pair<AffineMap, SmallVector<Value>>
+  buildLinearizedDstAccess(PatternRewriter &rewriter, Operation *op,
+                           int dstSlice) {
+    // Collect enclosing affine.for loops from innermost to outermost.
+    SmallVector<affine::AffineForOp> enclosingLoops;
+    Operation *current = op->getParentOp();
+    while (current) {
+      if (auto affineFor = dyn_cast<affine::AffineForOp>(current)) {
+        enclosingLoops.push_back(affineFor);
+      }
+      current = current->getParentOp();
+    }
+
+    if (enclosingLoops.empty()) {
+      // No enclosing loops - use constant map.
+      return {AffineMap::getConstantMap(dstSlice, rewriter.getContext()), {}};
+    }
+
+    // Reverse to get outermost-to-innermost order for stride computation.
+    std::reverse(enclosingLoops.begin(), enclosingLoops.end());
+
+    // Compute strides from the loop bounds (right to left).
+    // For loops with bounds [M, N], strides are [N, 1].
+    unsigned numDims = enclosingLoops.size();
+    SmallVector<int64_t> strides(numDims, 1);
+    int64_t stride = 1;
+    for (int i = numDims - 1; i >= 0; --i) {
+      strides[i] = stride;
+      // Get the loop bound - use constant upper bound if available.
+      // hasConstantUpperBound() checks if it's a constant, then
+      // getConstantUpperBound() returns the value directly.
+      if (enclosingLoops[i].hasConstantUpperBound()) {
+        stride *= enclosingLoops[i].getConstantUpperBound();
+      }
+      // For dynamic bounds, stride stays the same (conservative).
+      // This shouldn't happen in practice for tile loops.
+    }
+
+    // Build affine expression: dstSlice + d0*stride0 + d1*stride1 + ...
+    AffineExpr linearExpr =
+        getAffineConstantExpr(dstSlice, rewriter.getContext());
+    for (unsigned i = 0; i < numDims; ++i) {
+      AffineExpr dimExpr = getAffineDimExpr(i, rewriter.getContext());
+      linearExpr = linearExpr + dimExpr * strides[i];
+    }
+
+    AffineMap accessMap =
+        AffineMap::get(numDims, 0, linearExpr, rewriter.getContext());
+
+    // Collect induction variables in outermost-to-innermost order.
+    SmallVector<Value> accessIndices;
+    for (auto loop : enclosingLoops) {
+      accessIndices.push_back(loop.getInductionVar());
+    }
+
+    return {accessMap, accessIndices};
+  }
+
   // Rewrite stores to use dst register based on allocation map.
   static void
   fixDstIntermediateResults(PatternRewriter &rewriter, Location loc, Value dst,
@@ -1009,11 +1071,10 @@ public:
       // Store the result of this operation to dst register.
       rewriter.setInsertionPoint(op);
 
-      // DST is a flat 1D array, so we just need the dstSlice as the index.
-      // Use a constant affine map for the access.
-      auto storeMap =
-          AffineMap::getConstantMap(dstSlice, rewriter.getContext());
-      SmallVector<Value> storeIndices = {};
+      // DST is a flat 1D array. For multi-tile operations, we need to compute
+      // a linearized index from the enclosing loop induction variables.
+      auto [storeMap, storeIndices] =
+          buildLinearizedDstAccess(rewriter, op, dstSlice);
 
       rewriter.setInsertionPointAfter(op);
 
