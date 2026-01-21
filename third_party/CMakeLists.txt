@@ -1,6 +1,6 @@
 include(ExternalProject)
 
-set(TT_METAL_VERSION "520326686707aa8a313a583cf76968c610df1a98")
+set(TT_METAL_VERSION "8af4bf7994a5ca9b3d453345d68f2705b2d0bf8f")
 
 # Suppress install logs to avoid cluttering the build output
 set(CMAKE_INSTALL_MESSAGE NEVER)
@@ -48,7 +48,7 @@ set(TTMETAL_INCLUDE_DIRS
   ${CPM_SOURCE_CACHE}/boost/1359e136761ab2d10afa1c4e21086c8d824735cd/libs/core/include
   ${CPM_SOURCE_CACHE}/nlohmann_json/798e0374658476027d9723eeb67a262d0f3c8308/include
   ${CPM_SOURCE_CACHE}/spdlog/b1c2586bb5c35a7929362e87f62433eb68206873/include
-  ${CPM_SOURCE_CACHE}/tt-logger/5d45c661affa374c5656335a77010ab503f96a99/include
+  ${CPM_SOURCE_CACHE}/tt-logger/87c1a5f2e9d2dd011200eb49c86426c26dec719e/include
   ${CPM_SOURCE_CACHE}/xtl/0_8_0_patched/include
   ${CPM_SOURCE_CACHE}/xtensor/0_26_0_patched/include
   ${CPM_SOURCE_CACHE}/xtensor-blas/0_22_0_patched/include
@@ -118,7 +118,6 @@ ExternalProject_Add(
     -DENABLE_TRACY=${TT_RUNTIME_ENABLE_PERF_TRACE}
     -DENABLE_LIBCXX=OFF
     -DENABLE_DISTRIBUTED=${ENABLE_DISTRIBUTED}
-    -DEXPERIMENTAL_NANOBIND_BINDINGS=ON
   GIT_REPOSITORY https://github.com/tenstorrent/tt-metal.git
   GIT_TAG ${TT_METAL_VERSION}
   GIT_PROGRESS OFF
@@ -226,8 +225,8 @@ install(
 )
 install(
   DIRECTORY
-    ${CPM_SOURCE_CACHE}/tt-logger/5d45c661affa374c5656335a77010ab503f96a99/include
-  DESTINATION tt-metal/.cpmcache/tt-logger/5d45c661affa374c5656335a77010ab503f96a99
+    ${CPM_SOURCE_CACHE}/tt-logger/87c1a5f2e9d2dd011200eb49c86426c26dec719e/include
+  DESTINATION tt-metal/.cpmcache/tt-logger/87c1a5f2e9d2dd011200eb49c86426c26dec719e
   COMPONENT TTNNStandalone
   EXCLUDE_FROM_ALL
 )

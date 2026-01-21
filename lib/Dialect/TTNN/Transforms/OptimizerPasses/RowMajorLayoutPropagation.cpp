@@ -11,6 +11,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/Validation/OpConstraintValidation.h"
+#include "ttmlir/FunctionTypes.h"
 #include "ttmlir/Support/Logger.h"
 #include "ttmlir/Utils.h"
 
@@ -60,7 +61,8 @@ public:
     IRRewriter rewriter(&getContext());
 
     moduleOp->walk([&](func::FuncOp func) {
-      if (ttmlir::utils::isConstEvalFunc(func)) {
+      // Apply analysis only on forward functions.
+      if (!ttmlir::utils::isForwardDeviceFunc(func)) {
         return;
       }
 

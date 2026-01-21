@@ -287,6 +287,24 @@ def TTNN_MathFidelity : I32EnumAttr<"MathFidelity", "TT MathFidelity",
   let cppNamespace = "::mlir::tt::ttnn";
 }
 
+def TTNN_OptionalMathFidelityLoFi : I32EnumAttrCase<"LoFi", 0, "lofi">;
+def TTNN_OptionalMathFidelityHiFi2 : I32EnumAttrCase<"HiFi2", 2, "hifi2">;
+def TTNN_OptionalMathFidelityHiFi3 : I32EnumAttrCase<"HiFi3", 3, "hifi3">;
+def TTNN_OptionalMathFidelityHiFi4 : I32EnumAttrCase<"HiFi4", 4, "hifi4">;
+def TTNN_OptionalMathFidelityUndefined : I32EnumAttrCase<"Undefined", 5, "undefined">;
+
+def TTNN_OptionalMathFidelity : I32EnumAttr<"OptionalMathFidelity", "TT OptionalMathFidelity",
+                           [
+                            TTNN_OptionalMathFidelityLoFi,
+                            TTNN_OptionalMathFidelityHiFi2,
+                            TTNN_OptionalMathFidelityHiFi3,
+                            TTNN_OptionalMathFidelityHiFi4,
+                            TTNN_OptionalMathFidelityUndefined,
+                           ]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::mlir::tt::ttnn";
+}
+
 def TTNN_ComputeKernelMathFidelityLoFi : I32EnumAttrCase<"LoFi", 0, "lofi">;
 def TTNN_ComputeKernelMathFidelityHiFi2 : I32EnumAttrCase<"HiFi2", 2, "hifi2">;
 def TTNN_ComputeKernelMathFidelityHiFi3 : I32EnumAttrCase<"HiFi3", 3, "hifi3">;

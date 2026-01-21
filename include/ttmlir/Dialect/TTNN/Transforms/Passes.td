@@ -461,17 +461,43 @@ def TTNNSetComputeKernelConfig: Pass<"ttnn-set-compute-kernel-config", "::mlir::
   }];
 
   let options = [
-    Option<"mathFidelity", "math-fidelity", "std::optional<::mlir::tt::ttnn::MathFidelity>", /*default=*/"std::nullopt",
+    Option<"mathFidelity", "math-fidelity", "::mlir::tt::ttnn::OptionalMathFidelity", /*default=*/"::mlir::tt::ttnn::OptionalMathFidelity::HiFi4",
            "Set default math_fidelity (lofi, hifi2, hifi3, hifi4)">,
     Option<"mathApproxMode", "math-approx-mode", "bool", /*default=*/"false",
            "Set default math_approx_mode">,
-    Option<"fp32DestAccEn", "fp32-dest-acc-en", "bool", /*default=*/"false",
+    Option<"fp32DestAccEn", "fp32-dest-acc-en", "bool", /*default=*/"true",
            "Set default fp32_dest_acc_en">,
     Option<"packerL1Acc", "packer-l1-acc", "bool", /*default=*/"false",
            "Set default packer_l1_acc">,
     Option<"dstFullSyncEn", "dst-full-sync-en", "bool", /*default=*/"false",
            "Set default dst_full_sync_en">
   ];
+}
+
+def TTNNRecoverStructure: Pass<"ttnn-recover-structure", "::mlir::ModuleOp"> {
+  let summary = "Recover program structure by splitting IR into multiple functions based on source locations.";
+  let description = [{
+    This pass analyzes TTNN operations and extracts Python source location information
+    from each operation. It then groups operations by their originating Python functions
+    and creates new MLIR functions based on these groups, effectively recovering the
+    original program structure from the flattened MLIR representation.
+  }];
+}
+
+def TTNNSimplifyLocsForCodegen: Pass<"ttnn-simplify-locs-for-codegen", "::mlir::ModuleOp"> {
+  let summary = "Simplify location information for code generation.";
+  let description = [{
+    This pass simplifies location information by removing nested locations from NameLocs.
+    It only processes TTNN dialect operations and skips UnknownLocs.
+  }];
+}
+
+def TTNNRemoveDeallocs: Pass<"ttnn-remove-deallocs", "::mlir::ModuleOp"> {
+  let summary = "Remove all ttnn.deallocate operations for debugging.";
+  let description = [{
+    This pass removes all ttnn.deallocate operations from the IR.
+    Useful for debugging purposes to isolate issues related to deallocation.
+  }];
 }
 
 #endif

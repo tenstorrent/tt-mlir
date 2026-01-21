@@ -12,6 +12,63 @@
 namespace llvm::cl {
 
 // Template specialization of llvm::cl::parser for
+// mlir::tt::ttnn::OptionalMathFidelity
+// This enables command-line parsing of optional math fidelity options for MLIR
+// passes
+template <>
+class parser<mlir::tt::ttnn::OptionalMathFidelity>
+    : public basic_parser<mlir::tt::ttnn::OptionalMathFidelity> {
+public:
+  parser(Option &opt)
+      : basic_parser<mlir::tt::ttnn::OptionalMathFidelity>(opt) {}
+
+  // Called by clEnumValN to register enum values
+  void addLiteralOption(StringRef name, int value, StringRef helpStr) {
+    // This method is called during option setup but we don't need to store
+    // anything as we use symbolizeOptionalMathFidelity() directly in parse()
+  }
+
+  bool parse(Option &opt, StringRef argName, StringRef arg,
+             mlir::tt::ttnn::OptionalMathFidelity &value) {
+    // Try to symbolize the string using the generated function
+    std::optional<mlir::tt::ttnn::OptionalMathFidelity> result =
+        mlir::tt::ttnn::symbolizeOptionalMathFidelity(arg);
+    if (result.has_value()) {
+      value = *result;
+      return false; // Success
+    }
+
+    // If symbolization failed, return error
+    return opt.error("Invalid value '" + arg.str() +
+                     "' for math-fidelity. Valid values are: lofi, hifi2, "
+                     "hifi3, hifi4, undefined");
+  }
+
+  void print(raw_ostream &os,
+             const mlir::tt::ttnn::OptionalMathFidelity &value) {
+    os << mlir::tt::ttnn::stringifyOptionalMathFidelity(value);
+  }
+
+  void printOptionDiff(
+      const Option &opt,
+      const OptionValue<mlir::tt::ttnn::OptionalMathFidelity> &value,
+      const OptionValue<mlir::tt::ttnn::OptionalMathFidelity> &defaultValue,
+      size_t globalWidth) const {
+    printOptionName(opt, globalWidth);
+    std::string defaultStr =
+        mlir::tt::ttnn::stringifyOptionalMathFidelity(defaultValue.getValue())
+            .str();
+    std::string valueStr =
+        mlir::tt::ttnn::stringifyOptionalMathFidelity(value.getValue()).str();
+    outs() << "= " << valueStr;
+    if (defaultValue.getValue() != value.getValue()) {
+      outs() << " (default: " << defaultStr << ")";
+    }
+    outs() << "\n";
+  }
+};
+
+// Template specialization of llvm::cl::parser for
 // std::optional<mlir::tt::ttnn::MathFidelity> This enables command-line parsing
 // of math fidelity options for MLIR passes
 template <>

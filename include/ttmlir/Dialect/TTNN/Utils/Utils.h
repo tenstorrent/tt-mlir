@@ -5,7 +5,6 @@
 #ifndef TTMLIR_DIALECT_TTNN_UTILS_UTILS_H
 #define TTMLIR_DIALECT_TTNN_UTILS_UTILS_H
 
-#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Value.h"
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
@@ -105,7 +104,6 @@ createShardSpecIfNeeded(TensorMemoryLayoutAttr tensorMemoryLayout,
 std::optional<NDShardSpecAttr>
 createNDShardSpecIfNeeded(TTNNNDLayoutAttr layout);
 
-bool isTTNNTraceFunc(func::FuncOp funcOp);
 bool isTTNNHoistGenericViaD2MOp(mlir::Operation *op);
 
 // Returns all TTNN dialect registered operations.
