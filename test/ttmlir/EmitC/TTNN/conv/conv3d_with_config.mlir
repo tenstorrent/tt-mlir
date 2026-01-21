@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttcore-register-device="system-desc-path=%system_desc_path%" -o %t.mlir %s
+// RUN: ttmlir-opt --ttcore-register-device="system-desc-path=%system_desc_path%" --ttcore-mark-functions-as-forward -o %t.mlir %s
 // RUN: ttmlir-translate --ttnn-to-flatbuffer -o %basename_t.ttnn %t.mlir
 // RUN: ttmlir-opt --ttnn-to-emitc-device-pipeline -o %t2.mlir %t.mlir
 // RUN: ttmlir-translate --mlir-to-cpp -o %basename_t.cpp %t2.mlir
@@ -18,7 +18,8 @@
   w_out_block = 1,
   h_out_block = 1,
   c_out_block = 32,
-  c_in_block = 32
+  c_in_block = 32,
+  compute_with_storage_grid_size = #ttcore.grid<8x8>
 >
 
 func.func @conv3d_with_config(%arg0: tensor<1x8x28x28x32xbf16, #ttnn_layout>, %arg1: tensor<32x32x3x3x3xbf16, #ttnn_layout1>, %arg2: tensor<1x1x1x1x32xbf16, #ttnn_layout2>) -> tensor<1x6x26x26x32xbf16, #ttnn_layout3> {

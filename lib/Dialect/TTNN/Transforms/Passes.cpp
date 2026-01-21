@@ -11,6 +11,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
+#include "ttmlir/FunctionTypes.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/Analysis/Liveness.h"
@@ -181,7 +182,7 @@ public:
       // Const eval subgraphs and trace functions may not dealloc their params
       // since they don't own them.
       if (!ttmlir::utils::isConstEvalFunc(func) &&
-          !utils::isTTNNTraceFunc(func)) {
+          !ttmlir::utils::isTraceFunc(func)) {
         // Collect func op input parameters
         for (BlockArgument arg : func.getArguments()) {
           if (!isa<RankedTensorType>(arg.getType())) {
@@ -254,7 +255,7 @@ protected:
         rewriter.modifyOpInPlace(funcOp, [&]() { funcOp.setSymName("_main"); });
       }
 
-      if (funcOp.isPrivate() || ttmlir::utils::isConstEvalFunc(funcOp)) {
+      if (funcOp.isPrivate()) {
         return mlir::WalkResult::skip();
       }
 
@@ -300,6 +301,11 @@ protected:
     //
     func::FuncOp inputFuncOp =
         rewriter.create<mlir::func::FuncOp>(loc, inputFuncName, functionType);
+
+    // Mark this function as an input generator function.
+    //
+    ttmlir::utils::setFunctionType(inputFuncOp,
+                                   ttmlir::utils::FunctionType::InputGenerator);
 
     // Add a Block to func op and set insertion point to the beginning of the
     // Block.
@@ -364,6 +370,11 @@ private:
     //
     func::FuncOp mainFuncOp = rewriter.create<mlir::func::FuncOp>(
         moduleOp.getLoc(), mainFuncName, functionType);
+
+    // Mark this function as a main function.
+    //
+    ttmlir::utils::setFunctionType(mainFuncOp,
+                                   ttmlir::utils::FunctionType::Main);
 
     // Set insertion point to the start of the main function.
     //
@@ -707,12 +718,11 @@ public:
 
     Block *block = moduleOp.getBody(0);
 
-    // Find the first public (non-private, non-const-eval) function.
+    // Find the first forward function.
     //
     func::FuncOp targetFuncOp = nullptr;
     block->walk([&](func::FuncOp funcOp) {
-      if (funcOp.isDeclaration() || funcOp.isPrivate() ||
-          ttmlir::utils::isConstEvalFunc(funcOp)) {
+      if (!ttmlir::utils::isForwardDeviceFunc(funcOp)) {
         return mlir::WalkResult::skip();
       }
       targetFuncOp = funcOp;

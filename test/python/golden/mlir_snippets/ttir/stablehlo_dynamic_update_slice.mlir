@@ -1,7 +1,7 @@
 module {
   ttcore.cpu_module {
     builtin.module {
-      func.func private @hoisted_stablehlo_dynamic_update_slice_1x197x768_1x1x768____func(%arg0: tensor<1x197x768xf32> loc(unknown), %arg1: tensor<1x1x768xf32> loc(unknown), %arg2: tensor<i32> loc(unknown)) -> tensor<1x197x768xf32> {
+      func.func private @hoisted_stablehlo_dynamic_update_slice_1x197x768_1x1x768____func(%arg0: tensor<1x197x768xf32> loc(unknown), %arg1: tensor<1x1x768xf32> loc(unknown), %arg2: tensor<i32> loc(unknown)) -> tensor<1x197x768xf32> attributes {tt.function_type = "forward_cpu"} {
         %0 = stablehlo.dynamic_update_slice %arg0, %arg1, %arg2, %arg2, %arg2 : (tensor<1x197x768xf32>, tensor<1x1x768xf32>, tensor<i32>, tensor<i32>, tensor<i32>) -> tensor<1x197x768xf32>
         return %0 : tensor<1x197x768xf32>
       }
@@ -23,7 +23,7 @@ module {
         %24 = ttir.to_layout %22, %23 : tensor<1x197x768xf32> into tensor<1x197x768xbf16> -> tensor<1x197x768xbf16>
         return %24 : tensor<1x197x768xbf16>
       }
-    func.func private @hoisted_stablehlo_dynamic_update_slice_1x197x768_1x1x768____func_decl(tensor<1x197x768xf32>, tensor<1x1x768xf32>, tensor<i32>) -> tensor<1x197x768xf32> attributes {ttir.cpu_hoisted_func}
+    func.func private @hoisted_stablehlo_dynamic_update_slice_1x197x768_1x1x768____func_decl(tensor<1x197x768xf32>, tensor<1x1x768xf32>, tensor<i32>) -> tensor<1x197x768xf32> attributes {tt.function_type = "forward_cpu_declaration"}
     }
   }
 }

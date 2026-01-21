@@ -569,6 +569,71 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
 // Conv2dOp
 //===----------------------------------------------------------------------===//
 
+bool mlir::tt::ttir::Conv2dOp::isQuantizedRewriteFavorable(
+    mlir::ArrayRef<mlir::Value> sourceOperands) {
+  // Conv2dOp currently requires both input and weight to be quantized
+  // TODO(anuragsingh): enable float bias support
+  assert(sourceOperands.size() == 2 &&
+         "Quantized Conv2dOp should have two operands (only input and "
+         "weight).");
+  return llvm::all_of(sourceOperands, [](mlir::Value val) {
+    auto type = mlir::dyn_cast<mlir::RankedTensorType>(val.getType());
+    if (!type) {
+      return false;
+    }
+    auto qType =
+        mlir::dyn_cast<mlir::quant::QuantizedType>(type.getElementType());
+    return qType && qType.getStorageType().getIntOrFloatBitWidth() == 8;
+  });
+}
+
+mlir::Operation *mlir::tt::ttir::Conv2dOp::rewriteWithQuantizedInputs(
+    mlir::PatternRewriter &rewriter, mlir::ArrayRef<Value> sourceOperands) {
+  // rewrite the convolution op to be quantized.
+  // create the output quantized type, whose scale is input * weight and
+  // storage type is i32.
+  auto storageType =
+      IntegerType::get(rewriter.getContext(), 32, IntegerType::Signed);
+  auto quantInputType = mlir::cast<mlir::quant::QuantizedType>(
+      mlir::cast<RankedTensorType>(sourceOperands[0].getType())
+          .getElementType());
+  auto quantWeightType = mlir::cast<mlir::quant::QuantizedType>(
+      mlir::cast<RankedTensorType>(sourceOperands[1].getType())
+          .getElementType());
+  auto oldConvOutputType = cast<RankedTensorType>(getResult().getType());
+
+  // Pass back axes needed for computation of output scale and zero point.
+  // Use the channel dimension from the op's attributes.
+  const int64_t outFeatAxis = getChannelDim();
+  // Weight is always in OIHW format, so output channel is at dim 0.
+  const int64_t weightOcAxis = 0;
+  const int64_t ocSize = oldConvOutputType.getDimSize(outFeatAxis);
+
+  mlir::quant::QuantizedType quantOutputType =
+      mlir::tt::ttir::utils::computeOutputScalesAndZeroPoint(
+          quantInputType, quantWeightType, storageType, getLoc(), outFeatAxis,
+          weightOcAxis, ocSize);
+  if (!quantOutputType) {
+    return nullptr;
+  }
+  auto quantConvOutputType =
+      quantOutputType.castFromExpressedType(oldConvOutputType.getElementType());
+  if (!quantConvOutputType) {
+    return nullptr;
+  }
+  RankedTensorType newType =
+      RankedTensorType::get(oldConvOutputType.getShape(), quantConvOutputType,
+                            oldConvOutputType.getEncoding());
+  auto quantConv = rewriter.create<mlir::tt::ttir::Conv2dOp>(
+      getLoc(), newType, sourceOperands[0], sourceOperands[1], getBias(),
+      getStrideAttr(), getPaddingAttr(), getDilationAttr(),
+      rewriter.getI32IntegerAttr(getGroups()), getBatchDimAttr(),
+      getHeightDimAttr(), getWidthDimAttr(), getChannelDimAttr(),
+      /*flattenedCompatInfo=*/nullptr);
+
+  return quantConv.getOperation();
+}
+
 // Conv2dOp verification
 ::mlir::LogicalResult mlir::tt::ttir::Conv2dOp::verify() {
   // Verify tensor ranks.
@@ -947,6 +1012,68 @@ static ::mlir::LogicalResult verifyQuantizeOpCommon(
 // ConvTranspose2dOp
 //===----------------------------------------------------------------------===//
 
+bool mlir::tt::ttir::ConvTranspose2dOp::isQuantizedRewriteFavorable(
+    mlir::ArrayRef<mlir::Value> sourceOperands) {
+  // convolution op currently requires both input and weight to be quantized
+  // TODO(anuragsingh): enable float bias support
+  assert(sourceOperands.size() == 2 &&
+         "Quantized ConvolutionOp should have two operands (only input and "
+         "weight).");
+  return llvm::all_of(sourceOperands, [](mlir::Value val) {
+    auto type = mlir::dyn_cast<mlir::RankedTensorType>(val.getType());
+    if (!type) {
+      return false;
+    }
+    auto qType =
+        mlir::dyn_cast<mlir::quant::QuantizedType>(type.getElementType());
+    return qType && qType.getStorageType().getIntOrFloatBitWidth() == 8;
+  });
+}
+
+mlir::Operation *mlir::tt::ttir::ConvTranspose2dOp::rewriteWithQuantizedInputs(
+    mlir::PatternRewriter &rewriter, mlir::ArrayRef<Value> sourceOperands) {
+  // rewrite the convolution op to be quantized.
+  // create the output quantized type, whose scale is input * weight and
+  // storage type is i32.
+  auto storageType =
+      IntegerType::get(rewriter.getContext(), 32, IntegerType::Signed);
+  auto quantInputType = mlir::cast<mlir::quant::QuantizedType>(
+      mlir::cast<RankedTensorType>(sourceOperands[0].getType())
+          .getElementType());
+  auto quantWeightType = mlir::cast<mlir::quant::QuantizedType>(
+      mlir::cast<RankedTensorType>(sourceOperands[1].getType())
+          .getElementType());
+  auto oldConvOutputType = cast<RankedTensorType>(getResult().getType());
+
+  // Pass back axes needed for computation of output scale and zero point.
+  // ConvTranspose2d op has output in NHWC format and weight in OIHW format.
+  const int64_t outFeatAxis = 3;
+  const int64_t weightOcAxis = 0;
+  const int64_t ocSize = oldConvOutputType.getDimSize(outFeatAxis);
+
+  mlir::quant::QuantizedType quantOutputType =
+      mlir::tt::ttir::utils::computeOutputScalesAndZeroPoint(
+          quantInputType, quantWeightType, storageType, getLoc(), outFeatAxis,
+          weightOcAxis, ocSize);
+  if (!quantOutputType) {
+    return nullptr;
+  }
+  auto quantConvOutputType =
+      quantOutputType.castFromExpressedType(oldConvOutputType.getElementType());
+  if (!quantConvOutputType) {
+    return nullptr;
+  }
+  RankedTensorType newType =
+      RankedTensorType::get(oldConvOutputType.getShape(), quantConvOutputType,
+                            oldConvOutputType.getEncoding());
+  auto quantConv = rewriter.create<mlir::tt::ttir::ConvTranspose2dOp>(
+      getLoc(), newType, sourceOperands[0], sourceOperands[1], getBias(),
+      getStrideAttr(), getPaddingAttr(), getOutputPaddingAttr(),
+      getDilationAttr(), getGroupsAttr(), /*flattenedCompatInfo=*/nullptr);
+
+  return quantConv.getOperation();
+}
+
 // ConvTranspose2dOp verification
 mlir::LogicalResult mlir::tt::ttir::ConvTranspose2dOp::verify() {
   mlir::RankedTensorType inputType = getInput().getType();
@@ -1044,8 +1171,8 @@ mlir::LogicalResult mlir::tt::ttir::ConvTranspose2dOp::verify() {
 
   llvm::ArrayRef<std::int64_t> kernelShape = weightType.getShape();
 
-  int32_t inputChannels = inputType.getDimSize(inputType.getRank() - 1);
-  int32_t outputChannels = outputType.getDimSize(outputType.getRank() - 1);
+  int32_t inputChannels = inputType.getDimSize(getChannelDim());
+  int32_t outputChannels = outputType.getDimSize(getChannelDim());
   uint32_t groups = getGroups();
 
   if (inputChannels % groups != 0) {
@@ -1078,11 +1205,10 @@ mlir::LogicalResult mlir::tt::ttir::ConvTranspose2dOp::verify() {
   }
 
   if (bias) {
-    if (bias->getDimSize(bias->getRank() - 1) != outputChannels) {
+    if (bias->getDimSize(getChannelDim()) != outputChannels) {
       return emitOpError() << "Mismatch in bias tensor dimensions. "
                            << "Bias tensor has "
-                           << bias->getDimSize(bias->getRank() - 1)
-                           << " channels, "
+                           << bias->getDimSize(getChannelDim()) << " channels, "
                            << "but the output tensor has " << outputChannels
                            << " channels.";
     }
@@ -1091,8 +1217,8 @@ mlir::LogicalResult mlir::tt::ttir::ConvTranspose2dOp::verify() {
   int32_t kernelHeight = kernelShape[2];
   int32_t kernelWidth = kernelShape[3];
 
-  int32_t Hin = inputType.getDimSize(inputType.getRank() - 3);
-  int32_t Win = inputType.getDimSize(inputType.getRank() - 2);
+  int32_t Hin = inputType.getDimSize(getHeightDim());
+  int32_t Win = inputType.getDimSize(getWidthDim());
   if (flatInfo) {
     Hin = flatInfo.getInputHeight();
     Win = flatInfo.getInputWidth();
@@ -1112,8 +1238,8 @@ mlir::LogicalResult mlir::tt::ttir::ConvTranspose2dOp::verify() {
                          << "Output size is too small";
   }
 
-  int32_t HOut = outputType.getDimSize(outputType.getRank() - 3);
-  int32_t WOut = outputType.getDimSize(outputType.getRank() - 2);
+  int32_t HOut = outputType.getDimSize(getHeightDim());
+  int32_t WOut = outputType.getDimSize(getWidthDim());
   if (!flatInfo && (HOut != expectedHOut || WOut != expectedWOut)) {
     return emitOpError() << "Mismatch between expected output size per channel "
                             "and got output tensor dimensions. "
@@ -1122,147 +1248,16 @@ mlir::LogicalResult mlir::tt::ttir::ConvTranspose2dOp::verify() {
                          << "got: (" << HOut << " x " << WOut << ").";
   }
 
-  if (flatInfo && inputBatchSize * expectedHOut * expectedWOut !=
-                      outputType.getDimSize(outputType.getRank() - 2)) {
+  if (flatInfo &&
+      inputBatchSize * expectedHOut * expectedWOut !=
+          outputType.getDimSize(verification_utils::FLATTENED_DIM)) {
     return emitOpError() << "Mismatch between expected flattened NHW dim size. "
                          << "Expected: "
                          << inputBatchSize * expectedHOut * expectedWOut << ", "
                          << "got: "
-                         << outputType.getDimSize(outputType.getRank() - 2)
+                         << outputType.getDimSize(
+                                verification_utils::FLATTENED_DIM)
                          << ".";
-  }
-
-  return success();
-}
-
-//===----------------------------------------------------------------------===//
-// ConvolutionOp
-//===----------------------------------------------------------------------===//
-
-bool mlir::tt::ttir::ConvolutionOp::isQuantizedRewriteFavorable(
-    mlir::ArrayRef<mlir::Value> sourceOperands) {
-  // convolution op currently requires both input and weight to be quantized
-  // TODO(anuragsingh): enable float bias support
-  assert(sourceOperands.size() == 2 &&
-         "Quantized ConvolutionOp should have two operands (only input and "
-         "weight).");
-  return llvm::all_of(sourceOperands, [](mlir::Value val) {
-    auto type = mlir::dyn_cast<mlir::RankedTensorType>(val.getType());
-    if (!type) {
-      return false;
-    }
-    auto qType =
-        mlir::dyn_cast<mlir::quant::QuantizedType>(type.getElementType());
-    return qType && qType.getStorageType().getIntOrFloatBitWidth() == 8;
-  });
-}
-
-mlir::Operation *mlir::tt::ttir::ConvolutionOp::rewriteWithQuantizedInputs(
-    mlir::PatternRewriter &rewriter, mlir::ArrayRef<Value> sourceOperands) {
-  // rewrite the convolution op to be quantized.
-  // create the output quantized type, whose scale is input * weight and
-  // storage type is i32.
-  auto storageType =
-      IntegerType::get(rewriter.getContext(), 32, IntegerType::Signed);
-  auto quantInputType = mlir::cast<mlir::quant::QuantizedType>(
-      mlir::cast<RankedTensorType>(sourceOperands[0].getType())
-          .getElementType());
-  auto quantWeightType = mlir::cast<mlir::quant::QuantizedType>(
-      mlir::cast<RankedTensorType>(sourceOperands[1].getType())
-          .getElementType());
-  auto oldConvOutputType = cast<RankedTensorType>(getResult().getType());
-
-  // Pass back axes needed for computation of output scale and zero point.
-  mlir::tt::ttir::ConvolutionLayoutAttr layout = getConvolutionLayout();
-  const int64_t outFeatAxis = layout.getOutputFeatureDimension();
-  const int64_t weightOcAxis = layout.getKernelOutputFeatureDimension();
-  const int64_t ocSize = oldConvOutputType.getDimSize(outFeatAxis);
-
-  mlir::quant::QuantizedType quantOutputType =
-      mlir::tt::ttir::utils::computeOutputScalesAndZeroPoint(
-          quantInputType, quantWeightType, storageType, getLoc(), outFeatAxis,
-          weightOcAxis, ocSize);
-  if (!quantOutputType) {
-    return nullptr;
-  }
-  auto quantConvOutputType =
-      quantOutputType.castFromExpressedType(oldConvOutputType.getElementType());
-  if (!quantConvOutputType) {
-    return nullptr;
-  }
-  RankedTensorType newType =
-      RankedTensorType::get(oldConvOutputType.getShape(), quantConvOutputType,
-                            oldConvOutputType.getEncoding());
-  auto quantConv = rewriter.create<mlir::tt::ttir::ConvolutionOp>(
-      getLoc(), newType, sourceOperands[0], sourceOperands[1], getBias(),
-      getWindowStridesAttr(), getPaddingAttr(), getInputDilationAttr(),
-      getWeightDilationAttr(), getWindowReversalAttr(),
-      getConvolutionLayoutAttr(), getFeatureGroupCountAttr(),
-      getBatchGroupCountAttr());
-  return quantConv.getOperation();
-}
-
-::mlir::LogicalResult mlir::tt::ttir::ConvolutionOp::verify() {
-  if (getConvolutionLayout().getInputSpatialDimensions().size() !=
-      getConvolutionLayout().getOutputSpatialDimensions().size()) {
-    return emitOpError("Convolution input, output, and kernel must have the "
-                       "same number of spatial dimensions");
-  }
-  if (getConvolutionLayout().getInputSpatialDimensions().size() !=
-      getConvolutionLayout().getKernelSpatialDimensions().size()) {
-    return emitOpError("Convolution input, output, and kernel must have the "
-                       "same number of spatial dimensions");
-  }
-
-  // Subtract 2 from the rank as to not count batch and feature dimension
-  if (getInput().getType().getRank() - 2 !=
-      static_cast<int64_t>(
-          getConvolutionLayout().getInputSpatialDimensions().size())) {
-    return emitOpError("Input tensor must have the same number of spatial "
-                       "dimensions as specified in the ConvolutionLayout");
-  }
-
-  if (getWeight().getType().getRank() - 2 !=
-      static_cast<int64_t>(
-          getConvolutionLayout().getKernelSpatialDimensions().size())) {
-    return emitOpError("Weight tensor must have the same number of spatial "
-                       "dimensions as specified in the ConvolutionLayout");
-  }
-
-  std::optional<::mlir::RankedTensorType> biasType =
-      getBias().getImpl() ? std::make_optional(getBias().getType())
-                          : std::nullopt;
-
-  if (biasType.has_value()) {
-    // Check that bias has the same rank as the output tensor
-    auto outputType = getType();
-    if (biasType->getRank() != outputType.getRank()) {
-      return emitOpError(
-          "Bias tensor must have the same rank as the output tensor");
-    }
-
-    auto outputShape = outputType.getShape();
-    size_t outputFeatureDimension =
-        getConvolutionLayout().getOutputFeatureDimension();
-
-    // Check that bias has size 1 in all dimensions except the output feature
-    // dimension, which must match the output feature size.
-    for (auto [dim, dimSize] : llvm::enumerate(biasType->getShape())) {
-      if (dim == outputFeatureDimension &&
-          dimSize != outputShape[outputFeatureDimension]) {
-        return emitOpError("Bias size must match output feature dimension");
-      }
-      if (dim != outputFeatureDimension && dimSize != 1) {
-        return emitOpError("Bias tensor must have size 1 in all dimensions "
-                           "except the output feature dimension");
-      }
-    }
-  }
-
-  if (getWindowStrides().size() !=
-      getConvolutionLayout().getInputSpatialDimensions().size()) {
-    return emitOpError("Window strides must have the same number of elements "
-                       "as the spatial dimensions of the input tensor");
   }
 
   return success();
@@ -4973,6 +4968,58 @@ mlir::tt::ttir::SplitQueryKeyValueAndSplitHeadsOp::verify() {
   }
 
   // Verify bias tensor shape if present.
+  if (getBias()) {
+    RankedTensorType biasType = getBias().getType();
+    if (biasType.getShape() != normalizedShape) {
+      return emitOpError("bias tensor shape must match normalized_shape");
+    }
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// LayerNormOp
+//===----------------------------------------------------------------------===//
+::mlir::LogicalResult mlir::tt::ttir::LayerNormOp::verify() {
+  RankedTensorType inputType = getInput().getType();
+  RankedTensorType outputType = getResult().getType();
+
+  if (inputType.getShape() != outputType.getShape()) {
+    return emitOpError("input and output must have the same shape");
+  }
+
+  ArrayRef<int64_t> inputShape = inputType.getShape();
+  ArrayRef<int64_t> normalizedShape = getNormalizedShape();
+
+  if (normalizedShape.empty()) {
+    return emitOpError("normalized_shape cannot be empty");
+  }
+
+  if (normalizedShape.size() > inputShape.size()) {
+    return emitOpError(
+        "normalized_shape has more dimensions than input tensor");
+  }
+
+  // Check that the trailing dimensions of input match normalized_shape.
+  // For example, if input shape is [2, 3, 4, 5] and normalized_shape is [4, 5],
+  // then we check that input shape's last two dimensions (4, 5) match
+  // normalized_shape.
+  size_t offset = inputShape.size() - normalizedShape.size();
+  for (size_t i = 0; i < normalizedShape.size(); ++i) {
+    if (inputShape[offset + i] != normalizedShape[i]) {
+      return emitOpError("normalized_shape dimensions must match trailing "
+                         "dimensions of input tensor");
+    }
+  }
+
+  if (getWeight()) {
+    RankedTensorType weightType = getWeight().getType();
+    if (weightType.getShape() != normalizedShape) {
+      return emitOpError("weight tensor shape must match normalized_shape");
+    }
+  }
+
   if (getBias()) {
     RankedTensorType biasType = getBias().getType();
     if (biasType.getShape() != normalizedShape) {

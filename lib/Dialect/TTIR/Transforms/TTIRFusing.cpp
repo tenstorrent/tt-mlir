@@ -71,11 +71,9 @@ private:
     }
 
     size_t outputFeatureDim = 0;
-    if constexpr (std::is_same_v<ConvOpType, Conv2dOp>) {
-      outputFeatureDim = 3;
-    } else if constexpr (std::is_same_v<ConvOpType, ConvolutionOp>) {
-      outputFeatureDim =
-          convOp.getConvolutionLayoutAttr().getOutputFeatureDimension();
+    if constexpr (std::is_same_v<ConvOpType, Conv2dOp> ||
+                  std::is_same_v<ConvOpType, ConvTranspose2dOp>) {
+      outputFeatureDim = convOp.getChannelDim();
     } else {
       static_assert(ttmlir::utils::always_false<ConvOpType>(),
                     "Unsupported ConvOpType");
@@ -723,7 +721,6 @@ private:
   // Scale must have rank 4 and size 1 in all dimensions except the output
   // feature dim.
   // For Conv2dOp: shape (1, 1, 1, out_channels)
-  // For ConvolutionOp: depends on the convolution layout attribute
   static bool hasValidScaleShape(ConvOpType convOp,
                                  RankedTensorType scaleType) {
     if (!scaleType || scaleType.getRank() != 4) {
@@ -731,11 +728,9 @@ private:
     }
 
     size_t outputFeatureDim = 0;
-    if constexpr (std::is_same_v<ConvOpType, Conv2dOp>) {
-      outputFeatureDim = 3;
-    } else if constexpr (std::is_same_v<ConvOpType, ConvolutionOp>) {
-      outputFeatureDim =
-          convOp.getConvolutionLayoutAttr().getOutputFeatureDimension();
+    if constexpr (std::is_same_v<ConvOpType, Conv2dOp> ||
+                  std::is_same_v<ConvOpType, ConvTranspose2dOp>) {
+      outputFeatureDim = convOp.getChannelDim();
     } else {
       static_assert(ttmlir::utils::always_false<ConvOpType>(),
                     "Unsupported ConvOpType");
@@ -764,7 +759,6 @@ private:
   // it has the output feature dimension at the kernel output feature dimension
   // to match the weight layout.
   // For Conv2dOp: shape (out_channels, 1, 1, 1) from (1, 1, 1, out_channels)
-  // For ConvolutionOp: depends on the convolution layout attribute
   //
   // In case of 2 we need to add reshape operation to the input of the of bcast
   // and then we create new broadcast operation with the new reshaped scale
@@ -795,13 +789,11 @@ private:
     size_t outputFeatureDim = 0;
     size_t kernelOutputFeatureDim = 0;
     if constexpr (std::is_same_v<ConvOpType, Conv2dOp>) {
-      outputFeatureDim = 3;
+      outputFeatureDim = convOp.getChannelDim();
       kernelOutputFeatureDim = 0;
-    } else if constexpr (std::is_same_v<ConvOpType, ConvolutionOp>) {
-      outputFeatureDim =
-          convOp.getConvolutionLayoutAttr().getOutputFeatureDimension();
-      kernelOutputFeatureDim =
-          convOp.getConvolutionLayoutAttr().getKernelOutputFeatureDimension();
+    } else if constexpr (std::is_same_v<ConvOpType, ConvTranspose2dOp>) {
+      outputFeatureDim = convOp.getChannelDim();
+      kernelOutputFeatureDim = 1;
     } else {
       static_assert(ttmlir::utils::always_false<ConvOpType>(),
                     "Unsupported ConvOpType");
@@ -929,7 +921,8 @@ public:
 
     // Used only paired with convolution
     auto *definingOp = batchNormOp.getOperand().getDefiningOp();
-    if (!definingOp || (!isa<Conv2dOp, ConvolutionOp>(definingOp)) ||
+    if (!definingOp ||
+        (!isa<Conv2dOp>(definingOp) && !isa<ConvTranspose2dOp>(definingOp)) ||
         !definingOp->hasOneUse()) {
       return mlir::failure();
     }
@@ -3528,7 +3521,6 @@ public:
     {
       RewritePatternSet patterns(&getContext());
       patterns.add<ConvTagWeights<Conv2dOp>>(&getContext());
-      patterns.add<ConvTagWeights<ConvolutionOp>>(&getContext());
       if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
         signalPassFailure();
         return;
@@ -3537,7 +3529,7 @@ public:
     {
       RewritePatternSet patterns(&getContext());
       patterns.add<ConvAddBias<Conv2dOp>>(&getContext());
-      patterns.add<ConvAddBias<ConvolutionOp>>(&getContext());
+      patterns.add<ConvAddBias<ConvTranspose2dOp>>(&getContext());
 
       // Add patterns for each reduction op type.
       patterns.add<ReductionWithReshapePattern<SumOp>>(&getContext());
@@ -3556,7 +3548,7 @@ public:
 
       if (conv2dWithMultiplyEnabled) {
         patterns.add<ConvWithMultiply<Conv2dOp>>(&getContext());
-        patterns.add<ConvWithMultiply<ConvolutionOp>>(&getContext());
+        patterns.add<ConvWithMultiply<ConvTranspose2dOp>>(&getContext());
         patterns.add<BatchNormDecomposition>(&getContext());
       }
       if (permuteMatmulEnabled) {
