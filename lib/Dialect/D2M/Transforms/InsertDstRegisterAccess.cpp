@@ -968,12 +968,13 @@ public:
       auto loadStoreLoc = record.loadStore.getLoc();
       auto loadStoreIndices = record.loadStore.getIndices();
       auto loadStoreMap = record.loadStore.getMap();
+      auto loadStoreMemRefType = record.loadStore.getMemRefType();
 
       // Generate the data copy loop for the load store.
       {
         auto [l1AccessMap, l1AccessIndices, dstAccessMap, dstAccessIndices] =
             buildIndices(rewriter, loadStoreLoc, irMapper, loadStoreIndices,
-                         record.dstSlice, loadStoreMap);
+                         record.dstSlice, loadStoreMap, loadStoreMemRefType);
         dstAccessGenerator(rewriter, record, l1AccessMap, l1AccessIndices,
                            dstAccessMap, dstAccessIndices);
       }
@@ -985,7 +986,8 @@ public:
         rewriter.setInsertionPoint(record.loadStore);
         auto [l1AccessMap, l1AccessIndices, dstAccessMap, dstAccessIndices] =
             buildIndices(rewriter, loadStoreLoc, dummyIRMapper,
-                         loadStoreIndices, record.dstSlice, loadStoreMap);
+                         loadStoreIndices, record.dstSlice, loadStoreMap,
+                         loadStoreMemRefType);
         dstAccessRewriter(rewriter, record, dstAccessMap, dstAccessIndices);
       }
     }
@@ -1060,23 +1062,56 @@ public:
 
   // Returns the indices and the map for the load store from L1 and Dst.
   //   tuple(l1AccessMap, l1AccessIndices, dstAccessMap, dstAccessIndices).
-  // DST is a flat 1D array, so dstAccessMap is just a constant index.
+  // DST is a flat 1D array. For multi-tile CBs, we linearize the loop indices
+  // to compute the DST slot: dstSlice + linearize(indices, shape).
   static std::tuple<AffineMap, SmallVector<Value>, AffineMap,
                     SmallVector<Value>>
   buildIndices(PatternRewriter &rewriter, Location loc,
                const mlir::IRMapping &irMapper, ValueRange currentIndices,
-               int dstSlice, AffineMap map) {
+               int dstSlice, AffineMap map, MemRefType cbType) {
     AffineMap l1AccessMap = map;
     SmallVector<Value> l1AccessIndices =
         llvm::to_vector(llvm::map_range(currentIndices, [&](Value index) {
           return irMapper.lookupOrDefault(index);
         }));
 
-    // DST is a flat 1D array indexed by dstSlice only.
+    // DST is a flat 1D array. Compute linearized index from loop variables.
+    // For CB shape [M, N] and indices (i, j): dst_index = dstSlice + i*N + j
+    ArrayRef<int64_t> cbShape = cbType.getShape();
+    unsigned numDims = l1AccessIndices.size();
+
+    if (numDims == 0 || cbShape.empty()) {
+      // No indices or empty shape - use constant dstSlice.
+      AffineMap dstAccessMap =
+          AffineMap::getConstantMap(dstSlice, rewriter.getContext());
+      return {l1AccessMap, l1AccessIndices, dstAccessMap, {}};
+    }
+
+    // Build linearization expression: dstSlice + sum(index[i] * stride[i])
+    // where stride[i] = product of cbShape[i+1..n-1]
+    SmallVector<AffineExpr> linearExprs;
+    AffineExpr linearExpr =
+        getAffineConstantExpr(dstSlice, rewriter.getContext());
+
+    // Compute strides from right to left.
+    int64_t stride = 1;
+    SmallVector<int64_t> strides(numDims, 1);
+    for (int i = numDims - 1; i >= 0; --i) {
+      strides[i] = stride;
+      if (i < static_cast<int>(cbShape.size())) {
+        stride *= cbShape[i];
+      }
+    }
+
+    // Build affine expression: dstSlice + d0*stride0 + d1*stride1 + ...
+    for (unsigned i = 0; i < numDims; ++i) {
+      AffineExpr dimExpr = getAffineDimExpr(i, rewriter.getContext());
+      linearExpr = linearExpr + dimExpr * strides[i];
+    }
+
     AffineMap dstAccessMap =
-        AffineMap::getConstantMap(dstSlice, rewriter.getContext());
-    SmallVector<Value> dstAccessIndices = {};
-    return {l1AccessMap, l1AccessIndices, dstAccessMap, dstAccessIndices};
+        AffineMap::get(numDims, 0, linearExpr, rewriter.getContext());
+    return {l1AccessMap, l1AccessIndices, dstAccessMap, l1AccessIndices};
   }
 
   template <typename LoadStoreOpTy>
@@ -1123,7 +1158,7 @@ public:
         auto [l1AccessMap, l1AccessIndices, dstAccessMap, dstAccessIndices] =
             buildIndices(rewriter, loadStore.getLoc(), irMapper,
                          loadStore.getIndices(), dstSliceIndex,
-                         loadStore.getMap());
+                         loadStore.getMap(), loadStore.getMemRefType());
         loadStoreDstAccessGenerator(
             rewriter, loadStore.getLoc(), loadStore.getMemRef(), l1AccessMap,
             l1AccessIndices, dstAccessMap, dstAccessIndices);
@@ -1137,7 +1172,7 @@ public:
         auto [l1AccessMap, l1AccessIndices, dstAccessMap, dstAccessIndices] =
             buildIndices(rewriter, loadStore.getLoc(), dummyIRMapper,
                          loadStore.getIndices(), dstSliceIndex,
-                         loadStore.getMap());
+                         loadStore.getMap(), loadStore.getMemRefType());
         dstAccessReplacement(rewriter, loadStore, dstAccessMap,
                              dstAccessIndices);
       }
@@ -1171,7 +1206,7 @@ public:
       auto [l1AccessMap, l1AccessIndices, dstAccessMap, dstAccessIndices] =
           buildIndices(rewriter, loadStore.getLoc(), emptyIRMapper,
                        loadStore.getIndices(), dstSliceIndex,
-                       loadStore.getMap());
+                       loadStore.getMap(), loadStore.getMemRefType());
 
       // Set insertion point AT the original load/store, so new operations
       // are inserted BEFORE it.
@@ -1293,8 +1328,13 @@ public:
           assert(computeOp->getNumResults() == 1);
           assert(!dstIntermediates.contains(computeOp));
 
+          // Only consider overwriting input if the op actually has tile inputs.
+          // Ops like ExperimentalTileFillOp generate new tiles from scalars and
+          // have no tile inputs to overwrite, so they must allocate a new slot.
+          bool hasTileInputs = numLoads > 0;
           bool overwriteInput =
-              computeOp.getDstRegInPlace() || computeOp.isScalarOperand(1);
+              hasTileInputs &&
+              (computeOp.getDstRegInPlace() || computeOp.isScalarOperand(1));
 
           // If op stores to dst in place or has scalar rhs, we don't need to
           // allocate a new dst register, just use the current dst index.
@@ -1341,8 +1381,8 @@ public:
       auto [iter, _] = copyInfos.try_emplace(outermostInnerComputeLoop);
 
       // Each simple copy needs its own DST slot for the iteration.
-      // We use a single slot per iteration (allocated once per loop entry).
-      int dstSlice = 0; // Simple copies all use slot 0.
+      // Allocate a slot from the stack to avoid conflicts with other ops.
+      int dstSlice = dstStackAllocator.allocate();
       iter->second.record(load, dstSlice, std::set<int64_t>{});
       iter->second.record(store, dstSlice, std::set<int64_t>{});
     });

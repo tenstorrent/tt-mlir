@@ -281,12 +281,15 @@ struct DecomposeBlockMaskPattern : OpRewritePattern<BlockMaskOp> {
                                std::function<void(Value, Value)> emitBody) {
       auto outerLoop =
           rewriter.create<scf::ForOp>(loc, rowStart, rowEnd, oneIdx);
-      outerLoop->setAttr("d2m.linalg_root", rewriter.getUnitAttr());
-      outerLoop->setAttr("d2m.scheduled", rewriter.getUnitAttr());
       rewriter.setInsertionPointToStart(outerLoop.getBody());
 
       auto innerLoop =
           rewriter.create<scf::ForOp>(loc, colStart, colEnd, oneIdx);
+      // Mark the INNER loop as the compute root, since that's where
+      // the actual compute operations are emitted. This ensures DST
+      // syncs are placed inside the inner loop body, not the outer.
+      innerLoop->setAttr("d2m.linalg_root", rewriter.getUnitAttr());
+      innerLoop->setAttr("d2m.scheduled", rewriter.getUnitAttr());
       rewriter.setInsertionPointToStart(innerLoop.getBody());
 
       emitBody(outerLoop.getInductionVar(), innerLoop.getInductionVar());

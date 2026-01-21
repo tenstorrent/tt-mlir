@@ -70,8 +70,9 @@ module {
             // CHECK: %[[DST_DIV:.*]] = affine.load %[[DST]][2] : memref<8x!ttcore.tile<32x32, f32>, #dst>
             %1 = "d2m.tile_recip"(%0) : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
             // CHECK: %[[RECIP_RESULT:.*]] = "d2m.tile_recip"(%[[DST_DIV]]) : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
-            // CHECK: affine.store %[[RECIP_RESULT]], %[[DST]][2] : memref<8x!ttcore.tile<32x32, f32>, #dst>
-            // CHECK: %[[FINAL_VAL:.*]] = affine.load %[[DST]][2] : memref<8x!ttcore.tile<32x32, f32>, #dst>
+            // Final result stored with linearized index (i + j + dstSlice)
+            // CHECK: affine.store %[[RECIP_RESULT]], %[[DST]][{{.*}}] : memref<8x!ttcore.tile<32x32, f32>, #dst>
+            // CHECK: %[[FINAL_VAL:.*]] = affine.load %[[DST]][{{.*}}] : memref<8x!ttcore.tile<32x32, f32>, #dst>
             // CHECK: affine.store %[[FINAL_VAL]], {{.*}} : memref<1x1x!ttcore.tile<32x32, f32>, #l1>
             linalg.yield %1 : !ttcore.tile<32x32, f32>
           }
@@ -111,8 +112,9 @@ module {
             // CHECK: %[[DST_EQZ1:.*]] = affine.load %[[DST]][2] : memref<8x!ttcore.tile<32x32, f32>, #dst>
             %2 = "d2m.tile_eqz"(%1) : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
             // CHECK: %[[EQZ2_RESULT:.*]] = "d2m.tile_eqz"(%[[DST_EQZ1]]) : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
-            // CHECK: affine.store %[[EQZ2_RESULT]], %[[DST]][2] : memref<8x!ttcore.tile<32x32, f32>, #dst>
-            // CHECK: %[[FINAL_VAL:.*]] = affine.load %[[DST]][2] : memref<8x!ttcore.tile<32x32, f32>, #dst>
+            // Final result stored with linearized index (i + j + dstSlice)
+            // CHECK: affine.store %[[EQZ2_RESULT]], %[[DST]][{{.*}}] : memref<8x!ttcore.tile<32x32, f32>, #dst>
+            // CHECK: %[[FINAL_VAL:.*]] = affine.load %[[DST]][{{.*}}] : memref<8x!ttcore.tile<32x32, f32>, #dst>
             // CHECK: affine.store %[[FINAL_VAL]], {{.*}} : memref<1x1x!ttcore.tile<32x32, f32>, #l1>
             linalg.yield %2 : !ttcore.tile<32x32, f32>
           }

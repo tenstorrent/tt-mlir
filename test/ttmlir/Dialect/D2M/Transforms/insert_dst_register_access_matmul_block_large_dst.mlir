@@ -66,9 +66,9 @@ module {
       // CHECK: affine.for %[[INIT_I:.*]] = 0 to 3 {
       // CHECK-NEXT: affine.for %[[INIT_J:.*]] = 0 to 2 {
 
-      // Check initialization: load from l1, store to dst
+      // Check initialization: load from l1, store to dst with linearized index
       // CHECK: %[[INIT_VAL:.*]] = affine.load {{%.*}}[%[[INIT_I]], %[[INIT_J]]] : memref<3x2x!ttcore.tile<32x32, f32>, #l1>
-      // CHECK: affine.store %[[INIT_VAL]], %[[DST]][0] : memref<8x!ttcore.tile<32x32, f32>, #dst>
+      // CHECK: affine.store %[[INIT_VAL]], %[[DST]][%[[INIT_I]] * 2 + %[[INIT_J]]] : memref<8x!ttcore.tile<32x32, f32>, #dst>
 
       // Check matmul operation uses values from correct memory spaces
       // CHECK: "d2m.tile_matmul_block"(%[[blockA]], %[[blockB]], %[[blockOut]]) : (memref<3x3x!ttcore.tile<32x32, f32>, strided<[3, 1], offset: ?>, #l1>, memref<3x2x!ttcore.tile<32x32, f32>, strided<[2, 1], offset: ?>, #l1>, memref<3x2x!ttcore.tile<32x32, f32>, strided<[2, 1], offset: ?>, #l1>) -> ()
@@ -101,8 +101,8 @@ module {
       // CHECK: affine.for %[[WB_I:.*]] = 0 to 3 {
       // CHECK-NEXT: affine.for %[[WB_J:.*]] = 0 to 2 {
 
-      // Check writeback: load from dst, store to l1
-      // CHECK: %[[FINAL_VAL:.*]] = affine.load %[[DST]][0] : memref<8x!ttcore.tile<32x32, f32>, #dst>
+      // Check writeback: load from dst with linearized index, store to l1
+      // CHECK: %[[FINAL_VAL:.*]] = affine.load %[[DST]][%[[WB_I]] * 2 + %[[WB_J]]] : memref<8x!ttcore.tile<32x32, f32>, #dst>
       // CHECK: affine.store %[[FINAL_VAL]], {{%.*}}[%[[WB_I]], %[[WB_J]]] : memref<3x2x!ttcore.tile<32x32, f32>, #l1>
     }
     return
