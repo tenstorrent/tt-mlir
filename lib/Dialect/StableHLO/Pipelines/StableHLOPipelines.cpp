@@ -15,6 +15,10 @@ namespace mlir::tt::stablehlo {
 
 void createStableHLOPipeline(OpPassManager &pm,
                              const StableHLOPipelineOptions &options) {
+  // Convert any SDY ops (like sdy.constant) to StableHLO equivalents.
+  // This must run early so downstream passes see pure StableHLO IR.
+  pm.addPass(createLegalizeSdyToStableHLOPass());
+
   // Inline all operations to make analysis easier.
   pm.addPass(mlir::createInlinerPass());
 

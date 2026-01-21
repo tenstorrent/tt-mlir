@@ -318,6 +318,45 @@ def InsertExplicitReshardsPass : Pass<"insert-explicit-reshards", "::mlir::Modul
   ];
 }
 
+def LegalizeSdyToStableHLOPass : Pass<"legalize-sdy-to-stablehlo", "::mlir::ModuleOp"> {
+  let summary = "Legalize SDY dialect ops to StableHLO ops.";
+  let description = [{
+    This pass converts Shardy (SDY) dialect operations to their StableHLO equivalents.
+    Currently supported conversions:
+    - `sdy.constant` -> `stablehlo.constant`
+
+    Our pipeline uses specific SDY ops for sharding propagation (e.g., `sdy.mesh`,
+    `sdy.manual_computation`), but other SDY ops like `sdy.constant` are not needed.
+    This pass converts such unnecessary SDY ops back to StableHLO so that downstream
+    passes can process them uniformly.
+
+    Example, this pass will convert the following code:
+    ```mlir
+    module {
+      func.func @main() -> tensor<f32> {
+        %0 = sdy.constant dense<0.0> : tensor<f32>
+        return %0 : tensor<f32>
+      }
+    }
+    ```
+
+    Into:
+    ```mlir
+    module {
+      func.func @main() -> tensor<f32> {
+        %0 = stablehlo.constant dense<0.0> : tensor<f32>
+        return %0 : tensor<f32>
+      }
+    }
+    ```
+  }];
+
+  let dependentDialects = [
+    "::mlir::sdy::SdyDialect",
+    "::mlir::stablehlo::StablehloDialect"
+  ];
+}
+
 def ReoutlineCompositePass : Pass<"reoutline-composite", "::mlir::ModuleOp"> {
   let summary = "Reconstruct composite ops from flattened groups marked by reoutline.* attributes.";
   let description = [{
