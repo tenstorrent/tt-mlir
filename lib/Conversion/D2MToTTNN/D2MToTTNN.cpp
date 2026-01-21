@@ -342,6 +342,14 @@ public:
               inner.getInput().getDefiningOp<ttir::TTNNMetalLayoutCastOp>()) {
         rewriter.replaceOp(op, inner2.getOperand());
       }
+    } else if (auto inner =
+                   op.getOperand().getDefiningOp<d2m::ViewLayoutOp>()) {
+      // Match the pattern cast(view(cast(output_tensor))) and rewrite as just
+      // output_tensor.
+      if (auto inner2 =
+              inner.getInput().getDefiningOp<ttir::TTNNMetalLayoutCastOp>()) {
+        rewriter.replaceOp(op, inner2.getOperand());
+      }
     }
     return success();
   };
