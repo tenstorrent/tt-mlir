@@ -139,17 +139,12 @@ FORCE_INLINE void setup_fabric_connections() {
 
     if (!FabricHelper::initialized) {
         // set up topology
-        DPRINT << "Build topology with args\n";
         size_t topology_arg_idx = fabric_setup_args_start_idx + 1;
 #ifdef API_TYPE_Linear
         FabricHelper::topology_info.topology_info_1d.build_from_args(topology_arg_idx);
 #endif
 
         // set up routing plane connection manager
-        DPRINT << "Build connections with args\n";
-        DPRINT << "Num topology args is " << num_topology_args << "\n";
-        DPRINT << "Num fabric connection args is " << num_fabric_connection_args << "\n";
-        DPRINT << "Num connections is " << num_send_dir << "\n";
         size_t fabric_connection_arg_idx = fabric_setup_args_start_idx + num_topology_args + 2;
         FabricHelper::fabric_connections = tt::tt_fabric::RoutingPlaneConnectionManager::template build_from_args<
         tt::tt_fabric::RoutingPlaneConnectionManager::BUILD_AND_OPEN_CONNECTION>(fabric_connection_arg_idx, num_send_dir);
@@ -159,18 +154,12 @@ FORCE_INLINE void setup_fabric_connections() {
         ASSERT(route_id != -1);
     }
     FabricHelper::initialized = true;
-    DPRINT << "Setup done\n";
 }
 
-FORCE_INLINE void close_fabric_connections() {
-    DPRINT << "Close start\n";
-
-    // teardown fabric connections (packet header pool and topology don't need teardown)
+FORCE_INLINE void close_fabric_connections() {// teardown fabric connections (packet header pool and topology don't need teardown)
     if (FabricHelper::initialized) {
         FabricHelper::fabric_connections.close();
     }
-
-    DPRINT << "Close done\n";
 }
 
 //////////////////////////////////////// Fabric Write APIs (and helpers) /////////////////////////////////////////
@@ -198,6 +187,9 @@ FORCE_INLINE std::pair<uint32_t, uint32_t> calculate_initial_direction_and_hops(
         } else {
             initial_dir = static_cast<uint32_t>(eth_chan_directions::WEST);
         }
+    }
+    else {
+        ASSERT(false);
     }
 
     return {initial_dir, ns_hops + ew_hops};
@@ -236,12 +228,12 @@ FORCE_INLINE std::pair<uint32_t, uint32_t> calculate_initial_direction_and_hops(
 
 FORCE_INLINE int get_connection_index_by_tag(RoutingPlaneConnectionManager& fabric_connections, uint32_t tag) {
     for (uint32_t i = 0; i < fabric_connections.active_count(); ++i) {
-        DPRINT << "connection tag is " << (uint32_t)fabric_connections.get(i).tag << "\n";
         if (fabric_connections.get(i).tag == tag) {
             return i;
         }
     }
 
+    ASSERT(false);
     return -1;
 }
 
@@ -262,12 +254,8 @@ FORCE_INLINE void fabric_fast_write(
         packet_header->to_noc_unicast_write(NocUnicastCommandHeader{dest_addr}, len_bytes);
     }
 
-    DPRINT << "waiting for empty write slot\n";
-    DPRINT << "connection noc x and y " << (uint32_t)connection.edm_noc_x << " " << (uint32_t)connection.edm_noc_y << "\n";
     connection.wait_for_empty_write_slot();
-    DPRINT << "sending payload without header\n";
     connection.send_payload_without_header_non_blocking_from_address(src_addr, len_bytes);
-    DPRINT << "sending payload flush\n";
     connection.send_payload_flush_non_blocking_from_address(
         reinterpret_cast<uint32_t>(packet_header), sizeof(PACKET_HEADER_TYPE));
 
@@ -289,9 +277,7 @@ FORCE_INLINE void fabric_fast_write_any_len(
 
     auto fabric_connections = get_fabric_connections();
     auto [initial_dir, num_hops] = calculate_initial_direction_and_hops(dst_dev_id, my_device_id);
-    DPRINT << "initial_dir is " << initial_dir << "\n";
     auto connection_index = get_connection_index_by_tag(fabric_connections, initial_dir);
-    DPRINT << "connection_index is " << connection_index << "\n";
     ASSERT(connection_index != -1);
     auto& connection = fabric_connections.get(connection_index).sender;
     volatile tt_l1_ptr PACKET_HEADER_TYPE* packet_header = get_header(connection_index);
