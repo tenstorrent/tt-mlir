@@ -1519,9 +1519,8 @@ public:
       }
     }
     int64_t inputRank = firstInputType.getRank();
-    if (!(inputRank == 2 || inputRank == 4)) {
-      return rewriter.notifyMatchFailure(
-          srcOp, "Only 2D and 4D input tensors are supported.");
+    if (!llvm::is_contained({1, 2, 4}, inputRank)) {
+      return rewriter.notifyMatchFailure(srcOp, "Invalid input tensor rank.");
     }
 
     // Validate init values.
@@ -1616,6 +1615,12 @@ public:
             rewriter.getI64IntegerAttr(*dimension));
         return success();
       }
+    }
+
+    // Not a special case of CumSumOp - lowering to TTIR pooling ops is
+    // supported only for 2D and 4D input tensors.
+    if (!llvm::is_contained({2, 4}, inputRank)) {
+      return rewriter.notifyMatchFailure(srcOp, "Invalid input tensor rank.");
     }
 
     // Deduce whether a reshape (2D->4D) or a permute (4D->4D) operation is
