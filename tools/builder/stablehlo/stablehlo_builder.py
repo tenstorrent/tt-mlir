@@ -21,7 +21,6 @@ from builder.base.builder import *
 from builder.base.builder_utils import *
 
 from golden import get_golden_function, apply_sharding, apply_unsharding
-from golden.mapping import GoldenMapTensor
 
 
 class StableHLOBuilder(Builder):
@@ -6280,60 +6279,6 @@ class StableHLOBuilder(Builder):
         body: str = "add",
         unit_attrs: Optional[List[str]] = None,
     ) -> OpView:
-        """
-        Creates ``stablehlo.reduce_window``.
-
-        *Sliding window reduction operation.*
-
-        Applies a reduction function to windows of the input tensor and produces a result tensor.
-        The reduction function is applied to each window of elements independently.
-
-        From StableHLO ReduceWindow Op https://openxla.org/stablehlo/spec#reduce_window
-
-        .. code-block:: mlir
-
-            // Sum reduce_window with 2x2 window, stride 1x1
-            %init = stablehlo.constant dense<0.0> : tensor<f32>
-            %result = "stablehlo.reduce_window"(%input, %init) <{
-                window_dimensions = array<i64: 2, 2>,
-                window_strides = array<i64: 1, 1>,
-                base_dilations = array<i64: 1, 1>,
-                window_dilations = array<i64: 1, 1>,
-                padding = dense<0> : tensor<2x2xi64>
-            }> ({
-            ^bb0(%arg0: tensor<f32>, %arg1: tensor<f32>):
-                %0 = stablehlo.add %arg0, %arg1 : tensor<f32>
-                stablehlo.return %0 : tensor<f32>
-            }) : (tensor<4x4xf32>, tensor<f32>) -> tensor<3x3xf32>
-
-        Parameters
-        ----------
-        in0 : Operand
-            Input tensor to apply the window reduction on
-        init_value : Union[Operand, float, int]
-            Initial value for the reduction (scalar). Can be an Operand or a numeric value.
-        window_dimensions : Sequence[int]
-            Size of the reduction window for each dimension. Must match input rank.
-        window_strides : Optional[Sequence[int]]
-            Stride of the window for each dimension. Defaults to all 1s.
-        base_dilations : Optional[Sequence[int]]
-            Dilation of the input tensor for each dimension. Defaults to all 1s.
-        window_dilations : Optional[Sequence[int]]
-            Dilation of the window for each dimension. Defaults to all 1s.
-        padding : Optional[Sequence[Sequence[int]]]
-            Padding to apply as [[low, high], ...] pairs for each dimension.
-            Defaults to all 0s.
-        body : str
-            Reduction operation to apply. Options: "add", "max".
-            Default is "add".
-        unit_attrs : Optional[List[str]]
-            Optional list of unit attributes
-
-        Returns
-        -------
-        (*OpView*)
-            Reduced tensor
-        """
         stablehlo_op = self.get_opview_from_method(StableHLOBuilder.reduce_window)
 
         with self._ctx, self._loc:
