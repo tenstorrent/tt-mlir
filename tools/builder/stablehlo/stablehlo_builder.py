@@ -7135,7 +7135,7 @@ class StableHLOBuilder(Builder):
         if not self._disable_golden_check:
             input0 = self._get_golden_tensor(in0)
             op_golden_function = get_golden_function(stablehlo_op)
-            golden_output = op_golden_function(input0, op_result.type.element_type)
+            golden_output = op_golden_function(input0, mlir_output_type.element_type)
             self._set_golden_tensor(op_result, golden_output)
 
         return op_result
@@ -7232,6 +7232,11 @@ class StableHLOBuilder(Builder):
         else:
             loc = Location.name(loc)
 
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
         op = stablehlo_op(
             in0,
             loc=loc,
@@ -7248,7 +7253,7 @@ class StableHLOBuilder(Builder):
         if not self._disable_golden_check:
             input0 = self._get_golden_tensor(in0)
             op_golden_function = get_golden_function(stablehlo_op)
-            golden_output = op_golden_function(input0)
+            golden_output = op_golden_function(input0, mlir_output_type.element_type)
             self._set_golden_tensor(op_result, golden_output)
 
         return op_result
@@ -7271,7 +7276,7 @@ class StableHLOBuilder(Builder):
         if not self._disable_golden_check:
             input0 = self._get_golden_tensor(operand)
             op_golden_function = get_golden_function(stablehlo_op)
-            golden_output = op_golden_function(input0)
+            golden_output = op_golden_function(input0, old_op.result.type.element_type)
             self._set_golden_tensor(new_op_result, golden_output)
 
         op_map_dictionary = {}
@@ -7309,7 +7314,9 @@ class StableHLOBuilder(Builder):
                     if not self._disable_golden_check:
                         op_golden_function = get_golden_function(stablehlo_op)
                         input0 = self._get_golden_tensor(old_op.operand)
-                        golden_output = op_golden_function(input0)
+                        golden_output = op_golden_function(
+                            input0, old_op.result.type.element_type
+                        )
                         uniform_dequantize_builder._set_golden_tensor(new_op_result, golden_output)
                         uniform_dequantize_builder._set_golden_tensor(operand, input0)
                         ordered_inputs.append(operand)

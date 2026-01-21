@@ -1194,7 +1194,7 @@ def stablehlo_uniform_quantize_golden(
 
 
 def stablehlo_uniform_dequantize_golden(
-    input_tensor: GoldenMapTensor,
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
 ) -> GoldenMapTensor:
     return torch.dequantize(input_tensor)
 
