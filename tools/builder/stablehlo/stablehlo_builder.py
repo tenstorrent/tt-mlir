@@ -7114,6 +7114,11 @@ class StableHLOBuilder(Builder):
         else:
             loc = Location.name(loc)
 
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
         op = stablehlo_op(
             in0,
             loc=loc,
@@ -7130,7 +7135,7 @@ class StableHLOBuilder(Builder):
         if not self._disable_golden_check:
             input0 = self._get_golden_tensor(in0)
             op_golden_function = get_golden_function(stablehlo_op)
-            golden_output = op_golden_function(input0, op_result.type)
+            golden_output = op_golden_function(input0, op_result.type.element_type)
             self._set_golden_tensor(op_result, golden_output)
 
         return op_result
@@ -7153,7 +7158,7 @@ class StableHLOBuilder(Builder):
         if not self._disable_golden_check:
             input0 = self._get_golden_tensor(operand)
             op_golden_function = get_golden_function(stablehlo_op)
-            golden_output = op_golden_function(input0, new_op_result.type)
+            golden_output = op_golden_function(input0, old_op.result.type.element_type)
             self._set_golden_tensor(new_op_result, golden_output)
 
         op_map_dictionary = {}
@@ -7191,7 +7196,9 @@ class StableHLOBuilder(Builder):
                     if not self._disable_golden_check:
                         op_golden_function = get_golden_function(stablehlo_op)
                         input0 = self._get_golden_tensor(old_op.operand)
-                        golden_output = op_golden_function(input0, new_op_result.type)
+                        golden_output = op_golden_function(
+                            input0, old_op.result.type.element_type
+                        )
                         uniform_quantize_builder._set_golden_tensor(new_op_result, golden_output)
                         uniform_quantize_builder._set_golden_tensor(operand, input0)
                         ordered_inputs.append(operand)
@@ -7199,8 +7206,11 @@ class StableHLOBuilder(Builder):
 
                     return new_op
 
-                uniform_quantize_builder._set_ordered_inputs(ordered_inputs)
-                uniform_quantize_builder._set_ordered_outputs(ordered_outputs)
+                new_func_op = decorated_func.func_op
+                uniform_quantize_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
 
         return uniform_quantize_module, uniform_quantize_builder
 
@@ -7307,8 +7317,11 @@ class StableHLOBuilder(Builder):
 
                     return new_op
 
-                uniform_dequantize_builder._set_ordered_inputs(ordered_inputs)
-                uniform_dequantize_builder._set_ordered_outputs(ordered_outputs)
+                new_func_op = decorated_func.func_op
+                uniform_dequantize_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
 
         return uniform_dequantize_module, uniform_dequantize_builder
 

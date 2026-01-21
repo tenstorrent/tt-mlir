@@ -1176,12 +1176,11 @@ def requantize_golden(
 def stablehlo_uniform_quantize_golden(
     input_tensor: GoldenMapTensor, output_type_mlir: Type
 ) -> GoldenMapTensor:
-    element_type = output_type_mlir.element_type
-
-    if hasattr(element_type, "scale") and hasattr(element_type, "zero_point"):
-        scale = element_type.scale
-        zero_point = element_type.zero_point
-        storage_type = element_type.storage_type
+    # output_type_mlir is the element type (quantized type) passed from builder
+    if hasattr(output_type_mlir, "scale") and hasattr(output_type_mlir, "zero_point"):
+        scale = output_type_mlir.scale
+        zero_point = output_type_mlir.zero_point
+        storage_type = output_type_mlir.storage_type
         if "i8" in str(storage_type):
             dtype = torch.qint8
         else:
