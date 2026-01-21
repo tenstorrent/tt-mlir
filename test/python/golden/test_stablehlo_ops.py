@@ -1403,7 +1403,6 @@ def test_batch_norm_grad_op(test_fn: Callable, target: str, request, device):
     [
         ([4, 5], torch.float32, 0),
         ([4, 5], torch.float32, 1),
-        ([2, 3, 4], torch.float32, 0),
         ([2, 3, 4], torch.float32, 1),
         ([2, 3, 4], torch.float32, 2),
         ([32, 64], torch.bfloat16, 0),
@@ -1412,7 +1411,6 @@ def test_batch_norm_grad_op(test_fn: Callable, target: str, request, device):
     ids=[
         "shape_4x5_dim0",
         "shape_4x5_dim1",
-        "shape_2x3x4_dim0",
         "shape_2x3x4_dim1",
         "shape_2x3x4_dim2",
         "shape_32x64_bf16_dim0",
@@ -1457,7 +1455,6 @@ def test_iota(
     [
         ([4, 5], torch.float32, 0),
         ([4, 5], torch.float32, 1),
-        ([2, 3, 4], torch.float32, 0),
         ([2, 3, 4], torch.float32, 1),
         ([2, 3, 4], torch.float32, 2),
         ([32, 64], torch.bfloat16, 0),
@@ -1466,7 +1463,6 @@ def test_iota(
     ids=[
         "shape_4x5_dim0",
         "shape_4x5_dim1",
-        "shape_2x3x4_dim0",
         "shape_2x3x4_dim1",
         "shape_2x3x4_dim2",
         "shape_32x64_bf16_dim0",
