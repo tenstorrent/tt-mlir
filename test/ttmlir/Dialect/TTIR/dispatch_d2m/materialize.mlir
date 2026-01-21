@@ -10,9 +10,9 @@ module {
         ins(%arg0, %arg1 : tensor<64x64xbf16, #ttnn_layout>, tensor<64x64xbf16, #ttnn_layout>)
         outs(%out : tensor<64x64xbf16, #ttnn_layout>) {
       builtin.module {
-        func.func @d2m_subgraph(%a: tensor<64x64xbf16, #ttnn_layout>, %b: tensor<64x64xbf16, #ttnn_layout>) -> tensor<64x64xbf16, #ttnn_layout> {
-          %0 = "ttir.add"(%a, %b) : (tensor<64x64xbf16, #ttnn_layout>, tensor<64x64xbf16, #ttnn_layout>) -> tensor<64x64xbf16, #ttnn_layout>
-          return %0 : tensor<64x64xbf16, #ttnn_layout>
+        func.func @d2m_subgraph(%arg3: tensor<64x64xbf16, #ttnn_layout>, %arg4: tensor<64x64xbf16, #ttnn_layout>) -> tensor<64x64xbf16, #ttnn_layout> {
+          %1 = "ttnn.add"(%arg3, %arg4) <{dtype = #ttcore.supportedDataTypes<f32>}> : (tensor<64x64xbf16, #ttnn_layout>, tensor<64x64xbf16, #ttnn_layout>) -> tensor<64x64xbf16, #ttnn_layout>
+          return %1 : tensor<64x64xbf16, #ttnn_layout>
         }
       }
     } : tensor<64x64xbf16, #ttnn_layout>

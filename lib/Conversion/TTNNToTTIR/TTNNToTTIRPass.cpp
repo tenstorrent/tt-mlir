@@ -48,9 +48,13 @@ struct ConvertTTNNToTTIRPass
     RewritePatternSet patterns(&getContext());
 
     // Mark TTNN dialect as dynamically legal for all ops that do NOT have the
-    // `hoist_generic_via_d2m` attribute
-    target.addDynamicallyLegalDialect<ttnn::TTNNDialect>(
-        [&](Operation *op) { return !utils::isTTNNHoistGenericViaD2MOp(op); });
+    // `hoist_generic_via_d2m` attribute OR are inside a DispatchD2MOp.
+    target.addDynamicallyLegalDialect<ttnn::TTNNDialect>([&](Operation *op) {
+      if (op->getParentOfType<ttnn::DispatchD2MOp>()) {
+        return false;
+      }
+      return !utils::isTTNNHoistGenericViaD2MOp(op);
+    });
 
     ::mlir::tt::populateTTNNToTTIRPatterns(&getContext(), patterns,
                                            typeConverter);
