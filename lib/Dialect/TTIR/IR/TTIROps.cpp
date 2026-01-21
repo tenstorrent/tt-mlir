@@ -3901,6 +3901,26 @@ mlir::OpFoldResult mlir::tt::ttir::RepeatOp::fold(FoldAdaptor fold) {
 }
 
 //===----------------------------------------------------------------------===//
+// MeshPartitionOp
+//===----------------------------------------------------------------------===//
+
+// MeshPartitionOp verification
+::mlir::LogicalResult mlir::tt::ttir::MeshPartitionOp::verify() {
+  ::mlir::RankedTensorType inputType = getInput().getType();
+  int32_t dim = getDim();
+
+  if (dim >= inputType.getRank() || dim < -inputType.getRank()) {
+    return emitOpError(
+               "Invalid tensor dimension for mesh partition op. Dimension "
+               "must be >= to input tensor rank or < -input tensor rank, got "
+               "dim = ")
+           << dim;
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // MeshShardOp
 //===----------------------------------------------------------------------===//
 
