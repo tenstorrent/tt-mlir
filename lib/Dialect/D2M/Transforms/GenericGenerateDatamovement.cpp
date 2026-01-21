@@ -289,7 +289,8 @@ public:
         generic->getLoc(), generic.getResultTypes(), generic.getInputs(),
         generic.getOutputs(), generic.getGrid(), generic.getBlockFactors(),
         generic.getIndexingMaps(), generic.getIteratorTypes(),
-        rewriter.getArrayAttr(threads), numTotalRegions);
+        rewriter.getArrayAttr(threads), generic.getScratchInputsAttr(),
+        numTotalRegions);
 
     // Preinitialize all regions so that we can modify their signatures on the
     // fly. i.e. adding semaphore arguments.

@@ -70,7 +70,7 @@ public:
         /* block_factors */ rewriter.getArrayAttr({}),
         /* indexing_maps */ rewriter.getArrayAttr({}),
         /* iterator_types */ rewriter.getArrayAttr({}), generic.getThreads(),
-        generic.getNumRegions());
+        generic.getScratchInputsAttr(), generic.getNumRegions());
 
     SmallVector<int64_t> loopBounds = generic.getLoopBounds();
     for (Region &region : generic.getRegions()) {

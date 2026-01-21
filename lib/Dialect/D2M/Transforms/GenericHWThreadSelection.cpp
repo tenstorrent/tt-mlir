@@ -85,7 +85,8 @@ public:
         op.getLoc(), op.getResults().getTypes(), op.getInputs(),
         op.getOutputs(), op.getGrid(), op.getBlockFactors(),
         op.getIndexingMaps(), op.getIteratorTypes(),
-        rewriter.getArrayAttr(threads), numNewRegions);
+        rewriter.getArrayAttr(threads), op.getScratchInputsAttr(),
+        numNewRegions);
 
     // Copy compute region from op to newGeneric, if it exists.
     if (hasComputeThread) {
