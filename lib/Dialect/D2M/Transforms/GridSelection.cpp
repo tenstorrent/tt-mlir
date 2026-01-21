@@ -493,10 +493,6 @@ static void insertStreamForTTNNTensor(Value operand,
   llvm::SmallVector<int64_t> fakeShardedShape = baseMetalLayout.getDeviceShape(
       optimalGrid, ttcore::TileType::getDefaultShape());
 
-  auto streamOutputTensorTest =
-      tensorWithOptimalGrid(metalTensor, targetGridShape, targetSquareGridShape,
-                            optimalGrid, isVirtualGrid, builder);
-
   AffineMap reblockMap;
   if (isVirtualGrid) {
     reblockMap = ttmlir::d2m::utils::grids::createCoreVirtMaps(
@@ -534,53 +530,76 @@ static void insertStreamForTTNNTensor(Value operand,
   castOp.getResult().replaceAllUsesExcept(streamOp.getResult(), streamOp);
 }
 
-static void optimizeViewLayoutGrid(d2m::ViewLayoutOp viewLayoutOp,
-                                   ArrayRef<int64_t> targetGridShape,
-                                   ArrayRef<int64_t> targetSquareGridShape,
-                                   ArrayRef<int64_t> optimalGrid,
-                                   bool isVirtualGrid, OpBuilder &builder) {
-  auto castOp =
-      viewLayoutOp.getInput().getDefiningOp<ttir::TTNNMetalLayoutCastOp>();
-  assert(castOp && "Expected a TTNNMetalLayoutCastOp");
-
-  // Check if we're already at the target grid.
-  auto inputType =
-      mlir::cast<mlir::RankedTensorType>(viewLayoutOp.getInput().getType());
-  if (inputType.getShape().take_front(2) == llvm::ArrayRef(optimalGrid)) {
-    return;
-  }
-
-  RankedTensorType newTensorType =
-      tensorWithOptimalGrid(inputType, targetGridShape, targetSquareGridShape,
-                            optimalGrid, isVirtualGrid, builder);
-  builder.setInsertionPoint(viewLayoutOp);
-  // create a new view layout op with the cast op as input and the new tensor
-  // type as output
-  auto newViewLayoutOp = builder.create<d2m::ViewLayoutOp>(
-      viewLayoutOp.getLoc(), newTensorType, castOp.getResult());
-  viewLayoutOp.getResult().replaceAllUsesWith(newViewLayoutOp.getResult());
-  viewLayoutOp.erase();
-}
-
 static void optimizeTTNNMetalLayoutCastOpGrid(
     ttir::TTNNMetalLayoutCastOp castOp, ArrayRef<int64_t> targetGridShape,
     ArrayRef<int64_t> targetSquareGridShape, ArrayRef<int64_t> optimalGrid,
     bool isVirtualGrid, OpBuilder &builder) {
+  castOp.dump();
+  // input: 
+  //    cast ttnn -> metal_original_grid
+  //    generic(metal_original_grid)   
+  // output:
+  //    cast ttnn -> metal_original_grid
+  //    view_layout metal_original_grid -> metal_with_optimal_grid
+  //    view_layout metal_with_optimal_grid -> metal_original_grid
+  //    generic(metal_original_grid)
 
+  for (auto g : optimalGrid) {
+    std::cout << g << " ";
+  }
+  std::cout << std::endl;
   auto outputType =
       mlir::cast<mlir::RankedTensorType>(castOp.getResult().getType());
-  RankedTensorType newTensorType =
-      tensorWithOptimalGrid(outputType, targetGridShape, targetSquareGridShape,
-                            optimalGrid, isVirtualGrid, builder);
+  // auto oldLayout =
+  //     mlir::dyn_cast<ttcore::MetalLayoutAttr>(outputType.getEncoding());
+
+  // llvm::SmallVector<int64_t> currentShardedShape =
+  //     oldLayout.getDeviceShape(oldLayout.getGridShape(outputType),
+  //                                    ttcore::TileType::getDefaultShape());
+
+  // llvm::SmallVector<int64_t> newShardedShape = oldLayout.getDeviceShape(
+  //     optimalGrid, ttcore::TileType::getDefaultShape());
+  // AffineMap reblockMap;
+  // if (isVirtualGrid) {
+  //   reblockMap = ttmlir::d2m::utils::grids::createCoreVirtMaps(
+  //                     builder.getContext(), optimalGrid, targetGridShape)
+  //                     .first;
+  // } else {
+  //   reblockMap = ttmlir::utils::calculateReblockMap(
+  //       currentShardedShape, newShardedShape, builder.getContext());
+  // }
+
+  // auto newTensorLayout = ttcore::MetalLayoutAttr::get(
+  //     builder.getContext(), oldLayout.getLogicalShape(),
+  //     oldLayout.getOobVal(), oldLayout.getMemorySpace(),
+  //     oldLayout.getMemoryLayout(),
+  //     oldLayout.getCollapsedIntervals(),
+  //     oldLayout.getDimAlignments(), reblockMap);
+
+  auto newTensorType = utils::reblockTensor(outputType, optimalGrid);
+  // mlir::RankedTensorType::get(
+  //     newShardedShape, outputType.getElementType(), newTensorLayout);
+  // RankedTensorType newTensorType =
+  //     tensorWithOptimalGrid(outputType, targetGridShape, targetSquareGridShape,
+  //                           optimalGrid, isVirtualGrid, builder);
 
   builder.setInsertionPointAfter(castOp);
-  // create a view layout op with the new tensor type as output and the cast op
-  // as input
+
   auto newViewLayoutOp = builder.create<d2m::ViewLayoutOp>(
       castOp.getLoc(), newTensorType, castOp.getResult());
-  // Insert the view layout in between the cast op and the uses of the cast op
-  castOp.getResult().replaceAllUsesExcept(newViewLayoutOp.getResult(),
-                                          newViewLayoutOp);
+
+  // Reblock it back to original shape to preserve IR correctness.
+  auto oldLayout =
+      mlir::dyn_cast<ttcore::MetalLayoutAttr>(outputType.getEncoding());
+
+  auto viewOutputType =
+      utils::reblockTensor(newTensorType, oldLayout.getGridShape(outputType));
+  auto revertingView = builder.create<d2m::ViewLayoutOp>(
+      castOp.getLoc(), viewOutputType, newViewLayoutOp.getResult());
+    
+  castOp.getResult().replaceAllUsesExcept(revertingView.getResult(),
+                                      newViewLayoutOp);
+  
 }
 
 struct ToLayoutUpdateInfo {
@@ -844,7 +863,13 @@ updateTTNNTensors(ArrayRef<TTNNTensorUpdateInfo> TTNNTensorsToUpdate,
                                         targetSquareGridShape, info.grid,
                                         info.isVirtualGrid, builder);
     } else if (auto viewOp = info.operand.getDefiningOp<d2m::ViewLayoutOp>()) {
-      optimizeViewLayoutGrid(viewOp, targetGridShape, targetSquareGridShape,
+      // Erase the view op and directly operate on the defining cast.
+      auto originalOperand = viewOp.getInput();
+      auto castOp = originalOperand.getDefiningOp<ttir::TTNNMetalLayoutCastOp>();
+      TT_assertv(castOp, "Expected a TTNNMetalLayoutCastOp as the input of the view op.");
+      viewOp.getResult().replaceAllUsesWith(originalOperand);
+      viewOp.erase();
+      optimizeTTNNMetalLayoutCastOpGrid(castOp, targetGridShape, targetSquareGridShape,
                              info.grid, info.isVirtualGrid, builder);
     } else {
       llvm_unreachable("Expected a TTNNMetalLayoutCastOp or a ViewLayoutOp");
