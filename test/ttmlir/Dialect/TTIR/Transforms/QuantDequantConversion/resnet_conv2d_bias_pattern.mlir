@@ -4,11 +4,10 @@ module {
   func.func @resnet_conv2d_bias_relu_pooling_pattern(%arg0: tensor<1x3x224x224xf32>, %arg1: tensor<64x3x7x7xf32>, %arg2: tensor<64xf32>) -> tensor<1x64x56x56x!quant.uniform<i8:f32, 0.46909785270690918>> {
     // CHECK-LABEL: func.func @resnet_conv2d_bias_relu_pooling_pattern
     // CHECK: ttir.quantize
-    // CHECK: ttir.dequantize
     // CHECK: ttir.quantize
-    // CHECK: ttir.dequantize
+    // CHECK: ttir.reshape
+    // CHECK: ttir.quantize
     // CHECK: ttir.conv2d
-    // CHECK: ttir.quantize
     // CHECK: ttir.dequantize
     // CHECK: ttir.relu
     // CHECK: ttir.quantize
