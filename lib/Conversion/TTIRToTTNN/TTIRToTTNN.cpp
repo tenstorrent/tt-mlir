@@ -1353,6 +1353,38 @@ public:
 // ANCHOR_END: adding_an_op_matmul_op_rewriter
 
 namespace {
+class SparseMatmulOpConversionPattern
+    : public OpConversionPattern<ttir::SparseMatmulOp> {
+public:
+  using OpConversionPattern<ttir::SparseMatmulOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::SparseMatmulOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // Convert nnz to IntegerAttr
+    mlir::IntegerAttr nnzAttr = nullptr;
+    if (auto nnz = op.getNnz()) {
+      nnzAttr = rewriter.getI64IntegerAttr(*nnz);
+    }
+
+    // Note: TT-Metal sparse_matmul requires sparsity tensor in ROW_MAJOR layout
+    // This conversion is handled in the runtime (matmul.cpp) since device-to-device
+    // layout conversion is complex at the dialect level.
+
+    rewriter.replaceOpWithNewOp<ttnn::SparseMatmulOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getA(), adaptor.getB(), adaptor.getSparsity(),
+        op.getIsInputASparse(), op.getIsInputBSparse(), nnzAttr,
+        /*program_config=*/nullptr,
+        /*memory_config=*/nullptr,
+        /*dtype=*/nullptr,
+        /*compute_config=*/nullptr);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class Conv2dOpConversionPattern : public OpConversionPattern<ttir::Conv2dOp> {
 public:
   using OpConversionPattern<ttir::Conv2dOp>::OpConversionPattern;
@@ -3164,6 +3196,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            DistributedRMSNormOpConversionPattern,
            LayerNormOpConversionPattern,
            MatmulOpConversionPattern,
+           SparseMatmulOpConversionPattern,
            Conv2dOpConversionPattern,
            Conv3dOpConversionPattern,
            ConvTranspose2dOpConversionPattern,
