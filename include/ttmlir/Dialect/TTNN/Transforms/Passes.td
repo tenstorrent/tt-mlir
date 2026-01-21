@@ -240,6 +240,15 @@ def TTNNFusing: Pass<"ttnn-fusing", "::mlir::ModuleOp">
   ];
 }
 
+def TTNND2MFusing: Pass<"ttnn-d2m-fusing", "::mlir::ModuleOp"> {
+  let summary = "TTNN D2M fusing pass.";
+  let description = [{
+    This pass identifies potential subgraphs that can be fused through D2M compilation.
+
+    Right now, this is limited to eltwise chains.
+  }];
+}
+
 def TTNNTraceHoistTransform : Pass<"ttnn-trace-hoist-transform", "::mlir::ModuleOp"> {
   let summary = "TTNN Trace hoist transform";
   let description = [{
