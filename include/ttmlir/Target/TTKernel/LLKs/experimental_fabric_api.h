@@ -16,14 +16,34 @@ namespace experimental {
 static constexpr uint32_t max_fabric_payload_size = 4352;
 static constexpr size_t fabric_setup_args_start_idx = 0;
 
-///////////////////////////////////// Line/Ring Topology (1D) /////////////////////////////////////
+/////////////////////////////// Exposed APIs (for TTKernel Dialect Ops) ////////////////////////////////
+// These are the public APIs exposed to TTKernel dialect ops defined in TTKernelOps.td
+//
+// Setup/Teardown:
+//   void experimental::setup_fabric_connections()
+//   void experimental::close_fabric_connections()
+//
+// Device/Topology Info:
+//   uint16_t experimental::get_my_device_id()
+//   uint32_t experimental::get_logical_ring_position()           // API_TYPE_Linear only
+//   uint16_t experimental::get_device_id_from_logical_ring_position(uint32_t logical_ring_position)  // API_TYPE_Linear only
+//
+// Fabric Write:
+//   void experimental::fabric_fast_write_any_len(uint16_t dst_mesh_id, uint16_t dst_dev_id, uint64_t dst_addr, uint32_t src_addr, uint32_t len_bytes)
+//
+////////////////////////////////////////////////////////////////////////////////////////////////////
 
-#ifdef API_TYPE_Linear
+/////////////////////////////////// Device/Topology Info Functions ///////////////////////////////////
 
-struct Topology1D {
-    enum class Topology1DType { Line, Ring };
+FORCE_INLINE uint16_t get_my_device_id() {
+    auto* routing_table = reinterpret_cast<tt_l1_ptr routing_l1_info_t*>(MEM_TENSIX_ROUTING_TABLE_BASE);
+    return routing_table->my_device_id;
+}
+
+struct TopologyInfo1D {
+    enum class TopologyType1D { Line, Ring };
     
-    Topology1DType topology_type;
+    TopologyType1D topology_type;
     uint32_t ring_size;
     eth_chan_directions forward_dir;
     eth_chan_directions backward_dir;
@@ -44,7 +64,7 @@ struct Topology1D {
 
     void build_from_args(size_t& rt_arg_idx) {        
         // Read topology type (Line=0, Ring=1)
-        topology_type = static_cast<Topology1DType>(get_arg_val<uint32_t>(rt_arg_idx++));
+        topology_type = static_cast<TopologyType1D>(get_arg_val<uint32_t>(rt_arg_idx++));
         
         // Read ring/line size
         ring_size = get_arg_val<uint32_t>(rt_arg_idx++);
@@ -64,35 +84,96 @@ struct Topology1D {
     }
 };
 
-FORCE_INLINE Topology1D& get_topology() {
-    static Topology1D topology;
-    static bool initialized = false;
-    
-    if (!initialized) {
-        DPRINT << "Build topology with args\n";
-        size_t arg_idx = fabric_setup_args_start_idx + 1;
-        topology.build_from_args(arg_idx);
-        initialized = true;
-    }
+union ToplogyInfo {
+    TopologyInfo1D topology_info_1d;
+};
 
-    return topology;
-}
+ToplogyInfo& get_topology();
 
-uint16_t get_my_device_id();
+#ifdef API_TYPE_Linear
 
 FORCE_INLINE uint32_t get_logical_ring_position() {
-    Topology1D& topology = get_topology();
+    TopologyInfo1D& topology = get_topology().topology_info_1d;
     return topology.get_logical_index(get_my_device_id());
 }
 
 FORCE_INLINE uint32_t get_device_id_from_logical_ring_position(uint32_t logical_ring_position) {
-    Topology1D& topology = get_topology();
+    TopologyInfo1D& topology = get_topology().topology_info_1d;
     return topology.get_device_id(logical_ring_position);
 }
 
 #endif // API_TYPE_Linear
 
-///////////////////////////////////// Routing Functions /////////////////////////////////////
+//////////////////////////// FabricHelper and Setup/Teardown Functions /////////////////////////////
+
+struct FabricHelper {
+    static ToplogyInfo topology_info;
+    static tt::tt_fabric::RoutingPlaneConnectionManager fabric_connections;
+    static int route_id;
+    static bool initialized;
+};
+ToplogyInfo FabricHelper::topology_info;
+tt::tt_fabric::RoutingPlaneConnectionManager FabricHelper::fabric_connections;
+int FabricHelper::route_id = -1;
+bool FabricHelper::initialized = false;
+
+FORCE_INLINE ToplogyInfo& get_topology() {
+    ASSERT(FabricHelper::initialized);
+    return FabricHelper::topology_info;
+}
+
+FORCE_INLINE tt::tt_fabric::RoutingPlaneConnectionManager& get_fabric_connections() {
+    ASSERT(FabricHelper::initialized);
+    return FabricHelper::fabric_connections;
+}
+
+FORCE_INLINE volatile tt_l1_ptr PACKET_HEADER_TYPE* get_header(uint32_t dir) {
+    ASSERT(FabricHelper::initialized);
+    return PacketHeaderPool::header_table[FabricHelper::route_id].first + dir;
+}
+
+FORCE_INLINE void setup_fabric_connections() {
+    uint32_t num_topology_args = get_arg_val<uint32_t>(fabric_setup_args_start_idx);
+    uint32_t num_fabric_connection_args = get_arg_val<uint32_t>(fabric_setup_args_start_idx + num_topology_args);
+    uint32_t num_send_dir = get_arg_val<uint32_t>(fabric_setup_args_start_idx + num_topology_args + 1);
+
+    if (!FabricHelper::initialized) {
+        // set up topology
+        DPRINT << "Build topology with args\n";
+        size_t topology_arg_idx = fabric_setup_args_start_idx + 1;
+#ifdef API_TYPE_Linear
+        FabricHelper::topology_info.topology_info_1d.build_from_args(topology_arg_idx);
+#endif
+
+        // set up routing plane connection manager
+        DPRINT << "Build connections with args\n";
+        DPRINT << "Num topology args is " << num_topology_args << "\n";
+        DPRINT << "Num fabric connection args is " << num_fabric_connection_args << "\n";
+        DPRINT << "Num connections is " << num_send_dir << "\n";
+        size_t fabric_connection_arg_idx = fabric_setup_args_start_idx + num_topology_args + 2;
+        FabricHelper::fabric_connections = tt::tt_fabric::RoutingPlaneConnectionManager::template build_from_args<
+        tt::tt_fabric::RoutingPlaneConnectionManager::BUILD_AND_OPEN_CONNECTION>(fabric_connection_arg_idx, num_send_dir);
+
+        // set up packet header pool
+        FabricHelper::route_id = PacketHeaderPool::allocate_header_n(num_send_dir);
+        ASSERT(route_id != -1);
+    }
+    FabricHelper::initialized = true;
+    DPRINT << "Setup done\n";
+}
+
+FORCE_INLINE void close_fabric_connections() {
+    DPRINT << "Close start\n";
+
+    // teardown fabric connections (packet header pool and topology don't need teardown)
+    if (FabricHelper::initialized) {
+        FabricHelper::fabric_connections.close();
+    }
+
+    DPRINT << "Close done\n";
+}
+
+//////////////////////////////////////// Fabric Write APIs (and helpers) /////////////////////////////////////////
 
 #ifdef FABRIC_2D
 
@@ -127,10 +208,10 @@ FORCE_INLINE std::pair<uint32_t, uint32_t> calculate_initial_direction_and_hops(
 FORCE_INLINE std::pair<uint32_t, uint32_t> calculate_initial_direction_and_hops(uint16_t dst_device_id, uint16_t my_device_id) {
 #if defined(API_TYPE_Linear)
     // TODO: check that my_device_id and dst_device_id are in same line/ring
-    Topology1D& topology = get_topology();
+    TopologyInfo1D& topology = get_topology().topology_info_1d;
     uint32_t my_logical_index = topology.get_logical_index(my_device_id);
     uint32_t dest_logical_index = topology.get_logical_index(dst_device_id);
-    if (topology.topology_type == Topology1D::Topology1DType::Line) {
+    if (topology.topology_type == TopologyInfo1D::TopologyType1D::Line) {
         if (my_logical_index < dest_logical_index) {
             return {static_cast<uint32_t>(topology.forward_dir), dest_logical_index - my_logical_index};
         }
@@ -138,7 +219,7 @@ FORCE_INLINE std::pair<uint32_t, uint32_t> calculate_initial_direction_and_hops(
             return {static_cast<uint32_t>(topology.backward_dir), my_logical_index - dest_logical_index};
         }
     }
-    else { // Topology1D::Topology1DType::Ring; select shortest route from the two directions
+    else { // TopologyInfo1D::TopologyType1D::Ring; select shortest route from the two directions
         if ((dest_logical_index - my_logical_index) % topology.ring_size < (my_logical_index - dest_logical_index) % topology.ring_size) {
             return {static_cast<uint32_t>(topology.forward_dir), (dest_logical_index - my_logical_index) % topology.ring_size};
         }
@@ -153,30 +234,6 @@ FORCE_INLINE std::pair<uint32_t, uint32_t> calculate_initial_direction_and_hops(
 
 #endif
 
-///////////////////////////////////// Common Helper Functions /////////////////////////////////////
-
-FORCE_INLINE std::pair<tt::tt_fabric::RoutingPlaneConnectionManager&, bool> get_or_open_fabric_connections() {
-    static tt::tt_fabric::RoutingPlaneConnectionManager connections;
-    static bool initialized = false;
-    
-    if (!initialized) {
-        DPRINT << "Build connections with args\n";
-        uint32_t num_topology_args = get_arg_val<uint32_t>(fabric_setup_args_start_idx);
-        uint32_t num_fabric_connection_args = get_arg_val<uint32_t>(fabric_setup_args_start_idx + num_topology_args);
-        uint32_t num_send_dir = get_arg_val<uint32_t>(fabric_setup_args_start_idx + num_topology_args + 1);
-        size_t arg_idx = fabric_setup_args_start_idx + num_topology_args + 2;
-        DPRINT << "Num topology args is " << num_topology_args << "\n";
-        DPRINT << "Num fabric connection args is " << num_fabric_connection_args << "\n";
-        DPRINT << "Num connections is " << num_send_dir << "\n";
-        DPRINT << "Arg index is " << arg_idx << "\n";
-        connections = tt::tt_fabric::RoutingPlaneConnectionManager::template build_from_args<
-        tt::tt_fabric::RoutingPlaneConnectionManager::BUILD_AND_OPEN_CONNECTION>(arg_idx, num_send_dir);
-        initialized = true;
-    }
-
-    return {connections, initialized};
-}
-
 FORCE_INLINE int get_connection_index_by_tag(RoutingPlaneConnectionManager& fabric_connections, uint32_t tag) {
     for (uint32_t i = 0; i < fabric_connections.active_count(); ++i) {
         DPRINT << "connection tag is " << (uint32_t)fabric_connections.get(i).tag << "\n";
@@ -186,16 +243,6 @@ FORCE_INLINE int get_connection_index_by_tag(RoutingPlaneConnectionManager& fabr
     }
 
     return -1;
-}
-
-FORCE_INLINE volatile tt_l1_ptr PACKET_HEADER_TYPE* get_or_allocate_header(uint32_t dir) {
-    static uint8_t route_id = -1;
-    if (route_id == -1) {
-        uint32_t num_topology_args = get_arg_val<uint32_t>(fabric_setup_args_start_idx);
-        uint32_t num_send_dir = get_arg_val<uint32_t>(fabric_setup_args_start_idx + num_topology_args + 1);
-        route_id = PacketHeaderPool::allocate_header_n(num_send_dir);
-    }
-    return PacketHeaderPool::header_table[route_id].first + dir;
 }
 
 FORCE_INLINE void fabric_fast_write(
@@ -227,22 +274,6 @@ FORCE_INLINE void fabric_fast_write(
     noc_async_writes_flushed();
 }
 
-///////////////////////////////////// Common APIs /////////////////////////////////////
-
-FORCE_INLINE void close_fabric_connections() {
-    DPRINT << "Close start\n";
-    auto [connections, initialized] = get_or_open_fabric_connections();
-    if (initialized) {
-        connections.close();
-    }
-    DPRINT << "Close done\n";
-}
-
-FORCE_INLINE uint16_t get_my_device_id() {
-    auto* routing_table = reinterpret_cast<tt_l1_ptr routing_l1_info_t*>(MEM_TENSIX_ROUTING_TABLE_BASE);
-    return routing_table->my_device_id;
-}
-
 // Note: in ring and torus fabric, there are multiple routes but we are using shortest path route
 FORCE_INLINE void fabric_fast_write_any_len(
     uint16_t dst_mesh_id,
@@ -256,14 +287,14 @@ FORCE_INLINE void fabric_fast_write_any_len(
     uint16_t my_mesh_id = routing_table->my_mesh_id;
     ASSERT(my_mesh_id == dst_mesh_id);  // we dont support inter-mesh routing yet
 
-    auto [fabric_connections, is_init] = get_or_open_fabric_connections();
+    auto fabric_connections = get_fabric_connections();
     auto [initial_dir, num_hops] = calculate_initial_direction_and_hops(dst_dev_id, my_device_id);
     DPRINT << "initial_dir is " << initial_dir << "\n";
     auto connection_index = get_connection_index_by_tag(fabric_connections, initial_dir);
     DPRINT << "connection_index is " << connection_index << "\n";
     ASSERT(connection_index != -1);
     auto& connection = fabric_connections.get(connection_index).sender;
-    volatile tt_l1_ptr PACKET_HEADER_TYPE* packet_header = get_or_allocate_header(connection_index);
+    volatile tt_l1_ptr PACKET_HEADER_TYPE* packet_header = get_header(connection_index);
 #ifdef FABRIC_2D
     bool result = fabric_set_unicast_route(
         static_cast<volatile tt_l1_ptr HybridMeshPacketHeader*>(packet_header), dst_dev_id, dst_mesh_id);

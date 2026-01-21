@@ -277,6 +277,7 @@ void dprint(Arg &&arg, ArgV&&... argv) {
     }
 
     if (hasCall("experimental::close_fabric_connections") || 
+        hasCall("experimental::setup_fabric_connections") ||
         hasCall("experimental::get_my_device_id") || 
         hasCall("experimental::fabric_fast_write_any_len")) {
       auto experimentalFabricAPILLKs =

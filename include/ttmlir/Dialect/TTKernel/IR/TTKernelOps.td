@@ -2914,6 +2914,17 @@ def TTKernel_FabricWriteOp : TTKernel_Op<"experimental::fabric_fast_write_any_le
   }];
 }
 
+def TTKernel_SetupFabricConnectionsOp : TTKernel_Op<"experimental::setup_fabric_connections"> {
+  let summary = "SetupFabricConnections";
+  let description = [{
+    Setup fabric connections.
+  }];
+
+  let assemblyFormat = [{
+    `(` `)` attr-dict `:` functional-type(operands, results)
+  }];
+}
+
 def TTKernel_CloseFabricConnectionsOp : TTKernel_Op<"experimental::close_fabric_connections"> {
   let summary = "CloseFabricConnections";
   let description = [{
