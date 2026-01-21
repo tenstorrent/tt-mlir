@@ -328,7 +328,7 @@ static func::FuncOp createCPUHoistedFunctionDefinition(
                                  ttmlir::utils::FunctionType::ForwardCPU);
 
   // Finally, hash the function implementation and set the func_hash attribute.
-  std::string funcHash = hashFuncOp(funcDefinition);
+  auto funcHash = hashFuncOp(funcDefinition);
   funcDefinition->setAttr("func_hash", builder.getStringAttr(funcHash));
 
   return funcDefinition;
@@ -365,8 +365,8 @@ static func::FuncOp createCPUHoistedFunctionDeclaration(
   return funcDeclaration;
 }
 
-static std::optional<func::FuncOp>
-lookupCPUHoistedFunction(mlir::ModuleOp module, llvm::StringRef funcHash) {
+static func::FuncOp lookupCPUHoistedFunction(mlir::ModuleOp module,
+                                             llvm::StringRef funcHash) {
   for (auto func : module.getOps<func::FuncOp>()) {
     auto existingFuncHashAttr =
         func->getAttrOfType<mlir::StringAttr>("func_hash");
@@ -374,7 +374,7 @@ lookupCPUHoistedFunction(mlir::ModuleOp module, llvm::StringRef funcHash) {
       return func;
     }
   }
-  return std::nullopt;
+  return nullptr;
 }
 
 // Helper function to generate a unique function name for the CPU-hoisted
@@ -429,7 +429,7 @@ static void hoistOperationsToFunction(CPUHoistedOpsDescriptor &descriptor,
 
   // Lookup existing function declaration in the Device module by hash.
   func::FuncOp funcDeclaration =
-      lookupCPUHoistedFunction(deviceModule, funcHash).value_or(nullptr);
+      lookupCPUHoistedFunction(deviceModule, funcHash);
 
   // If the function doesn't exist, we need to insert the definition
   // into the CPU module, and create the declaration in the Device module.

@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -8,10 +8,10 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "llvm/ADT/ScopeExit.h"
+#include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/Support/SHA256.h"
-
-#include <string>
+#include "llvm/Support/raw_ostream.h"
 
 namespace mlir::tt {
 
@@ -24,7 +24,8 @@ namespace mlir::tt {
 // Uses printGenericOpForm to skip using custom printers and get an
 // explicit form of all op attributes and types.
 //
-inline std::string hashFuncOp(func::FuncOp func) {
+// SHA256 hex digest is 64 characters.
+inline llvm::SmallString<64> hashFuncOp(func::FuncOp func) {
   auto originalSymName = func.getSymName();
 
   // RAII guard to undo the temporary changes made to the function
@@ -55,18 +56,18 @@ inline std::string hashFuncOp(func::FuncOp func) {
   });
 
   auto flags = mlir::OpPrintingFlags().useLocalScope().printGenericOpForm();
-  std::string s;
-  llvm::raw_string_ostream os(s);
+  llvm::SmallString<1024> irBuffer;
+  llvm::raw_svector_ostream os(irBuffer);
 
   func.print(os, flags);
 
   auto digest = llvm::SHA256::hash(llvm::ArrayRef<uint8_t>(
-      reinterpret_cast<const uint8_t *>(s.data()), s.size()));
+      reinterpret_cast<const uint8_t *>(irBuffer.data()), irBuffer.size()));
 
-  constexpr bool lowercase = true;
-
-  return llvm::toHex(llvm::ArrayRef<uint8_t>(digest.data(), digest.size()),
-                     lowercase);
+  llvm::SmallString<64> result;
+  llvm::raw_svector_ostream hexOs(result);
+  hexOs << llvm::toHex(digest, /*LowerCase=*/true);
+  return result;
 }
 
 } // namespace mlir::tt
