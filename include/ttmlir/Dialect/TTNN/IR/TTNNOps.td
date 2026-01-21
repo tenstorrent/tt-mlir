@@ -2885,8 +2885,7 @@ def TTNN_DispatchD2MOp : Op<TTNN_Dialect, "dispatch_d2m",
    IsolatedFromAbove,
    SingleBlock,
    NoTerminator,
-   DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
-   TTNN_WorkaroundInterface]> {
+   DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
   let summary = "Dispatch D2M compiled subgraph.";
   let description = [{
     Holds a D2M-compiled subgraph consisting of an entry function containing
@@ -2948,6 +2947,7 @@ def TTNN_DispatchD2MOp : Op<TTNN_Dialect, "dispatch_d2m",
   }];
 
   let extraClassDeclaration = [{
+    // Required by DestinationStyleOpInterface
     MutableOperandRange getDpsInitsMutable() {
       return getOutputsMutable();
     }
