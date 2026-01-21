@@ -296,7 +296,14 @@ void createTTIRToTTNNDevicePipeline(
       devicePm.addPass(createTTNNSetComputeKernelConfig(setConfigOptions));
     }
 
+    // D2M fusing pass only supported with optimizer enabled, or else it won't
+    // get memory information.
+    if (options.optimizerPassEnabled && options.enableD2MFusing) {
+      devicePm.addPass(tt::ttnn::createTTNND2MFusing());
+    }
+
     createTTNNPipelineAnalysisPasses(devicePm, options);
+    createTTNNPipelineD2MPass(devicePm);
     // We need to re-run const-eval to pick up const prepare conv2d weight ops
     // split during the analysis passes.
     if (options.enableConstEval) {
