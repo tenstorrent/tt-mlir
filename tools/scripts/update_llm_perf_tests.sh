@@ -4,8 +4,8 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # Script to update single block and single layer perf tests from transformer_test_irs directory
-# Usage: ./update_llm_perf_tests.sh <transformer_test_irs_directory>
-# Example: ./update_llm_perf_tests.sh transformer_test_irs
+# Usage: ./update_llm_perf_tests.sh <source_directory> <model1> [model2] [model3] ...
+# Example: ./update_llm_perf_tests.sh transformer_test_irs llama_3_2_1b_decode_block falcon_3_1b_prefill_layer
 
 set -e
 
@@ -14,8 +14,10 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
 # Check for source directory argument
 if [ -z "$1" ]; then
-    echo "Usage: $0 <transformer_test_irs_directory>"
-    echo "Example: $0 transformer_test_irs"
+    echo "Usage: $0 <source_directory> <model1> [model2] [model3] ..."
+    echo "       $0 <source_directory> --list    # List available models"
+    echo ""
+    echo "Example: $0 transformer_test_irs llama_3_2_1b_decode_block falcon_3_1b_prefill_layer"
     exit 1
 fi
 
@@ -25,9 +27,40 @@ if [ ! -d "$SOURCE_DIR" ]; then
     exit 1
 fi
 
+shift  # Remove source directory from arguments
+
 MODELS_DIR="${REPO_ROOT}/test/ttmlir/models"
 LLM_MODELS_DIR="${MODELS_DIR}/single_blocks_and_layers"
 LLM_TESTS_DIR="${REPO_ROOT}/test/ttmlir/Silicon/TTNN/n150/optimizer/single_block_layer_perf_tests"
+
+# List available models if --list is passed
+if [ "$1" = "--list" ]; then
+    echo "Available models in $SOURCE_DIR:"
+    echo ""
+    for model_file in "${SOURCE_DIR}"/*.mlir; do
+        if [ -f "$model_file" ]; then
+            model_name=$(basename "$model_file" .mlir)
+            if [[ "$model_name" == *_block ]] || [[ "$model_name" == *_layer ]]; then
+                # Check if already added
+                if [ -f "${LLM_MODELS_DIR}/${model_name}.mlir" ]; then
+                    echo "  [EXISTS] $model_name"
+                else
+                    echo "  [NEW]    $model_name"
+                fi
+            fi
+        fi
+    done
+    exit 0
+fi
+
+# Check that at least one model is specified
+if [ $# -eq 0 ]; then
+    echo "Error: No models specified"
+    echo ""
+    echo "Usage: $0 <source_directory> <model1> [model2] [model3] ..."
+    echo "       $0 <source_directory> --list    # List available models"
+    exit 1
+fi
 
 # Create directories if they don't exist
 mkdir -p "$LLM_MODELS_DIR"
@@ -68,48 +101,42 @@ EOF
     fi
 }
 
-echo "Updating LLM perf tests from: $SOURCE_DIR"
+echo "Adding specified models from: $SOURCE_DIR"
 echo ""
-
-# Clean up outdated models and tests (only remove if not in source directory)
-removed_count=0
-for existing_model in "${LLM_MODELS_DIR}"/*.mlir; do
-    if [ -f "$existing_model" ]; then
-        model_name=$(basename "$existing_model" .mlir)
-        if [ ! -f "${SOURCE_DIR}/${model_name}.mlir" ]; then
-            rm -f "$existing_model"
-            rm -f "${LLM_TESTS_DIR}/${model_name}.mlir"
-            echo "  [REMOVED]  $model_name"
-            removed_count=$((removed_count + 1))
-        fi
-    fi
-done
 
 # Create lit.local.cfg file
-echo ""
-echo "Creating lit.local.cfg..."
 create_lit_config "$LLM_TESTS_DIR"
 
-# Process all .mlir files
-echo ""
+# Process specified models
 new_count=0
 updated_count=0
+error_count=0
 
-for model_file in "${SOURCE_DIR}"/*.mlir; do
-    if [ -f "$model_file" ]; then
-        model_name=$(basename "$model_file" .mlir)
-
-        # Only process block and layer models
-        if [[ "$model_name" == *_block ]] || [[ "$model_name" == *_layer ]]; then
-            cp "$model_file" "$LLM_MODELS_DIR/"
-            if create_test_file_if_missing "$model_name"; then
-                echo "  [UPDATED] $model_name"
-                updated_count=$((updated_count + 1))
-            else
-                echo "  [NEW]     $model_name"
-                new_count=$((new_count + 1))
-            fi
-        fi
+for model_name in "$@"; do
+    # Remove .mlir extension if provided
+    model_name="${model_name%.mlir}"
+    
+    model_file="${SOURCE_DIR}/${model_name}.mlir"
+    
+    if [ ! -f "$model_file" ]; then
+        echo "  [ERROR]   $model_name - not found in source directory"
+        error_count=$((error_count + 1))
+        continue
+    fi
+    
+    # Validate it's a block or layer model
+    if [[ "$model_name" != *_block ]] && [[ "$model_name" != *_layer ]]; then
+        echo "  [SKIP]    $model_name - must end with _block or _layer"
+        continue
+    fi
+    
+    cp "$model_file" "$LLM_MODELS_DIR/"
+    if create_test_file_if_missing "$model_name"; then
+        echo "  [UPDATED] $model_name"
+        updated_count=$((updated_count + 1))
+    else
+        echo "  [NEW]     $model_name"
+        new_count=$((new_count + 1))
     fi
 done
 
@@ -117,7 +144,7 @@ echo ""
 echo "Summary:"
 echo "  [NEW]     $new_count"
 echo "  [UPDATED] $updated_count"
-echo "  [REMOVED] $removed_count"
+echo "  [ERROR]   $error_count"
 echo ""
 echo "Directories:"
 echo "  Models: $LLM_MODELS_DIR"
