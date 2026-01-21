@@ -115,21 +115,21 @@ error_count=0
 for model_name in "$@"; do
     # Remove .mlir extension if provided
     model_name="${model_name%.mlir}"
-    
+
     model_file="${SOURCE_DIR}/${model_name}.mlir"
-    
+
     if [ ! -f "$model_file" ]; then
         echo "  [ERROR]   $model_name - not found in source directory"
         error_count=$((error_count + 1))
         continue
     fi
-    
+
     # Validate it's a block or layer model
     if [[ "$model_name" != *_block ]] && [[ "$model_name" != *_layer ]]; then
         echo "  [SKIP]    $model_name - must end with _block or _layer"
         continue
     fi
-    
+
     cp "$model_file" "$LLM_MODELS_DIR/"
     if create_test_file_if_missing "$model_name"; then
         echo "  [UPDATED] $model_name"
