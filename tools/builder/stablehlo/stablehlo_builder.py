@@ -7146,7 +7146,9 @@ class StableHLOBuilder(Builder):
         old_op: stablehlo.UniformQuantizeOp,
         global_dict: Dict[Operand, Operand],
     ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
-        stablehlo_op = self.get_opview_from_parser(StableHLOBuilder.uniform_quantize_parser)
+        stablehlo_op = self.get_opview_from_parser(
+            StableHLOBuilder.uniform_quantize_parser
+        )
         operand = global_dict[old_op.operand]
 
         new_op = stablehlo_op(
@@ -7170,7 +7172,9 @@ class StableHLOBuilder(Builder):
         self,
         old_op: stablehlo.UniformQuantizeOp,
     ) -> Tuple[Module, StableHLOBuilder]:
-        stablehlo_op = self.get_opview_from_split(StableHLOBuilder.uniform_quantize_split)
+        stablehlo_op = self.get_opview_from_split(
+            StableHLOBuilder.uniform_quantize_split
+        )
 
         old_context = old_op.context
         old_loc = Location.unknown(old_context)
@@ -7199,7 +7203,9 @@ class StableHLOBuilder(Builder):
                         golden_output = op_golden_function(
                             input0, old_op.result.type.element_type
                         )
-                        uniform_quantize_builder._set_golden_tensor(new_op_result, golden_output)
+                        uniform_quantize_builder._set_golden_tensor(
+                            new_op_result, golden_output
+                        )
                         uniform_quantize_builder._set_golden_tensor(operand, input0)
                         ordered_inputs.append(operand)
                         ordered_outputs.append(new_op_result)
@@ -7264,7 +7270,9 @@ class StableHLOBuilder(Builder):
         old_op: stablehlo.UniformDequantizeOp,
         global_dict: Dict[Operand, Operand],
     ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
-        stablehlo_op = self.get_opview_from_parser(StableHLOBuilder.uniform_dequantize_parser)
+        stablehlo_op = self.get_opview_from_parser(
+            StableHLOBuilder.uniform_dequantize_parser
+        )
         operand = global_dict[old_op.operand]
 
         new_op = stablehlo_op(
@@ -7288,7 +7296,9 @@ class StableHLOBuilder(Builder):
         self,
         old_op: stablehlo.UniformDequantizeOp,
     ) -> Tuple[Module, StableHLOBuilder]:
-        stablehlo_op = self.get_opview_from_split(StableHLOBuilder.uniform_dequantize_split)
+        stablehlo_op = self.get_opview_from_split(
+            StableHLOBuilder.uniform_dequantize_split
+        )
 
         old_context = old_op.context
         old_loc = Location.unknown(old_context)
@@ -7317,7 +7327,9 @@ class StableHLOBuilder(Builder):
                         golden_output = op_golden_function(
                             input0, old_op.result.type.element_type
                         )
-                        uniform_dequantize_builder._set_golden_tensor(new_op_result, golden_output)
+                        uniform_dequantize_builder._set_golden_tensor(
+                            new_op_result, golden_output
+                        )
                         uniform_dequantize_builder._set_golden_tensor(operand, input0)
                         ordered_inputs.append(operand)
                         ordered_outputs.append(new_op_result)
