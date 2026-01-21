@@ -3,9 +3,9 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-# Script to update single block and single layer perf tests from llm_blocks_and_layers directory
-# Usage: ./update_llm_perf_tests.sh <llm_blocks_and_layers_YYMMDD>
-# Example: ./update_llm_perf_tests.sh llm_blocks_and_layers_251223
+# Script to update single block and single layer perf tests from transformer_test_irs directory
+# Usage: ./update_llm_perf_tests.sh <transformer_test_irs_directory>
+# Example: ./update_llm_perf_tests.sh transformer_test_irs
 
 set -e
 
@@ -14,8 +14,8 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
 # Check for source directory argument
 if [ -z "$1" ]; then
-    echo "Usage: $0 <llm_blocks_and_layers_directory>"
-    echo "Example: $0 llm_blocks_and_layers_251223"
+    echo "Usage: $0 <transformer_test_irs_directory>"
+    echo "Example: $0 transformer_test_irs"
     exit 1
 fi
 
@@ -26,8 +26,8 @@ if [ ! -d "$SOURCE_DIR" ]; then
 fi
 
 MODELS_DIR="${REPO_ROOT}/test/ttmlir/models"
-LLM_MODELS_DIR="${MODELS_DIR}/llm_blocks_and_layers"
-LLM_TESTS_DIR="${REPO_ROOT}/test/ttmlir/Silicon/TTNN/n150/optimizer/llm_block_layer_perf_tests"
+LLM_MODELS_DIR="${MODELS_DIR}/single_blocks_and_layers"
+LLM_TESTS_DIR="${REPO_ROOT}/test/ttmlir/Silicon/TTNN/n150/optimizer/single_block_layer_perf_tests"
 
 # Create directories if they don't exist
 mkdir -p "$LLM_MODELS_DIR"
@@ -45,7 +45,7 @@ create_test_file_if_missing() {
 
     cat > "$test_file" << EOF
 // REQUIRES: opmodel, perf
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% optimization-level=2 experimental-bfp8-weights=true enable-permute-matmul-fusion=false" -o ${model_name}_ttnn.mlir %models/llm_blocks_and_layers/${model_name}.mlir
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% optimization-level=2 experimental-bfp8-weights=true enable-permute-matmul-fusion=false" -o ${model_name}_ttnn.mlir %models/single_blocks_and_layers/${model_name}.mlir
 // RUN: ttmlir-translate --ttnn-to-flatbuffer -o %t.ttnn ${model_name}_ttnn.mlir
 // RUN: ttrt run --benchmark %t.ttnn
 EOF
