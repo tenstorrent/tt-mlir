@@ -1669,7 +1669,7 @@ public:
       // debug print msg
       llvm::errs() << "to layout op ttnn\n";
       op.dump();
-      // Step 1: Convert input to Metal (if needed)
+      // convert to metal
       Value metalInput;
       auto inputType =
           mlir::cast<RankedTensorType>(adaptor.getInput().getType());
@@ -1685,25 +1685,25 @@ public:
         metalInput = adaptor.getInput();
       }
 
-      // Step 2: Get Metal type for output
+      // get metal type
       auto outputMetalType =
           getMetalTensorFromTTNNTensor(rewriter, op.getOutput());
 
-      // Step 3: Create d2m.empty with Metal layout
+      // create d2m.empty with etal layout
       Value metalEmpty = rewriter.create<d2m::EmptyOp>(
           op.getLoc(), outputMetalType.getShape(),
           outputMetalType.getElementType(), outputMetalType.getEncoding());
 
-      // Step 4: Create d2m.to_layout with Metal types
+      // create d2m.to_layout with metal types
       auto metalToLayout =
           rewriter.create<d2m::ToLayoutOp>(op.getLoc(), metalInput, metalEmpty);
 
-      // Step 5: Cast Metal result back to TTNN
+      // cast back to ttnn
       auto ttnnResult = rewriter.create<ttir::TTNNMetalLayoutCastOp>(
           op.getLoc(), outType, metalToLayout.getResult(0));
 
       rewriter.replaceOp(op, ttnnResult.getResult());
-      return success(); // ← CRITICAL: Must return here!
+      return success();
     }
 
     Value empty = rewriter.create<d2m::EmptyOp>(op.getLoc(), outType.getShape(),
@@ -1730,7 +1730,7 @@ class D2MEmptyOpRewriter : public OpConversionPattern<ttir::EmptyOp> {
       llvm::errs() << "empty op ttnn\n";
       op.dump();
 
-      // Check if this empty is used as a layout buffer in to_layout
+      // if if empty is used by a to_layout
       bool isLayoutBuffer = false;
       for (Operation *user : op->getUsers()) {
         if (auto toLayoutOp = dyn_cast<ttir::ToLayoutOp>(user)) {
@@ -1741,8 +1741,8 @@ class D2MEmptyOpRewriter : public OpConversionPattern<ttir::EmptyOp> {
         }
       }
 
-      // If this is a layout buffer, remove the ttir empty. In to_layout, a d2m
-      // empty is created.
+      // If this is a layout buffer, remove the ttir empty. b/c in
+      // tolayoutoprewriter, a d2m empty is created.
       if (isLayoutBuffer) {
         rewriter.eraseOp(op);
         return success();
