@@ -52,8 +52,11 @@ public:
     // Fuse concat -> reshape.
     // To find broadcast dims, remove the concat dim from reshape output shape.
     ::mlir::stablehlo::ReshapeOp reshapeOp =
-        mlir::cast<::mlir::stablehlo::ReshapeOp>(
+        mlir::dyn_cast<::mlir::stablehlo::ReshapeOp>(
             *concatOp.getResult().getUsers().begin());
+    if (!reshapeOp) {
+      return failure();
+    }
     ArrayRef<int64_t> reshapeOutputShape =
         reshapeOp.getResult().getType().getShape();
     uint64_t dim = concatOp.getDimension();
@@ -89,7 +92,8 @@ private:
           return false;
         }
         // Do not fuse if either concatenate or reshape op inputs or outputs are
-        // sharded.
+        // sharded. Otherwise, would need to accommodate for sharding attributes
+        // which is out of scope for this fusion pass.
         if (shardy_utils::opHasShardySharding(reshapeOp.getOperation()) ||
             shardy_utils::opHasShardySharding(concatOp.getOperation())) {
           return false;
