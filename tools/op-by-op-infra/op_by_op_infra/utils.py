@@ -232,24 +232,21 @@ class OpWrapper:
                 preserved_ops[i] = (original_name, str(defining_op))
             elif constant_chain:
                 # Preserve the entire constant chain
-                # The final result uses %pres{i}, intermediate values use %pres{i}_chain{j}
+                # All ops in chain are named %pres{i}_chain{j}
                 for j, (op_str, result_name) in enumerate(constant_chain):
-                    if j == len(constant_chain) - 1:
-                        # Last op in chain - this is what the main op uses
-                        standardized_name = f"%pres{i}"
-                    else:
-                        # Intermediate op
-                        standardized_name = f"%pres{i}_chain{j}"
+                    # All ops in chain use _chain{j} suffix
+                    standardized_name = f"%pres{i}_chain{j}"
 
                     # Add to operand mapping
                     if result_name:
                         operand_mapping[result_name] = standardized_name
 
                     # Store in preserved_ops with unique index
-                    pres_idx = i if j == len(constant_chain) - 1 else f"{i}_chain{j}"
+                    pres_idx = f"{i}_chain{j}"
                     preserved_ops[pres_idx] = (result_name, op_str)
 
-                standardized_name = f"%pres{i}"  # Final name for the main op's operand
+                # Final name for the main op's operand is the last chain element
+                standardized_name = f"%pres{i}_chain{len(constant_chain) - 1}"
             else:
                 standardized_name = f"%arg{i}"
                 parameterized_operands.append(Operand(standardized_name, operand.type))
@@ -277,9 +274,9 @@ class OpWrapper:
             )
 
         # Process preserved ops: replace all identifiers in each
-        # Sort by key to ensure chain ops come before ops that use them
+        # Insertion order is correct since chains are inserted in order
         self.preserved_ops_strings = []
-        for key in sorted(preserved_ops.keys(), key=lambda x: (str(x).split("_")[0], str(x))):
+        for key in preserved_ops.keys():
             original_name, pres_str = preserved_ops[key]
             # Replace all identifiers using the operand_mapping
             for original, standardized in operand_mapping.items():
@@ -361,16 +358,12 @@ class OpWrapper:
                                 next_pres_idx += 1
                         elif constant_chain:
                             # Add the entire constant chain
+                            # All ops in chain are named %pres{i}_chain{j}
                             for j, (op_str, result_name) in enumerate(constant_chain):
                                 if result_name and result_name not in operand_mapping:
-                                    if j == len(constant_chain) - 1:
-                                        # Last op in chain
-                                        standardized_name = f"%pres{next_pres_idx}"
-                                        pres_idx = next_pres_idx
-                                    else:
-                                        # Intermediate op
-                                        standardized_name = f"%pres{next_pres_idx}_chain{j}"
-                                        pres_idx = f"{next_pres_idx}_chain{j}"
+                                    # All ops in chain use _chain{j} suffix
+                                    standardized_name = f"%pres{next_pres_idx}_chain{j}"
+                                    pres_idx = f"{next_pres_idx}_chain{j}"
 
                                     preserved_ops[pres_idx] = (result_name, op_str)
                                     operand_mapping[result_name] = standardized_name
