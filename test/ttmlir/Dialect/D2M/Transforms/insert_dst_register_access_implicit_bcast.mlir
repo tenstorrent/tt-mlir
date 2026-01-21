@@ -1,4 +1,3 @@
-// UNSUPPORTED: true
 // RUN: ttmlir-opt --ttcore-register-device --d2m-linalg-to-affine --d2m-insert-dst-register-access --canonicalize -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
@@ -41,11 +40,11 @@ module {
           // CHECK: affine.for
           // CHECK: affine.load %dst
           // CHECK: affine.load %dst
-          // CHECK: d2m.tile_add
+          // CHECK: d2m.tile_div
           linalg.generic {indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, 0)>, affine_map<(d0, d1) -> (d0, d1)>], iterator_types = ["parallel", "parallel"]} ins(%subview, %subview_1 : memref<1x1x!ttcore.tile<32x32, f32>, strided<[1, 1], offset: ?>, #l1_>, memref<1x1x!ttcore.tile<32x32, f32>, strided<[1, 1], offset: ?>, #l1_>) outs(%subview_2 : memref<1x1x!ttcore.tile<32x32, f32>, strided<[1, 1], offset: ?>, #l1_>) {
           ^bb0(%in: !ttcore.tile<32x32, f32>, %in_1: !ttcore.tile<32x32, f32>, %out: !ttcore.tile<32x32, f32>):
             %3 = "d2m.tile_bcast"(%in_1) <{bcast_type = #d2m<tile_bcast_type col>}> : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
-            %4 = "d2m.tile_add"(%in, %3) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
+            %4 = "d2m.tile_div"(%in, %3) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
             linalg.yield %4 : !ttcore.tile<32x32, f32>
           }
         }
@@ -91,11 +90,11 @@ module {
           // CHECK: affine.for
           // CHECK: affine.load %dst
           // CHECK: affine.load %dst
-          // CHECK: d2m.tile_add
+          // CHECK: d2m.tile_div
           linalg.generic {indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (0, d1)>, affine_map<(d0, d1) -> (d0, d1)>], iterator_types = ["parallel", "parallel"]} ins(%subview, %subview_1 : memref<1x1x!ttcore.tile<32x32, f32>, strided<[1, 1], offset: ?>, #l1_>, memref<1x1x!ttcore.tile<32x32, f32>, strided<[1, 1], offset: ?>, #l1_>) outs(%subview_2 : memref<1x1x!ttcore.tile<32x32, f32>, strided<[1, 1], offset: ?>, #l1_>) {
           ^bb0(%in: !ttcore.tile<32x32, f32>, %in_1: !ttcore.tile<32x32, f32>, %out: !ttcore.tile<32x32, f32>):
             %3 = "d2m.tile_bcast"(%in_1) <{bcast_type = #d2m<tile_bcast_type row>}> : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
-            %4 = "d2m.tile_add"(%in, %3) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
+            %4 = "d2m.tile_div"(%in, %3) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
             linalg.yield %4 : !ttcore.tile<32x32, f32>
           }
         }
@@ -143,11 +142,11 @@ module {
           // CHECK: affine.for
           // CHECK: affine.load %dst
           // CHECK: affine.load %dst
-          // CHECK: d2m.tile_add
+          // CHECK: d2m.tile_div
           linalg.generic {indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (0, 0)>, affine_map<(d0, d1) -> (d0, d1)>], iterator_types = ["parallel", "parallel"]} ins(%subview, %1 : memref<1x1x!ttcore.tile<32x32, f32>, strided<[1, 1], offset: ?>, #l1_>, memref<1x1x!ttcore.tile<32x32, f32>, #l1_>) outs(%subview_1 : memref<1x1x!ttcore.tile<32x32, f32>, strided<[1, 1], offset: ?>, #l1_>) {
           ^bb0(%in: !ttcore.tile<32x32, f32>, %in_1: !ttcore.tile<32x32, f32>, %out: !ttcore.tile<32x32, f32>):
             %3 = "d2m.tile_bcast"(%in_1) <{bcast_type = #d2m<tile_bcast_type scalar>}> : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
-            %4 = "d2m.tile_add"(%in, %3) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
+            %4 = "d2m.tile_div"(%in, %3) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
             linalg.yield %4 : !ttcore.tile<32x32, f32>
           }
         }
@@ -205,12 +204,12 @@ module {
           // CHECK: affine.for
           // CHECK: affine.load %dst
           // CHECK: affine.load %dst
-          // CHECK: d2m.tile_add
+          // CHECK: d2m.tile_div
           linalg.generic {indexing_maps = [affine_map<(d0, d1) -> (d0, 0)>, affine_map<(d0, d1) -> (0, d1)>, affine_map<(d0, d1) -> (d0, d1)>], iterator_types = ["parallel", "parallel"]} ins(%subview, %subview_1 : memref<1x1x!ttcore.tile<32x32, f32>, strided<[1, 1], offset: ?>, #l1_>, memref<1x1x!ttcore.tile<32x32, f32>, strided<[1, 1], offset: ?>, #l1_>) outs(%subview_2 : memref<1x1x!ttcore.tile<32x32, f32>, strided<[1, 1], offset: ?>, #l1_>) {
           ^bb0(%in: !ttcore.tile<32x32, f32>, %in_1: !ttcore.tile<32x32, f32>, %out: !ttcore.tile<32x32, f32>):
             %3 = "d2m.tile_bcast"(%in) <{bcast_type = #d2m<tile_bcast_type col>}> : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
             %4 = "d2m.tile_bcast"(%in_1) <{bcast_type = #d2m<tile_bcast_type row>}> : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
-            %5 = "d2m.tile_add"(%3, %4) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
+            %5 = "d2m.tile_div"(%3, %4) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
             linalg.yield %5 : !ttcore.tile<32x32, f32>
           }
         }

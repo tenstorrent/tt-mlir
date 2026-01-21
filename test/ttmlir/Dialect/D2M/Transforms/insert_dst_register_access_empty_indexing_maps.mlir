@@ -1,4 +1,3 @@
-// UNSUPPORTED: true
 // RUN: ttmlir-opt --ttcore-register-device --d2m-linalg-to-affine --d2m-insert-dst-register-access --canonicalize -o %t %s --split-input-file
 // RUN: FileCheck %s --input-file=%t
 //
@@ -51,10 +50,10 @@ module {
         // CHECK: affine.store %[[ARG1_VAL]], %[[DST]]
         // CHECK: %[[DST0_VAL:.*]] = affine.load %[[DST]]
         // CHECK: %[[DST1_VAL:.*]] = affine.load %[[DST]]
-        // CHECK: %[[ADD_RESULT:.*]] = "d2m.tile_add"(%[[DST0_VAL]], %[[DST1_VAL]])
-        %0 = "d2m.tile_add"(%arg0, %arg1) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
+        // CHECK: %[[DIV_RESULT:.*]] = "d2m.tile_div"(%[[DST0_VAL]], %[[DST1_VAL]])
+        %0 = "d2m.tile_div"(%arg0, %arg1) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
 
-        // CHECK: affine.store %[[ADD_RESULT]], %[[DST]]
+        // CHECK: affine.store %[[DIV_RESULT]], %[[DST]]
         // CHECK: %[[FINAL_VAL:.*]] = affine.load %[[DST]]
         // CHECK: affine.store %[[FINAL_VAL]], %{{.*}}
         linalg.yield %0 : !ttcore.tile<32x32, f32>

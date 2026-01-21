@@ -1,4 +1,3 @@
-// UNSUPPORTED: true
 // RUN: ttmlir-opt --ttcore-register-device --convert-d2m-to-ttkernel %s | FileCheck %s
 
 func.func private @compute_kernel8(%arg0: memref<6x1x1x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>, %arg1: memref<6x1x1x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>, %arg2: memref<6x1x1x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>) attributes {d2m.thread = #d2m.thread<compute>} {
