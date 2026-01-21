@@ -418,11 +418,12 @@ using ComputeOpMap = OpMap<
   std::pair<d2m::TileLezOp,         std::pair<ttkernel::LezTileInitOp,             ttkernel::LezTileOp>>,
   std::pair<d2m::TileTypecastOp,    std::pair<ttkernel::TypecastTileInitOp,        ttkernel::TypecastTileOp>>,
 
-  // Elementwise SFPU Binary (can also handle scalar operands).
-  // Add/Sub/Mul fall back to SFPU if FPU rewriter fails.
+  // Elementwise FPU Binary with SFPU fallback.
   std::pair<d2m::TileAddOp,         std::pair<ttkernel::AddBinaryTilesInitOp,      ttkernel::AddBinaryTilesOp>>,
   std::pair<d2m::TileSubOp,         std::pair<ttkernel::SubBinaryTilesInitOp,      ttkernel::SubBinaryTilesOp>>,
   std::pair<d2m::TileMulOp,         std::pair<ttkernel::MulBinaryTilesInitOp,      ttkernel::MulBinaryTilesOp>>,
+
+  // Elementwise SFPU Binary.
   std::pair<d2m::TileBitwiseAndOp,  std::pair<ttkernel::BinaryBitwiseTileInitOp,   ttkernel::BitwiseAndBinaryTilesOp>>,
   std::pair<d2m::TileBitwiseOrOp,   std::pair<ttkernel::BinaryBitwiseTileInitOp,   ttkernel::BitwiseOrBinaryTilesOp>>,
   std::pair<d2m::TileBitwiseXorOp,  std::pair<ttkernel::BinaryBitwiseTileInitOp,   ttkernel::BitwiseXorBinaryTilesOp>>,
@@ -874,14 +875,14 @@ public:
     bool lhsFromDst = operandFromDst(op.getLhs());
     bool rhsFromDst = operandFromDst(op.getRhs());
 
-    if (!lhsFromDst && !rhsFromDst) {
-      // Both from CB: standard FPU path
-      return emitFPUTiles(rewriter, op, adaptor, loc);
-    }
-
     if (lhsFromDst && rhsFromDst) {
       // Both from DST: fallback to SFPU
       return failure();
+    }
+
+    if (!lhsFromDst && !rhsFromDst) {
+      // Both from CB: standard FPU path
+      return emitFPUTiles(rewriter, op, adaptor, loc);
     }
 
     if (lhsFromDst) {

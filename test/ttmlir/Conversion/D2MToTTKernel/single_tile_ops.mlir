@@ -1,4 +1,3 @@
-
 // RUN: ttmlir-opt --ttcore-register-device --ttir-to-ttmetal-me-pipeline --convert-d2m-to-ttkernel --canonicalize -o %t.mlir %s
 // RUN: FileCheck %s --input-file=%t.mlir
 
@@ -135,6 +134,33 @@ module {
         // CHECK: ttkernel.binary_dest_reuse_tiles_init(%{{.*}}, <add>, <dest_to_srca>)
         // CHECK: ttkernel.binary_dest_reuse_tiles(%{{.*}}, %{{.*}}, %{{.*}}, <add>, <dest_to_srca>)
         %1 = "d2m.tile_add"(%0, %arg1) : (!ttype_f32, !ttype_f32) -> !ttype_f32
+        // CHECK: ttkernel.pack_tile
+        linalg.yield %1 : !ttype_f32
+      }
+    }
+    return
+  }
+
+  func.func @test_bcast_lowering_col_srcb(%in0: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>,
+                                     %in1: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>,
+                                     %out: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>) {
+    d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map_, #map_, #map_], iterator_types = [#parallel_, #parallel_], threads = [#d2m.thread<compute>]}
+        ins(%in0, %in1 : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>, memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>)
+        outs(%out : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>)  {
+    ^compute0(%arg0_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>, %arg1_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>, %arg2_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>):
+      %cb0 = d2m.wait %arg0_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
+      %cb1 = d2m.wait %arg1_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
+      %cb2 = d2m.reserve %arg2_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
+      linalg.generic {indexing_maps = [#map_, #map_, #map_], iterator_types = ["parallel", "parallel"]} ins(%cb0, %cb1 : memref<1x1x!ttype_f32, #l1_>, memref<1x1x!ttype_f32, #l1_>) outs(%cb2 : memref<1x1x!ttype_f32, #l1_>) {
+      ^bb0(%arg0: !ttype_f32, %arg1: !ttype_f32, %arg2: !ttype_f32):
+        // CHECK-NOT: d2m.tile_bcast
+        // CHECK: ttkernel.binary_op_init_common
+        // CHECK: ttkernel.unary_bcast_init(%{{.*}}, %{{.*}}, <col>)
+        // CHECK: ttkernel.unary_bcast(%{{.*}}, %{{.*}}, %{{.*}}, <col>)
+        %0 = "d2m.tile_bcast"(%arg0) <{bcast_type = #d2m<tile_bcast_type col>}> : (!ttype_f32) -> !ttype_f32
+        // CHECK: ttkernel.binary_dest_reuse_tiles_init(%{{.*}}, <add>, <dest_to_srcb>)
+        // CHECK: ttkernel.binary_dest_reuse_tiles(%{{.*}}, %{{.*}}, %{{.*}}, <add>, <dest_to_srcb>)
+        %1 = "d2m.tile_add"(%arg1, %0) : (!ttype_f32, !ttype_f32) -> !ttype_f32
         // CHECK: ttkernel.pack_tile
         linalg.yield %1 : !ttype_f32
       }
