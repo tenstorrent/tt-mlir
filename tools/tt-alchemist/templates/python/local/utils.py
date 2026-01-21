@@ -50,20 +50,24 @@ class DeviceGetter:
 
 # Wrapper to abstract const-eval logic out of runtime funcs to keep them
 # cleaner. Invokes constEvalFunc iff key is not in cacheDict.
-def constEvalFuncWrapper(constEvalFunc, inputs, cacheDict, key):
-    if key not in cacheDict:
-        cacheDict[key] = constEvalFunc(inputs)
-    return cacheDict[key]
+def constEvalFuncWrapper(constEvalFunc, inputs, cacheDict, forwardFuncNameKey, key):
+    if forwardFuncNameKey not in cacheDict:
+        cacheDict[forwardFuncNameKey] = {}
+    if key not in cacheDict[forwardFuncNameKey]:
+        cacheDict[forwardFuncNameKey][key] = constEvalFunc(inputs)
+    return cacheDict[forwardFuncNameKey][key]
 
 
 # Wrapper to abstract const-eval logic out of runtime funcs to keep them
 # cleaner. Invokes constEvalFunc iff key is not in cacheDict.
 # This is an overload of constEvalFuncWrapper for const-eval functions that
 # take zero arguments.
-def constEvalFuncWrapperZeroArg(constEvalFunc, cacheDict, key):
-    if key not in cacheDict:
-        cacheDict[key] = constEvalFunc()
-    return cacheDict[key]
+def constEvalFuncWrapperZeroArg(constEvalFunc, cacheDict, forwardFuncNameKey, key):
+    if forwardFuncNameKey not in cacheDict:
+        cacheDict[forwardFuncNameKey] = {}
+    if key not in cacheDict[forwardFuncNameKey]:
+        cacheDict[forwardFuncNameKey][key] = constEvalFunc()
+    return cacheDict[forwardFuncNameKey][key]
 
 
 def get_scalar_from_tensor(tensor: ttnn.Tensor) -> int:

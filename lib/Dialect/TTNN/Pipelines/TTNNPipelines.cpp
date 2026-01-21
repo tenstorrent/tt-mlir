@@ -413,8 +413,6 @@ void createTTNNToEmitPyDevicePipeline(
 
   devicePm.addPass(createConvertTTNNToEmitPyPass());
 
-  devicePm.addPass(mlir::tt::emitpy::createEmitPySplitFiles());
-
   devicePm.addPass(createEmitPyNameVarsPass());
 }
 
@@ -440,8 +438,6 @@ void createTTIRToEmitPyCPUPipeline(OpPassManager &pm) {
   ConvertTTNNToEmitPyOptions options;
   options.enableGoldenMode = true;
   cpuPm.addPass(createConvertTTNNToEmitPyPass(options));
-
-  cpuPm.addPass(mlir::tt::emitpy::createEmitPySplitFiles());
 
   cpuPm.addPass(createEmitPyNameVarsPass());
 }
@@ -503,6 +499,10 @@ void createTTIRToEmitPyPipeline(OpPassManager &pm,
   // Link Device and CPU modules into the root module.
   //
   pm.addPass(createEmitPyLinkModulesPass());
+
+  // Split linked module into main and consteval files.
+  //
+  pm.addPass(mlir::tt::emitpy::createEmitPySplitFiles());
 }
 
 //===----------------------------------------------------------------------===//

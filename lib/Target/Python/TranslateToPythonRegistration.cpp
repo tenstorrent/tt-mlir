@@ -15,7 +15,7 @@ namespace mlir::tt::emitpy {
 // Command-line option for file ID filtering.
 static llvm::cl::opt<std::string>
     // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-    fileIdOption("file-id",
+    fileIdOption("emitpy-file-id",
                  llvm::cl::desc("Filter emitpy.file ops by ID. Only files "
                                 "with matching ID will be emitted."),
                  llvm::cl::init(""));

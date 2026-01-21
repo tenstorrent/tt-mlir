@@ -167,6 +167,9 @@ LogicalResult CallOpaqueOp::verify() {
     return emitOpError("callee must not be empty");
   }
 
+  if ((getArgs() && !getKeywordArgs()) || (!getArgs() && getKeywordArgs())) {
+    return emitOpError("args and keyword_args must be specified together");
+  }
   if (getArgs() && getKeywordArgs() &&
       getArgs()->size() != getKeywordArgs()->size()) {
     return emitOpError("there must be a specified keyword argument string for "
