@@ -1080,6 +1080,10 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_MatmulOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::SparseMatmulOp: {
+    tensorRef = opContext.type_as_SparseMatmulOp()->out();
+    break;
+  }
   case ::tt::target::ttnn::OpType::MorehCumSumOp: {
     tensorRef = opContext.type_as_MorehCumSumOp()->out();
     break;
@@ -1450,6 +1454,12 @@ getOpInputRefs(OpContext opContextHandle,
   case ::tt::target::ttnn::OpType::MatmulOp: {
     tensorRefs = {opContext.type_as_MatmulOp()->a(),
                   opContext.type_as_MatmulOp()->b()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::SparseMatmulOp: {
+    tensorRefs = {opContext.type_as_SparseMatmulOp()->a(),
+                  opContext.type_as_SparseMatmulOp()->b(),
+                  opContext.type_as_SparseMatmulOp()->sparsity()};
     break;
   }
   case ::tt::target::ttnn::OpType::MorehCumSumOp: {
@@ -1837,7 +1847,6 @@ submit(Device deviceHandle, Binary executableHandle, std::uint32_t programIndex,
   executor->execute();
   std::vector<::tt::runtime::Tensor> outputTensors =
       executor->gatherOutputTensors();
-
   executor.reset();
 
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
@@ -1846,7 +1855,7 @@ submit(Device deviceHandle, Binary executableHandle, std::uint32_t programIndex,
       ::tt::runtime::MemoryLogLevel::Program,
       "Device memory state after submit");
 #endif
-
+  
   return outputTensors;
 }
 
