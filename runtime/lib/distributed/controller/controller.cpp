@@ -1606,6 +1606,7 @@ void Controller::handleResponse(
 ShutdownResult Controller::shutdown() {
   LOG_INFO("Shutting down distributed controller");
 
+  // Check if the controller is already shutting down
   ControllerState currentState =
       controllerState_.load(std::memory_order_relaxed);
 

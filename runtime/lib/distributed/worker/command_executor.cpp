@@ -57,17 +57,29 @@ CommandExecutor::getOrCreateBinary(const flatbuffers::Vector<uint8_t> *binary,
 void CommandExecutor::run() {
   launchCommandReceiver();
   launchResponseSender();
+  if (shutdownRequested_.load(std::memory_order_relaxed)) {
+    std::cerr << "Shutting down command executor in CommandExecutor::run"
+              << std::endl;
+    // spsc queue size
+    std::cerr << "Command queue size at this point: " << commandQueue_.size()
+              << std::endl;
+    std::cerr << "Response queue size at this point: " << responseQueue_.size()
+              << std::endl;
+    return;
+  }
   while (!shutdownRequested_.load(std::memory_order_relaxed)) {
     SizedBuffer commandData = commandQueue_.popBlocking();
     const fb::Command *command = getCommand(commandData);
 
-    LOG_DEBUG("Executing command: ",
-              fb::EnumNameCommandType(command->type_type()));
+    LOG_DEBUG(
+        "Executing command id: ", command->command_id(),
+        " and command type: ", fb::EnumNameCommandType(command->type_type()));
 
     executeCommand(command);
 
-    LOG_DEBUG("Finished executing command: ",
-              fb::EnumNameCommandType(command->type_type()));
+    LOG_DEBUG(
+        "Finished executing command id: ", command->command_id(),
+        " and command type: ", fb::EnumNameCommandType(command->type_type()));
   }
 }
 
@@ -629,6 +641,10 @@ void CommandExecutor::execute(uint64_t commandId,
 
   LOG_INFO("Shutdown command received, shutting down command executor");
 
+  std::cerr << "Shutting down command executor in "
+               "CommandExecutor::execute(ShutdownCommand)"
+            << std::endl;
+
   std::unique_ptr<::flatbuffers::FlatBufferBuilder> responseBuilder =
       buildResponse(ResponseFactory::buildShutdownResponse, commandId);
 
@@ -638,6 +654,13 @@ void CommandExecutor::execute(uint64_t commandId,
   commandReceiverThread_.join();
   responseSenderThread_.join();
 
+  std::cerr << "Command executor shutdown complete in "
+               "CommandExecutor::execute(ShutdownCommand)"
+            << std::endl;
+  std::cerr << "Command queue size at this point: " << commandQueue_.size()
+            << std::endl;
+  std::cerr << "Response queue size at this point: " << responseQueue_.size()
+            << std::endl;
   LOG_INFO("Command executor shutdown complete");
 }
 
