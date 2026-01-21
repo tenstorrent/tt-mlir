@@ -1196,7 +1196,8 @@ def stablehlo_uniform_quantize_golden(
 def stablehlo_uniform_dequantize_golden(
     input_tensor: GoldenMapTensor, output_type_mlir: Type
 ) -> GoldenMapTensor:
-    return torch.dequantize(input_tensor)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.dequantize(input_tensor).to(output_dtype)
 
 
 def logical_not_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
