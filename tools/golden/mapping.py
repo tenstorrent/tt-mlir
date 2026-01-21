@@ -4746,7 +4746,16 @@ def stablehlo_reduce_window_golden(
 
     if padding is not None:
         padding_attr = unpack_mlir_attr(padding)
-        if isinstance(padding_attr, (list, tuple)) and len(padding_attr) > 0:
+        if isinstance(padding_attr, np.ndarray):
+            if padding_attr.ndim == 2:
+                pad_2d = [[int(p[0]), int(p[1])] for p in padding_attr]
+            else:
+                rank = len(window_dims)
+                pad_2d = [
+                    [int(padding_attr[i * 2]), int(padding_attr[i * 2 + 1])]
+                    for i in range(rank)
+                ]
+        elif isinstance(padding_attr, (list, tuple)) and len(padding_attr) > 0:
             if isinstance(padding_attr[0], (list, tuple)):
                 pad_2d = [list(p) for p in padding_attr]
             else:
@@ -4759,7 +4768,10 @@ def stablehlo_reduce_window_golden(
     else:
         pad_2d = [[0, 0] for _ in range(len(window_dims))]
 
-    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    if hasattr(output_type_mlir, "element_type"):
+        output_dtype = mlir_type_to_torch_dtype(output_type_mlir.element_type)
+    else:
+        output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
 
     init_scalar = init_value.contiguous().shard_map[0].item()
 

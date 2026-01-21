@@ -6265,6 +6265,9 @@ class StableHLOBuilder(Builder):
 
             return result
 
+    ############### stablehlo.ReduceWindowOp ###############
+
+    @tag(stablehlo.ReduceWindowOp)
     def reduce_window(
         self,
         in0: Operand,
@@ -6331,6 +6334,8 @@ class StableHLOBuilder(Builder):
         (*OpView*)
             Reduced tensor
         """
+        stablehlo_op = self.get_opview_from_method(StableHLOBuilder.reduce_window)
+
         with self._ctx, self._loc:
             id = self._get_next_global_id()
             loc = self._get_loc_of_extra_file_callee(id=id)
@@ -6390,10 +6395,14 @@ class StableHLOBuilder(Builder):
                         IntegerAttr.get(element_type, init_value),
                     )
                 init_value_op = stablehlo.ConstantOp(init_attr, loc=loc).result
+                if not self._disable_golden_check:
+                    init_golden_function = get_golden_function(stablehlo.ConstantOp)
+                    init_golden = init_golden_function(init_attr)
+                    self._set_golden_tensor(init_value_op, init_golden)
             else:
                 init_value_op = init_value
 
-            reduce_window_op = stablehlo.ReduceWindowOp(
+            reduce_window_op = stablehlo_op(
                 [output_type],
                 inputs=[in0],
                 init_values=[init_value_op],
@@ -6430,117 +6439,207 @@ class StableHLOBuilder(Builder):
 
             if not self._disable_golden_check:
                 input_golden = self._get_golden_tensor(in0)
-
-                if isinstance(init_value, (int, float)):
-                    init_scalar = init_value
-                else:
-                    init_golden = self._get_golden_tensor(init_value)
-                    if hasattr(init_golden, "_shard_map"):
-                        init_scalar = init_golden._shard_map[0].item()
-                    else:
-                        init_scalar = init_golden.item()
-
-                output_tensor = self._reduce_window_golden(
+                init_golden = self._get_golden_tensor(init_value_op)
+                op_golden_function = get_golden_function(stablehlo_op)
+                golden_output = op_golden_function(
                     input_golden,
-                    init_scalar,
-                    window_dimensions,
-                    window_strides,
-                    base_dilations,
-                    window_dilations,
-                    padding_2d,
+                    init_golden,
+                    reduce_window_op.window_dimensions,
+                    reduce_window_op.window_strides,
+                    reduce_window_op.base_dilations,
+                    reduce_window_op.window_dilations,
+                    reduce_window_op.padding,
+                    result.type,
                     body,
                 )
-                mesh_shape = input_golden._mesh_shape
-                output_golden = GoldenMapTensor({0: output_tensor}, mesh_shape)
-                self._set_golden_tensor(result, output_golden)
+                self._set_golden_tensor(result, golden_output)
 
             return result
 
-    def _reduce_window_golden(
+    @parse(stablehlo.ReduceWindowOp)
+    def reduce_window_parser(
         self,
-        input_tensor: torch.Tensor,
-        init_value: Union[float, int],
-        window_dimensions: List[int],
-        window_strides: List[int],
-        base_dilations: List[int],
-        window_dilations: List[int],
-        padding: List[List[int]],
-        body: str,
-    ) -> torch.Tensor:
-        """
-        Compute the golden output for reduce_window operation.
-        """
-        import torch.nn.functional as F
+        old_op: stablehlo.ReduceWindowOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        stablehlo_op = self.get_opview_from_parser(
+            StableHLOBuilder.reduce_window_parser
+        )
 
-        if hasattr(input_tensor, "_shard_map"):
-            input_tensor = input_tensor._shard_map[0]
+        input_operand = global_dict[old_op.inputs[0]]
+        init_value_operand = global_dict[old_op.init_values[0]]
 
-        input_shape = list(input_tensor.shape)
-        rank = len(input_shape)
+        new_op = stablehlo_op(
+            [old_op.result.type],
+            inputs=[input_operand],
+            init_values=[init_value_operand],
+            window_dimensions=old_op.window_dimensions,
+            window_strides=old_op.window_strides,
+            base_dilations=old_op.base_dilations,
+            window_dilations=old_op.window_dilations,
+            padding=old_op.padding,
+            loc=old_op.location,
+        )
 
-        if any(d != 1 for d in base_dilations):
-            dilated_shape = [
-                (s - 1) * d + 1 if s > 0 else 0
-                for s, d in zip(input_shape, base_dilations)
+        old_region = old_op.body
+        new_region = new_op.regions[0]
+        element_type = RankedTensorType(old_op.inputs[0].type).element_type
+        reduction_type = RankedTensorType.get([], element_type)
+        block = Block.create_at_start(new_region, [reduction_type, reduction_type])
+
+        body = "add"
+        for op in old_region.blocks[0].operations:
+            if isinstance(op, stablehlo.AddOp):
+                body = "add"
+                break
+            elif isinstance(op, stablehlo.MaxOp):
+                body = "max"
+                break
+
+        with InsertionPoint(block):
+            if body == "add":
+                reduction_result = stablehlo.AddOp(
+                    block.arguments[0], block.arguments[1], loc=old_op.location
+                ).result
+            elif body == "max":
+                reduction_result = stablehlo.MaxOp(
+                    block.arguments[0], block.arguments[1], loc=old_op.location
+                ).result
+            stablehlo.ReturnOp([reduction_result], loc=old_op.location)
+
+        new_op_result = new_op.result
+
+        if not self._disable_golden_check:
+            input_golden = self._get_golden_tensor(input_operand)
+            init_golden = self._get_golden_tensor(init_value_operand)
+            op_golden_function = get_golden_function(stablehlo_op)
+            golden_output = op_golden_function(
+                input_golden,
+                init_golden,
+                new_op.window_dimensions,
+                new_op.window_strides,
+                new_op.base_dilations,
+                new_op.window_dilations,
+                new_op.padding,
+                new_op_result.type,
+                body,
+            )
+            self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(stablehlo.ReduceWindowOp)
+    def reduce_window_split(
+        self,
+        old_op: stablehlo.ReduceWindowOp,
+    ) -> Tuple[Module, StableHLOBuilder]:
+        stablehlo_op = self.get_opview_from_split(StableHLOBuilder.reduce_window_split)
+
+        old_context = old_op.context
+        old_loc = Location.unknown(old_context)
+
+        body = "add"
+        for op in old_op.body.blocks[0].operations:
+            if isinstance(op, stablehlo.AddOp):
+                body = "add"
+                break
+            elif isinstance(op, stablehlo.MaxOp):
+                body = "max"
+                break
+
+        with old_context, old_loc:
+            reduce_window_module = Module.create()
+            reduce_window_builder = StableHLOBuilder(old_context, old_loc)
+            op_input_types = [
+                old_op.inputs[0].type,
+                old_op.init_values[0].type,
             ]
-            dilated_input = torch.full(
-                dilated_shape, init_value, dtype=input_tensor.dtype
-            )
-            slices = tuple(slice(None, None, d) for d in base_dilations)
-            dilated_input[slices] = input_tensor
-            input_tensor = dilated_input
-            input_shape = list(input_tensor.shape)
 
-        pad_list = []
-        for i in range(rank - 1, -1, -1):
-            pad_list.extend([padding[i][0], padding[i][1]])
-        if any(p != 0 for p in pad_list):
-            input_tensor = F.pad(input_tensor, pad_list, value=init_value)
-            input_shape = list(input_tensor.shape)
+            with InsertionPoint(reduce_window_module.body):
 
-        output_shape = []
-        for i in range(rank):
-            dilated_window = (
-                (window_dimensions[i] - 1) * window_dilations[i] + 1
-                if window_dimensions[i] > 0
-                else 0
-            )
-            if input_shape[i] == 0 or dilated_window > input_shape[i]:
-                output_dim = 0
-            else:
-                output_dim = (
-                    (input_shape[i] - dilated_window) // window_strides[i]
-                ) + 1
-            output_shape.append(output_dim)
+                ordered_inputs = []
+                ordered_outputs = []
 
-        output_tensor = torch.full(output_shape, init_value, dtype=input_tensor.dtype)
+                @func.func(*op_input_types, name="reduce_window_module")
+                def decorated_func(*inputs):
+                    input_operand = inputs[0]
+                    init_value_operand = inputs[1]
 
-        import itertools
-
-        if all(d > 0 for d in output_shape):
-            output_indices = itertools.product(*[range(s) for s in output_shape])
-            window_offsets = list(
-                itertools.product(*[range(s) for s in window_dimensions])
-            )
-
-            for idx in output_indices:
-                window_elements = []
-                for window_idx in window_offsets:
-                    input_idx = tuple(
-                        idx[d] * window_strides[d] + window_idx[d] * window_dilations[d]
-                        for d in range(rank)
+                    new_op = stablehlo_op(
+                        [old_op.result.type],
+                        inputs=[input_operand],
+                        init_values=[init_value_operand],
+                        window_dimensions=old_op.window_dimensions,
+                        window_strides=old_op.window_strides,
+                        base_dilations=old_op.base_dilations,
+                        window_dilations=old_op.window_dilations,
+                        padding=old_op.padding,
+                        loc=old_op.location,
                     )
-                    if all(0 <= input_idx[d] < input_shape[d] for d in range(rank)):
-                        window_elements.append(input_tensor[input_idx].item())
 
-                if window_elements:
-                    if body == "add":
-                        result = sum(window_elements)
-                    elif body == "max":
-                        result = max(window_elements)
-                    output_tensor[idx] = result
+                    element_type = RankedTensorType(old_op.inputs[0].type).element_type
+                    reduction_type = RankedTensorType.get([], element_type)
+                    block = Block.create_at_start(
+                        new_op.regions[0], [reduction_type, reduction_type]
+                    )
 
-        return output_tensor
+                    with InsertionPoint(block):
+                        if body == "add":
+                            reduction_result = stablehlo.AddOp(
+                                block.arguments[0],
+                                block.arguments[1],
+                                loc=old_op.location,
+                            ).result
+                        elif body == "max":
+                            reduction_result = stablehlo.MaxOp(
+                                block.arguments[0],
+                                block.arguments[1],
+                                loc=old_op.location,
+                            ).result
+                        stablehlo.ReturnOp([reduction_result], loc=old_op.location)
+
+                    new_op_result = new_op.result
+
+                    if not self._disable_golden_check:
+                        input_golden = self._get_golden_tensor(old_op.inputs[0])
+                        init_golden = self._get_golden_tensor(old_op.init_values[0])
+                        op_golden_function = get_golden_function(stablehlo_op)
+                        golden_output = op_golden_function(
+                            input_golden,
+                            init_golden,
+                            new_op.window_dimensions,
+                            new_op.window_strides,
+                            new_op.base_dilations,
+                            new_op.window_dilations,
+                            new_op.padding,
+                            new_op_result.type,
+                            body,
+                        )
+                        reduce_window_builder._set_golden_tensor(
+                            new_op_result, golden_output
+                        )
+                        reduce_window_builder._set_golden_tensor(
+                            input_operand, input_golden
+                        )
+                        reduce_window_builder._set_golden_tensor(
+                            init_value_operand, init_golden
+                        )
+                        ordered_inputs.extend([input_operand, init_value_operand])
+                        ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                reduce_window_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return reduce_window_module, reduce_window_builder
+
+    ############### stablehlo.ConvolutionOp ###############
 
     @tag(stablehlo.ConvolutionOp)
     def convolution(
