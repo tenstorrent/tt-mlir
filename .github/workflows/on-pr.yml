@@ -21,6 +21,10 @@ permissions:
   pull-requests: write
   contents: write
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   pre-commit:
     uses: ./.github/workflows/call-pre-commit.yml
