@@ -1435,20 +1435,13 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
                                      uint32_t operandIndex) {
     TT_debug(!genericOp.isExplicitDatamovementForm());
 
-    const AffineMap indexingMap = genericOp.getIndexingMap(operandIndex);
-
-    // For pure constant maps (all results are constant 0s), no streaming
-    // needed. This handles scratch operands like mask tiles.
-    bool allConstant = true;
-    for (AffineExpr expr : indexingMap.getResults()) {
-      if (!mlir::isa<AffineConstantExpr>(expr)) {
-        allConstant = false;
-        break;
-      }
-    }
-    if (allConstant) {
+    // Scratch inputs (e.g., mask tiles) don't need streaming - they're
+    // allocated locally and written to within the generic op.
+    if (genericOp.isScratchInput(operandIndex)) {
       return false;
     }
+
+    const AffineMap indexingMap = genericOp.getIndexingMap(operandIndex);
 
     const auto broadcastDims = indexingMap.getBroadcastDims();
     const auto iteratorTypes = genericOp.getIteratorTypesValue();

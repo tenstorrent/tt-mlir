@@ -245,7 +245,8 @@ def D2M_GenericOp : D2M_Op<"generic",
                          I64ArrayAttr:$block_factors,
                          AffineMapArrayAttr:$indexing_maps,
                          TTCore_IteratorTypeArrayAttr:$iterator_types,
-                         D2M_ThreadArrayAttr:$threads);
+                         D2M_ThreadArrayAttr:$threads,
+                         OptionalAttr<DenseI64ArrayAttr>:$scratch_inputs);
     let results = (outs Variadic<AnyRankedTensor>:$results);
     let regions = (region VariadicRegion<AnyRegion>:$regions);
 
@@ -354,6 +355,11 @@ def D2M_GenericOp : D2M_Op<"generic",
       static Value findAssocOperand(::mlir::tensor::EmptyOp emptyOp);
       static Value findAssocCBByOperandIndex(Operation *op, unsigned operandIndex);
       static Value findAssocCBByOperand(Operation *op, Value operand);
+      bool isScratchInput(int64_t inputIndex) {
+        auto scratchAttr = getScratchInputsAttr();
+        if (!scratchAttr) return false;
+        return llvm::is_contained(scratchAttr.asArrayRef(), inputIndex);
+      }
     }];
 }
 
