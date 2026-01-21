@@ -20,6 +20,9 @@ module attributes {ttcore.system_desc = #system_desc} {
   }
 
   func.func private @datamovement_kernel0() attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<noc>} {
+    // Setup fabric connections
+    "ttkernel.experimental::setup_fabric_connections"() : () -> ()
+
     // Constants
     %len_bytes = arith.constant 49152 : i32
     %c0_i16 = arith.constant 0 : i16

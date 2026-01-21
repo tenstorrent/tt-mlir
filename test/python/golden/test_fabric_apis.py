@@ -23,7 +23,7 @@ from ttmlir.passes import (
     tt_runtime.runtime.FabricConfig.FABRIC_1D, 
     tt_runtime.runtime.FabricConfig.FABRIC_1D_RING, 
     tt_runtime.runtime.FabricConfig.FABRIC_2D,
-    # T3K physcially does not support torus fabric configs:
+    # T3K physically does not support torus fabric configs:
     #tt_runtime.runtime.FabricConfig.FABRIC_2D_TORUS_X,
     #tt_runtime.runtime.FabricConfig.FABRIC_2D_TORUS_Y,
     #tt_runtime.runtime.FabricConfig.FABRIC_2D_TORUS_XY,
