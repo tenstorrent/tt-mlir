@@ -23,6 +23,40 @@ from golden import *
 
 
 class TTIRBuilder(Builder):
+    """
+    Builder for constructing TTIR (Tenstorrent IR) dialect operations.
+
+    TTIRBuilder extends the base Builder class to provide methods for
+    constructing TTIR operations with automatic golden tensor verification.
+    TTIR is the high-level intermediate representation used in the TT-MLIR
+    compiler stack before lowering to hardware-specific dialects.
+
+    This class provides operation builders for a wide range of tensor
+    operations including:
+    - Element-wise operations (add, multiply, relu, etc.)
+    - Matrix operations (matmul, conv2d, etc.)
+    - Reduction operations (sum, mean, max, etc.)
+    - Data movement operations (reshape, transpose, concat, etc.)
+    - Collective operations (all_reduce, all_gather, etc.)
+
+    Each operation method is decorated with @tag to register it in the
+    operation dispatch map, and automatically handles golden tensor
+    computation for verification.
+
+    Examples
+    --------
+    ::
+
+        from builder.ttir.ttir_builder import TTIRBuilder
+        from builder.base.builder_apis import build_module
+
+        def my_module(builder: TTIRBuilder):
+            @builder.func([[64, 128], [64, 128]], [torch.float32, torch.float32])
+            def add_func(in0, in1, builder):
+                return builder.add(in0, in1)
+
+        module = build_module(my_module, TTIRBuilder)
+    """
 
     # ----- Methods -----
 
@@ -36,17 +70,62 @@ class TTIRBuilder(Builder):
         ] = OrderedDict([("x", 1), ("y", 1)]),
         disable_golden_check: bool = False,
     ):
+        """
+        Initialize a TTIRBuilder instance.
+
+        Parameters
+        ----------
+        ctx : Context
+            MLIR context for creating operations and types.
+        location : Location
+            Default MLIR location for operations created by this builder.
+        mesh_name : Union[List[str], str], optional
+            Name(s) of the device mesh(es). Defaults to "mesh".
+        mesh_dict : Union[List[OrderedDict[str, int]], OrderedDict[str, int]], optional
+            Dictionary specifying mesh dimensions. Defaults to a 1x1 mesh.
+        disable_golden_check : bool, optional
+            If True, skip golden tensor computation. Defaults to False.
+        """
         super().__init__(ctx, location, mesh_name, mesh_dict, disable_golden_check)
 
     # ----- Private methods ----
 
     def _get_empty_op(self, tensor_type: RankedTensorType) -> OpResult:
-        """Get TTIR-specific empty operation."""
+        """
+        Create an empty tensor operation with the given type.
+
+        Parameters
+        ----------
+        tensor_type : RankedTensorType
+            The MLIR tensor type for the empty tensor.
+
+        Returns
+        -------
+        OpResult
+            The result of the TTIR EmptyOp.
+        """
         return ttir.EmptyOp(tensor_type).result
 
     def _organize_eltwise_ttir(
         self, inputs: List[Operand], output_type: RankedTensorType
     ):
+        """
+        Organize arguments for TTIR element-wise operations.
+
+        TTIR ops expect the output type first, followed by inputs.
+
+        Parameters
+        ----------
+        inputs : List[Operand]
+            Input operands to the operation.
+        output_type : RankedTensorType
+            The output tensor type.
+
+        Returns
+        -------
+        Tuple
+            Arguments organized as (output_type, *inputs).
+        """
         return (output_type, *inputs)
 
     def _op_proxy(
@@ -64,6 +143,47 @@ class TTIRBuilder(Builder):
         loc: Optional[Union[str, Location]] = None,
         skip_golden: bool = False,
     ) -> Any:
+        """
+        Proxy method for creating TTIR operations with golden verification.
+
+        This is the core method used by most operation builders. It handles:
+        - Computing output shape and type via golden functions
+        - Creating the MLIR operation
+        - Setting unit attributes
+        - Computing and storing golden tensors for verification
+
+        Parameters
+        ----------
+        op_ttir_function : Callable
+            The TTIR operation class/function to invoke.
+        inputs : List[Operand]
+            Input operands to the operation.
+        unit_attrs : List[str], optional
+            List of unit attribute names to set on the operation.
+        organize_ttir_args : Callable, optional
+            Function to organize MLIR op arguments. Defaults to element-wise.
+        organize_golden_args : Callable, optional
+            Function to organize golden function arguments.
+        output_shape : Shape, optional
+            Explicit output shape (if not using golden inference).
+        output_type : Type, optional
+            Explicit output element type (if not using golden inference).
+        output_create_fn : Callable, optional
+            Custom function to create the output tensor type.
+        golden_kwargs : dict, optional
+            Keyword arguments for the golden function.
+        ttir_kwargs : dict, optional
+            Keyword arguments for the TTIR operation.
+        loc : Union[str, Location], optional
+            Location for the operation.
+        skip_golden : bool, optional
+            If True, skip golden computation. Defaults to False.
+
+        Returns
+        -------
+        Any
+            The result of the operation (typically OpResult).
+        """
         if not golden_kwargs:
             golden_kwargs = ttir_kwargs
 
@@ -175,6 +295,37 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """
+        Perform an all-to-all collective communication operation.
+
+        Splits the input tensor along split_dim into split_count pieces,
+        then redistributes the pieces across devices in the replica groups,
+        concatenating received pieces along concat_dim.
+
+        Parameters
+        ----------
+        input : Operand
+            Input tensor to be split and redistributed.
+        split_dim : int
+            Dimension along which to split the input tensor.
+        concat_dim : int
+            Dimension along which to concatenate received pieces.
+        split_count : int
+            Number of pieces to split the input into.
+        replica_groups : List[List[int]]
+            Groups of device replicas participating in the collective.
+        output_type : torch.dtype, optional
+            Data type for the output tensor. If None, uses input type.
+        loc : str, optional
+            Location string for the operation.
+        unit_attrs : List[str], optional
+            List of unit attribute names to set on the operation.
+
+        Returns
+        -------
+        OpResult
+            The redistributed tensor after all-to-all communication.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.all_to_all)
 
         if output_type is None:
@@ -277,6 +428,30 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """
+        Broadcast a tensor from one device to all others in replica groups.
+
+        The input tensor from the source device is copied to all other
+        devices within each replica group.
+
+        Parameters
+        ----------
+        input : Operand
+            Input tensor to broadcast.
+        replica_groups : List[Tuple[int, int]]
+            Groups of device replicas for the broadcast operation.
+        output_type : torch.dtype, optional
+            Data type for the output tensor. If None, uses input type.
+        loc : str, optional
+            Location string for the operation.
+        unit_attrs : List[str], optional
+            List of unit attribute names to set on the operation.
+
+        Returns
+        -------
+        OpResult
+            The broadcasted tensor.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.collective_broadcast)
 
         if output_type is None:
@@ -357,6 +532,30 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """
+        Permute tensor data between devices according to source-target pairs.
+
+        Each pair (source, target) specifies that data from the source device
+        should be sent to the target device.
+
+        Parameters
+        ----------
+        input : Operand
+            Input tensor to permute across devices.
+        source_target_pairs : List[Tuple[int, int]]
+            List of (source_device, target_device) pairs defining the permutation.
+        output_type : torch.dtype, optional
+            Data type for the output tensor. If None, uses input type.
+        loc : str, optional
+            Location string for the operation.
+        unit_attrs : List[str], optional
+            List of unit attribute names to set on the operation.
+
+        Returns
+        -------
+        OpResult
+            The permuted tensor after collective communication.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.collective_permute)
 
         if output_type is None:
@@ -438,6 +637,34 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """
+        Reduce tensors across devices then scatter the result.
+
+        Performs a reduction operation across all devices, then scatters
+        different portions of the result to each device along scatter_dim.
+
+        Parameters
+        ----------
+        input : Operand
+            Input tensor to reduce and scatter.
+        reduce_type : ReduceType
+            Type of reduction operation (e.g., sum, max, min).
+        scatter_dim : int
+            Dimension along which to scatter the reduced result.
+        cluster_axis : int
+            Axis of the device cluster for the collective operation.
+        output_type : torch.dtype, optional
+            Data type for the output tensor. If None, uses input type.
+        loc : str, optional
+            Location string for the operation.
+        unit_attrs : List[str], optional
+            List of unit attribute names to set on the operation.
+
+        Returns
+        -------
+        OpResult
+            The scattered portion of the reduced tensor for this device.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.reduce_scatter)
 
         if output_type is None:
@@ -535,6 +762,32 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """
+        Reduce tensors across all devices and distribute the result.
+
+        Performs a reduction operation (e.g., sum, max) across all devices
+        in the cluster and makes the result available on all devices.
+
+        Parameters
+        ----------
+        input : Operand
+            Input tensor to reduce across devices.
+        cluster_axis : int
+            Axis of the device cluster for the collective operation.
+        reduce_type : ReduceType
+            Type of reduction operation (e.g., sum, max, min).
+        output_type : torch.dtype, optional
+            Data type for the output tensor. If None, uses input type.
+        loc : str, optional
+            Location string for the operation.
+        unit_attrs : List[str], optional
+            List of unit attribute names to set on the operation.
+
+        Returns
+        -------
+        OpResult
+            The reduced tensor, identical on all devices.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.all_reduce)
 
         if output_type is None:
@@ -625,6 +878,36 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """
+        Shard a tensor across the device mesh.
+
+        Distributes the input tensor across devices in the mesh according
+        to the specified sharding configuration.
+
+        Parameters
+        ----------
+        input : Operand
+            Input tensor to shard.
+        shard_type : MeshShardType
+            Type of sharding (e.g., replicate, devices).
+        shard_direction : MeshShardDirection
+            Direction of sharding across the mesh.
+        shard_shape : List[int]
+            Shape of each shard.
+        shard_dims : List[int]
+            Dimensions along which to shard.
+        output_type : torch.dtype, optional
+            Data type for the output tensor. If None, uses input type.
+        loc : str, optional
+            Location string for the operation.
+        unit_attrs : List[str], optional
+            List of unit attribute names to set on the operation.
+
+        Returns
+        -------
+        OpResult
+            The sharded tensor distributed across the mesh.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.mesh_shard)
 
         if output_type is None:
@@ -729,6 +1012,32 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """
+        Gather tensors from all devices along a dimension.
+
+        Collects tensor data from all devices in the cluster and
+        concatenates them along the specified dimension.
+
+        Parameters
+        ----------
+        input : Operand
+            Input tensor from this device.
+        all_gather_dim : int
+            Dimension along which to concatenate gathered tensors.
+        cluster_axis : int
+            Axis of the device cluster for the collective operation.
+        output_type : torch.dtype, optional
+            Data type for the output tensor. If None, uses input type.
+        loc : str, optional
+            Location string for the operation.
+        unit_attrs : List[str], optional
+            List of unit attribute names to set on the operation.
+
+        Returns
+        -------
+        OpResult
+            The gathered tensor containing data from all devices.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.all_gather)
 
         if output_type is None:
@@ -817,6 +1126,28 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """
+        Convert a tensor to a different memory layout.
+
+        Changes the memory layout of a tensor without modifying its values,
+        useful for optimizing data access patterns on hardware.
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor to convert.
+        output_type : RankedTensorType
+            Target tensor type with the desired layout.
+        loc : str, optional
+            Location string for the operation.
+        unit_attrs : List[str], optional
+            List of unit attribute names to set on the operation.
+
+        Returns
+        -------
+        OpResult
+            The tensor with the new memory layout.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.to_layout)
 
         output = self._get_empty_op(output_type)
@@ -941,6 +1272,39 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """
+        Rearrange tensor elements according to an einops-style pattern.
+
+        Reorders, reshapes, or transposes tensor elements based on a string
+        pattern specification. Supports operations like transposition,
+        flattening, and splitting dimensions.
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor to rearrange.
+        pattern : str
+            Einops-style rearrangement pattern (e.g., "b c h w -> b (c h) w").
+        output_type : torch.dtype, optional
+            Data type for the output tensor. If None, uses the input tensor's
+            dtype.
+        loc : str, optional
+            Location identifier for debugging purposes.
+        unit_attrs : list of str, optional
+            List of unit attribute names to attach to the operation.
+
+        Returns
+        -------
+        OpResult
+            Rearranged tensor with shape determined by the pattern.
+
+        Examples
+        --------
+        >>> # Transpose a 2D tensor
+        >>> result = builder.rearrange(tensor, "h w -> w h")
+        >>> # Flatten last two dimensions
+        >>> result = builder.rearrange(tensor, "b c h w -> b c (h w)")
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.rearrange)
 
         if output_type is None:
@@ -1075,6 +1439,46 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """
+        Compute logical AND reduction along dimensions.
+
+        Reduces the input tensor by computing the logical AND of elements
+        along the specified dimensions. The result is True only if all
+        elements along the reduced dimensions are truthy. When no dimensions
+        are specified, reduces over all dimensions.
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor to reduce. Elements are interpreted as boolean values.
+        keep_dim : bool
+            If True, retains reduced dimensions with size 1. If False, the
+            reduced dimensions are removed from the output shape.
+        dim_arg : list of int, optional
+            Dimensions along which to compute the logical AND. If None,
+            reduces over all dimensions.
+        output_type : torch.dtype, optional
+            Data type for the output tensor. If None, uses the input tensor's
+            dtype.
+        loc : str, optional
+            Location identifier for debugging purposes.
+        unit_attrs : list of str, optional
+            List of unit attribute names to attach to the operation.
+
+        Returns
+        -------
+        OpResult
+            Tensor containing the logical AND of elements along the specified
+            dimensions. Each output element is True if all corresponding input
+            elements are truthy, False otherwise.
+
+        Examples
+        --------
+        >>> # Check if all elements are truthy
+        >>> result = builder.reduce_and(tensor, keep_dim=False)
+        >>> # Check along dimension 0
+        >>> result = builder.reduce_and(tensor, keep_dim=True, dim_arg=[0])
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.reduce_and)
 
         if output_type is None:
@@ -1217,6 +1621,39 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """
+        Repeat tensor along each dimension.
+
+        Tiles the input tensor by repeating it the specified number of times
+        along each dimension. The output shape is the input shape multiplied
+        element-wise by the repeat factors.
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor to repeat.
+        repeat_dimensions : list of int
+            Number of repetitions for each dimension. Must have the same length
+            as the number of dimensions in the input tensor.
+        output_type : torch.dtype, optional
+            Data type for the output tensor. If None, uses the input tensor's
+            dtype.
+        loc : str, optional
+            Location identifier for debugging purposes.
+        unit_attrs : list of str, optional
+            List of unit attribute names to attach to the operation.
+
+        Returns
+        -------
+        OpResult
+            Tensor with shape [d0*r0, d1*r1, ...] where di are input dimensions
+            and ri are repeat factors.
+
+        Examples
+        --------
+        >>> # Repeat a (2, 3) tensor 3 times along dim 0 and 2 times along dim 1
+        >>> result = builder.repeat(tensor, [3, 2])  # Output shape: (6, 6)
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.repeat)
 
         if output_type is None:
@@ -1352,6 +1789,36 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """
+        Create a tensor with evenly spaced values.
+
+        Generates a tensor where values are evenly spaced within a given interval
+        along a specified dimension.
+
+        Parameters
+        ----------
+        shape : List[int]
+            The shape of the output tensor.
+        dtype : torch.dtype
+            The data type of the output tensor elements.
+        start : int
+            The starting value of the sequence.
+        end : int
+            The end value of the sequence (exclusive).
+        step : int
+            The step size between consecutive values.
+        arange_dimension : int
+            The dimension along which to generate the evenly spaced values.
+        loc : Optional[str], optional
+            Location identifier for the operation, by default None.
+        unit_attrs : Optional[List[str]], optional
+            List of unit attribute names to attach to the operation, by default None.
+
+        Returns
+        -------
+        OpResult
+            The result tensor containing evenly spaced values.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.arange)
         shape_attr = DenseI64ArrayAttr.get(shape)
         start_attr = IntegerAttr.get(IntegerType.get_signed(64), start)
@@ -1506,6 +1973,42 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """
+        Compute cumulative sum along a dimension.
+
+        Returns a tensor containing the cumulative sum of elements along the
+        specified dimension. Each element in the output is the sum of all
+        elements up to and including that position along the given dimension.
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor.
+        dim : int
+            Dimension along which to compute the cumulative sum.
+        output_type : torch.dtype, optional
+            Data type for the output tensor. If None, uses the input tensor's
+            dtype.
+        loc : str, optional
+            Location identifier for debugging purposes.
+        unit_attrs : list of str, optional
+            List of unit attribute names to attach to the operation.
+
+        Returns
+        -------
+        OpResult
+            Tensor with the same shape as the input, where each element at
+            position i along the specified dimension contains the sum of
+            elements from position 0 to i.
+
+        Examples
+        --------
+        >>> # For input [1, 2, 3, 4] along dim 0
+        >>> # Output: [1, 3, 6, 10]
+        >>> result = builder.cumsum(tensor, dim=0)
+        >>> # Cumulative sum along the last dimension
+        >>> result = builder.cumsum(tensor, dim=-1)
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.cumsum)
 
         if output_type is None:
@@ -1634,6 +2137,49 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """
+        Gather elements from a tensor using index tensors.
+
+        Extracts slices from the input tensor at positions specified by
+        start_indices. This is a generalized gather operation following
+        the StableHLO/XLA gather semantics.
+
+        Parameters
+        ----------
+        input : Operand
+            Source tensor to gather elements from.
+        start_indices : Operand
+            Tensor containing starting indices for each slice to gather.
+        offset_dims : list of int
+            Dimensions in the output that correspond to the slice dimensions.
+        collapsed_slice_dims : list of int
+            Dimensions of the slice that are collapsed (size 1 and removed).
+        operand_batching_dims : list of int
+            Batch dimensions in the input operand.
+        start_indices_batching_dims : list of int
+            Batch dimensions in the start_indices tensor.
+        start_index_map : list of int
+            Maps index vector positions to input tensor dimensions.
+        index_vector_dim : int
+            Dimension of start_indices that contains the index vectors.
+        slice_sizes : list of int
+            Size of each slice to extract from the input tensor.
+        indices_are_sorted : bool, default=False
+            Whether the indices are guaranteed to be sorted.
+        output_type : torch.dtype, optional
+            Data type for the output tensor. If None, uses the input tensor's
+            dtype.
+        loc : str, optional
+            Location identifier for debugging purposes.
+        unit_attrs : list of str, optional
+            List of unit attribute names to attach to the operation.
+
+        Returns
+        -------
+        OpResult
+            Tensor containing gathered slices with shape determined by the
+            gather configuration.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.gather)
 
         if output_type is None:
@@ -1840,6 +2386,25 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """
+        Create a tensor filled with ones.
+
+        Parameters
+        ----------
+        shape : List[int]
+            The shape of the output tensor.
+        dtype : torch.dtype
+            The data type of the output tensor elements.
+        loc : Optional[str], optional
+            Location identifier for the operation, by default None.
+        unit_attrs : Optional[List[str]], optional
+            List of unit attribute names to attach to the operation, by default None.
+
+        Returns
+        -------
+        OpResult
+            The result tensor filled with ones.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.ones)
         mlir_output_type = self._get_type_from_torch_dtype(dtype)
         shape_attr = DenseI32ArrayAttr.get(shape)
@@ -1948,6 +2513,25 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """
+        Create a tensor filled with zeros.
+
+        Parameters
+        ----------
+        shape : List[int]
+            The shape of the output tensor.
+        dtype : torch.dtype
+            The data type of the output tensor elements.
+        loc : Optional[str], optional
+            Location identifier for the operation, by default None.
+        unit_attrs : Optional[List[str]], optional
+            List of unit attribute names to attach to the operation, by default None.
+
+        Returns
+        -------
+        OpResult
+            The result tensor filled with zeros.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.zeros)
         mlir_output_type = self._get_type_from_torch_dtype(dtype)
         shape_attr = DenseI32ArrayAttr.get(shape)
@@ -2063,6 +2647,34 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpView:
+        """
+        Create a tensor with random values.
+
+        Generates a tensor filled with random values uniformly distributed
+        within the specified range [low, high).
+
+        Parameters
+        ----------
+        size : List[int]
+            The shape of the output tensor.
+        dtype : torch.dtype
+            The data type of the output tensor elements.
+        low : float, optional
+            Lower bound of the uniform distribution (inclusive), by default 0.0.
+        high : float, optional
+            Upper bound of the uniform distribution (exclusive), by default 1.0.
+        seed : int, optional
+            Random seed for reproducibility, by default 0.
+        loc : Optional[str], optional
+            Location identifier for the operation, by default None.
+        unit_attrs : Optional[List[str]], optional
+            List of unit attribute names to attach to the operation, by default None.
+
+        Returns
+        -------
+        OpView
+            The result tensor filled with random values.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.rand)
         mlir_output_type = self._get_type_from_torch_dtype(dtype)
         size_attr = ArrayAttr.get(
@@ -2220,6 +2832,36 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpView:
+        """
+        Apply dropout to the input tensor.
+
+        During training, randomly zeroes elements of the input tensor with
+        probability ``prob`` and scales the remaining elements by ``scale``.
+        The output tensor has the same shape and dtype as the input.
+
+        Parameters
+        ----------
+        input : Operand
+            Input tensor to apply dropout to.
+        prob : float, optional
+            Probability of an element being zeroed. Default is 0.0 (no dropout).
+        scale : float, optional
+            Scaling factor applied to non-zeroed elements. Default is 1.0.
+        seed : int, optional
+            Random seed for reproducibility. Default is 0.
+        use_per_device_seed : bool, optional
+            If True, uses a per-device seed for distributed execution.
+            Default is True.
+        loc : str, optional
+            Location identifier for debugging purposes.
+        unit_attrs : list of str, optional
+            List of unit attribute names to attach to the operation.
+
+        Returns
+        -------
+        OpView
+            Output tensor with dropout applied.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.dropout)
 
         # Dropout preserves input type
@@ -2378,6 +3020,25 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """
+        Compute the element-wise cosine of a tensor.
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor in radians.
+        output_type : torch.dtype, optional
+            Data type for the output tensor. If None, uses input type.
+        loc : str, optional
+            Location string for the operation.
+        unit_attrs : List[str], optional
+            List of unit attribute names to set on the operation.
+
+        Returns
+        -------
+        OpResult
+            Tensor containing the cosine of each element.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.cos)
         input0 = self._get_golden_tensor(in0)
         if output_type is None:
@@ -2488,6 +3149,25 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """
+        Compute the element-wise sine of a tensor.
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor in radians.
+        output_type : torch.dtype, optional
+            Data type for the output tensor. If None, uses input type.
+        loc : str, optional
+            Location string for the operation.
+        unit_attrs : List[str], optional
+            List of unit attribute names to set on the operation.
+
+        Returns
+        -------
+        OpResult
+            Tensor containing the sine of each element.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.sin)
         input0 = self._get_golden_tensor(in0)
         if output_type is None:
@@ -2598,6 +3278,25 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """
+        Compute the element-wise square root of a tensor.
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor. Values should be non-negative.
+        output_type : torch.dtype, optional
+            Data type for the output tensor. If None, uses input type.
+        loc : str, optional
+            Location string for the operation.
+        unit_attrs : List[str], optional
+            List of unit attribute names to set on the operation.
+
+        Returns
+        -------
+        OpResult
+            Tensor containing the square root of each element.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.sqrt)
         input0 = self._get_golden_tensor(in0)
         if output_type is None:
@@ -2709,6 +3408,27 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """
+        Compute element-wise greater-than-or-equal comparison.
+
+        Parameters
+        ----------
+        in0 : Operand
+            First input tensor.
+        in1 : Operand
+            Second input tensor.
+        output_type : torch.dtype, optional
+            Data type for the output tensor. If None, uses input type.
+        loc : str, optional
+            Location string for the operation.
+        unit_attrs : List[str], optional
+            List of unit attribute names to set on the operation.
+
+        Returns
+        -------
+        OpResult
+            Boolean tensor where True indicates in0 >= in1.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.ge)
         lhs = self._get_golden_tensor(in0)
         rhs = self._get_golden_tensor(in1)
@@ -2829,6 +3549,27 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """
+        Compute element-wise less-than comparison.
+
+        Parameters
+        ----------
+        in0 : Operand
+            First input tensor.
+        in1 : Operand
+            Second input tensor.
+        output_type : torch.dtype, optional
+            Data type for the output tensor. If None, uses input type.
+        loc : str, optional
+            Location string for the operation.
+        unit_attrs : List[str], optional
+            List of unit attribute names to set on the operation.
+
+        Returns
+        -------
+        OpResult
+            Boolean tensor where True indicates in0 < in1.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.lt)
         lhs = self._get_golden_tensor(in0)
         rhs = self._get_golden_tensor(in1)
@@ -2949,6 +3690,27 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """
+        Compute element-wise less-than-or-equal comparison.
+
+        Parameters
+        ----------
+        in0 : Operand
+            First input tensor.
+        in1 : Operand
+            Second input tensor.
+        output_type : torch.dtype, optional
+            Data type for the output tensor. If None, uses input type.
+        loc : str, optional
+            Location string for the operation.
+        unit_attrs : List[str], optional
+            List of unit attribute names to set on the operation.
+
+        Returns
+        -------
+        OpResult
+            Boolean tensor where True indicates in0 <= in1.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.le)
         lhs = self._get_golden_tensor(in0)
         rhs = self._get_golden_tensor(in1)
@@ -3069,6 +3831,30 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Compute bitwise AND.
+
+        Performs a bitwise AND operation between corresponding elements
+        of two input tensors.
+
+        Parameters
+        ----------
+        in0 : Operand
+            First input tensor.
+        in1 : Operand
+            Second input tensor.
+        output_type : Optional[torch.dtype], optional
+            Data type for the output tensor. If None, uses the data type
+            of in0. Default is None.
+        loc : Optional[str], optional
+            Location identifier for debugging purposes. Default is None.
+        unit_attrs : Optional[List[str]], optional
+            List of unit attributes for the operation. Default is None.
+
+        Returns
+        -------
+        OpResult
+            Result tensor containing bitwise AND results.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.bitwise_and)
         lhs = self._get_golden_tensor(in0)
         rhs = self._get_golden_tensor(in1)
@@ -3191,6 +3977,30 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Compute element-wise power.
+
+        Raises each element of the first input tensor to the power of
+        the corresponding element in the second input tensor (in0 ** in1).
+
+        Parameters
+        ----------
+        in0 : Operand
+            First input tensor (base).
+        in1 : Operand
+            Second input tensor (exponent).
+        output_type : Optional[torch.dtype], optional
+            Data type for the output tensor. If None, uses the data type
+            of in0. Default is None.
+        loc : Optional[str], optional
+            Location identifier for debugging purposes. Default is None.
+        unit_attrs : Optional[List[str]], optional
+            List of unit attributes for the operation. Default is None.
+
+        Returns
+        -------
+        OpResult
+            Result tensor containing element-wise powers.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.pow)
         lhs = self._get_golden_tensor(in0)
         rhs = self._get_golden_tensor(in1)
@@ -3311,6 +4121,30 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Compute element-wise minimum.
+
+        Compares corresponding elements from two input tensors and returns
+        a tensor containing the smaller value at each position.
+
+        Parameters
+        ----------
+        in0 : Operand
+            First input tensor.
+        in1 : Operand
+            Second input tensor.
+        output_type : Optional[torch.dtype], optional
+            Data type for the output tensor. If None, uses the data type
+            of in0. Default is None.
+        loc : Optional[str], optional
+            Location identifier for debugging purposes. Default is None.
+        unit_attrs : Optional[List[str]], optional
+            List of unit attributes for the operation. Default is None.
+
+        Returns
+        -------
+        OpResult
+            Result tensor containing element-wise minimum values.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.minimum)
         lhs = self._get_golden_tensor(in0)
         rhs = self._get_golden_tensor(in1)
@@ -3431,6 +4265,31 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Perform logical right bit shift.
+
+        Shifts the bits of each element in the first input tensor to the
+        right by the number of positions specified in the corresponding
+        element of the second input tensor. Zeros are shifted in from the left.
+
+        Parameters
+        ----------
+        in0 : Operand
+            First input tensor (value to be shifted).
+        in1 : Operand
+            Second input tensor (shift amounts).
+        output_type : Optional[torch.dtype], optional
+            Data type for the output tensor. If None, uses the data type
+            of in0. Default is None.
+        loc : Optional[str], optional
+            Location identifier for debugging purposes. Default is None.
+        unit_attrs : Optional[List[str]], optional
+            List of unit attributes for the operation. Default is None.
+
+        Returns
+        -------
+        OpResult
+            Result tensor containing shifted values.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.logical_right_shift)
         lhs = self._get_golden_tensor(in0)
         rhs = self._get_golden_tensor(in1)
@@ -3675,6 +4534,42 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> Tuple[OpResult, OpResult]:
+        """
+        Sort tensor elements along a specified dimension.
+
+        Sorts the elements of the input tensor along the given dimension and
+        returns both the sorted values and the indices that would sort the
+        original tensor (similar to `torch.sort`).
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor to be sorted.
+        dim : int, optional
+            The dimension along which to sort. Default is -1 (last dimension).
+            Negative values index from the last dimension.
+        descending : bool, optional
+            If True, sort in descending order. If False (default), sort in
+            ascending order.
+        stable : bool, optional
+            If True, use a stable sorting algorithm that preserves the
+            relative order of equal elements. Default is False.
+        output_type : torch.dtype, optional
+            Data type for the output values tensor. If None, uses the type
+            of in0.
+        loc : str, optional
+            Location string for the operation.
+        unit_attrs : List[str], optional
+            List of unit attribute names to set on the operation.
+
+        Returns
+        -------
+        Tuple[OpResult, OpResult]
+            A tuple containing:
+            - values: The sorted tensor.
+            - indices: A tensor of int64 indices indicating the positions of
+              the elements in the original tensor.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.sort)
 
         if output_type is None:
@@ -3734,6 +4629,40 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """
+        Reverse tensor elements along specified dimensions.
+
+        Flips the order of elements along each specified dimension. The output
+        tensor has the same shape as the input, with elements reversed along
+        the given axes.
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor to reverse.
+        dimensions : list of int
+            Dimensions along which to reverse the tensor elements.
+        output_type : torch.dtype, optional
+            Data type for the output tensor. If None, uses the input tensor's
+            dtype.
+        loc : str, optional
+            Location identifier for debugging purposes.
+        unit_attrs : list of str, optional
+            List of unit attribute names to attach to the operation.
+
+        Returns
+        -------
+        OpResult
+            Tensor with elements reversed along the specified dimensions,
+            same shape as input.
+
+        Examples
+        --------
+        >>> # Reverse along dimension 0 (flip rows)
+        >>> result = builder.reverse(tensor, [0])
+        >>> # Reverse along multiple dimensions
+        >>> result = builder.reverse(tensor, [0, 2])
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.reverse)
 
         if output_type is None:
@@ -3869,6 +4798,46 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """
+        Scatter source elements to positions specified by indices.
+
+        Writes values from the source tensor into the input tensor at positions
+        determined by the index tensor along a specified dimension. Optionally
+        applies a reduction operation when multiple values scatter to the same
+        position.
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor that receives scattered values (serves as the base).
+        index : Operand
+            Tensor containing indices specifying where to scatter values.
+        source : Operand
+            Tensor containing values to scatter into the input.
+        dim : int
+            Dimension along which to scatter.
+        scatter_reduce_type : ReduceType, default=ReduceType.Invalid
+            Reduction operation to apply when multiple values scatter to the
+            same location (e.g., sum, prod, min, max).
+        output_type : torch.dtype, optional
+            Data type for the output tensor. If None, uses the input tensor's
+            dtype.
+        loc : str, optional
+            Location identifier for debugging purposes.
+        unit_attrs : list of str, optional
+            List of unit attribute names to attach to the operation.
+
+        Returns
+        -------
+        OpResult
+            Tensor with source values scattered to specified positions,
+            same shape as input.
+
+        Examples
+        --------
+        >>> # Scatter values along dimension 0
+        >>> result = builder.scatter(tensor, indices, source, dim=0)
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.scatter)
 
         if output_type is None:
@@ -4048,6 +5017,47 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """
+        Apply 2D max pooling over the input tensor.
+
+        Selects the maximum value within each sliding window of size
+        ``kernel`` across the spatial dimensions. Supports configurable
+        stride, dilation, and padding. When ``ceil_mode`` is True, the
+        output size is rounded up instead of down.
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor. Typically a 4D tensor in NCHW format.
+        kernel : int or list of int
+            Size of the pooling kernel. If int, the same size is used for
+            both spatial dimensions.
+        stride : int or list of int
+            Stride of the pooling window. If int, the same stride is used
+            for both spatial dimensions.
+        dilation : int or list of int
+            Dilation factor for the pooling window. A dilation of 1 means
+            no dilation (standard pooling).
+        padding : int or list of int
+            Padding to apply to the input before pooling. If int, the same
+            padding is applied to all spatial dimensions.
+        ceil_mode : bool
+            If True, use ceil instead of floor to compute output size,
+            which ensures all input elements are covered by at least one
+            pooling window.
+        output_type : torch.dtype, optional
+            Data type for the output tensor. If None, uses the input
+            tensor's dtype.
+        loc : str, optional
+            Location identifier for debugging purposes.
+        unit_attrs : list of str, optional
+            List of unit attribute names to attach to the operation.
+
+        Returns
+        -------
+        OpResult
+            Max-pooled output tensor with reduced spatial dimensions.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.max_pool2d)
 
         if output_type is None:
@@ -4246,6 +5256,57 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> Tuple[OpResult, OpResult]:
+        """
+        Apply 2D max pooling with index tracking.
+
+        Performs max pooling over a 2D input tensor and returns both the
+        pooled values and the indices of the maximum values. The indices
+        are useful for operations like unpooling in encoder-decoder
+        architectures or for understanding which input elements contributed
+        to the output.
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor in 4D format (typically NCHW: batch, channels,
+            height, width).
+        kernel : int or list of int
+            Size of the pooling window. If int, uses the same value for
+            both height and width. If list, specifies [kernel_height,
+            kernel_width].
+        stride : int or list of int
+            Stride of the pooling window. If int, uses the same value for
+            both dimensions. If list, specifies [stride_height, stride_width].
+        dilation : int or list of int
+            Spacing between kernel elements. If int, uses the same value
+            for both dimensions. If list, specifies [dilation_height,
+            dilation_width].
+        padding : int or list of int
+            Implicit padding on both sides. If int, uses the same value
+            for all sides. If list, specifies [padding_height, padding_width].
+        ceil_mode : bool
+            If True, uses ceil instead of floor to compute output shape,
+            ensuring all input elements are covered by at least one window.
+        output_type : torch.dtype, optional
+            Data type for the output values tensor. If None, uses the input
+            tensor's dtype.
+        loc : str, optional
+            Location identifier for debugging purposes.
+        unit_attrs : list of str, optional
+            List of unit attribute names to attach to the operation.
+
+        Returns
+        -------
+        tuple of OpResult
+            A tuple containing:
+            - result : Tensor of max-pooled values.
+            - indices : Tensor of indices (int64) indicating the positions
+              of maximum values in the flattened input.
+
+        See Also
+        --------
+        pooling : General pooling operation without index tracking.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.max_pool2d_with_indices)
 
         if output_type is None:
@@ -4473,6 +5534,28 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """
+        Compute log(1 + x) element-wise.
+
+        Computes out = ln(1 + in0) element-wise. This function is more accurate
+        than computing log(1 + x) directly for small values of x.
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor. Values should be greater than -1 for real-valued results.
+        output_type : torch.dtype, optional
+            Data type for the output tensor. If None, uses the type of in0.
+        loc : str, optional
+            Location string for the operation.
+        unit_attrs : List[str], optional
+            List of unit attribute names to set on the operation.
+
+        Returns
+        -------
+        OpResult
+            The result tensor containing the log1p values.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.log1p)
 
         if output_type is None:
@@ -4594,6 +5677,40 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """
+        Concatenate tensors along a specified dimension.
+
+        Joins a sequence of tensors along an existing dimension. All input
+        tensors must have the same shape except in the concatenation dimension.
+
+        Parameters
+        ----------
+        ins : list of Operand
+            List of input tensors to concatenate. All tensors must have the
+            same shape except along the concatenation dimension.
+        dim : int, default=0
+            Dimension along which to concatenate the tensors.
+        output_type : torch.dtype, optional
+            Data type for the output tensor. If None, uses the first input
+            tensor's dtype.
+        loc : str, optional
+            Location identifier for debugging purposes.
+        unit_attrs : list of str, optional
+            List of unit attribute names to attach to the operation.
+
+        Returns
+        -------
+        OpResult
+            Concatenated tensor with size along dim equal to the sum of input
+            sizes along that dimension.
+
+        Examples
+        --------
+        >>> # Concatenate two (2, 3) tensors along dim 0
+        >>> result = builder.concat([t1, t2], dim=0)  # Output shape: (4, 3)
+        >>> # Concatenate along dim 1
+        >>> result = builder.concat([t1, t2], dim=1)  # Output shape: (2, 6)
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.concat)
         dim_attr = IntegerAttr.get(IntegerType.get_signed(32), dim)
 
@@ -4726,6 +5843,27 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """
+        Create a tensor filled with a scalar value.
+
+        Parameters
+        ----------
+        output_shape : List[int]
+            The shape of the output tensor.
+        output_type : torch.dtype
+            The data type of the output tensor elements.
+        fill_value : Union[int, float]
+            The scalar value to fill the tensor with.
+        loc : Optional[str], optional
+            Location identifier for the operation, by default None.
+        unit_attrs : Optional[List[str]], optional
+            List of unit attribute names to attach to the operation, by default None.
+
+        Returns
+        -------
+        OpResult
+            The result tensor filled with the specified scalar value.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.full)
         mlir_output_type = self._get_type_from_torch_dtype(output_type)
 
@@ -4857,6 +5995,36 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """
+        Clamp tensor values between min and max tensors element-wise.
+
+        Constrains each element of the input tensor to be within the range
+        defined by the corresponding elements of the min and max tensors:
+        out = max(min_tensor, min(in0, max_tensor)) element-wise.
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor to be clamped.
+        min_tensor : Operand
+            Tensor specifying the minimum values. Each element defines the
+            lower bound for the corresponding element in in0.
+        max_tensor : Operand
+            Tensor specifying the maximum values. Each element defines the
+            upper bound for the corresponding element in in0.
+        output_type : torch.dtype, optional
+            Data type for the output tensor. If None, uses the type of in0.
+        loc : str, optional
+            Location string for the operation.
+        unit_attrs : List[str], optional
+            List of unit attribute names to set on the operation.
+
+        Returns
+        -------
+        OpResult
+            The result tensor with values clamped between min_tensor and
+            max_tensor.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.clamp_tensor)
 
         if output_type is None:
@@ -5012,6 +6180,48 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """
+        Compute logical OR reduction along dimensions.
+
+        Reduces the input tensor by computing the logical OR of elements
+        along the specified dimensions. The result is True if any element
+        along the reduced dimensions is truthy. When no dimensions are
+        specified, reduces over all dimensions.
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor to reduce. Elements are interpreted as boolean values.
+        dim_arg : list of int, optional
+            Dimensions along which to compute the logical OR. If None,
+            reduces over all dimensions.
+        keep_dim : bool, default=True
+            If True, retains reduced dimensions with size 1. If False, the
+            reduced dimensions are removed from the output shape.
+        output_type : torch.dtype, optional
+            Data type for the output tensor. If None, uses the input tensor's
+            dtype.
+        loc : str, optional
+            Location identifier for debugging purposes.
+        unit_attrs : list of str, optional
+            List of unit attribute names to attach to the operation.
+
+        Returns
+        -------
+        OpResult
+            Tensor containing the logical OR of elements along the specified
+            dimensions. Each output element is True if any corresponding input
+            element is truthy, False otherwise.
+
+        Examples
+        --------
+        >>> # Check if any element is truthy
+        >>> result = builder.reduce_or(tensor)
+        >>> # Check along dimension 1
+        >>> result = builder.reduce_or(tensor, dim_arg=[1])
+        >>> # Check along dimension 0, removing reduced dim
+        >>> result = builder.reduce_or(tensor, dim_arg=[0], keep_dim=False)
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.reduce_or)
 
         if dim_arg is None:
@@ -5157,6 +6367,46 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """
+        Compute max reduction along dimensions.
+
+        Reduces the input tensor by computing the maximum value of elements
+        along the specified dimensions. When no dimensions are specified,
+        reduces over all dimensions to produce a scalar result.
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor to reduce.
+        dim_arg : list of int, optional
+            Dimensions along which to compute the maximum. If None, reduces
+            over all dimensions.
+        keep_dim : bool, default=True
+            If True, retains reduced dimensions with size 1. If False, the
+            reduced dimensions are removed from the output shape.
+        output_type : torch.dtype, optional
+            Data type for the output tensor. If None, uses the input tensor's
+            dtype.
+        loc : str, optional
+            Location identifier for debugging purposes.
+        unit_attrs : list of str, optional
+            List of unit attribute names to attach to the operation.
+
+        Returns
+        -------
+        OpResult
+            Tensor containing the maximum value of elements along the specified
+            dimensions.
+
+        Examples
+        --------
+        >>> # Find maximum across all elements
+        >>> result = builder.max(tensor)
+        >>> # Find maximum along dimension 1
+        >>> result = builder.max(tensor, dim_arg=[1])
+        >>> # Find maximum along dimension 0, removing reduced dim
+        >>> result = builder.max(tensor, dim_arg=[0], keep_dim=False)
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.max)
 
         if dim_arg is None:
@@ -5299,6 +6549,29 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """
+        Compute element-wise logical NOT.
+
+        Computes out = NOT(in0) element-wise. For boolean tensors, this inverts
+        each element. For numeric tensors, zero values become True and non-zero
+        values become False.
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor.
+        output_type : torch.dtype, optional
+            Data type for the output tensor. If None, uses the type of in0.
+        loc : str, optional
+            Location string for the operation.
+        unit_attrs : List[str], optional
+            List of unit attribute names to set on the operation.
+
+        Returns
+        -------
+        OpResult
+            The result tensor containing the logical NOT values.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.logical_not)
 
         if output_type is None:
@@ -5417,6 +6690,28 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """
+        Compute the element-wise natural logarithm.
+
+        Computes out = ln(in0) element-wise, where ln denotes the natural
+        logarithm (base e).
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor. Values should be positive for real-valued results.
+        output_type : torch.dtype, optional
+            Data type for the output tensor. If None, uses the type of in0.
+        loc : str, optional
+            Location string for the operation.
+        unit_attrs : List[str], optional
+            List of unit attribute names to set on the operation.
+
+        Returns
+        -------
+        OpResult
+            The result tensor containing the natural logarithm values.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.log)
 
         if output_type is None:
@@ -5534,6 +6829,27 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """
+        Compute element-wise greater-than comparison.
+
+        Parameters
+        ----------
+        in0 : Operand
+            First input tensor.
+        in1 : Operand
+            Second input tensor.
+        output_type : torch.dtype, optional
+            Data type for the output tensor. If None, uses input type.
+        loc : str, optional
+            Location string for the operation.
+        unit_attrs : List[str], optional
+            List of unit attribute names to set on the operation.
+
+        Returns
+        -------
+        OpResult
+            Boolean tensor where True indicates in0 > in1.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.gt)
 
         if output_type is None:
@@ -5666,6 +6982,55 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """
+        Apply batch normalization in inference mode.
+
+        Normalizes the input tensor using precomputed running statistics.
+        Batch normalization during inference uses fixed mean and variance
+        (accumulated during training) rather than computing statistics from
+        the current batch. The normalization is computed as:
+
+        y = (x - mean) / sqrt(variance + epsilon) * scale + offset
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor to normalize. Typically in (N, C, H, W) or (N, H, W, C)
+            format where N is batch size and C is the number of channels.
+        scale : Operand
+            Learnable scale parameter (gamma). Shape should be (C,) matching
+            the number of features along the normalization dimension.
+        offset : Operand
+            Learnable shift parameter (beta). Shape should be (C,) matching
+            the number of features along the normalization dimension.
+        mean : Operand
+            Running mean accumulated during training. Shape should be (C,).
+        variance : Operand
+            Running variance accumulated during training. Shape should be (C,).
+        epsilon : float, optional
+            Small constant added to variance for numerical stability.
+            Default is 1e-5.
+        dimension : int, optional
+            Feature dimension along which to normalize. Default is 1 (channel
+            dimension for NCHW format).
+        output_type : torch.dtype, optional
+            Data type for the output tensor. If None, uses the input tensor's
+            dtype.
+        loc : str, optional
+            Location identifier for debugging purposes.
+        unit_attrs : list of str, optional
+            List of unit attribute names to attach to the operation.
+
+        Returns
+        -------
+        OpResult
+            Normalized tensor with the same shape as the input.
+
+        See Also
+        --------
+        batch_norm_training : Batch normalization for training mode.
+        layer_norm : Layer normalization alternative.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.batch_norm_inference)
         epsilon_attr = FloatAttr.get_f32(epsilon)
         dimension_attr = IntegerAttr.get(IntegerType.get_signless(32), dimension)
@@ -5877,6 +7242,64 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> Tuple[OpResult, OpResult, OpResult]:
+        """
+        Apply batch normalization in training mode.
+
+        Normalizes the input tensor using statistics computed from the current
+        batch. During training, batch normalization computes the mean and
+        variance from the input batch and uses an exponential moving average
+        to update running statistics. The normalization is computed as:
+
+        y = (x - batch_mean) / sqrt(batch_variance + epsilon) * scale + offset
+
+        The running statistics are updated as:
+        running_mean = (1 - momentum) * running_mean + momentum * batch_mean
+        running_variance = (1 - momentum) * running_variance + momentum * batch_variance
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor to normalize. Typically in (N, C, H, W) or (N, H, W, C)
+            format where N is batch size and C is the number of channels.
+        scale : Operand
+            Learnable scale parameter (gamma). Shape should be (C,) matching
+            the number of features along the normalization dimension.
+        offset : Operand
+            Learnable shift parameter (beta). Shape should be (C,) matching
+            the number of features along the normalization dimension.
+        running_mean : Operand
+            Running mean to be updated during training. Shape should be (C,).
+        running_variance : Operand
+            Running variance to be updated during training. Shape should be (C,).
+        epsilon : float, optional
+            Small constant added to variance for numerical stability.
+            Default is 1e-5.
+        dimension : int, optional
+            Feature dimension along which to normalize. Default is 1 (channel
+            dimension for NCHW format).
+        momentum : float, optional
+            Momentum for the exponential moving average of running statistics.
+            Default is 0.1.
+        output_type : torch.dtype, optional
+            Data type for the output tensor. If None, uses the input tensor's
+            dtype.
+        loc : str, optional
+            Location identifier for debugging purposes.
+        unit_attrs : list of str, optional
+            List of unit attribute names to attach to the operation.
+
+        Returns
+        -------
+        tuple of OpResult
+            A tuple containing:
+            - result : Normalized output tensor with the same shape as input.
+            - batch_mean : Mean computed from the current batch.
+            - batch_variance : Variance computed from the current batch.
+
+        See Also
+        --------
+        batch_norm_inference : Batch normalization for inference mode.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.batch_norm_training)
         epsilon_attr = FloatAttr.get_f32(epsilon)
         dimension_attr = IntegerAttr.get(IntegerType.get_signless(32), dimension)
@@ -6147,6 +7570,26 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """
+        Create a constant tensor.
+
+        Creates a tensor with constant values from the provided PyTorch tensor.
+        The shape and data type are inferred from the input tensor.
+
+        Parameters
+        ----------
+        tensor : torch.Tensor
+            The PyTorch tensor containing the constant values.
+        loc : Optional[str], optional
+            Location identifier for the operation, by default None.
+        unit_attrs : Optional[List[str]], optional
+            List of unit attribute names to attach to the operation, by default None.
+
+        Returns
+        -------
+        OpResult
+            The result constant tensor.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.constant)
         value_attr = DenseElementsAttr.get(tensor.numpy())
         result = self._create_ranked_tensor_type(
@@ -6262,6 +7705,42 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """
+        Pad tensor with a constant value.
+
+        Adds padding to the input tensor along each dimension. Padding is
+        specified as pairs of values indicating padding before and after
+        each dimension.
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor to pad.
+        padding : list of int
+            Padding amounts as [before_dim0, after_dim0, before_dim1,
+            after_dim1, ...]. Must have 2 * ndim elements.
+        value : float, default=0.0
+            Constant value to use for padding.
+        output_type : torch.dtype, optional
+            Data type for the output tensor. If None, uses the input tensor's
+            dtype.
+        loc : str, optional
+            Location identifier for debugging purposes.
+        unit_attrs : list of str, optional
+            List of unit attribute names to attach to the operation.
+
+        Returns
+        -------
+        OpResult
+            Padded tensor with shape increased by the padding amounts along
+            each dimension.
+
+        Examples
+        --------
+        >>> # Pad a (2, 3) tensor with 1 element on each side of each dimension
+        >>> result = builder.pad(tensor, [1, 1, 1, 1], value=0.0)
+        >>> # Output shape: (4, 5)
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.pad)
         padding_attr = DenseI32ArrayAttr.get(padding)
         value_attr = FloatAttr.get(F32Type.get(), value)
@@ -6411,6 +7890,66 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """
+        Generalized dot product/matrix multiplication.
+
+        Performs a generalized tensor contraction between two input tensors.
+        This operation is more flexible than standard matrix multiplication,
+        supporting arbitrary batch dimensions and contraction dimensions.
+
+        The operation contracts (sums over) the specified contraction
+        dimensions from each input, while preserving batch dimensions.
+        The output shape is determined by:
+        - Batch dimensions (preserved from both inputs)
+        - Non-contracted, non-batch dimensions from each input
+
+        For standard matrix multiplication A @ B:
+        - contract_dims_lhs = [-1] (last dim of A)
+        - contract_dims_rhs = [-2] (second-to-last dim of B)
+
+        Parameters
+        ----------
+        in0 : Operand
+            Left-hand side input tensor.
+        in1 : Operand
+            Right-hand side input tensor.
+        batch_dims_lhs : list of int
+            Indices of batch dimensions in the left input tensor.
+        contract_dims_lhs : list of int
+            Indices of dimensions in the left input to contract (sum over).
+        batch_dims_rhs : list of int
+            Indices of batch dimensions in the right input tensor. Must
+            correspond element-wise to batch_dims_lhs.
+        contract_dims_rhs : list of int
+            Indices of dimensions in the right input to contract. Must
+            have the same sizes as contract_dims_lhs.
+        output_type : torch.dtype, optional
+            Data type for the output tensor. If None, uses the left input
+            tensor's dtype.
+        loc : str, optional
+            Location identifier for debugging purposes.
+        unit_attrs : list of str, optional
+            List of unit attribute names to attach to the operation.
+
+        Returns
+        -------
+        OpResult
+            Result of the generalized dot product. Shape includes batch
+            dimensions followed by non-contracted dimensions from both inputs.
+
+        Examples
+        --------
+        Standard matrix multiplication of [M, K] @ [K, N] -> [M, N]:
+            dot_general(A, B, [], [1], [], [0])
+
+        Batched matrix multiplication of [B, M, K] @ [B, K, N] -> [B, M, N]:
+            dot_general(A, B, [0], [2], [0], [1])
+
+        Notes
+        -----
+        This operation generalizes einsum-style contractions and is the
+        foundation for implementing various linear algebra operations.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.dot_general)
 
         if output_type is None:
@@ -6592,6 +8131,41 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """
+        Permute tensor dimensions.
+
+        Reorders the dimensions of the input tensor according to the specified
+        permutation. This is equivalent to a generalized transpose operation.
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor to permute.
+        permutation : list of int
+            New order of dimensions. Must be a permutation of
+            [0, 1, ..., ndim-1].
+        output_type : torch.dtype, optional
+            Data type for the output tensor. If None, uses the input tensor's
+            dtype.
+        loc : str, optional
+            Location identifier for debugging purposes.
+        unit_attrs : list of str, optional
+            List of unit attribute names to attach to the operation.
+
+        Returns
+        -------
+        OpResult
+            Tensor with permuted dimensions. If input shape is [d0, d1, ..., dn]
+            and permutation is [p0, p1, ..., pn], output shape is
+            [d_p0, d_p1, ..., d_pn].
+
+        Examples
+        --------
+        >>> # Transpose a 2D tensor (swap dimensions 0 and 1)
+        >>> result = builder.permute(tensor, [1, 0])
+        >>> # Permute a 4D tensor from NCHW to NHWC
+        >>> result = builder.permute(tensor, [0, 2, 3, 1])
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.permute)
         permutation_attr = DenseI64ArrayAttr.get(permutation)
 
@@ -6725,6 +8299,41 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """
+        Broadcast tensor to a larger shape.
+
+        Expands the input tensor to a larger shape by replicating elements
+        along specified dimensions. Dimensions with broadcast value 1 retain
+        the input size; other values specify the target size.
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor to broadcast.
+        broadcast_dimensions : list of int
+            Target size for each dimension. Use 1 to keep the original size,
+            or a larger value to broadcast to that size.
+        output_type : torch.dtype, optional
+            Data type for the output tensor. If None, uses the input tensor's
+            dtype.
+        loc : str, optional
+            Location identifier for debugging purposes.
+        unit_attrs : list of str, optional
+            List of unit attribute names to attach to the operation.
+
+        Returns
+        -------
+        OpResult
+            Broadcast tensor with expanded shape. Dimensions with
+            broadcast_dimensions[i] != 1 will have that size in the output.
+
+        Examples
+        --------
+        >>> # Broadcast a (1, 3) tensor to (4, 3)
+        >>> result = builder.broadcast(tensor, [4, 1])
+        >>> # Broadcast a (2, 1, 4) tensor to (2, 3, 4)
+        >>> result = builder.broadcast(tensor, [1, 3, 1])
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.broadcast)
         broadcast_dimensions_attr = DenseI64ArrayAttr.get(broadcast_dimensions)
 
@@ -6868,6 +8477,40 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """
+        Reshape tensor to a new shape.
+
+        Changes the shape of the input tensor without changing its data. The
+        total number of elements must remain the same between input and output.
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor to reshape.
+        shape : list of int
+            Target shape for the output tensor. The product of all dimensions
+            must equal the total number of elements in the input tensor.
+        output_type : torch.dtype, optional
+            Data type for the output tensor. If None, uses the input tensor's
+            dtype.
+        loc : str, optional
+            Location identifier for debugging purposes.
+        unit_attrs : list of str, optional
+            List of unit attribute names to attach to the operation.
+
+        Returns
+        -------
+        OpResult
+            Tensor with the specified shape, containing the same elements as
+            the input in row-major order.
+
+        Examples
+        --------
+        >>> # Reshape a (2, 6) tensor to (3, 4)
+        >>> result = builder.reshape(tensor, [3, 4])
+        >>> # Flatten a (2, 3, 4) tensor to (24,)
+        >>> result = builder.reshape(tensor, [24])
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.reshape)
         shape_attr = ArrayAttr.get(
             [IntegerAttr.get(IntegerType.get_signless(32), s) for s in shape]
@@ -6994,6 +8637,30 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Compute element-wise maximum.
+
+        Compares corresponding elements from two input tensors and returns
+        a tensor containing the larger value at each position.
+
+        Parameters
+        ----------
+        in0 : Operand
+            First input tensor.
+        in1 : Operand
+            Second input tensor.
+        output_type : Optional[torch.dtype], optional
+            Data type for the output tensor. If None, uses the data type
+            of in0. Default is None.
+        loc : Optional[str], optional
+            Location identifier for debugging purposes. Default is None.
+        unit_attrs : Optional[List[str]], optional
+            List of unit attributes for the operation. Default is None.
+
+        Returns
+        -------
+        OpResult
+            Result tensor containing element-wise maximum values.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.maximum)
 
         if output_type is None:
@@ -7121,6 +8788,30 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Perform element-wise multiplication.
+
+        Computes the element-wise product of two input tensors,
+        producing a tensor where each element is the result of in0 * in1.
+
+        Parameters
+        ----------
+        in0 : Operand
+            First input tensor (multiplicand).
+        in1 : Operand
+            Second input tensor (multiplier).
+        output_type : Optional[torch.dtype], optional
+            Data type for the output tensor. If None, uses the data type
+            of in0. Default is None.
+        loc : Optional[str], optional
+            Location identifier for debugging purposes. Default is None.
+        unit_attrs : Optional[List[str]], optional
+            List of unit attributes for the operation. Default is None.
+
+        Returns
+        -------
+        OpResult
+            Result tensor containing element-wise products.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.multiply)
 
         if output_type is None:
@@ -7252,6 +8943,27 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """
+        Compute element-wise equality comparison.
+
+        Parameters
+        ----------
+        in0 : Operand
+            First input tensor.
+        in1 : Operand
+            Second input tensor.
+        output_type : torch.dtype, optional
+            Data type for the output tensor. If None, uses input type.
+        loc : str, optional
+            Location string for the operation.
+        unit_attrs : List[str], optional
+            List of unit attribute names to set on the operation.
+
+        Returns
+        -------
+        OpResult
+            Boolean tensor where True indicates in0 == in1.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.eq)
 
         if output_type is None:
@@ -7384,6 +9096,46 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """
+        Compute sum reduction along dimensions.
+
+        Reduces the input tensor by computing the sum of elements along the
+        specified dimensions. When no dimensions are specified, reduces over
+        all dimensions to produce a scalar result.
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor to reduce.
+        dim_arg : list of int, optional
+            Dimensions along which to compute the sum. If None, reduces over
+            all dimensions.
+        keep_dim : bool, default=True
+            If True, retains reduced dimensions with size 1. If False, the
+            reduced dimensions are removed from the output shape.
+        output_type : torch.dtype, optional
+            Data type for the output tensor. If None, uses the input tensor's
+            dtype.
+        loc : str, optional
+            Location identifier for debugging purposes.
+        unit_attrs : list of str, optional
+            List of unit attribute names to attach to the operation.
+
+        Returns
+        -------
+        OpResult
+            Tensor containing the sum of elements along the specified
+            dimensions.
+
+        Examples
+        --------
+        >>> # Sum all elements
+        >>> result = builder.sum(tensor)
+        >>> # Sum along dimension 0
+        >>> result = builder.sum(tensor, dim_arg=[0])
+        >>> # Sum along multiple dimensions, removing reduced dims
+        >>> result = builder.sum(tensor, dim_arg=[0, 2], keep_dim=False)
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.sum)
 
         if dim_arg is None:
@@ -7534,6 +9286,30 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """
+        Perform element-wise addition of two tensors.
+
+        Computes out = in0 + in1 element-wise. Inputs must be broadcastable
+        to a common shape.
+
+        Parameters
+        ----------
+        in0 : Operand
+            First input tensor.
+        in1 : Operand
+            Second input tensor.
+        output_type : torch.dtype, optional
+            Data type for the output tensor. If None, uses the type of in0.
+        loc : str, optional
+            Location string for the operation.
+        unit_attrs : List[str], optional
+            List of unit attribute names to set on the operation.
+
+        Returns
+        -------
+        OpResult
+            The result tensor containing the element-wise sum.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.add)
 
         if output_type is None:
@@ -7663,6 +9439,28 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """
+        Apply the sigmoid activation function element-wise.
+
+        Computes out = 1 / (1 + exp(-in0)) element-wise. The sigmoid function
+        maps any real value to the range (0, 1).
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor.
+        output_type : torch.dtype, optional
+            Data type for the output tensor. If None, uses the type of in0.
+        loc : str, optional
+            Location string for the operation.
+        unit_attrs : List[str], optional
+            List of unit attribute names to set on the operation.
+
+        Returns
+        -------
+        OpResult
+            The result tensor containing values in the range (0, 1).
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.sigmoid)
 
         if output_type is None:
@@ -7779,6 +9577,29 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """
+        Apply the hard sigmoid activation function element-wise.
+
+        Computes a piecewise linear approximation of the sigmoid function:
+        out = max(0, min(1, (in0 + 3) / 6)) element-wise. This is a
+        computationally efficient alternative to the standard sigmoid.
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor.
+        output_type : torch.dtype, optional
+            Data type for the output tensor. If None, uses the type of in0.
+        loc : str, optional
+            Location string for the operation.
+        unit_attrs : List[str], optional
+            List of unit attribute names to set on the operation.
+
+        Returns
+        -------
+        OpResult
+            The result tensor containing values in the range [0, 1].
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.hardsigmoid)
 
         if output_type is None:
@@ -7898,6 +9719,30 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Perform element-wise subtraction.
+
+        Computes the element-wise difference between two input tensors,
+        producing a tensor where each element is the result of in0 - in1.
+
+        Parameters
+        ----------
+        in0 : Operand
+            First input tensor (minuend).
+        in1 : Operand
+            Second input tensor (subtrahend).
+        output_type : Optional[torch.dtype], optional
+            Data type for the output tensor. If None, uses the data type
+            of in0. Default is None.
+        loc : Optional[str], optional
+            Location identifier for debugging purposes. Default is None.
+        unit_attrs : Optional[List[str]], optional
+            List of unit attributes for the operation. Default is None.
+
+        Returns
+        -------
+        OpResult
+            Result tensor containing element-wise differences.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.subtract)
 
         if output_type is None:
@@ -8029,6 +9874,28 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """
+        Apply the hyperbolic tangent function element-wise.
+
+        Computes out = tanh(in0) = (exp(in0) - exp(-in0)) / (exp(in0) + exp(-in0))
+        element-wise. The hyperbolic tangent maps any real value to the range (-1, 1).
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor.
+        output_type : torch.dtype, optional
+            Data type for the output tensor. If None, uses the type of in0.
+        loc : str, optional
+            Location string for the operation.
+        unit_attrs : List[str], optional
+            List of unit attribute names to set on the operation.
+
+        Returns
+        -------
+        OpResult
+            The result tensor containing values in the range (-1, 1).
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.tanh)
 
         if output_type is None:
@@ -8146,6 +10013,28 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """
+        Compute the reciprocal square root element-wise.
+
+        Computes out = 1 / sqrt(in0) element-wise. This is equivalent to
+        raising each element to the power of -0.5.
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor. Values should be positive for real-valued results.
+        output_type : torch.dtype, optional
+            Data type for the output tensor. If None, uses the type of in0.
+        loc : str, optional
+            Location string for the operation.
+        unit_attrs : List[str], optional
+            List of unit attribute names to set on the operation.
+
+        Returns
+        -------
+        OpResult
+            The result tensor containing the reciprocal square root values.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.rsqrt)
 
         if output_type is None:
@@ -8263,6 +10152,28 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """
+        Compute the element-wise negation.
+
+        Computes out = -in0 element-wise, returning the arithmetic negation
+        of each element.
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor.
+        output_type : torch.dtype, optional
+            Data type for the output tensor. If None, uses the type of in0.
+        loc : str, optional
+            Location string for the operation.
+        unit_attrs : List[str], optional
+            List of unit attribute names to set on the operation.
+
+        Returns
+        -------
+        OpResult
+            The result tensor containing the negated values.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.neg)
 
         if output_type is None:
@@ -8381,6 +10292,27 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """
+        Compute element-wise inequality comparison.
+
+        Parameters
+        ----------
+        in0 : Operand
+            First input tensor.
+        in1 : Operand
+            Second input tensor.
+        output_type : torch.dtype, optional
+            Data type for the output tensor. If None, uses input type.
+        loc : str, optional
+            Location string for the operation.
+        unit_attrs : List[str], optional
+            List of unit attribute names to set on the operation.
+
+        Returns
+        -------
+        OpResult
+            Boolean tensor where True indicates in0 != in1.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.ne)
 
         if output_type is None:
@@ -8513,6 +10445,35 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """
+        Select elements from two tensors based on a condition.
+
+        Returns an output tensor where each element is chosen from `in1` if the
+        corresponding element in `in0` is positive (greater than 0), and from
+        `in2` otherwise. This is similar to `numpy.where`.
+
+        Parameters
+        ----------
+        in0 : Operand
+            Condition tensor. Elements greater than 0 are treated as True,
+            otherwise as False.
+        in1 : Operand
+            Tensor from which to select elements where the condition is True.
+        in2 : Operand
+            Tensor from which to select elements where the condition is False.
+        output_type : torch.dtype, optional
+            Data type for the output tensor. If None, uses the type of in1.
+        loc : str, optional
+            Location string for the operation.
+        unit_attrs : List[str], optional
+            List of unit attribute names to set on the operation.
+
+        Returns
+        -------
+        OpResult
+            The result tensor with elements selected from in1 or in2 based
+            on the condition.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.where)
 
         if output_type is None:
@@ -8676,6 +10637,27 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """
+        Compute the absolute value of a tensor element-wise.
+
+        Computes out = |in0| element-wise.
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor.
+        output_type : torch.dtype, optional
+            Data type for the output tensor. If None, uses the type of in0.
+        loc : str, optional
+            Location string for the operation.
+        unit_attrs : List[str], optional
+            List of unit attribute names to set on the operation.
+
+        Returns
+        -------
+        OpResult
+            The result tensor containing the absolute values.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.abs)
 
         if output_type is None:
@@ -8793,6 +10775,29 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """
+        Compute the Gauss error function element-wise.
+
+        Computes out = erf(in0) element-wise. The error function is defined as
+        erf(x) = (2/sqrt(pi)) * integral from 0 to x of exp(-t^2) dt. It is
+        commonly used in probability, statistics, and partial differential equations.
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor.
+        output_type : torch.dtype, optional
+            Data type for the output tensor. If None, uses the type of in0.
+        loc : str, optional
+            Location string for the operation.
+        unit_attrs : List[str], optional
+            List of unit attribute names to set on the operation.
+
+        Returns
+        -------
+        OpResult
+            The result tensor containing values in the range (-1, 1).
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.erf)
 
         if output_type is None:
@@ -8910,6 +10915,28 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """
+        Compute the element-wise floor.
+
+        Computes out = floor(in0) element-wise, returning the largest integer
+        less than or equal to each element.
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor.
+        output_type : torch.dtype, optional
+            Data type for the output tensor. If None, uses the type of in0.
+        loc : str, optional
+            Location string for the operation.
+        unit_attrs : List[str], optional
+            List of unit attribute names to set on the operation.
+
+        Returns
+        -------
+        OpResult
+            The result tensor containing the floor values.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.floor)
 
         if output_type is None:
@@ -9027,6 +11054,30 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """
+        Cast a tensor to a different data type.
+
+        Converts each element of the input tensor to the specified output
+        data type. This is useful for changing precision (e.g., float32 to
+        float16) or converting between numeric types.
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor to be cast.
+        output_type : torch.dtype
+            Target data type for the output tensor (e.g., torch.float32,
+            torch.int64, torch.bfloat16).
+        loc : str, optional
+            Location string for the operation.
+        unit_attrs : List[str], optional
+            List of unit attribute names to set on the operation.
+
+        Returns
+        -------
+        OpResult
+            The result tensor with elements cast to the specified data type.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.typecast)
         output_mlir_type = self._get_type_from_torch_dtype(output_type)
 
@@ -9145,6 +11196,28 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """
+        Compute the element-wise exponential.
+
+        Computes out = e^(in0) element-wise, where e is Euler's number
+        (approximately 2.71828).
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor.
+        output_type : torch.dtype, optional
+            Data type for the output tensor. If None, uses the type of in0.
+        loc : str, optional
+            Location string for the operation.
+        unit_attrs : List[str], optional
+            List of unit attribute names to set on the operation.
+
+        Returns
+        -------
+        OpResult
+            The result tensor containing the exponential values.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.exp)
 
         if output_type is None:
@@ -9263,6 +11336,30 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Perform element-wise division.
+
+        Computes the element-wise quotient of two input tensors,
+        producing a tensor where each element is the result of in0 / in1.
+
+        Parameters
+        ----------
+        in0 : Operand
+            First input tensor (dividend).
+        in1 : Operand
+            Second input tensor (divisor).
+        output_type : Optional[torch.dtype], optional
+            Data type for the output tensor. If None, uses the data type
+            of in0. Default is None.
+        loc : Optional[str], optional
+            Location identifier for debugging purposes. Default is None.
+        unit_attrs : Optional[List[str]], optional
+            List of unit attributes for the operation. Default is None.
+
+        Returns
+        -------
+        OpResult
+            Result tensor containing element-wise quotients.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.div)
 
         if output_type is None:
@@ -9396,6 +11493,45 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: List[str] = None,
     ) -> OpResult:
+        """
+        Extract a slice from a tensor.
+
+        Extracts a contiguous or strided slice from the input tensor, similar
+        to NumPy array slicing. Supports specifying start indices, end indices,
+        and step sizes for each dimension.
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor to slice.
+        begins : list of int
+            Starting index for each dimension (inclusive).
+        ends : list of int
+            Ending index for each dimension (exclusive).
+        step : list of int, optional
+            Step size for each dimension. If None, defaults to 1 for all
+            dimensions.
+        output_type : torch.dtype, optional
+            Data type for the output tensor. If None, uses the input tensor's
+            dtype.
+        loc : str, optional
+            Location identifier for debugging purposes.
+        unit_attrs : list of str, optional
+            List of unit attribute names to attach to the operation.
+
+        Returns
+        -------
+        OpResult
+            Sliced tensor with shape determined by (ends - begins) / step
+            for each dimension.
+
+        Examples
+        --------
+        >>> # Slice rows 1-3 and columns 0-2 from a tensor
+        >>> result = builder.slice(tensor, begins=[1, 0], ends=[3, 2])
+        >>> # Slice with step of 2 along first dimension
+        >>> result = builder.slice(tensor, begins=[0, 0], ends=[4, 3], step=[2, 1])
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.slice)
 
         if step is None:
@@ -9568,6 +11704,54 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """
+        Compute embedding backward pass.
+
+        Computes the gradient of the embedding lookup operation with respect
+        to the embedding weight matrix. This is used during backpropagation
+        to update embedding weights based on the incoming gradients.
+
+        The backward pass accumulates gradients from `in_gradient` into
+        the appropriate rows of the output gradient tensor, as determined
+        by the indices in `input`. Multiple indices pointing to the same
+        embedding row will have their gradients summed.
+
+        Parameters
+        ----------
+        input : Operand
+            Index tensor containing the indices that were used in the forward
+            embedding lookup. Shape is typically (batch_size, sequence_length)
+            or (batch_size,) for 1D lookups. Values are indices into the
+            embedding table.
+        weight : Operand
+            The embedding weight matrix from the forward pass. Shape is
+            (num_embeddings, embedding_dim). Used to determine output shape.
+        in_gradient : Operand
+            Incoming gradient tensor from the subsequent layer. Shape matches
+            the output of the forward embedding operation, typically
+            (batch_size, sequence_length, embedding_dim) or
+            (batch_size, embedding_dim).
+        output_type : torch.dtype, optional
+            Data type for the output gradient tensor. If None, uses the
+            weight tensor's dtype.
+        loc : str, optional
+            Location identifier for debugging purposes.
+        unit_attrs : list of str, optional
+            List of unit attribute names to attach to the operation.
+
+        Returns
+        -------
+        OpResult
+            Gradient tensor with respect to the embedding weights. Shape
+            is (num_embeddings, embedding_dim), matching the weight tensor.
+            Contains accumulated gradients for each embedding vector.
+
+        Notes
+        -----
+        For indices that appear multiple times in `input`, their corresponding
+        gradients in `in_gradient` are summed in the output. Rows not
+        referenced by any index will have zero gradients.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.embedding_backward)
 
         if output_type is None:
@@ -9913,6 +12097,28 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """
+        Check if elements are finite element-wise.
+
+        Tests each element for finiteness (not infinity and not NaN). Returns
+        True for finite values and False for infinite values or NaN.
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor.
+        output_type : torch.dtype, optional
+            Data type for the output tensor. If None, uses the type of in0.
+        loc : str, optional
+            Location string for the operation.
+        unit_attrs : List[str], optional
+            List of unit attribute names to set on the operation.
+
+        Returns
+        -------
+        OpResult
+            The result tensor containing boolean values indicating finiteness.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.is_finite)
 
         if output_type is None:
@@ -11707,22 +13913,28 @@ class TTIRBuilder(Builder):
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
         """
-        Creates ``ttir.global_avg_pool2d``.
-        *Global average pooling operation.*
+        Apply global average pooling over the spatial dimensions.
 
-        Applies a global average pooling over an input signal composed of several input planes.
+        Computes the mean of all spatial elements for each channel,
+        reducing the spatial dimensions to 1x1. This is equivalent to
+        adaptive average pooling with output size (1, 1).
 
         Parameters
         ----------
         in0 : Operand
-            Input tensor
-        unit_attrs : *Optional[List[str]]*
-            Optional list of unit attributes
+            Input tensor. Typically a 4D tensor in NCHW format.
+        output_type : torch.dtype, optional
+            Data type for the output tensor. If None, uses the input
+            tensor's dtype.
+        loc : str, optional
+            Location identifier for debugging purposes.
+        unit_attrs : list of str, optional
+            List of unit attribute names to attach to the operation.
 
         Returns
         -------
-        (*OpView*)
-            Output tensor after global average pooling
+        OpResult
+            Output tensor with spatial dimensions reduced to 1x1.
         """
         ttir_op = self.get_opview_from_method(TTIRBuilder.global_avg_pool2d)
 
@@ -12084,6 +14296,33 @@ class TTIRBuilder(Builder):
         transpose_b: bool = False,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpView:
+        """
+        Perform matrix multiplication of two tensors.
+
+        Computes out = in0 @ in1, with optional transpose of either input.
+        For 2D inputs, this is standard matrix multiplication.
+        For higher-dimensional inputs, batch matrix multiplication is performed.
+
+        Parameters
+        ----------
+        in0 : Operand
+            First input tensor (left operand).
+        in1 : Operand
+            Second input tensor (right operand).
+        transpose_a : bool, optional
+            If True, transpose the first input before multiplication.
+            Default is False.
+        transpose_b : bool, optional
+            If True, transpose the second input before multiplication.
+            Default is False.
+        unit_attrs : List[str], optional
+            List of unit attribute names to set on the operation.
+
+        Returns
+        -------
+        OpView
+            The result tensor from matrix multiplication.
+        """
         kwargs = {
             "transpose_a": transpose_a,
             "transpose_b": transpose_b,
@@ -12648,6 +14887,53 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """
+        Apply layer normalization.
+
+        Normalizes the input tensor over the last D dimensions, where D is
+        the length of `normalized_shape`. Layer normalization is computed as:
+
+        y = (x - mean) / sqrt(variance + epsilon) * weight + bias
+
+        Unlike batch normalization, layer normalization computes statistics
+        over the feature dimensions rather than the batch dimension, making
+        it suitable for recurrent networks and transformers.
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor to normalize. The last D dimensions should match
+            `normalized_shape`.
+        normalized_shape : list of int
+            Shape of the normalized dimensions. Normalization is performed
+            over these trailing dimensions.
+        weight : Operand, optional
+            Learnable scale parameter (gamma). If None, no scaling is applied.
+            Shape should match `normalized_shape`.
+        bias : Operand, optional
+            Learnable shift parameter (beta). If None, no shift is applied.
+            Shape should match `normalized_shape`.
+        epsilon : float, optional
+            Small constant added to variance for numerical stability.
+            Default is 1e-5.
+        output_type : torch.dtype, optional
+            Data type for the output tensor. If None, uses the input tensor's
+            dtype.
+        loc : str, optional
+            Location identifier for debugging purposes.
+        unit_attrs : list of str, optional
+            List of unit attribute names to attach to the operation.
+
+        Returns
+        -------
+        OpResult
+            Normalized tensor with the same shape as the input.
+
+        Notes
+        -----
+        Layer normalization is particularly useful in transformer architectures
+        where batch sizes may vary or when the batch dimension is 1.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.layer_norm)
         normalized_shape_attr = DenseI64ArrayAttr.get(normalized_shape)
         epsilon_attr = FloatAttr.get_f32(epsilon)
