@@ -47,6 +47,34 @@ def D2M_ViewLayoutOp
   let hasFolder = 1;
 }
 
+// D2M_ViewOpInterface only allows a single map, the recursive applyViews() won't work
+def D2M_CompositeViewOp : D2M_Op<"composite_view",
+                                 [Pure,
+                                  DeclareOpInterfaceMethods<BufferizableOpInterface,
+                                                            ["bufferizesToMemoryRead",
+                                                             "bufferizesToMemoryWrite",
+                                                             "bufferize",
+                                                             "getAliasingValues",
+                                                             "getBufferType"]>]> {
+  let summary = "Piecewise view over multiple input tensors";
+  let description = [{
+    Represents a piecewise-affine view that aggregates multiple input tensors
+    along a concat dimension. Each input tensor has an associated offset and size.
+  }];
+
+  // Use AnyRankedTensorOrMemRef only if this survives the bufferization pass.
+  // Add `AffineMapArrayAttr:$input_maps` for per-input affine maps (views, bcast, transpose, strides, etc.)?
+  // 1D concat, logical sizes along the dim, cumulative offsets are calculated on the fly
+  let arguments = (ins Variadic<AnyRankedTensorOrMemRef>:$inputs,
+                       SI32Attr:$dim,
+                       DenseI64ArrayAttr:$sizes);
+
+  let results = (outs AnyRankedTensorOrMemRef:$result);
+
+  // let hasVerifier = 1;
+  // let hasFolder = 1;
+}
+
 //===----------------------------------------------------------------------===//
 // Layout transition and streaming ops (D2M variants)
 //===----------------------------------------------------------------------===//

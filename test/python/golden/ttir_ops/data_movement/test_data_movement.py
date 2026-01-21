@@ -28,7 +28,7 @@ pytestmark = pytest.mark.frontend("ttir")
     ids=shapes_list_str,
 )
 @pytest.mark.parametrize("dim", [0])
-@pytest.mark.parametrize("target", ["ttnn", "emitpy"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
 def test_concat(shapes: List[Shape], dim: int, target: str, request, device):
     def module(builder: TTIRBuilder):
         @builder.func(shapes, [torch.float32, torch.float32, torch.float32])
@@ -46,6 +46,7 @@ def test_concat(shapes: List[Shape], dim: int, target: str, request, device):
         **get_request_kwargs(request),
         device=device,
         target=target,
+        print_ir=True,
     )
 
 

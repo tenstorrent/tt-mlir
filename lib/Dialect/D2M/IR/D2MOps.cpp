@@ -23,7 +23,6 @@
 #include "mlir/IR/Dominance.h"
 #include "mlir/IR/PatternMatch.h"
 
-#include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/ErrorHandling.h"
 
@@ -1074,6 +1073,63 @@ mlir::OpFoldResult d2m::ViewLayoutOp::fold(FoldAdaptor adaptor) {
       RankedTensorType::Builder(resultType).setEncoding(newLayout));
 
   return getResult();
+}
+
+//===----------------------------------------------------------------------===//
+// CompositeViewOp
+//===----------------------------------------------------------------------===//
+
+bool d2m::CompositeViewOp::bufferizesToMemoryRead(
+    mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+  return false;
+}
+
+bool d2m::CompositeViewOp::bufferizesToMemoryWrite(
+    mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+  return false;
+}
+
+LogicalResult d2m::CompositeViewOp::bufferize(
+    mlir::RewriterBase &rewriter,
+    const mlir::bufferization::BufferizationOptions &options,
+    mlir::bufferization::BufferizationState &state) {
+  SmallVector<Value> bufferizedInputs;
+  for (Value input : getInputs()) {
+    auto maybeBuffer =
+        mlir::bufferization::getBuffer(rewriter, input, options, state);
+    if (failed(maybeBuffer)) {
+      return maybeBuffer;
+    }
+    bufferizedInputs.push_back(*maybeBuffer);
+  }
+
+  SmallVector<Value> invocationStack;
+  auto outMemrefTypeOr =
+      getBufferType(getResult(), options, state, invocationStack);
+  if (failed(outMemrefTypeOr)) {
+    return outMemrefTypeOr;
+  }
+
+  auto outMemrefType = mlir::cast<MemRefType>(*outMemrefTypeOr);
+  auto newOp = rewriter.create<d2m::CompositeViewOp>(
+      getLoc(), outMemrefType, bufferizedInputs, getDim(), getSizes());
+  mlir::bufferization::replaceOpWithBufferizedValues(rewriter, *this,
+                                                     newOp.getResult());
+  return success();
+}
+
+mlir::bufferization::AliasingValueList d2m::CompositeViewOp::getAliasingValues(
+    mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+  mlir::bufferization::AliasingValueList result;
+  result.addAlias({getResult(), bufferization::BufferRelation::Equivalent});
+  return result;
+}
+
+mlir::FailureOr<mlir::bufferization::BufferLikeType>
+d2m::CompositeViewOp::getBufferType(
+    mlir::Value value, const mlir::bufferization::BufferizationOptions &,
+    const mlir::bufferization::BufferizationState &, SmallVector<Value> &) {
+  return ttcore::getBufferType(value.getType(), /*isView=*/false);
 }
 
 //===----------------------------------------------------------------------===//
