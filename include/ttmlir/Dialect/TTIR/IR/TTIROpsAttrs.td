@@ -78,15 +78,6 @@ def TTIR_CPUHoistedCallAttr : AttrDef<TTIR_Dialect, "CPUHoistedCall", [], "::mli
   }];
 }
 
-def TTIR_CPUHoistedFuncAttr : AttrDef<TTIR_Dialect, "CPUHoistedFunc", [], "::mlir::Attribute"> {
-  let mnemonic = "cpu_hoisted_func";
-  let summary = "Indicates that this func operation represents a CPU-hoisted function";
-  let description = [{
-    This attribute marks functions that have been hoisted to the CPU module, as well
-    as their associated prototype declarations in the Device module.
-  }];
-}
-
 // Unit attribute for should_hoist flag
 def TTIR_ShouldHoistAttr : AttrDef<TTIR_Dialect, "ShouldHoist", [], "::mlir::Attribute"> {
   let mnemonic = "should_hoist";

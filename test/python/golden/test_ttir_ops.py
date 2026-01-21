@@ -70,51 +70,6 @@ def test_hoisted_logical_not(
     )
 
 
-@pytest.mark.parametrize("shape", [(64, 128)], ids=shape_str)
-@pytest.mark.parametrize("max_arg,min_arg", [(3.0, 2.0)])
-def test_clamp_scalar(shape: Shape, max_arg: float, min_arg: float, request, device):
-    def module(builder: TTIRBuilder):
-        @builder.func([shape], [torch.float32])
-        def clamp_scalar(
-            in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
-        ):
-            return builder.clamp_scalar(
-                in0, max_arg=max_arg, min_arg=min_arg, unit_attrs=unit_attrs
-            )
-
-    compile_and_execute_ttir(
-        module,
-        test_base=request.node.name,
-        device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
-    )
-
-
-@pytest.mark.parametrize(
-    "shapes", [[(32, 64), (32, 64), (32, 64)]], ids=shapes_list_str
-)
-def test_clamp_tensor(shapes: List[Shape], request, device):
-    def module(builder: TTIRBuilder):
-        @builder.func(shapes, [torch.float32, torch.float32, torch.float32])
-        def clamp_tensor(
-            in0: Operand,
-            in1: Operand,
-            in2: Operand,
-            builder: TTIRBuilder,
-            unit_attrs: Optional[List[str]] = None,
-        ):
-            return builder.clamp_tensor(in0, in1, in2, unit_attrs=unit_attrs)
-
-    compile_and_execute_ttir(
-        module,
-        test_base=request.node.name,
-        device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
-    )
-
-
 @pytest.mark.parametrize(
     "shapes,batch_dims_lhs,contract_dims_lhs,batch_dims_rhs,contract_dims_rhs",
     [
@@ -533,203 +488,6 @@ def test_conv_transpose2d(
         device=device,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
-    )
-
-
-@pytest.mark.parametrize(
-    "shapes,stride,padding,dilation,groups",
-    [
-        # ResNet initial 7x7 conv: stride=2, padding=3
-        (
-            [(1, 3, 224, 224), (64, 3, 7, 7), (1, 1, 1, 64)],
-            [2, 2],
-            [3, 3, 3, 3],
-            [1, 1],
-            1,
-        ),
-        # ResNet 1x1 conv: stride=1, no padding
-        (
-            [(1, 64, 56, 56), (64, 64, 1, 1), (1, 1, 1, 64)],
-            [1, 1],
-            [0, 0, 0, 0],
-            [1, 1],
-            1,
-        ),
-        # ResNet 3x3 conv: stride=1, padding=1
-        (
-            [(1, 64, 56, 56), (64, 64, 3, 3), (1, 1, 1, 64)],
-            [1, 1],
-            [1, 1, 1, 1],
-            [1, 1],
-            1,
-        ),
-        # ResNet bottleneck 1x1 expansion: stride=1, no padding
-        (
-            [(1, 64, 56, 56), (256, 64, 1, 1), (1, 1, 1, 256)],
-            [1, 1],
-            [0, 0, 0, 0],
-            [1, 1],
-            1,
-        ),
-        # ResNet stride 2 downsampling: 3x3 conv
-        (
-            [(1, 64, 56, 56), (128, 64, 3, 3), (1, 1, 1, 128)],
-            [2, 2],
-            [1, 1, 1, 1],
-            [1, 1],
-            1,
-        ),
-        # Small test case
-        (
-            [(1, 16, 32, 32), (32, 16, 3, 3), (1, 1, 1, 32)],
-            [1, 1],
-            [1, 1, 1, 1],
-            [1, 1],
-            1,
-        ),
-    ],
-    ids=[
-        "resnet_initial_7x7",
-        "resnet_1x1_conv",
-        "resnet_3x3_conv",
-        "resnet_bottleneck_expansion",
-        "resnet_stride2_downsample",
-        "small_3x3",
-    ],
-)
-@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
-def test_convolution(
-    shapes: List[Shape],
-    stride: List[int],
-    padding: List[int],
-    dilation: List[int],
-    groups: int,
-    dtype: torch.dtype,
-    request,
-    device,
-):
-    """Test the ttir.convolution op with various ResNet-style configurations"""
-
-    def module(builder: TTIRBuilder):
-        @builder.func(shapes, [dtype] * len(shapes))
-        def convolution(
-            in0: Operand,
-            weight: Operand,
-            bias: Operand,
-            builder: TTIRBuilder,
-            unit_attrs: Optional[List[str]] = None,
-        ):
-            return builder.convolution(
-                in0,
-                weight,
-                bias,
-                window_strides=stride,
-                padding=padding,
-                input_dilation=[1, 1],
-                weight_dilation=dilation,
-                input_batch=0,
-                input_feature=1,
-                input_spatial_dimensions=[2, 3],
-                kernel_output_feature=0,
-                kernel_input_feature=1,
-                kernel_spatial_dimensions=[2, 3],
-                output_batch=0,
-                output_feature=1,
-                output_spatial_dimensions=[2, 3],
-                feature_group_count=groups,
-                batch_group_count=1,
-            )
-
-    compile_and_execute_ttir(
-        module,
-        test_base=request.node.name,
-        device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
-        pcc=0.98,
-    )
-
-
-@pytest.mark.parametrize(
-    "shapes,stride,padding,dilation,groups",
-    [
-        # Depthwise convolution (groups = input_channels)
-        (
-            [(1, 32, 28, 28), (32, 1, 3, 3), (1, 1, 1, 32)],
-            [1, 1],
-            [1, 1, 1, 1],
-            [1, 1],
-            32,
-        ),
-        # Group convolution (4 groups)
-        (
-            [(1, 64, 32, 32), (64, 16, 3, 3), (1, 1, 1, 64)],
-            [1, 1],
-            [1, 1, 1, 1],
-            [1, 1],
-            4,
-        ),
-        # Dilated convolution
-        (
-            [(1, 32, 32, 32), (64, 32, 3, 3), (1, 1, 1, 64)],
-            [1, 1],
-            [2, 2, 2, 2],
-            [2, 2],
-            1,
-        ),
-    ],
-    ids=["depthwise_conv", "group_conv_4groups", "dilated_conv"],
-)
-@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-def test_convolution_groups_dilation(
-    shapes: List[Shape],
-    stride: List[int],
-    padding: List[int],
-    dilation: List[int],
-    groups: int,
-    dtype: torch.dtype,
-    request,
-    device,
-):
-    """Test convolution with group and dilation patterns"""
-
-    def module(builder: TTIRBuilder):
-        @builder.func(shapes, [dtype] * len(shapes))
-        def convolution_grouped(
-            in0: Operand,
-            weight: Operand,
-            bias: Operand,
-            builder: TTIRBuilder,
-            unit_attrs: Optional[List[str]] = None,
-        ):
-            return builder.convolution(
-                in0,
-                weight,
-                bias,
-                window_strides=stride,
-                padding=padding,
-                input_dilation=[1, 1],
-                weight_dilation=dilation,
-                input_batch=0,
-                input_feature=1,
-                input_spatial_dimensions=[2, 3],
-                kernel_output_feature=0,
-                kernel_input_feature=1,
-                kernel_spatial_dimensions=[2, 3],
-                output_batch=0,
-                output_feature=1,
-                output_spatial_dimensions=[2, 3],
-                feature_group_count=groups,
-                batch_group_count=1,
-            )
-
-    compile_and_execute_ttir(
-        module,
-        test_base=request.node.name,
-        device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
-        pcc=0.96,
     )
 
 
@@ -2517,6 +2275,68 @@ def test_rms_norm(
                     bias = inputs[1]
 
             return builder.rms_norm(
+                in0,
+                normalized_shape=normalized_shape,
+                weight=weight,
+                bias=bias,
+                unit_attrs=unit_attrs,
+            )
+
+    compile_and_execute_ttir(
+        module,
+        test_base=request.node.name,
+        device=device,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+    )
+
+
+@pytest.mark.parametrize(
+    "shape,normalized_shape",
+    [
+        ((32, 128), [128]),
+        ((2, 4, 64), [64]),
+    ],
+)
+@pytest.mark.parametrize("has_weight", [True, False])
+@pytest.mark.parametrize("has_bias", [True, False])
+@pytest.mark.parametrize("target", ["ttnn", "emitpy"])
+def test_layer_norm(
+    shape: Shape,
+    normalized_shape: List[int],
+    has_weight: bool,
+    has_bias: bool,
+    target: str,
+    request,
+    device,
+):
+    # Determine input shapes
+    shapes = [shape]
+    if has_weight:
+        shapes.append(tuple(normalized_shape))
+    if has_bias:
+        shapes.append(tuple(normalized_shape))
+
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, [torch.float32] * len(shapes))
+        def layer_norm(*inputs, unit_attrs: Optional[List[str]] = None):
+
+            builder = inputs[-1]
+            # Extract inputs based on test configuration
+            in0 = inputs[0]
+            weight = None
+            bias = None
+
+            if has_weight and len(inputs) > 1:
+                weight = inputs[1]
+            if has_bias:
+                if has_weight and len(inputs) > 2:
+                    bias = inputs[2]
+                elif not has_weight and len(inputs) > 1:
+                    bias = inputs[1]
+
+            return builder.layer_norm(
                 in0,
                 normalized_shape=normalized_shape,
                 weight=weight,

@@ -534,6 +534,17 @@ def D2M_TileMinimumOp : D2M_GenericRegionComputeBinaryDstOp<"tile_minimum", D2M_
     let results = (outs TTCore_Tile:$result);
 }
 
+def D2M_TileClampScalarOp : D2M_GenericRegionComputeUnaryDstOp<"tile_clamp_scalar", D2M_TileComputeOpTraitBundle>{
+    let summary = "D2M Tile Clamp Scalar Op";
+    let description = [{
+        The `tile_clamp_scalar` operation clamps all elements of a tile to be within
+        the range [min, max] specified by scalar attributes.
+    }];
+
+    let arguments = (ins TTCore_Tile:$input, F32Attr:$min, F32Attr:$max);
+    let results = (outs TTCore_Tile:$result);
+}
+
 def D2M_TileWhereOp : D2M_GenericRegionComputeTernaryDstOp<"tile_where", D2M_TileComputeOpTraitBundle>{
     let summary = "D2M Tile Where Op";
     let description = [{

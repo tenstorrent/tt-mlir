@@ -42,6 +42,7 @@ table Conv3dConfig {
   h_out_block: uint32 = null;
   c_out_block: uint32 = null;
   c_in_block: uint32 = null;
+  compute_with_storage_grid_size: CoreCoord;
 }
 
 table PrepareConv2dWeightsOp {
