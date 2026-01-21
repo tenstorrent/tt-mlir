@@ -1882,7 +1882,7 @@ public:
     // remain in the new Conv3dConfig struct
     rso << "[&]() { ";
     rso << "auto config = "
-           "ttnn::operations::experimental::conv3d::Conv3dConfig(); ";
+           "::ttnn::experimental::prim::Conv3dConfig(); ";
 
     // Apply Conv3dConfigAttr overrides if provided
     if (conv3dConfig.has_value()) {
