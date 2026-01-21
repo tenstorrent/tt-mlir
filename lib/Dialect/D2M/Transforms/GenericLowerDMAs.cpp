@@ -561,8 +561,16 @@ public:
   static AffineMap getMemoryMap(ttcore::DeviceAttr device, Value input,
                                 bool isRemote) {
     if (isRemote) {
-      std::pair<MemRefType, AffineMap> srcUnderlyingMemrefAndView =
-          mlir::tt::d2m::applyViews(input.getDefiningOp());
+      std::pair<MemRefType, AffineMap> srcUnderlyingMemrefAndView;
+      if (Operation *defOp = input.getDefiningOp()) {
+        srcUnderlyingMemrefAndView = mlir::tt::d2m::applyViews(defOp);
+      } else {
+        // Block argument: use type directly with identity map
+        auto memrefType = mlir::cast<MemRefType>(input.getType());
+        srcUnderlyingMemrefAndView = std::make_pair(
+            memrefType, AffineMap::getMultiDimIdentityMap(memrefType.getRank(),
+                                                          input.getContext()));
+      }
       return device.getMemoryMap(srcUnderlyingMemrefAndView,
                                  0 /* use default page size*/);
     }
