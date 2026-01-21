@@ -1737,10 +1737,10 @@ public:
     Type elementType = inputType.getElementType();
 
     // ConcatenateHeads expects exactly 4D input:
-    // [batch_size, num_heads, sequence_size, head_size]
+    // [batch_size, num_heads, sequence_size, head_size].
     if (inputType.getRank() != 4) {
       return rewriter.notifyMatchFailure(
-          op, "ConcatenateHeads requires 4D input tensor");
+          op, "ConcatenateHeads requires 4D input tensor.");
     }
 
     auto resultType = dyn_cast<RankedTensorType>(
@@ -2284,7 +2284,7 @@ public:
     auto resultType = cast<RankedTensorType>(
         this->getTypeConverter()->convertType(op.getResult().getType()));
 
-    // ArangeForceLastDimensionPattern ensures arange is always 1D
+    // ArangeForceLastDimensionPattern ensures arange is always 1D.
     assert(resultType.getRank() == 1 &&
            "Arange must be 1D after decomposition");
 
@@ -2487,7 +2487,7 @@ public:
     // through the input.
     if (adaptor.getShardType() != ttcore::MeshShardType::Identity) {
       return rewriter.notifyMatchFailure(
-          op, "Only identity MeshShard ops are supported");
+          op, "Only identity MeshShard ops are supported.");
     }
 
     // Identity MeshShard is a no-op, just forward the input.
