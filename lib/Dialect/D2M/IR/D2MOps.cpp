@@ -1075,22 +1075,40 @@ d2m::ViewLayoutOp::getBufferType(
   return ttcore::getBufferType(value.getType(), /*isView=*/true);
 }
 
+AffineMap d2m::ViewLayoutOp::getResultAffineMap() {
+  if (auto resultType = mlir::dyn_cast<MemRefType>(getType())) {
+    ttcore::ViewLayoutAttr resultView =
+        mlir::cast<ttcore::ViewLayoutAttr>(resultType.getLayout());
+    return resultView.getAffineMap();
+  }
+  return mlir::cast<ttcore::MetalLayoutAttr>(
+             mlir::cast<RankedTensorType>(getType()).getEncoding())
+      .getIndexAffineMap();
+}
+
+AffineMap d2m::ViewLayoutOp::getInputAffineMap() {
+  if (auto inputType = mlir::dyn_cast<MemRefType>(getInput().getType())) {
+    ttcore::ViewLayoutAttr inputView =
+        mlir::dyn_cast<ttcore::ViewLayoutAttr>(inputType.getLayout());
+
+    if (!inputView) {
+      return mlir::AffineMap::getMultiDimIdentityMap(inputType.getRank(),
+                                                     getContext());
+    }
+    return inputView.getAffineMap();
+  }
+  return mlir::cast<ttcore::MetalLayoutAttr>(
+             mlir::cast<RankedTensorType>(getInput().getType()).getEncoding())
+      .getIndexAffineMap();
+}
+
 bool d2m::ViewLayoutOp::isReblockOnly() {
   mlir::AffineMap reblockMap = ttmlir::utils::calculateReblockMap(
       mlir::cast<mlir::ShapedType>(getInput().getType()).getShape(),
       mlir::cast<mlir::ShapedType>(getResult().getType()).getShape(),
       getContext());
 
-  if (auto resultType = mlir::dyn_cast<MemRefType>(getType())) {
-    ttcore::ViewLayoutAttr resultView =
-        mlir::cast<ttcore::ViewLayoutAttr>(resultType.getLayout());
-    return resultView.getAffineMap() == reblockMap;
-  }
-
-  auto resultLayout = mlir::cast<ttcore::MetalLayoutAttr>(
-      mlir::cast<RankedTensorType>(getType()).getEncoding());
-
-  return resultLayout.getIndexAffineMap() == reblockMap;
+  return getResultAffineMap() == reblockMap;
 }
 
 mlir::OpFoldResult d2m::ViewLayoutOp::fold(FoldAdaptor adaptor) {
@@ -1141,19 +1159,8 @@ mlir::OpFoldResult d2m::ViewLayoutOp::fold(FoldAdaptor adaptor) {
           .getShape(),
       mlir::cast<mlir::ShapedType>(getType()).getShape(), getContext());
 
-  // The original input view may have had an index map, so we need to compose it with the reblock map.
-  AffineMap originalMap;
-  if (auto resultType = mlir::dyn_cast<MemRefType>(getType())) {
-    ttcore::ViewLayoutAttr resultView =
-        mlir::cast<ttcore::ViewLayoutAttr>(resultType.getLayout());
-    originalMap = resultView.getAffineMap();
-  } else {
-    originalMap = mlir::cast<ttcore::MetalLayoutAttr>(
-        mlir::cast<RankedTensorType>(getType()).getEncoding()).getIndexAffineMap();
-  }
+  reblockMap = reblockMap.compose(consecutiveView.getInputAffineMap());
 
-  reblockMap = reblockMap.compose(originalMap);
-  
   auto resultType = mlir::cast<RankedTensorType>(getType());
   auto resultLayout =
       mlir::cast<ttcore::MetalLayoutAttr>(resultType.getEncoding());

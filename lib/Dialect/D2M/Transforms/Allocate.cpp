@@ -733,8 +733,12 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
           asOperand(operandCtx.root), memrefType, operandCtx.hasStream);
 
       Value operandValue = operandCtx.operand->get();
+      // Non-trivial views always need a stream to represent the implied data
+      // movement.
       const bool isIgnoredOutput =
-          operandCtx.isOutput && !allowL1OutputSpilling;
+          isNonTrivialView(operandValue)
+              ? false
+              : (operandCtx.isOutput && !allowL1OutputSpilling);
 
       if (isIgnoredOutput) {
         // For now, disabled `allow-l1-output-spilling` also means
@@ -981,7 +985,11 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
                   // exempt outputs) that don't have them already.
 
                   if (operandCtx.isOutput && !allowL1OutputSpilling) {
-                    continue;
+                    // Operands with non-trivial views always need a stream to
+                    // represent the implied data movement.
+                    if (!isNonTrivialView(operandCtx.operand->get())) {
+                      continue;
+                    }
                   }
 
                   if (operandCtx.hasStream) {
@@ -1185,7 +1193,11 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         }
 
         if (operandCtx.isOutput && !allowL1OutputSpilling) {
-          continue;
+          // Operands with non-trivial views always need a stream to represent
+          // the implied data movement.
+          if (!isNonTrivialView(operandCtx.operand->get())) {
+            continue;
+          }
         }
 
         // After filtering for special forms of generics ("DMA only", etc)
@@ -1482,6 +1494,19 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       }
     };
 
+    // Non-trivial views need a stream to represent the implied data movement.
+    if (isNonTrivialView(genericOp.getOperand(operandIndex))) {
+      return true;
+    }
+
+    return false;
+  }
+
+  static bool isNonTrivialView(Value operand) {
+    if (auto view = mlir::dyn_cast_if_present<d2m::ViewLayoutOp>(
+            operand.getDefiningOp())) {
+      return !view.getResultAffineMap().isIdentity();
+    }
     return false;
   }
 
