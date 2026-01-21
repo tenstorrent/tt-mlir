@@ -41,6 +41,8 @@ def D2M_ViewLayoutOp
 
   let extraClassDeclaration = [{
     bool isReblockOnly();
+    AffineMap getResultAffineMap();
+    AffineMap getInputAffineMap();
   }];
 
   let hasVerifier = 1;
