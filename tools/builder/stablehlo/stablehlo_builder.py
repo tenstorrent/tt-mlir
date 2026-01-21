@@ -7096,6 +7096,172 @@ class StableHLOBuilder(Builder):
 
         return op_result
 
+    ################ stablehlo.UniformQuantizeOp ###############
+
+    @tag(stablehlo.UniformQuantizeOp)
+    def uniform_quantize(
+        self,
+        in0: Operand,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpResult:
+        """
+        Creates ``stablehlo.uniform_quantize``.
+
+        *Performs element-wise conversion of floating-point tensor to quantized tensor.*
+
+        From StableHLO UniformQuantize Op https://openxla.org/stablehlo/spec#uniform_quantize
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input floating-point tensor to quantize
+        loc : *Optional[str]*, optional
+            Optional location string
+        unit_attrs : *Optional[List[str]]*, optional
+            Optional list of unit attributes
+        sharding_attr : *Optional[sdy.TensorShardingPerValueAttr]*, optional
+            Optional sharding attribute
+
+        Returns
+        -------
+        (*OpResult*)
+            Quantized tensor result
+        """
+        stablehlo_op = self.get_opview_from_method(StableHLOBuilder.uniform_quantize)
+
+        op = stablehlo_op(
+            in0,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if sharding_attr is not None:
+            op.operation.attributes["sdy.sharding"] = sharding_attr
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            op_golden_function = get_golden_function(stablehlo_op)
+            if op_golden_function is not None:
+                golden_output = op_golden_function(input0, op_result.type)
+                self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(stablehlo.UniformQuantizeOp)
+    def uniform_quantize_parser(
+        self,
+        old_op: stablehlo.UniformQuantizeOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        stablehlo_op = self.get_opview_from_parser(StableHLOBuilder.uniform_quantize_parser)
+        operand = global_dict[old_op.operand]
+
+        new_op = stablehlo_op(
+            operand,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(operand)
+            op_golden_function = get_golden_function(stablehlo_op)
+            if op_golden_function is not None:
+                golden_output = op_golden_function(input0, new_op_result.type)
+                self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    ################ stablehlo.UniformDequantizeOp ###############
+
+    @tag(stablehlo.UniformDequantizeOp)
+    def uniform_dequantize(
+        self,
+        in0: Operand,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpResult:
+        """
+        Creates ``stablehlo.uniform_dequantize``.
+
+        *Performs element-wise conversion of quantized tensor to floating-point tensor.*
+
+        From StableHLO UniformDequantize Op https://openxla.org/stablehlo/spec#uniform_dequantize
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input quantized tensor to dequantize
+        loc : *Optional[str]*, optional
+            Optional location string
+        unit_attrs : *Optional[List[str]]*, optional
+            Optional list of unit attributes
+        sharding_attr : *Optional[sdy.TensorShardingPerValueAttr]*, optional
+            Optional sharding attribute
+
+        Returns
+        -------
+        (*OpResult*)
+            Dequantized floating-point tensor result
+        """
+        stablehlo_op = self.get_opview_from_method(StableHLOBuilder.uniform_dequantize)
+
+        op = stablehlo_op(
+            in0,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if sharding_attr is not None:
+            op.operation.attributes["sdy.sharding"] = sharding_attr
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            op_golden_function = get_golden_function(stablehlo_op)
+            if op_golden_function is not None:
+                golden_output = op_golden_function(input0)
+                self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(stablehlo.UniformDequantizeOp)
+    def uniform_dequantize_parser(
+        self,
+        old_op: stablehlo.UniformDequantizeOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        stablehlo_op = self.get_opview_from_parser(StableHLOBuilder.uniform_dequantize_parser)
+        operand = global_dict[old_op.operand]
+
+        new_op = stablehlo_op(
+            operand,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(operand)
+            op_golden_function = get_golden_function(stablehlo_op)
+            if op_golden_function is not None:
+                golden_output = op_golden_function(input0)
+                self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
     # ----- Experimental Mpmd Attribute Generators ----
 
     def experimental_named_mesh_attr(

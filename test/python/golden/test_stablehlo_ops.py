@@ -1644,3 +1644,28 @@ def test_convolution_groups_dilation(
         system_desc_path=request.config.getoption("--sys-desc"),
         device=device,
     )
+
+
+# ----- Quantization Operations Tests -----
+
+
+def module_uniform_quantize(builder: StableHLOBuilder):
+    @builder.func([(128, 128)], [torch.float32])
+    def uniform_quantize(
+        in0: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.uniform_quantize(in0, unit_attrs=unit_attrs)
+
+
+def module_uniform_dequantize(builder: StableHLOBuilder):
+    @builder.func([(128, 128)], [torch.float32])
+    def uniform_dequantize(
+        in0: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.uniform_dequantize(in0, unit_attrs=unit_attrs)
