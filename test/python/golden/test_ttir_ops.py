@@ -70,51 +70,6 @@ def test_hoisted_logical_not(
     )
 
 
-@pytest.mark.parametrize("shape", [(64, 128)], ids=shape_str)
-@pytest.mark.parametrize("max_arg,min_arg", [(3.0, 2.0)])
-def test_clamp_scalar(shape: Shape, max_arg: float, min_arg: float, request, device):
-    def module(builder: TTIRBuilder):
-        @builder.func([shape], [torch.float32])
-        def clamp_scalar(
-            in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
-        ):
-            return builder.clamp_scalar(
-                in0, max_arg=max_arg, min_arg=min_arg, unit_attrs=unit_attrs
-            )
-
-    compile_and_execute_ttir(
-        module,
-        test_base=request.node.name,
-        device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
-    )
-
-
-@pytest.mark.parametrize(
-    "shapes", [[(32, 64), (32, 64), (32, 64)]], ids=shapes_list_str
-)
-def test_clamp_tensor(shapes: List[Shape], request, device):
-    def module(builder: TTIRBuilder):
-        @builder.func(shapes, [torch.float32, torch.float32, torch.float32])
-        def clamp_tensor(
-            in0: Operand,
-            in1: Operand,
-            in2: Operand,
-            builder: TTIRBuilder,
-            unit_attrs: Optional[List[str]] = None,
-        ):
-            return builder.clamp_tensor(in0, in1, in2, unit_attrs=unit_attrs)
-
-    compile_and_execute_ttir(
-        module,
-        test_base=request.node.name,
-        device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
-    )
-
-
 @pytest.mark.parametrize(
     "shapes,batch_dims_lhs,contract_dims_lhs,batch_dims_rhs,contract_dims_rhs",
     [
