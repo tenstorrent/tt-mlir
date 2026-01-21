@@ -484,9 +484,9 @@ static void optimizeTTNNMetalLayoutCastOpGrid(
     ArrayRef<int64_t> targetSquareGridShape, ArrayRef<int64_t> optimalGrid,
     bool isVirtualGrid, OpBuilder &builder) {
   castOp.dump();
-  // input: 
+  // input:
   //    cast ttnn -> metal_original_grid
-  //    generic(metal_original_grid)   
+  //    generic(metal_original_grid)
   // output:
   //    cast ttnn -> metal_original_grid
   //    view_layout metal_original_grid -> metal_with_optimal_grid
@@ -529,7 +529,8 @@ static void optimizeTTNNMetalLayoutCastOpGrid(
   // mlir::RankedTensorType::get(
   //     newShardedShape, outputType.getElementType(), newTensorLayout);
   // RankedTensorType newTensorType =
-  //     tensorWithOptimalGrid(outputType, targetGridShape, targetSquareGridShape,
+  //     tensorWithOptimalGrid(outputType, targetGridShape,
+  //     targetSquareGridShape,
   //                           optimalGrid, isVirtualGrid, builder);
 
   builder.setInsertionPointAfter(castOp);
@@ -545,10 +546,9 @@ static void optimizeTTNNMetalLayoutCastOpGrid(
       utils::reblockTensor(newTensorType, oldLayout.getGridShape(outputType));
   auto revertingView = builder.create<d2m::ViewLayoutOp>(
       castOp.getLoc(), viewOutputType, newViewLayoutOp.getResult());
-    
+
   castOp.getResult().replaceAllUsesExcept(revertingView.getResult(),
-                                      newViewLayoutOp);
-  
+                                          newViewLayoutOp);
 }
 
 struct ToLayoutUpdateInfo {
@@ -721,7 +721,12 @@ analyzeOperandsAndComputeGrids(d2m::GenericOp genericOp,
     // it.
     llvm::SmallVector<int64_t> physShape = computePhysicalShape(
         operandLayout, operandType, targetSquareGridShape, builder);
-
+    operand.dump();
+    std::cout << "physShape: ";
+    for (auto p : physShape) {
+      std::cout << p << " ";
+    }
+    std::cout << std::endl;
     // Interleaved tensors do not support virtual grids
     auto [optimalGrid, isVirtualGrid] =
         computeOptimalGrid(operandType, physShape, targetSquareGridShape);
@@ -814,12 +819,16 @@ updateTTNNTensors(ArrayRef<TTNNTensorUpdateInfo> TTNNTensorsToUpdate,
     } else if (auto viewOp = info.operand.getDefiningOp<d2m::ViewLayoutOp>()) {
       // Erase the view op and directly operate on the defining cast.
       auto originalOperand = viewOp.getInput();
-      auto castOp = originalOperand.getDefiningOp<ttir::TTNNMetalLayoutCastOp>();
-      TT_assertv(castOp, "Expected a TTNNMetalLayoutCastOp as the input of the view op.");
+      auto castOp =
+          originalOperand.getDefiningOp<ttir::TTNNMetalLayoutCastOp>();
+      TT_assertv(
+          castOp,
+          "Expected a TTNNMetalLayoutCastOp as the input of the view op.");
       viewOp.getResult().replaceAllUsesWith(originalOperand);
       viewOp.erase();
-      optimizeTTNNMetalLayoutCastOpGrid(castOp, targetGridShape, targetSquareGridShape,
-                             info.grid, info.isVirtualGrid, builder);
+      optimizeTTNNMetalLayoutCastOpGrid(castOp, targetGridShape,
+                                        targetSquareGridShape, info.grid,
+                                        info.isVirtualGrid, builder);
     } else {
       llvm_unreachable("Expected a TTNNMetalLayoutCastOp or a ViewLayoutOp");
     }

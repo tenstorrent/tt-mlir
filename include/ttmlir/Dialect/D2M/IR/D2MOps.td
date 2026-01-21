@@ -43,6 +43,8 @@ def D2M_ViewLayoutOp : D2M_Op<"view_layout", [
 
   let extraClassDeclaration = [{
     bool isReblockOnly();
+    AffineMap getResultAffineMap();
+    AffineMap getInputAffineMap();
   }];
 
   let hasVerifier = 1;
