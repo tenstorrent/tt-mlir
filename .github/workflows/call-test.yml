@@ -120,20 +120,21 @@ jobs:
     - name: Download tt-triage files
       shell: bash
       run: |
-        # TT_METAL_VERSION=$(grep 'set(TT_METAL_VERSION' third_party/CMakeLists.txt | sed 's/.*"\(.*\)".*/\1/')
-        # mkdir -p tt-triage
-        # curl -L "https://github.com/tenstorrent/tt-metal/archive/${TT_METAL_VERSION}.tar.gz" \
-        #   | tar -xz -C tt-triage --strip-components=1 \
-        #       tt-metal-${TT_METAL_VERSION}/scripts/ttexalens_ref.txt \
-        #       tt-metal-${TT_METAL_VERSION}/tools/tt-triage.py \
-        #       tt-metal-${TT_METAL_VERSION}/tools/triage
+        TT_METAL_VERSION=$(grep 'set(TT_METAL_VERSION' third_party/CMakeLists.txt | sed 's/.*"\(.*\)".*/\1/')
+        TT_METAL_VERSION="db7a4ec770070ddd068fe6a5bc77ed779804dfce"
+        mkdir -p tt-triage
+        curl -L "https://github.com/tenstorrent/tt-metal/archive/${TT_METAL_VERSION}.tar.gz" \
+          | tar -xz -C tt-triage --strip-components=1 \
+              tt-metal-${TT_METAL_VERSION}/scripts/ttexalens_ref.txt \
+              tt-metal-${TT_METAL_VERSION}/tools/tt-triage.py \
+              tt-metal-${TT_METAL_VERSION}/tools/triage
 
-        mkdir temp
-        cd temp
-        git clone https://github.com/tenstorrent/tt-metal.git
-        cd tt-metal
-        git checkout 15186f400a8191022c0974650e44a18208be14a7
-        cd ../..
+        # mkdir temp
+        # cd temp
+        # git clone https://github.com/tenstorrent/tt-metal.git
+        # cd tt-metal
+        # git checkout 15186f400a8191022c0974650e44a18208be14a7
+        # cd ../..
 
     - name: Run Lit Tests
       shell: bash
@@ -166,7 +167,8 @@ jobs:
         # Run Tests
         source env/activate
 
-        export TT_METAL_DISPATCH_TIMEOUT_COMMAND_TO_EXECUTE="python $(pwd)/temp/tt-metal/tools/tt-triage.py 1>&2"
+        # export TT_METAL_DISPATCH_TIMEOUT_COMMAND_TO_EXECUTE="python $(pwd)/temp/tt-metal/tools/tt-triage.py 1>&2"
+        export TT_METAL_DISPATCH_TIMEOUT_COMMAND_TO_EXECUTE="python $(pwd)/tt-triage/tools/tt-triage.py 1>&2"
         echo $TT_METAL_DISPATCH_TIMEOUT_COMMAND_TO_EXECUTE
 
         MACHINE_IP=$(hostname -I | awk '{print $1}')
