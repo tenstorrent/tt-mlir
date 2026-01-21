@@ -800,10 +800,17 @@ private:
 
     // If the output is tilized, typecast directly on device
     if (output.isTilized()) {
-      currentInput = this->createToMemoryConfigOpIfNeeded(op, rewriter,
-                                                          currentInput, info);
+      // If the input is sharded, typecast should happen after converting to
+      // memory.
+      currentInput = input.isL1Sharded() ? this->createToMemoryConfigOpIfNeeded(
+                                               op, rewriter, currentInput, info)
+                                         : currentInput;
       currentInput = this->createDataTypeCastingOpIfNeeded(op, rewriter,
                                                            currentInput, info);
+      currentInput = input.isL1Sharded()
+                         ? currentInput
+                         : this->createToMemoryConfigOpIfNeeded(
+                               op, rewriter, currentInput, info);
       currentInput =
           this->createFromDeviceOpIfNeeded(op, rewriter, currentInput, info);
       op.getResult().replaceAllUsesWith(currentInput);
