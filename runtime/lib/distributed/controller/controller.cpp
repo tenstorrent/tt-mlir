@@ -11,6 +11,7 @@
 #include "tt/runtime/detail/distributed/utils/utils.h"
 #include "tt/runtime/runtime.h"
 #include "tt/runtime/utils.h"
+#include <iostream>
 namespace tt::runtime::distributed::controller {
 
 namespace fb = ::tt::runtime::distributed::flatbuffer;
@@ -146,6 +147,7 @@ Controller::~Controller() {
   auto currentState = controllerState_.load(std::memory_order_relaxed);
   if (currentState != ControllerState::Uninitialized &&
       currentState != ControllerState::Shutdown) {
+    std::cerr << "Shutting down controller in destructor" << std::endl;
     shutdown();
   }
 }
