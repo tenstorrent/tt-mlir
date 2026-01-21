@@ -167,6 +167,18 @@ static llvm::SmallVector<int64_t> computePhysicalShape(
       llvm::ArrayRef(tileShape.data(), tileShape.size()));
 }
 
+// TTNN tensors do not require dim-alignment.
+static llvm::SmallVector<int64_t> getTTNNTensorPhysicalShape(Value operand) {
+  if (auto view = operand.getDefiningOp<d2m::ViewLayoutOp>()) {
+    // pass through the unit-reblocking view, if present
+    operand = view.getInput();
+  }
+  auto operandType = mlir::cast<mlir::RankedTensorType>(operand.getType());
+  auto operandLayout =
+      mlir::cast<ttcore::MetalLayoutAttr>(operandType.getEncoding());
+  return operandLayout.getPhysicalShape(ttcore::TileType::getDefaultShape());
+}
+
 // Compute optimal grid shape for a given physical shape and target grid by
 // finding the largest grid dimensions that evenly divide the physical shape.
 // This ensures maximum utilization of available worker cores while maintaining
@@ -468,7 +480,6 @@ static void insertStreamForTTNNTensor(Value operand,
   // already streamed, but the cast back to ttnn silently erases the index
   // map. Instead, we just forward the already streamed metal tensor to the
   // current generic.
-  operand.dump();
   auto castOp = operand.getDefiningOp<ttir::TTNNMetalLayoutCastOp>();
   auto producerCastOp =
       castOp.getInput().getDefiningOp<ttir::TTNNMetalLayoutCastOp>();
@@ -534,7 +545,6 @@ static void optimizeTTNNMetalLayoutCastOpGrid(
     ttir::TTNNMetalLayoutCastOp castOp, ArrayRef<int64_t> targetGridShape,
     ArrayRef<int64_t> targetSquareGridShape, ArrayRef<int64_t> optimalGrid,
     bool isVirtualGrid, OpBuilder &builder) {
-  castOp.dump();
   // input:
   //    cast ttnn -> metal_original_grid
   //    generic(metal_original_grid)
@@ -768,54 +778,67 @@ analyzeOperandsAndComputeGrids(d2m::GenericOp genericOp,
       continue;
     }
 
-    // Compute physical shape and find the optimal grid that evenly divides
-    // it.
-    llvm::SmallVector<int64_t> physShape = computePhysicalShape(
-        operandLayout, operandType, targetSquareGridShape, builder);
-    operand.dump();
-    std::cout << "physShape: ";
-    for (auto p : physShape) {
-      std::cout << p << " ";
-    }
-    std::cout << std::endl;
-    // Interleaved tensors do not support virtual grids
-    auto [optimalGrid, isVirtualGrid] =
-        computeOptimalGrid(operandType, physShape, targetSquareGridShape);
-
-    optimalOperandGrids.push_back(optimalGrid);
-
-    // Identify which operations need updating based on the operand type.
-    if (auto streamLayout = operand.getDefiningOp<d2m::StreamLayoutOp>()) {
-      // For stream_layout ops, the output optimal grid (already computed) will
-      // be used for the storage. The input needs its own grid computed
-      // independently based on its own shape.
-      streamLayoutsToUpdate.push_back(
-          {streamLayout, optimalGrid, isVirtualGrid});
-      if (auto toLayoutOp =
-              streamLayout.getInput().getDefiningOp<d2m::ToLayoutOp>()) {
-        if (!toLayoutOp.getInput()
-                 .getDefiningOp<ttir::TTNNMetalLayoutCastOp>()) {
-          // Compute the input's grid independently based on its own shape.
-          auto inputType = mlir::cast<mlir::RankedTensorType>(
-              streamLayout.getInput().getType());
-          auto inputLayout =
-              mlir::cast<ttcore::MetalLayoutAttr>(inputType.getEncoding());
-
-          llvm::SmallVector<int64_t> inputPhysShape = computePhysicalShape(
-              inputLayout, inputType, targetSquareGridShape, builder);
-          auto [inputOptimalGrid, isVirtualGrid] = computeOptimalGrid(
-              inputType, inputPhysShape, targetSquareGridShape);
-
-          toLayoutsToUpdate.push_back(
-              {toLayoutOp, inputOptimalGrid, isVirtualGrid});
-        }
+    if (isTTNNOperand(operand)) {
+      llvm::SmallVector<int64_t> physShape =
+          getTTNNTensorPhysicalShape(operand);
+      std::cout << "physShape: ";
+      for (auto p : physShape) {
+        std::cout << p << " ";
       }
-    } else if (auto toLayoutOp = operand.getDefiningOp<d2m::ToLayoutOp>()) {
-      toLayoutsToUpdate.push_back({toLayoutOp, optimalGrid, isVirtualGrid});
-    } else if (isTTNNOperand(operand)) {
+      std::cout << std::endl;
+      auto [optimalGrid, isVirtualGrid] =
+          computeOptimalGrid(operandType, physShape, targetSquareGridShape);
+      std::cout << "optimalGrid: ";
+      for (auto g : optimalGrid) {
+        std::cout << g << " ";
+      }
+      std::cout << std::endl;
+      std::cout << "isVirtualGrid: " << isVirtualGrid << std::endl;
+      optimalOperandGrids.push_back(optimalGrid);
       TTNNTensorsToUpdate.push_back({operand, optimalGrid, isVirtualGrid});
-    } else if (auto emptyOp = operand.getDefiningOp<d2m::EmptyOp>()) {
-      emptyOpsToUpdate.push_back({emptyOp, optimalGrid, isVirtualGrid});
+    } else {
+      // Compute physical shape and find the optimal grid that evenly divides
+      // it.
+      llvm::SmallVector<int64_t> physShape = computePhysicalShape(
+          operandLayout, operandType, targetSquareGridShape, builder);
+
+      // Interleaved tensors do not support virtual grids
+      auto [optimalGrid, isVirtualGrid] =
+          computeOptimalGrid(operandType, physShape, targetSquareGridShape);
+
+      optimalOperandGrids.push_back(optimalGrid);
+
+      // Identify which operations need updating based on the operand type.
+      if (auto streamLayout = operand.getDefiningOp<d2m::StreamLayoutOp>()) {
+        // For stream_layout ops, the output optimal grid (already computed)
+        // will be used for the storage. The input needs its own grid computed
+        // independently based on its own shape.
+        streamLayoutsToUpdate.push_back(
+            {streamLayout, optimalGrid, isVirtualGrid});
+        if (auto toLayoutOp =
+                streamLayout.getInput().getDefiningOp<d2m::ToLayoutOp>()) {
+          if (!toLayoutOp.getInput()
+                   .getDefiningOp<ttir::TTNNMetalLayoutCastOp>()) {
+            // Compute the input's grid independently based on its own shape.
+            auto inputType = mlir::cast<mlir::RankedTensorType>(
+                streamLayout.getInput().getType());
+            auto inputLayout =
+                mlir::cast<ttcore::MetalLayoutAttr>(inputType.getEncoding());
+
+            llvm::SmallVector<int64_t> inputPhysShape = computePhysicalShape(
+                inputLayout, inputType, targetSquareGridShape, builder);
+            auto [inputOptimalGrid, isVirtualGrid] = computeOptimalGrid(
+                inputType, inputPhysShape, targetSquareGridShape);
+
+            toLayoutsToUpdate.push_back(
+                {toLayoutOp, inputOptimalGrid, isVirtualGrid});
+          }
+        }
+      } else if (auto toLayoutOp = operand.getDefiningOp<d2m::ToLayoutOp>()) {
+        toLayoutsToUpdate.push_back({toLayoutOp, optimalGrid, isVirtualGrid});
+      } else if (auto emptyOp = operand.getDefiningOp<d2m::EmptyOp>()) {
+        emptyOpsToUpdate.push_back({emptyOp, optimalGrid, isVirtualGrid});
+      }
     }
   }
 
