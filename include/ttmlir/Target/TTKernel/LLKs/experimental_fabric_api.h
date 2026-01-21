@@ -12,40 +12,148 @@
 
 namespace experimental {
 
-///////////////////////////////////// Helper Functions /////////////////////////////////////
-
 // hardcoded defaults for now
 static constexpr uint32_t max_fabric_payload_size = 4352;
-static constexpr size_t num_connection_arg_idx = 0;
-static constexpr size_t fabric_connection_arg_idx = 1;
+static constexpr size_t fabric_setup_args_start_idx = 0;
 
-FORCE_INLINE uint32_t calculate_initial_direction(uint16_t dst_chip_id, uint16_t my_chip_id) {
+///////////////////////////////////// Line/Ring Topology (1D) /////////////////////////////////////
+
+#ifdef API_TYPE_Linear
+
+struct Topology1D {
+    enum class Topology1DType { Line, Ring };
+    
+    Topology1DType topology_type;
+    uint32_t ring_size;
+    eth_chan_directions forward_dir;
+    eth_chan_directions backward_dir;
+    static constexpr size_t MAX_RING_SIZE = 8;
+    static constexpr size_t MAX_MESH_SIZE = 32;
+    uint32_t logical_index_to_device_id[MAX_RING_SIZE];
+    uint32_t device_id_to_logical_index[MAX_MESH_SIZE];
+
+    uint32_t get_device_id(uint32_t logical_index) {
+        ASSERT(logical_index < ring_size);
+        return logical_index_to_device_id[logical_index];
+    }
+
+    uint32_t get_logical_index(uint32_t device_id) {
+        ASSERT(device_id < MAX_MESH_SIZE);
+        return device_id_to_logical_index[device_id];
+    }
+
+    void build_from_args(size_t& rt_arg_idx) {        
+        // Read topology type (Line=0, Ring=1)
+        topology_type = static_cast<Topology1DType>(get_arg_val<uint32_t>(rt_arg_idx++));
+        
+        // Read ring/line size
+        ring_size = get_arg_val<uint32_t>(rt_arg_idx++);
+        ASSERT(ring_size <= MAX_RING_SIZE);
+        
+        // Read forward and backward directions
+        forward_dir = static_cast<eth_chan_directions>(get_arg_val<uint32_t>(rt_arg_idx++));
+        backward_dir = static_cast<eth_chan_directions>(get_arg_val<uint32_t>(rt_arg_idx++));
+        
+        // Read logical index to device id mapping and build reverse mapping
+        for (uint32_t i = 0; i < ring_size; i++) {
+            uint32_t device_id = get_arg_val<uint32_t>(rt_arg_idx++);
+            logical_index_to_device_id[i] = device_id;
+            ASSERT(device_id < MAX_MESH_SIZE);
+            device_id_to_logical_index[device_id] = i;
+        }
+    }
+};
+
+FORCE_INLINE Topology1D& get_topology() {
+    static Topology1D topology;
+    static bool initialized = false;
+    
+    if (!initialized) {
+        DPRINT << "Build topology with args\n";
+        size_t arg_idx = fabric_setup_args_start_idx + 1;
+        topology.build_from_args(arg_idx);
+        initialized = true;
+    }
+
+    return topology;
+}
+
+uint16_t get_my_device_id();
+
+FORCE_INLINE uint32_t get_logical_ring_position() {
+    Topology1D& topology = get_topology();
+    return topology.get_logical_index(get_my_device_id());
+}
+
+FORCE_INLINE uint32_t get_device_id_from_logical_ring_position(uint32_t logical_ring_position) {
+    Topology1D& topology = get_topology();
+    return topology.get_device_id(logical_ring_position);
+}
+
+#endif // API_TYPE_Linear
+
+///////////////////////////////////// Routing Functions /////////////////////////////////////
+
+#ifdef FABRIC_2D
+
+FORCE_INLINE std::pair<uint32_t, uint32_t> calculate_initial_direction_and_hops(uint16_t dst_device_id, uint16_t my_device_id) {
     auto* routing_info = reinterpret_cast<tt_l1_ptr intra_mesh_routing_path_t<2, true>*>(ROUTING_PATH_BASE_2D);
 
     uint32_t initial_dir = static_cast<uint32_t>(eth_chan_directions::EAST);
 
-    const auto& compressed_route = routing_info->paths[dst_chip_id];
+    const auto& compressed_route = routing_info->paths[dst_device_id];
     uint8_t ns_hops = compressed_route.get_ns_hops();
     uint8_t ew_hops = compressed_route.get_ew_hops();
 
     if (ns_hops > 0) {
-        // is there another way to know whether it's north or south hops?
-        if (dst_chip_id < my_chip_id) {
-            initial_dir = static_cast<uint32_t>(eth_chan_directions::NORTH);
-        } else {
+        if (compressed_route.get_ns_direction()) {
             initial_dir = static_cast<uint32_t>(eth_chan_directions::SOUTH);
+        } else {
+            initial_dir = static_cast<uint32_t>(eth_chan_directions::NORTH);
         }
     } else if (ew_hops > 0) {
-        // is there another way to know whether it's east or west hops?
-        if (dst_chip_id < my_chip_id) {
-            initial_dir = static_cast<uint32_t>(eth_chan_directions::WEST);
-        } else {
+        if (compressed_route.get_ew_direction()) {
             initial_dir = static_cast<uint32_t>(eth_chan_directions::EAST);
+        } else {
+            initial_dir = static_cast<uint32_t>(eth_chan_directions::WEST);
         }
     }
 
-    return initial_dir;
+    return {initial_dir, ns_hops + ew_hops};
 }
+
+#else // 1D Fabric (only supports line/ring topologies)
+
+FORCE_INLINE std::pair<uint32_t, uint32_t> calculate_initial_direction_and_hops(uint16_t dst_device_id, uint16_t my_device_id) {
+#if defined(API_TYPE_Linear)
+    // TODO: check that my_device_id and dst_device_id are in same line/ring
+    Topology1D& topology = get_topology();
+    uint32_t my_logical_index = topology.get_logical_index(my_device_id);
+    uint32_t dest_logical_index = topology.get_logical_index(dst_device_id);
+    if (topology.topology_type == Topology1D::Topology1DType::Line) {
+        if (my_logical_index < dest_logical_index) {
+            return {static_cast<uint32_t>(topology.forward_dir), dest_logical_index - my_logical_index};
+        }
+        else {
+            return {static_cast<uint32_t>(topology.backward_dir), my_logical_index - dest_logical_index};
+        }
+    }
+    else { // Topology1D::Topology1DType::Ring; select shortest route from the two directions
+        if ((dest_logical_index - my_logical_index) % topology.ring_size < (my_logical_index - dest_logical_index) % topology.ring_size) {
+            return {static_cast<uint32_t>(topology.forward_dir), (dest_logical_index - my_logical_index) % topology.ring_size};
+        }
+        else {
+            return {static_cast<uint32_t>(topology.backward_dir), (dest_logical_index - my_logical_index) % topology.ring_size};
+        }
+    }
+#else
+#error "Only API_TYPE_Linear (i.e. line and ring topologies) supported for 1D Fabric Config"
+#endif
+}
+
+#endif
+
+///////////////////////////////////// Common Helper Functions /////////////////////////////////////
 
 FORCE_INLINE std::pair<tt::tt_fabric::RoutingPlaneConnectionManager&, bool> get_or_open_fabric_connections() {
     static tt::tt_fabric::RoutingPlaneConnectionManager connections;
@@ -53,9 +161,14 @@ FORCE_INLINE std::pair<tt::tt_fabric::RoutingPlaneConnectionManager&, bool> get_
     
     if (!initialized) {
         DPRINT << "Build connections with args\n";
-        uint32_t num_send_dir = get_arg_val<uint32_t>(num_connection_arg_idx);
-        size_t arg_idx = fabric_connection_arg_idx;
+        uint32_t num_topology_args = get_arg_val<uint32_t>(fabric_setup_args_start_idx);
+        uint32_t num_fabric_connection_args = get_arg_val<uint32_t>(fabric_setup_args_start_idx + num_topology_args);
+        uint32_t num_send_dir = get_arg_val<uint32_t>(fabric_setup_args_start_idx + num_topology_args + 1);
+        size_t arg_idx = fabric_setup_args_start_idx + num_topology_args + 2;
+        DPRINT << "Num topology args is " << num_topology_args << "\n";
+        DPRINT << "Num fabric connection args is " << num_fabric_connection_args << "\n";
         DPRINT << "Num connections is " << num_send_dir << "\n";
+        DPRINT << "Arg index is " << arg_idx << "\n";
         connections = tt::tt_fabric::RoutingPlaneConnectionManager::template build_from_args<
         tt::tt_fabric::RoutingPlaneConnectionManager::BUILD_AND_OPEN_CONNECTION>(arg_idx, num_send_dir);
         initialized = true;
@@ -78,7 +191,8 @@ FORCE_INLINE int get_connection_index_by_tag(RoutingPlaneConnectionManager& fabr
 FORCE_INLINE volatile tt_l1_ptr PACKET_HEADER_TYPE* get_or_allocate_header(uint32_t dir) {
     static uint8_t route_id = -1;
     if (route_id == -1) {
-        uint32_t num_send_dir = get_arg_val<uint32_t>(num_connection_arg_idx);
+        uint32_t num_topology_args = get_arg_val<uint32_t>(fabric_setup_args_start_idx);
+        uint32_t num_send_dir = get_arg_val<uint32_t>(fabric_setup_args_start_idx + num_topology_args + 1);
         route_id = PacketHeaderPool::allocate_header_n(num_send_dir);
     }
     return PacketHeaderPool::header_table[route_id].first + dir;
@@ -113,7 +227,7 @@ FORCE_INLINE void fabric_fast_write(
     noc_async_writes_flushed();
 }
 
-///////////////////////////////////// APIs /////////////////////////////////////
+///////////////////////////////////// Common APIs /////////////////////////////////////
 
 FORCE_INLINE void close_fabric_connections() {
     DPRINT << "Close start\n";
@@ -129,6 +243,7 @@ FORCE_INLINE uint16_t get_my_device_id() {
     return routing_table->my_device_id;
 }
 
+// Note: in ring and torus fabric, there are multiple routes but we are using shortest path route
 FORCE_INLINE void fabric_fast_write_any_len(
     uint16_t dst_mesh_id,
     uint16_t dst_dev_id,
@@ -137,22 +252,25 @@ FORCE_INLINE void fabric_fast_write_any_len(
     uint32_t len_bytes) {
     tt_l1_ptr routing_l1_info_t* routing_table =
         reinterpret_cast<tt_l1_ptr routing_l1_info_t*>(MEM_TENSIX_ROUTING_TABLE_BASE);
-    uint16_t my_chip_id = routing_table->my_device_id;
+    uint16_t my_device_id = routing_table->my_device_id;
     uint16_t my_mesh_id = routing_table->my_mesh_id;
     ASSERT(my_mesh_id == dst_mesh_id);  // we dont support inter-mesh routing yet
 
-    uint32_t initial_dir = calculate_initial_direction(dst_dev_id, my_chip_id);
-    DPRINT << "initial_dir is " << initial_dir << "\n";
     auto [fabric_connections, is_init] = get_or_open_fabric_connections();
+    auto [initial_dir, num_hops] = calculate_initial_direction_and_hops(dst_dev_id, my_device_id);
+    DPRINT << "initial_dir is " << initial_dir << "\n";
     auto connection_index = get_connection_index_by_tag(fabric_connections, initial_dir);
     DPRINT << "connection_index is " << connection_index << "\n";
     ASSERT(connection_index != -1);
     auto& connection = fabric_connections.get(connection_index).sender;
     volatile tt_l1_ptr PACKET_HEADER_TYPE* packet_header = get_or_allocate_header(connection_index);
-
-    // First call the original API by casting to base type
+#ifdef FABRIC_2D
     bool result = fabric_set_unicast_route(
         static_cast<volatile tt_l1_ptr HybridMeshPacketHeader*>(packet_header), dst_dev_id, dst_mesh_id);
+#else // 1D fabric
+    static_cast<volatile tt_l1_ptr LowLatencyPacketHeader*>(packet_header)->to_chip_unicast(num_hops);
+#endif
+
     while (len_bytes > max_fabric_payload_size) {
         fabric_fast_write(
             connection, packet_header, src_addr, dest_addr, max_fabric_payload_size);

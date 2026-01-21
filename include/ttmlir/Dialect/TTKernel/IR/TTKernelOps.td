@@ -2925,6 +2925,35 @@ def TTKernel_CloseFabricConnectionsOp : TTKernel_Op<"experimental::close_fabric_
   }];
 }
 
+// move to a different/separate dialect?
+def TTKernel_GetLogicalRingPositionOp : TTKernel_Op<"experimental::get_logical_ring_position"> {
+  let summary = "GetLogicalRingPosition";
+  let description = [{
+    Get logical ring position.
+  }];
+
+  let arguments = (ins);
+  let results = (outs I32:$logical_ring_position);
+
+  let assemblyFormat = [{
+    `(` `)` attr-dict `:` functional-type(operands, results)
+  }];
+}
+
+def TTKernel_GetDeviceIdFromLogicalRingPositionOp : TTKernel_Op<"experimental::get_device_id_from_logical_ring_position"> {
+  let summary = "GetDeviceIdFromLogicalRingPosition";
+  let description = [{
+    Get device id from logical ring position.
+  }];
+
+  let arguments = (ins I32:$logical_ring_position);
+  let results = (outs I16:$device_id);
+
+  let assemblyFormat = [{
+    `(` $logical_ring_position `)` attr-dict `:` functional-type(operands, results)
+  }];
+}
+
 //===----------------------------------------------------------------------===//
 // TTKernel Multicast NoC operations
 //===----------------------------------------------------------------------===//
