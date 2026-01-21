@@ -5788,4 +5788,78 @@ def TTIR_SplitQueryKeyValueAndSplitHeadsOp: TTIR_NamedOp<"split_query_key_value_
 
     let hasVerifier = 1;
 }
+
+//===----------------------------------------------------------------------===//
+// TTIR Sparse Matmul Op
+//===----------------------------------------------------------------------===//
+
+def TTIR_SparseMatmulOp : TTIR_NamedOp<"sparse_matmul"> {
+    let summary = "Sparse matrix multiplication for MoE (Mixture of Experts).";
+    let description = [{
+      The `sparse_matmul` operation computes matrix multiplication where computation
+      is skipped for sparse (zero) blocks based on the sparsity tensor.
+
+      This operation is designed for Mixture of Experts (MoE) models where only a
+      subset of experts are activated for each token. The sparsity tensor indicates
+      which expert-token combinations should be computed.
+
+      Example:
+      ```mlir
+      // Sparse matmul with input_b sparse (typical MoE gate/up projection)
+      %input = ... : tensor<1x128x1x4096xbf16>     // [A, B, M, K]
+      %weight = ... : tensor<1x8x4096x11008xbf16>  // [1, E, K, N]
+      %sparsity = ... : tensor<1x128x1x8xbf16>     // [A, B, 1, E]
+      %result = ttir.sparse_matmul(%input, %weight, %sparsity) {
+          is_input_a_sparse = false,
+          is_input_b_sparse = true,
+          nnz = 2
+      } : (tensor<1x128x1x4096xbf16>, tensor<1x8x4096x11008xbf16>, tensor<1x128x1x8xbf16>)
+          -> tensor<1x128x1x8x1x11008xbf16>
+
+      // Sparse matmul with input_a sparse (typical MoE down projection)
+      %input = ... : tensor<128x8x1x11008xbf16>    // [A, E, M, K]
+      %weight = ... : tensor<1x8x11008x4096xbf16>  // [1, E, K, N]
+      %sparsity = ... : tensor<1x1x128x8xbf16>     // [1, 1, A, E]
+      %result = ttir.sparse_matmul(%input, %weight, %sparsity) {
+          is_input_a_sparse = true,
+          is_input_b_sparse = false,
+          nnz = 2
+      } : (tensor<128x8x1x11008xbf16>, tensor<1x8x11008x4096xbf16>, tensor<1x1x128x8xbf16>)
+          -> tensor<128x8x1x4096xbf16>
+      ```
+
+      Inputs:
+      - `a` (Tensor): The first input tensor.
+      - `b` (Tensor): The second input tensor (expert weights).
+      - `sparsity` (Tensor): The sparsity mask tensor indicating active experts.
+
+      Attributes:
+      - `is_input_a_sparse` (Boolean, default=false): Whether tensor `a` is sparse.
+      - `is_input_b_sparse` (Boolean, default=true): Whether tensor `b` is sparse.
+      - `nnz` (Optional Integer): Number of non-zero elements. If not provided, inferred at runtime.
+
+      Output:
+      - `result` (Tensor): The result of the sparse matrix multiplication.
+
+      Supported Modes:
+      - is_input_a_sparse=true, is_input_b_sparse=true:
+        input_a: [1, E, M, K], input_b: [1, E, K, N], sparsity: [1, 1, 1, E] -> output: [1, E, M, N]
+      - is_input_a_sparse=false, is_input_b_sparse=true:
+        input_a: [A, B, M, K], input_b: [1, E, K, N], sparsity: [A, B, 1, E] -> output: [A, B, 1, E, M, N]
+      - is_input_a_sparse=true, is_input_b_sparse=false:
+        input_a: [A, E, M, K], input_b: [1, E, K, N], sparsity: [1, 1, A, E] -> output: [A, E, M, N]
+    }];
+
+    let arguments = (ins AnyRankedTensor:$a,
+                         AnyRankedTensor:$b,
+                         AnyRankedTensor:$sparsity,
+                         DefaultValuedAttr<BoolAttr, "false">:$is_input_a_sparse,
+                         DefaultValuedAttr<BoolAttr, "true">:$is_input_b_sparse,
+                         OptionalAttr<I64Attr>:$nnz);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
 #endif
