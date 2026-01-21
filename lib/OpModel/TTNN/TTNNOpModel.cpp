@@ -4886,7 +4886,7 @@ struct Conv3dSpecs {
   ::ttnn::TensorSpec inputSpec;
   ::ttnn::TensorSpec weightSpec;
   std::optional<::ttnn::TensorSpec> biasSpec;
-  ::ttnn::operations::experimental::conv3d::Conv3dConfig config;
+  ::ttnn::experimental::prim::Conv3dConfig config;
   ::tt::tt_metal::DataType dtype;
   uint32_t outputChannels;
   std::array<uint32_t, 3> kernelSize;
@@ -4938,7 +4938,7 @@ llvm::Expected<Conv3dSpecs> prepareConv3dSpecs(
   }
 
   // Initialize Conv3dConfig with base values
-  ::ttnn::operations::experimental::conv3d::Conv3dConfig config;
+  ::ttnn::experimental::prim::Conv3dConfig config;
 
   // Apply Conv3dConfig overrides if provided
   if (conv3dConfig.has_value()) {
@@ -6669,7 +6669,7 @@ llvm::Expected<OpConstraints> OpModel<EmbeddingOp>::getOpConstraints(
                                              : ::ttnn::ROW_MAJOR_LAYOUT)
                    : (weightLayout.isTiled() ? ::ttnn::TILE_LAYOUT
                                              : ::ttnn::ROW_MAJOR_LAYOUT);
-  auto embeddingsType = ::ttnn::operations::embedding::EmbeddingsType::GENERIC;
+  auto embeddingsType = ::ttnn::prim::EmbeddingsType::GENERIC;
   std::optional<::ttnn::DataType> dtype =
       outputLayout ? std::make_optional(
                          conversion::getDataType(outputLayout.getDataType()))
@@ -6712,7 +6712,7 @@ llvm::Expected<size_t> OpModel<EmbeddingOp>::getOpRuntime(
                                              : ::ttnn::ROW_MAJOR_LAYOUT)
                    : (weightLayout.isTiled() ? ::ttnn::TILE_LAYOUT
                                              : ::ttnn::ROW_MAJOR_LAYOUT);
-  auto embeddingsType = ::ttnn::operations::embedding::EmbeddingsType::GENERIC;
+  auto embeddingsType = ::ttnn::prim::EmbeddingsType::GENERIC;
   std::optional<::ttnn::DataType> dtype =
       outputLayout ? std::make_optional(
                          conversion::getDataType(outputLayout.getDataType()))

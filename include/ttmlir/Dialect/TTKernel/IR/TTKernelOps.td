@@ -392,6 +392,46 @@ def TTKernel_MulTilesOp : TTKernel_FPUOp<"mul_tiles", [TTKernel_BinaryOpTrait]> 
     }];
 }
 
+def TTKernel_BinaryDestReuseTilesInitOp : TTKernel_InitOp<"binary_dest_reuse_tiles_init"> {
+    let summary = "Init for binary op with dest reuse";
+    let description = [{
+      Init function for binary_dest_reuse_tiles operation.
+      Must be run before binary_dest_reuse_tiles.
+      `eltwise_binary_type` specifies the operation (add/sub/mul).
+      `reuse_type` specifies which source register gets the DST operand.
+    }];
+
+    let arguments = (ins TTKernel_CB:$in_cb,
+                         TTKernel_EltwiseBinaryTypeAttr:$eltwise_binary_type,
+                         TTKernel_BinaryDestReuseTypeAttr:$reuse_type);
+
+    let assemblyFormat = [{
+      `(` $in_cb `,` $eltwise_binary_type `,` $reuse_type `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_BinaryDestReuseTilesOp : TTKernel_FPUOp<"binary_dest_reuse_tiles"> {
+    let summary = "Binary op with one operand from DST";
+    let description = [{
+      Performs element-wise binary op where one operand comes from DST and one
+      from a CB. If reuse_type is dest_to_srca, DST[dst_tile_index] is loaded
+      to SRCA and CB tile is loaded to SRCB. If dest_to_srcb, the opposite.
+      Result is written back to DST[dst_tile_index].
+      The DST register buffer must be in acquired state via *tile_regs_acquire* call.
+      `eltwise_binary_type` specifies the operation (add/sub/mul).
+    }];
+
+    let arguments = (ins TTKernel_CB:$in_cb,
+                         IndexLike:$in_tile_index,
+                         IndexLike:$dst_tile_index,
+                         TTKernel_EltwiseBinaryTypeAttr:$eltwise_binary_type,
+                         TTKernel_BinaryDestReuseTypeAttr:$reuse_type);
+
+    let assemblyFormat = [{
+      `(` $in_cb `,` $in_tile_index `,` $dst_tile_index `,` $eltwise_binary_type `,` $reuse_type `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
 def TTKernel_UnaryBcastInitOp : TTKernel_InitOp<"unary_bcast_init"> {
     let summary = "Init function";
     let description = [{

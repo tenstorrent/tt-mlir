@@ -132,7 +132,7 @@ module {
     %3 = "ttir.dequantize"(%1) : (tensor<1x3x224x224x!quant.uniform<i8:f32, 0.1>>) -> tensor<1x3x224x224xf32>
     %5 = "ttir.quantize"(%arg1) : (tensor<64x3x7x7xf32>) -> tensor<64x3x7x7x!quant.uniform<i8:f32, 0.1>>
     %7 = "ttir.dequantize"(%5) : (tensor<64x3x7x7x!quant.uniform<i8:f32, 0.1>>) -> tensor<64x3x7x7xf32>
-    %9 = "ttir.convolution"(%3, %7) <{batch_group_count = 1 : i64, convolution_layout = #ttir<convolution_layout input_batch = 0, input_feature = 1, input_spatial_dimensions = 2x3, kernel_output_feature = 0, kernel_input_feature = 1, kernel_spatial_dimensions = 2x3, output_batch = 0, output_feature = 1, output_spatial_dimensions = 2x3>, feature_group_count = 1 : i64, input_dilation = array<i64: 1, 1>, padding = array<i64: 3, 3, 3, 3>, weight_dilation = array<i64: 1, 1>, window_reversal = array<i1: false, false>, window_strides = array<i64: 2, 2>}> : (tensor<1x3x224x224xf32>, tensor<64x3x7x7xf32>) -> tensor<1x64x112x112xf32>
+    %9 = "ttir.conv2d"(%3, %7) <{stride = array<i32: 2, 2>, padding = array<i32: 3, 3, 3, 3>, dilation = array<i32: 1, 1>, groups = 1 : i32, batch_dim = 0 : i64, channel_dim = 1 : i64, height_dim = 2 : i64, width_dim = 3 : i64}> : (tensor<1x3x224x224xf32>, tensor<64x3x7x7xf32>) -> tensor<1x64x112x112xf32>
     return %9 : tensor<1x64x112x112xf32>
   }
   func.func @commute_dequantize_past_per_tensor_convolution_per_axis_weights(%arg0: tensor<1x3x224x224xf32>,%arg1: tensor<3x3x7x7xf32>) -> tensor<1x3x112x112xf32> {
@@ -145,7 +145,7 @@ module {
     %3 = "ttir.dequantize"(%1): (tensor<1x3x224x224x!quant.uniform<i8:f32, 2.0787402987480164e-02>>) -> tensor<1x3x224x224xf32>
     %5 = "ttir.quantize"(%arg1) : (tensor<3x3x7x7xf32>) -> tensor<3x3x7x7x!quant.uniform<i8:f32:0, {1.5e-2, 1.0e-2, 8.0e-3}>>
     %7 = "ttir.dequantize"(%5) : (tensor<3x3x7x7x!quant.uniform<i8:f32:0, {1.5e-2, 1.0e-2, 8.0e-3}>>) -> tensor<3x3x7x7xf32>
-    %9 = "ttir.convolution"(%3, %7) <{batch_group_count = 1 : i64, convolution_layout = #ttir<convolution_layout input_batch = 0, input_feature = 1, input_spatial_dimensions = 2x3, kernel_output_feature = 0, kernel_input_feature = 1, kernel_spatial_dimensions = 2x3, output_batch = 0, output_feature = 1, output_spatial_dimensions = 2x3>, feature_group_count = 1 : i64, input_dilation = array<i64: 1, 1>, padding = array<i64: 3, 3, 3, 3>, weight_dilation = array<i64: 1, 1>, window_reversal = array<i1: false, false>, window_strides = array<i64: 2, 2>}> : (tensor<1x3x224x224xf32>, tensor<3x3x7x7xf32>) -> tensor<1x3x112x112xf32>
+    %9 = "ttir.conv2d"(%3, %7) <{stride = array<i32: 2, 2>, padding = array<i32: 3, 3, 3, 3>, dilation = array<i32: 1, 1>, groups = 1 : i32, batch_dim = 0 : i64, channel_dim = 1 : i64, height_dim = 2 : i64, width_dim = 3 : i64}> : (tensor<1x3x224x224xf32>, tensor<3x3x7x7xf32>) -> tensor<1x3x112x112xf32>
     return %9 : tensor<1x3x112x112xf32>
   }
   func.func @commute_dequantize_past_per_tensor_convolution_per_axis_weights_unsuccessful(%arg0: tensor<1x3x224x224xf32>, %arg1: tensor<64x3x7x7xf32>) -> tensor<1x64x112x112xf32> {
@@ -162,7 +162,7 @@ module {
     %3 = "ttir.dequantize"(%1) : (tensor<1x3x224x224x!quant.uniform<i8:f32, 0.1>>) -> tensor<1x3x224x224xf32>
     %5 = "ttir.quantize"(%arg1) : (tensor<64x3x7x7xf32>) -> tensor<64x3x7x7x!quant.uniform<i8:f32:1, {1.000000e-02:0,2.000000e-02:0,3.000000e-02:0}>>
     %7 = "ttir.dequantize"(%5) : (tensor<64x3x7x7x!quant.uniform<i8:f32:1, {1.000000e-02:0, 2.000000e-02:0, 3.000000e-02:0}>>) -> tensor<64x3x7x7xf32>
-    %9 = "ttir.convolution"(%3, %7) <{batch_group_count = 1 : i64, convolution_layout = #ttir<convolution_layout input_batch = 0, input_feature = 1, input_spatial_dimensions = 2x3, kernel_output_feature = 0, kernel_input_feature = 1, kernel_spatial_dimensions = 2x3, output_batch = 0, output_feature = 1, output_spatial_dimensions = 2x3>, feature_group_count = 1 : i64, input_dilation = array<i64: 1, 1>, padding = array<i64: 3, 3, 3, 3>, weight_dilation = array<i64: 1, 1>, window_reversal = array<i1: false, false>, window_strides = array<i64: 2, 2>}> : (tensor<1x3x224x224xf32>, tensor<64x3x7x7xf32>) -> tensor<1x64x112x112xf32>
+    %9 = "ttir.conv2d"(%3, %7) <{stride = array<i32: 2, 2>, padding = array<i32: 3, 3, 3, 3>, dilation = array<i32: 1, 1>, groups = 1 : i32, batch_dim = 0 : i64, channel_dim = 1 : i64, height_dim = 2 : i64, width_dim = 3 : i64}> : (tensor<1x3x224x224xf32>, tensor<64x3x7x7xf32>) -> tensor<1x64x112x112xf32>
     return %9 : tensor<1x64x112x112xf32>
   }
 }
