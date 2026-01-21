@@ -43,25 +43,10 @@ struct ConvertTTIRToTTNNPass
     target.addLegalDialect<ttnn::TTNNDialect>();
     target.addLegalDialect<quant::QuantDialect>();
     target.addLegalDialect<debug::DebugDialect>();
+    target.addIllegalDialect<ttir::TTIRDialect>();
     target.addLegalOp<ttcore::DeviceOp>();
     target.addLegalOp<ttcore::OptimizationBarrierOp>();
     target.addLegalOp<ttcore::LoadCachedOp>();
-
-    // Only TTIR graph inside a DispatchD2MOp is legal.
-    // markOpRecursivelyLegal will also mark DispatchD2MOp itself legal.
-    target.addDynamicallyLegalDialect<ttir::TTIRDialect>([](Operation *op) {
-      if (isa<ttir::DispatchD2MOp>(op)) {
-        return false;
-      }
-      Operation *parent = op->getParentOp();
-      while (parent) {
-        if (isa<ttir::DispatchD2MOp, ttnn::DispatchD2MOp>(parent)) {
-          return true;
-        }
-        parent = parent->getParentOp();
-      }
-      return false;
-    });
 
     TypeConverter typeConverter;
     // All types map 1:1.
