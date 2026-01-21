@@ -2954,7 +2954,7 @@ def TTNN_DispatchD2MOp : Op<TTNN_Dialect, "dispatch_d2m",
     ttnn.generic ops and zero or more kernel functions.
 
     Before TTNNMaterializeD2M runs, the nested module contains a single
-    func.func with TTIR ops converted from ttir.dispatch_d2m.
+    func.func with TTNN ops to be compiled via D2M.
 
     After TTNNMaterializeD2M runs, the nested module contains:
     - The D2M function (specified by `d2m_func`) with ttnn.generic ops
@@ -2971,7 +2971,7 @@ def TTNN_DispatchD2MOp : Op<TTNN_Dialect, "dispatch_d2m",
         outs(%out : tensor<...>) {
       module {
         func.func @d2m_subgraph(...) -> tensor<...> {
-          // ttir subgraph
+          // ttnn subgraph
         }
       }
     } : tensor<...>
