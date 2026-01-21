@@ -450,4 +450,27 @@ def D2M_MeshShardOp: D2M_Op<"mesh_shard", [
   let hasFolder = 1;
 }
 
+def D2M_NopOp : D2M_Op<"nop", [Pure]> {
+  let summary = "Takes two tensors and copy data from tensor A to tensor B.";
+  let description = [{
+    Used to implement view-compatible concat, idk why it's called nop.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       AnyRankedTensor:$output);
+  let results = (outs AnyRankedTensor:$result);
+}
+
+def D2M_AggregateOp : D2M_Op<"aggregate", [Pure]> {
+  let summary = "Aggregate the SSA return from the d2m.nop op.";
+  let description = [{
+    Collect the returns of the d2m.nop op so they have a place to go.
+    This op itself is removed during bufferization.
+  }];
+
+  let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
+                       AnyRankedTensor:$output);
+  let results = (outs);
+}
+
 #endif // TTMLIR_TTMLIR_DIALECT_D2M_D2MOPS_TD

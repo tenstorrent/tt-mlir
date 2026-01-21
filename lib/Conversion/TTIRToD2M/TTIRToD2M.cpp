@@ -1352,6 +1352,58 @@ private:
 };
 } // namespace
 
+namespace {
+class D2MConcatRewriter final
+    : public mlir::OpConversionPattern<ttir::ConcatOp>,
+      D2MNamedRewriterCommon {
+  using ConcreteOp = ttir::ConcatOp;
+
+public:
+  D2MConcatRewriter(const TypeConverter &typeConverter, mlir::MLIRContext *ctx,
+                    ttcore::MemorySpace defaultInputMemSpace,
+                    ttcore::MemorySpace defaultOutputMemSpace,
+                    bool /*ttnnMode*/, bool /*collapseTensors*/)
+      : OpConversionPattern<ConcreteOp>(typeConverter, ctx),
+        D2MNamedRewriterCommon(defaultInputMemSpace, defaultOutputMemSpace,
+                               /*ttnnMode*/ false, /*collapseTensors*/ false) {}
+
+  LogicalResult
+  matchAndRewrite(ConcreteOp op, typename ConcreteOp::Adaptor adaptor,
+                  mlir::ConversionPatternRewriter &rewriter) const final {
+    auto origInputs = adaptor.getOperands();
+    auto origOutputs =
+        createDpsOutputs(op.getLoc(), rewriter, {op.getResult().getType()});
+    auto [inputs, outputs] =
+        toLayoutOperandsAndResults(rewriter, {origInputs, origOutputs}, false);
+
+    const int64_t rank = op.getResult().getType().getRank();
+    const int32_t dim = op.getDim();
+    int64_t offset = 0;
+    for (unsigned i = 0; i < op.getNumOperands(); i++) {
+      const int64_t dimSize =
+          mlir::cast<RankedTensorType>(origInputs[i].getType()).getShape()[dim];
+      fprintf(stderr, "-- dimSize %ld\n", dimSize);
+      SmallVector<AffineExpr> exprs(rank * 2);
+      for (int64_t r = 0; r < rank; r++) {
+        exprs[r] = rewriter.getAffineConstantExpr(0);
+        exprs[r + rank] = rewriter.getAffineDimExpr(r + rank);
+      }
+      exprs[dim + rank] = exprs[dim + rank] + offset;
+      auto viewMap =
+          mlir::AffineMap::get(2 * rank, 0, exprs, rewriter.getContext());
+      viewMap.dump();
+
+      offset += dimSize;
+    }
+    TT_assert(offset == op.getResult().getType().getShape()[dim]);
+
+    // replaceOp?
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+} // namespace
+
 // Simple conversion for ttir.to_layout -> d2m.to_layout.
 class D2MToLayoutOpRewriter : public OpConversionPattern<ttir::ToLayoutOp> {
   using OpConversionPattern<ttir::ToLayoutOp>::OpConversionPattern;
@@ -1677,6 +1729,7 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
     // Data movement.
     D2MNamedElementwiseRewriter<ttir::TypecastOp,        d2m::TileTypecastOp>,
     // Tensor manipulation/View ops.
+    D2MConcatRewriter,
     D2MTensorManipulationOpRewriter<ttir::RearrangeOp,   rearrangeLogicalMap>,
     D2MTensorManipulationOpRewriter<ttir::ReshapeOp,     reshapeLogicalMap>,
     D2MTensorManipulationOpRewriter<ttir::SliceStaticOp, sliceLogicalMap>,
