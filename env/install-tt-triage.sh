@@ -5,7 +5,6 @@
 
 PROJECT_ROOT=$(git rev-parse --show-toplevel)
 TT_METAL_VERSION=$(grep 'set(TT_METAL_VERSION' $PROJECT_ROOT/third_party/CMakeLists.txt | sed 's/.*"\(.*\)".*/\1/')
-TT_METAL_VERSION="5d39ec2545dbc1cad57fc05e4f5a0a9bd1605329"
 mkdir temp
 cd temp
 

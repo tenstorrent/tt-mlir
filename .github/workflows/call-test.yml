@@ -131,7 +131,9 @@ jobs:
         mkdir temp
         cd temp
         git clone https://github.com/tenstorrent/tt-metal.git
-        cd ..
+        cd tt-metal
+        git checkout 15186f400a8191022c0974650e44a18208be14a7
+        cd ../..
 
     - name: Run Lit Tests
       shell: bash
