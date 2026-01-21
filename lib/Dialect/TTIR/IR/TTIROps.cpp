@@ -1411,7 +1411,7 @@ static mlir::LogicalResult verifyPooling2dOp(Pool2dOp *op) {
 
   return rewriter
       .create<mlir::tt::ttir::MaxPool2dOp>(
-          getLoc(), newOutType, input, getKernelAttr(), getStrideAttrName(),
+          getLoc(), newOutType, input, getKernelAttr(), getStrideAttr(),
           getDilationAttr(), getPaddingAttr(), getCeilModeAttr())
       .getOperation();
 }
