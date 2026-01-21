@@ -80,6 +80,7 @@ union OpType {
   // ANCHOR: adding_an_op_matmul_fbs_op_type
   MatmulOp,
   // ANCHOR_END: adding_an_op_matmul_fbs_op_type
+  SparseMatmulOp,
   MaxPool2dWithIndicesOp,
   MeshShardOp,
   MorehCumSumOp,
