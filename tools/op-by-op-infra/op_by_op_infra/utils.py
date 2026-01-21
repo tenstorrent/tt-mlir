@@ -35,6 +35,64 @@ PRESERVED_OP_NAMES = [
     "ttnn.get_device",
 ]
 
+# Operations that preserve constant semantics - can be walked through to reach underlying constant
+CONSTANT_PRESERVING_OPS = {
+    "stablehlo.reshape",
+    "stablehlo.broadcast_in_dim",
+    "stablehlo.convert",
+}
+
+
+def _collect_constant_chain(operand):
+    """
+    Collect all ops in the chain from operand back to constant.
+    Returns list of (op_string, result_name) tuples in execution order (constant first).
+
+    This is needed for ops like reduce_window, select_and_scatter, and pad which require
+    their init/padding values to trace back to constants, even through ops like broadcast_in_dim.
+    """
+    chain = []
+    defining_op = operand.owner
+
+    # Walk backwards collecting ops
+    while defining_op and hasattr(defining_op, "name"):
+        if defining_op.name in PRESERVED_OP_NAMES:
+            # Found a preserved op (like constant) - add it and we're done
+            result_name = (
+                defining_op.results[0].get_name()
+                if len(defining_op.results) > 0
+                else ""
+            )
+            chain.append((str(defining_op), result_name))
+            break
+        elif defining_op.name in CONSTANT_PRESERVING_OPS:
+            # Add this intermediate op
+            result_name = (
+                defining_op.results[0].get_name()
+                if len(defining_op.results) > 0
+                else ""
+            )
+            chain.append((str(defining_op), result_name))
+            # Continue walking backwards
+            if len(defining_op.operands) > 0:
+                defining_op = defining_op.operands[0].owner
+            else:
+                break
+        else:
+            # Hit a non-constant-preserving op
+            break
+
+    # Reverse to get execution order (constant first, then broadcast, then convert, etc.)
+    chain.reverse()
+
+    # Only return chain if it starts with a preserved op
+    if chain:
+        first_op_str = chain[0][0]
+        if any(preserved in first_op_str for preserved in PRESERVED_OP_NAMES):
+            return chain
+
+    return []
+
 
 def _replace_mlir_identifier(text: str, old_name: str, new_name: str) -> str:
     """Replace SSA value name (e.g., %arg0), avoiding partial matches like %arg01."""
@@ -164,9 +222,34 @@ class OpWrapper:
                 and defining_op.name in PRESERVED_OP_NAMES
             )
 
+            # Also check if it traces to a constant through a chain
+            constant_chain = []
+            if not is_preserved and defining_op and hasattr(defining_op, "name"):
+                constant_chain = _collect_constant_chain(operand)
+
             if is_preserved:
                 standardized_name = f"%pres{i}"
                 preserved_ops[i] = (original_name, str(defining_op))
+            elif constant_chain:
+                # Preserve the entire constant chain
+                # The final result uses %pres{i}, intermediate values use %pres{i}_chain{j}
+                for j, (op_str, result_name) in enumerate(constant_chain):
+                    if j == len(constant_chain) - 1:
+                        # Last op in chain - this is what the main op uses
+                        standardized_name = f"%pres{i}"
+                    else:
+                        # Intermediate op
+                        standardized_name = f"%pres{i}_chain{j}"
+
+                    # Add to operand mapping
+                    if result_name:
+                        operand_mapping[result_name] = standardized_name
+
+                    # Store in preserved_ops with unique index
+                    pres_idx = i if j == len(constant_chain) - 1 else f"{i}_chain{j}"
+                    preserved_ops[pres_idx] = (result_name, op_str)
+
+                standardized_name = f"%pres{i}"  # Final name for the main op's operand
             else:
                 standardized_name = f"%arg{i}"
                 parameterized_operands.append(Operand(standardized_name, operand.type))
@@ -193,13 +276,14 @@ class OpWrapper:
                 self.op_string, original, standardized
             )
 
-        # Process preserved ops: replace only the defining identifier in each
+        # Process preserved ops: replace all identifiers in each
+        # Sort by key to ensure chain ops come before ops that use them
         self.preserved_ops_strings = []
-        for original_name, pres_str in preserved_ops.values():
-            standardized_name = operand_mapping[original_name]
-            pres_str = _replace_mlir_identifier(
-                pres_str, original_name, standardized_name
-            )
+        for key in sorted(preserved_ops.keys(), key=lambda x: (str(x).split("_")[0], str(x))):
+            original_name, pres_str = preserved_ops[key]
+            # Replace all identifiers using the operand_mapping
+            for original, standardized in operand_mapping.items():
+                pres_str = _replace_mlir_identifier(pres_str, original, standardized)
             self.preserved_ops_strings.append(pres_str)
 
         # Store results
@@ -250,11 +334,22 @@ class OpWrapper:
 
                         # This is an external reference - check if it comes from a preserved op
                         defining_op = operand.owner
-                        if (
+                        is_preserved = (
                             defining_op
                             and hasattr(defining_op, "name")
                             and defining_op.name in PRESERVED_OP_NAMES
+                        )
+
+                        # Also check if it traces to a constant through a chain
+                        constant_chain = []
+                        if (
+                            not is_preserved
+                            and defining_op
+                            and hasattr(defining_op, "name")
                         ):
+                            constant_chain = _collect_constant_chain(operand)
+
+                        if is_preserved:
                             # Add this preserved op if we haven't seen this value before
                             if value_name not in operand_mapping:
                                 standardized_name = f"%pres{next_pres_idx}"
@@ -264,6 +359,23 @@ class OpWrapper:
                                 )
                                 operand_mapping[value_name] = standardized_name
                                 next_pres_idx += 1
+                        elif constant_chain:
+                            # Add the entire constant chain
+                            for j, (op_str, result_name) in enumerate(constant_chain):
+                                if result_name and result_name not in operand_mapping:
+                                    if j == len(constant_chain) - 1:
+                                        # Last op in chain
+                                        standardized_name = f"%pres{next_pres_idx}"
+                                        pres_idx = next_pres_idx
+                                    else:
+                                        # Intermediate op
+                                        standardized_name = f"%pres{next_pres_idx}_chain{j}"
+                                        pres_idx = f"{next_pres_idx}_chain{j}"
+
+                                    preserved_ops[pres_idx] = (result_name, op_str)
+                                    operand_mapping[result_name] = standardized_name
+
+                            next_pres_idx += 1
 
     def __str__(self) -> str:
         return self.op_string
