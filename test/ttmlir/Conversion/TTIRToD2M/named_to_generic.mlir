@@ -298,4 +298,64 @@ module {
     %0 = "ttir.slice_static"(%arg0) <{begins = [1 : i32, 0 : i32], ends = [96 : i32, 64 : i32], step = [3 : i32, 2 : i32]}> : (tensor<96x96xf32>) -> tensor<32x32xf32>
     return %0 : tensor<32x32xf32>
   }
+
+  // CHECK-LABEL: func @named_clamp_scalar
+  func.func @named_clamp_scalar(%arg: !ttype) -> (!ttype) {
+    // named clamp_scalar op, unary with scalar attributes:
+    // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #parallel]
+    // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
+    // CHECK: d2m.tile_clamp_scalar
+    %0 = "ttir.clamp_scalar"(%arg) <{min = 2.000000e+00 : f32, max = 5.000000e+00 : f32}> : (!ttype) -> !ttype
+    return %0 : !ttype
+  }
+
+  // CHECK-LABEL: func @named_clamp_tensor
+  func.func @named_clamp_tensor(%input: !ttype, %min: !ttype, %max: !ttype) -> (!ttype) {
+    // named clamp_tensor op, ternary:
+    // clamp_tensor is decomposed into maximum(input, min) then minimum(result, max)
+    // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #parallel]
+    // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
+    // CHECK: d2m.tile_maximum
+    // CHECK: d2m.tile_minimum
+    %0 = "ttir.clamp_tensor"(%input, %min, %max) : (!ttype, !ttype, !ttype) -> !ttype
+    return %0 : !ttype
+  }
+
+  // CHECK-LABEL: func @named_logical_and
+  func.func @named_logical_and(%lhs: !ttype, %rhs: !ttype) -> (!ttype) {
+    // logical_and is decomposed into: NEZ(a) * NEZ(b) - both must be non-zero
+    // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #parallel]
+    // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
+    // CHECK: d2m.tile_nez
+    // CHECK: d2m.tile_nez
+    // CHECK: "d2m.tile_mul"
+    %0 = "ttir.logical_and"(%lhs, %rhs) : (!ttype, !ttype) -> !ttype
+    return %0 : !ttype
+  }
+
+  // CHECK-LABEL: func @named_logical_or
+  func.func @named_logical_or(%lhs: !ttype, %rhs: !ttype) -> (!ttype) {
+    // logical_or is decomposed into: NEZ(NEZ(a) + NEZ(b)) - at least one must be non-zero
+    // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #parallel]
+    // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
+    // CHECK: d2m.tile_nez
+    // CHECK: d2m.tile_nez
+    // CHECK: "d2m.tile_add"
+    // CHECK: d2m.tile_nez
+    %0 = "ttir.logical_or"(%lhs, %rhs) : (!ttype, !ttype) -> !ttype
+    return %0 : !ttype
+  }
+
+  // CHECK-LABEL: func @named_logical_xor
+  func.func @named_logical_xor(%lhs: !ttype, %rhs: !ttype) -> (!ttype) {
+    // logical_xor is decomposed into: NEZ(NEZ(a) - NEZ(b)) - exactly one must be non-zero
+    // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #parallel]
+    // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
+    // CHECK: d2m.tile_nez
+    // CHECK: d2m.tile_nez
+    // CHECK: "d2m.tile_sub"
+    // CHECK: d2m.tile_nez
+    %0 = "ttir.logical_xor"(%lhs, %rhs) : (!ttype, !ttype) -> !ttype
+    return %0 : !ttype
+  }
 }

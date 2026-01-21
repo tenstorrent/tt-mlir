@@ -1052,6 +1052,8 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::WhereTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::WhereTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::WhereTileF32Op>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::ClampScalarTileInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::ClampScalarTileOp>,
 
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetNocAddrOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::NocAsyncReadOp>,

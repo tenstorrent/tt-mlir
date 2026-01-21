@@ -44,7 +44,7 @@ void run(const ::tt::target::ttnn::Conv3dOp *op, ProgramContext &context) {
 
   // Conv3dConfig is set at compile-time by Conv3dBlockingRewritePattern.
   // Just read from flatbuffer and construct the config.
-  ::ttnn::operations::experimental::conv3d::Conv3dConfig conv3dConfig;
+  ::ttnn::experimental::prim::Conv3dConfig conv3dConfig;
   if (op->conv3d_config()) {
     const auto *fbConfig = op->conv3d_config();
     if (fbConfig->weights_dtype()) {
