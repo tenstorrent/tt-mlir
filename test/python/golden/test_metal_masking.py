@@ -130,7 +130,8 @@ def test_complete_tile_masking(
         module,
         target=target,
         # d2m-decompose-masking is now part of ttir-to-ttmetal-me-pipeline (after bufferization)
-        custom_pipeline="d2m-lower-to-layout,ttir-to-ttmetal-me-pipeline,ttir-to-ttmetal-be-pipeline",
+        # ttcore-mark-functions-as-forward is needed for flatbuffer translation
+        custom_pipeline="ttcore-mark-functions-as-forward,d2m-lower-to-layout,ttir-to-ttmetal-me-pipeline,ttir-to-ttmetal-be-pipeline",
         device=device,
         **get_request_kwargs(request),
         print_ir="/tmp/ir_dumps",  # DEBUG: dump IR after each pass to this directory
@@ -184,7 +185,8 @@ def test_tilize_no_masking_when_aligned(shape: Shape, target: str, request, devi
         module,
         target=target,
         # d2m-decompose-masking is now part of ttir-to-ttmetal-me-pipeline (after bufferization)
-        custom_pipeline="d2m-lower-to-layout,ttir-to-ttmetal-me-pipeline,ttir-to-ttmetal-be-pipeline",
+        # ttcore-mark-functions-as-forward is needed for flatbuffer translation
+        custom_pipeline="ttcore-mark-functions-as-forward,d2m-lower-to-layout,ttir-to-ttmetal-me-pipeline,ttir-to-ttmetal-be-pipeline",
         device=device,
         **get_request_kwargs(request),
     )
@@ -372,11 +374,13 @@ def test_partial_tile_masking(
         module,
         target=target,
         # d2m-decompose-masking is now part of ttir-to-ttmetal-me-pipeline (after bufferization)
-        custom_pipeline="d2m-lower-to-layout,ttir-to-ttmetal-me-pipeline,ttir-to-ttmetal-be-pipeline",
+        # ttcore-mark-functions-as-forward is needed for flatbuffer translation
+        custom_pipeline="ttcore-mark-functions-as-forward,d2m-lower-to-layout,ttir-to-ttmetal-me-pipeline,ttir-to-ttmetal-be-pipeline",
         device=device,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
+        save_artifacts=True,
     )
 
 
