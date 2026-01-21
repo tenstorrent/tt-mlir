@@ -5,6 +5,7 @@
 
 # Ultra-fast SEQUENTIAL script for massive parameter sweeps on single device
 # Uses fast_profiler_sum.py for efficient trace replay kernel time extraction
+# Supports multiple trace replay iterations with averaging
 
 source env/activate
 export TT_METAL_DEVICE_PROFILER=1
@@ -12,10 +13,22 @@ export TT_METAL_PROFILER_DIR=/localdev/brapanan/tt-mlir/third_party/tt-metal/src
 export TT_METAL_HOME=/localdev/brapanan/tt-mlir/third_party/tt-metal/src/tt-metal
 export PYTHONPATH="${PYTHONPATH}:${TT_METAL_HOME}/ttnn:${TT_METAL_HOME}:${TT_METAL_HOME}/tools"
 
+# Number of trace replay iterations (default: 10)
+NUM_ITERATIONS=${NUM_ITERATIONS:-10}
+
+# Run mode: "both" (default), "jit", or "ttnn"
+RUN_MODE=${RUN_MODE:-both}
+
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 SUMMARY_FILE="${TT_METAL_PROFILER_DIR}/sweep_${TIMESTAMP}.csv"
 
-echo "DEPTH,BATCH_SIZE,LAYER_SIZE,VERSION,AVG_LATENCY_MS,THROUGHPUT_SAMPLES_PER_SEC,DEVICE_KERNEL_NS,PERCENT_OF_TTNN_PERF,STATUS" > "$SUMMARY_FILE"
+echo "Configuration:"
+echo "  Trace Replay Iterations: ${NUM_ITERATIONS}"
+echo "  Run Mode: ${RUN_MODE}"
+echo "  Output File: ${SUMMARY_FILE}"
+echo ""
+
+echo "DEPTH,BATCH_SIZE,LAYER_SIZE,VERSION,TOTAL_TIME_S,AVG_LATENCY_US,THROUGHPUT_SAMPLES_PER_SEC,DEVICE_KERNEL_NS,PERCENT_OF_TTNN_PERF,STATUS" > "$SUMMARY_FILE"
 
 echo "Generating configuration list..."
 
@@ -25,7 +38,23 @@ DEPTHS=($(seq 1 16))
 BATCH_SIZES=(1 32 64 128 256 512 1024 2048)
 # Powers of 2: 512, 1024, 2048, 4096 for layer sizes (starting from 512)
 LAYER_SIZES=(512 1024 2048 4096)
-VERSIONS=("ttnn" "jit")  # Run both non-JIT and JIT versions
+
+# Set versions based on run mode
+case "$RUN_MODE" in
+    "jit")
+        VERSIONS=("jit")
+        ;;
+    "ttnn")
+        VERSIONS=("ttnn")
+        ;;
+    "both")
+        VERSIONS=("ttnn" "jit")
+        ;;
+    *)
+        echo "Error: Invalid RUN_MODE '$RUN_MODE'. Must be 'jit', 'ttnn', or 'both'."
+        exit 1
+        ;;
+esac
 
 # Uncomment below for testing with smaller ranges
 #DEPTHS=(1)
@@ -72,24 +101,23 @@ for DEPTH in "${DEPTHS[@]}"; do
 
                 # Select test file based on version
                 if [ "$VERSION" = "jit" ]; then
-                    TEST_FILE="test/ttnn-jit/test_jit_resnet.py"
+                    TEST_FILE="test/ttnn-jit/test_jit_resnet_block_sharded.py"
                 else
-                    TEST_FILE="test/ttnn-jit/test_resnet.py"
+                    TEST_FILE="test/ttnn-jit/test_ttnn_resnet_block_sharded.py"
                 fi
 
                 # Run test, capture only metrics we need
                 if timeout 45s python -m tracy -r -m pytest "$TEST_FILE" -x -svv 2>&1 | \
-                   grep -E "(Avg Latency|Throughput):" > "${TT_METAL_PROFILER_DIR}/${OUTPUT_NAME}_m.txt"; then
+                   grep -E "(Total Time|Avg Latency|Throughput):" > "${TT_METAL_PROFILER_DIR}/${OUTPUT_NAME}_m.txt"; then
 
+                    TOTAL_TIME=$(grep "Total Time:" "${TT_METAL_PROFILER_DIR}/${OUTPUT_NAME}_m.txt" | awk '{print $3}')
                     AVG_LATENCY=$(grep "Avg Latency:" "${TT_METAL_PROFILER_DIR}/${OUTPUT_NAME}_m.txt" | awk '{print $3}')
-                    THROUGHPUT=$(grep "Throughput:" "${TT_METAL_PROFILER_DIR}/${OUTPUT_NAME}_m.txt" | awk '{print $2}')
-
-                    # Find the latest profiler CSV faster - use ls with modification time
+                    THROUGHPUT=$(grep "Throughput:" "${TT_METAL_PROFILER_DIR}/${OUTPUT_NAME}_m.txt" | awk '{print $2}')                    # Find the latest profiler CSV faster - use ls with modification time
                     LATEST_CSV=$(ls -t ${TT_METAL_PROFILER_DIR}/reports/*/ops_perf_results_*.csv 2>/dev/null | head -1)
 
                     if [ -n "$LATEST_CSV" ] && [ -f "$LATEST_CSV" ]; then
-                        # Use fast profiler sum to get only trace replay kernel time (no debug output)
-                        DEVICE_KERNEL_NS=$(python3 fast_profiler_sum.py "$LATEST_CSV")
+                        # Use fast profiler sum to get average trace replay kernel time across iterations
+                        DEVICE_KERNEL_NS=$(python3 fast_profiler_sum.py "$LATEST_CSV" --iterations "$NUM_ITERATIONS")
 
                         # Store kernel time for comparison
                         if [ "$VERSION" = "ttnn" ]; then
@@ -103,7 +131,7 @@ for DEPTH in "${DEPTHS[@]}"; do
 
                     # Calculate speedup if both versions have run
                     JIT_SPEEDUP="N/A"
-                    if [ "$VERSION" = "jit" ] && [ -n "${ttnn_kernel_times[$CONFIG_KEY]}" ] && [ "$DEVICE_KERNEL_NS" != "NO_CSV" ]; then
+                    if [ "$VERSION" = "jit" ] && [ "$RUN_MODE" = "both" ] && [ -n "${ttnn_kernel_times[$CONFIG_KEY]}" ] && [ "$DEVICE_KERNEL_NS" != "NO_CSV" ]; then
                         TTNN_TIME=${ttnn_kernel_times[$CONFIG_KEY]}
                         # Calculate percentage: (ttnn_time / jit_time) * 100
                         # If jit is faster, this will be > 100%
@@ -111,7 +139,7 @@ for DEPTH in "${DEPTHS[@]}"; do
                     fi
 
                     # Buffer results for batch write
-                    RESULT_LINE="${DEPTH},${BATCH_SIZE},${LAYER_SIZE},${VERSION},${AVG_LATENCY},${THROUGHPUT},${DEVICE_KERNEL_NS},${JIT_SPEEDUP},SUCCESS"
+                    RESULT_LINE="${DEPTH},${BATCH_SIZE},${LAYER_SIZE},${VERSION},${TOTAL_TIME},${AVG_LATENCY},${THROUGHPUT},${DEVICE_KERNEL_NS},${JIT_SPEEDUP},SUCCESS"
                     WRITE_BUFFER="${WRITE_BUFFER}${RESULT_LINE}\n"
                     ((BUFFER_COUNT++))
 
@@ -128,7 +156,7 @@ for DEPTH in "${DEPTHS[@]}"; do
 
                 else
                     # Buffer failed results too
-                    RESULT_LINE="${DEPTH},${BATCH_SIZE},${LAYER_SIZE},${VERSION},FAILED,FAILED,FAILED,N/A,FAILED"
+                    RESULT_LINE="${DEPTH},${BATCH_SIZE},${LAYER_SIZE},${VERSION},FAILED,FAILED,FAILED,FAILED,N/A,FAILED"
                     WRITE_BUFFER="${WRITE_BUFFER}${RESULT_LINE}\n"
                     ((BUFFER_COUNT++))
 

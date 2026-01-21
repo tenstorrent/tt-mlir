@@ -6,7 +6,8 @@
 """
 Fast profiler analyzer: Extract and sum only trace replay device kernel durations.
 Only sums operations AFTER the trace capture phase (ops with no device duration).
-Outputs only the total in nanoseconds.
+Handles multiple trace replay iterations and returns the average.
+Outputs only the average total in nanoseconds.
 """
 
 import csv
@@ -14,15 +15,19 @@ import sys
 from pathlib import Path
 
 
-def get_trace_replay_sum(csv_path, debug=False):
+def get_trace_replay_sum(csv_path, debug=False, num_iterations=10):
     """
-    Read CSV, find trace capture boundary, sum only trace replay device kernel times.
-    Returns total in nanoseconds.
+    Read CSV, find trace capture boundary, sum trace replay device kernel times,
+    and return the average across multiple iterations.
+    Returns average total in nanoseconds.
 
-    The profiler output has 3 phases of equal size:
+    The profiler output has 3 phases:
     1. Warmup: ops with device duration
     2. Trace Capture: ops with NO device duration (host only)
-    3. Trace Replay: ops with device duration (the ones we want to sum)
+    3. Trace Replay: ops with device duration, repeated num_iterations times
+
+    With num_iterations=10, the trace replay phase will be 10x the capture phase size.
+    We divide the replay ops into blocks, sum each block, and return the average.
     """
     with open(csv_path, "r") as f:
         reader = csv.DictReader(f)
@@ -67,70 +72,141 @@ def get_trace_replay_sum(csv_path, debug=False):
     # Calculate the size of the capture phase
     capture_size = capture_end_idx - capture_start_idx
 
-    # Trace replay should be the same size as capture phase
-    replay_end_idx = capture_end_idx + capture_size
+    # Count total replay operations (all ops with device duration after capture)
+    total_replay_ops = 0
+    for idx in range(capture_end_idx, len(data_rows)):
+        row = data_rows[idx]
+        device_dur = row["DEVICE KERNEL DURATION [ns]"].strip()
+        if device_dur:
+            total_replay_ops += 1
+
+    # Calculate operations per iteration
+    # This handles any number of operations (4, 6, or other)
+    if total_replay_ops % num_iterations != 0:
+        if debug:
+            print(
+                f"WARNING: Total replay ops ({total_replay_ops}) not evenly divisible by iterations ({num_iterations})",
+                file=sys.stderr,
+            )
+
+    ops_per_iteration = total_replay_ops // num_iterations
+    replay_end_idx = capture_end_idx + total_replay_ops
 
     if debug:
         print(f"DEBUG: Capture phase size: {capture_size} operations", file=sys.stderr)
+        print(f"DEBUG: Number of iterations: {num_iterations}", file=sys.stderr)
+        print(
+            f"DEBUG: Total replay operations found: {total_replay_ops}", file=sys.stderr
+        )
+        print(f"DEBUG: Operations per iteration: {ops_per_iteration}", file=sys.stderr)
         print(
             f"DEBUG: Replay phase: indices {capture_end_idx} to {replay_end_idx-1}",
             file=sys.stderr,
         )
 
-    # Sum only trace replay operations (from capture_end_idx to replay_end_idx)
-    total_device_ns = 0
-    replay_count = 0
+    # Divide replay operations into num_iterations blocks and sum each
+    iteration_sums = []
+
+    for iteration in range(num_iterations):
+        iteration_start = capture_end_idx + (iteration * ops_per_iteration)
+        iteration_end = iteration_start + ops_per_iteration
+        iteration_sum = 0
+
+        if debug:
+            print(
+                f"\nDEBUG: === Iteration {iteration + 1}/{num_iterations} ===",
+                file=sys.stderr,
+            )
+            print(
+                f"DEBUG: Processing indices {iteration_start} to {iteration_end-1}",
+                file=sys.stderr,
+            )
+            print(
+                f"DEBUG: {'Index':<8} {'OP CODE':<30} {'Device Duration (ns)':<20}",
+                file=sys.stderr,
+            )
+            print(f"DEBUG: {'-'*60}", file=sys.stderr)
+
+        for idx in range(iteration_start, min(iteration_end, len(data_rows))):
+            row = data_rows[idx]
+            device_dur = row["DEVICE KERNEL DURATION [ns]"].strip()
+
+            if device_dur:
+                duration = int(device_dur)
+                iteration_sum += duration
+
+                if debug:
+                    op_code = row["OP CODE"][:28]
+                    print(
+                        f"DEBUG: {idx:<8} {op_code:<30} {duration:<20}",
+                        file=sys.stderr,
+                    )
+
+        iteration_sums.append(iteration_sum)
+
+        if debug:
+            print(
+                f"DEBUG: Iteration {iteration + 1} total: {iteration_sum} ns ({iteration_sum/1e6:.3f} ms)",
+                file=sys.stderr,
+            )
+
+    # Calculate average
+    if iteration_sums:
+        avg_device_ns = sum(iteration_sums) / len(iteration_sums)
+    else:
+        avg_device_ns = 0
 
     if debug:
-        print(f"\nDEBUG: Summing trace replay operations:", file=sys.stderr)
+        print(f"\nDEBUG: {'-'*80}", file=sys.stderr)
+        print(f"DEBUG: All iteration sums (ns): {iteration_sums}", file=sys.stderr)
         print(
-            f"DEBUG: {'Index':<8} {'OP CODE':<30} {'Device Duration (ns)':<20} {'Running Total (ns)':<20}",
-            file=sys.stderr,
-        )
-        print(f"DEBUG: {'-'*80}", file=sys.stderr)
-
-    for idx in range(capture_end_idx, min(replay_end_idx, len(data_rows))):
-        row = data_rows[idx]
-        device_dur = row["DEVICE KERNEL DURATION [ns]"].strip()
-
-        if device_dur:
-            duration = int(device_dur)
-            total_device_ns += duration
-            replay_count += 1
-
-            if debug:
-                op_code = row["OP CODE"][:28]  # Truncate long op codes
-                print(
-                    f"DEBUG: {idx:<8} {op_code:<30} {duration:<20} {total_device_ns:<20}",
-                    file=sys.stderr,
-                )
-
-    if debug:
-        print(f"DEBUG: {'-'*80}", file=sys.stderr)
-        print(f"DEBUG: Total replay operations: {replay_count}", file=sys.stderr)
-        print(
-            f"DEBUG: Total device kernel time: {total_device_ns} ns ({total_device_ns/1e6:.3f} ms)",
+            f"DEBUG: Total across all iterations: {sum(iteration_sums)} ns",
             file=sys.stderr,
         )
         print(
-            f"DEBUG: Average per op: {total_device_ns/replay_count if replay_count > 0 else 0:.1f} ns\n",
+            f"DEBUG: Average per iteration: {avg_device_ns:.0f} ns ({avg_device_ns/1e6:.3f} ms)",
+            file=sys.stderr,
+        )
+        min_iter = min(iteration_sums) if iteration_sums else 0
+        max_iter = max(iteration_sums) if iteration_sums else 0
+        print(
+            f"DEBUG: Min: {min_iter} ns, Max: {max_iter} ns, Variance: {max_iter - min_iter} ns",
             file=sys.stderr,
         )
 
-    return total_device_ns
+    return int(avg_device_ns)
 
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
+        print(
+            "Usage: fast_profiler_sum.py <csv_file> [--debug] [--iterations N]",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     csv_path = sys.argv[1]
 
-    # Check for debug flag
-    debug = len(sys.argv) > 2 and sys.argv[2] == "--debug"
+    # Check for debug flag and iterations flag
+    debug = "--debug" in sys.argv
+    num_iterations = 10  # Default value
+
+    # Parse --iterations flag
+    if "--iterations" in sys.argv:
+        try:
+            iter_idx = sys.argv.index("--iterations")
+            if iter_idx + 1 < len(sys.argv):
+                num_iterations = int(sys.argv[iter_idx + 1])
+            else:
+                print("Error: --iterations requires a number", file=sys.stderr)
+                sys.exit(1)
+        except (ValueError, IndexError):
+            print("Error: --iterations must be followed by an integer", file=sys.stderr)
+            sys.exit(1)
 
     if not Path(csv_path).exists():
+        print(f"Error: File not found: {csv_path}", file=sys.stderr)
         sys.exit(1)
 
-    # Output only the sum
-    print(get_trace_replay_sum(csv_path, debug=debug))
+    # Output only the average sum
+    print(get_trace_replay_sum(csv_path, debug=debug, num_iterations=num_iterations))
