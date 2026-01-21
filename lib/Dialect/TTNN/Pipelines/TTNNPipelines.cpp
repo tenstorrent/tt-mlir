@@ -473,6 +473,11 @@ void createTTNNPipelineD2MPass(OpPassManager &pm) {
                     .nest<ttnn::DispatchD2MOp>()
                     .nest<mlir::ModuleOp>();
 
+  // Convert TTIR to TTNN.
+  // TODO(vtang): pass to strip intermediate layouts.
+  d2mPm.addPass(tt::createConvertTTNNToTTIRPass());
+  // d2mPm.addPass(strip layouts pass)
+
   // Can't use createTTIRToTTMetalPipeline because TTCoreWrapDeviceModulePass
   // only works on top-level modules (doesn't run module has a parent op).
   ttmetal::TTIRToTTMetalPipelineOptions ttmetalOptions;

@@ -2875,42 +2875,6 @@ public:
 };
 } // namespace
 
-namespace {
-class DispatchD2MOpConversionPattern
-    : public OpConversionPattern<ttir::DispatchD2MOp> {
-public:
-  using OpConversionPattern<ttir::DispatchD2MOp>::OpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(ttir::DispatchD2MOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    func::FuncOp mainFunc = op.lookupD2MMainFunc();
-    if (!mainFunc) {
-      return rewriter.notifyMatchFailure(
-          op, "Could not find main function in nested module.");
-    }
-
-    auto d2mFuncAttr =
-        SymbolRefAttr::get(rewriter.getContext(), mainFunc.getSymName());
-    SmallVector<Type> resultTypes;
-    if (failed(this->getTypeConverter()->convertTypes(op->getResultTypes(),
-                                                      resultTypes))) {
-      return failure();
-    }
-
-    auto ttnnOp = rewriter.create<ttnn::DispatchD2MOp>(
-        op.getLoc(), resultTypes, adaptor.getInputs(), adaptor.getOutputs(),
-        d2mFuncAttr);
-
-    // Move the body region, subgraph stays in TTIR dialect.
-    ttnnOp.getBody().takeBody(op.getBody());
-
-    rewriter.replaceOp(op, ttnnOp.getResults());
-    return success();
-  }
-};
-} // namespace
-
 namespace mlir::tt {
 
 void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
@@ -3040,8 +3004,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ScaledDotProductAttentionDecodeOpConversionPattern,
            PagedScaledDotProductAttentionDecodeOpConversionPattern,
            SplitQueryKeyValueAndSplitHeadsOpConversionPattern,
-           GeluBackwardOpConversionPattern,
-           DispatchD2MOpConversionPattern
+           GeluBackwardOpConversionPattern
            >(typeConverter, ctx);
   // ANCHOR_END: op_rewriter_pattern_set
   // clang-format on
