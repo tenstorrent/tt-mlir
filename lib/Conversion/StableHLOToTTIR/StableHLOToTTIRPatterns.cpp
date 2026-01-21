@@ -1619,7 +1619,7 @@ public:
 
     // Not a special case of CumSumOp - lowering to TTIR pooling ops is
     // supported only for 2D and 4D input tensors.
-    if (!llvm::is_contained({2, 4}, inputRank)) {
+    if (!(inputRank == 2 || inputRank == 4)) {
       return rewriter.notifyMatchFailure(srcOp, "Invalid input tensor rank.");
     }
 

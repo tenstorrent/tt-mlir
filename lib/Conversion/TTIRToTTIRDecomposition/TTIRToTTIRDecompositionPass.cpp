@@ -131,6 +131,16 @@ struct TTIRToTTIRDecompositionPass
       return isUsedByTransposedConv;
     });
 
+    target.addDynamicallyLegalOp<ttir::MaxPool2dOp>([&](ttir::MaxPool2dOp op) {
+      // Illegal if input is a FullOp (will be decomposed to FullOp).
+      return !isa_and_nonnull<ttir::FullOp>(op.getInput().getDefiningOp());
+    });
+
+    target.addDynamicallyLegalOp<ttir::AvgPool2dOp>([&](ttir::AvgPool2dOp op) {
+      // Illegal if input is a FullOp (will be decomposed to FullOp).
+      return !isa_and_nonnull<ttir::FullOp>(op.getInput().getDefiningOp());
+    });
+
     TypeConverter typeConverter;
     // All types map 1:1.
     typeConverter.addConversion([](Type type) { return type; });

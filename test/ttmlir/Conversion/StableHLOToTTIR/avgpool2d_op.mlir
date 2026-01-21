@@ -61,3 +61,25 @@ func.func public @test_avgpool2d_with_reshape(%arg0: tensor<128x128xbf16>) -> te
   }) : (tensor<128x128xbf16>, tensor<bf16>) -> tensor<64x64xbf16>
   return %0 : tensor<64x64xbf16>
 }
+
+// -----
+
+func.func @test_avgpool2d_with_division(%arg0: tensor<1x14x14x112xbf16>) -> tensor<1x7x7x112xbf16> {
+  %cst = stablehlo.constant dense<0.000000e+00> : tensor<bf16>
+  %c = stablehlo.constant dense<4> : tensor<i64>
+  // CHECK: %[[POOL:[0-9]+]] = "ttir.avg_pool2d"(%arg0)
+  // CHECK-SAME: kernel = array<i32: 2, 2>
+  // CHECK-SAME: stride = array<i32: 2, 2>
+  // CHECK-SAME: (tensor<1x14x14x112xbf16>) -> tensor<1x7x7x112xbf16>
+  // CHECK-NOT: "ttir.multiply"
+  // CHECK: return %[[POOL]]
+  %0 = "stablehlo.reduce_window"(%arg0, %cst) <{padding = dense<0> : tensor<4x2xi64>, window_dilations = array<i64: 1, 1, 1, 1>, window_dimensions = array<i64: 1, 2, 2, 1>, window_strides = array<i64: 1, 2, 2, 1>}> ({
+  ^bb0(%arg1: tensor<bf16>, %arg2: tensor<bf16>):
+    %5 = stablehlo.add %arg1, %arg2 : tensor<bf16>
+    stablehlo.return %5 : tensor<bf16>
+  }) : (tensor<1x14x14x112xbf16>, tensor<bf16>) -> tensor<1x7x7x112xbf16>
+  %1 = stablehlo.convert %c : (tensor<i64>) -> tensor<bf16>
+  %2 = stablehlo.broadcast_in_dim %1, dims = [] : (tensor<bf16>) -> tensor<1x7x7x112xbf16>
+  %3 = stablehlo.divide %0, %2 : tensor<1x7x7x112xbf16>
+  return %3 : tensor<1x7x7x112xbf16>
+}
