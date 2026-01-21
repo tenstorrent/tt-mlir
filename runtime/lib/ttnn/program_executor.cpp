@@ -256,6 +256,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
     return operations::matmul::run(op->type_as_MatmulOp(), getContext());
   }
   // ANCHOR_END: adding_an_op_matmul_runtime_program
+  case ::tt::target::ttnn::OpType::SparseMatmulOp: {
+    return operations::matmul::run(op->type_as_SparseMatmulOp(), getContext());
+  }
   case ::tt::target::ttnn::OpType::FuncCallOp: {
     return operations::mlir_native::run(op->type_as_FuncCallOp(), getContext());
   }
