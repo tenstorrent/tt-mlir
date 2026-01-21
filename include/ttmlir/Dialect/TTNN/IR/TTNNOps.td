@@ -1561,6 +1561,55 @@ def TTNN_MatmulOp : TTNN_Op<"matmul", [TTNN_ComputeKernelConfigOpInterface]> {
 }
 // ANCHOR_END: adding_an_op_matmul_ttnn
 
+def TTNN_SparseMatmulOp : TTNN_Op<"sparse_matmul"> {
+    let summary = "Sparse matrix multiplication for MoE (Mixture of Experts).";
+    let description = [{
+      The `sparse_matmul` operation computes matrix multiplication where computation
+      is skipped for sparse (zero) blocks based on the sparsity tensor.
+
+      This operation is designed for Mixture of Experts (MoE) models where only a
+      subset of experts are activated for each token. The sparsity tensor indicates
+      which expert-token combinations should be computed.
+
+      Based on `is_input_a_sparse`, `is_input_b_sparse` and the sparsity tensor,
+      some parts of the output computation is skipped.
+
+      Supported Modes:
+      - is_input_a_sparse=true, is_input_b_sparse=true:
+        input_a: [1, E, M, K], input_b: [1, E, K, N], sparsity: [1, 1, 1, E] -> output: [1, E, M, N]
+      - is_input_a_sparse=false, is_input_b_sparse=true:
+        input_a: [A, B, M, K], input_b: [1, E, K, N], sparsity: [A, B, 1, E] -> output: [A, B, 1, E, M, N]
+      - is_input_a_sparse=true, is_input_b_sparse=false:
+        input_a: [A, E, M, K], input_b: [1, E, K, N], sparsity: [1, 1, A, E] -> output: [A, E, M, N]
+
+      Example:
+      ```mlir
+      // Sparse matmul with input_b sparse (typical MoE gate/up projection)
+      %result = ttnn.sparse_matmul(%input, %weight, %sparsity) {
+          is_input_a_sparse = false,
+          is_input_b_sparse = true,
+          nnz = 2
+      } : (tensor<1x128x1x4096xbf16>, tensor<1x8x4096x11008xbf16>, tensor<1x128x1x8xbf16>)
+          -> tensor<1x128x1x8x1x11008xbf16>
+      ```
+    }];
+
+    let arguments = (ins AnyRankedTensor:$a,
+                         AnyRankedTensor:$b,
+                         AnyRankedTensor:$sparsity,
+                         DefaultValuedAttr<BoolAttr, "false">:$is_input_a_sparse,
+                         DefaultValuedAttr<BoolAttr, "true">:$is_input_b_sparse,
+                         OptionalAttr<I64Attr>:$nnz,
+                         OptionalAttr<TTNN_MatmulMultiCoreReuseMultiCast1DProgramConfigAttr>:$program_config,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
+                         OptionalAttr<TTCore_DataTypeAttr>:$dtype,
+                         OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
 def TTNN_PrepareConv2dWeightsOp : TTNN_Op<"prepare_conv2d_weights", [TTNN_ComputeKernelConfigOpInterface]> {
     let summary = "Prepares conv2d weights so that they can be consumed by the conv2d op.";
 
