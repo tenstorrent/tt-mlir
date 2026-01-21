@@ -1778,7 +1778,7 @@ class D2MEmptyOpRewriter : public OpConversionPattern<ttir::EmptyOp> {
       llvm::errs() << "empty op ttnn\n";
       op.dump();
 
-      // Check if this empty is used as a layout buffer in to_layout
+      // if if empty is used by a to_layout
       bool isLayoutBuffer = false;
       for (Operation *user : op->getUsers()) {
         if (auto toLayoutOp = dyn_cast<ttir::ToLayoutOp>(user)) {
@@ -1789,8 +1789,8 @@ class D2MEmptyOpRewriter : public OpConversionPattern<ttir::EmptyOp> {
         }
       }
 
-      // If this is a layout buffer, remove the ttir empty. In to_layout, a d2m
-      // empty is created.
+      // If this is a layout buffer, remove the ttir empty. b/c in
+      // tolayoutoprewriter, a d2m empty is created.
       if (isLayoutBuffer) {
         rewriter.eraseOp(op);
         return success();
