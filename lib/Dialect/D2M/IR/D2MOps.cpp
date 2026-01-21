@@ -67,9 +67,6 @@ mlir::LogicalResult d2m::EmptyOp::bufferize(
     return success();
   }
 
-  std::cout<<"===== Bufferizing EmptyOp: ====="<<std::endl;
-  (*this).dump();
-
   // Don't bufferize if tensor has a ttnn_layout; lowering to ttnn generic.
   if (options.allowUnknownOps &&
       (mlir::isa<ttnn::TTNNLayoutAttr>(getResult().getType().getEncoding()) ||
@@ -100,7 +97,8 @@ d2m::EmptyOp::getBufferType(mlir::Value value,
   return ttcore::getBufferType(value.getType(), /*isView=*/false);
 }
 
-void d2m::EmptyOp::getCanonicalizationPatterns(mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
+void d2m::EmptyOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
   patterns.add(+[](EmptyOp op, mlir::PatternRewriter &rewriter) {
     if (op.getOperation()->getUses().empty()) {
       rewriter.eraseOp(op);
