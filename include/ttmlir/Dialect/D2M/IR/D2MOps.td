@@ -47,6 +47,38 @@ def D2M_ViewLayoutOp
   let hasFolder = 1;
 }
 
+def D2M_CompositeViewOp : D2M_Op<"composite_view",
+                                 [Pure, D2M_ViewOpInterface,
+                                  DeclareOpInterfaceMethods<D2M_ViewOpInterface,
+                                                            ["getInput",
+                                                             "isComposite",
+                                                             "getCompositeInputs"]>,
+                                  DeclareOpInterfaceMethods<BufferizableOpInterface,
+                                                            ["bufferizesToMemoryRead",
+                                                             "bufferizesToMemoryWrite",
+                                                             "bufferize",
+                                                             "getAliasingValues",
+                                                             "getBufferType"]>]> {
+  let summary = "Piecewise view over multiple input tensors";
+  let description = [{
+    Represents a piecewise-affine view that aggregates multiple input tensors
+    along a concat dimension. Each input tensor has an associated offset and size.
+  }];
+
+  // 1D concat only.
+  // Use AnyRankedTensorOrMemRef only if this survives the bufferization pass.
+  // Replace logical sizes along the dim with cumulative offsets if it avoids on-the-fly calculation in the kernel.
+  // Add `AffineMapArrayAttr:$input_maps` for per-input affine maps (offset, view, bcast, transpose, strides, ...)?
+  let arguments = (ins Variadic<AnyRankedTensorOrMemRef>:$inputs,
+                       SI32Attr:$dim,
+                       DenseI64ArrayAttr:$sizes);
+
+  let results = (outs AnyRankedTensorOrMemRef:$result);
+
+  // let hasVerifier = 1;
+  // let hasFolder = 1;
+}
+
 //===----------------------------------------------------------------------===//
 // Layout transition and streaming ops (D2M variants)
 //===----------------------------------------------------------------------===//

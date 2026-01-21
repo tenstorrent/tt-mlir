@@ -61,7 +61,7 @@ def D2M_ViewOpInterface : OpInterface<"ViewOpInterface"> {
   let cppNamespace = "::mlir::tt::d2m";
   let methods = [
     InterfaceMethod<
-      /*desc=*/[{Get the input of the view op.}],
+      /*desc=*/[{Get the (first) input of the view op.}],
       /*retTy=*/"mlir::Value",
       /*methodName=*/"getInput"
     >,
@@ -69,6 +69,22 @@ def D2M_ViewOpInterface : OpInterface<"ViewOpInterface"> {
       /*desc=*/[{Get the result of the view op.}],
       /*retTy=*/"mlir::Value",
       /*methodName=*/"getResult"
+    >,
+    InterfaceMethod<
+      /*desc=*/[{Return whether this is a composite view or not.}],
+      /*retTy=*/"bool",
+      /*methodName=*/"isComposite",
+      /*args=*/(ins),
+      /*methodBody=*/"",
+      /*defaultImplementation=*/"return false;"
+    >,
+    InterfaceMethod<
+      /*desc=*/[{Get all the inputs of the (potentially composite) view op.}],
+      /*retTy=*/"mlir::SmallVector<mlir::Value>",
+      /*methodName=*/"getCompositeInputs",
+      /*args=*/(ins),
+      /*methodBody=*/"",
+      /*defaultImplementation=*/"return {$_op.getInput()};"
     >,
     InterfaceMethod<
       /*desc=*/[{Recursively apply view ops until a shard layout is reached, returning underlying memref and view map.}],

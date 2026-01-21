@@ -54,10 +54,6 @@ findMaxDimAndAspectRatio(ArrayRef<int64_t> physicalShape) {
 }
 
 static llvm::SmallVector<int64_t>
-computeOptimalBlockShardedGrid(ArrayRef<int64_t> physicalShape,
-                               ArrayRef<int64_t> targetSquareGridShape);
-
-static llvm::SmallVector<int64_t>
 computeOptimalVirtualGrid(ArrayRef<int64_t> physicalShape,
                           ArrayRef<int64_t> targetSquareGridShape) {
 
@@ -454,6 +450,12 @@ struct StreamLayoutUpdateInfo {
   bool isVirtualGrid = false;
 };
 
+struct CompositeViewUpdateInfo {
+  d2m::CompositeViewOp op;
+  llvm::SmallVector<int64_t> grid;
+  bool isVirtualGrid = false; // Should be used for ND concats.
+};
+
 struct EmptyUpdateInfo {
   d2m::EmptyOp op;
   llvm::SmallVector<int64_t> grid;
@@ -581,6 +583,7 @@ normalizeOperandGridsForGeneric(
 static std::tuple<llvm::SmallVector<llvm::SmallVector<int64_t>>,
                   llvm::SmallVector<ToLayoutUpdateInfo>,
                   llvm::SmallVector<StreamLayoutUpdateInfo>,
+                  llvm::SmallVector<CompositeViewUpdateInfo>,
                   llvm::SmallVector<EmptyUpdateInfo>>
 analyzeOperandsAndComputeGrids(d2m::GenericOp genericOp,
                                ArrayRef<int64_t> targetGridShape,
@@ -589,6 +592,7 @@ analyzeOperandsAndComputeGrids(d2m::GenericOp genericOp,
   SmallVector<SmallVector<int64_t>> optimalOperandGrids;
   llvm::SmallVector<ToLayoutUpdateInfo> toLayoutsToUpdate;
   llvm::SmallVector<StreamLayoutUpdateInfo> streamLayoutsToUpdate;
+  llvm::SmallVector<CompositeViewUpdateInfo> compositeViewsToUpdate;
   llvm::SmallVector<EmptyUpdateInfo> emptyOpsToUpdate;
 
   for (Value operand : genericOp.getOperands()) {
@@ -636,6 +640,10 @@ analyzeOperandsAndComputeGrids(d2m::GenericOp genericOp,
               {toLayoutOp, inputOptimalGrid, isVirtualGrid});
         }
       }
+    } else if (auto compositeViewOp =
+                   operand.getDefiningOp<d2m::CompositeViewOp>()) {
+      compositeViewsToUpdate.push_back(
+          {compositeViewOp, optimalGrid, isVirtualGrid});
     } else if (auto toLayoutOp = operand.getDefiningOp<d2m::ToLayoutOp>()) {
       // Skip TTNN tensors as their grids are already correctly set.
       if (toLayoutOp.getInput().getDefiningOp<ttir::TTNNMetalLayoutCastOp>()) {
@@ -653,7 +661,7 @@ analyzeOperandsAndComputeGrids(d2m::GenericOp genericOp,
       normalizeOperandGridsForGeneric(genericOp, optimalOperandGrids);
 
   return {optimalOperandGrids, toLayoutsToUpdate, streamLayoutsToUpdate,
-          emptyOpsToUpdate};
+          compositeViewsToUpdate, emptyOpsToUpdate};
 }
 
 // Phase 2: Update ToLayoutOps with their optimal grids.
@@ -796,6 +804,63 @@ updateStreamLayoutOps(ArrayRef<StreamLayoutUpdateInfo> streamLayoutsToUpdate,
     if (storageEmpty.use_empty()) {
       storageEmpty.erase();
     }
+  }
+}
+
+static void
+updateCompositeViewOps(ArrayRef<CompositeViewUpdateInfo> compositeViewsToUpdate,
+                       ArrayRef<int64_t> targetSquareGridShape) {
+  if (compositeViewsToUpdate.empty()) {
+    return;
+  }
+
+  OpBuilder builder(compositeViewsToUpdate.front().op->getContext());
+  for (const auto &info : compositeViewsToUpdate) {
+    // These are views, they don't have storages.
+    // Right now input is 32x32 so unit grid is fine, but we will need view
+    // reblocks!
+    auto compositeView = info.op;
+    auto optimalGrid = info.grid;
+
+    auto outType =
+        mlir::cast<RankedTensorType>(compositeView.getResult().getType());
+    auto outLayout = mlir::cast<ttcore::MetalLayoutAttr>(outType.getEncoding());
+
+    auto newDimAlignments =
+        ttcore::MetalLayoutAttr::computeGridAwareDimAlignments(
+            outLayout.getLogicalShape(), targetSquareGridShape,
+            outLayout.getNormalizedIntervals());
+
+    // Identity map for now!
+    auto newOutIndexMap =
+        outLayout.getIndexAffineMapOrIdentity(outType.getRank());
+
+    SmallVector<int64_t> tileShape;
+    if (auto tileType =
+            mlir::dyn_cast<ttcore::TileType>(outType.getElementType())) {
+      tileShape = llvm::to_vector(tileType.getShape());
+    }
+
+    auto newOutShape = outLayout.getDeviceShape(
+        optimalGrid, llvm::ArrayRef(tileShape.data(), tileShape.size()));
+
+    auto newOutLayout = ttcore::MetalLayoutAttr::get(
+        builder.getContext(), outLayout.getLogicalShape(), newDimAlignments,
+        outLayout.getCollapsedIntervals(), outLayout.getOobVal(),
+        outLayout.getMemorySpace(), outLayout.getMemoryLayout(),
+        newOutIndexMap);
+
+    auto newOutType = RankedTensorType::get(
+        newOutShape, outType.getElementType(), newOutLayout);
+
+    builder.setInsertionPoint(compositeView); // Why this?
+    auto newCompositeView = builder.create<d2m::CompositeViewOp>(
+        compositeView.getLoc(), newOutType, compositeView.getInputs(),
+        compositeView.getDim(), compositeView.getSizes());
+
+    // GenericOp is fixed here.
+    compositeView.getResult().replaceAllUsesWith(newCompositeView.getResult());
+    compositeView.erase();
   }
 }
 
@@ -1233,9 +1298,10 @@ static void assignGrids(d2m::GenericOp genericOp,
   if (!hasTTNNOperands(genericOp)) {
     llvm::SmallVector<ToLayoutUpdateInfo> toLayoutsToUpdate;
     llvm::SmallVector<StreamLayoutUpdateInfo> streamLayoutsToUpdate;
+    llvm::SmallVector<CompositeViewUpdateInfo> compositeViewsToUpdate;
     llvm::SmallVector<EmptyUpdateInfo> emptyOpsToUpdate;
     std::tie(optimalOperandGrids, toLayoutsToUpdate, streamLayoutsToUpdate,
-             emptyOpsToUpdate) =
+             compositeViewsToUpdate, emptyOpsToUpdate) =
         analyzeOperandsAndComputeGrids(genericOp, targetGridShape,
                                        targetSquareGridShape);
 
@@ -1244,6 +1310,8 @@ static void assignGrids(d2m::GenericOp genericOp,
 
     updateStreamLayoutOps(streamLayoutsToUpdate, targetSquareGridShape,
                           genericOp);
+
+    updateCompositeViewOps(compositeViewsToUpdate, targetSquareGridShape);
 
     updateEmptyOps(emptyOpsToUpdate, targetGridShape, targetSquareGridShape);
   } else {

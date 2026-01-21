@@ -17,29 +17,29 @@ pytestmark = pytest.mark.frontend("ttir")
 
 # Concat tests
 @pytest.mark.parametrize(
-    "shapes",
+    "shapes,dim",
     [
-        [
-            (64, 128),
-            (32, 128),
-            (16, 128),
-        ]
+        ([(32, 32), (32, 32)], 0),
+        ([(32, 32), (32, 32)], 1),
+        ([(64, 128), (32, 128), (16, 128)], 0),
+        ([(128, 64), (128, 32), (128, 16)], 1),
     ],
-    ids=shapes_list_str,
 )
-@pytest.mark.parametrize("dim", [0])
-@pytest.mark.parametrize("target", ["ttnn", "emitpy"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
 def test_concat(shapes: List[Shape], dim: int, target: str, request, device):
     def module(builder: TTIRBuilder):
-        @builder.func(shapes, [torch.float32, torch.float32, torch.float32])
+        # Generate dtypes list dynamically based on number of shapes
+        dtypes = [torch.float32] * len(shapes)
+
+        @builder.func(shapes, dtypes)
         def concat_wrapper(
-            in0: Operand,
-            in1: Operand,
-            in2: Operand,
-            builder: TTIRBuilder,
+            *args,
             unit_attrs: Optional[List[str]] = None,
         ):
-            return builder.concat([in0, in1, in2], dim, unit_attrs)
+            # args is (in0, in1, ..., inN, builder)
+            inputs = args[:-1]  # All input tensors
+            builder = args[-1]  # Last argument is the builder
+            return builder.concat(list(inputs), dim, unit_attrs)
 
     compile_and_execute_ttir(
         module,
