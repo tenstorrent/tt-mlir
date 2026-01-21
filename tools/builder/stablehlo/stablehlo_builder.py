@@ -21,6 +21,7 @@ from builder.base.builder import *
 from builder.base.builder_utils import *
 
 from golden import get_golden_function, apply_sharding, apply_unsharding
+from golden.mapping import GoldenMapTensor
 
 
 class StableHLOBuilder(Builder):
@@ -6263,6 +6264,283 @@ class StableHLOBuilder(Builder):
                 self._set_golden_tensor(result, output_golden)
 
             return result
+
+    def reduce_window(
+        self,
+        in0: Operand,
+        init_value: Union[Operand, float, int],
+        window_dimensions: Sequence[int],
+        window_strides: Optional[Sequence[int]] = None,
+        base_dilations: Optional[Sequence[int]] = None,
+        window_dilations: Optional[Sequence[int]] = None,
+        padding: Optional[Sequence[Sequence[int]]] = None,
+        body: str = "add",
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        """
+        Creates ``stablehlo.reduce_window``.
+
+        *Sliding window reduction operation.*
+
+        Applies a reduction function to windows of the input tensor and produces a result tensor.
+        The reduction function is applied to each window of elements independently.
+
+        From StableHLO ReduceWindow Op https://openxla.org/stablehlo/spec#reduce_window
+
+        .. code-block:: mlir
+
+            // Sum reduce_window with 2x2 window, stride 1x1
+            %init = stablehlo.constant dense<0.0> : tensor<f32>
+            %result = "stablehlo.reduce_window"(%input, %init) <{
+                window_dimensions = array<i64: 2, 2>,
+                window_strides = array<i64: 1, 1>,
+                base_dilations = array<i64: 1, 1>,
+                window_dilations = array<i64: 1, 1>,
+                padding = dense<0> : tensor<2x2xi64>
+            }> ({
+            ^bb0(%arg0: tensor<f32>, %arg1: tensor<f32>):
+                %0 = stablehlo.add %arg0, %arg1 : tensor<f32>
+                stablehlo.return %0 : tensor<f32>
+            }) : (tensor<4x4xf32>, tensor<f32>) -> tensor<3x3xf32>
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor to apply the window reduction on
+        init_value : Union[Operand, float, int]
+            Initial value for the reduction (scalar). Can be an Operand or a numeric value.
+        window_dimensions : Sequence[int]
+            Size of the reduction window for each dimension. Must match input rank.
+        window_strides : Optional[Sequence[int]]
+            Stride of the window for each dimension. Defaults to all 1s.
+        base_dilations : Optional[Sequence[int]]
+            Dilation of the input tensor for each dimension. Defaults to all 1s.
+        window_dilations : Optional[Sequence[int]]
+            Dilation of the window for each dimension. Defaults to all 1s.
+        padding : Optional[Sequence[Sequence[int]]]
+            Padding to apply as [[low, high], ...] pairs for each dimension.
+            Defaults to all 0s.
+        body : str
+            Reduction operation to apply. Options: "add", "max".
+            Default is "add".
+        unit_attrs : Optional[List[str]]
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            Reduced tensor
+        """
+        with self._ctx, self._loc:
+            id = self._get_next_global_id()
+            loc = self._get_loc_of_extra_file_callee(id=id)
+
+            input_type = RankedTensorType(in0.type)
+            element_type = input_type.element_type
+            input_shape = list(input_type.shape)
+            rank = len(input_shape)
+
+            window_dimensions = list(window_dimensions)
+            window_strides = (
+                list(window_strides) if window_strides is not None else [1] * rank
+            )
+            base_dilations = (
+                list(base_dilations) if base_dilations is not None else [1] * rank
+            )
+            window_dilations = (
+                list(window_dilations) if window_dilations is not None else [1] * rank
+            )
+            if padding is None:
+                padding_2d = [[0, 0] for _ in range(rank)]
+            else:
+                padding_2d = [list(p) for p in padding]
+
+            output_shape = []
+            for i in range(rank):
+                dilated_input = (
+                    (input_shape[i] - 1) * base_dilations[i] + 1
+                    if input_shape[i] > 0
+                    else 0
+                )
+                padded_input = padding_2d[i][0] + dilated_input + padding_2d[i][1]
+                dilated_window = (
+                    (window_dimensions[i] - 1) * window_dilations[i] + 1
+                    if window_dimensions[i] > 0
+                    else 0
+                )
+                if padded_input == 0 or dilated_window > padded_input:
+                    output_dim = 0
+                else:
+                    output_dim = (
+                        (padded_input - dilated_window) // window_strides[i]
+                    ) + 1
+                output_shape.append(output_dim)
+
+            output_type = RankedTensorType.get(output_shape, element_type)
+
+            if isinstance(init_value, (int, float)):
+                if isinstance(init_value, float):
+                    init_attr = DenseElementsAttr.get_splat(
+                        RankedTensorType.get([], element_type),
+                        FloatAttr.get(element_type, init_value),
+                    )
+                else:
+                    init_attr = DenseElementsAttr.get_splat(
+                        RankedTensorType.get([], element_type),
+                        IntegerAttr.get(element_type, init_value),
+                    )
+                init_value_op = stablehlo.ConstantOp(init_attr, loc=loc).result
+            else:
+                init_value_op = init_value
+
+            reduce_window_op = stablehlo.ReduceWindowOp(
+                [output_type],
+                inputs=[in0],
+                init_values=[init_value_op],
+                window_dimensions=window_dimensions,
+                window_strides=window_strides,
+                base_dilations=base_dilations,
+                window_dilations=window_dilations,
+                padding=padding_2d,
+                loc=loc,
+            )
+
+            reduction_type = RankedTensorType.get([], element_type)
+            block = Block.create_at_start(
+                reduce_window_op.regions[0], [reduction_type, reduction_type]
+            )
+
+            with InsertionPoint(block):
+                if body == "add":
+                    reduction_result = stablehlo.AddOp(
+                        block.arguments[0], block.arguments[1], loc=loc
+                    ).result
+                elif body == "max":
+                    reduction_result = stablehlo.MaxOp(
+                        block.arguments[0], block.arguments[1], loc=loc
+                    ).result
+                else:
+                    raise ValueError(
+                        f"Unsupported reduction body: {body}. "
+                        "Supported options: 'add', 'max'"
+                    )
+                stablehlo.ReturnOp([reduction_result], loc=loc)
+
+            result = reduce_window_op.result
+
+            if not self._disable_golden_check:
+                input_golden = self._get_golden_tensor(in0)
+
+                if isinstance(init_value, (int, float)):
+                    init_scalar = init_value
+                else:
+                    init_golden = self._get_golden_tensor(init_value)
+                    if hasattr(init_golden, "_shard_map"):
+                        init_scalar = init_golden._shard_map[0].item()
+                    else:
+                        init_scalar = init_golden.item()
+
+                output_tensor = self._reduce_window_golden(
+                    input_golden,
+                    init_scalar,
+                    window_dimensions,
+                    window_strides,
+                    base_dilations,
+                    window_dilations,
+                    padding_2d,
+                    body,
+                )
+                mesh_shape = input_golden._mesh_shape
+                output_golden = GoldenMapTensor({0: output_tensor}, mesh_shape)
+                self._set_golden_tensor(result, output_golden)
+
+            return result
+
+    def _reduce_window_golden(
+        self,
+        input_tensor: torch.Tensor,
+        init_value: Union[float, int],
+        window_dimensions: List[int],
+        window_strides: List[int],
+        base_dilations: List[int],
+        window_dilations: List[int],
+        padding: List[List[int]],
+        body: str,
+    ) -> torch.Tensor:
+        """
+        Compute the golden output for reduce_window operation.
+        """
+        import torch.nn.functional as F
+
+        if hasattr(input_tensor, "_shard_map"):
+            input_tensor = input_tensor._shard_map[0]
+
+        input_shape = list(input_tensor.shape)
+        rank = len(input_shape)
+
+        if any(d != 1 for d in base_dilations):
+            dilated_shape = [
+                (s - 1) * d + 1 if s > 0 else 0
+                for s, d in zip(input_shape, base_dilations)
+            ]
+            dilated_input = torch.full(
+                dilated_shape, init_value, dtype=input_tensor.dtype
+            )
+            slices = tuple(slice(None, None, d) for d in base_dilations)
+            dilated_input[slices] = input_tensor
+            input_tensor = dilated_input
+            input_shape = list(input_tensor.shape)
+
+        pad_list = []
+        for i in range(rank - 1, -1, -1):
+            pad_list.extend([padding[i][0], padding[i][1]])
+        if any(p != 0 for p in pad_list):
+            input_tensor = F.pad(input_tensor, pad_list, value=init_value)
+            input_shape = list(input_tensor.shape)
+
+        output_shape = []
+        for i in range(rank):
+            dilated_window = (
+                (window_dimensions[i] - 1) * window_dilations[i] + 1
+                if window_dimensions[i] > 0
+                else 0
+            )
+            if input_shape[i] == 0 or dilated_window > input_shape[i]:
+                output_dim = 0
+            else:
+                output_dim = (
+                    (input_shape[i] - dilated_window) // window_strides[i]
+                ) + 1
+            output_shape.append(output_dim)
+
+        output_tensor = torch.full(output_shape, init_value, dtype=input_tensor.dtype)
+
+        import itertools
+
+        if all(d > 0 for d in output_shape):
+            output_indices = itertools.product(*[range(s) for s in output_shape])
+            window_offsets = list(
+                itertools.product(*[range(s) for s in window_dimensions])
+            )
+
+            for idx in output_indices:
+                window_elements = []
+                for window_idx in window_offsets:
+                    input_idx = tuple(
+                        idx[d] * window_strides[d] + window_idx[d] * window_dilations[d]
+                        for d in range(rank)
+                    )
+                    if all(0 <= input_idx[d] < input_shape[d] for d in range(rank)):
+                        window_elements.append(input_tensor[input_idx].item())
+
+                if window_elements:
+                    if body == "add":
+                        result = sum(window_elements)
+                    elif body == "max":
+                        result = max(window_elements)
+                    output_tensor[idx] = result
+
+        return output_tensor
 
     def dot_general(
         self,
