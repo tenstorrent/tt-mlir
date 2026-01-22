@@ -4042,6 +4042,24 @@ def stablehlo_concatenate_golden(
     return torch.cat(input_tensors, dim=dim).to(output_dtype)
 
 
+def stablehlo_get_dimension_size_golden(
+    input_tensor: GoldenMapTensor,
+    dimension_attr: IntegerAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    dimension = unpack_mlir_attr(dimension_attr)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    output_tensor = input_tensor.clone()
+
+    for device_id, shard in input_tensor.shard_map.items():
+        shard = torch.tensor(
+            input_tensor.shard_at(device_id).size(dimension), dtype=output_dtype
+        )
+        output_tensor.shard_map[device_id] = shard
+
+    return output_tensor
+
+
 def stablehlo_constant_golden(value: DenseElementsAttr) -> GoldenMapTensor:
     shape = list(value.type.shape)
     dtype = mlir_type_to_torch_dtype(value.type.element_type)
@@ -5591,6 +5609,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     stablehlo.CeilOp: stablehlo_ceil_golden,
     stablehlo.ClampOp: stablehlo_clamp_golden,
     stablehlo.ConcatenateOp: stablehlo_concatenate_golden,
+    stablehlo.GetDimensionSizeOp: stablehlo_get_dimension_size_golden,
     stablehlo.CosineOp: stablehlo_cosine_golden,
     stablehlo.DivOp: stablehlo_divide_golden,
     stablehlo.ExpOp: stablehlo_exp_golden,

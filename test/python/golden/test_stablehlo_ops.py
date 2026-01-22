@@ -1261,6 +1261,34 @@ def test_reverse(shapes, dtype, dimensions, target: str, request, device):
     )
 
 
+@pytest.mark.parametrize("shape", [(64, 128)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32, torch.int32], ids=["f32", "i32"])
+@pytest.mark.parametrize("dimension", [0, 1])
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_get_dimension_size(
+    shape: Shape,
+    dtype: torch.dtype,
+    dimension: int,
+    target: str,
+    request,
+    device,
+):
+    def module(builder: StableHLOBuilder):
+        @builder.func([shape], [dtype])
+        def get_dimension_size(in0: Operand, builder: StableHLOBuilder):
+            builder.set_graph_level_check(True)
+            return builder.get_dimension_size(in0, dimension)
+
+    compile_and_execute_shlo(
+        module,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        device=device,
+    )
+
+
 @pytest.mark.parametrize("target", ["ttnn"])
 def test_select(target: str, request, device):
     compile_and_execute_shlo(

@@ -878,6 +878,135 @@ class StableHLOBuilder(Builder):
 
         return dynamic_update_slice_module, dynamic_update_slice_builder
 
+    ############### stablehlo.GetDimensionSizeOp ###############
+
+    @tag(stablehlo.GetDimensionSizeOp)
+    def get_dimension_size(
+        self,
+        in0: Operand,
+        dimension: int,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpResult:
+        stablehlo_op = self.get_opview_from_method(StableHLOBuilder.get_dimension_size)
+
+        dim_attr = IntegerAttr.get(IntegerType.get_signless(64), dimension)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = stablehlo_op(
+            in0,
+            dim_attr,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if sharding_attr is not None:
+            op.operation.attributes["sdy.sharding"] = sharding_attr
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            op_golden_function = get_golden_function(stablehlo_op)
+            golden_output = op_golden_function(
+                input0, dim_attr, op_result.type.element_type
+            )
+            self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(stablehlo.GetDimensionSizeOp)
+    def get_dimension_size_parser(
+        self,
+        old_op: stablehlo.GetDimensionSizeOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        stablehlo_op = self.get_opview_from_parser(
+            StableHLOBuilder.get_dimension_size_parser
+        )
+
+        in0 = global_dict[old_op.operand]
+        dim_attr = old_op.dimension
+
+        new_op = stablehlo_op(
+            in0,
+            dim_attr,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            op_golden_function = get_golden_function(stablehlo_op)
+            golden_output = op_golden_function(
+                input0, dim_attr, new_op_result.type.element_type
+            )
+            self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(stablehlo.GetDimensionSizeOp)
+    def get_dimension_size_split(
+        self,
+        old_op: stablehlo.GetDimensionSizeOp,
+    ) -> Tuple[Module, StableHLOBuilder]:
+        stablehlo_op = self.get_opview_from_split(StableHLOBuilder.get_dimension_size_split)
+
+        old_context = old_op.context
+        old_loc = Location.unknown(old_context)
+        with old_context, old_loc:
+            get_dimension_size_module = Module.create()
+            get_dimension_size_builder = StableHLOBuilder(old_context, old_loc)
+            op_input_types = [old_op.operand.type]
+
+            with InsertionPoint(get_dimension_size_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="get_dimension_size_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+
+                    new_op = stablehlo_op(
+                        in0,
+                        old_op.dimension,
+                        loc=old_op.location,
+                    )
+                    new_op_result = new_op.result
+
+                    if not self._disable_golden_check:
+                        input0 = self._get_golden_tensor(old_op.operand)
+                        op_golden_function = get_golden_function(stablehlo_op)
+                        golden_output = op_golden_function(
+                            input0, old_op.dimension, new_op_result.type.element_type
+                        )
+                        get_dimension_size_builder._set_golden_tensor(
+                            new_op_result, golden_output
+                        )
+                        get_dimension_size_builder._set_golden_tensor(in0, input0)
+                        ordered_inputs.append(in0)
+                        ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                get_dimension_size_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return get_dimension_size_module, get_dimension_size_builder
+
     ############### stablehlo.AddOp ###############
 
     @tag(stablehlo.AddOp)
