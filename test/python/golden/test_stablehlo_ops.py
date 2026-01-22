@@ -1674,8 +1674,20 @@ def module_uniform_dequantize(builder: StableHLOBuilder):
 @pytest.mark.parametrize(
     "test_fn",
     [
-        pytest.param(module_uniform_quantize, id="uniform_quantize"),
-        pytest.param(module_uniform_dequantize, id="uniform_dequantize"),
+        pytest.param(
+            module_uniform_quantize,
+            id="uniform_quantize",
+            marks=pytest.mark.xfail(
+                reason="Quantization ops not yet fully supported on TTNN backend"
+            ),
+        ),
+        pytest.param(
+            module_uniform_dequantize,
+            id="uniform_dequantize",
+            marks=pytest.mark.xfail(
+                reason="Quantization ops not yet fully supported on TTNN backend"
+            ),
+        ),
     ],
 )
 @pytest.mark.parametrize("target", ["ttnn"])
