@@ -59,7 +59,9 @@ def fbb_as_dict(bin):
     return json_string_as_dict(bin.as_json())
 
 
-def _get_device_for_target(target: str, mesh_shape: Tuple[int, int], pytestconfig, fabric_config=None):
+def _get_device_for_target(
+    target: str, mesh_shape: Tuple[int, int], pytestconfig, fabric_config=None
+):
     """Given a `target`, returns a device capable of executing a flatbuffer
     compiled for that `target`.
 
@@ -132,7 +134,9 @@ def _get_device_for_target(target: str, mesh_shape: Tuple[int, int], pytestconfi
         if fabric_config is not None:
             tt_runtime.runtime.set_fabric_config(fabric_config)
         elif math.prod(mesh_shape) > 1:
-            tt_runtime.runtime.set_fabric_config(tt_runtime.runtime.FabricConfig.FABRIC_1D)
+            tt_runtime.runtime.set_fabric_config(
+                tt_runtime.runtime.FabricConfig.FABRIC_1D
+            )
         device = tt_runtime.runtime.open_mesh_device(mesh_options)
         print(
             f"Device opened for test session with target {target}, mesh shape {mesh_options.mesh_shape}, fabric config {fabric_config}."

@@ -295,41 +295,43 @@ void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
   auto meshWorkload = distributed::MeshWorkload();
   auto deviceRange = distributed::MeshCoordinateRange(meshDevice->shape());
 
-  for (auto deviceCoord: deviceRange) {
+  for (auto deviceCoord : deviceRange) {
     tt_metal::Program program = tt_metal::CreateProgram();
 
     for (const target::metal::KernelConfig *kernelConfig :
-        *command->program()->kernels()) {
+         *command->program()->kernels()) {
       const target::metal::KernelSource *kernelSource =
           kernelConfig->kernel_as_KernelSource();
       LOG_ASSERT(kernelSource, "Only source kernels supported for now");
       std::string kernelSourceString(kernelSource->source()->c_str(),
-                                    kernelSource->source()->size());
+                                     kernelSource->source()->size());
 
       tt::tt_metal::CoreRangeSet coreRangeSet =
           common::toCoreRangeSet(kernelConfig->core_range_set());
 
       auto createSemaphore = [&](std::uint32_t initialValue,
-                                CoreType coreType) -> std::uint32_t {
+                                 CoreType coreType) -> std::uint32_t {
         return tt_metal::CreateSemaphore(program, coreRangeSet, initialValue,
-                                        coreType);
+                                         coreType);
       };
 
       tt_metal::KernelHandle handle = createKernel(
           program, kernelSourceString, coreRangeSet,
           createKernelConfig(kernelConfig, command->buffers(), meshBuffers,
-                            command->cbs(), deviceAddressValidator,
-                            createSemaphore),
+                             command->cbs(), deviceAddressValidator,
+                             createSemaphore),
           currentProgramName, debugInfo, kernelConfig->debug_info()->c_str(),
           kernelConfig->loc() ? kernelConfig->loc()->c_str() : nullptr);
 
       std::vector<uint32_t> rtArgsVec = processRuntimeArgs(
           kernelConfig->args()->rt_args(), command->buffers(), meshBuffers,
-          command->cbs(), deviceAddressValidator, createSemaphore); 
+          command->cbs(), deviceAddressValidator, createSemaphore);
 
       if (command->fabric_connection_config() &&
-        kernelConfig->type_type() == target::metal::KernelConfigType::NocConfig &&
-        command->fabric_connection_config()->noc_index() == kernelConfig->type_as_NocConfig()->noc_index()) {
+          kernelConfig->type_type() ==
+              target::metal::KernelConfigType::NocConfig &&
+          command->fabric_connection_config()->noc_index() ==
+              kernelConfig->type_as_NocConfig()->noc_index()) {
         tt::tt_fabric::FabricApiType api_type;
         uint32_t num_links = command->fabric_connection_config()->num_links();
         auto topology_type = command->fabric_connection_config()->topology();
@@ -337,13 +339,17 @@ void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
         // insert topology specific args (device specific)
         auto num_topology_arg_idx = rtArgsVec.size();
         rtArgsVec.push_back(1);
-        LOG_ASSERT(meshDevice->shape().dims() == 2, "Only 2d mesh device is supported");
+        LOG_ASSERT(meshDevice->shape().dims() == 2,
+                   "Only 2d mesh device is supported");
         // add line/ring index to device id mapping for line/ring topology
-        if (topology_type == tt::target::Topology::Linear || topology_type == tt::target::Topology::Ring) {
+        if (topology_type == tt::target::Topology::Linear ||
+            topology_type == tt::target::Topology::Ring) {
           rtArgsVec.push_back(static_cast<uint32_t>(topology_type));
-          int cluster_axis = command->fabric_connection_config()->cluster_axis();
+          int cluster_axis =
+              command->fabric_connection_config()->cluster_axis();
           LOG_ASSERT(cluster_axis < 2, "Invalid cluster axis, must be < 2");
-          // mesh coordinate dims are in x, y format where cluster axis uses y, x format
+          // mesh coordinate dims are in x, y format where cluster axis uses y,
+          // x format
           int dim = cluster_axis;
           // add num devices in line/ring
           int ring_size = meshDevice->shape()[dim];
@@ -351,13 +357,21 @@ void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
           // add forward and backward directions
           auto forwardCoord = deviceCoord;
           forwardCoord[dim] = (forwardCoord[dim] + 1) % ring_size;
-          auto forward_direction = get_eth_forwarding_direction(meshDevice->get_fabric_node_id(deviceCoord), meshDevice->get_fabric_node_id(forwardCoord));
-          LOG_ASSERT(forward_direction.has_value(), "Forward direction does not exist on mesh coordinate: ", deviceCoord);
+          auto forward_direction = get_eth_forwarding_direction(
+              meshDevice->get_fabric_node_id(deviceCoord),
+              meshDevice->get_fabric_node_id(forwardCoord));
+          LOG_ASSERT(forward_direction.has_value(),
+                     "Forward direction does not exist on mesh coordinate: ",
+                     deviceCoord);
           rtArgsVec.push_back(forward_direction.value());
           auto backwardCoord = deviceCoord;
           backwardCoord[dim] = (backwardCoord[dim] + ring_size - 1) % ring_size;
-          auto backward_direction = get_eth_forwarding_direction(meshDevice->get_fabric_node_id(deviceCoord), meshDevice->get_fabric_node_id(backwardCoord));
-          LOG_ASSERT(backward_direction.has_value(), "Backward direction does not exist on mesh coordinate: ", deviceCoord);
+          auto backward_direction = get_eth_forwarding_direction(
+              meshDevice->get_fabric_node_id(deviceCoord),
+              meshDevice->get_fabric_node_id(backwardCoord));
+          LOG_ASSERT(backward_direction.has_value(),
+                     "Backward direction does not exist on mesh coordinate: ",
+                     deviceCoord);
           rtArgsVec.push_back(backward_direction.value());
           // then add line/rindex to device id mapping for entire line/ring
           for (int i = 0; i < ring_size; i++) {
@@ -367,44 +381,46 @@ void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
           }
           api_type = tt::tt_fabric::FabricApiType::Linear;
           // update number of topology args
-          rtArgsVec[num_topology_arg_idx] = (rtArgsVec.size() - num_topology_arg_idx);
-        }
-        else {
-          LOG_ASSERT(false, EnumNameTopology(topology_type), " is not a supported topology");
+          rtArgsVec[num_topology_arg_idx] =
+              (rtArgsVec.size() - num_topology_arg_idx);
+        } else {
+          LOG_ASSERT(false, EnumNameTopology(topology_type),
+                     " is not a supported topology");
         }
 
         // insert fabric connection args (device and core specific)
-        std::vector<tt::tt_metal::CoreCoord> cores = tt::tt_metal::corerange_to_cores(coreRangeSet);
+        std::vector<tt::tt_metal::CoreCoord> cores =
+            tt::tt_metal::corerange_to_cores(coreRangeSet);
         LOG_ASSERT(cores.size() <= num_links, "Number of cores (", cores.size(),
-          ") to connect to fabric routers exceeds number of routing planes available (", num_links, ")");
+                   ") to connect to fabric routers exceeds number of routing "
+                   "planes available (",
+                   num_links, ")");
         for (uint32_t i = 0; i < cores.size(); i++) {
           std::vector<uint32_t> rtArgsVecPerCore = rtArgsVec;
           auto num_fabric_connection_arg_idx = rtArgsVecPerCore.size();
           // push arg placeholder to store number of fabric connection args
           rtArgsVecPerCore.push_back(1);
 
-          tt::tt_fabric::FabricNodeId src_fabric_node_id(meshDevice->get_fabric_node_id(deviceCoord));
-          auto all_routing_directions = {tt_fabric::RoutingDirection::E, tt_fabric::RoutingDirection::W, tt_fabric::RoutingDirection::N, tt_fabric::RoutingDirection::S};
+          tt::tt_fabric::FabricNodeId src_fabric_node_id(
+              meshDevice->get_fabric_node_id(deviceCoord));
+          auto all_routing_directions = {
+              tt_fabric::RoutingDirection::E, tt_fabric::RoutingDirection::W,
+              tt_fabric::RoutingDirection::N, tt_fabric::RoutingDirection::S};
           // push arg placeholder to store number of connections
           rtArgsVecPerCore.push_back(0);
-          uint32_t num_connections = tt::tt_fabric::append_routing_plane_connection_manager_rt_args(
-            src_fabric_node_id,
-            all_routing_directions,
-            {i},
-            program,
-            handle,
-            {cores[i]},
-            rtArgsVecPerCore,
-            api_type);
+          uint32_t num_connections =
+              tt::tt_fabric::append_routing_plane_connection_manager_rt_args(
+                  src_fabric_node_id, all_routing_directions, {i}, program,
+                  handle, {cores[i]}, rtArgsVecPerCore, api_type);
           // update number of connections
           rtArgsVecPerCore[num_fabric_connection_arg_idx + 1] = num_connections;
           // update number of fabric connection args
-          rtArgsVecPerCore[num_fabric_connection_arg_idx] = (rtArgsVecPerCore.size() - num_fabric_connection_arg_idx);
+          rtArgsVecPerCore[num_fabric_connection_arg_idx] =
+              (rtArgsVecPerCore.size() - num_fabric_connection_arg_idx);
 
           tt_metal::SetRuntimeArgs(program, handle, cores[i], rtArgsVecPerCore);
         }
-      }
-      else {
+      } else {
         tt_metal::SetRuntimeArgs(program, handle, coreRangeSet, rtArgsVec);
       }
     }
@@ -412,14 +428,14 @@ void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
     for (const target::metal::CBRef *cbRef : *command->cbs()) {
       const target::metal::BufferDesc *bufferDesc = cbRef->buffer_ref()->desc();
       LOG_ASSERT(bufferDesc->buffer_detail_type() ==
-                target::metal::BufferDetail::MetalBuffer);
+                 target::metal::BufferDetail::MetalBuffer);
       const target::metal::MetalBuffer *metalBuffer =
           bufferDesc->buffer_detail_as_MetalBuffer();
 
       assert((metalBuffer->buffer_config_type() !=
                   target::metal::BufferConfig::InterleavedBufferConfig ||
               !metalBuffer->circular_buffer_config()) &&
-            "Interleaved buffer configs should not have a CB config");
+             "Interleaved buffer configs should not have a CB config");
 
       // skip init if CircularBufferConfig is not present
       if (!metalBuffer->circular_buffer_config()) {
@@ -433,11 +449,12 @@ void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
       tt_metal::CreateCircularBuffer(program, coreRangeSet, config);
     }
 
-    // fabric connected cores all have separate runtime args so we add a separate program for each device
+    // fabric connected cores all have separate runtime args so we add a
+    // separate program for each device
     if (command->fabric_connection_config()) {
-      meshWorkload.add_program(distributed::MeshCoordinateRange(deviceCoord), std::move(program));
-    }
-    else {
+      meshWorkload.add_program(distributed::MeshCoordinateRange(deviceCoord),
+                               std::move(program));
+    } else {
       meshWorkload.add_program(deviceRange, std::move(program));
       break;
     }
