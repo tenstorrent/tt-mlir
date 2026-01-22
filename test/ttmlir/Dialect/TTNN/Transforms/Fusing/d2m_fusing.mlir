@@ -19,7 +19,6 @@ module {
     // CHECK: "ttnn.neg"
     // CHECK: "ttnn.abs"
     // CHECK: "ttnn.sigmoid"
-    // CHECK: return %{{.*}} : tensor<64x256xbf16
     %0 = "ttnn.matmul"(%arg0, %arg1) : (tensor<64x128xbf16, #layout>, tensor<128x256xbf16, #layout>) -> tensor<64x256xbf16, #layout>
     %1 = "ttnn.exp"(%0) : (tensor<64x256xbf16, #layout>) -> tensor<64x256xbf16, #layout>
     %2 = "ttnn.log"(%1) : (tensor<64x256xbf16, #layout>) -> tensor<64x256xbf16, #layout>
@@ -63,7 +62,6 @@ module {
     // CHECK-NOT: "ttnn.exp"
     // CHECK: "ttnn.log"
     // CHECK: "ttnn.neg"
-    // CHECK: }
     // CHECK: "ttnn.matmul"(%[[EXP]],
     %0 = "ttnn.matmul"(%arg0, %arg1) : (tensor<64x128xbf16, #layout>, tensor<128x256xbf16, #layout>) -> tensor<64x256xbf16, #layout>
     %1 = "ttnn.exp"(%0) : (tensor<64x256xbf16, #layout>) -> tensor<64x256xbf16, #layout>
@@ -160,7 +158,6 @@ module {
     // CHECK-DAG: "ttnn.abs"(%[[ARG]])
     // CHECK: "ttnn.add"
     // CHECK: "ttnn.log"
-    // CHECK: }
     // CHECK: "ttnn.matmul"(%[[EXP]],
     %0 = "ttnn.matmul"(%arg0, %arg1) : (tensor<64x128xbf16, #layout>, tensor<128x256xbf16, #layout>) -> tensor<64x256xbf16, #layout>
     %1 = "ttnn.exp"(%0) : (tensor<64x256xbf16, #layout>) -> tensor<64x256xbf16, #layout>

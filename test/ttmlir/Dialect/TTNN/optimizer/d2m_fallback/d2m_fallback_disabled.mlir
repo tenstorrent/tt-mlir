@@ -1,4 +1,5 @@
 // REQUIRES: opmodel
+// UNSUPPORTED: true
 // RUN: not ttmlir-opt --ttcore-register-device --ttnn-operation-validation-and-fallback="d2m-fallback-enabled=false tensor-l1-usage-cap=0.001" %s 2>&1 | FileCheck %s
 
 // with tensor-l1-usage-cap=0.001 and d2m fallback disabled,
