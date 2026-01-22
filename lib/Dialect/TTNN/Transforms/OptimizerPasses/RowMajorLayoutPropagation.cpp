@@ -10,6 +10,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
+#include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 #include "ttmlir/Dialect/TTNN/Validation/OpConstraintValidation.h"
 #include "ttmlir/FunctionTypes.h"
 #include "ttmlir/Support/Logger.h"
@@ -353,22 +354,11 @@ private:
 
     rewriter.setInsertionPoint(returnOp);
 
-    Type scalarElementType = ttcore::dataTypeToElementType(
-        rewriter.getContext(), expectedLayout.getDataType());
-    RankedTensorType targetType = RankedTensorType::get(
-        actualTensorType.getShape(), scalarElementType, expectedLayout);
-
-    auto toLayoutOp = rewriter.create<ttnn::ToLayoutOp>(
-        returnOp.getLoc(), targetType, previousOp,
-        ttnn::LayoutAttr::get(rewriter.getContext(),
-                              expectedLayout.getLayout()),
-        ttcore::DataTypeAttr::get(rewriter.getContext(),
-                                  expectedLayout.getDataType()),
-        ttnn::MemoryConfigAttr::get(
-            rewriter.getContext(), expectedLayout.getMemLayout(),
-            ttnn::BufferTypeAttr::get(rewriter.getContext(),
-                                      expectedLayout.getBufferType()),
-            /*shardSpec=*/std::nullopt));
+    auto toLayoutOp = utils::createToLayoutOp(
+        returnOp, mlir::cast<mlir::TypedValue<RankedTensorType>>(previousOp),
+        rewriter, expectedLayout.getLayout(), expectedLayout.getBufferType(),
+        expectedLayout.getMemLayout(), expectedLayout.getDataType(),
+        "_return_conversion");
 
     returnOp.setOperand(operandIdx, toLayoutOp.getResult());
   }
