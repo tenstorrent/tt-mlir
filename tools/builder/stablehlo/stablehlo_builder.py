@@ -882,7 +882,9 @@ class StableHLOBuilder(Builder):
                     if not self._disable_golden_check:
                         low = rng_builder._extract_scalar_from_constant(old_op.a)
                         high = rng_builder._extract_scalar_from_constant(old_op.b)
-                        shape_val = rng_builder._extract_shape_from_constant(old_op.shape)
+                        shape_val = rng_builder._extract_shape_from_constant(
+                            old_op.shape
+                        )
 
                         op_golden_function = get_golden_function(stablehlo_op)
                         golden_output = op_golden_function(
