@@ -572,6 +572,384 @@ static llvm::SmallVector<MergeCandidate> findAllMergeCandidates(
 }
 
 //===----------------------------------------------------------------------===//
+// Concat Input Chain Constraints
+//===----------------------------------------------------------------------===//
+
+// Determine the required input memory layout for a concat op based on its dim.
+// Returns std::nullopt if concat doesn't have a specific sharding constraint.
+//
+// Backend constraints:
+// - Block sharded: NOT supported for concat
+// - Width concat (dim = last) requires HEIGHT_SHARDED inputs
+// - Height concat (dim = second-to-last) requires WIDTH_SHARDED inputs
+//
+static std::optional<TensorMemoryLayout>
+getConcatRequiredInputMemLayout(Operation *concatOp) {
+  auto concat = llvm::dyn_cast<ttnn::ConcatOp>(concatOp);
+  if (!concat) {
+    return std::nullopt;
+  }
+
+  // Get the concat dimension
+  int32_t dim = concat.getDim();
+
+  // Get the rank of the input tensor
+  auto inputType = mlir::cast<RankedTensorType>(concat.getOperand(0).getType());
+  int64_t rank = inputType.getRank();
+
+  // Normalize negative dim
+  if (dim < 0) {
+    dim += rank;
+  }
+
+  // Backend constraints for sharded concat:
+  // - Width concat (dim = last) requires HEIGHT_SHARDED
+  // - Height concat (dim = second-to-last) requires WIDTH_SHARDED
+  if (dim == rank - 1) {
+    // Width concat -> needs height sharded inputs
+    return TensorMemoryLayout::HeightSharded;
+  }
+  if (dim == rank - 2) {
+    // Height concat -> needs width sharded inputs
+    return TensorMemoryLayout::WidthSharded;
+  }
+
+  // Other dims - return nullopt to not constrain (will likely fail validation)
+  return std::nullopt;
+}
+
+// Pre-pass to set preferred output memory layout for chains that feed into
+// or consume from concat. This allows pickOpShardConfigs to prefer compatible
+// sharding types, enabling seamless chain merging.
+//
+// Must be called after chain building but before resolution.
+//
+static void
+setConcatChainPreferences(std::vector<L1ChainConfig> &l1ChainConfigs) {
+
+  // Build temporary op-to-chain map
+  llvm::DenseMap<Operation *, size_t> opToChainMap;
+  for (size_t i = 0; i < l1ChainConfigs.size(); ++i) {
+    for (const auto &spec : l1ChainConfigs[i].getOpL1MemSpecs()) {
+      opToChainMap[spec.op] = i;
+    }
+  }
+
+  // Find concat chains and set preferences for their input and output chains
+  for (size_t concatChainIdx = 0; concatChainIdx < l1ChainConfigs.size();
+       ++concatChainIdx) {
+    L1ChainConfig &concatChain = l1ChainConfigs[concatChainIdx];
+    if (!concatChain.isConcatChain) {
+      continue;
+    }
+
+    Operation *concatOp = concatChain.getOpL1MemSpecs()[0].op;
+    auto requiredMemLayout = getConcatRequiredInputMemLayout(concatOp);
+
+    if (!requiredMemLayout) {
+      TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                   "Concat {}: no specific sharding preference for this dim",
+                   ttmlir::opToString(concatOp));
+      continue;
+    }
+
+    TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                 "Concat {} prefers {} inputs", ttmlir::opToString(concatOp),
+                 stringifyTensorMemoryLayout(*requiredMemLayout));
+
+    // Set preference for input chains (producers of concat's operands)
+    for (size_t i = 0; i < concatOp->getNumOperands(); ++i) {
+      Operation *producerOp = concatOp->getOperand(i).getDefiningOp();
+      if (!producerOp) {
+        continue;
+      }
+
+      auto chainIt = opToChainMap.find(producerOp);
+      if (chainIt == opToChainMap.end()) {
+        continue;
+      }
+
+      size_t inputChainIdx = chainIt->second;
+      L1ChainConfig &inputChain = l1ChainConfigs[inputChainIdx];
+
+      inputChain.preferredOutputMemLayout = *requiredMemLayout;
+
+      TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                   "  Input chain {}: set preferredOutputMemLayout to {}",
+                   inputChainIdx,
+                   stringifyTensorMemoryLayout(*requiredMemLayout));
+    }
+
+    // Set preference for output chain (consumer of concat's result)
+    // This enables seamless merging between concat and its consumer.
+    // Concat's output will have the same memory layout as its inputs,
+    // so the consumer should prefer the same layout.
+    if (concatOp->hasOneUse()) {
+      Operation *consumerOp = *concatOp->user_begin();
+      auto consumerChainIt = opToChainMap.find(consumerOp);
+      if (consumerChainIt != opToChainMap.end()) {
+        size_t consumerChainIdx = consumerChainIt->second;
+        L1ChainConfig &consumerChain = l1ChainConfigs[consumerChainIdx];
+
+        // Only set if consumer's first op is the concat user
+        if (!consumerChain.getOpL1MemSpecs().empty() &&
+            consumerChain.getOpL1MemSpecs()[0].op == consumerOp) {
+          consumerChain.preferredOutputMemLayout = *requiredMemLayout;
+
+          TTMLIR_DEBUG(
+              ttmlir::LogComponent::DFShardingPolicy,
+              "  Consumer chain {}: set preferredOutputMemLayout to {}",
+              consumerChainIdx,
+              stringifyTensorMemoryLayout(*requiredMemLayout));
+        }
+      }
+    }
+  }
+}
+
+//===----------------------------------------------------------------------===//
+// Concat Chain Resolution
+//===----------------------------------------------------------------------===//
+
+// Resolve concat chains by validating that all incoming L1-sharded inputs
+// can be consumed directly. This is called after regular chains are resolved
+// but before chain merging.
+//
+// For each concat chain:
+// 1. Find all input chains (producers of concat's operands)
+// 2. Check if all input chains are Completed (successfully L1-sharded)
+// 3. Validate concat can consume all L1 inputs by querying the backend
+// 4. Validate N-way merge: each subsequent input chain can execute while
+//    previous chains' outputs stay in L1
+// 5. If successful, mark input chains with spillLocation = None and
+//    complete the concat chain with the backend-determined output layout
+//
+static void resolveConcatChains(
+    std::vector<L1ChainConfig> &l1ChainConfigs,
+    const llvm::DenseMap<Operation *, size_t> &opToChainMap,
+    const llvm::DenseMap<Operation *, std::vector<OpConfig>> &legalConfigs) {
+
+  for (size_t concatChainIdx = 0; concatChainIdx < l1ChainConfigs.size();
+       ++concatChainIdx) {
+    L1ChainConfig &concatChain = l1ChainConfigs[concatChainIdx];
+
+    if (!concatChain.isConcatChain) {
+      continue;
+    }
+
+    Operation *concatOp = concatChain.getOpL1MemSpecs()[0].op;
+
+    TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                 "Resolving concat chain {} for op {}", concatChainIdx,
+                 ttmlir::opToString(concatOp));
+
+    // Find all input chains (producers of concat's operands)
+    llvm::SmallVector<size_t> inputChainIndices;
+    std::vector<TTNNLayoutAttr> inputLayouts;
+    bool allInputChainsCompleted = true;
+
+    for (size_t i = 0; i < concatOp->getNumOperands(); ++i) {
+      Operation *producerOp = concatOp->getOperand(i).getDefiningOp();
+      if (!producerOp) {
+        TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                     "  Operand {}: no defining op (block arg), cannot do L1 "
+                     "optimization",
+                     i);
+        allInputChainsCompleted = false;
+        break;
+      }
+
+      auto chainIt = opToChainMap.find(producerOp);
+      if (chainIt == opToChainMap.end()) {
+        TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                     "  Operand {}: producer {} not in any chain", i,
+                     producerOp->getName());
+        allInputChainsCompleted = false;
+        break;
+      }
+
+      const L1ChainConfig &inputChain = l1ChainConfigs[chainIt->second];
+      if (inputChain.getState() != L1ChainState::Completed) {
+        TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                     "  Operand {}: input chain {} not Completed (state={})", i,
+                     chainIt->second, inputChain.getStateString());
+        allInputChainsCompleted = false;
+        break;
+      }
+
+      if (inputChain.getLastOp() != producerOp) {
+        TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                     "  Operand {}: producer {} is not last op of chain {}", i,
+                     producerOp->getName(), chainIt->second);
+        allInputChainsCompleted = false;
+        break;
+      }
+
+      inputChainIndices.push_back(chainIt->second);
+      TTNNLayoutAttr outputLayout =
+          inputChain.getOpL1MemSpecs().back().config.outputLayout;
+      inputLayouts.push_back(outputLayout);
+
+      TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                   "  Operand {}: from chain {}, layout: {}", i,
+                   chainIt->second, outputLayout);
+    }
+
+    if (!allInputChainsCompleted) {
+      TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                   "Concat chain {}: not all inputs are L1-sharded, marking "
+                   "as Failed",
+                   concatChainIdx);
+      concatChain.fail();
+      continue;
+    }
+
+    // Check if any input chain's last op is a fork (has users besides concat).
+    // Fork handling is complex - it requires validating all ops between the
+    // fork and its last user across all branches. We don't support this for
+    // concat inputs, so fail if any input chain has a fork.
+    bool hasInputFork = false;
+    for (size_t idx : inputChainIndices) {
+      Operation *lastOp = l1ChainConfigs[idx].getLastOp();
+      if (!lastOp || lastOp->getNumResults() == 0) {
+        continue;
+      }
+      Value output = lastOp->getResult(0);
+      for (Operation *user : output.getUsers()) {
+        if (user != concatOp) {
+          hasInputFork = true;
+          TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                       "Concat chain {}: input chain {} has fork at last op "
+                       "(user: {}), cannot do L1 optimization",
+                       concatChainIdx, idx, user->getName());
+          break;
+        }
+      }
+      if (hasInputFork) {
+        break;
+      }
+    }
+
+    if (hasInputFork) {
+      concatChain.fail();
+      continue;
+    }
+
+    // Validate concat can consume all L1 inputs
+    // Try each legal config for concat to find one that works with L1 inputs.
+    // The config must have an L1 sharded output that matches the inputs'
+    // memory layout type.
+    const std::vector<OpConfig> &concatLegalConfigs =
+        legalConfigs.lookup(concatOp);
+
+    if (concatLegalConfigs.empty()) {
+      TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                   "Concat chain {}: no legal configs available",
+                   concatChainIdx);
+      concatChain.fail();
+      continue;
+    }
+
+    // For sharded concat, the backend requires output grid to match input grid.
+    // Construct an output layout based on the first input's layout, keeping
+    // the same grid and memory layout type.
+    TTNNLayoutAttr firstInputLayout = inputLayouts[0];
+    RankedTensorType concatOutputType =
+        mlir::cast<RankedTensorType>(concatOp->getResult(0).getType());
+    llvm::ArrayRef<int64_t> outputShape = concatOutputType.getShape();
+
+    // Build output layout with same grid/memory config as first input
+    TTNNLayoutAttr outputLayout = firstInputLayout.withTensorShape(outputShape);
+
+    TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                 "Concat chain {}: constructed output layout from input: {}",
+                 concatChainIdx, outputLayout);
+
+    OpConfig selectedConfig;
+    selectedConfig.outputLayout = outputLayout;
+
+    op_constraint_validation::ValidationResult result =
+        op_constraint_validation::validateOperation(
+            concatOp, inputLayouts, selectedConfig, /*additionalL1Usage=*/0);
+
+    if (!result.isSuccess()) {
+      TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                   "Concat chain {}: validation failed: {}", concatChainIdx,
+                   result.errorMessage);
+      concatChain.fail();
+      continue;
+    }
+
+    TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                 "Concat chain {}: validation succeeded with output layout: {}",
+                 concatChainIdx, outputLayout);
+
+    // Validate N-way merge: each subsequent input chain can execute while
+    // previous chains' outputs stay in L1
+    bool nWayMergeValid = true;
+    uint64_t accumulatedL1 = 0;
+
+    for (size_t i = 0; i < inputChainIndices.size(); ++i) {
+      if (i > 0) {
+        // Validate chain[i] can execute while previous chains' outputs stay
+        // in L1
+        const L1ChainConfig &chainI = l1ChainConfigs[inputChainIndices[i]];
+        if (!validateChainWithPredecessorInL1(chainI, accumulatedL1,
+                                              kEmptySchedulePositionMap,
+                                              kEmptyL1Reservations)) {
+          TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                       "Concat chain {}: N-way merge failed - chain {} cannot "
+                       "execute with {} bytes of predecessor output in L1",
+                       concatChainIdx, inputChainIndices[i], accumulatedL1);
+          nWayMergeValid = false;
+          break;
+        }
+      }
+      accumulatedL1 +=
+          getChainOutputSizeBytes(l1ChainConfigs[inputChainIndices[i]]);
+    }
+
+    if (!nWayMergeValid) {
+      concatChain.fail();
+      continue;
+    }
+
+    // Success! Mark input chains as spillLocation = None (no spill needed)
+    for (size_t idx : inputChainIndices) {
+      l1ChainConfigs[idx].spillLocation = SpillLocation::None;
+      TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                   "Concat chain {}: marking input chain {} spillLocation = "
+                   "None",
+                   concatChainIdx, idx);
+    }
+
+    // Complete concat chain with the validated config
+    // Use the actual output layout from backend validation if available,
+    // otherwise use the selected config's output layout
+    if (result.actualOutputLayout) {
+      selectedConfig.outputLayout = result.actualOutputLayout;
+    }
+
+    llvm::DenseMap<Operation *, OpConfig> selectedConfigs;
+    selectedConfigs[concatOp] = selectedConfig;
+    llvm::DenseMap<Edge, MemReconfigEntry> emptyReconfigMap;
+
+    // Transition state from Built -> Resolved before completing
+    concatChain.resolve();
+    concatChain.complete(selectedConfigs, emptyReconfigMap);
+
+    // Set spillLocation based on output layout
+    if (!selectedConfig.outputLayout.hasDRAMBufferType()) {
+      concatChain.spillLocation = SpillLocation::DRAM;
+    }
+
+    TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                 "Concat chain {} resolved successfully with output layout: {}",
+                 concatChainIdx, selectedConfig.outputLayout);
+  }
+}
+
+//===----------------------------------------------------------------------===//
 // Chain Merge Post-Processing
 //===----------------------------------------------------------------------===//
 
@@ -1161,9 +1539,40 @@ void DFShardingPolicy::run() {
                     ttnn::MultiplyOp, ttnn::ReluOp, ttnn::Relu6Op,
                     ttnn::TypecastOp, ttnn::SiluOp, ttnn::MatmulOp,
                     ttnn::LinearOp, ttnn::MinimumOp, ttnn::GeluOp, ttnn::NegOp,
-                    ttnn::RsqrtOp, ttnn::PowScalarOp, ttnn::SliceStaticOp,
-                    ttnn::RotaryEmbeddingOp>(currentOp) &&
+                    ttnn::RsqrtOp, ttnn::ConcatOp, ttnn::PowScalarOp,
+                    ttnn::SliceStaticOp, ttnn::RotaryEmbeddingOp>(currentOp) &&
           legalConfigs.lookup(currentOp).size() > 0;
+
+      // Special handling for ConcatOp: isolate it into its own single-op
+      // chain. This allows us to handle concat specially by:
+      // 1. Breaking any incoming chain at concat
+      // 2. Starting a new chain after concat's user
+      // 3. Resolving concat without ShardSolver by validating if all
+      //    incoming L1-sharded inputs can be consumed directly
+      if (llvm::isa<ttnn::ConcatOp>(currentOp) && validForSharding) {
+        // First, finalize any current chain that was being built
+        if (!l1ChainConfigs->back().isEmpty()) {
+          l1ChainConfigs->back().build();
+          l1ChainConfigs->push_back(L1ChainConfig());
+        }
+
+        // Create a single-op chain for concat
+        OpL1MemSpec concatSpec;
+        concatSpec.op = currentOp;
+        concatSpec.tensorSplitFactor = 1;
+        l1ChainConfigs->back().addOpL1MemSpec(std::move(concatSpec));
+        l1ChainConfigs->back().isConcatChain = true;
+        l1ChainConfigs->back().build();
+
+        TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                     "Created isolated concat chain for op {}",
+                     ttmlir::opToString(currentOp));
+
+        // Start a new chain for subsequent ops
+        l1ChainConfigs->push_back(L1ChainConfig());
+        currentOp = nullptr;
+        continue;
+      }
 
       // Check for next op only if there are still unscheduled ops
       Operation *nextOp = nullptr;
@@ -1205,8 +1614,18 @@ void DFShardingPolicy::run() {
                          ttmlir::opToString(nextOp));
             currentOp = nullptr;
           } else {
-            currentOp = nextOp;
-            continue;
+            // Don't continue chain into ConcatOp - it needs its own chain
+            if (llvm::isa<ttnn::ConcatOp>(nextOp)) {
+              TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                           "Breaking L1 chain at op {} because next op {} is "
+                           "ConcatOp",
+                           ttmlir::opToString(currentOp),
+                           ttmlir::opToString(nextOp));
+              currentOp = nullptr;
+            } else {
+              currentOp = nextOp;
+              continue;
+            }
           }
         }
       }
@@ -1232,6 +1651,10 @@ void DFShardingPolicy::run() {
                  l1ChainConfig);
   }
 
+  // Set preferred output memory layout for chains feeding into concat.
+  // This must be done before resolution so pickOpShardConfigs can use it.
+  setConcatChainPreferences(*l1ChainConfigs);
+
   // Resolve shard chain configs.
   //
   mlir::tt::ttnn::MemoryLayoutAnalysisProgressTracker progressTracker;
@@ -1241,6 +1664,14 @@ void DFShardingPolicy::run() {
   for (size_t chainIndex = 0; chainIndex < l1ChainConfigs->size();
        ++chainIndex) {
     L1ChainConfig &l1ChainConfig = (*l1ChainConfigs)[chainIndex];
+
+    // Skip concat chains - they are resolved separately after all regular
+    // chains are processed, so we can check if their inputs are L1-sharded.
+    if (l1ChainConfig.isConcatChain) {
+      TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                   "Skipping concat chain {} - will resolve later", chainIndex);
+      continue;
+    }
 
     // Count operations in this chain
     size_t numOpsInChain = l1ChainConfig.getOpL1MemSpecs().size();
@@ -1274,6 +1705,14 @@ void DFShardingPolicy::run() {
 
     progressTracker.finishL1Chain(firstOp, chainIndex, true);
   }
+
+  // Build op-to-chain map for concat resolution and chain merging.
+  llvm::DenseMap<Operation *, size_t> opToChainMap =
+      buildOpToChainMap(*l1ChainConfigs);
+
+  // Resolve concat chains now that all regular chains are processed.
+  // This allows us to check if concat's input chains are L1-sharded.
+  resolveConcatChains(*l1ChainConfigs, opToChainMap, legalConfigs);
 
   // Chain merging: attempt to merge chains where Chain A's output can stay
   // in L1 and be consumed as RHS by a join op in Chain B.
