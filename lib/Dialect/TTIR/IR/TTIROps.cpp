@@ -4868,36 +4868,22 @@ verifyReduceOp(llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
 ::mlir::LogicalResult mlir::tt::ttir::TopKOp::verify() {
   RankedTensorType inputType = getInputTensor().getType();
   int64_t inputRank = inputType.getRank();
-
-  // ttnn.topk Limitations:
-  // Input tensor must be in 4D [N, C, H, W] format.
-  if (inputRank != 4) {
-    return emitOpError("input tensor must be in 4D [N, C, H, W] format");
-  }
-
-  // For input_tensor, N*C*H must be a multiple of 32
-  if ((inputType.getDimSize(0) * inputType.getDimSize(1) *
-       inputType.getDimSize(2)) %
-          32 !=
-      0) {
-    return emitOpError("For input tensor, N*C*H must be a multiple of 32");
-  }
-
-  // Only dim=-1 is supported (fundamentally operates on 4D with dim=-1)
-  int dim = getDim();
+  int32_t dim = getDim();
+  int32_t K = getK();
 
   // Normalize dim to check if it's effectively the last dimension
   int normalizedDim = dim < 0 ? dim + inputRank : dim;
-  if (normalizedDim != inputRank - 1) {
-    return emitOpError()
-           << "only dim=-1 (last dimension) is supported, got dim=" << dim;
+  if (normalizedDim < 0 || normalizedDim >= inputRank) {
+    return emitOpError() << "specified dimension should be between "
+                         << -inputRank << " and " << (inputRank - 1)
+                         << ", but got: " << dim;
   }
 
-  // Reduced dimension size must be equal to k
-  uint32_t K = getK();
-  auto valuesShape = getValues().getType().getShape();
-  if (valuesShape[normalizedDim] != K) {
-    return emitOpError("reduced dimension size must be equal to k");
+  int normalizedK = K < 0 ? K + inputRank : K;
+  if (normalizedK < 0 || normalizedK >= inputType.getDimSize(normalizedDim)) {
+    return emitOpError() << "K should be between 1 and the size of the "
+                            "specified dimension ("
+                         << normalizedDim << "), but got: " << K;
   }
 
   return success();
