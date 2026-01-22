@@ -9,6 +9,7 @@
 #include "mlir/IR/OpImplementation.h"
 #include "llvm/Support/LogicalResult.h"
 
+#include "llvm/Support/Casting.h"
 #include <string_view>
 
 using namespace mlir;
@@ -359,36 +360,54 @@ LogicalResult CallOpaqueOp::verify() {
 //===----------------------------------------------------------------------===//
 // ImportOp
 //===----------------------------------------------------------------------===//
-
 void ImportOp::print(OpAsmPrinter &p) {
-  StringAttr moduleName = getModuleNameAttr();
+  auto moduleName = getModuleName();
+  auto moduleAlias = getModuleAlias();
+  auto membersToImport = getMembersToImport();
+  auto memberAliases = getMemberAliases();
   p << " ";
   if (getImportAll()) {
     // Print 'from <moduleName> import *' case.
     p << "from " << moduleName << " import *";
-  } else if (getMembersToImport()) {
+  } else if (membersToImport && !membersToImport->empty()) {
     // Print 'from <moduleName> import <membersToImport> [as <memberAliases>]'
     // case.
-    ArrayAttr membersToImport = *getMembersToImport();
-    p << "from " << moduleName << " import " << membersToImport[0];
-    ArrayAttr member_aliases = nullptr;
-    if (getMemberAliases()) {
-      member_aliases = *getMemberAliases();
-      if (!dyn_cast<StringAttr>(member_aliases[0]).empty()) {
-        p << " as " << member_aliases[0];
+    auto hasAliasAt = [&](size_t i) -> bool {
+      if (!memberAliases || memberAliases->empty() ||
+          i >= memberAliases->size()) {
+        return false;
       }
-    }
-    for (size_t i = 1; i < membersToImport.size(); i++) {
-      p << ", " << membersToImport[i];
-      if (member_aliases && !dyn_cast<StringAttr>(member_aliases[i]).empty()) {
-        p << " as " << member_aliases[i];
+      if (auto alias = dyn_cast_if_present<StringAttr>((*memberAliases)[i])) {
+        return alias && !alias.empty();
       }
+      return false;
+    };
+
+    p << "from " << moduleName << " import ";
+
+    bool first = true;
+    for (size_t i = 0; i < membersToImport->size(); ++i) {
+      auto member =
+          llvm::dyn_cast_if_present<StringAttr>((*membersToImport)[i]);
+      if (!member || member.empty()) {
+        continue;
+      }
+
+      if (!first) {
+        p << ", ";
+      }
+      p << member;
+      if (hasAliasAt(i)) {
+        p << " as " << (*memberAliases)[i];
+      }
+
+      first = false;
     }
   } else {
     // Print 'import <moduleName> [as <moduleAlias>]' case.
     p << "import " << moduleName;
-    if (getModuleAlias()) {
-      p << " as " << getModuleAliasAttr();
+    if (moduleAlias && !moduleAlias->empty()) {
+      p << " as " << *moduleAlias;
     }
   }
 }
@@ -410,7 +429,7 @@ ParseResult ImportOp::parse(::mlir::OpAsmParser &parser,
     }
     result.addAttribute("module_name", moduleNameAttr);
 
-    if (parser.parseOptionalKeyword("import")) {
+    if (parser.parseKeyword("import")) {
       return parser.emitError(parser.getNameLoc())
              << "expected string literal 'import'";
     }
@@ -419,52 +438,46 @@ ParseResult ImportOp::parse(::mlir::OpAsmParser &parser,
       // Parse 'from <moduleName> import *' case.
       importAllAttr = builder.getUnitAttr();
       result.addAttribute("import_all", importAllAttr);
-
-      if (succeeded(parser.parseOptionalKeyword("as"))) {
-        return parser.emitError(
-            parser.getNameLoc(),
-            "unexpected 'as' keyword in 'from ... import *' form");
-      }
     } else {
       // Parse 'from <moduleName> import <membersToImport> [as <memberAliases>]'
       // case.
       StringAttr member;
-      StringAttr member_alias = builder.getStringAttr("");
+      StringAttr memberAlias = builder.getStringAttr("");
       SmallVector<StringRef> members;
-      SmallVector<StringRef> member_aliases;
+      SmallVector<StringRef> memberAliases;
 
-      if (!parser.parseOptionalAttribute(member).has_value()) {
+      if (parser.parseAttribute(member)) {
         return parser.emitError(parser.getNameLoc())
                << "expected string attribute for member name";
       }
       if (succeeded(parser.parseOptionalKeyword("as"))) {
-        if (!parser.parseOptionalAttribute(member_alias).has_value()) {
+        if (parser.parseAttribute(memberAlias)) {
           return parser.emitError(parser.getNameLoc())
                  << "expected string attribute for alias";
         }
       }
       members.push_back(member.getValue());
-      member_aliases.push_back(member_alias.getValue());
+      memberAliases.push_back(memberAlias.getValue());
 
       while (succeeded(parser.parseOptionalComma())) {
-        if (!parser.parseOptionalAttribute(member).has_value()) {
+        if (parser.parseAttribute(member)) {
           return parser.emitError(parser.getNameLoc())
                  << "expected string attribute for member name";
         }
-        member_alias = builder.getStringAttr("");
+        memberAlias = builder.getStringAttr("");
         if (succeeded(parser.parseOptionalKeyword("as"))) {
-          if (!parser.parseOptionalAttribute(member_alias).has_value()) {
+          if (parser.parseAttribute(memberAlias)) {
             return parser.emitError(parser.getNameLoc())
                    << "expected string attribute for alias";
           }
         }
         members.push_back(member.getValue());
-        member_aliases.push_back(member_alias.getValue());
+        memberAliases.push_back(memberAlias.getValue());
       }
 
       membersToImportAttr = builder.getStrArrayAttr(members);
       result.addAttribute("members_to_import", membersToImportAttr);
-      memberAliasesAttr = builder.getStrArrayAttr(member_aliases);
+      memberAliasesAttr = builder.getStrArrayAttr(memberAliases);
       result.addAttribute("member_aliases", memberAliasesAttr);
     }
   } else {
@@ -493,42 +506,36 @@ ParseResult ImportOp::parse(::mlir::OpAsmParser &parser,
 }
 
 LogicalResult ImportOp::verify() {
-  StringRef moduleName = getModuleName();
-  ::std::optional<::llvm::StringRef> moduleAlias = getModuleAlias();
-  ::std::optional<::mlir::ArrayAttr> membersToImport = getMembersToImport();
-  ::std::optional<::mlir::ArrayAttr> memberAliases = getMemberAliases();
-  ::std::optional<bool> importAll = getImportAll();
+  auto importAll = getImportAll();
+  auto moduleAlias = getModuleAlias();
+  auto membersToImport = getMembersToImport();
+  auto memberAliases = getMemberAliases();
 
   // <moduleName> must be non-empty.
-  if (moduleName.empty()) {
+  if (getModuleName().empty()) {
     return emitOpError("module name attribute must be non-empty");
   }
 
-  bool hasModuleAlias = moduleAlias.has_value();
-  bool hasMembersToImport = membersToImport.has_value();
-  bool hasMemberAliases = memberAliases.has_value();
-  bool hasImportAll = importAll.has_value();
-
   // Verify 'from <moduleName> import *' case.
-  if (hasImportAll) {
-    if (hasModuleAlias) {
+  if (importAll) {
+    if (moduleAlias) {
       return emitOpError("cannot specify module alias with *");
     }
-    if (hasMembersToImport) {
+    if (membersToImport) {
       return emitOpError("cannot specify members to import with *");
     }
-    if (hasMemberAliases) {
+    if (memberAliases) {
       return emitOpError("cannot specify members' aliases with *");
     }
     return success();
   }
 
   // Verify 'import <moduleName> as <moduleAlias>' case.
-  if (hasModuleAlias) {
-    if (hasMembersToImport) {
+  if (moduleAlias) {
+    if (membersToImport) {
       return emitOpError("cannot specify members to import with module alias");
     }
-    if (hasMemberAliases) {
+    if (memberAliases) {
       return emitOpError("cannot specify members' aliases with module alias");
     }
     return success();
@@ -536,18 +543,25 @@ LogicalResult ImportOp::verify() {
 
   // Verify 'from <moduleName> import <membersToImport> [as <memberAliases>]'
   // case.
-  if (hasMembersToImport) {
+  if (membersToImport) {
+    if (membersToImport->empty()) {
+      return emitOpError("members to import must not be empty array");
+    }
+
     // Check individual members' names are not empty.
     for (Attribute member : *membersToImport) {
-      StringAttr memberName = dyn_cast<StringAttr>(member);
-      if (memberName.empty()) {
-        return emitOpError("imported member name cannot be empty");
+      auto memberName = dyn_cast_if_present<StringAttr>(member);
+      if (!memberName || memberName.empty()) {
+        return emitOpError("imported member name must be a non-empty string");
       }
     }
 
     // If <memberAliases> are provided, their count must be equal to
     // <membersToImport> count.
-    if (hasMemberAliases) {
+    if (memberAliases) {
+      if (memberAliases->empty()) {
+        return emitOpError("member aliases must not be empty array");
+      }
       if (membersToImport->size() != memberAliases->size()) {
         return emitOpError("the number of members' aliases must be equal to "
                            "the number of members to import; empty string is "
@@ -555,6 +569,11 @@ LogicalResult ImportOp::verify() {
       }
     }
     return success();
+  }
+
+  if (memberAliases) {
+    return emitOpError(
+        "cannot specify member aliases without specifying members to import");
   }
 
   // Verify 'import <moduleName>' case.
