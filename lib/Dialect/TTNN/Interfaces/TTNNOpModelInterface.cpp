@@ -4866,7 +4866,7 @@ D2MSubgraphOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 llvm::Expected<size_t>
 D2MSubgraphOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
                             const OpConfig &opConfig) {
-  auto func = getD2MMainFunc();
+    auto func = getD2MMainFunc();
   assert(func && "D2MSubgraphOp must have a D2M function");
   auto &body = func.getBody();
   assert(body.hasOneBlock() && "D2M function must have one block");
@@ -4912,5 +4912,37 @@ D2MSubgraphOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
   }
 
   return ret;
+}
+
+//===----------------------------------------------------------------------===//
+// TopKOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+TopKOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                         const OpConfig &opConfig) {
+  assert(inputs.size() == 1);
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(getOperation()).getWorkerGrid();
+  const auto inputShape = getInputTensor().getType().getShape();
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<mlir::tt::ttnn::TopKOp>::getOpConstraints, *this,
+      deviceGrid, inputShape, inputs[0], getK(), getDim(), getLargest(),
+      getSorted(), opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+TopKOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                     const OpConfig &opConfig) {
+  assert(inputs.size() == 1);
+  const auto inputShape = getInputTensor().getType().getShape();
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<mlir::tt::ttnn::TopKOp>::getOpRuntime, *this,
+      inputShape, inputs[0], getK(), getDim(), getLargest(), getSorted(),
+      opConfig.outputLayout);
 }
 } // namespace mlir::tt::ttnn
