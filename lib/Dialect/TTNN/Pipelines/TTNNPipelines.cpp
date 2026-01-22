@@ -7,7 +7,6 @@
 #include "ttmlir/Conversion/Passes.h"
 #include "ttmlir/Conversion/TTNNToEmitC/TTNNToEmitC.h"
 #include "ttmlir/Conversion/TTNNToEmitPy/TTNNToEmitPy.h"
-#include "ttmlir/Dialect/EmitPy/Transforms/Passes.h"
 #include "ttmlir/Dialect/LLVM/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTCore/Transforms/Passes.h"
@@ -525,7 +524,7 @@ void createTTIRToEmitPyPipeline(OpPassManager &pm,
 
   // Split linked module into main and consteval files.
   //
-  pm.addPass(mlir::tt::emitpy::createEmitPySplitFiles());
+  pm.addPass(createEmitPySplitFilesPass());
 }
 
 // Complete pipeline for lowering TTNN to EmitPy.

@@ -253,6 +253,16 @@ def EmitPyLinkModules : Pass<"emitpy-link-modules", "::mlir::ModuleOp"> {
   let dependentDialects = ["mlir::tt::emitpy::EmitPyDialect"];
 }
 
+def EmitPySplitFiles: Pass<"emitpy-split-files-creation", "::mlir::ModuleOp"> {
+  let summary = "Organize EmitPy operations into separate files.";
+  let description = [{
+    This pass organizes EmitPy operations into two files:
+    - main.py: Runtime execution logic.
+    - consteval.py: Complete consteval logic.
+  }];
+  let constructor = "createEmitPySplitFilesPass()";
+}
+
 def ConvertTTKernelToEmitC : Pass<"convert-ttkernel-to-emitc", "::mlir::ModuleOp"> {
   let summary = "Convert TTKernel dialect to EmitC dialect.";
   let dependentDialects = ["mlir::emitc::EmitCDialect", "mlir::func::FuncDialect",
