@@ -550,12 +550,24 @@ CPUHoistAnalyzerType constEvalHoistAnalyzer() {
               mlir::dyn_cast<mlir::tt::ttir::MeshShardOp>(nestedOp)) {
         // If there is a non-identity TTIR MeshShardOp, skip CPU hoisting
         // altogether.
+        // TODO(dmilinkovic):
+        // https://github.com/tenstorrent/tt-mlir/issues/6709.
         if (meshShardOp.getShardType() != ttcore::MeshShardType::Identity) {
           return WalkResult::interrupt();
         }
         // Otherwise, we should skip hoisting identity MeshShardOps, since these
         // are no-ops.
         return WalkResult::skip();
+      }
+
+      // If there is any CCL op, skip CPU hoisting altogether.
+      // TODO(dmilinkovic) - https://github.com/tenstorrent/tt-mlir/issues/6709.
+      if (mlir::isa<mlir::tt::ttir::AllGatherOp, mlir::tt::ttir::AllReduceOp,
+                    mlir::tt::ttir::ReduceScatterOp,
+                    mlir::tt::ttir::CollectivePermuteOp,
+                    mlir::tt::ttir::AllToAllOp,
+                    mlir::tt::ttir::CollectiveBroadcastOp>(nestedOp)) {
+        return WalkResult::interrupt();
       }
 
       descriptor.operations.push_back(nestedOp);
