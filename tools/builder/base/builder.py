@@ -813,7 +813,9 @@ class Builder(metaclass=BuilderMeta):
                 builtin_module = entry.regions[0].blocks[0].operations[0]
                 for op in builtin_module.regions[0].blocks[0].operations:
                     if isinstance(op, func.FuncOp):
-                        self._func_name_to_op[op.name.value] = op
+                        # Only add functions with bodies, not declarations
+                        if not op.is_external:
+                            self._func_name_to_op[op.name.value] = op
 
                         for block in op.body:
                             for inner_op in block.operations:
@@ -1034,8 +1036,7 @@ class Builder(metaclass=BuilderMeta):
         if is_hoisted:
             insertion_point = self._cpu_module_insertion_point
             hoisted_func_name = parsed_op_callee_value
-            hoisted_func_name_clean = hoisted_func_name.removesuffix("_decl")
-            nested_func_op = self._func_name_to_op[hoisted_func_name_clean]
+            nested_func_op = self._func_name_to_op[hoisted_func_name]
 
             new_golden_inputs = []
             for operand in parsed_op_operands:

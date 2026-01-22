@@ -14,7 +14,7 @@ module {
 
   // Const-eval function with zeros op.
   // CHECK-LABEL: func.func private @forward_with_zeros_const_eval_0{{.*}} -> (tensor<32x32xbf16{{.*}}>, tensor<32x32xbf16{{.*}}>)
-  // CHECK: call @hoisted_forward_with_zeros_const_eval_0_decl
+  // CHECK: call @cpu_hoisted_forward_with_zeros_const_eval_0_{{.*}}
 
   // CHECK-LABEL: func.func @forward_with_zeros
   func.func @forward_with_zeros(%arg0: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<input>},
@@ -35,7 +35,7 @@ module {
 
   // Const-eval function with full op.
   // CHECK-LABEL: func.func private @forward_with_full_const_eval_0{{.*}} -> tensor<32x32xbf16
-  // CHECK: call @hoisted_forward_with_full_const_eval_0_decl
+  // CHECK: call @cpu_hoisted_forward_with_full_const_eval_0_{{.*}}
 
   // CHECK-LABEL: func.func @forward_with_full
   func.func @forward_with_full(%arg0: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<input>},
@@ -51,11 +51,11 @@ module {
     return %2 : tensor<32x32xbf16>
   }
 
-  // CHECK-LABEL: func.func private @hoisted_forward_with_zeros_const_eval_0_decl{{.*}} -> (tensor<32x32xf32{{.*}}>, tensor<32x32xf32{{.*}}>)
-  // CHECK-LABEL: func.func private @hoisted_forward_with_full_const_eval_0_decl{{.*}} -> tensor<32x32xf32
+  // CHECK-LABEL: func.func private @cpu_hoisted_forward_with_zeros_const_eval_0_{{.*}}{{.*}} -> (tensor<32x32xf32{{.*}}>, tensor<32x32xf32{{.*}}>)
+  // CHECK-LABEL: func.func private @cpu_hoisted_forward_with_full_const_eval_0_{{.*}}{{.*}} -> tensor<32x32xf32
 
   // CHECK: ttcore.cpu_module {
   // CHECK: builtin.module {
-  // CHECK: llvm.func @hoisted_forward_with_zeros_const_eval_0
-  // CHECK: llvm.func @hoisted_forward_with_full_const_eval_0
+  // CHECK: llvm.func @cpu_hoisted_forward_with_zeros_const_eval_0_{{.*}}(
+  // CHECK: llvm.func @cpu_hoisted_forward_with_full_const_eval_0_{{.*}}(
 }
