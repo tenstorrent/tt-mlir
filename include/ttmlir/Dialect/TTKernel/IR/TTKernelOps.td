@@ -2956,8 +2956,7 @@ def TTKernel_CloseFabricConnectionsOp : TTKernel_Op<"experimental::close_fabric_
   }];
 }
 
-// move to a different/separate dialect?
-def TTKernel_GetLogicalRingPositionOp : TTKernel_Op<"experimental::get_logical_ring_position"> {
+def TTKernel_GetLogicalMeshPositionOp : TTKernel_Op<"experimental::get_logical_mesh_position"> {
   let summary = "GetLogicalRingPosition";
   let description = [{
     Get logical ring position.
@@ -2971,7 +2970,7 @@ def TTKernel_GetLogicalRingPositionOp : TTKernel_Op<"experimental::get_logical_r
   }];
 }
 
-def TTKernel_GetDeviceIdFromLogicalRingPositionOp : TTKernel_Op<"experimental::get_device_id_from_logical_ring_position"> {
+def TTKernel_GetDeviceIdFromLogicalMeshPositionOp : TTKernel_Op<"experimental::get_device_id_from_logical_mesh_position"> {
   let summary = "GetDeviceIdFromLogicalRingPosition";
   let description = [{
     Get device id from logical ring position.

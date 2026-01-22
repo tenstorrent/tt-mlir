@@ -24,8 +24,8 @@ static constexpr size_t fabric_setup_args_start_idx = 0;
 //
 // Device/Topology Info:
 //   uint16_t get_my_device_id()
-//   uint32_t get_logical_ring_position()        // API_TYPE_Linear only
-//   uint16_t get_device_id_from_logical_ring_position(...) // API_TYPE_Linear
+//   uint32_t get_logical_mesh_position()        // API_TYPE_Linear only
+//   uint16_t get_device_id_from_logical_mesh_position(...) // API_TYPE_Linear
 //   only
 //
 // Fabric Write:
@@ -96,13 +96,13 @@ ToplogyInfo &get_topology();
 
 #ifdef API_TYPE_Linear
 
-FORCE_INLINE uint32_t get_logical_ring_position() {
+FORCE_INLINE uint32_t get_logical_mesh_position() {
   TopologyInfo1D &topology = get_topology().topology_info_1d;
   return topology.get_logical_index(get_my_device_id());
 }
 
 FORCE_INLINE uint32_t
-get_device_id_from_logical_ring_position(uint32_t logical_ring_position) {
+get_device_id_from_logical_mesh_position(uint32_t logical_ring_position) {
   TopologyInfo1D &topology = get_topology().topology_info_1d;
   return topology.get_device_id(logical_ring_position);
 }

@@ -138,7 +138,6 @@ def TTMetal_KernelConfigAttr : AnyAttrOf<[TTMetal_ComputeConfigAttr, TTMetal_Noc
 
 def TTMetal_KernelConfigArrayAttr : TypedArrayAttrBase<TTMetal_KernelConfigAttr, "">;
 
-// fix desc
 def TTMetal_FabricConnectionConfigAttr: TTMetal_Attr<"FabricConnectionConfig", "fabric_connection_config"> {
   let summary = "TTMetal CCL Config attribute.";
   let description = [{

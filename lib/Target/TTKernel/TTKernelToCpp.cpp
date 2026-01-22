@@ -279,7 +279,9 @@ void dprint(Arg &&arg, ArgV&&... argv) {
     if (hasCall("experimental::close_fabric_connections") ||
         hasCall("experimental::setup_fabric_connections") ||
         hasCall("experimental::get_my_device_id") ||
-        hasCall("experimental::fabric_fast_write_any_len")) {
+        hasCall("experimental::fabric_fast_write_any_len") ||
+        hasCall("experimental::get_logical_mesh_position") ||
+        hasCall("experimental::get_device_id_from_logical_mesh_position")) {
       auto experimentalFabricAPILLKs =
           StringRef(experimental_fabric_api_generated,
                     experimental_fabric_api_generated_len);

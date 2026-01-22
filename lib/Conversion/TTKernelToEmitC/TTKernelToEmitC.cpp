@@ -1115,6 +1115,8 @@ public:
             ttkernel::CreateFabricConnectionManagerOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::SetupFabricConnectionsOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::CloseFabricConnectionsOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::GetLogicalMeshPositionOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::GetDeviceIdFromLogicalMeshPositionOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetWritePtrOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetReadPtrOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetTileSizeOp>,
