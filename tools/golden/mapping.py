@@ -967,12 +967,39 @@ def argmax_golden(
         # Single dimension reduction
         result = torch.argmax(input_tensor, dim=dim_arg[0], keepdim=keep_dim)
     else:
-        # Multiple dimensions - reduce sequentially from highest to lowest
-        # Sort in descending order to maintain correct dimension indices
-        sorted_dims = sorted(dim_arg, reverse=True)
-        result = input_tensor
-        for dim in sorted_dims:
-            result = torch.argmax(result, dim=dim, keepdim=keep_dim)
+        # Multiple dimension reduction
+        all_dims = list(range(input_tensor.dim()))
+
+        # Keep reduction dimensions as given
+        reduce_dims = dim_arg
+
+        # Permute: move reduction dims to the end
+        non_reduce_dims = [d for d in all_dims if d not in reduce_dims]
+        perm_order = non_reduce_dims + reduce_dims
+        permuted = input_tensor.permute(*perm_order)
+
+        # Flatten reduction dimensions
+        reduce_size = 1
+        for d in reduce_dims:
+            reduce_size *= input_tensor.size(d)
+
+        # Reshape and apply argmin
+        non_reduce_shape = [input_tensor.size(d) for d in non_reduce_dims]
+        reshaped = permuted.reshape(*non_reduce_shape, reduce_size)
+        result_flat = torch.argmin(reshaped, dim=-1)
+
+        # Handle keepdim
+        if keep_dim:
+            output_shape = []
+            for i in range(input_tensor.dim()):
+                if i in reduce_dims:
+                    output_shape.append(1)
+                else:
+                    output_shape.append(input_tensor.size(i))
+            result = result_flat.reshape(*output_shape)
+        else:
+            result = result_flat
+
     return result.to(torch.int32)
 
 
