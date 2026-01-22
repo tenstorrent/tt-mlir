@@ -47,6 +47,7 @@ def trace(log_dir: str, port: int = None, host_only: bool = False):
     tracy_capture_tool_process = subprocess.Popen(
         tracy_capture_tool_command, shell=True, start_new_session=True
     )
+    print(tracy_capture_tool_command)
 
     def signal_handler(sig, frame):
         os.killpg(os.getpgid(testProcess.pid), signal.SIGTERM)
@@ -72,7 +73,7 @@ def trace(log_dir: str, port: int = None, host_only: bool = False):
                 shell=True,
                 check=True,
                 stdout=csv_file,
-                stderr=subprocess.DEVNULL,
+                stderr=None,  # subprocess.DEVNULL,
             )
 
         with open(tracy_ops_data_file_path, "w") as csv_file:
@@ -81,7 +82,7 @@ def trace(log_dir: str, port: int = None, host_only: bool = False):
                 shell=True,
                 check=True,
                 stdout=csv_file,
-                stderr=subprocess.DEVNULL,
+                stderr=None,  # subprocess.DEVNULL,
             )
 
         shutil.copy(tracy_file_path, profiler_logs_dir)

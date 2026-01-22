@@ -192,7 +192,9 @@ def log_global_env_facts(record_testsuite_property, pytestconfig):
 trace_context = None
 
 
+@pytest.fixture(scope="session", autouse=True)
 def profiler_setup(pytestconfig):
+    print("OPENING PROFILER SETUP")
     global trace_context
     enable_profiler = pytestconfig.getoption("--enable-profiler")
     profiler_log_dir = pytestconfig.getoption("--profiler-log-dir")
@@ -205,6 +207,10 @@ def profiler_setup(pytestconfig):
             log_dir=profiler_log_dir, port=int(port) if port else None, host_only=False
         )
         trace_context.__enter__()
+
+        yield
+
+    print("PROFILER SETUP COMPLETE")
     return nullcontext()
 
 
@@ -215,19 +221,19 @@ def device(request, pytestconfig):
     be reinitialized
     """
     # Profile setup context manager
-    with profiler_setup(pytestconfig):
-        target = "ttnn"
-        mesh_shape = (1, 1)
+    # with profiler_setup(pytestconfig):
+    target = "ttnn"
+    mesh_shape = (1, 1)
 
-        if hasattr(request.node, "callspec"):
-            target = request.node.callspec.params.get("target", "ttnn")
+    if hasattr(request.node, "callspec"):
+        target = request.node.callspec.params.get("target", "ttnn")
 
-            # Support for other backends coming soon.
-            if target not in ["ttnn", "ttmetal", "emitpy", "emitc"]:
-                return None
+        # Support for other backends coming soon.
+        if target not in ["ttnn", "ttmetal", "emitpy", "emitc"]:
+            return None
 
-            mesh_shape = request.node.callspec.params.get("mesh_shape", (1, 1))
-        return _get_device_for_target(target, mesh_shape, pytestconfig)
+        mesh_shape = request.node.callspec.params.get("mesh_shape", (1, 1))
+    return _get_device_for_target(target, mesh_shape, pytestconfig)
 
 
 def pytest_addoption(parser):
@@ -768,3 +774,44 @@ def pytest_sessionfinish(session):
     if trace_context:
         trace_context.__exit__(None, None, None)
         trace_context = None
+
+
+"""
+
+def pytest_runtest_protocol(item, nextitem):
+    print("opening subprocess check")
+    enable_profiler = item.config.getoption("--enable-profiler")
+    if enable_profiler and not os.environ.get("IN_SUBPROCESS"):
+        print("confirmed")
+        # Run this test in subprocess
+        env = os.environ.copy()
+        env["IN_SUBPROCESS"] = "1"  # Prevent infinite recursion
+
+        cmd = [
+            sys.executable,
+            "-m",
+            "pytest",
+            f"{item.fspath}::{item.name}",
+            "-v",
+            "-s",
+            "--tb=short",
+            "--enable-profiler",
+        ]
+
+
+        #try:
+        #    subprocess.run(["pkill", "-f", "capture-release"], check=False)
+        #except Exception:
+        #    pass
+
+        print(cmd)
+        result = subprocess.run(cmd, env=env)
+        print("subprocess finished")
+        #if item.config.getoption("--port"):
+        #    item.config.getoption("--port") = int(item.config.getoption("--port")) + 1
+        if result.returncode != 0:
+            pytest.fail(f"Subprocess test {item.name} failed")
+        return True  # Skip normal execution
+    return None  # Continue with normal execution
+
+"""

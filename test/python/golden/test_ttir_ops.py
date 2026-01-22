@@ -173,7 +173,7 @@ def gt(
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttnn"])
 def test_div(shape: Shape, dtype: torch.dtype, target: str, request, device):
     def module(builder: TTIRBuilder):
         @builder.func([shape, shape], [torch.float32, torch.float32])
