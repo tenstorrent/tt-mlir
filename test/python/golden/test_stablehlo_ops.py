@@ -1793,6 +1793,7 @@ def test_convolution_groups_dilation(
         device=device,
     )
 
+
 def module_rng(builder: StableHLOBuilder):
     @builder.func([], [])
     def rng(builder: StableHLOBuilder, unit_attrs: Optional[List[str]] = None):
