@@ -15,7 +15,8 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 # Check for source directory argument
 if [ -z "$1" ]; then
     echo "Usage: $0 <source_directory> <model1> [model2] [model3] ..."
-    echo "       $0 <source_directory> --list    # List available models"
+    echo "       $0 <source_directory> --list           # List available models"
+    echo "       $0 <source_directory> --models-only    # Copy all models without creating test files"
     echo ""
     echo "Example: $0 transformer_test_irs llama_3_2_1b_decode_block falcon_3_1b_prefill_layer"
     exit 1
@@ -53,12 +54,49 @@ if [ "$1" = "--list" ]; then
     exit 0
 fi
 
+# Copy all models without creating test files if --models-only is passed
+if [ "$1" = "--models-only" ]; then
+    echo "Copying models from: $SOURCE_DIR"
+    echo "(Models only - no test files will be created)"
+    echo ""
+
+    mkdir -p "$LLM_MODELS_DIR"
+
+    new_count=0
+    updated_count=0
+
+    for model_file in "${SOURCE_DIR}"/*.mlir; do
+        if [ -f "$model_file" ]; then
+            model_name=$(basename "$model_file" .mlir)
+            if [[ "$model_name" == *_block ]] || [[ "$model_name" == *_layer ]]; then
+                if [ -f "${LLM_MODELS_DIR}/${model_name}.mlir" ]; then
+                    echo "  [UPDATED] $model_name"
+                    updated_count=$((updated_count + 1))
+                else
+                    echo "  [NEW]     $model_name"
+                    new_count=$((new_count + 1))
+                fi
+                cp "$model_file" "$LLM_MODELS_DIR/"
+            fi
+        fi
+    done
+
+    echo ""
+    echo "Summary:"
+    echo "  [NEW]     $new_count"
+    echo "  [UPDATED] $updated_count"
+    echo ""
+    echo "Models copied to: $LLM_MODELS_DIR"
+    exit 0
+fi
+
 # Check that at least one model is specified
 if [ $# -eq 0 ]; then
     echo "Error: No models specified"
     echo ""
     echo "Usage: $0 <source_directory> <model1> [model2] [model3] ..."
-    echo "       $0 <source_directory> --list    # List available models"
+    echo "       $0 <source_directory> --list           # List available models"
+    echo "       $0 <source_directory> --models-only    # Copy all models without creating test files"
     exit 1
 fi
 
