@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttir-to-emitpy-pipeline="system-desc-path=%system_desc_path% enable-const-eval=true target-module=true" -o %t.mlir %s
+// RUN: ttmlir-opt --ttir-to-emitpy-pipeline="enable-const-eval=true target-module=true" -o %t.mlir %s
 // RUN: ttmlir-translate --mlir-to-python -o %t.py %t.mlir
 // RUN: FileCheck %s --input-file=%t.py
 
@@ -7,9 +7,10 @@
 // 2. Const-eval functions also receive device and do not call DeviceGetter
 // 3. Const-eval wrapper calls pass device when available
 //
-// CHECK: def forward(input, device):
 // CHECK-LABEL: def forward_const_eval_0(
 // CHECK-SAME: device
+// CHECK-NOT: utils.DeviceGetter.get_device
+// CHECK-LABEL: def forward(input, device):
 // CHECK: utils.constEvalFuncWrapper(
 // CHECK-SAME: device
 // CHECK-NOT: utils.DeviceGetter.get_device
