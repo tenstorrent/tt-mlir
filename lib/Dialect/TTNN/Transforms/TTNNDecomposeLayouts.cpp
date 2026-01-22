@@ -148,6 +148,32 @@ private:
            dataType == ttcore::DataType::Int32;
   }
 
+  bool canTypecastDataTypeOnDevice(const ttcore::DataType &dataType) const {
+    return dataType != ttcore::DataType::UInt8;
+  }
+
+  mlir::Value handleDeviceTypecastViaHost(ttnn::ToLayoutOp op,
+                                          IRRewriter &rewriter,
+                                          mlir::Value currentInput,
+                                          const OpCreationInfo &info,
+                                          bool applyLayout) const {
+    currentInput = this->createFromDeviceOpIfNeeded(
+        op, rewriter, currentInput, info, /*forceCreate=*/true);
+    currentInput = this->createDataTypeCastingOpIfNeeded(op, rewriter,
+                                                         currentInput, info);
+    if (applyLayout) {
+      currentInput =
+          this->createToLayoutOpIfNeeded(op, rewriter, currentInput, info);
+    }
+    if (info.output.isOnDevice()) {
+      currentInput = this->createToDeviceOpIfNeeded(
+          op, rewriter, currentInput, info, /*forceCreate=*/true);
+      currentInput = this->createToMemoryConfigOpIfNeeded(op, rewriter,
+                                                          currentInput, info);
+    }
+    return currentInput;
+  }
+
   std::pair<LayoutInfo, LayoutInfo>
   getInputOutputLayouts(ttnn::ToLayoutOp op) const {
     LayoutInfo input, output;
@@ -788,6 +814,13 @@ private:
     assert(input.layoutEnum == output.layoutEnum &&
            "Layout should be the same if we're not creating toLayout op");
 
+    if (!canTypecastDataTypeOnDevice(output.dataType)) {
+      currentInput = handleDeviceTypecastViaHost(op, rewriter, currentInput,
+                                                 info, /*applyLayout=*/false);
+      op.getResult().replaceAllUsesWith(currentInput);
+      return;
+    }
+
     // If the output is tilized, typecast directly on device
     if (output.isTilized()) {
       currentInput = this->createDataTypeCastingOpIfNeeded(op, rewriter,
@@ -837,6 +870,13 @@ private:
     const LayoutInfo &input = info.input;
     const LayoutInfo &output = info.output;
     const OpsToCreate &opsToCreate = info.opsToCreate;
+
+    if (!canTypecastDataTypeOnDevice(output.dataType)) {
+      currentInput = handleDeviceTypecastViaHost(op, rewriter, currentInput,
+                                                 info, /*applyLayout=*/true);
+      op.getResult().replaceAllUsesWith(currentInput);
+      return;
+    }
 
     // If we need to untilize and the output data type can be untilized on
     // device typcast and untilize on device
