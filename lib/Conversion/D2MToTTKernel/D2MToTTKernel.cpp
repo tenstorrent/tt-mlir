@@ -97,34 +97,6 @@ static Value getCB(ConversionPatternRewriter &rewriter, Value cb) {
   llvm_unreachable("Expected load or subview op");
 }
 
-// Find the DST index from a store operation.
-static Value getDstIdxFromStore(Operation *storeOp) {
-  if (auto affineStore = mlir::dyn_cast<affine::AffineStoreOp>(storeOp)) {
-    auto indices = affineStore.getMapOperands();
-    assert(indices.size() == 1 && "Expected single index in DST store");
-    return indices.front();
-  }
-  if (auto memrefStore = mlir::dyn_cast<memref::StoreOp>(storeOp)) {
-    auto indices = memrefStore.getIndices();
-    assert(indices.size() == 1 && "Expected single index in DST store");
-    return indices.front();
-  }
-  llvm_unreachable("Expected affine.store or memref.store");
-}
-
-// Check if a store operation stores to DST.
-static bool isStoreToDst(Operation *op) {
-  if (auto affineStore = mlir::dyn_cast<affine::AffineStoreOp>(op)) {
-    return ttcore::getMemorySpace(affineStore.getMemRef()) ==
-           ttcore::MemorySpace::RegisterDst;
-  }
-  if (auto memrefStore = mlir::dyn_cast<memref::StoreOp>(op)) {
-    return ttcore::getMemorySpace(memrefStore.getMemRef()) ==
-           ttcore::MemorySpace::RegisterDst;
-  }
-  return false;
-}
-
 // Get DST index from where a compute op result is stored.
 // Handles both affine.store and memref.store.
 // When a value has multiple stores to different DST memrefs (due to value
@@ -132,65 +104,19 @@ static bool isStoreToDst(Operation *op) {
 // as the defining op. This ensures we get the DST index for the correct
 // allocation context.
 static Value getDstIdxFromResult(Value d2mOpResult) {
-  Operation *defOp = d2mOpResult.getDefiningOp();
-  Block *defBlock = defOp ? defOp->getBlock() : nullptr;
-
-  // Collect stores, preferring same-block stores.
-  Operation *sameBlockStore = nullptr;
-  Operation *anyStore = nullptr;
-
+  memref::StoreOp storeOp;
   for (Operation *op : d2mOpResult.getUsers()) {
-    if (isStoreToDst(op)) {
-      anyStore = op;
-      if (defBlock && op->getBlock() == defBlock) {
-        // Found a store in the same block - prefer this one.
-        if (!sameBlockStore) {
-          sameBlockStore = op;
-        } else {
-          // Multiple same-block stores - pick the one that comes first.
-          if (op->isBeforeInBlock(sameBlockStore)) {
-            sameBlockStore = op;
-          }
-        }
-      }
+    auto maybeStore = mlir::dyn_cast<memref::StoreOp>(op);
+    if (maybeStore && ttcore::getMemorySpace(maybeStore.getMemRef()) ==
+                          ttcore::MemorySpace::RegisterDst) {
+      storeOp = mlir::cast<memref::StoreOp>(op);
+      break;
     }
   }
-
-  // Prefer same-block store, fall back to any store.
-  Operation *selectedStore = sameBlockStore ? sameBlockStore : anyStore;
-  if (!selectedStore) {
-    llvm_unreachable("Expected at least one store to DST");
-  }
-  return getDstIdxFromStore(selectedStore);
-}
-
-// Get DST index for an operand value. The operand can either be:
-// 1. The result of a compute op that stores to DST (look at users for store).
-// 2. An affine.load from DST (look at defining op for load index).
-// 3. A memref.load from DST (after lower-affine converts affine.load).
-static Value getDstIdxFromOperand(Value operand) {
-  // Case 1: Check if it's an affine.load from DST.
-  if (auto loadOp = operand.getDefiningOp<affine::AffineLoadOp>()) {
-    if (ttcore::getMemorySpace(loadOp.getMemRef()) ==
-        ttcore::MemorySpace::RegisterDst) {
-      auto indices = loadOp.getMapOperands();
-      assert(indices.size() == 1 && "Expected single index in DST load");
-      return indices.front();
-    }
-  }
-
-  // Case 2: Check if it's a memref.load from DST (after lower-affine).
-  if (auto loadOp = operand.getDefiningOp<memref::LoadOp>()) {
-    if (ttcore::getMemorySpace(loadOp.getMemRef()) ==
-        ttcore::MemorySpace::RegisterDst) {
-      auto indices = loadOp.getIndices();
-      assert(indices.size() == 1 && "Expected single index in DST load");
-      return indices.front();
-    }
-  }
-
-  // Case 3: Look for store to DST in users (for compute op results).
-  return getDstIdxFromResult(operand);
+  assert(storeOp && "Expected store op.");
+  assert(storeOp.getIndices().size() == 1 &&
+         "Expected single index in store op");
+  return storeOp.getIndices().front();
 }
 
 // This is a workaround special case for getting an in/out CB. This whole
@@ -378,11 +304,8 @@ public:
   matchAndRewrite(d2m::AcquireDstOp op, d2m::AcquireDstOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
     rewriter.create<ttkernel::TileRegsAcquireOp>(op.getLoc());
-    // DST is an implicit resource in TTKernel. The type converter converts
-    // DST memrefs to index type. We replace with a dummy index since the
-    // actual DST slot indices come from load/store operations.
-    Value dummyIndex = rewriter.create<arith::ConstantIndexOp>(op.getLoc(), 0);
-    rewriter.replaceOp(op, dummyIndex);
+    // Dst is an implicit resource in TTKernel, so we can just erase it.
+    rewriter.eraseOp(op);
     return success();
   };
 };
@@ -1001,19 +924,11 @@ public:
       // Ternary tile operation (arity == 3)
       OpBuilder::InsertionGuard guard(rewriter);
       const auto dstIdx = getDstIdxFromResult(op.getResult());
-
-      // For ternary ops like TileWhereOp, get DST indices directly from the
-      // source operands, not from the adaptor. This ensures correct indices
-      // regardless of conversion order. Operands can be either:
-      // - Results of compute ops (stored to DST).
-      // - affine.load from DST (for copied input tiles).
-      Value condDstIdx = getDstIdxFromOperand(op.getCondition());
-      Value trueDstIdx = getDstIdxFromOperand(op.getTrueValue());
-      Value falseDstIdx = getDstIdxFromOperand(op.getFalseValue());
-
-      setInsertionPointAfterOperands(
-          rewriter, {condDstIdx, trueDstIdx, falseDstIdx, dstIdx},
-          /*allowHoisting*/ false);
+      setInsertionPointAfterOperands(rewriter,
+                                     {adaptor.getCondition(),
+                                      adaptor.getTrueValue(),
+                                      adaptor.getFalseValue(), dstIdx},
+                                     /*allowHoisting*/ false);
       const auto elemType =
           mlir::cast<ttcore::TileType>(op.getTrueValue().getType())
               .getElementType();
@@ -1021,11 +936,13 @@ public:
       if (isCBF32) {
         if (std::is_same_v<ConcreteOp, d2m::TileWhereOp>) {
           rewriter.create<ttkernel::WhereTileF32Op>(
-              op->getLoc(), condDstIdx, trueDstIdx, falseDstIdx, dstIdx);
+              op->getLoc(), adaptor.getCondition(), adaptor.getTrueValue(),
+              adaptor.getFalseValue(), dstIdx);
         }
       } else {
-        rewriter.create<SFPUOp>(op->getLoc(), condDstIdx, trueDstIdx,
-                                falseDstIdx, dstIdx);
+        rewriter.create<SFPUOp>(op->getLoc(), adaptor.getCondition(),
+                                adaptor.getTrueValue(), adaptor.getFalseValue(),
+                                dstIdx);
       }
     }
 
