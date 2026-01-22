@@ -41,7 +41,7 @@ FORCE_INLINE uint16_t get_my_device_id() {
 }
 
 struct TopologyInfo1D {
-    enum class TopologyType1D { Line, Ring };
+    enum class TopologyType1D { Ring = 0, Line };
     
     TopologyType1D topology_type;
     uint32_t ring_size;

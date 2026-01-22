@@ -132,7 +132,7 @@ public:
         rewriter, adaptor.getOperands(), threads, physicalGridShape,
         symbolTable, mathFidelity_);
     rewriter.replaceOpWithNewOp<ttmetal::EnqueueProgramOp>(
-        op, buffers, cbs, cbPorts, kernelConfigs);
+        op, buffers, cbs, cbPorts, kernelConfigs, nullptr);
     return success();
   };
 

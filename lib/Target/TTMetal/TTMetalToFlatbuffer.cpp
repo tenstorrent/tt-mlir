@@ -18,6 +18,7 @@
 #include "ttmlir/Target/TTMetal/Target.h"
 #include "ttmlir/Target/TTMetal/binary_generated.h"
 #include "ttmlir/Target/TTMetal/command_generated.h"
+#include "ttmlir/Target/TTMetal/program_generated.h"
 #include "ttmlir/Target/TTMetal/types_generated.h"
 #include "ttmlir/Target/Utils/FlatbufferObjectCache.h"
 #include "ttmlir/Target/Utils/MLIRToFlatbuffer.h"
@@ -131,6 +132,20 @@ static target::metal::EthType toFlatbuffer(ttmetal::EthType ethType) {
     return target::metal::EthType::Receiver;
   }
   assert(false && "Unsupported EthType");
+}
+
+static target::Topology toFlatbuffer(ttcore::Topology topology) {
+  switch (topology) {
+  case ttcore::Topology::Linear:
+    return target::Topology::Linear;
+  case ttcore::Topology::Ring:
+    return target::Topology::Ring;
+  case ttcore::Topology::Mesh:
+    return target::Topology::Mesh;
+  case ttcore::Topology::Torus:
+    return target::Topology::Torus;
+  }
+  assert(false && "Unsupported Topology");
 }
 
 static target::metal::NocIndex toFlatbuffer(ttmetal::NocIndex nocIndex) {
@@ -657,6 +672,17 @@ ethernetConfigToFlatbuffer(FlatbufferObjectCache &cache,
       toFlatbuffer(ethernetConfigAttr.getNocIndex()));
 }
 
+static flatbuffers::Offset<target::metal::FabricConnectionConfig>
+fabricConnectionConfigToFlatbuffer(FlatbufferObjectCache &cache,
+                      FabricConnectionConfigAttr fabricConnectionConfig) {
+  return target::metal::CreateFabricConnectionConfig(
+    *cache.fbb, 
+    toFlatbuffer(fabricConnectionConfig.getNocIndex()),
+    toFlatbuffer(fabricConnectionConfig.getTopology()),
+    fabricConnectionConfig.getClusterAxis(),
+    fabricConnectionConfig.getNumLinks());
+}
+
 static flatbuffers::Offset<target::metal::KernelConfig>
 kernelConfigToFlatbuffer(FlatbufferObjectCache &cache,
                          KernelConfigInterface kernelConfig,
@@ -850,10 +876,17 @@ std::shared_ptr<void> translateTTMetalToFlatbuffer(
               cache, mlir::cast<KernelConfigInterface>(kernelConfig),
               symbolTable));
         }
+
+        flatbuffers::Offset<target::metal::FabricConnectionConfig> fabricConnectionConfig;
+        if (enqueueProgramOp.getFabricConnectionConfigAttr()) {
+          fabricConnectionConfig = fabricConnectionConfigToFlatbuffer(cache, enqueueProgramOp.getFabricConnectionConfigAttr());
+        }
+
         cqBuilder.appendCommand(
             target::metal::CreateEnqueueProgramCommandDirect(
                 fbb, &buffers, &cbs,
-                target::metal::CreateProgramDescDirect(fbb, &kernelConfigs)),
+                target::metal::CreateProgramDescDirect(fbb, &kernelConfigs),
+                fabricConnectionConfig),
             op);
       } else if (auto createBufferOp =
                      dyn_cast_if_present<tt::ttmetal::CreateBufferOp>(op);
