@@ -62,7 +62,6 @@ public:
   ShardSolver resolveWithSolver(
       const TensorTypeLayoutsMap *tensorTypePossibleLayouts,
       const llvm::DenseMap<Operation *, std::vector<OpConfig>> &legalConfigs,
-      unsigned usableL1CacheSize,
       const llvm::DenseSet<Edge> &overrideReshardEdges,
       const llvm::StringMap<OutputLayoutOverrideParams> &overrideOutputLayout);
   void resolve();
