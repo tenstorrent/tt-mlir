@@ -18,17 +18,11 @@ from ttmlir.ir import *
 from ttmlir.dialects import func, ttcore, ttnn, ttir
 from ttmlir.passmanager import PassManager
 from ttmlir.passes import (
-    tt_populate_argument_types,
-    ttir_to_ttnn_backend_pipeline,
     ttnn_to_flatbuffer_file,
-    ttir_to_ttmetal_backend_pipeline,
     ttmetal_to_flatbuffer_file,
     translate_to_cpp,
     translate_to_python,
     MLIRModuleLogger,
-    stablehlo_pipeline,
-    stablehlo_to_ttir_pipeline,
-    ttir_to_emitpy_pipeline,
 )
 
 # ----- Typedefs -----
@@ -141,6 +135,135 @@ def create_custom_ttir_pipeline_fn(
             pm.run(module.operation)
 
     return wrapper
+
+
+# ----- Pipeline wrapper functions using PassManager.parse() -----
+# These replace the nanobind pipeline bindings in ttmlir.passes
+
+
+def tt_populate_argument_types(module, argument_types_string: str = ""):
+    """
+    Populate argument types pass.
+    Replaces nanobind tt_populate_argument_types from ttmlir.passes.
+    """
+    with module.context:
+        if argument_types_string:
+            pass_str = f"builtin.module(tt-populate-argument-types{{argument-types={argument_types_string}}})"
+        else:
+            pass_str = "builtin.module(tt-populate-argument-types)"
+        pm = PassManager.parse(pass_str)
+        pm.run(module.operation)
+
+
+def stablehlo_pipeline(module, options: str = "", print_ir: bool = False):
+    """
+    StableHLO optimization pipeline.
+    Replaces nanobind stablehlo_pipeline from ttmlir.passes.
+    """
+    with module.context:
+        if options:
+            pipeline_str = f"builtin.module(stablehlo-pipeline{{{options}}})"
+        else:
+            pipeline_str = "builtin.module(stablehlo-pipeline)"
+        pm = PassManager.parse(pipeline_str)
+        if print_ir:
+            pm.enable_ir_printing()
+        pm.run(module.operation)
+
+
+def stablehlo_to_ttir_pipeline(module, options: str = "", print_ir: bool = False):
+    """
+    StableHLO to TTIR conversion pipeline.
+    Replaces nanobind stablehlo_to_ttir_pipeline from ttmlir.passes.
+    Note: Uses implicit nesting for stablehlo.composite -> func.call conversion.
+    """
+    with module.context:
+        if options:
+            pipeline_str = f"builtin.module(stablehlo-to-ttir-pipeline{{{options}}})"
+        else:
+            pipeline_str = "builtin.module(stablehlo-to-ttir-pipeline)"
+        pm = PassManager.parse(pipeline_str)
+        if print_ir:
+            pm.enable_ir_printing()
+        pm.run(module.operation)
+
+
+def ttir_to_ttnn_backend_pipeline(module, options: str = "", print_ir: bool = False):
+    """
+    TTIR to TTNN backend pipeline.
+    Replaces nanobind ttir_to_ttnn_backend_pipeline from ttmlir.passes.
+    """
+    with module.context:
+        if options:
+            pipeline_str = f"builtin.module(ttir-to-ttnn-backend-pipeline{{{options}}})"
+        else:
+            pipeline_str = "builtin.module(ttir-to-ttnn-backend-pipeline)"
+        pm = PassManager.parse(pipeline_str)
+        if print_ir:
+            pm.enable_ir_printing()
+        pm.run(module.operation)
+
+
+def ttir_to_ttmetal_backend_pipeline(module, options: str = "", print_ir: bool = False):
+    """
+    TTIR to TTMetal backend pipeline.
+    Replaces nanobind ttir_to_ttmetal_backend_pipeline from ttmlir.passes.
+    """
+    with module.context:
+        if options:
+            pipeline_str = f"builtin.module(ttir-to-ttmetal-pipeline{{{options}}})"
+        else:
+            pipeline_str = "builtin.module(ttir-to-ttmetal-pipeline)"
+        pm = PassManager.parse(pipeline_str)
+        if print_ir:
+            pm.enable_ir_printing()
+        pm.run(module.operation)
+
+
+def ttir_to_emitpy_pipeline(module, options: str = "", print_ir: bool = False):
+    """
+    TTIR to EmitPy pipeline.
+    Replaces nanobind ttir_to_emitpy_pipeline from ttmlir.passes.
+    """
+    with module.context:
+        if options:
+            pipeline_str = f"builtin.module(ttir-to-emitpy-pipeline{{{options}}})"
+        else:
+            pipeline_str = "builtin.module(ttir-to-emitpy-pipeline)"
+        pm = PassManager.parse(pipeline_str)
+        if print_ir:
+            pm.enable_ir_printing()
+        pm.run(module.operation)
+
+
+def pykernel_compile_pipeline(module, options: str = ""):
+    """
+    Pykernel compile pipeline.
+    Replaces nanobind pykernel_compile_pipeline from ttmlir.passes.
+    """
+    with module.context:
+        if options:
+            pipeline_str = f"builtin.module(pykernel-compile-pipeline{{{options}}})"
+        else:
+            pipeline_str = "builtin.module(pykernel-compile-pipeline)"
+        pm = PassManager.parse(pipeline_str)
+        pm.run(module.operation)
+
+
+def ttnn_to_ttmetal_pipeline(module, options: str = ""):
+    """
+    TTNN to TTMetal pipeline (converts TTNN->TTIR first, then runs ttir-to-ttmetal,
+    then adds deallocate).
+    Replaces nanobind ttnn_to_ttmetal_pipeline from ttmlir.passes.
+    """
+    with module.context:
+        # Build pipeline: convert-ttnn-to-ttir -> ttir-to-ttmetal-pipeline{options} -> ttnn-deallocate
+        if options:
+            pipeline_str = f"builtin.module(convert-ttnn-to-ttir,ttir-to-ttmetal-pipeline{{{options}}},ttnn-deallocate)"
+        else:
+            pipeline_str = "builtin.module(convert-ttnn-to-ttir,ttir-to-ttmetal-pipeline,ttnn-deallocate)"
+        pm = PassManager.parse(pipeline_str)
+        pm.run(module.operation)
 
 
 def run_ttir_pipeline(

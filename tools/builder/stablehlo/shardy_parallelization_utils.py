@@ -9,9 +9,8 @@ from collections import OrderedDict
 from ttmlir.ir import *
 from ttmlir.dialects import func, ttcore, ttnn, ttir, sdy
 from ttmlir.passmanager import PassManager
-from ttmlir.passes import (
-    stablehlo_pipeline,
-)
+
+from builder.base.builder_utils import stablehlo_pipeline
 
 
 def find_module_permutations(module, num_devices) -> List[Module]:

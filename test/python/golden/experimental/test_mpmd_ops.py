@@ -13,7 +13,7 @@ from builder.base.builder_apis import experimental_build_stablehlo_module
 
 pytestmark = pytest.mark.frontend("shlo")
 
-from ttmlir.passes import (
+from builder.base.builder_utils import (
     stablehlo_pipeline,
     stablehlo_to_ttir_pipeline,
 )

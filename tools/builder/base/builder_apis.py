@@ -18,15 +18,9 @@ from ttmlir.ir import *
 from ttmlir.dialects import func, ttcore, ttnn, ttir, sdy
 from ttmlir.passmanager import PassManager
 from ttmlir.passes import (
-    tt_populate_argument_types,
-    ttir_to_ttnn_backend_pipeline,
-    ttir_to_ttmetal_backend_pipeline,
     translate_to_cpp,
     translate_to_python,
     MLIRModuleLogger,
-    stablehlo_pipeline,
-    stablehlo_to_ttir_pipeline,
-    ttir_to_emitpy_pipeline,
     ttnn_to_flatbuffer_bin,
     ttmetal_to_flatbuffer_bin,
     ttnn_to_flatbuffer_file,
