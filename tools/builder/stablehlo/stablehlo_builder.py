@@ -225,6 +225,14 @@ class StableHLOBuilder(Builder):
         lineno = caller_frame.lineno
         return Location.name(f"{filename}:{lineno}")
 
+    def _extract_scalar_from_constant(self, value: Operand):
+        attr = value.owner.attributes["value"]
+        return attr.get_values()[0]
+
+    def _extract_shape_from_constant(self, value: Operand):
+        attr = value.owner.attributes["value"]
+        return list(attr.get_values())
+
     # ----- Public StableHLO Op Generators ----
 
     ############### stablehlo.ReduceScatterOp ###############
@@ -813,9 +821,16 @@ class StableHLOBuilder(Builder):
         new_op_result = new_op.result
 
         if not self._disable_golden_check:
+            low = self._extract_scalar_from_constant(old_op.a)
+            high = self._extract_scalar_from_constant(old_op.b)
+            shape_val = self._extract_shape_from_constant(old_op.shape)
+
             op_golden_function = get_golden_function(stablehlo_op)
             golden_output = op_golden_function(
-                old_op.a, old_op.b, old_op.shape, old_op.result.type
+                shape_val,
+                low,
+                high,
+                old_op.result.type,
             )
             self._set_golden_tensor(new_op_result, golden_output)
 
@@ -865,9 +880,16 @@ class StableHLOBuilder(Builder):
                     new_op_result = new_op.result
 
                     if not self._disable_golden_check:
+                        low = rng_builder._extract_scalar_from_constant(old_op.a)
+                        high = rng_builder._extract_scalar_from_constant(old_op.b)
+                        shape_val = rng_builder._extract_shape_from_constant(old_op.shape)
+
                         op_golden_function = get_golden_function(stablehlo_op)
                         golden_output = op_golden_function(
-                            old_op.a, old_op.b, old_op.shape, old_op.result.type
+                            shape_val,
+                            low,
+                            high,
+                            old_op.result.type,
                         )
                         rng_builder._set_golden_tensor(new_op_result, golden_output)
                         ordered_outputs.append(new_op_result)
