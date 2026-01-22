@@ -710,6 +710,53 @@ public:
     ModuleOp moduleOp = getOperation();
     IRRewriter rewriter(&getContext());
 
+    auto addDeviceArgAndReplaceGetDevice = [&](func::FuncOp funcOp) {
+      // If the function already has a device argument, do nothing.
+      //
+      // This makes the transformation idempotent and avoids surprising
+      // signature growth if the pass is (accidentally) run multiple times.
+      auto originalFuncType = funcOp.getFunctionType();
+      DeviceType deviceType = DeviceType::get(&getContext());
+      for (Type inputTy : originalFuncType.getInputs()) {
+        if (inputTy == deviceType) {
+          return;
+        }
+      }
+
+      // Add device argument to the function signature.
+      //
+      BlockArgument deviceArg = nullptr;
+      if (!funcOp.isExternal()) {
+        Block &entryBlock = funcOp.getBlocks().front();
+        deviceArg = entryBlock.addArgument(deviceType, funcOp.getLoc());
+      }
+
+      // Update function type to include device argument.
+      //
+      SmallVector<Type> newInputTypes(originalFuncType.getInputs());
+      newInputTypes.push_back(deviceType);
+      FunctionType newFuncType = FunctionType::get(
+          &getContext(), newInputTypes, originalFuncType.getResults());
+
+      rewriter.modifyOpInPlace(funcOp, [&]() { funcOp.setType(newFuncType); });
+
+      // Name the device argument for EmitPy lowering.
+      //
+      funcOp.setArgAttr(newInputTypes.size() - 1, "emitpy.name",
+                        rewriter.getStringAttr("device"));
+
+      // Replace all GetDeviceOp operations with the device argument.
+      //
+      if (!funcOp.isExternal()) {
+        SmallVector<ttnn::GetDeviceOp> getDeviceOps;
+        funcOp.walk([&](ttnn::GetDeviceOp op) { getDeviceOps.push_back(op); });
+
+        for (ttnn::GetDeviceOp getDeviceOp : getDeviceOps) {
+          rewriter.replaceOp(getDeviceOp, deviceArg);
+        }
+      }
+    };
+
     // Ensure that the module has a single region and a single block within that
     // region.
     //
@@ -738,45 +785,36 @@ public:
     rewriter.modifyOpInPlace(targetFuncOp,
                              [&]() { targetFuncOp.setSymName("forward"); });
 
-    // Add device argument to the function signature.
+    // Add device argument to the forward signature and replace GetDeviceOp
+    // uses with that argument.
     //
-    DeviceType deviceType = DeviceType::get(&getContext());
-    Block &entryBlock = targetFuncOp.getBlocks().front();
-    BlockArgument deviceArg =
-        entryBlock.addArgument(deviceType, targetFuncOp.getLoc());
-
-    // Update function type to include device argument.
-    //
-    mlir::FunctionType originalFuncType = targetFuncOp.getFunctionType();
-    SmallVector<Type> newInputTypes(originalFuncType.getInputs().begin(),
-                                    originalFuncType.getInputs().end());
-    newInputTypes.push_back(deviceType);
-    FunctionType newFuncType = FunctionType::get(&getContext(), newInputTypes,
-                                                 originalFuncType.getResults());
-
-    rewriter.modifyOpInPlace(targetFuncOp,
-                             [&]() { targetFuncOp.setType(newFuncType); });
+    addDeviceArgAndReplaceGetDevice(targetFuncOp);
 
     // Set the emitpy.name attribute for the input tuple and device arguments.
     // The input tuple should be named "input" and the device should be named
     // "device".
     //
-    if (!newInputTypes.empty()) {
+    mlir::FunctionType newFuncType = targetFuncOp.getFunctionType();
+    if (!newFuncType.getInputs().empty()) {
       targetFuncOp.setArgAttr(0, "emitpy.name",
                               rewriter.getStringAttr("input"));
     }
-    targetFuncOp.setArgAttr(newInputTypes.size() - 1, "emitpy.name",
+    targetFuncOp.setArgAttr(newFuncType.getInputs().size() - 1, "emitpy.name",
                             rewriter.getStringAttr("device"));
 
-    // Find all GetDeviceOp operations and replace their uses with the device
-    // argument.
+    // Apply the same device-argument rewrite for all const-eval functions, so
+    // module-exported code never calls into the DeviceGetter singleton from
+    // const-eval bodies.
     //
-    SmallVector<ttnn::GetDeviceOp> getDeviceOps;
-    targetFuncOp.walk(
-        [&](ttnn::GetDeviceOp op) { getDeviceOps.push_back(op); });
+    SmallVector<func::FuncOp> constEvalFuncOps;
+    block->walk([&](func::FuncOp funcOp) {
+      if (ttmlir::utils::isConstEvalFunc(funcOp)) {
+        constEvalFuncOps.push_back(funcOp);
+      }
+    });
 
-    for (ttnn::GetDeviceOp getDeviceOp : getDeviceOps) {
-      rewriter.replaceOp(getDeviceOp, deviceArg);
+    for (func::FuncOp funcOp : constEvalFuncOps) {
+      addDeviceArgAndReplaceGetDevice(funcOp);
     }
   }
 };
