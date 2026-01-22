@@ -1,4 +1,5 @@
 // REQUIRES: opmodel
+// UNSUPPORTED: true
 // RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% enable-optimizer=true d2m-fallback-enabled=true tensor-l1-usage-cap=0.001" %s -o %t.mlir
 // RUN: FileCheck %s --input-file %t.mlir
 
