@@ -11,8 +11,6 @@
 
 #include "ttnn/tensor/tensor.hpp"
 
-#include <type_traits>
-#include <variant>
 #include <vector>
 
 namespace tt::runtime::ttnn::operations::cpu {
@@ -36,9 +34,20 @@ namespace {
   }
 }
 
+// Callback for creating TTNN tensor from WrappedTensor output.
+static const common::CreateTensorCallbackType<::ttnn::Tensor,
+                                              ::tt::target::ttnn::TensorRef>
+    createTensorFromWrapped = [](const tt::target::ttnn::TensorRef *ref,
+                                 std::shared_ptr<void> dataPtr) {
+      ::ttnn::Shape shape = utils::toTTNNShape(*ref->desc()->shape());
+      ::ttnn::DataType dtype = ::tt::runtime::ttnn::utils::toTTNNDataType(
+          ref->desc()->layout()->memory_desc()->data_type());
+      return createBorrowedTensorFromPtr(dataPtr, shape, dtype);
+    };
+
 // Executes the provided CPU-hoisted function for the inputs provided
 // as raw data pointers, returning outputs of the function as TTNN tensors.
-std::vector<::ttnn::Tensor> executeCPUFunction(
+std::vector<::ttnn::Tensor> executeCPUHoistedFunction(
     common::WrappedFunc fn,
     const flatbuffers::Vector<flatbuffers::Offset<tt::target::ttnn::TensorRef>>
         *fbInputs,
@@ -66,23 +75,12 @@ std::vector<::ttnn::Tensor> executeCPUFunction(
   // Executing the CPU-hoisted function.
   common::WrappedTensor *outputArray = fn(packedInputs.data());
 
-  // Callback for tensor creation from WrappedTensor.
-  common::CreateTensorCallbackType<::ttnn::Tensor,
-                                   ::tt::target::ttnn::TensorRef>
-      createTensor = [](const tt::target::ttnn::TensorRef *ref,
-                        std::shared_ptr<void> dataPtr) -> ::ttnn::Tensor {
-    ::ttnn::Shape shape = utils::toTTNNShape(*ref->desc()->shape());
-    ::ttnn::DataType dtype = ::tt::runtime::ttnn::utils::toTTNNDataType(
-        ref->desc()->layout()->memory_desc()->data_type());
-    return createBorrowedTensorFromPtr(dataPtr, shape, dtype);
-  };
-
   // Unpacking the function outputs into TTNN tensors.
-  return common::unpackTensors<::ttnn::Tensor>(outputArray, fbOutputs->size(),
-                                               fbOutputs, createTensor);
+  return common::unpackTensors<::ttnn::Tensor>(
+      outputArray, fbOutputs->size(), fbOutputs, createTensorFromWrapped);
 }
 
-// Executes CPU-hoisted operation for single-chip workloads.
+// Executes CPU-hoisted function for single-chip workloads.
 void runSingleChip(
     common::WrappedFunc fn,
     const flatbuffers::Vector<flatbuffers::Offset<tt::target::ttnn::TensorRef>>
@@ -90,7 +88,6 @@ void runSingleChip(
     const flatbuffers::Vector<flatbuffers::Offset<tt::target::ttnn::TensorRef>>
         *fbOutputs,
     ProgramContext &context) {
-  LOG_DEBUG("CPU op: executing single-chip path...");
 
   std::vector<void *> inputDataPtrs;
   inputDataPtrs.reserve(fbInputs->size());
@@ -103,7 +100,7 @@ void runSingleChip(
   }
 
   std::vector<::ttnn::Tensor> outputs =
-      executeCPUFunction(fn, fbInputs, fbOutputs, inputDataPtrs);
+      executeCPUHoistedFunction(fn, fbInputs, fbOutputs, inputDataPtrs);
 
   for (size_t i = 0; i < outputs.size(); ++i) {
     context.getTensorPool().insertTTNNTensorAndValidate(fbOutputs->Get(i),
@@ -111,7 +108,7 @@ void runSingleChip(
   }
 }
 
-// Executes CPU-hoisted operation for multi-chip workloads.
+// Executes CPU-hoisted function for multi-chip workloads.
 //
 // This function handles sharded and replicated inputs across multiple devices.
 // For each shard, it gathers input tensor data pointers, executes the
@@ -138,20 +135,15 @@ void runMultiChip(
     const flatbuffers::Vector<flatbuffers::Offset<tt::target::ttnn::TensorRef>>
         *fbOutputs,
     ProgramContext &context) {
-  LOG_DEBUG("CPU op: executing multi-chip path...");
 
   ::ttnn::MeshDevice &meshDevice = context.getMeshDevice();
   const ::ttnn::MeshShape &meshShape = meshDevice.shape();
   size_t numShards = meshDevice.num_devices();
 
-  // Represents either individual shards of a multi-device tensor
-  // (sharded/replicated across devices), or a single-device tensor.
-  using InputTensorVariantType =
-      std::variant<std::vector<::ttnn::Tensor>, ::ttnn::Tensor>;
-
-  // Collect input tensors. For multi-device tensors, extract individual shards.
-  // For single-device tensors, store the tensor directly.
-  std::vector<InputTensorVariantType> inputTensors;
+  // Collect input tensors.
+  // For multi-device input tensors, extract individual shards.
+  // For single-device input tensors, store as a size-1 vector.
+  std::vector<std::vector<::ttnn::Tensor>> inputTensors;
   inputTensors.reserve(fbInputs->size());
 
   for (size_t i = 0; i < fbInputs->size(); ++i) {
@@ -166,14 +158,10 @@ void runMultiChip(
                numShards, ")");
 
     if (tensorMeshSize > 1) {
-      LOG_DEBUG("CPU op: input tensor ", i,
-                " is multi-device tensor with mesh size ", tensorMeshSize);
       inputTensors.emplace_back(
           ::ttnn::distributed::get_device_tensors(tensor));
     } else {
-      LOG_DEBUG("CPU op: input tensor ", i,
-                " is single-device tensor (mesh size 1)");
-      inputTensors.emplace_back(tensor);
+      inputTensors.emplace_back(1, tensor);
     }
   }
 
@@ -183,30 +171,23 @@ void runMultiChip(
     outputShards[i].reserve(numShards);
   }
 
-  // Execute CPU function for each shard.
+  // Execute CPU-hoisted function for each shard.
+  std::vector<void *> inputDataPtrs;
+  inputDataPtrs.reserve(fbInputs->size());
+
   for (size_t shardIdx = 0; shardIdx < numShards; ++shardIdx) {
-    std::vector<void *> inputDataPtrs;
-    inputDataPtrs.reserve(fbInputs->size());
+    inputDataPtrs.clear();
 
     for (size_t i = 0; i < fbInputs->size(); ++i) {
-      void *dataPtr = std::visit(
-          [shardIdx](const auto &input) -> void * {
-            using T = std::decay_t<decltype(input)>;
-            if constexpr (std::is_same_v<T, std::vector<::ttnn::Tensor>>) {
-              // Multi-device tensor: get data from the specific shard.
-              return ::tt::runtime::ttnn::utils::getRawHostDataPtr(
-                  input[shardIdx]);
-            } else {
-              // Single-device tensor: use the same data for all shards.
-              return ::tt::runtime::ttnn::utils::getRawHostDataPtr(input);
-            }
-          },
-          inputTensors[i]);
-      inputDataPtrs.push_back(dataPtr);
+      // For single device tensor inputs, always use index 0.
+      // For sharded inputs, use the shard index.
+      size_t tensorIdx = inputTensors[i].size() == 1 ? 0 : shardIdx;
+      inputDataPtrs.push_back(::tt::runtime::ttnn::utils::getRawHostDataPtr(
+          inputTensors[i][tensorIdx]));
     }
 
     std::vector<::ttnn::Tensor> shardOutputs =
-        executeCPUFunction(fn, fbInputs, fbOutputs, inputDataPtrs);
+        executeCPUHoistedFunction(fn, fbInputs, fbOutputs, inputDataPtrs);
 
     for (size_t i = 0; i < shardOutputs.size(); ++i) {
       outputShards[i].push_back(std::move(shardOutputs[i]));
