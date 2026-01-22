@@ -3761,10 +3761,8 @@ private:
     ArrayRef<int64_t> insertedWindowDims =
         adaptor.getScatterDimensionNumbers().getInsertedWindowDims();
 
-    // Get input tensor rank (needed for inserted_window_dims validation (C11).
-    RankedTensorType inputType =
-        mlir::cast<RankedTensorType>(op.getInputs()[0].getType());
-    int64_t inputRank = inputType.getRank();
+    int64_t inputRank =
+        mlir::cast<RankedTensorType>(op.getInputs()[0].getType()).getRank();
 
     // Get update tensor rank and shape.
     RankedTensorType updateType =
@@ -3792,7 +3790,7 @@ private:
       }
     }
 
-    // Verify C2: rank(inputs[0]) = size(update_window_dims) +
+    // Verify (C2): rank(inputs[0]) = size(update_window_dims) +
     // size(inserted_window_dims) + size(input_batching_dims).
     if (inputRank != static_cast<int64_t>(updateWindowDims.size() +
                                           insertedWindowDims.size() +
