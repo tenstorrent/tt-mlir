@@ -1745,9 +1745,9 @@ class Builder(metaclass=BuilderMeta):
             for operand, torch_golden in zip(inputs, parsed_func_golden_inputs):
                 golden_dict[operand] = torch_golden
 
-            input_goldens: Dict[Operand, GoldenMapTensor] = (
-                self._create_builder_golden_from_torch_tensor(golden_dict)
-            )
+            input_goldens: Dict[
+                Operand, GoldenMapTensor
+            ] = self._create_builder_golden_from_torch_tensor(golden_dict)
             self._set_goldens(input_goldens)
             ordered_inputs.extend(inputs)
 
