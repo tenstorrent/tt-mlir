@@ -3774,7 +3774,8 @@ private:
     RankedTensorType indexType = op.getScatterIndices().getType();
     ArrayRef<int64_t> indexShape = indexType.getShape();
 
-    // Check update_window_dims (C8): indices into updates tensor.
+    // Verify openxla.org/stablehlo/spec#scatter (C8):
+    // indices into updates tensor.
     for (auto dim : updateWindowDims) {
       if (dim < 0 || dim >= updateRank) {
         return rewriter.notifyMatchFailure(
@@ -3782,7 +3783,8 @@ private:
       }
     }
 
-    // Check inserted_window_dims (C11): indices into inputs tensor.
+    // Verify openxla.org/stablehlo/spec#scatter (C11):
+    // indices into inputs tensor.
     for (auto dim : insertedWindowDims) {
       if (dim < 0 || dim >= inputRank) {
         return rewriter.notifyMatchFailure(
@@ -3790,8 +3792,9 @@ private:
       }
     }
 
-    // Verify (C2): rank(inputs[0]) = size(update_window_dims) +
-    // size(inserted_window_dims) + size(input_batching_dims).
+    // Verify openxla.org/stablehlo/spec#scatter (C2):
+    // rank(inputs[0]) = size(update_window_dims) + size(inserted_window_dims) +
+    // size(input_batching_dims).
     if (inputRank != static_cast<int64_t>(updateWindowDims.size() +
                                           insertedWindowDims.size() +
                                           input_batching_dims.size())) {
