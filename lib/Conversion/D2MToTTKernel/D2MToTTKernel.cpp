@@ -288,6 +288,31 @@ static void setInsertionPointAfterOperands(OpBuilder &rewriter,
   }
 }
 
+static void setInsertionPointToFuncStart(OpBuilder &rewriter,
+                                         func::FuncOp func) {
+  Block &entry = func.getBody().front();
+  Operation *firstLoop = nullptr;
+
+  for (Operation &entryOp : entry) {
+    if (isa<scf::ForOp>(entryOp)) {
+      firstLoop = &entryOp;
+      break;
+    }
+  }
+
+  if (firstLoop) {
+    rewriter.setInsertionPoint(firstLoop);
+  } else {
+    rewriter.setInsertionPointToEnd(&entry);
+  }
+}
+
+static bool hasMatmulInit(func::FuncOp func) {
+  return llvm::any_of(func.getBody().front(), [](Operation &op) {
+    return isa<ttkernel::MatmulInitOp>(op);
+  });
+}
+
 } // namespace
 
 namespace {
@@ -630,11 +655,18 @@ public:
       auto cbA = getCB(rewriter, op.getA());
       auto cbB = getCB(rewriter, op.getB());
       auto outCB = getOutCB(rewriter, op);
-      setInsertionPointAfterOperands(rewriter, {cbA, cbB, outCB},
-                                     /*allowHoisting*/ true);
+
+      // Must have only 1 MatmulInit op per kernel, so we always insert at
+      // beginning of the func, and only if no MatmulInit already exists.
+      if (auto func = op->template getParentOfType<func::FuncOp>();
+          !hasMatmulInit(func)) {
+        setInsertionPointToFuncStart(rewriter, func);
+        auto transpose = i32(rewriter, op->getLoc(), 0);
+        rewriter.create<ttkernel::MatmulInitOp>(op->getLoc(), cbA, cbB, outCB,
+                                                transpose);
+      }
+
       auto transpose = i32(rewriter, op->getLoc(), 0);
-      rewriter.create<ttkernel::MatmulInitOp>(op->getLoc(), cbA, cbB, outCB,
-                                              transpose);
       rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
       rewriter.create<ttkernel::MatmulInitShortOp>(op->getLoc(), cbA, cbB,
                                                    transpose);
