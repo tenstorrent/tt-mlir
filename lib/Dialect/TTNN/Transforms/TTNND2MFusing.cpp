@@ -14,13 +14,11 @@
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/IRMapping.h"
 
-#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
-#include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Debug.h"
 
-#include <algorithm>
+#include <deque>
 
 #define DEBUG_TYPE "ttnn-d2m-fusing"
 
@@ -30,13 +28,12 @@ namespace mlir::tt::ttnn {
 
 namespace {
 
-// Reverse Kahn's algorithm:
-//   1. Find exit ops: eltwise ops where all consumers are non-eltwise
-//   2. From each exit, grow backward through eltwise producers
-//   3. Include producer P only if ALL of P's consumers are in the group
-//      (basically no exiting from the middle of the fusion group)
-//   4. Stop at non-eltwise producers (these are entry points)
-//   5. Multiple entry points are alloed
+// 1. Find exit ops: eltwise ops where all consumers are non-eltwise
+// 2. From each exit, BFS backward through eltwise producers
+// 3. Include producer P only if ALL of P's consumers are already in F
+//    (this ensures no escaping from middle of a fusion group)
+// 4. Stop at non-eltwise producers (these are entry points)
+// 5. Multiple entry points allowed
 class ElementwiseFusionAnalysis {
 public:
   using FusionGroup = llvm::SmallVector<Operation *>;
@@ -91,7 +88,7 @@ private:
     llvm::SmallVector<Operation *> exits;
     rootOp->walk([&](Block *block) {
       for (Operation &op : llvm::reverse(*block)) {
-        if (isFusionGroupExit(&op) && !assignedOps.contains(&op)) {
+        if (isFusionGroupExit(&op) && !visitedOps.contains(&op)) {
           exits.push_back(&op);
         }
       }
@@ -99,7 +96,7 @@ private:
 
     // Build a fusion group backward from each exit.
     for (Operation *exit : exits) {
-      if (assignedOps.contains(exit)) {
+      if (visitedOps.contains(exit)) {
         continue;
       }
 
@@ -107,7 +104,7 @@ private:
 
       if (group.size() >= 2) {
         for (Operation *op : group) {
-          assignedOps.insert(op);
+          visitedOps.insert(op);
         }
         fusionGroups.push_back(std::move(group));
       }
@@ -126,93 +123,52 @@ private:
     });
   }
 
+  // BFS backward from exit op and include producer only if all its consumers
+  // are in the fusion set. BFS order guarantees correctness since consumers are
+  // processed before their producers.
   FusionGroup buildFusionGroup(Operation *exit) {
-    // DFS to find all eltwise ops starting from last op in the group.
-    llvm::DenseSet<Operation *> allEltwiseOps;
-    {
-      llvm::SmallVector<Operation *> stack;
-      stack.push_back(exit);
-      while (!stack.empty()) {
-        Operation *op = stack.pop_back_val();
-        if (!allEltwiseOps.insert(op).second) {
-          continue;
-        }
-        for (Value operand : op->getOperands()) {
-          if (Operation *producer = operand.getDefiningOp()) {
-            if (isElementwiseOp(producer) && !assignedOps.contains(producer)) {
-              stack.push_back(producer);
-            }
-          }
-        }
-      }
-    }
+    llvm::DenseSet<Operation *> fusionSet;
+    std::deque<Operation *> stack;
 
-    // Find num edges per eltwise op and exclude any ops that exit from the
-    // group.
-    llvm::DenseMap<Operation *, bool> excludedOps;
-    llvm::DenseMap<Operation *, unsigned> vertexDegrees;
-    for (Operation *op : allEltwiseOps) {
-      unsigned numEdges = 0;
-      bool opExcluded = false;
-
-      for (Value result : op->getResults()) {
-        for (OpOperand &use : result.getUses()) {
-          Operation *user = use.getOwner();
-          if (allEltwiseOps.contains(user)) {
-            numEdges++;
-          } else if (op != exit) {
-            opExcluded = true;
-          }
-        }
-      }
-
-      excludedOps[op] = opExcluded;
-      vertexDegrees[op] = numEdges;
-    }
-
-    // Apply Kahn's algorithm backward starting from last op in the graph.
-    llvm::DenseSet<Operation *> visitedOps;
-    llvm::SmallVector<Operation *> stack;
-    llvm::SmallVector<Operation *> reverseTopoOrder;
-
-    visitedOps.insert(exit);
+    fusionSet.insert(exit);
     stack.push_back(exit);
-    reverseTopoOrder.push_back(exit);
 
     while (!stack.empty()) {
-      Operation *op = stack.pop_back_val();
+      Operation *cur = stack.back();
+      stack.pop_back();
 
-      // Use SetVector to maintain deterministic operand order.
-      llvm::SetVector<Operation *> producers;
-      for (Value operand : op->getOperands()) {
-        if (Operation *producer = operand.getDefiningOp()) {
-          if (allEltwiseOps.contains(producer) &&
-              !visitedOps.contains(producer)) {
-            producers.insert(producer);
-          }
-        }
-      }
-
-      for (Operation *producer : producers) {
-        if (excludedOps[producer]) {
+      for (Value operand : cur->getOperands()) {
+        Operation *producer = operand.getDefiningOp();
+        if (!producer || !isElementwiseOp(producer) ||
+            visitedOps.contains(producer) || fusionSet.contains(producer)) {
           continue;
         }
 
-        vertexDegrees[producer]--;
+        // All consumers of producers must be in the fusion group set
+        bool allConsumersInSet =
+            llvm::all_of(producer->getUsers(), [&](Operation *user) {
+              return fusionSet.contains(user);
+            });
 
-        if (vertexDegrees[producer] == 0) {
-          visitedOps.insert(producer);
+        if (allConsumersInSet) {
+          fusionSet.insert(producer);
           stack.push_back(producer);
-          reverseTopoOrder.push_back(producer);
         }
       }
     }
 
-    // Reverse to get correct order, since we traversed the graph backwards.
-    return FusionGroup(reverseTopoOrder.rbegin(), reverseTopoOrder.rend());
+    // Return ordered fusion group.
+    FusionGroup fusionGroup;
+    Block *block = exit->getBlock();
+    for (Operation &op : *block) {
+      if (fusionSet.contains(&op)) {
+        fusionGroup.push_back(&op);
+      }
+    }
+    return fusionGroup;
   }
 
-  llvm::DenseSet<Operation *> assignedOps;
+  llvm::DenseSet<Operation *> visitedOps;
   llvm::SmallVector<FusionGroup> fusionGroups;
 };
 
