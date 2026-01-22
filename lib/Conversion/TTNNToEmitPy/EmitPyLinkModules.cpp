@@ -177,11 +177,8 @@ public:
       }
 
       llvm::StringRef declarationName = funcOp.getSymName();
-      assert(declarationName.ends_with(ttir::kCPUHoistedDeclSuffix) &&
-             "CPU-hoisted function declaration must end with '_decl'");
+      llvm::StringRef definitionName = declarationName;
 
-      auto definitionName =
-          declarationName.drop_back(strlen(ttir::kCPUHoistedDeclSuffix));
       (void)funcOp.replaceAllSymbolUses(builder.getStringAttr(definitionName),
                                         deviceModule);
 

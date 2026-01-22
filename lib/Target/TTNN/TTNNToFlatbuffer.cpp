@@ -21,6 +21,7 @@
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/FunctionTypes.h"
+#include "ttmlir/Support/IRHasher.h"
 #include "ttmlir/Target/Common/Target.h"
 #include "ttmlir/Target/Common/types_generated.h"
 #include "ttmlir/Target/LLVM/LLVMToDynamicLib.h"
@@ -47,7 +48,6 @@
 #include "llvm/ADT/StringMap.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
-#include "llvm/Support/SHA256.h"
 #include "llvm/Support/raw_ostream.h"
 
 namespace mlir::tt::ttnn {
@@ -2299,45 +2299,15 @@ createDeallocateOp(FlatbufferObjectCache &cache, DeallocateOp op) {
 //
 // NOTE: the goal for this hashing is not to identify functions which are
 // mathematically equivalent, but the completely identical ones.
-llvm::StringMap<std::string>
+llvm::StringMap<llvm::SmallString<64>>
 computeConstEvalFuncHashesSHA256(mlir::ModuleOp moduleOp) {
-  llvm::StringMap<std::string> constEvalHashes;
+  llvm::StringMap<llvm::SmallString<64>> constEvalHashes;
 
   moduleOp->walk([&](func::FuncOp func) {
     if (!ttmlir::utils::isConstEvalFunc(func)) {
       return;
     }
-
-    auto originalSymName = func.getSymName();
-
-    // Since the function (symbol) name is a part of the dumped form and does
-    // not impact the semantics of the function, we temporarily set it to a
-    // fixed value to avoid producing different hashes for functions that are
-    // semantically equivalent.
-    func.setSymName("anonymous_const_eval");
-
-    // Use local scope to dump the function with local SSA IDs (%0, %1, ...) and
-    // without any global aliases.
-    // Use printGenericOpForm to skip using custom printers and get an
-    // explicit form of all op attributes and types.
-    auto flags = mlir::OpPrintingFlags().useLocalScope().printGenericOpForm();
-    std::string s;
-    llvm::raw_string_ostream os(s);
-
-    func.print(os, flags);
-    os.flush();
-
-    // Restore the original symbol name.
-    func.setSymName(originalSymName);
-
-    auto digest = llvm::SHA256::hash(llvm::ArrayRef<uint8_t>(
-        reinterpret_cast<const uint8_t *>(s.data()), s.size()));
-
-    constexpr bool lowercase = true;
-    std::string hash = llvm::toHex(
-        llvm::ArrayRef<uint8_t>(digest.data(), digest.size()), lowercase);
-
-    constEvalHashes[originalSymName.str()] = hash;
+    constEvalHashes[func.getSymName()] = hashFuncOp(func);
   });
 
   return constEvalHashes;
@@ -2346,7 +2316,7 @@ computeConstEvalFuncHashesSHA256(mlir::ModuleOp moduleOp) {
 ::flatbuffers::Offset<::tt::target::ttnn::LoadCachedOp>
 createOp(FlatbufferObjectCache &cache, ttcore::LoadCachedOp op,
          const llvm::StringMap<uint32_t> &programIndexMap,
-         const llvm::StringMap<std::string> &constEvalFuncHashes) {
+         const llvm::StringMap<llvm::SmallString<64>> &constEvalFuncHashes) {
   std::vector<::flatbuffers::Offset<::tt::target::ttnn::TensorRef>> ins;
   for (auto input : op.getInputs()) {
     ins.push_back(cache.at<::tt::target::ttnn::TensorRef>(
@@ -2367,12 +2337,12 @@ createOp(FlatbufferObjectCache &cache, ttcore::LoadCachedOp op,
   auto itHash = constEvalFuncHashes.find(op.getCallee().str());
   assert(itHash != constEvalFuncHashes.end() &&
          "Const-eval function hash not found in const-eval function hash map!");
-  const std::string &funcHash = itHash->second;
+  const auto &funcHash = itHash->second;
 
   // Create the LoadCachedOp with indices instead of inputs
   return ::tt::target::ttnn::CreateLoadCachedOpDirect(
       *cache.fbb, &ins, op.getCallee().str().c_str(), programIdx, &outputs,
-      funcHash.c_str());
+      funcHash.str().begin());
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::AssignOp>
@@ -3013,11 +2983,11 @@ createOp(FlatbufferObjectCache &cache, debug::MemorySnapshotOp op) {
                                                     filePath);
 }
 
-::flatbuffers::Offset<::tt::target::ttnn::Operation>
-emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
-                  const llvm::StringMap<uint32_t> &programIndexMap,
-                  const std::string &debugString, const std::string &locInfo,
-                  const llvm::StringMap<std::string> &constEvalFuncHashes) {
+::flatbuffers::Offset<::tt::target::ttnn::Operation> emitTTNNOperation(
+    FlatbufferObjectCache &cache, Operation *op,
+    const llvm::StringMap<uint32_t> &programIndexMap,
+    const std::string &debugString, const std::string &locInfo,
+    const llvm::StringMap<llvm::SmallString<64>> &constEvalFuncHashes) {
   if (auto getDeviceOp = dyn_cast<GetDeviceOp>(op); getDeviceOp) {
     return createOperation(cache, createOp(cache, getDeviceOp), debugString,
                            locInfo);
