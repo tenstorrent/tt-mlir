@@ -253,7 +253,7 @@ def EmitPyLinkModules : Pass<"emitpy-link-modules", "::mlir::ModuleOp"> {
   let dependentDialects = ["mlir::tt::emitpy::EmitPyDialect"];
 }
 
-def EmitPySplitFiles: Pass<"emitpy-split-files-creation", "::mlir::ModuleOp"> {
+def EmitPySplitFiles: Pass<"emitpy-split-files", "::mlir::ModuleOp"> {
   let summary = "Organize EmitPy operations into separate files.";
   let description = [{
     This pass organizes EmitPy operations into two files:
