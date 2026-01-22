@@ -372,7 +372,6 @@ def D2M_EmptyOp : D2M_Op<"empty", [
   ];
 
   let assemblyFormat = "`(` `)` attr-dict `:` type($result)";
-  let hasCanonicalizer = 1;
 }
 
 def D2M_FullOp : D2M_Op<"full", [
