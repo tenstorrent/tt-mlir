@@ -570,7 +570,7 @@ def EmitPy_ExpressionOp : EmitPy_Op<"expression", [
 
 def EmitPy_FileOp
     : EmitPy_Op<"file", [IsolatedFromAbove, NoRegionArguments, SymbolTable,
-                        OpAsmOpInterface, NoTerminator]> {
+                        NoTerminator]> {
   let summary = "A file container operation";
   let description = [{
     A `file` represents a single Python file.
@@ -596,15 +596,6 @@ def EmitPy_FileOp
   let extraClassDeclaration = [{
     /// Construct a file op from the given location with a name.
     static FileOp create(Location loc, StringRef name);
-
-    //===------------------------------------------------------------------===//
-    // OpAsmOpInterface Methods
-    //===------------------------------------------------------------------===//
-
-    /// EmitPy ops in the body can omit their 'emitpy.' prefix in the assembly.
-    static ::llvm::StringRef getDefaultDialect() {
-      return "emitpy";
-    }
   }];
 
   // We need to ensure that the body region has a block;

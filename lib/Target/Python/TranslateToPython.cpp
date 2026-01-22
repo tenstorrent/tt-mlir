@@ -143,13 +143,21 @@ struct PythonEmitter {
   /// Return the existing or a new name for a Value.
   StringRef getOrCreateName(Value value, std::string name);
 
-  // Return the textual representation of a subscript operation.
+  /// Return the textual representation of a subscript operation.
   std::string getSubscriptName(SubscriptOp op);
 
   /// Register a value with a name so it can be referenced later.
   void registerDeferredValue(Value value, StringRef str);
 
+  /// Decides whether the file should be emitted. If fileId is set, only
+  /// the ops of the file with the matching id are emitted.
   bool shouldEmitFile(FileOp fileOp);
+
+  /// Returns true if we're emitting multiple files (fileId is empty).
+  bool isEmittingMultipleFiles() const { return fileId.empty(); }
+
+  /// Emits a comment label for the file to separate outputs.
+  void emitFileLabel(FileOp fileOp);
 
   /// RAII helper function to manage entering/exiting Python scopes.
   struct Scope {
@@ -352,7 +360,11 @@ void PythonEmitter::registerDeferredValue(Value value, StringRef str) {
 }
 
 bool PythonEmitter::shouldEmitFile(FileOp fileOp) {
-  return fileId.empty() || fileId == fileOp.getId();
+  return fileId == fileOp.getId() || isEmittingMultipleFiles();
+}
+
+void PythonEmitter::emitFileLabel(FileOp fileOp) {
+  os << "# File: " << fileOp.getId() << "\n";
 }
 
 static LogicalResult printOperation(PythonEmitter &emitter,
@@ -874,6 +886,11 @@ static LogicalResult printOperation(PythonEmitter &emitter,
 static LogicalResult printOperation(PythonEmitter &emitter, FileOp fileOp) {
   if (!emitter.shouldEmitFile(fileOp)) {
     return success();
+  }
+
+  // Emit file label only when emitting multiple files together.
+  if (emitter.isEmittingMultipleFiles()) {
+    emitter.emitFileLabel(fileOp);
   }
 
   for (Operation &op : fileOp.getRegion().getOps()) {

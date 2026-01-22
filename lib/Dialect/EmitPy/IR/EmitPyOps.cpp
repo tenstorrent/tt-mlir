@@ -361,14 +361,14 @@ LogicalResult CallOpaqueOp::verify() {
 // ImportOp
 //===----------------------------------------------------------------------===//
 void ImportOp::print(OpAsmPrinter &p) {
-  auto moduleName = getModuleName();
+  auto moduleNameAttr = getModuleNameAttr();
   auto moduleAlias = getModuleAlias();
   auto membersToImport = getMembersToImport();
   auto memberAliases = getMemberAliases();
   p << " ";
   if (getImportAll()) {
     // Print 'from <moduleName> import *' case.
-    p << "from " << moduleName << " import *";
+    p << "from " << moduleNameAttr << " import *";
   } else if (membersToImport && !membersToImport->empty()) {
     // Print 'from <moduleName> import <membersToImport> [as <memberAliases>]'
     // case.
@@ -383,7 +383,7 @@ void ImportOp::print(OpAsmPrinter &p) {
       return false;
     };
 
-    p << "from " << moduleName << " import ";
+    p << "from " << moduleNameAttr << " import ";
 
     bool first = true;
     for (size_t i = 0; i < membersToImport->size(); ++i) {
@@ -405,9 +405,9 @@ void ImportOp::print(OpAsmPrinter &p) {
     }
   } else {
     // Print 'import <moduleName> [as <moduleAlias>]' case.
-    p << "import " << moduleName;
+    p << "import " << moduleNameAttr;
     if (moduleAlias && !moduleAlias->empty()) {
-      p << " as " << *moduleAlias;
+      p << " as " << getModuleAliasAttr();
     }
   }
 }

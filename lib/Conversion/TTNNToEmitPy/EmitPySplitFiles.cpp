@@ -53,7 +53,8 @@ public:
         continue;
       }
       if (auto funcOp = dyn_cast<func::FuncOp>(op)) {
-        if (ttmlir::utils::isConstEvalFunc(funcOp)) {
+        if (ttmlir::utils::isConstEvalFunc(funcOp) ||
+            ttmlir::utils::isForwardCPUFunc(funcOp)) {
           op.moveBefore(&constevalFile.getBodyRegion().front(),
                         constevalFile.getBodyRegion().front().end());
           continue;
@@ -71,10 +72,15 @@ public:
         mlir::Value globalDict = nullptr;
         mlir::Value outerDictKey = nullptr;
 
+        // Assign sequential indices to operations for deterministic ordering.
+        llvm::DenseMap<Operation *, unsigned> opIndices;
+        unsigned index = 0;
+
         // Search for globalDict and outerDictKey in the function body.
-        // Collect all operations that are explicitely marked with attribute as
+        // Collect all operations that are explicitly marked with attribute as
         // consteval.
         funcOp.walk([&](Operation *op) {
+          opIndices[op] = index++;
           if (isa<emitpy::GlobalStatementOp>(op)) {
             globalDict = op->getResult(0);
           }
@@ -186,8 +192,14 @@ public:
           }
         }
 
-        // Transform collected subscript operations.
-        for (auto &[innerDictKeyOp, subscripts] : subscriptMapping) {
+        // Transform collected subscript operations in deterministic order.
+        auto sortedEntries = llvm::to_vector(subscriptMapping);
+        llvm::sort(sortedEntries, [&](auto &a, auto &b) {
+          return opIndices[a.first.getOperation()] >
+                 opIndices[b.first.getOperation()];
+        });
+
+        for (auto &[innerDictKeyOp, subscripts] : sortedEntries) {
           builder.setInsertionPointAfter(callExecuteOp);
           auto *clonedKeyOp = builder.clone(*innerDictKeyOp.getOperation());
           auto innerDictValue = builder.create<emitpy::GetValueForDictKeyOp>(
