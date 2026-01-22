@@ -27,13 +27,74 @@ _LOC_INLINE_PATTERN = re.compile(
 )  # Match inline loc(...) annotations
 _SDY_MESH_PATTERN = re.compile(r"\s*sdy.mesh.*$", re.MULTILINE)  # Match sdy.mesh lines
 
-# Operations that must be preserved in the function body rather than parameterized as inputs.
-# - stablehlo.constant: Sometimes required by stablehlo spec, otherwise improves test accuracy with real constant values
+# Operations that are preserved in the function body rather than parameterized as inputs.
 # - ttnn.get_device: Returns device handle, cannot be replaced with test input
+# - stablehlo.constant: Required for reduce/reduce_window pattern matching, otherwise improves test accuracy                                         
+# - stablehlo.iota: Required for reduce/sort pattern matching, otherwise improves test accuracy
 PRESERVED_OP_NAMES = [
-    "stablehlo.constant",
     "ttnn.get_device",
+    "stablehlo.constant",
+    "stablehlo.iota",
 ]
+
+# Operations that preserve constant semantics when their input is a constant.
+# Mirrors the logic in StableHLOToTTIRPatterns.cpp::getStableHLOConstantDefiningOp.
+CONSTANT_PRESERVING_OPS = [
+    "stablehlo.reshape",
+    "stablehlo.broadcast_in_dim",
+    "stablehlo.convert",
+]
+
+def _get_constant_chain(operand) -> List:
+    """Traverses backward through constant-preserving ops to find a constant chain."""
+    defining_op = operand.owner
+    if not defining_op:
+        return []
+
+    # Direct constant case
+    if defining_op.name in PRESERVED_OP_NAMES:
+        return [defining_op]
+
+    # Traverse backward through constant-preserving ops
+    chain = []
+    current_op = defining_op
+    while current_op:
+        if current_op.name in CONSTANT_PRESERVING_OPS:
+            chain.append(current_op)
+            current_op = current_op.operands[0].owner
+        elif current_op.name in PRESERVED_OP_NAMES:
+            chain.append(current_op)
+            # Reverse to get [constant, ..., final_preserving_op]
+            chain.reverse()
+            return chain
+        else:
+            break
+
+    return []
+
+
+def _get_captured_values_from_regions(op) -> List:
+    """Collects values used inside op's regions that are defined outside (captured)."""
+    captured = []
+    for region in op.regions:
+        for block in region.blocks:
+            # Collect all values defined within this block:
+            # 1. Block arguments (e.g., %arg204, %arg205 in reducer)
+            # 2. Results of operations within the block
+            defined_in_block = set()
+            for arg in block.arguments:
+                defined_in_block.add(arg)
+            for inner_op in block.operations:
+                for result in inner_op.results:
+                    defined_in_block.add(result)
+
+            # Find operands that are used but not defined in the block = captured
+            for inner_op in block.operations:
+                for operand in inner_op.operands:
+                    if operand not in defined_in_block and operand not in captured:
+                        captured.append(operand)
+
+    return captured
 
 
 def _replace_mlir_identifier(text: str, old_name: str, new_name: str) -> str:
@@ -148,30 +209,46 @@ class OpWrapper:
         self.op_name = op.name
         self.func_op_string = str(func_op) if func_op is not None else ""
 
-        # Single pass: identify preserved ops, build mappings, collect parameterized operands
-        preserved_ops = {}  # Maps operand index -> (original_name, preserved_op_string)
-        operand_mapping = {}
-        parameterized_operands = []
-
-        for i, operand in enumerate(op.operands):
+        # First pass: collect unique operands by original_name (keep first occurrence)
+        unique_operands = {}  # original_name -> operand
+        for operand in op.operands:
             original_name = operand.get_name()
-            defining_op = operand.owner
+            if original_name not in unique_operands:
+                unique_operands[original_name] = operand
 
-            # Check if operand comes from a preserved operation
-            is_preserved = (
-                defining_op
-                and hasattr(defining_op, "name")
-                and defining_op.name in PRESERVED_OP_NAMES
-            )
+        # Also collect captured values from regions (e.g., constants used inside reducer blocks)
+        for captured in _get_captured_values_from_regions(op):
+            original_name = captured.get_name()
+            if original_name not in unique_operands:
+                unique_operands[original_name] = captured
 
-            if is_preserved:
-                standardized_name = f"%pres{i}"
-                preserved_ops[i] = (original_name, str(defining_op))
+        # Second pass: process unique operands, detect constant chains
+        operand_mapping = {}  # original_name -> standardized_name
+        parameterized_operands = []
+        preserved_chains = []  # List of (chain_ops, chain_original_names, final_standardized_name)
+        pres_counter = 0
+        arg_counter = 0
+
+        for original_name, operand in unique_operands.items():
+            chain = _get_constant_chain(operand)
+            if chain:
+                # This operand comes from a constant or constant-preserving chain
+                final_standardized_name = f"%pres{pres_counter}"
+                operand_mapping[original_name] = final_standardized_name
+
+                # Collect original names for all values in the chain
+                chain_original_names = [
+                    chain_op.results[0].get_name() for chain_op in chain
+                ]
+
+                preserved_chains.append((chain, chain_original_names, pres_counter))
+                pres_counter += 1
             else:
-                standardized_name = f"%arg{i}"
+                # Parameterized operand
+                standardized_name = f"%operand{arg_counter}"
+                operand_mapping[original_name] = standardized_name
                 parameterized_operands.append(Operand(standardized_name, operand.type))
-
-            operand_mapping[original_name] = standardized_name
+                arg_counter += 1
 
         # Build result mapping
         result_mapping = {}
@@ -186,16 +263,22 @@ class OpWrapper:
                 self.op_string, original, standardized
             )
 
-        # Process preserved ops: replace only the defining identifier in each
+        # Build preserved_ops_strings with proper SSA naming for chains
         self.preserved_ops_strings = []
-        for original_name, pres_str in preserved_ops.values():
-            standardized_name = operand_mapping[original_name]
-            pres_str = _replace_mlir_identifier(
-                pres_str, original_name, standardized_name
-            )
-            self.preserved_ops_strings.append(pres_str)
+        for chain, chain_original_names, pres_idx in preserved_chains:
+            # Build SSA name mapping for this chain
+            chain_name_mapping = {
+                orig_name: f"%pres{pres_idx}_{i}"
+                for i, orig_name in enumerate(chain_original_names)
+            }
 
-        # Store results
+            # Convert each op in chain to string and apply renaming
+            for i, chain_op in enumerate(chain):
+                op_str = str(chain_op)
+                for orig, standardized in chain_name_mapping.items():
+                    op_str = _replace_mlir_identifier(op_str, orig, standardized)
+                self.preserved_ops_strings.append(op_str)
+
         self.operands = parameterized_operands
         self.results = [
             Result(f"%res{i}", result.type) for i, result in enumerate(op.results)
@@ -244,10 +327,8 @@ class OpWrapper:
         }
         ```
         """
-        # Make operands unique to handle cases where the same operand is used multiple times
-        unique_operands = {operand.name: operand for operand in self.operands}.values()
         unpacked_operands = ", ".join(
-            f"{operand.name}: {operand.type}" for operand in unique_operands
+            f"{operand.name}: {operand.type}" for operand in self.operands
         )
 
         # Prepare preserved ops to emit in function body
@@ -336,10 +417,8 @@ class TTNNOpWrapper(OpWrapper):
         }
         ```
         """
-        # Make operands unique to handle cases where the same operand is used multiple times
-        unique_operands = {operand.name: operand for operand in self.operands}.values()
         unpacked_operands = ", ".join(
-            f"{operand.name}: {operand.type}" for operand in unique_operands
+            f"{operand.name}: {operand.type}" for operand in self.operands
         )
 
         # Prepare preserved ops to emit in function body
