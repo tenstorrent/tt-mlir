@@ -4340,6 +4340,42 @@ def stablehlo_slice_golden(
     return GoldenMapTensor(shard_map, input_tensor.mesh_shape)
 
 
+def stablehlo_get_dimension_size_golden(
+    input_tensor: GoldenMapTensor,
+    dimension_attr: IntegerAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    """
+    Golden function for stablehlo.get_dimension_size operation.
+
+    Produces the size of the given dimension of the operand.
+
+    Parameters
+    ----------
+    input_tensor : GoldenMapTensor
+        Input tensor to get dimension size from
+    dimension_attr : IntegerAttr
+        The dimension index to get size of
+    output_type_mlir : Type
+        The output MLIR type
+
+    Returns
+    -------
+    GoldenMapTensor
+        Scalar tensor containing the size of the specified dimension as int32
+    """
+    dimension = unpack_mlir_attr(dimension_attr)
+    output_tensor = input_tensor.clone()
+
+    for device_id, shard in input_tensor.shard_map.items():
+        shard = torch.tensor(
+            input_tensor.shard_at(device_id).size(dimension), dtype=torch.int32
+        )
+        output_tensor.shard_map[device_id] = shard
+
+    return output_tensor
+
+
 def stablehlo_sine_golden(
     input_tensor: GoldenMapTensor, output_type_mlir: Type
 ) -> GoldenMapTensor:
@@ -5647,6 +5683,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     stablehlo.XorOp: stablehlo_xor_golden,
     stablehlo.NotOp: stablehlo_not_golden,
     stablehlo.SliceOp: stablehlo_slice_golden,
+    stablehlo.GetDimensionSizeOp: stablehlo_get_dimension_size_golden,
     stablehlo.MaxOp: stablehlo_maximum_golden,
     stablehlo.MinOp: stablehlo_minimum_golden,
     stablehlo.MulOp: stablehlo_multiply_golden,
