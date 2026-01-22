@@ -1086,22 +1086,6 @@ AffineMap d2m::ViewLayoutOp::getResultAffineMap() {
       .getIndexAffineMap();
 }
 
-AffineMap d2m::ViewLayoutOp::getInputAffineMap() {
-  if (auto inputType = mlir::dyn_cast<MemRefType>(getInput().getType())) {
-    ttcore::ViewLayoutAttr inputView =
-        mlir::dyn_cast<ttcore::ViewLayoutAttr>(inputType.getLayout());
-
-    if (!inputView) {
-      return mlir::AffineMap::getMultiDimIdentityMap(inputType.getRank(),
-                                                     getContext());
-    }
-    return inputView.getAffineMap();
-  }
-  return mlir::cast<ttcore::MetalLayoutAttr>(
-             mlir::cast<RankedTensorType>(getInput().getType()).getEncoding())
-      .getIndexAffineMap();
-}
-
 bool d2m::ViewLayoutOp::isReblockOnly() {
   mlir::AffineMap reblockMap = ttmlir::utils::calculateReblockMap(
       mlir::cast<mlir::ShapedType>(getInput().getType()).getShape(),
@@ -1158,8 +1142,6 @@ mlir::OpFoldResult d2m::ViewLayoutOp::fold(FoldAdaptor adaptor) {
       mlir::cast<mlir::ShapedType>(consecutiveView.getInput().getType())
           .getShape(),
       mlir::cast<mlir::ShapedType>(getType()).getShape(), getContext());
-
-  reblockMap = reblockMap.compose(consecutiveView.getInputAffineMap());
 
   auto resultType = mlir::cast<RankedTensorType>(getType());
   auto resultLayout =
