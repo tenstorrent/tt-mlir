@@ -638,7 +638,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       // Non-trivial views always need a stream to represent the implied data
       // movement.
       const bool isIgnoredOutput =
-          isNonTrivialView(operandValue)
+          isNonTrivialView(operandCtx)
               ? false
               : (operandCtx.isOutput && !allowL1OutputSpilling);
 
@@ -889,7 +889,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
                   if (operandCtx.isOutput && !allowL1OutputSpilling) {
                     // Operands with non-trivial views always need a stream to
                     // represent the implied data movement.
-                    if (!isNonTrivialView(operandCtx.operand->get())) {
+                    if (!isNonTrivialView(operandCtx)) {
                       continue;
                     }
                   }
@@ -899,7 +899,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
                   }
 
                   if (useAlwaysStreamPolicy() ||
-                      inferStreamRequirement(user, operandCtx.operandIndex())) {
+                      inferStreamRequirement(user, operandCtx)) {
                     TT_debug(operandCtx.bufferType != nullptr);
                     const AllocSizeT bufferSize = ttmlir::utils::alignUp(
                         getStreamBufferSizeBytes(operandCtx.bufferType, device),
@@ -1093,7 +1093,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         if (operandCtx.isOutput && !allowL1OutputSpilling) {
           // Operands with non-trivial views always need a stream to represent
           // the implied data movement.
-          if (!isNonTrivialView(operandCtx.operand->get())) {
+          if (!isNonTrivialView(operandCtx)) {
             continue;
           }
         }
@@ -1103,7 +1103,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
 
         if (!operandCtx.hasStream &&
             (useAlwaysStreamPolicy() ||
-             inferStreamRequirement(genericOp, operandCtx.operandIndex()))) {
+             inferStreamRequirement(genericOp, operandCtx))) {
 
           // The above IR modifications may have changed memspace attributes
           // of ops in the operand's def chain; inserting a matching
@@ -1259,13 +1259,28 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     }
   }
 
+  /// Walk the operand's def chain and check if any ViewLayoutOp has a
+  /// non-identity affine map.
+  /// @return `true` if any ViewLayoutOp in the chain has a non-identity map.
+  static bool isNonTrivialView(const OperandContext &operandCtx) {
+    for (Operation *op : operandCtx.defChain) {
+      if (auto view = llvm::dyn_cast<d2m::ViewLayoutOp>(op)) {
+        if (!view.getResultAffineMap().isIdentity()) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
   /// @return `true` if `genericOp` requires a stream
   /// for operand @`operandIndex` based on the available indexing space
   /// information
   static bool inferStreamRequirement(d2m::GenericOp genericOp,
-                                     uint32_t operandIndex) {
+                                     const OperandContext &operandCtx) {
     TT_debug(!genericOp.isExplicitDatamovementForm());
 
+    const uint32_t operandIndex = operandCtx.operandIndex();
     const AffineMap indexingMap = genericOp.getIndexingMap(operandIndex);
     const auto broadcastDims = indexingMap.getBroadcastDims();
     const auto iteratorTypes = genericOp.getIteratorTypesValue();
@@ -1282,18 +1297,10 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     };
 
     // Non-trivial views need a stream to represent the implied data movement.
-    if (isNonTrivialView(genericOp.getOperand(operandIndex))) {
+    if (isNonTrivialView(operandCtx)) {
       return true;
     }
 
-    return false;
-  }
-
-  static bool isNonTrivialView(Value operand) {
-    if (auto view = mlir::dyn_cast_if_present<d2m::ViewLayoutOp>(
-            operand.getDefiningOp())) {
-      return !view.getResultAffineMap().isIdentity();
-    }
     return false;
   }
 
