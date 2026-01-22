@@ -76,4 +76,30 @@ def TTKernel_ArgType : I32EnumAttr<"ArgType", "TTKernel Argument Types",
   let cppNamespace = "::mlir::tt::ttkernel";
 }
 
+def TTKernel_BinaryDestReuseDestToSrcA
+    : I32EnumAttrCase<"DestToSrcA", 0, "dest_to_srca">;
+def TTKernel_BinaryDestReuseDestToSrcB
+    : I32EnumAttrCase<"DestToSrcB", 1, "dest_to_srcb">;
+
+def TTKernel_BinaryDestReuseType
+    : I32EnumAttr<"BinaryDestReuseType", "TTKernel Binary Dest Reuse Types",
+                  [TTKernel_BinaryDestReuseDestToSrcA,
+                   TTKernel_BinaryDestReuseDestToSrcB]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::mlir::tt::ttkernel";
+}
+
+def TTKernel_EltwiseBinaryTypeAdd : I32EnumAttrCase<"Add", 0, "add">;
+def TTKernel_EltwiseBinaryTypeSub : I32EnumAttrCase<"Sub", 1, "sub">;
+def TTKernel_EltwiseBinaryTypeMul : I32EnumAttrCase<"Mul", 2, "mul">;
+
+def TTKernel_EltwiseBinaryType
+    : I32EnumAttr<"EltwiseBinaryType", "TTKernel Elementwise Binary Op Types",
+                  [TTKernel_EltwiseBinaryTypeAdd,
+                   TTKernel_EltwiseBinaryTypeSub,
+                   TTKernel_EltwiseBinaryTypeMul]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::mlir::tt::ttkernel";
+}
+
 #endif

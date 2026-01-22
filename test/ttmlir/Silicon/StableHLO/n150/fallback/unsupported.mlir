@@ -19,7 +19,7 @@ module {
         %scale = stablehlo.constant dense<2.0> : tensor<32x64xf32>
         %1 = stablehlo.multiply %0, %scale : tensor<32x64xf32>
 
-        // CHECK: %[[EINSUM:.*]] = call @hoisted_stablehlo_einsum_32x64xf32_64x48xf32_func_decl
+        // CHECK: %[[EINSUM:.*]] = call @cpu_hoisted_stablehlo_einsum_{{.*}}
         %2 = "stablehlo.einsum"(%1, %arg2) {
         einsum_config = "ij,jk->ik"
         } : (tensor<32x64xf32>, tensor<64x48xf32>) -> tensor<32x48xf32>
@@ -34,7 +34,7 @@ module {
         %start = stablehlo.constant dense<1> : tensor<i32>
 
 
-        // CHECK: %[[DYNAMIC_UPDATE_SLICE:.*]] = call @hoisted_stablehlo_dynamic_update_slice_4xi32_2xi32_i32_func_decl
+        // CHECK: %[[DYNAMIC_UPDATE_SLICE:.*]] = call @cpu_hoisted_stablehlo_dynamic_update_slice_{{.*}}
         %result = stablehlo.dynamic_update_slice %base, %update, %start
             : (tensor<4xi32>, tensor<2xi32>, tensor<i32>) -> tensor<4xi32>
 
@@ -42,11 +42,11 @@ module {
     }
 
 
-    // CHECK: func.func private @hoisted_stablehlo_einsum_32x64xf32_64x48xf32_func_decl
-    // CHECK: func.func private @hoisted_stablehlo_dynamic_update_slice_4xi32_2xi32_i32_func_decl
+    // CHECK: func.func private @cpu_hoisted_stablehlo_einsum_{{.*}}
+    // CHECK: func.func private @cpu_hoisted_stablehlo_dynamic_update_slice_{{.*}}
 
     // CHECK: ttcore.cpu_module {
     // CHECK: builtin.module {
-    // CHECK: func.func @hoisted_stablehlo_einsum_32x64xf32_64x48xf32_func
-    // CHECK: func.func @hoisted_stablehlo_dynamic_update_slice_4xi32_2xi32_i32_func
+    // CHECK: func.func @cpu_hoisted_stablehlo_einsum
+    // CHECK: func.func @cpu_hoisted_stablehlo_dynamic_update_slice
 }

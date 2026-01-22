@@ -58,6 +58,14 @@ def TTKernel_BcastTypeAttr : EnumAttr<TTKernel_Dialect, TTKernel_BcastType, "bca
   let assemblyFormat = "`<` $value `>`";
 }
 
+def TTKernel_BinaryDestReuseTypeAttr : EnumAttr<TTKernel_Dialect, TTKernel_BinaryDestReuseType, "reuse_type"> {
+  let assemblyFormat = "`<` $value `>`";
+}
+
+def TTKernel_EltwiseBinaryTypeAttr : EnumAttr<TTKernel_Dialect, TTKernel_EltwiseBinaryType, "eltwise_binary_type"> {
+  let assemblyFormat = "`<` $value `>`";
+}
+
 def TTKernel_ReduceTypeAttr : EnumAttr<TTKernel_Dialect, TTKernel_ReduceType, "reduce_type"> {
   let assemblyFormat = "`<` $value `>`";
 }

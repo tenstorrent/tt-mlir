@@ -3297,3 +3297,232 @@ def test_nested_function_calls(target, request, device):
         device=device,
         target=target,
     )
+
+
+@x86_only
+@pytest.mark.parametrize(
+    "shape,dtype,start,end,step,dim",
+    [
+        ((5,), torch.float32, 0, 5, 1, 0),
+        ((10,), torch.int32, 0, 10, 1, 0),
+        ((8,), torch.float32, 2, 10, 1, 0),
+    ],
+    ids=["f32_simple", "i32_simple", "f32_offset_start"],
+)
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+def test_hoisted_arange(
+    shape: Shape,
+    dtype: torch.dtype,
+    start: int,
+    end: int,
+    step: int,
+    dim: int,
+    target: str,
+    request,
+    device,
+):
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [torch.float32])
+        def hoisted_arange(
+            in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+        ):
+            return builder.arange(
+                shape, dtype, start, end, step, dim, unit_attrs=["ttir.should_hoist"]
+            )
+
+    compile_and_execute_ttir(
+        module,
+        test_base=request.node.name,
+        target=target,
+        device=device,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+@x86_only
+@pytest.mark.parametrize(
+    "shapes,dim",
+    [
+        ([(4, 4, 32, 32)], 1),
+        ([(2, 8, 16, 16)], 0),
+        ([(4, 4, 32, 32)], -1),
+    ],
+    ids=["dim1", "dim0", "dim_negative"],
+)
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+def test_hoisted_cumsum(
+    shapes: List[Shape],
+    dim: int,
+    target: str,
+    request,
+    device,
+):
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, [torch.float32] * len(shapes))
+        def hoisted_cumsum(
+            in0: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.cumsum(in0, dim=dim, unit_attrs=["ttir.should_hoist"])
+
+    compile_and_execute_ttir(
+        module,
+        test_base=request.node.name,
+        target=target,
+        device=device,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+@x86_only
+@pytest.mark.parametrize(
+    "shape,repeat_dims",
+    [
+        ((32, 32), [2, 1]),
+        ((16, 16), [1, 3]),
+        ((8, 8, 8), [2, 2, 1]),
+    ],
+    ids=["repeat_dim0", "repeat_dim1", "3d_repeat"],
+)
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+def test_hoisted_repeat(
+    shape: Shape,
+    repeat_dims: List[int],
+    target: str,
+    request,
+    device,
+):
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [torch.float32])
+        def hoisted_repeat(
+            in0: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.repeat(in0, repeat_dims, unit_attrs=["ttir.should_hoist"])
+
+    compile_and_execute_ttir(
+        module,
+        test_base=request.node.name,
+        target=target,
+        device=device,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+@x86_only
+@pytest.mark.parametrize(
+    "shape,dim",
+    [
+        ((32, 32), 0),
+        ((32, 32), 1),
+        ((32, 32), 2),
+        ((16, 16, 16), 0),
+    ],
+    ids=["unsqueeze_dim0", "unsqueeze_dim1", "unsqueeze_dim2", "3d_unsqueeze"],
+)
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+def test_hoisted_unsqueeze(
+    shape: Shape,
+    dim: int,
+    target: str,
+    request,
+    device,
+):
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [torch.float32])
+        def hoisted_unsqueeze(
+            in0: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.unsqueeze(in0, dim=dim, unit_attrs=["ttir.should_hoist"])
+
+    compile_and_execute_ttir(
+        module,
+        test_base=request.node.name,
+        target=target,
+        device=device,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+@x86_only
+@pytest.mark.parametrize(
+    "shape,input_dtype,output_dtype",
+    [
+        ((32, 32), torch.int32, torch.float32),
+        ((64, 64), torch.float32, torch.bfloat16),
+    ],
+    ids=["i32_to_f32", "f32_to_bf16"],
+)
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_hoisted_typecast(
+    shape: Shape,
+    input_dtype: torch.dtype,
+    output_dtype: torch.dtype,
+    target: str,
+    request,
+    device,
+):
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [input_dtype])
+        def hoisted_typecast(
+            in0: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.typecast(in0, output_dtype, unit_attrs=["ttir.should_hoist"])
+
+    compile_and_execute_ttir(
+        module,
+        test_base=request.node.name,
+        target=target,
+        device=device,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+@x86_only
+@pytest.mark.parametrize(
+    "shapes,dim",
+    [
+        ([(32, 32), (32, 32)], 0),
+        ([(32, 32), (32, 32)], 1),
+        ([(16, 32), (16, 32), (16, 32)], 0),
+        ([(32, 16), (32, 16)], -1),
+    ],
+    ids=["concat_dim0", "concat_dim1", "concat_3_tensors", "concat_negative_dim"],
+)
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+def test_hoisted_concat(
+    shapes: List[Shape],
+    dim: int,
+    target: str,
+    request,
+    device,
+):
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, [torch.float32] * len(shapes))
+        def hoisted_concat(
+            *inputs,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            builder = inputs[-1]
+            tensors = list(inputs[:-1])
+            return builder.concat(tensors, dim=dim, unit_attrs=["ttir.should_hoist"])
+
+    compile_and_execute_ttir(
+        module,
+        test_base=request.node.name,
+        target=target,
+        device=device,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
