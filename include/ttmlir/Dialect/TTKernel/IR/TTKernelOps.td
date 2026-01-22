@@ -2906,11 +2906,25 @@ def TTKernel_FabricWriteOp : TTKernel_Op<"experimental::fabric_fast_write_any_le
     FabricWriteOp
   }];
 
-  let arguments = (ins I16:$dst_mesh_id, I16:$dst_dev_id, TTKernel_NocAddr:$dst_addr, I32:$src_addr, I32:$len_bytes);
+  let arguments = (ins TTKernel_FabricConnectionManager:$fabric_connection_manager, I16:$dst_mesh_id, I16:$dst_dev_id, TTKernel_NocAddr:$dst_addr, I32:$src_addr, I32:$len_bytes);
   let results = (outs);
 
   let assemblyFormat = [{
-    `(` $dst_mesh_id `,` $dst_dev_id `,` $dst_addr `,` $src_addr `,` $len_bytes `)` attr-dict `:` functional-type(operands, results)
+    `(` $fabric_connection_manager `,` $dst_mesh_id `,` $dst_dev_id `,` $dst_addr `,` $src_addr `,` $len_bytes `)` attr-dict `:` functional-type(operands, results)
+  }];
+}
+
+def TTKernel_CreateFabricConnectionManagerOp : TTKernel_Op<"experimental::create_fabric_connection_manager"> {
+  let summary = "CreateFabricConnectionManager";
+  let description = [{
+    Create fabric connection manager.
+  }];
+
+  let arguments = (ins);
+  let results = (outs TTKernel_FabricConnectionManager:$fabric_connection_manager);
+
+  let assemblyFormat = [{
+    `(` `)` attr-dict `:` functional-type(operands, results)
   }];
 }
 
@@ -2920,8 +2934,11 @@ def TTKernel_SetupFabricConnectionsOp : TTKernel_Op<"experimental::setup_fabric_
     Setup fabric connections.
   }];
 
+  let arguments = (ins TTKernel_FabricConnectionManager:$fabric_connection_manager);
+  let results = (outs);
+
   let assemblyFormat = [{
-    `(` `)` attr-dict `:` functional-type(operands, results)
+    `(` $fabric_connection_manager `)` attr-dict `:` functional-type(operands, results)
   }];
 }
 
@@ -2931,8 +2948,11 @@ def TTKernel_CloseFabricConnectionsOp : TTKernel_Op<"experimental::close_fabric_
     Close fabric connections.
   }];
 
+  let arguments = (ins TTKernel_FabricConnectionManager:$fabric_connection_manager);
+  let results = (outs);
+
   let assemblyFormat = [{
-    `(` `)` attr-dict `:` functional-type(operands, results)
+    `(` $fabric_connection_manager `)` attr-dict `:` functional-type(operands, results)
   }];
 }
 

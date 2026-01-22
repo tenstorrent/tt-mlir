@@ -19,7 +19,8 @@ module attributes {} {
 
   func.func private @datamovement_kernel0() attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<noc>} {
     // Setup fabric connections
-    "ttkernel.experimental::setup_fabric_connections"() : () -> ()
+    %fabric_connection_manager = "ttkernel.experimental::create_fabric_connection_manager"() : () -> !ttkernel.fabric_connection_manager
+    "ttkernel.experimental::setup_fabric_connections"(%fabric_connection_manager) : (!ttkernel.fabric_connection_manager) -> ()
 
     // Constants
     %len_bytes = arith.constant 49152 : i32
@@ -46,11 +47,11 @@ module attributes {} {
     %is_device_0 = arith.cmpi eq, %my_device_id, %c0_i16 : i16
     scf.if %is_device_0 {
       // Device 0 sends to device 1
-      "ttkernel.experimental::fabric_fast_write_any_len"(%c0_i16, %c1_i16, %noc_addr, %write_ptr, %len_bytes) : (i16, i16, !ttkernel.noc_addr, i32, i32) -> ()
+      "ttkernel.experimental::fabric_fast_write_any_len"(%fabric_connection_manager, %c0_i16, %c1_i16, %noc_addr, %write_ptr, %len_bytes) : (!ttkernel.fabric_connection_manager, i16, i16, !ttkernel.noc_addr, i32, i32) -> ()
     }
 
     // Close fabric connections
-    "ttkernel.experimental::close_fabric_connections"() : () -> ()
+    "ttkernel.experimental::close_fabric_connections"(%fabric_connection_manager) : (!ttkernel.fabric_connection_manager) -> ()
 
     return
   }
