@@ -23,6 +23,8 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
 
+#include <tuple>
+
 namespace mlir::tt {
 
 namespace {
@@ -224,6 +226,54 @@ public:
     return cbDescriptors;
   }
 
+  static std::tuple<Value, Value> extractIOAndCB(Value operand) {
+    llvm::errs() << "extracting IO and CB from operand:\n";
+    operand.dump();
+    if (auto streamLayoutOp = mlir::dyn_cast_if_present<d2m::StreamLayoutOp>(
+            operand.getDefiningOp())) {
+      auto castOp = mlir::dyn_cast_if_present<ttir::TTNNMetalLayoutCastOp>(
+          streamLayoutOp.getInput().getDefiningOp());
+      TT_assertv(castOp,
+                 "Expected TTNNMetalLayoutCastOp producing stream input.");
+      return {castOp.getOperand(), streamLayoutOp.getStorage()};
+    }
+
+    if (auto castOp = mlir::dyn_cast_if_present<ttir::TTNNMetalLayoutCastOp>(
+            operand.getDefiningOp())) {
+      return {castOp.getOperand(), operand};
+    }
+
+    if (auto viewOp = mlir::dyn_cast_if_present<d2m::ViewLayoutOp>(
+            operand.getDefiningOp())) {
+      llvm::errs() << "in generic\n";
+      viewOp.dump();
+      if (auto castOp = mlir::dyn_cast_if_present<ttir::TTNNMetalLayoutCastOp>(
+              viewOp.getInput().getDefiningOp())) {
+        llvm::errs() << "castOp:\n";
+        castOp.dump();
+        llvm::errs() << "castOp.getOperand():\n";
+        castOp.getOperand().dump();
+        TT_assertv(castOp,
+                   "Expected TTNNMetalLayoutCastOp producing view input.");
+        return {castOp.getOperand(), operand};
+      } else if (auto streamLayoutOp =
+                     mlir::dyn_cast_if_present<d2m::StreamLayoutOp>(
+                         viewOp.getInput().getDefiningOp())) {
+        llvm::errs() << "streamLayoutOp:\n";
+        streamLayoutOp.dump();
+        auto innerCastOp =
+            mlir::dyn_cast_if_present<ttir::TTNNMetalLayoutCastOp>(
+                streamLayoutOp.getInput().getDefiningOp());
+        TT_assertv(innerCastOp,
+                   "Expected TTNNMetalLayoutCastOp producing stream input.");
+        return {innerCastOp.getOperand(), viewOp.getInput()};
+      }
+    }
+
+    llvm_unreachable(
+        "Expected stream_layout, view_layout, or cast op as operand.");
+  }
+
   LogicalResult
   matchAndRewrite(d2m::GenericOp op, d2m::GenericOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
@@ -263,28 +313,9 @@ public:
     llvm::SmallVector<Value> ios(size);
     llvm::SmallVector<Value> cbs(size);
     for (auto [i, operand] : llvm::enumerate(op->getOperands())) {
-      if (auto streamLayoutOp = mlir::dyn_cast_if_present<d2m::StreamLayoutOp>(
-              operand.getDefiningOp());
-          streamLayoutOp) {
-        if (auto castOp =
-                mlir::dyn_cast_if_present<ttir::TTNNMetalLayoutCastOp>(
-                    streamLayoutOp.getInput().getDefiningOp());
-            castOp) {
-          ios[i] = castOp.getOperand();
-        } else {
-          llvm_unreachable(
-              "Expected TTNNMetalLayoutCastOp producing stream input.");
-        }
-        cbs[i] = streamLayoutOp.getStorage();
-      } else if (auto castOp =
-                     mlir::dyn_cast_if_present<ttir::TTNNMetalLayoutCastOp>(
-                         operand.getDefiningOp());
-                 castOp) {
-        ios[i] = castOp.getOperand();
-        cbs[i] = operand;
-      } else {
-        llvm_unreachable("Expected stream_layout or cast op as operand.");
-      }
+      auto [io, cb] = extractIOAndCB(operand);
+      ios[i] = io;
+      cbs[i] = cb;
     }
 
     // Create CB descriptors.
@@ -336,6 +367,14 @@ public:
               inner.getInput().getDefiningOp<ttir::TTNNMetalLayoutCastOp>()) {
         rewriter.replaceOp(op, inner2.getOperand());
       }
+    } else if (auto inner =
+                   op.getOperand().getDefiningOp<d2m::ViewLayoutOp>()) {
+      // Match the pattern cast(view(cast(output_tensor))) and rewrite as just
+      // output_tensor.
+      if (auto inner2 =
+              inner.getInput().getDefiningOp<ttir::TTNNMetalLayoutCastOp>()) {
+        rewriter.replaceOp(op, inner2.getOperand());
+      }
     }
     return success();
   };
@@ -350,6 +389,21 @@ public:
   LogicalResult
   matchAndRewrite(d2m::StreamLayoutOp op, d2m::StreamLayoutOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
+    rewriter.replaceOp(op, adaptor.getInput());
+    return success();
+  };
+};
+} // namespace
+
+namespace {
+class ViewLayoutRewriter : public OpConversionPattern<d2m::ViewLayoutOp> {
+public:
+  using OpConversionPattern<d2m::ViewLayoutOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::ViewLayoutOp op, d2m::ViewLayoutOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    llvm::errs() << "in view rewriter\n";
     rewriter.replaceOp(op, adaptor.getInput());
     return success();
   };
@@ -462,6 +516,6 @@ void populateD2MToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                                ttmetal::MathFidelity mathFidelity) {
   patterns.add<D2MGenericRewriter>(ctx, mathFidelity);
   patterns.add<TTNNMetalLayoutCastRewriter, D2MEmptyRewriter, D2MFullRewriter,
-               StreamLayoutRewriter>(ctx);
+               StreamLayoutRewriter, ViewLayoutRewriter>(ctx);
 }
 } // namespace mlir::tt
