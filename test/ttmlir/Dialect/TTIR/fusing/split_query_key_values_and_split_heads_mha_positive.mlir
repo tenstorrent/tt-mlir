@@ -19,18 +19,18 @@ module {
 
     // Concatenate Q, K, V biases:
     // CHECK: "ttir.concat"
-    // CHECK-SAME: <{dim = 2 : si32}>
-    // CHECK-SAME: (tensor<1x1x1024xf32>, tensor<1x1x1024xf32>, tensor<1x1x1024xf32>) -> tensor<1x1x3072xf32>
+    // CHECK-SAME: <{dim = 0 : si32}>
+    // CHECK-SAME: (tensor<1024xf32>, tensor<1024xf32>, tensor<1024xf32>) -> tensor<3072xf32>
 
     // Linear Q, K, V projections with concatenated bias:
     // CHECK: "ttir.linear"
     // CHECK-SAME:  <{transpose_a = false, transpose_b = true}>
-    // CHECK-SAME: (tensor<68x1024xf32>, tensor<3072x1024xf32>, tensor<1x1x3072xf32>) -> tensor<1x68x3072xf32>
+    // CHECK-SAME: (tensor<68x1024xf32>, tensor<3072x1024xf32>, tensor<3072xf32>) -> tensor<68x3072xf32>
 
     // Check that linear op is reshaped.
     // CHECK: "ttir.reshape"
     // CHECK-SAME: <{shape = [2 : i32, 34 : i32, 3072 : i32]}>
-    // CHECK-SAME: (tensor<1x68x3072xf32>) -> tensor<2x34x3072xf32>
+    // CHECK-SAME: (tensor<68x3072xf32>) -> tensor<2x34x3072xf32>
 
     // Split Q, K, V heads:
     // CHECK: "ttir.split_query_key_value_and_split_heads"
@@ -155,13 +155,18 @@ module {
 
     // Concatenate Q, K, V biases:
     // CHECK: "ttir.concat"
-    // CHECK-SAME: <{dim = 2 : si32}>
-    // CHECK-SAME: (tensor<1x1x768xbf16>, tensor<1x1x768xbf16>, tensor<1x1x768xbf16>) -> tensor<1x1x2304xbf16>
+    // CHECK-SAME: <{dim = 0 : si32}>
+    // CHECK-SAME: (tensor<768xbf16>, tensor<768xbf16>, tensor<768xbf16>) -> tensor<2304xbf16>
 
     // Linear Q, K, V projections with concatenated bias:
     // CHECK: "ttir.linear"
     // CHECK-SAME: <{transpose_a = false, transpose_b = true}>
-    // CHECK-SAME: (tensor<128x768xbf16>, tensor<2304x768xbf16>, tensor<1x1x2304xbf16>) -> tensor<1x128x2304xbf16>
+    // CHECK-SAME: (tensor<128x768xbf16>, tensor<2304x768xbf16>, tensor<2304xbf16>) -> tensor<128x2304xbf16>
+
+    // Check that linear op is reshaped.
+    // CHECK: "ttir.reshape"
+    // CHECK-SAME: <{shape = [1 : i32, 128 : i32, 2304 : i32]}>
+    // CHECK-SAME: (tensor<128x2304xbf16>) -> tensor<1x128x2304xbf16>
 
     // Split Q, K, V heads:
     // CHECK: "ttir.split_query_key_value_and_split_heads"

@@ -15,6 +15,7 @@
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/TypeSwitch.h"
+#include "llvm/Support/Casting.h"
 
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRFUSING
@@ -1348,24 +1349,21 @@ public:
       TypedValue<RankedTensorType> bias =
           (addOp.getLhs() == reshapeOp.getResult()) ? addOp.getRhs()
                                                     : addOp.getLhs();
-      auto biasType = bias.getType();
+
+      if (llvm::isa_and_nonnull<ttir::ReshapeOp>(bias.getDefiningOp())) {
+        bias = bias.getDefiningOp<ttir::ReshapeOp>().getInput();
+      }
+
       llvm::ArrayRef<int64_t> addOpShape =
           addOp.getResult().getType().getShape();
       SmallVector<int32_t> addShapeI32(addOpShape.begin(), addOpShape.end());
 
-      llvm::SmallVector<int64_t> newLinearOutputShape;
-      OpTrait::util::getBroadcastedShape(matmulOp.getType().getShape(),
-                                         biasType.getShape(),
-                                         newLinearOutputShape);
-
       auto matmulOutputType = matmulOp.getResult().getType();
-      auto newOutputType = RankedTensorType::get(
-          newLinearOutputShape, matmulOutputType.getElementType());
       Value matmulOpA = matmulOp.getA();
       Value matmulOpB = matmulOp.getB();
 
       LinearOp linearOp = rewriter.create<ttir::LinearOp>(
-          addOp.getLoc(), newOutputType, matmulOpA, matmulOpB, bias,
+          addOp.getLoc(), matmulOutputType, matmulOpA, matmulOpB, bias,
           matmulOp.getTransposeA(), matmulOp.getTransposeB());
 
       RankedTensorType addOpType = addOp.getType();
