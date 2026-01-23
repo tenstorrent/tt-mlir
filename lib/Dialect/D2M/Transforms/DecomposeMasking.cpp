@@ -288,6 +288,8 @@ struct DecomposeBlockMaskPattern : OpRewritePattern<BlockMaskOp> {
       // Mark the INNER loop as the compute root, since that's where
       // the actual compute operations are emitted. This ensures DST
       // syncs are placed inside the inner loop body, not the outer.
+      // Since we emit an scf.for directly, we must tag this here
+      // since linalg-to-affine and d2m-op-scheduler won't process this.
       innerLoop->setAttr("d2m.linalg_root", rewriter.getUnitAttr());
       innerLoop->setAttr("d2m.scheduled", rewriter.getUnitAttr());
       rewriter.setInsertionPointToStart(innerLoop.getBody());

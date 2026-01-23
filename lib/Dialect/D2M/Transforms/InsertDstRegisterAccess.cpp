@@ -464,7 +464,7 @@ public:
                                        const CopyInfoMap &copyInfos,
                                        Operation *outermostInnerComputeLoop,
                                        unsigned dstCapacity,
-                                       bool insertInsideLoop = false) {
+                                       bool insertInsideLoop) {
     assert(!copyInfos.empty());
     if (outermostInnerComputeLoop) {
       if (insertInsideLoop) {
