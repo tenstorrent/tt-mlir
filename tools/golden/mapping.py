@@ -4345,25 +4345,6 @@ def stablehlo_get_dimension_size_golden(
     dimension_attr: IntegerAttr,
     output_type_mlir: Type,
 ) -> GoldenMapTensor:
-    """
-    Golden function for stablehlo.get_dimension_size operation.
-
-    Produces the size of the given dimension of the operand.
-
-    Parameters
-    ----------
-    input_tensor : GoldenMapTensor
-        Input tensor to get dimension size from
-    dimension_attr : IntegerAttr
-        The dimension index to get size of
-    output_type_mlir : Type
-        The output MLIR type
-
-    Returns
-    -------
-    GoldenMapTensor
-        Scalar tensor containing the size of the specified dimension as int32
-    """
     dimension = unpack_mlir_attr(dimension_attr)
     output_tensor = input_tensor.clone()
 

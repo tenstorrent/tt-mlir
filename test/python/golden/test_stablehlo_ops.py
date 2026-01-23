@@ -479,9 +479,6 @@ def test_unary_ops(
     )
 
 
-# ----- Get Dimension Size Operations -----
-
-
 @pytest.mark.parametrize("shape", [(64, 128), (32, 64, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn"])

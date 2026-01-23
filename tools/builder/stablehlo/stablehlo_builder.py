@@ -673,7 +673,7 @@ class StableHLOBuilder(Builder):
 
         if not self._disable_golden_check:
             input0 = self._get_golden_tensor(input)
-            op_golden_function = get_golden_function(stablehlo_op)  # ----
+            op_golden_function = get_golden_function(stablehlo_op)
             golden_output = op_golden_function(
                 input0, all_gather_dim_attr, replica_groups_attr
             )
