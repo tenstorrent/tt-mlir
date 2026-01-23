@@ -48,7 +48,8 @@ CONSTANT_PRESERVING_OPS = [
 def _get_constant_chain(operand) -> List:
     """Traverses backward through constant-preserving ops to find a constant chain."""
     defining_op = operand.owner
-    if not defining_op:
+    # owner is None for function args, or a Block for block args (not an Operation)
+    if not defining_op or not hasattr(defining_op, "name"):
         return []
 
     # Direct constant case
@@ -58,7 +59,7 @@ def _get_constant_chain(operand) -> List:
     # Traverse backward through constant-preserving ops
     chain = []
     current_op = defining_op
-    while current_op:
+    while current_op and hasattr(current_op, "name"):
         if current_op.name in CONSTANT_PRESERVING_OPS:
             chain.append(current_op)
             current_op = current_op.operands[0].owner
