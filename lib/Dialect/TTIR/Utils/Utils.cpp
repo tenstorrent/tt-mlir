@@ -4,6 +4,10 @@
 
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 
+#include "llvm/ADT/TypeSwitch.h"
+
+#include <numeric>
+
 namespace mlir::tt::ttir::utils {
 llvm::SmallVector<int64_t> unsqueezeValue(mlir::PatternRewriter &rewriter,
                                           mlir::Location loc,
@@ -60,6 +64,64 @@ mlir::LogicalResult broadcastValue(mlir::PatternRewriter &rewriter,
   output = rewriter.create<ttir::BroadcastOp>(loc, desiredType, input,
                                               broadcastDims);
   return mlir::success();
+}
+
+bool preservesDim(mlir::Operation *op, int64_t dim) {
+  auto inputType = mlir::cast<RankedTensorType>(op->getOperand(0).getType());
+  auto outputType = mlir::cast<RankedTensorType>(op->getResult(0).getType());
+  auto inputShape = inputType.getShape();
+  auto outputShape = outputType.getShape();
+  int64_t inputRank = inputType.getRank();
+  int64_t outputRank = outputType.getRank();
+
+  // Normalize negative dimension.
+  int64_t normalizedDim = dim < 0 ? inputRank + dim : dim;
+
+  return llvm::TypeSwitch<mlir::Operation *, bool>(op)
+      .Case<PermuteOp>([&](PermuteOp permute) {
+        auto perm = permute.getPermutation();
+        return perm[normalizedDim] == normalizedDim;
+      })
+      .Case<RepeatInterleaveOp>([&](RepeatInterleaveOp repeat) {
+        int64_t repeatDim = repeat.getDim();
+        if (repeatDim < 0) {
+          repeatDim += inputRank;
+        }
+        return repeatDim != normalizedDim;
+      })
+      .Case<ReshapeOp>([&](ReshapeOp) {
+        // Convert to position from back (negative dim).
+        int64_t dimFromBack = normalizedDim - inputRank;
+        int64_t outputDim = outputRank + dimFromBack;
+        if (outputDim < 0 || outputDim >= outputRank) {
+          return false;
+        }
+
+        // Check dimension size is the same.
+        if (inputShape[normalizedDim] != outputShape[outputDim]) {
+          return false;
+        }
+
+        // Check product of trailing dimensions is the same (preserves stride).
+        int64_t trailingCount = -dimFromBack - 1;
+        auto inputTrailing = inputShape.take_back(trailingCount);
+        auto outputTrailing = outputShape.take_back(trailingCount);
+        int64_t inputProductAfter =
+            std::accumulate(inputTrailing.begin(), inputTrailing.end(),
+                            int64_t{1}, std::multiplies<>());
+        int64_t outputProductAfter =
+            std::accumulate(outputTrailing.begin(), outputTrailing.end(),
+                            int64_t{1}, std::multiplies<>());
+        return inputProductAfter == outputProductAfter;
+      })
+      .Case<TypecastOp>([](TypecastOp) { return true; })
+      .Case<BroadcastOp>([&](BroadcastOp) {
+        if (inputRank != outputRank) {
+          return false;
+        }
+        return inputShape[normalizedDim] == outputShape[normalizedDim];
+      })
+      .Default([](mlir::Operation *) { return false; });
 }
 
 } // namespace mlir::tt::ttir::utils

@@ -29,10 +29,11 @@ namespace detail {
 // mlir::Value but should not be considered an operand.
 template <typename T>
 struct is_operand
-    : std::bool_constant<(std::is_convertible_v<T, mlir::Value> ||
-                          std::is_convertible_v<T, mlir::ValueRange>) &&
-                         !std::is_convertible_v<
-                             T, mlir::TypedValue<mlir::tt::ttnn::DeviceType>>> {
+    : std::bool_constant<
+          (std::is_convertible_v<T, mlir::Value> ||
+           std::is_convertible_v<T, mlir::ValueRange>)&&!std::
+              is_convertible_v<T,
+                               mlir::TypedValue<mlir::tt::ttnn::DeviceType>>> {
 };
 
 template <typename T>
@@ -240,6 +241,12 @@ mlir::LogicalResult broadcastValue(mlir::PatternRewriter &rewriter,
                                    mlir::RankedTensorType desiredType,
                                    mlir::Value &output, mlir::Location loc,
                                    bool frontUnsqueeze);
+
+// Checks if an operation preserves a given dimension.
+// For reshape, this checks both that the dimension size is unchanged and that
+// the product of trailing dimensions (stride) is preserved.
+// Dimension can be negative (counted from back, e.g. -1 for last dimension).
+bool preservesDim(mlir::Operation *op, int64_t dim);
 
 template <typename AdaptorT>
 mlir::ValueRange getDpsInputsFromAdaptor(AdaptorT adaptor,

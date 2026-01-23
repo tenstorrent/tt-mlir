@@ -3074,18 +3074,10 @@ class RMSNormFusionPattern : public mlir::OpRewritePattern<MultiplyOp> {
   using mlir::OpRewritePattern<MultiplyOp>::OpRewritePattern;
 
   // Traces backward through layout ops that are safe for RMS norm fusion.
-  // Safe ops preserve the last dimension size, since RMS norm normalizes
-  // over the last dimension.
+  // Safe ops preserve the last dimension, since RMS norm normalizes over it.
   static mlir::Value lookThroughSafeOps(mlir::Value value) {
-    return utils::lookThroughLayoutOpsIf(value, [](mlir::Operation *op) {
-      if (auto reshape = llvm::dyn_cast<ReshapeOp>(op)) {
-        auto inputType =
-            mlir::cast<RankedTensorType>(reshape.getInput().getType());
-        auto outputType = mlir::cast<RankedTensorType>(reshape.getType());
-        return inputType.getShape().back() == outputType.getShape().back();
-      }
-      return true;
-    });
+    return utils::lookThroughLayoutOpsIf(
+        value, [](mlir::Operation *op) { return utils::preservesDim(op, -1); });
   }
 
 public:
