@@ -329,10 +329,37 @@ inline mlir::Value lookThroughLayoutOps(mlir::Value value) {
                      RepeatInterleaveOp>(value);
 }
 
+// Traces backward through all layout ops, but only looks through ops that
+// satisfy the given predicate. The predicate receives the operation and should
+// return true if we should look through it, false to stop.
+template <typename PredicateFn>
+mlir::Value lookThroughLayoutOpsIf(mlir::Value value, PredicateFn &&predicate) {
+  while (auto *op = value.getDefiningOp()) {
+    if (llvm::isa<TypecastOp, ReshapeOp, PermuteOp, BroadcastOp,
+                  RepeatInterleaveOp>(op)) {
+      if (!predicate(op)) {
+        break;
+      }
+      value = op->getOperand(0);
+    } else {
+      break;
+    }
+  }
+  return value;
+}
+
 // Traces backward through all layout ops to find an operation of type OpTy.
 template <typename OpTy>
 OpTy findOpThroughLayoutOps(mlir::Value value) {
   return lookThroughLayoutOps(value).template getDefiningOp<OpTy>();
+}
+
+// Traces backward through all layout ops that satisfy the predicate to find
+// an operation of type OpTy.
+template <typename OpTy, typename PredicateFn>
+OpTy findOpThroughLayoutOpsIf(mlir::Value value, PredicateFn &&predicate) {
+  return lookThroughLayoutOpsIf(value, std::forward<PredicateFn>(predicate))
+      .template getDefiningOp<OpTy>();
 }
 
 // Moves the use-define chain of a value before a target operation.

@@ -3073,6 +3073,21 @@ namespace {
 class RMSNormFusionPattern : public mlir::OpRewritePattern<MultiplyOp> {
   using mlir::OpRewritePattern<MultiplyOp>::OpRewritePattern;
 
+  // Traces backward through layout ops that are safe for RMS norm fusion.
+  // Safe ops preserve the last dimension size, since RMS norm normalizes
+  // over the last dimension.
+  static mlir::Value lookThroughSafeOps(mlir::Value value) {
+    return utils::lookThroughLayoutOpsIf(value, [](mlir::Operation *op) {
+      if (auto reshape = llvm::dyn_cast<ReshapeOp>(op)) {
+        auto inputType =
+            mlir::cast<RankedTensorType>(reshape.getInput().getType());
+        auto outputType = mlir::cast<RankedTensorType>(reshape.getType());
+        return inputType.getShape().back() == outputType.getShape().back();
+      }
+      return true;
+    });
+  }
+
 public:
   mlir::LogicalResult
   matchAndRewrite(MultiplyOp outerMul,
@@ -3089,20 +3104,22 @@ public:
       return mlir::failure();
     }
 
-    RsqrtOp rsqrtOp = utils::findOpThroughLayoutOps<RsqrtOp>(innerMul.getLhs());
+    RsqrtOp rsqrtOp =
+        lookThroughSafeOps(innerMul.getLhs()).getDefiningOp<RsqrtOp>();
     mlir::Value xRaw = innerMul.getRhs();
     if (!rsqrtOp) {
-      rsqrtOp = utils::findOpThroughLayoutOps<RsqrtOp>(innerMul.getRhs());
+      rsqrtOp = lookThroughSafeOps(innerMul.getRhs()).getDefiningOp<RsqrtOp>();
       xRaw = innerMul.getLhs();
     }
     if (!rsqrtOp) {
       return mlir::failure();
     }
 
-    auto addOp = utils::findOpThroughLayoutOps<AddOp>(rsqrtOp.getInput());
+    auto addOp = lookThroughSafeOps(rsqrtOp.getInput()).getDefiningOp<AddOp>();
     if (!addOp) {
       return mlir::failure();
     }
+
     MeanOp meanOp = addOp.getLhs().getDefiningOp<MeanOp>();
     mlir::Value epsilon = addOp.getRhs();
     if (!meanOp) {
@@ -3127,18 +3144,17 @@ public:
     }
 
     // Match x^2 as mul(x,x) or pow(x,2).
-    // Look through layout ops to find the original input.
     mlir::Value meanInput = meanOp.getInput();
     mlir::Value squareInput = nullptr;
-    mlir::Value x = utils::lookThroughLayoutOps(xRaw);
+    mlir::Value x = lookThroughSafeOps(xRaw);
 
     if (auto sq = meanInput.getDefiningOp<MultiplyOp>()) {
       if (sq.getLhs() == sq.getRhs()) {
-        squareInput = utils::lookThroughLayoutOps(sq.getLhs());
+        squareInput = lookThroughSafeOps(sq.getLhs());
       }
     } else if (auto pw = meanInput.getDefiningOp<PowOp>()) {
       if (isFullOpWithValue(pw.getRhs(), 2.0f)) {
-        squareInput = utils::lookThroughLayoutOps(pw.getLhs());
+        squareInput = lookThroughSafeOps(pw.getLhs());
       }
     }
 
@@ -3147,7 +3163,7 @@ public:
     }
 
     // Look through layout ops to find the epsilon FullOp
-    auto epsFull = utils::findOpThroughLayoutOps<FullOp>(epsilon);
+    auto epsFull = lookThroughSafeOps(epsilon).getDefiningOp<FullOp>();
     if (!epsFull) {
       return mlir::failure();
     }
@@ -3156,7 +3172,7 @@ public:
       return mlir::failure();
     }
 
-    mlir::Value gamma = utils::lookThroughLayoutOps(gammaRaw);
+    mlir::Value gamma = lookThroughSafeOps(gammaRaw);
     auto inputType = mlir::cast<RankedTensorType>(x.getType());
     auto outputType = mlir::cast<RankedTensorType>(outerMul.getType());
 
