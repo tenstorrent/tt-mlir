@@ -68,8 +68,7 @@ SHARD_SHAPES_GRIDS = [
         logical_not,
     ],
 )
-@pytest.mark.parametrize("frontend", ["ast"])
-def test_unary_op_dram(device, shape, dtype, ttnn_dtype, op, frontend):
+def test_unary_op_dram(device, shape, dtype, ttnn_dtype, op):
     if dtype == torch.float32 and shape == (2048, 2048):
         pytest.skip("Skipping large operation for float32")
     if op in [log, ceil, floor, sqrt, logical_not] and dtype == torch.float32:
@@ -84,7 +83,6 @@ def test_unary_op_dram(device, shape, dtype, ttnn_dtype, op, frontend):
         op,
         num_inputs=1,
         buffer_type=ttnn.BufferType.DRAM,
-        frontend=frontend,
         ttnn_dtype=ttnn_dtype,
     )
 
@@ -128,10 +126,7 @@ def test_unary_op_dram(device, shape, dtype, ttnn_dtype, op, frontend):
         gelu,
     ],
 )
-@pytest.mark.parametrize("frontend", ["ast"])
-def test_unary_op_l1(
-    device, shape, max_grid, shard_strategy, dtype, ttnn_dtype, op, frontend
-):
+def test_unary_op_l1(device, shape, max_grid, shard_strategy, dtype, ttnn_dtype, op):
     if op in [log, ceil, floor, sqrt, logical_not] and dtype == torch.float32:
         pytest.xfail("failing allclose for some shapes for float32")
     if op == reciprocal and (
@@ -147,7 +142,6 @@ def test_unary_op_l1(
         op,
         num_inputs=1,
         buffer_type=ttnn.BufferType.L1,
-        frontend=frontend,
         shard_strategy=shard_strategy,
         ttnn_dtype=ttnn_dtype,
     )
@@ -163,8 +157,7 @@ def test_unary_op_l1(
     "op",
     [bitwise_not],
 )
-@pytest.mark.parametrize("frontend", ["ast"])
-def test_bitwise_unary_op_dram(device, shape, dtype, op, frontend):
+def test_bitwise_unary_op_dram(device, shape, dtype, op):
     if shape == (2048, 2048):
         pytest.skip("Skipping large operation")
 
@@ -177,7 +170,6 @@ def test_bitwise_unary_op_dram(device, shape, dtype, op, frontend):
         op,
         num_inputs=1,
         buffer_type=ttnn.BufferType.DRAM,
-        frontend=frontend,
     )
 
 
@@ -191,10 +183,7 @@ def test_bitwise_unary_op_dram(device, shape, dtype, op, frontend):
     "op",
     [bitwise_not],
 )
-@pytest.mark.parametrize("frontend", ["ast"])
-def test_bitwise_unary_op_l1(
-    device, shape, max_grid, shard_strategy, dtype, op, frontend
-):
+def test_bitwise_unary_op_l1(device, shape, max_grid, shard_strategy, dtype, op):
 
     run_op_test(
         device,
@@ -204,7 +193,6 @@ def test_bitwise_unary_op_l1(
         op,
         num_inputs=1,
         buffer_type=ttnn.BufferType.L1,
-        frontend=frontend,
         shard_strategy=shard_strategy,
     )
 
@@ -227,8 +215,7 @@ def test_bitwise_unary_op_l1(
     "op",
     [add, sub, mul, div, pow, eq, ne, gt, ge, lt, le, maximum, minimum],
 )
-@pytest.mark.parametrize("frontend", ["ast"])
-def test_binary_ops_dram(device, shape, dtype, ttnn_dtype, op, frontend):
+def test_binary_ops_dram(device, shape, dtype, ttnn_dtype, op):
     if dtype == torch.float32 and shape == (2048, 2048):
         pytest.skip("Skipping large operation for float32")
     if op in [pow, eq, ne, gt, ge, lt, le] and dtype == torch.float32:
@@ -244,7 +231,6 @@ def test_binary_ops_dram(device, shape, dtype, ttnn_dtype, op, frontend):
         op,
         num_inputs=2,
         buffer_type=ttnn.BufferType.DRAM,
-        frontend=frontend,
         ttnn_dtype=ttnn_dtype,
         compile_only=compile_only,
     )
@@ -268,10 +254,7 @@ def test_binary_ops_dram(device, shape, dtype, ttnn_dtype, op, frontend):
     "op",
     [add, sub, mul, div, pow, eq, ne, gt, ge, lt, le, maximum, minimum],
 )
-@pytest.mark.parametrize("frontend", ["ast", "graph_capture"])
-def test_binary_ops_l1(
-    device, shape, max_grid, shard_strategy, dtype, ttnn_dtype, op, frontend
-):
+def test_binary_ops_l1(device, shape, max_grid, shard_strategy, dtype, ttnn_dtype, op):
     if op in [div, pow, eq, ne, gt, ge, lt, le] and dtype == torch.float32:
         pytest.xfail("failing allclose for some shapes")
     if op in [maximum, minimum, pow] and ttnn_dtype == ttnn.DataType.BFLOAT8_B:
@@ -287,7 +270,6 @@ def test_binary_ops_l1(
         op,
         num_inputs=2,
         buffer_type=ttnn.BufferType.L1,
-        frontend=frontend,
         shard_strategy=shard_strategy,
         ttnn_dtype=ttnn_dtype,
     )
@@ -309,9 +291,8 @@ def test_binary_ops_l1(
     "op",
     [add, sub, mul],
 )
-@pytest.mark.parametrize("frontend", ["ast"])
 def test_binary_ops_mixed_layouts(
-    device, shape, max_grid, shard_strategy, dtype, ttnn_dtype, op, frontend
+    device, shape, max_grid, shard_strategy, dtype, ttnn_dtype, op
 ):
     input0 = create_sharded_tile_tensor(
         device,
@@ -325,7 +306,6 @@ def test_binary_ops_mixed_layouts(
 
     compiled_op = ttnn_jit.jit(
         debug=True,
-        frontend=frontend,
         compile_only=False,
     )(op)
 
@@ -350,8 +330,7 @@ def test_binary_ops_mixed_layouts(
     "op",
     [bitwise_and, bitwise_or, bitwise_xor],
 )
-@pytest.mark.parametrize("frontend", ["ast"])
-def test_bitwise_binary_ops_dram(device, shape, dtype, op, frontend):
+def test_bitwise_binary_ops_dram(device, shape, dtype, op):
     if shape == (2048, 2048):
         pytest.skip("Skipping large operation")
 
@@ -364,7 +343,6 @@ def test_bitwise_binary_ops_dram(device, shape, dtype, op, frontend):
         op,
         num_inputs=2,
         buffer_type=ttnn.BufferType.DRAM,
-        frontend=frontend,
     )
 
 
@@ -378,10 +356,7 @@ def test_bitwise_binary_ops_dram(device, shape, dtype, op, frontend):
     "op",
     [bitwise_and, bitwise_or, bitwise_xor],
 )
-@pytest.mark.parametrize("frontend", ["ast"])
-def test_bitwise_binary_ops_l1(
-    device, shape, max_grid, shard_strategy, dtype, op, frontend
-):
+def test_bitwise_binary_ops_l1(device, shape, max_grid, shard_strategy, dtype, op):
     run_op_test(
         device,
         shape,
@@ -390,7 +365,6 @@ def test_bitwise_binary_ops_l1(
         op,
         num_inputs=2,
         buffer_type=ttnn.BufferType.L1,
-        frontend=frontend,
         shard_strategy=shard_strategy,
     )
 
