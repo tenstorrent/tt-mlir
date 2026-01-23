@@ -15,6 +15,7 @@
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Dialect/TTNN/Utils/VerificationUtils.h"
+#include "ttmlir/FunctionTypes.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Quant/IR/QuantTypes.h"
@@ -481,7 +482,7 @@ static bool isDefinedByOp(mlir::Value value) {
 
   func::FuncOp funcOp =
       mlir::dyn_cast<func::FuncOp>(arg.getOwner()->getParentOp());
-  if (!funcOp || !utils::isTTNNTraceFunc(funcOp)) {
+  if (!funcOp || !ttmlir::utils::isTraceFunc(funcOp)) {
     return false;
   }
 
@@ -524,8 +525,17 @@ static bool isDefinedByOp(mlir::Value value) {
   }
   Conv2dParams params = *expectedParams;
 
-  if (!isDefinedByOp<mlir::tt::ttnn::PrepareConv2dWeightsOp>(getWeight()) &&
-      !isDefinedByOp<mlir::tt::ttcore::LoadCachedOp>(getWeight())) {
+  // Check if weight is from PrepareConv2dWeightsOp, LoadCachedOp, or already in
+  // prepared format.
+  // Prepared weights have shape [1, 1, K*K*C_in, C_out] instead
+  // of [C_out, C_in, K, K]
+  bool isWeightPrepared =
+      isDefinedByOp<mlir::tt::ttnn::PrepareConv2dWeightsOp>(getWeight()) ||
+      isDefinedByOp<mlir::tt::ttcore::LoadCachedOp>(getWeight()) ||
+      (getWeight().getType().getDimSize(0) == 1 &&
+       getWeight().getType().getDimSize(1) == 1);
+
+  if (!isWeightPrepared) {
     // Only check when the weight is not prepared because it changes the shape
     // and ordering of dims.
     if (getWeight().getType().getDimSize(WEIGHT_OUT_CHANNEL) !=
@@ -2671,6 +2681,60 @@ static ::mlir::LogicalResult verifyTTNNBatchNormOp(OpType op) {
 // RMSNormOp
 //===----------------------------------------------------------------------===//
 ::mlir::LogicalResult mlir::tt::ttnn::RMSNormOp::verify() {
+  RankedTensorType inputType = getInput().getType();
+  RankedTensorType outputType = getResult().getType();
+
+  // Input and output must have the same shape.
+  if (inputType.getShape() != outputType.getShape()) {
+    return emitOpError("input and output must have the same shape");
+  }
+
+  // For 0D tensors, weight and bias validation is different.
+  if (inputType.getRank() == 0) {
+    // For 0D tensors, weight and bias should also be 0D if present.
+    if (getWeight()) {
+      RankedTensorType weightType = getWeight().getType();
+      if (weightType.getRank() != 0) {
+        return emitOpError("weight tensor must be 0D for 0D input tensor");
+      }
+    }
+    if (getBias()) {
+      RankedTensorType biasType = getBias().getType();
+      if (biasType.getRank() != 0) {
+        return emitOpError("bias tensor must be 0D for 0D input tensor");
+      }
+    }
+    return success();
+  }
+
+  // For non-0D tensors, get the last dimension size for weight/bias validation.
+  int64_t lastDimSize = inputType.getShape().back();
+
+  // Verify weight tensor shape if present.
+  if (getWeight()) {
+    RankedTensorType weightType = getWeight().getType();
+    if (weightType.getRank() != 1 || weightType.getShape()[0] != lastDimSize) {
+      return emitOpError("weight tensor must be 1D with size matching the last "
+                         "dimension of input");
+    }
+  }
+
+  // Verify bias tensor shape if present.
+  if (getBias()) {
+    RankedTensorType biasType = getBias().getType();
+    if (biasType.getRank() != 1 || biasType.getShape()[0] != lastDimSize) {
+      return emitOpError("bias tensor must be 1D with size matching the last "
+                         "dimension of input");
+    }
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// LayerNormOp
+//===----------------------------------------------------------------------===//
+::mlir::LogicalResult mlir::tt::ttnn::LayerNormOp::verify() {
   RankedTensorType inputType = getInput().getType();
   RankedTensorType outputType = getResult().getType();
 

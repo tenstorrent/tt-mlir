@@ -813,7 +813,9 @@ class Builder(metaclass=BuilderMeta):
                 builtin_module = entry.regions[0].blocks[0].operations[0]
                 for op in builtin_module.regions[0].blocks[0].operations:
                     if isinstance(op, func.FuncOp):
-                        self._func_name_to_op[op.name.value] = op
+                        # Only add functions with bodies, not declarations
+                        if not op.is_external:
+                            self._func_name_to_op[op.name.value] = op
 
                         for block in op.body:
                             for inner_op in block.operations:
@@ -1010,7 +1012,9 @@ class Builder(metaclass=BuilderMeta):
             return process_multi_return_result(global_result)
 
         new_func_op = decorated_func.func_op
-        new_func_op.sym_visibility = StringAttr.get("private")
+        new_func_op.attributes["tt.function_type"] = StringAttr.get(
+            "forward_cpu", self._ctx
+        )
         self._func_ops_generated[new_func_op] = [ordered_inputs, ordered_outputs]
         return new_func_op
 
@@ -1032,8 +1036,7 @@ class Builder(metaclass=BuilderMeta):
         if is_hoisted:
             insertion_point = self._cpu_module_insertion_point
             hoisted_func_name = parsed_op_callee_value
-            hoisted_func_name_clean = hoisted_func_name.removesuffix("_decl")
-            nested_func_op = self._func_name_to_op[hoisted_func_name_clean]
+            nested_func_op = self._func_name_to_op[hoisted_func_name]
 
             new_golden_inputs = []
             for operand in parsed_op_operands:
@@ -1054,8 +1057,8 @@ class Builder(metaclass=BuilderMeta):
                 private_func_op = func.FuncOp(
                     type=new_func_op.type, name=hoisted_func_name, visibility="private"
                 )
-                private_func_op.attributes["ttir.cpu_hoisted_func"] = UnitAttr.get(
-                    self._ctx
+                private_func_op.attributes["tt.function_type"] = StringAttr.get(
+                    "forward_cpu_declaration", self._ctx
                 )
 
             self._nested_funcs.append(private_func_op.name.value)

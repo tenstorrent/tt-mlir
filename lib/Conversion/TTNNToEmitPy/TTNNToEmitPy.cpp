@@ -14,6 +14,7 @@
 #include "mlir/IR/Value.h"
 
 #include <optional>
+#include <string>
 
 using namespace mlir;
 using namespace mlir::tt;
@@ -2480,20 +2481,38 @@ public:
   matchAndRewrite(mlir::tt::ttcore::LoadCachedOp loadCachedOp,
                   mlir::tt::ttcore::LoadCachedOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    llvm::StringRef calleeName = loadCachedOp.getCallee();
+    const char *globalDictName = "_CONST_EVAL_CACHE";
+    auto strType = emitpy::OpaqueType::get(rewriter.getContext(), "str");
+    auto tensorListType =
+        emitpy::OpaqueType::get(rewriter.getContext(), "[ttnn.Tensor]");
+    auto dictType =
+        emitpy::DictType::get(rewriter.getContext(), strType, tensorListType);
 
     auto funcOp = loadCachedOp->getParentOfType<func::FuncOp>();
-    auto currentInsertionPoint = rewriter.saveInsertionPoint();
-    rewriter.setInsertionPoint(funcOp);
+    Block &entryBlock = funcOp.getBody().front();
 
-    // Create a global variable for caching.
+    // Find or create a global statement for the global cache dictionary at the
+    // beginning of the function body.
     //
-    std::string globalVarName = "CACHED_" + calleeName.str();
-    rewriter.create<emitpy::GlobalOp>(
-        loadCachedOp.getLoc(),
-        StringAttr::get(rewriter.getContext(), globalVarName),
-        emitpy::OpaqueAttr::get(rewriter.getContext(), "None"));
-    rewriter.restoreInsertionPoint(currentInsertionPoint);
+    emitpy::GlobalStatementOp global = nullptr;
+    for (auto &op : entryBlock) {
+      if (auto globalStmt = dyn_cast<emitpy::GlobalStatementOp>(op)) {
+        if (globalStmt.getName() == globalDictName) {
+          global = globalStmt;
+          break;
+        }
+      }
+    }
+    if (!global) {
+      auto currentInsertionPoint = rewriter.saveInsertionPoint();
+      rewriter.setInsertionPointToStart(&entryBlock);
+      global = rewriter.create<emitpy::GlobalStatementOp>(
+          loadCachedOp.getLoc(), dictType, globalDictName);
+      rewriter.restoreInsertionPoint(currentInsertionPoint);
+    }
+    auto globalDict = global.getResult();
+
+    llvm::StringRef calleeName = loadCachedOp.getCallee();
 
     // Create a function variable.
     //
@@ -2520,36 +2539,23 @@ public:
       mlir::Value tensorsInList =
           rewriter
               .create<emitpy::CallOpaqueOp>(
-                  loadCachedOp.getLoc(),
-                  emitpy::OpaqueType::get(rewriter.getContext(),
-                                          "[ttnn.Tensor]"),
+                  loadCachedOp.getLoc(), tensorListType,
                   ttnn_to_emitpy::kCreateListFunctionName,
                   adaptor.getOperands(), nullptr)
               ->getResult(0);
       operands.push_back(tensorsInList);
     }
 
-    auto tensorListType =
-        emitpy::OpaqueType::get(rewriter.getContext(), "[ttnn.Tensor]");
-    FlatSymbolRefAttr globalSymbol =
-        SymbolRefAttr::get(rewriter.getContext(), globalVarName);
+    operands.push_back(globalDict);
 
-    // Create a global statement at the beginning of the function body.
-    //
-    currentInsertionPoint = rewriter.saveInsertionPoint();
-    rewriter.setInsertionPointToStart(&funcOp.getBody().front());
-    rewriter.create<emitpy::GlobalStatementOp>(loadCachedOp.getLoc(),
-                                               tensorListType, globalSymbol);
-    rewriter.restoreInsertionPoint(currentInsertionPoint);
-
-    // Retrieve a global variable.
-    //
-    mlir::Value globalVar =
+    mlir::Value keyValue =
         rewriter
-            .create<emitpy::GetGlobalOp>(loadCachedOp.getLoc(), tensorListType,
-                                         globalSymbol)
+            .create<emitpy::ConstantOp>(
+                loadCachedOp.getLoc(), strType,
+                emitpy::OpaqueAttr::get(rewriter.getContext(),
+                                        "\"" + calleeName.str() + "\""))
             ->getResult(0);
-    operands.push_back(globalVar);
+    operands.push_back(keyValue);
 
     // Call into the callee.
     //
@@ -2563,10 +2569,8 @@ public:
     auto cacheOp = rewriter.create<emitpy::CallOpaqueOp>(
         loadCachedOp.getLoc(), tensorListType, wrapperFuncName, operands);
     mlir::Value cacheResult = cacheOp->getResult(0);
-    rewriter.create<emitpy::AssignGlobalOp>(loadCachedOp.getLoc(), globalSymbol,
-                                            cacheResult);
 
-    // Unpack list of tensors.
+    // Unpack the result list of tensors.
     //
     llvm::SmallVector<Value> results;
     for (unsigned i = 0; i < loadCachedOp.getNumResults(); ++i) {
@@ -3245,6 +3249,41 @@ public:
 };
 } // namespace
 
+// LayerNormOp conversion pattern
+//
+namespace {
+class LayerNormOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<mlir::tt::ttnn::LayerNormOp> {
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::LayerNormOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::LayerNormOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::LayerNormOp> emitter(
+        srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getEpsilon(), "epsilon"),
+        emitter.emit(srcOp.getWeight(), "weight"),
+        emitter.emit(srcOp.getBias(), "bias"),
+        emitter.emit(std::nullopt, "residual_input_tensor"),
+        emitter.emit(srcOp.getMemoryConfig() |
+                         emitter.getMemoryConfig(srcOp.getResult()),
+                     "memory_config"),
+        emitter.emit(std::nullopt, "program_config"),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // NLPCreateQKVHeadsDecodeOp conversion pattern
 namespace {
 class NLPCreateQKVHeadsDecodeOpConversionPattern
@@ -3782,10 +3821,10 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
 
   // Normalization ops
   //
-  patterns
-      .add<BatchNormInferenceOpConversionPattern,
-           BatchNormTrainingOpConversionPattern, RMSNormOpConversionPattern>(
-          typeConverter, ctx, enableGoldenMode);
+  patterns.add<BatchNormInferenceOpConversionPattern,
+               BatchNormTrainingOpConversionPattern, RMSNormOpConversionPattern,
+               LayerNormOpConversionPattern>(typeConverter, ctx,
+                                             enableGoldenMode);
 
   // Transformers ops
   //

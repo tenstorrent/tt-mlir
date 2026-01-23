@@ -351,9 +351,13 @@ void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
   meshWorkload.add_program(deviceRange, std::move(program));
 
   if (perf::Env::get().enablePerfTrace) {
+    auto devices = meshDevice->get_devices();
+    auto meshShape = meshDevice->shape();
+
     for (auto &[range, program] : meshWorkload.get_programs()) {
       for (auto coord : range) {
-        auto deviceId = meshDevice->get_device(coord)->id();
+        size_t linearIdx = coord.to_linear_index(meshShape);
+        auto deviceId = devices[linearIdx]->id();
         program.set_runtime_id(getUniqueProgramRuntimeId());
         profiler::addProgramProfileHostMetadata(deviceId, program, loc);
       }

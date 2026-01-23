@@ -67,6 +67,7 @@ class CMakeBuild(build_ext):
             "-DCMAKE_C_COMPILER=clang",
             "-DCMAKE_CXX_COMPILER=clang++",
             "-DTTMLIR_ENABLE_TESTS=OFF",
+            "-DTTMLIR_ENABLE_TOOLS=OFF",
         ]
 
         if not self.in_ci():

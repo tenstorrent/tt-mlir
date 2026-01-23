@@ -131,8 +131,17 @@ void registerRuntimeBindings(nb::module_ &m) {
       .def("with_rank_file_path",
            &tt::runtime::MultiProcessArgs::withRankFilePath,
            nb::rv_policy::reference_internal)
-      .def("with_mca_options", &tt::runtime::MultiProcessArgs::withMcaOptions,
-           nb::rv_policy::reference_internal)
+      .def(
+          "with_mca_options",
+          [](tt::runtime::MultiProcessArgs &self, nb::dict mcaOptions) {
+            std::map<std::string, std::string> mcaOptionsMap;
+            for (auto [key, value] : mcaOptions) {
+              mcaOptionsMap[nb::cast<std::string>(key)] =
+                  nb::cast<std::string>(value);
+            }
+            return self.withMcaOptions(mcaOptionsMap);
+          },
+          nb::rv_policy::reference_internal)
       .def("with_tag_output", &tt::runtime::MultiProcessArgs::withTagOutput,
            nb::rv_policy::reference_internal)
       .def("with_allow_run_as_root",
@@ -140,6 +149,9 @@ void registerRuntimeBindings(nb::module_ &m) {
            nb::rv_policy::reference_internal)
       .def("with_extra_mpi_args",
            &tt::runtime::MultiProcessArgs::withExtraMpiArgs,
+           nb::rv_policy::reference_internal)
+      .def("with_controller_hostname",
+           &tt::runtime::MultiProcessArgs::withControllerHostname,
            nb::rv_policy::reference_internal)
       .def("to_arg_string", &tt::runtime::MultiProcessArgs::toArgString);
 
@@ -404,6 +416,8 @@ void registerRuntimeBindings(nb::module_ &m) {
   m.def("to_host", &tt::runtime::toHost, nb::arg("tensor"),
         nb::arg("untilize") = false, nb::arg("blocking") = true,
         "Copy the tensor to host");
+  m.def("get_device_tensors", &tt::runtime::getDeviceTensors, nb::arg("tensor"),
+        "Returns vector of device tensors.");
   m.def("to_layout", &tt::runtime::toLayout, nb::arg("tensor"),
         nb::arg("device"), nb::arg("layout"), nb::arg("retain") = nb::none(),
         "Create a copy of the tensor with the specified layout");
