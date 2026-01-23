@@ -3073,17 +3073,32 @@ namespace {
 class RMSNormFusionPattern : public mlir::OpRewritePattern<MultiplyOp> {
   using mlir::OpRewritePattern<MultiplyOp>::OpRewritePattern;
 
-  // Traces backward through layout ops that are safe for RMS norm fusion.
-  // Safe ops preserve the last dimension, since RMS norm normalizes over it.
-  static mlir::Value lookThroughSafeOps(mlir::Value value) {
-    return utils::lookThroughLayoutOpsIf(
-        value, [](mlir::Operation *op) { return utils::preservesDim(op, -1); });
-  }
-
 public:
   mlir::LogicalResult
   matchAndRewrite(MultiplyOp outerMul,
                   mlir::PatternRewriter &rewriter) const final {
+    // TTNN RMS norm only supports normalization over the last dimension.
+    // The normalized_shape parameter of RMSNormOp is the size of the last dim.
+    auto outputType = mlir::cast<RankedTensorType>(outerMul.getType());
+    int64_t normalizedDimSize = outputType.getShape().back();
+
+    // Traces through layout ops that preserve the last dim, or broadcasts
+    // that expand the last dim to the normalized size (from reduced shape).
+    auto lookThroughSafeOps = [normalizedDimSize](mlir::Value value) {
+      return utils::lookThroughLayoutOpsIf(
+          value, [normalizedDimSize](mlir::Operation *op) {
+            if (utils::preservesDim(op, -1)) {
+              return true;
+            }
+            // Allow broadcasts that expand to normalized size.
+            if (auto broadcast = mlir::dyn_cast<BroadcastOp>(op)) {
+              auto outType = mlir::cast<RankedTensorType>(broadcast.getType());
+              return outType.getShape().back() == normalizedDimSize;
+            }
+            return false;
+          });
+    };
+
     MultiplyOp innerMul =
         utils::findOpThrough<MultiplyOp, TypecastOp>(outerMul.getLhs());
     mlir::Value gammaRaw = outerMul.getRhs();
@@ -3122,7 +3137,6 @@ public:
       return mlir::failure();
     }
 
-    // TTNN RMS norm only supports normalization over the last dimension.
     auto dimArg = meanOp.getDimArg();
     if (!dimArg || dimArg->size() != 1) {
       return mlir::failure();
@@ -3165,10 +3179,7 @@ public:
     }
 
     mlir::Value gamma = lookThroughSafeOps(gammaRaw);
-    auto inputType = mlir::cast<RankedTensorType>(x.getType());
-    auto outputType = mlir::cast<RankedTensorType>(outerMul.getType());
-
-    llvm::SmallVector<int64_t> normalizedShape{inputType.getShape().back()};
+    llvm::SmallVector<int64_t> normalizedShape{normalizedDimSize};
 
     // Reshape gamma to match normalized_shape if needed.
     // Gamma may have extra dimensions (e.g., [1, 1, 2048] instead of [2048]).
@@ -3195,7 +3206,8 @@ public:
                                          rewriter.getI32ArrayAttr(targetShape));
     }
 
-    // Create RMSNormOp with output shape and dtype matching input
+    // Create RMSNormOp with output shape and dtype matching input.
+    auto inputType = mlir::cast<RankedTensorType>(x.getType());
     auto rmsNormOutputType =
         RankedTensorType::get(inputType.getShape(), inputType.getElementType(),
                               inputType.getEncoding());
