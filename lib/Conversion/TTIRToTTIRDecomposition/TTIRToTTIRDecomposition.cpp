@@ -820,18 +820,17 @@ private:
           rewriter.getI32ArrayAttr(begins), rewriter.getI32ArrayAttr(endsArr),
           rewriter.getI32ArrayAttr(step));
 
-      if (numberOfRepeats > 1) {
-        SmallVector<int64_t> repeatShape(sliceShape);
-        repeatShape[indexedDim] = numberOfRepeats;
-        auto repeatType = RankedTensorType::get(
-            repeatShape, inputType.getElementType(), inputType.getEncoding());
-        SmallVector<int64_t> repeatDims(inputShape.size(), 1);
-        repeatDims[indexedDim] = numberOfRepeats;
+      SmallVector<int64_t> repeatShape(sliceShape);
+      repeatShape[indexedDim] = numberOfRepeats;
+      auto repeatType = RankedTensorType::get(
+          repeatShape, inputType.getElementType(), inputType.getEncoding());
+      SmallVector<int64_t> repeatDims(inputShape.size(), 1);
+      repeatDims[indexedDim] = numberOfRepeats;
 
-        slice = rewriter.create<ttir::RepeatOp>(
-            op.getLoc(), repeatType, slice,
-            rewriter.getDenseI64ArrayAttr(repeatDims));
-      }
+      slice = rewriter.create<ttir::RepeatOp>(
+          op.getLoc(), repeatType, slice,
+          rewriter.getDenseI64ArrayAttr(repeatDims));
+
       slices.push_back(slice);
     }
     return slices;
