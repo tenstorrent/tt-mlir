@@ -272,6 +272,10 @@ calculateReblockMapForGrid(mlir::ArrayRef<int64_t> tensorShape,
     newTensorShape[j] = tensorShape[i] * tensorShape[j] / newGridShape[i];
     newTensorShape[i] = newGridShape[i];
   }
+  llvm::dbgs() << "  tensorShape:   "
+               << ttmlir::utils::formatIterable(tensorShape, "x") << "\n";
+  llvm::dbgs() << "  newTensorShape: "
+               << ttmlir::utils::formatIterable(newTensorShape, "x") << "\n";
   return {newTensorShape,
           calculateReblockMap(tensorShape, newTensorShape, context)};
 }

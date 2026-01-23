@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 
+#include "ttmlir/AffineMapAnalysis.h"
 #include "ttmlir/AffineMapUtils.h"
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
@@ -512,6 +513,21 @@ static void optimizeTTNNMetalLayoutCastOpGrid(
 
   auto newTensorType = utils::reblockTensor(outputType, optimalGrid);
 
+  llvm::dbgs() << "\nOptimizing ttnn metal layout cast: " << castOp << "\n";
+  auto [newTensorShape, reblockMap] = ttmlir::utils::calculateReblockMapForGrid(
+      outputType.getShape(), optimalGrid, castOp->getContext());
+  llvm::dbgs() << "  old grid:      "
+               << ttmlir::utils::formatIterable(outputType.getShape(), "x")
+               << "\n";
+  llvm::dbgs() << "  optimal grid:  "
+               << ttmlir::utils::formatIterable(optimalGrid, "x") << "\n";
+  llvm::dbgs() << "  reblockMap:    "
+               << ttmlir::utils::simplifyAffineMapWithRangeAnalysis(
+                      reblockMap, newTensorShape, false)
+               << "\n";
+  llvm::dbgs() << "  newTensorType: " << newTensorType << "\n";
+  llvm::dbgs() << "--------------------------------------------------\n\n";
+
   builder.setInsertionPointAfter(castOp);
 
   auto newViewLayoutOp = builder.create<d2m::ViewLayoutOp>(
@@ -988,6 +1004,12 @@ recreateGenericOp(d2m::GenericOp genericOp,
   }
 
   TT_assert(optimalOperandGrids.size() == genericOp.getNumOperands());
+
+  llvm::dbgs() << "Recreating generic op with optimal operand grids: "
+               << "\n";
+  for (auto g : optimalOperandGrids) {
+    llvm::dbgs() << "    " << ttmlir::utils::formatIterable(g, "x") << "\n";
+  }
 
   OpBuilder builder(genericOp);
   llvm::SmallVector<Value> newOperands;

@@ -29,6 +29,8 @@ std::optional<SmallVector<int64_t>>
 computeDimConstraints(mlir::ArrayRef<mlir::AffineMap> indexingMaps,
                       mlir::ArrayRef<mlir::SmallVector<int64_t>> shapes);
 
+SmallVector<int64_t> getPhysicalGridShape(Value tensorOrMemref);
+
 } // namespace mlir::tt::d2m::utils
 
 #endif

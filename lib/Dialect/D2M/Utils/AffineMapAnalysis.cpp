@@ -376,6 +376,9 @@ simplifyAffineMapWithRangeAnalysis(mlir::AffineMap map,
     }
   }
 
+  // also run simplifyZeroFloorDiv to remove redundant mod and floordiv ops
+  simplifiedMap = simplifyZeroFloorDiv(simplifiedMap);
+
   return simplifiedMap;
 }
 
@@ -1285,8 +1288,8 @@ size_t computeCoalescingFactorAnalytically(mlir::AffineMap map,
 
   // Do initial pass of simplification; all remaining mod/floordiv expressions
   // actually do something.
-  mlir::AffineMap simplifiedMap = simplifyAffineMapWithRangeAnalysis(
-      simplifyZeroFloorDiv(map), shape, false);
+  mlir::AffineMap simplifiedMap =
+      simplifyAffineMapWithRangeAnalysis(map, shape, false);
 
   // Analyze each shard dim and store results.
   llvm::SmallVector<std::optional<int64_t>> dimContiguityBounds;
