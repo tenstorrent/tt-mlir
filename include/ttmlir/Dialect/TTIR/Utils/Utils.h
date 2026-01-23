@@ -29,11 +29,10 @@ namespace detail {
 // mlir::Value but should not be considered an operand.
 template <typename T>
 struct is_operand
-    : std::bool_constant<
-          (std::is_convertible_v<T, mlir::Value> ||
-           std::is_convertible_v<T, mlir::ValueRange>)&&!std::
-              is_convertible_v<T,
-                               mlir::TypedValue<mlir::tt::ttnn::DeviceType>>> {
+    : std::bool_constant<(std::is_convertible_v<T, mlir::Value> ||
+                          std::is_convertible_v<T, mlir::ValueRange>) &&
+                         !std::is_convertible_v<
+                             T, mlir::TypedValue<mlir::tt::ttnn::DeviceType>>> {
 };
 
 template <typename T>
