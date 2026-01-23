@@ -24,7 +24,6 @@ namespace mlir::tt::ttnn {
 struct MemoryLayoutAnalysisInput {
   const TensorTypeLayoutsMap *tensorTypePossibleLayouts;
   llvm::DenseMap<Operation *, std::vector<OpConfig>> legalConfigs;
-  unsigned usableL1CacheSize = 0;
   llvm::DenseSet<Edge> overrideReshardEdges;
   llvm::StringMap<OutputLayoutOverrideParams> overrideOutputLayout;
 
@@ -35,13 +34,11 @@ struct MemoryLayoutAnalysisInput {
   MemoryLayoutAnalysisInput(
       const TensorTypeLayoutsMap *tensorTypePossibleLayouts,
       const llvm::DenseMap<Operation *, std::vector<OpConfig>> &legalConfigs,
-      unsigned usableL1CacheSize,
       const llvm::DenseSet<Edge> &overrideReshardEdges,
       const llvm::StringMap<OutputLayoutOverrideParams> &overrideOutputLayout,
       MemoryLayoutAnalysisPolicyType policy)
       : tensorTypePossibleLayouts(tensorTypePossibleLayouts),
-        legalConfigs(legalConfigs), usableL1CacheSize(usableL1CacheSize),
-        overrideReshardEdges(overrideReshardEdges),
+        legalConfigs(legalConfigs), overrideReshardEdges(overrideReshardEdges),
         overrideOutputLayout(overrideOutputLayout), policy(policy) {}
 
   bool operator==(const MemoryLayoutAnalysisInput &rhs) const {

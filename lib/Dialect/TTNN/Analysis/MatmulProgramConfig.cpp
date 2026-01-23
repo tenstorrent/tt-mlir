@@ -94,10 +94,12 @@ static inline int64_t largestDivisorUpTo(int64_t value, int64_t maxDivisor) {
 //
 // Generate MatmulMultiCoreReuseMultiCast1DProgramConfig for width/height
 // sharded output.
-static mlir::Attribute generateMatmul1DProgramConfig(
-    MLIRContext *ctx, int64_t Mt, int64_t Nt, int64_t Kt,
-    TTNNLayoutAttr outputLayout, TensorMemoryLayout outputMemLayout,
-    UnaryWithParamAttr fusedActivation, int64_t maxSubblockSize) {
+static mlir::Attribute
+generateMatmul1DProgramConfig(MLIRContext *ctx, int64_t Mt, int64_t Nt,
+                              int64_t Kt, TTNNLayoutAttr outputLayout,
+                              TensorMemoryLayout outputMemLayout,
+                              UnaryWithParamAttr fusedActivation,
+                              int64_t maxSubblockSize, bool fuseBatch) {
   auto [gridX, gridY] = utils::getPhysicalGridDimensions(outputLayout);
   int64_t numCores = gridX * gridY;
 
@@ -147,7 +149,7 @@ static mlir::Attribute generateMatmul1DProgramConfig(
       static_cast<uint64_t>(outSubblockH), static_cast<uint64_t>(outSubblockW),
       static_cast<uint64_t>(outBlockH), static_cast<uint64_t>(outBlockW),
       static_cast<uint64_t>(perCoreM), static_cast<uint64_t>(perCoreN),
-      /*fuse_batch=*/true, /*fusedActivation=*/fusedActivation, mcastIn0,
+      fuseBatch, /*fusedActivation=*/fusedActivation, mcastIn0,
       /*gather_in0=*/false, hopCoresAttr, /*num_global_cb_receivers=*/0,
       /*untilize_out=*/false);
 }
@@ -157,7 +159,7 @@ static mlir::Attribute
 generateMatmul2DProgramConfig(MLIRContext *ctx, int64_t Mt, int64_t Nt,
                               int64_t Kt, TTNNLayoutAttr outputLayout,
                               UnaryWithParamAttr fusedActivation,
-                              int64_t maxSubblockSize) {
+                              int64_t maxSubblockSize, bool fuseBatch) {
   auto [gridX, gridY] = utils::getPhysicalGridDimensions(outputLayout);
 
   int64_t perCoreM = divUp(Mt, gridY);
@@ -180,7 +182,7 @@ generateMatmul2DProgramConfig(MLIRContext *ctx, int64_t Mt, int64_t Nt,
       static_cast<uint64_t>(outBlockH), static_cast<uint64_t>(outBlockW),
       static_cast<uint64_t>(perCoreM), static_cast<uint64_t>(perCoreN),
       /*transpose_mcast=*/false, /*fusedActivation=*/fusedActivation,
-      /*fuse_batch=*/true);
+      fuseBatch);
 }
 
 std::optional<mlir::Attribute>
@@ -206,32 +208,45 @@ generateMatmulProgramConfig(Operation *op, TTNNLayoutAttr outputLayout) {
     return std::nullopt;
   }
 
-  // Get input A shape and activation from the op.
-  auto [inputA, activation] =
-      llvm::TypeSwitch<Operation *, std::pair<Value, std::optional<StringRef>>>(
-          op)
+  // Get input A, input B shapes and activation from the op.
+  auto [inputA, inputB, activation] =
+      llvm::TypeSwitch<Operation *,
+                       std::tuple<Value, Value, std::optional<StringRef>>>(op)
           .Case<ttnn::MatmulOp, ttnn::LinearOp>([](auto matmulOp) {
             std::optional<StringRef> act;
             if (auto actAttr = matmulOp.getActivationAttr()) {
               act = actAttr.getValue();
             }
-            return std::make_pair(matmulOp.getA(), act);
+            return std::make_tuple(matmulOp.getA(), matmulOp.getB(), act);
           })
           .Default([](Operation *) {
-            return std::make_pair(nullptr, std::optional<StringRef>{});
+            return std::make_tuple(nullptr, nullptr,
+                                   std::optional<StringRef>{});
           });
 
-  if (!inputA) {
+  if (!inputA || !inputB) {
     return std::nullopt;
   }
 
   auto inputAType = mlir::dyn_cast<RankedTensorType>(inputA.getType());
-  if (!inputAType) {
+  auto inputBType = mlir::dyn_cast<RankedTensorType>(inputB.getType());
+  if (!inputAType || !inputBType) {
     return std::nullopt;
   }
   llvm::ArrayRef<int64_t> aShape = inputAType.getShape();
-  if (aShape.size() < 2) {
+  llvm::ArrayRef<int64_t> bShape = inputBType.getShape();
+  if (aShape.size() < 2 || bShape.size() < 2) {
     return std::nullopt;
+  }
+
+  // Check if all batch dimensions of input B are 1.
+  // fuse_batch can only be true when all batch dims of B are 1.
+  bool fuseBatch = true;
+  for (size_t i = 0; i < bShape.size() - 2; ++i) {
+    if (bShape[i] != 1) {
+      fuseBatch = false;
+      break;
+    }
   }
 
   int64_t M = outShape[outShape.size() - 2];
@@ -254,12 +269,13 @@ generateMatmulProgramConfig(Operation *op, TTNNLayoutAttr outputLayout) {
 
   if (outputMemLayout == TensorMemoryLayout::BlockSharded) {
     return generateMatmul2DProgramConfig(ctx, Mt, Nt, Kt, outputLayout,
-                                         fusedActivation, maxSubblockSize);
+                                         fusedActivation, maxSubblockSize,
+                                         fuseBatch);
   }
 
   return generateMatmul1DProgramConfig(ctx, Mt, Nt, Kt, outputLayout,
                                        outputMemLayout, fusedActivation,
-                                       maxSubblockSize);
+                                       maxSubblockSize, fuseBatch);
 }
 
 } // namespace mlir::tt::ttnn

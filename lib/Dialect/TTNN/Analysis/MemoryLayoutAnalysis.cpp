@@ -62,8 +62,7 @@ void MemoryLayoutAnalysis::analysisImplementation() {
   case MemoryLayoutAnalysisPolicyType::DFSharding: {
     DFShardingPolicy dfShardingPolicy(
         op, l1ChainConfigs, analysisInput.tensorTypePossibleLayouts,
-        filterShardedOnly(analysisInput.legalConfigs), analysisResult.schedule,
-        analysisInput.usableL1CacheSize);
+        filterShardedOnly(analysisInput.legalConfigs), analysisResult.schedule);
     dfShardingPolicy.setOverrides(analysisInput.overrideReshardEdges,
                                   analysisInput.overrideOutputLayout);
     dfShardingPolicy.run();
@@ -73,7 +72,7 @@ void MemoryLayoutAnalysis::analysisImplementation() {
     GreedyL1InterleavedPolicy l1InterleavedPolicy(
         op, l1ChainConfigs,
         filterDRAMAndL1Interleaved(analysisInput.legalConfigs),
-        analysisResult.schedule, analysisInput.usableL1CacheSize);
+        analysisResult.schedule);
     l1InterleavedPolicy.run();
     break;
   }
@@ -81,7 +80,7 @@ void MemoryLayoutAnalysis::analysisImplementation() {
     BFInterleavedPolicy bfInterleavedPolicy(
         op, l1ChainConfigs,
         filterDRAMAndL1Interleaved(analysisInput.legalConfigs),
-        analysisResult.schedule, analysisInput.usableL1CacheSize);
+        analysisResult.schedule);
     bfInterleavedPolicy.run();
     break;
   }

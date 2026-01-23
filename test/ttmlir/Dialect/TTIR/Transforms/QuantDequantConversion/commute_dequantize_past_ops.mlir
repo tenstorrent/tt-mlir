@@ -148,6 +148,20 @@ module {
     %9 = "ttir.conv2d"(%3, %7) <{stride = array<i32: 2, 2>, padding = array<i32: 3, 3, 3, 3>, dilation = array<i32: 1, 1>, groups = 1 : i32, batch_dim = 0 : i64, channel_dim = 1 : i64, height_dim = 2 : i64, width_dim = 3 : i64}> : (tensor<1x3x224x224xf32>, tensor<3x3x7x7xf32>) -> tensor<1x3x112x112xf32>
     return %9 : tensor<1x3x112x112xf32>
   }
+  func.func @commute_dequantize_past_per_tensor_convolution_per_axis_weights_with_bias(%arg0: tensor<1x3x224x224xf32>, %arg1: tensor<3x3x7x7xf32>, %arg2: tensor<1x3x1x1xf32>) -> tensor<1x3x112x112xf32> {
+    // CHECK-LABEL: func.func @commute_dequantize_past_per_tensor_convolution_per_axis_weights_with_bias
+    // CHECK: ttnn.quantize
+    // CHECK: ttnn.quantize
+    // CHECK: ttnn.quantize
+    // CHECK: ttnn.conv2d
+    // CHECK: ttnn.dequantize
+    %1 = "ttir.quantize"(%arg0): (tensor<1x3x224x224xf32>) -> tensor<1x3x224x224x!quant.uniform<i8:f32, 2.0787402987480164e-02>>
+    %3 = "ttir.dequantize"(%1): (tensor<1x3x224x224x!quant.uniform<i8:f32, 2.0787402987480164e-02>>) -> tensor<1x3x224x224xf32>
+    %5 = "ttir.quantize"(%arg1) : (tensor<3x3x7x7xf32>) -> tensor<3x3x7x7x!quant.uniform<i8:f32:0, {1.5e-2, 1.0e-2, 8.0e-3}>>
+    %7 = "ttir.dequantize"(%5) : (tensor<3x3x7x7x!quant.uniform<i8:f32:0, {1.5e-2, 1.0e-2, 8.0e-3}>>) -> tensor<3x3x7x7xf32>
+    %9 = "ttir.conv2d"(%3, %7, %arg2) <{stride = array<i32: 2, 2>, padding = array<i32: 3, 3, 3, 3>, dilation = array<i32: 1, 1>, groups = 1 : i32, batch_dim = 0 : i64, channel_dim = 1 : i64, height_dim = 2 : i64, width_dim = 3 : i64}> : (tensor<1x3x224x224xf32>, tensor<3x3x7x7xf32>, tensor<1x3x1x1xf32>) -> tensor<1x3x112x112xf32>
+    return %9 : tensor<1x3x112x112xf32>
+  }
   func.func @commute_dequantize_past_per_tensor_convolution_per_axis_weights_unsuccessful(%arg0: tensor<1x3x224x224xf32>, %arg1: tensor<64x3x7x7xf32>) -> tensor<1x64x112x112xf32> {
     // The number of per-axis weight scales is not the same as the required axis size so a sandwich is applied after commute.
     // CHECK-LABEL: func.func @commute_dequantize_past_per_tensor_convolution_per_axis_weights_unsuccessful

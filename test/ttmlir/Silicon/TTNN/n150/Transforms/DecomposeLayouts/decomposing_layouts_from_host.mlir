@@ -240,4 +240,17 @@ module attributes {} {
         %0 = "ttnn.to_layout"(%arg0) <{dtype = #ttcore.supportedDataTypes<u32>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <interleaved>>}> : (tensor<64x128xf32, #ttnn_layout_host_rm>) -> tensor<64x128xui32, #ttnn_layout_device_tile_u32>
         return %0 : tensor<64x128xui32, #ttnn_layout_device_tile_u32>
     }
+
+    // Test case when we move tensor from l1 sharded to dram tile with typecast.
+    func.func @from_l1_sharded_to_dram_tile_bf16(%arg0: tensor<1x1x784x512xf32, #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 800 + d1 * 800 + d2, d3), <7x8, (d0, d1) -> (0, d0, d1)>, memref<4x2x!ttcore.tile<32x32, f32>, #ttnn.buffer_type<l1>>, <block_sharded>>>) -> tensor<1x1x784x512xbf16, #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 800 + d1 * 800 + d2, d3), <1x1>, memref<25x16x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<dram>>, <interleaved>>> {
+        // CHECK-LABEL: func.func @from_l1_sharded_to_dram_tile_bf16
+        // CHECK: %[[MEM_CONFIG:.*]] = "ttnn.to_memory_config"(%arg0)
+        // CHECK-SAME: memory_config = #ttnn.memory_config<#dram, <interleaved>>
+        // CHECK: %[[TYPECAST:.*]] = "ttnn.typecast"(%[[MEM_CONFIG]])
+        // CHECK-SAME: dtype = #ttcore.supportedDataTypes<bf16>
+        // CHECK: return %[[TYPECAST]]
+        %0 = "ttnn.to_layout"(%arg0) <{dtype = #ttcore.supportedDataTypes<bf16>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<<dram>, <interleaved>>}> : (tensor<1x1x784x512xf32, #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 800 + d1 * 800 + d2, d3), <7x8, (d0, d1) -> (0, d0, d1)>, memref<4x2x!ttcore.tile<32x32, f32>, #ttnn.buffer_type<l1>>, <block_sharded>>>) -> tensor<1x1x784x512xbf16, #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 800 + d1 * 800 + d2, d3), <1x1>, memref<25x16x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<dram>>, <interleaved>>>
+        return %0 : tensor<1x1x784x512xbf16, #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 800 + d1 * 800 + d2, d3), <1x1>, memref<25x16x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<dram>>, <interleaved>>>
+    }
+
 }
