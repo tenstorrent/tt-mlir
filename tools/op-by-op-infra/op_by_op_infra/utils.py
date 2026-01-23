@@ -294,10 +294,17 @@ class OpWrapper:
         self.preserved_ops_strings = []
         for chain, chain_original_names, pres_idx in preserved_chains:
             # Build SSA name mapping for this chain
-            chain_name_mapping = {
-                orig_name: f"%pres{pres_idx}_{i}"
-                for i, orig_name in enumerate(chain_original_names)
-            }
+            # Intermediate values: %pres{pres_idx}_{i}, final value: %pres{pres_idx}
+            chain_name_mapping = {}
+            for i, orig_name in enumerate(chain_original_names):
+                if orig_name is None:
+                    continue
+                if i == len(chain) - 1:
+                    # Final op in chain gets the main preserved name
+                    chain_name_mapping[orig_name] = f"%pres{pres_idx}"
+                else:
+                    # Intermediate ops get indexed names
+                    chain_name_mapping[orig_name] = f"%pres{pres_idx}_{i}"
 
             # Convert each op in chain to string and apply renaming
             for i, chain_op in enumerate(chain):
