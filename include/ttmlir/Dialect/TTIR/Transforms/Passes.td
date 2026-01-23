@@ -204,6 +204,33 @@ def TTIRFusing: Pass<"ttir-fusing", "::mlir::ModuleOp">
   ];
 }
 
+def TTIRReductionKeepDim: Pass<"ttir-reduction-keep-dim", "::mlir::ModuleOp">
+{
+  let summary = "Optimize reductions by using keep_dim=true to eliminate reshapes.";
+  let description = [{
+    This pass optimizes reduction operations by converting them to use keep_dim=true
+    to eliminate unnecessary reshape operations.
+
+    Pattern 1: Reduction followed by reshape that adds back reduced dimensions.
+      Before:
+        %0 = "ttir.sum"(%input) {dim_arg = [1], keep_dim = false} : (tensor<2x3x4xf32>) -> tensor<2x4xf32>
+        %1 = "ttir.reshape"(%0) <{shape = [2, 1, 4]}> : (tensor<2x4xf32>) -> tensor<2x1x4xf32>
+
+      After:
+        %0 = "ttir.sum"(%input) {dim_arg = [1], keep_dim = true} : (tensor<2x3x4xf32>) -> tensor<2x1x4xf32>
+
+    Pattern 2: Reshape that adds size-1 dimensions followed by reduction with keep_dim=false.
+      Before:
+        %0 = "ttir.reshape"(%input) <{shape = [2, 1, 3, 4]}> : (tensor<2x3x4xf32>) -> tensor<2x1x3x4xf32>
+        %1 = "ttir.sum"(%0) {dim_arg = [2], keep_dim = false} : (tensor<2x1x3x4xf32>) -> tensor<2x1x4xf32>
+
+      After:
+        %0 = "ttir.sum"(%input) {dim_arg = [1], keep_dim = true} : (tensor<2x3x4xf32>) -> tensor<2x1x4xf32>
+  }];
+
+  let dependentDialects = ["mlir::tt::ttir::TTIRDialect"];
+}
+
 def TTIRMultiDeviceTensorAnnotation: Pass<"ttir-multi-device-tensor-annotation", "::mlir::ModuleOp">
 {
   let summary = "TTIR multi-device tensor annotation pass.";
