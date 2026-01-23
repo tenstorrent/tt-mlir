@@ -59,4 +59,23 @@ module @jit_scatter attributes {} {
         }) : (tensor<1x18xf32>, tensor<11x2xi64>, tensor<11xf32>) -> tensor<1x18xf32>
         return %result : tensor<1x18xf32>
     }
+
+    // Test multi-dimensional scatter with non-empty update_window_dims.
+    // This pattern scatters a window (slice) at each index position.
+    // operand: [1, 5, 2], indices: [1, 2] pointing to (0, 3), updates: [1, 2]
+    // The window dimension is dim 2 of the operand (size 2).
+    // Each scatter index writes a slice of 2 values into the operand.
+    func.func public @test_multidim_scatter_with_window(%arg0: tensor<1x5x2xbf16>, %arg1: tensor<1x2xi64>, %arg2: tensor<1x2xbf16>) -> tensor<1x5x2xbf16> {
+        // CHECK-LABEL: func.func public @test_multidim_scatter_with_window
+        // Window expansion should convert this to scalar scatters.
+        // The single index [0, 3] with window size 2 becomes 2 flat indices.
+        // CHECK: "ttir.scatter"
+        // CHECK-SAME: <{dim = 0 : i32, scatter_reduce_type = #ttcore.reduce_type<sum>}>
+        %result = "stablehlo.scatter"(%arg0, %arg1, %arg2) <{indices_are_sorted = false, scatter_dimension_numbers = #stablehlo.scatter<update_window_dims = [1], inserted_window_dims = [0, 1], scatter_dims_to_operand_dims = [0, 1], index_vector_dim = 1>, unique_indices = false}> ({
+        ^bb0(%arg3: tensor<bf16>, %arg4: tensor<bf16>):
+            %sum = stablehlo.add %arg3, %arg4 : tensor<bf16>
+            stablehlo.return %sum : tensor<bf16>
+        }) : (tensor<1x5x2xbf16>, tensor<1x2xi64>, tensor<1x2xbf16>) -> tensor<1x5x2xbf16>
+        return %result : tensor<1x5x2xbf16>
+    }
 }
