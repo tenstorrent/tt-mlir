@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -38,7 +38,7 @@ static DenseElementsAttr findSplatConstantThroughChain(Value value) {
     return nullptr;
   }
 
-  // Direct constant case
+  // Direct constant case.
   if (auto constantOp = dyn_cast<ConstantOp>(defOp)) {
     auto denseAttr = dyn_cast<DenseElementsAttr>(constantOp.getValue());
     if (denseAttr && denseAttr.isSplat()) {
@@ -47,12 +47,12 @@ static DenseElementsAttr findSplatConstantThroughChain(Value value) {
     return nullptr;
   }
 
-  // Trace through reshape - a splat reshaped is still a splat
+  // Trace through reshape - a splat reshaped is still a splat.
   if (auto reshapeOp = dyn_cast<ReshapeOp>(defOp)) {
     return findSplatConstantThroughChain(reshapeOp.getInput());
   }
 
-  // Trace through broadcast - a splat broadcasted is still a splat
+  // Trace through broadcast - a splat broadcasted is still a splat.
   if (auto broadcastOp = dyn_cast<BroadcastOp>(defOp)) {
     return findSplatConstantThroughChain(broadcastOp.getInput());
   }
@@ -93,29 +93,29 @@ public:
 
   LogicalResult matchAndRewrite(ReshapeOp reshapeOp,
                                 PatternRewriter &rewriter) const override {
-    // Only fold if consumed by elementwise binary ops or broadcast
+    // Only fold if consumed by elementwise binary ops or broadcast.
     if (!isConsumedByElementwiseBinaryOrBroadcastOp(reshapeOp)) {
       return failure();
     }
 
     // Try to find a splat constant through the chain (handles direct constant
-    // too)
+    // too).
     DenseElementsAttr splatAttr =
         findSplatConstantThroughChain(reshapeOp.getInput());
     if (!splatAttr) {
       return failure();
     }
 
-    // Get the target type from the reshape op's result
+    // Get the target type from the reshape op's result.
     auto newType = cast<RankedTensorType>(reshapeOp.getType());
 
-    // Create a new splat constant with the target shape
+    // Create a new splat constant with the target shape.
     auto newDenseAttr = createSplatWithNewType(splatAttr, newType);
     if (!newDenseAttr) {
       return failure();
     }
 
-    // Replace the reshape op with the new constant
+    // Replace the reshape op with the new constant.
     rewriter.replaceOpWithNewOp<ConstantOp>(reshapeOp, newType, newDenseAttr);
     return success();
   }
@@ -138,23 +138,23 @@ public:
   LogicalResult matchAndRewrite(BroadcastOp broadcastOp,
                                 PatternRewriter &rewriter) const override {
     // Try to find a splat constant through the chain (handles direct constant
-    // too)
+    // too).
     DenseElementsAttr splatAttr =
         findSplatConstantThroughChain(broadcastOp.getInput());
     if (!splatAttr) {
       return failure();
     }
 
-    // Get the target type from the broadcast op's result
+    // Get the target type from the broadcast op's result.
     auto newType = cast<RankedTensorType>(broadcastOp.getType());
 
-    // Create a new splat constant with the target shape
+    // Create a new splat constant with the target shape.
     auto newDenseAttr = createSplatWithNewType(splatAttr, newType);
     if (!newDenseAttr) {
       return failure();
     }
 
-    // Replace the broadcast op with the new constant
+    // Replace the broadcast op with the new constant.
     rewriter.replaceOpWithNewOp<ConstantOp>(broadcastOp, newType, newDenseAttr);
     return success();
   }

@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -23,12 +23,12 @@ static bool isFromConstant(Value value) {
     return false;
   }
 
-  // Direct constant
+  // Direct constant.
   if (isa<ttir::ConstantOp>(defOp)) {
     return true;
   }
 
-  // Reshape/broadcast of a constant is still "from constant"
+  // Reshape/broadcast of a constant is still "from constant".
   if (isa<ttir::ReshapeOp, ttir::BroadcastOp>(defOp)) {
     return isFromConstant(defOp->getOperand(0));
   }
@@ -58,14 +58,14 @@ public:
 
   LogicalResult matchAndRewrite(ElementwiseBinary op,
                                 PatternRewriter &rewriter) const override {
-    // Get operands - expect exactly 2 for binary ops
+    // Get operands - expect exactly 2 for binary ops.
     auto operands = op->getOperands();
     if (operands.size() != 2) {
       return failure();
     }
 
     // Find which operand is a reshape (not from constant) and which traces to a
-    // constant
+    // constant.
     ReshapeOp reshapeOp = nullptr;
     Value constOperand = nullptr;
     size_t reshapeOperandIdx = 0;
@@ -85,25 +85,25 @@ public:
       return failure();
     }
 
-    // The reshape must have a single use (the elementwise op)
+    // The reshape must have a single use (the elementwise op).
     if (!reshapeOp->hasOneUse()) {
       return failure();
     }
 
-    // Get the pre-reshape shape (activation's original shape)
+    // Get the pre-reshape shape (activation's original shape).
     auto preReshapeType =
         cast<RankedTensorType>(reshapeOp.getInput().getType());
     auto postReshapeType = cast<RankedTensorType>(reshapeOp.getType());
 
     // The constant operand should have the same shape as the post-reshape
-    // (that's why the reshape was added)
+    // (that's why the reshape was added).
     auto constType = cast<RankedTensorType>(constOperand.getType());
     if (constType.getShape() != postReshapeType.getShape()) {
       return failure();
     }
 
     // Create inverse reshape for the constant: from post-reshape shape to
-    // pre-reshape shape
+    // pre-reshape shape.
     SmallVector<int32_t> newShape;
     for (int64_t dim : preReshapeType.getShape()) {
       newShape.push_back(static_cast<int32_t>(dim));
@@ -122,7 +122,7 @@ public:
     newOperands[reshapeOperandIdx] = reshapeOp.getInput();
     newOperands[1 - reshapeOperandIdx] = constReshape.getResult();
 
-    // The result type should match the pre-reshape type
+    // The result type should match the pre-reshape type.
     auto newResultType = RankedTensorType::get(
         preReshapeType.getShape(),
         cast<RankedTensorType>(op->getResult(0).getType()).getElementType());
@@ -131,8 +131,9 @@ public:
         op->getLoc(), rewriter.getStringAttr(op->getName().getStringRef()),
         newOperands, newResultType, op->getAttrs());
 
-    // Replace the original op result with the new op result
-    // We need a reshape to match the original output shape for downstream users
+    // Replace the original op result with the new op result.
+    // We need a reshape to match the original output shape for downstream
+    // users.
     auto outputReshape = rewriter.create<ReshapeOp>(
         op->getLoc(), op->getResult(0).getType(), newOp->getResult(0),
         reshapeOp.getShapeAttr());
