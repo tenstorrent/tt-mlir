@@ -30,9 +30,11 @@ _SDY_MESH_PATTERN = re.compile(r"\s*sdy.mesh.*$", re.MULTILINE)  # Match sdy.mes
 # Operations that must be preserved in the function body rather than parameterized as inputs.
 # - stablehlo.constant: Sometimes required by stablehlo spec, otherwise improves test accuracy with real constant values
 # - ttnn.get_device: Returns device handle, cannot be replaced with test input
+# - stablehlo.iota: Required for argmax pattern matching (reduce op checks that input comes from iota)
 PRESERVED_OP_NAMES = [
     "stablehlo.constant",
     "ttnn.get_device",
+    "stablehlo.iota",
 ]
 
 # Operations that preserve constant semantics when their input is a constant.
