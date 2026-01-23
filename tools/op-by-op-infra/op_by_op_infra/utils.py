@@ -285,12 +285,21 @@ class OpWrapper:
                 parameterized_operands.append(Operand(standardized_name, operand.type))
                 arg_counter += 1
 
-        # Build result mapping
+        # Build result mapping - track which results have users for selective return
         result_mapping = {}
+        used_result_indices = []  # Track indices of results that have users
         for i, result in enumerate(op.results):
             original_name = result.get_name()
             standardized_name = f"%res{i}"
             result_mapping[original_name] = standardized_name
+            # Check if this result has any users in the original graph
+            # result.uses is an iterator, so check if it has any elements
+            if any(True for _ in result.uses):
+                used_result_indices.append(i)
+
+        # If no results have users (all dead), return all of them to avoid empty return
+        if not used_result_indices:
+            used_result_indices = list(range(len(op.results)))
 
         # For multi-result ops, replace the defining syntax %base:N with %res0, %res1, ...
         # MLIR defines multi-result ops as %name:N = op(...) but they're referenced as %name#0, %name#1
@@ -340,6 +349,8 @@ class OpWrapper:
         self.results = [
             Result(f"%res{i}", result.type) for i, result in enumerate(op.results)
         ]
+        # Track which results to return (only those with users in original graph)
+        self.used_result_indices = used_result_indices
         # Convert attributes to string to avoid MLIR context issues
         if attrs is not None:
             self.attributes_str = (
@@ -394,13 +405,17 @@ class OpWrapper:
         if self.preserved_ops_strings:
             preserved_body = "    " + "\n    ".join(self.preserved_ops_strings) + "\n"
 
-        if len(self.results) > 1:
-            results = f"{', '.join(result.name for result in self.results)}"
-            return_type = f"{', '.join(str(result.type) for result in self.results)}"
+        # Only return results that had users in the original graph
+        # This is important for pattern matching (e.g., argmax checks that first result is unused)
+        returned_results = [self.results[i] for i in self.used_result_indices]
+
+        if len(returned_results) > 1:
+            results = f"{', '.join(result.name for result in returned_results)}"
+            return_type = f"{', '.join(str(result.type) for result in returned_results)}"
             return_stmt = f"return {results} : {return_type}"
-        elif len(self.results) == 1:
-            return_type = self.results[0].type
-            return_stmt = f"return {self.results[0].name} : {self.results[0].type}"
+        elif len(returned_results) == 1:
+            return_type = returned_results[0].type
+            return_stmt = f"return {returned_results[0].name} : {returned_results[0].type}"
         else:
             return_type = "()"
             return_stmt = "return"
@@ -485,13 +500,16 @@ class TTNNOpWrapper(OpWrapper):
         if self.preserved_ops_strings:
             preserved_body = "    " + "\n    ".join(self.preserved_ops_strings) + "\n"
 
-        if len(self.results) > 1:
-            results = f"({', '.join(result.name for result in self.results)})"
-            return_type = f"({', '.join(str(result.type) for result in self.results)})"
+        # Only return results that had users in the original graph
+        returned_results = [self.results[i] for i in self.used_result_indices]
+
+        if len(returned_results) > 1:
+            results = f"({', '.join(result.name for result in returned_results)})"
+            return_type = f"({', '.join(str(result.type) for result in returned_results)})"
             return_stmt = f"return {results} : {return_type}"
-        elif len(self.results) == 1:
-            return_type = self.results[0].type
-            return_stmt = f"return {self.results[0].name} : {self.results[0].type}"
+        elif len(returned_results) == 1:
+            return_type = returned_results[0].type
+            return_stmt = f"return {returned_results[0].name} : {returned_results[0].type}"
         else:
             return_type = "()"
             return_stmt = "return"
