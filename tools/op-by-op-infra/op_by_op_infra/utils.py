@@ -287,19 +287,25 @@ class OpWrapper:
 
         # Build result mapping - track which results have users for selective return
         result_mapping = {}
-        used_result_indices = []  # Track indices of results that have users
+        num_results = len(op.results)
         for i, result in enumerate(op.results):
             original_name = result.get_name()
             standardized_name = f"%res{i}"
             result_mapping[original_name] = standardized_name
-            # Check if this result has any users in the original graph
-            # result.uses is an iterator, so check if it has any elements
-            if any(True for _ in result.uses):
-                used_result_indices.append(i)
 
-        # If no results have users (all dead), return all of them to avoid empty return
-        if not used_result_indices:
-            used_result_indices = list(range(len(op.results)))
+        # For multi-result ops, only return results that have users in the original graph.
+        # This is important for pattern matching (e.g., argmax checks that first result is unused).
+        # For single-result ops, always return the result.
+        if num_results > 1:
+            used_result_indices = [
+                i for i, result in enumerate(op.results)
+                if any(True for _ in result.uses)
+            ]
+            # If no results have users (all dead), return all of them to avoid empty return
+            if not used_result_indices:
+                used_result_indices = list(range(num_results))
+        else:
+            used_result_indices = list(range(num_results))
 
         # For multi-result ops, replace the defining syntax %base:N with %res0, %res1, ...
         # MLIR defines multi-result ops as %name:N = op(...) but they're referenced as %name#0, %name#1
