@@ -1689,21 +1689,44 @@ public:
       auto outputMetalType =
           getMetalTensorFromTTNNTensor(rewriter, op.getOutput());
 
-      // create d2m.empty with etal layout
-      Value metalEmpty = rewriter.create<d2m::EmptyOp>(
-          op.getLoc(), outputMetalType.getShape(),
-          outputMetalType.getElementType(), outputMetalType.getEncoding());
+      if (outputIsTTNN) {
+        // create d2m.empty with ttnn layout
+        Value metalEmpty = rewriter.create<d2m::EmptyOp>(
+            op.getLoc(), outType.getShape(), outType.getElementType(),
+            outType.getEncoding());
 
-      // create d2m.to_layout with metal types
-      auto metalToLayout =
-          rewriter.create<d2m::ToLayoutOp>(op.getLoc(), metalInput, metalEmpty);
+        // create cast ttnn -> metal taking in ttnn empty
+        auto metalCast = rewriter.create<ttir::TTNNMetalLayoutCastOp>(
+            op.getLoc(), outputMetalType, metalEmpty);
 
-      // cast back to ttnn
-      auto ttnnResult = rewriter.create<ttir::TTNNMetalLayoutCastOp>(
-          op.getLoc(), outType, metalToLayout.getResult(0));
+        // create d2m.to_layout with metal types
+        auto metalToLayout = rewriter.create<d2m::ToLayoutOp>(
+            op.getLoc(), metalInput, metalCast);
 
-      rewriter.replaceOp(op, ttnnResult.getResult());
-      return success();
+        // cast back to ttnn
+        auto ttnnResult = rewriter.create<ttir::TTNNMetalLayoutCastOp>(
+            op.getLoc(), outType, metalToLayout.getResult(0));
+
+        rewriter.replaceOp(op, ttnnResult.getResult());
+        return success();
+
+      } else {
+        // create d2m.empty with metal layout
+        Value metalEmpty = rewriter.create<d2m::EmptyOp>(
+            op.getLoc(), outputMetalType.getShape(),
+            outputMetalType.getElementType(), outputMetalType.getEncoding());
+
+        // create d2m.to_layout with metal types
+        auto metalToLayout = rewriter.create<d2m::ToLayoutOp>(
+            op.getLoc(), metalInput, metalEmpty);
+
+        // cast back to ttnn
+        auto ttnnResult = rewriter.create<ttir::TTNNMetalLayoutCastOp>(
+            op.getLoc(), outType, metalToLayout.getResult(0));
+
+        rewriter.replaceOp(op, ttnnResult.getResult());
+        return success();
+      }
     }
 
     Value empty = rewriter.create<d2m::EmptyOp>(op.getLoc(), outType.getShape(),
