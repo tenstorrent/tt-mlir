@@ -42,7 +42,7 @@ def create_reductions_constrained_inputs(input_shape, reduce_type, dim_arg, keep
 @pytest.mark.parametrize("m", [4, 8, 16])
 @pytest.mark.parametrize("n", [2, 4, 8])
 @pytest.mark.parametrize("dim_arg", [[0], [1], [0, 1]])
-@pytest.mark.parametrize("keep_dim", [True])
+@pytest.mark.parametrize("keep_dim", [True, False])
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_sum(
     m: int,
@@ -72,7 +72,7 @@ def test_sum(
 @pytest.mark.parametrize("m", [4, 8])
 @pytest.mark.parametrize("n", [2, 4])
 @pytest.mark.parametrize("dim_arg", [[1], [2], [1, 2]])
-@pytest.mark.parametrize("keep_dim", [True])
+@pytest.mark.parametrize("keep_dim", [True, False])
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_sum_3d(
     b: int,
@@ -84,6 +84,11 @@ def test_sum_3d(
     request,
     device,
 ):
+    if len(dim_arg) >= 2 and not keep_dim:
+        pytest.skip(
+            "keep_dim=False not supported for multi-dim reductions on inner 2 dims because the reshape after the reduction is unsupported due to noc issue: https://github.com/tenstorrent/tt-mlir/issues/6377"
+        )
+
     tile_size = 32
     shape = (
         b,
@@ -105,7 +110,7 @@ def test_sum_3d(
 @pytest.mark.parametrize("m", [4, 8])
 @pytest.mark.parametrize("n", [2, 4])
 @pytest.mark.parametrize("dim_arg", [[2], [3], [2, 3]])
-@pytest.mark.parametrize("keep_dim", [True])
+@pytest.mark.parametrize("keep_dim", [True, False])
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_sum_4d(
     a: int,
@@ -118,6 +123,11 @@ def test_sum_4d(
     request,
     device,
 ):
+    if len(dim_arg) >= 2 and not keep_dim:
+        pytest.skip(
+            "keep_dim=False not supported for multi-dim reductions on inner 2 dims because the reshape after the reduction is unsupported due to noc issue: https://github.com/tenstorrent/tt-mlir/issues/6377"
+        )
+
     tile_size = 32
     shape = (
         a,
@@ -138,7 +148,7 @@ def test_sum_4d(
 @pytest.mark.parametrize("m", [4, 8, 16])
 @pytest.mark.parametrize("n", [2, 4, 8])
 @pytest.mark.parametrize("dim_arg", [[0], [1]])
-@pytest.mark.parametrize("keep_dim", [True])
+@pytest.mark.parametrize("keep_dim", [True, False])
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_max(
     m: int, n: int, dim_arg: int, keep_dim: bool, target: str, request, device
@@ -167,7 +177,7 @@ def test_max(
     [(100, 50), (37, 61), (50, 100), (129, 65)],
 )
 @pytest.mark.parametrize("dim_arg", [[0], [1], [0, 1]])
-@pytest.mark.parametrize("keep_dim", [True])
+@pytest.mark.parametrize("keep_dim", [True, False])
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_sum_unaligned(
     shape: tuple,
@@ -191,7 +201,7 @@ def test_sum_unaligned(
     [(100, 50), (37, 61), (50, 100), (129, 65)],
 )
 @pytest.mark.parametrize("dim_arg", [[0], [1]])
-@pytest.mark.parametrize("keep_dim", [True])
+@pytest.mark.parametrize("keep_dim", [True, False])
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_max_unaligned(
     shape: tuple,
