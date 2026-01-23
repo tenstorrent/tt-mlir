@@ -38,6 +38,18 @@ computeDimConstraints(mlir::ArrayRef<mlir::AffineMap> indexingMaps,
 SmallVector<Value> buildGridIndices(OpBuilder &builder, Location loc,
                                     AffineMap indexingMap);
 
+// Gets the underlying physical grid shape corresponding to the tensor or
+// memref. For views/streams, this 'physical' grid corresponds to the compute
+// grid shape used if the tensor/memref was the output of a GenericOp.
+SmallVector<int64_t> getPhysicalGridShape(Value tensorOrMemref);
+
+// Finds a 2D grid (y, x) such that y * x = gridVolume. The returned grid aims
+// to be as square as possible while respecting the provided target grid shape
+// bounds. If either MxN or NxM grids are feasible where M > N, MxN is chosen.
+SmallVector<int64_t>
+findLegalPhysicalGridForVolume(int64_t gridVolume,
+                               ArrayRef<int64_t> targetGridShape);
+
 } // namespace mlir::tt::d2m::utils
 
 #endif

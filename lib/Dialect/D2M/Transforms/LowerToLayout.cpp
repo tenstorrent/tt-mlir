@@ -394,9 +394,6 @@ public:
     auto inputLayout = *inputInfo.layout;
     auto outputLayout = *outputInfo.layout;
 
-    // Check if output has virtual grid for later use.
-    bool outputHasVirtualGrid = !outputLayout.getIndexAffineMap().isEmpty();
-
     // Classify the type of mapping change to choose the optimal approach.
     // Simple reblocking: only grid shape differs, all other layout properties
     // are identical. For tilized tensors, we can use a direct device-space
@@ -453,41 +450,6 @@ public:
     // actual data movement according to the view's affine map.
     if (!inputInfo.isDRAM() && !outputInfo.isDRAM()) {
       auto gridShape = outputInfo.getGridShape();
-
-      // If the output has a virtual grid (and by our early check, input does
-      // too with the same grid shape), we need to include the virtual→physical
-      // coordinate translation in the grid attribute.
-      ttcore::GridAttr grid;
-      if (outputHasVirtualGrid) {
-        // Check if this is actually a virtual grid (grid shape exceeds physical
-        // bounds)
-        bool isVirtualGrid =
-            (gridShape.size() > 2) || (gridShape[0] > targetGridShape[0] ||
-                                       gridShape[1] > targetGridShape[1]);
-
-        if (isVirtualGrid) {
-          // Create the virtual grid coordinate maps and use the inverse map
-          // for the grid's coordinate translation.
-          auto physicalGridShape =
-              outputInfo.layout->getPhysicalGridShape(outputInfo.type);
-          auto [fwdMap, invMap] = ttmlir::d2m::utils::grids::createCoreVirtMaps(
-              rewriter.getContext(), gridShape, physicalGridShape);
-          grid =
-              ttcore::GridAttr::get(rewriter.getContext(), gridShape, invMap);
-        } else {
-          // If the operand has index_map but doesn't exceed physical grid
-          // (e.g., reblocking, transpose), derive the grid inverse map from
-          // the output's index_map to ensure roundtrip consistency.
-          auto indexMap = outputLayout.getIndexAffineMap();
-          auto invMap = ttmlir::utils::createGridInverseMapFromIndexMap(
-              indexMap, gridShape.size(), rewriter.getContext());
-          grid =
-              ttcore::GridAttr::get(rewriter.getContext(), gridShape, invMap);
-        }
-      } else {
-        grid = ttcore::GridAttr::get(rewriter.getContext(), gridShape);
-      }
-
       const size_t gridRank = gridShape.size();
 
       // Build identity indexing maps for the generic operation. The view's
@@ -516,7 +478,7 @@ public:
                                                       indices, loadedData);
                 builder.create<YieldOp>(innerLoc, storeResult);
               },
-              ThreadType::Unified, grid)
+              ThreadType::Unified)
           .getResult(0);
     }
     // DRAM operations use the view directly without immediate
