@@ -207,4 +207,34 @@ module {
         %17 = "ttir.multiply"(%4, %16) : (tensor<32x1x2048xbf16>, tensor<32x1x2048xbf16>) -> tensor<32x1x2048xbf16>
         return %17 : tensor<32x1x2048xbf16>
     }
+
+
+    // RMS norm from qwen model: input 32x4096 is reshaped to 32x1x32x128.
+    // The reshape changes the last dimension (4096 -> 128), so we should NOT look through it
+    // during fusion. The RMS norm should still fuse, but the fusion should NOT propagate
+    // the input shape through the dimension-changing reshape.
+    // CHECK-LABEL: func.func @rms_norm_fusion_qwen_style
+    func.func @rms_norm_fusion_qwen_style(%arg0: tensor<32x4096xbf16>, %arg1: tensor<128xbf16>) -> tensor<32x1x32x128xbf16> {
+        // CHECK: "ttir.reshape"(%arg0)
+        // CHECK-SAME: (tensor<32x4096xbf16>) -> tensor<32x1x32x128xbf16>
+        // CHECK: "ttir.rms_norm"
+        // CHECK-SAME: (tensor<32x1x32x128xbf16>, tensor<128xbf16>) -> tensor<32x1x32x128xbf16>
+        %0 = "ttir.constant"() <{value = dense<9.99999997E-7> : tensor<32x1x32x1xf32>}> : () -> tensor<32x1x32x1xf32>
+        %1 = "ttir.constant"() <{value = dense<2.000000e+00> : tensor<32x1x32x128xf32>}> : () -> tensor<32x1x32x128xf32>
+        %2 = "ttir.reshape"(%arg1) <{shape = [1 : i32, 1 : i32, 1 : i32, 128 : i32]}> : (tensor<128xbf16>) -> tensor<1x1x1x128xbf16>
+        %3 = "ttir.broadcast"(%2) <{broadcast_dimensions = array<i64: 32, 1, 32, 1>}> : (tensor<1x1x1x128xbf16>) -> tensor<32x1x32x128xbf16>
+        // This reshape changes the last dim from 4096 to 128 - fusion should NOT look through it
+        %4 = "ttir.reshape"(%arg0) <{shape = [32 : i32, 1 : i32, 32 : i32, 128 : i32]}> : (tensor<32x4096xbf16>) -> tensor<32x1x32x128xbf16>
+        %5 = "ttir.typecast"(%4) <{conservative_folding = false}> : (tensor<32x1x32x128xbf16>) -> tensor<32x1x32x128xf32>
+        %6 = "ttir.pow"(%5, %1) : (tensor<32x1x32x128xf32>, tensor<32x1x32x128xf32>) -> tensor<32x1x32x128xf32>
+        %7 = "ttir.mean"(%6) <{dim_arg = [3 : i32], keep_dim = true}> : (tensor<32x1x32x128xf32>) -> tensor<32x1x32x1xf32>
+        %8 = "ttir.add"(%7, %0) : (tensor<32x1x32x1xf32>, tensor<32x1x32x1xf32>) -> tensor<32x1x32x1xf32>
+        %9 = "ttir.rsqrt"(%8) : (tensor<32x1x32x1xf32>) -> tensor<32x1x32x1xf32>
+        %10 = "ttir.broadcast"(%9) <{broadcast_dimensions = array<i64: 1, 1, 1, 128>}> : (tensor<32x1x32x1xf32>) -> tensor<32x1x32x128xf32>
+        %11 = "ttir.multiply"(%5, %10) : (tensor<32x1x32x128xf32>, tensor<32x1x32x128xf32>) -> tensor<32x1x32x128xf32>
+        %12 = "ttir.typecast"(%11) <{conservative_folding = false}> : (tensor<32x1x32x128xf32>) -> tensor<32x1x32x128xbf16>
+        %13 = "ttir.multiply"(%3, %12) : (tensor<32x1x32x128xbf16>, tensor<32x1x32x128xbf16>) -> tensor<32x1x32x128xbf16>
+        return %13 : tensor<32x1x32x128xbf16>
+    }
+
 }
