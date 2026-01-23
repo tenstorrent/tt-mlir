@@ -96,33 +96,6 @@ def test_composite_ops_l1(device, shape, max_grid, shard_strategy, dtype, op):
     ids=["64x64", "128x128"],
 )
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.skip(
-    reason="Digamma op is not currently supported in tracing: Issue #6518"
-)
-def test_digamma_dram(device, shape, dtype):
-    """Test digamma function (derivative of log gamma)"""
-
-    def digamma_func(input_tensor):
-        return ttnn.digamma(input_tensor)
-
-    max_grid = (0, 0)
-    run_op_test(
-        device,
-        shape,
-        max_grid,
-        dtype,
-        digamma_func,
-        num_inputs=1,
-        buffer_type=ttnn.BufferType.DRAM,
-    )
-
-
-@pytest.mark.parametrize(
-    "shape",
-    [(64, 64), (128, 128)],
-    ids=["64x64", "128x128"],
-)
-@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 def test_complex_composite_dram(device, shape, dtype):
     """Test complex composite operation with multiple steps"""
 
