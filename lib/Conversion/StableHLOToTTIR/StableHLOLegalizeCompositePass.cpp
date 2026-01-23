@@ -5,6 +5,7 @@
 #include "ttmlir/Conversion/StableHLOToTTIR/StableHLOLegalizeComposite.h"
 
 #include "ttmlir/Conversion/StableHLOToTTIR/StableHLOToTTIR.h"
+#include "ttmlir/Dialect/StableHLO/Utils/ShardingUtils.h"
 #include "ttmlir/Dialect/StableHLO/Utils/ShardyUtils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
@@ -345,9 +346,11 @@ public:
     auto shardDimsAttr =
         rewriter.getDenseI64ArrayAttr(shardyMeshSharding->getShardDims());
 
-    rewriter.replaceOpWithNewOp<ttir::MeshShardOp>(
+    auto meshShardOp = rewriter.replaceOpWithNewOp<ttir::MeshShardOp>(
         srcOp, outputType, adaptor.getOperands().front(), shardTypeAttr,
         shardDirectionAttr, shardShapeAttr, shardDimsAttr);
+    meshShardOp->setAttr(sharding_utils::kFromAllSliceCompositeAttr,
+                         rewriter.getUnitAttr());
     return success();
   }
 };
