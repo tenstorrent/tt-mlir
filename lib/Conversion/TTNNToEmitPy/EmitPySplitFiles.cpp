@@ -69,6 +69,7 @@ public:
       if (auto funcOp = dyn_cast<func::FuncOp>(uncategorizedOp)) {
         std::string funcName = funcOp.getName().str();
         llvm::SmallVector<Operation *> constevalOps;
+        llvm::SmallVector<func::CallOp> hoistedCallOps;
         mlir::Value globalDict = nullptr;
         mlir::Value outerDictKey = nullptr;
 
@@ -95,7 +96,25 @@ public:
           if (op->hasAttr("emitpy.consteval")) {
             constevalOps.push_back(op);
           }
+          if (auto callOp = dyn_cast<func::CallOp>(op)) {
+            if (callOp.getCallee().contains("hoisted_")) {
+              hoistedCallOps.push_back(callOp);
+            }
+          }
         });
+
+        // Replace func::CallOp with emitpy::CallOpaqueOp for hoisted functions
+        // to avoid symbol resolution errors.
+        for (auto callHoistedOp : llvm::make_early_inc_range(hoistedCallOps)) {
+          builder.setInsertionPoint(callHoistedOp);
+          auto callOpaqueHoistedOp = builder.create<emitpy::CallOpaqueOp>(
+              callHoistedOp.getLoc(), callHoistedOp.getResultTypes(),
+              callHoistedOp.getCallee().str(), callHoistedOp.getOperands());
+          callOpaqueHoistedOp->setDiscardableAttrs(
+              callHoistedOp->getDiscardableAttrDictionary());
+          callHoistedOp.replaceAllUsesWith(callOpaqueHoistedOp);
+          callHoistedOp->erase();
+        }
 
         // If there are no globalDict or outerDictKey, there are no
         // consteval operations to process for this function.
@@ -210,6 +229,7 @@ public:
             auto newSubscriptOp = builder.create<emitpy::SubscriptOp>(
                 subscriptOp.getLoc(), subscriptOp.getType(),
                 innerDictValue.getResult(), subscriptOp.getIndex());
+            newSubscriptOp->setAttrs(subscriptOp->getAttrs());
             subscriptOp.getResult().replaceAllUsesWith(
                 newSubscriptOp.getResult());
             subscriptOp->erase();
