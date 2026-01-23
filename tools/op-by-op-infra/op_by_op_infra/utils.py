@@ -290,6 +290,19 @@ class OpWrapper:
             standardized_name = f"%res{i}"
             result_mapping[original_name] = standardized_name
 
+        # For multi-result ops, replace the defining syntax %base:N with %res0, %res1, ...
+        # MLIR defines multi-result ops as %name:N = op(...) but they're referenced as %name#0, %name#1
+        # The replacement below handles usage sites, but we also need to handle the definition site
+        if len(op.results) > 1:
+            first_result_name = op.results[0].get_name()
+            if "#" in first_result_name:
+                base_name = first_result_name.split("#")[0]
+                old_def_pattern = f"{base_name}:{len(op.results)}"
+                new_def_pattern = ", ".join(
+                    f"%res{i}" for i in range(len(op.results))
+                )
+                self.op_string = self.op_string.replace(old_def_pattern, new_def_pattern)
+
         # Replace all identifiers in main op string
         for original, standardized in {**result_mapping, **operand_mapping}.items():
             self.op_string = _replace_mlir_identifier(
