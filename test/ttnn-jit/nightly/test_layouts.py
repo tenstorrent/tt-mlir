@@ -144,6 +144,12 @@ HEIGHT_SHARDED_SHAPE_GRIDS.extend(
 )
 
 
+SKIPPED_HEIGHT_SHARDED_CASES = [
+    ((8, 6144, 96), (7, 7)),
+    ((2, 4, 6144, 96), (7, 7)),
+]
+
+
 @pytest.mark.parametrize(
     "shape, max_grid",
     HEIGHT_SHARDED_SHAPE_GRIDS,
