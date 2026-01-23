@@ -9,6 +9,7 @@ add_mlir_dialect_library(MLIRTTIRTransforms
         MoveReshapeToConstant.cpp
         Quantization.cpp
         QuantDequantConversion.cpp
+        ReductionKeepDim.cpp
         Transforms.cpp
         TTIRFusing.cpp
         MultiDeviceTensorAnnotation.cpp
