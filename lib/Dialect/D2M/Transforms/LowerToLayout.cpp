@@ -705,7 +705,6 @@ public:
     int64_t logicalCols = logicalShape[logicalShape.size() - 1];
 
     // Check if partial masking is needed (non-tile-aligned shape).
-
     auto inputType = mlir::cast<RankedTensorType>(input.getType());
     auto inputLayout =
         mlir::cast<ttcore::MetalLayoutAttr>(inputType.getEncoding());

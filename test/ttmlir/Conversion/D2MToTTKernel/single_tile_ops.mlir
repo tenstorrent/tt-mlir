@@ -1,5 +1,5 @@
 // RUN: ttmlir-opt --ttcore-register-device --ttir-to-ttmetal-me-pipeline --convert-d2m-to-ttkernel --canonicalize -o %t.mlir %s
-// RUN: FileCheck %s -v --input-file=%t.mlir -dump-input=always
+// RUN: FileCheck %s --input-file=%t.mlir
 
 #l1_ = #ttcore.memory_space<l1>
 #map_ = affine_map<(d0, d1) -> (d0, d1)>
