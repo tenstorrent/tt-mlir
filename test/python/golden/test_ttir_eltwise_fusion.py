@@ -29,8 +29,6 @@ pytestmark = pytest.mark.frontend("ttir")
 # Main Parameter Sets to Reduce Verbiage
 ### ----------------------------------------------------------------------- ###
 
-enablePrintIR = True
-
 gridParams = [
     "override-device-shape=1,1",
     "override-device-shape=2,2",
@@ -205,7 +203,6 @@ def test_eltwise_fuse_cosh(
         target=target,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
         **get_request_kwargs(request),
-        print_ir=enablePrintIR,
         device=device,
     )
 
@@ -270,7 +267,6 @@ def test_eltwise_sanity_check_unary_op(
         target=target,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
         **get_request_kwargs(request),
-        print_ir=enablePrintIR,
         device=device,
     )
 
@@ -326,7 +322,6 @@ def test_eltwise_fuse_unary_chain(
         target=target,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
         **get_request_kwargs(request),
-        print_ir=enablePrintIR,
         device=device,
     )
 
@@ -367,7 +362,6 @@ def test_eltwise_fuse_converging_unary_branches(
         target=target,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
         **get_request_kwargs(request),
-        print_ir=enablePrintIR,
         device=device,
     )
 
@@ -445,7 +439,6 @@ def test_eltwise_fuse_binary_reduction_tree(
         target=target,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
         **get_request_kwargs(request),
-        print_ir=enablePrintIR,
         device=device,
     )
 
@@ -489,7 +482,6 @@ def test_eltwise_fuse_where_simple(
         target=target,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
         **get_request_kwargs(request),
-        print_ir=enablePrintIR,
         device=device,
     )
 
@@ -542,7 +534,6 @@ def test_eltwise_fuse_where_with_unary_chains(
         target=target,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
         **get_request_kwargs(request),
-        print_ir=enablePrintIR,
         device=device,
     )
 
@@ -589,7 +580,6 @@ def test_eltwise_fuse_where_with_binary_inputs(
         target=target,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
         **get_request_kwargs(request),
-        print_ir=enablePrintIR,
         device=device,
     )
 
@@ -629,6 +619,5 @@ def test_diamond_unary_op_fanout(
         target=target,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
         **get_request_kwargs(request),
-        print_ir=enablePrintIR,
         device=device,
     )

@@ -47,7 +47,6 @@ def test_allocate_matmul(m: int, k: int, n: int, target: str, request, device):
         device=device,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
         **get_request_kwargs(request),
-        print_ir=True,
     )
 
 
@@ -78,5 +77,4 @@ def test_allocate_max(
         device=device,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
         **get_request_kwargs(request),
-        print_ir=True,
     )

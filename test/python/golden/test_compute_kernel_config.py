@@ -97,7 +97,6 @@ def test_conv2d_compute_config(
         device=device,
         pipeline_options=pipeline_options,
         target="ttnn",
-        print_ir=True,  # Print IR after each pass to see TTNN IR with compute config
     )
 
 
@@ -142,7 +141,6 @@ def test_sum_compute_config(request, device, math_fidelity, fp32_dest_acc_en):
         device=device,
         pipeline_options=pipeline_options,
         target="ttnn",
-        print_ir=True,
     )
 
 
@@ -187,7 +185,6 @@ def test_softmax_compute_config(request, device, math_fidelity, fp32_dest_acc_en
         device=device,
         pipeline_options=pipeline_options,
         target="ttnn",
-        print_ir=True,
     )
 
 
@@ -233,7 +230,6 @@ def test_matmul_compute_config(request, device, math_fidelity, fp32_dest_acc_en)
         device=device,
         pipeline_options=pipeline_options,
         target="ttnn",
-        print_ir=True,
     )
 
 
@@ -278,5 +274,4 @@ def test_rmsnorm_compute_config(request, device, math_fidelity, fp32_dest_acc_en
         device=device,
         pipeline_options=pipeline_options,
         target="ttnn",
-        print_ir=True,
     )

@@ -64,7 +64,6 @@ def test_sum(
         create_reductions_constrained_inputs(shape, "sum", dim_arg, keep_dim),
         target=target,
         **get_request_kwargs(request),
-        print_ir=True,
         device=device,
         atol=shape[0] * shape[1] * 0.0005,  # 5e-4
     )
@@ -89,6 +88,5 @@ def test_max(
         create_reductions_constrained_inputs(shape, "max", dim_arg, keep_dim),
         target=target,
         **get_request_kwargs(request),
-        print_ir=True,
         device=device,
     )

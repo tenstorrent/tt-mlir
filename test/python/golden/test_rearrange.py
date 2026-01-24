@@ -81,5 +81,4 @@ def test_rearrange(
         device=device,
         custom_pipeline=f"ttir-to-ttmetal-pipeline",
         **get_request_kwargs(request),
-        print_ir=True,
     )

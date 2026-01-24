@@ -301,8 +301,6 @@ def test_digamma(
         target=target,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
         **get_request_kwargs(request),
-        print_ir=True,
-        save_artifacts=True,
         device=device,
         atol=3e-02,
         rtol=3e-02,
@@ -348,8 +346,6 @@ def test_lgamma(
         target=target,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
         **get_request_kwargs(request),
-        print_ir=True,
-        save_artifacts=True,
         device=device,
     )
 
@@ -395,7 +391,6 @@ def test_multigammaln(
         target=target,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
         **get_request_kwargs(request),
-        save_artifacts=True,
         device=device,
     )
 
@@ -443,8 +438,6 @@ def test_polygamma(
         target=target,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
         **get_request_kwargs(request),
-        save_artifacts=True,
-        print_ir=True,
         device=device,
     )
 
@@ -478,8 +471,6 @@ def test_glu_split(
         target=target,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
         **get_request_kwargs(request),
-        print_ir=True,
-        save_artifacts=True,
         device=device,
     )
 
@@ -512,8 +503,6 @@ def test_reglu_split(
         target=target,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
         **get_request_kwargs(request),
-        print_ir=True,
-        save_artifacts=True,
         device=device,
     )
 
@@ -546,8 +535,6 @@ def test_geglu_split(
         target=target,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
         **get_request_kwargs(request),
-        print_ir=True,
-        save_artifacts=True,
         device=device,
     )
 
@@ -580,7 +567,5 @@ def test_swiglu_split(
         target=target,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
         **get_request_kwargs(request),
-        print_ir=True,
-        save_artifacts=True,
         device=device,
     )

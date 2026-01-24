@@ -60,7 +60,6 @@ def test_triple_exp_f32(shape: Shape, target: str, request, device):
         pipeline_options=pipeline_options,
         **get_request_kwargs(request),
         save_artifacts=True,
-        print_ir=True,
         pcc=0.988,  # Adjusted for bfp8
     )
 
@@ -89,7 +88,6 @@ def test_exp_f32(shape: Shape, target: str, request, device):
         pipeline_options=pipeline_options,
         **get_request_kwargs(request),
         save_artifacts=True,
-        print_ir=True,
     )
 
 
@@ -117,7 +115,6 @@ def test_cos_bf16(shape: Shape, target: str, request, device):
         pipeline_options=pipeline_options,
         **get_request_kwargs(request),
         save_artifacts=True,
-        print_ir=True,
     )
 
 
@@ -161,7 +158,6 @@ def test_matmul_f32(
         device=device,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
         **get_request_kwargs(request),
-        print_ir=True,
         save_artifacts=True,
         pcc=0.94,  # Adjusted for bfp8
     )
