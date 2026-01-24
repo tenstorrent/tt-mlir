@@ -1721,3 +1721,21 @@ def test_convolution_groups_dilation(
         system_desc_path=request.config.getoption("--sys-desc"),
         device=device,
     )
+
+
+def module_rng(builder: StableHLOBuilder):
+    @builder.func([], [])
+    def rng(builder: StableHLOBuilder, unit_attrs: Optional[List[str]] = None):
+        return builder.rng([32, 32], torch.bfloat16, low=0.0, high=1.0)
+
+
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_rng(target: str, request, device):
+    compile_and_execute_shlo(
+        module_rng,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        device=device,
+    )
