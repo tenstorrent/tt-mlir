@@ -1740,6 +1740,7 @@ def test_convolution_groups_dilation(
         device=device,
     )
 
+
 @pytest.mark.parametrize("shape", [(128,)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn"])
@@ -1752,23 +1753,29 @@ def test_broadcast_ops(
     broadcast_dimensions: List[int],
     output_shape: List[int],
     request,
+    device,
 ):
     # Create a wrapper function that captures broadcast_dimensions and output_shape
-    def broadcast_wrapper(
-        in0: Operand,
-        builder: StableHLOBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        return broadcast_in_dim(
-            in0, builder, broadcast_dimensions, output_shape, unit_attrs
-        )
+    def broadcast_wrapper(builder: StableHLOBuilder):
+        @builder.func([shape], [dtype])
+        def broadcast(
+            in0: Operand,
+            builder: StableHLOBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            builder.set_graph_level_check(True)
+            return builder.broadcast_in_dim(
+                in0,
+                broadcast_dimensions=broadcast_dimensions,
+                output_shape=output_shape,
+                unit_attrs=unit_attrs,
+            )
 
     compile_and_execute_shlo(
         broadcast_wrapper,
-        [shape],
-        [dtype],
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
+        device=device,
     )

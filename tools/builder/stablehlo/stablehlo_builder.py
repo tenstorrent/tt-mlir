@@ -1820,13 +1820,16 @@ class StableHLOBuilder(Builder):
         (*OpView*)
             The broadcasted tensor
         """
+        output_type = self._get_type(in0).element_type
         return self._op_proxy(
             stablehlo.BroadcastInDimOp,
             [in0],
             organize_golden_args=self._organize_eltwise_golden,
+            organize_stablehlo_args=lambda inputs, output, _: (output, inputs[0]),
+            output_shape=output_shape,
+            output_type=output_type,
             golden_kwargs={"size": output_shape},
             stablehlo_kwargs={
-                "operand": in0,
                 "broadcast_dimensions": broadcast_dimensions,
             },
             unit_attrs=unit_attrs,
