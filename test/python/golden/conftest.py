@@ -243,6 +243,8 @@ def get_request_kwargs(request):
         kwargs["skip_exec"] = True
     if request.config.getoption("--disable-pcc"):
         kwargs["check_pcc"] = False
+    if request.config.getoption("--dump-memory"):
+        kwargs["dump_memory"] = True
     return kwargs
 
 
@@ -334,6 +336,11 @@ def pytest_addoption(parser):
         "--disable-pcc",
         action="store_true",
         help="Disable PCC check.",
+    )
+    parser.addoption(
+        "--dump-memory",
+        action="store_true",
+        help="Dump device memory to disk after execution.",
     )
 
 
