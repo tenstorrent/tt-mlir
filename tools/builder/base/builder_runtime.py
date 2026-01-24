@@ -427,19 +427,13 @@ class CallbackRuntimeConfig:
         self.artifact_dir = artifact_dir
         self.verify_intermediates = verify_intermediates
         self.save_memory = save_memory
-        self.memory_report = {}
         self.golden_report = {}
-        self.counter = -1
+        self.memory_report = []
 
     def start_new_program(self, artifact_dir):
         self.artifact_dir = artifact_dir
         self.golden_report = {}
-        self.memory_report = {}
-        self.counter = -1
-
-    def callback_counter(self):
-        self.counter = self.counter + 1
-        return self.counter
+        self.memory_report = []
 
 
 def golden(callback_runtime_config, binary, program_context, op_context):
@@ -571,9 +565,7 @@ def memory(callback_runtime_config, binary, program_context, op_context):
     op_memory_report["l1_small"] = create_memory_dictionary(l1_small_memory_view)
     op_memory_report["trace"] = create_memory_dictionary(trace_memory_view)
 
-    callback_runtime_config.memory_report[
-        callback_runtime_config.callback_counter()
-    ] = op_memory_report
+    callback_runtime_config.memory_report.append(op_memory_report)
 
 
 def pre_op_callback(callback_runtime_config, binary, program_context, op_context):
@@ -624,8 +616,8 @@ def convert_golden_input_output_to_torch(
 
 def execute_fb(
     compiled_bin,
-    input_output_goldens: Dict[int, Dict[str, Dict[int, GoldenMapTensor]]] = {},
-    intermediate_goldens: Dict[str, Dict[int, GoldenMapTensor]] = {},
+    input_output_goldens: Dict[int, Dict[str, Dict[int, GoldenMapTensor]]] = None,
+    intermediate_goldens: Dict[str, Dict[int, GoldenMapTensor]] = None,
     pcc: float = 0.99,
     atol: float = 1e-08,
     rtol: float = 1e-05,
@@ -693,10 +685,10 @@ def execute_fb(
     )
     output_tensors = {}
     golden_report = {}
+    verify_intermediates = enable_intermediate_verification or len(bypass_ops) > 0
     if bypass_ops is None:
         bypass_ops = []
-    verify_intermediates = enable_intermediate_verification or len(bypass_ops) > 0
-    if len(golden_input_output_tensors) == 0:
+    if input_output_goldens is None:
         disable_golden = True
 
     callback_runtime_config = CallbackRuntimeConfig(
@@ -883,7 +875,7 @@ def execute_fb(
 
 def execute_py(
     compiled_bin,
-    input_output_goldens: Dict[int, Dict[str, Dict[int, GoldenMapTensor]]],
+    input_output_goldens: Dict[int, Dict[str, Dict[int, GoldenMapTensor]]] = None,
     pcc: float = 0.99,
     atol: float = 1e-08,
     rtol: float = 1e-05,
@@ -944,6 +936,8 @@ def execute_py(
 
     import ttnn
 
+    if input_output_goldens is None:
+        disable_golden = True
     golden_input_output_tensors = convert_golden_input_output_to_torch(
         input_output_goldens
     )
@@ -1056,7 +1050,7 @@ def execute_py(
 
 def execute_cpp(
     cpp_path: str,
-    input_output_goldens: Dict[int, Dict[str, Dict[int, GoldenMapTensor]]],
+    input_output_goldens: Dict[int, Dict[str, Dict[int, GoldenMapTensor]]] = None,
     pcc: float = 0.99,
     atol: float = 1e-08,
     rtol: float = 1e-05,
@@ -1136,6 +1130,8 @@ def execute_cpp(
     )
     so_path = cpp_path.replace(".cpp", ".so")
 
+    if input_output_goldens is None:
+        disable_golden = True
     golden_input_output_tensors = convert_golden_input_output_to_torch(
         input_output_goldens
     )
