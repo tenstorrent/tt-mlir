@@ -148,6 +148,9 @@ if enable_runtime:
         f"{ttmlir_build_dir}/python_packages/ttrt/runtime/tt_metal",
         dirs_exist_ok=True,
         ignore=tt_metal_ignore_folders,
+        ignore_dangling_symlinks=True,
+        # Broken symlinks introduced in tt-umd -> tt-metal uplift
+        # issue: https://github.com/tenstorrent/tt-umd/issues/1864
     )
 
     # copy runtime dir folder

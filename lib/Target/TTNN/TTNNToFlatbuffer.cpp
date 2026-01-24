@@ -20,6 +20,8 @@
 #include "ttmlir/Dialect/TTNN/Transforms/TTNNToCpp.h"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
+#include "ttmlir/FunctionTypes.h"
+#include "ttmlir/Support/IRHasher.h"
 #include "ttmlir/Target/Common/Target.h"
 #include "ttmlir/Target/Common/types_generated.h"
 #include "ttmlir/Target/LLVM/LLVMToDynamicLib.h"
@@ -33,6 +35,7 @@
 #include "ttmlir/Target/Utils/FuncOpToProgram.h"
 #include "ttmlir/Target/Utils/MLIRToFlatbuffer.h"
 #include "ttmlir/Target/Utils/Utils.h"
+#include "ttmlir/Utils.h"
 #include "ttmlir/Version.h"
 
 #include "mlir/Dialect/EmitC/IR/EmitC.h"
@@ -45,7 +48,6 @@
 #include "llvm/ADT/StringMap.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
-#include "llvm/Support/SHA256.h"
 #include "llvm/Support/raw_ostream.h"
 
 namespace mlir::tt::ttnn {
@@ -1186,6 +1188,36 @@ createOp(FlatbufferObjectCache &cache, RMSNormOp op) {
       memoryConfig, output, computeConfig.value_or(0));
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::LayerNormOp>
+createOp(FlatbufferObjectCache &cache, LayerNormOp op) {
+  flatbuffers::Offset<::tt::target::ttnn::TensorRef> input =
+      cache.at<::tt::target::ttnn::TensorRef>(
+          getOperandThroughDPSOps(op.getInput()));
+
+  // Handle optional weight and bias operands
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> weight = 0;
+  if (op.getWeight()) {
+    weight = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getWeight()));
+  }
+
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> bias = 0;
+  if (op.getBias()) {
+    bias = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getBias()));
+  }
+
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> output =
+      cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer);
+
+  ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig> memoryConfig =
+      getMemoryConfigIfNeeded(cache, op);
+
+  return ::tt::target::ttnn::CreateLayerNormOp(*cache.fbb, input, weight, bias,
+                                               op.getEpsilon().convertToFloat(),
+                                               memoryConfig, output);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::UpsampleOp>
 createOp(FlatbufferObjectCache &cache, UpsampleOp op) {
   flatbuffers::Offset<::tt::target::ttnn::TensorRef> input =
@@ -2267,45 +2299,15 @@ createDeallocateOp(FlatbufferObjectCache &cache, DeallocateOp op) {
 //
 // NOTE: the goal for this hashing is not to identify functions which are
 // mathematically equivalent, but the completely identical ones.
-llvm::StringMap<std::string>
+llvm::StringMap<llvm::SmallString<64>>
 computeConstEvalFuncHashesSHA256(mlir::ModuleOp moduleOp) {
-  llvm::StringMap<std::string> constEvalHashes;
+  llvm::StringMap<llvm::SmallString<64>> constEvalHashes;
 
   moduleOp->walk([&](func::FuncOp func) {
     if (!ttmlir::utils::isConstEvalFunc(func)) {
       return;
     }
-
-    auto originalSymName = func.getSymName();
-
-    // Since the function (symbol) name is a part of the dumped form and does
-    // not impact the semantics of the function, we temporarily set it to a
-    // fixed value to avoid producing different hashes for functions that are
-    // semantically equivalent.
-    func.setSymName("anonymous_const_eval");
-
-    // Use local scope to dump the function with local SSA IDs (%0, %1, ...) and
-    // without any global aliases.
-    // Use printGenericOpForm to skip using custom printers and get an
-    // explicit form of all op attributes and types.
-    auto flags = mlir::OpPrintingFlags().useLocalScope().printGenericOpForm();
-    std::string s;
-    llvm::raw_string_ostream os(s);
-
-    func.print(os, flags);
-    os.flush();
-
-    // Restore the original symbol name.
-    func.setSymName(originalSymName);
-
-    auto digest = llvm::SHA256::hash(llvm::ArrayRef<uint8_t>(
-        reinterpret_cast<const uint8_t *>(s.data()), s.size()));
-
-    constexpr bool lowercase = true;
-    std::string hash = llvm::toHex(
-        llvm::ArrayRef<uint8_t>(digest.data(), digest.size()), lowercase);
-
-    constEvalHashes[originalSymName.str()] = hash;
+    constEvalHashes[func.getSymName()] = hashFuncOp(func);
   });
 
   return constEvalHashes;
@@ -2314,7 +2316,7 @@ computeConstEvalFuncHashesSHA256(mlir::ModuleOp moduleOp) {
 ::flatbuffers::Offset<::tt::target::ttnn::LoadCachedOp>
 createOp(FlatbufferObjectCache &cache, ttcore::LoadCachedOp op,
          const llvm::StringMap<uint32_t> &programIndexMap,
-         const llvm::StringMap<std::string> &constEvalFuncHashes) {
+         const llvm::StringMap<llvm::SmallString<64>> &constEvalFuncHashes) {
   std::vector<::flatbuffers::Offset<::tt::target::ttnn::TensorRef>> ins;
   for (auto input : op.getInputs()) {
     ins.push_back(cache.at<::tt::target::ttnn::TensorRef>(
@@ -2335,12 +2337,12 @@ createOp(FlatbufferObjectCache &cache, ttcore::LoadCachedOp op,
   auto itHash = constEvalFuncHashes.find(op.getCallee().str());
   assert(itHash != constEvalFuncHashes.end() &&
          "Const-eval function hash not found in const-eval function hash map!");
-  const std::string &funcHash = itHash->second;
+  const auto &funcHash = itHash->second;
 
   // Create the LoadCachedOp with indices instead of inputs
   return ::tt::target::ttnn::CreateLoadCachedOpDirect(
       *cache.fbb, &ins, op.getCallee().str().c_str(), programIdx, &outputs,
-      funcHash.c_str());
+      funcHash.str().begin());
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::AssignOp>
@@ -2843,9 +2845,10 @@ createOp(FlatbufferObjectCache &cache, SplitQueryKeyValueAndSplitHeadsOp op) {
       toFlatbuffer(cache, op.getNumKvHeads());
   bool transposeKey = op.getTransposeKey();
 
-  auto memoryConfig = op.getMemoryConfig()
-                          ? toFlatbuffer(cache, op.getMemoryConfig().value())
-                          : 0;
+  auto memoryConfig =
+      op.getMemoryConfig()
+          ? toFlatbuffer(cache, *op.getMemoryConfig())
+          : getMemoryConfigFromTensorTypeIfNeeded(cache, op.getQuery());
 
   return ::tt::target::ttnn::CreateSplitQueryKeyValueAndSplitHeadsOp(
       *cache.fbb, inputTensor, inputKVTensor, outQuery, outKey, outValue,
@@ -2980,11 +2983,11 @@ createOp(FlatbufferObjectCache &cache, debug::MemorySnapshotOp op) {
                                                     filePath);
 }
 
-::flatbuffers::Offset<::tt::target::ttnn::Operation>
-emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
-                  const llvm::StringMap<uint32_t> &programIndexMap,
-                  const std::string &debugString, const std::string &locInfo,
-                  const llvm::StringMap<std::string> &constEvalFuncHashes) {
+::flatbuffers::Offset<::tt::target::ttnn::Operation> emitTTNNOperation(
+    FlatbufferObjectCache &cache, Operation *op,
+    const llvm::StringMap<uint32_t> &programIndexMap,
+    const std::string &debugString, const std::string &locInfo,
+    const llvm::StringMap<llvm::SmallString<64>> &constEvalFuncHashes) {
   if (auto getDeviceOp = dyn_cast<GetDeviceOp>(op); getDeviceOp) {
     return createOperation(cache, createOp(cache, getDeviceOp), debugString,
                            locInfo);
@@ -3512,6 +3515,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createOp(cache, rmsNormOp), debugString,
                            locInfo);
   }
+  if (auto layerNormOp = dyn_cast<LayerNormOp>(op); layerNormOp) {
+    return createOperation(cache, createOp(cache, layerNormOp), debugString,
+                           locInfo);
+  }
   if (auto constantOp = dyn_cast<ConstantOp>(op); constantOp) {
     return createOperation(cache, createOp(cache, constantOp), debugString,
                            locInfo);
@@ -3724,71 +3731,53 @@ std::shared_ptr<void> ttnnToFlatbuffer(
   size_t programIdx = 0;
   llvm::StringMap<uint32_t> programIdxMap;
 
-  auto populateProgramIdxMap =
-      [&](std::function<bool(func::FuncOp)> shouldSkip) -> void {
-    moduleOp->walk([&](func::FuncOp func) {
-      if (shouldSkip(func)) {
-        return;
-      }
-      programIdxMap[func.getSymName().str()] = programIdx++;
-    });
-  };
+  // Gather functions to generate programs for.
+  auto programFuncs = std::vector<func::FuncOp>();
 
-  // Preserve original ordering by skipping const-eval and tracein the first
-  // pass.
-  populateProgramIdxMap([](func::FuncOp func) {
-    return ttmlir::utils::isConstEvalFunc(func) ||
-           ttnn::utils::isTTNNTraceFunc(func) ||
-           func->hasAttr(ttkernel::ThreadTypeAttr::name);
+  moduleOp->walk([&](func::FuncOp func) {
+    if (ttmlir::utils::isForwardDeviceFunc(func) ||
+        ttmlir::utils::isConstEvalFunc(func) ||
+        ttmlir::utils::isTraceFunc(func)) {
+      programFuncs.push_back(func);
+    }
   });
-  // Add const-eval funcs after normal funcs.
-  populateProgramIdxMap(
-      [](func::FuncOp func) { return !ttmlir::utils::isConstEvalFunc(func); });
-  // Finally add trace funcs.
-  populateProgramIdxMap(
-      [](func::FuncOp func) { return !ttnn::utils::isTTNNTraceFunc(func); });
+
+  // Sort funcs to preserve original ordering by placing forward funcs first.
+  //
+  // std::stable_sort internally uses std::get_temporary_buffer which is
+  // deprecated in C++17. The deprecation is in the standard library
+  // implementation, not our usage.
+  // NOLINTNEXTLINE
+  std::stable_sort(programFuncs.begin(), programFuncs.end(),
+                   [](func::FuncOp a, func::FuncOp b) {
+                     return ttmlir::utils::isForwardDeviceFunc(a) >
+                            ttmlir::utils::isForwardDeviceFunc(b);
+                   });
+
+  // Populate program index map.
+  for (auto func : programFuncs) {
+    programIdxMap[func.getSymName().str()] = programIdx++;
+  }
 
   std::vector<::flatbuffers::Offset<::tt::target::ttnn::Program>> programs;
 
   auto constEvalFuncHashes = computeConstEvalFuncHashesSHA256(moduleOp);
 
-  auto generatePrograms = [&](std::function<bool(func::FuncOp)> shouldSkip,
-                              bool isPrivate) -> void {
-    moduleOp->walk([&](func::FuncOp func) {
-      if (shouldSkip(func)) {
-        return;
-      }
-      Program<::tt::target::ttnn::Operation> program =
-          funcOpToProgram<::tt::target::ttnn::Operation>(
-              cache, func, emitTTNNOperation, tensorValueToFlatbuffer,
-              programIdxMap, constEvalFuncHashes);
+  // Generate programs for each function.
+  for (auto func : programFuncs) {
+    Program<::tt::target::ttnn::Operation> program =
+        funcOpToProgram<::tt::target::ttnn::Operation>(
+            cache, func, emitTTNNOperation, tensorValueToFlatbuffer,
+            programIdxMap, constEvalFuncHashes);
 
-      ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(func);
+    ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(func);
 
-      ::tt::target::Dim2d meshShape = deviceToFlatbufferMeshShape(deviceAttr);
+    ::tt::target::Dim2d meshShape = deviceToFlatbufferMeshShape(deviceAttr);
 
-      programs.push_back(::tt::target::ttnn::CreateProgramDirect(
-          fbb, program.name, &program.inputs, &program.outputs, &program.ops,
-          &dylibs, debugInfo, isPrivate, &meshShape));
-    });
-  };
-
-  // Again, process original funcs in order first to preserve input order.
-  generatePrograms(
-      [](func::FuncOp func) {
-        return ttmlir::utils::isConstEvalFunc(func) ||
-               ttnn::utils::isTTNNTraceFunc(func) ||
-               func->hasAttr(ttkernel::ThreadTypeAttr::name);
-      },
-      /*isPrivate=*/false);
-  // Then process const-eval funcs in 2nd pass.
-  generatePrograms(
-      [](func::FuncOp func) { return !ttmlir::utils::isConstEvalFunc(func); },
-      /*isPrivate=*/true);
-  // Finally process trace funcs.
-  generatePrograms(
-      [](func::FuncOp func) { return !ttnn::utils::isTTNNTraceFunc(func); },
-      /*isPrivate=*/true);
+    programs.push_back(::tt::target::ttnn::CreateProgramDirect(
+        fbb, program.name, &program.inputs, &program.outputs, &program.ops,
+        &dylibs, debugInfo, func.isPrivate(), &meshShape));
+  }
 
   auto binary = ::tt::target::ttnn::CreateTTNNBinaryDirect(
       fbb, &binaryVersion, ::tt::target::ttnn::binary_bfbs_schema_hash,
@@ -3813,6 +3802,16 @@ LogicalResult translateTTNNToFlatbuffer(
                              std::unordered_map<std::uint32_t, GoldenTensor>>
         &goldenMap,
     const std::vector<std::pair<std::string, std::string>> &moduleCache) {
+  ModuleOp rootModule = dyn_cast<ModuleOp>(op);
+  if (!rootModule) {
+    return op->emitError("expected ModuleOp as top level operation");
+  }
+
+  // Verify that all functions have function type attributes.
+  if (failed(ttmlir::utils::verifyFunctionTypes(rootModule))) {
+    return failure();
+  }
+
   std::shared_ptr<void> data = ttnnToFlatbuffer(op, goldenMap, moduleCache);
   std::size_t size = ::flatbuffers::GetSizePrefixedBufferLength(
       static_cast<const uint8_t *>(data.get()));

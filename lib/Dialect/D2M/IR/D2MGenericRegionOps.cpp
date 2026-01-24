@@ -354,6 +354,10 @@ void IterIndexOp::inferResultRanges(
                  getIndexRange(0, std::numeric_limits<uint32_t>::max()));
 }
 
+mlir::OpFoldResult IterIndexOp::fold(FoldAdaptor adaptor) {
+  return adaptor.getDimAttr();
+}
+
 void CoreIndexOp::getAsmResultNames(
     function_ref<void(Value, StringRef)> setNameFn) {
   int64_t dim = getDim();
@@ -367,11 +371,13 @@ void CoreIndexOp::inferResultRanges(
                  getIndexRange(0, std::numeric_limits<uint32_t>::max()));
 }
 
-mlir::OpFoldResult IterIndexOp::fold(FoldAdaptor adaptor) {
-  return adaptor.getDimAttr();
-}
-
 mlir::OpFoldResult CoreIndexOp::fold(FoldAdaptor adaptor) {
+  // Only fold to the constant `dim` when no virtualization map is present.
+  // If a map is present, the result depends on runtime core coordinates and
+  // must not be folded.
+  if (adaptor.getPhysToVirtMapAttr()) {
+    return {};
+  }
   return adaptor.getDimAttr();
 }
 

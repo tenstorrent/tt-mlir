@@ -1486,13 +1486,13 @@ def TTNN_LinearOp : TTNN_Op<"linear", [TTNN_ComputeKernelConfigOpInterface]> {
                          Optional<AnyRankedTensor>:$bias,
                          DefaultValuedAttr<BoolAttr, "false">:$transpose_a,
                          DefaultValuedAttr<BoolAttr, "false">:$transpose_b,
-                         OptionalAttr<StrAttr>:$activation,
                          OptionalAttr<AnyAttrOf<[
                             TTNN_MatmulMultiCoreReuseProgramConfigAttr,
                             TTNN_MatmulMultiCoreReuseMultiCastProgramConfigAttr,
                             TTNN_MatmulMultiCoreReuseMultiCast1DProgramConfigAttr,
                             TTNN_MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttr
                          ]>>:$matmul_program_config,
+                         OptionalAttr<StrAttr>:$activation,
                          OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config);
 
     let results = (outs AnyRankedTensor:$result);
@@ -1503,7 +1503,7 @@ def TTNN_LinearOp : TTNN_Op<"linear", [TTNN_ComputeKernelConfigOpInterface]> {
                      "StringAttr":$activation),
       [{
         build($_builder, $_state, result, a, b, bias, transpose_a, transpose_b,
-              activation, /*matmul_program_config=*/nullptr, /*compute_config=*/nullptr);
+              /*matmul_program_config=*/nullptr, activation, /*compute_config=*/nullptr);
       }]>
     ];
 
@@ -2134,6 +2134,29 @@ def TTNN_RMSNormOp : TTNN_Op<"rms_norm", [AttrSizedOperandSegments, TTNN_MemoryC
               epsilon, memory_config, /*compute_config=*/nullptr);
       }]>
     ];
+
+    let hasVerifier = 1;
+}
+
+def TTNN_LayerNormOp : TTNN_Op<"layer_norm", [AttrSizedOperandSegments, TTNN_MemoryConfigOpInterface]> {
+    let summary = "Layer normalization op.";
+    let description = [{
+      Performs layer normalization on the input tensor. This operation normalizes
+      the input tensor by computing the mean and variance of elements across
+      the specified dimensions, then normalizes by subtracting the mean and
+      dividing by the standard deviation, optionally scaling and shifting the result.
+
+      This operation performs normalization over the last dimension of the input tensor,
+      matching the TTNN runtime implementation.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         Optional<AnyRankedTensor>:$weight,
+                         Optional<AnyRankedTensor>:$bias,
+                         DefaultValuedAttr<F32Attr, "1e-12">:$epsilon,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+    let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
 }

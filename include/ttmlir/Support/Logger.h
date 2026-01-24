@@ -31,6 +31,7 @@ inline std::string opToString(mlir::Operation *op) {
 
 // Log components for different components
 enum class LogComponent {
+  RecoverStructure,
   Optimizer,
   DFShardingPolicy,
   OpValidation,
@@ -50,6 +51,8 @@ enum class LogLevel {
 // Define LLVM log component type strings
 inline constexpr const char *getLogComponentStr(LogComponent type) {
   switch (type) {
+  case LogComponent::RecoverStructure:
+    return "recover-structure";
   case LogComponent::Optimizer:
     return "optimizer";
   case LogComponent::DFShardingPolicy:

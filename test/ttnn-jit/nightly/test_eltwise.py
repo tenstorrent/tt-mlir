@@ -139,8 +139,7 @@ DRAM_INTERLEAVED_SHAPES = [
     DRAM_INTERLEAVED_SHAPES,
     ids=[f"{shape}" for shape in DRAM_INTERLEAVED_SHAPES],
 )
-@pytest.mark.parametrize("frontend", ["ast", "graph_capture"])
-def test_unary_op_dram(device, shape, dtype, ttnn_dtype, op, frontend):
+def test_unary_op_dram(device, shape, dtype, ttnn_dtype, op):
     if (
         op in [log, ceil, floor, sqrt, reciprocal, logical_not]
         and dtype == torch.float32
@@ -156,7 +155,6 @@ def test_unary_op_dram(device, shape, dtype, ttnn_dtype, op, frontend):
         op,
         num_inputs=1,
         buffer_type=ttnn.BufferType.DRAM,
-        frontend=frontend,
         ttnn_dtype=ttnn_dtype,
     )
 
@@ -213,10 +211,7 @@ UNARY_L1_ALL_PARAMS = (
         tan,
     ],
 )
-@pytest.mark.parametrize("frontend", ["ast", "graph_capture"])
-def test_unary_op_l1(
-    device, shape, max_grid, shard_strategy, dtype, ttnn_dtype, op, frontend
-):
+def test_unary_op_l1(device, shape, max_grid, shard_strategy, dtype, ttnn_dtype, op):
     if op in [log, ceil, floor, sqrt, rsqrt, logical_not] and dtype == torch.float32:
         pytest.xfail("failing allclose for some shapes for float32")
 
@@ -233,7 +228,6 @@ def test_unary_op_l1(
         op,
         num_inputs=1,
         buffer_type=ttnn.BufferType.L1,
-        frontend=frontend,
         shard_strategy=shard_strategy,
         ttnn_dtype=ttnn_dtype,
     )
@@ -266,9 +260,8 @@ def test_unary_op_l1(
         tan,
     ],
 )
-@pytest.mark.parametrize("frontend", ["ast", "graph_capture"])
 def test_unary_op_l1_minimal(
-    device, shape, max_grid, shard_strategy, dtype, ttnn_dtype, op, frontend
+    device, shape, max_grid, shard_strategy, dtype, ttnn_dtype, op
 ):
     run_op_test(
         device,
@@ -278,7 +271,6 @@ def test_unary_op_l1_minimal(
         op,
         num_inputs=1,
         buffer_type=ttnn.BufferType.L1,
-        frontend=frontend,
         shard_strategy=shard_strategy,
         ttnn_dtype=ttnn_dtype,
     )
@@ -296,8 +288,7 @@ def test_unary_op_l1_minimal(
     DRAM_INTERLEAVED_SHAPES,
     ids=[f"{shape}" for shape in DRAM_INTERLEAVED_SHAPES],
 )
-@pytest.mark.parametrize("frontend", ["ast", "graph_capture"])
-def test_bitwise_unary_op_dram(device, shape, dtype, op, frontend):
+def test_bitwise_unary_op_dram(device, shape, dtype, op):
     max_grid = (0, 0)
     run_op_test(
         device,
@@ -307,7 +298,6 @@ def test_bitwise_unary_op_dram(device, shape, dtype, op, frontend):
         op,
         num_inputs=1,
         buffer_type=ttnn.BufferType.DRAM,
-        frontend=frontend,
     )
 
 
@@ -326,10 +316,7 @@ def test_bitwise_unary_op_dram(device, shape, dtype, op, frontend):
         bitwise_not,
     ],
 )
-@pytest.mark.parametrize("frontend", ["ast", "graph_capture"])
-def test_bitwise_unary_op_l1(
-    device, shape, max_grid, shard_strategy, dtype, op, frontend
-):
+def test_bitwise_unary_op_l1(device, shape, max_grid, shard_strategy, dtype, op):
     run_op_test(
         device,
         shape,
@@ -338,7 +325,6 @@ def test_bitwise_unary_op_l1(
         op,
         num_inputs=1,
         buffer_type=ttnn.BufferType.L1,
-        frontend=frontend,
         shard_strategy=shard_strategy,
     )
 
@@ -365,7 +351,6 @@ def test_binary_ops_mixed1(device, shape, max_grid, shard_strategy, dtype, op):
     input1 = create_dram_tensor(device, shape, dtype)
     op_jit = ttnn_jit.jit(
         debug=True,
-        frontend="ast",
     )(op)
     output_tensor = op_jit(input0, input1)
     assert memory_configs_equal(output_tensor.memory_config(), input0.memory_config())
@@ -425,8 +410,7 @@ BINARY_L1_ALL_PARAMS = (
         minimum,
     ],
 )
-@pytest.mark.parametrize("frontend", ["ast", "graph_capture"])
-def test_binary_ops_l1(device, shape, max_grid, shard_strategy, dtype, op, frontend):
+def test_binary_ops_l1(device, shape, max_grid, shard_strategy, dtype, op):
     compile_only = False
     if op == div:
         compile_only = True
@@ -441,7 +425,6 @@ def test_binary_ops_l1(device, shape, max_grid, shard_strategy, dtype, op, front
         op,
         num_inputs=2,
         buffer_type=ttnn.BufferType.L1,
-        frontend=frontend,
         shard_strategy=shard_strategy,
         compile_only=compile_only,
     )
@@ -510,10 +493,7 @@ def test_binary_ops_dram(device, shape, dtype, op):
         bitwise_xor,
     ],
 )
-@pytest.mark.parametrize("frontend", ["ast", "graph_capture"])
-def test_bitwise_binary_ops_l1(
-    device, shape, max_grid, shard_strategy, dtype, op, frontend
-):
+def test_bitwise_binary_ops_l1(device, shape, max_grid, shard_strategy, dtype, op):
     run_op_test(
         device,
         shape,
@@ -522,7 +502,6 @@ def test_bitwise_binary_ops_l1(
         op,
         num_inputs=2,
         buffer_type=ttnn.BufferType.L1,
-        frontend=frontend,
         shard_strategy=shard_strategy,
     )
 
@@ -815,31 +794,6 @@ def test_interop_jit_and_ttnn_to_binary_dram(
     assert all_close_check(interop_result, golden_result)
 
 
-# ------------------------------------------------------------
-# Return modifier tests
-# ------------------------------------------------------------
-def test_identity_op_rejection(device):
-    """
-    Test that JIT compilation fails with a clear assertion when a function
-    contains ttnn.identity, as return_modifier expects functions NOT to have it.
-    """
-    shape = (32, 32)
-    dtype = torch.bfloat16
-    input_tensor = create_dram_tensor(device, shape, dtype)
-
-    # Attempting to JIT compile a function with ttnn.identity should raise AssertionError
-    with pytest.raises(AssertionError) as exc_info:
-        compiled_op = ttnn_jit.jit(frontend="graph_capture")(identity_op)
-        # The error should occur during compilation, not execution
-        _ = compiled_op(input_tensor)
-
-    # Verify the error message matches the expected assertion message
-    expected_message = "The jit-ed function cannot include ttnn.identity op for now"
-    assert expected_message in str(
-        exc_info.value
-    ), f"Expected error message '{expected_message}' not found in: {str(exc_info.value)}"
-
-
 @pytest.mark.parametrize(
     "op",
     [add],
@@ -855,5 +809,4 @@ def test_tracing_binary_ops(device, op):
         op,
         num_inputs=2,
         buffer_type=ttnn.BufferType.L1,
-        frontend="tracing",
     )

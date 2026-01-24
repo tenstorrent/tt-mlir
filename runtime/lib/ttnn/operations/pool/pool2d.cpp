@@ -26,9 +26,10 @@ void runAvgPool2dOp(
         std::variant<std::array<uint32_t, 2>, std::array<uint32_t, 4>>, bool,
         bool, std::optional<int32_t>,
         const std::optional<const ::ttnn::MemoryConfig> &,
+        const std::optional<::ttnn::operations::pool::Op2DSliceConfig> &,
         const std::optional<const ::ttnn::TensorMemoryLayout>,
-        const std::optional<::ttnn::DeviceComputeKernelConfig> &, bool, bool)>
-        &ttnnOp) {
+        const std::optional<::ttnn::DeviceComputeKernelConfig> &, bool, bool,
+        ::ttnn::DataType, ::ttnn::Layout)> &ttnnOp) {
   const ::ttnn::Tensor &input = tensorPool.getTTNNTensorAndValidate(op->in());
 
   std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
@@ -69,9 +70,11 @@ void runAvgPool2dOp(
              op->channels(), kernelSize, stride, padding, op->ceil_mode(),
              op->extra_params_as_AvgPool2dExtraParams()->count_include_pad(),
              /*divisor_override=*/std::nullopt, outputMemoryConfig,
-             appliedShardScheme, computeKernelConfig,
+             /*dram_slice_config=*/std::nullopt, appliedShardScheme,
+             computeKernelConfig,
              /*deallocate_input=*/false,
-             /*reallocate_halo_output=*/op->reallocate_halo_output());
+             /*reallocate_halo_output=*/op->reallocate_halo_output(),
+             ::ttnn::DataType::BFLOAT16, ::ttnn::Layout::ROW_MAJOR);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
@@ -84,8 +87,9 @@ void runMaxPool2dOp(
         std::variant<std::array<uint32_t, 2>, std::array<uint32_t, 4>>,
         std::array<uint32_t, 2>, bool,
         const std::optional<const ::ttnn::MemoryConfig> &,
-        std::optional<const ::ttnn::TensorMemoryLayout>, bool, bool, bool)>
-        &ttnnOp) {
+        const std::optional<::ttnn::operations::pool::Op2DSliceConfig> &,
+        std::optional<const ::ttnn::TensorMemoryLayout>, bool, bool, bool,
+        ::ttnn::DataType, ::ttnn::Layout)> &ttnnOp) {
   const ::ttnn::Tensor &input = tensorPool.getTTNNTensorAndValidate(op->in());
 
   std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
@@ -122,10 +126,12 @@ void runMaxPool2dOp(
   std::vector<::ttnn::Tensor> results =
       ttnnOp(input, op->batch_size(), op->input_height(), op->input_width(),
              op->channels(), kernelSize, stride, padding, dilation,
-             op->ceil_mode(), outputMemoryConfig, appliedShardScheme,
+             op->ceil_mode(), outputMemoryConfig,
+             /*dram_slice_config=*/std::nullopt, appliedShardScheme,
              /*deallocate_input=*/false,
              /*reallocate_halo_output=*/op->reallocate_halo_output(),
-             /*return_indices=*/false);
+             /*return_indices=*/false, ::ttnn::DataType::BFLOAT16,
+             ::ttnn::Layout::ROW_MAJOR);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), results[0]);
 }
@@ -186,7 +192,8 @@ void run(const ::tt::target::ttnn::MaxPool2dWithIndicesOp *op,
   std::vector<::ttnn::Tensor> outputs = ::ttnn::max_pool2d(
       input, op->batch_size(), op->input_height(), op->input_width(),
       op->channels(), kernelSize, stride, padding, dilation, op->ceil_mode(),
-      outputMemoryConfig, appliedShardScheme,
+      outputMemoryConfig, /*dram_slice_config=*/std::nullopt,
+      appliedShardScheme,
       /*deallocate_input=*/false,
       /*reallocate_halo_output=*/op->reallocate_halo_output(),
       /*return_indices=*/true, ::ttnn::DataType::BFLOAT16,

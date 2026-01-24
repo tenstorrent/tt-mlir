@@ -130,6 +130,7 @@ def convert_to_pydantic_model(result: ExecutionResult) -> OpTest:
         success=result.device_run_passed,
         error_message=error_msg,
         op_name=result.last_generated_module.origin_op_name,
+        model_name=result.last_generated_module.origin_model,
         inputs=inputs,
         outputs=outputs,
     )

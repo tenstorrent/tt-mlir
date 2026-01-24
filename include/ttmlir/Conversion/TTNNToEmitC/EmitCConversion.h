@@ -62,6 +62,8 @@ struct QueueId;
 
 struct WormholeComputeKernelConfig;
 
+enum class MathFidelity;
+
 namespace types {
 struct ShardOrientation;
 } // namespace types
@@ -330,6 +332,11 @@ struct TypeName<::ttnn::operations::reduction::ReduceType> {
 template <>
 struct TypeName<::ttnn::QueueId> {
   inline static const std::string value = "::ttnn::QueueId";
+};
+
+template <>
+struct TypeName<::ttnn::MathFidelity> {
+  inline static const std::string value = "::MathFidelity";
 };
 
 template <>
@@ -872,6 +879,31 @@ struct EmitCTypeConverter<::ttnn::QueueId> {
   }
 };
 
+// Specialization for MathFidelity
+template <>
+struct EmitCTypeConverter<::ttnn::MathFidelity> {
+  static std::string convert(ttnn::MathFidelity mathFidelity) {
+    std::string buf;
+    llvm::raw_string_ostream rso(buf);
+    rso << TypeNameV<::ttnn::MathFidelity> << "::";
+    switch (mathFidelity) {
+    case ttnn::MathFidelity::LoFi:
+      rso << "LoFi";
+      break;
+    case ttnn::MathFidelity::HiFi2:
+      rso << "HiFi2";
+      break;
+    case ttnn::MathFidelity::HiFi3:
+      rso << "HiFi3";
+      break;
+    case ttnn::MathFidelity::HiFi4:
+      rso << "HiFi4";
+      break;
+    }
+    return buf;
+  }
+};
+
 // Specialization for DeviceComputeKernelConfig (as WormholeComputeKernelConfig)
 template <>
 struct EmitCTypeConverter<::ttnn::WormholeComputeKernelConfig> {
@@ -897,21 +929,8 @@ struct EmitCTypeConverter<::ttnn::WormholeComputeKernelConfig> {
         rso << ", ";
       }
       first = false;
-      rso << ".math_fidelity = ::ttnn::MathFidelity::";
-      switch (*mathFidelity) {
-      case ttnn::MathFidelity::LoFi:
-        rso << "LoFi";
-        break;
-      case ttnn::MathFidelity::HiFi2:
-        rso << "HiFi2";
-        break;
-      case ttnn::MathFidelity::HiFi3:
-        rso << "HiFi3";
-        break;
-      case ttnn::MathFidelity::HiFi4:
-        rso << "HiFi4";
-        break;
-      }
+      rso << ".math_fidelity = "
+          << EmitCTypeConverter<::ttnn::MathFidelity>::convert(*mathFidelity);
     }
     // math_approx_mode
     if (auto mathApproxMode = attr.getMathApproxMode()) {
@@ -1863,7 +1882,7 @@ public:
     // remain in the new Conv3dConfig struct
     rso << "[&]() { ";
     rso << "auto config = "
-           "ttnn::operations::experimental::conv3d::Conv3dConfig(); ";
+           "::ttnn::experimental::prim::Conv3dConfig(); ";
 
     // Apply Conv3dConfigAttr overrides if provided
     if (conv3dConfig.has_value()) {
@@ -1887,6 +1906,13 @@ public:
       }
       if (conv3dConfig->getCInBlock()) {
         rso << "config.C_in_block = " << *conv3dConfig->getCInBlock() << "; ";
+      }
+      if (conv3dConfig->getComputeWithStorageGridSize()) {
+        auto gridAttr = *conv3dConfig->getComputeWithStorageGridSize();
+        rso << "config.compute_with_storage_grid_size = "
+               "tt::tt_metal::CoreCoord{"
+            << gridAttr.getShape()[0] << ", " << gridAttr.getShape()[1]
+            << "}; ";
       }
     }
 

@@ -83,17 +83,12 @@ else ()
         __init__.py
         _src/__init__.py
         _src/jit.py
-        _src/ttir_ast.py
         _src/utils.py
         _src/dispatch_op.py
         _src/ir_generator.py
-        _src/levelized_graph.py
-        _src/graph_trace_compiler.py
         _src/tensor_translator.py
         _src/supported_ops.py
         _src/conversions.py
-        _src/op_registry.py
-        _src/return_modifier.py
         _src/jit_functions.py
         _src/tracing_compiler.py
   )

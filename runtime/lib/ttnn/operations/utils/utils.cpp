@@ -432,41 +432,6 @@ createConv2dSliceConfig(const ::tt::target::ttnn::Conv2dSliceConfig *config) {
   return sliceConfig;
 }
 
-::ttnn::operations::experimental::conv3d::Conv3dConfig
-createConv3dConfig(const ::tt::target::ttnn::Conv3dConfig *config,
-                   ::ttnn::MeshDevice &targetDevice) {
-
-  ::ttnn::operations::experimental::conv3d::Conv3dConfig conv3dConfig;
-
-  conv3dConfig.compute_with_storage_grid_size =
-      targetDevice.compute_with_storage_grid_size();
-
-  // Apply config overrides from flatbuffer if provided
-  if (config) {
-    if (config->weights_dtype()) {
-      conv3dConfig.weights_dtype =
-          ::tt::runtime::ttnn::utils::toTTNNDataType(*config->weights_dtype());
-    }
-    if (config->t_out_block()) {
-      conv3dConfig.T_out_block = *config->t_out_block();
-    }
-    if (config->w_out_block()) {
-      conv3dConfig.W_out_block = *config->w_out_block();
-    }
-    if (config->h_out_block()) {
-      conv3dConfig.H_out_block = *config->h_out_block();
-    }
-    if (config->c_out_block()) {
-      conv3dConfig.C_out_block = *config->c_out_block();
-    }
-    if (config->c_in_block()) {
-      conv3dConfig.C_in_block = *config->c_in_block();
-    }
-  }
-
-  return conv3dConfig;
-}
-
 ::ttnn::DeviceComputeKernelConfig createDeviceComputeKernelConfig(
     const ::tt::target::ttnn::DeviceComputeKernelConfig *config) {
   ::ttnn::WormholeComputeKernelConfig computeKernelConfig;
@@ -599,7 +564,7 @@ allocateTensorOnDevice(const ::tt::target::ttnn::TensorRef *tensorRef,
       ::ttnn::TensorLayout(ttnnDataType, ::ttnn::PageConfig(ttnnLayout),
                            *memoryConfig));
   ::ttnn::Tensor deviceTensor =
-      ::tt::tt_metal::allocate_tensor_on_device(tensorSpec, &meshDevice);
+      ::tt::tt_metal::create_device_tensor(tensorSpec, &meshDevice);
   return deviceTensor;
 }
 

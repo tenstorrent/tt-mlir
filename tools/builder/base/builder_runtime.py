@@ -624,8 +624,8 @@ def convert_golden_input_output_to_torch(
 
 def execute_fb(
     compiled_bin,
-    input_output_goldens: Dict[int, Dict[str, Dict[int, GoldenMapTensor]]],
-    intermediate_goldens: Dict[str, Dict[int, GoldenMapTensor]],
+    input_output_goldens: Dict[int, Dict[str, Dict[int, GoldenMapTensor]]] = {},
+    intermediate_goldens: Dict[str, Dict[int, GoldenMapTensor]] = {},
     pcc: float = 0.99,
     atol: float = 1e-08,
     rtol: float = 1e-05,
@@ -696,6 +696,8 @@ def execute_fb(
     if bypass_ops is None:
         bypass_ops = []
     verify_intermediates = enable_intermediate_verification or len(bypass_ops) > 0
+    if len(golden_input_output_tensors) == 0:
+        disable_golden = True
 
     callback_runtime_config = CallbackRuntimeConfig(
         device=device,

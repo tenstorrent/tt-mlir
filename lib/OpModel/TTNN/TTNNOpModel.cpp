@@ -91,7 +91,8 @@ executeConstraintQuery(Callable &callable) {
             query.error_message.value_or("<error message not set>"));
   }
 
-  if (!query.output_tensor_spec.has_value()) {
+  if (!query.output_tensor_specs.has_value() ||
+      query.output_tensor_specs->empty()) {
     return llvm::createStringError(llvm::inconvertibleErrorCode(),
                                    "Op constraint query missing output tensor");
   }
@@ -129,13 +130,13 @@ llvm::Expected<OpConstraints> getOpConstraints(MLIRContext *context,
 
   ::ttnn::graph::ConstraintQueryResponse response = query.get();
 
-  return OpConstraints(
-      response.resource_usage.cb_peak_size_per_core,
-      response.resource_usage.l1_buffers_peak_per_core,
-      response.resource_usage.peak_memory_usage_per_core,
-      response.resource_usage.l1_output_buffer_per_core,
-      conversion::getLayoutAttrFromTensorSpec(
-          context, response.output_tensor_spec.value(), deviceGrid.getShape()));
+  return OpConstraints(response.resource_usage.cb_peak_size_per_core,
+                       response.resource_usage.l1_buffers_peak_per_core,
+                       response.resource_usage.peak_memory_usage_per_core,
+                       response.resource_usage.l1_output_buffer_per_core,
+                       conversion::getLayoutAttrFromTensorSpec(
+                           context, response.output_tensor_specs.value()[0],
+                           deviceGrid.getShape()));
 }
 
 template <class Callable>
@@ -645,8 +646,9 @@ llvm::Expected<::ttnn::TensorSpec> getPrepareConv2dWeightsOpOutputTensorSpec(
     return output.takeError();
   }
 
-  assert(output.get().output_tensor_spec.has_value());
-  return output.get().output_tensor_spec.value();
+  assert(output.get().output_tensor_specs.has_value() &&
+         !output.get().output_tensor_specs->empty());
+  return output.get().output_tensor_specs.value()[0];
 }
 
 // Returns the output tensor spec of the prepared bias for a conv2d op.
@@ -744,8 +746,9 @@ getPrepareConv2dBiasOpOutputTensorSpec(
     return output.takeError();
   }
 
-  assert(output.get().output_tensor_spec.has_value());
-  return output.get().output_tensor_spec.value();
+  assert(output.get().output_tensor_specs.has_value() &&
+         !output.get().output_tensor_specs->empty());
+  return output.get().output_tensor_specs.value().at(0);
 }
 
 #endif // TTMLIR_ENABLE_OPMODEL
@@ -4883,7 +4886,7 @@ struct Conv3dSpecs {
   ::ttnn::TensorSpec inputSpec;
   ::ttnn::TensorSpec weightSpec;
   std::optional<::ttnn::TensorSpec> biasSpec;
-  ::ttnn::operations::experimental::conv3d::Conv3dConfig config;
+  ::ttnn::experimental::prim::Conv3dConfig config;
   ::tt::tt_metal::DataType dtype;
   uint32_t outputChannels;
   std::array<uint32_t, 3> kernelSize;
@@ -4935,7 +4938,7 @@ llvm::Expected<Conv3dSpecs> prepareConv3dSpecs(
   }
 
   // Initialize Conv3dConfig with base values
-  ::ttnn::operations::experimental::conv3d::Conv3dConfig config;
+  ::ttnn::experimental::prim::Conv3dConfig config;
 
   // Apply Conv3dConfig overrides if provided
   if (conv3dConfig.has_value()) {
@@ -5524,6 +5527,7 @@ llvm::Expected<OpConstraints> OpModel<MaxPool2dOp>::getOpConstraints(
             padding),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
         ceilMode, detail::getNullableMemoryConfig(outputLayout),
+        std::nullopt /* dram_slice_config */,
         std::nullopt /* applied_shard_scheme */, false /* deallocate_input */,
         reallocateHaloOutput, false /* return_indices */);
   };
@@ -5572,6 +5576,7 @@ llvm::Expected<size_t> OpModel<MaxPool2dOp>::getOpRuntime(
             padding),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
         ceilMode, detail::getNullableMemoryConfig(outputLayout),
+        std::nullopt /* dram_slice_config */,
         std::nullopt /* applied_shard_scheme */, false /* deallocate_input */,
         reallocateHaloOutput, false /* return_indices */);
   };
@@ -5625,6 +5630,7 @@ llvm::Expected<OpConstraints> OpModel<MaxPool2dWithIndicesOp>::getOpConstraints(
             padding),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
         ceilMode, detail::getNullableMemoryConfig(outputLayout),
+        std::nullopt /* dram_slice_config */,
         std::nullopt /* applied_shard_scheme */, deallocateInput,
         reallocateHaloOutput, returnIndices, ::ttnn::DataType::BFLOAT16,
         ::ttnn::Layout::ROW_MAJOR);
@@ -5675,6 +5681,7 @@ llvm::Expected<size_t> OpModel<MaxPool2dWithIndicesOp>::getOpRuntime(
             padding),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
         ceilMode, detail::getNullableMemoryConfig(outputLayout),
+        std::nullopt /* dram_slice_config */,
         std::nullopt /* applied_shard_scheme */, deallocateInput,
         reallocateHaloOutput, returnIndices, ::ttnn::DataType::BFLOAT16,
         ::ttnn::Layout::ROW_MAJOR);
@@ -5734,6 +5741,7 @@ llvm::Expected<OpConstraints> OpModel<AvgPool2dOp>::getOpConstraints(
             padding),
         ceilMode, countIncludePad, divisorOverride,
         detail::getNullableMemoryConfig(outputLayout),
+        std::nullopt /* dram_slice_config */,
         std::nullopt /* applied_shard_scheme */, computeKernelConfig,
         false /* deallocate_input */, reallocateHaloOutput);
   };
@@ -5789,6 +5797,7 @@ llvm::Expected<size_t> OpModel<AvgPool2dOp>::getOpRuntime(
             padding),
         ceilMode, countIncludePad, divisorOverride,
         detail::getNullableMemoryConfig(outputLayout),
+        std::nullopt /* dram_slice_config */,
         std::nullopt /* applied_shard_scheme */, computeKernelConfig,
         false /* deallocate_input */, reallocateHaloOutput);
   };
@@ -6197,6 +6206,89 @@ llvm::Expected<size_t> OpModel<RMSNormOp>::getOpRuntime(
 }
 
 //===----------------------------------------------------------------------===//
+// LayerNormOp
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<OpConstraints> OpModel<LayerNormOp>::getOpConstraints(
+    ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+    TTNNLayoutAttr inputLayout,
+    std::optional<llvm::ArrayRef<int64_t>> weightShape,
+    std::optional<TTNNLayoutAttr> weightLayout,
+    std::optional<llvm::ArrayRef<int64_t>> biasShape,
+    std::optional<TTNNLayoutAttr> biasLayout, llvm::APFloat epsilon,
+    TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  std::optional<::ttnn::TensorSpec> weightSpec =
+      detail::convertToOptionalTensorSpec(device, weightShape, weightLayout);
+  std::optional<::ttnn::TensorSpec> biasSpec =
+      detail::convertToOptionalTensorSpec(device, biasShape, biasLayout);
+
+  std::optional<::ttnn::TensorSpec> residualInputSpec = std::nullopt;
+
+  auto layerNormQuery = [=]() {
+    return ::ttnn::graph::query_op_constraints(
+        ::ttnn::layer_norm, device, inputSpec, epsilon.convertToFloat(),
+        weightSpec, biasSpec, residualInputSpec,
+        detail::getNullableMemoryConfig(outputLayout));
+  };
+
+  return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
+                                     layerNormQuery);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> OpModel<LayerNormOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    std::optional<llvm::ArrayRef<int64_t>> weightShape,
+    std::optional<TTNNLayoutAttr> weightLayout,
+    std::optional<llvm::ArrayRef<int64_t>> biasShape,
+    std::optional<TTNNLayoutAttr> biasLayout, llvm::APFloat epsilon,
+    TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  std::optional<::ttnn::TensorSpec> weightSpec =
+      detail::convertToOptionalTensorSpec(device, weightShape, weightLayout);
+  std::optional<::ttnn::TensorSpec> biasSpec =
+      detail::convertToOptionalTensorSpec(device, biasShape, biasLayout);
+
+  std::optional<::ttnn::TensorSpec> residualInputSpec = std::nullopt;
+
+  // Create query closure
+  auto layerNormQuery = [=]() {
+    return ::ttnn::graph::query_op_runtime(
+        ::ttnn::layer_norm, device, inputSpec, epsilon.convertToFloat(),
+        weightSpec, biasSpec, residualInputSpec,
+        detail::getNullableMemoryConfig(outputLayout));
+  };
+
+  return operation::getOpRuntime(layerNormQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
 // ClampScalar
 //===----------------------------------------------------------------------===//
 llvm::Expected<OpConstraints> OpModel<ClampScalarOp>::getOpConstraints(
@@ -6439,17 +6531,18 @@ llvm::Expected<OpConstraints> OpModel<UpsampleOp>::getOpConstraints(
       SingletonDeviceContext::getInstance().getDevice();
 
   // Convert params
-  std::variant<int, ::tt::tt_metal::Array2D> convertedScaleFactor;
+  std::variant<int, std::array<int, 2>, float, std::array<float, 2>>
+      convertedScaleFactor;
   if (auto value = mlir::dyn_cast<mlir::IntegerAttr>(scaleFactor)) {
     convertedScaleFactor = static_cast<int>(value.getSInt());
   } else if (auto tuple =
                  mlir::dyn_cast<::mlir::detail::DenseArrayAttrImpl<int32_t>>(
                      scaleFactor);
              tuple.size() == 2) {
-    std::array<uint32_t, 2> arr;
-    arr[0] = static_cast<uint32_t>(tuple[0]);
-    arr[1] = static_cast<uint32_t>(tuple[1]);
-    convertedScaleFactor = ::tt::tt_metal::Array2D(arr);
+    std::array<int, 2> arr;
+    arr[0] = static_cast<int>(tuple[0]);
+    arr[1] = static_cast<int>(tuple[1]);
+    convertedScaleFactor = arr;
   } else {
     return llvm::createStringError("Invalid scaleFactor");
   }
@@ -6485,17 +6578,18 @@ llvm::Expected<size_t> OpModel<UpsampleOp>::getOpRuntime(
       SingletonDeviceContext::getInstance().getDevice();
 
   // Convert parameters
-  std::variant<int, ::tt::tt_metal::Array2D> convertedScaleFactor;
+  std::variant<int, std::array<int, 2>, float, std::array<float, 2>>
+      convertedScaleFactor;
   if (auto value = mlir::dyn_cast<mlir::IntegerAttr>(scaleFactor)) {
     convertedScaleFactor = static_cast<int>(value.getSInt());
   } else if (auto tuple =
                  mlir::dyn_cast<::mlir::detail::DenseArrayAttrImpl<int32_t>>(
                      scaleFactor);
              tuple.size() == 2) {
-    std::array<uint32_t, 2> arr;
-    arr[0] = static_cast<uint32_t>(tuple[0]);
-    arr[1] = static_cast<uint32_t>(tuple[1]);
-    convertedScaleFactor = ::tt::tt_metal::Array2D(arr);
+    std::array<int, 2> arr;
+    arr[0] = static_cast<int>(tuple[0]);
+    arr[1] = static_cast<int>(tuple[1]);
+    convertedScaleFactor = arr;
   } else {
     return llvm::createStringError("Invalid scaleFactor");
   }
@@ -6575,7 +6669,7 @@ llvm::Expected<OpConstraints> OpModel<EmbeddingOp>::getOpConstraints(
                                              : ::ttnn::ROW_MAJOR_LAYOUT)
                    : (weightLayout.isTiled() ? ::ttnn::TILE_LAYOUT
                                              : ::ttnn::ROW_MAJOR_LAYOUT);
-  auto embeddingsType = ::ttnn::operations::embedding::EmbeddingsType::GENERIC;
+  auto embeddingsType = ::ttnn::prim::EmbeddingsType::GENERIC;
   std::optional<::ttnn::DataType> dtype =
       outputLayout ? std::make_optional(
                          conversion::getDataType(outputLayout.getDataType()))
@@ -6618,7 +6712,7 @@ llvm::Expected<size_t> OpModel<EmbeddingOp>::getOpRuntime(
                                              : ::ttnn::ROW_MAJOR_LAYOUT)
                    : (weightLayout.isTiled() ? ::ttnn::TILE_LAYOUT
                                              : ::ttnn::ROW_MAJOR_LAYOUT);
-  auto embeddingsType = ::ttnn::operations::embedding::EmbeddingsType::GENERIC;
+  auto embeddingsType = ::ttnn::prim::EmbeddingsType::GENERIC;
   std::optional<::ttnn::DataType> dtype =
       outputLayout ? std::make_optional(
                          conversion::getDataType(outputLayout.getDataType()))

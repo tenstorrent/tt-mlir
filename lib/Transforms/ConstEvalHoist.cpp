@@ -6,6 +6,7 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreTraits.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
+#include "ttmlir/FunctionTypes.h"
 #include "ttmlir/Transforms/Passes.h"
 #include "ttmlir/Utils.h"
 
@@ -169,10 +170,12 @@ private:
     if (op->hasTrait<mlir::OpTrait::IsTerminator>()) {
       return;
     }
-    // Skip mesh_shard ops. Identity mesh_shard ops are just forwarding their
-    // input, so they don't need to be included in const-eval subgraphs.
-    if (isa<mlir::tt::ttnn::MeshShardOp>(op)) {
-      return;
+
+    // Skip non-identity mesh shard ops.
+    if (auto meshShardOp = mlir::dyn_cast<mlir::tt::ttnn::MeshShardOp>(op)) {
+      if (meshShardOp.getShardType() != ttcore::MeshShardType::Identity) {
+        return;
+      }
     }
 
     // Handle shared ops separately as well.
@@ -513,8 +516,8 @@ private:
     auto newFuncOp = builder.create<func::FuncOp>(originalFunc.getLoc(),
                                                   newFuncName, funcType);
     // Mark the new function as const-eval and private.
-    newFuncOp->setAttr(ttmlir::utils::g_constEvalAttrName,
-                       builder.getUnitAttr());
+    ttmlir::utils::setFunctionType(newFuncOp,
+                                   ttmlir::utils::FunctionType::ConstEval);
     newFuncOp.setPrivate();
 
     // Retain connv2dWeight input attributes from original function.

@@ -2,7 +2,7 @@
 // RUN: FileCheck %s --input-file=%t
 
 module attributes {} {
-  // CHECK: func.func @add(%arg0: tuple<[[TENSOR_A:.*>]], [[TENSOR_B:.*>]]>) -> tuple<tensor<32x32xbf16, #ttnn_layout>> {
+  // CHECK: func.func @add(%arg0: tuple<[[TENSOR_A:.*>]], [[TENSOR_B:.*>]]>) -> tuple<tensor<32x32xbf16, #ttnn_layout>> attributes {tt.function_type = "forward_device"} {
   func.func @add(%arg0: tensor<32x32xbf16>, %arg1: tensor<32x32xbf16>) -> tensor<32x32xbf16> {
     // CHECK-NEXT: %0 = ttcore.get_tuple_element %arg0[0] : (tuple<[[TENSOR_A]], [[TENSOR_B]]>) -> [[TENSOR_A]]
     // CHECK-NEXT: %1 = ttcore.get_tuple_element %arg0[1] : (tuple<[[TENSOR_A]], [[TENSOR_B]]>) -> [[TENSOR_B]]
@@ -11,7 +11,7 @@ module attributes {} {
     return %1 : tensor<32x32xbf16>
   }
 
-  // CHECK: func.func @multiple_returns(%arg0: tuple<[[TENSOR_A:.*>]], [[TENSOR_B:.*>]], [[TENSOR_C:.*>]]>) -> tuple<tensor<32x32xbf16, #ttnn_layout>, tensor<32x32xbf16, #ttnn_layout>> {
+  // CHECK: func.func @multiple_returns(%arg0: tuple<[[TENSOR_A:.*>]], [[TENSOR_B:.*>]], [[TENSOR_C:.*>]]>) -> tuple<tensor<32x32xbf16, #ttnn_layout>, tensor<32x32xbf16, #ttnn_layout>> attributes {tt.function_type = "forward_device"} {
   func.func @multiple_returns(%arg0: tensor<32x32xbf16>, %arg1: tensor<32x32xbf16>, %arg2: tensor<32x32xbf16>) -> (tensor<32x32xbf16>, tensor<32x32xbf16>) {
     // CHECK-NEXT: %0 = ttcore.get_tuple_element %arg0[0] : (tuple<[[TENSOR_A]], [[TENSOR_B]], [[TENSOR_C]]>) -> [[TENSOR_A]]
     // CHECK-NEXT: %1 = ttcore.get_tuple_element %arg0[1] : (tuple<[[TENSOR_A]], [[TENSOR_B]], [[TENSOR_C]]>) -> [[TENSOR_B]]

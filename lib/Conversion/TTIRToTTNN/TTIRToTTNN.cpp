@@ -1143,8 +1143,8 @@ public:
     rewriter.replaceOpWithNewOp<ttnn::LinearOp>(
         op, this->getTypeConverter()->convertType(op.getType()), adaptor.getA(),
         adaptor.getB(), adaptor.getBias(), adaptor.getTransposeA(),
-        adaptor.getTransposeB(), /*activation=*/nullptr,
-        /*matmul_program_config=*/nullptr, /*compute_config=*/nullptr);
+        adaptor.getTransposeB(), /*matmul_program_config=*/nullptr,
+        /*activation=*/nullptr, /*compute_config=*/nullptr);
     return success();
   }
 };
@@ -1267,6 +1267,46 @@ public:
         adaptor.getInput(), adaptor.getWeight(), adaptor.getBias(),
         adaptor.getEpsilon(), /*memoryConfig*/ nullptr,
         /*computeConfig*/ nullptr);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class LayerNormOpConversionPattern
+    : public OpConversionPattern<ttir::LayerNormOp> {
+public:
+  using OpConversionPattern<ttir::LayerNormOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::LayerNormOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    RankedTensorType inputType =
+        mlir::cast<RankedTensorType>(adaptor.getInput().getType());
+
+    // TTNN LayerNorm only supports normalization over the last dimension.
+    // We need to validate that the normalized_shape matches this constraint.
+    ArrayRef<int64_t> inputShape = inputType.getShape();
+    ArrayRef<int64_t> normalizedShape = adaptor.getNormalizedShape();
+
+    // For now, TTNN only support normalization over the last dimension (most
+    // common case).
+    if (normalizedShape.size() != 1) {
+      return rewriter.notifyMatchFailure(
+          op, "TTNN LayerNorm currently only supports normalization over the "
+              "last dimension");
+    }
+
+    if (normalizedShape[0] != inputShape.back()) {
+      return rewriter.notifyMatchFailure(
+          op, "TTNN LayerNorm requires normalized_shape to match the last "
+              "dimension of input shape");
+    }
+
+    rewriter.replaceOpWithNewOp<ttnn::LayerNormOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(), adaptor.getWeight(), adaptor.getBias(),
+        adaptor.getEpsilon(), /*memoryConfig*/ nullptr);
     return success();
   }
 };
@@ -1467,8 +1507,8 @@ public:
         adaptor.getInput(), reshapedWeight, reshapedBias, device,
         inChannelsAttr, outChannelsAttr, batchSizeAttr, inputDepthAttr,
         inputHeightAttr, inputWidthAttr, kernelSizeAttr, *strideAttr,
-        *paddingAttr, paddingModeAttr, groupsAttr, outputDtypeAttr,
-        /*conv3d_config=*/nullptr, /*compute_config=*/nullptr);
+        *paddingAttr, paddingModeAttr, groupsAttr, outputDtypeAttr, nullptr,
+        nullptr);
 
     return success();
   }
@@ -2937,6 +2977,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            BatchNormInferenceOpConversionPattern,
            BatchNormTrainingOpConversionPattern,
            RMSNormOpConversionPattern,
+           LayerNormOpConversionPattern,
            MatmulOpConversionPattern,
            Conv2dOpConversionPattern,
            Conv3dOpConversionPattern,

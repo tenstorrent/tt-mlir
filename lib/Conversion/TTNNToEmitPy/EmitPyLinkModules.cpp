@@ -5,13 +5,14 @@
 #include "ttmlir/Conversion/TTNNToEmitPy/TTNNToEmitPy.h"
 #include "ttmlir/Dialect/EmitPy/IR/EmitPyOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
-#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
+#include "ttmlir/FunctionTypes.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/Pass/Pass.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
 
 namespace mlir::tt {
@@ -107,10 +108,37 @@ public:
 
     collectImports(deviceModule);
 
+    // Helper to collect globals from a module, erasing duplicates from the
+    // module.
+    //
+    llvm::SmallVector<emitpy::GlobalOp> globals;
+    auto collectGlobals = [&globals](mlir::ModuleOp module) {
+      llvm::SmallVector<emitpy::GlobalOp> moduleGlobals(
+          module.getOps<emitpy::GlobalOp>());
+      for (auto &moduleGlobal : moduleGlobals) {
+        if (llvm::all_of(globals, [&](emitpy::GlobalOp globalOp) {
+              return moduleGlobal.getName() != globalOp.getName();
+            })) {
+          globals.push_back(moduleGlobal);
+        } else {
+          moduleGlobal->erase();
+        }
+      }
+    };
+
+    collectGlobals(deviceModule);
+
     if (cpuModuleOp) {
       auto cpuModule =
           mlir::cast<mlir::ModuleOp>(cpuModuleOp.getBody()->front());
       collectImports(cpuModule);
+      collectGlobals(cpuModule);
+    }
+
+    // Move all collected globals to the root module.
+    //
+    for (auto globalOp : llvm::reverse(globals)) {
+      globalOp->moveBefore(&rootBody, rootBody.begin());
     }
 
     // Move all collected imports to the root module.
@@ -119,7 +147,8 @@ public:
       importOp->moveBefore(&rootBody, rootBody.begin());
     }
 
-    // Move all operations from CPU module (CPU-hoisted function definitions).
+    // Move all operations from CPU module (CPU-hoisted function
+    // definitions).
     //
     if (cpuModuleOp) {
       auto cpuModule =
@@ -143,17 +172,13 @@ public:
     OpBuilder builder(&getContext());
     llvm::SmallVector<func::FuncOp> declarations;
     for (auto funcOp : deviceModule.getOps<func::FuncOp>()) {
-      if (!funcOp->hasAttr(ttir::CPUHoistedFuncAttr::name) ||
-          !funcOp.isDeclaration()) {
+      if (!ttmlir::utils::isForwardCPUDeclarationFunc(funcOp)) {
         continue;
       }
 
       llvm::StringRef declarationName = funcOp.getSymName();
-      assert(declarationName.ends_with(ttir::kCPUHoistedDeclSuffix) &&
-             "CPU-hoisted function declaration must end with '_decl'");
+      llvm::StringRef definitionName = declarationName;
 
-      auto definitionName =
-          declarationName.drop_back(strlen(ttir::kCPUHoistedDeclSuffix));
       (void)funcOp.replaceAllSymbolUses(builder.getStringAttr(definitionName),
                                         deviceModule);
 

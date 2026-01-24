@@ -20,6 +20,19 @@ from ttmlir.ir import (
     Type,
 )
 
+# Patterns for preprocessing MLIR module strings
+_LOC_LINE_PATTERN = re.compile(r"^#loc.*$", re.MULTILINE)  # Match #loc lines
+_LOC_INLINE_PATTERN = re.compile(
+    r"\s*loc\((?:[^()]*(?:\([^()]*\))*)*\)"
+)  # Match inline loc(...) annotations
+_SDY_MESH_PATTERN = re.compile(r"\s*sdy.mesh.*$", re.MULTILINE)  # Match sdy.mesh lines
+
+
+def _replace_mlir_identifier(text: str, old_name: str, new_name: str) -> str:
+    """Replace SSA value name (e.g., %arg0), avoiding partial matches like %arg01."""
+    pattern = re.escape(old_name) + r"(?=[^a-zA-Z0-9_]|$)"
+    return re.sub(pattern, new_name, text)
+
 
 @dataclass(frozen=True)
 class OperandAndResultBase(ABC):
@@ -105,7 +118,13 @@ class Result(OperandAndResultBase):
 
 
 class OpWrapper:
-    """Convenience wrapper around MLIR op."""
+    """
+    Convenience wrapper around MLIR op.
+
+    Extracts and caches all necessary information from the live OpView at construction
+    time, so the wrapper can outlive the MLIR context.
+    If the op has constant operands, they are stored, to later be added to the module.
+    """
 
     # ----- Public methods and properties -----
 
@@ -114,38 +133,99 @@ class OpWrapper:
         op: OpView,
         attrs: Optional[OpAttributeMap] = None,
         func_op: Optional[func.FuncOp] = None,
+        origin_model: str = "",
     ) -> None:
         """Constructor."""
-        self.op = op
-        self.operands = [
-            Operand(operand.get_name(), operand.type) for operand in op.operands
+        self.op_string = str(op)
+        self.op_name = op.name
+        self.func_op_string = str(func_op) if func_op is not None else ""
+
+        # Single pass: identify constants, build mappings, collect non-constant operands
+        constant_ops = {}  # Maps operand index -> (original_name, constant_op_string)
+        operand_mapping = {}
+        non_constant_operands = []
+
+        for i, operand in enumerate(op.operands):
+            original_name = operand.get_name()
+            defining_op = operand.owner
+
+            # Check if operand comes from a constant operation
+            is_constant = (
+                defining_op
+                and hasattr(defining_op, "name")
+                and defining_op.name == "stablehlo.constant"
+            )
+
+            if is_constant:
+                standardized_name = f"%const{i}"
+                constant_ops[i] = (original_name, str(defining_op))
+            else:
+                standardized_name = f"%arg{i}"
+                non_constant_operands.append(Operand(standardized_name, operand.type))
+
+            operand_mapping[original_name] = standardized_name
+
+        # Build result mapping
+        result_mapping = {}
+        for i, result in enumerate(op.results):
+            original_name = result.get_name()
+            standardized_name = f"%res{i}"
+            result_mapping[original_name] = standardized_name
+
+        # Replace all identifiers in main op string
+        for original, standardized in {**result_mapping, **operand_mapping}.items():
+            self.op_string = _replace_mlir_identifier(
+                self.op_string, original, standardized
+            )
+
+        # Process constant ops: replace only the defining identifier in each
+        self.constant_ops_strings = []
+        for original_name, const_str in constant_ops.values():
+            standardized_name = operand_mapping[original_name]
+            const_str = _replace_mlir_identifier(
+                const_str, original_name, standardized_name
+            )
+            self.constant_ops_strings.append(const_str)
+
+        # Store results
+        self.operands = non_constant_operands
+        self.results = [
+            Result(f"%res{i}", result.type) for i, result in enumerate(op.results)
         ]
-        self.results = [Result(result.get_name(), result.type) for result in op.results]
         self.attributes = attrs
-        self.func_op = func_op
+        self.origin_model = [origin_model]
 
     def __str__(self) -> str:
-        return str(self.op)
+        return self.op_string
 
     def __repr__(self) -> str:
         return str(self)
 
     @property
     def name(self) -> str:
-        return self.op.name
+        return self.op_name
+
+    def add_origin_model(self, model: str) -> None:
+        """Adds a new origin model to the list if it's not already present."""
+        if model and model not in self.origin_model:
+            self.origin_model.append(model)
 
     def as_module_str(self) -> str:
         """
-        Wraps `self.op` in a MLIR `func` and then in a MLIR `module` and returns string
-        representation of that module.
+        Wraps the cached op string in a MLIR `func` and then in a MLIR `module` and
+        returns string representation of that module.
+
+        If the op has constant operands, they are emitted at the beginning of the
+        function body.
 
         Example
         ------
         ```
         module attributes {...} {
-            func.func main(...) -> ... {
-                %0 = self.op ...
-                return %0
+            func.func main(%arg0: tensor<...>) -> ... {
+                %const1 = stablehlo.constant dense<...> : tensor<...>
+                %res0 = <op>(%arg0, %const1) ...
+                return %res0
             }
         }
         ```
@@ -155,6 +235,11 @@ class OpWrapper:
         unpacked_operands = ", ".join(
             f"{operand.name}: {operand.type}" for operand in unique_operands
         )
+
+        # Prepare constant ops to emit in function body
+        constant_body = ""
+        if self.constant_ops_strings:
+            constant_body = "    " + "\n    ".join(self.constant_ops_strings) + "\n"
 
         if len(self.results) > 1:
             results = f"{', '.join(result.name for result in self.results)}"
@@ -175,16 +260,14 @@ class OpWrapper:
         else:
             attrs = "{}"
 
-        # Add func_op if present
-        func_op_str = f"  {self.func_op} \n" if self.func_op is not None else ""
-
         return (
             f"module attributes {attrs} {{ \n"
-            f"  func.func @main({unpacked_operands}) -> ({return_type}) {{ \n"
-            f"    {self.op} \n"
+            f'  func.func @main({unpacked_operands}) -> ({return_type}) attributes {{tt.function_type = "forward_device"}} {{ \n'
+            f"{constant_body}"
+            f"    {self.op_string} \n"
             f"    {return_stmt} \n"
             f"  }} \n"
-            f"{func_op_str}"
+            f"  {self.func_op_string}"
             f"}}"
         )
 
@@ -197,6 +280,8 @@ class OpWrapper:
         module_wrapper.origin_op_name = str(self.name)
         module_wrapper.origin_op_operands = self.operands
         module_wrapper.origin_op_results = self.results
+        # Convert list of origin models to a single string (comma-separated if multiple)
+        module_wrapper.origin_model = ", ".join(self.origin_model)
         return module_wrapper
 
 
@@ -214,15 +299,19 @@ class TTNNOpWrapper(OpWrapper):
         tt_device_op: ttcore.DeviceOp,
         attrs: Optional[OpAttributeMap] = None,
         func_op: Optional[func.FuncOp] = None,
+        origin_model: str = "",
     ) -> None:
-        super().__init__(op, attrs, func_op)
-        self.tt_device_op = tt_device_op
+        super().__init__(op, attrs, func_op, origin_model)
+        self.tt_device_op_string = str(tt_device_op)
 
     # @override
     def as_module_str(self) -> str:
         """
-        Implements wrapping of `self.op` in a TTNN module which is a bit more complex
-        than what base class does.
+        Implements wrapping of the cached op string in a TTNN module which is a bit more
+        complex than what base class does.
+
+        If the op has constant operands, they are emitted at the beginning of the
+        function body.
 
         Example
         -------
@@ -230,10 +319,11 @@ class TTNNOpWrapper(OpWrapper):
         module {
             ttcore.device_module {
                 builtin.module attributes {...} {
-                    self.tt_device_op ...
-                    func.func main(...) -> ... {
-                        %0 = self.op ...
-                        return %0
+                    <tt_device_op> ...
+                    func.func main(%arg0: tensor<...>) -> ... {
+                        %const1 = stablehlo.constant dense<...> : tensor<...>
+                        %res0 = <op>(%arg0, %const1) ...
+                        return %res0
                     }
                 }
             }
@@ -245,6 +335,11 @@ class TTNNOpWrapper(OpWrapper):
         unpacked_operands = ", ".join(
             f"{operand.name}: {operand.type}" for operand in unique_operands
         )
+
+        # Prepare constant ops to emit in function body
+        constant_body = ""
+        if self.constant_ops_strings:
+            constant_body = "    " + "\n    ".join(self.constant_ops_strings) + "\n"
 
         if len(self.results) > 1:
             results = f"({', '.join(result.name for result in self.results)})"
@@ -265,17 +360,15 @@ class TTNNOpWrapper(OpWrapper):
         else:
             attrs = "{}"
 
-        # Add func_op if present
-        func_op_str = f"  {self.func_op} \n" if self.func_op is not None else ""
-
         return (
             f"module {{ \n"
             f"ttcore.device_module {{ \n"
             f"builtin.module attributes {attrs} {{ \n"
-            f"  {self.tt_device_op} \n"
-            f"{func_op_str}"
-            f"  func.func @main({unpacked_operands}) -> {return_type} {{ \n"
-            f"    {self.op} \n"
+            f"  {self.tt_device_op_string} \n"
+            f"  {self.func_op_string}"
+            f'  func.func @main({unpacked_operands}) -> {return_type} attributes {{tt.function_type = "forward_device"}} {{ \n'
+            f"{constant_body}"
+            f"    {self.op_string} \n"
             f"    {return_stmt} \n"
             f"  }} \n"
             f"}} \n"
@@ -302,6 +395,7 @@ class ModuleWrapper:
         origin_op_name: Optional[str] = None,
         origin_op_operands: Optional[List[Operand]] = None,
         origin_op_results: Optional[List[Result]] = None,
+        origin_model: str = "",
     ) -> None:
         self.module: Module = module
         self.dialect: ModuleDialect = dialect or ModuleDialect.detect(module)
@@ -309,6 +403,7 @@ class ModuleWrapper:
         self.origin_op_name = origin_op_name
         self.origin_op_operands = origin_op_operands
         self.origin_op_results = origin_op_results
+        self.origin_model = origin_model
 
     def __repr__(self) -> str:
         s = f"ModuleWrapper(\ndialect: {self.dialect.value}\n{self.module}"
@@ -342,8 +437,13 @@ class ModuleWrapper:
         """Returns True if module originated as a single op."""
         return self.origin_op_name is not None
 
-    def wrap_op(self, op: OpView, func_op: Optional[func.FuncOp] = None) -> OpWrapper:
-        return OpWrapper(op, self._attributes, func_op)
+    def wrap_op(
+        self,
+        op: OpView,
+        func_op: Optional[func.FuncOp] = None,
+        origin_model: str = "",
+    ) -> OpWrapper:
+        return OpWrapper(op, self._attributes, func_op, origin_model)
 
     # ----- Private methods and properties -----
 
@@ -394,6 +494,7 @@ class TTNNModuleWrapper(ModuleWrapper):
         origin_op_name: Optional[str] = None,
         origin_op_operands: Optional[List[Operand]] = None,
         origin_op_results: Optional[List[Result]] = None,
+        origin_model: str = "",
     ) -> None:
         super().__init__(
             module,
@@ -401,6 +502,7 @@ class TTNNModuleWrapper(ModuleWrapper):
             origin_op_name=origin_op_name,
             origin_op_operands=origin_op_operands,
             origin_op_results=origin_op_results,
+            origin_model=origin_model,
         )
 
         self._tt_device_module_op: ttcore.DeviceModuleOp = self.module.body.operations[
@@ -434,9 +536,14 @@ class TTNNModuleWrapper(ModuleWrapper):
 
     # @override
     def wrap_op(
-        self, op: OpView, func_op: Optional[func.FuncOp] = None
+        self,
+        op: OpView,
+        func_op: Optional[func.FuncOp] = None,
+        origin_model: str = "",
     ) -> TTNNOpWrapper:
-        return TTNNOpWrapper(op, self._tt_device_op, self._attributes, func_op)
+        return TTNNOpWrapper(
+            op, self._tt_device_op, self._attributes, func_op, origin_model
+        )
 
     # ----- Private methods and properties -----
 
@@ -492,12 +599,9 @@ def preprocess_module_str(module_str: str) -> str:
     - `loc(...(...)...)` from other lines
     - `.sdy.mesh...` lines
     """
-    loc_pattern = re.compile(r"^#loc.*$", re.MULTILINE)
-    module_str = re.sub(loc_pattern, "", module_str)
-    loc_pattern = re.compile(r"\s*loc\((?:[^()]*(?:\([^()]*\))*)*\)")
-    module_str = re.sub(loc_pattern, "", module_str)
-    loc_pattern = re.compile(r"\s*sdy.mesh.*$", re.MULTILINE)
-    return re.sub(loc_pattern, "", module_str)
+    module_str = re.sub(_LOC_LINE_PATTERN, "", module_str)
+    module_str = re.sub(_LOC_INLINE_PATTERN, "", module_str)
+    return re.sub(_SDY_MESH_PATTERN, "", module_str)
 
 
 def convert_to_module_wrapper(func: Callable) -> Callable:
