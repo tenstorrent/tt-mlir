@@ -4,7 +4,7 @@
 // CHECK-LABEL: func @test_preserve_math_fidelity
 func.func @test_preserve_math_fidelity(%arg0: tensor<1x1x1024x64xbf16>, %arg1: tensor<64x64x3x3xbf16>, %device: !ttnn.device) -> tensor<1x1x900x64xbf16> {
   // CHECK: ttnn.conv2d
-  // CHECK-SAME: compute_config = #ttnn.device_compute_kernel_config<math_fidelity = lofi>
+  // CHECK-SAME: compute_config = #ttnn.device_compute_kernel_config<math_fidelity = lofi, fp32_dest_acc_en = true>
   // CHECK-NOT: hifi4
   %result = "ttnn.conv2d"(%arg0, %arg1, %device) {
     in_channels = 64: i32,

@@ -5,8 +5,8 @@
 #include "ttmlir/Conversion/TTNNToEmitPy/TTNNToEmitPy.h"
 #include "ttmlir/Dialect/EmitPy/IR/EmitPyOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
-#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
+#include "ttmlir/FunctionTypes.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Builders.h"
@@ -172,17 +172,13 @@ public:
     OpBuilder builder(&getContext());
     llvm::SmallVector<func::FuncOp> declarations;
     for (auto funcOp : deviceModule.getOps<func::FuncOp>()) {
-      if (!funcOp->hasAttr(ttir::CPUHoistedFuncAttr::name) ||
-          !funcOp.isDeclaration()) {
+      if (!ttmlir::utils::isForwardCPUDeclarationFunc(funcOp)) {
         continue;
       }
 
       llvm::StringRef declarationName = funcOp.getSymName();
-      assert(declarationName.ends_with(ttir::kCPUHoistedDeclSuffix) &&
-             "CPU-hoisted function declaration must end with '_decl'");
+      llvm::StringRef definitionName = declarationName;
 
-      auto definitionName =
-          declarationName.drop_back(strlen(ttir::kCPUHoistedDeclSuffix));
       (void)funcOp.replaceAllSymbolUses(builder.getStringAttr(definitionName),
                                         deviceModule);
 

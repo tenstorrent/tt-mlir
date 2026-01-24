@@ -51,15 +51,15 @@ def CPUHoistTransform: Pass<"cpu-hoist-transform", "::mlir::ModuleOp">
         builtin.module {
           func.func @add(%arg0: tensor<32x32xbf16>, %arg1: tensor<32x32xbf16>) -> tensor<32x32xbf16> {
             %0 = ttir.empty() : tensor<32x32xbf16>
-            %1 = call @hoisted_ttir_add_32x32xbf16_32x32xbf16_32x32xbf16_func_decl(%arg0, %arg1, %0) : (tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+            %1 = call @cpu_hoisted_ttir_add_<hash>(%arg0, %arg1, %0) : (tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
             return %1 : tensor<32x32xbf16>
           }
-          func.func private @hoisted_ttir_add_32x32xbf16_32x32xbf16_32x32xbf16_func_decl(tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+          func.func private @cpu_hoisted_ttir_add_<hash>(tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
         }
       }
       ttcore.cpu_module {
         builtin.module {
-          func.func @hoisted_ttir_add_32x32xbf16_32x32xbf16_32x32xbf16_func(%arg0: tensor<32x32xbf16>, %arg1: tensor<32x32xbf16>, %arg2: tensor<32x32xbf16>) -> tensor<32x32xbf16> attributes {arg_ranks = [2, 2, 2, 2], result_ranks = [2]} {
+          func.func @cpu_hoisted_ttir_add_<hash>(%arg0: tensor<32x32xbf16>, %arg1: tensor<32x32xbf16>, %arg2: tensor<32x32xbf16>) -> tensor<32x32xbf16> attributes {arg_ranks = [2, 2, 2, 2], result_ranks = [2]} {
             %0 = "ttir.add"(%arg0, %arg1, %arg2) : (tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
             return %0 : tensor<32x32xbf16>
           }
@@ -202,6 +202,69 @@ def TTIRFusing: Pass<"ttir-fusing", "::mlir::ModuleOp">
              "bool", /*default=*/"true",
              "Fuse permute ops into matmul/linear transpose attributes">,
   ];
+}
+
+def TTIRMoveReshapeToConstant: Pass<"ttir-move-reshape-to-constant", "::mlir::ModuleOp">
+{
+  let summary = "Move reshapes from activation paths to constant paths.";
+  let description = [{
+    This pass identifies reshape operations that exist solely to match the shape
+    of a constant tensor operand in elementwise operations. Instead of reshaping
+    the activation tensor, it moves the inverse reshape onto the constant path,
+    which can then be folded or const-eval'd away.
+
+    Example:
+      Before:
+        %const = ttir.constant() {value = dense<2.0> : tensor<32x1x2560xf32>} : () -> tensor<32x1x2560xf32>
+        %activation = ... : tensor<32x2560xf32>
+        %reshaped = ttir.reshape(%activation) {shape = [32, 1, 2560]} : ... -> tensor<32x1x2560xf32>
+        %result = ttir.pow(%reshaped, %const) : ... -> tensor<32x1x2560xf32>
+
+      After:
+        %const = ttir.constant() {value = dense<2.0> : tensor<32x1x2560xf32>} : () -> tensor<32x1x2560xf32>
+        %const_reshaped = ttir.reshape(%const) {shape = [32, 2560]} : ... -> tensor<32x2560xf32>
+        %activation = ... : tensor<32x2560xf32>
+        %result = ttir.pow(%activation, %const_reshaped) : ... -> tensor<32x2560xf32>
+
+    The reshape on the constant path can be folded away during const-eval, removing
+    the reshape from the critical activation path.
+  }];
+
+  let dependentDialects = ["mlir::tt::ttcore::TTCoreDialect", "mlir::tt::ttir::TTIRDialect"];
+}
+
+def TTIRFoldConstantReshapeBroadcast: Pass<"ttir-fold-constant-reshape-broadcast", "::mlir::ModuleOp">
+{
+  let summary = "Fold reshape and broadcast operations on constants into new constants.";
+  let description = [{
+    This pass folds reshape and broadcast operations on constant tensors when the
+    result is consumed by elementwise operations (add, sub, mul, div, pow). Instead
+    of keeping the reshape/broadcast op, it creates a new constant with the target shape.
+
+    Reshape Example:
+      Before:
+        %const = ttir.constant() {value = dense<2.0> : tensor<32x1x2560xf32>} : () -> tensor<32x1x2560xf32>
+        %const_reshaped = ttir.reshape(%const) {shape = [32, 2560]} : ... -> tensor<32x2560xf32>
+        %result = ttir.pow(%activation, %const_reshaped) : ... -> tensor<32x2560xf32>
+
+      After:
+        %const = ttir.constant() {value = dense<2.0> : tensor<32x2560xf32>} : () -> tensor<32x2560xf32>
+        %result = ttir.pow(%activation, %const) : ... -> tensor<32x2560xf32>
+
+    Broadcast Example:
+      Before:
+        %const = ttir.constant() {value = dense<2.0> : tensor<1x2560xf32>} : () -> tensor<1x2560xf32>
+        %const_bcast = ttir.broadcast(%const) : ... -> tensor<32x2560xf32>
+        %result = ttir.multiply(%activation, %const_bcast) : ... -> tensor<32x2560xf32>
+
+      After:
+        %const = ttir.constant() {value = dense<2.0> : tensor<32x2560xf32>} : () -> tensor<32x2560xf32>
+        %result = ttir.multiply(%activation, %const) : ... -> tensor<32x2560xf32>
+
+    This eliminates the reshape/broadcast operation entirely from the graph.
+  }];
+
+  let dependentDialects = ["mlir::tt::ttcore::TTCoreDialect", "mlir::tt::ttir::TTIRDialect"];
 }
 
 def TTIRMultiDeviceTensorAnnotation: Pass<"ttir-multi-device-tensor-annotation", "::mlir::ModuleOp">

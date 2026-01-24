@@ -10,7 +10,9 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
+#include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 #include "ttmlir/Dialect/TTNN/Validation/OpConstraintValidation.h"
+#include "ttmlir/FunctionTypes.h"
 #include "ttmlir/Support/Logger.h"
 #include "ttmlir/Utils.h"
 
@@ -28,6 +30,7 @@
 #include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/Error.h"
 
+#include <cassert>
 #include <queue>
 #include <utility>
 #include <vector>
@@ -60,7 +63,8 @@ public:
     IRRewriter rewriter(&getContext());
 
     moduleOp->walk([&](func::FuncOp func) {
-      if (ttmlir::utils::isConstEvalFunc(func)) {
+      // Apply analysis only on forward functions.
+      if (!ttmlir::utils::isForwardDeviceFunc(func)) {
         return;
       }
 
@@ -191,11 +195,14 @@ private:
 
   // Propagates RowMajor layout through the function starting from the given
   // argument values. Updates the operation result types in-place. Stops when
-  // reaching operations that return Tiled layouts.
+  // reaching operations that return Tiled layouts. Inserts ToLayoutOps before
+  // ReturnOp when actual layout differs from expected function signature.
   void
   propagateRowMajorLayout(func::FuncOp func,
                           const llvm::SmallVector<Value> &rowMajorArgs,
                           llvm::DenseMap<Operation *, Layout> &constraints) {
+    IRRewriter rewriter(func.getContext());
+    FunctionType funcType = func.getFunctionType();
 
     std::queue<Value> worklist = {};
 
@@ -209,6 +216,12 @@ private:
 
       for (auto &use : current.getUses()) {
         Operation *user = use.getOwner();
+
+        if (auto returnOp = mlir::dyn_cast<func::ReturnOp>(user)) {
+          handleReturnOp(rewriter, funcType, returnOp, use.getOperandNumber(),
+                         current);
+          continue;
+        }
 
         llvm::Expected<TTNNLayoutAttr> rmOutputLayout =
             opStopsRowMajorPropagation(user, use.getOperandNumber());
@@ -303,6 +316,51 @@ private:
                  result.actualOutputLayout);
 
     return result.actualOutputLayout;
+  }
+
+  // Handles ReturnOp during propagation. Checks if actual layout matches
+  // expected function signature and inserts ToLayoutOp if needed for tilizing.
+  void handleReturnOp(IRRewriter &rewriter, FunctionType funcType,
+                      func::ReturnOp returnOp, unsigned operandIdx,
+                      Value previousOp) {
+    auto actualTensorType =
+        mlir::dyn_cast<RankedTensorType>(previousOp.getType());
+    assert(actualTensorType && "Expected ranked tensor type");
+
+    auto actualLayout =
+        mlir::dyn_cast_or_null<TTNNLayoutAttr>(actualTensorType.getEncoding());
+    assert(actualLayout && "Expected layout attribute");
+    assert(!actualLayout.isTiled() &&
+           "Expected row major as propagation result");
+
+    // Extract expected layout from function signature and check if conversion
+    // needed
+    Type expectedReturnType = funcType.getResult(operandIdx);
+    auto expectedTensorType =
+        mlir::dyn_cast<RankedTensorType>(expectedReturnType);
+    if (!expectedTensorType) {
+      return;
+    }
+    auto expectedLayout = mlir::dyn_cast_or_null<TTNNLayoutAttr>(
+        expectedTensorType.getEncoding());
+    if (!expectedLayout || !expectedLayout.isTiled()) {
+      return;
+    }
+
+    TTMLIR_DEBUG(ttmlir::LogComponent::RMPropagation,
+                 "Inserting ToLayoutOp before return for operand {}: "
+                 "actual layout {} -> expected layout {}",
+                 operandIdx, actualLayout, expectedLayout);
+
+    rewriter.setInsertionPoint(returnOp);
+
+    auto toLayoutOp = utils::createToLayoutOp(
+        returnOp, mlir::cast<mlir::TypedValue<RankedTensorType>>(previousOp),
+        rewriter, expectedLayout.getLayout(), expectedLayout.getBufferType(),
+        expectedLayout.getMemLayout(), expectedLayout.getDataType(),
+        "_return_conversion");
+
+    returnOp.setOperand(operandIdx, toLayoutOp.getResult());
   }
 
   // Extract OpConfig from operation's IR
