@@ -833,7 +833,7 @@ class StableHLOBuilder(Builder):
                 ordered_outputs = []
 
                 @func.func(*op_input_types, name="dynamic_update_slice_module")
-                def decorated_func(*inputs):
+                def decorated_func(*inputs, output_type: Optional[torch.dtype] = None, output_create_fn: Optional[Callable] = None):
                     input = inputs[0]
                     update = inputs[1]
                     start_indices = inputs[2 : 2 + len(old_op.start_indices)]
@@ -974,7 +974,7 @@ class StableHLOBuilder(Builder):
                 ordered_outputs = []
 
                 @func.func(*op_input_types, name="get_dimension_size_module")
-                def decorated_func(*inputs):
+                def decorated_func(*inputs, output_type: Optional[torch.dtype] = None, output_create_fn: Optional[Callable] = None):
                     in0 = inputs[0]
 
                     new_op = stablehlo_op(
@@ -1103,7 +1103,7 @@ class StableHLOBuilder(Builder):
                 ordered_outputs = []
 
                 @func.func(*op_input_types, name="add_module")
-                def decorated_func(*inputs):
+                def decorated_func(*inputs, output_type: Optional[torch.dtype] = None, output_create_fn: Optional[Callable] = None):
                     lhs = inputs[0]
                     rhs = inputs[1]
 
@@ -1224,7 +1224,7 @@ class StableHLOBuilder(Builder):
                 ordered_outputs = []
 
                 @func.func(*op_input_types, name="and_module")
-                def decorated_func(*inputs):
+                def decorated_func(*inputs, output_type: Optional[torch.dtype] = None, output_create_fn: Optional[Callable] = None):
                     lhs = inputs[0]
                     rhs = inputs[1]
 
@@ -1334,7 +1334,7 @@ class StableHLOBuilder(Builder):
                 ordered_outputs = []
 
                 @func.func(*op_input_types, name="abs_module")
-                def decorated_func(*inputs):
+                def decorated_func(*inputs, output_type: Optional[torch.dtype] = None, output_create_fn: Optional[Callable] = None):
                     operand = inputs[0]
 
                     new_op = stablehlo_op(operand, loc=old_op.location)
@@ -1441,7 +1441,7 @@ class StableHLOBuilder(Builder):
                 ordered_outputs = []
 
                 @func.func(*op_input_types, name="ceil_module")
-                def decorated_func(*inputs):
+                def decorated_func(*inputs, output_type: Optional[torch.dtype] = None, output_create_fn: Optional[Callable] = None):
                     operand = inputs[0]
 
                     new_op = stablehlo_op(operand, loc=old_op.location)
