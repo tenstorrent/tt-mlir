@@ -25,8 +25,8 @@ if [ ! -d "$TTMLIR_TOOLCHAIN_DIR" ]; then
   source $ENV_DIR/activate
 fi
 
-python -m pip install --upgrade pip
+$TTMLIR_PYTHON_VERSION -m pip install --upgrade pip
 # Requirements for third party projects are installed during their build in `CMakeLists.txt`
-pip install --no-cache-dir -r $ENV_DIR/build-requirements.txt
-pip install --no-cache-dir -r $ENV_DIR/ttnn-requirements.txt
-pip install --no-cache-dir -r $ENV_DIR/../test/python/requirements.txt
+$TTMLIR_PYTHON_VERSION -m pip install --no-cache-dir -r $ENV_DIR/build-requirements.txt
+$TTMLIR_PYTHON_VERSION -m pip install --no-cache-dir -r $ENV_DIR/ttnn-requirements.txt
+$TTMLIR_PYTHON_VERSION -m pip install --no-cache-dir -r $ENV_DIR/../test/python/requirements.txt
