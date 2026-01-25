@@ -6,8 +6,6 @@ import pytest
 import torch
 from typing import List
 
-from ttmlir.ir import *
-
 from builder.base.builder_utils import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_apis import (

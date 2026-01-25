@@ -6,8 +6,8 @@ import pytest
 import torch
 from typing import Callable, List
 
-from ttmlir.dialects import ttir, ttcore
-from ttmlir.ir import *
+import ttmlir
+from ttmlir.dialects import ttcore
 
 from builder.base.builder_utils import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder

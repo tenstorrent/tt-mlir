@@ -14,8 +14,9 @@ from collections import OrderedDict
 import json
 from dataclasses import dataclass
 
-from ttmlir.ir import *
+import ttmlir
 from ttmlir.dialects import func, ttcore, ttnn, ttir
+from ttmlir.ir import *
 from ttmlir.passmanager import PassManager
 from ttmlir.passes import (
     tt_populate_argument_types,
@@ -288,7 +289,9 @@ def get_metal_tensor_layout(
 
     # For tiled layouts, ensure the device shape accounts for tiles.
     if tiled:
-        elemType = ttcore.ir.TileType.get(ctx, 32, 32, ttcore.DataType.Float32)
+        elemType = ttcore.ir.TileType.get(
+            ctx, 32, 32, ttcore.ir.DataTypeAttr.get(ctx, ttcore.ir.DataType.Float32)
+        )
         if grid is None or grid == (1, 1):
             # For default 1x1 grid, use tile count based on aligned shape.
             # If dim_alignments is specified, use that; otherwise use logical_shape.

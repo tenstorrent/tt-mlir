@@ -2,4 +2,4 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-from .._mlir_libs._ttmlir import register_dialects
+from .._mlir_libs._ttmlir import register_dialects, context_init_hook

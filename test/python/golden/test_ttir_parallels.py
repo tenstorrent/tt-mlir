@@ -7,6 +7,9 @@ import pytest
 from typing import List, Tuple
 from collections import OrderedDict
 
+import ttmlir
+from ttmlir.dialects import ttcore
+
 from builder.base.builder_utils import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_apis import compile_and_execute_ttir
@@ -66,7 +69,7 @@ def _build_matmul_parallel(
     partial_matmul = builder.matmul(mesh_shard_in, mesh_shard_wt)
     reduced = builder.reduce_scatter(
         partial_matmul,
-        reduce_type=ReduceType.Sum.value,
+        reduce_type=ttcore.ir.ReduceType.Sum,
         scatter_dim=1,
         cluster_axis=parallelize_axis,
     )
@@ -608,7 +611,7 @@ def test_jit_tensor_parallel(mesh_shape: Tuple[int, int], request, device):
             reduce_scatter = builder.reduce_scatter(
                 permute,
                 scatter_dim=2,
-                reduce_type=ReduceType.Sum.value,
+                reduce_type=ttcore.ir.ReduceType.Sum,
                 cluster_axis=1,
             )
             mesh_shard_out = builder.mesh_shard(
@@ -730,7 +733,7 @@ def test_jit_data_tensor_parallel(mesh_shape: Tuple[int, int], request, device):
             reduce_scatter = builder.reduce_scatter(
                 permute,
                 scatter_dim=2,
-                reduce_type=ReduceType.Sum.value,
+                reduce_type=ttcore.ir.ReduceType.Sum,
                 cluster_axis=1,
             )
             shard_dims_out = [0, 2]

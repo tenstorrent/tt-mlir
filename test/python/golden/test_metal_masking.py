@@ -17,6 +17,7 @@ import pytest
 import torch
 from typing import List
 
+import ttmlir
 from ttmlir.dialects import ttcore
 from ttmlir.ir import *
 

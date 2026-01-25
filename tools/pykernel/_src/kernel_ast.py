@@ -6,6 +6,7 @@ import ast
 import inspect
 import functools
 
+import ttmlir
 from ttmlir.ir import *
 from ttmlir.dialects import ttcore, ttkernel, func, scf, arith, memref, emitc
 from ttmlir.dialects._ods_common import get_default_loc_context
@@ -89,7 +90,7 @@ class TTCompilerBase(PyKernelAstBase):
             default_context = get_default_loc_context()
         except ValueError:
             default_context = None
-        self.ctx = default_context if default_context is not None else Context()
+        self.ctx = default_context if default_context is not None else ttmlir.Context()
         self.cursor = Location.unknown(self.ctx)
         self.module = Module.create(self.cursor)
         self.insert_point = self.module.body
@@ -945,7 +946,10 @@ class TTKernelCompiler(TTCompilerBase):
             operand_idx += 1
 
             tile_type = ttcore.ir.TileType.get(
-                self.ctx, 32, 32, getattr(ttcore.DataType, self.args[i].dtype)
+                self.ctx,
+                32,
+                32,
+                ttcore.ir.DataTypeAttr.get(self.ctx, self.args[i].dtype),
             )
 
         self.func_entry = func.FuncOp(name=node.name, type=([], []))
@@ -972,7 +976,10 @@ class TTKernelCompiler(TTCompilerBase):
             # Get all of the CBs using the arg_spec attr
             for indexIndex, i in enumerate(cb_idx):
                 tile_type = ttcore.ir.TileType.get(
-                    self.ctx, 32, 32, getattr(ttcore.DataType, self.args[i].dtype)
+                    self.ctx,
+                    32,
+                    32,
+                    ttcore.ir.DataTypeAttr.get(self.ctx, self.args[i].dtype),
                 )
                 cb_type = ttkernel.ir.CBType.get(
                     self.ctx, MemRefType.get(self.args[i].tilized_shape, tile_type)

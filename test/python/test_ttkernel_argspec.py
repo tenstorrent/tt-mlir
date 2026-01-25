@@ -6,10 +6,11 @@
 
 # Tests for the ttkernel::ArgSpecAttr Python bindings
 
-from ttmlir.ir import *
+import ttmlir
 from ttmlir.dialects import ttkernel
+from ttmlir.ir import *
 
-with Context() as ctx, Location.unknown():
+with ttmlir.Context() as ctx, Location.unknown():
     # Create ArgAttr instances for rt_args and ct_args.
     # ArgAttr.get() returns MlirAttribute for MLIR interop.
     rt_arg1_attr = ttkernel.ir.ArgAttr.get(ctx._CAPIPtr, 0, 0, True)

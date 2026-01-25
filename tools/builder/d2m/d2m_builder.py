@@ -11,8 +11,9 @@ from enum import Enum, auto
 import re
 from collections import OrderedDict
 
-from ttmlir.ir import *
+import ttmlir
 from ttmlir.dialects import d2m, ttcore, tensor, quant
+from ttmlir.ir import *
 from ttmlir.passes import GoldenTensor, DataType
 
 from builder.base.builder import *

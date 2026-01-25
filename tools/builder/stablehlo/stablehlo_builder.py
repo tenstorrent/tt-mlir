@@ -14,8 +14,9 @@ import re
 from collections import OrderedDict
 import math
 
-from ttmlir.ir import *
+import ttmlir
 from ttmlir.dialects import stablehlo, sdy, mpmd, func
+from ttmlir.ir import *
 
 from builder.base.builder import *
 from builder.base.builder_utils import *

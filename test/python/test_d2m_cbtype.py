@@ -6,10 +6,11 @@
 
 # Tests for the d2m::CBType Python bindings
 
-from ttmlir.ir import *
+import ttmlir
 from ttmlir.dialects import d2m, ttcore
+from ttmlir.ir import *
 
-with Context() as ctx, Location.unknown():
+with ttmlir.Context() as ctx, Location.unknown():
     # Test CBType.get() with a tensor type
     f32 = F32Type.get()
     tensor_type = RankedTensorType.get([32, 64], f32)
@@ -33,7 +34,9 @@ with Context() as ctx, Location.unknown():
     print(cb_memref)
 
     # TileType test
-    tile_type = ttcore.ir.TileType.get(ctx, 32, 32, 2)  # 2 = BFloat16
+    tile_type = ttcore.ir.TileType.get(
+        ctx, 32, 32, ttcore.ir.DataTypeAttr.get(ctx, ttcore.ir.DataType.BFloat16)
+    )
     tile_tensor = RankedTensorType.get([2, 4], tile_type)
     cb_tile = d2m.ir.CBType.get(ctx, tile_tensor)
 

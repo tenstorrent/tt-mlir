@@ -14,8 +14,9 @@ from typing import Callable, List, Optional, Tuple, Union, Literal, Dict
 from collections import OrderedDict
 import json
 
-from ttmlir.ir import *
+import ttmlir
 from ttmlir.dialects import func, ttcore, ttnn, ttir, sdy
+from ttmlir.ir import *
 from ttmlir.passmanager import PassManager
 from ttmlir.passes import (
     tt_populate_argument_types,
@@ -175,7 +176,7 @@ def build_module(
     Tuple[Module, Union[TTIRBuilder, StableHLOBuilder, TTNNBuilder, D2MBuilder]]
         The constructed MLIR module and the corresponding builder instance.
     """
-    ctx = Context()
+    ctx = ttmlir.Context()
 
     try:
         fname = inspect.getfile(mod)
@@ -1308,7 +1309,7 @@ def load_mlir_file(
     Tuple[Module, Builder]
         Parsed MLIR module and a builder instance initialized from it.
     """
-    ctx = Context()
+    ctx = ttmlir.Context()
 
     if target == "ttir":
         module, builder = TTIRBuilder.from_module(ctx, mlir_text, golden_inputs)
@@ -1376,7 +1377,7 @@ def generate_all_module_permutations(mlir_text: str, num_devices: int) -> List[M
     List[Module]
         All discovered module permutations suitable for the given device count.
     """
-    ctx = Context()
+    ctx = ttmlir.Context()
     loc = Location.unknown(ctx)
 
     with ctx, loc:
@@ -1421,7 +1422,7 @@ def experimental_build_stablehlo_module(
     base: Optional[str] = None,
     output_root: str = ".",
 ) -> Tuple[Module, StableHLOBuilder]:
-    ctx = Context()
+    ctx = ttmlir.Context()
 
     # Grab the location of the test function in python for later debugging
     try:

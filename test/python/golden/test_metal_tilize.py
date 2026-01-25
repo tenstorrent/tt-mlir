@@ -6,9 +6,6 @@ import pytest
 import torch
 from typing import Callable, List
 
-from ttmlir.dialects import ttcore
-from ttmlir.ir import *
-
 from builder.base.builder_utils import Operand, Shape
 from golden import get_golden_function
 from builder.d2m.d2m_builder import D2MBuilder
