@@ -4047,6 +4047,10 @@ mlir::tt::ttnn::SplitQueryKeyValueAndSplitHeadsOp::verify() {
   size_t numberOfInputsAndOutputs = getInputsAndOutputs().size();
   size_t numberOfSemaphores = program.getSemaphores().size();
 
+  if (numberOfInputsAndOutputs == 0) {
+    return emitError() << "GenericOp must have at least one operand";
+  }
+
   for (auto kernel : program.getKernels()) {
     auto kernelInterface = llvm::cast<KernelInterface>(kernel);
 
