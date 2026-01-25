@@ -41,6 +41,13 @@ static bool cantChangeOutputLayout(Operation *op) {
     return true;
   }
 
+  // DispatchD2MOp output layouts are determined by boundary conditions
+  // (producer/consumer ops), not by layout analysis. The optimizer assigns
+  // layouts based on what flows in and what consumers expect.
+  if (llvm::isa<DispatchD2MOp>(op)) {
+    return true;
+  }
+
   return false;
 }
 
@@ -145,6 +152,11 @@ bool LegalOpLayoutAnalysis::isValidAnalysisTarget(Operation *op) {
     return false;
   }
   if (llvm::isa<mlir::tt::ttnn::EmptyOp>(op)) {
+    return false;
+  }
+  // DispatchD2MOp layouts are handled separately - they inherit from
+  // producer/consumer boundary conditions, not from layout analysis.
+  if (llvm::isa<mlir::tt::ttnn::DispatchD2MOp>(op)) {
     return false;
   }
   return true;

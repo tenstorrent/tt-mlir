@@ -5,6 +5,7 @@
 #ifndef TTMLIR_DIALECT_TTNN_ANALYSIS_MEMORYLAYOUTANALYSIS_H
 #define TTMLIR_DIALECT_TTNN_ANALYSIS_MEMORYLAYOUTANALYSIS_H
 
+#include "ttmlir/Dialect/TTNN/Analysis/DFShardingPolicy.h"
 #include "ttmlir/Dialect/TTNN/Analysis/Edge.h"
 #include "ttmlir/Dialect/TTNN/Analysis/L1ChainConfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
@@ -60,9 +61,12 @@ struct MemoryLayoutAnalysisResult {
   std::vector<Operation *> spillToL1InterleavedOps;
   llvm::DenseMap<func::FuncOp, llvm::SmallVector<Operation *>> schedule;
 
+  // DispatchD2MOp configs (layout + L1 budget) computed by DFShardingPolicy
+  llvm::DenseMap<Operation *, DispatchD2MConfig> dispatchD2MConfigs;
+
   MemoryLayoutAnalysisResult()
       : legalConfigs(), memReconfigEntryMap(), spillToDramOps(),
-        spillToL1InterleavedOps(), schedule() {}
+        spillToL1InterleavedOps(), schedule(), dispatchD2MConfigs() {}
 
   MemoryLayoutAnalysisResult(
       const llvm::DenseMap<Operation *, std::vector<OpConfig>> &legalConfigs,

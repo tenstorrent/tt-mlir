@@ -287,6 +287,12 @@ public:
           return;
         }
 
+        // Skip ops inside DispatchD2MOp regions - internal subgraph is opaque
+        // and will be compiled separately by D2M.
+        if (op->getParentOfType<DispatchD2MOp>()) {
+          return;
+        }
+
         RankedTensorType tensorType =
             mlir::cast<RankedTensorType>(op->getResult(0).getType());
 
@@ -342,6 +348,8 @@ public:
 
     applyConv2dSliceConfigWorkaround(moduleOp);
 
+    llvm::DenseMap<Operation *, DispatchD2MConfig> dispatchD2MConfigs;
+
     if (memoryLayoutAnalysisEnabled) {
       // Perform memory layout analysis.
       //
@@ -358,6 +366,7 @@ public:
       spillToDramOps = memoryLayoutAnalysis.getResult().spillToDramOps;
       spillToL1InterleavedOps =
           memoryLayoutAnalysis.getResult().spillToL1InterleavedOps;
+      dispatchD2MConfigs = memoryLayoutAnalysis.getResult().dispatchD2MConfigs;
     }
 
     // Manually overriden resharding edges should be added to the
@@ -413,6 +422,12 @@ public:
         // Skip empty ops. Handled via DPS op output operand update.
         //
         if (isa<EmptyOp>(op)) {
+          return;
+        }
+
+        // Skip ops inside DispatchD2MOp regions - internal subgraph is opaque
+        // and will be compiled separately by D2M.
+        if (op->getParentOfType<DispatchD2MOp>()) {
           return;
         }
 
@@ -480,21 +495,44 @@ public:
             TensorMemoryLayoutAttr tensorMemoryLayoutAttr =
                 layoutAttr.getMemLayout();
 
-            op->getOperands().back().setType(newTensorType);
-            EmptyOp emptyOp =
-                mlir::cast<EmptyOp>(op->getOperands().back().getDefiningOp());
+            // DispatchD2MOp may have multiple outputs - update each EmptyOp.
+            if (auto dispatchOp = dyn_cast<DispatchD2MOp>(op)) {
+              for (size_t i = 0; i < dispatchOp.getOutputs().size(); ++i) {
+                Value outputOperand = dispatchOp.getOutputs()[i];
+                outputOperand.setType(dispatchOp.getResult(i).getType());
 
-            emptyOp.setDtype(layoutAttr.getDataType());
-            if (layoutAttr.isTiled()) {
-              emptyOp.setLayout(ttnn::Layout::Tile);
+                if (auto emptyOp =
+                        dyn_cast<EmptyOp>(outputOperand.getDefiningOp())) {
+                  emptyOp.setDtype(layoutAttr.getDataType());
+                  if (layoutAttr.isTiled()) {
+                    emptyOp.setLayout(ttnn::Layout::Tile);
+                  } else {
+                    emptyOp.setLayout(ttnn::Layout::RowMajor);
+                  }
+                  emptyOp.setMemoryConfigAttr(ttnn::MemoryConfigAttr::get(
+                      op->getContext(), tensorMemoryLayoutAttr,
+                      BufferTypeAttr::get(op->getContext(), bufferType),
+                      utils::createShardSpecIfNeeded(layoutAttr, deviceGrid)));
+                }
+              }
             } else {
-              emptyOp.setLayout(ttnn::Layout::RowMajor);
-            }
+              // Regular DPS ops have single EmptyOp as the output operand
+              op->getOperands().back().setType(newTensorType);
+              EmptyOp emptyOp =
+                  mlir::cast<EmptyOp>(op->getOperands().back().getDefiningOp());
 
-            emptyOp.setMemoryConfigAttr(ttnn::MemoryConfigAttr::get(
-                op->getContext(), tensorMemoryLayoutAttr,
-                BufferTypeAttr::get(op->getContext(), bufferType),
-                utils::createShardSpecIfNeeded(layoutAttr, deviceGrid)));
+              emptyOp.setDtype(layoutAttr.getDataType());
+              if (layoutAttr.isTiled()) {
+                emptyOp.setLayout(ttnn::Layout::Tile);
+              } else {
+                emptyOp.setLayout(ttnn::Layout::RowMajor);
+              }
+
+              emptyOp.setMemoryConfigAttr(ttnn::MemoryConfigAttr::get(
+                  op->getContext(), tensorMemoryLayoutAttr,
+                  BufferTypeAttr::get(op->getContext(), bufferType),
+                  utils::createShardSpecIfNeeded(layoutAttr, deviceGrid)));
+            }
           }
           // TODO(mtopalovic): Temp workaround for generic ToLayoutOp. Allign
           // MemoryConfigAttr with layout attribute of its output tensor. This
@@ -595,6 +633,12 @@ public:
       processSpillOps(spillToDramOps, deviceGrid, insertedMemoryReconfigOps);
       processSpillToL1InterleavedOps(spillToL1InterleavedOps, deviceGrid);
 
+      // Apply L1 budgets to DispatchD2MOps (from analysis, not recomputed)
+      applyDispatchD2MOpL1Budgets(dispatchD2MConfigs);
+
+      // Synchronize DispatchD2MOp internal func's types with dispatch I/O types
+      syncDispatchD2MOpInternalFuncTypes(func);
+
       // Try finding ops that can be upgraded from DRAM to L1 interleaved
       // layout.
       if (l1InterleavedFallbackAnalysisEnabled) {
@@ -612,16 +656,14 @@ public:
       SmallVector<Type> funcResultTypes;
 
       // Pick up return op result types and update func type.
-      func->walk([&](Operation *op) {
-        if (op->getNumResults() == 0) {
-          func::ReturnOp funcReturn = dyn_cast<func::ReturnOp>(op);
-          if (funcReturn) {
-            funcResultTypes.append(funcReturn.getOperandTypes().begin(),
-                                   funcReturn.getOperandTypes().end());
-          }
-          return;
+      // Only check the function's own blocks, not nested regions (e.g.,
+      // dispatch_d2m's internal subgraph which has its own func.return).
+      for (Block &block : func.getBody()) {
+        if (auto funcReturn = dyn_cast<func::ReturnOp>(block.getTerminator())) {
+          funcResultTypes.append(funcReturn.getOperandTypes().begin(),
+                                 funcReturn.getOperandTypes().end());
         }
-      });
+      }
 
       // Update the function type to reflect the updated return operation's
       // result types.
@@ -1072,6 +1114,88 @@ private:
         }
       }
     }
+  }
+
+  // Apply L1 budgets from analysis to DispatchD2MOps.
+  // L1 budget is computed in DFShardingPolicy, not here.
+  void applyDispatchD2MOpL1Budgets(
+      const llvm::DenseMap<Operation *, DispatchD2MConfig> &dispatchConfigs) {
+    for (const auto &[op, config] : dispatchConfigs) {
+      auto dispatchOp = cast<DispatchD2MOp>(op);
+      dispatchOp.setAvailableL1Attr(IntegerAttr::get(
+          IntegerType::get(dispatchOp.getContext(), 64, IntegerType::Unsigned),
+          config.availableL1));
+
+      TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+                   "DispatchD2MOp {} - L1 budget: {} bytes",
+                   dispatchOp.getD2mFunc(), config.availableL1);
+    }
+  }
+
+  // Synchronize DispatchD2MOp internal func's block arguments and return types
+  // with the dispatch's actual input and output types. After the optimizer
+  // updates producer op outputs (e.g., matmul -> block_sharded), the dispatch's
+  // ins/outs SSA values have updated types, but the internal func's block args
+  // and return types are stale and need to be synchronized.
+  void syncDispatchD2MOpInternalFuncTypes(func::FuncOp outerFunc) {
+    outerFunc->walk([&](DispatchD2MOp dispatchOp) {
+      // Get the internal module and func
+      Region &region = dispatchOp.getBody();
+      if (region.empty()) {
+        return;
+      }
+
+      // Find the builtin.module inside the dispatch_d2m region
+      for (auto &block : region) {
+        for (Operation &op : block) {
+          if (auto internalModule = dyn_cast<ModuleOp>(&op)) {
+            // Find the func inside the module
+            for (auto internalFunc :
+                 internalModule.getOps<mlir::func::FuncOp>()) {
+              // Update block argument types to match dispatch's input types
+              Block &entryBlock = internalFunc.getBody().front();
+              OperandRange dispatchInputs = dispatchOp.getInputs();
+
+              assert(entryBlock.getNumArguments() == dispatchInputs.size() &&
+                     "Internal func arg count must match dispatch input count");
+
+              for (size_t i = 0; i < dispatchInputs.size(); ++i) {
+                Type inputType = dispatchInputs[i].getType();
+                entryBlock.getArgument(i).setType(inputType);
+              }
+
+              // Update return type to match dispatch's output type
+              // DispatchD2MOp always has exactly one result
+              Type outputType = dispatchOp.getResult(0).getType();
+
+              // Update the function signature
+              SmallVector<Type> inputTypes;
+              for (Value input : dispatchInputs) {
+                inputTypes.push_back(input.getType());
+              }
+
+              FunctionType newFuncType = FunctionType::get(
+                  internalFunc.getContext(), inputTypes, {outputType});
+              internalFunc.setType(newFuncType);
+
+              // Update the return op's operand type to match the dispatch
+              // output type. D2M compiler will handle the layout conversion
+              // internally.
+              for (Block &block : internalFunc.getBody()) {
+                if (auto returnOp =
+                        dyn_cast<func::ReturnOp>(block.getTerminator())) {
+                  if (returnOp->getNumOperands() == 1) {
+                    Value returnValue = returnOp->getOperand(0);
+                    // Directly change the type - D2M will handle the conversion
+                    returnValue.setType(outputType);
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    });
   }
 
   void applyConv2dSliceConfigWorkaround(ModuleOp moduleOp) {

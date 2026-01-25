@@ -2932,7 +2932,8 @@ def TTNN_DispatchD2MOp : Op<TTNN_Dialect, "dispatch_d2m",
 
   let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
                        Variadic<AnyRankedTensor>:$outputs,
-                       SymbolRefAttr:$d2m_func);
+                       SymbolRefAttr:$d2m_func,
+                       OptionalAttr<UI64Attr>:$available_l1);
 
   let results = (outs Variadic<AnyRankedTensor>:$results);
 

@@ -302,7 +302,8 @@ public:
           {},
       std::function<llvm::Expected<TTNNLayoutAttr>(Value, TTNNLayoutAttr,
                                                    Operation *, OpConfig)>
-          customCheckShardCompatible = nullptr);
+          customCheckShardCompatible = nullptr,
+      bool solveForOptimalFirstOpInput = false);
   RemainingConfigAttrs at(Operation *operation) const;
   void set(Operation *operation, const OpConfig &config);
 
@@ -348,6 +349,21 @@ private:
   std::function<llvm::Expected<TTNNLayoutAttr>(mlir::Value, TTNNLayoutAttr,
                                                mlir::Operation *, OpConfig)>
       customCheckShardCompatible;
+
+  // When true, preprocessFirstOp enumerates possible input layouts and solves
+  // for the optimal one (used when first op consumes from dispatch_d2m).
+  bool solveForOptimalFirstOpInput = false;
+
+  // The resolved optimal input layout for the first op (populated after
+  // solving when solveForOptimalFirstOpInput is true).
+  TTNNLayoutAttr resolvedFirstOpInputLayout;
+
+public:
+  // Get the resolved optimal input layout for the first op.
+  // Only valid after resolve() completes with solveForOptimalFirstOpInput=true.
+  TTNNLayoutAttr getResolvedFirstOpInputLayout() const {
+    return resolvedFirstOpInputLayout;
+  }
 };
 
 } // namespace mlir::tt::ttnn

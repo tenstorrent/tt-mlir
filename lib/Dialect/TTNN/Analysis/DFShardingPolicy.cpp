@@ -933,6 +933,275 @@ getActiveL1Reservations(int64_t schedulePos,
   return total;
 }
 
+// Build a map from dispatch ops to their producer and consumer chain indices.
+// Producer chain: the chain whose last op feeds into dispatch's input
+// Consumer chain: the chain whose first op consumes dispatch's output
+struct DispatchChainRelationship {
+  Operation *dispatchOp;
+  std::optional<size_t> producerChainIdx;
+  std::optional<size_t> consumerChainIdx;
+};
+
+static std::vector<DispatchChainRelationship> buildDispatchChainRelationships(
+    const llvm::SmallVector<Operation *> &schedule,
+    const std::vector<L1ChainConfig> &l1ChainConfigs) {
+
+  std::vector<DispatchChainRelationship> relationships;
+
+  // Build op-to-chain map for O(1) lookup
+  llvm::DenseMap<Operation *, size_t> opToChainMap;
+  for (size_t chainIdx = 0; chainIdx < l1ChainConfigs.size(); ++chainIdx) {
+    for (const auto &spec : l1ChainConfigs[chainIdx].getOpL1MemSpecs()) {
+      opToChainMap[spec.op] = chainIdx;
+    }
+  }
+
+  // Find dispatch ops and their relationships
+  for (Operation *op : schedule) {
+    auto dispatchOp = mlir::dyn_cast<DispatchD2MOp>(op);
+    if (!dispatchOp) {
+      continue;
+    }
+
+    DispatchChainRelationship rel;
+    rel.dispatchOp = dispatchOp;
+    rel.producerChainIdx = std::nullopt;
+    rel.consumerChainIdx = std::nullopt;
+
+    // Find producer chain (chain whose last op feeds dispatch input)
+    for (Value input : dispatchOp.getInputs()) {
+      Operation *producerOp = input.getDefiningOp();
+      if (producerOp) {
+        auto it = opToChainMap.find(producerOp);
+        if (it != opToChainMap.end()) {
+          // Check if this is the last op in the chain
+          const L1ChainConfig &chain = l1ChainConfigs[it->second];
+          if (!chain.getOpL1MemSpecs().empty() &&
+              chain.getOpL1MemSpecs().back().op == producerOp) {
+            rel.producerChainIdx = it->second;
+            break;
+          }
+        }
+      }
+    }
+
+    // Find consumer chain (chain whose first op consumes dispatch output)
+    for (Value result : dispatchOp->getResults()) {
+      for (Operation *user : result.getUsers()) {
+        auto it = opToChainMap.find(user);
+        if (it != opToChainMap.end()) {
+          // Check if this is the first op in the chain
+          const L1ChainConfig &chain = l1ChainConfigs[it->second];
+          if (!chain.getOpL1MemSpecs().empty() &&
+              chain.getOpL1MemSpecs().front().op == user) {
+            rel.consumerChainIdx = it->second;
+            break;
+          }
+        }
+      }
+      if (rel.consumerChainIdx) {
+        break;
+      }
+    }
+
+    relationships.push_back(rel);
+  }
+
+  return relationships;
+}
+
+// Compute topological order for chain solving based on dispatch dependencies.
+// Producer chains should be solved before consumer chains.
+static std::vector<size_t> computeChainSolvingOrder(
+    size_t numChains,
+    const std::vector<DispatchChainRelationship> &dispatchRelationships) {
+
+  // Build dependency graph: consumer depends on producer
+  llvm::DenseMap<size_t, llvm::SmallVector<size_t>>
+      dependencies; // chain -> chains it depends on
+  llvm::DenseMap<size_t, llvm::SmallVector<size_t>>
+      dependents; // chain -> chains that depend on it
+
+  for (const auto &rel : dispatchRelationships) {
+    if (rel.producerChainIdx && rel.consumerChainIdx) {
+      // Consumer chain depends on producer chain
+      dependencies[*rel.consumerChainIdx].push_back(*rel.producerChainIdx);
+      dependents[*rel.producerChainIdx].push_back(*rel.consumerChainIdx);
+    }
+  }
+
+  // Topological sort using Kahn's algorithm
+  std::vector<size_t> order;
+  llvm::DenseSet<size_t> visited;
+  llvm::SmallVector<size_t> queue;
+
+  // Start with chains that have no dependencies
+  for (size_t i = 0; i < numChains; ++i) {
+    if (dependencies[i].empty()) {
+      queue.push_back(i);
+    }
+  }
+
+  while (!queue.empty()) {
+    size_t chainIdx = queue.back();
+    queue.pop_back();
+
+    if (visited.contains(chainIdx)) {
+      continue;
+    }
+    visited.insert(chainIdx);
+    order.push_back(chainIdx);
+
+    // Add dependents whose dependencies are all satisfied
+    for (size_t dependent : dependents[chainIdx]) {
+      bool allDepsSatisfied = true;
+      for (size_t dep : dependencies[dependent]) {
+        if (!visited.contains(dep)) {
+          allDepsSatisfied = false;
+          break;
+        }
+      }
+      if (allDepsSatisfied && !visited.contains(dependent)) {
+        queue.push_back(dependent);
+      }
+    }
+  }
+
+  // Add any remaining chains (no dispatch dependencies)
+  for (size_t i = 0; i < numChains; ++i) {
+    if (!visited.contains(i)) {
+      order.push_back(i);
+    }
+  }
+
+  return order;
+}
+
+// Compute configs (output layout + L1 budget) for DispatchD2MOps.
+// This is analysis only - the actual IR modification happens in Optimizer.cpp.
+//
+// Output layout: Use producer's resolved output layout (dispatch preserves
+// layout for elementwise ops, or D2M compiler handles transformation).
+// L1 budget: usableL1CacheSize - inputL1Usage - outputL1Usage
+static llvm::DenseMap<Operation *, DispatchD2MConfig> computeDispatchD2MConfigs(
+    const llvm::SmallVector<Operation *> &schedule,
+    const std::vector<L1ChainConfig> &l1ChainConfigs,
+    uint64_t usableL1CacheSize,
+    const std::vector<DispatchChainRelationship> &dispatchRelationships) {
+
+  llvm::DenseMap<Operation *, DispatchD2MConfig> result;
+
+  // Build op-to-chain map for O(1) lookup of chain membership
+  llvm::DenseMap<Operation *, size_t> opToChainMap;
+  for (size_t chainIdx = 0; chainIdx < l1ChainConfigs.size(); ++chainIdx) {
+    if (l1ChainConfigs[chainIdx].getState() == L1ChainState::Completed) {
+      for (const auto &spec : l1ChainConfigs[chainIdx].getOpL1MemSpecs()) {
+        opToChainMap[spec.op] = chainIdx;
+      }
+    }
+  }
+
+  // Process each dispatch relationship
+  for (const auto &rel : dispatchRelationships) {
+    auto dispatchOp = mlir::cast<DispatchD2MOp>(rel.dispatchOp);
+    DispatchD2MConfig config;
+    config.outputLayout = nullptr;
+    config.availableL1 = usableL1CacheSize;
+
+    // --- Dispatch output layout ---
+    // The dispatch output layout is determined by the consumer chain's optimal
+    // input layout, solved by ShardSolver with
+    // solveForOptimalFirstOpInput=true. This function computes a fallback; the
+    // actual optimal layout is set by the chain solving loop and overrides this
+    // value.
+    //
+    // Conceptually: dispatch OUTPUT = consumer's optimal INPUT layout
+    // The dispatch bridges producer and consumer chains:
+    //   - Producer's optimal output -> dispatch INPUT
+    //   - Consumer's optimal input <- dispatch OUTPUT
+    //
+    // Fall back to extracting from IR if not overridden
+    for (Value input : dispatchOp.getInputs()) {
+      if (auto tensorType = mlir::dyn_cast<RankedTensorType>(input.getType())) {
+        if (auto layoutAttr = mlir::dyn_cast_or_null<TTNNLayoutAttr>(
+                tensorType.getEncoding())) {
+          config.outputLayout = layoutAttr;
+          break;
+        }
+      }
+    }
+
+    // --- Compute L1 budget ---
+    // Subtract L1 used by input tensors.
+    for (Value input : dispatchOp.getInputs()) {
+      Operation *producerOp = input.getDefiningOp();
+      TTNNLayoutAttr inputLayout = nullptr;
+
+      // Try to get layout from chain configs (producer may be in chain)
+      if (producerOp) {
+        auto chainIt = opToChainMap.find(producerOp);
+        if (chainIt != opToChainMap.end()) {
+          const L1ChainConfig &chain = l1ChainConfigs[chainIt->second];
+          for (const auto &spec : chain.getOpL1MemSpecs()) {
+            if (spec.op == producerOp && spec.config.outputLayout) {
+              inputLayout = spec.config.outputLayout;
+              break;
+            }
+          }
+        }
+      }
+
+      // Fall back to IR layout if not in a chain
+      if (!inputLayout) {
+        if (auto tensorType =
+                mlir::dyn_cast<RankedTensorType>(input.getType())) {
+          inputLayout =
+              mlir::dyn_cast_or_null<TTNNLayoutAttr>(tensorType.getEncoding());
+        }
+      }
+
+      // Count L1 usage for inputs that are in L1
+      if (inputLayout && inputLayout.getBufferType() == BufferType::L1) {
+        uint64_t inputSize = inputLayout.getShardSizeInBytes();
+        config.availableL1 = (inputSize < config.availableL1)
+                                 ? (config.availableL1 - inputSize)
+                                 : 0;
+      }
+    }
+
+    // Subtract L1 used by output tensors (use computed layout if available)
+    TTNNLayoutAttr outputLayout = config.outputLayout;
+    if (!outputLayout && dispatchOp.getNumResults() > 0) {
+      // Fall back to current IR layout
+      if (auto tensorType = mlir::dyn_cast<RankedTensorType>(
+              dispatchOp.getResult(0).getType())) {
+        outputLayout =
+            mlir::dyn_cast_or_null<TTNNLayoutAttr>(tensorType.getEncoding());
+      }
+    }
+    if (outputLayout && outputLayout.getBufferType() == BufferType::L1) {
+      uint64_t outputSize = outputLayout.getShardSizeInBytes();
+      config.availableL1 = (outputSize < config.availableL1)
+                               ? (config.availableL1 - outputSize)
+                               : 0;
+    }
+
+    TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                 "DispatchD2MOp {} config: layout={}, L1 budget={} bytes",
+                 dispatchOp.getD2mFunc(),
+                 config.outputLayout
+                     ? (config.outputLayout.getBufferType() == BufferType::L1
+                            ? "L1 sharded"
+                            : "DRAM")
+                     : "none",
+                 config.availableL1);
+
+    result[dispatchOp] = config;
+  }
+
+  return result;
+}
+
 // Extract output layout from IR for a given operation.
 // Returns std::nullopt if no layout can be extracted.
 static std::optional<TTNNLayoutAttr> extractOutputLayoutFromIR(Operation *op) {
@@ -1069,6 +1338,12 @@ static bool validateScheduleRangeWithReservation(
         return false;
       }
 
+      // Skip DispatchD2MOp - it doesn't implement OpModel and its internal
+      // L1 usage is handled separately via the L1 budget mechanism.
+      if (isa<DispatchD2MOp>(op)) {
+        continue;
+      }
+
       auto outputLayoutOpt = extractOutputLayoutFromIR(op);
 
       if (!outputLayoutOpt) {
@@ -1150,6 +1425,20 @@ void DFShardingPolicy::run() {
         continue;
       }
 
+      // DispatchD2MOp is a chain boundary - it ends any incoming chain and
+      // should not be part of any L1 chain. Its internal ops are opaque to
+      // the sharding policy. The optimizer will assign boundary layouts and
+      // L1 budget separately.
+      if (isa<DispatchD2MOp>(currentOp)) {
+        // End current chain if non-empty
+        if (!l1ChainConfigs->back().isEmpty()) {
+          l1ChainConfigs->back().build();
+          l1ChainConfigs->push_back(L1ChainConfig());
+        }
+        currentOp = nullptr;
+        continue;
+      }
+
       // Consider sharding only if we found at least single legal config for
       // the current op.
       //
@@ -1204,6 +1493,14 @@ void DFShardingPolicy::run() {
                          ttmlir::opToString(currentOp),
                          ttmlir::opToString(nextOp));
             currentOp = nullptr;
+          } else if (mlir::isa<DispatchD2MOp>(nextOp)) {
+            // DispatchD2MOp is a chain boundary - don't continue chain into it.
+            TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                         "Breaking L1 chain at op {} as next op {} is "
+                         "DispatchD2MOp (chain boundary)",
+                         ttmlir::opToString(currentOp),
+                         ttmlir::opToString(nextOp));
+            currentOp = nullptr;
           } else {
             currentOp = nextOp;
             continue;
@@ -1232,23 +1529,76 @@ void DFShardingPolicy::run() {
                  l1ChainConfig);
   }
 
-  // Resolve shard chain configs.
+  // Build dispatch relationships before solving chains.
+  // This allows us to order chain solving and propagate layouts through
+  // dispatch.
+  std::vector<DispatchChainRelationship> dispatchRelationships;
+  if (funcToProcess) {
+    dispatchRelationships = buildDispatchChainRelationships(
+        (*schedule)[funcToProcess], *l1ChainConfigs);
+  }
+
+  // Build a map from dispatch op to producer chain's resolved output layout.
+  // This will be populated as producer chains are solved and used to set
+  // dispatch output layouts (which become consumer chain input layouts).
+  llvm::DenseMap<Operation *, TTNNLayoutAttr> dispatchOutputLayouts;
+
+  // Compute topological order for chain solving.
+  // Producer chains should be solved before consumer chains.
+  std::vector<size_t> solvingOrder =
+      computeChainSolvingOrder(l1ChainConfigs->size(), dispatchRelationships);
+
+  TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+               "Chain solving order (topological): {}", [&]() {
+                 std::string s = "[";
+                 for (size_t i = 0; i < solvingOrder.size(); ++i) {
+                   if (i > 0) {
+                     s += ", ";
+                   }
+                   s += std::to_string(solvingOrder[i]);
+                 }
+                 s += "]";
+                 return s;
+               }());
+
+  // Resolve shard chain configs in topological order.
   //
   mlir::tt::ttnn::MemoryLayoutAnalysisProgressTracker progressTracker;
   progressTracker.startAnalysis(funcToProcess, l1ChainConfigs->size(),
                                 "DFShardingPolicy");
 
-  for (size_t chainIndex = 0; chainIndex < l1ChainConfigs->size();
-       ++chainIndex) {
+  // Build a map from chain index to dispatch op that feeds it (if any)
+  llvm::DenseMap<size_t, Operation *> chainToDispatchProducer;
+  for (const auto &rel : dispatchRelationships) {
+    if (rel.consumerChainIdx) {
+      chainToDispatchProducer[*rel.consumerChainIdx] = rel.dispatchOp;
+    }
+  }
+
+  for (size_t chainIndex : solvingOrder) {
     L1ChainConfig &l1ChainConfig = (*l1ChainConfigs)[chainIndex];
 
     // Count operations in this chain
     size_t numOpsInChain = l1ChainConfig.getOpL1MemSpecs().size();
     Operation *firstOp = l1ChainConfig.getOpL1MemSpecs()[0].op;
     progressTracker.startL1Chain(firstOp, chainIndex, numOpsInChain);
+
+    // Check if this chain consumes from a dispatch_d2m.
+    // If so, solve for optimal first op input layout.
+    bool consumesFromDispatch = chainToDispatchProducer.count(chainIndex) > 0;
+    Operation *producerDispatchOp =
+        consumesFromDispatch ? chainToDispatchProducer[chainIndex] : nullptr;
+
+    if (consumesFromDispatch) {
+      TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                   "Chain {} consumes from dispatch_d2m - solving for optimal "
+                   "input layout",
+                   chainIndex);
+    }
+
     ShardSolver shardSolver = l1ChainConfig.resolveWithSolver(
         tensorTypePossibleLayouts, legalConfigs, usableL1CacheSize,
-        overrideReshardEdges, overrideOutputLayout);
+        overrideReshardEdges, overrideOutputLayout, consumesFromDispatch);
 
     if (l1ChainConfig.getState() == L1ChainState::Failed) {
       TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
@@ -1263,9 +1613,55 @@ void DFShardingPolicy::run() {
     l1ChainConfig.complete(resolvedShardSolution.selectedOpConfig,
                            resolvedShardSolution.memReconfigEntryMap);
 
-    // TODO(odjuricic): Add constraint check if op can write to dram.
-    if (!resolvedShardSolution.selectedOpConfig[l1ChainConfig.getLastOp()]
-             .outputLayout.hasDRAMBufferType()) {
+    // If this chain consumes from dispatch, store the solved optimal input
+    // layout as the dispatch's output layout.
+    if (consumesFromDispatch && producerDispatchOp) {
+      TTNNLayoutAttr optimalInput = shardSolver.getResolvedFirstOpInputLayout();
+      if (optimalInput) {
+        dispatchOutputLayouts[producerDispatchOp] = optimalInput;
+        TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                     "Solved consumer chain {} optimal input layout: {} -> "
+                     "dispatch output",
+                     chainIndex, optimalInput);
+      }
+    }
+
+    // Determine if chain output should be spilled.
+    // By default, L1 sharded outputs are spilled to DRAM.
+    // Exception: if the consumer is a DispatchD2MOp, keep in L1 so dispatch
+    // can read directly from L1 (this is the whole point of layout
+    // optimization).
+    Operation *lastOp = l1ChainConfig.getLastOp();
+    bool feedsDispatchD2M = false;
+
+    for (Value result : lastOp->getResults()) {
+      for (Operation *user : result.getUsers()) {
+        if (isa<DispatchD2MOp>(user)) {
+          feedsDispatchD2M = true;
+          break;
+        }
+      }
+      if (feedsDispatchD2M) {
+        break;
+      }
+    }
+
+    if (feedsDispatchD2M) {
+      // Keep in L1 for dispatch_op to read directly. The D2M compiler will
+      // receive an L1 budget (usableL1 - input - output) and must work within
+      // it. If dispatch can't fit, D2M compilation will fail with a clear
+      // error, which is better than silently degrading performance by spilling.
+      l1ChainConfig.spillLocation = SpillLocation::None;
+      TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                   "Chain ending at {} feeds DispatchD2MOp - keeping in L1",
+                   ttmlir::opToString(lastOp));
+
+      // Note: dispatch OUTPUT layout is determined by consumer chain's optimal
+      // input (set in the consumer chain solving loop above). Producer chain
+      // just keeps its output in L1 so dispatch can read it.
+    } else if (!resolvedShardSolution.selectedOpConfig[lastOp]
+                    .outputLayout.hasDRAMBufferType()) {
+      // TODO(odjuricic): Add constraint check if op can write to dram.
       l1ChainConfig.spillLocation = SpillLocation::DRAM;
     }
 
@@ -1281,6 +1677,25 @@ void DFShardingPolicy::run() {
   if (funcToProcess) {
     applyChainMerges(*l1ChainConfigs, (*schedule)[funcToProcess],
                      l1Reservations);
+
+    // Compute configs (layout + L1 budget) for DispatchD2MOps.
+    // This is analysis only - actual IR modification happens in Optimizer.cpp.
+    // Pass the propagated dispatch output layouts from topological solving.
+    dispatchD2MConfigs =
+        computeDispatchD2MConfigs((*schedule)[funcToProcess], *l1ChainConfigs,
+                                  usableL1CacheSize, dispatchRelationships);
+
+    // Override dispatch output layouts with consumer chain's optimal input
+    // layouts (solved by ShardSolver with solveForOptimalFirstOpInput=true).
+    for (const auto &[dispatchOp, layout] : dispatchOutputLayouts) {
+      if (dispatchD2MConfigs.count(dispatchOp)) {
+        dispatchD2MConfigs[dispatchOp].outputLayout = layout;
+        TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                     "Final dispatch output layout set to consumer's optimal "
+                     "input: {}",
+                     layout);
+      }
+    }
   }
 
   progressTracker.finishAnalysis(funcToProcess);

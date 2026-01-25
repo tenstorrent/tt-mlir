@@ -64,7 +64,8 @@ public:
       const llvm::DenseMap<Operation *, std::vector<OpConfig>> &legalConfigs,
       unsigned usableL1CacheSize,
       const llvm::DenseSet<Edge> &overrideReshardEdges,
-      const llvm::StringMap<OutputLayoutOverrideParams> &overrideOutputLayout);
+      const llvm::StringMap<OutputLayoutOverrideParams> &overrideOutputLayout,
+      bool solveForOptimalFirstOpInput = false);
   void resolve();
   void build();
   void complete(const llvm::DenseMap<Operation *, OpConfig> &selectedOpConfig,

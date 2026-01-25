@@ -16,6 +16,14 @@
 
 namespace mlir::tt::ttnn {
 
+// Configuration for a DispatchD2MOp computed during analysis.
+struct DispatchD2MConfig {
+  // Optimal output layout based on consumer preferences (may be nullptr)
+  TTNNLayoutAttr outputLayout;
+  // Available L1 budget for D2M internal computations
+  uint64_t availableL1;
+};
+
 // Process ops in DFS schedulable order and build shard chain configs.
 // Schedule is also produced as a side effect of sharding.
 //
@@ -24,6 +32,9 @@ private:
   const TensorTypeLayoutsMap *tensorTypePossibleLayouts;
   llvm::DenseSet<Edge> overrideReshardEdges;
   llvm::StringMap<OutputLayoutOverrideParams> overrideOutputLayout;
+
+  // Computed configs for DispatchD2MOps (layout + L1 budget)
+  llvm::DenseMap<Operation *, DispatchD2MConfig> dispatchD2MConfigs;
 
   void pickOpShardConfigs(ShardSolver &shardSolver,
                           const L1ChainConfig &l1ChainConfig);
@@ -47,6 +58,12 @@ public:
       const llvm::StringMap<OutputLayoutOverrideParams> &overrideOutputLayout) {
     overrideReshardEdges = reshardEdges;
     this->overrideOutputLayout = overrideOutputLayout;
+  }
+
+  // Get computed configs for DispatchD2MOps
+  const llvm::DenseMap<Operation *, DispatchD2MConfig> &
+  getDispatchD2MConfigs() const {
+    return dispatchD2MConfigs;
   }
 };
 

@@ -67,6 +67,11 @@ void MemoryLayoutAnalysis::analysisImplementation() {
     dfShardingPolicy.setOverrides(analysisInput.overrideReshardEdges,
                                   analysisInput.overrideOutputLayout);
     dfShardingPolicy.run();
+
+    // Copy DispatchD2MOp configs (layout + L1 budget).
+    // Note: We add these to legalConfigs later, after the default overwrite.
+    analysisResult.dispatchD2MConfigs =
+        dfShardingPolicy.getDispatchD2MConfigs();
     break;
   }
   case MemoryLayoutAnalysisPolicyType::GreedyL1Interleaved: {
@@ -90,6 +95,16 @@ void MemoryLayoutAnalysis::analysisImplementation() {
   // Copy over default legal configs.
   //
   analysisResult.legalConfigs = analysisInput.legalConfigs;
+
+  // Re-apply DispatchD2MOp configs (they were overwritten above).
+  for (const auto &[dispatchOp, dispatchConfig] :
+       analysisResult.dispatchD2MConfigs) {
+    if (dispatchConfig.outputLayout) {
+      OpConfig config;
+      config.outputLayout = dispatchConfig.outputLayout;
+      analysisResult.legalConfigs[dispatchOp] = std::vector<OpConfig>{config};
+    }
+  }
 
   // Override with L1 chain configs where applicable.
   //

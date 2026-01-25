@@ -65,12 +65,14 @@ ShardSolver::ShardSolver(
     const llvm::StringMap<OutputLayoutOverrideParams> &overrideOutputLayout,
     std::function<llvm::Expected<TTNNLayoutAttr>(Value, TTNNLayoutAttr,
                                                  Operation *, OpConfig)>
-        customCheckShardCompatible)
+        customCheckShardCompatible,
+    bool solveForOptimalFirstOpInput)
     : tensorTypePossibleLayouts(tensorTypePossibleLayouts),
       legalConfigs(&legalConfigs), shardSpecs(&shardSpecs),
       shardedOps(&shardedOps), memReconfigEdges(overrideReshardEdges),
       overrideOutputLayout(overrideOutputLayout),
-      customCheckShardCompatible(customCheckShardCompatible) {
+      customCheckShardCompatible(customCheckShardCompatible),
+      solveForOptimalFirstOpInput(solveForOptimalFirstOpInput) {
   pathSets.reserve(shardSpecs.size());
   pathSetIds.reserve(shardSpecs.size());
   bitsets.reserve(shardedOps.size());
@@ -452,6 +454,120 @@ bool ShardSolver::preprocessFirstOp() {
     return insertReshard(shardChainInputEdge);
   }
 
+  // If solveForOptimalFirstOpInput is set (e.g., consumer chain after
+  // dispatch_d2m), enumerate possible L1 sharded input layouts and find which
+  // ones lead to valid chain configurations. The optimal input layout will be
+  // stored and used as dispatch_d2m's output layout.
+  if (solveForOptimalFirstOpInput) {
+    TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+                 "[preprocessing first op {}] Solving for optimal input layout "
+                 "(dispatch_d2m consumer chain)",
+                 firstOp->getName());
+
+    // Find which operand comes from a DispatchD2MOp by checking backwards
+    unsigned dispatchOperandIdx = 0;
+    for (unsigned i = 0; i < firstOp->getNumOperands(); ++i) {
+      Value operand = firstOp->getOperand(i);
+      if (Operation *defOp = operand.getDefiningOp()) {
+        if (isa<DispatchD2MOp>(defOp)) {
+          dispatchOperandIdx = i;
+          break;
+        }
+      }
+    }
+
+    TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+                 "[preprocessing first op {}] Dispatch output goes to operand "
+                 "{}",
+                 firstOp->getName(), dispatchOperandIdx);
+
+    // Get the dispatch operand's tensor type for generating candidate layouts
+    Value dispatchOperand = firstOp->getOperand(dispatchOperandIdx);
+    RankedTensorType inputTensorType =
+        mlir::cast<RankedTensorType>(dispatchOperand.getType());
+    Type scalarElementType = inputTensorType.getElementType();
+
+    // Get all possible sharded input layouts for this tensor type
+    std::vector<TTNNLayoutAttr> candidateInputLayouts =
+        getShardedLayoutsForTensorTypeAndScalarType(
+            *tensorTypePossibleLayouts, inputTensorType, scalarElementType);
+
+    TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+                 "[preprocessing first op {}] Evaluating {} candidate input "
+                 "layouts for operand {}",
+                 firstOp->getName(), candidateInputLayouts.size(),
+                 dispatchOperandIdx);
+
+    // Track valid (input, output) combinations
+    std::vector<std::pair<TTNNLayoutAttr, size_t>> validCombinations;
+
+    std::vector<TTNNLayoutAttr> inputLayouts =
+        utils::extractInputLayouts(firstOp);
+
+    for (const TTNNLayoutAttr &candidateInput : candidateInputLayouts) {
+      if (!candidateInput.hasShardedL1TensorMemoryLayout()) {
+        continue;
+      }
+
+      inputLayouts[dispatchOperandIdx] = candidateInput;
+
+      for (size_t i = 0; i < firstOpConfigs.size(); ++i) {
+        TTNNLayoutAttr firstOpLayout = firstOpConfigs[i].outputLayout;
+        if (!firstOpLayout.hasShardedL1TensorMemoryLayout()) {
+          continue;
+        }
+
+        TTNNLayoutAttr layoutForComparison = firstOpLayout;
+
+        if (shouldUseIgnorePhysicalLayout(firstOp)) {
+          firstOpLayout = firstOpLayout.withIgnorePhysicalLayout(true);
+        }
+
+        // Validate with OpModel
+        op_constraint_validation::ValidationResult validationResult =
+            op_constraint_validation::validateOperation(
+                firstOp, inputLayouts,
+                OpConfig(firstOpLayout, firstOpConfigs[i].opSpecificAttrs));
+
+        if (validationResult.isError()) {
+          continue;
+        }
+
+        TTNNLayoutAttr actualLayout = validationResult.actualOutputLayout;
+        if (actualLayout == layoutForComparison) {
+          validCombinations.emplace_back(candidateInput, i);
+          TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+                       "[preprocessing first op {}] Valid combination: input "
+                       "{} -> output config {}",
+                       firstOp->getName(), candidateInput, i);
+        }
+      }
+    }
+
+    if (!validCombinations.empty()) {
+      // Pick the first valid combination (could add scoring logic later)
+      // TODO(vtangTT): Add scoring to pick truly optimal input layout
+      auto [bestInput, bestOutputIdx] = validCombinations[0];
+      resolvedFirstOpInputLayout = bestInput;
+      firstOpBitset->set(bestOutputIdx);
+
+      TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+                   "[preprocessing first op {}] Solved optimal input layout: "
+                   "{}, output config idx: {}",
+                   firstOp->getName(), resolvedFirstOpInputLayout,
+                   bestOutputIdx);
+      return true;
+    }
+
+    // No valid L1 sharded input found, fall through to reshard
+    TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+                 "[preprocessing first op {}] No valid L1 sharded input found, "
+                 "trying reshard",
+                 firstOp->getName());
+    return insertReshard(shardChainInputEdge);
+  }
+
+  // Default path: assume DRAM interleaved input
   for (size_t i = 0; i < firstOpConfigs.size(); ++i) {
     TTNNLayoutAttr firstOpLayout = firstOpConfigs[i].outputLayout;
     assert(firstOpLayout.hasShardedL1TensorMemoryLayout());

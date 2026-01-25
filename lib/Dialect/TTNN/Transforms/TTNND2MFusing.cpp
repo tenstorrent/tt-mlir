@@ -273,9 +273,11 @@ private:
     std::string funcName = "d2m_subgraph_" + std::to_string(groupIdx);
 
     // Create DispatchD2MOp with ttnn.empty ops as pre-allocated outputs.
+    // available_l1 will be set by the optimizer pass later.
     auto dispatchOp = rewriter.create<DispatchD2MOp>(
         loc, outputTypes, inputs, outputBuffers,
-        SymbolRefAttr::get(rewriter.getContext(), funcName));
+        SymbolRefAttr::get(rewriter.getContext(), funcName),
+        /*available_l1=*/nullptr);
 
     // Create body with nested module and function.
     Region &body = dispatchOp.getBody();
