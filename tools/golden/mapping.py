@@ -983,10 +983,10 @@ def argmax_golden(
         for d in reduce_dims:
             reduce_size *= input_tensor.size(d)
 
-        # Reshape and apply argmin
+        # Reshape and apply argmax
         non_reduce_shape = [input_tensor.size(d) for d in non_reduce_dims]
         reshaped = permuted.reshape(*non_reduce_shape, reduce_size)
-        result_flat = torch.argmin(reshaped, dim=-1)
+        result_flat = torch.argmax(reshaped, dim=-1)
 
         # Handle keepdim
         if keep_dim:
