@@ -20,6 +20,7 @@ include "mlir/IR/BuiltinAttributes.td"
 include "mlir/IR/CommonTypeConstraints.td"
 include "mlir/IR/CommonAttrConstraints.td"
 include "mlir/IR/OpBase.td"
+
 class TTIR_DPSOp<string mnemonic, list<Trait> traits = []> :
     TTIR_Op<mnemonic, [TTIROpInterface, DestinationStyleOpInterface] # traits> {
     let extraClassDeclaration = [{
