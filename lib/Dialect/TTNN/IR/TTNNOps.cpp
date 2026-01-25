@@ -3992,6 +3992,19 @@ mlir::tt::ttnn::SplitQueryKeyValueAndSplitHeadsOp::verify() {
   size_t numberOfInputsAndOutputs = getInputsAndOutputs().size();
   size_t numberOfSemaphores = program.getSemaphores().size();
 
+  if (numberOfInputsAndOutputs == 0) {
+    return emitError() << "GenericOp must have at least one operand (output tensor)";
+  }
+
+  // Verify that the result type matches the last operand which is the output tensor.
+  auto lastOperand = getInputsAndOutputs().back();
+  auto resultType = getResult().getType();
+  if (lastOperand.getType() != resultType) {
+    return emitError() << "GenericOp result type must match the pre-allocated output tensor type "
+                       << "Got result type " << resultType
+                       << " but last operand type is " << lastOperand.getType();
+  }
+
   for (auto kernel : program.getKernels()) {
     auto kernelInterface = llvm::cast<KernelInterface>(kernel);
 

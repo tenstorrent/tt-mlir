@@ -2859,7 +2859,7 @@ def TTNN_CaptureOrExecuteTraceOp : TTNN_MemoryEffectOp<"capture_or_execute_trace
   let hasVerifier = 1;
 }
 
-def TTNN_GenericOp : TTNN_Op<"generic", [TTNN_MemoryConfigOpInterface, MemoryEffects<[MemRead, MemWrite]>]> {
+def TTNN_GenericOp : TTNN_Op<"generic", [TTNN_MemoryConfigOpInterface, MemoryEffects<[MemRead, MemWrite]>, DestinationStyleOpInterface]> {
     let summary = "Generic operation.";
     let description = [{
       Generic operation capable of running a program with custom kernels. Each kernel is described with a
@@ -2867,15 +2867,30 @@ def TTNN_GenericOp : TTNN_Op<"generic", [TTNN_MemoryConfigOpInterface, MemoryEff
       is supplied with concatenated input and output `ios` tensors.
 
       Inputs:
-        - `inputs_and_outputs` Variadic<AnyRankedTensor>: The input and output tensors.
+        - `inputs_and_outputs` Variadic<AnyRankedTensor>: The input and output tensors. The last tensor(s) in this list are the output(s).
         - `program` ProgramAttr: Program descriptor that includes a description of each kernels, array of CBs and array of semaphores.
+
+      Outputs:
+        - `results` Variadic<AnyRankedTensor>: The output tensors. Currently constrained to exactly one result. Each result corresponds to one output tensor in `inputs_and_outputs`, providing SSA result values for use in subsequent operations.
     }];
 
     let arguments = (ins Variadic<AnyRankedTensor>:$inputs_and_outputs,
                          TTNN_ProgramAttr:$program,
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
+    let results = (outs AnyRankedTensor:$result);
+
     let hasVerifier = 1;
+
+    let extraClassDeclaration = [{
+      // Required by DestinationStyleOpInterface
+      MutableOperandRange getDpsInitsMutable() {
+        auto ios = getInputsAndOutputsMutable();
+        unsigned numIOs = ios.size();
+        assert(numIOs > 0 && "GenericOp must have at least one operand");
+        return MutableOperandRange(*this, numIOs - 1, 1);
+      }
+    }];
 }
 
 def TTNN_RotaryEmbeddingLlamaOp : TTNN_Op<"rotary_embedding_llama", [TTNN_MemoryConfigOpInterface, TTNN_ComputeKernelConfigOpInterface]> {

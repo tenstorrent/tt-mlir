@@ -282,26 +282,30 @@ public:
       }
     }
 
-    // Create CB descriptors.
     llvm::SmallVector<ttnn::KernelCBAttr> cbDescriptors =
         createCBDescriptors(rewriter, cbs, device, coreRangeSet);
 
-    // Create KernelDescriptors.
     SymbolTable opSymTable(op->getParentOfType<ModuleOp>());
     llvm::SmallVector<mlir::Attribute> kernelDescriptors =
         createKernelDescriptors(rewriter, op.getThreads(), coreRangeSet,
                                 opSymTable, this->mathFidelity);
 
-    // Extract semaphore descriptors from kernel functions.
     llvm::SmallVector<ttnn::KernelSemaphoreAttr> semaphoreDescriptors =
         createSemaphoreDescriptors(rewriter, op.getThreads(), coreRangeSet,
                                    opSymTable);
 
     ttnn::ProgramAttr program = ttnn::ProgramAttr::get(
         ctx, kernelDescriptors, cbDescriptors, semaphoreDescriptors);
-
-    rewriter.replaceOpWithNewOp<ttnn::GenericOp>(op, ios, program,
-                                                 ttnn::MemoryConfigAttr());
+    
+    auto newOp = rewriter.create<ttnn::GenericOp>(
+        op.getLoc(), ios.back().getType(), ios, program, ttnn::MemoryConfigAttr());
+    
+    // If the original op has results, replace them; otherwise just replace the operation.
+    if (op.getNumResults() > 0) {
+      rewriter.replaceOp(op, newOp.getResult());
+    } else {
+      rewriter.replaceOp(op, newOp.getOperation());
+    }
     return success();
   };
 

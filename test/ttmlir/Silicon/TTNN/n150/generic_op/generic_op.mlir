@@ -103,12 +103,12 @@ module {
     // Allocate single tile in L1 for result
     %2 = "ttnn.empty"(%0) <{dtype = #ttcore.supportedDataTypes<f32>, layout = #ttnn.layout<tile>, memory_config = #l1_memory_config, shape = #ttnn.shape<32x32>}> : (!ttnn.device) -> tensor<32x32xf32, #l1_layout>
 
-    "ttnn.generic"(%1, %2) <{program = #program}> : (tensor<32x32xf32, #l1_layout>, tensor<32x32xf32, #l1_layout>) -> ()
+    %3 = "ttnn.generic"(%1, %2) <{program = #program}> : (tensor<32x32xf32, #l1_layout>, tensor<32x32xf32, #l1_layout>) -> tensor<32x32xf32, #l1_layout>
 
     // Move single tile from L1 to DRAM
-    %3 = "ttnn.to_memory_config"(%2) <{memory_config = #dram_memory_config}> : (tensor<32x32xf32, #l1_layout>) -> tensor<32x32xf32, #dram_layout>
+    %4 = "ttnn.to_memory_config"(%3) <{memory_config = #dram_memory_config}> : (tensor<32x32xf32, #l1_layout>) -> tensor<32x32xf32, #dram_layout>
 
-    return %3 : tensor<32x32xf32, #dram_layout>
+    return %4 : tensor<32x32xf32, #dram_layout>
   }
   func.func private @read_kernel() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec< rt_args = [<arg_type = buffer_address, operand_index = 0>] ct_args = [<arg_type = cb_port, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<noc>} {
     %0 = "emitc.constant"() <{value = 1 : i32}> : () -> i32

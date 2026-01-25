@@ -2634,6 +2634,7 @@ createOp(FlatbufferObjectCache &cache, GenericOp op) {
     ios.push_back(cache.at<::tt::target::ttnn::TensorRef>(
         getOperandThroughDPSOps(operand)));
   }
+  assert(ios.size() > 0 && "GenericOp must have at least one operand");
 
   ::mlir::tt::ttnn::ProgramAttr programAttr = op.getProgramAttr();
 
@@ -2757,6 +2758,9 @@ createOp(FlatbufferObjectCache &cache, GenericOp op) {
 
   auto program = ::tt::target::ttnn::CreateProgramDescriptorDirect(
       *cache.fbb, &kernels, &semaphores, &cbs);
+
+  // Map the result to the same TensorRef as the last operand in ios, which is the output tensor.
+  cache.insert(op.getResult(), ios.back());
 
   return ::tt::target::ttnn::CreateGenericOpDirect(*cache.fbb, &ios, program);
 }
