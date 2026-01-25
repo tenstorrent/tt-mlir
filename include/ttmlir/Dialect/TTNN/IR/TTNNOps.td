@@ -1972,7 +1972,6 @@ def TTNN_AvgPool2dOp : TTNN_Op<"avg_pool2d", [TTNN_MemoryConfigOpInterface]> {
                          DenseI32ArrayAttr:$kernel_size,
                          DenseI32ArrayAttr:$stride,
                          DenseI32ArrayAttr:$padding,
-                         DenseI32ArrayAttr:$dilation,
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
                          OptionalAttr<TTNN_TensorMemoryLayoutAttr>:$applied_shard_scheme,
                          BoolAttr:$ceil_mode,

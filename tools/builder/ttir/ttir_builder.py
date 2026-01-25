@@ -11619,7 +11619,6 @@ class TTIRBuilder(Builder):
         in0: Operand,
         kernel: Union[int, List[int]],
         stride: Union[int, List[int]],
-        dilation: Union[int, List[int]],
         padding: Union[int, List[int]],
         ceil_mode: bool,
         count_include_pad: bool = True,
@@ -11670,11 +11669,6 @@ class TTIRBuilder(Builder):
                     if isinstance(stride, int)
                     else DenseI32ArrayAttr.get(stride)
                 ),
-                "dilation": (
-                    IntegerAttr.get(IntegerType.get_signed(32), dilation)
-                    if isinstance(dilation, int)
-                    else DenseI32ArrayAttr.get(dilation)
-                ),
                 "padding": (
                     IntegerAttr.get(IntegerType.get_signed(32), padding)
                     if isinstance(padding, int)
@@ -11683,6 +11677,35 @@ class TTIRBuilder(Builder):
                 "ceil_mode": ceil_mode,
                 "count_include_pad": count_include_pad,
             },
+            unit_attrs=unit_attrs,
+        )
+
+    def global_avg_pool2d(
+        self,
+        in0: Operand,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        """
+        Creates ``ttir.global_avg_pool2d``.
+        *Global average pooling operation.*
+
+        Applies a global average pooling over an input signal composed of several input planes.
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor
+        unit_attrs : *Optional[List[str]]*
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            Output tensor after global average pooling
+        """
+        return self._op_proxy(
+            ttir.GlobalAvgPool2dOp,
+            [in0],
             unit_attrs=unit_attrs,
         )
 
@@ -11922,15 +11945,18 @@ class TTIRBuilder(Builder):
         self,
         in0: Operand,
         in1: Operand,
-        bias: Optional[Operand] = None,
+        transpose_a: bool = False,
+        transpose_b: bool = False,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpView:
-        inputs = [in0, in1]
-        if bias:
-            inputs.append(bias)
+        kwargs = {
+            "transpose_a": transpose_a,
+            "transpose_b": transpose_b,
+        }
         return self._op_proxy(
             ttir.MatmulOp,
-            inputs,
+            [in0, in1],
+            ttir_kwargs=kwargs,
             unit_attrs=unit_attrs,
         )
 

@@ -11,7 +11,6 @@ module attributes {} {
     // CHECK-SAME: -> tensor<1x28x28x192xbf16>
     // CHECK: %[[AVGPOOL:[0-9]+]] = "ttir.avg_pool2d"(%[[PERMUTE]]
     // CHECK-SAME: ceil_mode = false
-    // CHECK-SAME: dilation = array<i32: 1, 1>
     // CHECK-SAME: kernel = array<i32: 1, 1>
     // CHECK-SAME: padding = array<i32: 1, 1, 1, 1>
     // CHECK-SAME: stride = array<i32: 1, 1>
@@ -35,7 +34,6 @@ module attributes {} {
     // CHECK-SAME: -> tensor<1x28x28x256xbf16>
     // CHECK: %[[AVGPOOL:[0-9]+]] = "ttir.avg_pool2d"(%[[PERMUTE]]
     // CHECK-SAME: ceil_mode = false
-    // CHECK-SAME: dilation = array<i32: 1, 1>
     // CHECK-SAME: kernel = array<i32: 3, 3>
     // CHECK-SAME: padding = array<i32: 1, 1, 1, 1>
     // CHECK-SAME: stride = array<i32: 1, 1>
@@ -59,7 +57,6 @@ module attributes {} {
     // CHECK-SAME: -> tensor<1x28x28x192xbf16>
     // CHECK: %[[AVGPOOL:[0-9]+]] = "ttir.avg_pool2d"(%[[PERMUTE]]
     // CHECK-SAME: ceil_mode = false,
-    // CHECK-SAME: dilation = array<i32: 1, 1>
     // CHECK-SAME: kernel = array<i32: 2, 1>
     // CHECK-SAME: padding = array<i32: 0, 0, 0, 0>
     // CHECK-SAME: stride = array<i32: 1, 1>
@@ -83,7 +80,6 @@ module attributes {} {
     // CHECK-SAME: -> tensor<1x28x28x192xbf16>
     // CHECK: %[[AVGPOOL:[0-9]+]] = "ttir.avg_pool2d"(%[[PERMUTE]]
     // CHECK-SAME: ceil_mode = false,
-    // CHECK-SAME: dilation = array<i32: 1, 1>
     // CHECK-SAME: kernel = array<i32: 1, 2>
     // CHECK-SAME: padding = array<i32: 0, 0, 0, 0>
     // CHECK-SAME: stride = array<i32: 3, 1>

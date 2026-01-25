@@ -124,9 +124,9 @@ public:
     } else if constexpr (std::is_same_v<Pooling2dOp, ttir::AvgPool2dOp>) {
       newPool = rewriter.create<ttir::AvgPool2dOp>(
           op.getLoc(), getNHWFlattenedType(outputType), flattenedInput,
-          adaptor.getKernel(), adaptor.getStride(), adaptor.getDilation(),
-          adaptor.getPadding(), adaptor.getCeilMode(),
-          adaptor.getCountIncludePad(), flattenedCompatInfoAttr);
+          adaptor.getKernel(), adaptor.getStride(), adaptor.getPadding(),
+          adaptor.getCeilMode(), adaptor.getCountIncludePad(),
+          flattenedCompatInfoAttr);
     } else if constexpr (std::is_same_v<Pooling2dOp,
                                         ttir::MaxPool2dWithIndicesOp>) {
       // Handle MaxPool2dWithIndicesOp separately since it has two outputs
