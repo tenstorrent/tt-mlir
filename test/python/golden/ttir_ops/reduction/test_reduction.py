@@ -4,7 +4,7 @@
 import pytest
 import torch
 from typing import Callable, List, Optional
-from conftest import x86_only
+from conftest import x86_only, get_request_kwargs
 from builder.base.builder_utils import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_apis import compile_and_execute_ttir
@@ -114,10 +114,8 @@ def test_reduction_ops(
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
     )
 
@@ -206,9 +204,7 @@ def test_reduction_cpu_hoisted_ops(
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
     )
