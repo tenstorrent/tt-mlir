@@ -63,26 +63,13 @@ private:
 
     std::string prefix = mainFunc.getSymName().str() + "_";
 
-    // Update symbol references in mainFunc and build rename map for later.
-    llvm::DenseMap<StringAttr, StringAttr> symbolRenameMap;
+    // Clone kernel funcs to parent module with unique names and update symbol
+    // references in mainFunc.
     for (func::FuncOp kernelFunc : kernelFuncs) {
       StringRef oldName = kernelFunc.getSymName();
       std::string newName = prefix + oldName.str();
-      StringAttr oldNameAttr =
-          StringAttr::get(parentModule.getContext(), oldName);
       StringAttr newNameAttr =
           StringAttr::get(parentModule.getContext(), newName);
-      symbolRenameMap[oldNameAttr] = newNameAttr;
-
-      // Update all references to this kernel within mainFunc.
-      (void)SymbolTable::replaceAllSymbolUses(kernelFunc, newNameAttr,
-                                              mainFunc);
-    }
-
-    // Clone and rename kernel funcs to parent module.
-    for (func::FuncOp kernelFunc : kernelFuncs) {
-      StringRef oldName = kernelFunc.getSymName();
-      std::string newName = prefix + oldName.str();
 
       IRMapping funcMapping;
       Operation *clonedOp =
@@ -90,6 +77,9 @@ private:
       auto clonedFunc = cast<func::FuncOp>(clonedOp);
       clonedFunc.setSymName(newName);
       parentSymbolTable.insert(clonedOp);
+
+      (void)SymbolTable::replaceAllSymbolUses(kernelFunc, newNameAttr,
+                                              mainFunc);
     }
 
     // Map func args to dispatch op operands.

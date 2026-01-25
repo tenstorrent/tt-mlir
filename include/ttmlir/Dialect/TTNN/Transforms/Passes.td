@@ -332,7 +332,7 @@ def TTNNOperationValidationAndFallback: Pass<"ttnn-operation-validation-and-fall
     Option<"maxFallbackAttempts",
            "max-fallback-attempts",
            "uint32_t", /*default=*/"10000",
-           "Maximum number of fallback configurations to try before giving up (0 = unlimited)">,
+           "Maximum number of fallback configurations to try before giving up (0 = unlimited)">
   ];
 }
 

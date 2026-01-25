@@ -295,12 +295,22 @@ void createTTIRToTTNNDevicePipeline(
 
     // D2M fusing pass only supported with optimizer enabled, or else it won't
     // get memory information.
-    if (options.optimizerPassEnabled && options.enableD2MFusing) {
+    if (options.enableD2MFusing) {
+      if (!options.optimizerPassEnabled) {
+        llvm::llvm_unreachable_internal(
+            "D2M fusing pass only supported with optimizer enabled");
+      }
       devicePm.addPass(tt::ttnn::createTTNND2MFusing());
     }
 
     createTTNNPipelineAnalysisPasses(devicePm, options);
-    createTTNNPipelineD2MPass(devicePm);
+
+    if (options.enableD2MFusing) {
+      createTTNNPipelineD2MPass(devicePm);
+      devicePm.addPass(createTTNNCollaspeD2M());
+      devicePm.addPass(createCanonicalizerPass());
+    }
+
     // We need to re-run const-eval to pick up const prepare conv2d weight ops
     // split during the analysis passes.
     if (options.enableConstEval) {
@@ -632,6 +642,10 @@ void registerTTNNPipelines() {
   mlir::PassPipelineRegistration<>(
       "ttnn-through-d2m-pipeline",
       "Pipeline to compile D2M subgraphs inside ttnn.dispatch_d2m ops.",
-      [](OpPassManager &pm) { mlir::tt::ttnn::createTTNNPipelineD2MPass(pm); });
+      [](OpPassManager &pm) {
+        auto &devicePm =
+            pm.nest<ttcore::DeviceModuleOp>().nest<mlir::ModuleOp>();
+        mlir::tt::ttnn::createTTNNPipelineD2MPass(devicePm);
+      });
 }
 } // namespace mlir::tt::ttnn
