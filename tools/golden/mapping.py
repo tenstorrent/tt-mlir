@@ -5806,6 +5806,8 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     stablehlo.MaxOp: stablehlo_maximum_golden,
     stablehlo.MinOp: stablehlo_minimum_golden,
     stablehlo.MulOp: stablehlo_multiply_golden,
+    # bitcast conversion operation
+    stablehlo.BroadcastInDimOp: torch.broadcast_to,
     stablehlo.SubtractOp: stablehlo_subtract_golden,
     stablehlo.PowOp: stablehlo_pow_golden,
     stablehlo.ShiftRightLogicalOp: stablehlo_shift_right_logical_golden,
