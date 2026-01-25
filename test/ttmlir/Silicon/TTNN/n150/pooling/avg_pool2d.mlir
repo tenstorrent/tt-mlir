@@ -9,7 +9,6 @@ module {
     %1 = "ttir.avg_pool2d"(%arg0) <{
       kernel = array<i32: 3, 3>,
       stride = array<i32: 1, 1>,
-      dilation = array<i32: 1, 1>,
       padding = array<i32: 0, 0, 0, 0>,
       ceil_mode = false
     }> : (tensor<1x32x32x64xbf16>) -> tensor<1x30x30x64xbf16>
@@ -22,7 +21,6 @@ module {
     %1 = "ttir.avg_pool2d"(%arg0) <{
       kernel = array<i32: 3, 3>,
       stride = array<i32: 2, 2>,
-      dilation = array<i32: 1, 1>,
       padding = array<i32: 0, 0, 0, 0>,
       ceil_mode = false
     }> : (tensor<1x32x32x64xbf16>) -> tensor<1x15x15x64xbf16>
@@ -35,7 +33,6 @@ module {
     %1 = "ttir.avg_pool2d"(%arg0) <{
       kernel = array<i32: 4, 4>,
       stride = array<i32: 2, 2>,
-      dilation = array<i32: 1, 1>,
       padding = array<i32: 2, 2, 2, 2>,
       ceil_mode = false
     }> : (tensor<1x32x32x64xbf16>) -> tensor<1x17x17x64xbf16>
@@ -48,7 +45,6 @@ module {
     %1 = "ttir.avg_pool2d"(%arg0) <{
       kernel = array<i32: 3, 3>,
       stride = array<i32: 2, 2>,
-      dilation = array<i32: 1, 1>,
       padding = array<i32: 1, 1, 1, 1>,
       ceil_mode = true
     }> : (tensor<1x32x32x64xbf16>) -> tensor<1x17x17x64xbf16>
@@ -62,7 +58,6 @@ module {
     %1 = "ttir.avg_pool2d"(%arg0) <{
       kernel = array<i32: 4, 4>,
       stride = array<i32: 2, 2>,
-      dilation = array<i32: 1, 1>,
       padding = array<i32: 2, 2, 2, 2>,
       ceil_mode = false,
       count_include_pad = false
@@ -79,7 +74,6 @@ module {
     %0 = "ttir.avg_pool2d"(%arg0) <{
       ceil_mode = false,
       count_include_pad = true,
-      dilation = array<i32: 1, 1>,
       flattened_compat_info = #ttir<flattened_compat batch_size = 1, input_height = 1, input_width = 1>, kernel = array<i32: 8, 8>,
       padding = array<i32: 7, 7, 7, 7>,
       stride = array<i32: 1, 1>

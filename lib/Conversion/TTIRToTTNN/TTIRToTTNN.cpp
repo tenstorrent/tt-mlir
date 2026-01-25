@@ -1703,18 +1703,19 @@ public:
         {stridePairOrError->first, stridePairOrError->second});
 
     // Extract dilation dimensions.
-    auto dilationPairOrError =
-        ttmlir::utils::getPairOfInteger<int32_t>(adaptor.getDilation());
-    assert(dilationPairOrError && "Expected valid dilation attribute");
-    DenseI32ArrayAttr dilationAttr = rewriter.getDenseI32ArrayAttr(
-        {dilationPairOrError->first, dilationPairOrError->second});
+    DenseI32ArrayAttr dilationAttr;
 
     // TTNN only supports lowering of AvgPool2dOp with dilation of (1, 1).
-    if constexpr (std::is_same_v<TTIROpTy, ttir::AvgPool2dOp>) {
-      if (dilationPairOrError->first != 1 || dilationPairOrError->second != 1) {
+    if constexpr (!std::is_same_v<TTIROpTy, ttir::AvgPool2dOp>) {
+      auto dilationPairOrError =
+          ttmlir::utils::getPairOfInteger<int32_t>(adaptor.getDilation());
+      if (!dilationPairOrError) {
         return op.emitOpError()
-               << "only supports lowering to TTNN for dilation of (1, 1)";
+               << "failed to extract dilation attribute: "
+               << llvm::toString(dilationPairOrError.takeError());
       }
+      dilationAttr = rewriter.getDenseI32ArrayAttr(
+          {dilationPairOrError->first, dilationPairOrError->second});
     }
 
     // Extract padding values.
@@ -1788,18 +1789,18 @@ public:
       rewriter.replaceOpWithNewOp<TTNNOpTy>(
           op, this->getTypeConverter()->convertType(op.getResult().getType()),
           input, batchSize, inputHeight, inputWidth, channels, kernelSizeAttr,
-          strideAttr, paddingAttr, dilationAttr,
+          strideAttr, paddingAttr,
           /*memory_config=*/nullptr,
-          /* applied_shard_scheme=*/nullptr, adaptor.getCeilMode(),
-          /* in_place_halo=*/false, adaptor.getCountIncludePad());
+          /*applied_shard_scheme=*/nullptr, adaptor.getCeilMode(),
+          /*reallocate_halo_output=*/true, adaptor.getCountIncludePad());
     } else if constexpr (std::is_same_v<TTIROpTy, ttir::MaxPool2dOp>) {
       rewriter.replaceOpWithNewOp<TTNNOpTy>(
           op, this->getTypeConverter()->convertType(op.getResult().getType()),
           input, batchSize, inputHeight, inputWidth, channels, kernelSizeAttr,
           strideAttr, paddingAttr, dilationAttr,
           /*memory_config=*/nullptr,
-          /* applied_shard_scheme=*/nullptr, adaptor.getCeilMode(),
-          /* in_place_halo=*/false);
+          /*applied_shard_scheme=*/nullptr, adaptor.getCeilMode(),
+          /*reallocate_halo_output=*/true);
     } else if constexpr (std::is_same_v<TTIROpTy,
                                         ttir::MaxPool2dWithIndicesOp>) {
       // Convert all result types for MaxPool2dWithIndicesOp which returns 2

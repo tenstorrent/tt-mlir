@@ -1044,9 +1044,14 @@ def execute_cpp(
         TT_METAL_RUNTIME_ROOT = Path(
             os.environ.get("TT_METAL_RUNTIME_ROOT", os.getcwd())
         ).resolve()
-        metal_lib_candidates = [
-            p for p in TT_METAL_RUNTIME_ROOT.glob("build*/lib") if p.is_dir()
-        ]
+        # Resolve symlinks to get unique paths
+        metal_lib_candidates = list(
+            {
+                p.resolve()
+                for p in TT_METAL_RUNTIME_ROOT.glob("build*/lib")
+                if p.is_dir()
+            }
+        )
         if len(metal_lib_candidates) != 1:
             found = "\n".join(f"- {p}" for p in metal_lib_candidates) or "- <none>"
             raise TTBuilderRuntimeException(

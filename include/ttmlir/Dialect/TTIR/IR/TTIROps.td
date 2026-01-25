@@ -3697,7 +3697,6 @@ def TTIR_AvgPool2dOp : TTIR_NamedOp<"avg_pool2d"> {
   let arguments = (ins AnyRankedTensor:$input,
                        AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$kernel,
                        AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$stride,
-                       AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$dilation,
                        AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$padding,
                        BoolAttr:$ceil_mode,
                        DefaultValuedAttr<BoolAttr, "true">:$count_include_pad,
