@@ -98,7 +98,6 @@ void createTTNNPipelineAnalysisPasses(
     ttnn::TTNNOperationValidationAndFallbackOptions validationOptions;
     validationOptions.tensorL1UsageCap = options.tensorL1UsageCap;
     validationOptions.maxFallbackAttempts = options.maxFallbackAttempts;
-    validationOptions.d2mFallbackEnabled = options.d2mFallbackEnabled;
 
     pm.addPass(createDevicePassesWrapper(
         [optimizerOptions, validationOptions](OpPassManager &innerPm) {
