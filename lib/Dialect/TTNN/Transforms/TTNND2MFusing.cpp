@@ -46,21 +46,20 @@ public:
     if (!op) {
       return false;
     }
-
+    // Eltwise unary ops.
     if (mlir::isa<AbsOp, CbrtOp, CeilOp, SignOp, CosOp, ExpOp, ErfOp, ErfcOp,
                   FloorOp, GeluOp, IsFiniteOp, LogicalNotOp, BitwiseNotOp,
-                  NegOp, TanOp, AtanOp, TanhOp, ReciprocalOp, ReluOp, Relu6Op,
-                  SinOp, SqrtOp, RsqrtOp, SigmoidOp, HardsigmoidOp, SiluOp,
-                  MishOp, LogOp, Log1pOp, Expm1Op, LeakyReluOp>(op)) {
+                  NegOp, TanOp, TanhOp, ReciprocalOp, ReluOp, SinOp, SqrtOp,
+                  RsqrtOp, SigmoidOp, HardsigmoidOp, SiluOp, MishOp, LogOp,
+                  Log1pOp, Expm1Op>(op)) {
       return true;
     }
-
+    // Eltwise binary ops.
     if (mlir::isa<AddOp, DivideOp, MultiplyOp, SubtractOp, EqualOp, NotEqualOp,
                   GreaterEqualOp, GreaterThanOp, LessEqualOp, LessThanOp,
                   LogicalAndOp, LogicalOrOp, LogicalXorOp, LogicalRightShiftOp,
                   BitwiseAndOp, BitwiseOrOp, BitwiseXorOp, MaximumOp, MinimumOp,
-                  RemainderOp, LogicalLeftShiftOp, Atan2Op, PowTensorOp,
-                  PowScalarOp>(op)) {
+                  RemainderOp, LogicalLeftShiftOp, Atan2Op, PowTensorOp>(op)) {
       return true;
     }
 
@@ -68,7 +67,6 @@ public:
   }
 
 private:
-  // Check if op is a fusion group exit (eltwise with no eltwise consumers).
   static bool isFusionGroupExit(Operation *op) {
     if (!isElementwiseOp(op)) {
       return false;
@@ -85,6 +83,7 @@ private:
 
   void analyze(Operation *rootOp) {
     // Find all fusion group exit ops by walking backwards.
+    // Build out each fusion group backwards from the found exit ops.
     llvm::SmallVector<Operation *> exits;
     rootOp->walk([&](Block *block) {
       for (Operation &op : llvm::reverse(*block)) {
@@ -94,7 +93,6 @@ private:
       }
     });
 
-    // Build a fusion group backward from each exit.
     for (Operation *exit : exits) {
       if (visitedOps.contains(exit)) {
         continue;
@@ -208,7 +206,8 @@ private:
     llvm::DenseSet<Operation *> fusionGroupSet(fusionGroup.begin(),
                                                fusionGroup.end());
 
-    // Identify inputs: values produced outside group, consumed by group ops.
+    // Identify inputs: values produced outside fusion group that are consumed
+    // by fusion group ops.
     llvm::SmallVector<Value> inputs;
     llvm::DenseSet<Value> inputSet;
     for (Operation *op : fusionGroup) {
@@ -221,31 +220,24 @@ private:
       }
     }
 
-    // The last op in topological order is the exit - its results are the
-    // outputs.
     Operation *exitOp = fusionGroup.back();
     llvm::SmallVector<Value> outputs(exitOp->getResults());
-
     if (outputs.empty()) {
       LLVM_DEBUG(llvm::dbgs() << "Fusion group " << groupIdx
                               << " has no external outputs\n");
     }
 
-    // Insert before the first group op.
     Operation *firstOp = fusionGroup.front();
     rewriter.setInsertionPoint(firstOp);
     Location loc = firstOp->getLoc();
 
-    // Get device for creating empty output buffers.
+    // Get device for creating empty output buffers for DPS.
     auto device = utils::getOrInsertDevice(rewriter, firstOp);
-
-    // Build function type and create empty outputs for DPS.
+    ttcore::GridAttr deviceGrid = ttcore::lookupDevice(firstOp).getWorkerGrid();
     llvm::SmallVector<Type> inputTypes;
     for (Value v : inputs) {
       inputTypes.push_back(v.getType());
     }
-
-    ttcore::GridAttr deviceGrid = ttcore::lookupDevice(firstOp).getWorkerGrid();
 
     llvm::SmallVector<Type> outputTypes;
     llvm::SmallVector<Value> outputBuffers;

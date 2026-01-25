@@ -1,5 +1,5 @@
 // RUN: ttmlir-opt --ttcore-register-device --ttcore-wrap-device-module --ttnn-d2m-fusing %s | FileCheck %s
-// ttmlir-opt --ttcore-register-device --ttcore-wrap-device-module --ttnn-d2m-fusing test/ttmlir/Dialect/TTNN/Transforms/Fusing/d2m_fusing.mlir
+// ttmlir-opt --ttcore-register-device --ttcore-wrap-device-module --ttnn-d2m-fusing --ttnn-through-d2m-pipeline --ttnn-collaspe-d2m --canonicalize test/ttmlir/Dialect/TTNN/Transforms/Fusing/d2m_fusing.mlir
 
 
 #l1 = #ttnn.buffer_type<l1>
@@ -144,7 +144,7 @@ module {
   }
 
   // CHECK-LABEL: func.func @diamond_with_non_eltwise_consumer
-  func.func @diamond_with_non_eltwise_consumer(%arg0: tensor<64x128xbf16, #layout>, %arg1: tensor<128x256xbf16, #layout>, %arg2: tensor<256x256xbf16, #layout>) -> (tensor<64x256xbf16, #layout>, tensor<64x256xbf16, #layout>) {
+  func.func @diamond_with_non_eltwise_consumer(%arg0: tensor<64x128xbf16, #layout>, %arg1: tensor<128x256xbf16, #layout>, %arg2: tensor<256x256xbf16, #layout>) -> tensor<64x256xbf16, #layout> {
     // CHECK: "ttnn.matmul"
     // CHECK: %[[EXP:.*]] = "ttnn.exp"
     // CHECK: %[[EMPTY:.*]] = "ttnn.empty"
@@ -168,7 +168,7 @@ module {
     // %1 exp also feeds matmul, excluding from chain; %2 %3 are now the entry ops into the chain.
     %6 = "ttnn.matmul"(%1, %arg2) : (tensor<64x256xbf16, #layout>, tensor<256x256xbf16, #layout>) -> tensor<64x256xbf16, #layout>
 
-    return %5, %6 : tensor<64x256xbf16, #layout>, tensor<64x256xbf16, #layout>
+    return %6 : tensor<64x256xbf16, #layout>
   }
 
   // CHECK-LABEL: func.func @single_eltwise_no_chain
@@ -183,7 +183,7 @@ module {
   }
 
   // CHECK-LABEL: func.func @two_independent_chains
-  func.func @two_independent_chains(%arg0: tensor<64x128xbf16, #layout>, %arg1: tensor<128x256xbf16, #layout>, %arg2: tensor<64x128xbf16, #layout>, %arg3: tensor<128x256xbf16, #layout>) -> (tensor<64x256xbf16, #layout>, tensor<64x256xbf16, #layout>) {
+  func.func @two_independent_chains(%arg0: tensor<64x128xbf16, #layout>, %arg1: tensor<128x256xbf16, #layout>, %arg2: tensor<64x128xbf16, #layout>, %arg3: tensor<128x256xbf16, #layout>) -> tensor<64x256xbf16, #layout> {
     // Chain 1: 3 ops
     // CHECK: %[[MM1:.*]] = "ttnn.matmul"
     // CHECK: %[[EMPTY1:.*]] = "ttnn.empty"
@@ -210,7 +210,7 @@ module {
     %5 = "ttnn.abs"(%4) : (tensor<64x256xbf16, #layout>) -> tensor<64x256xbf16, #layout>
     %6 = "ttnn.sigmoid"(%5) : (tensor<64x256xbf16, #layout>) -> tensor<64x256xbf16, #layout>
 
-    return %3, %6 : tensor<64x256xbf16, #layout>, tensor<64x256xbf16, #layout>
+    return %6 : tensor<64x256xbf16, #layout>
   }
 
 }
