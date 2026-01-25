@@ -149,6 +149,9 @@ public:
       builder->create<emitc::IncludeOp>(
           loc, "compute_kernel_api/eltwise_unary/where.h",
           /*isStandard=*/false);
+      builder->create<emitc::IncludeOp>(
+          loc, "compute_kernel_api/eltwise_unary/clamp.h",
+          /*isStandard=*/false);
       // Helper for float-to-uint32 bit reinterpretation (used by scalar tile
       // ops).
       builder->create<emitc::VerbatimOp>(

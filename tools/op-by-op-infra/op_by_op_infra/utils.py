@@ -262,7 +262,7 @@ class OpWrapper:
 
         return (
             f"module attributes {attrs} {{ \n"
-            f"  func.func @main({unpacked_operands}) -> ({return_type}) {{ \n"
+            f'  func.func @main({unpacked_operands}) -> ({return_type}) attributes {{tt.function_type = "forward_device"}} {{ \n'
             f"{constant_body}"
             f"    {self.op_string} \n"
             f"    {return_stmt} \n"
@@ -366,7 +366,7 @@ class TTNNOpWrapper(OpWrapper):
             f"builtin.module attributes {attrs} {{ \n"
             f"  {self.tt_device_op_string} \n"
             f"  {self.func_op_string}"
-            f"  func.func @main({unpacked_operands}) -> {return_type} {{ \n"
+            f'  func.func @main({unpacked_operands}) -> {return_type} attributes {{tt.function_type = "forward_device"}} {{ \n'
             f"{constant_body}"
             f"    {self.op_string} \n"
             f"    {return_stmt} \n"

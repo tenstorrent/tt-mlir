@@ -687,8 +687,8 @@ def TTNN_DeviceComputeKernelConfig : TTNN_Attr<"DeviceComputeKernelConfig", "dev
       - `fp32_dest_acc_en`: Configures destination registers to use 32-bit floating-point precision instead of the default 16-bit mode. It provides higher precision at the cost of reducing available destination register count by half.
       - `packer_l1_acc`: When packing multiple tiles to the same address, subsequent packs perform accumulation (addition using FP16 or FP32 precision) rather than overwriting.
       - `dst_full_sync_en`: Configures destination register acquisition mode:
-        - Half mode (false): Acquires 8 tiles in destination registers
-        - Full mode (true): Acquires 16 tiles in destination registers, providing increased parallelism at the cost of higher resource usage
+        - Half mode (false): Acquires 8 tiles in destination registers, allowing pipelined execution
+        - Full mode (true): Acquires 16 tiles in destination registers, providing more register space at the cost of reduced parallelism due to full synchronization
 
     Example:
 
@@ -745,7 +745,7 @@ def TTNN_Conv3dConfigAttr : TTNN_Attr<"Conv3dConfig", "conv3d_config"> {
   let summary = "TTNN Conv3dConfig attribute";
   let description = [{
     Configuration parameters for TTNN conv3d operations.
-    Controls performance tuning parameters like block sizes and data formats.
+    Controls performance tuning parameters like block sizes, data formats, and grid configuration.
   }];
 
   let parameters = (ins
@@ -754,7 +754,8 @@ def TTNN_Conv3dConfigAttr : TTNN_Attr<"Conv3dConfig", "conv3d_config"> {
     OptionalParameter<"std::optional<uint32_t>">:$w_out_block,
     OptionalParameter<"std::optional<uint32_t>">:$h_out_block,
     OptionalParameter<"std::optional<uint32_t>">:$c_out_block,
-    OptionalParameter<"std::optional<uint32_t>">:$c_in_block
+    OptionalParameter<"std::optional<uint32_t>">:$c_in_block,
+    OptionalParameter<"std::optional<ttcore::GridAttr>">:$compute_with_storage_grid_size
   );
 
   let assemblyFormat = "`<` struct(params) `>`";

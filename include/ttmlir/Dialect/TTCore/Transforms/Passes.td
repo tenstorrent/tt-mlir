@@ -98,4 +98,28 @@ def TTCoreOneShotBufferizePass : Pass<"ttcore-one-shot-bufferize", "::mlir::Modu
   ];
 }
 
+def TTCoreMarkFunctionsAsForwardPass : Pass<"ttcore-mark-functions-as-forward", "::mlir::ModuleOp"> {
+  let summary = "Mark all public functions without a type as Device Forward functions";
+  let description = [{
+    This pass marks all public (non-private) functions in the provided module
+    that do not already have a function type attribute as Device Forward
+    functions. It is intended to run early in the pipeline, before any hoisting
+    or const-eval transforms.
+
+    This provides a consistent mechanism for downstream passes to identify
+    Device Forward functions without relying on ad-hoc detection logic.
+
+    Example:
+    Input:
+      func.func @add(%arg0: tensor<32x32xbf16>, %arg1: tensor<32x32xbf16>) -> tensor<32x32xbf16> {
+        ...
+      }
+
+    Output:
+      func.func @add(%arg0: tensor<32x32xbf16>, %arg1: tensor<32x32xbf16>) -> tensor<32x32xbf16> attributes {tt.function_type = "forward_device"} {
+        ...
+      }
+  }];
+}
+
 #endif

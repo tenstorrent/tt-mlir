@@ -25,6 +25,7 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
+#include "ttmlir/FunctionTypes.h"
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
 #include "ttmlir/Support/Logger.h"
 #include "ttmlir/Utils.h"
@@ -59,8 +60,7 @@ TTNNOptimizerOptions::TTNNOptimizerOptions(
       memoryLayoutAnalysisPolicy(pipelineOptions.memoryLayoutAnalysisPolicy),
       memReconfigEnabled(pipelineOptions.memReconfigEnabled),
       maxLegalLayouts(pipelineOptions.maxLegalLayouts),
-      rowMajorEnabled(pipelineOptions.rowMajorEnabled),
-      tensorL1UsageCap(pipelineOptions.tensorL1UsageCap) {}
+      rowMajorEnabled(pipelineOptions.rowMajorEnabled) {}
 
 namespace impl {
 
@@ -131,7 +131,6 @@ public:
     memoryLayoutAnalysisPolicy = std::move(options.memoryLayoutAnalysisPolicy);
     maxLegalLayouts = std::move(options.maxLegalLayouts);
     rowMajorEnabled = std::move(options.rowMajorEnabled);
-    tensorL1UsageCap = std::move(options.tensorL1UsageCap);
   }
 
 protected:
@@ -182,20 +181,6 @@ protected:
       ::llvm::cl::desc(
           "Enable row major layout generation in legal layout analysis."),
       ::llvm::cl::init(false)};
-  ::mlir::Pass::Option<float> tensorL1UsageCap{
-      *this, OptionNames::tensorL1UsageCap,
-      ::llvm::cl::desc(
-          "Override tensor L1 usage cap in L1 Interleaved Fallback Analysis "
-          "and Memory Layout Analysis. [0.0-1.0]"),
-      ::llvm::cl::init(1.0f)};
-
-  // Calculate the usable L1 cache size with capacity scaling.
-  // For analysis purposes, usableL1CacheSize is scaled by a cap value between
-  // 0.0 and 1.0, where 1.0 means the entire L1 cache can be used by ops.
-  // This cap is set by a flag in the pipeline options.
-  unsigned getScaledUsableL1Size(const ttcore::ChipDescAttr &chipDesc) const {
-    return chipDesc.getUsableL1Size() * tensorL1UsageCap;
-  }
 
 private:
   friend std::unique_ptr<::mlir::Pass> createTTNNOptimizer() {
@@ -242,9 +227,6 @@ public:
     ttcore::GridAttr deviceGrid =
         ttcore::lookupDevice(moduleOp).getWorkerGrid();
 
-    ttcore::SystemDescAttr systemDesc = mlir::cast<ttcore::SystemDescAttr>(
-        moduleOp->getAttr(ttcore::SystemDescAttr::name));
-    ttcore::ChipDescAttr chipDesc = systemDesc.getChipDescs()[0];
     llvm::DenseMap<Operation *, std::vector<OpConfig>> legalConfigs;
     // Map to store only L1 Interleaved legal configs for
     // L1InterleavedFallbackAnalysis.
@@ -276,8 +258,8 @@ public:
     tracePossibleLayouts(tensorTypePossibleLayouts);
 
     moduleOp->walk([&](func::FuncOp func) {
-      // Filter out all const-eval functions.
-      if (ttmlir::utils::isConstEvalFunc(func)) {
+      // Apply analysis only on forward functions.
+      if (!ttmlir::utils::isForwardDeviceFunc(func)) {
         return;
       }
 
@@ -347,8 +329,7 @@ public:
       MemoryLayoutAnalysis memoryLayoutAnalysis =
           getAnalysis<MemoryLayoutAnalysis>();
       memoryLayoutAnalysis.init(MemoryLayoutAnalysisInput(
-          &tensorTypePossibleLayouts, legalConfigs,
-          getScaledUsableL1Size(chipDesc), overrideReshardEdges,
+          &tensorTypePossibleLayouts, legalConfigs, overrideReshardEdges,
           overrideOutputLayout, memoryLayoutAnalysisPolicy));
       legalConfigs = memoryLayoutAnalysis.getResult().legalConfigs;
       opSchedule = memoryLayoutAnalysis.getResult().schedule;
@@ -379,7 +360,9 @@ public:
     // No further analysis.
     //
     moduleOp->walk([&](func::FuncOp func) {
-      if (ttmlir::utils::isConstEvalFunc(func)) {
+      // Apply analysis only on forward functions.
+      //
+      if (!ttmlir::utils::isForwardDeviceFunc(func)) {
         return;
       }
 
@@ -598,8 +581,7 @@ public:
         L1InterleavedFallbackAnalysis l1InterleavedFallbackAnalysis =
             getAnalysis<L1InterleavedFallbackAnalysis>();
         l1InterleavedFallbackAnalysis.init(L1InterleavedFallbackAnalysisInput(
-            l1InterleavedLegalConfigs, opConfigAnalysis.getResult(), func,
-            getScaledUsableL1Size(chipDesc)));
+            l1InterleavedLegalConfigs, opConfigAnalysis.getResult(), func));
         auto l1InterleavedOpConfigs =
             l1InterleavedFallbackAnalysis.getResult().upgradedConfigs;
 

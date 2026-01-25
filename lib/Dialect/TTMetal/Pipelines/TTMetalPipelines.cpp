@@ -83,6 +83,8 @@ void createTTIRToTTMetalFrontendPipeline(
   }
   pm.addPass(ttcore::createTTCoreRegisterDevicePass(registerDeviceOptions));
   pm.addPass(tt::createTTIRToTTIRDecompositionPass());
+  pm.addPass(ttir::createTTIRMoveReshapeToConstant());
+  pm.addPass(ttir::createTTIRFoldConstantReshapeBroadcast());
   pm.addPass(createCanonicalizerPassWithOptions(options));
   if (!options.globalDataFormatTarget.empty()) {
     d2m::D2MGlobalDataFormatConversionOptions globalFormatOptions;
@@ -230,6 +232,11 @@ void createTTIRToTTMetalBackendPipeline(
 
 void createTTIRToTTMetalPipeline(OpPassManager &pm,
                                  const TTIRToTTMetalPipelineOptions &options) {
+  // Mark all public functions without a type assigned to them as Device Forward
+  // functions before any other. This provides a consistent mechanism for
+  // identifying Device Forward functions downstream.
+  pm.addPass(ttcore::createTTCoreMarkFunctionsAsForwardPass());
+
   // Create DeviceModule to wrap all ops.
   pm.addPass(ttcore::createTTCoreWrapDeviceModulePass());
 

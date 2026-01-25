@@ -270,23 +270,6 @@ inline bool hasShouldHoistAttr(mlir::Operation *op) {
   return op->hasAttr("ttir.should_hoist");
 }
 
-// Helper to check if this convolution is a transposed convolution.
-// Determine if the stablehlo.convolution op represents a regular or
-// transposed convolution, based on Torch-MLIR lowering patterns:
-// https://github.com/llvm/torch-mlir/blob/main/lib/Conversion/TorchToStablehlo/Linear.cpp
-// Only transposed convolutions can have input dilation greater than 1.
-// Transposed convolutions always have a window stride of 1.
-inline bool isTransposedConv(ttir::ConvolutionOp convolutionOp) {
-
-  bool isTransposed = llvm::any_of(convolutionOp.getInputDilation(),
-                                   [](int64_t d) { return d > 1; });
-
-  isTransposed &= llvm::all_of(convolutionOp.getWindowStrides(),
-                               [](int64_t s) { return s == 1; });
-
-  return isTransposed;
-}
-
 // Helper function to create a reshape operation.
 inline ttir::ReshapeOp createReshapeOp(PatternRewriter &rewriter, Location loc,
                                        Value input,
