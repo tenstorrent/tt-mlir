@@ -1173,6 +1173,33 @@ def requantize_golden(
     )
 
 
+def stablehlo_uniform_quantize_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    # output_type_mlir is the element type (quantized type) passed from builder
+    if hasattr(output_type_mlir, "scale") and hasattr(output_type_mlir, "zero_point"):
+        scale = output_type_mlir.scale
+        zero_point = output_type_mlir.zero_point
+        storage_type = output_type_mlir.storage_type
+        if "i8" in str(storage_type):
+            dtype = torch.qint8
+        else:
+            dtype = torch.quint8
+    else:
+        scale = 1.0
+        zero_point = 0
+        dtype = torch.qint8
+
+    return torch.quantize_per_tensor(input_tensor, scale, zero_point, dtype).int_repr()
+
+
+def stablehlo_uniform_dequantize_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.dequantize(input_tensor).to(output_dtype)
+
+
 def logical_not_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
     """
     Golden function for logical_not operation.
@@ -5637,6 +5664,9 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     stablehlo.CollectivePermuteOp: stablehlo_collective_permute_golden,
     stablehlo.AllToAllOp: stablehlo_all_to_all_golden,
     stablehlo.CollectiveBroadcastOp: stablehlo_collective_broadcast_golden,
+    # Quantization operations
+    stablehlo.UniformQuantizeOp: stablehlo_uniform_quantize_golden,
+    stablehlo.UniformDequantizeOp: stablehlo_uniform_dequantize_golden,
     # ----- SDY OPS -----
     sdy.ShardingConstraintOp: sdy_sharding_constraint_golden,
     sdy.ReshardOp: sdy_reshard_golden,

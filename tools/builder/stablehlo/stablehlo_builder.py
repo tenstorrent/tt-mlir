@@ -7418,6 +7418,254 @@ class StableHLOBuilder(Builder):
 
         return op_result
 
+    ################ stablehlo.UniformQuantizeOp ###############
+
+    @tag(stablehlo.UniformQuantizeOp)
+    def uniform_quantize(
+        self,
+        in0: Operand,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpResult:
+        stablehlo_op = self.get_opview_from_method(StableHLOBuilder.uniform_quantize)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        op = stablehlo_op(
+            in0,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if sharding_attr is not None:
+            op.operation.attributes["sdy.sharding"] = sharding_attr
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            op_golden_function = get_golden_function(stablehlo_op)
+            golden_output = op_golden_function(input0, mlir_output_type.element_type)
+            self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(stablehlo.UniformQuantizeOp)
+    def uniform_quantize_parser(
+        self,
+        old_op: stablehlo.UniformQuantizeOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        stablehlo_op = self.get_opview_from_parser(
+            StableHLOBuilder.uniform_quantize_parser
+        )
+        operand = global_dict[old_op.operand]
+
+        new_op = stablehlo_op(
+            operand,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(operand)
+            op_golden_function = get_golden_function(stablehlo_op)
+            golden_output = op_golden_function(input0, old_op.result.type.element_type)
+            self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(stablehlo.UniformQuantizeOp)
+    def uniform_quantize_split(
+        self,
+        old_op: stablehlo.UniformQuantizeOp,
+    ) -> Tuple[Module, StableHLOBuilder]:
+        stablehlo_op = self.get_opview_from_split(
+            StableHLOBuilder.uniform_quantize_split
+        )
+
+        old_context = old_op.context
+        old_loc = Location.unknown(old_context)
+        with old_context, old_loc:
+            uniform_quantize_module = Module.create()
+            uniform_quantize_builder = StableHLOBuilder(old_context, old_loc)
+            op_input_types = [
+                old_op.operand.type,
+            ]
+
+            with InsertionPoint(uniform_quantize_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="uniform_quantize_module")
+                def decorated_func(*inputs):
+                    operand = inputs[0]
+
+                    new_op = stablehlo_op(operand, loc=old_op.location)
+                    new_op_result = new_op.result
+
+                    if not self._disable_golden_check:
+                        op_golden_function = get_golden_function(stablehlo_op)
+                        input0 = self._get_golden_tensor(old_op.operand)
+                        golden_output = op_golden_function(
+                            input0, old_op.result.type.element_type
+                        )
+                        uniform_quantize_builder._set_golden_tensor(
+                            new_op_result, golden_output
+                        )
+                        uniform_quantize_builder._set_golden_tensor(operand, input0)
+                        ordered_inputs.append(operand)
+                        ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                uniform_quantize_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return uniform_quantize_module, uniform_quantize_builder
+
+    ################ stablehlo.UniformDequantizeOp ###############
+
+    @tag(stablehlo.UniformDequantizeOp)
+    def uniform_dequantize(
+        self,
+        in0: Operand,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpResult:
+        stablehlo_op = self.get_opview_from_method(StableHLOBuilder.uniform_dequantize)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        op = stablehlo_op(
+            in0,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if sharding_attr is not None:
+            op.operation.attributes["sdy.sharding"] = sharding_attr
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            op_golden_function = get_golden_function(stablehlo_op)
+            golden_output = op_golden_function(input0, mlir_output_type.element_type)
+            self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(stablehlo.UniformDequantizeOp)
+    def uniform_dequantize_parser(
+        self,
+        old_op: stablehlo.UniformDequantizeOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        stablehlo_op = self.get_opview_from_parser(
+            StableHLOBuilder.uniform_dequantize_parser
+        )
+        operand = global_dict[old_op.operand]
+
+        new_op = stablehlo_op(
+            operand,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(operand)
+            op_golden_function = get_golden_function(stablehlo_op)
+            golden_output = op_golden_function(input0, old_op.result.type.element_type)
+            self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(stablehlo.UniformDequantizeOp)
+    def uniform_dequantize_split(
+        self,
+        old_op: stablehlo.UniformDequantizeOp,
+    ) -> Tuple[Module, StableHLOBuilder]:
+        stablehlo_op = self.get_opview_from_split(
+            StableHLOBuilder.uniform_dequantize_split
+        )
+
+        old_context = old_op.context
+        old_loc = Location.unknown(old_context)
+        with old_context, old_loc:
+            uniform_dequantize_module = Module.create()
+            uniform_dequantize_builder = StableHLOBuilder(old_context, old_loc)
+            op_input_types = [
+                old_op.operand.type,
+            ]
+
+            with InsertionPoint(uniform_dequantize_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="uniform_dequantize_module")
+                def decorated_func(*inputs):
+                    operand = inputs[0]
+
+                    new_op = stablehlo_op(operand, loc=old_op.location)
+                    new_op_result = new_op.result
+
+                    if not self._disable_golden_check:
+                        op_golden_function = get_golden_function(stablehlo_op)
+                        input0 = self._get_golden_tensor(old_op.operand)
+                        golden_output = op_golden_function(
+                            input0, old_op.result.type.element_type
+                        )
+                        uniform_dequantize_builder._set_golden_tensor(
+                            new_op_result, golden_output
+                        )
+                        uniform_dequantize_builder._set_golden_tensor(operand, input0)
+                        ordered_inputs.append(operand)
+                        ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                uniform_dequantize_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return uniform_dequantize_module, uniform_dequantize_builder
+
     # ----- Experimental Mpmd Attribute Generators ----
 
     def experimental_named_mesh_attr(
