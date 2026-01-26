@@ -85,10 +85,7 @@ def EmitPy_DictType : EmitPy_Type<"Dict", "dict"> {
 
 def EmitPy_StringType : EmitPy_Type<"String", "str"> {
   let summary = "EmitPy string type.";
-
-  let parameters = (ins StringRefParameter<"string value">:$value);
-
-  let assemblyFormat = "`<` $value `>`";
+  let assemblyFormat = "";
 }
 
 // Type constraint that matches any EmitPy dialect type
