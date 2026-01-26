@@ -8,6 +8,16 @@
 
 namespace tt::runtime::common {
 
+// Appends runtime arguments required to use TTKernel fabric ops:
+// - topology specific runtime arguments used for routing decisions
+// - logical mesh position (used in D2M) to device id (used by fabric APIs)
+// mapping
+// - fabric connection arguments used to connect worker cores to fabric routers
+//
+// This is used by both the ttmetal runtime and ttnn.generic in the ttnn runtime
+// during program creation. Some arg to be appended are core specific so take
+// the original runtime args as input and return a map from CoreCoord to the
+// complete runtime args vector for that core.
 template <typename ProgramOrDescriptor>
 std::unordered_map<::tt::tt_metal::CoreCoord, std::vector<uint32_t>>
 appendFabricConfigArgs(
@@ -19,4 +29,4 @@ appendFabricConfigArgs(
     std::vector<uint32_t> rtArgsVec,
     const tt::tt_metal::CoreRangeSet &coreRangeSet);
 
-}
+} // namespace tt::runtime::common

@@ -325,7 +325,11 @@ void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
           kernelConfig->args()->rt_args(), command->buffers(), meshBuffers,
           command->cbs(), deviceAddressValidator, createSemaphore);
 
-      if (command->fabric_connection_config()) {
+      if (command->fabric_connection_config() &&
+          kernelConfig->type_type() ==
+              target::metal::KernelConfigType::NocConfig &&
+          command->fabric_connection_config()->noc_index() ==
+              kernelConfig->type_as_NocConfig()->noc_index()) {
         auto fabricConfigArgs = common::appendFabricConfigArgs(
             command->fabric_connection_config(), kernelConfig, program, handle,
             deviceCoord, meshDevice, rtArgsVec, coreRangeSet);
