@@ -295,8 +295,6 @@ void createTTIRToTTNNDevicePipeline(
       devicePm.addPass(createTTNNSetComputeKernelConfig(setConfigOptions));
     }
 
-    // D2M fusing pass only supported with optimizer enabled, or else it won't
-    // get memory information.
     if (options.enableD2MFusing) {
       if (!options.optimizerPassEnabled) {
         llvm::llvm_unreachable_internal(
@@ -328,7 +326,6 @@ void createTTIRToTTNNDevicePipeline(
         devicePm.addPass(mlir::createCanonicalizerPass());
       }
     }
-
     createTTNNPipelineLayoutDecompositionPass(devicePm, options);
     if (options.enableTrace) {
       devicePm.addPass(tt::ttnn::createTTNNTraceHoistTransform());
@@ -494,7 +491,6 @@ void createTTNNPipelineD2MPass(OpPassManager &pm) {
                     .nest<ttnn::DispatchD2MOp>()
                     .nest<mlir::ModuleOp>();
 
-  // Convert TTIR to TTNN.
   // TODO(vtang): pass to strip intermediate layouts.
   d2mPm.addPass(tt::createConvertTTNNToTTIRPass());
   // d2mPm.addPass(strip layouts pass)

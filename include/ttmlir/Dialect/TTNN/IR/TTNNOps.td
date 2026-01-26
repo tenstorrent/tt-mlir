@@ -2981,7 +2981,7 @@ def TTNN_DispatchD2MOp : Op<TTNN_Dialect, "dispatch_d2m",
       module {
         func.func @d2m_subgraph(...) -> tensor<...> {
           ttnn.generic ...
-          // more generic ops subgraph didn't fully fuse
+          // more generic ops if subgraph didn't fully fuse
         }
         func.func private @kernel0() { ... }
         ... other kernel functions
@@ -3016,7 +3016,7 @@ def TTNN_DispatchD2MOp : Op<TTNN_Dialect, "dispatch_d2m",
     ModuleOp getNestedModule();
 
     // Returns the D2M function inside the nested module.
-    func::FuncOp lookupD2MMainFunc();
+    func::FuncOp getD2MMainFunc();
 
     // Returns all kernel functions inside the nested module.
     SmallVector<func::FuncOp> getKernelFuncs();
