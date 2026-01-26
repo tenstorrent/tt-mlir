@@ -5,7 +5,7 @@
 import pytest
 import torch
 from typing import Callable, List, Optional, Tuple
-from conftest import x86_only
+from conftest import x86_only, get_request_kwargs
 from collections import OrderedDict
 
 from builder.base.builder_utils import Operand, Shape, TypeInfo
@@ -50,9 +50,7 @@ def test_sharding_constraint(
 
     compile_and_execute_shlo(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         mesh_name="mesh",
         mesh_dict=OrderedDict([("x", 1), ("y", 1)]),
         target=target,
@@ -109,9 +107,7 @@ def test_op_sharding_annotation(
 
     compile_and_execute_shlo(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         mesh_name="mesh",
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         device=device,
@@ -155,9 +151,7 @@ def test_input_annotation(
 
     compile_and_execute_shlo(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         mesh_name="mesh",
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         device=device,
@@ -219,9 +213,7 @@ def test_manual_computation_op(
 
     compile_and_execute_shlo(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         mesh_name="mesh",
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         device=device,
@@ -260,9 +252,7 @@ def test_reshard_op(shape: Shape, dtype: torch.dtype, target: str, request, devi
 
     compile_and_execute_shlo(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         mesh_name="mesh",
         mesh_dict=OrderedDict([("x", 1), ("y", 1)]),
         target=target,
@@ -320,9 +310,7 @@ def test_op_sharding_annotation_with_priority(
 
     compile_and_execute_shlo(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         mesh_name="mesh",
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         device=device,
@@ -410,9 +398,7 @@ def test_sdy_all_gather(
 
     compile_and_execute_shlo(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         mesh_name="mesh",
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         device=device,

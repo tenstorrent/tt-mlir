@@ -5,7 +5,6 @@
 #ifndef TTMLIR_DIALECT_TTNN_ANALYSIS_BFINTERLEAVEDPOLICY_H
 #define TTMLIR_DIALECT_TTNN_ANALYSIS_BFINTERLEAVEDPOLICY_H
 
-#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/Analysis/MemoryLayoutAnalysisPolicy.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 
@@ -34,14 +33,17 @@ public:
   BFInterleavedPolicy(
       Operation *rootOp, std::vector<L1ChainConfig> &l1ChainConfigs,
       const llvm::DenseMap<Operation *, std::vector<OpConfig>> &legalConfigs,
-      llvm::DenseMap<func::FuncOp, llvm::SmallVector<Operation *>> &schedule,
-      unsigned usableL1CacheSize)
+      llvm::DenseMap<func::FuncOp, llvm::SmallVector<Operation *>> &schedule)
       : MemoryLayoutAnalysisPolicy(rootOp, l1ChainConfigs, legalConfigs,
-                                   schedule, usableL1CacheSize) {}
+                                   schedule) {}
 
   void run() final;
 
 private:
+  // Effective L1 cache size scaled by tensorL1UsageCap from module attribute.
+  // Calculated once at the start of run() using utils::getTensorL1UsageCap().
+  uint64_t usableL1CacheSize;
+
   // Check if the op is analyzable. Op is analyzable if it has at least one
   // legal config.
   bool isAnalyzable(Operation *op);

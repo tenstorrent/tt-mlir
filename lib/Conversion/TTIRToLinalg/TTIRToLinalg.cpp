@@ -5,6 +5,7 @@
 #include "ttmlir/Conversion/TTIRToLinalg/TTIRToLinalg.h"
 
 #include "mlir/IR/BuiltinAttributes.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 
@@ -14,6 +15,7 @@
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/DialectResourceBlobManager.h"
 #include "mlir/IR/OpDefinition.h"
 #include "mlir/IR/Types.h"
 #include "mlir/IR/Value.h"
@@ -486,27 +488,20 @@ public:
         this->getTypeConverter()->convertType(op.getType()));
     assert(resultType && "Result type must be a ranked tensor type.");
 
-    const int64_t dim = op.getDim();
+    // TOSA concat requires non-negative axis, so normalize negative dimensions.
+    int64_t dim = op.getDim();
+    if (dim < 0) {
+      dim += resultType.getRank();
+    }
 
     // TOSA concat requires at least two inputs.
     if (inputs.size() < 2) {
       return failure();
     }
 
-    // Start with the first two inputs.
-    Value result = rewriter.create<tosa::ConcatOp>(
-        op.getLoc(),
-        RankedTensorType::get(resultType.getShape().take_front(inputs.size()),
-                              resultType.getElementType()),
-        ValueRange{inputs[0], inputs[1]}, dim);
-    // Add remaining inputs one by one.
-    for (size_t i = 2; i < inputs.size(); ++i) {
-      result = rewriter.create<tosa::ConcatOp>(
-          op.getLoc(),
-          RankedTensorType::get(resultType.getShape().take_front(i + 1),
-                                resultType.getElementType()),
-          ValueRange{result, inputs[i]}, dim);
-    }
+    // Concatenate all inputs at once using the final result type.
+    Value result =
+        rewriter.create<tosa::ConcatOp>(op.getLoc(), resultType, inputs, dim);
 
     rewriter.replaceOp(op, result);
     return success();
@@ -639,29 +634,50 @@ public:
   LogicalResult
   matchAndRewrite(ttir::BroadcastOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    Location loc = op.getLoc();
     Value input = adaptor.getInput();
 
-    auto resultType = dyn_cast<RankedTensorType>(
+    auto inputType = cast<RankedTensorType>(input.getType());
+    auto resultType = cast<RankedTensorType>(
         this->getTypeConverter()->convertType(op.getResult().getType()));
-    assert(resultType && "Result type must be a ranked tensor type.");
 
-    // For TOSA, we can use arithmetic operations that have implicit
-    // broadcasting
+    ArrayRef<int64_t> inputShape = inputType.getShape();
+    ArrayRef<int64_t> targetShape = resultType.getShape();
 
-    // Create a tensor of ones with the result shape
-    auto elementType = resultType.getElementType();
-    assert(elementType.isF32());
-    DenseElementsAttr zerosAttr =
-        DenseElementsAttr::get(resultType, ArrayRef<float>(0));
+    // Calculate broadcast dimensions - these are the dimensions we need to
+    // broadcast along.
+    SmallVector<int64_t, 2> broadcastDims =
+        getBroadcastDims(inputShape, targetShape);
 
-    auto zerosConst =
-        rewriter.create<tosa::ConstOp>(op.getLoc(), resultType, zerosAttr);
+    // If no broadcasting needed, just use the input directly.
+    if (broadcastDims.empty()) {
+      rewriter.replaceOp(op, input);
+      return success();
+    }
 
-    // Add by zeros to implicitly broadcast.
-    auto result = rewriter.create<tosa::AddOp>(op.getLoc(), resultType, input,
-                                               zerosConst);
+    // linalg.broadcast requires that input tensor only contains dimensions
+    // that won't be broadcasted. We need to collapse any size-1 dimensions
+    // that will be broadcasted.
+    SmallVector<SmallVector<int64_t, 2>, 2> collapseDimGroups =
+        (broadcastDims.size() != targetShape.size())
+            ? getCollapseDims(inputShape, targetShape)
+            : SmallVector<SmallVector<int64_t, 2>, 2>();
 
-    rewriter.replaceOp(op, result);
+    Value broadcastInput = input;
+
+    // The broadcast op requires we actually collapse any dimensions with
+    // size 1 we want to broadcast along.
+    if (collapseDimGroups.size() != inputShape.size()) {
+      broadcastInput = rewriter.create<tensor::CollapseShapeOp>(
+          loc, input, collapseDimGroups);
+    }
+
+    auto initTensor = rewriter.create<ttir::EmptyOp>(
+        loc, targetShape, inputType.getElementType());
+    auto broadcastOp = rewriter.create<linalg::BroadcastOp>(
+        loc, broadcastInput, initTensor.getResult(), broadcastDims);
+
+    rewriter.replaceOp(op, broadcastOp.getResults().front());
     return success();
   }
 };
@@ -926,12 +942,10 @@ public:
                                               lhs3DType.getShape()[2]},
                                              lhs3DType.getElementType());
 
-        // Create multiples using tosa.const for tile operation
-        auto multiplesType = RankedTensorType::get({3}, rewriter.getI64Type());
-        auto multiplesAttr =
-            DenseIntElementsAttr::get(multiplesType, multiples);
-        auto multiplesOp = rewriter.create<tosa::ConstOp>(
-            op.getLoc(), multiplesType, multiplesAttr);
+        auto shapeType = tosa::shapeType::get(rewriter.getContext(), 3);
+        auto multiplesAttr = rewriter.getIndexTensorAttr(multiples);
+        auto multiplesOp = rewriter.create<tosa::ConstShapeOp>(
+            op.getLoc(), shapeType, multiplesAttr);
 
         lhs3D = rewriter.create<tosa::TileOp>(op.getLoc(), newType, lhs3D,
                                               multiplesOp);
@@ -944,12 +958,10 @@ public:
                                               rhs3DType.getShape()[2]},
                                              rhs3DType.getElementType());
 
-        // Create multiples using tosa.const for tile operation
-        auto multiplesType = RankedTensorType::get({3}, rewriter.getI64Type());
-        auto multiplesAttr =
-            DenseIntElementsAttr::get(multiplesType, multiples);
-        auto multiplesOp = rewriter.create<tosa::ConstOp>(
-            op.getLoc(), multiplesType, multiplesAttr);
+        auto shapeType = tosa::shapeType::get(rewriter.getContext(), 3);
+        auto multiplesAttr = rewriter.getIndexTensorAttr(multiples);
+        auto multiplesOp = rewriter.create<tosa::ConstShapeOp>(
+            op.getLoc(), shapeType, multiplesAttr);
 
         rhs3D = rewriter.create<tosa::TileOp>(op.getLoc(), newType, rhs3D,
                                               multiplesOp);
@@ -1612,6 +1624,157 @@ public:
 } // namespace
 
 namespace {
+// CumSum conversion pattern.
+// Cumulative sum computes the running sum along a specified dimension.
+// Since this is a scan operation (not a reduction), we cannot use the standard
+// TOSA reduce operations. Instead, we unroll the scan at compile time,
+// generating a sequence of slice+add+insert operations for each position
+// along the scan dimension.
+class CumSumOpConversionPattern : public OpConversionPattern<ttir::CumSumOp> {
+public:
+  using OpConversionPattern<ttir::CumSumOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::CumSumOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    Location loc = op.getLoc();
+    Value input = adaptor.getInput();
+    auto inputType = cast<RankedTensorType>(input.getType());
+    int64_t rank = inputType.getRank();
+
+    auto resultType = dyn_cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getResult().getType()));
+    assert(resultType && "Result type must be a ranked tensor type.");
+
+    // Normalize dimension to be positive.
+    int64_t dim = op.getDim();
+    if (dim < 0) {
+      dim += rank;
+    }
+
+    int64_t dimSize = inputType.getShape()[dim];
+    Type elementType = inputType.getElementType();
+
+    // Create an initial output tensor filled with zeros.
+    DenseElementsAttr zeroAttr = createDenseElementsAttr(resultType, 0.0);
+    if (!zeroAttr) {
+      return rewriter.notifyMatchFailure(op,
+                                         "Unsupported element type for cumsum");
+    }
+    Value output =
+        rewriter.create<arith::ConstantOp>(loc, resultType, zeroAttr);
+
+    // Compute the slice type (same shape but with dim size = 1).
+    SmallVector<int64_t> sliceShape(inputType.getShape());
+    sliceShape[dim] = 1;
+    auto sliceType = RankedTensorType::get(sliceShape, elementType);
+
+    // Create a zero-filled tensor for the running sum accumulator.
+    DenseElementsAttr zeroSliceAttr = createDenseElementsAttr(sliceType, 0.0);
+    Value runningSum =
+        rewriter.create<arith::ConstantOp>(loc, sliceType, zeroSliceAttr);
+
+    // Build the static sizes and strides for slice operations.
+    SmallVector<OpFoldResult> staticSizes;
+    SmallVector<OpFoldResult> staticStrides(rank, rewriter.getIndexAttr(1));
+    for (int64_t i = 0; i < rank; ++i) {
+      if (i == dim) {
+        staticSizes.push_back(rewriter.getIndexAttr(1));
+      } else {
+        staticSizes.push_back(rewriter.getIndexAttr(inputType.getShape()[i]));
+      }
+    }
+
+    // Unroll the scan loop at compile time.
+    // For each position along the scan dimension, extract the slice, add to
+    // running sum, and insert into output.
+    for (int64_t idx = 0; idx < dimSize; ++idx) {
+      // Build offsets for this iteration.
+      SmallVector<OpFoldResult> offsets(rank, rewriter.getIndexAttr(0));
+      offsets[dim] = rewriter.getIndexAttr(idx);
+
+      // Extract the current slice from input.
+      Value inputSlice = rewriter.create<tensor::ExtractSliceOp>(
+          loc, sliceType, input, offsets, staticSizes, staticStrides);
+
+      // Add current input slice to running sum.
+      auto emptySlice =
+          rewriter.create<tensor::EmptyOp>(loc, sliceShape, elementType);
+      auto addOp = rewriter.create<linalg::AddOp>(
+          loc, sliceType, ValueRange{runningSum, inputSlice},
+          emptySlice.getResult());
+      runningSum = addOp.getResult(0);
+
+      // Insert the new sum into the output tensor at the current position.
+      output = rewriter.create<tensor::InsertSliceOp>(
+          loc, runningSum, output, offsets, staticSizes, staticStrides);
+    }
+
+    rewriter.replaceOp(op, output);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+// ConcatenateHeads conversion pattern.
+// This operation concatenates multiple heads of a multi-head attention tensor.
+// Input shape: [batch_size, num_heads, sequence_size, head_size]
+// Output shape: [batch_size, sequence_size, num_heads * head_size]
+// It is equivalent to: permute([0, 2, 1, 3]) + reshape
+class ConcatenateHeadsOpConversionPattern
+    : public OpConversionPattern<ttir::ConcatenateHeadsOp> {
+public:
+  using OpConversionPattern<ttir::ConcatenateHeadsOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::ConcatenateHeadsOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    Location loc = op.getLoc();
+    Value input = adaptor.getInput();
+    auto inputType = cast<RankedTensorType>(input.getType());
+    ArrayRef<int64_t> inputShape = inputType.getShape();
+    Type elementType = inputType.getElementType();
+
+    // ConcatenateHeads expects exactly 4D input:
+    // [batch_size, num_heads, sequence_size, head_size].
+    if (inputType.getRank() != 4) {
+      return rewriter.notifyMatchFailure(
+          op, "ConcatenateHeads requires 4D input tensor.");
+    }
+
+    auto resultType = dyn_cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getResult().getType()));
+    assert(resultType && "Result type must be a ranked tensor type.");
+
+    // Input: [batch_size, num_heads, sequence_size, head_size]
+    // Step 1: Transpose to [batch_size, sequence_size, num_heads, head_size]
+    SmallVector<int32_t> permutation = {0, 2, 1, 3};
+    SmallVector<int64_t> transposedShape = {inputShape[0], inputShape[2],
+                                            inputShape[1], inputShape[3]};
+    auto transposedType = RankedTensorType::get(transposedShape, elementType);
+
+    auto transposeOp = rewriter.create<tosa::TransposeOp>(loc, transposedType,
+                                                          input, permutation);
+
+    // Step 2: Reshape to [batch_size, sequence_size, num_heads * head_size]
+    ArrayRef<int64_t> outputShape = resultType.getShape();
+    SmallVector<int64_t> newShapeValues(outputShape.begin(), outputShape.end());
+    auto shapeType =
+        tosa::shapeType::get(rewriter.getContext(), outputShape.size());
+    auto attr = rewriter.getIndexTensorAttr(newShapeValues);
+    auto shapeOp = rewriter.create<tosa::ConstShapeOp>(loc, shapeType, attr);
+
+    auto reshapeOp =
+        rewriter.create<tosa::ReshapeOp>(loc, resultType, transposeOp, shapeOp);
+
+    rewriter.replaceOp(op, reshapeOp);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class ReduceOrOpConversionPattern
     : public OpConversionPattern<ttir::ReduceOrOp> {
 public:
@@ -2013,8 +2176,26 @@ public:
         this->getTypeConverter()->convertType(op.getResult().getType()));
     assert(resultType && "Result type must be a ranked tensor type.");
 
-    auto newConstant =
-        rewriter.create<arith::ConstantOp>(op.getLoc(), resultType, value);
+    // Convert the value attribute to match the converted result type.
+    // This handles signed/unsigned integer types (si32, ui32) being converted
+    // to signless integers (i32).
+    ElementsAttr convertedValue;
+    if (auto denseAttr = dyn_cast<DenseElementsAttr>(value)) {
+      // Use getFromRawBuffer to reinterpret the raw data with the new type.
+      // This works for si32/ui32 -> i32 conversion since they have the same
+      // bit width.
+      convertedValue = DenseElementsAttr::getFromRawBuffer(
+          resultType, denseAttr.getRawData());
+    } else if (auto resourceAttr = dyn_cast<DenseResourceElementsAttr>(value)) {
+      convertedValue = DenseResourceElementsAttr::get(
+          resultType, resourceAttr.getRawHandle());
+    } else {
+      return rewriter.notifyMatchFailure(
+          op, "Expected DenseElementsAttr or DenseResourceElementsAttr");
+    }
+
+    auto newConstant = rewriter.create<arith::ConstantOp>(
+        op.getLoc(), resultType, convertedValue);
 
     rewriter.replaceOp(op, newConstant.getResult());
     return success();
@@ -2084,6 +2265,72 @@ public:
     }
 
     rewriter.replaceOpWithNewOp<arith::ConstantOp>(op, resultType, fillAttr);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+// Conversion pattern for ttir.arange operation.
+// Generates a tensor with evenly spaced values within a given interval.
+class ArangeOpConversionPattern : public OpConversionPattern<ttir::ArangeOp> {
+public:
+  using OpConversionPattern<ttir::ArangeOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::ArangeOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    Location loc = op.getLoc();
+    auto resultType = cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getResult().getType()));
+
+    // ArangeForceLastDimensionPattern ensures arange is always 1D.
+    assert(resultType.getRank() == 1 &&
+           "Arange must be 1D after decomposition");
+
+    int64_t start = adaptor.getStart();
+    int64_t step = adaptor.getStep();
+    Type elementType = resultType.getElementType();
+
+    Value initTensor = rewriter.create<tensor::EmptyOp>(
+        loc, resultType.getShape(), elementType);
+
+    AffineMap outputMap = rewriter.getDimIdentityMap();
+    SmallVector<utils::IteratorType> iteratorTypes = {
+        utils::IteratorType::parallel};
+
+    auto genericOp = rewriter.create<linalg::GenericOp>(
+        loc, resultType, ValueRange{}, ValueRange{initTensor},
+        SmallVector<AffineMap>{outputMap}, iteratorTypes,
+        [&](OpBuilder &b, Location loc, ValueRange args) {
+          Value idx = b.create<linalg::IndexOp>(loc, 0);
+
+          // Compute: start + idx * step
+          Value result;
+          if (isa<FloatType>(elementType)) {
+            Value idxFloat =
+                b.create<arith::IndexCastOp>(loc, b.getI64Type(), idx);
+            Value idxFP = b.create<arith::SIToFPOp>(loc, elementType, idxFloat);
+            Value startVal = b.create<arith::ConstantOp>(
+                loc, b.getFloatAttr(elementType, static_cast<double>(start)));
+            Value stepVal = b.create<arith::ConstantOp>(
+                loc, b.getFloatAttr(elementType, static_cast<double>(step)));
+            Value scaled = b.create<arith::MulFOp>(loc, idxFP, stepVal);
+            result = b.create<arith::AddFOp>(loc, startVal, scaled);
+          } else {
+            Value idxInt = b.create<arith::IndexCastOp>(loc, elementType, idx);
+            Value startVal = b.create<arith::ConstantOp>(
+                loc, b.getIntegerAttr(elementType, start));
+            Value stepVal = b.create<arith::ConstantOp>(
+                loc, b.getIntegerAttr(elementType, step));
+            Value scaled = b.create<arith::MulIOp>(loc, idxInt, stepVal);
+            result = b.create<arith::AddIOp>(loc, startVal, scaled);
+          }
+
+          b.create<linalg::YieldOp>(loc, result);
+        });
+
+    rewriter.replaceOp(op, genericOp.getResult(0));
     return success();
   }
 };
@@ -2196,6 +2443,89 @@ public:
 };
 } // namespace
 
+namespace {
+class UnsqueezeOpConversionPattern
+    : public OpConversionPattern<ttir::UnsqueezeOp> {
+public:
+  using OpConversionPattern<ttir::UnsqueezeOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::UnsqueezeOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    Value input = adaptor.getInput();
+
+    auto resultType = dyn_cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getResult().getType()));
+    assert(resultType && "Result type must be a ranked tensor type.");
+
+    SmallVector<int64_t> newShape(resultType.getShape());
+
+    auto shapeType =
+        tosa::shapeType::get(rewriter.getContext(), newShape.size());
+    auto attr = rewriter.getIndexTensorAttr(newShape);
+    auto shapeOp =
+        rewriter.create<tosa::ConstShapeOp>(op.getLoc(), shapeType, attr);
+
+    rewriter.replaceOpWithNewOp<tosa::ReshapeOp>(op, resultType, input,
+                                                 shapeOp);
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class MeshShardOpConversionPattern
+    : public OpConversionPattern<ttir::MeshShardOp> {
+public:
+  using OpConversionPattern<ttir::MeshShardOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::MeshShardOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // Only handle identity MeshShard ops - these are no-ops that just pass
+    // through the input.
+    if (adaptor.getShardType() != ttcore::MeshShardType::Identity) {
+      return rewriter.notifyMatchFailure(
+          op, "Only identity MeshShard ops are supported.");
+    }
+
+    // Identity MeshShard is a no-op, just forward the input.
+    rewriter.replaceOp(op, adaptor.getInput());
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class RepeatOpConversionPattern : public OpConversionPattern<ttir::RepeatOp> {
+public:
+  using OpConversionPattern<ttir::RepeatOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::RepeatOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto resultType = dyn_cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getResult().getType()));
+    assert(resultType && "Result type must be a ranked tensor type.");
+
+    auto repeatDimensions = op.getRepeatDimensions();
+    SmallVector<int64_t> multiples(repeatDimensions.begin(),
+                                   repeatDimensions.end());
+
+    auto shapeType =
+        tosa::shapeType::get(rewriter.getContext(), multiples.size());
+    auto multiplesAttr = rewriter.getIndexTensorAttr(multiples);
+    auto multiplesOp = rewriter.create<tosa::ConstShapeOp>(
+        op.getLoc(), shapeType, multiplesAttr);
+
+    rewriter.replaceOpWithNewOp<tosa::TileOp>(op, resultType,
+                                              adaptor.getInput(), multiplesOp);
+    return success();
+  }
+};
+} // namespace
+
 //===----------------------------------------------------------------------===//
 // Pattern Population
 //===----------------------------------------------------------------------===//
@@ -2213,7 +2543,9 @@ void populateTTIRToLinalgPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
       PermuteOpConversionPattern, SliceStaticOpConversionPattern,
       ConstantOpConversionPattern, EmbeddingOpConversionPattern,
       ReluOpConversionPattern, NamedFillOpConversionPattern<ttir::ZerosOp, 0>,
-      NamedFillOpConversionPattern<ttir::OnesOp, 1>, FullOpConversionPattern>(
+      NamedFillOpConversionPattern<ttir::OnesOp, 1>, FullOpConversionPattern,
+      ArangeOpConversionPattern, MeshShardOpConversionPattern,
+      CumSumOpConversionPattern, ConcatenateHeadsOpConversionPattern>(
       typeConverter, ctx);
 }
 
@@ -2231,7 +2563,8 @@ void populateTTIRToTosaPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                                           tosa::ReciprocalOp>,
       ElementwiseUnaryOpConversionPattern<ttir::RsqrtOp, tosa::RsqrtOp>,
       ElementwiseUnaryOpConversionPattern<ttir::SigmoidOp, tosa::SigmoidOp>,
-      ElementwiseUnaryOpConversionPattern<ttir::TanhOp, tosa::TanhOp>>(
+      ElementwiseUnaryOpConversionPattern<ttir::TanhOp, tosa::TanhOp>,
+      ElementwiseUnaryOpConversionPattern<ttir::TypecastOp, tosa::CastOp>>(
       typeConverter, ctx);
 
   // Comparison operations
@@ -2251,13 +2584,14 @@ void populateTTIRToTosaPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                GatherOpConversionPattern, LogicalNotOpConversionPattern,
                MaxOpConversionPattern, SumOpConversionPattern,
                ReduceOrOpConversionPattern, MeanOpConversionPattern,
-               SqueezeOpConversionPattern, MaxPool2dOpConversionPattern,
-               Conv2dOpConversionPattern>(typeConverter, ctx);
+               SqueezeOpConversionPattern, UnsqueezeOpConversionPattern,
+               MaxPool2dOpConversionPattern, Conv2dOpConversionPattern>(
+      typeConverter, ctx);
 
   // Special operations
   patterns.add<WhereOpConversionPattern, ReshapeOpConversionPattern,
-               TransposeOpConversionPattern, ConcatOpConversionPattern>(
-      typeConverter, ctx);
+               TransposeOpConversionPattern, ConcatOpConversionPattern,
+               RepeatOpConversionPattern>(typeConverter, ctx);
 }
 
 } // namespace mlir::tt

@@ -271,6 +271,32 @@ public:
       template_args.push_back(
           datatypeToDataformatEnumValue(builder, op.getOutDtype()));
       return ArrayAttr::get(op.getContext(), template_args);
+    } else if constexpr (std::is_same_v<SourceOp,
+                                        ttkernel::BinaryDestReuseTilesInitOp> ||
+                         std::is_same_v<SourceOp,
+                                        ttkernel::BinaryDestReuseTilesOp>) {
+      SmallVector<Attribute, 2> template_args;
+      StringRef eltwiseType;
+      switch (op.getEltwiseBinaryType()) {
+      case ttkernel::EltwiseBinaryType::Add:
+        eltwiseType = "ELWADD";
+        break;
+      case ttkernel::EltwiseBinaryType::Sub:
+        eltwiseType = "ELWSUB";
+        break;
+      case ttkernel::EltwiseBinaryType::Mul:
+        eltwiseType = "ELWMUL";
+        break;
+      }
+      template_args.push_back(
+          emitc::OpaqueAttr::get(op.getContext(), eltwiseType));
+      StringRef reuseType =
+          op.getReuseType() == ttkernel::BinaryDestReuseType::DestToSrcA
+              ? "EltwiseBinaryReuseDestType::DEST_TO_SRCA"
+              : "EltwiseBinaryReuseDestType::DEST_TO_SRCB";
+      template_args.push_back(
+          emitc::OpaqueAttr::get(op.getContext(), reuseType));
+      return ArrayAttr::get(op.getContext(), template_args);
     }
     return ArrayAttr();
   }
@@ -892,6 +918,8 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::MulTilesOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::SubTilesInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::SubTilesOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::BinaryDestReuseTilesInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::BinaryDestReuseTilesOp>,
 
         // Transpose Ops
         TTKernelToEmitCOpaqueRewriter<ttkernel::TransposeInitOp>,
