@@ -1,6 +1,6 @@
 // RUN: ttmlir-opt --split-input-file --ttcore-register-device --ttcore-wrap-device-module --ttnn-through-d2m-pipeline %s | FileCheck %s
-// ttmlir-opt --split-input-file --ttcore-register-device --ttcore-wrap-device-module --ttnn-through-d2m-pipeline test/ttmlir/Dialect/TTNN/dispatch_d2m/materialize.mlir
 
+// -----
 #l1 = #ttnn.buffer_type<l1>
 #ttnn_layout = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, bf16>, #l1>, <block_sharded>, exactGrid = true>
 
@@ -9,20 +9,20 @@ module {
   func.func @one_d2m_subgraph(%arg0: tensor<64x64xbf16, #ttnn_layout>, %arg1: tensor<64x64xbf16, #ttnn_layout>, %out: tensor<64x64xbf16, #ttnn_layout>) -> tensor<64x64xbf16, #ttnn_layout> {
     %0 = ttnn.dispatch_d2m @d2m_subgraph
         ins(%arg0, %arg1 : tensor<64x64xbf16, #ttnn_layout>, tensor<64x64xbf16, #ttnn_layout>)
-        outs(%out : tensor<64x64xbf16, #ttnn_layout>) {
-      builtin.module {
-        func.func @d2m_subgraph(%arg3: tensor<64x64xbf16, #ttnn_layout>, %arg4: tensor<64x64xbf16, #ttnn_layout>) -> tensor<64x64xbf16, #ttnn_layout> {
-          // CHECK: "ttnn.generic"
-          %1 = "ttnn.add"(%arg3, %arg4) <{dtype = #ttcore.supportedDataTypes<bf16>}> : (tensor<64x64xbf16, #ttnn_layout>, tensor<64x64xbf16, #ttnn_layout>) -> tensor<64x64xbf16, #ttnn_layout>
-          return %1 : tensor<64x64xbf16, #ttnn_layout>
-        }
-        // CHECK: func.func private @datamovement_kernel0
-        // CHECK: func.func private @datamovement_kernel1
-        // CHECK: func.func private @compute_kernel2
-      }
-    } : tensor<64x64xbf16, #ttnn_layout>
+        outs(%out : tensor<64x64xbf16, #ttnn_layout>) : tensor<64x64xbf16, #ttnn_layout>
     return %0 : tensor<64x64xbf16, #ttnn_layout>
   }
+  func.func private @d2m_subgraph(%arg3: tensor<64x64xbf16, #ttnn_layout>, %arg4: tensor<64x64xbf16, #ttnn_layout>) -> tensor<64x64xbf16, #ttnn_layout> {
+    // CHECK: "ttnn.generic"
+    // CHECK-SAME: symbol_ref = @datamovement_kernel0
+    // CHECK-SAME: symbol_ref = @datamovement_kernel1
+    // CHECK-SAME: symbol_ref = @compute_kernel2
+    %1 = "ttnn.add"(%arg3, %arg4) <{dtype = #ttcore.supportedDataTypes<bf16>}> : (tensor<64x64xbf16, #ttnn_layout>, tensor<64x64xbf16, #ttnn_layout>) -> tensor<64x64xbf16, #ttnn_layout>
+    return %1 : tensor<64x64xbf16, #ttnn_layout>
+  }
+  // CHECK: func.func private @datamovement_kernel0
+  // CHECK: func.func private @datamovement_kernel1
+  // CHECK: func.func private @compute_kernel2
 }
 
 // -----
@@ -33,34 +33,34 @@ module {
   func.func @two_d2m_subgraph_b2b(%arg0: tensor<64x64xbf16, #ttnn_layout>, %out0: tensor<64x64xbf16, #ttnn_layout>, %out1: tensor<64x64xbf16, #ttnn_layout>) -> tensor<64x64xbf16, #ttnn_layout> {
     %0 = ttnn.dispatch_d2m @d2m_subgraph_0
         ins(%arg0 : tensor<64x64xbf16, #ttnn_layout>)
-        outs(%out0 : tensor<64x64xbf16, #ttnn_layout>) {
-      builtin.module {
-        func.func @d2m_subgraph_0(%arg2: tensor<64x64xbf16, #ttnn_layout>) -> tensor<64x64xbf16, #ttnn_layout> {
-          // CHECK: "ttnn.generic"
-          %1 = "ttnn.exp"(%arg2) : (tensor<64x64xbf16, #ttnn_layout>) -> tensor<64x64xbf16, #ttnn_layout>
-          return %1 : tensor<64x64xbf16, #ttnn_layout>
-        }
-        // CHECK: func.func private @datamovement_kernel0
-        // CHECK: func.func private @datamovement_kernel1
-        // CHECK: func.func private @compute_kernel2
-      }
-    } : tensor<64x64xbf16, #ttnn_layout>
+        outs(%out0 : tensor<64x64xbf16, #ttnn_layout>) : tensor<64x64xbf16, #ttnn_layout>
     %2 = ttnn.dispatch_d2m @d2m_subgraph_1
         ins(%0 : tensor<64x64xbf16, #ttnn_layout>)
-        outs(%out1 : tensor<64x64xbf16, #ttnn_layout>) {
-      builtin.module {
-        func.func @d2m_subgraph_1(%arg3: tensor<64x64xbf16, #ttnn_layout>) -> tensor<64x64xbf16, #ttnn_layout> {
-          // CHECK: "ttnn.generic"
-          %3 = "ttnn.log"(%arg3) : (tensor<64x64xbf16, #ttnn_layout>) -> tensor<64x64xbf16, #ttnn_layout>
-          return %3 : tensor<64x64xbf16, #ttnn_layout>
-        }
-        // CHECK: func.func private @datamovement_kernel0
-        // CHECK: func.func private @datamovement_kernel1
-        // CHECK: func.func private @compute_kernel2
-      }
-    } : tensor<64x64xbf16, #ttnn_layout>
+        outs(%out1 : tensor<64x64xbf16, #ttnn_layout>) : tensor<64x64xbf16, #ttnn_layout>
     return %2 : tensor<64x64xbf16, #ttnn_layout>
   }
+  func.func private @d2m_subgraph_0(%arg2: tensor<64x64xbf16, #ttnn_layout>) -> tensor<64x64xbf16, #ttnn_layout> {
+    // CHECK: "ttnn.generic"
+    // CHECK-SAME: symbol_ref = @datamovement_kernel0
+    // CHECK-SAME: symbol_ref = @datamovement_kernel1
+    // CHECK-SAME: symbol_ref = @compute_kernel2
+    %1 = "ttnn.exp"(%arg2) : (tensor<64x64xbf16, #ttnn_layout>) -> tensor<64x64xbf16, #ttnn_layout>
+    return %1 : tensor<64x64xbf16, #ttnn_layout>
+  }
+  func.func private @d2m_subgraph_1(%arg3: tensor<64x64xbf16, #ttnn_layout>) -> tensor<64x64xbf16, #ttnn_layout> {
+    // CHECK: "ttnn.generic"
+    // CHECK-SAME: symbol_ref = @datamovement_kernel3
+    // CHECK-SAME: symbol_ref = @datamovement_kernel4
+    // CHECK-SAME: symbol_ref = @compute_kernel5
+    %3 = "ttnn.log"(%arg3) : (tensor<64x64xbf16, #ttnn_layout>) -> tensor<64x64xbf16, #ttnn_layout>
+    return %3 : tensor<64x64xbf16, #ttnn_layout>
+  }
+  // CHECK: func.func private @datamovement_kernel0
+  // CHECK: func.func private @datamovement_kernel1
+  // CHECK: func.func private @compute_kernel2
+  // CHECK: func.func private @datamovement_kernel3
+  // CHECK: func.func private @datamovement_kernel4
+  // CHECK: func.func private @compute_kernel5
 }
 
 // -----
@@ -73,34 +73,34 @@ module {
     %0 = "ttnn.add"(%arg0, %arg1) <{dtype = #ttcore.supportedDataTypes<bf16>}> : (tensor<64x64xbf16, #ttnn_layout>, tensor<64x64xbf16, #ttnn_layout>) -> tensor<64x64xbf16, #ttnn_layout>
     %1 = ttnn.dispatch_d2m @d2m_subgraph_0
         ins(%0 : tensor<64x64xbf16, #ttnn_layout>)
-        outs(%out0 : tensor<64x64xbf16, #ttnn_layout>) {
-      builtin.module {
-        func.func @d2m_subgraph_0(%arg2: tensor<64x64xbf16, #ttnn_layout>) -> tensor<64x64xbf16, #ttnn_layout> {
-          // CHECK: "ttnn.generic"
-          %2 = "ttnn.exp"(%arg2) : (tensor<64x64xbf16, #ttnn_layout>) -> tensor<64x64xbf16, #ttnn_layout>
-          return %2 : tensor<64x64xbf16, #ttnn_layout>
-        }
-        // CHECK: func.func private @datamovement_kernel0
-        // CHECK: func.func private @datamovement_kernel1
-        // CHECK: func.func private @compute_kernel2
-      }
-    } : tensor<64x64xbf16, #ttnn_layout>
+        outs(%out0 : tensor<64x64xbf16, #ttnn_layout>) : tensor<64x64xbf16, #ttnn_layout>
     // CHECK: "ttnn.neg"
     %3 = "ttnn.neg"(%1) : (tensor<64x64xbf16, #ttnn_layout>) -> tensor<64x64xbf16, #ttnn_layout>
     %4 = ttnn.dispatch_d2m @d2m_subgraph_1
         ins(%3 : tensor<64x64xbf16, #ttnn_layout>)
-        outs(%out1 : tensor<64x64xbf16, #ttnn_layout>) {
-      builtin.module {
-        func.func @d2m_subgraph_1(%arg4: tensor<64x64xbf16, #ttnn_layout>) -> tensor<64x64xbf16, #ttnn_layout> {
-          // CHECK: "ttnn.generic"
-          %5 = "ttnn.log"(%arg4) : (tensor<64x64xbf16, #ttnn_layout>) -> tensor<64x64xbf16, #ttnn_layout>
-          return %5 : tensor<64x64xbf16, #ttnn_layout>
-        }
-        // CHECK: func.func private @datamovement_kernel0
-        // CHECK: func.func private @datamovement_kernel1
-        // CHECK: func.func private @compute_kernel2
-      }
-    } : tensor<64x64xbf16, #ttnn_layout>
+        outs(%out1 : tensor<64x64xbf16, #ttnn_layout>) : tensor<64x64xbf16, #ttnn_layout>
     return %4 : tensor<64x64xbf16, #ttnn_layout>
   }
+  func.func private @d2m_subgraph_0(%arg2: tensor<64x64xbf16, #ttnn_layout>) -> tensor<64x64xbf16, #ttnn_layout> {
+    // CHECK: "ttnn.generic"
+    // CHECK-SAME: symbol_ref = @datamovement_kernel0
+    // CHECK-SAME: symbol_ref = @datamovement_kernel1
+    // CHECK-SAME: symbol_ref = @compute_kernel2
+    %2 = "ttnn.exp"(%arg2) : (tensor<64x64xbf16, #ttnn_layout>) -> tensor<64x64xbf16, #ttnn_layout>
+    return %2 : tensor<64x64xbf16, #ttnn_layout>
+  }
+  func.func private @d2m_subgraph_1(%arg4: tensor<64x64xbf16, #ttnn_layout>) -> tensor<64x64xbf16, #ttnn_layout> {
+    // CHECK: "ttnn.generic"
+    // CHECK-SAME: symbol_ref = @datamovement_kernel3
+    // CHECK-SAME: symbol_ref = @datamovement_kernel4
+    // CHECK-SAME: symbol_ref = @compute_kernel5
+    %5 = "ttnn.log"(%arg4) : (tensor<64x64xbf16, #ttnn_layout>) -> tensor<64x64xbf16, #ttnn_layout>
+    return %5 : tensor<64x64xbf16, #ttnn_layout>
+  }
+  // CHECK: func.func private @datamovement_kernel0
+  // CHECK: func.func private @datamovement_kernel1
+  // CHECK: func.func private @compute_kernel2
+  // CHECK: func.func private @datamovement_kernel3
+  // CHECK: func.func private @datamovement_kernel4
+  // CHECK: func.func private @compute_kernel5
 }
