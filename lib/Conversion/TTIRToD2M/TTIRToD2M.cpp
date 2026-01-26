@@ -1709,6 +1709,7 @@ private:
     // Convert input to Metal layout if needed.
     Value metalInput = adaptor.getInput();
     auto inputType = mlir::cast<RankedTensorType>(adaptor.getInput().getType());
+    // insert a ttnn layout -> ttmetal layout cast for the to_layout if needed
     if (mlir::isa_and_nonnull<ttnn::TTNNLayoutAttr>(inputType.getEncoding())) {
       auto inputMetalType =
           getMetalTensorFromTTNNTensor(rewriter, adaptor.getInput());
@@ -1720,21 +1721,15 @@ private:
 
     auto outputMetalType =
         getMetalTensorFromTTNNTensor(rewriter, op.getOutput());
-
-    // Create d2m.empty for TTNN layout.
+    // insert a d2m.empty with a ttnn layout and a metallayoutcast before the
+    // to_layout
     Value metalEmpty = rewriter.create<d2m::EmptyOp>(
         op.getLoc(), outType.getShape(), outType.getElementType(),
         outType.getEncoding());
-
-    // Cast TTNN empty to Metal layout.
     auto metalCast = rewriter.create<ttir::TTNNMetalLayoutCastOp>(
         op.getLoc(), outputMetalType, metalEmpty);
-
-    // Create d2m.to_layout with Metal types.
     auto metalToLayout =
         rewriter.create<d2m::ToLayoutOp>(op.getLoc(), metalInput, metalCast);
-
-    // Cast back to TTNN.
     auto ttnnResult = rewriter.create<ttir::TTNNMetalLayoutCastOp>(
         op.getLoc(), outType, metalToLayout.getResult(0));
 
@@ -1786,25 +1781,15 @@ class D2MEmptyOpRewriter : public OpConversionPattern<ttir::EmptyOp> {
     bool outputIsTTNN =
         mlir::isa_and_nonnull<ttnn::TTNNLayoutAttr>(resultType.getEncoding());
     if (outputIsTTNN) {
-      llvm::errs() << "empty op ttnn\n";
-      op.dump();
-
-      // if if empty is used by a to_layout
-      bool isLayoutBuffer = false;
-      for (Operation *user : op->getUsers()) {
-        if (auto toLayoutOp = dyn_cast<ttir::ToLayoutOp>(user)) {
+      // if a ttir.to_layout is a user of the op, erase it.
+      // D2MToLayoutOpRewriter will handle inserting the d2m.empty
+      for (Operation *userOp : op->getUsers()) {
+        if (auto toLayoutOp = dyn_cast<ttir::ToLayoutOp>(userOp)) {
           if (toLayoutOp.getOutput() == op.getResult()) {
-            isLayoutBuffer = true;
-            break;
+            rewriter.eraseOp(op);
+            return success();
           }
         }
-      }
-
-      // If this is a layout buffer, remove the ttir empty. b/c in
-      // tolayoutoprewriter, a d2m empty is created.
-      if (isLayoutBuffer) {
-        rewriter.eraseOp(op);
-        return success();
       }
     }
     auto tensorType = cast<RankedTensorType>(resultType);
