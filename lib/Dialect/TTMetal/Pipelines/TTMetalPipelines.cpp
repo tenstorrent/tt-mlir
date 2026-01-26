@@ -214,6 +214,12 @@ void createTTIRToTTMetalMiddleendPipeline(
 
   pm.addPass(createCanonicalizerPassWithOptions(options));
   createOptimizationPasses(pm, options);
+
+  // Lower scratch allocations to subviews of a master scratchpad.
+  // This pass runs late in the middleend, after loop generation but before
+  // regions are converted to functions.
+  pm.addPass(d2m::createD2MLowerScratchAllocate());
+
   pm.addPass(d2m::createD2MGenericRegionsToFuncs());
 }
 
