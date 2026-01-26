@@ -10,7 +10,7 @@
 //    - Pattern: eq(-inf) -> logical_not -> reduce_or -> where(condition, 0, softmax)
 //
 
-
+// REQUIRES: opmodel
 // RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% enable-optimizer=true" %s | FileCheck %s
 module {
 
