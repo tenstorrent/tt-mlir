@@ -57,7 +57,7 @@ bool TTAlchemist::modelToPython(const std::string &input_file) {
   llvm::raw_string_ostream outputStream(output);
 
   // Generate main.py
-  std::cout << "\n=== main.py ===\n";
+  std::cout << "#=== main.py ===\n";
   std::string mainFileId = "main";
   if (mlir::failed(mlir::tt::emitpy::translateToPython(*module, outputStream,
                                                        mainFileId))) {
@@ -69,7 +69,7 @@ bool TTAlchemist::modelToPython(const std::string &input_file) {
 
   // Generate consteval.py
   //
-  std::cout << "\n=== consteval.py ===\n";
+  std::cout << "\n#=== consteval.py ===\n";
   std::string constevalFileId = "consteval";
   if (mlir::failed(mlir::tt::emitpy::translateToPython(*module, outputStream,
                                                        constevalFileId))) {
