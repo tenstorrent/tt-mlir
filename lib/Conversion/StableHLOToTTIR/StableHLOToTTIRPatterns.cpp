@@ -2453,8 +2453,6 @@ public:
 //  - Support initialization via function arguments
 //  - Generalize to other reduction ops
 //  - Extract and match nested operations in reduction blocks
-// TODO(acicovic):
-//  - Mention lowering to FullOp.
 //===----------------------------------------------------------------------===//
 
 namespace {
@@ -3029,7 +3027,7 @@ private:
       return std::nullopt;
     }
     auto kernel = srcOp.getWindowDimensions();
-    int64_t kernelSize = 1; // TODO(acicovic): Multiply only spatial dims?
+    int64_t kernelSize = 1;
     for (int64_t element : kernel) {
       kernelSize *= element;
     }
@@ -3065,6 +3063,8 @@ private:
          static_cast<int32_t>(attr[spatialDimIndices[1]])}); // W
   }
 
+  // Extract attribute values for padding from an attribute of
+  // a 4D tensor input (8 padding values).
   static DenseI32ArrayAttr
   extract4xI32PaddingAttr(DenseI64ArrayAttr padding8,
                           SmallVector<size_t, 2> spatialDimIndices,
@@ -3073,8 +3073,8 @@ private:
         static_cast<int32_t>(padding8[spatialDimIndices[0] * 2]),     // H low
         static_cast<int32_t>(padding8[spatialDimIndices[1] * 2]),     // W low
         static_cast<int32_t>(padding8[spatialDimIndices[0] * 2 + 1]), // H high
-        static_cast<int32_t>(padding8[spatialDimIndices[1] * 2 + 1]),
-    }); // W high
+        static_cast<int32_t>(padding8[spatialDimIndices[1] * 2 + 1]), // W high
+    });
   }
 };
 
