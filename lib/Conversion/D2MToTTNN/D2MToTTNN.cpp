@@ -245,22 +245,14 @@ public:
 
     if (auto viewOp = mlir::dyn_cast_if_present<d2m::ViewLayoutOp>(
             operand.getDefiningOp())) {
-      llvm::errs() << "in generic\n";
-      viewOp.dump();
       if (auto castOp = mlir::dyn_cast_if_present<ttir::TTNNMetalLayoutCastOp>(
               viewOp.getInput().getDefiningOp())) {
-        llvm::errs() << "castOp:\n";
-        castOp.dump();
-        llvm::errs() << "castOp.getOperand():\n";
-        castOp.getOperand().dump();
         TT_assertv(castOp,
                    "Expected TTNNMetalLayoutCastOp producing view input.");
         return {castOp.getOperand(), operand};
       } else if (auto streamLayoutOp =
                      mlir::dyn_cast_if_present<d2m::StreamLayoutOp>(
                          viewOp.getInput().getDefiningOp())) {
-        llvm::errs() << "streamLayoutOp:\n";
-        streamLayoutOp.dump();
         auto innerCastOp =
             mlir::dyn_cast_if_present<ttir::TTNNMetalLayoutCastOp>(
                 streamLayoutOp.getInput().getDefiningOp());
