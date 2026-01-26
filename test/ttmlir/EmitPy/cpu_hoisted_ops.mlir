@@ -6,90 +6,11 @@
 // RUN: ttmlir-translate --mlir-to-python -o %t.py %t.mlir
 // RUN: FileCheck %s --input-file=%t.py
 
-// Verify CPU-hoisted functions are generated with golden_function calls
-
-// Binary arithmetic
-// CHECK-LABEL: def hoisted_ttir_add_32x32xf32_32x32xf32_func
-// CHECK: ttnn.add.golden_function
-
-// Binary division
-// CHECK-LABEL: def hoisted_ttir_div_32x32xf32_32x32xf32_func
-// CHECK: ttnn.divide.golden_function
-
-// Binary comparison
-// CHECK-LABEL: def hoisted_ttir_eq_32x32xf32_32x32xf32_func
-// CHECK: ttnn.eq.golden_function
-
-// Binary logical
-// CHECK-LABEL: def hoisted_ttir_logical_and_32x32xf32_32x32xf32_func
-// CHECK: ttnn.logical_and.golden_function
-
-// Binary min/max
-// CHECK-LABEL: def hoisted_ttir_maximum_32x32xf32_32x32xf32_func
-// CHECK: ttnn.maximum.golden_function
-
-// Matrix multiplication
-// CHECK-LABEL: def hoisted_ttir_matmul_32x64xf32_64x32xf32_func
-// CHECK: ttnn.matmul.golden_function
-
-// Unary activation
-// CHECK-LABEL: def hoisted_ttir_relu_32x32xf32_func
-// CHECK: ttnn.relu.golden_function
-
-// Unary trigonometric
-// CHECK-LABEL: def hoisted_ttir_sin_32x32xf32_func
-// CHECK: ttnn.sin.golden_function
-
-// Unary exponential/logarithmic
-// CHECK-LABEL: def hoisted_ttir_exp_32x32xf32_func
-// CHECK: ttnn.exp.golden_function
-
-// CHECK-LABEL: def hoisted_ttir_log_32x32xf32_func
-// CHECK: ttnn.log.golden_function
-
-// Unary rounding
-// CHECK-LABEL: def hoisted_ttir_ceil_32x32xf32_func
-// CHECK: ttnn.ceil.golden_function
-
-// Unary sign/abs
-// CHECK-LABEL: def hoisted_ttir_abs_32x32xf32_func
-// CHECK: ttnn.abs.golden_function
-
-// Unary reciprocal
-// CHECK-LABEL: def hoisted_ttir_reciprocal_32x32xf32_func
-// CHECK: ttnn.reciprocal.golden_function
-
-// Unary sqrt
-// CHECK-LABEL: def hoisted_ttir_sqrt_32x32xf32_func
-// CHECK: ttnn.sqrt.golden_function
-
-// Pooling
-// CHECK-LABEL: def hoisted_ttir_max_pool2d_1x32x32x32xf32_func
-// CHECK: ttnn.max_pool2d.golden_function
-
-// Reduction
-// CHECK-LABEL: def hoisted_ttir_sum_32x32xf32_func
-// CHECK: ttnn.sum.golden_function
-
-// Data manipulation - reshape
-// CHECK-LABEL: def hoisted_ttir_reshape_32x32xf32_func
-// CHECK: ttnn.reshape.golden_function
-
-// Data manipulation - concat
-// CHECK-LABEL: def hoisted_ttir_concat_32x32xf32_32x32xf32_func
-// CHECK: ttnn.concat.golden_function
-
-// Data manipulation - permute
-// CHECK-LABEL: def hoisted_ttir_permute_32x32xf32_func
-// CHECK: ttnn.permute.golden_function
-
-// Softmax
-// CHECK-LABEL: def hoisted_ttir_softmax_32x32xf32_func
-// CHECK: ttnn.softmax.golden_function
-
 // ============================================================================
 // Validation functions
 // ============================================================================
+
+// CHECK-LABEL : # File: "main"
 
 // CHECK-LABEL: def add_validation
 // CHECK: hoisted_ttir_add_32x32xf32_32x32xf32_func(
@@ -308,3 +229,87 @@ func.func @softmax_validation(%arg0: tensor<32x32xf32>) -> tensor<32x32xf32> {
   %diff = "ttir.subtract"(%cpu_result, %device_result) : (tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
   return %diff : tensor<32x32xf32>
 }
+
+
+// Verify CPU-hoisted functions are generated with golden_function calls
+
+// CHECK-LABEL : # File: "consteval"
+
+// Binary arithmetic
+// CHECK-LABEL: def hoisted_ttir_add_32x32xf32_32x32xf32_func
+
+
+// Binary division
+// CHECK-LABEL: def hoisted_ttir_div_32x32xf32_32x32xf32_func
+// CHECK: ttnn.divide.golden_function
+
+// Binary comparison
+// CHECK-LABEL: def hoisted_ttir_eq_32x32xf32_32x32xf32_func
+// CHECK: ttnn.eq.golden_function
+
+// Binary logical
+// CHECK-LABEL: def hoisted_ttir_logical_and_32x32xf32_32x32xf32_func
+// CHECK: ttnn.logical_and.golden_function
+
+// Binary min/max
+// CHECK-LABEL: def hoisted_ttir_maximum_32x32xf32_32x32xf32_func
+// CHECK: ttnn.maximum.golden_function
+
+// Matrix multiplication
+// CHECK-LABEL: def hoisted_ttir_matmul_32x64xf32_64x32xf32_func
+// CHECK: ttnn.matmul.golden_function
+
+// Unary activation
+// CHECK-LABEL: def hoisted_ttir_relu_32x32xf32_func
+// CHECK: ttnn.relu.golden_function
+
+// Unary trigonometric
+// CHECK-LABEL: def hoisted_ttir_sin_32x32xf32_func
+// CHECK: ttnn.sin.golden_function
+
+// Unary exponential/logarithmic
+// CHECK-LABEL: def hoisted_ttir_exp_32x32xf32_func
+// CHECK: ttnn.exp.golden_function
+
+// CHECK-LABEL: def hoisted_ttir_log_32x32xf32_func
+// CHECK: ttnn.log.golden_function
+
+// Unary rounding
+// CHECK-LABEL: def hoisted_ttir_ceil_32x32xf32_func
+// CHECK: ttnn.ceil.golden_function
+
+// Unary sign/abs
+// CHECK-LABEL: def hoisted_ttir_abs_32x32xf32_func
+// CHECK: ttnn.abs.golden_function
+
+// Unary reciprocal
+// CHECK-LABEL: def hoisted_ttir_reciprocal_32x32xf32_func
+// CHECK: ttnn.reciprocal.golden_function
+
+// Unary sqrt
+// CHECK-LABEL: def hoisted_ttir_sqrt_32x32xf32_func
+// CHECK: ttnn.sqrt.golden_function
+
+// Pooling
+// CHECK-LABEL: def hoisted_ttir_max_pool2d_1x32x32x32xf32_func
+// CHECK: ttnn.max_pool2d.golden_function
+
+// Reduction
+// CHECK-LABEL: def hoisted_ttir_sum_32x32xf32_func
+// CHECK: ttnn.sum.golden_function
+
+// Data manipulation - reshape
+// CHECK-LABEL: def hoisted_ttir_reshape_32x32xf32_func
+// CHECK: ttnn.reshape.golden_function
+
+// Data manipulation - concat
+// CHECK-LABEL: def hoisted_ttir_concat_32x32xf32_32x32xf32_func
+// CHECK: ttnn.concat.golden_function
+
+// Data manipulation - permute
+// CHECK-LABEL: def hoisted_ttir_permute_32x32xf32_func
+// CHECK: ttnn.permute.golden_function
+
+// Softmax
+// CHECK-LABEL: def hoisted_ttir_softmax_32x32xf32_func
+// CHECK: ttnn.softmax.golden_function

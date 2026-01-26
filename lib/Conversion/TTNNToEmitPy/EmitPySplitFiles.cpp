@@ -97,8 +97,11 @@ public:
             constevalOps.push_back(op);
           }
           if (auto callOp = dyn_cast<func::CallOp>(op)) {
-            if (callOp.getCallee().contains("hoisted_")) {
-              hoistedCallOps.push_back(callOp);
+            if (auto calledFunc = constevalFile.lookupSymbol<func::FuncOp>(
+                    callOp.getCallee())) {
+              if (ttmlir::utils::isForwardCPUFunc(calledFunc)) {
+                hoistedCallOps.push_back(callOp);
+              }
             }
           }
         });

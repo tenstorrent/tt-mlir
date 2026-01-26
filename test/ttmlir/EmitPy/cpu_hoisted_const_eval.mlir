@@ -6,6 +6,8 @@
 // RUN: ttmlir-translate --mlir-to-python -o %t.py %t.mlir
 // RUN: FileCheck %s --input-file=%t.py
 
+// CHECK-LABEL : # File: "main"
+
 // Basic const-eval: operation on parameters/constants should be hoisted.
 // CHECK-LABEL: def forward(
 // CHECK: execute_forward_consteval
@@ -77,6 +79,9 @@ func.func @forward_all_const(%arg0: tensor<32x32xf32> {ttcore.argument_type = #t
 }
 
 // Verify that CPU-hoisted functions are generated with golden_function calls.
+
+// CHECK-LABEL : # File: "consteval"
+
 // CHECK-LABEL: def hoisted_forward_const_eval_0(
 // CHECK: golden_function
 // CHECK-LABEL: def hoisted_forward_split_const_eval_0(
