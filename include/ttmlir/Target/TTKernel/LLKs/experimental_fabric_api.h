@@ -8,12 +8,14 @@
 #include "tt_metal/fabric/hw/inc/edm_fabric/routing_plane_connection_manager.hpp"
 #include "tt_metal/fabric/hw/inc/packet_header_pool.h"
 #include "tt_metal/fabric/hw/inc/tt_fabric_api.h"
+#include <array>
 
 namespace experimental {
 
 // hardcoded defaults for now
 static constexpr uint32_t max_fabric_payload_size = 4352;
 static constexpr size_t fabric_setup_args_start_idx = 0;
+static constexpr size_t NUM_DIMS = 2;
 
 /////////////// Exposed APIs (for TTKernel Dialect Ops) ////////////////
 //
@@ -24,9 +26,8 @@ static constexpr size_t fabric_setup_args_start_idx = 0;
 //
 // Device/Topology Info:
 //   uint16_t get_my_device_id()
-//   uint32_t get_logical_mesh_position()        // API_TYPE_Linear only
-//   uint16_t get_device_id_from_logical_mesh_position(...) // API_TYPE_Linear
-//   only
+//   std::array<uint32_t, NUM_DIMS> get_logical_mesh_position()
+//   uint32_t get_device_id_from_logical_mesh_position(...)
 //
 // Fabric Write:
 //   void fabric_fast_write_any_len(fcm, dst_mesh_id, dst_dev_id, ...)
@@ -41,83 +42,81 @@ FORCE_INLINE uint16_t get_my_device_id() {
   return routing_table->my_device_id;
 }
 
-struct TopologyInfo1D {
-  enum class TopologyType1D { Ring = 0, Line };
+struct TopologyInfo {
+  enum class TopologyType { Ring = 0, Line };
 
-  TopologyType1D topology_type;
-  uint32_t ring_size;
-  eth_chan_directions forward_dir;
-  eth_chan_directions backward_dir;
-  static constexpr size_t MAX_RING_SIZE = 8;
+  TopologyType topology_type;
+  uint32_t axis; // dim to route on for 1d TopologyType's
+  std::array<uint32_t, NUM_DIMS> mesh_shape;
+  std::array<std::pair<eth_chan_directions, eth_chan_directions>, NUM_DIMS> routing_directions;
   static constexpr size_t MAX_MESH_SIZE = 32;
-  uint32_t logical_index_to_device_id[MAX_RING_SIZE];
-  uint32_t device_id_to_logical_index[MAX_MESH_SIZE];
+  uint32_t flattened_mesh_coordinate_to_device_id[MAX_MESH_SIZE];
+  uint32_t device_id_to_flattened_mesh_coordinate[MAX_MESH_SIZE];
 
-  uint32_t get_device_id(uint32_t logical_index) {
-    ASSERT(logical_index < ring_size);
-    return logical_index_to_device_id[logical_index];
+  uint32_t get_device_id(std::array<uint32_t, NUM_DIMS> logical_mesh_position) {
+    // flatten logical_mesh_position first
+    uint32_t flattened_mesh_coordinate = 0;
+    for (uint32_t i = 0; i < NUM_DIMS; i++) {
+      ASSERT(logical_mesh_position[i] < mesh_shape[i]);
+      flattened_mesh_coordinate = flattened_mesh_coordinate * mesh_shape[i] + logical_mesh_position[i]; 
+    }
+    return flattened_mesh_coordinate_to_device_id[flattened_mesh_coordinate];
   }
 
-  uint32_t get_logical_index(uint32_t device_id) {
+  std::array<uint32_t, NUM_DIMS> get_logical_mesh_position(uint32_t device_id) {
     ASSERT(device_id < MAX_MESH_SIZE);
-    return device_id_to_logical_index[device_id];
+    uint32_t flattened_mesh_coordinate = device_id_to_flattened_mesh_coordinate[device_id];
+    // unflatten mesh_coordinate
+    std::array<uint32_t, NUM_DIMS> logical_mesh_position;
+    for (int32_t i = NUM_DIMS - 1; i >= 0; i--) {
+      logical_mesh_position[i] = flattened_mesh_coordinate % mesh_shape[i];
+      flattened_mesh_coordinate /= mesh_shape[i];
+      ASSERT(logical_mesh_position[i] < mesh_shape[i]);
+    }
+    return logical_mesh_position;
   }
 
   void build_from_args(size_t &rt_arg_idx) {
-    // Read topology type (Line=0, Ring=1)
+    // Read topology type (Line=0, Ring=1) and axis (for 1D)
     topology_type =
-        static_cast<TopologyType1D>(get_arg_val<uint32_t>(rt_arg_idx++));
+        static_cast<TopologyType>(get_arg_val<uint32_t>(rt_arg_idx++));
+    axis = get_arg_val<uint32_t>(rt_arg_idx++);
 
-    // Read ring/line size
-    ring_size = get_arg_val<uint32_t>(rt_arg_idx++);
-    ASSERT(ring_size <= MAX_RING_SIZE);
+    // Read mesh shape
+    uint32_t mesh_size = 1;
+    for (uint32_t i = 0; i < NUM_DIMS; i++) {
+      mesh_shape[i] = get_arg_val<uint32_t>(rt_arg_idx++);
+      mesh_size = mesh_size * mesh_shape[i]; 
+    }
+    ASSERT(mesh_size <= MAX_MESH_SIZE);
 
-    // Read forward and backward directions
-    forward_dir =
-        static_cast<eth_chan_directions>(get_arg_val<uint32_t>(rt_arg_idx++));
-    backward_dir =
-        static_cast<eth_chan_directions>(get_arg_val<uint32_t>(rt_arg_idx++));
+    // Read directions
+    for (uint32_t i = 0; i < NUM_DIMS; i++) {
+      auto forward_dir = static_cast<eth_chan_directions>(get_arg_val<uint32_t>(rt_arg_idx++));
+      auto backward_dir = static_cast<eth_chan_directions>(get_arg_val<uint32_t>(rt_arg_idx++));
+      routing_directions[i] = {forward_dir, backward_dir};
+    }
 
     // Read logical index to device id mapping and build reverse mapping
-    for (uint32_t i = 0; i < ring_size; i++) {
+    // (device ids are provided in flattened mesh coordinate order)
+    for (uint32_t i = 0; i < mesh_size; i++) {
       uint32_t device_id = get_arg_val<uint32_t>(rt_arg_idx++);
-      logical_index_to_device_id[i] = device_id;
+      flattened_mesh_coordinate_to_device_id[i] = device_id;
       ASSERT(device_id < MAX_MESH_SIZE);
-      device_id_to_logical_index[device_id] = i;
+      device_id_to_flattened_mesh_coordinate[device_id] = i;
     }
   }
 };
 
-union ToplogyInfo {
-  TopologyInfo1D topology_info_1d;
-};
-
-ToplogyInfo &get_topology();
-
-#ifdef API_TYPE_Linear
-
-FORCE_INLINE uint32_t get_logical_mesh_position() {
-  TopologyInfo1D &topology = get_topology().topology_info_1d;
-  return topology.get_logical_index(get_my_device_id());
-}
-
-FORCE_INLINE uint32_t
-get_device_id_from_logical_mesh_position(uint32_t logical_ring_position) {
-  TopologyInfo1D &topology = get_topology().topology_info_1d;
-  return topology.get_device_id(logical_ring_position);
-}
-
-#endif // API_TYPE_Linear
-
 ////////// FabricConnectionManager and Setup/Teardown Functions //////////
 
 struct FabricConnectionManager {
-  ToplogyInfo topology_info;
+  TopologyInfo topology_info;
   tt::tt_fabric::RoutingPlaneConnectionManager fabric_connections;
   int route_id = -1;
   bool initialized = false;
 
-  FORCE_INLINE ToplogyInfo &get_topology() {
+  FORCE_INLINE TopologyInfo &get_topology() {
     ASSERT(initialized);
     return topology_info;
   }
@@ -133,6 +132,15 @@ struct FabricConnectionManager {
   }
 };
 
+FORCE_INLINE std::array<uint32_t, NUM_DIMS> get_logical_mesh_position(FabricConnectionManager &fabric_connection_manager, uint32_t device_id) {
+  return fabric_connection_manager.get_topology().get_logical_mesh_position(get_my_device_id());
+}
+
+FORCE_INLINE uint32_t
+get_device_id_from_logical_mesh_position(FabricConnectionManager &fabric_connection_manager, std::array<uint32_t, NUM_DIMS> logical_mesh_position) {
+  return fabric_connection_manager.get_topology().get_device_id(logical_mesh_position);
+}
+
 FORCE_INLINE void
 setup_fabric_connections(FabricConnectionManager &fabric_connection_manager) {
   uint32_t num_topology_args =
@@ -145,10 +153,8 @@ setup_fabric_connections(FabricConnectionManager &fabric_connection_manager) {
   if (!fabric_connection_manager.initialized) {
     // set up topology
     size_t topology_arg_idx = fabric_setup_args_start_idx + 1;
-#ifdef API_TYPE_Linear
-    fabric_connection_manager.topology_info.topology_info_1d.build_from_args(
+    fabric_connection_manager.topology_info.build_from_args(
         topology_arg_idx);
-#endif
 
     // set up routing plane connection manager
     size_t fabric_connection_arg_idx =
@@ -181,7 +187,7 @@ close_fabric_connections(FabricConnectionManager &fabric_connection_manager) {
 #ifdef FABRIC_2D
 
 FORCE_INLINE std::pair<uint32_t, uint32_t> calculate_initial_direction_and_hops(
-    ToplogyInfo &topology_info, uint16_t dst_device_id, uint16_t my_device_id) {
+    TopologyInfo &topology_info, uint16_t dst_device_id, uint16_t my_device_id) {
   auto *routing_info =
       reinterpret_cast<tt_l1_ptr intra_mesh_routing_path_t<2, true> *>(
           ROUTING_PATH_BASE_2D);
@@ -214,29 +220,29 @@ FORCE_INLINE std::pair<uint32_t, uint32_t> calculate_initial_direction_and_hops(
 #else // 1D Fabric (only supports line/ring topologies)
 
 FORCE_INLINE std::pair<uint32_t, uint32_t> calculate_initial_direction_and_hops(
-    ToplogyInfo &topology_info, uint16_t dst_device_id, uint16_t my_device_id) {
+    TopologyInfo &topology, uint16_t dst_device_id, uint16_t my_device_id) {
 #if defined(API_TYPE_Linear)
   // TODO: check that my_device_id and dst_device_id are in same line/ring
-  TopologyInfo1D &topology = topology_info.topology_info_1d;
-  uint32_t my_logical_index = topology.get_logical_index(my_device_id);
-  uint32_t dest_logical_index = topology.get_logical_index(dst_device_id);
-  if (topology.topology_type == TopologyInfo1D::TopologyType1D::Line) {
+  uint32_t my_logical_index = topology.get_logical_mesh_position(my_device_id)[topology.axis];
+  uint32_t dest_logical_index = topology.get_logical_mesh_position(dst_device_id)[topology.axis];
+  if (topology.topology_type == TopologyInfo::TopologyType::Line) {
     if (my_logical_index < dest_logical_index) {
-      return {static_cast<uint32_t>(topology.forward_dir),
+      return {static_cast<uint32_t>(topology.routing_directions[topology.axis].first),
               dest_logical_index - my_logical_index};
     } else {
-      return {static_cast<uint32_t>(topology.backward_dir),
+      return {static_cast<uint32_t>(topology.routing_directions[topology.axis].second),
               my_logical_index - dest_logical_index};
     }
-  } else { // TopologyInfo1D::TopologyType1D::Ring; select shortest route from
+  } else { // TopologyInfo::TopologyType::Ring; select shortest route from
            // the two directions
-    if ((dest_logical_index - my_logical_index) % topology.ring_size <
-        (my_logical_index - dest_logical_index) % topology.ring_size) {
-      return {static_cast<uint32_t>(topology.forward_dir),
-              (dest_logical_index - my_logical_index) % topology.ring_size};
+    uint32_t ring_size = topology.mesh_shape[topology.axis];
+    if ((dest_logical_index - my_logical_index) % ring_size <
+        (my_logical_index - dest_logical_index) % ring_size) {
+      return {static_cast<uint32_t>(topology.routing_directions[topology.axis].first),
+              (dest_logical_index - my_logical_index) % ring_size};
     } else {
-      return {static_cast<uint32_t>(topology.backward_dir),
-              (dest_logical_index - my_logical_index) % topology.ring_size};
+      return {static_cast<uint32_t>(topology.routing_directions[topology.axis].second),
+              (dest_logical_index - my_logical_index) % ring_size};
     }
   }
 #else
@@ -299,7 +305,7 @@ fabric_fast_write_any_len(FabricConnectionManager &fabric_connection_manager,
   ASSERT(my_mesh_id == dst_mesh_id); // we dont support inter-mesh routing yet
 
   auto [initial_dir, num_hops] = calculate_initial_direction_and_hops(
-      fabric_connection_manager.topology_info, dst_dev_id, my_device_id);
+      fabric_connection_manager.get_topology(), dst_dev_id, my_device_id);
   auto connection_index = get_connection_index_by_tag(
       fabric_connection_manager.get_fabric_connections(), initial_dir);
   ASSERT(connection_index != -1);

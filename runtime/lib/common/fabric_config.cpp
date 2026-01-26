@@ -5,6 +5,7 @@
 #include "tt/runtime/detail/common/fabric_config.h"
 #include <tt-metalium/experimental/fabric/fabric.hpp>
 #include <tt-metalium/experimental/fabric/mesh_graph.hpp>
+#include <tt-metalium/mesh_coord.hpp>
 #include "tt-metalium/program_descriptors.hpp"
 #include "tt/runtime/detail/common/logger.h"
 
@@ -33,41 +34,47 @@ appendFabricConfigArgs(
     rtArgsVec.push_back(1);
     LOG_ASSERT(meshDevice->shape().dims() == 2,
                "Only 2d mesh device is supported");
-    // add line/ring index to device id mapping for line/ring topology
     if (topology_type == tt::target::Topology::Linear ||
         topology_type == tt::target::Topology::Ring) {
+      // Add topology type (Line=0, Ring=1) and axis (for 1D)
       rtArgsVec.push_back(static_cast<uint32_t>(topology_type));
-      int cluster_axis = fabricConnectionConfig->cluster_axis();
+      uint32_t cluster_axis = fabricConnectionConfig->cluster_axis();
       LOG_ASSERT(cluster_axis < 2, "Invalid cluster axis, must be < 2");
-      int dim = cluster_axis;
-      // add num devices in line/ring
-      int ring_size = meshDevice->shape()[dim];
-      rtArgsVec.push_back(ring_size);
-      // add forward and backward directions
-      auto forwardCoord = deviceCoord;
-      forwardCoord[dim] = (forwardCoord[dim] + 1) % ring_size;
-      auto forward_direction = get_eth_forwarding_direction(
-          meshDevice->get_fabric_node_id(deviceCoord),
-          meshDevice->get_fabric_node_id(forwardCoord));
-      LOG_ASSERT(
-          forward_direction.has_value(),
-          "Forward direction does not exist on mesh coordinate: ", deviceCoord);
-      rtArgsVec.push_back(forward_direction.value());
-      auto backwardCoord = deviceCoord;
-      backwardCoord[dim] = (backwardCoord[dim] + ring_size - 1) % ring_size;
-      auto backward_direction = get_eth_forwarding_direction(
-          meshDevice->get_fabric_node_id(deviceCoord),
-          meshDevice->get_fabric_node_id(backwardCoord));
-      LOG_ASSERT(backward_direction.has_value(),
-                 "Backward direction does not exist on mesh coordinate: ",
-                 deviceCoord);
-      rtArgsVec.push_back(backward_direction.value());
-      // then add line/rindex to device id mapping for entire line/ring
-      for (int i = 0; i < ring_size; i++) {
-        auto coord = deviceCoord;
-        coord[dim] = i;
-        rtArgsVec.push_back(meshDevice->get_fabric_node_id(coord).chip_id);
+      rtArgsVec.push_back(cluster_axis);
+
+      // add mesh shape
+      for (uint32_t dim = 0; dim < meshDevice->shape().dims(); dim++) {
+        rtArgsVec.push_back(meshDevice->shape()[dim]);
       }
+
+      // add forward and backward directions for each dim
+      for (uint32_t dim = 0; dim < meshDevice->shape().dims(); dim++) {
+        auto forwardCoord = deviceCoord;
+        forwardCoord[dim] = (forwardCoord[dim] + 1) % meshDevice->shape()[dim];
+        auto forward_direction = get_eth_forwarding_direction(
+            meshDevice->get_fabric_node_id(deviceCoord),
+            meshDevice->get_fabric_node_id(forwardCoord));
+        LOG_ASSERT(
+            forward_direction.has_value(),
+            "Forward direction does not exist on mesh coordinate: ", deviceCoord);
+        rtArgsVec.push_back(forward_direction.value());
+        auto backwardCoord = deviceCoord;
+        backwardCoord[dim] = (backwardCoord[dim] + meshDevice->shape()[dim] - 1) % meshDevice->shape()[dim];
+        auto backward_direction = get_eth_forwarding_direction(
+            meshDevice->get_fabric_node_id(deviceCoord),
+            meshDevice->get_fabric_node_id(backwardCoord));
+        LOG_ASSERT(backward_direction.has_value(),
+                    "Backward direction does not exist on mesh coordinate: ",
+                    deviceCoord);
+        rtArgsVec.push_back(backward_direction.value());
+      }
+      
+      // Add mesh coordinate to device id mapping (in flattened mesh coordinate order)
+      auto coord_range = tt_metal::distributed::MeshCoordinateRange(meshDevice->shape());
+      for (auto coord = coord_range.begin(); coord != coord_range.end(); coord++) {
+        rtArgsVec.push_back(meshDevice->get_fabric_node_id(*coord).chip_id);
+      }
+
       api_type = tt::tt_fabric::FabricApiType::Linear;
       // update number of topology args
       rtArgsVec[num_topology_arg_idx] =

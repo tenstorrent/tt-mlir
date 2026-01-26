@@ -2917,7 +2917,7 @@ def TTKernel_FabricWriteOp : TTKernel_Op<"experimental::fabric_fast_write_any_le
 def TTKernel_CreateFabricConnectionManagerOp : TTKernel_Op<"experimental::create_fabric_connection_manager"> {
   let summary = "CreateFabricConnectionManager";
   let description = [{
-    Create fabric connection manager.
+    Create fabric connection manager. The fabric connection manager is required for all fabric operations.
   }];
 
   let arguments = (ins);
@@ -2931,7 +2931,18 @@ def TTKernel_CreateFabricConnectionManagerOp : TTKernel_Op<"experimental::create
 def TTKernel_SetupFabricConnectionsOp : TTKernel_Op<"experimental::setup_fabric_connections"> {
   let summary = "SetupFabricConnections";
   let description = [{
-    Setup fabric connections.
+    Setup fabric connections for inter-device communication. The connection scheme
+    is derived from the attribute `TTMetal_FabricConnectionConfigAttr` in the
+    `EnqueueProgramOp`.
+
+   `TTMetal_FabricConnectionConfigAttr` specifies:
+      - `noc_index`: Which NOC the fabric uses (must match kernel's NocConfig)
+      - `topology`: The routing scheme to use for the mesh device (e.g. Line, Ring)
+      - `cluster_axis`: The axis along which the to route for 1D topologies
+      - `num_links`: Number of routing planes (connections to fabric routers)
+
+    After setup, the `FabricConnectionManager` can be used with ops like
+    `fabric_fast_write_any_len` to send data to other devices in the mesh.
   }];
 
   let arguments = (ins TTKernel_FabricConnectionManager:$fabric_connection_manager);
@@ -2956,31 +2967,37 @@ def TTKernel_CloseFabricConnectionsOp : TTKernel_Op<"experimental::close_fabric_
   }];
 }
 
+//===----------------------------------------------------------------------===//
+// TTKernel Logical Mesh Position operations
+//===----------------------------------------------------------------------===//
+
 def TTKernel_GetLogicalMeshPositionOp : TTKernel_Op<"experimental::get_logical_mesh_position"> {
-  let summary = "GetLogicalRingPosition";
+  let summary = "GetLogicalMeshPosition";
   let description = [{
-    Get logical ring position.
+    Get the logical mesh position for a given device ID.
   }];
 
-  let arguments = (ins);
-  let results = (outs I32:$logical_ring_position);
+  let arguments = (ins TTKernel_FabricConnectionManager:$fcm, I32:$device_id);
+  let results = (outs TTKernel_MeshPosition:$position);
 
   let assemblyFormat = [{
-    `(` `)` attr-dict `:` functional-type(operands, results)
+    `(` $fcm `,` $device_id `)` attr-dict `:` functional-type(operands, results)
   }];
 }
 
 def TTKernel_GetDeviceIdFromLogicalMeshPositionOp : TTKernel_Op<"experimental::get_device_id_from_logical_mesh_position"> {
-  let summary = "GetDeviceIdFromLogicalRingPosition";
+  let summary = "GetDeviceIdFromLogicalMeshPosition";
   let description = [{
-    Get device id from logical ring position.
+    Get the device ID for a given logical mesh position.
+    Takes a MeshPosition and returns the corresponding device ID.
+    Maps to get_device_id_from_logical_mesh_position(fcm, position) in device code.
   }];
 
-  let arguments = (ins I32:$logical_ring_position);
+  let arguments = (ins TTKernel_FabricConnectionManager:$fcm, TTKernel_MeshPosition:$position);
   let results = (outs I16:$device_id);
 
   let assemblyFormat = [{
-    `(` $logical_ring_position `)` attr-dict `:` functional-type(operands, results)
+    `(` $fcm `,` $position `)` attr-dict `:` functional-type(operands, results)
   }];
 }
 
