@@ -5,6 +5,7 @@
 import pytest
 import torch
 from typing import List
+from conftest import get_request_kwargs
 
 from ttmlir.ir import *
 
@@ -299,11 +300,7 @@ def test_digamma(
         module,
         target=target,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
-        test_base=request.node.name,
-        save_artifacts=True,
-        print_ir=True,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         device=device,
         atol=3e-02,
         rtol=3e-02,
@@ -348,11 +345,7 @@ def test_lgamma(
         module,
         target=target,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
-        test_base=request.node.name,
-        save_artifacts=True,
-        print_ir=True,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         device=device,
     )
 
@@ -397,10 +390,7 @@ def test_multigammaln(
         module,
         target=target,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
-        test_base=request.node.name,
-        save_artifacts=True,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         device=device,
     )
 
@@ -447,11 +437,7 @@ def test_polygamma(
         module,
         target=target,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
-        test_base=request.node.name,
-        save_artifacts=True,
-        print_ir=True,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         device=device,
     )
 
@@ -484,11 +470,7 @@ def test_glu_split(
         module,
         target=target,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
-        test_base=request.node.name,
-        save_artifacts=True,
-        print_ir=True,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         device=device,
     )
 
@@ -520,11 +502,7 @@ def test_reglu_split(
         module,
         target=target,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
-        test_base=request.node.name,
-        save_artifacts=True,
-        print_ir=True,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         device=device,
     )
 
@@ -556,11 +534,7 @@ def test_geglu_split(
         module,
         target=target,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
-        test_base=request.node.name,
-        save_artifacts=True,
-        print_ir=True,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         device=device,
     )
 
@@ -592,10 +566,6 @@ def test_swiglu_split(
         module,
         target=target,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
-        test_base=request.node.name,
-        save_artifacts=True,
-        print_ir=True,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         device=device,
     )

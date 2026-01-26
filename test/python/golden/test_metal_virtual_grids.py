@@ -10,7 +10,7 @@ from typing import Callable, List, Optional, Tuple, Union
 from collections import OrderedDict
 from functools import reduce
 import operator
-from conftest import x86_only
+from conftest import x86_only, get_request_kwargs
 
 from ttmlir.dialects import ttir, ttcore
 from builder.base.builder_utils import Operand, Shape, TypeInfo
@@ -142,9 +142,7 @@ def test_virtual_grid_eltwise(
     compile_and_execute_ttir(
         module,
         device=device,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}} ",
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
     )

@@ -4,12 +4,12 @@
 
 #include "ttmlir/Dialect/TTNN/Analysis/L1InterleavedFallbackAnalysis.h"
 
-#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
+#include "ttmlir/Dialect/TTNN/Validation/OpConstraintValidation.h"
 #include "ttmlir/Support/Logger.h"
 
 #include "mlir/IR/BuiltinTypes.h"
@@ -315,28 +315,20 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
     const Operation *upgradedProducerOp,
     const TTNNLayoutAttr upgradedProducerLayout) const {
 
-  OpModel backend = mlir::dyn_cast<OpModel>(consumerOp);
-  if (!backend) {
-    // This function should not be called for ops without backend constraints.
-    return llvm::createStringError(
-        llvm::inconvertibleErrorCode(),
-        "Backend constraints are not implemented for op %s",
-        consumerOp->getName().getStringRef().data());
-  }
+  // Collect input layouts for this consumer, checking for upgraded producers.
+  std::vector<TTNNLayoutAttr> inputLayouts =
+      utils::extractInputLayouts(consumerOp);
 
-  // Verify device attribute exists (will assert if not found).
-  mlir::tt::ttcore::lookupDevice(consumerOp);
-
-  uint32_t numOperands = consumerOp->getNumOperands();
-  std::vector<TTNNLayoutAttr> inputLayouts;
-  inputLayouts.reserve(numOperands);
-  uint64_t producersL1OutputUsage = 0;
-
-  for (uint32_t i = 0; i < numOperands; i++) {
+  size_t layoutIdx = 0;
+  for (uint32_t i = 0; i < consumerOp->getNumOperands(); i++) {
     auto operand = consumerOp->getOperand(i);
 
     if (mlir::isa<TypedValue<mlir::tt::ttnn::DeviceType>>(operand)) {
-      // Skip device type operand.
+      // Skip device type operand - don't increment layoutIdx.
+      // NOTE: Current TTNN ops always have device operands after all tensor
+      // operands (e.g., conv2d: input, weight, device), so indices naturally
+      // align. This separate layoutIdx counter is defensive for any future ops
+      // with different operand ordering.
       continue;
     }
 
@@ -344,48 +336,32 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
       if (operand.getDefiningOp() == upgradedProducerOp) {
         // If it's a nested check of update candidate's (producer in this
         // scope) consumer's storage.
-        inputLayouts.push_back(upgradedProducerLayout);
-        continue;
-      }
-      auto it = analysisResult.upgradedConfigs.find(operand.getDefiningOp());
-      if (it != analysisResult.upgradedConfigs.end()) {
-        inputLayouts.push_back(it->second.outputLayout);
-        continue;
+        inputLayouts[layoutIdx] = upgradedProducerLayout;
+      } else {
+        auto it = analysisResult.upgradedConfigs.find(operand.getDefiningOp());
+        if (it != analysisResult.upgradedConfigs.end()) {
+          inputLayouts[layoutIdx] = it->second.outputLayout;
+        }
       }
     }
-
-    RankedTensorType input = mlir::cast<RankedTensorType>(operand.getType());
-
-    auto layout = mlir::cast<TTNNLayoutAttr>(input.getEncoding());
-
-    assert(layout && "Input operand must have a layout");
-    inputLayouts.push_back(layout);
+    layoutIdx++;
   }
 
-  for (const auto &inputLayout : inputLayouts) {
-    producersL1OutputUsage += utils::getOpOutputL1Usage(inputLayout);
-  }
+  // Delegate validation to op_constraint_validation (handles tensorL1UsageCap
+  // from module attribute and effective L1 limit calculation).
+  op_constraint_validation::ValidationResult validationResult =
+      op_constraint_validation::validateOperation(consumerOp, inputLayouts,
+                                                  consumerConfig);
 
-  llvm::Expected<op_model::OpConstraints> l1UsageExp =
-      backend.getOpConstraints(inputLayouts, consumerConfig);
-
-  if (!l1UsageExp) {
-    llvm::Error error = l1UsageExp.takeError();
-    std::string errorStr = llvm::toString(std::move(error));
-
+  if (!validationResult.isSuccess()) {
     TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
-                 "OpModel constraints failed for op {0} :: {1},"
-                 "\nconsumerLayout: {2}",
-                 consumerOp->getName(), ttmlir::utils::firstNLines(errorStr, 4),
-                 consumerConfig.outputLayout);
-
-    return llvm::createStringError(llvm::inconvertibleErrorCode(),
-                                   "OpModel constraints failed for op %s.",
-                                   consumerOp->getName().getStringRef().data());
+                 "Validation failed for op {0} :: {1}", consumerOp->getName(),
+                 validationResult.errorMessage);
+    return llvm::createStringError(llvm::inconvertibleErrorCode(), "%s",
+                                   validationResult.errorMessage.c_str());
   }
 
-  auto [cBUsagePeak, tensorUsage, peakMemoryUsage, outputTensorUsage,
-        outputLayout] = l1UsageExp.get();
+  TTNNLayoutAttr outputLayout = validationResult.actualOutputLayout;
 
   if (outputLayout != consumerConfig.outputLayout) {
     TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
@@ -395,24 +371,6 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
                  outputLayout);
     return llvm::createStringError(llvm::inconvertibleErrorCode(),
                                    "Output layout mismatch for op %s.",
-                                   consumerOp->getName().getStringRef().data());
-  }
-
-  bool l1UsageValid = (producersL1OutputUsage + tensorUsage + cBUsagePeak) <
-                      analysisInput.usableL1CacheSize;
-
-  if (!l1UsageValid) {
-    TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
-                 "Not enough L1 memory. OpModel constraints failed: {0} "
-                 "\n outputLayout: {1}, l1Usage: {2}, "
-                 "producerL1OutputUsage: {3}, tensorUsage: {4}, "
-                 "outputTensorUsage: {5}, cBUsagePeak: {6}",
-                 consumerOp->getName(), outputLayout,
-                 cBUsagePeak + tensorUsage + producersL1OutputUsage,
-                 producersL1OutputUsage, tensorUsage, outputTensorUsage,
-                 cBUsagePeak);
-    return llvm::createStringError(llvm::inconvertibleErrorCode(),
-                                   "Not enough L1 memory for op %s.",
                                    consumerOp->getName().getStringRef().data());
   }
   // Check if upgrading this operation would cause memory conflicts with its
@@ -425,12 +383,9 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
     TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
                  "OpModel constraints valid for input of consumer {0}:\n"
                  "OutputLayout: {1}\n"
-                 "L1 usage: cBUsagePeak: {2}, tensorUsage: {3}, "
-                 "outputTensorUsage: {4}, "
-                 "producerL1OutputUsage: {5}, totalL1Usage: {6}",
-                 consumerOp->getName(), outputLayout, cBUsagePeak, tensorUsage,
-                 outputTensorUsage, producersL1OutputUsage,
-                 cBUsagePeak + tensorUsage + producersL1OutputUsage);
+                 "Per-core L1 footprint of the output tensor: {2} bytes",
+                 consumerOp->getName(), outputLayout,
+                 validationResult.outputL1Usage);
 
     return outputLayout;
   }
@@ -467,16 +422,12 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
            "OpConfig");
   }
 
-  TTMLIR_DEBUG(
-      ttmlir::LogComponent::Optimizer,
-      "OpModel constraints valid {0}:\n"
-      "OutputLayout: {1}\n"
-      "L1 usage: cBUsagePeak: {2}, tensorUsage: {3}, outputTensorUsage: {4}, "
-      "producerL1OutputUsage: {5}, totalL1Usage: {6}",
-      consumerOp->getName(), outputLayout, cBUsagePeak, tensorUsage,
-      outputTensorUsage, producersL1OutputUsage,
-      cBUsagePeak + tensorUsage + producersL1OutputUsage);
-
+  TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+               "OpModel constraints valid {0}:\n"
+               "OutputLayout: {1}\n"
+               "Per-core L1 footprint of the output tensor: {2} bytes",
+               consumerOp->getName(), outputLayout,
+               validationResult.outputL1Usage);
   return outputLayout;
 }
 

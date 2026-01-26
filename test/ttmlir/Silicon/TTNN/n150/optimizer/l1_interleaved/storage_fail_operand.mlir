@@ -2,7 +2,6 @@
 // REQUIRES: opmodel
 // RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% enable-optimizer=true memory-layout-analysis-enabled=false l1-interleaved-fallback-analysis-enabled=true" -o %t_ttnn.mlir %s --mlir-print-debuginfo
 // RUN: FileCheck %s --input-file=%t_ttnn.mlir
-// UNSUPPORTED: true
 
 module @L1InterleavedTestLargeTensorInput attributes {} {
   func.func @forward(%arg0: tensor<5120x5120xbf16>, %arg1: tensor<5120x5120xbf16>) -> tensor<5120x5120xbf16> {

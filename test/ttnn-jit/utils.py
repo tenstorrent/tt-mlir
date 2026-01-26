@@ -178,7 +178,6 @@ def run_op_test(
     op,
     num_inputs,
     buffer_type=ttnn.BufferType.L1,
-    frontend="graph_capture",
     enable_cache=False,
     shard_strategy=ttnn.ShardStrategy.BLOCK,
     ttnn_dtype=None,
@@ -199,7 +198,6 @@ def run_op_test(
         op: Operation to test
         num_inputs: Number of input tensors
         buffer_type: Buffer type (L1 or DRAM)
-        frontend: Frontend to use ("ast", "graph_capture", or "tracing") (default: "graph_capture")
         enable_cache: Whether to enable cache for the JIT-compiled function (default: False)
         ttnn_dtype: Optional ttnn.DataType override (e.g., ttnn.DataType.BFLOAT8_B)
         check_pcc: Whether to check PCC (default: True)
@@ -237,7 +235,6 @@ def run_op_test(
         compile_only=compile_only,
         debug=True,
         enable_cache=enable_cache,
-        frontend=frontend,
         math_fidelity=math_fidelity,
     )(op)
 

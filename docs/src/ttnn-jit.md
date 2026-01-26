@@ -78,7 +78,6 @@ This demo is available [here](../../test/ttnn-jit/test_jit_demos.py).
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
 | `enable_cache` | `bool` | `False` | Enables caching for compiled JIT graphs. |
-| `frontend` | `Literal["ast", "graph_capture", "tracing"]` | `"graph_capture"` | Frontend to use for IR generation: "ast" (AST-based compiler, TTIR dialect), "graph_capture" (Graph trace compiler, TTNN dialect), or "tracing" (Tracing-based compiler, TTIR dialect). Op support varies by frontend. |
 | `math_fidelity` | `ttnn.MathFidelity` | `ttnn.MathFidelity.HiFi4` | Sets the math fidelity setting for the JIT graph. |
 | `debug` | `bool` | `False` | Enables debug prints during compilation and execution. |
 | `compile_only` | `bool` | `False` | Only compile runtime without execution. The resulting flatbuffer and kernel source files will be dumped to `generated/jit`. |
@@ -91,8 +90,8 @@ The following major categories of operations are supported:
 - Binary Elementwise
 - Unary Bitwise
 - Binary Bitwise
-- Matrix Multiplication: only supported in `frontend="ast"` mode
-- Reductions: only supported in `frontend="graph_capture"` mode
+- Matrix Multiplication
+- Reductions
 
 Not every operation is supported within the above categories.
 
@@ -134,23 +133,20 @@ The `ttnn.jit` decorator implements a three-step compilation and execution pipel
 
 When you decorate a function with `@ttnn_jit.jit()`, the decorator wraps it in a `JitFunction` object. On the first call:
 
-- The Python source code is extracted and parsed into MLIR.
-- Each TTNN operation (eg: `ttnn.exp`, `ttnn.add`) is converted to its corresponding MLIR operation in the TTNN dialect.
-- All operations are tagged with the `ttnn.hoist_generic_via_d2m` attribute, marking them for D2M compilation
+- The function is traced during execution to capture all TTNN operations.
+- Each TTNN operation (eg: `ttnn.exp`, `ttnn.add`) is converted to its corresponding MLIR operation in the TTIR dialect.
 
-The output of the AST should be a valid MLIR module in the TTNN dialect. The previous `cosh` [example](#how-to-use-ttnnjit) will be parsed into:
+The output is a valid MLIR module in the TTIR dialect. The previous `cosh` [example](#how-to-use-ttnnjit) will be compiled into TTIR operations like:
 
 ```mlir
 module {
   func.func @cosh(%arg0: tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout> {
-    %0 = "ttnn.get_device"() <{mesh_offset = #ttnn<mesh_offset 0x0>, mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-    %1 = "ttnn.exp"(%arg0) {ttnn.hoist_generic_via_d2m} : (tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout>
-    %2 = "ttnn.neg"(%arg0) {ttnn.hoist_generic_via_d2m} : (tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout>
-    %3 = "ttnn.exp"(%2) {ttnn.hoist_generic_via_d2m} : (tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout>
-    %4 = "ttnn.add"(%1, %3) <{dtype = #ttcore.supportedDataTypes<bf16>}> {ttnn.hoist_generic_via_d2m} : (tensor<32x32xbf16, #ttnn_layout>, tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout>
-    %5 = "ttnn.full"(%0) <{dtype = #ttcore.supportedDataTypes<bf16>, fill_value = 5.000000e-01 : f32, layout = #ttnn.layout<tile>, shape = #ttnn.shape<32x32>}> : (!ttnn.device) -> tensor<32x32xbf16, #ttnn_layout>
-    %6 = "ttnn.multiply"(%4, %5) <{dtype = #ttcore.supportedDataTypes<bf16>}> {ttnn.hoist_generic_via_d2m} : (tensor<32x32xbf16, #ttnn_layout>, tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout>
-    return %6 : tensor<32x32xbf16, #ttnn_layout>
+    %0 = ttir.exp %arg0 : tensor<32x32xbf16, #ttnn_layout> -> tensor<32x32xbf16, #ttnn_layout>
+    %1 = ttir.neg %arg0 : tensor<32x32xbf16, #ttnn_layout> -> tensor<32x32xbf16, #ttnn_layout>
+    %2 = ttir.exp %1 : tensor<32x32xbf16, #ttnn_layout> -> tensor<32x32xbf16, #ttnn_layout>
+    %3 = ttir.add %0, %2 : tensor<32x32xbf16, #ttnn_layout>, tensor<32x32xbf16, #ttnn_layout> -> tensor<32x32xbf16, #ttnn_layout>
+    %4 = ttir.multiply %3, 0.5 : tensor<32x32xbf16, #ttnn_layout>, f32 -> tensor<32x32xbf16, #ttnn_layout>
+    return %4 : tensor<32x32xbf16, #ttnn_layout>
   }
 }
 ```
@@ -159,7 +155,6 @@ module {
 
 The resulting MLIR module is then passed to the compiler:
 
-- **TTNN → TTIR Conversion**: The `createConvertTTNNToTTIRPass()` lowers TTNN dialect ops to the TTIR.
 - **D2M Compilation**: The `ttir-to-ttmetal-pipeline` runs with `ttnn-mode`
   - **Generates** custom kernels with techniques such as destination fusion and loop tiling.
   - Wraps the generated kernels in **`ttnn.generic`** operations that contain the necessary host side program setup.

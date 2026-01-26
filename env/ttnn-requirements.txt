@@ -2,5 +2,5 @@
 
 graphviz
 loguru
-pandas
+pandas==2.3.3
 seaborn

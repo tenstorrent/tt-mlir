@@ -62,7 +62,6 @@ public:
   ShardSolver resolveWithSolver(
       const TensorTypeLayoutsMap *tensorTypePossibleLayouts,
       const llvm::DenseMap<Operation *, std::vector<OpConfig>> &legalConfigs,
-      unsigned usableL1CacheSize,
       const llvm::DenseSet<Edge> &overrideReshardEdges,
       const llvm::StringMap<OutputLayoutOverrideParams> &overrideOutputLayout);
   void resolve();
@@ -79,6 +78,15 @@ public:
   }
   const std::vector<OpL1MemSpec> &getOpL1MemSpecs() const {
     return opL1MemSpecs;
+  }
+
+  void updateOpConfig(Operation *op, const OpConfig &newConfig) {
+    for (auto &spec : opL1MemSpecs) {
+      if (spec.op == op) {
+        spec.config = newConfig;
+        return;
+      }
+    }
   }
   L1ChainState getState() const { return state; }
   std::string getStateString() const {

@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import pytest
+from conftest import get_request_kwargs
 
 from builder.base.builder_apis import compile_and_execute_ttir
 
@@ -45,10 +46,7 @@ def test_allocate_matmul(m: int, k: int, n: int, target: str, request, device):
         target=target,
         device=device,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
-        test_base=request.node.name,
-        print_ir=True,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
     )
 
 
@@ -78,8 +76,5 @@ def test_allocate_max(
         target=target,
         device=device,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
-        test_base=request.node.name,
-        print_ir=True,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
     )

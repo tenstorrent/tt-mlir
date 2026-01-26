@@ -10,11 +10,10 @@ import pytest
 from op_definitions import exp
 
 
-@pytest.mark.parametrize("frontend", ["ast", "graph_capture"])
 @pytest.mark.skip(
     reason="Error is raised from ttnn first, not JIT frontend.",
 )
-def test_l1_interleaved_not_supported(device, frontend):
+def test_l1_interleaved_not_supported(device):
 
     with pytest.raises(ValueError, match="Interleaved L1 tensors are not supported."):
         shape = (32, 32)
@@ -33,12 +32,11 @@ def test_l1_interleaved_not_supported(device, frontend):
             memory_config=memory_config,
         )
 
-        op_jit = ttnn_jit.jit(debug=False, frontend=frontend)(exp)
+        op_jit = ttnn_jit.jit(debug=False)(exp)
         output_tensor = op_jit(ttnn_tensor)
 
 
-@pytest.mark.parametrize("frontend", ["ast", "graph_capture"])
-def test_row_major_layout_not_supported(device, frontend):
+def test_row_major_layout_not_supported(device):
 
     with pytest.raises(
         ValueError,
@@ -73,5 +71,5 @@ def test_row_major_layout_not_supported(device, frontend):
             memory_config=memory_config,
         )
 
-        op_jit = ttnn_jit.jit(debug=True, frontend=frontend)(exp)
+        op_jit = ttnn_jit.jit(debug=True)(exp)
         output_tensor = op_jit(ttnn_tensor)

@@ -394,8 +394,18 @@ private:
     }
     ttnn::MemoryConfigAttr memoryConfigAttr =
         info.output.createMemoryConfigAttr(op.getContext());
-    return this->createOp<ttnn::ToMemoryConfigOp>(op, rewriter, currentInput,
-                                                  memoryConfigAttr);
+    RankedTensorType currentInputType =
+        mlir::cast<RankedTensorType>(currentInput.getType());
+    TTNNLayoutAttr newLayout =
+        utils::getLayoutAttrFromTensor(currentInputType)
+            .withBufferType(info.output.bufferType)
+            .withMemoryLayout(info.output.tensorMemoryLayout)
+            .withGrid(currentInputType.getShape(), info.output.shardGrid)
+            .withShardShape(info.output.shardShape);
+    RankedTensorType newResultType =
+        utils::RankedTensorTypeFactory::create(currentInputType, newLayout);
+    return this->createOp<ttnn::ToMemoryConfigOp>(
+        rewriter, op, newResultType, currentInput, memoryConfigAttr);
   }
 
   /* Functions that create ops based on the layouts of the input output tensors
@@ -790,10 +800,19 @@ private:
 
     // If the output is tilized, typecast directly on device
     if (output.isTilized()) {
-      currentInput = this->createDataTypeCastingOpIfNeeded(op, rewriter,
-                                                           currentInput, info);
-      currentInput = this->createToMemoryConfigOpIfNeeded(op, rewriter,
-                                                          currentInput, info);
+      // If the input is sharded, typecast should happen after converting to
+      // memory.
+      if (input.isL1Sharded()) {
+        currentInput = this->createToMemoryConfigOpIfNeeded(op, rewriter,
+                                                            currentInput, info);
+        currentInput = this->createDataTypeCastingOpIfNeeded(
+            op, rewriter, currentInput, info);
+      } else {
+        currentInput = this->createDataTypeCastingOpIfNeeded(
+            op, rewriter, currentInput, info);
+        currentInput = this->createToMemoryConfigOpIfNeeded(op, rewriter,
+                                                            currentInput, info);
+      }
       currentInput =
           this->createFromDeviceOpIfNeeded(op, rewriter, currentInput, info);
       op.getResult().replaceAllUsesWith(currentInput);

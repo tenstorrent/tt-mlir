@@ -9,7 +9,7 @@ import torch
 import pytest
 
 
-@ttnn_jit.jit(debug=True, frontend="ast", enable_cache=True)
+@ttnn_jit.jit(debug=True, enable_cache=True)
 def digamma(input_tensor):
     t_log_out = ttnn.log(input_tensor)  # negative log is not useful here
 
@@ -49,11 +49,6 @@ def digamma(input_tensor):
     return ttnn.subtract(t_log_out, output)
 
 
-@ttnn_jit.jit(debug=True, frontend="graph_capture", enable_cache=True)
-def digamma_ttnn(input_tensor):
-    return ttnn.digamma(input_tensor)
-
-
 @pytest.mark.parametrize(
     "h, w",
     [
@@ -69,10 +64,7 @@ def digamma_ttnn(input_tensor):
     "op",
     [
         digamma,
-        ttnn_jit.jit(debug=True, frontend="graph_capture", enable_cache=True)(
-            digamma.func
-        ),
-        digamma_ttnn,
+        ttnn_jit.jit(debug=True, enable_cache=True)(digamma.func),
     ],
 )
 def test_digamma_metal_trace(h, w, op):
@@ -143,10 +135,7 @@ def test_digamma_metal_trace(h, w, op):
     "op",
     [
         digamma,
-        ttnn_jit.jit(debug=True, frontend="graph_capture", enable_cache=True)(
-            digamma.func
-        ),
-        digamma_ttnn,
+        ttnn_jit.jit(debug=True, enable_cache=True)(digamma.func),
     ],
 )
 def test_digamma_compare(h, w, op):

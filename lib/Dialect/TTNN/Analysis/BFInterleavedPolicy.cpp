@@ -4,14 +4,27 @@
 
 #include "ttmlir/Dialect/TTNN/Analysis/BFInterleavedPolicy.h"
 
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/Analysis/L1ChainConfig.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Scheduler/Scheduler.h"
 
+#include "mlir/IR/BuiltinOps.h"
+
 namespace mlir::tt::ttnn {
 
 void BFInterleavedPolicy::run() {
+  // Calculate effective L1 limit from module attribute (single source of
+  // truth). This matches the pattern used in OpConstraintValidation.
+  const float tensorL1UsageCap = utils::getTensorL1UsageCap(rootOp);
+  ttcore::SystemDescAttr systemDesc = mlir::cast<ttcore::SystemDescAttr>(
+      rootOp->getParentOfType<ModuleOp>()->getAttr(
+          ttcore::SystemDescAttr::name));
+  ttcore::ChipDescAttr chipDesc = systemDesc.getChipDescs()[0];
+  usableL1CacheSize =
+      static_cast<uint64_t>(tensorL1UsageCap * chipDesc.getUsableL1Size());
+
   for (Operation &funcOp : rootOp->getRegion(0).getOps()) {
     func::FuncOp func = dyn_cast<func::FuncOp>(funcOp);
     if (!func) {

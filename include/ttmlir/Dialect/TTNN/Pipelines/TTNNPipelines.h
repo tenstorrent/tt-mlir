@@ -217,12 +217,11 @@ struct TTIRToTTNNDevicePipelineOptions
       llvm::cl::desc(
           "Enable row major layout generation in legal layout analysis."),
       llvm::cl::init(false)};
-
   // Option to override maximum percent of L1 storage that can be used
   // by tensors in Optimizer analysis.
   // This is a value between 0.0 and 1.0, where 1.0 means that the entire L1
   // storage can be used by tensors.
-  // The default value is 0.8.
+  // The default value is 0.95.
   //
   Option<float> tensorL1UsageCap{
       *this, OptionNames::tensorL1UsageCap,

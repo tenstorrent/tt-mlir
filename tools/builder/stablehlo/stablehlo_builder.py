@@ -1781,6 +1781,61 @@ class StableHLOBuilder(Builder):
 
         return floor_module, floor_builder
 
+    def broadcast_in_dim(
+        self,
+        in0: Operand,
+        broadcast_dimensions: List[int],
+        output_shape: List[int],
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpView:
+        """
+        Creates ``stablehlo.broadcast_in_dim``.
+        *Tensor broadcast operation.*
+        Broadcasts a tensor to a new shape by replicating its values along specified dimensions.
+        The broadcast_dimensions parameter specifies how dimensions of the input map to
+        dimensions of the output.
+        .. code-block:: mlir
+            // Broadcast a 1D tensor to 2D
+            %result = stablehlo.broadcast_in_dim(%input) {broadcast_dimensions = dense<[1]> : tensor<1xi64>} : (tensor<3xf32>) -> tensor<2x3xf32>
+            // Input tensor:
+            // [1.0, 2.0, 3.0]
+            // Output tensor:
+            // [[1.0, 2.0, 3.0],
+            //  [1.0, 2.0, 3.0]]
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor to broadcast
+        broadcast_dimensions : *List[int]*
+            List of dimension mappings from input to output
+        output_shape : *List[int]*
+            Target shape for the broadcasted tensor
+        unit_attrs : *Optional[List[str]]*, optional
+            Optional list of unit attributes
+        sharding_attr : *Optional[sdy.TensorShardingPerValueAttr]*, optional
+            Optional sharding attribute for distributed execution
+        Returns
+        -------
+        (*OpView*)
+            The broadcasted tensor
+        """
+        output_type = self._get_type(in0).element_type
+        return self._op_proxy(
+            stablehlo.BroadcastInDimOp,
+            [in0],
+            organize_golden_args=self._organize_eltwise_golden,
+            organize_stablehlo_args=lambda inputs, output, _: (output, inputs[0]),
+            output_shape=output_shape,
+            output_type=output_type,
+            golden_kwargs={"size": output_shape},
+            stablehlo_kwargs={
+                "broadcast_dimensions": broadcast_dimensions,
+            },
+            unit_attrs=unit_attrs,
+            sharding_attr=sharding_attr,
+        )
+
     ################ stablehlo.LogOp ###############
 
     @tag(stablehlo.LogOp)

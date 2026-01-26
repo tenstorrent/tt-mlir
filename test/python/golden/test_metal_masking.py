@@ -16,6 +16,7 @@ are filled with the correct OOBVal.
 import pytest
 import torch
 from typing import List
+from conftest import get_request_kwargs
 
 from ttmlir.dialects import ttcore
 from ttmlir.ir import *
@@ -132,10 +133,8 @@ def test_complete_tile_masking(
         # ttcore-mark-functions-as-forward is needed for flatbuffer translation
         custom_pipeline="ttcore-mark-functions-as-forward,d2m-lower-to-layout,ttir-to-ttmetal-me-pipeline,ttir-to-ttmetal-be-pipeline",
         device=device,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
-        save_artifacts=True,
+        **get_request_kwargs(request),
+        print_ir="/tmp/ir_dumps",  # DEBUG: dump IR after each pass to this directory
     )
 
 
@@ -189,9 +188,7 @@ def test_tilize_no_masking_when_aligned(shape: Shape, target: str, request, devi
         # ttcore-mark-functions-as-forward is needed for flatbuffer translation
         custom_pipeline="ttcore-mark-functions-as-forward,d2m-lower-to-layout,ttir-to-ttmetal-me-pipeline,ttir-to-ttmetal-be-pipeline",
         device=device,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
     )
 
 
@@ -278,9 +275,7 @@ def test_multicore_tile_masking(
         # Use custom pipeline (skips GridSelection since we set grid explicitly)
         custom_pipeline="d2m-lower-to-layout,ttir-to-ttmetal-me-pipeline,ttir-to-ttmetal-be-pipeline",
         device=device,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
     )
 
 

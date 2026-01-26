@@ -530,10 +530,6 @@ public:
     mlir::Value lhs = utils::lookThrough<TypecastOp>(multiplyOp.getLhs());
     mlir::Value rhs = utils::lookThrough<TypecastOp>(multiplyOp.getRhs());
 
-    if (lhs.getType() != rhs.getType()) {
-      return mlir::failure();
-    }
-
     SigmoidOp sigmoidOp = nullptr;
     mlir::Value otherOperand;
 
@@ -549,11 +545,13 @@ public:
       return mlir::failure();
     }
 
-    if (sigmoidOp.getInput() != otherOperand) {
+    mlir::Value sigmoidInput =
+        utils::lookThrough<TypecastOp>(sigmoidOp.getInput());
+    if (sigmoidInput != otherOperand) {
       return mlir::failure();
     }
 
-    auto inputType = sigmoidOp.getInput().getType();
+    auto inputType = sigmoidInput.getType();
     auto outputType = multiplyOp.getResult().getType();
     auto siluOp =
         rewriter.create<SiluOp>(multiplyOp->getLoc(), inputType, otherOperand);
@@ -562,7 +560,7 @@ public:
     // after silu to convert back to the multiply output type.
     if (inputType != outputType) {
       auto typecastOp = rewriter.create<TypecastOp>(
-          multiplyOp->getLoc(), inputType, siluOp.getResult());
+          multiplyOp->getLoc(), outputType, siluOp.getResult());
       rewriter.replaceAllOpUsesWith(multiplyOp, typecastOp);
     } else {
       rewriter.replaceAllOpUsesWith(multiplyOp, siluOp);

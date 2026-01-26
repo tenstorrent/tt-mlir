@@ -17,6 +17,11 @@ on:
         description: '(optional) Custom commit hash for tt-metal to point uplift branch to. Default to current tip of metal main. Does not permit metal version downgrade or non-metal-main commit.'
         required: false
         type: string
+      create_draft_pr:
+        description: 'Create the PR in draft mode'
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   uplift-pr:
@@ -138,6 +143,7 @@ jobs:
           committer: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>
           author: ${{ github.actor }} <${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com>
           base: main
+          draft: ${{ inputs.create_draft_pr }}
           commit-message: "Uplift ${{ env.TT_METAL_SUBMODULE_PATH }} to ${{ env.UPLIFTED_TT_METAL_VERSION }} ${{ env.TODAY }}"
           title: "Uplift ${{ env.TT_METAL_SUBMODULE_PATH }} to ${{ env.UPLIFTED_TT_METAL_VERSION }} ${{ env.TODAY }}"
           body: |

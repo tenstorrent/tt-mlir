@@ -208,6 +208,46 @@ def device(request, pytestconfig):
     return _get_device_for_target(target, mesh_shape, pytestconfig)
 
 
+def get_request_kwargs(request):
+    """
+    Extracts and organizes request-related arguments into a dictionary.
+
+    Parameters
+    ----------
+    request : pytest.FixtureRequest
+        The pytest request object.
+
+    Returns
+    -------
+    Dict[str, Any]
+        A dictionary containing request-related arguments.
+    """
+    kwargs = {
+        "test_base": request.node.name,
+        "output_root": request.config.getoption("--path"),
+        "system_desc_path": request.config.getoption("--sys-desc"),
+    }
+    if request.config.getoption("--save-artifacts"):
+        kwargs["save_artifacts"] = True
+    if request.config.getoption("--print-ir"):
+        kwargs["print_ir"] = True
+    if request.config.getoption("--check-atol"):
+        kwargs["check_atol"] = True
+    if request.config.getoption("--check-rtol"):
+        kwargs["check_rtol"] = True
+    if request.config.getoption("--enable-intermediate-verification"):
+        kwargs["enable_intermediate_verification"] = True
+    if request.config.getoption("--disable-golden"):
+        kwargs["disable_golden"] = True
+    if request.config.getoption("--skip-exec"):
+        kwargs["skip_exec"] = True
+    if request.config.getoption("--disable-pcc"):
+        kwargs["check_pcc"] = False
+    if request.config.getoption("--dump-memory"):
+        kwargs["dump_memory"] = True
+    return kwargs
+
+
 def pytest_addoption(parser):
     parser.addoption(
         "--path",
@@ -256,6 +296,51 @@ def pytest_addoption(parser):
         "--use-loc-for-kernel-name",
         action="store_true",
         help="Use location info for kernel filenames when dumping",
+    )
+    parser.addoption(
+        "--save-artifacts",
+        action="store_true",
+        help="Save generated artifacts (flatbuffers, mlir files, etc.) to disk",
+    )
+    parser.addoption(
+        "--print-ir",
+        action="store_true",
+        help="Print the MLIR of the compiled module to stdout",
+    )
+    parser.addoption(
+        "--check-atol",
+        action="store_true",
+        help="Enable absolute tolerance check. Raises an exception if tolerance is exceeded.",
+    )
+    parser.addoption(
+        "--check-rtol",
+        action="store_true",
+        help="Enable relative tolerance check. Raises an exception if tolerance is exceeded.",
+    )
+    parser.addoption(
+        "--enable-intermediate-verification",
+        action="store_true",
+        help="Enable runtime callbacks to verify intermediate outputs match golden outputs.",
+    )
+    parser.addoption(
+        "--disable-golden",
+        action="store_true",
+        help="Disable golden comparison and use random inputs.",
+    )
+    parser.addoption(
+        "--skip-exec",
+        action="store_true",
+        help="Skip execution of the compiled flatbuffer.",
+    )
+    parser.addoption(
+        "--disable-pcc",
+        action="store_true",
+        help="Disable PCC check.",
+    )
+    parser.addoption(
+        "--dump-memory",
+        action="store_true",
+        help="Dump device memory to disk after execution.",
     )
 
 

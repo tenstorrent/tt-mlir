@@ -4,6 +4,7 @@
 
 import pytest
 import torch
+from conftest import get_request_kwargs
 from typing import Callable, List, Optional
 
 from builder.base.builder_utils import Operand, Shape
@@ -29,10 +30,8 @@ def test_clamp_scalar(shape: Shape, max_arg: float, min_arg: float, request, dev
 
     compile_and_execute_ttnn(
         module,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -53,10 +52,8 @@ def test_clamp_tensor(shapes: List[Shape], request, device):
 
     compile_and_execute_ttnn(
         module,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -73,10 +70,8 @@ def test_repeat(shape: Shape, repeat_dims: List[int], dtype, request, device):
 
     compile_and_execute_ttnn(
         module,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -107,10 +102,8 @@ def test_repeat_interleave(
 
     compile_and_execute_ttnn(
         module,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -141,10 +134,8 @@ def test_concat(shapes: List[Shape], dim: int, request, device):
 
     compile_and_execute_ttnn(
         module,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -177,9 +168,7 @@ def test_matmul(
 
     compile_and_execute_ttnn(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )
@@ -224,9 +213,7 @@ def test_linear(
 
     compile_and_execute_ttnn(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )

@@ -5,7 +5,7 @@
 import pytest
 import torch
 from typing import Callable, List, Optional, Tuple
-from conftest import x86_only
+from conftest import x86_only, get_request_kwargs
 from builder.base.builder_utils import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_apis import (
@@ -64,9 +64,7 @@ def test_linear_without_workaround(
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
         pipeline_options=["disable-workarounds=true"],
@@ -197,9 +195,7 @@ def test_sdpa_with_mask_no_workaround(
     output = compile_and_execute_ttir(
         module,
         target=target,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         device=device,
         pipeline_options=["disable-workarounds=true"],
     )
@@ -281,9 +277,7 @@ def test_sdpa_decode_no_workaround(
     output = compile_and_execute_ttir(
         module,
         target=target,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         device=device,
         pipeline_options=["disable-workarounds=true"],
     )

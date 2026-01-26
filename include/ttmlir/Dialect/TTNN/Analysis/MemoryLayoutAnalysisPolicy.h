@@ -19,7 +19,6 @@ protected:
   std::vector<L1ChainConfig> *l1ChainConfigs;
   llvm::DenseMap<Operation *, std::vector<OpConfig>> legalConfigs;
   llvm::DenseMap<func::FuncOp, llvm::SmallVector<Operation *>> *schedule;
-  unsigned usableL1CacheSize = 0;
   ttcore::DeviceAttr deviceAttr;
 
 public:
@@ -28,11 +27,9 @@ public:
   MemoryLayoutAnalysisPolicy(
       Operation *rootOp, std::vector<L1ChainConfig> &l1ChainConfigs,
       const llvm::DenseMap<Operation *, std::vector<OpConfig>> &legalConfigs,
-      llvm::DenseMap<func::FuncOp, llvm::SmallVector<Operation *>> &schedule,
-      unsigned usableL1CacheSize)
+      llvm::DenseMap<func::FuncOp, llvm::SmallVector<Operation *>> &schedule)
       : rootOp(rootOp), l1ChainConfigs(&l1ChainConfigs),
-        legalConfigs(legalConfigs), schedule(&schedule),
-        usableL1CacheSize(usableL1CacheSize) {}
+        legalConfigs(legalConfigs), schedule(&schedule) {}
 
   virtual void run() = 0;
 };

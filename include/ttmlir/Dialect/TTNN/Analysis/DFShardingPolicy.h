@@ -33,10 +33,9 @@ public:
       Operation *rootOp, std::vector<L1ChainConfig> &l1ChainConfigs,
       const TensorTypeLayoutsMap *tensorTypePossibleLayouts,
       const llvm::DenseMap<Operation *, std::vector<OpConfig>> &legalConfigs,
-      llvm::DenseMap<func::FuncOp, llvm::SmallVector<Operation *>> &schedule,
-      unsigned usableL1CacheSize)
+      llvm::DenseMap<func::FuncOp, llvm::SmallVector<Operation *>> &schedule)
       : MemoryLayoutAnalysisPolicy(rootOp, l1ChainConfigs, legalConfigs,
-                                   schedule, usableL1CacheSize),
+                                   schedule),
         tensorTypePossibleLayouts(tensorTypePossibleLayouts),
         overrideReshardEdges() {}
 

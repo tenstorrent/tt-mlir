@@ -143,18 +143,42 @@ class TracingCompiler:
         # Execute the code in a namespace that includes the original function's globals
         namespace = self.func.__globals__.copy()
 
+        # Create ttnn_jit module object with jit functions as attributes
+        ttnn_jit_namespace = TTNNJitNamespaceUpdater(jit_ctx)
+        namespace["ttnn_jit"] = ttnn_jit_namespace
+
         # Add closure variables to the namespace if the function has any
+        # Replace any ttnn functions in closure variables with their ttnn_jit equivalents
         if self.func.__closure__:
             closure_vars = {}
             if self.func.__code__.co_freevars:
                 for var_name, cell in zip(
                     self.func.__code__.co_freevars, self.func.__closure__
                 ):
-                    closure_vars[var_name] = cell.cell_contents
-            namespace.update(closure_vars)
+                    cell_value = cell.cell_contents
 
-        # Create ttnn_jit module object with jit functions as attributes
-        namespace["ttnn_jit"] = TTNNJitNamespaceUpdater(jit_ctx)
+                    # Check if this closure variable is a ttnn function
+                    if callable(cell_value) and hasattr(cell_value, "__module__"):
+                        module = getattr(cell_value, "__module__", "")
+                        func_name = getattr(cell_value, "__name__", "")
+
+                        # Check if it's a ttnn function (module contains 'ttnn' and name starts with 'ttnn.')
+                        if "ttnn" in module and func_name.startswith("ttnn."):
+                            # Extract the simple function name (e.g., 'max' from 'ttnn.max')
+                            simple_name = func_name.split(".")[-1]
+                            assert hasattr(
+                                ttnn_jit_namespace, simple_name
+                            ), f"ttnn function '{simple_name}' not found in ttnn_jit namespace"
+
+                            closure_vars[var_name] = getattr(
+                                ttnn_jit_namespace, simple_name
+                            )
+                            continue
+
+                    # Not a ttnn function, keep original value
+                    closure_vars[var_name] = cell_value
+
+            namespace.update(closure_vars)
 
         exec(code, namespace)
 
