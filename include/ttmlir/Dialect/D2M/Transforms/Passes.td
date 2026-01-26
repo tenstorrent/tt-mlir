@@ -7,6 +7,48 @@
 
 include "mlir/Pass/PassBase.td"
 
+// Add scratch inputs to d2m.generic ops (pre-bufferization)
+def D2MAddScratchInputs : Pass<"d2m-add-scratch-inputs", "::mlir::ModuleOp"> {
+  let summary = "Add scratch input operand to each d2m.generic op";
+  let description = [{
+    This pass adds a scratch tensor input to each d2m.generic operation.
+    The scratch tensor type is derived from the first input, ensuring type
+    consistency. The scratch is marked in the scratch_inputs attribute to
+    prevent streaming.
+
+    This pass must run in tensor space (before bufferization) so that the
+    scratch tensor flows through bufferization and D2MAllocate like any
+    other operand. Only d2m.generic ops in compute-only form (before
+    datamovement generation) and where ALL inputs are tiled are modified.
+    This excludes tilize/untilize ops which mix scalar and tiled operands.
+
+    Example transformation:
+    ```mlir
+    // Before:
+    %result = d2m.generic ins(%A : tensor<1x1x4x4x!ttcore.tile<32x32, f32>, #layout>)
+                          outs(%B : tensor<1x1x4x4x!ttcore.tile<32x32, f32>, #layout>) { ... }
+
+    // After:
+    %scratch = d2m.empty() : tensor<1x1x4x4x!ttcore.tile<32x32, f32>, #layout>
+    %result = d2m.generic scratch_inputs = [1]
+        ins(%A, %scratch : tensor<...>, tensor<...>)
+        outs(%B : tensor<...>) {
+    ^compute0(%cb_A, %cb_scratch, %cb_B):
+      // compute body (can now use %cb_scratch for intermediate storage)
+    }
+    ```
+  }];
+
+  // Note: The scratch tensor type (shape, tile type, layout) is derived from
+  // the first tiled operand of each d2m.generic, ensuring type consistency.
+  // No configuration options are needed.
+
+  let dependentDialects = [
+    "::mlir::tt::d2m::D2MDialect",
+    "::mlir::tt::ttcore::TTCoreDialect"
+  ];
+}
+
 // Elementwise fusion of d2m.generic ops on tensors
 def D2MElementwiseFusion : Pass<"d2m-elementwise-fusion", "::mlir::ModuleOp"> {
   let summary = "Fuse chains of compute-only d2m.generic elementwise ops";
@@ -1098,4 +1140,58 @@ def D2MConvertLocalLoadStoreOpsToAliasedCBs : Pass<"d2m-convert-local-load-store
   }];
   let dependentDialects = ["::mlir::tt::d2m::D2MDialect"];
 }
+
+def D2MLowerScratchAllocate : Pass<"d2m-lower-scratch-allocate", "::mlir::ModuleOp"> {
+  let summary = "Lower d2m.scratch_allocate ops to memref.view into scratch buffer.";
+  let description = [{
+    This pass lowers `d2m.scratch_allocate` operations to `memref.view`
+    operations into the scratch buffer provided by `d2m.scratch_init`.
+
+    The pass performs the following steps:
+    1. Find `d2m.scratch_init` to get the pre-allocated scratch byte buffer
+    2. Collect all `d2m.scratch_allocate` ops in the function
+    3. Compute byte offsets for each allocation (sequential, no overlap)
+    4. Validate total size fits within the scratch buffer
+    5. Replace each `d2m.scratch_allocate` with `memref.view` at computed offset
+    6. Erase the `d2m.scratch_init` op
+
+    Example transformation:
+    ```mlir
+    // Before:
+    func.func @kernel(...) {
+      %buf = memref.alloc() : memref<65536xi8, #l1>
+      d2m.scratch_init %buf : memref<65536xi8, #l1>
+      %s0 = d2m.scratch_allocate {slot = 0} : memref<8x!tile_bf16, #l1>
+      %s1 = d2m.scratch_allocate {slot = 1} : memref<8x!tile_bf16, #l1>
+      // ...
+    }
+
+    // After:
+    func.func @kernel(...) {
+      %buf = memref.alloc() : memref<65536xi8, #l1>
+      %c0 = arith.constant 0 : index
+      %s0 = memref.view %buf[%c0][] : memref<65536xi8, #l1> to memref<8x!tile_bf16, #l1>
+      %c16384 = arith.constant 16384 : index
+      %s1 = memref.view %buf[%c16384][] : memref<65536xi8, #l1> to memref<8x!tile_bf16, #l1>
+      // ...
+    }
+    ```
+  }];
+  let dependentDialects = [
+    "::mlir::tt::d2m::D2MDialect",
+    "::mlir::tt::ttcore::TTCoreDialect",
+    "::mlir::memref::MemRefDialect",
+    "::mlir::arith::ArithDialect"
+  ];
+  let options = [
+    Option<"testInsertDummyScratch",
+          "test-insert-dummy-scratch",
+          "bool", /*default=*/"true",
+          "For testing: insert a dummy d2m.scratch_allocate if scratch_init "
+          "is present but no scratch_allocate ops exist. Note: the dummy scratch "
+          "is in the main function, not a kernel, so it won't exercise the full "
+          "D2MToTTKernel lowering path.">,
+  ];
+}
+
 #endif
