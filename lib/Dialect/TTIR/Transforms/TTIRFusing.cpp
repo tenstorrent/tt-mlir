@@ -3080,6 +3080,9 @@ public:
     // TTNN RMS norm only supports normalization over the last dimension.
     // The normalized_shape parameter of RMSNormOp is the size of the last dim.
     auto outputType = mlir::cast<RankedTensorType>(outerMul.getType());
+    if (outputType.getRank() == 0) {
+      return mlir::failure();
+    }
     int64_t normalizedDimSize = outputType.getShape().back();
 
     // Traces through layout ops that preserve the last dim, or broadcasts
