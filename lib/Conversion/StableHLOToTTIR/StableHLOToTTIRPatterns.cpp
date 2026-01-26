@@ -4810,9 +4810,6 @@ private:
               "index_vector_dim being the last dimension");
     }
 
-    // Note: Non-empty update_window_dims is now supported for multi-dimensional
-    // scatter through window dimension expansion in expandWindowDims().
-
     // Checks that apply to single dimensional scatter.
 
     if (!multiDimensionalScatter && indexShape.size() > updateShape.size()) {
