@@ -3,7 +3,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import pytest
-import sys
 import torch
 from typing import List, Optional
 from builder.base.builder_utils import Operand, Shape
@@ -12,31 +11,6 @@ from builder.base.builder_apis import compile_and_execute_ttir
 from conftest import get_request_kwargs
 
 pytestmark = pytest.mark.frontend("ttir")
-
-
-# TODO(jserbedzija): Remove this fixture once we support config tensors in dram for conv_transpose2d
-# https://github.com/tenstorrent/tt-mlir/issues/6105
-@pytest.fixture(autouse=True)
-def clear_program_cache_after_test(device):
-    """Clear program cache after each conv_transpose2d test to free L1 memory.
-
-    Conv operations allocate tensors in L1 small that are only deallocated
-    when the program cache is cleared. This fixture ensures the program cache
-    is cleared after each test to prevent OOM errors from accumulated allocations.
-    """
-    yield
-    conftest = sys.modules.get("conftest")
-    if conftest and conftest._current_device is not None:
-        conftest._current_device.clear_program_cache()
-    else:
-        # For emitpy tests, clear the DeviceGetter singleton's device
-        utils = sys.modules.get("utils")
-        if (
-            utils
-            and hasattr(utils, "DeviceGetter")
-            and utils.DeviceGetter._instance is not None
-        ):
-            utils.DeviceGetter._instance.clear_program_cache()
 
 
 @pytest.mark.parametrize(
@@ -124,21 +98,6 @@ def test_conv_transpose2d(
     request,
     device,
 ):
-    test_id = request.node.callspec.id
-    if test_id in [
-        "ttnn-f32-superres_4x_large_kernel",
-        "emitpy-f32-superres_4x_large_kernel",
-        "ttnn-f32-batch16_segmentation_training",
-        "emitpy-f32-batch16_segmentation_training",
-    ]:
-        pytest.xfail(
-            "Metal issue: https://github.com/tenstorrent/tt-metal/issues/33449"
-        )
-    if test_id == "emitpy-bf16-batch16_segmentation_training":
-        pytest.xfail(
-            "Out of Memory: Not enough space to allocate 99328 B L1_SMALL buffer across 64 banks, where each bank needs to store 1552 B, but bank size is only 32768 B"
-        )
-
     if bias_shape:
         input_shapes = [input_shape, weight_shape, bias_shape]
         input_types = [dtype, dtype, dtype]
