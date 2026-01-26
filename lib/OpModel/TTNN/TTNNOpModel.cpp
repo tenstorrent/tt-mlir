@@ -4119,7 +4119,10 @@ llvm::Expected<OpConstraints> OpModel<LinearOp>::getOpConstraints(
     return ::ttnn::graph::query_op_constraints(
         ::ttnn::linear, device, inputSpecA, inputSpecB, biasTensor, transposeA,
         transposeB, outputMemoryConfig, outputDType, programConfig,
-        activationStr);
+        activationStr, /*compute_kernel_config=*/std::nullopt,
+        /*core_grid=*/std::nullopt, /*output_tile=*/std::nullopt,
+        /*optional_output_tensor=*/std::nullopt,
+        /*global_cb=*/std::nullopt, /*sub_device_id=*/std::nullopt);
   };
 
   return operation::getOpConstraints(inputLayoutA.getContext(), deviceGrid,
@@ -4169,7 +4172,12 @@ llvm::Expected<size_t> OpModel<LinearOp>::getOpRuntime(
   auto linearOpQuery = [=]() {
     return ::ttnn::graph::query_op_runtime(
         ::ttnn::linear, device, inputSpecA, inputSpecB, biasTensor, transposeA,
-        transposeB, outputMemoryConfig, outputDType);
+        transposeB, outputMemoryConfig, outputDType,
+        /*program_config=*/std::nullopt,
+        /*activation=*/std::nullopt, /*compute_kernel_config=*/std::nullopt,
+        /*core_grid=*/std::nullopt, /*output_tile=*/std::nullopt,
+        /*optional_output_tensor=*/std::nullopt,
+        /*global_cb=*/std::nullopt, /*sub_device_id=*/std::nullopt);
   };
 
   return operation::getOpRuntime(linearOpQuery);
@@ -4223,7 +4231,10 @@ llvm::Expected<OpConstraints> OpModel<MatmulOp>::getOpConstraints(
   auto matmulOpQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
         ::ttnn::matmul, device, inputSpecA, inputSpecB, transposeA, transposeB,
-        outputMemoryConfig, outputDType, programConfig, activationStr);
+        outputMemoryConfig, outputDType, programConfig, activationStr,
+        /*compute_kernel_config=*/std::nullopt, /*core_grid=*/std::nullopt,
+        /*output_tile=*/std::nullopt, /*optional_output_tensor=*/std::nullopt,
+        /*global_cb=*/std::nullopt, /*sub_device_id=*/std::nullopt);
   };
 
   return operation::getOpConstraints(inputLayoutA.getContext(), deviceGrid,
@@ -4262,9 +4273,17 @@ llvm::Expected<size_t> OpModel<MatmulOp>::getOpRuntime(
 
   // Create query closure
   auto matmulOpQuery = [=]() {
-    return ::ttnn::graph::query_op_runtime(::ttnn::matmul, device, inputSpecA,
-                                           inputSpecB, transposeA, transposeB,
-                                           outputMemoryConfig, outputDType);
+    return ::ttnn::graph::query_op_runtime(
+        ::ttnn::matmul, device, inputSpecA, inputSpecB, transposeA, transposeB,
+        outputMemoryConfig, outputDType,
+        /*program_config=*/std::nullopt,
+        /*activation=*/std::nullopt,
+        /*compute_kernel_config=*/std::nullopt,
+        /*core_grid=*/std::nullopt,
+        /*output_tile=*/std::nullopt,
+        /*optional_output_tensor=*/std::nullopt,
+        /*global_cb=*/std::nullopt,
+        /*sub_device_id=*/std::nullopt);
   };
 
   return operation::getOpRuntime(matmulOpQuery);
