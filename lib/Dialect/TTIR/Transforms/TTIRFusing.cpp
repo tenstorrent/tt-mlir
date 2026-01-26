@@ -3088,7 +3088,7 @@ public:
     // Traces through ops that preserve or set the last dim to
     // normalizedDimSize.
     auto lookThroughSafeOps = [normalizedDimSize](mlir::Value value) {
-      return utils::lookThroughIf<ReshapeOp, BroadcastOp, TypecastOp>(
+      return utils::lookThroughLayoutOpsIf(
           value, [normalizedDimSize](mlir::Operation *op) {
             if (utils::preservesDim(op, -1)) {
               return true;

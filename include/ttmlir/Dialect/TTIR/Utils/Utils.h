@@ -326,27 +326,6 @@ mlir::Value lookThrough(mlir::Value value) {
   return value;
 }
 
-// Traces backward through specified ops that satisfy the predicate.
-template <typename... Ops, typename PredicateFn>
-mlir::Value lookThroughIf(mlir::Value value, PredicateFn &&predicate) {
-  while (auto *op = value.getDefiningOp()) {
-    if (llvm::isa<Ops...>(op) && predicate(op)) {
-      value = op->getOperand(0);
-    } else {
-      break;
-    }
-  }
-  return value;
-}
-
-// Traces backward through specified ops that satisfy the predicate to find
-// an operation of type OpTy.
-template <typename OpTy, typename... Ops, typename PredicateFn>
-OpTy findOpThroughIf(mlir::Value value, PredicateFn &&predicate) {
-  return lookThroughIf<Ops...>(value, std::forward<PredicateFn>(predicate))
-      .template getDefiningOp<OpTy>();
-}
-
 // Traces backward from a value through specified ops to find an operation of
 // type OpTy.
 template <typename OpTy, typename... Ops>
@@ -354,11 +333,11 @@ OpTy findOpThrough(mlir::Value value) {
   return lookThrough<Ops...>(value).template getDefiningOp<OpTy>();
 }
 
-// Traces backward through all layout ops (typecast, reshape, permute,
-// broadcast, repeat_interleave) to find the source value.
+// Traces backward through all layout ops (typecast, reshape, broadcast,
+// repeat_interleave) to find the source value.
 inline mlir::Value lookThroughLayoutOps(mlir::Value value) {
-  return lookThrough<TypecastOp, ReshapeOp, PermuteOp, BroadcastOp,
-                     RepeatInterleaveOp>(value);
+  return lookThrough<TypecastOp, ReshapeOp, BroadcastOp, RepeatInterleaveOp>(
+      value);
 }
 
 // Traces backward through all layout ops, but only looks through ops that
@@ -367,8 +346,7 @@ inline mlir::Value lookThroughLayoutOps(mlir::Value value) {
 template <typename PredicateFn>
 mlir::Value lookThroughLayoutOpsIf(mlir::Value value, PredicateFn &&predicate) {
   while (auto *op = value.getDefiningOp()) {
-    if (llvm::isa<TypecastOp, ReshapeOp, PermuteOp, BroadcastOp,
-                  RepeatInterleaveOp>(op)) {
+    if (llvm::isa<TypecastOp, ReshapeOp, BroadcastOp, RepeatInterleaveOp>(op)) {
       if (!predicate(op)) {
         break;
       }
