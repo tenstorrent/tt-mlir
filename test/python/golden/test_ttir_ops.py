@@ -1342,6 +1342,30 @@ def prod(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = N
     return builder.prod(in0, [1], False, unit_attrs=unit_attrs)
 
 
+@pytest.mark.parametrize("shapes", [[(4, 4, 128, 128)]], ids=shapes_list_str)
+@pytest.mark.parametrize("dim", [1])
+@pytest.mark.parametrize("keep_dim", [True, False])
+def test_prod(shapes: List[Shape], dim: int, keep_dim: bool, request, device):
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, [torch.float32] * len(shapes))
+        def prod(
+            in0: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.prod(
+                in0, dim_arg=[dim], keep_dim=keep_dim, unit_attrs=unit_attrs
+            )
+
+    compile_and_execute_ttir(
+        module,
+        test_base=request.node.name,
+        device=device,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
 @pytest.mark.xfail(reason="Fails Golden")
 @pytest.mark.parametrize(
     "shapes", [[(1, 32, 64, 512), (1, 32, 3, 512)]], ids=shapes_list_str
@@ -3611,6 +3635,35 @@ def test_hoisted_min(
             unit_attrs: Optional[List[str]] = None,
         ):
             return builder.min(
+                in0, dim_arg=[dim], keep_dim=True, unit_attrs=["ttir.should_hoist"]
+            )
+
+    compile_and_execute_ttir(
+        module,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        device=device,
+    )
+
+
+@x86_only
+@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("dim", [0, 1, -1], ids=["dim0", "dim1", "dim_neg1"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+def test_hoisted_prod(
+    shape: Shape, dtype: torch.dtype, dim: int, target: str, request, device
+):
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [dtype])
+        def hoisted_prod_wrapper(
+            in0: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.prod(
                 in0, dim_arg=[dim], keep_dim=True, unit_attrs=["ttir.should_hoist"]
             )
 

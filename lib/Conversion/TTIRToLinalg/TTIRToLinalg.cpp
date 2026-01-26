@@ -1707,6 +1707,36 @@ public:
 } // namespace
 
 namespace {
+class ProdOpConversionPattern : public OpConversionPattern<ttir::ProdOp> {
+public:
+  using OpConversionPattern<ttir::ProdOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::ProdOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    Value input = adaptor.getInput();
+    auto inputType = cast<RankedTensorType>(input.getType());
+    int64_t rank = inputType.getRank();
+
+    auto resultType = dyn_cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getResult().getType()));
+    assert(resultType && "Result type must be a ranked tensor type.");
+
+    // Get dimensions to reduce and keep_dim attribute
+    SmallVector<int64_t> dims = getDimsFromAttribute(op, rank);
+    bool keepDim = getKeepDimFromAttribute(op);
+
+    // Create a chain of reduction operations
+    Value result = createReductionOpChain<tosa::ReduceProductOp>(
+        input, resultType, dims, keepDim, op.getLoc(), rewriter);
+
+    rewriter.replaceOp(op, result);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 // CumSum conversion pattern.
 // Cumulative sum computes the running sum along a specified dimension.
 // Since this is a scan operation (not a reduction), we cannot use the standard
@@ -2362,14 +2392,19 @@ public:
         this->getTypeConverter()->convertType(op.getResult().getType()));
     assert(resultType && "Result type must be a ranked tensor type.");
 
-    // Convert the value attribute to match the converted result type.
-    // This handles signed/unsigned integer types (si32, ui32) being converted
-    // to signless integers (i32).
+    auto valueType = dyn_cast<RankedTensorType>(value.getType());
+    assert(valueType && "Value type must be a ranked tensor type.");
+
     ElementsAttr convertedValue;
-    if (auto denseAttr = dyn_cast<DenseElementsAttr>(value)) {
+
+    // If types already match (e.g., after HoistCPUOps conversion), use value
+    // directly.
+    if (valueType == resultType) {
+      convertedValue = value;
+    } else if (auto denseAttr = dyn_cast<DenseElementsAttr>(value)) {
       // Use getFromRawBuffer to reinterpret the raw data with the new type.
-      // This works for si32/ui32 -> i32 conversion since they have the same
-      // bit width.
+      // This handles signedness conversions (si32/ui32 -> i32) which have the
+      // same bit width.
       convertedValue = DenseElementsAttr::getFromRawBuffer(
           resultType, denseAttr.getRawData());
     } else if (auto resourceAttr = dyn_cast<DenseResourceElementsAttr>(value)) {
@@ -3269,10 +3304,11 @@ void populateTTIRToTosaPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                Relu6OpConversionPattern, GatherOpConversionPattern,
                LogicalNotOpConversionPattern, MaxOpConversionPattern,
                MinOpConversionPattern, SumOpConversionPattern,
-               ReduceOrOpConversionPattern, MeanOpConversionPattern,
-               LayerNormOpConversionPattern, SqueezeOpConversionPattern,
-               UnsqueezeOpConversionPattern, MaxPool2dOpConversionPattern,
-               Conv2dOpConversionPattern>(typeConverter, ctx);
+               ProdOpConversionPattern, ReduceOrOpConversionPattern,
+               MeanOpConversionPattern, LayerNormOpConversionPattern,
+               SqueezeOpConversionPattern, UnsqueezeOpConversionPattern,
+               MaxPool2dOpConversionPattern, Conv2dOpConversionPattern>(
+      typeConverter, ctx);
 
   // Special operations
   patterns.add<WhereOpConversionPattern, ReshapeOpConversionPattern,
