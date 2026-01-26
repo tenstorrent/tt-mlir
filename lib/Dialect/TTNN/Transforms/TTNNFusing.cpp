@@ -961,7 +961,15 @@ private:
   // Each preparation step is only committed if shapes remain SDPA-legal.
   bool prepareInputsForSDPA(SDPAComponents &c,
                             PatternRewriter &rewriter) const {
+    // Analyze all inputs upfront before committing any changes.
+    // This ensures K and V are validated together (important for GQA where
+    // both may need repeat_interleave traced through).
     auto [preparedQ, preparedQElementType] = analyzeQ(c.query);
+    auto [preparedK, preparedKElementType] = analyzeKV(c.key, /*isKey=*/true);
+    auto [preparedV, preparedVElementType] =
+        analyzeKV(c.value, /*isKey=*/false);
+
+    // Validate and commit Q.
     if (validateShapes(preparedQ, c.key, c.value)) {
       c.query =
           restoreElementTypeIfNeeded(preparedQ, preparedQElementType, rewriter);
@@ -970,28 +978,23 @@ private:
           restoreElementTypeIfNeeded(c.query, preparedQElementType, rewriter);
     }
 
-    auto [preparedK, preparedKElementType] = analyzeKV(c.key, /*isKey=*/true);
-    if (validateShapes(c.query, preparedK, c.value)) {
-      c.key =
-          restoreElementTypeIfNeeded(preparedK, preparedKElementType, rewriter);
-    } else {
-      c.key = restoreElementTypeIfNeeded(c.key, preparedKElementType, rewriter);
+    // Validate K and V together - both must be prepared or neither.
+    // This handles GQA where K and V are both traced through repeat_interleave.
+    if (validateShapes(c.query, preparedK, preparedV)) {
+      c.key = preparedK;
+      c.value = preparedV;
     }
 
     // If key is still in a transposed form, materialize an un-transpose so the
-    // fused SDPA op sees the expected [B, H, S, D] shape.
+    // fused SDPA op sees the expected [B, H, S, D] shape. Do this before
+    // restoring element type so the permute operates on the traced-back value.
     c.key = unTransposeKeyIfNeeded(c.query, c.key, c.value, rewriter,
                                    c.attentionMatmul.getLoc());
 
-    auto [preparedV, preparedVElementType] =
-        analyzeKV(c.value, /*isKey=*/false);
-    if (validateShapes(c.query, c.key, preparedV)) {
-      c.value =
-          restoreElementTypeIfNeeded(preparedV, preparedVElementType, rewriter);
-    } else {
-      c.value =
-          restoreElementTypeIfNeeded(c.value, preparedVElementType, rewriter);
-    }
+    // Restore element types for K and V after any shape transformations.
+    c.key = restoreElementTypeIfNeeded(c.key, preparedKElementType, rewriter);
+    c.value =
+        restoreElementTypeIfNeeded(c.value, preparedVElementType, rewriter);
 
     if (c.mask) {
       c.mask = prepareMask(c.mask);
