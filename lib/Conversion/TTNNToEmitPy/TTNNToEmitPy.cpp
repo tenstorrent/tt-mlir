@@ -2490,6 +2490,9 @@ public:
     auto outerDictType =
         emitpy::DictType::get(rewriter.getContext(), strType, innerDictType);
 
+    auto funcOp = loadCachedOp->getParentOfType<func::FuncOp>();
+    Block &entryBlock = funcOp.getBody().front();
+
     // If the enclosing function has a device argument (module-export path),
     // pass it into the const-eval wrapper so it can invoke const-eval functions
     // that take `device` as an explicit parameter.
@@ -2521,12 +2524,7 @@ public:
     // the outer dictionary key for the parent function.
     emitpy::GlobalStatementOp global = nullptr;
     emitpy::ConstantOp funcNameKey = nullptr;
-    auto parentOp = loadCachedOp->getParentOfType<func::FuncOp>();
-    if (!parentOp) {
-      return failure();
-    }
-    Block &entryBlock = parentOp.getBody().front();
-    std::string funcName = parentOp.getSymName().str();
+    std::string funcName = funcOp.getSymName().str();
     auto funcNameAttr =
         emitpy::OpaqueAttr::get(rewriter.getContext(), "\"" + funcName + "\"");
     for (auto &op : entryBlock) {
