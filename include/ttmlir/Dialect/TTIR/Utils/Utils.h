@@ -241,6 +241,11 @@ mlir::LogicalResult broadcastValue(mlir::PatternRewriter &rewriter,
                                    mlir::Value &output, mlir::Location loc,
                                    bool frontUnsqueeze);
 
+// Given a reshape operation and an input dimension position (RTL - right to
+// left, 0 = rightmost), finds the corresponding output dimension position where
+// that dimension maps to. Returns -1 if no matching dimension is found.
+int64_t findMatchingDimRTL(ReshapeOp reshapeOp, int64_t dimRTL);
+
 // Checks if an operation preserves a given dimension.
 // For reshape, this checks both that the dimension size is unchanged and that
 // the product of trailing dimensions (stride) is preserved.
