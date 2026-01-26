@@ -4852,6 +4852,9 @@ private:
     ArrayRef<int64_t> insertedWindowDims =
         adaptor.getScatterDimensionNumbers().getInsertedWindowDims();
 
+    int64_t inputRank =
+        mlir::cast<RankedTensorType>(op.getInputs()[0].getType()).getRank();
+
     // Get update tensor rank and shape.
     RankedTensorType updateType =
         mlir::cast<RankedTensorType>(op.getUpdates()[0].getType());
@@ -4862,38 +4865,32 @@ private:
     RankedTensorType indexType = op.getScatterIndices().getType();
     ArrayRef<int64_t> indexShape = indexType.getShape();
 
-    // Create array to track which dimensions are covered.
-    llvm::SmallVector<bool> dimsCovered(updateRank, false);
-
-    // Check update_window_dims.
+    // Verify openxla.org/stablehlo/spec#scatter (C8):
+    // indices into updates tensor.
     for (auto dim : updateWindowDims) {
       if (dim < 0 || dim >= updateRank) {
         return rewriter.notifyMatchFailure(
             op, "update_window_dims contains invalid dimension index");
       }
-      dimsCovered[dim] = true;
     }
 
-    // Check inserted_window_dims.
+    // Verify openxla.org/stablehlo/spec#scatter (C11):
+    // indices into inputs tensor.
     for (auto dim : insertedWindowDims) {
-      if (dim < 0 || dim >= updateRank) {
+      if (dim < 0 || dim >= inputRank) {
         return rewriter.notifyMatchFailure(
             op, "inserted_window_dims contains invalid dimension index");
       }
-      if (dimsCovered[dim]) {
-        return rewriter.notifyMatchFailure(
-            op, "update_window_dims and inserted_window_dims have overlapping "
-                "dimensions");
-      }
-      dimsCovered[dim] = true;
     }
 
-    // Check that all dimensions are covered.
-    for (int64_t i = 0; i < updateRank; ++i) {
-      if (!dimsCovered[i]) {
-        return rewriter.notifyMatchFailure(
-            op, "Scatter does not support window scatter.");
-      }
+    // Verify openxla.org/stablehlo/spec#scatter (C2):
+    // rank(inputs[0]) = size(update_window_dims) + size(inserted_window_dims) +
+    // size(input_batching_dims).
+    if (inputRank != static_cast<int64_t>(updateWindowDims.size() +
+                                          insertedWindowDims.size() +
+                                          input_batching_dims.size())) {
+      return rewriter.notifyMatchFailure(
+          op, "Scatter does not support window scatter.");
     }
 
     // Check that scatter_dims_to_operand_dims is in order.

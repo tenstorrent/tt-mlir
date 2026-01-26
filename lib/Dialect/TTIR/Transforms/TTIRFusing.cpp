@@ -532,10 +532,6 @@ public:
     mlir::Value lhs = utils::lookThrough<TypecastOp>(multiplyOp.getLhs());
     mlir::Value rhs = utils::lookThrough<TypecastOp>(multiplyOp.getRhs());
 
-    if (lhs.getType() != rhs.getType()) {
-      return mlir::failure();
-    }
-
     SigmoidOp sigmoidOp = nullptr;
     mlir::Value otherOperand;
 
@@ -551,11 +547,13 @@ public:
       return mlir::failure();
     }
 
-    if (sigmoidOp.getInput() != otherOperand) {
+    mlir::Value sigmoidInput =
+        utils::lookThrough<TypecastOp>(sigmoidOp.getInput());
+    if (sigmoidInput != otherOperand) {
       return mlir::failure();
     }
 
-    auto inputType = sigmoidOp.getInput().getType();
+    auto inputType = sigmoidInput.getType();
     auto outputType = multiplyOp.getResult().getType();
     auto siluOp =
         rewriter.create<SiluOp>(multiplyOp->getLoc(), inputType, otherOperand);
@@ -564,11 +562,102 @@ public:
     // after silu to convert back to the multiply output type.
     if (inputType != outputType) {
       auto typecastOp = rewriter.create<TypecastOp>(
-          multiplyOp->getLoc(), inputType, siluOp.getResult());
+          multiplyOp->getLoc(), outputType, siluOp.getResult());
       rewriter.replaceAllOpUsesWith(multiplyOp, typecastOp);
     } else {
       rewriter.replaceAllOpUsesWith(multiplyOp, siluOp);
     }
+    return mlir::success();
+  }
+};
+
+std::optional<mlir::Value> matchNumericallyStableSoftplus(mlir::Value op) {
+  // common utility to match the numerically stable softplus
+  // NumericallyStableSoftplus = where[cond, x, ln(1 + e^x)]
+  WhereOp whereOp = op.getDefiningOp<WhereOp>();
+  if (!whereOp || !whereOp->hasOneUse()) {
+    return std::nullopt;
+  }
+  auto softplusInput = whereOp.getSecond();
+
+  // [cond, x, ln(1 + e^x)]
+  Log1pOp log1pOp = whereOp.getThird().getDefiningOp<Log1pOp>();
+  if (!log1pOp || !log1pOp->hasOneUse()) {
+    return std::nullopt;
+  }
+
+  GreaterThanOp gtOp = whereOp.getFirst().getDefiningOp<GreaterThanOp>();
+  if (!gtOp) {
+    return std::nullopt;
+  }
+
+  if (gtOp.getLhs() != softplusInput) {
+    return std::nullopt;
+  }
+
+  ExpOp expOp = log1pOp.getInput().getDefiningOp<ExpOp>();
+  if (!expOp || !expOp->hasOneUse()) {
+    return std::nullopt;
+  }
+
+  if (softplusInput != expOp.getInput()) {
+    return std::nullopt;
+  }
+
+  return softplusInput;
+}
+
+// Mish Fusion Pattern
+class MishFusingPattern : public mlir::OpRewritePattern<MultiplyOp> {
+  using mlir::OpRewritePattern<MultiplyOp>::OpRewritePattern;
+
+public:
+  // Match Pattern -  mish(x) = x * tanh(Softplus(x))
+  // where, Softplus(x) = x > C? x : ln(1 + e^x) (numerically stable variant of
+  // softplus(x)) Because for very large x, (1 + e^x) ~ e^x ln(e^x) = x
+  mlir::LogicalResult
+  matchAndRewrite(MultiplyOp multiplyOp,
+                  mlir::PatternRewriter &rewriter) const final {
+    mlir::Value lhs = utils::lookThrough<TypecastOp>(multiplyOp.getLhs());
+    mlir::Value rhs = utils::lookThrough<TypecastOp>(multiplyOp.getRhs());
+
+    // Match multiply(x, tanh(softplus(x))) and
+    // multiply(tanh(softplus(x)), x)
+    mlir::Value originalInput;
+    TanhOp tanhOp = nullptr;
+    if (auto lhsTanhOp = lhs.getDefiningOp<TanhOp>()) {
+      tanhOp = lhsTanhOp;
+      originalInput = rhs;
+    } else if (auto rhsTanhOp = rhs.getDefiningOp<TanhOp>()) {
+      tanhOp = rhsTanhOp;
+      originalInput = lhs;
+    }
+
+    if (!tanhOp || !tanhOp->hasOneUse()) {
+      return mlir::failure();
+    }
+
+    // Check if tanh's input is softplus
+    auto softplusInput = matchNumericallyStableSoftplus(tanhOp.getInput());
+    if (!softplusInput || *softplusInput != originalInput) {
+      return mlir::failure();
+    }
+
+    auto inputType = originalInput.getType();
+    auto outputType = multiplyOp.getResult().getType();
+    auto mishOp =
+        rewriter.create<MishOp>(multiplyOp.getLoc(), inputType, originalInput);
+
+    // If multiply inputs and output are typecasted, we need to add a typecast
+    // after mish to convert it back to the original multiply Op's output type.
+    if (inputType != outputType) {
+      auto typecastOp = rewriter.create<TypecastOp>(
+          multiplyOp->getLoc(), outputType, mishOp.getResult());
+      rewriter.replaceOp(multiplyOp, typecastOp.getResult());
+    } else {
+      rewriter.replaceOp(multiplyOp, mishOp.getResult());
+    }
+
     return mlir::success();
   }
 };
@@ -3349,6 +3438,7 @@ public:
       patterns.add<Relu6FusionPattern>(&getContext());
       patterns.add<SiluFusionPattern>(&getContext());
       patterns.add<HardsigmoidFusionPattern>(&getContext());
+      patterns.add<MishFusingPattern>(&getContext());
 
       GreedyRewriteConfig config;
       config.setUseTopDownTraversal(true);

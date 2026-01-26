@@ -4443,6 +4443,162 @@ def stablehlo_pad_golden(
     ).to(output_dtype)
 
 
+def stablehlo_reduce_window_golden(
+    input_tensor: GoldenMapTensor,
+    init_value: GoldenMapTensor,
+    window_dimensions: DenseI64ArrayAttr,
+    window_strides: Optional[DenseI64ArrayAttr],
+    base_dilations: Optional[DenseI64ArrayAttr],
+    window_dilations: Optional[DenseI64ArrayAttr],
+    padding: Optional[DenseI64ArrayAttr],
+    output_type_mlir: Type,
+    body: str = "add",
+) -> GoldenMapTensor:
+    """
+    Golden function for stablehlo.reduce_window operation.
+
+    Applies a reduction function to sliding windows over the input tensor.
+    """
+    window_dims = unpack_mlir_attr(window_dimensions)
+    w_strides = (
+        unpack_mlir_attr(window_strides)
+        if window_strides is not None
+        else [1] * len(window_dims)
+    )
+    b_dilations = (
+        unpack_mlir_attr(base_dilations)
+        if base_dilations is not None
+        else [1] * len(window_dims)
+    )
+    w_dilations = (
+        unpack_mlir_attr(window_dilations)
+        if window_dilations is not None
+        else [1] * len(window_dims)
+    )
+
+    if padding is not None:
+        padding_attr = unpack_mlir_attr(padding)
+        if isinstance(padding_attr, np.ndarray):
+            if padding_attr.ndim == 2:
+                pad_2d = [[int(p[0]), int(p[1])] for p in padding_attr]
+            else:
+                rank = len(window_dims)
+                pad_2d = [
+                    [int(padding_attr[i * 2]), int(padding_attr[i * 2 + 1])]
+                    for i in range(rank)
+                ]
+        elif isinstance(padding_attr, (list, tuple)) and len(padding_attr) > 0:
+            if isinstance(padding_attr[0], (list, tuple)):
+                pad_2d = [list(p) for p in padding_attr]
+            else:
+                rank = len(window_dims)
+                pad_2d = [
+                    [padding_attr[i * 2], padding_attr[i * 2 + 1]] for i in range(rank)
+                ]
+        else:
+            pad_2d = [[0, 0] for _ in range(len(window_dims))]
+    else:
+        pad_2d = [[0, 0] for _ in range(len(window_dims))]
+
+    if hasattr(output_type_mlir, "element_type"):
+        output_dtype = mlir_type_to_torch_dtype(output_type_mlir.element_type)
+    else:
+        output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+
+    init_scalar = init_value.contiguous().shard_map[0].item()
+
+    output_shards = {}
+    for device_id in input_tensor.shard_map.keys():
+        input_shard = input_tensor.shard_map[device_id]
+        output_shard = _reduce_window_impl(
+            input_shard,
+            init_scalar,
+            window_dims,
+            w_strides,
+            b_dilations,
+            w_dilations,
+            pad_2d,
+            body,
+        )
+        output_shards[device_id] = output_shard.to(output_dtype)
+
+    return GoldenMapTensor(output_shards, input_tensor.mesh_shape)
+
+
+def _reduce_window_impl(
+    input_tensor: torch.Tensor,
+    init_value: Union[float, int],
+    window_dimensions: List[int],
+    window_strides: List[int],
+    base_dilations: List[int],
+    window_dilations: List[int],
+    padding: List[List[int]],
+    body: str,
+) -> torch.Tensor:
+    """
+    Implementation of reduce_window computation for golden reference.
+    """
+    input_shape = list(input_tensor.shape)
+    rank = len(input_shape)
+
+    if any(d != 1 for d in base_dilations):
+        dilated_shape = [
+            (s - 1) * d + 1 if s > 0 else 0 for s, d in zip(input_shape, base_dilations)
+        ]
+        dilated_input = torch.full(dilated_shape, init_value, dtype=input_tensor.dtype)
+        slices = tuple(slice(None, None, d) for d in base_dilations)
+        dilated_input[slices] = input_tensor
+        input_tensor = dilated_input
+        input_shape = list(input_tensor.shape)
+
+    pad_list = []
+    for i in range(rank - 1, -1, -1):
+        pad_list.extend([padding[i][0], padding[i][1]])
+    if any(p != 0 for p in pad_list):
+        input_tensor = torch.nn.functional.pad(input_tensor, pad_list, value=init_value)
+        input_shape = list(input_tensor.shape)
+
+    output_shape = []
+    for i in range(rank):
+        dilated_window = (
+            (window_dimensions[i] - 1) * window_dilations[i] + 1
+            if window_dimensions[i] > 0
+            else 0
+        )
+        if input_shape[i] == 0 or dilated_window > input_shape[i]:
+            output_dim = 0
+        else:
+            output_dim = ((input_shape[i] - dilated_window) // window_strides[i]) + 1
+        output_shape.append(output_dim)
+
+    output_tensor = torch.full(output_shape, init_value, dtype=input_tensor.dtype)
+
+    if all(d > 0 for d in output_shape):
+        output_indices = itertools.product(*[range(s) for s in output_shape])
+        window_offsets = list(itertools.product(*[range(s) for s in window_dimensions]))
+
+        for idx in output_indices:
+            window_elements = []
+            for window_idx in window_offsets:
+                input_idx = tuple(
+                    idx[d] * window_strides[d] + window_idx[d] * window_dilations[d]
+                    for d in range(rank)
+                )
+                if all(0 <= input_idx[d] < input_shape[d] for d in range(rank)):
+                    window_elements.append(input_tensor[input_idx].item())
+
+            if window_elements:
+                if body == "add":
+                    result = sum(window_elements)
+                elif body == "max":
+                    result = max(window_elements)
+                else:
+                    result = init_value
+                output_tensor[idx] = result
+
+    return output_tensor
+
+
 def stablehlo_convolution_golden(
     lhs: GoldenMapTensor,
     rhs: GoldenMapTensor,
@@ -5334,6 +5490,8 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     stablehlo.MaxOp: stablehlo_maximum_golden,
     stablehlo.MinOp: stablehlo_minimum_golden,
     stablehlo.MulOp: stablehlo_multiply_golden,
+    # bitcast conversion operation
+    stablehlo.BroadcastInDimOp: torch.broadcast_to,
     stablehlo.SubtractOp: stablehlo_subtract_golden,
     stablehlo.PowOp: stablehlo_pow_golden,
     stablehlo.ShiftRightLogicalOp: stablehlo_shift_right_logical_golden,
@@ -5350,6 +5508,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     stablehlo.AllGatherOp: stablehlo_all_gather_golden,
     stablehlo.AllReduceOp: stablehlo_all_reduce_golden,
     stablehlo.ReduceScatterOp: stablehlo_reduce_scatter_golden,
+    stablehlo.ReduceWindowOp: stablehlo_reduce_window_golden,
     stablehlo.CollectivePermuteOp: stablehlo_collective_permute_golden,
     stablehlo.AllToAllOp: stablehlo_all_to_all_golden,
     stablehlo.CollectiveBroadcastOp: stablehlo_collective_broadcast_golden,

@@ -5,6 +5,7 @@
 import pytest
 import torch
 from typing import Callable, List
+from conftest import get_request_kwargs
 
 from ttmlir.dialects import ttcore
 from ttmlir.ir import *
@@ -59,9 +60,7 @@ def test_tilize(shape: Shape, target: str, request, device):
         target=target,
         custom_pipeline="d2m-lower-to-layout,ttir-to-ttmetal-me-pipeline,ttir-to-ttmetal-be-pipeline",
         device=device,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
     )
 
 
@@ -115,9 +114,7 @@ def test_untilize(shape: Shape, target: str, request, device):
         target=target,
         custom_pipeline="d2m-lower-to-layout,ttir-to-ttmetal-me-pipeline,ttir-to-ttmetal-be-pipeline",
         device=device,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
     )
 
 
@@ -150,7 +147,5 @@ def test_tilize_untilize(shape: Shape, target: str, request, device):
         target=target,
         custom_pipeline="d2m-lower-to-layout,ttir-to-ttmetal-me-pipeline,ttir-to-ttmetal-be-pipeline",
         device=device,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
     )
