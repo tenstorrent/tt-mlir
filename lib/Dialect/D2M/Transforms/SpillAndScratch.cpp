@@ -130,14 +130,36 @@ struct InsertSpillAndScratchPattern : public OpRewritePattern<scf::ForOp> {
     auto l1Attr = ttcore::MemorySpaceAttr::get(rewriter.getContext(),
                                                ttcore::MemorySpace::DeviceL1);
 
-    // Determine scratch buffer shape from the subview shapes being processed
-    // For now, use a simple 1D buffer with enough space for one tile per slot
-    // The scratch is indexed by the affine loop indices
-    constexpr int64_t kScratchTiles = 8; // Match the inner loop bound (arg9)
+    // Collect the affine loop nest to determine scratch shape and indices
+    SmallVector<affine::AffineForOp> affineLoopNest;
+    affineLoopNest.push_back(rootLoop);
+    rootLoop.getBody()->walk([&](affine::AffineForOp innerFor) {
+      affineLoopNest.push_back(innerFor);
+    });
 
-    // Create scratch memref type: memref<8 x tile, #l1>
+    // Determine scratch buffer shape from the affine loop bounds
+    // This creates a 2D shape matching the CB subview shapes (e.g., [1, 8])
+    SmallVector<int64_t> scratchShape;
+    SmallVector<Value> loopIndices;
+    for (auto loopOp : affineLoopNest) {
+      // Get the constant loop bounds
+      if (!loopOp.hasConstantBounds()) {
+        return failure();
+      }
+      int64_t upperBound = loopOp.getConstantUpperBound();
+      int64_t lowerBound = loopOp.getConstantLowerBound();
+      scratchShape.push_back(upperBound - lowerBound);
+      loopIndices.push_back(loopOp.getInductionVar());
+    }
+
+    int64_t totalTiles = 1;
+    for (int64_t dim : scratchShape) {
+      totalTiles *= dim;
+    }
+
+    // Create scratch memref type with shape matching CB subviews
     auto scratchMemRefType =
-        MemRefType::get({kScratchTiles}, tileType, AffineMap(), l1Attr);
+        MemRefType::get(scratchShape, tileType, AffineMap(), l1Attr);
 
     // Insert scratch allocations before the scratch_space_loop
     rewriter.setInsertionPoint(forOp);
@@ -147,17 +169,9 @@ struct InsertSpillAndScratchPattern : public OpRewritePattern<scf::ForOp> {
     SmallVector<Value> scratchBuffers;
     for (size_t i = 0; i < leafOps.size(); ++i) {
       auto scratch = rewriter.create<ScratchAllocateOp>(loc, scratchMemRefType,
-                                                        kScratchTiles);
+                                                        totalTiles);
       scratchBuffers.push_back(scratch.getResult());
     }
-
-    // Find the innermost affine loop to insert spill/reload ops
-    affine::AffineForOp innermostLoop = rootLoop;
-    rootLoop.getBody()->walk(
-        [&](affine::AffineForOp innerFor) { innermostLoop = innerFor; });
-
-    // Get the inner loop index (arg9 in the example - the innermost loop IV)
-    Value innerLoopIdx = innermostLoop.getInductionVar();
 
     // Insert spill stores after each leaf op
     for (auto [leafOp, slot] :
@@ -166,8 +180,8 @@ struct InsertSpillAndScratchPattern : public OpRewritePattern<scf::ForOp> {
       Value scratchBuf = scratchBuffers[slot];
 
       rewriter.setInsertionPointAfter(leafOp);
-      rewriter.create<affine::AffineStoreOp>(
-          leafOp->getLoc(), leafResult, scratchBuf, ValueRange{innerLoopIdx});
+      rewriter.create<affine::AffineStoreOp>(leafOp->getLoc(), leafResult,
+                                             scratchBuf, loopIndices);
     }
 
     // Find parent ops (ops that consume leaf results) and insert reloads
@@ -191,9 +205,9 @@ struct InsertSpillAndScratchPattern : public OpRewritePattern<scf::ForOp> {
           unsigned slot = it->second;
           Value scratchBuf = scratchBuffers[slot];
 
-          // Insert reload from scratch
+          // Insert reload from scratch using all loop indices
           Value reloaded = rewriter.create<affine::AffineLoadOp>(
-              parentOp->getLoc(), scratchBuf, ValueRange{innerLoopIdx});
+              parentOp->getLoc(), scratchBuf, loopIndices);
 
           // Replace the operand with the reloaded value
           rewriter.modifyOpInPlace(
