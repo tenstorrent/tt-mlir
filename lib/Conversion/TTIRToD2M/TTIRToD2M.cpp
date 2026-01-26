@@ -1743,9 +1743,20 @@ private:
   }
 
 public:
+  D2MToLayoutOpRewriter(const TypeConverter &typeConverter,
+                        mlir::MLIRContext *ctx,
+                        ttcore::MemorySpace defaultInputMemSpace,
+                        ttcore::MemorySpace defaultOutputMemSpace,
+                        bool ttnnMode, bool collapseTensors)
+      : D2MNamedRewriterCommon(defaultInputMemSpace, defaultOutputMemSpace,
+                               ttnnMode, collapseTensors),
+        OpConversionPattern<ttir::ToLayoutOp>(typeConverter, ctx) {}
+
+  using D2MNamedRewriterCommon::getMetalTensorFromTTNNTensor;
   LogicalResult
   matchAndRewrite(ttir::ToLayoutOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    // Access ttnnMode from base class
     auto outType = mlir::cast<RankedTensorType>(op.getOutput().getType());
 
     if (!ttnnMode) {
