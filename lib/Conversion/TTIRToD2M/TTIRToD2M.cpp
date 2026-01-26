@@ -919,21 +919,31 @@ private:
     newInputs.emplace_back(createScaler(
         rewriter, loc,
         mlir::cast<mlir::RankedTensorType>(origInputs.front().getType())));
+
+    // Disable dimension collapsing for reductions. The dimArg attribute
+    // contains indices relative to the original tensor dimensions, so we
+    // must preserve the original rank to correctly interpret which dimensions
+    // are being reduced.
     auto [inputs, outputs] =
         toLayoutOperandsAndResults(rewriter, {newInputs, origOutputs},
-                                   /*tiled*/ true);
+                                   /*tiled*/ true, /*noCollapse*/ true);
 
     const std::size_t numInputs = inputs.size();
     const std::size_t numOutputs = outputs.size();
     const std::size_t numOperands = (numInputs + numOutputs);
 
-    const std::size_t physicalRank =
+    // For keep_dim=false, input and output have different ranks.
+    // The iteration space is based on the input rank.
+    const std::size_t inputRank =
+        ttcore::getDeviceLayout(inputs[0]).getRank() / 2;
+    const std::size_t outputRank =
         ttcore::getDeviceLayout(outputs[0]).getRank() / 2;
+    const bool keepDim = op.getKeepDim();
 
-    SmallVector<mlir::AffineMap> indexingMaps =
-        getAffineMapsArray(rewriter, op, numOperands, physicalRank);
+    SmallVector<mlir::AffineMap> indexingMaps = getAffineMapsArray(
+        rewriter, op, numOperands, inputRank, outputRank, keepDim);
     SmallVector<mlir::Attribute> iteratorTypes =
-        getIteratorTypesArray(rewriter, op, physicalRank);
+        getIteratorTypesArray(rewriter, op, inputRank);
 
     // Create 'd2m.generic' accepting extended operands.
     auto generic = rewriter.create<d2m::GenericOp>(
@@ -957,8 +967,8 @@ private:
 
         // Create 'linalg.generic' accepting 'blockArgs'.
 
-        SmallVector<mlir::AffineMap> linalgIndexingMaps =
-            getAffineMapsArray(rewriter, op, numOperands, physicalRank);
+        SmallVector<mlir::AffineMap> linalgIndexingMaps = getAffineMapsArray(
+            rewriter, op, numOperands, inputRank, outputRank, keepDim);
         SmallVector<mlir::utils::IteratorType> linalgIteratorTypes =
             iteratorTypeTTIRToLinalg(rewriter, iteratorTypes);
 
@@ -969,8 +979,7 @@ private:
           // Propagate 'dim_arg' as 'ReduceDim'.
           attributes.emplace_back(
               d2m::ReduceDimAttr::getMnemonic(),
-              d2m::ReduceDimAttr::get(ctx,
-                                      dimArgAsReduceDim(op, physicalRank)));
+              d2m::ReduceDimAttr::get(ctx, dimArgAsReduceDim(op, inputRank)));
         }
 
         auto linalgGeneric = rewriter.create<mlir::linalg::GenericOp>(
@@ -1020,33 +1029,58 @@ private:
   }
 
   static void checkPreconditions(ConcreteOp op) {
-    // For reductions, require 'dim_arg' and 'keep_dim'=true for now.
+    // For reductions, require 'dim_arg' attribute to be set.
     assert(op.getDimArg() && "expected dim_arg attribute to be set");
-    assert(op.getKeepDimAttr().getValue() && "expected default keep_dim=true");
   }
 
   static SmallVector<mlir::AffineMap>
   getAffineMapsArray(mlir::OpBuilder &builder, ConcreteOp op, std::size_t arity,
-                     std::size_t rank) {
-    assert(rank > 0);
+                     std::size_t inputRank, std::size_t outputRank,
+                     bool keepDim) {
+    assert(inputRank > 0);
     mlir::ArrayAttr dimArg = getDimArg(op);
 
     mlir::AffineExpr zero =
         mlir::getAffineConstantExpr(0, builder.getContext());
 
-    mlir::MutableAffineMap accumulator(builder.getMultiDimIdentityMap(rank));
-    forAllDims(rank, dimArg, [&](std::size_t index, bool dropped) {
-      if (dropped) {
-        accumulator.setResult(index, zero);
-      }
-    });
-    SmallVector<mlir::AffineMap> maps(arity - 2,
-                                      builder.getMultiDimIdentityMap(rank));
+    // Input maps: identity maps with inputRank dimensions.
+    SmallVector<mlir::AffineMap> maps(
+        arity - 2, builder.getMultiDimIdentityMap(inputRank));
+
+    // Scaler map: maps to (0, 0) from the inputRank iteration space.
     std::array<mlir::AffineExpr, 2> zeros{zero, zero};
-    maps.emplace_back(mlir::AffineMap::get(/* dimCount */ rank,
+    maps.emplace_back(mlir::AffineMap::get(/* dimCount */ inputRank,
                                            /* symbolCount */ 0, zeros,
                                            builder.getContext()));
-    maps.emplace_back(accumulator.getAffineMap());
+
+    // Output map: depends on keep_dim.
+    if (keepDim) {
+      // keep_dim=true: output has same rank as input, reduced dims map to 0.
+      mlir::MutableAffineMap accumulator(
+          builder.getMultiDimIdentityMap(inputRank));
+      forAllDims(inputRank, dimArg, [&](std::size_t index, bool dropped) {
+        if (dropped) {
+          accumulator.setResult(index, zero);
+        }
+      });
+      maps.emplace_back(accumulator.getAffineMap());
+    } else {
+      // keep_dim=false: output has fewer dims, project only non-reduced dims.
+      // Build a projection map: (d0, d1, ..., d_{inputRank-1}) -> (d_i, d_j,
+      // ...) where d_i, d_j, ... are the non-reduced dimensions.
+      SmallVector<mlir::AffineExpr> projectionExprs;
+      forAllDims(inputRank, dimArg, [&](std::size_t index, bool dropped) {
+        if (!dropped) {
+          projectionExprs.push_back(
+              mlir::getAffineDimExpr(index, builder.getContext()));
+        }
+      });
+      assert(projectionExprs.size() == outputRank &&
+             "projection size must match output rank");
+      maps.emplace_back(mlir::AffineMap::get(
+          /* dimCount */ inputRank,
+          /* symbolCount */ 0, projectionExprs, builder.getContext()));
+    }
 
     return maps;
   }
