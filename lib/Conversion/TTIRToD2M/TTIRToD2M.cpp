@@ -1576,165 +1576,78 @@ private:
 } // namespace
 
 // Simple conversion for ttir.to_layout -> d2m.to_layout.
-class D2MToLayoutOpRewriter : public OpConversionPattern<ttir::ToLayoutOp> {
+class D2MToLayoutOpRewriter : public D2MNamedRewriterCommon,
+                              public OpConversionPattern<ttir::ToLayoutOp> {
   using OpConversionPattern<ttir::ToLayoutOp>::OpConversionPattern;
 
-private:
-  void assertTTNNLayoutSupported(ttnn::TTNNLayoutAttr ttnnLayout) const {
-    assert(ttnnLayout.isDeviceBufferType() && "Must be a device tensor");
-
-    // With these assumptions we can use the default alignment and dim
-    // collapsing behavior in the MetalLayoutAttr.
-    assert(ttnnLayout.isTiled() &&
-           "Row major TTNN layouts are not supported yet");
-    assert(
-        mlir::cast<ttcore::TileType>(ttnnLayout.getElementType()).getHeight() ==
-            ttcore::TileType::getDefaultShape()[0] &&
-        "Only default tile shape is supported");
-  }
-
-  RankedTensorType
-  getMetalTensorFromTTNNTensor(mlir::ConversionPatternRewriter &rewriter,
-                               Value value) const {
-    auto tensorType = mlir::cast<mlir::RankedTensorType>(value.getType());
-    auto ttnnLayout =
-        mlir::cast<ttnn::TTNNLayoutAttr>(tensorType.getEncoding());
-
-    assertTTNNLayoutSupported(ttnnLayout);
-
-    ttcore::MemorySpace memSpace =
-        ttnnLayout.getBufferType() == ttnn::BufferType::DRAM
-            ? ttcore::MemorySpace::DeviceDRAM
-            : ttcore::MemorySpace::DeviceL1;
-
-    auto i64Ty = IntegerType::get(rewriter.getContext(), 64);
-    auto intervalTy = RankedTensorType::get({1, 2}, i64Ty);
-    DenseIntElementsAttr collapsedIntervals =
-        DenseIntElementsAttr::get(intervalTy, llvm::ArrayRef<int64_t>({0, -1}));
-
-    ttcore::TensorMemoryLayout memLayout =
-        (ttnnLayout.getMemLayout().getValue() ==
-         ttnn::TensorMemoryLayout::Interleaved)
-            ? ttcore::TensorMemoryLayout::Interleaved
-            : ttcore::TensorMemoryLayout::Sharded;
-
-    llvm::SmallVector<int64_t> dimAlignments(tensorType.getShape().size(), 1);
-    dimAlignments[dimAlignments.size() - 1] = 32;
-    dimAlignments[dimAlignments.size() - 2] = 32;
-
-    bool needVirtualGrid = ttnnLayout.getMemLayout().getValue() ==
-                               ttnn::TensorMemoryLayout::HeightSharded ||
-                           ttnnLayout.getMemLayout().getValue() ==
-                               ttnn::TensorMemoryLayout::WidthSharded;
-    AffineMap indexAffineMap = AffineMap::get(rewriter.getContext());
-    llvm::SmallVector<int64_t> ttnnGridShape(ttnnLayout.getGrid().getShape());
-    llvm::SmallVector<int64_t> optimalGrid = ttnnGridShape;
-    if (needVirtualGrid) {
-      if (ttnnLayout.getMemLayout().getValue() ==
-          ttnn::TensorMemoryLayout::HeightSharded) {
-        optimalGrid = {ttnnGridShape[0] * ttnnGridShape[1], 1};
-      } else if (ttnnLayout.getMemLayout().getValue() ==
-                 ttnn::TensorMemoryLayout::WidthSharded) {
-        optimalGrid = {1, ttnnGridShape[0] * ttnnGridShape[1]};
-      }
-      auto [fwdMap, _] = ttmlir::d2m::utils::grids::createCoreVirtMaps(
-          rewriter.getContext(), optimalGrid, ttnnGridShape);
-      indexAffineMap = fwdMap;
-    }
-
-    auto metalLayout = ttcore::MetalLayoutAttr::get(
-        rewriter.getContext(), tensorType.getShape(), ttcore::OOBVal::Undef,
-        memSpace, memLayout, collapsedIntervals, dimAlignments, indexAffineMap);
-
-    llvm::SmallVector<int64_t> unshardedShape =
-        metalLayout.getPhysicalShape(ttcore::TileType::getDefaultShape());
-
-    llvm::SmallVector<int64_t> shardedShape = metalLayout.getDeviceShape(
-        optimalGrid, ttcore::TileType::getDefaultShape());
-
-    Type elementType = ttnnLayout.getElementType();
-    return mlir::RankedTensorType::get(shardedShape, elementType, metalLayout);
-  }
-
 public:
+  D2MToLayoutOpRewriter(const TypeConverter &typeConverter,
+                        mlir::MLIRContext *ctx,
+                        ttcore::MemorySpace defaultInputMemSpace,
+                        ttcore::MemorySpace defaultOutputMemSpace,
+                        bool ttnnMode, bool collapseTensors)
+      : D2MNamedRewriterCommon(defaultInputMemSpace, defaultOutputMemSpace,
+                               ttnnMode, collapseTensors),
+        OpConversionPattern<ttir::ToLayoutOp>(typeConverter, ctx) {}
+
+  using D2MNamedRewriterCommon::getMetalTensorFromTTNNTensor;
   LogicalResult
   matchAndRewrite(ttir::ToLayoutOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    // Access ttnnMode from base class
     auto outType = mlir::cast<RankedTensorType>(op.getOutput().getType());
-
     bool outputIsTTNN =
         mlir::isa_and_nonnull<ttnn::TTNNLayoutAttr>(outType.getEncoding());
 
-    if (outputIsTTNN) {
-      // debug print msg
-      llvm::errs() << "to layout op ttnn\n";
-      op.dump();
-      // convert to metal
-      Value metalInput;
-      auto inputType =
-          mlir::cast<RankedTensorType>(adaptor.getInput().getType());
-      if (mlir::isa_and_nonnull<ttnn::TTNNLayoutAttr>(
-              inputType.getEncoding())) {
-        auto inputMetalType =
-            getMetalTensorFromTTNNTensor(rewriter, adaptor.getInput());
-        metalInput = rewriter
-                         .create<ttir::TTNNMetalLayoutCastOp>(
-                             op.getLoc(), inputMetalType, adaptor.getInput())
-                         .getResult();
-      } else {
-        metalInput = adaptor.getInput();
-      }
-
-      // get metal type
-      auto outputMetalType =
-          getMetalTensorFromTTNNTensor(rewriter, op.getOutput());
-
-      if (outputIsTTNN) {
-        // create d2m.empty with ttnn layout
-        Value metalEmpty = rewriter.create<d2m::EmptyOp>(
-            op.getLoc(), outType.getShape(), outType.getElementType(),
-            outType.getEncoding());
-
-        // create cast ttnn -> metal taking in ttnn empty
-        auto metalCast = rewriter.create<ttir::TTNNMetalLayoutCastOp>(
-            op.getLoc(), outputMetalType, metalEmpty);
-
-        // create d2m.to_layout with metal types
-        auto metalToLayout = rewriter.create<d2m::ToLayoutOp>(
-            op.getLoc(), metalInput, metalCast);
-
-        // cast back to ttnn
-        auto ttnnResult = rewriter.create<ttir::TTNNMetalLayoutCastOp>(
-            op.getLoc(), outType, metalToLayout.getResult(0));
-
-        rewriter.replaceOp(op, ttnnResult.getResult());
-        return success();
-
-      } else {
-        // create d2m.empty with metal layout
-        Value metalEmpty = rewriter.create<d2m::EmptyOp>(
-            op.getLoc(), outputMetalType.getShape(),
-            outputMetalType.getElementType(), outputMetalType.getEncoding());
-
-        // create d2m.to_layout with metal types
-        auto metalToLayout = rewriter.create<d2m::ToLayoutOp>(
-            op.getLoc(), metalInput, metalEmpty);
-
-        // cast back to ttnn
-        auto ttnnResult = rewriter.create<ttir::TTNNMetalLayoutCastOp>(
-            op.getLoc(), outType, metalToLayout.getResult(0));
-
-        rewriter.replaceOp(op, ttnnResult.getResult());
-        return success();
-      }
+    if (!ttnnMode) {
+      // Default case: non-TTNN output, use simple conversion.
+      Value empty = rewriter.create<d2m::EmptyOp>(
+          op.getLoc(), outType.getShape(), outType.getElementType(),
+          outType.getEncoding());
+      auto newOp = rewriter.create<d2m::ToLayoutOp>(op.getLoc(),
+                                                    adaptor.getInput(), empty);
+      rewriter.replaceOp(op, newOp.getResult(0));
+      return success();
     }
 
-    Value empty = rewriter.create<d2m::EmptyOp>(op.getLoc(), outType.getShape(),
-                                                outType.getElementType(),
-                                                outType.getEncoding());
-    auto newOp = rewriter.create<d2m::ToLayoutOp>(op.getLoc(),
-                                                  adaptor.getInput(), empty);
-    rewriter.replaceOp(op, newOp.getResult(0));
+    // assert outputisTTNN
+    assert(outputIsTTNN);
+
+    // TTNN output handling.
+    // Convert input to Metal layout if needed.
+    Value metalInput = adaptor.getInput();
+    auto inputType = mlir::cast<RankedTensorType>(adaptor.getInput().getType());
+    if (mlir::isa_and_nonnull<ttnn::TTNNLayoutAttr>(inputType.getEncoding())) {
+      auto inputMetalType =
+          getMetalTensorFromTTNNTensor(rewriter, adaptor.getInput());
+      metalInput = rewriter
+                       .create<ttir::TTNNMetalLayoutCastOp>(
+                           op.getLoc(), inputMetalType, adaptor.getInput())
+                       .getResult();
+    }
+
+    // Get Metal type for output.
+    auto outputMetalType =
+        getMetalTensorFromTTNNTensor(rewriter, op.getOutput());
+
+    // Create d2m.empty for TTNN layout.
+    Value metalEmpty = rewriter.create<d2m::EmptyOp>(
+        op.getLoc(), outType.getShape(), outType.getElementType(),
+        outType.getEncoding());
+
+    // Cast TTNN empty to Metal layout.
+    auto metalCast = rewriter.create<ttir::TTNNMetalLayoutCastOp>(
+        op.getLoc(), outputMetalType, metalEmpty);
+
+    // Create d2m.to_layout with Metal types.
+    auto metalToLayout =
+        rewriter.create<d2m::ToLayoutOp>(op.getLoc(), metalInput, metalCast);
+
+    // Cast back to TTNN.
+    auto ttnnResult = rewriter.create<ttir::TTNNMetalLayoutCastOp>(
+        op.getLoc(), outType, metalToLayout.getResult(0));
+
+    rewriter.replaceOp(op, ttnnResult.getResult());
     return success();
   }
 };
@@ -2128,7 +2041,7 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
 
 
   // ToLayout 1:1 conversion.
-  patterns.add<D2MToLayoutOpRewriter>(typeConverter, ctx);
+  patterns.add<D2MToLayoutOpRewriter>(typeConverter, ctx, defaultInputMemSpace, defaultOutputMemSpace, ttnnMode, collapseTensors, enableMulticastInference);
 
   // Creation ops 1:1 conversion.
   patterns.add<D2MEmptyOpRewriter, D2MFullOpRewriter>(typeConverter, ctx);
