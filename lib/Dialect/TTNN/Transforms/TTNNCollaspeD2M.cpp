@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -25,37 +25,26 @@ public:
   void runOnOperation() final {
     ModuleOp moduleOp = getOperation();
 
-    // Find ttnn.dispatch_d2m ops and inline main func, move kernel funcs to
-    // module scope.
-    SmallVector<DispatchD2MOp> dispatchOps;
-    moduleOp.walk(
-        [&](DispatchD2MOp dispatchOp) { dispatchOps.push_back(dispatchOp); });
-
-    if (dispatchOps.empty()) {
-      return;
-    }
-
-    llvm::errs() << "Found " << dispatchOps.size()
-                 << " ttnn.dispatch_d2m op(s) to inline.\n";
-
-    for (DispatchD2MOp dispatchOp : dispatchOps) {
+    // Inline the main func and move kernel funcs to parent module scope.
+    moduleOp.walk([&](DispatchD2MOp dispatchOp) -> WalkResult {
       if (failed(inlineDispatchOp(moduleOp, dispatchOp))) {
         signalPassFailure();
-        return;
+        return WalkResult::interrupt();
       }
-    }
+      return WalkResult::advance();
+    });
   }
 
 private:
   LogicalResult inlineDispatchOp(ModuleOp parentModule,
                                  DispatchD2MOp dispatchOp) {
-    func::FuncOp mainFunc = dispatchOp.lookupD2MMainFunc();
+    func::FuncOp mainFunc = dispatchOp.getD2MMainFunc();
     if (!mainFunc) {
       return dispatchOp.emitOpError("could not find D2M function '")
              << dispatchOp.getD2mFunc() << "' in nested module";
     }
 
-    // Copy all kernel funcs to the parent module with unique names.
+    // Clone kernel funcs to parent module with unique names.
     SmallVector<func::FuncOp> kernelFuncs = dispatchOp.getKernelFuncs();
     SymbolTable parentSymbolTable(parentModule);
     OpBuilder moduleBuilder(parentModule.getContext());
@@ -63,17 +52,13 @@ private:
 
     std::string prefix = mainFunc.getSymName().str() + "_";
 
-    // Clone kernel funcs to parent module with unique names and update symbol
-    // references in mainFunc.
+    // Clone kernel funcs and update symbol references in mainFunc.
     for (func::FuncOp kernelFunc : kernelFuncs) {
-      StringRef oldName = kernelFunc.getSymName();
-      std::string newName = prefix + oldName.str();
+      std::string newName = prefix + kernelFunc.getSymName().str();
       StringAttr newNameAttr =
           StringAttr::get(parentModule.getContext(), newName);
 
-      IRMapping funcMapping;
-      Operation *clonedOp =
-          moduleBuilder.clone(*kernelFunc.getOperation(), funcMapping);
+      Operation *clonedOp = moduleBuilder.clone(*kernelFunc.getOperation());
       auto clonedFunc = cast<func::FuncOp>(clonedOp);
       clonedFunc.setSymName(newName);
       parentSymbolTable.insert(clonedOp);
@@ -92,16 +77,20 @@ private:
       mapping.map(arg, operand);
     }
 
-    // Clone all ops except return and collect return values for replacement.
+    // Clone function body operations and map return value.
+    Block &funcBody = mainFunc.getBody().front();
+    for (Operation &op : funcBody.without_terminator()) {
+      builder.clone(op, mapping);
+    }
+
+    auto returnOp = dyn_cast<func::ReturnOp>(funcBody.getTerminator());
+    if (!returnOp) {
+      return dispatchOp.emitOpError(
+          "Function must have func.return terminator");
+    }
     SmallVector<Value> resultValues;
-    for (Operation &op : mainFunc.getBody().front()) {
-      if (auto returnOp = mlir::dyn_cast<func::ReturnOp>(&op)) {
-        for (Value operand : returnOp.getOperands()) {
-          resultValues.push_back(mapping.lookup(operand));
-        }
-      } else {
-        builder.clone(op, mapping);
-      }
+    for (Value operand : returnOp.getOperands()) {
+      resultValues.push_back(mapping.lookup(operand));
     }
 
     if (resultValues.size() != dispatchOp.getNumResults()) {
@@ -116,7 +105,6 @@ private:
     }
 
     dispatchOp.erase();
-
     return success();
   }
 };

@@ -22,6 +22,7 @@
 #include "mlir/Dialect/Quant/IR/QuantTypes.h"
 #include "mlir/Dialect/Traits.h"
 #include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/IR/SymbolTable.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 
 #include "mlir/IR/BuiltinTypes.h"
@@ -4749,12 +4750,8 @@ mlir::tt::ttnn::PagedScaledDotProductAttentionDecodeOp::verify() {
 //===----------------------------------------------------------------------===//
 
 ::mlir::LogicalResult mlir::tt::ttnn::DispatchD2MOp::verify() {
-  Region &body = getBody();
-  if (body.empty()) {
-    return emitOpError("Body region must not be empty.");
-  }
-
   // Body must contain exactly one ModuleOp
+  Region &body = getBody();
   ModuleOp nestedModule = getNestedModule();
   if (!nestedModule) {
     return emitOpError("Body region must contain a module.");
@@ -4763,13 +4760,13 @@ mlir::tt::ttnn::PagedScaledDotProductAttentionDecodeOp::verify() {
   for (Operation &op : body.front()) {
     if (mlir::isa<ModuleOp>(&op)) {
       moduleCount++;
+      if (moduleCount > 1) {
+        return emitOpError("Body region must contain exactly one module.");
+      }
     }
   }
-  if (moduleCount != 1) {
-    return emitOpError("Body region must contain exactly one module.");
-  }
 
-  func::FuncOp mainFunc = lookupD2MMainFunc();
+  func::FuncOp mainFunc = getD2MMainFunc();
   if (!mainFunc) {
     return emitOpError("Could not find D2M function '")
            << getD2mFunc() << "' in nested module.";
@@ -4796,7 +4793,13 @@ mlir::tt::ttnn::PagedScaledDotProductAttentionDecodeOp::verify() {
 }
 
 ModuleOp mlir::tt::ttnn::DispatchD2MOp::getNestedModule() {
-  for (Operation &op : getBody().front()) {
+  Block &block = getBody().front();
+  if (auto moduleOp = mlir::dyn_cast<ModuleOp>(&block.front())) {
+    return moduleOp;
+  }
+
+  // If first op in block not a ModuleOp, then search.
+  for (Operation &op : block) {
     if (auto moduleOp = mlir::dyn_cast<ModuleOp>(&op)) {
       return moduleOp;
     }
@@ -4804,20 +4807,15 @@ ModuleOp mlir::tt::ttnn::DispatchD2MOp::getNestedModule() {
   return nullptr;
 }
 
-func::FuncOp mlir::tt::ttnn::DispatchD2MOp::lookupD2MMainFunc() {
+func::FuncOp mlir::tt::ttnn::DispatchD2MOp::getD2MMainFunc() {
   ModuleOp nestedModule = getNestedModule();
   if (!nestedModule) {
     return nullptr;
   }
   StringRef mainName = getD2mFunc().getRootReference();
-  for (Operation &op : nestedModule.getBody()->getOperations()) {
-    if (auto funcOp = mlir::dyn_cast<func::FuncOp>(&op)) {
-      if (funcOp.getSymName() == mainName) {
-        return funcOp;
-      }
-    }
-  }
-  return nullptr;
+  StringAttr nameAttr = StringAttr::get(getContext(), mainName);
+  return dyn_cast_or_null<func::FuncOp>(
+      SymbolTable::lookupSymbolIn(nestedModule, nameAttr));
 }
 
 SmallVector<func::FuncOp> mlir::tt::ttnn::DispatchD2MOp::getKernelFuncs() {

@@ -15,12 +15,11 @@
 #include "mlir/IR/IRMapping.h"
 
 #include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Debug.h"
 
-#include <deque>
-
-#define DEBUG_TYPE "ttnn-d2m-fusing"
+#define DEBUG_TYPE "TTNND2MFusion"
 
 namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_TTNND2MFUSING
@@ -30,8 +29,8 @@ namespace {
 
 // 1. Find exit ops: eltwise ops where all consumers are non-eltwise
 // 2. From each exit, BFS backward through eltwise producers
-// 3. Include producer P only if ALL of P's consumers are already in F
-//    (this ensures no escaping from middle of a fusion group)
+// 3. Include producer P only if ALL of P's consumers are already in the fusion
+//    group (this ensures no escaping from middle of a fusion group)
 // 4. Stop at non-eltwise producers (these are entry points)
 // 5. Multiple entry points allowed
 class ElementwiseFusionAnalysis {
@@ -84,21 +83,17 @@ private:
   void analyze(Operation *rootOp) {
     // Find all fusion group exit ops by walking backwards.
     // Build out each fusion group backwards from the found exit ops.
-    llvm::SmallVector<Operation *> exits;
+    llvm::SmallVector<Operation *> exitOps;
     rootOp->walk([&](Block *block) {
       for (Operation &op : llvm::reverse(*block)) {
         if (isFusionGroupExit(&op) && !visitedOps.contains(&op)) {
-          exits.push_back(&op);
+          exitOps.push_back(&op);
         }
       }
     });
 
-    for (Operation *exit : exits) {
-      if (visitedOps.contains(exit)) {
-        continue;
-      }
-
-      FusionGroup group = buildFusionGroup(exit);
+    for (Operation *exitOp : exitOps) {
+      FusionGroup group = buildFusionGroup(exitOp);
 
       if (group.size() >= 2) {
         for (Operation *op : group) {
@@ -124,16 +119,15 @@ private:
   // BFS backward from exit op and include producer only if all its consumers
   // are in the fusion set. BFS order guarantees correctness since consumers are
   // processed before their producers.
-  FusionGroup buildFusionGroup(Operation *exit) {
+  FusionGroup buildFusionGroup(Operation *exitOp) {
     llvm::DenseSet<Operation *> fusionSet;
-    std::deque<Operation *> stack;
+    llvm::SmallVector<Operation *> stack;
 
-    fusionSet.insert(exit);
-    stack.push_back(exit);
+    fusionSet.insert(exitOp);
+    stack.push_back(exitOp);
 
     while (!stack.empty()) {
-      Operation *cur = stack.back();
-      stack.pop_back();
+      Operation *cur = stack.pop_back_val();
 
       for (Value operand : cur->getOperands()) {
         Operation *producer = operand.getDefiningOp();
@@ -157,7 +151,7 @@ private:
 
     // Return ordered fusion group.
     FusionGroup fusionGroup;
-    Block *block = exit->getBlock();
+    Block *block = exitOp->getBlock();
     for (Operation &op : *block) {
       if (fusionSet.contains(&op)) {
         fusionGroup.push_back(&op);
@@ -208,14 +202,12 @@ private:
 
     // Identify inputs: values produced outside fusion group that are consumed
     // by fusion group ops.
-    llvm::SmallVector<Value> inputs;
-    llvm::DenseSet<Value> inputSet;
+    llvm::SetVector<Value> inputs;
     for (Operation *op : fusionGroup) {
       for (Value operand : op->getOperands()) {
         Operation *defOp = operand.getDefiningOp();
-        if (!fusionGroupSet.contains(defOp) && !inputSet.contains(operand)) {
-          inputs.push_back(operand);
-          inputSet.insert(operand);
+        if (!fusionGroupSet.contains(defOp)) {
+          inputs.insert(operand);
         }
       }
     }
@@ -235,9 +227,8 @@ private:
     auto device = utils::getOrInsertDevice(rewriter, firstOp);
     ttcore::GridAttr deviceGrid = ttcore::lookupDevice(firstOp).getWorkerGrid();
     llvm::SmallVector<Type> inputTypes;
-    for (Value v : inputs) {
-      inputTypes.push_back(v.getType());
-    }
+    llvm::transform(inputs, std::back_inserter(inputTypes),
+                    [](Value v) { return v.getType(); });
 
     llvm::SmallVector<Type> outputTypes;
     llvm::SmallVector<Value> outputBuffers;
@@ -266,7 +257,7 @@ private:
 
     // Create DispatchD2MOp with ttnn.empty ops as pre-allocated outputs.
     auto dispatchOp = rewriter.create<DispatchD2MOp>(
-        loc, outputTypes, inputs, outputBuffers,
+        loc, outputTypes, inputs.getArrayRef(), outputBuffers,
         SymbolRefAttr::get(rewriter.getContext(), funcName));
 
     // Create body with nested module and function.
@@ -288,13 +279,14 @@ private:
       // Map original input values to function arguments, clone ops, create
       // return.
       IRMapping mapping;
-      mapping.map(inputs, funcOp.getArguments());
+      mapping.map(inputs.getArrayRef(), funcOp.getArguments());
 
       for (Operation *op : fusionGroup) {
         rewriter.clone(*op, mapping);
       }
-      auto returnValues = llvm::map_to_vector(
-          outputs, [&](Value v) { return mapping.lookup(v); });
+      llvm::SmallVector<Value> returnValues;
+      llvm::transform(outputs, std::back_inserter(returnValues),
+                      [&](Value v) { return mapping.lookup(v); });
       rewriter.create<func::ReturnOp>(loc, returnValues);
     }
 
