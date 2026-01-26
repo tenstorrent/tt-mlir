@@ -500,7 +500,7 @@ void populatePassesModule(nb::module_ &m) {
         llvm::raw_string_ostream outputStream(output);
 
         // Generate main.py
-        outputStream << "\n=== main.py ===\n";
+        outputStream << "#=== main.py ===\n";
         std::string mainFileId = "main";
         if (mlir::failed(mlir::tt::emitpy::translateToPython(
                 mlir::cast<ModuleOp>(moduleOp), outputStream, mainFileId))) {
@@ -509,7 +509,7 @@ void populatePassesModule(nb::module_ &m) {
         outputStream.flush();
 
         // Generate consteval.py
-        outputStream << "\n=== consteval.py ===\n";
+        outputStream << "\n#=== consteval.py ===\n";
         std::string constevalFileId = "consteval";
         if (mlir::failed(mlir::tt::emitpy::translateToPython(
                 mlir::cast<ModuleOp>(moduleOp), outputStream,
