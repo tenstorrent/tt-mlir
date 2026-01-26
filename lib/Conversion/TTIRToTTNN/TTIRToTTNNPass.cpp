@@ -63,7 +63,6 @@ struct ConvertTTIRToTTNNPass
       }
 
       auto sourceType = inputs[0].getType();
-      // Handle tensor<...si32> -> tensor<...ui32> or vice versa
       if (auto sourceTensor = mlir::dyn_cast<RankedTensorType>(sourceType)) {
         if (auto resultTensor = mlir::dyn_cast<RankedTensorType>(resultType)) {
           auto sourceElem = sourceTensor.getElementType();
@@ -74,15 +73,12 @@ struct ConvertTTIRToTTNNPass
               // Allow si32 <-> ui32 conversion (bitcast, same representation)
               if (sourceInt.getWidth() == 32 && resultInt.getWidth() == 32 &&
                   sourceInt.getSignedness() != resultInt.getSignedness()) {
-                // Get the target data type from the result tensor's layout
                 ttcore::DataType targetDataType;
                 if (resultInt.isUnsigned()) {
                   targetDataType = ttcore::DataType::UInt32;
                 } else {
                   targetDataType = ttcore::DataType::Int32;
                 }
-
-                // Create a ttnn::TypecastOp to handle the conversion
                 auto dtypeAttr = ttcore::DataTypeAttr::get(builder.getContext(),
                                                            targetDataType);
                 return builder
