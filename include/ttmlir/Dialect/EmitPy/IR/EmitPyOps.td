@@ -113,7 +113,8 @@ def EmitPy_SubscriptOp : EmitPy_Op<"subscript", [Pure, PyExpressionInterface]> {
   let summary = "Subscript operation";
   let description = [{
     With the `emitpy.subscript` operation the subscript operator `[]` can be applied
-    to variables or arguments of opaque type.
+    to get a particular element of an array (where array is represented as opaque type value) or
+    get the value for a specified dictionary key.
 
     Example:
 
@@ -124,11 +125,12 @@ def EmitPy_SubscriptOp : EmitPy_Op<"subscript", [Pure, PyExpressionInterface]> {
   }];
 
   let arguments = (ins
-    Arg<EmitPy_OpaqueType, "the value to subscript">:$value,
-    Index:$index);
+    Arg<AnyTypeOf<[EmitPy_OpaqueType, EmitPy_DictType]>, "the value to subscript">:$value,
+    Arg<AnyTypeOf<[Index, EmitPy_StringType]>, "index or key value">:$index);
 
-  let results = (outs EmitPy_OpaqueType:$result);
+  let results = (outs EmitPy_Type:$result);
 
+  let hasVerifier = 1;
   // TODO (amilovanovic) : add custom verify method
   let assemblyFormat = "$value `[` $index `]` attr-dict `:` functional-type(operands, results)";
 }

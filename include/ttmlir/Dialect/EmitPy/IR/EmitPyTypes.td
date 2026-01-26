@@ -83,7 +83,15 @@ def EmitPy_DictType : EmitPy_Type<"Dict", "dict"> {
   let hasCustomAssemblyFormat = 1;
 }
 
+def EmitPy_StringType : EmitPy_Type<"String", "str"> {
+  let summary = "EmitPy string type.";
+
+  let parameters = (ins StringRefParameter<"string value">:$value);
+
+  let assemblyFormat = "`<` $value `>`";
+}
+
 // Type constraint that matches any EmitPy dialect type
-def EmitPy_Type : AnyTypeOf<[EmitPy_OpaqueType, EmitPy_ClassType, EmitPy_DictType]>;
+def EmitPy_Type : AnyTypeOf<[EmitPy_OpaqueType, EmitPy_ClassType, EmitPy_DictType, EmitPy_StringType]>;
 
 #endif // TTMLIR_TTMLIR_DIALECT_EMITPY_IR_EMITPYTYPES_TD
