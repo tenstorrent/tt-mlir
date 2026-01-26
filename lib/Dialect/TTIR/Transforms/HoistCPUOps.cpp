@@ -16,6 +16,7 @@
 #include "mlir/IR/Location.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/PatternMatch.h"
+#include "mlir/IR/Types.h"
 #include "mlir/IR/Value.h"
 #include "mlir/IR/ValueRange.h"
 #include "mlir/Transforms/DialectConversion.h"
@@ -87,12 +88,22 @@ convertTensorType(mlir::RankedTensorType tensorType) {
   const auto f32Type = mlir::Float32Type::get(tensorType.getContext());
   const auto i32Type = mlir::IntegerType::get(tensorType.getContext(), 32,
                                               mlir::IntegerType::Signless);
+  const auto i32SignedType = mlir::IntegerType::get(tensorType.getContext(), 32,
+                                                    mlir::IntegerType::Signed);
+  const auto i32UnsignedType = mlir::IntegerType::get(
+      tensorType.getContext(), 32, mlir::IntegerType::Unsigned);
 
   const auto elementType = tensorType.getElementType();
   auto convertedElementType = tensorType.getElementType();
 
   if (elementType.isInteger()) {
-    convertedElementType = i32Type;
+    if (elementType.isSignedInteger()) {
+      convertedElementType = i32SignedType;
+    } else if (elementType.isUnsignedInteger()) {
+      convertedElementType = i32UnsignedType;
+    } else {
+      convertedElementType = i32Type;
+    }
   } else if (elementType.isFloat()) {
     convertedElementType = f32Type;
   }
@@ -225,20 +236,46 @@ struct CPUHoistedOpsDescriptor {
         funcNameSuffix(std::move(suffix)) {}
 };
 
+static mlir::Type dropSignInformation(mlir::Type type) {
+  auto tensorType = mlir::dyn_cast<mlir::RankedTensorType>(type);
+  if (!tensorType) {
+    return type;
+  }
+
+  auto elementType = tensorType.getElementType();
+
+  if (!elementType.isInteger() || elementType.isSignlessInteger()) {
+    return type;
+  }
+
+  auto signlessElementType = mlir::IntegerType::get(
+      elementType.getContext(), elementType.getIntOrFloatBitWidth(),
+      mlir::IntegerType::Signless);
+
+  auto signlessTensorType =
+      mlir::RankedTensorType::get(tensorType.getShape(), signlessElementType);
+
+  return mlir::Type(signlessTensorType);
+}
+
 // Helper function to generate a CPU-hoisted function definition.
 static func::FuncOp createCPUHoistedFunctionDefinition(
     mlir::MLIRContext *context, mlir::Location loc,
-    CPUHoistedOpsDescriptor &descriptor, const ValuesVectorType &inputArguments,
+    CPUHoistedOpsDescriptor &descriptor,
     const ValuesVectorType &convertedInputArguments,
     const TypesVectorType &resultTypes, const OpsVectorType &outputProducers) {
   // Determine argument types from input arguments.
   const TypesVectorType argumentTypes =
-      llvm::map_to_vector(convertedInputArguments,
-                          [](mlir::Value value) { return value.getType(); });
+      llvm::map_to_vector(convertedInputArguments, [](mlir::Value value) {
+        return dropSignInformation(value.getType());
+      });
+
+  const TypesVectorType convertedResultTypes = llvm::map_to_vector(
+      resultTypes, [](mlir::Type type) { return dropSignInformation(type); });
 
   // Create the function type.
   mlir::FunctionType funcType =
-      mlir::FunctionType::get(context, argumentTypes, resultTypes);
+      mlir::FunctionType::get(context, argumentTypes, convertedResultTypes);
 
   // Create the function.
   auto funcDefinition =
@@ -277,7 +314,7 @@ static func::FuncOp createCPUHoistedFunctionDefinition(
       if (auto tensorType =
               mlir::dyn_cast<mlir::RankedTensorType>(operand.getType())) {
         auto convertedTensorType = convertTensorType(tensorType);
-        operand.setType(convertedTensorType);
+        operand.setType(dropSignInformation(convertedTensorType));
       }
     }
 
@@ -286,7 +323,7 @@ static func::FuncOp createCPUHoistedFunctionDefinition(
       if (auto tensorType =
               mlir::dyn_cast<mlir::RankedTensorType>(result.getType())) {
         auto convertedTensorType = convertTensorType(tensorType);
-        result.setType(convertedTensorType);
+        result.setType(dropSignInformation(convertedTensorType));
       }
     }
 
@@ -316,8 +353,8 @@ static func::FuncOp createCPUHoistedFunctionDefinition(
   }
 
   // Set tensor rank attributes for wrapper function generation.
-  funcDefinition->setAttr(
-      "arg_ranks", builder.getI64ArrayAttr(getTensorRanks(inputArguments)));
+  funcDefinition->setAttr("arg_ranks", builder.getI64ArrayAttr(getTensorRanks(
+                                           convertedInputArguments)));
 
   funcDefinition->setAttr(
       "result_ranks",
@@ -421,7 +458,7 @@ static void hoistOperationsToFunction(CPUHoistedOpsDescriptor &descriptor,
 
   // Create the CPU-hoisted function definition.
   func::FuncOp funcDefinition = createCPUHoistedFunctionDefinition(
-      cpuModule->getContext(), cpuModule->getLoc(), descriptor, inputArguments,
+      cpuModule->getContext(), cpuModule->getLoc(), descriptor,
       convertedInputArguments, resultTypes, outputProducers);
 
   auto funcHash =
