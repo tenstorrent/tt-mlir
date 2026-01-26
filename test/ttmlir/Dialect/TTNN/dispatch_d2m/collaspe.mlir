@@ -5,7 +5,8 @@
 #ttnn_layout = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>, <block_sharded>, exactGrid = true>
 
 module {
-  func.func @ttnn_graph(%arg0: tensor<32x32xf32, #ttnn_layout>, %out: tensor<32x32xf32, #ttnn_layout>) -> tensor<32x32xf32, #ttnn_layout> {
+  // CHECK-LABEL: func.func @one_d2m_subgraph
+  func.func @one_d2m_subgraph(%arg0: tensor<32x32xf32, #ttnn_layout>, %out: tensor<32x32xf32, #ttnn_layout>) -> tensor<32x32xf32, #ttnn_layout> {
     // CHECK-NOT: ttnn.dispatch_d2m
     // CHECK: "ttnn.generic"
     %0 = ttnn.dispatch_d2m @d2m_subgraph_0
@@ -31,8 +32,8 @@ module {
 #ttnn_layout = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>, <block_sharded>, exactGrid = true>
 
 module {
-  // CHECK-LABEL: func.func @two_d2m_b2b
-  func.func @two_d2m_b2b(%arg0: tensor<32x32xf32, #ttnn_layout>, %out0: tensor<32x32xf32, #ttnn_layout>, %out1: tensor<32x32xf32, #ttnn_layout>) -> tensor<32x32xf32, #ttnn_layout> {
+  // CHECK-LABEL: func.func @two_d2m_subgraph_b2b
+  func.func @two_d2m_subgraph_b2b(%arg0: tensor<32x32xf32, #ttnn_layout>, %out0: tensor<32x32xf32, #ttnn_layout>, %out1: tensor<32x32xf32, #ttnn_layout>) -> tensor<32x32xf32, #ttnn_layout> {
     // CHECK-NOT: ttnn.dispatch_d2m
     // CHECK: "ttnn.generic"
     %0 = ttnn.dispatch_d2m @d2m_subgraph_0
@@ -48,6 +49,7 @@ module {
         }
       }
     } : tensor<32x32xf32, #ttnn_layout>
+    // CHECK-NOT: ttnn.dispatch_d2m
     // CHECK: "ttnn.generic"
     %2 = ttnn.dispatch_d2m @d2m_subgraph_1
         ins(%0 : tensor<32x32xf32, #ttnn_layout>)
@@ -73,8 +75,8 @@ module {
 #ttnn_layout = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>, <block_sharded>, exactGrid = true>
 
 module {
-  // CHECK-LABEL: func.func @ttnn_ops_d2m_ttnn_ops_d2m
-  func.func @ttnn_ops_d2m_ttnn_ops_d2m(%arg0: tensor<32x32xf32, #ttnn_layout>, %arg1: tensor<32x32xf32, #ttnn_layout>, %out0: tensor<32x32xf32, #ttnn_layout>, %out1: tensor<32x32xf32, #ttnn_layout>) -> tensor<32x32xf32, #ttnn_layout> {
+  // CHECK-LABEL: func.func @mixed_ttnn_ops_d2m_subgraph
+  func.func @mixed_ttnn_ops_d2m_subgraph(%arg0: tensor<32x32xf32, #ttnn_layout>, %arg1: tensor<32x32xf32, #ttnn_layout>, %out0: tensor<32x32xf32, #ttnn_layout>, %out1: tensor<32x32xf32, #ttnn_layout>) -> tensor<32x32xf32, #ttnn_layout> {
     // CHECK: "ttnn.add"
     %0 = "ttnn.add"(%arg0, %arg1) <{dtype = #ttcore.supportedDataTypes<f32>}> : (tensor<32x32xf32, #ttnn_layout>, tensor<32x32xf32, #ttnn_layout>) -> tensor<32x32xf32, #ttnn_layout>
     // CHECK-NOT: ttnn.dispatch_d2m
