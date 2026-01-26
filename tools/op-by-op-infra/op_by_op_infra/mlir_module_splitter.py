@@ -15,6 +15,7 @@ from .utils import ModuleWrapper, OpWrapper, convert_to_module_wrapper
 SKIPPED_OPS = {
     "ttnn.get_device",  # device acquisition
     "ttnn.deallocate",  # memory cleanup
+    "ttnn.paged_update_cache",  # cache management
     "stablehlo.constant",  # wrapped together with ops that use their results
 }
 

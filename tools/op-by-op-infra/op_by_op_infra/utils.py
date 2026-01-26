@@ -477,9 +477,9 @@ class TTNNOpWrapper(OpWrapper):
         returned_results = [self.results[i] for i in self.used_result_indices]
 
         if len(returned_results) > 1:
-            results = f"({', '.join(result.name for result in returned_results)})"
+            results = f"{', '.join(result.name for result in returned_results)}"
             return_type = (
-                f"({', '.join(str(result.type) for result in returned_results)})"
+                f"{', '.join(str(result.type) for result in returned_results)}"
             )
             return_stmt = f"return {results} : {return_type}"
         elif len(returned_results) == 1:
