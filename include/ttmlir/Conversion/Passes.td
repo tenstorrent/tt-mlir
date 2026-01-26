@@ -198,8 +198,10 @@ def ConvertTTNNToEmitPy : Pass<"convert-ttnn-to-emitpy", "::mlir::ModuleOp"> {
   let dependentDialects = ["mlir::tt::emitpy::EmitPyDialect", "mlir::tt::ttnn::TTNNDialect"];
   let options = [
     Option<"enableGoldenMode", "enable-golden-mode", "bool", /*default=*/"false",
-    "Enable golden mode for EmitPy conversion. In golden mode, ttnn ops are executed on CPU using golden functions attached to ttnn ops. These golden functions perform Torch library calls.">
-    , Option<"targetModule", "target-module", "bool", /*default=*/"false",
+    "Enable golden mode for EmitPy conversion. In golden mode, ttnn ops are executed on CPU using golden functions attached to ttnn ops. These golden functions perform Torch library calls.">,
+    // `target-module` is forwarded from the TTNN EmitPy pipeline options.
+    // Issue: https://github.com/tenstorrent/tt-mlir/issues/6746
+    Option<"targetModule", "target-module", "bool", /*default=*/"false",
       "Tailor EmitPy conversion for Python module export target. When enabled, const-eval functions accept device as an explicit argument instead of opening it via a singleton.">
   ];
 }
