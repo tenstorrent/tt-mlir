@@ -13,6 +13,7 @@
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/IRMapping.h"
+#include "mlir/IR/SymbolTable.h"
 
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SetVector.h"
@@ -255,40 +256,40 @@ private:
 
     std::string funcName = "d2m_subgraph_" + std::to_string(groupIdx);
 
-    // Create DispatchD2MOp with ttnn.empty ops as pre-allocated outputs.
+    // Get the parent module to create the function at module scope.
+    ModuleOp parentModule = firstOp->getParentOfType<ModuleOp>();
+    if (!parentModule) {
+      return firstOp->emitError("Could not find parent module");
+    }
+
+    SymbolTable symbolTable(parentModule);
+    OpBuilder::InsertionGuard guard(rewriter);
+    rewriter.setInsertionPointToEnd(parentModule.getBody());
+
+    // Create private function at module scope.
+    auto funcOp = func::FuncOp::create(loc, funcName, funcType);
+    funcOp.setPrivate();
+    symbolTable.insert(funcOp);
+    Block *funcBlock = funcOp.addEntryBlock();
+    rewriter.setInsertionPointToStart(funcBlock);
+
+    // Map original input values to function arguments, clone ops, create
+    // return.
+    IRMapping mapping;
+    mapping.map(inputs.getArrayRef(), funcOp.getArguments());
+
+    for (Operation *op : fusionGroup) {
+      rewriter.clone(*op, mapping);
+    }
+    llvm::SmallVector<Value> returnValues;
+    llvm::transform(outputs, std::back_inserter(returnValues),
+                    [&](Value v) { return mapping.lookup(v); });
+    rewriter.create<func::ReturnOp>(loc, returnValues);
+
+    rewriter.setInsertionPoint(firstOp);
     auto dispatchOp = rewriter.create<DispatchD2MOp>(
         loc, outputTypes, inputs.getArrayRef(), outputBuffers,
         SymbolRefAttr::get(rewriter.getContext(), funcName));
-
-    // Create body with nested module and function.
-    Region &body = dispatchOp.getBody();
-    Block *bodyBlock = &body.emplaceBlock();
-    {
-      OpBuilder::InsertionGuard guard(rewriter);
-      rewriter.setInsertionPointToStart(bodyBlock);
-
-      auto nestedModule = rewriter.create<ModuleOp>(loc);
-
-      rewriter.setInsertionPointToStart(nestedModule.getBody());
-      auto funcOp = func::FuncOp::create(loc, funcName, funcType);
-      nestedModule.push_back(funcOp);
-
-      Block *funcBlock = funcOp.addEntryBlock();
-      rewriter.setInsertionPointToStart(funcBlock);
-
-      // Map original input values to function arguments, clone ops, create
-      // return.
-      IRMapping mapping;
-      mapping.map(inputs.getArrayRef(), funcOp.getArguments());
-
-      for (Operation *op : fusionGroup) {
-        rewriter.clone(*op, mapping);
-      }
-      llvm::SmallVector<Value> returnValues;
-      llvm::transform(outputs, std::back_inserter(returnValues),
-                      [&](Value v) { return mapping.lookup(v); });
-      rewriter.create<func::ReturnOp>(loc, returnValues);
-    }
 
     for (auto [origOutput, dispatchResult] :
          llvm::zip(outputs, dispatchOp.getResults())) {

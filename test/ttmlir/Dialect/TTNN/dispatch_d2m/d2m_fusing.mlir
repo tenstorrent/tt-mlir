@@ -1,5 +1,4 @@
 // RUN: ttmlir-opt --ttcore-register-device --ttcore-wrap-device-module --ttnn-d2m-fusing %s | FileCheck %s
-// ttmlir-opt --ttcore-register-device --ttcore-wrap-device-module --ttnn-d2m-fusing --ttnn-through-d2m-pipeline --ttnn-collaspe-d2m --canonicalize test/ttmlir/Dialect/TTNN/Transforms/Fusing/d2m_fusing.mlir
 
 
 #l1 = #ttnn.buffer_type<l1>
@@ -9,16 +8,9 @@ module {
   func.func @long_chain(%arg0: tensor<64x128xbf16, #layout>, %arg1: tensor<128x256xbf16, #layout>) -> tensor<64x256xbf16, #layout> {
     // CHECK: %[[MATMUL:.*]] = "ttnn.matmul"
     // CHECK: %[[EMPTY:.*]] = "ttnn.empty"
-    // CHECK: %[[DISPATCH:.*]] = ttnn.dispatch_d2m @d2m_subgraph_0
+    // CHECK: ttnn.dispatch_d2m @d2m_subgraph_0
     // CHECK-NEXT: ins(%[[MATMUL]] : tensor<64x256xbf16
     // CHECK-NEXT: outs(%[[EMPTY]] : tensor<64x256xbf16
-    // CHECK: builtin.module
-    // CHECK: func.func @d2m_subgraph_0(%{{.*}}: tensor<64x256xbf16
-    // CHECK: "ttnn.exp"
-    // CHECK: "ttnn.log"
-    // CHECK: "ttnn.neg"
-    // CHECK: "ttnn.abs"
-    // CHECK: "ttnn.sigmoid"
     %0 = "ttnn.matmul"(%arg0, %arg1) : (tensor<64x128xbf16, #layout>, tensor<128x256xbf16, #layout>) -> tensor<64x256xbf16, #layout>
     %1 = "ttnn.exp"(%0) : (tensor<64x256xbf16, #layout>) -> tensor<64x256xbf16, #layout>
     %2 = "ttnn.log"(%1) : (tensor<64x256xbf16, #layout>) -> tensor<64x256xbf16, #layout>
@@ -37,10 +29,6 @@ module {
     // CHECK: ttnn.dispatch_d2m @d2m_subgraph_1
     // CHECK-NEXT: ins(%[[MM1]], %[[MM2]] :
     // CHECK-NEXT: outs(%[[EMPTY]] :
-    // CHECK: func.func @d2m_subgraph_1(%[[A0:.*]]: tensor<64x256xbf16{{.*}}>, %[[A1:.*]]: tensor<64x256xbf16
-    // CHECK: "ttnn.add"(%[[A0]], %[[A1]])
-    // CHECK: "ttnn.exp"
-    // CHECK: "ttnn.log"
     %0 = "ttnn.matmul"(%arg0, %arg1) : (tensor<64x128xbf16, #layout>, tensor<128x256xbf16, #layout>) -> tensor<64x256xbf16, #layout>
     %1 = "ttnn.matmul"(%arg2, %arg3) : (tensor<64x128xbf16, #layout>, tensor<128x256xbf16, #layout>) -> tensor<64x256xbf16, #layout>
     %2 = "ttnn.add"(%0, %1) <{dtype = #ttcore.supportedDataTypes<bf16>}> : (tensor<64x256xbf16, #layout>, tensor<64x256xbf16, #layout>) -> tensor<64x256xbf16, #layout>
@@ -55,13 +43,9 @@ module {
     // CHECK: "ttnn.matmul"
     // CHECK: %[[EXP:.*]] = "ttnn.exp"
     // CHECK: %[[EMPTY:.*]] = "ttnn.empty"
-    // CHECK: %[[DISPATCH:.*]] = ttnn.dispatch_d2m @d2m_subgraph_2
+    // CHECK: ttnn.dispatch_d2m @d2m_subgraph_2
     // CHECK-NEXT: ins(%[[EXP]] :
     // CHECK-NEXT: outs(%[[EMPTY]] :
-    // CHECK: func.func @d2m_subgraph_2
-    // CHECK-NOT: "ttnn.exp"
-    // CHECK: "ttnn.log"
-    // CHECK: "ttnn.neg"
     // CHECK: "ttnn.matmul"(%[[EXP]],
     %0 = "ttnn.matmul"(%arg0, %arg1) : (tensor<64x128xbf16, #layout>, tensor<128x256xbf16, #layout>) -> tensor<64x256xbf16, #layout>
     %1 = "ttnn.exp"(%0) : (tensor<64x256xbf16, #layout>) -> tensor<64x256xbf16, #layout>
@@ -81,11 +65,6 @@ module {
     // CHECK: ttnn.dispatch_d2m @d2m_subgraph_3
     // CHECK-NEXT: ins(%[[MM1]], %[[MM2]] :
     // CHECK-NEXT: outs(%[[EMPTY]] :
-    // CHECK: func.func @d2m_subgraph_3(%[[A0:.*]]: {{.*}}, %[[A1:.*]]:
-    // CHECK: "ttnn.exp"(%[[A0]])
-    // CHECK: "ttnn.neg"
-    // CHECK: "ttnn.add"({{.*}}, %[[A1]])
-    // CHECK: "ttnn.log"
     %0 = "ttnn.matmul"(%arg0, %arg1) : (tensor<64x128xbf16, #layout>, tensor<128x256xbf16, #layout>) -> tensor<64x256xbf16, #layout>
     %1 = "ttnn.matmul"(%arg2, %arg3) : (tensor<64x128xbf16, #layout>, tensor<128x256xbf16, #layout>) -> tensor<64x256xbf16, #layout>
     %2 = "ttnn.exp"(%0) : (tensor<64x256xbf16, #layout>) -> tensor<64x256xbf16, #layout>
@@ -105,11 +84,6 @@ module {
     // CHECK: ttnn.dispatch_d2m @d2m_subgraph_4
     // CHECK-NEXT: ins(%[[MM1]], %[[MM2]] :
     // CHECK-NEXT: outs(%[[EMPTY]] :
-    // CHECK: func.func @d2m_subgraph_4(%[[A0:.*]]: {{.*}}, %[[A1:.*]]:
-    // CHECK: "ttnn.exp"(%[[A0]])
-    // CHECK: "ttnn.neg"(%[[A1]])
-    // CHECK: "ttnn.add"
-    // CHECK: "ttnn.log"
     %0 = "ttnn.matmul"(%arg0, %arg1) : (tensor<64x128xbf16, #layout>, tensor<128x256xbf16, #layout>) -> tensor<64x256xbf16, #layout>
     %1 = "ttnn.matmul"(%arg2, %arg3) : (tensor<64x128xbf16, #layout>, tensor<128x256xbf16, #layout>) -> tensor<64x256xbf16, #layout>
     %2 = "ttnn.exp"(%0) : (tensor<64x256xbf16, #layout>) -> tensor<64x256xbf16, #layout>
@@ -127,12 +101,6 @@ module {
     // CHECK: ttnn.dispatch_d2m @d2m_subgraph_5
     // CHECK-NEXT: ins(%[[MM]] :
     // CHECK-NEXT: outs(%[[EMPTY]] :
-    // CHECK: func.func @d2m_subgraph_5
-    // CHECK: %[[E:.*]] = "ttnn.exp"
-    // CHECK-DAG: "ttnn.neg"(%[[E]])
-    // CHECK-DAG: "ttnn.abs"(%[[E]])
-    // CHECK: "ttnn.add"
-    // CHECK: "ttnn.log"
     %0 = "ttnn.matmul"(%arg0, %arg1) : (tensor<64x128xbf16, #layout>, tensor<128x256xbf16, #layout>) -> tensor<64x256xbf16, #layout>
     %1 = "ttnn.exp"(%0) : (tensor<64x256xbf16, #layout>) -> tensor<64x256xbf16, #layout>
     %2 = "ttnn.neg"(%1) : (tensor<64x256xbf16, #layout>) -> tensor<64x256xbf16, #layout>
@@ -148,16 +116,9 @@ module {
     // CHECK: "ttnn.matmul"
     // CHECK: %[[EXP:.*]] = "ttnn.exp"
     // CHECK: %[[EMPTY:.*]] = "ttnn.empty"
-    // CHECK: %[[DISPATCH:.*]] = ttnn.dispatch_d2m @d2m_subgraph_6
+    // CHECK: ttnn.dispatch_d2m @d2m_subgraph_6
     // CHECK-NEXT: ins(%[[EXP]] :
     // CHECK-NEXT: outs(%[[EMPTY]] :
-    // CHECK: func.func @d2m_subgraph_6(%[[ARG:.*]]: tensor<64x256xbf16
-    // exp should NOT be inside the dispatch - neg and abs use the function arg directly
-    // CHECK-NOT: "ttnn.exp"
-    // CHECK-DAG: "ttnn.neg"(%[[ARG]])
-    // CHECK-DAG: "ttnn.abs"(%[[ARG]])
-    // CHECK: "ttnn.add"
-    // CHECK: "ttnn.log"
     // CHECK: "ttnn.matmul"(%[[EXP]],
     %0 = "ttnn.matmul"(%arg0, %arg1) : (tensor<64x128xbf16, #layout>, tensor<128x256xbf16, #layout>) -> tensor<64x256xbf16, #layout>
     %1 = "ttnn.exp"(%0) : (tensor<64x256xbf16, #layout>) -> tensor<64x256xbf16, #layout>
@@ -187,12 +148,9 @@ module {
     // Chain 1: 3 ops
     // CHECK: %[[MM1:.*]] = "ttnn.matmul"
     // CHECK: %[[EMPTY1:.*]] = "ttnn.empty"
-    // CHECK: ttnn.dispatch_d2m @d2m_subgraph_
+    // CHECK: ttnn.dispatch_d2m @d2m_subgraph_8
     // CHECK-NEXT: ins(%[[MM1]] :
     // CHECK-NEXT: outs(%[[EMPTY1]] :
-    // CHECK: "ttnn.exp"
-    // CHECK: "ttnn.log"
-    // CHECK: "ttnn.neg"
     %0 = "ttnn.matmul"(%arg0, %arg1) : (tensor<64x128xbf16, #layout>, tensor<128x256xbf16, #layout>) -> tensor<64x256xbf16, #layout>
     %1 = "ttnn.exp"(%0) : (tensor<64x256xbf16, #layout>) -> tensor<64x256xbf16, #layout>
     %2 = "ttnn.log"(%1) : (tensor<64x256xbf16, #layout>) -> tensor<64x256xbf16, #layout>
@@ -201,16 +159,68 @@ module {
     // Chain 2: 2 ops
     // CHECK: %[[MM2:.*]] = "ttnn.matmul"
     // CHECK: %[[EMPTY2:.*]] = "ttnn.empty"
-    // CHECK: ttnn.dispatch_d2m @d2m_subgraph_
+    // CHECK: ttnn.dispatch_d2m @d2m_subgraph_7
     // CHECK-NEXT: ins(%[[MM2]] :
     // CHECK-NEXT: outs(%[[EMPTY2]] :
-    // CHECK: "ttnn.abs"
-    // CHECK: "ttnn.sigmoid"
     %4 = "ttnn.matmul"(%arg2, %arg3) : (tensor<64x128xbf16, #layout>, tensor<128x256xbf16, #layout>) -> tensor<64x256xbf16, #layout>
     %5 = "ttnn.abs"(%4) : (tensor<64x256xbf16, #layout>) -> tensor<64x256xbf16, #layout>
     %6 = "ttnn.sigmoid"(%5) : (tensor<64x256xbf16, #layout>) -> tensor<64x256xbf16, #layout>
 
     return %6 : tensor<64x256xbf16, #layout>
   }
+
+  // All private subgraph functions appear at the end of the module
+  // CHECK: func.func private @d2m_subgraph_0(%{{.*}}: tensor<64x256xbf16
+  // CHECK: "ttnn.exp"
+  // CHECK: "ttnn.log"
+  // CHECK: "ttnn.neg"
+  // CHECK: "ttnn.abs"
+  // CHECK: "ttnn.sigmoid"
+
+  // CHECK: func.func private @d2m_subgraph_1(%[[A0:.*]]: tensor<64x256xbf16{{.*}}>, %[[A1:.*]]: tensor<64x256xbf16
+  // CHECK: "ttnn.add"(%[[A0]], %[[A1]])
+  // CHECK: "ttnn.exp"
+  // CHECK: "ttnn.log"
+
+  // CHECK: func.func private @d2m_subgraph_2(%{{.*}}: tensor<64x256xbf16
+  // CHECK-NOT: "ttnn.exp"
+  // CHECK: "ttnn.log"
+  // CHECK: "ttnn.neg"
+
+  // CHECK: func.func private @d2m_subgraph_3(%[[A0:.*]]: {{.*}}, %[[A1:.*]]:
+  // CHECK: "ttnn.exp"(%[[A0]])
+  // CHECK: "ttnn.neg"
+  // CHECK: "ttnn.add"({{.*}}, %[[A1]])
+  // CHECK: "ttnn.log"
+
+  // CHECK: func.func private @d2m_subgraph_4(%[[A0:.*]]: {{.*}}, %[[A1:.*]]:
+  // CHECK: "ttnn.exp"(%[[A0]])
+  // CHECK: "ttnn.neg"(%[[A1]])
+  // CHECK: "ttnn.add"
+  // CHECK: "ttnn.log"
+
+  // CHECK: func.func private @d2m_subgraph_5(%{{.*}}: tensor<64x256xbf16
+  // CHECK: %[[E:.*]] = "ttnn.exp"
+  // CHECK-DAG: "ttnn.neg"(%[[E]])
+  // CHECK-DAG: "ttnn.abs"(%[[E]])
+  // CHECK: "ttnn.add"
+  // CHECK: "ttnn.log"
+
+  // CHECK: func.func private @d2m_subgraph_6(%[[ARG:.*]]: tensor<64x256xbf16
+  // exp should NOT be inside the dispatch - neg and abs use the function arg directly
+  // CHECK-NOT: "ttnn.exp"
+  // CHECK-DAG: "ttnn.neg"(%[[ARG]])
+  // CHECK-DAG: "ttnn.abs"(%[[ARG]])
+  // CHECK: "ttnn.add"
+  // CHECK: "ttnn.log"
+
+  // CHECK: func.func private @d2m_subgraph_7(%{{.*}}: tensor<64x256xbf16
+  // CHECK: "ttnn.abs"
+  // CHECK: "ttnn.sigmoid"
+
+  // CHECK: func.func private @d2m_subgraph_8(%{{.*}}: tensor<64x256xbf16
+  // CHECK: "ttnn.exp"
+  // CHECK: "ttnn.log"
+  // CHECK: "ttnn.neg"
 
 }

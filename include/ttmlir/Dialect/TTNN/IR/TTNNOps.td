@@ -2939,54 +2939,45 @@ def TTNN_GenericOp : TTNN_Op<"generic", [TTNN_MemoryConfigOpInterface, MemoryEff
     let hasVerifier = 1;
 }
 
-def TTNN_DispatchD2MOp : Op<TTNN_Dialect, "dispatch_d2m",
+def TTNN_DispatchD2MOp : TTNN_MemoryEffectOp<"dispatch_d2m",
   [AttrSizedOperandSegments,
-   DestinationStyleOpInterface,
-   IsolatedFromAbove,
-   SingleBlock,
-   NoTerminator,
-   DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
+   DestinationStyleOpInterface]> {
   let summary = "Dispatch D2M compiled subgraph.";
   let description = [{
-    Holds a D2M-compiled subgraph consisting of an entry function containing
-    ttnn.generic ops and zero or more kernel functions.
+    References a D2M-compiled subgraph function containing ttnn.generic ops.
+    The function is a private function in the same module.
 
-    Before TTNNMaterializeD2M runs, the nested module contains a single
-    func.func with TTNN ops to be compiled via D2M.
+    Before TTNNMaterializeD2M runs, the referenced function contains a TTNN subgraph
+    to be compiled via D2M.
 
-    After TTNNMaterializeD2M runs, the nested module contains:
-    - The D2M function (specified by `d2m_func`) with ttnn.generic ops
-    - One or more kernel functions referenced by the generic ops
+    After TTNNMaterializeD2M runs, the referenced function contains:
+    - ttnn.generic ops (the compiled subgraph)
+    - Kernel functions are generated at module scope
 
-    TTNNCollaspeD2M will inline the D2M function body at the call site and
-    move the kernel functions to the parent module scope with unique prefixes.
+    TTNNCollaspeD2M will inline the D2M function body at the call site.
 
     Example:
     ```mlir
     // Before D2M compilation
     %result = ttnn.dispatch_d2m @d2m_subgraph
         ins(%a : tensor<...>)
-        outs(%out : tensor<...>) {
-      module {
-        func.func @d2m_subgraph(...) -> tensor<...> {
-          // ttnn subgraph
-        }
-      }
-    } : tensor<...>
+        outs(%out : tensor<...>) : tensor<...>
 
-    // After D2M
+    func.func private @d2m_subgraph(...) -> tensor<...> {
+      // ttnn subgraph
+    }
+
+    // After D2M compilation
     %result = ttnn.dispatch_d2m @d2m_subgraph
         ins(%a : tensor<...>)
-        outs(%out : tensor<...>) {
-      module {
-        func.func @d2m_subgraph(...) -> tensor<...> {
-          ttnn.generic ...
-          // more generic ops if subgraph didn't fully fuse
-        }
-        func.func private @kernel0() { ... }
-        ... other kernel functions
-      }
-    } : tensor<...>
+        outs(%out : tensor<...>) : tensor<...>
+
+    func.func private @d2m_subgraph(...) -> tensor<...> {
+      ttnn.generic ...
+      // more generic ops if subgraph didn't fully fuse
+    }
+    func.func private @kernel0() { ... }
+    ... other kernel functions at module scope
     ```
   }];
 
@@ -2996,14 +2987,12 @@ def TTNN_DispatchD2MOp : Op<TTNN_Dialect, "dispatch_d2m",
 
   let results = (outs Variadic<AnyRankedTensor>:$results);
 
-  let regions = (region SizedRegion<1>:$body);
-
   let hasVerifier = 1;
 
   let assemblyFormat = [{
     $d2m_func attr-dict `\n`
     `ins` `(` $inputs `:` type($inputs) `)` `\n`
-    `outs` `(` $outputs `:` type($outputs) `)` $body (`:` type($results)^)?
+    `outs` `(` $outputs `:` type($outputs) `)` (`:` type($results)^)?
   }];
 
   let extraClassDeclaration = [{
@@ -3012,14 +3001,8 @@ def TTNN_DispatchD2MOp : Op<TTNN_Dialect, "dispatch_d2m",
       return getOutputsMutable();
     }
 
-    // Returns the ModuleOp inside the body region.
-    ModuleOp getNestedModule();
-
-    // Returns the D2M function inside the nested module.
+    // Returns the D2M function referenced by this op (looks up in parent module).
     func::FuncOp getD2MMainFunc();
-
-    // Returns all kernel functions inside the nested module.
-    SmallVector<func::FuncOp> getKernelFuncs();
   }];
 }
 
