@@ -66,6 +66,44 @@ mlir::LogicalResult broadcastValue(mlir::PatternRewriter &rewriter,
   return mlir::success();
 }
 
+int64_t findMatchingDimRTL(ReshapeOp reshapeOp, int64_t dimRTL) {
+  auto inputShape = reshapeOp.getInput().getType().getShape();
+  auto outputShape = reshapeOp.getResult().getType().getShape();
+  int64_t inputRank = inputShape.size();
+  int64_t outputRank = outputShape.size();
+
+  // Validate dimRTL is within bounds.
+  if (dimRTL < 0 || dimRTL >= inputRank) {
+    return -1;
+  }
+
+  // RTL position 0 is the rightmost dimension.
+  // The number of trailing dimensions equals the RTL position.
+  int64_t inputDimSize = inputShape[inputRank - 1 - dimRTL];
+
+  // Calculate stride of the input dimension (product of trailing dimensions).
+  auto inputTrailing = inputShape.take_back(dimRTL);
+  int64_t inputStride =
+      std::accumulate(inputTrailing.begin(), inputTrailing.end(), int64_t{1},
+                      std::multiplies<>());
+
+  // Search for a dimension in output with the same size and stride.
+  // Check dimensions from right to left, accumulating stride incrementally.
+  int64_t outputStride = 1;
+  for (int64_t i = outputRank - 1; i >= 0; --i) {
+    if (outputStride > inputStride) {
+      break;
+    }
+    if (outputStride == inputStride && outputShape[i] == inputDimSize) {
+      return outputRank - 1 - i;
+    }
+    outputStride *= outputShape[i];
+  }
+
+  // No dimension with the same size and stride found.
+  return -1;
+}
+
 bool preservesDim(mlir::Operation *op, int64_t dim) {
   auto inputType = mlir::cast<RankedTensorType>(op->getOperand(0).getType());
   auto outputType = mlir::cast<RankedTensorType>(op->getResult(0).getType());
@@ -130,44 +168,6 @@ bool preservesDim(mlir::Operation *op, int64_t dim) {
         return inputShape[dim] == outputShape[dim];
       })
       .Default([](mlir::Operation *) { return false; });
-}
-
-int64_t findMatchingDimRTL(ReshapeOp reshapeOp, int64_t dimRTL) {
-  auto inputShape = reshapeOp.getInput().getType().getShape();
-  auto outputShape = reshapeOp.getResult().getType().getShape();
-  int64_t inputRank = inputShape.size();
-  int64_t outputRank = outputShape.size();
-
-  // Validate dimRTL is within bounds.
-  if (dimRTL < 0 || dimRTL >= inputRank) {
-    return -1;
-  }
-
-  // RTL position 0 is the rightmost dimension.
-  // The number of trailing dimensions equals the RTL position.
-  int64_t inputDimSize = inputShape[inputRank - 1 - dimRTL];
-
-  // Calculate stride of the input dimension (product of trailing dimensions).
-  auto inputTrailing = inputShape.take_back(dimRTL);
-  int64_t inputStride =
-      std::accumulate(inputTrailing.begin(), inputTrailing.end(), int64_t{1},
-                      std::multiplies<>());
-
-  // Search for a dimension in output with the same size and stride.
-  // Check dimensions from right to left, accumulating stride incrementally.
-  int64_t outputStride = 1;
-  for (int64_t i = outputRank - 1; i >= 0; --i) {
-    if (outputStride > inputStride) {
-      break;
-    }
-    if (outputStride == inputStride && outputShape[i] == inputDimSize) {
-      return outputRank - 1 - i;
-    }
-    outputStride *= outputShape[i];
-  }
-
-  // No dimension with the same size and stride found.
-  return -1;
 }
 
 } // namespace mlir::tt::ttir::utils
