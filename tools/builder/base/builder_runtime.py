@@ -945,8 +945,29 @@ def execute_py(
     golden_report = {}
 
     try:
-        # Parse the AST to find function names from the compiled source
-        tree = ast.parse(compiled_bin)
+        # Split the compiled source into main.py and consteval.py if markers exist
+        main_source = compiled_bin
+        consteval_source = None
+
+        if (
+            "#=== main.py ===" in compiled_bin
+            and "#=== consteval.py ===" in compiled_bin
+        ):
+            parts = compiled_bin.split("#=== consteval.py ===")
+            main_source = parts[0].replace("#=== main.py ===", "").strip()
+            consteval_source = parts[1].strip() if len(parts) > 1 else None
+
+        # If consteval source exists, create and register the consteval module
+        if consteval_source:
+            consteval_module = types.ModuleType("consteval")
+            sys.modules["consteval"] = consteval_module
+            exec(
+                compile(consteval_source, filename="consteval", mode="exec"),
+                consteval_module.__dict__,
+            )
+
+        # Parse the AST to find function names from the main source
+        tree = ast.parse(main_source)
         program_names = []
         for node in ast.walk(tree):
             if (
@@ -962,7 +983,7 @@ def execute_py(
         module_name = program_names[0] if program_names else "emitpy_module"
         module = types.ModuleType(module_name)
         sys.modules[module_name] = module
-        exec(compile(compiled_bin, filename=module_name, mode="exec"), module.__dict__)
+        exec(compile(main_source, filename=module_name, mode="exec"), module.__dict__)
 
         for program_index, program_name in enumerate(program_names):
             program_golden_report = {}
