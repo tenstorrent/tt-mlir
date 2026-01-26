@@ -53,17 +53,31 @@ bool TTAlchemist::modelToPython(const std::string &input_file) {
 
   // Convert MLIR module to Python
   //
-  std::string pythonCode;
-  llvm::raw_string_ostream pythonStream(pythonCode);
-  if (mlir::failed(
-          mlir::tt::emitpy::translateToPython(module.get(), pythonStream))) {
-    std::cout << "Failed to translate MLIR module to Python" << std::endl;
+  std::string output;
+  llvm::raw_string_ostream outputStream(output);
+
+  // Generate main.py
+  std::cout << "#=== main.py ===\n";
+  std::string mainFileId = "main";
+  if (mlir::failed(mlir::tt::emitpy::translateToPython(*module, outputStream,
+                                                       mainFileId))) {
+    std::cout << "Failed to translate MLIR module to main.py" << std::endl;
     return false;
   }
-  pythonStream.flush();
+  outputStream.flush();
+  std::cout << output << std::endl;
 
-  // Output the generated Python code
-  std::cout << pythonCode << std::endl;
+  // Generate consteval.py
+  //
+  std::cout << "\n#=== consteval.py ===\n";
+  std::string constevalFileId = "consteval";
+  if (mlir::failed(mlir::tt::emitpy::translateToPython(*module, outputStream,
+                                                       constevalFileId))) {
+    std::cout << "Failed to translate MLIR module to consteval.py" << std::endl;
+    return false;
+  }
+  outputStream.flush();
+  std::cout << output << std::endl;
 
   return true;
 }

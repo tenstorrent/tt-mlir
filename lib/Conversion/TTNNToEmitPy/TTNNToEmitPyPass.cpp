@@ -126,8 +126,9 @@ struct ConvertTTNNToEmitPyPass
     // Create a global cache dictionary
     //
     auto opaqueAttr = emitpy::OpaqueAttr::get(&getContext(), "{}");
-    builder.create<emitpy::GlobalOp>(module->getLoc(), "_CONST_EVAL_CACHE",
-                                     opaqueAttr);
+    auto globalCacheDict = builder.create<emitpy::GlobalOp>(
+        module->getLoc(), "_CONST_EVAL_CACHE", opaqueAttr);
+    globalCacheDict->setAttr("emitpy.consteval", builder.getUnitAttr());
 
     // TTNN -> EmitPy
     //
