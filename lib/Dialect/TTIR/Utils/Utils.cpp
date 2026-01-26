@@ -116,16 +116,6 @@ bool preservesDim(mlir::Operation *op, int64_t dim) {
   }
 
   return llvm::TypeSwitch<mlir::Operation *, bool>(op)
-      .Case<PermuteOp>([&](PermuteOp permute) {
-        auto perm = permute.getPermutation();
-        // Dimension must stay in the same position.
-        if (perm[dim] != dim) {
-          return false;
-        }
-        // All dimensions after must still map to positions after.
-        auto permAfter = perm.drop_front(dim + 1);
-        return llvm::all_of(permAfter, [&](int64_t p) { return p > dim; });
-      })
       .Case<RepeatInterleaveOp>([&](RepeatInterleaveOp repeat) {
         int64_t repeatDim = repeat.getDim();
         if (repeatDim < 0) {
