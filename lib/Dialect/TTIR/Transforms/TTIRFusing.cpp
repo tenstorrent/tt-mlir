@@ -3085,10 +3085,10 @@ public:
     }
     int64_t normalizedDimSize = outputType.getShape().back();
 
-    // Traces through layout ops that preserve the last dim, or broadcasts
-    // that expand the last dim to the normalized size (from reduced shape).
+    // Traces through ops that preserve or set the last dim to
+    // normalizedDimSize.
     auto lookThroughSafeOps = [normalizedDimSize](mlir::Value value) {
-      return utils::lookThroughLayoutOpsIf(
+      return utils::lookThroughIf<ReshapeOp, BroadcastOp, TypecastOp>(
           value, [normalizedDimSize](mlir::Operation *op) {
             if (utils::preservesDim(op, -1)) {
               return true;
@@ -3221,22 +3221,9 @@ public:
 
     mlir::Value result = rmsNorm;
 
-    // If output shape differs from input shape, add a reshape
-    if (inputType.getShape() != outputType.getShape()) {
-      llvm::SmallVector<int32_t> targetShape(outputType.getShape());
-      auto reshapeOutputType = RankedTensorType::get(outputType.getShape(),
-                                                     inputType.getElementType(),
-                                                     inputType.getEncoding());
-      result = rewriter.create<ReshapeOp>(
-          outerMul.getLoc(), reshapeOutputType, result,
-          rewriter.getI32ArrayAttr(targetShape));
-    }
-
-    // If output dtype differs from input dtype, add a typecast
-    if (inputType.getElementType() != outputType.getElementType()) {
-      result =
-          rewriter.create<TypecastOp>(outerMul.getLoc(), outputType, result);
-    }
+    // Transform result to match output type (reshape and/or typecast as needed)
+    result = utils::reshapeAndCastToType(rewriter, outerMul.getLoc(), result,
+                                         outputType);
 
     rewriter.replaceOp(outerMul, result);
     return mlir::success();
