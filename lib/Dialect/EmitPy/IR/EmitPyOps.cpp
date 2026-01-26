@@ -571,6 +571,21 @@ LogicalResult LiteralOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
+// SubscriptOp
+//===----------------------------------------------------------------------===//
+
+LogicalResult SubscriptOp::verify() {
+  Type valueType = getValue().getType();
+  Type indexType = getIndex().getType();
+  if (!isa<DictType>(valueType) && isa<StringType>(indexType)) {
+    return emitOpError()
+           << "cannot use index of string type to access elements of "
+           << valueType << " value.";
+  }
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // VerbatimOp
 //===----------------------------------------------------------------------===//
 
