@@ -6,7 +6,6 @@
 #define TTMLIR_TARGET_UTILS_FUNCOPTOPROGRAM_H
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
-#include "llvm/ADT/SmallString.h"
 #include "llvm/Support/raw_ostream.h"
 
 #include "flatbuffers/flatbuffers.h"
@@ -57,11 +56,11 @@ inline Value getOperandThroughDPSOps(Value value) {
 }
 
 template <typename OpT, typename FnT, typename TensorFnT>
-Program<OpT> funcOpToProgram(
-    FlatbufferObjectCache &cache, func::FuncOp entry, FnT fn,
-    TensorFnT tensorValueToFlatbuffer,
-    const llvm::StringMap<uint32_t> &programIndexMap,
-    const llvm::StringMap<llvm::SmallString<64>> &constEvalFuncHashes) {
+Program<OpT>
+funcOpToProgram(FlatbufferObjectCache &cache, func::FuncOp entry, FnT fn,
+                TensorFnT tensorValueToFlatbuffer,
+                const llvm::StringMap<uint32_t> &programIndexMap,
+                const llvm::StringMap<std::string> &constEvalFuncHashes) {
   OpPrintingFlags printFlags;
   printFlags = printFlags.elideLargeElementsAttrs()
                    .elideLargeResourceString()
