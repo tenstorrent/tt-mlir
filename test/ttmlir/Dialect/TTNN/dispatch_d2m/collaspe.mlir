@@ -1,5 +1,4 @@
 // RUN: ttmlir-opt --split-input-file --ttnn-collaspe-d2m %s | FileCheck %s
-// ttmlir-opt --split-input-file --ttnn-collaspe-d2m test/ttmlir/Dialect/TTNN/dispatch_d2m/collaspe.mlir
 
 #l1 = #ttnn.buffer_type<l1>
 #ttnn_layout = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>, <block_sharded>, exactGrid = true>
@@ -11,20 +10,18 @@ module {
     // CHECK: "ttnn.generic"
     %0 = ttnn.dispatch_d2m @d2m_subgraph_0
         ins(%arg0 : tensor<32x32xf32, #ttnn_layout>)
-        outs(%out : tensor<32x32xf32, #ttnn_layout>) {
-      builtin.module {
-        func.func @d2m_subgraph_0(%input: tensor<32x32xf32, #ttnn_layout>, %output: tensor<32x32xf32, #ttnn_layout>) -> tensor<32x32xf32, #ttnn_layout> {
-          "ttnn.generic"(%input, %output) <{program = #ttnn.program<kernels = [#ttnn.read_kernel<symbol_ref = @kernel0, core_ranges = <[#ttnn.core_range<(0,0), (0,0)>]>, ct_args = [#ttnn.kernel_arg_cb_buffer_index<0>], common_rt_args = [], rt_args = []>], cbs = [<total_size = 4096, core_ranges = <[#ttnn.core_range<(0,0), (0,0)>]>, formats = [<buffer_index = 0, dtype = f32, page_size = 4096>], buffer = #ttnn.kernel_cb_global_buffer_address_of_tensor<0>>], semaphores = []>}> : (tensor<32x32xf32, #ttnn_layout>, tensor<32x32xf32, #ttnn_layout>) -> ()
-          return %output : tensor<32x32xf32, #ttnn_layout>
-        }
-        func.func private @kernel0() attributes {ttkernel.thread = #ttkernel.thread<noc>} {
-          return
-        }
-      }
-    } : tensor<32x32xf32, #ttnn_layout>
+        outs(%out : tensor<32x32xf32, #ttnn_layout>) : tensor<32x32xf32, #ttnn_layout>
     return %0 : tensor<32x32xf32, #ttnn_layout>
   }
-  // CHECK: func.func private @d2m_subgraph_0_kernel0
+  // CHECK-NOT: func.func private @d2m_subgraph_0
+  func.func private @d2m_subgraph_0(%input: tensor<32x32xf32, #ttnn_layout>, %output: tensor<32x32xf32, #ttnn_layout>) -> tensor<32x32xf32, #ttnn_layout> {
+    "ttnn.generic"(%input, %output) <{program = #ttnn.program<kernels = [#ttnn.read_kernel<symbol_ref = @kernel0, core_ranges = <[#ttnn.core_range<(0,0), (0,0)>]>, ct_args = [#ttnn.kernel_arg_cb_buffer_index<0>], common_rt_args = [], rt_args = []>], cbs = [<total_size = 4096, core_ranges = <[#ttnn.core_range<(0,0), (0,0)>]>, formats = [<buffer_index = 0, dtype = f32, page_size = 4096>], buffer = #ttnn.kernel_cb_global_buffer_address_of_tensor<0>>], semaphores = []>}> : (tensor<32x32xf32, #ttnn_layout>, tensor<32x32xf32, #ttnn_layout>) -> ()
+    return %output : tensor<32x32xf32, #ttnn_layout>
+  }
+  func.func private @kernel0() attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+    return
+  }
+  // CHECK: func.func private @kernel0
 }
 
 // -----
@@ -38,36 +35,30 @@ module {
     // CHECK: "ttnn.generic"
     %0 = ttnn.dispatch_d2m @d2m_subgraph_0
         ins(%arg0 : tensor<32x32xf32, #ttnn_layout>)
-        outs(%out0 : tensor<32x32xf32, #ttnn_layout>) {
-      builtin.module {
-        func.func @d2m_subgraph_0(%input: tensor<32x32xf32, #ttnn_layout>, %output: tensor<32x32xf32, #ttnn_layout>) -> tensor<32x32xf32, #ttnn_layout> {
-          "ttnn.generic"(%input, %output) <{program = #ttnn.program<kernels = [#ttnn.read_kernel<symbol_ref = @kernel1, core_ranges = <[#ttnn.core_range<(0,0), (0,0)>]>, ct_args = [#ttnn.kernel_arg_cb_buffer_index<0>], common_rt_args = [], rt_args = []>], cbs = [<total_size = 4096, core_ranges = <[#ttnn.core_range<(0,0), (0,0)>]>, formats = [<buffer_index = 0, dtype = f32, page_size = 4096>], buffer = #ttnn.kernel_cb_global_buffer_address_of_tensor<0>>], semaphores = []>}> : (tensor<32x32xf32, #ttnn_layout>, tensor<32x32xf32, #ttnn_layout>) -> ()
-          return %output : tensor<32x32xf32, #ttnn_layout>
-        }
-        func.func private @kernel1() attributes {ttkernel.thread = #ttkernel.thread<noc>} {
-          return
-        }
-      }
-    } : tensor<32x32xf32, #ttnn_layout>
+        outs(%out0 : tensor<32x32xf32, #ttnn_layout>) : tensor<32x32xf32, #ttnn_layout>
     // CHECK-NOT: ttnn.dispatch_d2m
     // CHECK: "ttnn.generic"
     %2 = ttnn.dispatch_d2m @d2m_subgraph_1
         ins(%0 : tensor<32x32xf32, #ttnn_layout>)
-        outs(%out1 : tensor<32x32xf32, #ttnn_layout>) {
-      builtin.module {
-        func.func @d2m_subgraph_1(%input: tensor<32x32xf32, #ttnn_layout>, %output: tensor<32x32xf32, #ttnn_layout>) -> tensor<32x32xf32, #ttnn_layout> {
-          "ttnn.generic"(%input, %output) <{program = #ttnn.program<kernels = [#ttnn.read_kernel<symbol_ref = @kernel2, core_ranges = <[#ttnn.core_range<(0,0), (0,0)>]>, ct_args = [#ttnn.kernel_arg_cb_buffer_index<0>], common_rt_args = [], rt_args = []>], cbs = [<total_size = 4096, core_ranges = <[#ttnn.core_range<(0,0), (0,0)>]>, formats = [<buffer_index = 0, dtype = f32, page_size = 4096>], buffer = #ttnn.kernel_cb_global_buffer_address_of_tensor<0>>], semaphores = []>}> : (tensor<32x32xf32, #ttnn_layout>, tensor<32x32xf32, #ttnn_layout>) -> ()
-          return %output : tensor<32x32xf32, #ttnn_layout>
-        }
-        func.func private @kernel2() attributes {ttkernel.thread = #ttkernel.thread<noc>} {
-          return
-        }
-      }
-    } : tensor<32x32xf32, #ttnn_layout>
+        outs(%out1 : tensor<32x32xf32, #ttnn_layout>) : tensor<32x32xf32, #ttnn_layout>
     return %2 : tensor<32x32xf32, #ttnn_layout>
   }
-  // CHECK: func.func private @d2m_subgraph_0_kernel1
-  // CHECK: func.func private @d2m_subgraph_1_kernel2
+  func.func private @d2m_subgraph_0(%input: tensor<32x32xf32, #ttnn_layout>, %output: tensor<32x32xf32, #ttnn_layout>) -> tensor<32x32xf32, #ttnn_layout> {
+    "ttnn.generic"(%input, %output) <{program = #ttnn.program<kernels = [#ttnn.read_kernel<symbol_ref = @kernel1, core_ranges = <[#ttnn.core_range<(0,0), (0,0)>]>, ct_args = [#ttnn.kernel_arg_cb_buffer_index<0>], common_rt_args = [], rt_args = []>], cbs = [<total_size = 4096, core_ranges = <[#ttnn.core_range<(0,0), (0,0)>]>, formats = [<buffer_index = 0, dtype = f32, page_size = 4096>], buffer = #ttnn.kernel_cb_global_buffer_address_of_tensor<0>>], semaphores = []>}> : (tensor<32x32xf32, #ttnn_layout>, tensor<32x32xf32, #ttnn_layout>) -> ()
+    return %output : tensor<32x32xf32, #ttnn_layout>
+  }
+  func.func private @d2m_subgraph_1(%input: tensor<32x32xf32, #ttnn_layout>, %output: tensor<32x32xf32, #ttnn_layout>) -> tensor<32x32xf32, #ttnn_layout> {
+    "ttnn.generic"(%input, %output) <{program = #ttnn.program<kernels = [#ttnn.read_kernel<symbol_ref = @kernel2, core_ranges = <[#ttnn.core_range<(0,0), (0,0)>]>, ct_args = [#ttnn.kernel_arg_cb_buffer_index<0>], common_rt_args = [], rt_args = []>], cbs = [<total_size = 4096, core_ranges = <[#ttnn.core_range<(0,0), (0,0)>]>, formats = [<buffer_index = 0, dtype = f32, page_size = 4096>], buffer = #ttnn.kernel_cb_global_buffer_address_of_tensor<0>>], semaphores = []>}> : (tensor<32x32xf32, #ttnn_layout>, tensor<32x32xf32, #ttnn_layout>) -> ()
+    return %output : tensor<32x32xf32, #ttnn_layout>
+  }
+  func.func private @kernel1() attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+    return
+  }
+  func.func private @kernel2() attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+    return
+  }
+  // CHECK: func.func private @kernel1
+  // CHECK: func.func private @kernel2
 }
 
 // -----
@@ -83,36 +74,30 @@ module {
     // CHECK: "ttnn.generic"
     %1 = ttnn.dispatch_d2m @d2m_subgraph_0
         ins(%0 : tensor<32x32xf32, #ttnn_layout>)
-        outs(%out0 : tensor<32x32xf32, #ttnn_layout>) {
-      builtin.module {
-        func.func @d2m_subgraph_0(%input: tensor<32x32xf32, #ttnn_layout>, %output: tensor<32x32xf32, #ttnn_layout>) -> tensor<32x32xf32, #ttnn_layout> {
-          "ttnn.generic"(%input, %output) <{program = #ttnn.program<kernels = [#ttnn.read_kernel<symbol_ref = @kernel3, core_ranges = <[#ttnn.core_range<(0,0), (0,0)>]>, ct_args = [#ttnn.kernel_arg_cb_buffer_index<0>], common_rt_args = [], rt_args = []>], cbs = [<total_size = 4096, core_ranges = <[#ttnn.core_range<(0,0), (0,0)>]>, formats = [<buffer_index = 0, dtype = f32, page_size = 4096>], buffer = #ttnn.kernel_cb_global_buffer_address_of_tensor<0>>], semaphores = []>}> : (tensor<32x32xf32, #ttnn_layout>, tensor<32x32xf32, #ttnn_layout>) -> ()
-          return %output : tensor<32x32xf32, #ttnn_layout>
-        }
-        func.func private @kernel3() attributes {ttkernel.thread = #ttkernel.thread<noc>} {
-          return
-        }
-      }
-    } : tensor<32x32xf32, #ttnn_layout>
+        outs(%out0 : tensor<32x32xf32, #ttnn_layout>) : tensor<32x32xf32, #ttnn_layout>
     // CHECK: "ttnn.exp"
     %2 = "ttnn.exp"(%1) : (tensor<32x32xf32, #ttnn_layout>) -> tensor<32x32xf32, #ttnn_layout>
     // CHECK-NOT: ttnn.dispatch_d2m
     // CHECK: "ttnn.generic"
     %3 = ttnn.dispatch_d2m @d2m_subgraph_1
         ins(%2 : tensor<32x32xf32, #ttnn_layout>)
-        outs(%out1 : tensor<32x32xf32, #ttnn_layout>) {
-      builtin.module {
-        func.func @d2m_subgraph_1(%input: tensor<32x32xf32, #ttnn_layout>, %output: tensor<32x32xf32, #ttnn_layout>) -> tensor<32x32xf32, #ttnn_layout> {
-          "ttnn.generic"(%input, %output) <{program = #ttnn.program<kernels = [#ttnn.read_kernel<symbol_ref = @kernel4, core_ranges = <[#ttnn.core_range<(0,0), (0,0)>]>, ct_args = [#ttnn.kernel_arg_cb_buffer_index<0>], common_rt_args = [], rt_args = []>], cbs = [<total_size = 4096, core_ranges = <[#ttnn.core_range<(0,0), (0,0)>]>, formats = [<buffer_index = 0, dtype = f32, page_size = 4096>], buffer = #ttnn.kernel_cb_global_buffer_address_of_tensor<0>>], semaphores = []>}> : (tensor<32x32xf32, #ttnn_layout>, tensor<32x32xf32, #ttnn_layout>) -> ()
-          return %output : tensor<32x32xf32, #ttnn_layout>
-        }
-        func.func private @kernel4() attributes {ttkernel.thread = #ttkernel.thread<noc>} {
-          return
-        }
-      }
-    } : tensor<32x32xf32, #ttnn_layout>
+        outs(%out1 : tensor<32x32xf32, #ttnn_layout>) : tensor<32x32xf32, #ttnn_layout>
     return %3 : tensor<32x32xf32, #ttnn_layout>
   }
-  // CHECK: func.func private @d2m_subgraph_0_kernel3
-  // CHECK: func.func private @d2m_subgraph_1_kernel4
+  func.func private @d2m_subgraph_0(%input: tensor<32x32xf32, #ttnn_layout>, %output: tensor<32x32xf32, #ttnn_layout>) -> tensor<32x32xf32, #ttnn_layout> {
+    "ttnn.generic"(%input, %output) <{program = #ttnn.program<kernels = [#ttnn.read_kernel<symbol_ref = @kernel3, core_ranges = <[#ttnn.core_range<(0,0), (0,0)>]>, ct_args = [#ttnn.kernel_arg_cb_buffer_index<0>], common_rt_args = [], rt_args = []>], cbs = [<total_size = 4096, core_ranges = <[#ttnn.core_range<(0,0), (0,0)>]>, formats = [<buffer_index = 0, dtype = f32, page_size = 4096>], buffer = #ttnn.kernel_cb_global_buffer_address_of_tensor<0>>], semaphores = []>}> : (tensor<32x32xf32, #ttnn_layout>, tensor<32x32xf32, #ttnn_layout>) -> ()
+    return %output : tensor<32x32xf32, #ttnn_layout>
+  }
+  func.func private @d2m_subgraph_1(%input: tensor<32x32xf32, #ttnn_layout>, %output: tensor<32x32xf32, #ttnn_layout>) -> tensor<32x32xf32, #ttnn_layout> {
+    "ttnn.generic"(%input, %output) <{program = #ttnn.program<kernels = [#ttnn.read_kernel<symbol_ref = @kernel4, core_ranges = <[#ttnn.core_range<(0,0), (0,0)>]>, ct_args = [#ttnn.kernel_arg_cb_buffer_index<0>], common_rt_args = [], rt_args = []>], cbs = [<total_size = 4096, core_ranges = <[#ttnn.core_range<(0,0), (0,0)>]>, formats = [<buffer_index = 0, dtype = f32, page_size = 4096>], buffer = #ttnn.kernel_cb_global_buffer_address_of_tensor<0>>], semaphores = []>}> : (tensor<32x32xf32, #ttnn_layout>, tensor<32x32xf32, #ttnn_layout>) -> ()
+    return %output : tensor<32x32xf32, #ttnn_layout>
+  }
+  func.func private @kernel3() attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+    return
+  }
+  func.func private @kernel4() attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+    return
+  }
+  // CHECK: func.func private @kernel3
+  // CHECK: func.func private @kernel4
 }

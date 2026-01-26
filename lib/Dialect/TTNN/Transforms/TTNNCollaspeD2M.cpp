@@ -9,7 +9,8 @@
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/IRMapping.h"
-#include "mlir/IR/SymbolTable.h"
+
+#include "llvm/ADT/SmallVector.h"
 
 namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_TTNNCOLLASPED2M
@@ -24,15 +25,21 @@ public:
 
   void runOnOperation() final {
     ModuleOp moduleOp = getOperation();
+    SmallVector<func::FuncOp> funcsToDelete;
 
-    // Inline the main func and move kernel funcs to parent module scope.
     moduleOp.walk([&](DispatchD2MOp dispatchOp) -> WalkResult {
+      func::FuncOp mainFunc = dispatchOp.getD2MMainFunc();
       if (failed(inlineDispatchOp(moduleOp, dispatchOp))) {
         signalPassFailure();
         return WalkResult::interrupt();
       }
+      funcsToDelete.push_back(mainFunc);
       return WalkResult::advance();
     });
+
+    for (func::FuncOp func : funcsToDelete) {
+      func.erase();
+    }
   }
 
 private:
@@ -41,30 +48,7 @@ private:
     func::FuncOp mainFunc = dispatchOp.getD2MMainFunc();
     if (!mainFunc) {
       return dispatchOp.emitOpError("could not find D2M function '")
-             << dispatchOp.getD2mFunc() << "' in nested module";
-    }
-
-    // Clone kernel funcs to parent module with unique names.
-    SmallVector<func::FuncOp> kernelFuncs = dispatchOp.getKernelFuncs();
-    SymbolTable parentSymbolTable(parentModule);
-    OpBuilder moduleBuilder(parentModule.getContext());
-    moduleBuilder.setInsertionPointToEnd(parentModule.getBody());
-
-    std::string prefix = mainFunc.getSymName().str() + "_";
-
-    // Clone kernel funcs and update symbol references in mainFunc.
-    for (func::FuncOp kernelFunc : kernelFuncs) {
-      std::string newName = prefix + kernelFunc.getSymName().str();
-      StringAttr newNameAttr =
-          StringAttr::get(parentModule.getContext(), newName);
-
-      Operation *clonedOp = moduleBuilder.clone(*kernelFunc.getOperation());
-      auto clonedFunc = cast<func::FuncOp>(clonedOp);
-      clonedFunc.setSymName(newName);
-      parentSymbolTable.insert(clonedOp);
-
-      (void)SymbolTable::replaceAllSymbolUses(kernelFunc, newNameAttr,
-                                              mainFunc);
+             << dispatchOp.getD2mFunc() << "' in parent module";
     }
 
     // Map func args to dispatch op operands.
