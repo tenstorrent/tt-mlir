@@ -25,7 +25,7 @@ public:
   //      begins = [0 : i32, 80 : i32, 0 : i32, 0 : i32],
   //      ends = [1 : i32, 160 : i32, 160 : i32, 160 : i32],
   //      step = [1 : i32, 1 : i32, 1 : i32, 1 : i32]}>
-  // %1 = permute(%1) <{permutation = array<i64: 0, 2, 3, 1>}>
+  // %1 = permute(%0) <{permutation = array<i64: 0, 2, 3, 1>}>
   //
   // This method will transform this into:
   // %0 = permute(%arg0) <{permutation = array<i64: 0, 2, 3, 1>}>
@@ -35,47 +35,32 @@ public:
   //      step = [1 : i32, 1 : i32, 1 : i32, 1 : i32]}>
   void performCommuteUpwardsRewrite(SliceStaticOp op, PermuteOp permuteUser,
                                     PatternRewriter &rewriter) const override {
+    auto perm = permuteUser.getPermutation();
+    RankedTensorType inputType = op.getInput().getType();
 
-    RankedTensorType sliceOperandType = op.getInput().getType();
-
+    // Create permute on the unsliced input.
     RankedTensorType newPermuteType = RankedTensorType::get(
-        ttmlir::utils::applyPermutation(sliceOperandType.getShape(),
-                                        permuteUser.getPermutation()),
-        sliceOperandType.getElementType(), sliceOperandType.getEncoding());
+        ttmlir::utils::applyPermutation(inputType.getShape(), perm),
+        inputType.getElementType(), inputType.getEncoding());
+    PermuteOp newPerm = rewriter.create<PermuteOp>(
+        permuteUser->getLoc(), newPermuteType, op.getInput(), perm);
 
-    PermuteOp newPerm =
-        rewriter.create<PermuteOp>(permuteUser->getLoc(), newPermuteType,
-                                   op.getInput(), permuteUser.getPermutation());
-
-    SmallVector<Attribute> newSliceStarts = ttmlir::utils::applyPermutation(
-        op.getBegins().getValue(), permuteUser.getPermutation());
-    SmallVector<Attribute> newSliceEnds = ttmlir::utils::applyPermutation(
-        op.getEnds().getValue(), permuteUser.getPermutation());
-    SmallVector<Attribute> newSliceSteps = ttmlir::utils::applyPermutation(
-        op.getStep().getValue(), permuteUser.getPermutation());
+    // Create slice with permuted parameters.
+    auto newBegins =
+        ttmlir::utils::applyPermutation(op.getBegins().getValue(), perm);
+    auto newEnds =
+        ttmlir::utils::applyPermutation(op.getEnds().getValue(), perm);
+    auto newSteps =
+        ttmlir::utils::applyPermutation(op.getStep().getValue(), perm);
 
     RankedTensorType newSliceType = RankedTensorType::get(
-        ttmlir::utils::applyPermutation(op.getType().getShape(),
-                                        permuteUser.getPermutation()),
+        ttmlir::utils::applyPermutation(op.getType().getShape(), perm),
         op.getType().getElementType(), op.getType().getEncoding());
+    SliceStaticOp newSlice = rewriter.create<SliceStaticOp>(
+        op->getLoc(), newSliceType, newPerm, rewriter.getArrayAttr(newBegins),
+        rewriter.getArrayAttr(newEnds), rewriter.getArrayAttr(newSteps));
 
-    SliceStaticOp newSlice =
-        rewriter.create<SliceStaticOp>(op->getLoc(), newSliceType, newPerm,
-                                       rewriter.getArrayAttr(newSliceStarts),
-                                       rewriter.getArrayAttr(newSliceEnds),
-                                       rewriter.getArrayAttr(newSliceSteps));
-
-    // All users must be identical TMs.
-    // We must not reference `permuteUser` during/after replacements, as it will
-    // be erased on its turn.
     SmallVector<Operation *> users(op->getUsers());
-    assert(llvm::all_of(users,
-                        [&](Operation *user) {
-                          return checkIdenticalTms(permuteUser, user);
-                        }) &&
-           "isCommuteUpwardsViable/Favorable should have ensured all users "
-           "are identical TMs");
-
     for (auto *user : users) {
       rewriter.replaceOp(user, newSlice);
     }
@@ -86,72 +71,65 @@ public:
   // %1 = slice(%0) <{
   //      begins = [0 : i32, 0 : i32, 0 : i32, 80 : i32],
   //      ends = [1 : i32, 160 : i32, 160 : i32, 160 : i32],
-  //      step = [1 : i32, 1 : i32, 1 : i32, 1 : i32]}
+  //      step = [1 : i32, 1 : i32, 1 : i32, 1 : i32]}>
   //
   // This method will transform this into:
   // %0 = slice(%arg0) <{
   //      begins = [0 : i32, 80 : i32, 0 : i32, 0 : i32],
   //      ends = [1 : i32, 160 : i32, 160 : i32, 160 : i32],
   //      step = [1 : i32, 1 : i32, 1 : i32, 1 : i32]}>
-  // %1 = permute(%1) <{permutation = array<i64: 0, 2, 3, 1>}>
+  // %1 = permute(%0) <{permutation = array<i64: 0, 2, 3, 1>}>
   void
   performCommuteDownwardsRewrite(SliceStaticOp op, PermuteOp permuteOperand,
                                  PatternRewriter &rewriter) const override {
-    SmallVector<int64_t> inversePermutation =
-        ttmlir::utils::inversePermutation(permuteOperand.getPermutation());
+    auto perm = permuteOperand.getPermutation();
+    auto invPerm = ttmlir::utils::inversePermutation(perm);
+
+    // Create slice on the unpermuted input.
+    auto newBegins =
+        ttmlir::utils::applyPermutation(op.getBegins().getValue(), invPerm);
+    auto newEnds =
+        ttmlir::utils::applyPermutation(op.getEnds().getValue(), invPerm);
+    auto newSteps =
+        ttmlir::utils::applyPermutation(op.getStep().getValue(), invPerm);
+
     RankedTensorType newSliceType = RankedTensorType::get(
-        ttmlir::utils::applyPermutation(op.getType().getShape(),
-                                        inversePermutation),
+        ttmlir::utils::applyPermutation(op.getType().getShape(), invPerm),
         op.getType().getElementType(), op.getType().getEncoding());
-
-    SmallVector<Attribute> newSliceStarts = ttmlir::utils::applyPermutation(
-        op.getBegins().getValue(), inversePermutation);
-    SmallVector<Attribute> newSliceEnds = ttmlir::utils::applyPermutation(
-        op.getEnds().getValue(), inversePermutation);
-    SmallVector<Attribute> newSliceSteps = ttmlir::utils::applyPermutation(
-        op.getStep().getValue(), inversePermutation);
-
     SliceStaticOp newSlice = rewriter.create<SliceStaticOp>(
         op->getLoc(), newSliceType, permuteOperand.getInput(),
-        rewriter.getArrayAttr(newSliceStarts),
-        rewriter.getArrayAttr(newSliceEnds),
-        rewriter.getArrayAttr(newSliceSteps));
+        rewriter.getArrayAttr(newBegins), rewriter.getArrayAttr(newEnds),
+        rewriter.getArrayAttr(newSteps));
 
-    RankedTensorType newPermuteType = RankedTensorType::get(
-        op.getType().getShape(), newSlice.getType().getElementType(),
-        newSlice.getType().getEncoding());
-    PermuteOp newPerm =
-        rewriter.create<PermuteOp>(permuteOperand->getLoc(), newPermuteType,
-                                   newSlice, permuteOperand.getPermutation());
+    // Restore the permutation after the slice.
+    PermuteOp newPerm = rewriter.create<PermuteOp>(
+        permuteOperand->getLoc(), op.getType(), newSlice, perm);
 
     rewriter.replaceOp(op, newPerm);
   }
 
 private:
-  bool isCommuteUpwardsViable(SliceStaticOp op, PermuteOp) const override {
-    // Commuting a permute through a slice is always viable
+  bool isCommuteUpwardsViable(SliceStaticOp, PermuteOp) const override {
     return true;
   }
 
   bool isCommuteUpwardsFavorable(SliceStaticOp op, PermuteOp) const override {
-    // We should always commute a permute above a slice if all users are an
-    // identical permutation. This includes the case where there is one user.
     SmallVector<Operation *> users(op->getUsers());
     return !users.empty() && checkAllUsersAreIdenticalTms(users);
   }
 
-  bool isCommuteDownwardsViable(SliceStaticOp op, PermuteOp) const override {
-    // Commuting a permute through a slice is always viable
+  bool isCommuteDownwardsViable(SliceStaticOp, PermuteOp) const override {
     return true;
   }
 
-  bool isCommuteDownwardsFavorable(SliceStaticOp op,
-                                   PermuteOp permuteOperand) const override {
-    // Commuting a permute downwards through a slice is always favorable as
-    // slice only has one operand, and here we know it is a permute.
+  bool isCommuteDownwardsFavorable(SliceStaticOp, PermuteOp) const override {
     return true;
   }
 };
+
+//===----------------------------------------------------------------------===//
+// Reshape through Slice
+//===----------------------------------------------------------------------===//
 
 template <CommuteDirection commuteDirection>
 class TTIRCommuteReshapeThroughSlice
@@ -175,24 +153,35 @@ public:
   //      begins = [0 : i32, 0 : i32, 0 : i32, 0 : i32],
   //      ends = [1 : i32, 1 : i32, 25600 : i32, 64 : i32],
   //      step = [1 : i32, 1 : i32, 1 : i32, 1 : i32]}>
+  //
+  // Uses findMatchingDimRTL to map each sliced dimension through the reshape.
   void performCommuteUpwardsRewrite(SliceStaticOp op, ReshapeOp reshapeUser,
                                     PatternRewriter &rewriter) const override {
-    ReshapeOp newReshape = createDeslicedReshapeOp(op, reshapeUser, rewriter);
+    auto dimMap = computeDimMapping(op, reshapeUser);
+    auto sliceInput = op.getInput();
+    auto reshapeShape = reshapeUser.getResult().getType().getShape();
 
+    // Create reshape on unsliced input - use original input dims for mapped
+    // dims.
+    SmallVector<int64_t> newReshapeShape(reshapeShape);
+    for (auto [sliceDim, reshapeDim] : dimMap) {
+      newReshapeShape[reshapeDim] = sliceInput.getType().getShape()[sliceDim];
+    }
+
+    ReshapeOp newReshape = rewriter.create<ReshapeOp>(
+        reshapeUser->getLoc(),
+        RankedTensorType::get(newReshapeShape,
+                              sliceInput.getType().getElementType(),
+                              sliceInput.getType().getEncoding()),
+        sliceInput,
+        rewriter.getI32ArrayAttr(SmallVector<int32_t>(newReshapeShape.begin(),
+                                                      newReshapeShape.end())));
+
+    // Create slice with mapped dimensions.
     SliceStaticOp newSlice =
-        createReshapedSliceStaticOp(op, newReshape.getResult(), rewriter);
+        createMappedSlice(op, dimMap, newReshape.getResult(), rewriter);
 
-    // All users must be identical TMs.
-    // We must not reference `reshapeUser` during/after replacements, as it will
-    // be erased on its turn.
     SmallVector<Operation *> users(op->getUsers());
-    assert(llvm::all_of(users,
-                        [&](Operation *user) {
-                          return checkIdenticalTms(reshapeUser, user);
-                        }) &&
-           "isCommuteUpwardsViable/Favorable should have ensured all users "
-           "are identical TMs");
-
     for (auto *user : users) {
       rewriter.replaceOp(user, newSlice);
     }
@@ -215,210 +204,147 @@ public:
   void
   performCommuteDownwardsRewrite(SliceStaticOp op, ReshapeOp reshapeOperand,
                                  PatternRewriter &rewriter) const override {
-    SliceStaticOp newSlice =
-        createReshapedSliceStaticOp(op, reshapeOperand.getInput(), rewriter);
+    auto dimMap = computeInverseDimMapping(op, reshapeOperand);
 
-    // The reshape should produce the same output type as the original slice
-    SmallVector<int32_t> reshapeTargetShape(op.getType().getShape());
+    SliceStaticOp newSlice =
+        createMappedSlice(op, dimMap, reshapeOperand.getInput(), rewriter);
+
     ReshapeOp newReshape = rewriter.create<ReshapeOp>(
         reshapeOperand->getLoc(), op.getType(), newSlice,
-        rewriter.getI32ArrayAttr(reshapeTargetShape));
+        rewriter.getI32ArrayAttr(SmallVector<int32_t>(
+            op.getType().getShape().begin(), op.getType().getShape().end())));
+
     rewriter.replaceOp(op, newReshape);
   }
 
 private:
-  int64_t getRightmostReshapeDimRTL(ReshapeOp reshapeOp) const {
-    auto inputShape = reshapeOp.getInput().getType().getShape();
-    auto outputShape = reshapeOp.getResult().getType().getShape();
-    auto inputRank = inputShape.size();
-    auto outputRank = outputShape.size();
-    int64_t minRank = std::min(inputRank, outputRank);
+  // Returns true if the dimension has non-trivial slicing.
+  bool isDimSliced(SliceStaticOp op, int64_t dim) const {
+    auto shape = op.getInput().getType().getShape();
+    int32_t begin = cast<IntegerAttr>(op.getBegins()[dim]).getInt();
+    int32_t end = cast<IntegerAttr>(op.getEnds()[dim]).getInt();
+    int32_t step = cast<IntegerAttr>(op.getStep()[dim]).getInt();
+    int64_t size = shape[dim];
 
-    // Find the rightmost changed dimension (counting from right to left).
-    // Return the right-to-left position (0 = rightmost, ndims-1 = leftmost).
-    for (int64_t i = 0; i < minRank; i++) {
-      if (inputShape[inputRank - 1 - i] != outputShape[outputRank - 1 - i]) {
-        return i;
-      }
-    }
-
-    // If it is an identity reshape, there is no point in commuting.
-    if (inputShape == outputShape) {
-      return -1;
-    }
-    // If all overlapping dimensions are identical, first changed dimension is
-    // the next one.
-    return minRank;
+    int32_t adjBegin = begin < 0 ? begin + size : begin;
+    int32_t adjEnd = end < 0 ? end + size : end;
+    return adjBegin != 0 || adjEnd != size || step != 1;
   }
 
-  int64_t getLeftmostSlicedDimRTL(SliceStaticOp sliceOp) const {
-    auto inputShape = sliceOp.getInput().getType().getShape();
-    auto begins = sliceOp.getBegins().getValue();
-    auto ends = sliceOp.getEnds().getValue();
-    auto steps = sliceOp.getStep().getValue();
-    int64_t ndims = begins.size();
+  // For upwards commute: maps sliced dims to their positions in reshape output.
+  // Returns pairs of (sliceDim, reshapeOutputDim).
+  SmallVector<std::pair<int64_t, int64_t>>
+  computeDimMapping(SliceStaticOp op, ReshapeOp reshape) const {
+    SmallVector<std::pair<int64_t, int64_t>> mapping;
+    int64_t inRank = op.getInput().getType().getRank();
+    int64_t outRank = reshape.getResult().getType().getRank();
 
-    // Find the leftmost sliced dimension (counting from right to left).
-    // Return the right-to-left position (0 = rightmost, ndims-1 = leftmost).
-    int64_t leftmostSlicedDim = -1;
-    for (int64_t i = ndims - 1; i >= 0; --i) {
-      int32_t begin = cast<IntegerAttr>(begins[i]).getInt();
-      int32_t end = cast<IntegerAttr>(ends[i]).getInt();
-      int32_t step = cast<IntegerAttr>(steps[i]).getInt();
-      int64_t dimSize = inputShape[i];
-      int32_t adjustedEnd = (end < 0) ? (end + dimSize) : end;
-      int32_t adjustedBegin = (begin < 0) ? (begin + dimSize) : begin;
-
-      // Tensor is sliced along a dimension if it doesn't have the full range,
-      // which can be:
-      // - begin != 0
-      // - end != dimSize
-      // - step != 1
-
-      if (adjustedBegin != 0 || adjustedEnd != dimSize || step != 1) {
-        leftmostSlicedDim = ndims - 1 - i;
+    for (int64_t dim = 0; dim < inRank; ++dim) {
+      if (!isDimSliced(op, dim)) {
+        continue;
+      }
+      int64_t dimRTL = inRank - 1 - dim;
+      int64_t outRTL = utils::findMatchingDimRTL(reshape, dimRTL);
+      if (outRTL != -1) {
+        mapping.emplace_back(dim, outRank - 1 - outRTL);
       }
     }
-    // If no slicing is applied, return -1
-    return leftmostSlicedDim;
+    return mapping;
   }
 
-  SliceStaticOp createReshapedSliceStaticOp(SliceStaticOp op,
-                                            TypedValue<RankedTensorType> input,
-                                            PatternRewriter &rewriter) const {
+  // For downwards commute: maps sliced dims to their positions in reshape
+  // input.
+  SmallVector<std::pair<int64_t, int64_t>>
+  computeInverseDimMapping(SliceStaticOp op, ReshapeOp reshape) const {
+    SmallVector<std::pair<int64_t, int64_t>> mapping;
+    int64_t sliceRank = op.getInput().getType().getRank();
+    int64_t inRank = reshape.getInput().getType().getRank();
+
+    for (int64_t dim = 0; dim < sliceRank; ++dim) {
+      if (!isDimSliced(op, dim)) {
+        continue;
+      }
+      int64_t dimRTL = sliceRank - 1 - dim;
+      // Find input dim that maps to this output dim.
+      for (int64_t inDim = 0; inDim < inRank; ++inDim) {
+        int64_t inRTL = inRank - 1 - inDim;
+        if (utils::findMatchingDimRTL(reshape, inRTL) == dimRTL) {
+          mapping.emplace_back(dim, inDim);
+          break;
+        }
+      }
+    }
+    return mapping;
+  }
+
+  // Creates a slice op with parameters mapped to the new input shape.
+  SliceStaticOp createMappedSlice(SliceStaticOp op,
+                                  ArrayRef<std::pair<int64_t, int64_t>> dimMap,
+                                  TypedValue<RankedTensorType> input,
+                                  PatternRewriter &rewriter) const {
     auto shape = input.getType().getShape();
-    int64_t ndims = shape.size();
+    int64_t rank = shape.size();
 
-    int64_t leftmostSlicedDimRTL = getLeftmostSlicedDimRTL(op);
-    assert(leftmostSlicedDimRTL != -1 && "Expected valid slicing dimension");
-
-    // Update begins, ends, steps, and output shape to match new input shape:
-    // - begins = 0
-    // - ends = dim size
-    // - steps = 1
-    // - output shape = new shape
-    // for dims to the left of leftmost sliced dim, otherwise copy original
-    // values
-
-    auto originalBegins = op.getBegins().getValue();
-    auto originalEnds = op.getEnds().getValue();
-    auto originalSteps = op.getStep().getValue();
-    auto originalOutputShape = op.getType().getShape();
-    int64_t originalNdims = originalEnds.size();
-
-    SmallVector<Attribute> newBegins(ndims);
-    SmallVector<Attribute> newEnds(ndims);
-    SmallVector<Attribute> newSteps(ndims);
-    SmallVector<int64_t> newOutputShape(ndims);
-
-    for (int64_t i = 0; i < ndims; ++i) {
-      // Convert RTL position i to LTR dimension indices
-      int64_t dim = ndims - 1 - i;
-      int64_t originalDim = originalNdims - 1 - i;
-      if (i > leftmostSlicedDimRTL) {
-        // For dims to the left of leftmost sliced dim, set begins=0,
-        // ends=dim size, steps=1
-        newBegins[dim] = rewriter.getI32IntegerAttr(0);
-        newEnds[dim] =
-            rewriter.getI32IntegerAttr(static_cast<int32_t>(shape[dim]));
-        newSteps[dim] = rewriter.getI32IntegerAttr(1);
-        newOutputShape[dim] = shape[dim];
-      } else {
-        // For other dims, copy original values
-        newBegins[dim] = originalBegins[originalDim];
-        newEnds[dim] = originalEnds[originalDim];
-        newSteps[dim] = originalSteps[originalDim];
-        newOutputShape[dim] = originalOutputShape[originalDim];
-      }
+    // Initialize with identity slice (no slicing).
+    SmallVector<int32_t> begins(rank), ends(rank), steps(rank);
+    SmallVector<int64_t> outShape(rank);
+    for (int64_t i = 0; i < rank; ++i) {
+      begins[i] = 0;
+      ends[i] = shape[i];
+      steps[i] = 1;
+      outShape[i] = shape[i];
     }
 
-    RankedTensorType newSliceType =
-        RankedTensorType::get(newOutputShape, op.getType().getElementType(),
-                              op.getType().getEncoding());
+    // Apply original slicing parameters to mapped dimensions.
+    for (auto [srcDim, dstDim] : dimMap) {
+      begins[dstDim] = cast<IntegerAttr>(op.getBegins()[srcDim]).getInt();
+      ends[dstDim] = cast<IntegerAttr>(op.getEnds()[srcDim]).getInt();
+      steps[dstDim] = cast<IntegerAttr>(op.getStep()[srcDim]).getInt();
+      outShape[dstDim] = op.getType().getShape()[srcDim];
+    }
 
-    SliceStaticOp newSlice = rewriter.create<SliceStaticOp>(
-        op->getLoc(), newSliceType, input, rewriter.getArrayAttr(newBegins),
-        rewriter.getArrayAttr(newEnds), rewriter.getArrayAttr(newSteps));
-
-    return newSlice;
+    return rewriter.create<SliceStaticOp>(
+        op->getLoc(),
+        RankedTensorType::get(outShape, op.getType().getElementType(),
+                              op.getType().getEncoding()),
+        input, rewriter.getI32ArrayAttr(begins), rewriter.getI32ArrayAttr(ends),
+        rewriter.getI32ArrayAttr(steps));
   }
 
-  ReshapeOp createDeslicedReshapeOp(SliceStaticOp op, ReshapeOp reshapeUser,
-                                    PatternRewriter &rewriter) const {
-
-    // Construct target shape for reshape:
-    // - For dims not affected by reshape (left to the rightmost reshape dim),
-    // use input shape.
-    // - For other dims, keep original reshape shape.
-
-    int64_t rightmostReshapeDimRTL = getRightmostReshapeDimRTL(reshapeUser);
-    assert(rightmostReshapeDimRTL != -1 && "Expected valid reshape dimension");
-
-    auto originalReshapeShape = reshapeUser.getResult().getType().getShape();
-    int64_t ndims = originalReshapeShape.size();
-    SmallVector<int64_t> targetShape(ndims);
-
-    auto sliceInputShape = op.getInput().getType().getShape();
-    int64_t inputNdims = sliceInputShape.size();
-
-    for (int64_t i = 0; i < ndims; ++i) {
-      if (i < rightmostReshapeDimRTL) {
-        targetShape[ndims - 1 - i] = sliceInputShape[inputNdims - 1 - i];
-      } else {
-        targetShape[ndims - 1 - i] = originalReshapeShape[ndims - 1 - i];
+  // Checks if all sliced dimensions can be mapped through the reshape.
+  bool canCommute(SliceStaticOp op, ReshapeOp reshape, bool isUpwards) const {
+    auto mapping = isUpwards ? computeDimMapping(op, reshape)
+                             : computeInverseDimMapping(op, reshape);
+    int64_t slicedCount = 0;
+    int64_t rank = op.getInput().getType().getRank();
+    for (int64_t dim = 0; dim < rank; ++dim) {
+      if (isDimSliced(op, dim)) {
+        ++slicedCount;
       }
     }
-
-    auto targetType = RankedTensorType::get(
-        targetShape, op.getInput().getType().getElementType(),
-        op.getInput().getType().getEncoding());
-    SmallVector<int32_t> targetShapeInt32(targetShape.begin(),
-                                          targetShape.end());
-    return rewriter.create<ReshapeOp>(
-        reshapeUser->getLoc(), targetType, op.getInput(),
-        rewriter.getI32ArrayAttr(targetShapeInt32));
+    return static_cast<int64_t>(mapping.size()) == slicedCount;
   }
 
   bool isCommuteUpwardsViable(SliceStaticOp op,
                               ReshapeOp reshapeUser) const override {
-    // Reshape can commute if its rightmost reshape dim
-    // is to the left of leftmost slicing dim
-    int64_t rightmostReshapeDimRTL = getRightmostReshapeDimRTL(reshapeUser);
-    int64_t leftmostSlicedDimRTL = getLeftmostSlicedDimRTL(op);
-    if (rightmostReshapeDimRTL == -1 || leftmostSlicedDimRTL == -1) {
-      return false;
-    }
-    // Larger right-to-left position means further left
-    return rightmostReshapeDimRTL > leftmostSlicedDimRTL;
+    return canCommute(op, reshapeUser, /*isUpwards=*/true);
   }
 
   bool isCommuteUpwardsFavorable(SliceStaticOp op, ReshapeOp) const override {
-    // We should always commute a reshape above a slice if all users are an
-    // identical reshape. This includes the case where there is one user.
     SmallVector<Operation *> users(op->getUsers());
     return !users.empty() && checkAllUsersAreIdenticalTms(users);
   }
 
   bool isCommuteDownwardsViable(SliceStaticOp op,
                                 ReshapeOp reshapeOperand) const override {
-    // Reshape can commute if its rightmost reshape dim
-    // is to the left of leftmost slicing dim
-    int64_t rightmostReshapeDimRTL = getRightmostReshapeDimRTL(reshapeOperand);
-    int64_t leftmostSlicedDimRTL = getLeftmostSlicedDimRTL(op);
-    if (rightmostReshapeDimRTL == -1 || leftmostSlicedDimRTL == -1) {
-      return false;
-    }
-    // Larger right-to-left position means further left
-    return rightmostReshapeDimRTL > leftmostSlicedDimRTL;
+    return canCommute(op, reshapeOperand, /*isUpwards=*/false);
   }
 
-  bool isCommuteDownwardsFavorable(SliceStaticOp op,
-                                   ReshapeOp reshapeOperand) const override {
-    // Commuting a reshape downwards through a slice is always favorable as
-    // slice only has one operand, and here we know it is a reshape.
+  bool isCommuteDownwardsFavorable(SliceStaticOp, ReshapeOp) const override {
     return true;
   }
 };
+
 } // namespace
 
 template <CommuteDirection commuteDirection>

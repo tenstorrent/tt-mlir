@@ -29,10 +29,11 @@ namespace detail {
 // mlir::Value but should not be considered an operand.
 template <typename T>
 struct is_operand
-    : std::bool_constant<(std::is_convertible_v<T, mlir::Value> ||
-                          std::is_convertible_v<T, mlir::ValueRange>) &&
-                         !std::is_convertible_v<
-                             T, mlir::TypedValue<mlir::tt::ttnn::DeviceType>>> {
+    : std::bool_constant<
+          (std::is_convertible_v<T, mlir::Value> ||
+           std::is_convertible_v<T, mlir::ValueRange>)&&!std::
+              is_convertible_v<T,
+                               mlir::TypedValue<mlir::tt::ttnn::DeviceType>>> {
 };
 
 template <typename T>
@@ -240,6 +241,13 @@ mlir::LogicalResult broadcastValue(mlir::PatternRewriter &rewriter,
                                    mlir::RankedTensorType desiredType,
                                    mlir::Value &output, mlir::Location loc,
                                    bool frontUnsqueeze);
+
+// Given a reshape operation and an input dimension position (RTL - right to
+// left, 0 = rightmost), finds the corresponding output dimension position where
+// that dimension was moved to. Returns -1 if no matching dimension is found.
+// RTL positions are used because reshape operations typically preserve trailing
+// dimensions.
+int64_t findMatchingDimRTL(ReshapeOp reshapeOp, int64_t dimRTL);
 
 // Checks if an operation preserves a given dimension.
 // For reshape, this checks both that the dimension size is unchanged and that
