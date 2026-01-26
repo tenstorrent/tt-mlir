@@ -11,6 +11,7 @@
 #include "tt/runtime/debug.h"
 #include "tt/runtime/detail/common/common.h"
 #include "tt/runtime/detail/common/dylib.h"
+#include "tt/runtime/detail/common/fabric_config.h"
 #include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/ttmetal/profiler.h"
 #include "tt/runtime/detail/ttmetal/ttmetal.h"
@@ -18,7 +19,6 @@
 #include "tt/runtime/runtime.h"
 #include "tt/runtime/utils.h"
 #include "tt/runtime/workarounds.h"
-#include "tt/runtime/detail/common/fabric_config.h"
 
 #include "ttmlir/Target/TTMetal/Target.h"
 #include "ttmlir/Target/TTMetal/types_generated.h"

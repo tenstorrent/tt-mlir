@@ -3,11 +3,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "tt/runtime/detail/common/fabric_config.h"
+#include "tt-metalium/program_descriptors.hpp"
+#include "tt/runtime/detail/common/logger.h"
 #include <tt-metalium/experimental/fabric/fabric.hpp>
 #include <tt-metalium/experimental/fabric/mesh_graph.hpp>
 #include <tt-metalium/mesh_coord.hpp>
-#include "tt-metalium/program_descriptors.hpp"
-#include "tt/runtime/detail/common/logger.h"
 
 namespace tt::runtime::common {
 
@@ -15,10 +15,11 @@ template <typename ProgramOrDescriptor>
 std::unordered_map<::tt::tt_metal::CoreCoord, std::vector<uint32_t>>
 appendFabricConfigArgs(
     const target::metal::FabricConnectionConfig *fabricConnectionConfig,
-    const target::metal::KernelConfig *kernelConfig, ProgramOrDescriptor &program,
-    tt_metal::KernelHandle &handle,
+    const target::metal::KernelConfig *kernelConfig,
+    ProgramOrDescriptor &program, tt_metal::KernelHandle &handle,
     const tt_metal::distributed::MeshCoordinate deviceCoord,
-    const tt_metal::distributed::MeshDevice *meshDevice, std::vector<uint32_t> rtArgsVec,
+    const tt_metal::distributed::MeshDevice *meshDevice,
+    std::vector<uint32_t> rtArgsVec,
     const tt::tt_metal::CoreRangeSet &coreRangeSet) {
   std::unordered_map<tt::tt_metal::CoreCoord, std::vector<uint32_t>>
       fabricConfigArgs;
@@ -54,24 +55,29 @@ appendFabricConfigArgs(
         auto forward_direction = get_eth_forwarding_direction(
             meshDevice->get_fabric_node_id(deviceCoord),
             meshDevice->get_fabric_node_id(forwardCoord));
-        LOG_ASSERT(
-            forward_direction.has_value(),
-            "Forward direction does not exist on mesh coordinate: ", deviceCoord);
+        LOG_ASSERT(forward_direction.has_value(),
+                   "Forward direction does not exist on mesh coordinate: ",
+                   deviceCoord);
         rtArgsVec.push_back(forward_direction.value());
         auto backwardCoord = deviceCoord;
-        backwardCoord[dim] = (backwardCoord[dim] + meshDevice->shape()[dim] - 1) % meshDevice->shape()[dim];
+        backwardCoord[dim] =
+            (backwardCoord[dim] + meshDevice->shape()[dim] - 1) %
+            meshDevice->shape()[dim];
         auto backward_direction = get_eth_forwarding_direction(
             meshDevice->get_fabric_node_id(deviceCoord),
             meshDevice->get_fabric_node_id(backwardCoord));
         LOG_ASSERT(backward_direction.has_value(),
-                    "Backward direction does not exist on mesh coordinate: ",
-                    deviceCoord);
-        rtArgsVec.push_back(backward_direction.value());
+                   "Backward direction does not exist on mesh coordinate: ",
+                   deviceCoord);
+        rtArgsVec.push_back((uint32_t)backward_direction.value());
       }
-      
-      // Add mesh coordinate to device id mapping (in flattened mesh coordinate order)
-      auto coord_range = tt_metal::distributed::MeshCoordinateRange(meshDevice->shape());
-      for (auto coord = coord_range.begin(); coord != coord_range.end(); coord++) {
+
+      // Add mesh coordinate to device id mapping (in flattened mesh coordinate
+      // order)
+      auto coord_range =
+          tt_metal::distributed::MeshCoordinateRange(meshDevice->shape());
+      for (auto coord = coord_range.begin(); coord != coord_range.end();
+           coord++) {
         rtArgsVec.push_back(meshDevice->get_fabric_node_id(*coord).chip_id);
       }
 
@@ -122,19 +128,21 @@ appendFabricConfigArgs(
 template std::unordered_map<::tt::tt_metal::CoreCoord, std::vector<uint32_t>>
 appendFabricConfigArgs<tt::tt_metal::Program>(
     const target::metal::FabricConnectionConfig *fabricConnectionConfig,
-    const target::metal::KernelConfig *kernelConfig, tt::tt_metal::Program &program,
-    tt_metal::KernelHandle &handle,
+    const target::metal::KernelConfig *kernelConfig,
+    tt::tt_metal::Program &program, tt_metal::KernelHandle &handle,
     const tt_metal::distributed::MeshCoordinate deviceCoord,
-    const tt_metal::distributed::MeshDevice *meshDevice, std::vector<uint32_t> rtArgsVec,
+    const tt_metal::distributed::MeshDevice *meshDevice,
+    std::vector<uint32_t> rtArgsVec,
     const tt::tt_metal::CoreRangeSet &coreRangeSet);
 
 template std::unordered_map<::tt::tt_metal::CoreCoord, std::vector<uint32_t>>
 appendFabricConfigArgs<tt::tt_metal::ProgramDescriptor>(
     const target::metal::FabricConnectionConfig *fabricConnectionConfig,
-    const target::metal::KernelConfig *kernelConfig, tt::tt_metal::ProgramDescriptor &program,
-    tt_metal::KernelHandle &handle,
+    const target::metal::KernelConfig *kernelConfig,
+    tt::tt_metal::ProgramDescriptor &program, tt_metal::KernelHandle &handle,
     const tt_metal::distributed::MeshCoordinate deviceCoord,
-    const tt_metal::distributed::MeshDevice *meshDevice, std::vector<uint32_t> rtArgsVec,
+    const tt_metal::distributed::MeshDevice *meshDevice,
+    std::vector<uint32_t> rtArgsVec,
     const tt::tt_metal::CoreRangeSet &coreRangeSet);
 
-}
+} // namespace tt::runtime::common
