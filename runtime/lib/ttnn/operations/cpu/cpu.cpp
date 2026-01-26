@@ -26,11 +26,14 @@ namespace {
   case ::ttnn::DataType::FLOAT32:
     return ::tt::runtime::ttnn::utils::createBorrowedTTNNTensor<float>(dataPtr,
                                                                        shape);
+  case ::ttnn::DataType::UINT32:
+    return ::tt::runtime::ttnn::utils::createBorrowedTTNNTensor<uint32_t>(
+        dataPtr, shape);
   case ::ttnn::DataType::INT32:
     return ::tt::runtime::ttnn::utils::createBorrowedTTNNTensor<int32_t>(
         dataPtr, shape);
   default:
-    LOG_FATAL("Unsupported data type for CPU op output");
+    LOG_FATAL("Unsupported data type for CPU op output: ", dtype);
   }
 }
 
