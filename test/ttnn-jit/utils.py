@@ -17,12 +17,15 @@ def _get_ttnn_op(func: Callable) -> Optional[Callable]:
     return attr if callable(attr) else None
 
 
-def memory_configs_equal(memory_config1, memory_config2):
-    return (
+def memory_configs_equal(memory_config1, memory_config2, debug=True):
+    equal = (
         memory_config1.memory_layout == memory_config2.memory_layout
         and memory_config1.buffer_type == memory_config2.buffer_type
         and memory_config1.shard_spec == memory_config2.shard_spec
     )
+    if debug:
+        print("memory_configs_equal", equal)
+    return equal
 
 
 # ----- Input transforms for ops that need constrained inputs -----
@@ -186,6 +189,7 @@ def run_op_test(
     check_allclose=False,
     pcc_threshold=0.99,
     math_fidelity=ttnn.MathFidelity.HiFi4,
+    memory_config=None,
 ):
     """
     Common test runner for JIT operations.
@@ -203,6 +207,8 @@ def run_op_test(
         check_pcc: Whether to check PCC (default: True)
         check_allclose: Whether to check allclose (default: False)
         pcc_threshold: PCC threshold for comparison (default: 0.99)
+        math_fidelity: Math fidelity setting for JIT compilation (default: HiFi4)
+        memory_config: Optional output memory configuration for the JIT-compiled function
     """
     # Auto-select input transform based on op name
     input_transform = _get_input_transform(op)
@@ -236,6 +242,7 @@ def run_op_test(
         debug=True,
         enable_cache=enable_cache,
         math_fidelity=math_fidelity,
+        memory_config=memory_config,
     )(op)
 
     output_tensor = op_jit(*inputs)
@@ -243,9 +250,12 @@ def run_op_test(
 
     print("created inputs:\n", inputs)
     if not compile_only:
-        assert memory_configs_equal(
-            output_tensor.memory_config(), golden_tensor.memory_config()
-        )
+        if memory_config is not None:
+            assert memory_configs_equal(output_tensor.memory_config(), memory_config)
+        else:
+            assert memory_configs_equal(
+                output_tensor.memory_config(), golden_tensor.memory_config()
+            )
         print("--------------------------------")
         print("Output:")
         print(output_tensor)
