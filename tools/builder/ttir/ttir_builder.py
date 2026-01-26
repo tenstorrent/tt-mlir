@@ -3750,6 +3750,122 @@ class TTIRBuilder(Builder):
 
         return scatter_module, scatter_builder
 
+    ############### ttir.MaxPool2dOp ###############
+
+    @parse(ttir.MaxPool2dOp)
+    def max_pool2d_parser(
+        self,
+        old_op: ttir.MaxPool2dOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.max_pool2d_parser)
+
+        in0 = global_dict[old_op.input]
+        result = old_op.result.type
+        kernel_attr = old_op.kernel
+        stride_attr = old_op.stride
+        dilation_attr = old_op.dilation
+        padding_attr = old_op.padding
+        ceil_mode_attr = old_op.ceil_mode
+
+        new_op = ttir_op(
+            result,
+            in0,
+            kernel_attr,
+            stride_attr,
+            dilation_attr,
+            padding_attr,
+            ceil_mode_attr,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            op_golden_function = get_golden_function(ttir_op)
+            golden_output = op_golden_function(
+                input0,
+                kernel=kernel_attr,
+                stride=stride_attr,
+                padding=padding_attr,
+                dilation=dilation_attr,
+                ceil_mode=ceil_mode_attr,
+            )
+            self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(ttir.MaxPool2dOp)
+    def max_pool2d_split(
+        self,
+        old_op: ttir.MaxPool2dOp,
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(TTIRBuilder.max_pool2d_split)
+
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
+            max_pool2d_module = Module.create()
+            max_pool2d_builder = TTIRBuilder(old_ctx, old_loc)
+            op_input_types = [old_op.input.type]
+
+            with InsertionPoint(max_pool2d_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="max_pool2d_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
+                    kernel_attr = old_op.kernel
+                    stride_attr = old_op.stride
+                    dilation_attr = old_op.dilation
+                    padding_attr = old_op.padding
+                    ceil_mode_attr = old_op.ceil_mode
+
+                    new_op = ttir_op(
+                        result,
+                        in0,
+                        kernel_attr,
+                        stride_attr,
+                        dilation_attr,
+                        padding_attr,
+                        ceil_mode_attr,
+                        loc=old_op.location,
+                    )
+                    new_op_result = new_op.result
+
+                    if not self._disable_golden_check:
+                        input0 = self._get_golden_tensor(old_op.input)
+                        op_golden_function = get_golden_function(ttir_op)
+                        golden_output = op_golden_function(
+                            input0,
+                            kernel=kernel_attr,
+                            stride=stride_attr,
+                            padding=padding_attr,
+                            dilation=dilation_attr,
+                            ceil_mode=ceil_mode_attr,
+                        )
+                        max_pool2d_builder._set_golden_tensor(
+                            new_op_result, golden_output
+                        )
+                        max_pool2d_builder._set_golden_tensor(in0, input0)
+                        ordered_inputs.append(in0)
+                        ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                max_pool2d_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return max_pool2d_module, max_pool2d_builder
+
     ############### ttir.MaxPool2dWithIndicesOp ###############
 
     @tag(ttir.MaxPool2dWithIndicesOp)
