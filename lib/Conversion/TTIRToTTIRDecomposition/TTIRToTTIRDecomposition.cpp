@@ -2479,6 +2479,138 @@ struct ConvChannelLastDecompositionPattern
 };
 } // namespace
 
+namespace {
+struct ArgMaxPattern : public OpConversionPattern<ttir::ArgMaxOp> {
+  using OpConversionPattern<ttir::ArgMaxOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::ArgMaxOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // This pattern works as follows:
+    // 1. Permute input tensor, i.e, put all reduction dimensions at the end.
+    // 2. Reshape the permuted tensor to make all reduction dimensions into one.
+    // 3. Create a new ArgMax op with the reshaped tensor and the new reduction
+    //    dimension.
+    // 4. Reshape the output tensor to the expected shape in case of keep dim.
+    auto tempDimArg = op.getDimArg();
+    if (!tempDimArg || tempDimArg->size() <= 1) {
+      return failure();
+    }
+
+    auto inputType = mlir::cast<RankedTensorType>(adaptor.getInput().getType());
+    auto outputType = mlir::cast<RankedTensorType>(op.getResult().getType());
+    auto keepDim = op.getKeepDim();
+
+    SmallVector<Attribute> canonicalizedDims;
+    canonicalizedDims.reserve(tempDimArg->size());
+    int32_t rank = inputType.getRank();
+
+    for (Attribute dimAttr : *tempDimArg) {
+      int32_t dim = mlir::cast<IntegerAttr>(dimAttr).getInt();
+      if (dim < 0) {
+        dim += rank;
+      }
+      canonicalizedDims.push_back(rewriter.getI32IntegerAttr(dim));
+    }
+
+    // Step 1: Permute input tensor.
+    // Get the reduce dimensions indices so it's easier to reshape back;
+    llvm::SmallDenseSet<int32_t> reduceDimsSet;
+    SmallVector<int32_t> reduceDims, nonReduceDims;
+    int32_t reshapedDimSize = 1;
+    for (size_t dimIdx = 0; dimIdx < canonicalizedDims.size(); ++dimIdx) {
+      Attribute dimAttr = canonicalizedDims[dimIdx];
+      int32_t dim = mlir::cast<IntegerAttr>(dimAttr).getInt();
+      reduceDims.push_back(dim);
+      reshapedDimSize *= inputType.getDimSize(dim);
+      reduceDimsSet.insert(dim);
+    }
+    llvm::sort(reduceDims);
+    auto *uniqueReduceDims = std::unique(reduceDims.begin(), reduceDims.end());
+    reduceDims.erase(uniqueReduceDims, reduceDims.end());
+    // Prepare shape for reshaping input tensor.
+    for (int32_t dimIdx = 0; dimIdx < inputType.getRank(); ++dimIdx) {
+      if (!reduceDimsSet.count(dimIdx)) {
+        nonReduceDims.push_back(dimIdx);
+      }
+    }
+    SmallVector<int64_t> permuteShape;
+    for (int32_t dimIdx : nonReduceDims) {
+      permuteShape.push_back(inputType.getDimSize(dimIdx));
+    }
+    for (int32_t dimIdx : reduceDims) {
+      permuteShape.push_back(inputType.getDimSize(dimIdx));
+    }
+    auto permuteOpResultType =
+        RankedTensorType::get(permuteShape, inputType.getElementType());
+
+    SmallVector<int64_t> permutation;
+    for (int32_t dimIdx : nonReduceDims) {
+      permutation.push_back(dimIdx);
+    }
+    for (int32_t dimIdx : reduceDims) {
+      permutation.push_back(dimIdx);
+    }
+    auto permuteOp = rewriter.create<ttir::PermuteOp>(
+        op.getLoc(), permuteOpResultType, adaptor.getInput(),
+        rewriter.getDenseI64ArrayAttr(permutation));
+
+    // Step 2. Reshape the permuted tensor to make all reduction dimensions into
+    // one
+    SmallVector<int64_t> tempArgMaxShape;
+    for (int32_t dimIdx : nonReduceDims) {
+      tempArgMaxShape.push_back(inputType.getDimSize(dimIdx));
+    }
+
+    tempArgMaxShape.push_back(reshapedDimSize);
+    // RankedTensor need int64_t shape
+    auto reshapeOp = rewriter.create<ttir::ReshapeOp>(
+        op.getLoc(),
+        RankedTensorType::get(tempArgMaxShape, inputType.getElementType()),
+        permuteOp.getResult(),
+        rewriter.getI32ArrayAttr(llvm::to_vector_of<int32_t>(tempArgMaxShape)));
+
+    // Step 3. Create a new ArgMax op with the reshaped tensor and the new
+    // reduction dimension.
+    int32_t newDim = static_cast<int32_t>(tempArgMaxShape.size() - 1);
+    if (keepDim) {
+      tempArgMaxShape.back() = 1; // if keepDim is true, set reduced dim to 1
+    } else {
+      tempArgMaxShape.pop_back(); // else remove the reduced dim
+    }
+    auto argMaxOp = rewriter.create<ttir::ArgMaxOp>(
+        op.getLoc(),
+        RankedTensorType::get(tempArgMaxShape, outputType.getElementType()),
+        reshapeOp.getResult(), rewriter.getBoolAttr(keepDim),
+        rewriter.getI32ArrayAttr(newDim));
+
+    // Step 4. Reshape the output tensor to the expected shape in case of keep
+    // dim
+    if (keepDim) {
+      SmallVector<int64_t> finalArgMaxShape;
+      for (int64_t dimIdx = 0; dimIdx < inputType.getRank(); ++dimIdx) {
+        if (!reduceDimsSet.count(dimIdx)) {
+          finalArgMaxShape.push_back(inputType.getDimSize(dimIdx));
+        } else {
+          finalArgMaxShape.push_back(1);
+        }
+      }
+      auto result = rewriter.create<ttir::ReshapeOp>(
+          op.getLoc(),
+          RankedTensorType::get(finalArgMaxShape, outputType.getElementType()),
+          argMaxOp.getResult(),
+          rewriter.getI32ArrayAttr(
+              llvm::to_vector_of<int32_t>(finalArgMaxShape)));
+      rewriter.replaceOp(op, result);
+    } else {
+      rewriter.replaceOp(op, argMaxOp);
+    }
+
+    return success();
+  }
+};
+} // namespace
+
 void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
                                              RewritePatternSet &patterns,
                                              TypeConverter &typeConverter,
@@ -2499,6 +2631,7 @@ void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
   patterns.add<RequantizeOpPattern>(typeConverter, ctx);
   patterns.add<ReductionProdPattern>(typeConverter, ctx);
   patterns.add<ReverseOpConversionPattern>(typeConverter, ctx);
+  patterns.add<ArgMaxPattern>(typeConverter, ctx);
 
   // Configure which ReductionPattern to add base on the configuration
   switch (decompConfig) {
