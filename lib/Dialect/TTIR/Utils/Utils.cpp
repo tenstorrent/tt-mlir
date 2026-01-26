@@ -6,8 +6,6 @@
 
 #include "llvm/ADT/TypeSwitch.h"
 
-#include <numeric>
-
 namespace mlir::tt::ttir::utils {
 llvm::SmallVector<int64_t> unsqueezeValue(mlir::PatternRewriter &rewriter,
                                           mlir::Location loc,
