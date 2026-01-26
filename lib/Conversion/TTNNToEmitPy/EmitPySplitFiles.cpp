@@ -165,7 +165,7 @@ public:
         }
 
         // Add return operation to the execute function.
-        auto dictResult = builder.create<emitpy::GetValueForDictKeyOp>(
+        auto dictResult = builder.create<emitpy::SubscriptOp>(
             funcOp.getLoc(), innerDictType, mapping.lookup(globalDict),
             mapping.lookup(outerDictKey));
         builder.create<func::ReturnOp>(funcOp.getLoc(), dictResult.getResult());
@@ -224,7 +224,7 @@ public:
         for (auto &[innerDictKeyOp, subscripts] : sortedEntries) {
           builder.setInsertionPointAfter(callExecuteOp);
           auto *clonedKeyOp = builder.clone(*innerDictKeyOp.getOperation());
-          auto innerDictValue = builder.create<emitpy::GetValueForDictKeyOp>(
+          auto innerDictValue = builder.create<emitpy::SubscriptOp>(
               funcOp.getLoc(), tensorListType, callExecuteOp.getResult(0),
               clonedKeyOp->getResult(0));
           for (auto subscriptOp : subscripts) {
