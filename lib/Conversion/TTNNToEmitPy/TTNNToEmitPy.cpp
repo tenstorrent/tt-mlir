@@ -2490,6 +2490,32 @@ public:
     auto outerDictType =
         emitpy::DictType::get(rewriter.getContext(), strType, innerDictType);
 
+    // If the enclosing function has a device argument (module-export path),
+    // pass it into the const-eval wrapper so it can invoke const-eval functions
+    // that take `device` as an explicit parameter.
+    //
+    // Type-based detection:
+    // - Before/during signature conversion: `mlir::tt::ttnn::DeviceType`
+    // - After signature conversion: whatever `TypeConverter` converts
+    //   `mlir::tt::ttnn::DeviceType` into (today: `!emitpy.opaque<"...">`).
+    //
+    Value deviceArg = nullptr;
+    mlir::tt::ttnn::DeviceType deviceType =
+        mlir::tt::ttnn::DeviceType::get(rewriter.getContext());
+    Type convertedDeviceType = nullptr;
+    if (auto *typeConverter = this->getTypeConverter()) {
+      convertedDeviceType = typeConverter->convertType(deviceType);
+    }
+    for (unsigned i = 0; i < funcOp.getNumArguments(); ++i) {
+      Type argTy = funcOp.getArgumentTypes()[i];
+      bool isDevice = (argTy == deviceType) ||
+                      (convertedDeviceType && argTy == convertedDeviceType);
+      if (isDevice) {
+        deviceArg = entryBlock.getArgument(i);
+        break;
+      }
+    }
+
     // Find or create a global statement for the global cache dictionary at the
     // beginning of the function body. Find or create a constant op representing
     // the outer dictionary key for the parent function.
@@ -2578,6 +2604,10 @@ public:
     keyValueOp->setAttr("emitpy.consteval", rewriter.getUnitAttr());
     auto keyValue = keyValueOp->getResult(0);
     operands.push_back(keyValue);
+
+    if (deviceArg) {
+      operands.push_back(deviceArg);
+    }
 
     // Call into the callee.
     //
