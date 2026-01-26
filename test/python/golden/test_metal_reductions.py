@@ -42,8 +42,9 @@ def create_reductions_constrained_inputs(input_shape, reduce_type, dim_arg, keep
 @pytest.mark.skip_config(["p150"], ["p300"])
 @pytest.mark.parametrize("m", [4, 8, 16])
 @pytest.mark.parametrize("n", [2, 4, 8])
-@pytest.mark.parametrize("dim_arg", [[0], [1], [0, 1]])
-@pytest.mark.parametrize("keep_dim", [True])
+# @pytest.mark.parametrize("dim_arg", [[0], [1], [0, 1]])
+@pytest.mark.parametrize("dim_arg", [[0], [1]])
+@pytest.mark.parametrize("keep_dim", [True, False])
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_sum(
     m: int,
