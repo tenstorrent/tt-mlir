@@ -25,6 +25,9 @@ static constexpr llvm::StringLiteral pagedUpdateCacheTargetName =
 static constexpr llvm::StringLiteral pagedFillCacheTargetName =
     "tt.paged_fill_cache";
 
+static constexpr llvm::StringLiteral sparseMatmulTargetName =
+    "tt.sparse_matmul";
+
 static mlir::sdy::OpShardingRuleAttr
 getScatterShardingRule(mlir::stablehlo::ScatterOp scatterOp) {
   mlir::Operation::operand_range inputs = scatterOp.getInputs();
@@ -330,6 +333,171 @@ getPagedAttentionShardingRule(mlir::stablehlo::CustomCallOp op) {
   return mlir::sdy::OpShardingRuleAttr();
 }
 
+// Sharding rule for sparse_matmul used in MoE (Mixture of Experts) models.
+// Supports both Expert Parallelism (EP) and Tensor Parallelism (TP).
+//
+// GPT-OSS parallelism strategy:
+//   - EP: Expert dimension (E) sharded across row axis
+//   - TP: Weight dimension (K or N) sharded across column axis
+//
+// Supported modes:
+// 1. is_input_b_sparse=True (gate/up projection - column parallel):
+//    Input A: [A, B, M, K]      - replicated
+//    Input B: [1, E, K, N]      - EP on E (dim 1), TP on N (dim 3)
+//    Sparsity: [A, B, 1, E]     - EP on E (dim 3)
+//    Output: [A, B, 1, E, M, N] - EP on E (dim 3), TP on N (dim 5)
+//
+// 2. is_input_a_sparse=True (down projection - row parallel):
+//    Input A: [A, E, M, K]      - EP on E (dim 1), TP on K (dim 3)
+//    Input B: [1, E, K, N]      - EP on E (dim 1), TP on K (dim 2)
+//    Sparsity: [1, 1, A, E]     - EP on E (dim 3)
+//    Output: [A, E, M, N]       - EP on E (dim 1), needs allreduce for TP
+static mlir::sdy::OpShardingRuleAttr
+getSparseMatmulShardingRule(mlir::stablehlo::CustomCallOp op) {
+  // Operands: input_a, input_b, sparsity
+  if (op.getNumOperands() != 3 || op.getNumResults() != 1) {
+    op.getOperation()->emitWarning()
+        << "sparse_matmul expects 3 operands and 1 result";
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  auto inputAType =
+      llvm::dyn_cast<RankedTensorType>(op.getOperand(0).getType());
+  auto inputBType =
+      llvm::dyn_cast<RankedTensorType>(op.getOperand(1).getType());
+  auto sparsityType =
+      llvm::dyn_cast<RankedTensorType>(op.getOperand(2).getType());
+  auto outputType = llvm::dyn_cast<RankedTensorType>(op.getResult(0).getType());
+
+  if (!inputAType || !inputBType || !sparsityType || !outputType) {
+    op.getOperation()->emitWarning()
+        << "sparse_matmul requires ranked tensor types";
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  // Parse frontend attributes to determine sparse mode
+  mlir::DictionaryAttr frontendAttrs =
+      mlir::dyn_cast_or_null<mlir::DictionaryAttr>(
+          op->getDiscardableAttr("mhlo.frontend_attributes"));
+
+  bool isInputASparse = false;
+  bool isInputBSparse = true; // default
+
+  if (frontendAttrs) {
+    if (auto strAttr =
+            frontendAttrs.getAs<mlir::StringAttr>("is_input_a_sparse")) {
+      isInputASparse = strAttr.getValue() == "True";
+    }
+    if (auto strAttr =
+            frontendAttrs.getAs<mlir::StringAttr>("is_input_b_sparse")) {
+      isInputBSparse = strAttr.getValue() == "True";
+    }
+  }
+
+  // Input B always has shape [1, E, K, N] - E at dim 1, K at dim 2, N at dim 3
+  if (inputBType.getRank() != 4) {
+    op.getOperation()->emitWarning()
+        << "sparse_matmul input_b must be 4D [1, E, K, N]";
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  int64_t numExperts = inputBType.getShape()[1];
+  int64_t kDim = inputBType.getShape()[2];
+  int64_t nDim = inputBType.getShape()[3];
+
+  mlir::sdy::OpShardingRuleBuilder builder(op);
+
+  // ===== Factor 1: Expert Parallelism (EP) =====
+  // Expert dimension positions vary by sparse mode
+  int64_t inputAExpertDim = mlir::sdy::kNullDim;
+  int64_t inputBExpertDim = 1;
+  int64_t sparsityExpertDim = sparsityType.getRank() - 1; // last dim
+  int64_t outputExpertDim;
+
+  if (!isInputASparse && isInputBSparse) {
+    // Mode: [A,B,M,K] @ [1,E,K,N] -> [A,B,1,E,M,N]
+    inputAExpertDim = mlir::sdy::kNullDim; // replicate
+    outputExpertDim = 3;
+  } else if (isInputASparse && !isInputBSparse) {
+    // Mode: [A,E,M,K] @ [1,E,K,N] -> [A,E,M,N]
+    inputAExpertDim = 1;
+    outputExpertDim = 1;
+  } else if (isInputASparse && isInputBSparse) {
+    // Mode: [1,E,M,K] @ [1,E,K,N] -> [1,E,M,N]
+    inputAExpertDim = 1;
+    outputExpertDim = 1;
+  } else {
+    op.getOperation()->emitWarning()
+        << "sparse_matmul: both sparse flags cannot be false";
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  // Add EP factor - expert dimension can be sharded
+  builder.addFactor({inputAExpertDim, inputBExpertDim, sparsityExpertDim},
+                    {outputExpertDim}, numExperts,
+                    mlir::sdy::FactorType::kPassThrough);
+
+  // ===== Factor 2: Tensor Parallelism (TP) =====
+  // TP strategy depends on projection type:
+  // - Gate/Up (is_input_b_sparse): Column parallel on N dimension
+  // - Down (is_input_a_sparse): Row parallel on K dimension (output needs
+  // allreduce)
+
+  if (!isInputASparse && isInputBSparse) {
+    // Gate/Up projection: Support both K sharding (row parallel) and N sharding
+    // (column parallel)
+
+    // K dimension: contracting dimension (needs all-reduce if sharded)
+    // Input A: [A,B,M,K] - K at dim 3
+    // Input B: [1,E,K,N] - K at dim 2
+    // Output: [A,B,1,E,M,N] - K is contracted (reduced)
+    // This enables sharding hidden_states when they come from attention with 2D
+    // TP
+    builder.addFactor(
+        {3, 2, mlir::sdy::kNullDim}, // inputA K (dim 3), inputB K (dim 2)
+        {mlir::sdy::kNullDim},       // output doesn't have K dim (contracted)
+        kDim, mlir::sdy::FactorType::kReduction);
+
+    // N dimension: Column parallel on N (standard TP pattern)
+    // Input A: [A,B,M,K] - no N dim (replicated)
+    // Input B: [1,E,K,N] - TP on N (dim 3)
+    // Output: [A,B,1,E,M,N] - TP on N (dim 5)
+    builder.addFactor(
+        {mlir::sdy::kNullDim, 3, mlir::sdy::kNullDim}, // inputA, inputB,
+                                                       // sparsity
+        {5},                                           // output N dim
+        nDim, mlir::sdy::FactorType::kPassThrough);
+  } else if (isInputASparse) {
+    // Down projection: Row parallel on K (contracting dimension)
+    // Input A: [A,E,M,K] - TP on K (dim 3)
+    // Input B: [1,E,K,N] - TP on K (dim 2)
+    // Output: [A,E,M,N] - K is contracted (reduced), needs all_reduce for TP
+    //
+    // Following the pattern from DotGeneralOp in Shardy:
+    // Contracting dimensions use kReduction factor type.
+    // This tells Shardy that:
+    // - K dimension can be sharded (row parallel)
+    // - Each device computes partial sum
+    // - All-reduce is needed to combine partial sums
+    builder.addFactor(
+        {3, 2, mlir::sdy::kNullDim}, // inputA K (dim 3), inputB K (dim 2)
+        {mlir::sdy::kNullDim},       // output doesn't have K dim (contracted)
+        kDim, mlir::sdy::FactorType::kReduction);
+
+    // N dimension: passes through from input B to output
+    // Input A: [A,E,M,K] - no N dim
+    // Input B: [1,E,K,N] - N at dim 3
+    // Output: [A,E,M,N] - N at dim 3
+    // This allows column-parallel sharding on N if needed
+    builder.addFactor(
+        {mlir::sdy::kNullDim, 3, mlir::sdy::kNullDim}, // inputA none, inputB N
+        {3},                                           // output N dim
+        nDim, mlir::sdy::FactorType::kPassThrough);
+  }
+
+  return builder.build();
+}
+
 template <typename OpTy>
 struct StablehloShardingModel
     : public mlir::sdy::ShardingRuleOpInterface::ExternalModel<
@@ -387,6 +555,7 @@ private:
           {pagedSdpaDecodeTargetName, getPagedAttentionShardingRule},
           {pagedUpdateCacheTargetName, getPagedAttentionShardingRule},
           {pagedFillCacheTargetName, getPagedAttentionShardingRule},
+          {sparseMatmulTargetName, getSparseMatmulShardingRule},
       };
 };
 
