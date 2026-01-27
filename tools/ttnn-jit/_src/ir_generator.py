@@ -3,12 +3,13 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from ttnn_jit._src.tracing_compiler import TracingCompiler
+from ttnn_jit._src.conversions import ttnn_dtype_from_mlir_dtype
 from ttnn_jit._src.tensor_translator import (
     _create_dram_tensor_layout,
     _create_sharded_tensor_layout,
     _calculate_tile_shape,
 )
-from ttmlir.ir import InsertionPoint, RankedTensorType, Location
+from ttmlir.ir import InsertionPoint, RankedTensorType, Location, FunctionType, TypeAttr
 from ttmlir.dialects import ttir, func
 import ttnn
 
@@ -24,39 +25,10 @@ def create_output_layout_from_memory_config(
     ctx, memory_config, tensor_shape, element_type, debug
 ):
 
-    # Validate tensor_shape is iterable
-    if not isinstance(tensor_shape, (list, tuple)):
-        raise TypeError(
-            f"tensor_shape must be a list or tuple, got {type(tensor_shape)}: {tensor_shape}"
-        )
-
-    # Ensure all elements in tensor_shape are Python integers
-    try:
-        tensor_shape = [int(dim) for dim in tensor_shape]
-    except (TypeError, ValueError) as e:
-        raise TypeError(
-            f"tensor_shape must contain only integers, got {tensor_shape}: {e}"
-        )
-
-    # Infer dtype from element type if it's a tile type
-    if hasattr(element_type, "element_type"):
-        # It's a TileType, extract the scalar element type
-        scalar_type = element_type.element_type
-    else:
-        scalar_type = element_type
-    if debug:
-        print(f"scalar type: {scalar_type}")
-
-    # Convert scalar type back to ttnn dtype for layout creation
-    dtype_str = str(scalar_type)
-    if "bf16" in dtype_str or "bfloat16" in dtype_str:
-        dtype = ttnn.bfloat16
-    elif "f32" in dtype_str or "float32" in dtype_str:
-        dtype = ttnn.float32
-    elif "f16" in dtype_str or "float16" in dtype_str:
-        dtype = ttnn.float16
-    else:
-        dtype = ttnn.bfloat16  # Default fallback
+    print("element_type received:", element_type)
+    print("type of element_type:", type(element_type))
+    dtype = ttnn_dtype_from_mlir_dtype(element_type)
+    print("type of dtype:", type(dtype))
     if debug:
         print(f"Converted dtype: {dtype}")
 
@@ -91,7 +63,7 @@ def create_output_layout_from_memory_config(
         return _create_sharded_tensor_layout(ctx, mock_tensor)
 
 
-def insert_output_layout_conversion(module, memory_config, debug):
+def insert_output_layout_conversion(module, debug, memory_config):
 
     if memory_config is None:
         if debug:
@@ -192,12 +164,6 @@ def insert_output_layout_conversion(module, memory_config, debug):
                                         f"Inserted ttir.empty + ttir.to_layout for return value {idx}"
                                     )
                                     print(f"Output type: {output_type}")
-                            except TypeError as e:
-                                if debug:
-                                    print(
-                                        f"Failed to insert layout conversion (TypeError): {e}"
-                                    )
-                                new_return_values.append(ret_val)
                             except Exception as e:
                                 if debug:
                                     print(f"Failed to insert layout conversion: {e}")
@@ -212,8 +178,6 @@ def insert_output_layout_conversion(module, memory_config, debug):
                     # Update function signature to match new return types
                     input_types = [arg.type for arg in op.arguments]
                     output_types = [v.type for v in new_return_values]
-
-                    from ttmlir.ir import FunctionType, TypeAttr
 
                     new_func_type = FunctionType.get(
                         input_types, output_types, module.context
@@ -231,7 +195,7 @@ def insert_output_layout_conversion(module, memory_config, debug):
     return module
 
 
-def generate_ir(f, memory_config, debug, *args, **kwargs):
+def generate_ir(f, debug, memory_config, *args, **kwargs):
     """Generate IR from tracing compilation."""
     compiler = TracingCompiler(f, *args, **kwargs)
     ir = compiler.compile()
