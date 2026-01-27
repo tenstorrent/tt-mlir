@@ -1063,12 +1063,14 @@ def test_rand(
 @pytest.mark.parametrize("shape", [(64, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
 @pytest.mark.parametrize("prob,scale,seed", [(0.2, 1.25, 2137)])
+@pytest.mark.parametrize("target", ["ttnn", "emitpy", "emitc"])
 def test_dropout(
     shape: Shape,
     dtype: torch.dtype,
     prob: float,
     scale: float,
     seed: int,
+    target: str,
     request,
     device,
 ):
@@ -1083,10 +1085,13 @@ def test_dropout(
                 in0, prob=prob, scale=scale, seed=seed, unit_attrs=unit_attrs
             )
 
+    disable_golden = target in ["emitpy", "emitc"]
     compile_and_execute_ttir(
         module,
         test_base=request.node.name,
         device=device,
+        target=target,
+        disable_golden=disable_golden,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
