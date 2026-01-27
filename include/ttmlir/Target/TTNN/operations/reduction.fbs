@@ -35,3 +35,14 @@ table ReductionProdOp {
   keep_dim: bool;
   memcfg: tt.target.ttnn.MemoryConfig;
 }
+
+table TopKOp {
+  input_tensor: tt.target.ttnn.TensorRef;
+  values: tt.target.ttnn.TensorRef;
+  indices: tt.target.ttnn.TensorRef;
+  k: int32;
+  dim: int32 = -1;
+  largest: bool = true;
+  sorted: bool = true;
+  memory_config: tt.target.ttnn.MemoryConfig;
+}
