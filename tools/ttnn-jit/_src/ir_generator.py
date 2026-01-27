@@ -3,14 +3,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from ttnn_jit._src.tracing_compiler import TracingCompiler
-from ttnn_jit._src.tensor_translator import (
-    _create_dram_tensor_layout,
-    _create_sharded_tensor_layout,
-    _calculate_tile_shape,
-)
-from ttmlir.ir import InsertionPoint, RankedTensorType, Location
-from ttmlir.dialects import ttir, func
-import ttnn
 
 
 def print_and_verify_ir(ir, method_name, debug):
@@ -19,10 +11,6 @@ def print_and_verify_ir(ir, method_name, debug):
         print(ir)
     ir.operation.verify()
 
-
-def create_output_layout_from_memory_config(
-    ctx, memory_config, tensor_shape, element_type, debug
-):
 
 def generate_ir(f, debug, memory_config, *args, **kwargs):
     """Generate IR from tracing compilation."""
