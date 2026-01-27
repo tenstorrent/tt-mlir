@@ -15,6 +15,7 @@
 
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/BuiltinAttributes.h"
@@ -551,6 +552,25 @@ ToDeviceOp::bufferize(mlir::RewriterBase &rewriter,
   MemRefType alignedHostMemref = mlir::cast<MemRefType>(
       *getBufferType(getInput(), options, state, invocationStack));
 
+  MemRefType inputMemrefType = mlir::cast<MemRefType>(maybeInput->getType());
+  int64_t inputRank = inputMemrefType.getRank();
+  int64_t alignedRank = alignedHostMemref.getRank();
+
+  // Handle 1D→2D expansion: if input is 1D but bounce buffer is 2D,
+  // use memref.expand_shape to add a leading dimension of 1.
+  if (inputRank == 1 && alignedRank == 2 &&
+      alignedHostMemref.getShape()[0] == 1) {
+    // Create reassociation: [[0, 1]] means dim 0 of input maps to dims 0,1 of
+    // output
+    SmallVector<ReassociationIndices> reassociation = {{0, 1}};
+    auto expandedType = MemRefType::get({1, inputMemrefType.getShape()[0]},
+                                        inputMemrefType.getElementType());
+    *maybeInput = rewriter
+                      .create<memref::ExpandShapeOp>(getLoc(), expandedType,
+                                                     *maybeInput, reassociation)
+                      .getResult();
+  }
+
   if (mlir::cast<ttcore::HostLayoutAttr>(alignedHostMemref.getLayout())
           .isPadded()) {
     auto alignedHostTensor =
@@ -680,6 +700,10 @@ ToHostOp::bufferize(mlir::RewriterBase &rewriter,
   MemRefType alignedHostMemref = mlir::cast<MemRefType>(
       *getBufferType(getOutput(), options, state, invocationStack));
 
+  MemRefType outputMemrefType = mlir::cast<MemRefType>(maybeOutput->getType());
+  int64_t outputRank = outputMemrefType.getRank();
+  int64_t alignedRank = alignedHostMemref.getRank();
+
   auto hostLayout =
       mlir::dyn_cast<ttcore::HostLayoutAttr>(alignedHostMemref.getLayout());
   if (hostLayout && hostLayout.isPadded()) {
@@ -689,7 +713,20 @@ ToHostOp::bufferize(mlir::RewriterBase &rewriter,
     rewriter.create<ToHostOp>(getLoc(), TypeRange(), *maybeInput,
                               alignedHostTensor, getLayout());
 
-    rewriter.create<memref::CopyOp>(getLoc(), alignedHostTensor, *maybeOutput);
+    // Handle 2D→1D collapse: if bounce buffer is 2D but output is 1D,
+    // use memref.collapse_shape to remove the leading dimension of 1.
+    Value copySource = alignedHostTensor;
+    if (alignedRank == 2 && outputRank == 1 &&
+        alignedHostMemref.getShape()[0] == 1) {
+      SmallVector<ReassociationIndices> reassociation = {{0, 1}};
+      // Let CollapseShapeOp infer the result type with correct strides
+      copySource = rewriter
+                       .create<memref::CollapseShapeOp>(
+                           getLoc(), alignedHostTensor, reassociation)
+                       .getResult();
+    }
+
+    rewriter.create<memref::CopyOp>(getLoc(), copySource, *maybeOutput);
   } else {
     rewriter.create<ToHostOp>(getLoc(), TypeRange(), *maybeInput, *maybeOutput,
                               getLayout());

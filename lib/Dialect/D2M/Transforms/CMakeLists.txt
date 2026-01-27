@@ -21,6 +21,7 @@ add_mlir_dialect_library(MLIRD2MTransforms
         OpScheduler.cpp
         SFPUTileLoopFission.cpp
         GlobalDataFormatConversion.cpp
+        Promote1DTo2D.cpp
         ScalarizeConstTensors.cpp
 
         ADDITIONAL_HEADER_DIRS
