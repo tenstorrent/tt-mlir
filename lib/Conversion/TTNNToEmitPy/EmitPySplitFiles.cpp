@@ -12,6 +12,7 @@
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/IRMapping.h"
 #include "mlir/IR/Visitors.h"
+#include "mlir/Support/WalkResult.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
@@ -128,19 +129,33 @@ public:
         auto strType = emitpy::OpaqueType::get(&getContext(), "str");
         auto tensorListType =
             emitpy::OpaqueType::get(&getContext(), "[ttnn.Tensor]");
+        auto deviceType = emitpy::OpaqueType::get(&getContext(), "ttnn.Device");
         auto innerDictType =
             emitpy::DictType::get(&getContext(), strType, tensorListType);
         std::string executeFuncName = "execute_" + funcName + "_consteval";
         executeFuncNames.push_back(
             builder.getStringAttr(executeFuncName).getValue());
 
+        // Check if the original function has a device argument.
+        mlir::Value originalDeviceArg = nullptr;
+        if (funcOp.getNumArguments() > 0) {
+          auto lastArg = funcOp.getArgument(funcOp.getNumArguments() - 1);
+          if (lastArg.getType() == deviceType) {
+            originalDeviceArg = lastArg;
+          }
+        }
+
         // Create execute function that will store complete consteval logic of
         // the current funcOp. This function will be a part of the
         // consteval file and will be called from the main file.
+        llvm::SmallVector<Type> executeInputTypes = {tensorListType};
+        if (originalDeviceArg) {
+          executeInputTypes.push_back(deviceType);
+        }
         builder.setInsertionPointToEnd(&constevalFile.getBodyRegion().front());
         auto executeConstevalFunc = builder.create<func::FuncOp>(
             funcOp.getLoc(), executeFuncName,
-            builder.getFunctionType({tensorListType}, {innerDictType}));
+            builder.getFunctionType(executeInputTypes, {innerDictType}));
         executeConstevalFunc.addEntryBlock();
         Block &entryBlock = executeConstevalFunc.getBody().front();
 
@@ -148,6 +163,11 @@ public:
         mlir::IRMapping mapping;
         mlir::Value originalInput = funcOp.getArgument(0);
         mapping.map(originalInput, entryBlock.getArgument(0));
+        if (originalDeviceArg) {
+          mapping.map(originalDeviceArg, entryBlock.getArgument(1));
+          executeConstevalFunc.setArgAttr(1, "emitpy.name",
+                                          builder.getStringAttr("device"));
+        }
 
         auto constevalUseDefChain = getSortedConstevalUseDefChain(constevalOps);
 
@@ -173,9 +193,13 @@ public:
         // Insert call of the execute function at the beginning of the original
         // function.
         builder.setInsertionPointToStart(&funcOp.getFunctionBody().front());
+        llvm::SmallVector<Value> executeCallOperands = {originalInput};
+        if (originalDeviceArg) {
+          executeCallOperands.push_back(originalDeviceArg);
+        }
         auto callExecuteOp = builder.create<emitpy::CallOpaqueOp>(
             funcOp.getLoc(), innerDictType, executeFuncName,
-            mlir::ValueRange{originalInput});
+            executeCallOperands);
 
         // Map non-consteval subscript operations to appropriate key constants
         // to transform constEvalFuncWrapperResult[i] ->
@@ -191,11 +215,18 @@ public:
             continue;
           }
 
-          // Get inner dictionary key from the last operand of the
-          // wrapper function.
-          auto innerDictKeyOp =
-              wrapperFuncCall->getOperand(wrapperFuncCall->getNumOperands() - 1)
-                  .getDefiningOp<emitpy::ConstantOp>();
+          // Get inner dictionary key from the wrapper function operands.
+          // The inner dict key is the last operand, unless a device argument
+          // is present (target-module=true), in which case it's second-to-last.
+          unsigned numOperands = wrapperFuncCall->getNumOperands();
+          auto deviceType =
+              emitpy::OpaqueType::get(&getContext(), "ttnn.Device");
+          auto lastOperand = wrapperFuncCall->getOperand(numOperands - 1);
+          unsigned innerDictKeyIdx = (lastOperand.getType() == deviceType)
+                                         ? numOperands - 2
+                                         : numOperands - 1;
+          auto innerDictKeyOp = wrapperFuncCall->getOperand(innerDictKeyIdx)
+                                    .getDefiningOp<emitpy::ConstantOp>();
           if (!innerDictKeyOp) {
             wrapperFuncCall->emitError("constEvalFuncWrapper call missing "
                                        "inner dictionary key operand");
