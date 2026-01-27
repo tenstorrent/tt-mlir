@@ -11,7 +11,6 @@ def print_and_verify_ir(ir, method_name, debug):
         print(ir)
     ir.operation.verify()
 
-
 def generate_ir(f, debug, memory_config, *args, **kwargs):
     """Generate IR from tracing compilation."""
     compiler = TracingCompiler(f, *args, memory_config=memory_config, **kwargs)
