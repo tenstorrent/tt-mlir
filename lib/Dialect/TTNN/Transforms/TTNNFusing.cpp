@@ -491,12 +491,14 @@ public:
     }
 
     if (!matchScoreComputation(c.softmax.getInput(), c)) {
+      llvm::outs() << "Failed to match score computation\n";
       return failure();
     }
 
     // Validate semantic constraints (single-use of intermediate ops, valid
     // scale range) before modifying the IR.
     if (!validateSemantics(c)) {
+      llvm::outs() << "Failed to validate semantics\n";
       return failure();
     }
 
@@ -680,13 +682,6 @@ private:
     auto [query, qScale] = extractTensorWithScale(a);
     auto [key, kScale] = extractTensorWithScale(b);
 
-    // Reject if Q or K comes from a const-eval function - the dtype handling
-    // becomes too complex with pre-scaled/pre-casted values.
-    if (isa_and_nonnull<ttcore::LoadCachedOp>(query.getDefiningOp()) ||
-        isa_and_nonnull<ttcore::LoadCachedOp>(key.getDefiningOp())) {
-      return false;
-    }
-
     // Reject if we found both post-matmul scale and pre-scaling on Q/K.
     // Standard SDPA uses one or the other, not both.
     bool hasPostMatmulScale = c.scale.has_value();
@@ -788,6 +783,7 @@ private:
         v = skipTransparent(mulOp.getRhs());
       }
     }
+
     // Optional divide for scale (post-matmul scaling, e.g. SegFormer style)
     // Division by X is equivalent to multiply by 1/X.
     else if (auto divOp = v.getDefiningOp<DivideOp>()) {
@@ -853,6 +849,26 @@ private:
 
   std::pair<Value, Type> analyzeQ(Value v) const {
     v = skipTransparent(v);
+
+    // If Q comes from load_cached, trace through const-eval function to find
+    // the original dtype before any f32 conversions.
+    if (auto loadCached = v.getDefiningOp<ttcore::LoadCachedOp>()) {
+      auto funcOp = SymbolTable::lookupNearestSymbolFrom<func::FuncOp>(
+          loadCached, loadCached.getCalleeAttr());
+      if (funcOp) {
+        // Find the return op and get the value corresponding to this result.
+        unsigned resultIdx = cast<OpResult>(v).getResultNumber();
+        for (auto &block : funcOp.getBody()) {
+          if (auto returnOp = dyn_cast<func::ReturnOp>(block.getTerminator())) {
+            Value innerV = returnOp.getOperand(resultIdx);
+            // Extract original tensor before scaling to get the true dtype.
+            auto [originalTensor, scale] = extractTensorWithScale(innerV);
+            return {v, getTargetElementType(originalTensor)};
+          }
+        }
+      }
+    }
+
     return {v, getTargetElementType(v)};
   }
 
@@ -1251,6 +1267,8 @@ private:
           decodeOp.getOperation(), inputLayouts, config);
 
       if (!result.isSuccess() && !isRecoverableSDPAError(result.errorMessage)) {
+        llvm::outs() << "Failed to validate decode SDPA op: "
+                     << result.errorMessage << "\n";
         rewriter.eraseOp(decodeOp);
         return failure();
       }
@@ -1285,6 +1303,8 @@ private:
           sdpaOp.getOperation(), inputLayouts, config);
 
       if (!result.isSuccess() && !isRecoverableSDPAError(result.errorMessage)) {
+        llvm::outs() << "Failed to validate SDPA op: " << result.errorMessage
+                     << "\n";
         rewriter.eraseOp(sdpaOp);
         return failure();
       }
