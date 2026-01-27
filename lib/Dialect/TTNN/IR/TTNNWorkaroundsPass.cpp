@@ -557,7 +557,9 @@ binaryOpDTypeWorkaround(mlir::Operation *op, mlir::Type elementType) {
 }
 
 // Factory method to create a set of workarounds for Dropout operation
-// operands. Dropout op requires bfloat16 data type.
+// operands. ttnn.experimental.dropout op requires bfloat16 data type.
+// this is tracked in tt-metal issue:
+// https://github.com/tenstorrent/tt-metal/issues/36543
 TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createDropoutOpOperandsWorkarounds() {
   TTNNOperandWorkarounds operandWorkaround;
