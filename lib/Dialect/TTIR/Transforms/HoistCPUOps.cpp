@@ -82,31 +82,36 @@ static ValuesVectorType collectInputArguments(const OpsVectorType &operations) {
   return inputArguments;
 }
 
-// Helper function to convert tensor types to CPU-compatible types.
+// Returns the CPU-compatible element type for the given element type.
+// Conversion rules:
+//   - Signed integers   -> si32
+//   - Unsigned integers -> ui32
+//   - Signless integers -> i32
+//   - Floats            -> f32
+//   - Other types       -> unchanged
+static mlir::Type getCPUCompatibleElementType(mlir::MLIRContext *context,
+                                              mlir::Type elementType) {
+  if (elementType.isSignedInteger()) {
+    return mlir::IntegerType::get(context, 32, mlir::IntegerType::Signed);
+  }
+  if (elementType.isUnsignedInteger()) {
+    return mlir::IntegerType::get(context, 32, mlir::IntegerType::Unsigned);
+  }
+  if (elementType.isSignlessInteger()) {
+    return mlir::IntegerType::get(context, 32, mlir::IntegerType::Signless);
+  }
+  if (elementType.isFloat()) {
+    return mlir::Float32Type::get(context);
+  }
+  return elementType;
+}
+
+// Converts a tensor type to its CPU-compatible equivalent.
 static mlir::RankedTensorType
 convertTensorType(mlir::RankedTensorType tensorType) {
-  const auto f32Type = mlir::Float32Type::get(tensorType.getContext());
-  const auto i32Type = mlir::IntegerType::get(tensorType.getContext(), 32,
-                                              mlir::IntegerType::Signless);
-  const auto i32SignedType = mlir::IntegerType::get(tensorType.getContext(), 32,
-                                                    mlir::IntegerType::Signed);
-  const auto i32UnsignedType = mlir::IntegerType::get(
-      tensorType.getContext(), 32, mlir::IntegerType::Unsigned);
-
-  const auto elementType = tensorType.getElementType();
-  auto convertedElementType = tensorType.getElementType();
-
-  if (elementType.isInteger()) {
-    if (elementType.isSignedInteger()) {
-      convertedElementType = i32SignedType;
-    } else if (elementType.isUnsignedInteger()) {
-      convertedElementType = i32UnsignedType;
-    } else {
-      convertedElementType = i32Type;
-    }
-  } else if (elementType.isFloat()) {
-    convertedElementType = f32Type;
-  }
+  auto elementType = tensorType.getElementType();
+  auto convertedElementType =
+      getCPUCompatibleElementType(tensorType.getContext(), elementType);
 
   if (elementType != convertedElementType) {
     return mlir::RankedTensorType::get(tensorType.getShape(),
@@ -114,6 +119,65 @@ convertTensorType(mlir::RankedTensorType tensorType) {
   }
 
   return tensorType;
+}
+
+// Converts DenseElementsAttr to a target tensor type.
+// Returns std::nullopt if conversion is not supported.
+static std::optional<mlir::DenseElementsAttr>
+convertDenseElementsAttr(mlir::DenseElementsAttr denseAttr,
+                         mlir::RankedTensorType targetType) {
+  if (auto floatType =
+          mlir::dyn_cast<mlir::FloatType>(targetType.getElementType())) {
+    auto values = llvm::map_to_vector(
+        denseAttr.getValues<mlir::APFloat>(), [&](mlir::APFloat value) {
+          bool losesInfo;
+          value.convert(floatType.getFloatSemantics(),
+                        mlir::APFloat::rmNearestTiesToEven, &losesInfo);
+          return value;
+        });
+    return mlir::DenseElementsAttr::get(targetType, values);
+  }
+
+  if (auto intType =
+          mlir::dyn_cast<mlir::IntegerType>(targetType.getElementType())) {
+    auto values = llvm::map_to_vector(
+        denseAttr.getValues<mlir::APInt>(), [&](const mlir::APInt &value) {
+          return value.sextOrTrunc(intType.getWidth());
+        });
+    return mlir::DenseElementsAttr::get(targetType, values);
+  }
+
+  return std::nullopt;
+}
+
+// Helper function to convert constant op value attributes to CPU-compatible
+// types. This is needed because when we convert the result type of a constant
+// op, we also need to convert the underlying data in the value attribute.
+static void convertConstantOpValue(mlir::Operation *op) {
+  auto constantOp = mlir::dyn_cast<ttir::ConstantOp>(op);
+  if (!constantOp) {
+    return;
+  }
+
+  auto denseAttr =
+      mlir::dyn_cast<mlir::DenseElementsAttr>(constantOp.getValue());
+  if (!denseAttr) {
+    return;
+  }
+
+  auto sourceType = mlir::dyn_cast<mlir::RankedTensorType>(denseAttr.getType());
+  if (!sourceType) {
+    return;
+  }
+
+  auto targetType = convertTensorType(sourceType);
+  if (sourceType == targetType) {
+    return;
+  }
+
+  if (auto convertedAttr = convertDenseElementsAttr(denseAttr, targetType)) {
+    constantOp.setValueAttr(*convertedAttr);
+  }
 }
 
 // Helper function to convert input arguments to CPU-compatible types,
@@ -326,6 +390,9 @@ static func::FuncOp createCPUHoistedFunctionDefinition(
         result.setType(dropSignInformation(convertedTensorType));
       }
     }
+
+    // Convert constant op value attributes to match the converted result type.
+    convertConstantOpValue(clonedOp);
 
     // Check if this is the output producing op. If it is, keep track of it
     // for later.
