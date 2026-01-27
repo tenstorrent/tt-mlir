@@ -835,7 +835,6 @@ def execute_fb(
                 ).reshape(outputs[i].get_shape())
 
             golden_tensor_torch = golden_outputs_torch[i]
-            breakpoint()
             results = check_outputs(
                 golden_tensor_torch,
                 output_tensor_torch,

@@ -13,7 +13,7 @@ from collections import OrderedDict
 from ttmlir.ir import *
 from ttmlir.dialects import tensor, quant, func, ttir, ttcore, stablehlo, ttnn, debug
 from ttmlir.passes import GoldenTensor, DataType
-from golden import GoldenMapTensor, get_golden_function
+from golden import GoldenMapTensor, get_golden_function, apply_sharding
 
 from builder.base.builder_utils import (
     process_multi_return_result,
@@ -306,11 +306,10 @@ class Builder(metaclass=BuilderMeta):
 
         func_op.arg_attrs = ArrayAttr.get(new_arg_attr_list)
 
-    def set_runtime_tensor_sharding_attr(
-      self, operand: Operand, arg_sharding: sdy.TensorShardingAttr
+    def preshard_arg(
+      self, operand: Operand, shard_shape: List[int], shard_dims: List[int]
     ):
-        local_shape = self._apply_sharding_to_shape(operand.type.shape, arg_sharding)
-        local_shape_attr = RankedTensorType.get(local_shape, F32Type.get(self._ctx))
+        local_shape_attr = RankedTensorType.get(shard_shape, F32Type.get(self._ctx))
         new_attr_name: str = "ttcore.runtime_tensor_sharding"
         shard_status_attr = ttcore.ir.ShardStatusAttr.get(self._ctx, ttcore.ir.ShardStatus.Presharded)
         new_attr = ttcore.ir.RuntimeTensorShardingAttr.get(self._ctx, shard_status_attr, local_shape_attr)
@@ -320,7 +319,7 @@ class Builder(metaclass=BuilderMeta):
         # Generate new multi-device golden if it's presharded
         if not self._disable_golden_check:
             golden_tensor = self._get_golden_tensor(operand)
-            sharded_golden_tensor = self._apply_sharding_to_golden(golden_tensor, arg_sharding, True)
+            sharded_golden_tensor = apply_sharding(golden_tensor, self._mesh_shape, shard_dims)
             self._set_golden_tensor(operand, sharded_golden_tensor)
 
     # ----- Private methods -----
