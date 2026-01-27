@@ -497,7 +497,7 @@ class TTNNOpWrapper(OpWrapper):
             f"builtin.module attributes {self.attributes_str} {{ \n"
             f"  {self.tt_device_op_string} \n"
             f"  {self.func_op_string}"
-            f'  func.func @main({unpacked_operands}) -> {return_type} attributes {{tt.function_type = "forward_device"}} {{ \n'
+            f'  func.func @main({unpacked_operands}) -> ({return_type}) attributes {{tt.function_type = "forward_device"}} {{ \n'
             f"{preserved_body}"
             f"    {self.op_string} \n"
             f"    {return_stmt} \n"
