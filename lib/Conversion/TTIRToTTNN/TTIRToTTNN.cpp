@@ -2220,6 +2220,26 @@ public:
 } // namespace
 
 namespace {
+class MeshPartitionOpConversionPattern
+    : public OpConversionPattern<ttir::MeshPartitionOp> {
+public:
+  using OpConversionPattern<ttir::MeshPartitionOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::MeshPartitionOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<ttnn::MeshPartitionOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(), adaptor.getDim(),
+        rewriter.getUI32IntegerAttr(adaptor.getClusterAxis().value()),
+        /*memory_config=*/nullptr);
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class CollectivePermuteOpConversionPattern
     : public OpConversionPattern<ttir::CollectivePermuteOp> {
 public:
@@ -3039,6 +3059,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            MeshShardOpConversionPattern,
            AllReduceOpConversionPattern,
            AllGatherOpConversionPattern,
+           MeshPartitionOpConversionPattern,
            ReduceScatterOpConversionPattern,
            CollectivePermuteOpConversionPattern,
            ArangeOpConversionPattern,
