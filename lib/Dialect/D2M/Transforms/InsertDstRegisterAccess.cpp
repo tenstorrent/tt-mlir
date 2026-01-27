@@ -21,6 +21,9 @@
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/DebugLog.h"
+
+#include <type_traits>
+
 namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MINSERTDSTREGISTERACCESS
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h.inc"
@@ -71,6 +74,26 @@ static bool canReplaceWithMatmulBlock(linalg::GenericOp linalgGenericOp) {
   int64_t outerVolume = std::accumulate(outerShape.begin(), outerShape.end(), 1,
                                         std::multiplies<int64_t>());
   return outerVolume == 1;
+}
+
+/// Check if a memref value comes from a d2m.scratch_allocate op.
+/// Looks through subviews to find the source.
+static bool isScratchMemref(Value memref) {
+  Value current = memref;
+  while (current) {
+    if (auto defOp = current.getDefiningOp()) {
+      if (isa<ScratchAllocateOp>(defOp)) {
+        return true;
+      }
+      // Look through subviews
+      if (auto subview = dyn_cast<memref::SubViewOp>(defOp)) {
+        current = subview.getSource();
+        continue;
+      }
+    }
+    break;
+  }
+  return false;
 }
 
 struct D2MInsertDstRegisterAccessRewriter final
@@ -603,6 +626,31 @@ public:
           collectDstLoadOrStore<affine::AffineStoreOp>(
               gOp, potentialStore, copyInfos, dstSlice,
               outermostInnerComputeLoop);
+        } else if (auto scratchStore = mlir::dyn_cast<memref::StoreOp>(user)) {
+          // Collect DST->scratch stores (scratch spills from SpillAndScratch).
+          assert(!dstSliceAllocationState.didStoreToDst() &&
+                 "Multiple stores from last op to dst not supported");
+
+          const bool rhsIsScalar = computeOp.isScalarOperand(1);
+
+          int dstSlice = -1;
+          if (dstRegInPlace || rhsIsScalar) {
+            bool isUnaryOp = computeOp->getNumOperands() == 1;
+            bool isTileMatmul = mlir::isa<d2m::TileMatmulOp>(computeOp);
+            bool isReduction = mlir::isa<d2m::TileReduceMaxOp>(computeOp) ||
+                               mlir::isa<d2m::TileReduceSumOp>(computeOp);
+            assert(
+                (isUnaryOp || isTileMatmul || isReduction || rhsIsScalar) &&
+                "Only unary ops, tile matmul, reductions, and tile+scalar ops "
+                "supported for destination register in place.");
+            dstSlice = dstSliceAllocationState.getCurrSliceIndex();
+          } else {
+            dstSlice = dstSliceAllocationState.allocate();
+            dstSliceAllocationState.setStoreToDst();
+          }
+          collectDstLoadOrStore<memref::StoreOp>(gOp, scratchStore, copyInfos,
+                                                 dstSlice,
+                                                 outermostInnerComputeLoop);
         } else {
           // The consumer is another compute op, set or allocate an intermediate
           // DST slice for it.
@@ -877,6 +925,10 @@ public:
       createCopyLoop<affine::AffineStoreOp>(
           rewriter, loopNestOrOp, copyInfo.stores, storeAccessGenerator,
           storeAccessRewriter);
+
+      // Note: scratch stores are now affine::AffineStoreOp (after
+      // SpillAndScratch converts scf.for to affine.for), so they go through
+      // the regular stores path above with isScratchAccess detection.
     }
   }
 
@@ -926,6 +978,19 @@ public:
     }
 
     return rewriter.create<scf::IfOp>(loc, guard);
+  }
+
+  // Helper to get access map from load/store operations.
+  // Affine ops have getMap(), memref ops need an identity map.
+  template <typename LoadOrStoreTy>
+  static AffineMap getAccessMap(LoadOrStoreTy op, MLIRContext *ctx) {
+    if constexpr (std::is_same_v<LoadOrStoreTy, memref::StoreOp> ||
+                  std::is_same_v<LoadOrStoreTy, memref::LoadOp>) {
+      // memref ops don't have an affine map, use identity
+      return AffineMap::getMultiDimIdentityMap(op.getIndices().size(), ctx);
+    } else {
+      return op.getMap();
+    }
   }
 
   template <typename LoadOrStoreTy>
@@ -998,12 +1063,14 @@ public:
       auto loadStoreIndices = record.loadStore.getIndices();
       auto loadStoreMap = record.loadStore.getMap();
       auto loadStoreMemRefType = record.loadStore.getMemRefType();
+      bool isScratchAccess = isScratchMemref(record.loadStore.getMemref());
 
       // Generate the data copy loop for the load store.
       {
         auto [l1AccessMap, l1AccessIndices, dstAccessMap, dstAccessIndices] =
             buildIndices(rewriter, loadStoreLoc, irMapper, loadStoreIndices,
-                         record.dstSlice, loadStoreMap, loadStoreMemRefType);
+                         record.dstSlice, loadStoreMap, loadStoreMemRefType,
+                         isScratchAccess);
         dstAccessGenerator(rewriter, record, l1AccessMap, l1AccessIndices,
                            dstAccessMap, dstAccessIndices);
       }
@@ -1016,7 +1083,7 @@ public:
         auto [l1AccessMap, l1AccessIndices, dstAccessMap, dstAccessIndices] =
             buildIndices(rewriter, loadStoreLoc, dummyIRMapper,
                          loadStoreIndices, record.dstSlice, loadStoreMap,
-                         loadStoreMemRefType);
+                         loadStoreMemRefType, isScratchAccess);
         dstAccessRewriter(rewriter, record, dstAccessMap, dstAccessIndices);
       }
     }
@@ -1154,21 +1221,34 @@ public:
   //   tuple(l1AccessMap, l1AccessIndices, dstAccessMap, dstAccessIndices).
   // DST is a flat 1D array. For multi-tile CBs, we linearize the loop indices
   // to compute the DST slot: dstSlice + linearize(indices, shape).
+  // For scratch accesses (isScratchAccess=true), DST indices exclude all outer
+  // loop dimensions (scratch_space_loop + gap loops) and only linearize the
+  // inner DST working dimensions.
   static std::tuple<AffineMap, SmallVector<Value>, AffineMap,
                     SmallVector<Value>>
   buildIndices(PatternRewriter &rewriter, Location loc,
                const mlir::IRMapping &irMapper, ValueRange currentIndices,
-               int dstSlice, AffineMap map, MemRefType cbType) {
+               int dstSlice, AffineMap map, MemRefType cbType,
+               bool isScratchAccess = false) {
     AffineMap l1AccessMap = map;
     SmallVector<Value> l1AccessIndices =
         llvm::to_vector(llvm::map_range(currentIndices, [&](Value index) {
           return irMapper.lookupOrDefault(index);
         }));
 
-    // DST is a flat 1D array. Compute linearized index from loop variables.
-    // For CB shape [M, N] and indices (i, j): dst_index = dstSlice + i*N + j
+    // For scratch accesses, drop all outer loop indices (scratch_space_loop +
+    // gap loops) and use only the inner DST working dimensions for
+    // linearization. Use the trailing dimensions of cbShape accordingly.
     ArrayRef<int64_t> cbShape = cbType.getShape();
+    SmallVector<Value> dstOperands = l1AccessIndices;
     unsigned numDims = l1AccessIndices.size();
+
+    if (isScratchAccess && numDims > cbShape.size()) {
+      unsigned numOuterDims = numDims - cbShape.size();
+      dstOperands = SmallVector<Value>(l1AccessIndices.begin() + numOuterDims,
+                                       l1AccessIndices.end());
+      numDims = cbShape.size();
+    }
 
     if (numDims == 0 || cbShape.empty()) {
       // No indices or empty shape - use constant dstSlice.
@@ -1179,7 +1259,6 @@ public:
 
     // Build linearization expression: dstSlice + sum(index[i] * stride[i])
     // where stride[i] = product of cbShape[i+1..n-1]
-    SmallVector<AffineExpr> linearExprs;
     AffineExpr linearExpr =
         getAffineConstantExpr(dstSlice, rewriter.getContext());
 
@@ -1201,7 +1280,7 @@ public:
 
     AffineMap dstAccessMap =
         AffineMap::get(numDims, 0, linearExpr, rewriter.getContext());
-    return {l1AccessMap, l1AccessIndices, dstAccessMap, l1AccessIndices};
+    return {l1AccessMap, l1AccessIndices, dstAccessMap, dstOperands};
   }
 
   template <typename LoadStoreOpTy>
@@ -1243,12 +1322,22 @@ public:
         }
       }
 
+      // Check if this is a scratch load or store
+      bool isScratchAccess = false;
+      if constexpr (std::is_same_v<LoadStoreOpTy, affine::AffineStoreOp>) {
+        isScratchAccess = isScratchMemref(loadStore.getMemref());
+      } else if constexpr (std::is_same_v<LoadStoreOpTy,
+                                          affine::AffineLoadOp>) {
+        isScratchAccess = isScratchMemref(loadStore.getMemref());
+      }
+
       // Generate the data copy loop for the load store.
       {
         auto [l1AccessMap, l1AccessIndices, dstAccessMap, dstAccessIndices] =
             buildIndices(rewriter, loadStore.getLoc(), irMapper,
                          loadStore.getIndices(), dstSliceIndex,
-                         loadStore.getMap(), loadStore.getMemRefType());
+                         loadStore.getMap(), loadStore.getMemRefType(),
+                         isScratchAccess);
         loadStoreDstAccessGenerator(
             rewriter, loadStore.getLoc(), loadStore.getMemRef(), l1AccessMap,
             l1AccessIndices, dstAccessMap, dstAccessIndices);
@@ -1256,13 +1345,14 @@ public:
 
       // Replace the original load store with one from dst.
       {
-        // Empty IR mapper because we want to preserve original loop vars.
+        // Empty IR mapper because we want to preserve original load vars.
         mlir::IRMapping dummyIRMapper;
         rewriter.setInsertionPoint(loadStore);
         auto [l1AccessMap, l1AccessIndices, dstAccessMap, dstAccessIndices] =
             buildIndices(rewriter, loadStore.getLoc(), dummyIRMapper,
                          loadStore.getIndices(), dstSliceIndex,
-                         loadStore.getMap(), loadStore.getMemRefType());
+                         loadStore.getMap(), loadStore.getMemRefType(),
+                         isScratchAccess);
         dstAccessReplacement(rewriter, loadStore, dstAccessMap,
                              dstAccessIndices);
       }
@@ -1292,11 +1382,21 @@ public:
       // context.
       mlir::IRMapping emptyIRMapper;
 
+      // Check if this is a scratch load or store
+      bool isScratchAccess = false;
+      if constexpr (std::is_same_v<LoadStoreOpTy, affine::AffineStoreOp>) {
+        isScratchAccess = isScratchMemref(loadStore.getMemref());
+      } else if constexpr (std::is_same_v<LoadStoreOpTy,
+                                          affine::AffineLoadOp>) {
+        isScratchAccess = isScratchMemref(loadStore.getMemref());
+      }
+
       // Generate the dst access indices using the original loop variables.
       auto [l1AccessMap, l1AccessIndices, dstAccessMap, dstAccessIndices] =
           buildIndices(rewriter, loadStore.getLoc(), emptyIRMapper,
                        loadStore.getIndices(), dstSliceIndex,
-                       loadStore.getMap(), loadStore.getMemRefType());
+                       loadStore.getMap(), loadStore.getMemRefType(),
+                       isScratchAccess);
 
       // Set insertion point AT the original load/store, so new operations
       // are inserted BEFORE it.
