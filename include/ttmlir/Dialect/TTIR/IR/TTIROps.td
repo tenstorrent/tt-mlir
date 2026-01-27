@@ -5802,7 +5802,7 @@ def TTIR_TopKOp : TTIR_NamedOp<"top_k"> {
                        DefaultValuedAttr<BoolAttr, "true">:$sorted);
 
   let results = (outs AnyRankedTensor:$values,
-                 AnyRankedTensor:$indices);
+                      AnyRankedTensor:$indices);
 
   let hasVerifier = 1;
 }
