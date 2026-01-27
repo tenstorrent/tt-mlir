@@ -125,6 +125,7 @@ union OpType {
   AnnotateOp,
   BreakpointOp,
   MemorySnapshotOp,
+  TopKOp,
 }
 
 table Operation {
