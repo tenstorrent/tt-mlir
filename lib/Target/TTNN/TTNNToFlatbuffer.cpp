@@ -50,6 +50,7 @@
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
+#include <flatbuffers/stl_emulation.h>
 
 namespace mlir::tt::ttnn {
 
@@ -1014,6 +1015,18 @@ createOp(FlatbufferObjectCache &cache, Conv3dOp op) {
       op.getInputHeight(), op.getInputWidth(), kernelSize, stride, padding,
       paddingMode, op.getGroups(), outputDtype, conv3dConfig.value_or(0),
       computeConfig.value_or(0), memoryConfig);
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::MeshPartitionOp>
+createOp(FlatbufferObjectCache &cache, MeshPartitionOp op) {
+  auto input = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+  auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer);
+
+  auto memoryConfig = toFlatbuffer(cache, op.getMemoryConfig()).value_or(0);
+  return ::tt::target::ttnn::CreateMeshPartitionOp(
+      *cache.fbb, input, output, op.getDim(), op.getClusterAxis(),
+      memoryConfig);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::AllGatherOp>
@@ -3754,6 +3767,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto allGatherOp = dyn_cast<AllGatherOp>(op); allGatherOp) {
     return createOperation(cache, createOp(cache, allGatherOp), debugString,
+                           locInfo);
+  }
+  if (auto meshPartitionOp = dyn_cast<MeshPartitionOp>(op); meshPartitionOp) {
+    return createOperation(cache, createOp(cache, meshPartitionOp), debugString,
                            locInfo);
   }
   if (auto allReduceOp = dyn_cast<AllReduceOp>(op); allReduceOp) {
