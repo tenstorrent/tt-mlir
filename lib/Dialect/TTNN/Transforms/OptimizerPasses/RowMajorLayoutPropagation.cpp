@@ -193,6 +193,60 @@ private:
     return rmArgs;
   }
 
+  // Handles dtype conversion when backend dtype differs from IR tensor element
+  // type. Inserts a toLayout op with TILE layout (required for on-device
+  // typecast) to perform the dtype conversion. Returns true if conversion was
+  // inserted, indicating RM propagation should stop at this point.
+  bool handleDtypeConversionIfNeeded(Operation *user, IRRewriter &rewriter,
+                                     TTNNLayoutAttr rmOutputLayout,
+                                     Type backendDataType,
+                                     Type tensorElementType,
+                                     RankedTensorType userResultType) {
+    if (backendDataType == tensorElementType) {
+      return false; // No conversion needed
+    }
+
+    TTMLIR_DEBUG(ttmlir::LogComponent::RMPropagation,
+                 "Dtype mismatch detected at op {}: backend dtype {} != "
+                 "tensor element type {}. Inserting toLayout op.",
+                 ttmlir::opToString(user), backendDataType, tensorElementType);
+
+    // First, set the operation's result type to match what the backend
+    // actually produces (with backend's dtype in the layout)
+    RankedTensorType backendResultType = RankedTensorType::get(
+        userResultType.getShape(), backendDataType, rmOutputLayout);
+    user->getResult(0).setType(backendResultType);
+
+    rewriter.setInsertionPointAfter(user);
+
+    // Create layout with TILE (required for on-device typecast) and the
+    // original tensor element type. TTNNDecomposeLayouts requires TILE
+    // layout for on-device dtype conversion; ROW_MAJOR would force a
+    // host round-trip (from_device → to_dtype → to_device).
+    TTNNLayoutAttr correctedLayout = rmOutputLayout.withElementType(
+        tensorElementType, userResultType.getShape());
+    TTNNLayoutAttr tileLayout =
+        correctedLayout.withLayout(Layout::Tile, userResultType.getShape());
+
+    // Create toLayout op using TILE layout for dtype conversion
+    auto toLayoutOp = utils::createToLayoutOp(
+        user,
+        mlir::cast<mlir::TypedValue<RankedTensorType>>(user->getResult(0)),
+        rewriter, tileLayout.getLayout(), tileLayout.getBufferType(),
+        tileLayout.getMemLayout(), tileLayout.getDataType(),
+        "_dtype_conversion");
+
+    // Replace all uses (except the toLayout itself)
+    user->getResult(0).replaceAllUsesExcept(toLayoutOp.getResult(), toLayoutOp);
+
+    TTMLIR_DEBUG(ttmlir::LogComponent::RMPropagation,
+                 "Inserted toLayout op (TILE) after {} to convert {} -> "
+                 "{}. Stopping RM propagation.",
+                 ttmlir::opToString(user), backendDataType, tensorElementType);
+
+    return true; // Conversion inserted, stop RM propagation
+  }
+
   // Propagates RowMajor layout through the function starting from the given
   // argument values. Updates the operation result types in-place. Stops when
   // reaching operations that return Tiled layouts. Inserts ToLayoutOps before
@@ -234,61 +288,14 @@ private:
         RankedTensorType userResultType =
             mlir::cast<RankedTensorType>(user->getResult(0).getType());
 
-        // RM pass takes layout from backend (OpModel API), which can introduce
-        // dtype discrepancies (e.g., tt-metal's argmax returns ui32 while IR
-        // expects si32). When detected, insert a toLayout op to handle the
-        // conversion explicitly. This ensures the mismatch doesn't go unchecked
-        // and maintains consistency with optimizer_level=0 behavior. The
-        // toLayout will later be converted to typecast in the pipeline.
         Type backendDataType = rmOutputLayout->getScalarElementType();
         Type tensorElementType = userResultType.getElementType();
 
-        // Check if we need to insert a dtype conversion via toLayout op
-        if (backendDataType != tensorElementType) {
-          TTMLIR_DEBUG(ttmlir::LogComponent::RMPropagation,
-                       "Dtype mismatch detected at op {}: backend dtype {} != "
-                       "tensor element type {}. Inserting toLayout op.",
-                       ttmlir::opToString(user), backendDataType,
-                       tensorElementType);
-
-          // First, set the operation's result type to match what the backend
-          // actually produces (with backend's dtype in the layout)
-          RankedTensorType backendResultType = RankedTensorType::get(
-              userResultType.getShape(), backendDataType, rmOutputLayout.get());
-          user->getResult(0).setType(backendResultType);
-
-          rewriter.setInsertionPointAfter(user);
-
-          // Create layout with TILE (required for on-device typecast) and the
-          // original tensor element type. TTNNDecomposeLayouts requires TILE
-          // layout for on-device dtype conversion; ROW_MAJOR would force a
-          // host round-trip (from_device → to_dtype → to_device).
-          TTNNLayoutAttr correctedLayout = rmOutputLayout->withElementType(
-              tensorElementType, userResultType.getShape());
-          TTNNLayoutAttr tileLayout = correctedLayout.withLayout(
-              Layout::Tile, userResultType.getShape());
-
-          // Create toLayout op using TILE layout for dtype conversion
-          auto toLayoutOp = utils::createToLayoutOp(
-              user,
-              mlir::cast<mlir::TypedValue<RankedTensorType>>(
-                  user->getResult(0)),
-              rewriter, tileLayout.getLayout(), tileLayout.getBufferType(),
-              tileLayout.getMemLayout(), tileLayout.getDataType(),
-              "_dtype_conversion");
-
-          // Replace all uses (except the toLayout itself)
-          user->getResult(0).replaceAllUsesExcept(toLayoutOp.getResult(),
-                                                  toLayoutOp);
-
-          TTMLIR_DEBUG(ttmlir::LogComponent::RMPropagation,
-                       "Inserted toLayout op (TILE) after {} to convert {} -> "
-                       "{}. Stopping RM propagation.",
-                       ttmlir::opToString(user), backendDataType,
-                       tensorElementType);
-
-          // Stop RM propagation here since we've converted to TILE layout
-          continue;
+        // Handle dtype conversion if backend dtype differs from IR element type
+        if (handleDtypeConversionIfNeeded(user, rewriter, rmOutputLayout.get(),
+                                          backendDataType, tensorElementType,
+                                          userResultType)) {
+          continue; // Stop RM propagation (converted to TILE)
         }
 
         // No dtype mismatch, continue propagating with RM layout
