@@ -1161,15 +1161,36 @@ insertTTNNDRAMStreams(d2m::GenericOp genericOp,
     // already streamed, but the cast back to ttnn silently erases the index
     // map. Instead, we just forward the already streamed metal tensor to the
     // current generic.
+
     auto castOp = operand.getDefiningOp<ttir::TTNNMetalLayoutCastOp>();
+
     TT_assertv(
         castOp,
         "If one d2m.generic operand is from TTNN, they must all be from TTNN.");
+    // Replace all uses of oldVal with newVal that belong to this generic
+    // (this op's operand at operandIdx and any use inside this op's regions).
+    auto replaceUsesInThisGeneric = [&](Value oldVal, Value newVal,
+                                        unsigned opIdx) {
+      for (OpOperand &use : llvm::make_early_inc_range(oldVal.getUses())) {
+        Operation *owner = use.getOwner();
+        if (owner == genericOp.getOperation()) {
+          if (use.getOperandNumber() == opIdx) {
+            use.set(newVal);
+          }
+          continue;
+        }
+        for (Region &region : genericOp->getRegions()) {
+          if (region.isAncestor(owner->getParentRegion())) {
+            use.set(newVal);
+            break;
+          }
+        }
+      }
+    };
     auto producerCastOp =
         castOp.getInput().getDefiningOp<ttir::TTNNMetalLayoutCastOp>();
     if (producerCastOp) {
-      castOp.getResult().replaceAllUsesExcept(producerCastOp.getInput(),
-                                              producerCastOp);
+      replaceUsesInThisGeneric(operand, producerCastOp.getInput(), operandIdx);
       continue;
     }
 
@@ -1212,7 +1233,7 @@ insertTTNNDRAMStreams(d2m::GenericOp genericOp,
         builder.create<d2m::EmptyOp>(castOp.getLoc(), storageTensor);
     auto streamOp = builder.create<d2m::StreamLayoutOp>(
         castOp.getLoc(), streamOutputTensor, castOp.getResult(), storageOp);
-    castOp.getResult().replaceAllUsesExcept(streamOp.getResult(), streamOp);
+    replaceUsesInThisGeneric(operand, streamOp.getResult(), operandIdx);
   }
 
   TT_assertv(llvm::all_of(optimalOperandGrids,
@@ -1254,6 +1275,69 @@ static void assignGrids(d2m::GenericOp genericOp,
   recreateGenericOp(genericOp, optimalOperandGrids);
 }
 
+// Walk SpatialOps and record each GenericOp found inside a region with its
+// target grid shape from that region's grid_ranges. Fills \p
+// genericOpToTargetGridShape for use by assignGrids.
+static void searchGenericOpsInSpatialOps(
+    ModuleOp module, llvm::DenseMap<Operation *, llvm::SmallVector<int64_t, 2>>
+                         &genericOpToTargetGridShape) {
+  module.walk([&](d2m::SpatialOp spatialOp) {
+    auto coreRanges = spatialOp.getGridRanges().getCoreRanges();
+    for (auto [regionIndex, region] :
+         llvm::enumerate(spatialOp->getRegions())) {
+      if (region.empty() || regionIndex >= coreRanges.size()) {
+        continue;
+      }
+      ttcore::CoreRangeAttr coreRange = coreRanges[regionIndex];
+      int64_t sizeY =
+          coreRange.getEndCoord().getY() - coreRange.getStartCoord().getY() + 1;
+      int64_t sizeX =
+          coreRange.getEndCoord().getX() - coreRange.getStartCoord().getX() + 1;
+      llvm::SmallVector<int64_t, 2> targetGridShape = {sizeY, sizeX};
+      auto genericOps = region.front().getOps<d2m::GenericOp>();
+      if (genericOps.empty()) {
+        continue;
+      }
+      d2m::GenericOp genericOp = *genericOps.begin();
+      genericOpToTargetGridShape.try_emplace(genericOp.getOperation(),
+                                             targetGridShape);
+    }
+  });
+}
+
+// Rebuild d2m.spatial's ins and outs from the operands actually used by
+// d2m.generic ops in each region, and set result types from the collected outs.
+// This is done after all generic processing (e.g. insertTTNNDRAMStreams) so
+// that when one logical input is split into multiple stream_layout results per
+// region, the spatial's operand list reflects all of them. Order: for each
+// region in order, collect that region's generic(s) inputs then outputs;
+// spatial's ins = all those inputs, spatial's outs = all those outputs.
+// Result types are set from the types of the collected outs (same order).
+static void reconstructSpatialOperands(d2m::SpatialOp spatialOp) {
+  llvm::SmallVector<mlir::Value> inputs;
+  llvm::SmallVector<mlir::Value> outputs;
+  for (Region &region : spatialOp->getRegions()) {
+    if (region.empty()) {
+      continue;
+    }
+    for (d2m::GenericOp genericOp : region.front().getOps<d2m::GenericOp>()) {
+      for (mlir::Value v : genericOp.getInputs()) {
+        inputs.push_back(v);
+      }
+      for (mlir::Value v : genericOp.getOutputs()) {
+        outputs.push_back(v);
+      }
+    }
+  }
+  spatialOp.getInputsMutable().assign(inputs);
+  spatialOp.getOutputsMutable().assign(outputs);
+  if (spatialOp->getNumResults() == outputs.size()) {
+    for (auto [result, outVal] : llvm::zip(spatialOp->getResults(), outputs)) {
+      result.setType(outVal.getType());
+    }
+  }
+}
+
 // ----------------------------------------------------------------------------
 // Pass implementation
 // ----------------------------------------------------------------------------
@@ -1276,16 +1360,32 @@ public:
   void runOnOperation() override {
     ModuleOp module = getOperation();
 
-    llvm::SmallVector<int64_t> targetGridShape = getTargetGridShape();
-    llvm::SmallVector<int64_t> targetSquareGridShape =
-        d2m::utils::getSquareTargetGrid(targetGridShape);
+    llvm::DenseMap<Operation *, llvm::SmallVector<int64_t, 2>>
+        genericOpToTargetGridShape;
+    searchGenericOpsInSpatialOps(module, genericOpToTargetGridShape);
+
+    llvm::SmallVector<int64_t> defaultTargetGridShape = getTargetGridShape();
 
     module.walk([&](d2m::GenericOp genericOp) {
       // Skip explicit datamovement form - users manage grids manually
       if (genericOp.isExplicitDatamovementForm()) {
         return;
       }
+      ArrayRef<int64_t> targetGridShape = defaultTargetGridShape;
+      auto it = genericOpToTargetGridShape.find(genericOp.getOperation());
+      if (it != genericOpToTargetGridShape.end()) {
+        targetGridShape = it->second;
+      }
+      llvm::SmallVector<int64_t> targetSquareGridShape =
+          d2m::utils::getSquareTargetGrid(targetGridShape);
       assignGrids(genericOp, targetGridShape, targetSquareGridShape);
+    });
+
+    // Rebuild each SpatialOp's ins/outs from the operands actually used by
+    // generics in its regions (e.g. after stream_layout splits one cast into
+    // multiple operands per region).
+    module.walk([&](d2m::SpatialOp spatialOp) {
+      reconstructSpatialOperands(spatialOp);
     });
   }
 
