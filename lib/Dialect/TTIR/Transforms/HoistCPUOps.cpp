@@ -105,82 +105,6 @@ convertTensorType(mlir::RankedTensorType tensorType) {
   return tensorType;
 }
 
-// Helper function to convert constant value attributes to CPU-compatible types.
-// This is needed because when we convert the result type of a constant op,
-// we also need to convert the underlying data in the value attribute.
-static void convertConstantOpValue(mlir::Operation *op) {
-  auto constantOp = mlir::dyn_cast<ttir::ConstantOp>(op);
-  if (!constantOp) {
-    return;
-  }
-
-  auto valueAttr = constantOp.getValue();
-  auto denseAttr = mlir::dyn_cast<mlir::DenseElementsAttr>(valueAttr);
-  if (!denseAttr) {
-    return;
-  }
-
-  auto originalType =
-      mlir::dyn_cast<mlir::RankedTensorType>(denseAttr.getType());
-  if (!originalType) {
-    return;
-  }
-
-  auto convertedType = convertTensorType(originalType);
-
-  // No conversion needed if types are the same.
-  if (originalType == convertedType) {
-    return;
-  }
-
-  auto originalElementType = originalType.getElementType();
-  auto convertedElementType = convertedType.getElementType();
-
-  mlir::DenseElementsAttr convertedAttr;
-
-  // Handle float to float conversion (e.g., f64 -> f32).
-  if (mlir::isa<mlir::FloatType>(originalElementType) &&
-      mlir::isa<mlir::FloatType>(convertedElementType)) {
-    llvm::SmallVector<float> convertedValues;
-    for (auto value : denseAttr.getValues<mlir::APFloat>()) {
-      bool losesInfo = false;
-      mlir::APFloat converted = value;
-      converted.convert(mlir::APFloat::IEEEsingle(),
-                        mlir::APFloat::rmNearestTiesToEven, &losesInfo);
-      convertedValues.push_back(converted.convertToFloat());
-    }
-    convertedAttr = mlir::DenseElementsAttr::get(
-        convertedType, llvm::ArrayRef<float>(convertedValues));
-  }
-  // Handle integer to integer conversion (e.g., i64 -> i32, i1 -> i32).
-  else if (mlir::isa<mlir::IntegerType>(originalElementType) &&
-           mlir::isa<mlir::IntegerType>(convertedElementType)) {
-    auto convertedIntType = mlir::cast<mlir::IntegerType>(convertedElementType);
-    unsigned targetBitWidth = convertedIntType.getWidth();
-
-    llvm::SmallVector<mlir::APInt> convertedValues;
-    for (auto value : denseAttr.getValues<mlir::APInt>()) {
-      // Truncate or extend to target bit width.
-      mlir::APInt converted;
-      if (value.getBitWidth() > targetBitWidth) {
-        converted = value.trunc(targetBitWidth);
-      } else if (value.getBitWidth() < targetBitWidth) {
-        // Use sign extension for signed types, zero extension otherwise.
-        converted = value.sext(targetBitWidth);
-      } else {
-        converted = value;
-      }
-      convertedValues.push_back(converted);
-    }
-    convertedAttr = mlir::DenseElementsAttr::get(
-        convertedType, llvm::ArrayRef<mlir::APInt>(convertedValues));
-  }
-
-  if (convertedAttr) {
-    constantOp.setValueAttr(convertedAttr);
-  }
-}
-
 // Helper function to convert input arguments to CPU-compatible types,
 // inserting conversion ops as needed.
 static ValuesVectorType
@@ -365,9 +289,6 @@ static func::FuncOp createCPUHoistedFunctionDefinition(
         result.setType(convertedTensorType);
       }
     }
-
-    // Convert constant op value attributes to match the converted result type.
-    convertConstantOpValue(clonedOp);
 
     // Check if this is the output producing op. If it is, keep track of it
     // for later.
