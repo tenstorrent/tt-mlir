@@ -1369,14 +1369,10 @@ public:
       nnzAttr = rewriter.getI64IntegerAttr(*nnz);
     }
 
-    // Note: TT-Metal sparse_matmul requires sparsity tensor in ROW_MAJOR layout
-    // This conversion is handled in the runtime (matmul.cpp) since device-to-device
-    // layout conversion is complex at the dialect level.
-
     rewriter.replaceOpWithNewOp<ttnn::SparseMatmulOp>(
-        op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getA(), adaptor.getB(), adaptor.getSparsity(),
-        op.getIsInputASparse(), op.getIsInputBSparse(), nnzAttr,
+        op, this->getTypeConverter()->convertType(op.getType()), adaptor.getA(),
+        adaptor.getB(), adaptor.getSparsity(), op.getIsInputASparse(),
+        op.getIsInputBSparse(), nnzAttr,
         /*program_config=*/nullptr,
         /*memory_config=*/nullptr,
         /*dtype=*/nullptr,

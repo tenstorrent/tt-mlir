@@ -5682,7 +5682,8 @@ mlir::tt::ttir::PagedScaledDotProductAttentionDecodeOp::verify() {
 
   // Verify inner dimensions match
   if (inputAType.getShape()[inputAType.getRank() - 1] != K) {
-    return emitOpError("Input A inner dimension must match Input B K dimension");
+    return emitOpError(
+        "Input A inner dimension must match Input B K dimension");
   }
 
   // Verify sparsity tensor has correct number of experts

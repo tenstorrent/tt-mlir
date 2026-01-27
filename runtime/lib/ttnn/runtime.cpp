@@ -1893,7 +1893,7 @@ submit(Device deviceHandle, Binary executableHandle, std::uint32_t programIndex,
       ::tt::runtime::MemoryLogLevel::Program,
       "Device memory state after submit");
 #endif
-  
+
   return outputTensors;
 }
 

@@ -1578,6 +1578,12 @@ def TTNN_SparseMatmulOp : TTNN_Op<"sparse_matmul"> {
 
     let results = (outs AnyRankedTensor:$result);
 
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::createSparseMatmulOpOperandsWorkarounds();
+      }
+    }];
+
     let hasVerifier = 1;
 }
 
