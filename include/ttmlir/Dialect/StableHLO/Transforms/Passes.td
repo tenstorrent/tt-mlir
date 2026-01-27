@@ -108,6 +108,37 @@ def ConvertXlaSdyToSdyPass : Pass<"convert-xla-sdy-to-sdy", "::mlir::ModuleOp">
   ];
 }
 
+def ConvertSdyConstToStableHLOConstPass : Pass<"convert-sdy-const-to-stablehlo-const", "::mlir::ModuleOp">
+{
+  let summary = "Convert sdy.constant operations to stablehlo.constant operations.";
+  let description = [{
+    This pass converts all sdy.constant operations to stablehlo.constant operations.
+    This is needed because tt-xla may receive graphs from XLA containing sdy.constant
+    operations, but tt-mlir does not need or handle sdy.constant operations.
+
+    Example, this pass will convert the following code:
+    ```mlir
+    func.func @main() -> tensor<2x3xf32> {
+      %0 = sdy.constant dense<[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]> : tensor<2x3xf32>
+      return %0 : tensor<2x3xf32>
+    }
+    ```
+
+    Into:
+    ```mlir
+    func.func @main() -> tensor<2x3xf32> {
+      %0 = stablehlo.constant dense<[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]> : tensor<2x3xf32>
+      return %0 : tensor<2x3xf32>
+    }
+    ```
+  }];
+
+  let dependentDialects = [
+    "::mlir::stablehlo::StablehloDialect",
+    "::mlir::sdy::SdyDialect"
+  ];
+}
+
 
 def AnalyzeMeshPass : Pass<"analyze-mesh", "::mlir::ModuleOp">
 {

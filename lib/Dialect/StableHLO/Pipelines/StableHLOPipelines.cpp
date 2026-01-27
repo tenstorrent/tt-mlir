@@ -27,6 +27,9 @@ void createStableHLOPipeline(OpPassManager &pm,
 
   // Annotate arguments with whether they are already pre-sharded or not.
   pm.addPass(createApplyArgumentShardStatusPass());
+  
+  // Convert any sdy.constant ops to stablehlo.constant ops.
+  pm.addPass(createConvertSdyConstToStableHLOConstPass());
 
   // Analyze the mesh of the graph and update shardings or annotations to match
   // the target device.
