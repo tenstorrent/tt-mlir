@@ -103,13 +103,48 @@ struct ConstEvalAnalysisResults {
 } // namespace
 
 namespace {
+
+// DRAM budget for const-eval in bytes.
+// Wormhole has ~12GB DRAM, we use 2/3 (~8GB) as budget for const-eval
+// to leave room for activations and other runtime allocations.
+constexpr int64_t kConstEvalDramBudgetBytes = 0ll * 1024 * 1024 * 1024; // 8GB
+
+// Helper to estimate tensor size in bytes from a ranked tensor type.
+static int64_t getTensorSizeInBytes(mlir::Type type) {
+  auto tensorType = mlir::dyn_cast<mlir::RankedTensorType>(type);
+  if (!tensorType || !tensorType.hasStaticShape()) {
+    return 0;
+  }
+
+  int64_t numElements = 1;
+  for (int64_t dim : tensorType.getShape()) {
+    numElements *= dim;
+  }
+
+  // Get element size in bytes
+  mlir::Type elemType = tensorType.getElementType();
+  int64_t elemSizeBytes = 1;
+  if (elemType.isF32() || elemType.isInteger(32)) {
+    elemSizeBytes = 4;
+  } else if (elemType.isF64() || elemType.isInteger(64)) {
+    elemSizeBytes = 8;
+  } else if (elemType.isF16() || elemType.isBF16() || elemType.isInteger(16)) {
+    elemSizeBytes = 2;
+  } else if (elemType.isInteger(8)) {
+    elemSizeBytes = 1;
+  }
+
+  return numElements * elemSizeBytes;
+}
+
 // Analyzer class to detect const-eval subgraphs in a given FuncOp using
 // a Disjoint Subset Union algorithm.
 class ConstEvalAnalyze {
 public:
   ConstEvalAnalyze(func::FuncOp funcOp)
       : funcOp(funcOp),
-        constParams(mlir::tt::ttcore::getConstsAndParams(funcOp)) {
+        constParams(mlir::tt::ttcore::getConstsAndParams(funcOp)),
+        accumulatedConstEvalBytes(0) {
     buildConstEvalSubgraphs();
   }
 
@@ -193,6 +228,18 @@ private:
       return;
     }
 
+    // Check DRAM budget before adding to const-eval.
+    // Estimate the output tensor size and check against budget.
+    int64_t opOutputBytes = 0;
+    for (auto result : op->getResults()) {
+      opOutputBytes += getTensorSizeInBytes(result.getType());
+    }
+
+    if (accumulatedConstEvalBytes + opOutputBytes > kConstEvalDramBudgetBytes) {
+      // Budget exceeded - skip this op from const-eval
+      return;
+    }
+
     auto operandConstEval = [&](mlir::Value operand) {
       if (auto blockArg = mlir::dyn_cast<mlir::BlockArgument>(operand)) {
         return constParams.contains(blockArg);
@@ -213,6 +260,9 @@ private:
     // Initialize DSU entries for results.
     llvm::for_each(op->getResults(),
                    [&](mlir::Value result) { dsu.init(result); });
+
+    // Update accumulated const-eval size.
+    accumulatedConstEvalBytes += opOutputBytes;
 
     // Union all operands and results except for block arguments and shared ops.
     llvm::SmallVector<mlir::Value> graphsToJoin;
@@ -251,6 +301,9 @@ private:
 
   // Set of ops which every subgraph + original graph must duplicate.
   llvm::SmallVector<mlir::Operation *, 1> sharedOps;
+
+  // Accumulated size of const-eval tensors in bytes for DRAM budget tracking.
+  int64_t accumulatedConstEvalBytes;
 };
 } // namespace
 
