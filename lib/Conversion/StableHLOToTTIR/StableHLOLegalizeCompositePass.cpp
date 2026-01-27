@@ -330,7 +330,7 @@ public:
         shardyMeshSharding =
             mlir::tt::shardy_utils::ShardyMeshSharding::generate(
                 globalMeshOp.getMeshAttr(), outShardingAttr,
-                mlir::tt::ttcore::ShardStatus::Unsharded,
+                mlir::tt::ttcore::ShardStatus::Presharded,
                 ttcore::MeshShardDirection::FullToShard);
     if (auto err = shardyMeshSharding.takeError()) {
       return rewriter.notifyMatchFailure(
