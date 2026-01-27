@@ -8,7 +8,6 @@
 
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
-#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
@@ -26,7 +25,7 @@ static bool isTileComputeOp(Operation *op) {
 }
 
 /// Find the innermost affine.for loop with d2m.linalg_root attribute
-static affine::AffineForOp findLinalgRootLoop(scf::ForOp scratchLoop) {
+static affine::AffineForOp findLinalgRootLoop(affine::AffineForOp scratchLoop) {
   affine::AffineForOp result = nullptr;
   scratchLoop.getBody()->walk([&](affine::AffineForOp forOp) {
     if (forOp->hasAttr("d2m.linalg_root")) {
@@ -71,12 +70,13 @@ static void analyzeComputeDAG(affine::AffineForOp rootLoop,
   });
 }
 
-/// Pattern to match scf.for loops with d2m.scratch_space_loop attribute
+/// Pattern to match affine.for loops with d2m.scratch_space_loop attribute
 /// and insert scratch allocations with spill/reload stores.
-struct InsertSpillAndScratchPattern : public OpRewritePattern<scf::ForOp> {
-  using OpRewritePattern<scf::ForOp>::OpRewritePattern;
+struct InsertSpillAndScratchPattern
+    : public OpRewritePattern<affine::AffineForOp> {
+  using OpRewritePattern<affine::AffineForOp>::OpRewritePattern;
 
-  LogicalResult matchAndRewrite(scf::ForOp forOp,
+  LogicalResult matchAndRewrite(affine::AffineForOp forOp,
                                 PatternRewriter &rewriter) const final {
     // Only match loops tagged with d2m.scratch_space_loop
     if (!forOp->hasAttr("d2m.scratch_space_loop")) {
@@ -137,10 +137,26 @@ struct InsertSpillAndScratchPattern : public OpRewritePattern<scf::ForOp> {
       affineLoopNest.push_back(innerFor);
     });
 
-    // Determine scratch buffer shape from the affine loop bounds
-    // This creates a 2D shape matching the CB subview shapes (e.g., [1, 8])
+    // Determine scratch buffer shape from ALL loop bounds:
+    // 1. The outer affine.for (scratch_space_loop) - determines how many
+    //    DST-sized chunks we need to hold (e.g., 2 iterations = 2x DST)
+    // 2. The inner affine loops - determines the shape of each chunk
     SmallVector<int64_t> scratchShape;
     SmallVector<Value> loopIndices;
+
+    // First, include the scratch_space_loop (forOp) bounds
+    // This ensures scratch holds data from ALL iterations, not just one
+    if (!forOp.hasConstantBounds()) {
+      return failure();
+    }
+    int64_t lower = forOp.getConstantLowerBound();
+    int64_t upper = forOp.getConstantUpperBound();
+    int64_t step = forOp.getStepAsInt();
+    int64_t numIterations = (upper - lower) / step;
+    scratchShape.push_back(numIterations);
+    loopIndices.push_back(forOp.getInductionVar());
+
+    // Then add the inner affine loop bounds
     for (auto loopOp : affineLoopNest) {
       // Get the constant loop bounds
       if (!loopOp.hasConstantBounds()) {
@@ -173,7 +189,9 @@ struct InsertSpillAndScratchPattern : public OpRewritePattern<scf::ForOp> {
       scratchBuffers.push_back(scratch.getResult());
     }
 
-    // Insert spill stores after each leaf op
+    // Insert spill stores after each leaf op using affine.store.
+    // The scratch_space_loop now uses affine loops, so indices are valid
+    // affine dimension IDs.
     for (auto [leafOp, slot] :
          llvm::zip(leafOps, llvm::seq<unsigned>(0, leafOps.size()))) {
       Value leafResult = leafOp->getResult(0);
@@ -195,6 +213,7 @@ struct InsertSpillAndScratchPattern : public OpRewritePattern<scf::ForOp> {
     }
 
     // For each parent op, reload the operands that came from leaf ops
+    // using affine.load (indices are now valid affine dimension IDs).
     for (Operation *parentOp : parentOps) {
       rewriter.setInsertionPoint(parentOp);
 
