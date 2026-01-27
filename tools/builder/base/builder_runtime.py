@@ -685,9 +685,9 @@ def execute_fb(
     )
     output_tensors = {}
     golden_report = {}
-    verify_intermediates = enable_intermediate_verification or len(bypass_ops) > 0
     if bypass_ops is None:
         bypass_ops = []
+    verify_intermediates = enable_intermediate_verification or len(bypass_ops) > 0
     if input_output_goldens is None:
         disable_golden = True
 
