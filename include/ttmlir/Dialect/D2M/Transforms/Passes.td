@@ -91,7 +91,11 @@ def D2MGenericTileComputeLoops : Pass<"d2m-generic-tile-compute-loops", "::mlir:
            "Enable two-phase tiling: first to 2×DST, then to 1×DST. Used for FPU fusion with L1 scratch spilling.">,
   ];
 
-  let dependentDialects = ["mlir::tt::d2m::D2MDialect"];
+  let dependentDialects = [
+    "mlir::tt::d2m::D2MDialect",
+    "::mlir::affine::AffineDialect",
+    "::mlir::scf::SCFDialect"
+  ];
 }
 
 def D2MSpillAndScratch : Pass<"d2m-spill-and-scratch", "::mlir::ModuleOp"> {
@@ -100,7 +104,7 @@ def D2MSpillAndScratch : Pass<"d2m-spill-and-scratch", "::mlir::ModuleOp"> {
     This pass transforms compute regions marked with `d2m.scratch_space_loop` to
     insert L1 scratchpad spilling for intermediate results. It performs:
 
-    1. **Loop Identification**: Finds `scf.for` loops tagged with the
+    1. **Loop Identification**: Finds `affine.for` loops tagged with the
        `d2m.scratch_space_loop` attribute (inserted by the two-phase tiling pass).
 
     2. **Compute DAG Analysis**: Identifies leaf ops (whose results are consumed
@@ -121,7 +125,7 @@ def D2MSpillAndScratch : Pass<"d2m-spill-and-scratch", "::mlir::ModuleOp"> {
     Example transformation:
     ```mlir
     // Before (post linalg-to-affine):
-    scf.for %i = ... {d2m.scratch_space_loop} {
+    affine.for %i = ... {d2m.scratch_space_loop} {
       affine.for ... {
         %a = affine.load %input0[...]
         %b = affine.load %input1[...]
@@ -139,7 +143,7 @@ def D2MSpillAndScratch : Pass<"d2m-spill-and-scratch", "::mlir::ModuleOp"> {
     // After:
     %scratch0 = d2m.scratch_allocate {num_tiles = 2} : memref<2x!ttcore.tile<...>, #l1>
     %scratch1 = d2m.scratch_allocate {num_tiles = 2} : memref<2x!ttcore.tile<...>, #l1>
-    scf.for %i = ... {d2m.scratch_space_loop} {
+    affine.for %i = ... {d2m.scratch_space_loop} {
       affine.for ... {
         %a = affine.load %input0[...]
         %b = affine.load %input1[...]
@@ -164,7 +168,6 @@ def D2MSpillAndScratch : Pass<"d2m-spill-and-scratch", "::mlir::ModuleOp"> {
 
   let dependentDialects = [
     "::mlir::tt::d2m::D2MDialect",
-    "::mlir::scf::SCFDialect",
     "::mlir::affine::AffineDialect",
     "::mlir::memref::MemRefDialect"
   ];
@@ -188,7 +191,7 @@ def D2MFPUScratchFission : Pass<"d2m-fpu-scratch-fission", "::mlir::ModuleOp"> {
     Example transformation:
     ```mlir
     // Before (single loop with spill/reload):
-    scf.for %i = ... {d2m.scratch_space_loop} {
+    affine.for %i = ... {d2m.scratch_space_loop} {
       affine.for ... {
         %c = affine.load %input_c[...]
         %d = affine.load %input_d[...]
@@ -208,7 +211,7 @@ def D2MFPUScratchFission : Pass<"d2m-fpu-scratch-fission", "::mlir::ModuleOp"> {
     }
 
     // After (three separate loop nests):
-    scf.for %i = ... {d2m.scratch_space_loop} {
+    affine.for %i = ... {d2m.scratch_space_loop} {
       affine.for ... {
         %c = affine.load %input_c[...]
         %d = affine.load %input_d[...]
@@ -216,7 +219,7 @@ def D2MFPUScratchFission : Pass<"d2m-fpu-scratch-fission", "::mlir::ModuleOp"> {
         affine.store %E, %scratch0[...]
       }
     }
-    scf.for %i = ... {d2m.scratch_space_loop} {
+    affine.for %i = ... {d2m.scratch_space_loop} {
       affine.for ... {
         %a = affine.load %input_a[...]
         %b = affine.load %input_b[...]
@@ -224,7 +227,7 @@ def D2MFPUScratchFission : Pass<"d2m-fpu-scratch-fission", "::mlir::ModuleOp"> {
         affine.store %F, %scratch1[...]
       }
     }
-    scf.for %i = ... {d2m.scratch_space_loop} {
+    affine.for %i = ... {d2m.scratch_space_loop} {
       affine.for ... {
         %E_reload = affine.load %scratch0[...]
         %F_reload = affine.load %scratch1[...]
@@ -237,9 +240,7 @@ def D2MFPUScratchFission : Pass<"d2m-fpu-scratch-fission", "::mlir::ModuleOp"> {
 
   let dependentDialects = [
     "::mlir::tt::d2m::D2MDialect",
-    "::mlir::scf::SCFDialect",
-    "::mlir::affine::AffineDialect",
-    "::mlir::memref::MemRefDialect"
+    "::mlir::affine::AffineDialect"
   ];
 }
 
