@@ -4622,74 +4622,65 @@ public:
   matchAndRewrite(mlir::stablehlo::ScatterOp srcOp,
                   mlir::stablehlo::ScatterOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    auto outputType = mlir::cast<RankedTensorType>(
-        this->getTypeConverter()->convertType(srcOp.getResults()[0].getType()));
 
-    // Convert reduceType stablehlo attribute into ttir attribute
+    if (LogicalResult result = checkBasicLegality(srcOp, adaptor, rewriter);
+        !result.succeeded()) {
+      return result;
+    }
+
+    // Convert reduceType stablehlo attribute into ttir attribute.
     llvm::ErrorOr<ttcore::ReduceType> scatterReduceType = getReduceType(srcOp);
     if (!scatterReduceType) {
       return rewriter.notifyMatchFailure(
           srcOp, "ScatterOp cannot specify reduce type.");
     }
 
-    auto scatterDimsToOperandDims =
-        adaptor.getScatterDimensionNumbers().getScatterDimsToOperandDims();
-
-    LogicalResult legalityResult = checkBasicLegality(srcOp, adaptor, rewriter);
-    if (!legalityResult.succeeded()) {
-      return legalityResult;
-    }
-
     Value inputTensor = srcOp.getInputs()[0];
     Value updateTensor = srcOp.getUpdates()[0];
+    auto scatterDimsToOperandDims =
+        adaptor.getScatterDimensionNumbers().getScatterDimsToOperandDims();
     RankedTensorType inputType =
         mlir::cast<RankedTensorType>(inputTensor.getType());
     ArrayRef<int64_t> inputShape = inputType.getShape();
+    RankedTensorType outputType = mlir::cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(srcOp.getResults()[0].getType()));
 
     // Single-dimensional scatter.
     if (scatterDimsToOperandDims.size() == 1) {
-      int32_t dim = scatterDimsToOperandDims[0];
-
       // Process indices to match update tensor shape.
+      int32_t dim = scatterDimsToOperandDims[0];
       Value finalIndexTensor =
           extractElementWiseScatterIndices(srcOp, rewriter);
-
-      auto dimAttr = rewriter.getI32IntegerAttr(dim);
-      auto reduceTypeAttr = ttcore::ReduceTypeAttr::get(rewriter.getContext(),
-                                                        *scatterReduceType);
 
       // Create ScatterOp.
       rewriter.replaceOpWithNewOp<ttir::ScatterOp>(
           srcOp, outputType, inputTensor, finalIndexTensor, updateTensor,
-          dimAttr, reduceTypeAttr);
+          rewriter.getI32IntegerAttr(dim),
+          ttcore::ReduceTypeAttr::get(rewriter.getContext(),
+                                      *scatterReduceType));
       return success();
     }
 
     // Multi-dimensional scatter.
     if (scatterDimsToOperandDims.size() > 1) {
       // Always scatter along dimension 0 for flattened tensors.
-      int32_t dim = 0;
+      constexpr int32_t SCATTER_DIMENSION = 0;
 
-      Value finalIndexTensor = prepareMultiDimScatter(srcOp, rewriter);
-
-      // Flatten input and update tensors to 1D.
+      // Scatter indices, input, and update tensors flattened to 1D.
+      Value flattenedIndices = flattenMultiDimScatterIndices(srcOp, rewriter);
       Value flattenedInput = ttir::utils::flattenTensor(
           rewriter, srcOp.getLoc(), inputTensor, "_input_flatten");
       Value flattenedUpdate = ttir::utils::flattenTensor(
           rewriter, srcOp.getLoc(), updateTensor, "_update_flatten");
 
-      auto dimAttr = rewriter.getI32IntegerAttr(dim);
-      auto reduceTypeAttr = ttcore::ReduceTypeAttr::get(rewriter.getContext(),
-                                                        *scatterReduceType);
-
-      // Get flattened result type.
-      RankedTensorType flattenedInputType =
-          mlir::cast<RankedTensorType>(flattenedInput.getType());
-
-      // Perform scatter operation on flattened tensors.
+      // Scatter scalars on flattened tensors.
       Value scatterResult = rewriter.create<ttir::ScatterOp>(
-          srcOp.getLoc(), flattenedInputType, flattenedInput, finalIndexTensor,
-          flattenedUpdate, dimAttr, reduceTypeAttr);
+          srcOp.getLoc(),
+          mlir::cast<RankedTensorType>(flattenedInput.getType()),
+          flattenedInput, flattenedIndices, flattenedUpdate,
+          rewriter.getI32IntegerAttr(SCATTER_DIMENSION),
+          ttcore::ReduceTypeAttr::get(rewriter.getContext(),
+                                      *scatterReduceType));
 
       // Reshape result back to original input shape.
       Value reshapedResult =
@@ -4816,15 +4807,6 @@ private:
   /// Takes a vector of index tensors (one per operand dimension) and computes:
   ///   flat_index = sum(indices[d] * stride[d])
   /// where stride[d] = product of operandShape[d+1..operandRank-1].
-  ///
-  /// Helper used by prepareMultiDimScatter to compute flat 1D indices.
-  ///
-  /// @param loc Source location for created operations
-  /// @param rewriter Pattern rewriter
-  /// @param indexSlices Vector of index tensors, one per operand dimension
-  /// @param operandShape Shape of the operand tensor (for stride calculation)
-  /// @param indexElementType Element type for index tensors (e.g., i64)
-  /// @return Flat 1D index tensor
   Value
   computeFlatIndicesFromSlices(Location loc, PatternRewriter &rewriter,
                                const llvm::SmallVector<Value> &indexSlices,
@@ -4902,13 +4884,15 @@ private:
   ///   operand:  [[[a, b], [c, d], [e, f], [g, h], [i, j]]] shape (1, 5, 2)
   ///   indices:  [[0, 3]]                                   shape (1, 2)
   ///   updates:  [[x, y]]                                   shape (1, 2)
-  ///   update_window_dims = [1], inserted_window_dims = [0, 1]
+  ///   update_window_dims = [1]
+  //    inserted_window_dims = [0, 1],
+  ///   index_vector_dim = 1
   /// After:
-  ///   flattened indices: [6, 7] shape (2) - positions in flattened operand
+  ///   flattened indices: [6, 7], shape (2) - positions in flattened operand
   ///
   /// Returns flattened 1D indices tensor.
-  Value prepareMultiDimScatter(mlir::stablehlo::ScatterOp op,
-                               PatternRewriter &rewriter) const {
+  Value flattenMultiDimScatterIndices(mlir::stablehlo::ScatterOp op,
+                                      PatternRewriter &rewriter) const {
     Location loc = op.getLoc();
     Value operand = op.getInputs()[0];
     Value indices = op.getScatterIndices();
