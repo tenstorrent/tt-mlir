@@ -157,16 +157,8 @@ void run(const ::tt::target::ttnn::SparseMatmulOp *op,
   ProgramTensorPool &tensorPool = context.getTensorPool();
   const ::ttnn::Tensor &a = tensorPool.getTTNNTensorAndValidate(op->a());
   const ::ttnn::Tensor &b = tensorPool.getTTNNTensorAndValidate(op->b());
-  ::ttnn::Tensor sparsity_orig =
+  const ::ttnn::Tensor &sparsity =
       tensorPool.getTTNNTensorAndValidate(op->sparsity());
-
-  // TT-Metal sparse_matmul requires sparsity tensor in ROW_MAJOR layout
-  // Convert from TILE to ROW_MAJOR: device -> host -> untilize -> device
-  ::ttnn::Tensor sparsity = sparsity_orig;
-  if (sparsity_orig.layout() == ::ttnn::Layout::TILE) {
-    sparsity = ::ttnn::to_layout(sparsity_orig, ::ttnn::Layout::ROW_MAJOR,
-                                 std::nullopt, std::nullopt);
-  }
 
   auto outputMemoryConfig =
       ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
@@ -189,12 +181,13 @@ void run(const ::tt::target::ttnn::SparseMatmulOp *op,
 
   ::ttnn::Tensor output =
       ::ttnn::sparse_matmul(a, b, sparsity,
+                            /*program_config=*/programConfig,
                             /*nnz=*/nnz,
                             /*is_input_a_sparse=*/op->is_input_a_sparse(),
                             /*is_input_b_sparse=*/op->is_input_b_sparse(),
                             /*memory_config=*/outputMemoryConfig,
                             /*dtype=*/std::nullopt,
-                            /*program_config=*/programConfig,
+
                             /*compute_kernel_config=*/computeConfig,
                             /*core_grid=*/std::nullopt,
                             /*output_tile=*/std::nullopt);

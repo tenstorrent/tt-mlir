@@ -883,6 +883,22 @@ TTNNOperandsWorkarounds TTNNOperandsWorkaroundsFactory::
   return operandsWorkaround;
 }
 
+// Factory method to create workarounds for sparse_matmul op operands.
+// The sparsity tensor (3rd input) must be in ROW_MAJOR layout.
+// Inputs: a (input 0), b (input 1), sparsity (input 2)
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createSparseMatmulOpOperandsWorkarounds() {
+  TTNNOperandWorkarounds emptyWorkaround;
+  TTNNOperandWorkarounds rowMajorLayoutWorkaround;
+  rowMajorLayoutWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
+
+  return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addInputOperandWorkaround(emptyWorkaround)          // input a
+      .addInputOperandWorkaround(emptyWorkaround)          // input b
+      .addInputOperandWorkaround(rowMajorLayoutWorkaround) // sparsity tensor
+      .addOutputOperandWorkaround(emptyWorkaround);        // output
+}
+
 template TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createConvOpOperandsWorkarounds(
     ttnn::Conv2dOp op);
