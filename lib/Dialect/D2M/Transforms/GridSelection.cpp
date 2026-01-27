@@ -25,6 +25,7 @@
 #include "llvm/ADT/SmallVector.h"
 
 #include <cstdint>
+#include <optional>
 
 namespace mlir::tt::d2m {
 
@@ -1131,6 +1132,57 @@ static void assignGrids(d2m::GenericOp genericOp,
   recreateGenericOp(genericOp, analysis.optimalOperandGrids);
 }
 
+// Resolve to a value that dominates the spatial op by following view_layout
+// chains defined inside the spatial's regions (region-border value).
+static Value resolveToRegionBorderValue(Value operand,
+                                        d2m::SpatialOp spatialOp) {
+  auto inSpatialRegion = [&](Value val) {
+    Operation *def = val.getDefiningOp();
+    if (!def) {
+      return false;
+    }
+    Region *parent = def->getBlock()->getParent();
+    return llvm::any_of(spatialOp->getRegions(),
+                        [parent](Region &r) { return &r == parent; });
+  };
+  Value current = operand;
+  while (inSpatialRegion(current)) {
+    if (auto viewOp = current.getDefiningOp<d2m::ViewLayoutOp>()) {
+      current = viewOp.getInput();
+    } else {
+      break;
+    }
+  }
+  return current;
+}
+
+// Rebuild d2m.spatial's ins and outs from the operands actually used by
+// d2m.generic ops in each region, and set result types from the collected outs.
+static void reconstructSpatialOperands(d2m::SpatialOp spatialOp) {
+  llvm::SmallVector<mlir::Value> inputs;
+  llvm::SmallVector<mlir::Value> outputs;
+  for (Region &region : spatialOp->getRegions()) {
+    if (region.empty()) {
+      continue;
+    }
+    for (d2m::GenericOp genericOp : region.front().getOps<d2m::GenericOp>()) {
+      for (mlir::Value input : genericOp.getInputs()) {
+        inputs.push_back(resolveToRegionBorderValue(input, spatialOp));
+      }
+      for (mlir::Value output : genericOp.getOutputs()) {
+        outputs.push_back(resolveToRegionBorderValue(output, spatialOp));
+      }
+    }
+  }
+  spatialOp.getInputsMutable().assign(inputs);
+  spatialOp.getOutputsMutable().assign(outputs);
+  if (spatialOp->getNumResults() == outputs.size()) {
+    for (auto [result, outVal] : llvm::zip(spatialOp->getResults(), outputs)) {
+      result.setType(outVal.getType());
+    }
+  }
+}
+
 // ----------------------------------------------------------------------------
 // Pass implementation
 // ----------------------------------------------------------------------------
@@ -1159,23 +1211,31 @@ public:
   void runOnOperation() override {
     ModuleOp module = getOperation();
 
-    llvm::SmallVector<int64_t> targetGridShape = getTargetGridShape();
-    llvm::SmallVector<int64_t> targetSquareGridShape =
-        d2m::utils::getSquareTargetGrid(targetGridShape);
-    GridSelectionConfig config{targetGridShape, targetSquareGridShape,
-                               ttnnMode};
-
     module.walk([&](d2m::GenericOp genericOp) {
       // Skip explicit datamovement form - users manage grids manually
       if (genericOp.isExplicitDatamovementForm()) {
         return;
       }
+      llvm::SmallVector<int64_t> targetGridShape =
+          getTargetGridShape(genericOp);
+      llvm::SmallVector<int64_t> targetSquareGridShape =
+          d2m::utils::getSquareTargetGrid(targetGridShape);
+      GridSelectionConfig config{targetGridShape, targetSquareGridShape,
+                                 this->ttnnMode};
       assignGrids(genericOp, config);
+    });
+
+    // Rebuild each SpatialOp's ins/outs from the operands actually used by
+    // generics in its regions (e.g. after stream_layout splits one cast into
+    // multiple operands per region).
+    module.walk([&](d2m::SpatialOp spatialOp) {
+      reconstructSpatialOperands(spatialOp);
     });
   }
 
 private:
-  llvm::SmallVector<int64_t> getTargetGridShape() {
+  // Returns the device-wide grid shape (worker grid or override).
+  llvm::SmallVector<int64_t> getDeviceGridShape() {
     if (!overrideDeviceShape.empty()) {
       return llvm::to_vector(overrideDeviceShape);
     }
@@ -1185,6 +1245,24 @@ private:
         mlir::tt::ttcore::lookupDevice(moduleOp);
     assert(device && "Device not found");
     return llvm::to_vector(device.getWorkerGrid().getShape());
+  }
+
+  // Returns the target grid shape for genericOp. If it is inside a
+  // d2m.spatial region, uses that region's grid_ranges entry; otherwise
+  // returns the device-wide grid shape.
+  llvm::SmallVector<int64_t> getTargetGridShape(d2m::GenericOp genericOp) {
+    mlir::Region *region = genericOp->getParentRegion();
+    if (auto spatialOp =
+            mlir::dyn_cast<d2m::SpatialOp>(region->getParentOp())) {
+      auto coreRanges = spatialOp.getGridRanges().getCoreRanges();
+      unsigned regionIndex = region->getRegionNumber();
+      if (regionIndex < coreRanges.size()) {
+        ttcore::CoreRangeAttr range = coreRanges[regionIndex];
+        return {range.getEndCoord().getY() - range.getStartCoord().getY() + 1,
+                range.getEndCoord().getX() - range.getStartCoord().getX() + 1};
+      }
+    }
+    return getDeviceGridShape();
   }
 };
 } // namespace
