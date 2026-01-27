@@ -4646,9 +4646,8 @@ public:
         mlir::cast<RankedTensorType>(inputTensor.getType());
     ArrayRef<int64_t> inputShape = inputType.getShape();
 
-    // Check if single dimension scatter.
+    // Single-dimensional scatter.
     if (scatterDimsToOperandDims.size() == 1) {
-      // Single-dimensional scatter.
       int32_t dim = scatterDimsToOperandDims[0];
 
       // Process indices to match update tensor shape.
@@ -4666,38 +4665,18 @@ public:
       return success();
     }
 
+    // Multi-dimensional scatter.
     if (scatterDimsToOperandDims.size() > 1) {
-      // Multi-dimensional scatter.
-      int32_t dim =
-          0; // Always scatter along dimension 0 for flattened tensors.
+      // Always scatter along dimension 0 for flattened tensors.
+      int32_t dim = 0;
 
-      // Check if we need to expand window dimensions.
-      ArrayRef<int64_t> updateWindowDims =
-          adaptor.getScatterDimensionNumbers().getUpdateWindowDims();
+      Value finalIndexTensor = prepareMultiDimScatter(srcOp, rewriter);
 
-      Value finalIndexTensor;
-      Value flattenedUpdate;
-
-      if (!updateWindowDims.empty()) {
-        // Expand window dimensions. This transforms scatter operations with
-        // non-empty update_window_dims into equivalent operations where each
-        // index scatters a scalar instead of a window/slice.
-        // expandWindowDims returns already-flattened 1D indices and updates.
-        auto [expandedIndices, expandedUpdates] =
-            expandWindowDims(srcOp, rewriter);
-        finalIndexTensor = expandedIndices;
-        flattenedUpdate = expandedUpdates;
-      } else {
-        // No window dimensions - use original extraction method.
-        finalIndexTensor =
-            extractMultiDimensionalScatterIndices(srcOp, rewriter);
-        flattenedUpdate = ttir::utils::flattenTensor(
-            rewriter, srcOp.getLoc(), updateTensor, "_update_flatten");
-      }
-
-      // Flatten input tensor to 1D.
+      // Flatten input and update tensors to 1D.
       Value flattenedInput = ttir::utils::flattenTensor(
           rewriter, srcOp.getLoc(), inputTensor, "_input_flatten");
+      Value flattenedUpdate = ttir::utils::flattenTensor(
+          rewriter, srcOp.getLoc(), updateTensor, "_update_flatten");
 
       auto dimAttr = rewriter.getI32IntegerAttr(dim);
       auto reduceTypeAttr = ttcore::ReduceTypeAttr::get(rewriter.getContext(),
@@ -4838,8 +4817,7 @@ private:
   ///   flat_index = sum(indices[d] * stride[d])
   /// where stride[d] = product of operandShape[d+1..operandRank-1].
   ///
-  /// This is a shared helper used by both expandWindowDims and
-  /// extractMultiDimensionalScatterIndices.
+  /// Helper used by prepareMultiDimScatter to compute flat 1D indices.
   ///
   /// @param loc Source location for created operations
   /// @param rewriter Pattern rewriter
@@ -4909,47 +4887,39 @@ private:
     return flatIndices;
   }
 
-  /// Expands window dimensions in a scatter operation by converting each
-  /// scatter of a window (slice) into multiple scalar scatters.
+  /// Computes flattened 1D indices for multi-dimensional scatter.
+  ///
+  /// Handles both cases:
+  /// - Non-empty updateWindowDims: expands indices for window positions,
+  ///   converting each scatter of a window into multiple scalar scatters.
+  /// - Empty updateWindowDims: degenerates to simple case (windowSize=1).
   ///
   /// Before: 1 index scatters a window of N values
   /// After:  N indices scatter N scalar values
   ///
-  /// This transforms the indices and updates tensors so that update_window_dims
-  /// becomes effectively empty, enabling the existing flattening-based
-  /// multi-dimensional scatter implementation to handle these cases.
-  ///
-  /// Example:
-  ///   operand:  [1, 5, 2]
-  ///   indices:  [[0, 3]]         shape [1, 2]
-  ///   updates:  [[1.0, 2.0]]     shape [1, 2]
+  /// Example with window expansion:
+  /// Before:
+  ///   operand:  [[[a, b], [c, d], [e, f], [g, h], [i, j]]] shape (1, 5, 2)
+  ///   indices:  [[0, 3]]                                   shape (1, 2)
+  ///   updates:  [[x, y]]                                   shape (1, 2)
   ///   update_window_dims = [1], inserted_window_dims = [0, 1]
+  /// After:
+  ///   flattened indices: [6, 7] shape (2) - positions in flattened operand
   ///
-  /// After expansion:
-  ///   flat_indices:  [8, 9]      (flat positions in [1,5,2] tensor)
-  ///   flat_updates:  [1.0, 2.0]  shape [2]
-  ///
-  /// Now each index scatters a single scalar value.
-  std::pair<Value, Value> expandWindowDims(mlir::stablehlo::ScatterOp op,
-                                           PatternRewriter &rewriter) const {
+  /// Returns flattened 1D indices tensor.
+  Value prepareMultiDimScatter(mlir::stablehlo::ScatterOp op,
+                               PatternRewriter &rewriter) const {
     Location loc = op.getLoc();
-
-    // Get scatter dimension numbers.
-    auto scatterDimNumbers = op.getScatterDimensionNumbers();
-    ArrayRef<int64_t> insertedWindowDims =
-        scatterDimNumbers.getInsertedWindowDims();
-    int64_t indexVectorDim = scatterDimNumbers.getIndexVectorDim();
-
-    // Get tensors and their types.
-    Value indices = op.getScatterIndices();
-    Value updates = op.getUpdates()[0];
     Value operand = op.getInputs()[0];
-
+    Value indices = op.getScatterIndices();
     RankedTensorType indicesType =
         mlir::cast<RankedTensorType>(indices.getType());
     RankedTensorType operandType =
         mlir::cast<RankedTensorType>(operand.getType());
-
+    auto scatterDimNumbers = op.getScatterDimensionNumbers();
+    ArrayRef<int64_t> insertedWindowDims =
+        scatterDimNumbers.getInsertedWindowDims();
+    int64_t indexVectorDim = scatterDimNumbers.getIndexVectorDim();
     ArrayRef<int64_t> indicesShape = indicesType.getShape();
     ArrayRef<int64_t> operandShape = operandType.getShape();
     int64_t operandRank = operandType.getRank();
@@ -4986,7 +4956,7 @@ private:
       }
     }
 
-    // Total number of expanded indices (one per scalar update).
+    // Total number of expanded indices (one per one scalar update).
     int64_t expandedNumIndices = numScatterPositions * windowSize;
 
     // First, flatten the original indices to shape [numScatterPositions,
@@ -5151,16 +5121,8 @@ private:
         loc, rewriter, indexSlices, operandShape, indicesType.getElementType());
 
     // Flatten the computed indices to 1D.
-    Value flattenedIndices = ttir::utils::flattenTensor(
-        rewriter, loc, flatIndices, "_expanded_indices_flatten");
-
-    // Flatten updates to [expandedNumIndices] (all scalars).
-    llvm::SmallVector<int64_t> flatUpdatesShape = {expandedNumIndices};
-    Value flatUpdates = ttir::utils::createReshapeOp(
-        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_flatten_updates"),
-        updates, flatUpdatesShape);
-
-    return {flattenedIndices, flatUpdates};
+    return ttir::utils::flattenTensor(rewriter, loc, flatIndices,
+                                      "_expanded_indices_flatten");
   }
 
   Value extractElementWiseScatterIndices(mlir::stablehlo::ScatterOp op,
@@ -5213,63 +5175,6 @@ private:
     }
 
     return indexTensor;
-  }
-
-  Value extractMultiDimensionalScatterIndices(mlir::stablehlo::ScatterOp op,
-                                              PatternRewriter &rewriter) const {
-    // Last dimension of indices is index_vector_dim.
-    TypedValue<RankedTensorType> indexTensor = op.getScatterIndices();
-    RankedTensorType indexType = indexTensor.getType();
-    ArrayRef<int64_t> indexShape = indexType.getShape();
-    int64_t indexVectorDim =
-        op.getScatterDimensionNumbers().getIndexVectorDim();
-
-    // Get the input tensor to determine its shape for stride calculation.
-    Value inputTensor = op.getInputs()[0];
-    RankedTensorType inputType =
-        mlir::cast<RankedTensorType>(inputTensor.getType());
-    ArrayRef<int64_t> inputShape = inputType.getShape();
-
-    // Number of dimensions being indexed.
-    int64_t numIndexDims = indexShape[indexVectorDim];
-
-    // Slice indices tensor to get per-dimension index slices.
-    llvm::SmallVector<Value> indexSlices;
-    for (int64_t dim = 0; dim < numIndexDims; ++dim) {
-      llvm::SmallVector<int32_t> begins(indexType.getRank(), 0);
-      llvm::SmallVector<int32_t> ends(indexType.getShape().begin(),
-                                      indexType.getShape().end());
-      llvm::SmallVector<int32_t> steps(indexType.getRank(), 1);
-
-      begins[indexVectorDim] = static_cast<int32_t>(dim);
-      ends[indexVectorDim] = static_cast<int32_t>(dim + 1);
-
-      llvm::SmallVector<int64_t> sliceShape(indexType.getShape());
-      sliceShape[indexVectorDim] = 1;
-
-      RankedTensorType sliceResultType = RankedTensorType::get(
-          sliceShape, indexType.getElementType(), indexType.getEncoding());
-
-      Value dimensionIndices = rewriter.create<ttir::SliceStaticOp>(
-          ttmlir::utils::appendLocationSuffix(
-              op.getLoc(), "_dim_" + std::to_string(dim) + "_slice"),
-          sliceResultType, indexTensor, rewriter.getI32ArrayAttr(begins),
-          rewriter.getI32ArrayAttr(ends), rewriter.getI32ArrayAttr(steps));
-
-      indexSlices.push_back(dimensionIndices);
-    }
-
-    // Use the shared helper to compute flat indices from the slices.
-    Value flatIndices =
-        computeFlatIndicesFromSlices(op.getLoc(), rewriter, indexSlices,
-                                     inputShape, indexType.getElementType());
-
-    // Flatten the indices to 1D.
-    Value flattenedIndices = ttir::utils::flattenTensor(
-        rewriter, op.getLoc(), flatIndices, "_indices_flatten");
-
-    TT_assertv(flattenedIndices, "Expected valid flat indices tensor");
-    return flattenedIndices;
   }
 };
 } // namespace
