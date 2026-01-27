@@ -8,11 +8,15 @@
 #include "flatbuffers/flatbuffers.h"
 #include "llvm/ADT/DenseMap.h"
 
+#include <optional>
+
 namespace mlir::tt {
 
 struct FlatbufferObjectCache {
   ::flatbuffers::FlatBufferBuilder *fbb;
   DenseMap<const void *, ::flatbuffers::uoffset_t> objectMap;
+  // Map to track global_id assigned to each Value (for buffer aliasing).
+  DenseMap<const void *, uint32_t> valueToGlobalId;
   uint32_t global_id = 1; // 0 is reserved for null
 
   FlatbufferObjectCache(::flatbuffers::FlatBufferBuilder *fbb) : fbb(fbb) {}
@@ -25,6 +29,22 @@ struct FlatbufferObjectCache {
   };
 
   uint32_t nextGlobalId() { return global_id++; }
+
+  // Store global_id for a value (used for buffer aliasing in expand/collapse).
+  template <typename MLIRTypeOrAttr>
+  void setGlobalId(MLIRTypeOrAttr obj, uint32_t id) {
+    valueToGlobalId[obj.getAsOpaquePointer()] = id;
+  }
+
+  // Get stored global_id for a value.
+  template <typename MLIRTypeOrAttr>
+  std::optional<uint32_t> getGlobalId(MLIRTypeOrAttr obj) const {
+    auto it = valueToGlobalId.find(obj.getAsOpaquePointer());
+    if (it != valueToGlobalId.end()) {
+      return it->second;
+    }
+    return std::nullopt;
+  }
 
   template <typename MLIRTypeOrAttr>
   bool exists(MLIRTypeOrAttr obj) const {

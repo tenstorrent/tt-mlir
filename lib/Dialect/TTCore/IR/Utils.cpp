@@ -181,7 +181,10 @@ static MemRefType getMemRefType(Type type, bool isView,
 
   if (hostInfo.has_value()) {
     // Calculate host layout for I/O with potentially unaligned host memref.
-    hostLayout = HostLayoutAttr::get(ctx, tensorType.getShape(),
+    // Use the device layout's logical shape and strides to ensure proper
+    // alignment and padding. For 1D→2D expansion cases, the bounce buffer
+    // will be 2D and memref.expand_shape will be used to match ranks.
+    hostLayout = HostLayoutAttr::get(ctx, hostInfo->getLogicalShape(),
                                      hostInfo->getHostStride(),
                                      hostInfo->getHostVolume(), tensorMeshAttr);
   } else if (tensorMeshAttr) {
@@ -196,7 +199,13 @@ static MemRefType getMemRefType(Type type, bool isView,
   // If there is no encoding or encoding with TensorMesh info, return with the
   // host layout attribute.
   if (!tensorType.getEncoding() || tensorMeshAttr) {
-    return MemRefType::get(tensorType.getShape(), tensorType.getElementType(),
+    // When hostInfo is provided, use its logical shape (which may be 2D due to
+    // 1D→2D expansion). The caller must use memref.expand_shape if the input
+    // tensor has a different rank.
+    ArrayRef<int64_t> memrefShape = hostInfo.has_value()
+                                        ? hostInfo->getLogicalShape()
+                                        : tensorType.getShape();
+    return MemRefType::get(memrefShape, tensorType.getElementType(),
                            hostLayout);
   }
 

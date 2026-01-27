@@ -1596,6 +1596,11 @@ public:
   matchAndRewrite(memref::CollapseShapeOp op,
                   memref::CollapseShapeOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
+    // Only handle collapse_shape in kernel functions.
+    auto parentFunc = op->getParentOfType<func::FuncOp>();
+    if (!parentFunc || !parentFunc->hasAttr(ThreadTypeAttr::name)) {
+      return failure();
+    }
     rewriter.replaceOp(op, adaptor.getSrc());
     return success();
   }
@@ -1808,8 +1813,11 @@ void populateD2MToTTKernelPatterns(
     const d2m::AssociatedDMAWaits &associatedDMAWaits,
     const d2m::CBProducerConsumer &cbProducerConsumer, bool ttnnMode) {
   // clang-format off
-  patterns.add<ttkernel::D2MKernelFunctionArgsRewriter,
-               ttkernel::PassthroughRewriter<memref::CastOp>,
+  // Add FuncOp rewriter with higher benefit to ensure thread attr is converted
+  // before other patterns that depend on it (like MemRefCollapseRewriter).
+  patterns.add<ttkernel::D2MKernelFunctionArgsRewriter>(typeConverter, ctx,
+                                                        /*benefit=*/10);
+  patterns.add<ttkernel::PassthroughRewriter<memref::CastOp>,
                ttkernel::MemRefSubviewRewriter,
 
                // FPU.
