@@ -2299,9 +2299,9 @@ createDeallocateOp(FlatbufferObjectCache &cache, DeallocateOp op) {
 //
 // NOTE: the goal for this hashing is not to identify functions which are
 // mathematically equivalent, but the completely identical ones.
-llvm::StringMap<llvm::SmallString<64>>
+llvm::StringMap<std::string>
 computeConstEvalFuncHashesSHA256(mlir::ModuleOp moduleOp) {
-  llvm::StringMap<llvm::SmallString<64>> constEvalHashes;
+  llvm::StringMap<std::string> constEvalHashes;
 
   moduleOp->walk([&](func::FuncOp func) {
     if (!ttmlir::utils::isConstEvalFunc(func)) {
@@ -2316,7 +2316,7 @@ computeConstEvalFuncHashesSHA256(mlir::ModuleOp moduleOp) {
 ::flatbuffers::Offset<::tt::target::ttnn::LoadCachedOp>
 createOp(FlatbufferObjectCache &cache, ttcore::LoadCachedOp op,
          const llvm::StringMap<uint32_t> &programIndexMap,
-         const llvm::StringMap<llvm::SmallString<64>> &constEvalFuncHashes) {
+         const llvm::StringMap<std::string> &constEvalFuncHashes) {
   std::vector<::flatbuffers::Offset<::tt::target::ttnn::TensorRef>> ins;
   for (auto input : op.getInputs()) {
     ins.push_back(cache.at<::tt::target::ttnn::TensorRef>(
@@ -2337,12 +2337,12 @@ createOp(FlatbufferObjectCache &cache, ttcore::LoadCachedOp op,
   auto itHash = constEvalFuncHashes.find(op.getCallee().str());
   assert(itHash != constEvalFuncHashes.end() &&
          "Const-eval function hash not found in const-eval function hash map!");
-  const auto &funcHash = itHash->second;
+  const std::string &funcHash = itHash->second;
 
   // Create the LoadCachedOp with indices instead of inputs
   return ::tt::target::ttnn::CreateLoadCachedOpDirect(
       *cache.fbb, &ins, op.getCallee().str().c_str(), programIdx, &outputs,
-      funcHash.str().begin());
+      funcHash.c_str());
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::AssignOp>
@@ -2983,11 +2983,11 @@ createOp(FlatbufferObjectCache &cache, debug::MemorySnapshotOp op) {
                                                     filePath);
 }
 
-::flatbuffers::Offset<::tt::target::ttnn::Operation> emitTTNNOperation(
-    FlatbufferObjectCache &cache, Operation *op,
-    const llvm::StringMap<uint32_t> &programIndexMap,
-    const std::string &debugString, const std::string &locInfo,
-    const llvm::StringMap<llvm::SmallString<64>> &constEvalFuncHashes) {
+::flatbuffers::Offset<::tt::target::ttnn::Operation>
+emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
+                  const llvm::StringMap<uint32_t> &programIndexMap,
+                  const std::string &debugString, const std::string &locInfo,
+                  const llvm::StringMap<std::string> &constEvalFuncHashes) {
   if (auto getDeviceOp = dyn_cast<GetDeviceOp>(op); getDeviceOp) {
     return createOperation(cache, createOp(cache, getDeviceOp), debugString,
                            locInfo);

@@ -3614,9 +3614,21 @@ foldConsecutiveRepeat(mlir::tt::ttir::RepeatOp consumerOp) {
   return nullptr;
 }
 
+// Repeat op can be folded when repeat dimensions are all 1.
+static mlir::OpFoldResult foldIdentityRepeat(mlir::tt::ttir::RepeatOp op) {
+  if (llvm::all_of(op.getRepeatDimensions(),
+                   [](int64_t dim) { return dim == 1; })) {
+    return op.getInput();
+  }
+  return nullptr;
+}
+
 // RepeatOp Folder
 mlir::OpFoldResult mlir::tt::ttir::RepeatOp::fold(FoldAdaptor fold) {
 
+  if (auto foldResult = foldIdentityRepeat(*this)) {
+    return foldResult;
+  }
   if (auto foldResult = foldConsecutiveRepeat(*this)) {
     return foldResult;
   }
@@ -4596,13 +4608,6 @@ verifyReduceOp(llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
 
 // ArgMaxOp verification.
 ::mlir::LogicalResult mlir::tt::ttir::ArgMaxOp::verify() {
-  auto dimArg = getDimArg();
-  if (dimArg && dimArg->size() > 1) {
-    return emitOpError() << "can only reduce one dimension; number of "
-                            "specified dimensions: "
-                         << dimArg->size() << ".";
-  }
-
   return verifyReduceOp([&]() { return emitOpError(); }, getInput().getType(),
                         getDimArg(), getKeepDim(), getType().getShape());
 }

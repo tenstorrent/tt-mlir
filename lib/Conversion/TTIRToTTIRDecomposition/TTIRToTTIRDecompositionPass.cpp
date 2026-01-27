@@ -132,6 +132,10 @@ struct TTIRToTTIRDecompositionPass
       return !isa_and_nonnull<ttir::FullOp>(op.getInput().getDefiningOp());
     });
 
+    target.addDynamicallyLegalOp<ttir::ArgMaxOp>([&](ttir::ArgMaxOp op) {
+      auto dimsAttr = op.getDimArg();
+      return !dimsAttr || dimsAttr->size() <= 1; // Legal if 0 or 1 dimensions
+    });
     TypeConverter typeConverter;
     // All types map 1:1.
     typeConverter.addConversion([](Type type) { return type; });
