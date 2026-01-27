@@ -1408,6 +1408,7 @@ static mlir::LogicalResult verifyPooling2dOp(Pool2dOp *op) {
 ::mlir::Operation *mlir::tt::ttir::MaxPool2dOp::rewriteWithQuantizedInputs(
     mlir::PatternRewriter &rewriter,
     mlir::ArrayRef<mlir::Value> sourceOperands) {
+  // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
   using mlir::quant::UniformQuantizedPerAxisType;
 
   mlir::Value input = sourceOperands[0];
@@ -1428,6 +1429,7 @@ static mlir::LogicalResult verifyPooling2dOp(Pool2dOp *op) {
           getLoc(), newOutType, input, getKernelAttr(), getStrideAttr(),
           getDilationAttr(), getPaddingAttr(), getCeilModeAttr())
       .getOperation();
+  // NOLINTEND(clang-analyzer-core.StackAddressEscape)
 }
 
 //===----------------------------------------------------------------------===//
