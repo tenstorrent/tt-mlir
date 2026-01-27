@@ -28,6 +28,9 @@ void createStableHLOPipeline(OpPassManager &pm,
   // Convert any xla.sdy ops to sdy ops.
   pm.addPass(createConvertXlaSdyToSdyPass());
 
+  // Apply StableHLO fusing pass.
+  pm.addPass(mlir::tt::stablehlo::createStableHLOFusingPass());
+
   // Analyze the mesh of the graph and update shardings or annotations to match
   // the target device.
   AnalyzeMeshPassOptions analyzeMeshOptions;

@@ -186,6 +186,9 @@ bool isFullyReplicatedTensor(mlir::sdy::TensorShardingAttr tsh);
 // not fully replicated.
 bool isShardedModule(mlir::ModuleOp &module);
 
+// Check if the operation has Shardy-sharded inputs or outputs.
+bool opHasShardySharding(mlir::Operation *op);
+
 #endif // #ifdef TTMLIR_ENABLE_STABLEHLO
 
 } // namespace mlir::tt::shardy_utils
