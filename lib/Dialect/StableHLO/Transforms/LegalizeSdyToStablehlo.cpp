@@ -10,10 +10,10 @@
 #include "stablehlo/dialect/StablehloOps.h"
 
 namespace mlir::tt::stablehlo {
-#define GEN_PASS_DEF_CONVERTSDYCONSTTOSTABLEHLOCONSTPASS
+#define GEN_PASS_DEF_LEGALIZESDYTOSTABLEHLOPASS
 #include "ttmlir/Dialect/StableHLO/Transforms/Passes.h.inc"
 
-class ConvertSdyConstPattern : public OpRewritePattern<mlir::sdy::ConstantOp> {
+class LegalizeSdyConstPattern : public OpRewritePattern<mlir::sdy::ConstantOp> {
   using OpRewritePattern<mlir::sdy::ConstantOp>::OpRewritePattern;
 
 public:
@@ -25,13 +25,11 @@ public:
   }
 };
 
-class ConvertSdyConstToStableHLOConstPass
-    : public impl::ConvertSdyConstToStableHLOConstPassBase<
-          ConvertSdyConstToStableHLOConstPass> {
+class LegalizeSdyToStablehloPass
+    : public impl::LegalizeSdyToStablehloPassBase<LegalizeSdyToStablehloPass> {
 public:
-  using impl::ConvertSdyConstToStableHLOConstPassBase<
-      ConvertSdyConstToStableHLOConstPass>::
-      ConvertSdyConstToStableHLOConstPassBase;
+  using impl::LegalizeSdyToStablehloPassBase<
+      LegalizeSdyToStablehloPass>::LegalizeSdyToStablehloPassBase;
 
   void runOnOperation() final {
     mlir::ModuleOp module = getOperation();
@@ -39,9 +37,9 @@ public:
 
     // Set up rewrite patterns.
     RewritePatternSet patterns(context);
-    patterns.add<ConvertSdyConstPattern>(context);
+    patterns.add<LegalizeSdyConstPattern>(context);
 
-    // Apply the patterns to convert sdy.constant to stablehlo.constant.
+    // Apply the patterns to legalize sdy operations to stablehlo.
     if (failed(applyPatternsGreedily(module, std::move(patterns)))) {
       signalPassFailure();
       return;

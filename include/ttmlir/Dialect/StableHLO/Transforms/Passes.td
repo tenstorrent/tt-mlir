@@ -108,13 +108,15 @@ def ConvertXlaSdyToSdyPass : Pass<"convert-xla-sdy-to-sdy", "::mlir::ModuleOp">
   ];
 }
 
-def ConvertSdyConstToStableHLOConstPass : Pass<"convert-sdy-const-to-stablehlo-const", "::mlir::ModuleOp">
+def LegalizeSdyToStablehloPass : Pass<"legalize-sdy-to-stablehlo", "::mlir::ModuleOp">
 {
-  let summary = "Convert sdy.constant operations to stablehlo.constant operations.";
+  let summary = "Legalize sdy operations to stablehlo operations.";
   let description = [{
-    This pass converts all sdy.constant operations to stablehlo.constant operations.
-    This is needed because tt-xla may receive graphs from XLA containing sdy.constant
-    operations, but tt-mlir does not need or handle sdy.constant operations.
+    This pass legalizes sdy operations to their stablehlo equivalents.
+    This is needed because tt-xla may receive graphs from XLA containing sdy operations,
+    but tt-mlir does not need or handle sdy operations beyond sharding annotations.
+
+    Currently, this pass converts sdy.constant operations to stablehlo.constant operations.
 
     Example, this pass will convert the following code:
     ```mlir

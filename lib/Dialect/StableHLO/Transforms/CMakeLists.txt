@@ -1,10 +1,10 @@
 add_mlir_dialect_library(MLIRStableHLOTransforms
   AnalyzeMesh.cpp
   ApplyArgumentShardStatus.cpp
-  ConvertSdyConstToStableHLOConst.cpp
   ConvertXlaSdyToSdy.cpp
   DecoupleConstFanout.cpp
   FlattenComposite.cpp
+  LegalizeSdyToStablehlo.cpp
   RegisterCustomShardingRule.cpp
   ReoutlineComposite.cpp
   ShardyCCLToStableHLOCCLPatterns.cpp
