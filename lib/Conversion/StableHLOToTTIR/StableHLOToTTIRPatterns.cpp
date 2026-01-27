@@ -6860,7 +6860,8 @@ public:
             srcOp->getDiscardableAttr("mhlo.frontend_attributes"));
     if (!frontendAttributes) {
       return rewriter.notifyMatchFailure(
-          srcOp, "SparseMatmul op must have mhlo.frontend_attributes attribute.");
+          srcOp,
+          "SparseMatmul op must have mhlo.frontend_attributes attribute.");
     }
 
     // Parse is_input_a_sparse attribute
@@ -6874,8 +6875,9 @@ public:
         isInputASparse = false;
       } else {
         return rewriter.notifyMatchFailure(
-            srcOp, "is_input_a_sparse attribute must be true or false. Received \"" +
-                       isInputASparseStringAttr.getValue() + "\".");
+            srcOp,
+            "is_input_a_sparse attribute must be true or false. Received \"" +
+                isInputASparseStringAttr.getValue() + "\".");
       }
     }
 
@@ -6890,8 +6892,9 @@ public:
         isInputBSparse = false;
       } else {
         return rewriter.notifyMatchFailure(
-            srcOp, "is_input_b_sparse attribute must be true or false. Received \"" +
-                       isInputBSparseStringAttr.getValue() + "\".");
+            srcOp,
+            "is_input_b_sparse attribute must be true or false. Received \"" +
+                isInputBSparseStringAttr.getValue() + "\".");
       }
     }
 
@@ -6905,8 +6908,9 @@ public:
       int64_t nnz;
       if (nnzStringAttr.getValue().getAsInteger(10, nnz)) {
         return rewriter.notifyMatchFailure(
-            srcOp, "nnz attribute string must be convertible to integer. Received \"" +
-                       nnzStringAttr.getValue() + "\".");
+            srcOp,
+            "nnz attribute string must be convertible to integer. Received \"" +
+                nnzStringAttr.getValue() + "\".");
       }
       nnzAttr = rewriter.getI64IntegerAttr(nnz);
     }
@@ -6914,7 +6918,8 @@ public:
     // Get operands
     if (adaptor.getOperands().size() != 3) {
       return rewriter.notifyMatchFailure(
-          srcOp, "SparseMatmul op expects exactly 3 operands (a, b, sparsity).");
+          srcOp,
+          "SparseMatmul op expects exactly 3 operands (a, b, sparsity).");
     }
 
     Value inputA = adaptor.getOperands()[0];
@@ -6925,8 +6930,8 @@ public:
         getTypeConverter()->convertType(srcOp.getResult(0).getType()));
 
     rewriter.replaceOpWithNewOp<ttir::SparseMatmulOp>(
-        srcOp, outputType, inputA, inputB, sparsity,
-        isInputASparseAttr, isInputBSparseAttr, nnzAttr);
+        srcOp, outputType, inputA, inputB, sparsity, isInputASparseAttr,
+        isInputBSparseAttr, nnzAttr);
 
     return success();
   }
@@ -6936,7 +6941,8 @@ public:
 static void addSparseMatmulOpConversionPattern(MLIRContext *ctx,
                                                RewritePatternSet &patterns,
                                                TypeConverter &typeConverter) {
-  patterns.add<StableHLOToTTIRSparseMatmulOpConversionPattern>(typeConverter, ctx);
+  patterns.add<StableHLOToTTIRSparseMatmulOpConversionPattern>(typeConverter,
+                                                               ctx);
 }
 
 namespace mlir::tt {

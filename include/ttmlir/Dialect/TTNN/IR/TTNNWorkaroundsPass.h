@@ -338,6 +338,10 @@ public:
   static TTNNOperandsWorkarounds
   createPagedScaledDotProductAttentionDecodeOpOperandsWorkarounds(
       Operation *op);
+
+  // Create workarounds for sparse_matmul op operands.
+  // Sparsity tensor must be in ROW_MAJOR layout.
+  static TTNNOperandsWorkarounds createSparseMatmulOpOperandsWorkarounds();
 };
 
 } // namespace mlir::tt::ttnn::wa
