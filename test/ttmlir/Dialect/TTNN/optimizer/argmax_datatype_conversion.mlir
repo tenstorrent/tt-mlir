@@ -14,7 +14,7 @@ module attributes {} {
     // CHECK-SAME: memref<1x3xui32
     // CHECK: "ttnn.typecast"
     // CHECK-SAME: dtype = #ttcore.supportedDataTypes<si32>
-    // CHECK-SAME: (tensor<3xui32{{.*}}>) -> tensor<3xsi32
+    // CHECK-SAME: (tensor<1x1x3xui32{{.*}}>) -> tensor<1x1x3xsi32
     %0 = "ttir.argmax"(%arg0) <{dim_arg = [1 : i32], keep_dim = false}> : (tensor<3x3xi32>) -> tensor<3xi32>
     return %0 : tensor<3xi32>
   }
