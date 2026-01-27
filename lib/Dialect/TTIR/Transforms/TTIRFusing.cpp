@@ -15,7 +15,6 @@
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/TypeSwitch.h"
-#include "llvm/Support/Casting.h"
 
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRFUSING
@@ -1328,56 +1327,58 @@ public:
   mlir::LogicalResult
   matchAndRewrite(AddOp addOp, mlir::PatternRewriter &rewriter) const final {
     // Matmul -> Add pattern.
-    if (MatmulOp matmulOp = getFusableMatmulOp(addOp); matmulOp) {
-      TypedValue<RankedTensorType> bias = addOp.getLhs() == matmulOp.getResult()
-                                              ? addOp.getRhs()
-                                              : addOp.getLhs();
-      Value matmulOpA = matmulOp.getA();
-      Value matmulOpB = matmulOp.getB();
-      LinearOp linearOp = rewriter.create<ttir::LinearOp>(
-          addOp.getLoc(), addOp.getResult().getType(), matmulOpA, matmulOpB,
-          bias, matmulOp.getTransposeA(), matmulOp.getTransposeB());
-
-      rewriter.replaceOp(addOp, linearOp);
-
-      return mlir::success();
-    }
-    // Matmul -> Reshape -> Add pattern.
-    if (MatmulOp matmulOp = getFusableReshapedMatmulOp(addOp); matmulOp) {
+    MatmulOp matmulOp = nullptr;
+    TypedValue<RankedTensorType> bias = nullptr;
+    if (matmulOp = getFusableMatmulOp(addOp); matmulOp) {
+      bias = addOp.getLhs() == matmulOp.getResult() ? addOp.getRhs()
+                                                    : addOp.getLhs();
+    } else if (matmulOp = getFusableReshapedMatmulOp(addOp); matmulOp) {
       ReshapeOp reshapeOp =
           mlir::dyn_cast<ReshapeOp>(*matmulOp.getResult().getUsers().begin());
-      TypedValue<RankedTensorType> bias =
-          (addOp.getLhs() == reshapeOp.getResult()) ? addOp.getRhs()
-                                                    : addOp.getLhs();
-
-      if (llvm::isa_and_nonnull<ttir::ReshapeOp>(bias.getDefiningOp())) {
-        bias = bias.getDefiningOp<ttir::ReshapeOp>().getInput();
-      }
-
-      llvm::ArrayRef<int64_t> addOpShape =
-          addOp.getResult().getType().getShape();
-      SmallVector<int32_t> addShapeI32(addOpShape.begin(), addOpShape.end());
-
-      auto matmulOutputType = matmulOp.getResult().getType();
-      Value matmulOpA = matmulOp.getA();
-      Value matmulOpB = matmulOp.getB();
-
-      LinearOp linearOp = rewriter.create<ttir::LinearOp>(
-          addOp.getLoc(), matmulOutputType, matmulOpA, matmulOpB, bias,
-          matmulOp.getTransposeA(), matmulOp.getTransposeB());
-
-      RankedTensorType addOpType = addOp.getType();
-
-      Value finalReshape = rewriter.create<ttir::ReshapeOp>(
-          addOp.getLoc(),
-          RankedTensorType::get(addOpShape, addOpType.getElementType(),
-                                addOpType.getEncoding()),
-          linearOp.getResult(), rewriter.getI32ArrayAttr(addShapeI32));
-      rewriter.replaceOp(addOp, finalReshape);
-
-      return mlir::success();
+      bias = (addOp.getLhs() == reshapeOp.getResult()) ? addOp.getRhs()
+                                                       : addOp.getLhs();
+    } else {
+      return mlir::failure();
     }
-    return mlir::failure();
+
+    auto biasReshapeOp = bias.getDefiningOp<ReshapeOp>();
+    llvm::SmallVector<int64_t> broadcastShape;
+    // Remove bias reshape op if the input can be broadcasted to matmul or add
+    // output shape.
+    if (biasReshapeOp &&
+        mlir::OpTrait::util::getBroadcastedShape(
+            matmulOp.getType().getShape(),
+            biasReshapeOp.getInput().getType().getShape(), broadcastShape) &&
+        (llvm::equal(broadcastShape, addOp.getType().getShape()) ||
+         llvm::equal(broadcastShape, matmulOp.getType().getShape()))) {
+      bias = biasReshapeOp.getInput();
+    }
+
+    Value matmulOpA = matmulOp.getA();
+    Value matmulOpB = matmulOp.getB();
+    auto outputType = matmulOp.getResult().getType();
+    auto biasType = bias.getType();
+    // If the bias’s trailing two dimensions match the trailing dimensions of
+    // the matmul result, the bias is applied per-matrix. In this case, LinearOp
+    // broadcasts the matmul result across the leading dimensions of the bias.
+    // So the output type should follow the bias shape.
+    if (biasType.getRank() >= 2 && outputType.getRank() >= 2 &&
+        llvm::equal(outputType.getShape().take_back(2),
+                    biasType.getShape().take_back(2))) {
+      outputType = biasType;
+    }
+    LinearOp linearOp = rewriter.create<ttir::LinearOp>(
+        addOp.getLoc(), outputType, matmulOpA, matmulOpB, bias,
+        matmulOp.getTransposeA(), matmulOp.getTransposeB());
+
+    SmallVector<int32_t> addShapeI32(addOp.getType().getShape().begin(),
+                                     addOp.getType().getShape().end());
+    Value finalReshape = rewriter.create<ttir::ReshapeOp>(
+        addOp.getLoc(), addOp.getType(), linearOp.getResult(),
+        rewriter.getI32ArrayAttr(addShapeI32));
+    rewriter.replaceOp(addOp, finalReshape);
+
+    return mlir::success();
   }
 
 private:

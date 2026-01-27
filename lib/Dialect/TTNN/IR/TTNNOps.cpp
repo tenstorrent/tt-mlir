@@ -2310,13 +2310,28 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
 
     // Verify that the dimensions of the matmul of A and B are broadcast
     // compatible with input bias.
-    llvm::SmallVector<int64_t> matmulShape = expectedOutputShape;
-    if (!OpTrait::util::getBroadcastedShape(matmulShape, biasShape,
-                                            expectedOutputShape)) {
+    llvm::SmallVector<int64_t> broadcastShape;
+    if (!mlir::OpTrait::util::getBroadcastedShape(expectedOutputShape,
+                                                  biasShape, broadcastShape)) {
       return emitOpError("Bias shape(")
              << ttmlir::utils::join(biasShape, ",")
              << ") is not broadcast compatible with the matmul output shape("
-             << ttmlir::utils::join(matmulShape, ",") << ")";
+             << ttmlir::utils::join(expectedOutputShape, ",") << ")";
+    }
+
+    llvm::ArrayRef<int64_t> outputShapeRef = expectedOutputShape;
+    // Update the expected output shape to the fully broadcasted shape when:
+    // 1) The matmul result is a scalar (vector x vector), so the inferred
+    //    output shape is empty and must be derived from the bias via
+    //    broadcasting, or
+    // 2) The bias has rank >= 2 and its trailing two dimensions match the
+    //    trailing dimensions of the matmul output, meaning the bias is applied
+    //    per-matrix and broadcast across leading dimensions.
+    if (outputShapeRef.empty() ||
+        ((biasType->getRank() >= 2) && (outputShapeRef.size() >= 2) &&
+         llvm::equal(outputShapeRef.take_back(2),
+                     biasType->getShape().take_back(2)))) {
+      expectedOutputShape = broadcastShape;
     }
   }
 
