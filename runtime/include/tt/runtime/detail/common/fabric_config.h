@@ -2,6 +2,9 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#ifndef TT_RUNTIME_DETAIL_COMMON_FABRIC_CONFIG_H
+#define TT_RUNTIME_DETAIL_COMMON_FABRIC_CONFIG_H
+
 #include "tt/runtime/detail/ttmetal/ttmetal.h"
 #include <unordered_map>
 #include <vector>
@@ -30,3 +33,5 @@ appendFabricConfigArgs(
     const tt::tt_metal::CoreRangeSet &coreRangeSet);
 
 } // namespace tt::runtime::common
+
+#endif // TT_RUNTIME_DETAIL_COMMON_FABRIC_CONFIG_H

@@ -66,7 +66,7 @@ appendFabricConfigArgs(
       LOG_ASSERT(backward_direction.has_value(),
                  "Backward direction does not exist on mesh coordinate: ",
                  deviceCoord);
-      rtArgsVec.push_back((uint32_t)backward_direction.value());
+      rtArgsVec.push_back(backward_direction.value());
     }
 
     // Add mesh coordinate to device id mapping (in flattened mesh coordinate
