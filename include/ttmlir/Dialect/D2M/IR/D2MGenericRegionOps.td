@@ -58,7 +58,7 @@ class D2M_GenericRegionOp<string mnemonic, list<Trait> traits = []> :
 class D2M_GenericRegionComputeOp<string mnemonic, list<Trait> traits = []> :
     D2M_GenericRegionOp<mnemonic, [D2M_GenericRegionComputeOpTrait, D2M_OperandLoadStoreRegisterOpInterface] # traits> {}
 
-class D2M_GenericRegionComputeUnaryDstOp<string mnemonic, list<Trait> traits = []> :
+class D2M_GenericRegionComputeUnaryDstOp<string mnemonic, list<Trait> traits = [D2M_EltwiseComputeOpTrait]> :
     D2M_GenericRegionComputeOp<mnemonic, traits> {
 
   let extraClassDeclaration = [{
@@ -69,7 +69,7 @@ class D2M_GenericRegionComputeUnaryDstOp<string mnemonic, list<Trait> traits = [
   }];
 }
 
-class D2M_GenericRegionComputeBinaryDstOp<string mnemonic, list<Trait> traits = []> :
+class D2M_GenericRegionComputeBinaryDstOp<string mnemonic, list<Trait> traits = [D2M_EltwiseComputeOpTrait]> :
     D2M_GenericRegionComputeOp<mnemonic, traits> {
 
   let extraClassDeclaration = [{
@@ -81,7 +81,7 @@ class D2M_GenericRegionComputeBinaryDstOp<string mnemonic, list<Trait> traits = 
 }
 
 // Binary ops that support tile-tile OR tile-scalar operations
-class D2M_GenericRegionComputeBinaryWithScalarOptionDstOp<string mnemonic, list<Trait> traits = []> :
+class D2M_GenericRegionComputeBinaryWithScalarOptionDstOp<string mnemonic, list<Trait> traits = [D2M_EltwiseComputeOpTrait]> :
     D2M_GenericRegionComputeOp<mnemonic, traits> {
 
   let extraClassDeclaration = [{
@@ -100,7 +100,7 @@ class D2M_GenericRegionComputeBinaryWithScalarOptionDstOp<string mnemonic, list<
   }];
 }
 
-class D2M_GenericRegionComputeTernaryDstOp<string mnemonic, list<Trait> traits = []> :
+class D2M_GenericRegionComputeTernaryDstOp<string mnemonic, list<Trait> traits = [D2M_EltwiseComputeOpTrait]> :
     D2M_GenericRegionComputeOp<mnemonic, traits> {
 
   let extraClassDeclaration = [{

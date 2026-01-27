@@ -22,6 +22,11 @@ struct D2MGenericRegionComputeOpTrait
   }
 };
 
+// Trait for eltwise compute ops.
+template <typename ConcreteType>
+class D2MEltwiseComputeOpTrait
+    : public OpTrait::TraitBase<ConcreteType, D2MEltwiseComputeOpTrait> {};
+
 // Trait for operations that must be in datamovement regions
 template <typename ConcreteType>
 struct D2MGenericRegionDatamovementOpTrait
