@@ -349,10 +349,10 @@ public:
   LogicalResult
   matchAndRewrite(ttir::ArgMaxOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    // Most of the frontends uses signed or signless integer as return type for
+    // Most of the frontends uses signed or sign less integer as return type for
     // argmax op (tt-mlir uses signed integer in this case); whereas, tt-metal
-    // uses UINT32 as return type. Convert the element type to ui32 to match
-    // tt-metal's expectations.
+    // uses UINT32 as return type. This difference is ignored as the output
+    // indices will always be positive.
 
     std::optional<mlir::ArrayAttr> dimArg = op.getDimArg();
     IntegerAttr reductionAxis;
@@ -361,32 +361,9 @@ public:
              "ttir::ArgMaxOp dim argument must be a single integer");
       reductionAxis = *dimArg->getAsRange<mlir::IntegerAttr>().begin();
     }
-
-    // Convert the result type: if element type is si32 or i32, convert to ui32
-    Type originalType = this->getTypeConverter()->convertType(op.getType());
-    Type resultType = originalType;
-    if (auto tensorType = mlir::dyn_cast<RankedTensorType>(originalType)) {
-      Type elementType = tensorType.getElementType();
-      if (auto intType = mlir::dyn_cast<IntegerType>(elementType)) {
-        if (intType.getWidth() == 32 && !intType.isUnsigned()) {
-          // Replace with unsigned 32-bit integer type - update both tensor
-          // element type and layout to use ui32
-          Type ui32Type = IntegerType::get(rewriter.getContext(), 32,
-                                           IntegerType::Unsigned);
-          Attribute encoding = tensorType.getEncoding();
-          if (auto layoutAttr =
-                  mlir::dyn_cast_if_present<ttnn::TTNNLayoutAttr>(encoding)) {
-            // Use withDataType() to properly update the memref and tile types
-            encoding = layoutAttr.withDataType(ttcore::DataType::UInt32);
-          }
-          resultType =
-              RankedTensorType::get(tensorType.getShape(), ui32Type, encoding);
-        }
-      }
-    }
-
     rewriter.replaceOpWithNewOp<ttnn::ArgMaxOp>(
-        op, resultType, adaptor.getInput(), reductionAxis, adaptor.getKeepDim(),
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(), reductionAxis, adaptor.getKeepDim(),
         /*use_multicore=*/false, /*memoryConfig=*/nullptr);
     return success();
   }

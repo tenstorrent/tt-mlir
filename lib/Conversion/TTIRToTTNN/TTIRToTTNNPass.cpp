@@ -52,50 +52,6 @@ struct ConvertTTIRToTTNNPass
     // All types map 1:1.
     typeConverter.addConversion([](Type type) { return type; });
 
-    // Add materialization callbacks for si32 <-> ui32 conversions (for argmax)
-    // ArgMax operations convert si32 indices to ui32 (as required by tt-metal),
-    // but consumers may still expect si32. Since both have the same bit
-    // representation, we use ttnn::TypecastOp to convert between them.
-    auto materializeCast = [](OpBuilder &builder, Type resultType,
-                              ValueRange inputs, Location loc) -> Value {
-      if (inputs.size() != 1) {
-        return nullptr;
-      }
-
-      auto sourceType = inputs[0].getType();
-      if (auto sourceTensor = mlir::dyn_cast<RankedTensorType>(sourceType)) {
-        if (auto resultTensor = mlir::dyn_cast<RankedTensorType>(resultType)) {
-          auto sourceElem = sourceTensor.getElementType();
-          auto resultElem = resultTensor.getElementType();
-
-          if (auto sourceInt = mlir::dyn_cast<IntegerType>(sourceElem)) {
-            if (auto resultInt = mlir::dyn_cast<IntegerType>(resultElem)) {
-              // Allow si32 <-> ui32 conversion (bitcast, same representation)
-              if (sourceInt.getWidth() == 32 && resultInt.getWidth() == 32 &&
-                  sourceInt.getSignedness() != resultInt.getSignedness()) {
-                ttcore::DataType targetDataType;
-                if (resultInt.isUnsigned()) {
-                  targetDataType = ttcore::DataType::UInt32;
-                } else {
-                  targetDataType = ttcore::DataType::Int32;
-                }
-                auto dtypeAttr = ttcore::DataTypeAttr::get(builder.getContext(),
-                                                           targetDataType);
-                return builder
-                    .create<ttnn::TypecastOp>(loc, resultType, inputs[0],
-                                              dtypeAttr)
-                    .getResult();
-              }
-            }
-          }
-        }
-      }
-      return nullptr;
-    };
-
-    typeConverter.addTargetMaterialization(materializeCast);
-    typeConverter.addSourceMaterialization(materializeCast);
-
     RewritePatternSet patterns(&getContext());
     populateTTIRToTTNNPatterns(&getContext(), patterns, typeConverter);
 
