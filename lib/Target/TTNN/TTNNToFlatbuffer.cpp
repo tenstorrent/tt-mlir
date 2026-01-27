@@ -599,9 +599,11 @@ createOp(FlatbufferObjectCache &cache, SparseMatmulOp op) {
       getOperandThroughDPSOps(op.getB()));
   auto sparsity = cache.at<::tt::target::ttnn::TensorRef>(
       getOperandThroughDPSOps(op.getSparsity()));
-  auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer);
+  auto output = cache.getOrCreateNoSharding(
+      op.getResult(), tensorValueToFlatbuffer, std::nullopt);
 
-  ::flatbuffers::Offset<::tt::target::ttnn::MatmulMultiCoreReuseMultiCast1DProgramConfig>
+  ::flatbuffers::Offset<
+      ::tt::target::ttnn::MatmulMultiCoreReuseMultiCast1DProgramConfig>
       programConfig = 0;
   if (auto config = op.getProgramConfig()) {
     programConfig = toFlatbuffer(cache, config.value());
@@ -1124,6 +1126,53 @@ createOp(FlatbufferObjectCache &cache, ReduceScatterOp op) {
       *cache.fbb, input, output, op.getScatterDim(),
       static_cast<uint32_t>(op.getReduceType()), op.getClusterAxis(),
       subDeviceId, memoryConfig, numLinks, topology);
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::AllToAllDispatchOp>
+createOp(FlatbufferObjectCache &cache, AllToAllDispatchOp op) {
+  auto inputTensor = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInputTensor()));
+  auto expertIndices = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getExpertIndices()));
+  auto expertMapping = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getExpertMapping()));
+  auto dispatched = cache.getOrCreateNoSharding(
+      op.getDispatched(), tensorValueToFlatbuffer, std::nullopt);
+  auto metadata = cache.getOrCreateNoSharding(
+      op.getMetadata(), tensorValueToFlatbuffer, std::nullopt);
+
+  ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig> memoryConfig = 0;
+  if (auto memConfig = op.getMemoryConfig()) {
+    memoryConfig = toFlatbuffer(cache, memConfig.value());
+  }
+
+  return ::tt::target::ttnn::CreateAllToAllDispatchOp(
+      *cache.fbb, inputTensor, expertIndices, expertMapping, dispatched,
+      metadata, static_cast<uint32_t>(op.getNumDevices()),
+      static_cast<uint32_t>(op.getClusterAxis()), memoryConfig);
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::AllToAllCombineOp>
+createOp(FlatbufferObjectCache &cache, AllToAllCombineOp op) {
+  auto inputTensor = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInputTensor()));
+  auto expertMetadata = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getExpertMetadata()));
+  auto expertMapping = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getExpertMapping()));
+  auto output = cache.getOrCreateNoSharding(
+      op.getResult(), tensorValueToFlatbuffer, std::nullopt);
+
+  ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig> memoryConfig = 0;
+  if (auto memConfig = op.getMemoryConfig()) {
+    memoryConfig = toFlatbuffer(cache, memConfig.value());
+  }
+
+  return ::tt::target::ttnn::CreateAllToAllCombineOp(
+      *cache.fbb, inputTensor, expertMetadata, expertMapping, output,
+      static_cast<uint32_t>(op.getNumDevices()),
+      static_cast<uint32_t>(op.getClusterAxis()),
+      static_cast<uint32_t>(op.getNumExpertsPerTok()), memoryConfig);
 }
 
 // Convert ttcore::ReduceType to tt::target::ttnn::ScatterReduceType
@@ -3912,6 +3961,16 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto reduceScatterOp = dyn_cast<ReduceScatterOp>(op); reduceScatterOp) {
     return createOperation(cache, createOp(cache, reduceScatterOp), debugString,
                            locInfo);
+  }
+  if (auto allToAllDispatchOp = dyn_cast<AllToAllDispatchOp>(op);
+      allToAllDispatchOp) {
+    return createOperation(cache, createOp(cache, allToAllDispatchOp),
+                           debugString, locInfo);
+  }
+  if (auto allToAllCombineOp = dyn_cast<AllToAllCombineOp>(op);
+      allToAllCombineOp) {
+    return createOperation(cache, createOp(cache, allToAllCombineOp),
+                           debugString, locInfo);
   }
   if (auto scatterOp = dyn_cast<ScatterOp>(op); scatterOp) {
     return createOperation(cache, createOp(cache, scatterOp), debugString,

@@ -1369,18 +1369,58 @@ public:
       nnzAttr = rewriter.getI64IntegerAttr(*nnz);
     }
 
-    // Note: TT-Metal sparse_matmul requires sparsity tensor in ROW_MAJOR layout
-    // This conversion is handled in the runtime (matmul.cpp) since device-to-device
-    // layout conversion is complex at the dialect level.
-
     rewriter.replaceOpWithNewOp<ttnn::SparseMatmulOp>(
-        op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getA(), adaptor.getB(), adaptor.getSparsity(),
-        op.getIsInputASparse(), op.getIsInputBSparse(), nnzAttr,
+        op, this->getTypeConverter()->convertType(op.getType()), adaptor.getA(),
+        adaptor.getB(), adaptor.getSparsity(), op.getIsInputASparse(),
+        op.getIsInputBSparse(), nnzAttr,
         /*program_config=*/nullptr,
         /*memory_config=*/nullptr,
         /*dtype=*/nullptr,
         /*compute_config=*/nullptr);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class AllToAllDispatchOpConversionPattern
+    : public OpConversionPattern<ttir::AllToAllDispatchOp> {
+public:
+  using OpConversionPattern<ttir::AllToAllDispatchOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::AllToAllDispatchOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto dispatchedType = cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getDispatched().getType()));
+    auto metadataType = cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getMetadata().getType()));
+
+    rewriter.replaceOpWithNewOp<ttnn::AllToAllDispatchOp>(
+        op, dispatchedType, metadataType, adaptor.getInputTensor(),
+        adaptor.getExpertIndices(), adaptor.getExpertMapping(),
+        op.getNumDevicesAttr(), op.getClusterAxisAttr(),
+        /*memory_config=*/nullptr);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class AllToAllCombineOpConversionPattern
+    : public OpConversionPattern<ttir::AllToAllCombineOp> {
+public:
+  using OpConversionPattern<ttir::AllToAllCombineOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::AllToAllCombineOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<ttnn::AllToAllCombineOp>(
+        op, this->getTypeConverter()->convertType(op.getResult().getType()),
+        adaptor.getInputTensor(), adaptor.getExpertMetadata(),
+        adaptor.getExpertMapping(), op.getNumDevicesAttr(),
+        op.getClusterAxisAttr(), op.getNumExpertsPerTokAttr(),
+        /*memory_config=*/nullptr);
     return success();
   }
 };
@@ -3217,6 +3257,8 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            LayerNormOpConversionPattern,
            MatmulOpConversionPattern,
            SparseMatmulOpConversionPattern,
+           AllToAllDispatchOpConversionPattern,
+           AllToAllCombineOpConversionPattern,
            Conv2dOpConversionPattern,
            Conv3dOpConversionPattern,
            ConvTranspose2dOpConversionPattern,
