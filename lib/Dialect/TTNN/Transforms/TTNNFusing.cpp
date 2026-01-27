@@ -504,9 +504,7 @@ public:
     // and dropping matmul-only transforms (e.g. K^T permute, GQA head
     // expansion). Key un-transpose for SDPA op legality is handled during input
     // canonicalization (see unTransposeKeyIfNeeded()).
-    if (!prepareInputsForSDPA(c, rewriter)) {
-      return failure();
-    }
+    prepareInputsForSDPA(c, rewriter);
 
     return createSDPAOp(rewriter, c);
   }
@@ -959,7 +957,7 @@ private:
   //   original mask and let broadcastMaskForSDPA() re-broadcast precisely
   //
   // Each preparation step is only committed if shapes remain SDPA-legal.
-  bool prepareInputsForSDPA(SDPAComponents &c,
+  void prepareInputsForSDPA(SDPAComponents &c,
                             PatternRewriter &rewriter) const {
     // Analyze all inputs upfront before committing any changes.
     // This ensures K and V are validated together (important for GQA where
@@ -1008,8 +1006,6 @@ private:
       c.mask =
           restoreElementTypeIfNeeded(c.mask, preparedQElementType, rewriter);
     }
-
-    return true;
   }
 
   // ============================================================================
