@@ -296,10 +296,10 @@ public:
   }
 };
 
-class ShardyAllSliceToTTIRMeshShardConversionPattern
+class ShardyAllSliceToTTIRMeshPartitionConversionPattern
     : public OpConversionPattern<mlir::stablehlo::CompositeOp> {
 public:
-  ShardyAllSliceToTTIRMeshShardConversionPattern(MLIRContext *context)
+  ShardyAllSliceToTTIRMeshPartitionConversionPattern(MLIRContext *context)
       : OpConversionPattern<mlir::stablehlo::CompositeOp>(context) {}
 
   LogicalResult
@@ -310,8 +310,11 @@ public:
       return failure();
     }
 
-    auto outputType =
-        mlir::cast<RankedTensorType>(srcOp.getResult(0).getType());
+    if (srcOp->getNumOperands() != 1) {
+      return rewriter.notifyMatchFailure(
+          srcOp,
+          "sdy.all_slice composite op must have exactly one input operand");
+    }
 
     DictionaryAttr compositeAttrs = srcOp.getCompositeAttributes();
     auto maybeOutShardingAttr = compositeAttrs.get("out_sharding");
@@ -337,20 +340,52 @@ public:
           srcOp, "Error trying to parse shardy annotation when legalizing "
                  "sdy.all_slice composite op.");
     }
-    auto shardTypeAttr = mlir::tt::ttcore::MeshShardTypeAttr::get(
-        this->getContext(), shardyMeshSharding->getShardType());
-    auto shardDirectionAttr = mlir::tt::ttcore::MeshShardDirectionAttr::get(
-        this->getContext(), shardyMeshSharding->getShardDirection());
-    auto shardShapeAttr =
-        rewriter.getDenseI64ArrayAttr(shardyMeshSharding->getShardShape());
-    auto shardDimsAttr =
-        rewriter.getDenseI64ArrayAttr(shardyMeshSharding->getShardDims());
+    auto shardDims = shardyMeshSharding->getShardDims();
+    llvm::SmallVector<int32_t> tensorDims;
+    llvm::SmallVector<uint32_t> clusterAxes;
+    for (auto [dimIdx, dim] : llvm::enumerate(shardDims)) {
+      if (dim >= 0) {
+        tensorDims.push_back(static_cast<int32_t>(dim));
+        clusterAxes.push_back(static_cast<uint32_t>(dimIdx));
+      }
+    }
+    rewriter.setInsertionPoint(srcOp);
 
-    auto meshShardOp = rewriter.replaceOpWithNewOp<ttir::MeshShardOp>(
-        srcOp, outputType, adaptor.getOperands().front(), shardTypeAttr,
-        shardDirectionAttr, shardShapeAttr, shardDimsAttr);
-    meshShardOp->setAttr(sharding_utils::kFromAllSliceCompositeAttr,
-                         rewriter.getUnitAttr());
+    mlir::Value currInput = adaptor.getOperands().front();
+    auto meshShape = shardyMeshSharding->getMeshShape();
+    for (size_t i = 0; i < tensorDims.size(); ++i) {
+      // Compute new shape for the result tensor, with dimension divided by mesh
+      // axis size
+      auto currInputType = mlir::cast<RankedTensorType>(currInput.getType());
+      llvm::SmallVector<int64_t> newShape(currInputType.getShape().begin(),
+                                          currInputType.getShape().end());
+      // Defensive bounds check: tensorDims[i] < rank
+      if (static_cast<size_t>(tensorDims[i]) >= newShape.size()) {
+        return rewriter.notifyMatchFailure(
+            srcOp, "Invalid mesh partition dimension index.");
+      }
+      // Defensive bounds check: clusterAxes[i] < mesh shape size
+      if (static_cast<size_t>(clusterAxes[i]) >= meshShape.size()) {
+        return rewriter.notifyMatchFailure(srcOp, "Invalid mesh axis index.");
+      }
+      // Integer divide dimension by mesh axis size
+      int64_t meshAxisSize = meshShape[clusterAxes[i]];
+      if (newShape[tensorDims[i]] < 0 ||
+          newShape[tensorDims[i]] % meshAxisSize != 0) {
+        return rewriter.notifyMatchFailure(
+            srcOp,
+            "Dimension size must be static and divisible by mesh axis size.");
+      }
+      newShape[tensorDims[i]] = newShape[tensorDims[i]] / meshAxisSize;
+      auto resultType =
+          mlir::RankedTensorType::get(newShape, currInputType.getElementType(),
+                                      currInputType.getEncoding());
+      currInput = rewriter.create<ttir::MeshPartitionOp>(
+          srcOp->getLoc(), resultType, currInput,
+          rewriter.getSI32IntegerAttr(tensorDims[i]),
+          rewriter.getUI32IntegerAttr(clusterAxes[i]));
+    }
+    rewriter.replaceOp(srcOp, currInput);
     return success();
   }
 };
@@ -392,6 +427,6 @@ void populateStableHLOCompositeLegalizationPatterns(
   patterns.add<TenstorrentRMSNormConversionPattern>(context);
   patterns.add<TenstorrentLayerNormConversionPattern>(context);
   patterns.add<TenstorrentUniformToRandConversionPattern>(context);
-  patterns.add<ShardyAllSliceToTTIRMeshShardConversionPattern>(context);
+  patterns.add<ShardyAllSliceToTTIRMeshPartitionConversionPattern>(context);
 }
 } // namespace mlir::tt
