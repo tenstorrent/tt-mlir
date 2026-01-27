@@ -152,7 +152,7 @@ defvar D2M_TileComputeOpTraitBundle = [
 // Type constraint that accepts either a Tile or a scalar value (float/int)
 def TileOrScalar : AnyTypeOf<[TTCore_Tile, AnyFloat, AnyInteger]>;
 
-def D2M_TileAddOp : D2M_GenericRegionComputeFPUOrSFPUBinary<"tile_add", [Pure, D2M_SkipOpEltwiseFusionTrait]> {
+def D2M_TileAddOp : D2M_GenericRegionComputeFPUOrSFPUBinary<"tile_add", [Pure]> {
     let summary = "D2M Tile Add Op";
     let description = [{
         The `tile_add` operation adds two tiles element-wise on the FPU,
