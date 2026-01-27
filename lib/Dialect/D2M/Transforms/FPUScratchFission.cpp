@@ -7,8 +7,6 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
-#include "mlir/Dialect/MemRef/IR/MemRef.h"
-#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/IRMapping.h"
 #include "mlir/IR/PatternMatch.h"
 
@@ -26,7 +24,7 @@ static bool isComputeOrMemoryOp(Operation *op) {
 
 /// Collect the backward slice of operations that contribute to a store.
 /// Only includes ops within the same block as the store.
-static void collectBackwardSlice(affine::AffineStoreOp store,
+static void collectBackwardSlice(Operation *store,
                                  DenseSet<Operation *> &slice) {
   SmallVector<Operation *> worklist;
   worklist.push_back(store);
@@ -71,13 +69,13 @@ static affine::AffineForOp findInnermostAffineLoop(Operation *root) {
 }
 
 /// Clone a loop and remove ops NOT in the keepOps set from the innermost body
-static void cloneAndFilterLoop(scf::ForOp originalLoop,
+static void cloneAndFilterLoop(affine::AffineForOp originalLoop,
                                const DenseSet<Operation *> &keepOps,
                                OpBuilder &builder) {
   // Clone the entire loop structure
   IRMapping mapping;
   Operation *clonedOp = builder.clone(*originalLoop.getOperation(), mapping);
-  auto clonedLoop = cast<scf::ForOp>(clonedOp);
+  auto clonedLoop = cast<affine::AffineForOp>(clonedOp);
 
   // Find the innermost affine loop in both original and cloned
   affine::AffineForOp originalInnermost = findInnermostAffineLoop(originalLoop);
@@ -136,9 +134,9 @@ public:
   void runOnOperation() final {
     ModuleOp module = getOperation();
 
-    // Collect all scf.for loops tagged for fission
-    SmallVector<scf::ForOp> loopsToFission;
-    module.walk([&](scf::ForOp forOp) {
+    // Collect all affine.for loops tagged for fission
+    SmallVector<affine::AffineForOp> loopsToFission;
+    module.walk([&](affine::AffineForOp forOp) {
       if (forOp->hasAttr("d2m.scratch_space_loop") &&
           forOp->hasAttr("d2m.scratch_inserted") &&
           !forOp->hasAttr("d2m.fissioned")) {
@@ -146,7 +144,7 @@ public:
       }
     });
 
-    for (scf::ForOp loop : loopsToFission) {
+    for (affine::AffineForOp loop : loopsToFission) {
       // Find innermost affine loop to get stores
       affine::AffineForOp innermost = findInnermostAffineLoop(loop);
       if (!innermost) {
@@ -154,10 +152,10 @@ public:
         continue;
       }
 
-      // Collect all stores within the innermost loop
-      SmallVector<affine::AffineStoreOp> stores;
-      innermost.walk(
-          [&](affine::AffineStoreOp store) { stores.push_back(store); });
+      // Collect all affine stores within the innermost loop
+      // (scratch spills and CB stores are now both affine.store)
+      SmallVector<Operation *> stores;
+      innermost.walk([&](affine::AffineStoreOp op) { stores.push_back(op); });
 
       if (stores.size() <= 1) {
         // Nothing to fission - mark and continue
@@ -169,7 +167,7 @@ public:
       // For each store, compute backward slice and create fissioned loop
       OpBuilder builder(loop);
 
-      for (affine::AffineStoreOp store : stores) {
+      for (Operation *store : stores) {
         DenseSet<Operation *> slice;
         collectBackwardSlice(store, slice);
         cloneAndFilterLoop(loop, slice, builder);

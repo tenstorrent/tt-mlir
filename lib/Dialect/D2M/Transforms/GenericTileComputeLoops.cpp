@@ -7,7 +7,11 @@
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
 
+#include "mlir/Dialect/Affine/IR/AffineOps.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Linalg/Transforms/Transforms.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/Dialect/Utils/StaticValueUtils.h"
 #include "mlir/Transforms/WalkPatternRewriteDriver.h"
 
 namespace mlir::tt::d2m {
@@ -209,23 +213,72 @@ struct D2MGenericComputeRewriter : public OpRewritePattern<linalg::GenericOp> {
 
       linalg::LinalgTilingOptions phase2TilingOptions;
       phase2TilingOptions.setTileSizes(phase2SubblockSizes);
+      // Note: AffineLoops has known issues where TiledLinalgOp::loops may be
+      // empty and the inner linalg shape may not be reduced. Using SCF loops
+      // instead ensures correct tiling behavior. The scf.for IVs will later be
+      // converted to affine-compatible indices as needed.
       FailureOr<linalg::TiledLinalgOp> phase2TiledGeneric =
           linalg::tileLinalgOp(rewriter, innerOp, phase2TilingOptions);
       if (failed(phase2TiledGeneric)) {
         return failure();
       }
 
-      // Tag the outermost loop from phase 2 tiling with d2m.scratch_space_loop
-      // attribute for downstream passes (e.g., fission, scratch allocation).
-      if (!phase2TiledGeneric.value().loops.empty()) {
-        Operation *outermostLoop = phase2TiledGeneric.value().loops.front();
-        outermostLoop->setAttr("d2m.scratch_space_loop",
-                               rewriter.getUnitAttr());
-      }
-
       // Erase the intermediate linalg.generic from phase 1 - it has been
       // replaced by the tiled version from phase 2.
       rewriter.eraseOp(innerOp);
+
+      // Tag the outermost loop from phase 2 tiling with d2m.scratch_space_loop
+      // attribute for downstream passes (e.g., fission, scratch allocation).
+      // Also convert the SCF loop to an affine loop so its IV can be used with
+      // affine.store/load operations.
+      if (!phase2TiledGeneric.value().loops.empty()) {
+        Operation *outermostScfLoop = phase2TiledGeneric.value().loops.front();
+        auto scfForOp = dyn_cast<scf::ForOp>(outermostScfLoop);
+
+        // Check if the scf.for has constant bounds
+        std::optional<int64_t> lbOpt, ubOpt, stepOpt;
+        if (scfForOp) {
+          lbOpt = getConstantIntValue(scfForOp.getLowerBound());
+          ubOpt = getConstantIntValue(scfForOp.getUpperBound());
+          stepOpt = getConstantIntValue(scfForOp.getStep());
+        }
+
+        if (scfForOp && lbOpt && ubOpt && stepOpt) {
+          // Convert scf.for to affine.for since it has constant bounds
+          int64_t lb = *lbOpt;
+          int64_t ub = *ubOpt;
+          int64_t step = *stepOpt;
+
+          rewriter.setInsertionPoint(scfForOp);
+          auto affineForOp = rewriter.create<affine::AffineForOp>(
+              scfForOp.getLoc(), lb, ub, step);
+
+          // Move the body from scf.for to affine.for
+          Block *scfBody = scfForOp.getBody();
+          Block *affineBody = affineForOp.getBody();
+
+          // Replace uses of scf IV with affine IV
+          scfBody->getArgument(0).replaceAllUsesWith(
+              affineBody->getArgument(0));
+
+          // Move operations (except terminator) from scf body to affine body
+          auto &scfOps = scfBody->getOperations();
+          auto &affineOps = affineBody->getOperations();
+          affineOps.splice(affineOps.begin(), scfOps, scfOps.begin(),
+                           std::prev(scfOps.end()));
+
+          // Set the scratch_space_loop attribute on the new affine.for
+          affineForOp->setAttr("d2m.scratch_space_loop",
+                               rewriter.getUnitAttr());
+
+          // Erase the old scf.for
+          rewriter.eraseOp(scfForOp);
+        } else {
+          // Fallback: just set the attribute on the SCF loop
+          outermostScfLoop->setAttr("d2m.scratch_space_loop",
+                                    rewriter.getUnitAttr());
+        }
+      }
 
       // Replace the original op with the tiled version from phase 2.
       rewriter.replaceOp(op, phase2TiledGeneric.value().op);
