@@ -14,53 +14,28 @@ from ttmlir.dialects import ttir, func
 import ttnn
 
 
-def print_and_verify_ir(ir, method_name, debug):
-    if debug:
-        print("---- IR Dump after " + method_name + " ----")
-        print(ir)
-    ir.operation.verify()
+class MockTensor:
+    """Mock tensor_arg used to call _create_*_tensor_layout functions."""
+
+    def __init__(self, shape, dtype, memory_config):
+        self.shape = shape
+        self.dtype = dtype
+        self._memory_config = memory_config
+
+    def memory_config(self):
+        return self._memory_config
 
 
 def create_output_layout_from_memory_config(
-    ctx, memory_config, tensor_shape, element_type, debug
+    ctx, memory_config, tensor_shape, element_type
 ):
 
-    print("element_type received:", element_type)
-    print("type of element_type:", type(element_type))
     dtype = ttnn_dtype_from_mlir_dtype(element_type)
-    print("type of dtype:", type(dtype))
-    if debug:
-        print(f"Converted dtype: {dtype}")
-
+    mock_tensor_arg = MockTensor(tensor_shape, dtype, memory_config)
     if memory_config.buffer_type == ttnn.BufferType.DRAM:
-        # Create a mock tensor argument for DRAM layout
-        class MockTensor:
-            def __init__(self, shape, dtype, memory_config):
-                self.shape = shape
-                self.dtype = dtype
-                self._memory_config = memory_config
-
-            def memory_config(self):
-                return self._memory_config
-
-        mock_tensor = MockTensor(tensor_shape, dtype, memory_config)
-        return _create_dram_tensor_layout(ctx, mock_tensor)
+        return _create_dram_tensor_layout(ctx, mock_tensor_arg)
     else:
-        # L1 with sharding
-        if memory_config.shard_spec is None:
-            raise ValueError("L1 memory config must have shard_spec for output layout")
-
-        class MockTensor:
-            def __init__(self, shape, dtype, memory_config):
-                self.shape = shape
-                self.dtype = dtype
-                self._memory_config = memory_config
-
-            def memory_config(self):
-                return self._memory_config
-
-        mock_tensor = MockTensor(tensor_shape, dtype, memory_config)
-        return _create_sharded_tensor_layout(ctx, mock_tensor)
+        return _create_sharded_tensor_layout(ctx, mock_tensor_arg)
 
 
 def insert_output_layout_conversion(module, debug, memory_config):
@@ -74,25 +49,19 @@ def insert_output_layout_conversion(module, debug, memory_config):
         print(f"Inserting output layout conversion for memory_config: {memory_config}")
 
     with module.context:
-        # Find all function operations
+        # find all func.funcs
         for op in module.body.operations:
             if not isinstance(op, func.FuncOp):
                 continue
 
-            if debug:
-                print(f"Processing function: {op.name.value}")
-
-            # Find the function body blocks
+            # find return op of each body block
             for block in op.regions[0].blocks:
                 return_ops = []
                 for block_op in block.operations:
                     if isinstance(block_op, func.ReturnOp):
                         return_ops.append(block_op)
 
-                if debug:
-                    print(f"Found {len(return_ops)} return operation(s)")
-
-                # modify each return
+                # modiy each return op
                 for return_op in return_ops:
                     return_values = list(return_op.operands)
                     new_return_values = []
@@ -111,14 +80,13 @@ def insert_output_layout_conversion(module, debug, memory_config):
                                 new_return_values.append(ret_val)
                                 continue
 
-                            # Get tensor shape and element type
-                            # Ensure shape is a proper Python list of integers
+                            # get tensor shape and element type
                             try:
                                 tensor_shape = [int(dim) for dim in ret_type.shape]
                             except (TypeError, ValueError) as e:
                                 if debug:
                                     print(
-                                        f"  ✗ Failed to extract shape from return type: {e}"
+                                        f"  Failed to extract shape from return type: {e}"
                                     )
                                 new_return_values.append(ret_val)
                                 continue
@@ -129,28 +97,26 @@ def insert_output_layout_conversion(module, debug, memory_config):
                                 print(
                                     f"  Converting return value {idx}: shape={tensor_shape}, element_type={element_type}"
                                 )
-                                print(f"    element_type type: {type(element_type)}")
                                 print(f"    ret_type: {ret_type}")
 
                             try:
-                                # Create output layout from memory_config
+                                # create output layout from memory_config
                                 output_layout = create_output_layout_from_memory_config(
                                     module.context,
                                     memory_config,
                                     tensor_shape,
                                     element_type,
-                                    debug,
                                 )
 
-                                # Create new tensor type with output layout
+                                # create new RankedTensorType using the passed output layout
                                 output_type = RankedTensorType.get(
                                     tensor_shape, element_type, output_layout
                                 )
 
-                                # Create ttir.empty
+                                # create ttir.empty
                                 empty_op = ttir.EmptyOp(output_type)
 
-                                # Create ttir.to_layout
+                                # create ttir.to_layout
                                 to_layout_op = ttir.ToLayoutOp(
                                     [output_type],
                                     ret_val,
@@ -193,6 +159,13 @@ def insert_output_layout_conversion(module, debug, memory_config):
         print("Output layout conversion complete")
 
     return module
+
+
+def print_and_verify_ir(ir, method_name, debug):
+    if debug:
+        print("---- IR Dump after " + method_name + " ----")
+        print(ir)
+    ir.operation.verify()
 
 
 def generate_ir(f, debug, memory_config, *args, **kwargs):
