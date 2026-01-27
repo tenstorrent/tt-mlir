@@ -1732,26 +1732,21 @@ def test_cpu_hoistable_single_operand_ops(
 @pytest.mark.parametrize(
     "shapes,permutation",
     [
-        # [(input_shape, output_shape), permutation]
-        ([(2, 3, 4), (4, 2, 3)], [2, 0, 1]),
-        ([(128, 128), (128, 128)], [0, 1]),
-        ([(128, 64, 32), (32, 128, 64)], [2, 0, 1]),
+        ([(2, 3, 4)], [2, 0, 1]),
+        ([(128, 128)], [0, 1]),
+        ([(128, 64, 32)], [2, 0, 1]),
     ],
 )
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
-@pytest.mark.xfail(reason="Fails Golden")
 def test_hoisted_permute(shapes, permutation, request, target: str, device):
     def module(builder: TTIRBuilder):
-        @builder.func(shapes, [torch.float32] * len(shapes))
+        @builder.func(shapes, [torch.float32])
         def permute(
             in0: Operand,
-            in1: Operand,
             builder: TTIRBuilder,
             unit_attrs: Optional[List[str]] = None,
         ):
-            return permute(
-                in0, in1, builder, permutation, unit_attrs=["ttir.should_hoist"]
-            )
+            return builder.permute(in0, permutation, unit_attrs=["ttir.should_hoist"])
 
     compile_and_execute_ttir(
         module,

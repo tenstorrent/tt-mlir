@@ -212,6 +212,33 @@ getCollapseDims(ArrayRef<int64_t> inputShape, ArrayRef<int64_t> targetShape) {
   return reassocIndexes;
 }
 
+// Reshape a tensor by prepending 1s to match the target rank.
+// This is useful for broadcasting parameters like weight and bias in LayerNorm.
+// For example, if input has shape [64] and targetRank is 3 with numTrailingDims
+// = 1, the result will have shape [1, 1, 64].
+static Value reshapeByPrependingOnes(Value input, int64_t targetRank,
+                                     int64_t numTrailingDims, Type elementType,
+                                     Location loc,
+                                     ConversionPatternRewriter &rewriter) {
+  auto inputType = cast<RankedTensorType>(input.getType());
+
+  SmallVector<int64_t> broadcastShape;
+  for (int64_t i = 0; i < targetRank - numTrailingDims; ++i) {
+    broadcastShape.push_back(1);
+  }
+  for (auto dim : inputType.getShape()) {
+    broadcastShape.push_back(dim);
+  }
+
+  auto reshapedType = RankedTensorType::get(broadcastShape, elementType);
+  auto shapeType =
+      tosa::shapeType::get(rewriter.getContext(), broadcastShape.size());
+  auto shapeAttr = rewriter.getIndexTensorAttr(broadcastShape);
+  auto shapeOp = rewriter.create<tosa::ConstShapeOp>(loc, shapeType, shapeAttr);
+  return rewriter.create<tosa::ReshapeOp>(loc, reshapedType, input,
+                                          shapeOp.getResult());
+}
+
 // Get dimensions from the dim_arg attribute; if the attribute is not present or
 // empty, return all dimensions.
 static SmallVector<int64_t> getDimsFromAttribute(Operation *op, int64_t rank) {
@@ -2065,10 +2092,7 @@ public:
 
     auto resultType = dyn_cast<RankedTensorType>(
         this->getTypeConverter()->convertType(op.getType()));
-    if (!resultType) {
-      return rewriter.notifyMatchFailure(op,
-                                         "Result type must be a ranked tensor");
-    }
+    assert(resultType && "Result type must be a ranked tensor type.");
 
     // Normalize dimension to be positive.
     int32_t dim = op.getDimension();
@@ -2646,10 +2670,7 @@ public:
 
     auto resultType = dyn_cast<RankedTensorType>(
         this->getTypeConverter()->convertType(op.getType()));
-    if (!resultType) {
-      return rewriter.notifyMatchFailure(op,
-                                         "Result type must be a ranked tensor");
-    }
+    assert(resultType && "Result type must be a ranked tensor type.");
 
     // Get normalized_shape to determine which dimensions to reduce over.
     // normalized_shape specifies the shape of the dimensions to normalize,
@@ -2742,56 +2763,16 @@ public:
     // rank.
     Value result = normalized;
     if (adaptor.getWeight()) {
-      Value weight = adaptor.getWeight();
-      auto weightType = cast<RankedTensorType>(weight.getType());
-
-      // Reshape weight to match input rank by prepending 1s.
-      SmallVector<int64_t> broadcastShape;
-      for (int64_t i = 0; i < rank - numNormDims; ++i) {
-        broadcastShape.push_back(1);
-      }
-      for (auto dim : weightType.getShape()) {
-        broadcastShape.push_back(dim);
-      }
-
-      auto reshapedWeightType =
-          RankedTensorType::get(broadcastShape, elementType);
-      auto shapeType =
-          tosa::shapeType::get(rewriter.getContext(), broadcastShape.size());
-      auto shapeAttr = rewriter.getIndexTensorAttr(broadcastShape);
-      auto shapeOp =
-          rewriter.create<tosa::ConstShapeOp>(loc, shapeType, shapeAttr);
-      Value reshapedWeight = rewriter.create<tosa::ReshapeOp>(
-          loc, reshapedWeightType, weight, shapeOp.getResult());
-
+      Value reshapedWeight = reshapeByPrependingOnes(
+          adaptor.getWeight(), rank, numNormDims, elementType, loc, rewriter);
       result = rewriter.create<tosa::MulOp>(loc, resultType, result,
                                             reshapedWeight, shift);
     }
 
     // Step 8: Apply bias (beta) if present.
     if (adaptor.getBias()) {
-      Value bias = adaptor.getBias();
-      auto biasType = cast<RankedTensorType>(bias.getType());
-
-      // Reshape bias to match input rank by prepending 1s.
-      SmallVector<int64_t> broadcastShape;
-      for (int64_t i = 0; i < rank - numNormDims; ++i) {
-        broadcastShape.push_back(1);
-      }
-      for (auto dim : biasType.getShape()) {
-        broadcastShape.push_back(dim);
-      }
-
-      auto reshapedBiasType =
-          RankedTensorType::get(broadcastShape, elementType);
-      auto shapeType =
-          tosa::shapeType::get(rewriter.getContext(), broadcastShape.size());
-      auto shapeAttr = rewriter.getIndexTensorAttr(broadcastShape);
-      auto shapeOp =
-          rewriter.create<tosa::ConstShapeOp>(loc, shapeType, shapeAttr);
-      Value reshapedBias = rewriter.create<tosa::ReshapeOp>(
-          loc, reshapedBiasType, bias, shapeOp.getResult());
-
+      Value reshapedBias = reshapeByPrependingOnes(
+          adaptor.getBias(), rank, numNormDims, elementType, loc, rewriter);
       result =
           rewriter.create<tosa::AddOp>(loc, resultType, result, reshapedBias);
     }
@@ -3047,6 +3028,14 @@ public:
                                                shapeOp.getResult());
       lhs3DType = newType;
     } else if (lhsRank > 3) {
+      // Check for dynamic dimensions in batch dimensions.
+      for (uint32_t i = 0; i < lhsRank - 2; ++i) {
+        if (lhsType.isDynamicDim(i)) {
+          return rewriter.notifyMatchFailure(
+              op, "Dynamic batch dimensions not supported in LinearOp");
+        }
+      }
+
       int64_t collapsedBatchSize = 1;
       for (uint32_t i = 0; i < lhsRank - 2; ++i) {
         collapsedBatchSize *= lhsType.getShape()[i];
@@ -3082,6 +3071,14 @@ public:
                                                shapeOp.getResult());
       rhs3DType = newType;
     } else if (rhsRank > 3) {
+      // Check for dynamic dimensions in batch dimensions.
+      for (uint32_t i = 0; i < rhsRank - 2; ++i) {
+        if (rhsType.isDynamicDim(i)) {
+          return rewriter.notifyMatchFailure(
+              op, "Dynamic batch dimensions not supported in LinearOp");
+        }
+      }
+
       int64_t collapsedBatchSize = 1;
       for (uint32_t i = 0; i < rhsRank - 2; ++i) {
         collapsedBatchSize *= rhsType.getShape()[i];
@@ -3192,11 +3189,7 @@ public:
                                                   matmulResult, bias);
     }
 
-    Value dest = rewriter.create<ttir::EmptyOp>(
-        op.getLoc(), op.getType().getShape(), op.getType().getElementType());
-    auto copyOp =
-        rewriter.create<linalg::CopyOp>(op.getLoc(), matmulResult, dest);
-    rewriter.replaceOp(op, copyOp.getResult(0));
+    rewriter.replaceOp(op, matmulResult);
     return success();
   }
 };
