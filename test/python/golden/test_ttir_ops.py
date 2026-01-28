@@ -452,6 +452,208 @@ def test_conv_transpose2d(
 
 
 @pytest.mark.parametrize(
+    "kernel,stride,dilation,padding,ceil_mode",
+    [([2, 2], [2, 2], [1, 1], [0, 0, 0, 0], False)],
+)
+@pytest.mark.parametrize("shape", [(1, 128, 128, 32)])
+@pytest.mark.parametrize("dtype", [torch.float32])
+def test_max_pool2d(
+    shape: Shape,
+    dtype: torch.dtype,
+    kernel: List[int],
+    stride: List[int],
+    dilation: List[int],
+    padding: List[int],
+    ceil_mode: bool,
+    request,
+    device,
+):
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [dtype])
+        def max_pool2d(
+            in0: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.max_pool2d(
+                in0,
+                kernel=kernel,
+                stride=stride,
+                dilation=dilation,
+                padding=padding,
+                ceil_mode=ceil_mode,
+                unit_attrs=unit_attrs,
+            )
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        device=device,
+    )
+
+
+@x86_only
+@pytest.mark.parametrize(
+    "kernel,stride,dilation,padding,ceil_mode",
+    [([2, 2], [2, 2], [1, 1], [0, 0, 0, 0], False)],
+)
+@pytest.mark.parametrize("shape", [(1, 128, 128, 32)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32, torch.int32], ids=["f32", "i32"])
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_hoisted_max_pool2d(
+    shape: Shape,
+    dtype: torch.dtype,
+    kernel: List[int],
+    stride: List[int],
+    dilation: List[int],
+    padding: List[int],
+    ceil_mode: bool,
+    target: str,
+    request,
+    device,
+):
+    """Test hoisted max_pool2d operation"""
+
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [dtype])
+        def hoisted_max_pool2d(
+            in0: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.max_pool2d(
+                in0,
+                kernel=kernel,
+                stride=stride,
+                dilation=dilation,
+                padding=padding,
+                ceil_mode=ceil_mode,
+                unit_attrs=["ttir.should_hoist"],
+            )
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+    )
+
+
+@pytest.mark.parametrize(
+    "kernel,stride,dilation,padding,ceil_mode,count_include_pad",
+    [
+        ([2, 2], [2, 2], [1, 1], [1, 1, 1, 1], False, True),
+        (
+            [2, 2],
+            [1, 1],
+            [1, 1],
+            [1, 1, 1, 1],
+            True,
+            False,
+        ),  # This test will produce a different output if count_include_pad is True for spatial dims (31, 31)
+    ],
+)
+@pytest.mark.parametrize("shape", [(1, 31, 31, 32)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32])
+def test_avg_pool2d(
+    shape: Shape,
+    dtype: torch.dtype,
+    kernel: List[int],
+    stride: List[int],
+    dilation: List[int],
+    padding: List[int],
+    ceil_mode: bool,
+    count_include_pad: bool,
+    request,
+    device,
+):
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [dtype])
+        def avg_pool2d(
+            in0: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.avg_pool2d(
+                in0,
+                kernel=kernel,
+                stride=stride,
+                dilation=dilation,
+                padding=padding,
+                ceil_mode=ceil_mode,
+                count_include_pad=count_include_pad,
+                unit_attrs=unit_attrs,
+            )
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        device=device,
+    )
+
+
+@pytest.mark.parametrize(
+    "shapes",
+    [
+        [
+            (1, 64, 32, 32),  # input tensor: (N, C, H, W)
+            (64,),  # scale (gamma)
+            (64,),  # offset (beta)
+            (64,),  # mean
+            (64,),  # variance
+        ]
+    ],
+    ids=shapes_list_str,
+)
+@pytest.mark.parametrize("dtypes", [[torch.float32] * 5])
+@pytest.mark.parametrize("dimension", [1])  # channel dimension
+@pytest.mark.parametrize("epsilon", [1e-5])
+def test_batch_norm(
+    shapes: List[Shape],
+    dtypes: List[torch.dtype],
+    dimension: int,
+    epsilon: float,
+    request,
+    device,
+):
+    # FP32 batch_norm fails due to tt-metal untilize NaN handling.
+    # See: https://github.com/tenstorrent/tt-metal/pull/33904
+    if torch.float32 in dtypes:
+        pytest.xfail(
+            "FP32 batch_norm fails due to tt-metal untilize NaN handling. "
+            "See: https://github.com/tenstorrent/tt-metal/pull/33904"
+        )
+
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, dtypes)
+        def batch_norm(
+            in0: Operand,
+            scale: Operand,
+            offset: Operand,
+            mean: Operand,
+            variance: Operand,
+            builder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+
+            return builder.batch_norm_inference(
+                in0,
+                scale,
+                offset,
+                mean,
+                variance,
+                epsilon=epsilon,
+                dimension=dimension,
+            )
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        device=device,
+    )
+
+
+@pytest.mark.parametrize(
     "shapes",
     [
         [
