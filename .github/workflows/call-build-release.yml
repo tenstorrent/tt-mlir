@@ -59,7 +59,7 @@ jobs:
     steps:
 
     - name: Maximize space
-      if: ${{ inputs.runner }} == 'ubuntu-latest'
+      if: inputs.runner == 'ubuntu-latest'
       uses: tenstorrent/tt-github-actions/.github/actions/maximize_space@main
 
     - uses: actions/checkout@v4

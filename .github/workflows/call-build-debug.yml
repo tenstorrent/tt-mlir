@@ -26,7 +26,7 @@ jobs:
     steps:
 
     - name: Maximize space
-      if: ${{ matrix.build.runs-on }} == 'ubuntu-latest'
+      if: matrix.build.runs-on == 'ubuntu-latest'
       uses: tenstorrent/tt-github-actions/.github/actions/maximize_space@main
 
     - uses: actions/checkout@v4
@@ -125,8 +125,9 @@ jobs:
 
     - name: Upload test results to Codecov
       if: success() || failure()
-      uses: codecov/test-results-action@v1
+      uses: codecov/codecov-action@v5
       with:
+        report_type: test_results
         files: ${{ steps.strings.outputs.build-output-dir }}/test/report_${{ steps.fetch-job-id.outputs.job_id }}.xml
         disable_search: true
         token: ${{ secrets.CODECOV_TOKEN }}
