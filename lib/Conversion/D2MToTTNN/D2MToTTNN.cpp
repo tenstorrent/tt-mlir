@@ -395,7 +395,6 @@ public:
   LogicalResult
   matchAndRewrite(d2m::ViewLayoutOp op, d2m::ViewLayoutOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    llvm::errs() << "in view rewriter\n";
     rewriter.replaceOp(op, adaptor.getInput());
     return success();
   };

@@ -12,7 +12,7 @@ from utils import (
     run_op_test,
 )
 
-
+# parameters for identity and dram -> l1
 SHAPE_GRID_SHARD_STRATEGY = [
     ((1024, 1024), (7, 7), ttnn.ShardStrategy.BLOCK),
     ((1024, 1024), (3, 3), ttnn.ShardStrategy.BLOCK),
@@ -22,7 +22,7 @@ SHAPE_GRID_SHARD_STRATEGY = [
     ((64, 256), (3, 0), ttnn.ShardStrategy.WIDTH),
 ]
 
-
+# parameters for l1 -> l1 resharding
 SHAPE_INPUT_GRID_OUTPUT_GRID_SHARD_STRATEGY = [
     ((1024, 1024), (7, 7), (3, 3), ttnn.ShardStrategy.BLOCK),
     ((1024, 1024), (3, 3), (7, 7), ttnn.ShardStrategy.BLOCK),
@@ -32,7 +32,7 @@ SHAPE_INPUT_GRID_OUTPUT_GRID_SHARD_STRATEGY = [
     ((64, 256), (3, 0), (7, 0), ttnn.ShardStrategy.WIDTH),
 ]
 
-
+# parameters for l1 -> l1 change shard strategy
 SHAPE_INPUT_GRID_OUTPUT_GRID_INPUT_SHARD_STRATEGY_OUTPUT_SHARD_STRATEGY = [
     ((1024, 1024), (7, 7), (0, 7), ttnn.ShardStrategy.BLOCK, ttnn.ShardStrategy.HEIGHT),
     ((1024, 1024), (7, 7), (7, 0), ttnn.ShardStrategy.BLOCK, ttnn.ShardStrategy.WIDTH),
