@@ -3504,10 +3504,18 @@ llvm::Expected<OpConstraints> OpModel<RepeatOp>::getOpConstraints(
   // Convert repeats to ttnn::Shape
   ::ttnn::Shape repeatShape = conversion::getShape(repeats);
 
+  // Convert output layout to memory config
+  std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
+      detail::getNullableMemoryConfig(outputLayout);
+
+  // Convert Shape to SmallVector<uint32_t> to use overload with memory_config
+  ::ttsl::SmallVector<uint32_t> repeatVec(repeatShape.cbegin(),
+                                          repeatShape.cend());
+
   // Create query closure
   auto repeatOpQuery = [=]() {
-    return ::ttnn::graph::query_op_constraints(::ttnn::repeat, device,
-                                               inputSpec, repeatShape);
+    return ::ttnn::graph::query_op_constraints(
+        ::ttnn::repeat, device, inputSpec, repeatVec, outputMemoryConfig);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
@@ -3531,13 +3539,21 @@ llvm::Expected<size_t> OpModel<RepeatOp>::getOpRuntime(
   }
   ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
-  // Convert repeats to ttnn::Shape
-  ::ttnn::Shape repeatShape = conversion::getShape(repeats);
+  // Convert repeats to SmallVector<uint32_t> to use overload with memory_config
+  ::ttsl::SmallVector<uint32_t> repeatVec;
+  repeatVec.reserve(repeats.size());
+  for (int64_t r : repeats) {
+    repeatVec.push_back(static_cast<uint32_t>(r));
+  }
+
+  // Convert output layout to memory config
+  std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
+      detail::getNullableMemoryConfig(outputLayout);
 
   // Create query closure
   auto repeatOpQuery = [=]() {
     return ::ttnn::graph::query_op_runtime(::ttnn::repeat, device, inputSpec,
-                                           repeatShape);
+                                           repeatVec, outputMemoryConfig);
   };
 
   return operation::getOpRuntime(repeatOpQuery);

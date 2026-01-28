@@ -65,6 +65,7 @@ table RepeatOp {
   in: tt.target.ttnn.TensorRef;
   out: tt.target.ttnn.TensorRef;
   repeat_dims: [int64];
+  memcfg: tt.target.ttnn.MemoryConfig;
 }
 
 table ReshapeOp {
