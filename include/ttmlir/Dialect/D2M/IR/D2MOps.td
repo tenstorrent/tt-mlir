@@ -367,15 +367,15 @@ def D2M_SpatialOp: D2M_Op<"spatial",
   , NoTerminator
   , DestinationStyleOpInterface
   // , DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmBlockNames"]>
-  // , DeclareOpInterfaceMethods<BufferizableOpInterface, [
-  //     "bufferizesToMemoryRead",
-  //     "bufferizesToMemoryWrite",
-  //     "bufferize",
-  //     "getAliasingValues",
-  //     "getBufferType",
-  //     "isWritable",
-  //     "hasTensorSemantics",
-  //   ]>
+  , DeclareOpInterfaceMethods<BufferizableOpInterface, [
+      "bufferizesToMemoryRead",
+      "bufferizesToMemoryWrite",
+      "bufferize",
+      "getAliasingValues",
+      "getBufferType",
+      "isWritable",
+      "hasTensorSemantics",
+    ]>
   // , DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
   ]> {
     let summary = "Spatial op.";
