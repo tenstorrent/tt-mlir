@@ -11,6 +11,7 @@
 
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/PatternMatch.h"
+#include "mlir/Interfaces/ViewLikeInterface.h"
 
 namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MCONVERTLOCALLOADSTOREOPSTOALIASEDCBS
@@ -88,30 +89,103 @@ static Value findAssociatedCB(Operation *op, Value memrefOperand) {
 // Helper function to recursively walk a block and find the last operation that
 // uses a value, including uses in nested regions. Returns the operation after
 // which to insert the pop, or null if no uses found.
+//
+// This function only considers top-level operations in the given block. If a
+// value is used anywhere within a nested region (e.g., inside an scf.for or
+// scf.if), the function returns the parent operation that contains that region,
+// not the operation inside the nested region.
+//
+// This function also tracks indirect uses through view-like operations (e.g.,
+// memref.collapse_shape, memref.expand_shape). If the original value is used to
+// create a view, and that view is used elsewhere, this function considers those
+// uses as uses of the original value.
 static Operation *findLastUse(Value value, Block *block) {
   Operation *lastUse = nullptr;
 
-  // Recursive helper to walk a block and all nested regions
-  std::function<void(Block *)> walkBlock = [&](Block *b) {
-    for (Operation &op : *b) {
-      // Check if this operation uses the value
+  // Build a set of all values that are aliases of the input value
+  // This includes the value itself and any views derived from it
+  llvm::SmallPtrSet<Value, 8> aliasedValues;
+  aliasedValues.insert(value);
+
+  // First pass: collect all aliased values (views of the original value)
+  // We need to iterate until no new aliases are found, since aliases can be
+  // chained (e.g., alloc -> collapse_shape -> cast)
+  bool changed = true;
+  while (changed) {
+    changed = false;
+    for (Operation &op : *block) {
+      // Check if this operation takes an aliased value as input
+      bool takesAliasedInput = false;
       for (OpOperand &operand : op.getOpOperands()) {
-        if (operand.get() == value) {
-          lastUse = &op;
-          // Continue searching to find the actual last use
+        if (aliasedValues.contains(operand.get())) {
+          takesAliasedInput = true;
+          break;
         }
       }
 
-      // Recursively check nested regions
-      for (Region &region : op.getRegions()) {
-        for (Block &regionBlock : region) {
-          walkBlock(&regionBlock);
+      // If the operation takes an aliased value as input and is a view-like
+      // operation, add its results to the alias set
+      if (takesAliasedInput && mlir::isa<mlir::ViewLikeOpInterface>(op)) {
+        for (Value result : op.getResults()) {
+          if (aliasedValues.insert(result).second) {
+            changed = true;
+          }
         }
       }
     }
+  }
+
+  // Helper to check if any aliased value is used anywhere in a region
+  // (recursively)
+  std::function<bool(Region &)> isUsedInRegion = [&](Region &region) -> bool {
+    for (Block &regionBlock : region) {
+      for (Operation &op : regionBlock) {
+        // Check if this op uses any aliased value
+        for (OpOperand &operand : op.getOpOperands()) {
+          if (aliasedValues.contains(operand.get())) {
+            return true;
+          }
+        }
+
+        // Recursively check nested regions
+        for (Region &nestedRegion : op.getRegions()) {
+          if (isUsedInRegion(nestedRegion)) {
+            return true;
+          }
+        }
+      }
+    }
+    return false;
   };
 
-  walkBlock(block);
+  // Second pass: walk top-level operations to find the last use
+  for (Operation &op : *block) {
+    bool opUsesValue = false;
+
+    // Check if op directly uses any aliased value
+    for (OpOperand &operand : op.getOpOperands()) {
+      if (aliasedValues.contains(operand.get())) {
+        opUsesValue = true;
+        break;
+      }
+    }
+
+    // Check if any nested regions use any aliased value
+    if (!opUsesValue) {
+      for (Region &region : op.getRegions()) {
+        if (isUsedInRegion(region)) {
+          opUsesValue = true;
+          break;
+        }
+      }
+    }
+
+    // If this operation (or its nested regions) uses any aliased value, update
+    // lastUse
+    if (opUsesValue) {
+      lastUse = &op;
+    }
+  }
 
   return lastUse;
 }
