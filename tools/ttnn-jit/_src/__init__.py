@@ -54,6 +54,9 @@ try:
         create_runtime_device_from_ttnn,
         create_runtime_tensor_from_ttnn,
         get_ttnn_tensor_from_runtime_tensor,
+        allocate_l1_buffer,
+        allocate_dram_buffer,
+        MeshBuffer,
     )
     from ttnn_jit.runtime._ttnn_jit import JitCache
 except ModuleNotFoundError:
@@ -73,5 +76,8 @@ except ModuleNotFoundError:
         create_runtime_device_from_ttnn,
         create_runtime_tensor_from_ttnn,
         get_ttnn_tensor_from_runtime_tensor,
+        allocate_l1_buffer,
+        allocate_dram_buffer,
+        MeshBuffer,
     )
     from ttnn_jit._ttnn_jit import JitCache
