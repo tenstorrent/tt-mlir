@@ -3110,4 +3110,93 @@ Value d2m::GenericOp::getOperandAlloc(Region &region, unsigned operandIndex) {
   return result;
 }
 
+bool d2m::SpatialOp::bufferizesToMemoryRead(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  // If the operand is an input, it is bufferized to a memory read.
+  return isDpsInput(&operand);
+}
+
+bool d2m::SpatialOp::bufferizesToMemoryWrite(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  // If the operand is an output, it is bufferized to a memory write.
+  return isDpsInit(&operand);
+}
+
+mlir::LogicalResult d2m::SpatialOp::bufferize(
+    mlir::RewriterBase &rewriter,
+    const mlir::bufferization::BufferizationOptions &options,
+    mlir::bufferization::BufferizationState &state) {
+
+  if (getNumResults() == 0) {
+    return failure();
+  }
+
+  if (!mlir::isa<mlir::RankedTensorType>(getResult(0).getType())) {
+    return failure();
+  }
+  mlir::SmallVector<mlir::Value> bufferInputs;
+  bufferInputs.reserve(getInputs().size());
+  for (auto input : getInputs()) {
+    auto maybeValue = bufferization::getBuffer(rewriter, input, options, state);
+    if (failed(maybeValue)) {
+      return maybeValue;
+    }
+    bufferInputs.push_back(*maybeValue);
+  }
+  mlir::SmallVector<mlir::Value> bufferOutputs;
+  bufferOutputs.reserve(getOutputs().size());
+  for (auto output : getOutputs()) {
+    auto maybeValue =
+        bufferization::getBuffer(rewriter, output, options, state);
+    if (failed(maybeValue)) {
+      return maybeValue;
+    }
+    bufferOutputs.push_back(*maybeValue);
+  }
+  auto bufferSpatial = rewriter.create<d2m::SpatialOp>(
+      getLoc(), ValueRange(), bufferInputs, bufferOutputs, getGridRanges(),
+      getNumRegions());
+  for (mlir::Region &region : bufferSpatial.getRegions()) {
+    region.takeBody(getRegion(region.getRegionNumber()));
+  }
+
+  // One-shot bufferization uses BottomUp: inner GenericOps are bufferized
+  // first, so region bodies already use buffer SSA. We only replace the
+  // boundary (operands/results) with buffers and move the body.
+  mlir::bufferization::replaceOpWithBufferizedValues(rewriter, *this,
+                                                     bufferOutputs);
+  return success();
+}
+
+mlir::bufferization::AliasingValueList
+d2m::SpatialOp::getAliasingValues(mlir::OpOperand &,
+                                  const mlir::bufferization::AnalysisState &) {
+  bufferization::AliasingValueList result;
+  return result;
+}
+mlir::FailureOr<mlir::bufferization::BufferLikeType>
+d2m::SpatialOp::getBufferType(mlir::Value value,
+                              const mlir::bufferization::BufferizationOptions &,
+                              const mlir::bufferization::BufferizationState &,
+                              ::llvm::SmallVector<mlir::Value> &) {
+  // SpatialOp operands/results are tensors from outside or results; no block
+  // arguments on SpatialOp's regions.
+  auto tensorType = mlir::cast<RankedTensorType>(value.getType());
+  return ttcore::getBufferType(tensorType, /*isView=*/false);
+}
+
+bool d2m::SpatialOp::isWritable(mlir::Value value,
+                                const mlir::bufferization::AnalysisState &) {
+  // SpatialOp has no region block arguments; only outputs (OpResults) are
+  // writable.
+  return mlir::isa<mlir::OpResult>(value);
+}
+
+bool d2m::SpatialOp::hasTensorSemantics() {
+  auto isaTensor = [](Type t) { return isa<bufferization::TensorLikeType>(t); };
+  if (any_of(getResultTypes(), isaTensor)) {
+    return true;
+  }
+  return any_of(getOperandTypes(), isaTensor);
+}
 } // namespace mlir::tt::d2m
