@@ -1023,7 +1023,7 @@ llvm::SmallVector<int64_t> MetalLayoutAttr::computeGridAwareDimAlignments(
   const int64_t tensorGridRank = normalizedIntervals.size() / 2;
 
   assert(logicalRank >= 2);
-  assert(deviceGridRank == 2);
+  assert(deviceGridRank >= 2);
   assert(normalizedIntervals.size() % 2 == 0);
   assert(deviceGridRank <= tensorGridRank);
 
