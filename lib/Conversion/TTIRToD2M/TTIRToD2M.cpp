@@ -47,16 +47,11 @@ protected:
 
   static bool isTTNNTensor(Type type) {
     auto tensor = mlir::dyn_cast<RankedTensorType>(type);
-    if (!tensor) {
-      return false;
-    }
-
-    return mlir::isa_and_nonnull<ttnn::TTNNLayoutAttr>(tensor.getEncoding()) ||
-           mlir::isa_and_nonnull<ttnn::TTNNNDLayoutAttr>(tensor.getEncoding());
+    return tensor &&
+           mlir::isa_and_nonnull<ttnn::TTNNLayoutAttr>(tensor.getEncoding());
   }
 
-  template <typename LayoutAttr>
-  void assertTTNNLayoutSupported(LayoutAttr ttnnLayout) const {
+  void assertTTNNLayoutSupported(ttnn::TTNNLayoutAttr ttnnLayout) const {
     assert(ttnnLayout.isDeviceBufferType() && "Must be a device tensor");
 
     // With these assumptions we can use the default alignment and dim
@@ -67,143 +62,56 @@ protected:
         mlir::cast<ttcore::TileType>(ttnnLayout.getElementType()).getHeight() ==
             ttcore::TileType::getDefaultShape()[0] &&
         "Only default tile shape is supported");
-    assert(
-        mlir::cast<ttcore::TileType>(ttnnLayout.getElementType()).getWidth() ==
-            ttcore::TileType::getDefaultShape()[1] &&
-        "Only default tile shape is supported");
-  }
-
-  std::tuple<AffineMap, llvm::SmallVector<int64_t>>
-  getImpliedNDGrid(mlir::ConversionPatternRewriter &rewriter,
-                   ArrayRef<int64_t> tensorShape,
-                   ttnn::TTNNNDLayoutAttr ttnnLayout) const {
-    llvm::ArrayRef<int64_t> shardShape = ttnnLayout.getMemref().getShape();
-    assert(shardShape.size() == tensorShape.size() &&
-           "shard shape and tensor shape must have same rank");
-
-    llvm::SmallVector<int64_t> impliedGrid;
-    for (size_t i = 0; i < tensorShape.size(); ++i) {
-      assert(shardShape[i] != 0 && "shard shape entry must not be zero");
-      assert(tensorShape[i] % shardShape[i] == 0 &&
-             "tensor dims must be divisible by shard dims for virtual grid");
-      impliedGrid.push_back(tensorShape[i] / shardShape[i]);
-    }
-
-    // Divide out the tile shape for the last two dimensions
-    impliedGrid[impliedGrid.size() - 1] /=
-        ttcore::TileType::getDefaultShape()[0];
-    impliedGrid[impliedGrid.size() - 2] /=
-        ttcore::TileType::getDefaultShape()[1];
-
-    llvm::SmallVector<int64_t> ttnnGridShape(ttnnLayout.getGrid().getShape());
-    auto [fwdMap, _] = ttmlir::d2m::utils::grids::createCoreVirtMaps(
-        rewriter.getContext(), impliedGrid, ttnnGridShape);
-    return {fwdMap, impliedGrid};
-  }
-
-  std::tuple<AffineMap, llvm::SmallVector<int64_t>>
-  getLegacyGrid(mlir::ConversionPatternRewriter &rewriter,
-                ttnn::TTNNLayoutAttr ttnnLayout) const {
-    bool legacyWithVirtualGrid = ttnnLayout.getMemLayout().getValue() ==
-                                     ttnn::TensorMemoryLayout::HeightSharded ||
-                                 ttnnLayout.getMemLayout().getValue() ==
-                                     ttnn::TensorMemoryLayout::WidthSharded;
-
-    llvm::SmallVector<int64_t> ttnnGridShape(ttnnLayout.getGrid().getShape());
-    if (!legacyWithVirtualGrid) {
-      return {AffineMap::get(rewriter.getContext()), ttnnGridShape};
-    }
-
-    llvm::SmallVector<int64_t> virtualGrid = ttnnGridShape;
-    if (ttnnLayout.getMemLayout().getValue() ==
-        ttnn::TensorMemoryLayout::HeightSharded) {
-      virtualGrid = {ttnnGridShape[0] * ttnnGridShape[1], 1};
-    } else {
-      virtualGrid = {1, ttnnGridShape[0] * ttnnGridShape[1]};
-    }
-    auto [fwdMap, _] = ttmlir::d2m::utils::grids::createCoreVirtMaps(
-        rewriter.getContext(), virtualGrid, ttnnGridShape);
-    return {fwdMap, virtualGrid};
-  }
-
-  std::tuple<AffineMap, llvm::SmallVector<int64_t>>
-  getGridAndAffineMapForTTNNTensor(mlir::ConversionPatternRewriter &rewriter,
-                                   RankedTensorType tensorType) const {
-
-    if (auto ttnnLayout =
-            mlir::dyn_cast<ttnn::TTNNLayoutAttr>(tensorType.getEncoding())) {
-      return getLegacyGrid(rewriter, ttnnLayout);
-    }
-
-    if (auto ndLayout =
-            mlir::dyn_cast<ttnn::TTNNNDLayoutAttr>(tensorType.getEncoding())) {
-      return getImpliedNDGrid(rewriter, tensorType.getShape(), ndLayout);
-    }
-
-    llvm_unreachable("Unsupported layout for TTNN Tensor");
-  }
-
-  DenseIntElementsAttr
-  getCollapsedIntervalsForTTNNTensor(mlir::ConversionPatternRewriter &rewriter,
-                                     Attribute ttnnLayout) const {
-    if (mlir::isa_and_nonnull<ttnn::TTNNLayoutAttr>(ttnnLayout)) {
-      auto i64Ty = IntegerType::get(rewriter.getContext(), 64);
-      auto intervalTy = RankedTensorType::get({1, 2}, i64Ty);
-      // This corresponds to collapsing all leading dimensions into the height
-      // dimension.
-      return DenseIntElementsAttr::get(intervalTy,
-                                       llvm::ArrayRef<int64_t>({0, -1}));
-    }
-
-    if (mlir::isa_and_nonnull<ttnn::TTNNNDLayoutAttr>(ttnnLayout)) {
-      auto emptyIntervalType = RankedTensorType::get(
-          {0, 2}, IntegerType::get(rewriter.getContext(), 64));
-      // There is no collapsing of dimensions for ND layouts.
-      return DenseIntElementsAttr::get(emptyIntervalType, ArrayRef<int64_t>{});
-    }
-
-    llvm_unreachable("Unsupported layout for TTNN Tensor");
-  }
-
-  template <typename LayoutAttr>
-  std::tuple<ttcore::MemorySpace, Type, ttcore::TensorMemoryLayout>
-  extractLayoutInfo(LayoutAttr layout) const {
-    return {layout.getBufferType() == ttnn::BufferType::DRAM
-                ? ttcore::MemorySpace::DeviceDRAM
-                : ttcore::MemorySpace::DeviceL1,
-            layout.getElementType(),
-            layout.getMemLayout().getValue() ==
-                    ttnn::TensorMemoryLayout::Interleaved
-                ? ttcore::TensorMemoryLayout::Interleaved
-                : ttcore::TensorMemoryLayout::Sharded};
   }
 
   RankedTensorType
   getMetalTensorFromTTNNTensor(mlir::ConversionPatternRewriter &rewriter,
                                Value value) const {
     auto tensorType = mlir::cast<mlir::RankedTensorType>(value.getType());
-    Attribute ttnnLayout = tensorType.getEncoding();
+    auto ttnnLayout =
+        mlir::cast<ttnn::TTNNLayoutAttr>(tensorType.getEncoding());
 
-    auto [memSpace, elementType, memLayout] = [&]()
-        -> std::tuple<ttcore::MemorySpace, Type, ttcore::TensorMemoryLayout> {
-      if (auto ndLayout = mlir::dyn_cast<ttnn::TTNNNDLayoutAttr>(ttnnLayout)) {
-        return extractLayoutInfo(ndLayout);
-      }
-      if (auto layout = mlir::dyn_cast<ttnn::TTNNLayoutAttr>(ttnnLayout)) {
-        return extractLayoutInfo(layout);
-      }
-      llvm_unreachable("Unsupported layout for TTNN Tensor");
-    }();
+    assertTTNNLayoutSupported(ttnnLayout);
 
+    ttcore::MemorySpace memSpace =
+        ttnnLayout.getBufferType() == ttnn::BufferType::DRAM
+            ? ttcore::MemorySpace::DeviceDRAM
+            : ttcore::MemorySpace::DeviceL1;
+
+    auto i64Ty = IntegerType::get(rewriter.getContext(), 64);
+    auto intervalTy = RankedTensorType::get({1, 2}, i64Ty);
     DenseIntElementsAttr collapsedIntervals =
-        getCollapsedIntervalsForTTNNTensor(rewriter, ttnnLayout);
+        DenseIntElementsAttr::get(intervalTy, llvm::ArrayRef<int64_t>({0, -1}));
+
+    ttcore::TensorMemoryLayout memLayout =
+        (ttnnLayout.getMemLayout().getValue() ==
+         ttnn::TensorMemoryLayout::Interleaved)
+            ? ttcore::TensorMemoryLayout::Interleaved
+            : ttcore::TensorMemoryLayout::Sharded;
+
     llvm::SmallVector<int64_t> dimAlignments(tensorType.getShape().size(), 1);
-    dimAlignments[dimAlignments.size() - 1] =
-        ttcore::TileType::getDefaultShape()[0];
-    dimAlignments[dimAlignments.size() - 2] =
-        ttcore::TileType::getDefaultShape()[1];
-    auto [indexAffineMap, optimalGrid] =
-        getGridAndAffineMapForTTNNTensor(rewriter, tensorType);
+    dimAlignments[dimAlignments.size() - 1] = 32;
+    dimAlignments[dimAlignments.size() - 2] = 32;
+
+    bool needVirtualGrid = ttnnLayout.getMemLayout().getValue() ==
+                               ttnn::TensorMemoryLayout::HeightSharded ||
+                           ttnnLayout.getMemLayout().getValue() ==
+                               ttnn::TensorMemoryLayout::WidthSharded;
+    AffineMap indexAffineMap = AffineMap::get(rewriter.getContext());
+    llvm::SmallVector<int64_t> ttnnGridShape(ttnnLayout.getGrid().getShape());
+    llvm::SmallVector<int64_t> optimalGrid = ttnnGridShape;
+    if (needVirtualGrid) {
+      if (ttnnLayout.getMemLayout().getValue() ==
+          ttnn::TensorMemoryLayout::HeightSharded) {
+        optimalGrid = {ttnnGridShape[0] * ttnnGridShape[1], 1};
+      } else if (ttnnLayout.getMemLayout().getValue() ==
+                 ttnn::TensorMemoryLayout::WidthSharded) {
+        optimalGrid = {1, ttnnGridShape[0] * ttnnGridShape[1]};
+      }
+      auto [fwdMap, _] = ttmlir::d2m::utils::grids::createCoreVirtMaps(
+          rewriter.getContext(), optimalGrid, ttnnGridShape);
+      indexAffineMap = fwdMap;
+    }
 
     auto metalLayout = ttcore::MetalLayoutAttr::get(
         rewriter.getContext(), tensorType.getShape(), ttcore::OOBVal::Undef,
@@ -215,6 +123,7 @@ protected:
     llvm::SmallVector<int64_t> shardedShape = metalLayout.getDeviceShape(
         optimalGrid, ttcore::TileType::getDefaultShape());
 
+    Type elementType = ttnnLayout.getElementType();
     return mlir::RankedTensorType::get(shardedShape, elementType, metalLayout);
   }
 
@@ -224,8 +133,7 @@ protected:
   Value createOptimalLayoutOp(Value value, ttcore::MemorySpace memSpace,
                               bool tiled, bool noCollapse,
                               mlir::ConversionPatternRewriter &rewriter) const {
-    bool isTTNN = isTTNNTensor(value.getType());
-    if (isTTNN) {
+    if (isTTNNTensor(value.getType())) {
       assert(ttnnMode && "Unexpected TTNN tensor as op operand");
       auto metalTensorType = getMetalTensorFromTTNNTensor(rewriter, value);
       auto metalCastOp = rewriter.create<ttir::TTNNMetalLayoutCastOp>(
@@ -238,11 +146,8 @@ protected:
         // Reblock L1 operand to unit grid to align with other operands while
         // preserving original TTNN tensor shape. These views will be removed in
         // GridSelection by insertTTNNDRAMStreams().
-        llvm::SmallVector<int64_t> unitGrid(
-            metalTensorType.getShape().size() / 2, 1);
         auto unitReblockingView = rewriter.create<d2m::ViewLayoutOp>(
-            value.getLoc(),
-            d2m::utils::reblockTensor(metalTensorType, unitGrid),
+            value.getLoc(), d2m::utils::reblockTensor(metalTensorType, {1, 1}),
             metalCastOp->getResult(0));
         return unitReblockingView.getResult();
       }
@@ -562,12 +467,12 @@ public:
 
 private:
   static constexpr bool isComparisonOp =
-      std::is_same_v<ConcreteOp, ttir::EqualOp> ||
-      std::is_same_v<ConcreteOp, ttir::NotEqualOp> ||
-      std::is_same_v<ConcreteOp, ttir::GreaterThanOp> ||
-      std::is_same_v<ConcreteOp, ttir::GreaterEqualOp> ||
-      std::is_same_v<ConcreteOp, ttir::LessThanOp> ||
-      std::is_same_v<ConcreteOp, ttir::LessEqualOp>;
+      std::is_same_v<TileOp, d2m::TileEqzOp> ||
+      std::is_same_v<TileOp, d2m::TileNezOp> ||
+      std::is_same_v<TileOp, d2m::TileGtzOp> ||
+      std::is_same_v<TileOp, d2m::TileGezOp> ||
+      std::is_same_v<TileOp, d2m::TileLtzOp> ||
+      std::is_same_v<TileOp, d2m::TileLezOp>;
 
   static std::pair<SmallVector<mlir::AffineMap>,
                    SmallVector<d2m::TileBcastType>>
@@ -691,8 +596,7 @@ private:
                            mlir::ConversionPatternRewriter &rewriter,
                            mlir::Location loc, const size_t numInputs,
                            const size_t numOutputs,
-                           ArrayRef<d2m::TileBcastType> tileBcastTypes,
-                           ArrayRef<NamedAttribute> opAttrs = {}) const {
+                           ArrayRef<d2m::TileBcastType> tileBcastTypes) const {
     auto operands = llvm::to_vector(bbArgs.take_front(numInputs));
     mlir::TypeRange resultTypes = bbArgs.take_back(numOutputs);
 
@@ -709,41 +613,6 @@ private:
       // For comparison ops, first subtract then compare with zero.
       yield = bbBuilder.create<d2m::TileSubOp>(loc, resultTypes, operands);
       yield = bbBuilder.create<TileOp>(loc, resultTypes, yield);
-    } else if constexpr (std::is_same_v<ConcreteOp, ttir::ClampTensorOp>) {
-      // Decompose into maximum(input, min) then minimum(result, max).
-      yield = bbBuilder.create<d2m::TileMaximumOp>(
-          loc, resultTypes, ValueRange{operands[0], operands[1]});
-      yield = bbBuilder.create<d2m::TileMinimumOp>(
-          loc, resultTypes, ValueRange{yield, operands[2]});
-    } else if constexpr (std::is_same_v<ConcreteOp, ttir::ClampScalarOp>) {
-      yield =
-          bbBuilder.create<TileOp>(loc, resultTypes[0], operands[0], opAttrs);
-    } else if constexpr (std::is_same_v<ConcreteOp, ttir::LogicalAndOp>) {
-      // LogicalAnd: NEZ(a) * NEZ(b) - both must be non-zero.
-      auto nezA =
-          bbBuilder.create<d2m::TileNezOp>(loc, resultTypes, operands[0]);
-      auto nezB =
-          bbBuilder.create<d2m::TileNezOp>(loc, resultTypes, operands[1]);
-      yield = bbBuilder.create<d2m::TileMulOp>(loc, resultTypes,
-                                               ValueRange{nezA, nezB});
-    } else if constexpr (std::is_same_v<ConcreteOp, ttir::LogicalOrOp>) {
-      // LogicalOr: NEZ(NEZ(a) + NEZ(b)) - at least one must be non-zero.
-      auto nezA =
-          bbBuilder.create<d2m::TileNezOp>(loc, resultTypes, operands[0]);
-      auto nezB =
-          bbBuilder.create<d2m::TileNezOp>(loc, resultTypes, operands[1]);
-      auto sum = bbBuilder.create<d2m::TileAddOp>(loc, resultTypes,
-                                                  ValueRange{nezA, nezB});
-      yield = bbBuilder.create<d2m::TileNezOp>(loc, resultTypes, sum);
-    } else if constexpr (std::is_same_v<ConcreteOp, ttir::LogicalXorOp>) {
-      // LogicalXor: NEZ(NEZ(a) - NEZ(b)) - exactly one must be non-zero.
-      auto nezA =
-          bbBuilder.create<d2m::TileNezOp>(loc, resultTypes, operands[0]);
-      auto nezB =
-          bbBuilder.create<d2m::TileNezOp>(loc, resultTypes, operands[1]);
-      auto diff = bbBuilder.create<d2m::TileSubOp>(loc, resultTypes,
-                                                   ValueRange{nezA, nezB});
-      yield = bbBuilder.create<d2m::TileNezOp>(loc, resultTypes, diff);
     } else {
       yield = bbBuilder.create<TileOp>(loc, resultTypes, operands);
     }
@@ -815,13 +684,6 @@ private:
         SmallVector<mlir::utils::IteratorType> linalgIteratorTypes =
             iteratorTypeTTIRToLinalg(rewriter, iteratorTypes);
 
-        // Collect attributes to forward to tile ops (e.g., min/max for clamp).
-        SmallVector<NamedAttribute> opAttrs;
-        if constexpr (std::is_same_v<ConcreteOp, ttir::ClampScalarOp>) {
-          opAttrs.push_back(rewriter.getNamedAttr("min", op.getMinAttr()));
-          opAttrs.push_back(rewriter.getNamedAttr("max", op.getMaxAttr()));
-        }
-
         auto linalgGeneric = rewriter.create<mlir::linalg::GenericOp>(
             loc,
             /* result tensor types */
@@ -833,8 +695,7 @@ private:
             [&](mlir::OpBuilder &bbBuilder, mlir::Location bbLoc,
                 mlir::ValueRange bbArgs) {
               createComputeRegion(bbBuilder, bbLoc, bbArgs, rewriter, loc,
-                                  numInputs, numOutputs, tileBcastTypes,
-                                  opAttrs);
+                                  numInputs, numOutputs, tileBcastTypes);
             });
 
         // Insert remote_store operations for each output before yield
@@ -1575,22 +1436,22 @@ private:
 };
 } // namespace
 
-// conversion for ttir.to_layout -> d2m.to_layout.
+// Simple conversion for ttir.to_layout -> d2m.to_layout.
 class D2MToLayoutOpRewriter : public D2MNamedRewriterCommon,
                               public OpConversionPattern<ttir::ToLayoutOp> {
-  using OpConversionPattern<ttir::ToLayoutOp>::OpConversionPattern;
-
 public:
   D2MToLayoutOpRewriter(const TypeConverter &typeConverter,
-                        mlir::MLIRContext *ctx,
-                        ttcore::MemorySpace defaultInputMemSpace,
-                        ttcore::MemorySpace defaultOutputMemSpace,
-                        bool ttnnMode, bool collapseTensors)
-      : D2MNamedRewriterCommon(defaultInputMemSpace, defaultOutputMemSpace,
-                               ttnnMode, collapseTensors),
-        OpConversionPattern<ttir::ToLayoutOp>(typeConverter, ctx) {}
+                        MLIRContext *context, bool ttnnMode)
+      // default values for memory spaces and collapseTensors. Only ttnnMode is
+      // used.
+      : D2MNamedRewriterCommon(ttcore::MemorySpace::DeviceDRAM,
+                               ttcore::MemorySpace::DeviceDRAM, ttnnMode,
+                               false),
+        OpConversionPattern<ttir::ToLayoutOp>(typeConverter, context) {}
 
+  using D2MNamedRewriterCommon::assertTTNNLayoutSupported;
   using D2MNamedRewriterCommon::getMetalTensorFromTTNNTensor;
+
   LogicalResult
   matchAndRewrite(ttir::ToLayoutOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
@@ -1598,8 +1459,8 @@ public:
     bool outputIsTTNN =
         mlir::isa_and_nonnull<ttnn::TTNNLayoutAttr>(outType.getEncoding());
 
-    if (!ttnnMode) {
-      // simple conversion from ttir_to_layout -> d2m.to_layout.
+    if (!outputIsTTNN) {
+      // Default case: non-TTNN output, use simple conversion.
       Value empty = rewriter.create<d2m::EmptyOp>(
           op.getLoc(), outType.getShape(), outType.getElementType(),
           outType.getEncoding());
@@ -1609,11 +1470,10 @@ public:
       return success();
     }
 
-    assert(outputIsTTNN &&
-           "When ttnnMode is True, tensors should have ttnn layouts");
+    // TTNN output handling.
+    // Convert input to Metal layout if needed.
     Value metalInput = adaptor.getInput();
     auto inputType = mlir::cast<RankedTensorType>(adaptor.getInput().getType());
-    // insert a ttnn layout -> ttmetal layout cast for the to_layout if needed
     if (mlir::isa_and_nonnull<ttnn::TTNNLayoutAttr>(inputType.getEncoding())) {
       auto inputMetalType =
           getMetalTensorFromTTNNTensor(rewriter, adaptor.getInput());
@@ -1623,17 +1483,24 @@ public:
                        .getResult();
     }
 
+    // Get Metal type for output.
     auto outputMetalType =
         getMetalTensorFromTTNNTensor(rewriter, op.getOutput());
-    // insert a d2m.empty with a ttnn layout and a metallayoutcast before the
-    // to_layout
+
+    // Create d2m.empty for TTNN layout.
     Value metalEmpty = rewriter.create<d2m::EmptyOp>(
         op.getLoc(), outType.getShape(), outType.getElementType(),
         outType.getEncoding());
+
+    // Cast TTNN empty to Metal layout.
     auto metalCast = rewriter.create<ttir::TTNNMetalLayoutCastOp>(
         op.getLoc(), outputMetalType, metalEmpty);
+
+    // Create d2m.to_layout with Metal types.
     auto metalToLayout =
         rewriter.create<d2m::ToLayoutOp>(op.getLoc(), metalInput, metalCast);
+
+    // Cast back to TTNN.
     auto ttnnResult = rewriter.create<ttir::TTNNMetalLayoutCastOp>(
         op.getLoc(), outType, metalToLayout.getResult(0));
 
@@ -1653,15 +1520,25 @@ class D2MEmptyOpRewriter : public OpConversionPattern<ttir::EmptyOp> {
     bool outputIsTTNN =
         mlir::isa_and_nonnull<ttnn::TTNNLayoutAttr>(resultType.getEncoding());
     if (outputIsTTNN) {
-      // if a ttir.to_layout is a user of the op, erase it.
-      // D2MToLayoutOpRewriter will handle inserting the d2m.empty
-      for (Operation *userOp : op->getUsers()) {
-        if (auto toLayoutOp = dyn_cast<ttir::ToLayoutOp>(userOp)) {
+      llvm::errs() << "empty op ttnn\n";
+      op.dump();
+
+      // if if empty is used by a to_layout
+      bool isLayoutBuffer = false;
+      for (Operation *user : op->getUsers()) {
+        if (auto toLayoutOp = dyn_cast<ttir::ToLayoutOp>(user)) {
           if (toLayoutOp.getOutput() == op.getResult()) {
-            rewriter.eraseOp(op);
-            return success();
+            isLayoutBuffer = true;
+            break;
           }
         }
+      }
+
+      // If this is a layout buffer, remove the ttir empty. b/c in
+      // tolayoutoprewriter, a d2m empty is created.
+      if (isLayoutBuffer) {
+        rewriter.eraseOp(op);
+        return success();
       }
     }
     auto tensorType = cast<RankedTensorType>(resultType);
@@ -1959,57 +1836,54 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   // clang-format off
   patterns.add<
     // Elementwise.
-    D2MNamedElementwiseRewriter<ttir::AbsOp,             d2m::TileAbsOp>,
-    D2MNamedElementwiseRewriter<ttir::AddOp,             d2m::TileAddOp>,
-    D2MNamedElementwiseRewriter<ttir::BitwiseAndOp,      d2m::TileBitwiseAndOp>,
-    D2MNamedElementwiseRewriter<ttir::BitwiseNotOp,      d2m::TileBitwiseNotOp>,
-    D2MNamedElementwiseRewriter<ttir::BitwiseOrOp,       d2m::TileBitwiseOrOp>,
-    D2MNamedElementwiseRewriter<ttir::BitwiseXorOp,      d2m::TileBitwiseXorOp>,
-    D2MNamedElementwiseRewriter<ttir::CeilOp,            d2m::TileCeilOp>,
-    D2MNamedElementwiseRewriter<ttir::ClampScalarOp,     d2m::TileClampScalarOp>,
-    D2MNamedElementwiseRewriter<ttir::ClampTensorOp,     d2m::TileMaximumOp>,
-    D2MNamedElementwiseRewriter<ttir::CosOp,             d2m::TileCosOp>,
-    D2MNamedElementwiseRewriter<ttir::DivOp,             d2m::TileDivOp>,
-    D2MNamedElementwiseRewriter<ttir::ErfOp,             d2m::TileErfOp>,
-    D2MNamedElementwiseRewriter<ttir::ErfcOp,            d2m::TileErfcOp>,
-    D2MNamedElementwiseRewriter<ttir::ExpOp,             d2m::TileExpOp>,
-    D2MNamedElementwiseRewriter<ttir::FloorOp,           d2m::TileFloorOp>,
-    D2MNamedElementwiseRewriter<ttir::GeluOp,            d2m::TileGeluOp>,
-    D2MNamedElementwiseRewriter<ttir::HardsigmoidOp,     d2m::TileHardsigmoidOp>,
-    D2MNamedElementwiseRewriter<ttir::LogOp,             d2m::TileLogOp>,
-    D2MNamedElementwiseRewriter<ttir::LogicalAndOp,      d2m::TileMulOp>,
-    D2MNamedElementwiseRewriter<ttir::LogicalNotOp,      d2m::TileLogicalNotOp>,
-    D2MNamedElementwiseRewriter<ttir::LogicalOrOp,       d2m::TileAddOp>,
-    D2MNamedElementwiseRewriter<ttir::LogicalXorOp,      d2m::TileSubOp>,
-    D2MNamedElementwiseRewriter<ttir::MultiplyOp,        d2m::TileMulOp>,
-    D2MNamedElementwiseRewriter<ttir::MaximumOp,         d2m::TileMaximumOp>,
-    D2MNamedElementwiseRewriter<ttir::MinimumOp,         d2m::TileMinimumOp>,
-    D2MNamedElementwiseRewriter<ttir::NegOp,             d2m::TileNegativeOp>,
-    D2MNamedElementwiseRewriter<ttir::PowOp,             d2m::TilePowOp>,
-    D2MNamedElementwiseRewriter<ttir::ReciprocalOp,      d2m::TileRecipOp>,
-    D2MNamedElementwiseRewriter<ttir::ReluOp,            d2m::TileReluOp>,
-    D2MNamedElementwiseRewriter<ttir::RsqrtOp,           d2m::TileRsqrtOp>,
-    D2MNamedElementwiseRewriter<ttir::SigmoidOp,         d2m::TileSigmoidOp>,
-    D2MNamedElementwiseRewriter<ttir::SignOp,            d2m::TileSignOp>,
-    D2MNamedElementwiseRewriter<ttir::SiluOp,            d2m::TileSiluOp>,
-    D2MNamedElementwiseRewriter<ttir::SinOp,             d2m::TileSinOp>,
-    D2MNamedElementwiseRewriter<ttir::SqrtOp,            d2m::TileSqrtOp>,
-    D2MNamedElementwiseRewriter<ttir::SubtractOp,        d2m::TileSubOp>,
-    D2MNamedElementwiseRewriter<ttir::TanOp,             d2m::TileTanOp>,
-    D2MNamedElementwiseRewriter<ttir::TanhOp,            d2m::TileTanhOp>,
-    D2MNamedElementwiseRewriter<ttir::WhereOp,           d2m::TileWhereOp>,
+    D2MNamedElementwiseRewriter<ttir::AbsOp,         d2m::TileAbsOp>,
+    D2MNamedElementwiseRewriter<ttir::AddOp,         d2m::TileAddOp>,
+    D2MNamedElementwiseRewriter<ttir::BitwiseAndOp,  d2m::TileBitwiseAndOp>,
+    D2MNamedElementwiseRewriter<ttir::BitwiseNotOp,  d2m::TileBitwiseNotOp>,
+    D2MNamedElementwiseRewriter<ttir::BitwiseOrOp,   d2m::TileBitwiseOrOp>,
+    D2MNamedElementwiseRewriter<ttir::BitwiseXorOp,  d2m::TileBitwiseXorOp>,
+    D2MNamedElementwiseRewriter<ttir::CeilOp,        d2m::TileCeilOp>,
+    D2MNamedElementwiseRewriter<ttir::CosOp,         d2m::TileCosOp>,
+    D2MNamedElementwiseRewriter<ttir::DivOp,         d2m::TileDivOp>,
+    D2MNamedElementwiseRewriter<ttir::ErfOp,         d2m::TileErfOp>,
+    D2MNamedElementwiseRewriter<ttir::ErfcOp,        d2m::TileErfcOp>,
+    D2MNamedElementwiseRewriter<ttir::ExpOp,         d2m::TileExpOp>,
+    D2MNamedElementwiseRewriter<ttir::FloorOp,       d2m::TileFloorOp>,
+    D2MNamedElementwiseRewriter<ttir::GeluOp,        d2m::TileGeluOp>,
+    D2MNamedElementwiseRewriter<ttir::HardsigmoidOp, d2m::TileHardsigmoidOp>,
+    D2MNamedElementwiseRewriter<ttir::LogOp,         d2m::TileLogOp>,
+    D2MNamedElementwiseRewriter<ttir::LogicalNotOp,  d2m::TileLogicalNotOp>,
+    D2MNamedElementwiseRewriter<ttir::MultiplyOp,    d2m::TileMulOp>,
+    D2MNamedElementwiseRewriter<ttir::MaximumOp,     d2m::TileMaximumOp>,
+    D2MNamedElementwiseRewriter<ttir::MinimumOp,     d2m::TileMinimumOp>,
+    D2MNamedElementwiseRewriter<ttir::NegOp,         d2m::TileNegativeOp>,
+    D2MNamedElementwiseRewriter<ttir::PowOp,         d2m::TilePowOp>,
+    D2MNamedElementwiseRewriter<ttir::ReciprocalOp,  d2m::TileRecipOp>,
+    D2MNamedElementwiseRewriter<ttir::ReluOp,        d2m::TileReluOp>,
+    D2MNamedElementwiseRewriter<ttir::RsqrtOp,       d2m::TileRsqrtOp>,
+    D2MNamedElementwiseRewriter<ttir::SigmoidOp,     d2m::TileSigmoidOp>,
+    D2MNamedElementwiseRewriter<ttir::SignOp,        d2m::TileSignOp>,
+    D2MNamedElementwiseRewriter<ttir::SiluOp,        d2m::TileSiluOp>,
+    D2MNamedElementwiseRewriter<ttir::SinOp,         d2m::TileSinOp>,
+    D2MNamedElementwiseRewriter<ttir::SqrtOp,        d2m::TileSqrtOp>,
+    D2MNamedElementwiseRewriter<ttir::SubtractOp,    d2m::TileSubOp>,
+    D2MNamedElementwiseRewriter<ttir::TanOp,         d2m::TileTanOp>,
+    D2MNamedElementwiseRewriter<ttir::TanhOp,        d2m::TileTanhOp>,
+    D2MNamedElementwiseRewriter<ttir::WhereOp,       d2m::TileWhereOp>,
+
     // Comparison.
-    D2MNamedElementwiseRewriter<ttir::EqualOp,           d2m::TileEqzOp>,
-    D2MNamedElementwiseRewriter<ttir::NotEqualOp,        d2m::TileNezOp>,
-    D2MNamedElementwiseRewriter<ttir::GreaterThanOp,     d2m::TileGtzOp>,
-    D2MNamedElementwiseRewriter<ttir::GreaterEqualOp,    d2m::TileGezOp>,
-    D2MNamedElementwiseRewriter<ttir::LessThanOp,        d2m::TileLtzOp>,
-    D2MNamedElementwiseRewriter<ttir::LessEqualOp,       d2m::TileLezOp>,
+    D2MNamedElementwiseRewriter<ttir::EqualOp,        d2m::TileEqzOp>,
+    D2MNamedElementwiseRewriter<ttir::NotEqualOp,     d2m::TileNezOp>,
+    D2MNamedElementwiseRewriter<ttir::GreaterThanOp,  d2m::TileGtzOp>,
+    D2MNamedElementwiseRewriter<ttir::GreaterEqualOp, d2m::TileGezOp>,
+    D2MNamedElementwiseRewriter<ttir::LessThanOp,     d2m::TileLtzOp>,
+    D2MNamedElementwiseRewriter<ttir::LessEqualOp,    d2m::TileLezOp>,
+
     // Reduction.
-    D2MNamedReductionRewriter<ttir::MaxOp,               d2m::TileReduceMaxOp>,
-    D2MNamedReductionRewriter<ttir::SumOp,               d2m::TileReduceSumOp>,
+    D2MNamedReductionRewriter<ttir::MaxOp,          d2m::TileReduceMaxOp>,
+    D2MNamedReductionRewriter<ttir::SumOp,          d2m::TileReduceSumOp>,
     // Data movement.
-    D2MNamedElementwiseRewriter<ttir::TypecastOp,        d2m::TileTypecastOp>,
+    D2MNamedElementwiseRewriter<ttir::TypecastOp,     d2m::TileTypecastOp>,
     // Tensor manipulation/View ops.
     D2MTensorManipulationOpRewriter<ttir::RearrangeOp,   rearrangeLogicalInfo>,
     D2MTensorManipulationOpRewriter<ttir::ReshapeOp,     reshapeLogicalInfo>,
