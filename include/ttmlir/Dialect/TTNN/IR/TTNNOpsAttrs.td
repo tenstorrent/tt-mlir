@@ -783,8 +783,6 @@ def TTNN_MeshRangeAttr : TTNN_Attr<"MeshRange", "mesh_range"> {
 
   let parameters = (ins "MeshOffsetAttr":$start_coord, "MeshOffsetAttr":$end_coord);
   let assemblyFormat = "`<` custom<CoordBracketStyle>($start_coord) `,` custom<CoordBracketStyle>($end_coord) `>`";
-
-  // let genVerifyDecl = 1;
 }
 
 def TTNN_TTNNLayoutAttr: TTNN_Attr<"TTNNLayout", "ttnn_layout"> {
@@ -1073,7 +1071,7 @@ def TTNN_WriteKernelAttr: TTNN_Attr<"WriteKernel", "write_kernel", [TTNN_KernelI
 def TTNN_FabricConnectionConfigAttr: TTNN_Attr<"FabricConnectionConfig", "fabric_connection_config"> {
   let summary = "TTNN Fabric Connection Config attribute.";
   let description = [{
-    Structure for configuring fabric connections for worker cores (in TTNN ops).
+    Structure for configuring fabric connections for worker cores.
   }];
 
   let parameters = (ins "NocIndex":$noc_index,
