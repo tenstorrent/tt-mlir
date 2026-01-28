@@ -1375,6 +1375,414 @@ public:
   }
 };
 } // namespace
+
+namespace {
+class AvgPool2dOpConversionPattern
+    : public OpConversionPattern<ttir::AvgPool2dOp> {
+public:
+  using OpConversionPattern<ttir::AvgPool2dOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::AvgPool2dOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    auto input = adaptor.getInput();
+    auto strides = adaptor.getStride();
+    auto kernel = adaptor.getKernel();
+    auto padding = adaptor.getPadding();
+    auto dilation = adaptor.getDilation();
+
+    // Expand stride if it contains only one element.
+    auto stridesResult = ttmlir::utils::getPairOfInteger<int32_t>(strides);
+    if (!stridesResult) {
+      return rewriter.notifyMatchFailure(
+          op, "stride must be an integer or array attribute");
+    }
+
+    auto paddingResult = ttmlir::utils::getQuadrupleOfInteger<int32_t>(padding);
+    if (!paddingResult) {
+      return rewriter.notifyMatchFailure(
+          op, "padding must be an integer, 2-element, or 4-element array "
+              "attribute");
+    }
+
+    auto [paddingTop, paddingLeft, paddingBottom, paddingRight] =
+        *paddingResult;
+
+    // Expand kernel if it contains only one element.
+    auto kernelResult = ttmlir::utils::getPairOfInteger<int32_t>(kernel);
+    if (!kernelResult) {
+      return rewriter.notifyMatchFailure(
+          op, "kernel must be an integer or array attribute");
+    }
+
+    auto dilationResult = ttmlir::utils::getPairOfInteger<int32_t>(dilation);
+    if (!dilationResult) {
+      return rewriter.notifyMatchFailure(
+          op, "dilation must be an integer or array attribute");
+    }
+    assert(dilationResult->first == 1 && dilationResult->second == 1 &&
+           "dilation must be 1x1");
+
+    // Update padding and return shape to be used in the TOSA AvgPool2dOp.
+    int64_t inputHeight = cast<RankedTensorType>(input.getType()).getShape()[1];
+    int64_t inputWidth = cast<RankedTensorType>(input.getType()).getShape()[2];
+    auto [kernelHeight, kernelWidth] = *kernelResult;
+
+    paddingBottom +=
+        calculateExtraPadding(inputHeight, kernelHeight, stridesResult->first,
+                              paddingTop, paddingBottom, 1);
+    paddingRight +=
+        calculateExtraPadding(inputWidth, kernelWidth, stridesResult->second,
+                              paddingLeft, paddingRight, 1);
+
+    auto expandedStridesAttr = rewriter.getDenseI64ArrayAttr(
+        {stridesResult->first, stridesResult->second});
+    auto expandedPaddingAttr = rewriter.getDenseI64ArrayAttr(
+        {paddingTop, paddingBottom, paddingLeft, paddingRight});
+    auto expandedKernelAttr = rewriter.getDenseI64ArrayAttr(
+        {kernelResult->first, kernelResult->second});
+
+    auto resultType = dyn_cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getResult().getType()));
+    assert(resultType && "Result type must be a ranked tensor type.");
+
+    // Update return shape to be used in the TOSA AvgPool2dOp.
+    SmallVector<int64_t> resultShape(resultType.getShape());
+    resultShape[1] = (inputHeight + paddingTop + paddingBottom - kernelHeight) /
+                         stridesResult->first +
+                     1;
+    resultShape[2] = (inputWidth + paddingLeft + paddingRight - kernelWidth) /
+                         stridesResult->second +
+                     1;
+
+    auto actualResultType =
+        RankedTensorType::get(resultShape, resultType.getElementType());
+
+    // Choose accumulator type based on result element type.
+    Type accType;
+    if (isa<FloatType>(resultType.getElementType())) {
+      accType = rewriter.getF32Type();
+    } else if (isa<IntegerType>(resultType.getElementType())) {
+      accType = rewriter.getI32Type();
+    } else {
+      return rewriter.notifyMatchFailure(
+          op, "Unsupported result element type for avg_pool2d");
+    }
+
+    // Create the avg pool op.
+    auto avgPoolOp = rewriter.create<tosa::AvgPool2dOp>(
+        op.getLoc(), actualResultType, input, expandedKernelAttr,
+        expandedStridesAttr, expandedPaddingAttr, TypeAttr::get(accType));
+
+    Value result = avgPoolOp.getResult();
+
+    // Slice the result back to the original expected shape if needed.
+    if (!llvm::equal(resultShape, resultType.getShape())) {
+      SmallVector<OpFoldResult> offsets, sizes, strides;
+      for (int64_t i = 0; i < resultType.getRank(); ++i) {
+        offsets.push_back(rewriter.getI64IntegerAttr(0));
+        sizes.push_back(rewriter.getI64IntegerAttr(resultType.getShape()[i]));
+        strides.push_back(rewriter.getI64IntegerAttr(1));
+      }
+      result = rewriter.create<tensor::ExtractSliceOp>(
+          op.getLoc(), resultType, result, offsets, sizes, strides);
+
+      // Since tensor::ExtractSliceOp doesn't support DPS, we need to copy
+      // the result into the output buffer
+      Value output = rewriter.create<ttir::EmptyOp>(
+          op.getLoc(), op.getType().getShape(), op.getType().getElementType());
+      auto copyResult =
+          rewriter.create<linalg::CopyOp>(op.getLoc(), result, output);
+      rewriter.replaceOp(op, copyResult);
+
+      return success();
+    }
+
+    rewriter.replaceOp(op, result);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class GlobalAvgPool2dOpConversionPattern
+    : public OpConversionPattern<ttir::GlobalAvgPool2dOp> {
+public:
+  using OpConversionPattern<ttir::GlobalAvgPool2dOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::GlobalAvgPool2dOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    Location loc = op.getLoc();
+    Value input = adaptor.getInput();
+
+    auto inputType = cast<RankedTensorType>(input.getType());
+    auto resultType = cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getResult().getType()));
+    assert(resultType && "Result type must be a ranked tensor type.");
+
+    int64_t inputHeight = inputType.getShape()[1];
+    int64_t inputWidth = inputType.getShape()[2];
+
+    // Global average pooling is equivalent to sum reduction over H,W followed
+    // by division by (H * W). We use MeanOp-style implementation but reduce
+    // only over dimensions 1 and 2 (H and W).
+
+    // First, reduce along height dimension (dim 1)
+    auto afterHeightReduceShape = resultType.getShape().vec();
+    afterHeightReduceShape[1] = 1;
+    afterHeightReduceShape[2] = inputWidth;
+    auto heightReduceType = RankedTensorType::get(afterHeightReduceShape,
+                                                  resultType.getElementType());
+
+    auto heightAxisAttr = rewriter.getI32IntegerAttr(1);
+    auto heightReduceResult = rewriter.create<tosa::ReduceSumOp>(
+        loc, heightReduceType, input, heightAxisAttr);
+
+    // Then, reduce along width dimension (dim 2)
+    auto widthAxisAttr = rewriter.getI32IntegerAttr(2);
+    auto widthReduceResult = rewriter.create<tosa::ReduceSumOp>(
+        loc, resultType, heightReduceResult.getResult(), widthAxisAttr);
+
+    // Divide by the total number of spatial elements (H * W)
+    double spatialCount = static_cast<double>(inputHeight * inputWidth);
+    auto elementType = resultType.getElementType();
+
+    // Create a constant tensor with 1/spatialCount for division
+    auto divisorAttr = rewriter.getFloatAttr(elementType, 1.0 / spatialCount);
+    auto divisorValue = rewriter.create<arith::ConstantOp>(loc, divisorAttr);
+    auto divisorTensor = rewriter.create<tensor::SplatOp>(
+        loc, resultType, divisorValue.getResult());
+
+    // Create shift tensor for tosa::MulOp (requires i8 tensor)
+    auto shiftType = RankedTensorType::get({1}, rewriter.getI8Type());
+    auto shiftAttr =
+        DenseElementsAttr::get(shiftType, rewriter.getI8IntegerAttr(0));
+    Value shift = rewriter.create<tosa::ConstOp>(loc, shiftType, shiftAttr);
+
+    // Multiply by reciprocal to get average
+    auto result = rewriter.create<tosa::MulOp>(
+        loc, resultType, widthReduceResult.getResult(), divisorTensor, shift);
+
+    rewriter.replaceOp(op, result.getResult());
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class Upsample2dOpConversionPattern
+    : public OpConversionPattern<ttir::Upsample2dOp> {
+public:
+  using OpConversionPattern<ttir::Upsample2dOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::Upsample2dOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    Location loc = op.getLoc();
+    Value input = adaptor.getInput();
+    StringRef mode = adaptor.getMode();
+
+    auto resultType = cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getResult().getType()));
+    assert(resultType && "Result type must be a ranked tensor type.");
+
+    // Get scale factors
+    auto scaleFactorResult =
+        ttmlir::utils::getPairOfInteger<int32_t>(adaptor.getScaleFactor());
+    if (!scaleFactorResult) {
+      return rewriter.notifyMatchFailure(
+          op, "scale_factor must be an integer or array attribute");
+    }
+    auto [scaleH, scaleW] = *scaleFactorResult;
+
+    // TOSA resize output formula:
+    // output_size = (input_size - 1) * scale_n / scale_d + 1 + border[0] +
+    // border[1] For exact N*scale upsampling, we need: output_size = input_size
+    // * scale So: input_size * scale = (input_size - 1) * scale_n / scale_d + 1
+    // + border[0] + border[1] With scale_n = scale, scale_d = 1: input_size *
+    // scale = (input_size - 1) * scale + 1 + border Solving for border:
+    // border = input_size * scale - (input_size - 1) * scale - 1
+    //        = scale * (input_size - input_size + 1) - 1
+    //        = scale - 1
+    int64_t borderY = scaleH - 1;
+    int64_t borderX = scaleW - 1;
+
+    // Create scale shape: [scale_y_n, scale_y_d, scale_x_n, scale_x_d]
+    SmallVector<int64_t> scaleValues = {scaleH, 1, scaleW, 1};
+    auto scaleShapeType = tosa::shapeType::get(rewriter.getContext(), 4);
+    auto scaleAttr = rewriter.getIndexTensorAttr(scaleValues);
+    Value scaleTensor =
+        rewriter.create<tosa::ConstShapeOp>(loc, scaleShapeType, scaleAttr);
+
+    // Create offset shape: [offset_y, offset_x] = [0, 0]
+    SmallVector<int64_t> offsetValues = {0, 0};
+    auto offsetShapeType = tosa::shapeType::get(rewriter.getContext(), 2);
+    auto offsetAttr = rewriter.getIndexTensorAttr(offsetValues);
+    Value offsetTensor =
+        rewriter.create<tosa::ConstShapeOp>(loc, offsetShapeType, offsetAttr);
+
+    // Create border shape: [border_y, border_x]
+    // Border adds extra output pixels at the end to achieve exact scaling
+    SmallVector<int64_t> borderValues = {borderY, borderX};
+    auto borderShapeType = tosa::shapeType::get(rewriter.getContext(), 2);
+    auto borderAttr = rewriter.getIndexTensorAttr(borderValues);
+    Value borderTensor =
+        rewriter.create<tosa::ConstShapeOp>(loc, borderShapeType, borderAttr);
+
+    if (mode == "nearest") {
+      auto resizeOp = rewriter.create<tosa::ResizeOp>(
+          loc, resultType, input, scaleTensor, offsetTensor, borderTensor,
+          tosa::ResizeModeAttr::get(rewriter.getContext(),
+                                    tosa::ResizeMode::NEAREST_NEIGHBOR));
+
+      rewriter.replaceOp(op, resizeOp.getResult());
+      return success();
+    }
+
+    if (mode == "bilinear") {
+      auto resizeOp = rewriter.create<tosa::ResizeOp>(
+          loc, resultType, input, scaleTensor, offsetTensor, borderTensor,
+          tosa::ResizeModeAttr::get(rewriter.getContext(),
+                                    tosa::ResizeMode::BILINEAR));
+
+      rewriter.replaceOp(op, resizeOp.getResult());
+      return success();
+    }
+
+    return rewriter.notifyMatchFailure(op, "Unsupported upsample mode: " +
+                                               mode.str());
+  }
+};
+} // namespace
+
+namespace {
+class Conv3dOpConversionPattern : public OpConversionPattern<ttir::Conv3dOp> {
+public:
+  using OpConversionPattern<ttir::Conv3dOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::Conv3dOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    Location loc = op.getLoc();
+    Value input = adaptor.getInput();
+    Value weight = adaptor.getWeight();
+    Value bias = adaptor.getBias();
+    Attribute strides = adaptor.getStride();
+    Attribute padding = adaptor.getPadding();
+    uint32_t groups = adaptor.getGroups();
+
+    if (groups > 1) {
+      return rewriter.notifyMatchFailure(
+          op, "Grouped 3D convolution is not supported yet.");
+    }
+
+    auto weightType = cast<RankedTensorType>(weight.getType());
+    auto resultType = cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getResult().getType()));
+    assert(resultType && "Result type must be a ranked tensor type.");
+
+    // Input: NDHWC format (N, D, H, W, C)
+    // Weight: C_out x C_in x K_D x K_H x K_W format
+    // Need to transpose weight to (K_D, K_H, K_W, C_in, C_out) for linalg
+
+    auto weightShape = weightType.getShape();
+    // Transpose from (C_out, C_in, K_D, K_H, K_W) to (K_D, K_H, K_W, C_in,
+    // C_out)
+    SmallVector<int32_t> permutation = {2, 3, 4, 1, 0};
+    SmallVector<int64_t> transposedShape = ttmlir::utils::applyPermutation(
+        weightShape, llvm::to_vector_of<int64_t>(permutation));
+
+    auto transposedWeightType =
+        RankedTensorType::get(transposedShape, weightType.getElementType());
+
+    auto transposedWeight = rewriter.create<tosa::TransposeOp>(
+        loc, transposedWeightType, weight, permutation);
+
+    // Parse stride attribute (can be single integer or array of 3)
+    SmallVector<int64_t, 3> strideValues;
+    if (auto intAttr = dyn_cast<IntegerAttr>(strides)) {
+      int64_t val = intAttr.getInt();
+      strideValues = {val, val, val};
+    } else if (auto arrayAttr = dyn_cast<DenseI32ArrayAttr>(strides)) {
+      for (int32_t v : arrayAttr.asArrayRef()) {
+        strideValues.push_back(v);
+      }
+      // If only one element, expand to 3
+      if (strideValues.size() == 1) {
+        strideValues = {strideValues[0], strideValues[0], strideValues[0]};
+      }
+    } else {
+      return rewriter.notifyMatchFailure(
+          op, "stride must be an integer or array attribute");
+    }
+
+    // Parse padding attribute (can be single integer or array of 3)
+    SmallVector<int64_t, 3> paddingValues;
+    if (auto intAttr = dyn_cast<IntegerAttr>(padding)) {
+      int64_t val = intAttr.getInt();
+      paddingValues = {val, val, val};
+    } else if (auto arrayAttr = dyn_cast<DenseI32ArrayAttr>(padding)) {
+      for (int32_t v : arrayAttr.asArrayRef()) {
+        paddingValues.push_back(v);
+      }
+      // If only one element, expand to 3
+      if (paddingValues.size() == 1) {
+        paddingValues = {paddingValues[0], paddingValues[0], paddingValues[0]};
+      }
+    } else {
+      return rewriter.notifyMatchFailure(
+          op, "padding must be an integer or array attribute");
+    }
+
+    // Create empty output tensor
+    auto emptyTensor = rewriter.create<tensor::EmptyOp>(
+        loc, resultType.getShape(), resultType.getElementType());
+
+    // Initialize with zeros
+    TypedAttr zeroAttr;
+    auto elemType = resultType.getElementType();
+    if (isa<FloatType>(elemType)) {
+      zeroAttr = rewriter.getFloatAttr(elemType, 0.0);
+    } else if (isa<IntegerType>(elemType)) {
+      zeroAttr = rewriter.getIntegerAttr(elemType, 0);
+    } else {
+      return rewriter.notifyMatchFailure(op, "Unsupported element type");
+    }
+    auto zero = rewriter.create<arith::ConstantOp>(loc, zeroAttr);
+    auto filledTensor = rewriter.create<linalg::FillOp>(
+        loc, ValueRange{zero.getResult()}, ValueRange{emptyTensor.getResult()});
+
+    // Create strides and dilations attributes for linalg conv
+    auto stridesAttr = rewriter.getDenseI64ArrayAttr(strideValues);
+    auto dilationsAttr = rewriter.getDenseI64ArrayAttr({1, 1, 1});
+
+    // Create 3D convolution using linalg
+    auto conv3dOp = rewriter.create<linalg::Conv3DNdhwcDhwcfOp>(
+        loc, resultType, ValueRange{input, transposedWeight.getResult()},
+        filledTensor.getResult(0), stridesAttr, dilationsAttr);
+
+    Value result = conv3dOp.getResult(0);
+
+    // Add bias if present
+    if (bias) {
+      auto biasType = cast<RankedTensorType>(bias.getType());
+      auto biasShape = biasType.getShape();
+      assert(biasShape.size() == 5 && "Bias must be 5D");
+      assert(biasShape[0] == 1 && biasShape[1] == 1 && biasShape[2] == 1 &&
+             biasShape[3] == 1 && "Bias must be 5D with shape (1,1,1,1,C_out)");
+
+      // Broadcast bias to match result shape and add
+      result = rewriter.create<tosa::AddOp>(loc, resultType, result, bias);
+    }
+
+    rewriter.replaceOp(op, result);
+    return success();
+  }
+};
+} // namespace
+
 namespace {
 class GatherOpConversionPattern : public OpConversionPattern<ttir::GatherOp> {
 public:
@@ -3291,17 +3699,20 @@ void populateTTIRToTosaPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                                                         tosa::MaximumOp>>(
       typeConverter, ctx);
 
-  patterns.add<BroadcastOpConversionPattern, SinOpConversionPattern,
-               CosOpConversionPattern, MatmulOpConversionPattern,
-               LinearOpConversionPattern, ClampScalarOpConversionPattern,
-               Relu6OpConversionPattern, GatherOpConversionPattern,
-               LogicalNotOpConversionPattern, MaxOpConversionPattern,
-               MinOpConversionPattern, SumOpConversionPattern,
-               ProdOpConversionPattern, ReduceOrOpConversionPattern,
-               MeanOpConversionPattern, LayerNormOpConversionPattern,
-               SqueezeOpConversionPattern, UnsqueezeOpConversionPattern,
-               MaxPool2dOpConversionPattern, Conv2dOpConversionPattern>(
-      typeConverter, ctx);
+  patterns
+      .add<BroadcastOpConversionPattern, SinOpConversionPattern,
+           CosOpConversionPattern, MatmulOpConversionPattern,
+           LinearOpConversionPattern, ClampScalarOpConversionPattern,
+           Relu6OpConversionPattern, GatherOpConversionPattern,
+           LogicalNotOpConversionPattern, MaxOpConversionPattern,
+           MinOpConversionPattern, SumOpConversionPattern,
+           ProdOpConversionPattern, ReduceOrOpConversionPattern,
+           MeanOpConversionPattern, LayerNormOpConversionPattern,
+           SqueezeOpConversionPattern, UnsqueezeOpConversionPattern,
+           MaxPool2dOpConversionPattern, AvgPool2dOpConversionPattern,
+           GlobalAvgPool2dOpConversionPattern, Upsample2dOpConversionPattern,
+           Conv2dOpConversionPattern, Conv3dOpConversionPattern>(typeConverter,
+                                                                 ctx);
 
   // Special operations
   patterns.add<WhereOpConversionPattern, ReshapeOpConversionPattern,
