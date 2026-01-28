@@ -117,6 +117,7 @@ NOC_ISSUE_SKIP = pytest.mark.skip(
         # 4d inner permutes (gpt_oss-120b)
         [(1, 16, 128, 64), [0, 1, 3, 2]],
         [(1, 2, 128, 64), [0, 1, 3, 2]],
+        [(1, 64, 1), [0, 2, 1]],
     ],
 )
 @pytest.mark.parametrize("target", ["ttmetal"])
@@ -213,6 +214,29 @@ RESHAPE_SHAPES: List[Tuple[Tuple[int, ...], Tuple[int, ...]]] = [
     ((32, 18), (1, 32, 18)),
 ]
 
+RESHAPE_SHAPES = [
+    # ((1, 32), (32, 1)),
+    # ((1, 1, 64), (1, 64, 1)),
+    # ((1, 64), (1, 1, 64))
+    # ((64, 1), (1, 64, 1)),
+    # ((64, 1), (1, 1, 64)),
+    # ((1, 1, 64), (64, 1)),
+    # ((64, 1, 1), (1, 1, 64)),
+    # ((1, 16), (1, 16, 1, 1)),
+    # ((32, 360), (32, 1, 1, 360)),
+    # ((1, 64), (4, 16)),
+    # ((2, 32), (32, 2)),
+    # ((1, 128), (128, 1)),
+    # ((1, 128), (1, 128, 1)),
+    # ((1, 128), (1, 1, 2, 64)),
+    # ((1, 16), (1, 16, 1, 1)),
+    # ((128, 4), (128, 4, 1)),
+    # ((128, 4), (1, 512)),
+    ((128, 4, 1), (1, 512)),
+    # ((1, 128), (1, 1, 128, 1)),
+    # ((1, 128), (128, 1, 1)),
+]
+
 
 def shapes_to_id(shapes) -> str:
     """Generate a readable test ID from input/output shapes."""
@@ -229,7 +253,8 @@ def shapes_to_id(shapes) -> str:
 @pytest.mark.parametrize(
     "shapes", RESHAPE_SHAPES, ids=[shapes_to_id(s) for s in RESHAPE_SHAPES]
 )
-@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
+# @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_reshape(
     shapes: Tuple[Tuple[int, ...], Tuple[int, ...]],

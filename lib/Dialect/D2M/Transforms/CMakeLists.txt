@@ -2,6 +2,7 @@ add_mlir_dialect_library(MLIRD2MTransforms
         Allocate.cpp
         DecomposeMasking.cpp
         DecomposeComplexPermute.cpp
+        DecomposeComplexReshape.cpp
         GenericApplyInterchange.cpp
         GenericLinearizeMemref.cpp
         GenericRegionsToFuncs.cpp
