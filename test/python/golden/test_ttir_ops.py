@@ -2015,6 +2015,56 @@ def test_unique_ops(
 
 
 @x86_only
+@pytest.mark.parametrize(
+    "indices_shape,weight_shape",
+    [
+        (
+            (32, 32),
+            (512, 128),
+        ),  # 2D indices: (batch, seq_len), weight: (vocab, embed_dim)
+        ((64,), (256, 64)),  # 1D indices: (seq_len,), smaller vocab and embed_dim
+        ((1, 64), (1024, 256)),  # Single batch, larger vocab and embed_dim
+        ((8, 128), (512, 64)),  # Different batch and seq_len
+    ],
+    ids=["2d_basic", "1d_indices", "large_vocab", "varied_dims"],
+)
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_hoisted_embedding(
+    indices_shape: Shape,
+    weight_shape: Shape,
+    target: str,
+    request,
+    device,
+):
+    """Test the hoisted embedding operation."""
+    vocab_size = weight_shape[0]
+
+    def module(builder: TTIRBuilder):
+        @builder.func([indices_shape, weight_shape], [torch.float32, torch.float32])
+        def hoisted_embedding(
+            indices: Operand,
+            weight: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            # Generate valid indices within [0, vocab_size) range.
+            valid_indices = torch.randint(
+                0, vocab_size, indices_shape, dtype=torch.float32
+            )
+            builder.set_goldens(inputs={indices: valid_indices})
+            return builder.embedding(indices, weight, unit_attrs=["ttir.should_hoist"])
+
+    compile_and_execute_ttir(
+        module,
+        test_base=request.node.name,
+        target=target,
+        device=device,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+@x86_only
 @pytest.mark.parametrize("shape", [(4, 4)], ids=shape_str)
 @pytest.mark.parametrize("dim_args", [[0]])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
