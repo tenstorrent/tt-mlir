@@ -108,7 +108,7 @@ private:
     for (const auto &group : fusionGroups) {
       TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
                    "  Fusion group with {} ops", group.size());
-      for (Operation *op : group) {
+      for ([[maybe_unused]] Operation *op : group) {
         TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer, "    {} at {}",
                      op->getName(), op->getLoc());
       }
