@@ -4,7 +4,7 @@ add_mlir_dialect_library(MLIRStableHLOTransforms
   ConvertXlaSdyToSdy.cpp
   DecoupleConstFanout.cpp
   FlattenComposite.cpp
-  LegalizeSdyToStablehlo.cpp
+  PartiallyConvertSdyToStableHLO.cpp
   RegisterCustomShardingRule.cpp
   ReoutlineComposite.cpp
   ShardyCCLToStableHLOCCLPatterns.cpp

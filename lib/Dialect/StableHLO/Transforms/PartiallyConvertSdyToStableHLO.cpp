@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -10,10 +10,11 @@
 #include "stablehlo/dialect/StablehloOps.h"
 
 namespace mlir::tt::stablehlo {
-#define GEN_PASS_DEF_LEGALIZESDYTOSTABLEHLOPASS
+#define GEN_PASS_DEF_PARTIALLYCONVERTSDYTOSTABLEHLOPASS
 #include "ttmlir/Dialect/StableHLO/Transforms/Passes.h.inc"
 
-class LegalizeSdyConstPattern : public OpRewritePattern<mlir::sdy::ConstantOp> {
+class PartiallyConvertSdyConstPattern
+    : public OpRewritePattern<mlir::sdy::ConstantOp> {
   using OpRewritePattern<mlir::sdy::ConstantOp>::OpRewritePattern;
 
 public:
@@ -25,21 +26,21 @@ public:
   }
 };
 
-class LegalizeSdyToStablehloPass
-    : public impl::LegalizeSdyToStablehloPassBase<LegalizeSdyToStablehloPass> {
+class PartiallyConvertSdyToStableHLOPass
+    : public impl::PartiallyConvertSdyToStableHLOPassBase<
+          PartiallyConvertSdyToStableHLOPass> {
 public:
-  using impl::LegalizeSdyToStablehloPassBase<
-      LegalizeSdyToStablehloPass>::LegalizeSdyToStablehloPassBase;
+  using impl::PartiallyConvertSdyToStableHLOPassBase<
+      PartiallyConvertSdyToStableHLOPass>::
+      PartiallyConvertSdyToStableHLOPassBase;
 
   void runOnOperation() final {
     mlir::ModuleOp module = getOperation();
     MLIRContext *context = module.getContext();
 
-    // Set up rewrite patterns.
     RewritePatternSet patterns(context);
-    patterns.add<LegalizeSdyConstPattern>(context);
+    patterns.add<PartiallyConvertSdyConstPattern>(context);
 
-    // Apply the patterns to legalize sdy operations to stablehlo.
     if (failed(applyPatternsGreedily(module, std::move(patterns)))) {
       signalPassFailure();
       return;

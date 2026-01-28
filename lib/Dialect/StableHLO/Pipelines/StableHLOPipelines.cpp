@@ -25,8 +25,8 @@ void createStableHLOPipeline(OpPassManager &pm,
   // Convert any xla.sdy ops to sdy ops.
   pm.addPass(createConvertXlaSdyToSdyPass());
 
-  // Legalize sdy operations to stablehlo.
-  pm.addPass(createLegalizeSdyToStablehloPass());
+  // Partially convert sdy ops to stablehlo.
+  pm.addPass(createPartiallyConvertSdyToStableHLOPass());
 
   // Annotate arguments with whether they are already pre-sharded or not.
   pm.addPass(createApplyArgumentShardStatusPass());
