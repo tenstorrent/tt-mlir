@@ -23,14 +23,15 @@ namespace tt::runtime::common {
 // complete runtime args vector for that core.
 template <typename ProgramOrDescriptor>
 std::unordered_map<::tt::tt_metal::CoreCoord, std::vector<uint32_t>>
-appendFabricConfigArgs(
-    uint16_t topology, uint32_t cluster_axis, uint32_t num_links,
-    const target::metal::KernelConfig *kernelConfig,
-    ProgramOrDescriptor &program, tt_metal::KernelHandle &handle,
-    const tt_metal::distributed::MeshCoordinate deviceCoord,
-    const tt_metal::distributed::MeshDevice *meshDevice,
-    std::vector<uint32_t> rtArgsVec,
-    const tt::tt_metal::CoreRangeSet &coreRangeSet);
+appendFabricConfigArgs(uint16_t topology, uint32_t cluster_axis,
+                       uint32_t num_links,
+                       const target::metal::KernelConfig *kernelConfig,
+                       ProgramOrDescriptor &program,
+                       tt_metal::KernelHandle &handle,
+                       const tt_metal::distributed::MeshCoordinate deviceCoord,
+                       const tt_metal::distributed::MeshDevice *meshDevice,
+                       std::vector<uint32_t> rtArgsVec,
+                       const tt::tt_metal::CoreRangeSet &coreRangeSet);
 
 } // namespace tt::runtime::common
 

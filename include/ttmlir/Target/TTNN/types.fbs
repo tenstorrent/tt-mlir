@@ -136,7 +136,7 @@ table MeshComposerConfig {
   mesh_shape_override: [uint32];
 }
 
-table MeshCoord { 
+table MeshCoord {
   coords: [uint32];
 }
 

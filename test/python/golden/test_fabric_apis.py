@@ -93,7 +93,7 @@ def test_fabric_p2p(target: str, request, mesh_shape, fabric_config, device):
     )
 
 
-@pytest.mark.frontend("ttnn")  
+@pytest.mark.frontend("ttnn")
 @pytest.mark.parametrize(
     "fabric_config",
     [
@@ -104,13 +104,15 @@ def test_fabric_p2p(target: str, request, mesh_shape, fabric_config, device):
 )
 @pytest.mark.parametrize("target", ["ttnn"])
 @pytest.mark.parametrize("mesh_shape", [(2, 4)])
-def test_fabric_p2p_ttnn_generic(target: str, request, mesh_shape, fabric_config, device):
+def test_fabric_p2p_ttnn_generic(
+    target: str, request, mesh_shape, fabric_config, device
+):
     """Test fabric P2P using TTNN generic op with MeshProgramDescriptor.
-    
+
     The kernel writes data from device 0 to device 1.
     Input is 64x128, distributed across 2x4 mesh (8 devices), each gets 32x32.
     After P2P, device 1's shard should contain device 0's data.
-    
+
     Uses separate input and output tensors (not in-place):
     - input_0: source data (device 0 has value 1.0)
     - input_1: pre-allocated output tensor (initialized to zeros)
@@ -131,27 +133,27 @@ def test_fabric_p2p_ttnn_generic(target: str, request, mesh_shape, fabric_config
     with ctx, loc:
         module = Module.parse(mlir_text)
         print("Module:", module)
-    
+
     full_shape = (64, 128)
-    
+
     # Input tensor (arg0): source data with distinct values per device
     input_tensor = torch.zeros(full_shape, dtype=torch.bfloat16)
-    input_tensor[0:32, 0:32] = 1.0    # device 0
-    input_tensor[0:32, 32:64] = 2.0   # device 1
-    input_tensor[0:32, 64:96] = 3.0   # device 2
+    input_tensor[0:32, 0:32] = 1.0  # device 0
+    input_tensor[0:32, 32:64] = 2.0  # device 1
+    input_tensor[0:32, 64:96] = 3.0  # device 2
     input_tensor[0:32, 96:128] = 4.0  # device 3
-    input_tensor[32:64, 0:32] = 5.0   # device 4
+    input_tensor[32:64, 0:32] = 5.0  # device 4
     input_tensor[32:64, 32:64] = 6.0  # device 5
     input_tensor[32:64, 64:96] = 7.0  # device 6
-    input_tensor[32:64, 96:128] = 8.0 # device 7
-    
+    input_tensor[32:64, 96:128] = 8.0  # device 7
+
     output_preallocated = input_tensor.clone()
-    
+
     # Expected output: device 1's region gets device 0's value of 1.0
-    # All other regions remain 0 
+    # All other regions remain 0
     expected_output = output_preallocated.clone()
     expected_output[0:32, 32:64] = 1.0  # device 1 now has device 0's data
-    
+
     golden_input_output_tensors = {}
     golden_input_output_tensors[0] = {
         "input_0": GoldenMapTensor({0: input_tensor}, (1, 1)),
@@ -164,7 +166,7 @@ def test_fabric_p2p_ttnn_generic(target: str, request, mesh_shape, fabric_config
     mesh_shape_str = f"{mesh_shape[0]},{mesh_shape[1]}"
     with module.context:
         pm = PassManager.parse(
-            f'builtin.module(ttcore-register-device{{system-desc-path={system_desc_path} mesh-shape={mesh_shape_str}}})'
+            f"builtin.module(ttcore-register-device{{system-desc-path={system_desc_path} mesh-shape={mesh_shape_str}}})"
         )
         pm.run(module.operation)
 
@@ -178,7 +180,7 @@ def test_fabric_p2p_ttnn_generic(target: str, request, mesh_shape, fabric_config
         check_atol=True,
         check_rtol=True,
     )
-    
+
     program_outputs = output_tensors["program_0"]
     actual_output = program_outputs["device_output_0"]
 
@@ -190,4 +192,3 @@ def test_fabric_p2p_ttnn_generic(target: str, request, mesh_shape, fabric_config
     print(f"Device 5 region [32:64, 32:64]: = \n{actual_output[32:64, 32:64]}")
     print(f"Device 6 region [32:64, 64:96]: = \n{actual_output[32:64, 64:96]}")
     print(f"Device 7 region [32:64, 96:128]: = \n{actual_output[32:64, 96:128]}")
-

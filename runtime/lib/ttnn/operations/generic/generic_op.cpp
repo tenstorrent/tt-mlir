@@ -277,7 +277,8 @@ createMeshProgramDescriptor(
       tt::tt_fabric::FabricNodeId srcFabricNodeId =
           meshDevice->get_fabric_node_id(deviceCoord);
       LOG_INFO("createMeshProgramDescriptor: got srcFabricNodeId chip_id=",
-               srcFabricNodeId.chip_id, ", mesh_id=", srcFabricNodeId.mesh_id.get());
+               srcFabricNodeId.chip_id,
+               ", mesh_id=", srcFabricNodeId.mesh_id.get());
 
       // Append fabric connection args for all kernels using the common helper
       for (size_t kernelIdx = 0; kernelIdx < programDescriptor->kernels.size();
@@ -288,8 +289,8 @@ createMeshProgramDescriptor(
         std::vector<tt::tt_metal::CoreCoord> cores =
             tt::tt_metal::corerange_to_cores(kernel.core_ranges);
 
-        LOG_INFO("createMeshProgramDescriptor: processing kernelIdx=", kernelIdx,
-                 ", num_cores=", cores.size());
+        LOG_INFO("createMeshProgramDescriptor: processing kernelIdx=",
+                 kernelIdx, ", num_cores=", cores.size());
 
         // Build lookup map for existing runtime args
         std::unordered_map<tt::tt_metal::CoreCoord, size_t> rtArgsIndexMap;
@@ -298,14 +299,11 @@ createMeshProgramDescriptor(
         }
 
         auto fabricConfigArgs = tt::runtime::common::appendFabricConfigArgs(
-            0,        // topology = Ring
-            1,    // cluster_axis
-            1,       // num_links
-            nullptr,
-            *programDescriptor, kernelHandle, deviceCoord, meshDevice,
-            {},
-            kernel.core_ranges
-        );
+            0, // topology = Ring
+            1, // cluster_axis
+            1, // num_links
+            nullptr, *programDescriptor, kernelHandle, deviceCoord, meshDevice,
+            {}, kernel.core_ranges);
         LOG_INFO("fabricConfigArgs size: ", fabricConfigArgs.size());
 
         // Merge fabric args with each core's base runtime args
@@ -315,21 +313,26 @@ createMeshProgramDescriptor(
           if (it != rtArgsIndexMap.end()) {
             mergedRtArgs = kernel.runtime_args[it->second].second;
           }
-          LOG_INFO("before merging rt args: core=(", core.x, ",", core.y, "), mergedRtArgs size: ", mergedRtArgs.size());
+          LOG_INFO("before merging rt args: core=(", core.x, ",", core.y,
+                   "), mergedRtArgs size: ", mergedRtArgs.size());
 
           // Append fabric args to the base runtime args
           auto &fabricArgs = fabricConfigArgs[core];
-          LOG_INFO("fabric args for core=(", core.x, ",", core.y, "), size: ", fabricArgs.size());
-          mergedRtArgs.insert(mergedRtArgs.end(), fabricArgs.begin(), fabricArgs.end());
+          LOG_INFO("fabric args for core=(", core.x, ",", core.y,
+                   "), size: ", fabricArgs.size());
+          mergedRtArgs.insert(mergedRtArgs.end(), fabricArgs.begin(),
+                              fabricArgs.end());
           LOG_INFO("after insert, mergedRtArgs size: ", mergedRtArgs.size());
 
           // Update or create runtime args entry
           if (it != rtArgsIndexMap.end()) {
             kernel.runtime_args[it->second].second = std::move(mergedRtArgs);
-            LOG_INFO("after move (update), stored rt args size: ", kernel.runtime_args[it->second].second.size());
+            LOG_INFO("after move (update), stored rt args size: ",
+                     kernel.runtime_args[it->second].second.size());
           } else {
             kernel.runtime_args.emplace_back(core, std::move(mergedRtArgs));
-            LOG_INFO("after move (create), stored rt args size: ", kernel.runtime_args.back().second.size());
+            LOG_INFO("after move (create), stored rt args size: ",
+                     kernel.runtime_args.back().second.size());
           }
         }
       }
@@ -383,7 +386,8 @@ void run(const ::tt::target::ttnn::GenericOp *op, ProgramContext &context) {
 
   switch (op->program_type()) {
   case ::tt::target::ttnn::ProgramType::ProgramDescriptor: {
-    const tt::target::ttnn::ProgramDescriptor *programDesc = op->program_as_ProgramDescriptor();
+    const tt::target::ttnn::ProgramDescriptor *programDesc =
+        op->program_as_ProgramDescriptor();
 
     std::size_t hash = ttsl::hash::hash_objects_with_default_seed(
         programDesc, programDescCache, ioTensors);
