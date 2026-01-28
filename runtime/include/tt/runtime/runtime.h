@@ -85,16 +85,6 @@ Tensor createMultiDeviceHostTensor(
     const std::unordered_map<std::string, std::string> &strategy,
     const std::vector<uint32_t> &meshShape);
 
-// Creates multi-device host tensor with borrowed storage (the buffer of the
-// tensor is on the host and it was borrowed from an external buffer which is
-// responsible for its allocation/deallocation).
-Tensor createMultiDeviceBorrowedHostTensor(
-    std::vector<void *> &data, const std::vector<std::uint32_t> &shape,
-    const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
-    ::tt::target::DataType dataType,
-    const std::unordered_map<std::string, std::string> &strategy,
-    const std::vector<uint32_t> &meshShape);
-
 // Creates empty tensor on host/device depending on the passed layout.
 Tensor createEmptyTensor(Device device, Layout layout,
                          const std::vector<std::uint32_t> &shape,
