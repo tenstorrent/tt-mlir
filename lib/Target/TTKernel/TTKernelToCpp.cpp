@@ -172,17 +172,10 @@ public:
                                         /*isStandard=*/false);
       emitExperimentalLLKs();
       emitDebugPrint(threadType);
-      builder->create<emitc::VerbatimOp>(loc, "namespace NAMESPACE {");
     }
   }
 
-  ~ScopedModuleHelper() {
-    if (threadType == ThreadType::Compute) {
-      builder->create<emitc::VerbatimOp>(loc, "void MAIN { kernel_main(); }");
-      builder->create<emitc::VerbatimOp>(loc,
-                                         "}"); // close namespace NAMESPACE
-    }
-  }
+  ~ScopedModuleHelper() = default;
 
   void emitComment(StringRef str) {
     builder->create<emitc::VerbatimOp>(loc, (Twine("// ") + str).str());
