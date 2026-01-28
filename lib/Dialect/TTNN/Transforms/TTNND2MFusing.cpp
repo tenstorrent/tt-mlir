@@ -8,6 +8,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
+#include "ttmlir/Support/Logger.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Builders.h"
@@ -18,9 +19,6 @@
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/SmallVector.h"
-#include "llvm/Support/Debug.h"
-
-#define DEBUG_TYPE "TTNND2MFusion"
 
 namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_TTNND2MFUSING
@@ -104,17 +102,17 @@ private:
       }
     }
 
-    LLVM_DEBUG({
-      llvm::dbgs() << "ElementwiseFusionAnalysis found " << fusionGroups.size()
-                   << " valid fusion groups:\n";
-      for (const auto &group : fusionGroups) {
-        llvm::dbgs() << "  Fusion group with " << group.size() << " ops:\n";
-        for (Operation *op : group) {
-          llvm::dbgs() << "    " << op->getName() << " at " << op->getLoc()
-                       << "\n";
-        }
+    TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+                 "ElementwiseFusionAnalysis found {} valid fusion groups",
+                 fusionGroups.size());
+    for (const auto &group : fusionGroups) {
+      TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+                   "  Fusion group with {} ops", group.size());
+      for (Operation *op : group) {
+        TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer, "    {} at {}",
+                     op->getName(), op->getLoc());
       }
-    });
+    }
   }
 
   // BFS backward from exit op and include producer only if all its consumers
@@ -216,8 +214,8 @@ private:
     Operation *exitOp = fusionGroup.back();
     llvm::SmallVector<Value> outputs(exitOp->getResults());
     if (outputs.empty()) {
-      LLVM_DEBUG(llvm::dbgs() << "Fusion group " << groupIdx
-                              << " has no external outputs\n");
+      TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+                   "Fusion group {} has no external outputs", groupIdx);
     }
 
     Operation *firstOp = fusionGroup.front();
