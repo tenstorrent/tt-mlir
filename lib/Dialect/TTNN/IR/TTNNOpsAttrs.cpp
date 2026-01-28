@@ -1151,14 +1151,14 @@ DeviceComputeKernelConfigAttr::withDstFullSyncEn(bool value) const {
 }
 
 ::llvm::LogicalResult MeshProgramAttr::verify(
-  ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
-  MeshRangeAttr meshRange, ProgramAttr program) {
+    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+    MeshRangeAttr meshRange, ProgramAttr program) {
   return ::llvm::success();
 }
 
 ::llvm::LogicalResult MeshProgramDescriptorAttr::verify(
-  ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
-  ::llvm::ArrayRef<MeshProgramAttr> meshPrograms) {
+    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+    ::llvm::ArrayRef<MeshProgramAttr> meshPrograms) {
   return ::llvm::success();
 }
 

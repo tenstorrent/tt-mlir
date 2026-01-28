@@ -140,7 +140,7 @@ table MeshProgramDescriptor {
 }
 
 union ProgramType {
-  ProgramDescriptor, 
+  ProgramDescriptor,
   MeshProgramDescriptor,
 }
 
