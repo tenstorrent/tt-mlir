@@ -96,6 +96,22 @@ struct ConvertD2MToTTKernel
     target.addLegalOp<memref::CopyOp>();
     target.addLegalOp<memref::GlobalOp>();
     target.addLegalOp<memref::GetGlobalOp>();
+    // Shape manipulation ops for 1D tensor support - these are compile-time
+    // only and don't generate runtime code.
+    target.addLegalOp<memref::ExpandShapeOp>();
+    // CollapseShapeOp is legal in host functions, but not legal in kernel
+    // functions where MemRefCollapseRewriter handles it.
+    // D2MKernelFunctionArgsRewriter has higher benefit to ensure d2m.thread
+    // attr is converted to ttkernel.thread before this check runs.
+    target.addDynamicallyLegalOp<memref::CollapseShapeOp>(
+        [](memref::CollapseShapeOp op) {
+          auto parentFunc = op->getParentOfType<func::FuncOp>();
+          if (!parentFunc) {
+            return true;
+          }
+          // Not legal if in a kernel function (has ttkernel thread attr)
+          return !parentFunc->hasAttr(ttkernel::ThreadTypeAttr::name);
+        });
 
     target.addDynamicallyLegalOp<func::FuncOp>([&](func::FuncOp op) {
       return !op->hasAttr(d2m::ThreadAttr::name) ||

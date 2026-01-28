@@ -861,5 +861,78 @@ def D2MDecomposeComplexPermute: Pass<"d2m-decompose-complex-permute", "::mlir::M
   }];
 }
 
+def D2MPromote1DTo2D: Pass<"d2m-promote-1d-to-2d", "::mlir::ModuleOp"> {
+  let summary = "Promote 1D tensors to 2D tensors with reshape operations.";
+  let description = [{
+    This pass promotes 1D tensors to 2D tensors by inserting reshape operations.
+    This is needed because the device compute kernels work with 2D+ tensors.
+
+    The pass performs the following transformations:
+
+    1. For function inputs that are 1D, a reshape from [N] to [1, N] is inserted
+       at the beginning of the function.
+
+    2. All intermediate operations that consume 1D values are updated to work
+       with 2D types. This includes proper propagation through chains of ops.
+
+    3. For function outputs that are 1D, a reshape from [1, N] to [N] is inserted
+       before the return to preserve the original function signature.
+
+    4. If a 1D function argument is already used exclusively by reshape ops,
+       the pass skips inserting an additional promotion reshape to avoid
+       redundant operations.
+
+    Example 1 - Basic single op:
+      Before:
+        func.func @forward(%arg0: tensor<32xf32>) -> tensor<32xf32> {
+          %0 = "ttir.abs"(%arg0) : (tensor<32xf32>) -> tensor<32xf32>
+          return %0 : tensor<32xf32>
+        }
+
+      After:
+        func.func @forward(%arg0: tensor<32xf32>) -> tensor<32xf32> {
+          %expanded = "ttir.reshape"(%arg0) <{shape = [1, 32]}> : (tensor<32xf32>) -> tensor<1x32xf32>
+          %0 = "ttir.abs"(%expanded) : (tensor<1x32xf32>) -> tensor<1x32xf32>
+          %collapsed = "ttir.reshape"(%0) <{shape = [32]}> : (tensor<1x32xf32>) -> tensor<32xf32>
+          return %collapsed : tensor<32xf32>
+        }
+
+    Example 2 - Chained ops (downstream propagation):
+      Before:
+        func.func @forward(%arg0: tensor<128xf32>) -> tensor<128xf32> {
+          %0 = "ttir.abs"(%arg0) : (tensor<128xf32>) -> tensor<128xf32>
+          %1 = "ttir.neg"(%0) : (tensor<128xf32>) -> tensor<128xf32>
+          return %1 : tensor<128xf32>
+        }
+
+      After:
+        func.func @forward(%arg0: tensor<128xf32>) -> tensor<128xf32> {
+          %expanded = "ttir.reshape"(%arg0) <{shape = [1, 128]}> : (tensor<128xf32>) -> tensor<1x128xf32>
+          %0 = "ttir.abs"(%expanded) : (tensor<1x128xf32>) -> tensor<1x128xf32>
+          %1 = "ttir.neg"(%0) : (tensor<1x128xf32>) -> tensor<1x128xf32>
+          %collapsed = "ttir.reshape"(%1) <{shape = [128]}> : (tensor<1x128xf32>) -> tensor<128xf32>
+          return %collapsed : tensor<128xf32>
+        }
+
+    Example 3 - Input already reshaped (no additional reshape inserted):
+      Before:
+        func.func @forward(%arg0: tensor<128xf32>) -> tensor<1x128xf32> {
+          %0 = "ttir.reshape"(%arg0) <{shape = [1, 128]}> : (tensor<128xf32>) -> tensor<1x128xf32>
+          %1 = "ttir.abs"(%0) : (tensor<1x128xf32>) -> tensor<1x128xf32>
+          return %1 : tensor<1x128xf32>
+        }
+
+      After (unchanged - no additional reshape needed):
+        func.func @forward(%arg0: tensor<128xf32>) -> tensor<1x128xf32> {
+          %0 = "ttir.reshape"(%arg0) <{shape = [1, 128]}> : (tensor<128xf32>) -> tensor<1x128xf32>
+          %1 = "ttir.abs"(%0) : (tensor<1x128xf32>) -> tensor<1x128xf32>
+          return %1 : tensor<1x128xf32>
+        }
+
+    This pass should run early in the D2M pipeline, before layout lowering.
+  }];
+  let dependentDialects = ["::mlir::tt::d2m::D2MDialect", "::mlir::tt::ttir::TTIRDialect"];
+}
+
 
 #endif
