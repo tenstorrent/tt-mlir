@@ -90,7 +90,7 @@ getPreparedConvTranspose2dWeightsOutputTensor(ConvTranspose2dOp *op,
           op->getInChannels(), op->getOutChannels(), op->getBatchSize(),
           op->getInputHeight(), op->getInputWidth(), op->getKernelSize(),
           op->getStride(), op->getPadding(), op->getDilation(), op->getGroups(),
-          conv2dConfig, /*conv2dSliceConfig=*/nullptr, op->getBias() != nullptr,
+          conv2dConfig, op->getConv2dSliceConfig(), op->getBias() != nullptr,
           /* transpose */ true);
 
   if (!outputTensorSpec) {
