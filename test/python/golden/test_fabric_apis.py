@@ -19,6 +19,7 @@ from ttmlir.passes import (
     ttmetal_to_flatbuffer_bin,
     ttnn_to_flatbuffer_bin,
 )
+from ttmlir.passmanager import PassManager
 
 
 @pytest.mark.frontend("ttir")
@@ -93,7 +94,14 @@ def test_fabric_p2p(target: str, request, mesh_shape, fabric_config, device):
 
 
 @pytest.mark.frontend("ttnn")  
-@pytest.mark.parametrize("fabric_config", [tt_runtime.runtime.FabricConfig.FABRIC_2D])
+@pytest.mark.parametrize(
+    "fabric_config",
+    [
+        tt_runtime.runtime.FabricConfig.FABRIC_1D,
+        tt_runtime.runtime.FabricConfig.FABRIC_1D_RING,
+        tt_runtime.runtime.FabricConfig.FABRIC_2D,
+    ],
+)
 @pytest.mark.parametrize("target", ["ttnn"])
 @pytest.mark.parametrize("mesh_shape", [(2, 4)])
 def test_fabric_p2p_ttnn_generic(target: str, request, mesh_shape, fabric_config, device):
@@ -108,11 +116,13 @@ def test_fabric_p2p_ttnn_generic(target: str, request, mesh_shape, fabric_config
     - input_1: pre-allocated output tensor (initialized to zeros)
     - output_0: expected result (device 1's region should have 1.0 after P2P)
     """
-    mlir_path = os.path.join(
-        os.path.dirname(__file__),
-        "../../ttmlir/Silicon/TTNN/n150/generic_op/generic_op_p2p_desc.mlir"
-    )
-    with open(mlir_path, "r", encoding="utf-8") as f:
+    with open(
+        os.path.join(
+            os.path.dirname(__file__), "fabric_api_snippets/test_generic_op_p2p.mlir"
+        ),
+        "r",
+        encoding="utf-8",
+    ) as f:
         mlir_text = f.read()
 
     ctx = Context()
@@ -121,11 +131,6 @@ def test_fabric_p2p_ttnn_generic(target: str, request, mesh_shape, fabric_config
     with ctx, loc:
         module = Module.parse(mlir_text)
         print("Module:", module)
-
-    # Full tensor shape: 64x128, distributed across 2x4 mesh
-    # After aggregation, device regions in the full tensor:
-    #   rows [0:32]:   cols [0:32]->dev0, [32:64]->dev1, [64:96]->dev2, [96:128]->dev3
-    #   rows [32:64]:  cols [0:32]->dev4, [32:64]->dev5, [64:96]->dev6, [96:128]->dev7
     
     full_shape = (64, 128)
     
@@ -154,6 +159,16 @@ def test_fabric_p2p_ttnn_generic(target: str, request, mesh_shape, fabric_config
         "output_0": GoldenMapTensor({0: expected_output}, (1, 1)),
     }
 
+    # Register device (add system_desc) before flatbuffer conversion
+    system_desc_path = request.config.getoption("--sys-desc")
+    mesh_shape_str = f"{mesh_shape[0]},{mesh_shape[1]}"
+    with module.context:
+        pm = PassManager.parse(
+            f'builtin.module(ttcore-register-device{{system-desc-path={system_desc_path} mesh-shape={mesh_shape_str}}})'
+        )
+        pm.run(module.operation)
+
+    print(f"module: {module}")
     _, output_tensors = execute_fb(
         ttnn_to_flatbuffer_bin(module),
         golden_input_output_tensors,
