@@ -533,8 +533,8 @@ public:
           // filled by the DMA read above.
           Value mcastTx = builder.create<DMAWriteOp>(
               loc, localMemref, mcastLocalIndices, localMemref,
-              mcastLocalIndices, coalescingFactor,
-              remoteLoad.getMcastStartIndex(), remoteLoad.getMcastShape());
+              mcastLocalIndices, shardVolume, remoteLoad.getMcastStartIndex(),
+              remoteLoad.getMcastShape());
           builder.create<DMAWaitOp>(loc, mcastTx);
 
           // Signal receivers that sender is finished
