@@ -124,19 +124,7 @@ void createTTIRToTTMetalMiddleendPipeline(
   pm.addPass(d2m::createD2MElementwiseFusion(elementwiseFusionOptions));
   pm.addPass(createLinalgElementwiseOpFusionPass());
   pm.addPass(mlir::createCanonicalizerPass());
-  if (options.ttnnMode) {
-    bufferization::OneShotBufferizePassOptions bufferizePassOptions;
-    bufferizePassOptions.allowUnknownOps = true;
-    bufferizePassOptions.bufferizeFunctionBoundaries = false;
-    bufferizePassOptions.functionBoundaryTypeConversion =
-        bufferization::LayoutMapOption::IdentityLayoutMap;
-    bufferizePassOptions.unknownTypeConversion =
-        bufferization::LayoutMapOption::IdentityLayoutMap;
-    pm.addPass(
-        mlir::bufferization::createOneShotBufferizePass(bufferizePassOptions));
-  } else {
-    pm.addPass(ttcore::createTTCoreOneShotBufferizePass());
-  }
+  createTTIRBufferizationPipeline(pm, options);
   d2m::D2MAllocateOptions allocateOptions;
   {
     allocateOptions.numStreamBuffers = options.numStreamBuffers;
@@ -174,7 +162,13 @@ void createTTIRToTTMetalMiddleendPipeline(
   pm.addPass(d2m::createD2MLinalgToAffine(linalgToAffineOptions));
 
   d2m::D2MOpSchedulerOptions opSchedulerOptions;
-  { opSchedulerOptions.enableOpScheduler = true; }
+  {
+    // TODO(mbagherbeikTT)
+    // Has to be hard enabled for now until DST allocation is made fully
+    // consistent with elementwise fusion
+    opSchedulerOptions.enableOpScheduler = true; /* options.enableOpScheduler */
+    ;
+  }
   pm.addPass(d2m::createD2MOpScheduler(opSchedulerOptions));
 
   d2m::D2MInsertDstRegisterAccessOptions insertDstRegisterAccessOptions;
