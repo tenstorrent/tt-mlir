@@ -1416,8 +1416,24 @@ public:
         toLayoutOperandsAndResults(rewriter, {origInputs, origOutputs},
                                    /*tiled*/ true);
 
+    // Check if input comes from a view operation (StreamLayoutOp or
+    // ViewLayoutOp). If so, materialize it first to prevent view chaining that
+    // can cause affine map composition dimension mismatches when the views have
+    // different input/output ranks (e.g., reshape followed by permute).
+    Value inputValue = inputs[0];
+    if (auto defOp = inputValue.getDefiningOp()) {
+      if (mlir::isa<d2m::StreamLayoutOp, d2m::ViewLayoutOp>(defOp)) {
+        // Materialize the view by creating an identity ToLayout
+        auto inputType = mlir::cast<RankedTensorType>(inputValue.getType());
+        auto empty = rewriter.create<d2m::EmptyOp>(loc, inputType);
+        auto materialized =
+            rewriter.create<d2m::ToLayoutOp>(loc, inputValue, empty);
+        inputValue = materialized.getResult(0);
+      }
+    }
+
     const auto inputTensorType =
-        mlir::cast<mlir::RankedTensorType>(inputs[0].getType());
+        mlir::cast<mlir::RankedTensorType>(inputValue.getType());
     const ArrayRef<int64_t> inputShape = inputTensorType.getShape();
     const unsigned deviceRank = static_cast<unsigned>(inputShape.size());
     auto inputLayout =
@@ -1442,8 +1458,8 @@ public:
     auto storage = rewriter.create<d2m::EmptyOp>(
         loc, permuted.physicalShape, inputTensorType.getElementType(),
         resultLayout);
-    auto stream =
-        rewriter.create<d2m::StreamLayoutOp>(loc, viewType, inputs[0], storage);
+    auto stream = rewriter.create<d2m::StreamLayoutOp>(loc, viewType,
+                                                       inputValue, storage);
     inputs[0] = stream.getResult();
     unsigned logicalRank = deviceRank / 2;
     // For inner permute, we alse need a GenericOp to transpose each individual
@@ -1662,9 +1678,10 @@ public:
     AffineMap deviceMap =
         projectLogicalMapToUnitDeviceSpace(rewriter, LogicalAffineMapFn(op));
 
+    mlir::Location loc = op.getLoc();
     auto origInputs = adaptor.getOperands();
     auto origOutputs =
-        createDpsOutputs(op.getLoc(), rewriter, {op.getResult().getType()});
+        createDpsOutputs(loc, rewriter, {op.getResult().getType()});
 
     auto [inputs, outputs] =
         toLayoutOperandsAndResults(rewriter, {origInputs, origOutputs},
@@ -1680,12 +1697,85 @@ public:
     auto newOutTy = RankedTensorType::get(outTy.getShape(),
                                           outTy.getElementType(), newLayout);
 
-    auto storage =
-        rewriter.create<d2m::EmptyOp>(op.getLoc(), outputs[0].getType());
-    auto view = rewriter.create<d2m::StreamLayoutOp>(
-        op.getLoc(), newOutTy, inputs[0], storage.getResult());
+    // Create stream_layout for the input transformation.
+    auto storage = rewriter.create<d2m::EmptyOp>(loc, outputs[0].getType());
+    auto stream =
+        rewriter.create<d2m::StreamLayoutOp>(loc, newOutTy, inputs[0], storage);
 
-    rewriter.replaceOp(op, unLayoutResult(rewriter, view->getResult(0),
+    // Get the logical rank for the generic op from output layout.
+    unsigned logicalRank = layout.getLogicalShape().size();
+
+    // Capture values explicitly for the lambda.
+    Value inputOperand = stream.getResult();
+    Value outputOperand = outputs[0];
+
+    // Create a GenericOp to materialize the data movement. This prevents
+    // view chaining that can cause affine map composition dimension mismatches
+    // when views have different input/output ranks (e.g., reshape + permute).
+    auto generic = rewriter.create<d2m::GenericOp>(
+        loc, SmallVector<Value>{inputOperand},
+        SmallVector<Value>{outputOperand},
+        [&, inputOperand, outputOperand](OpBuilder &builder, Location bodyLoc,
+                                         ValueRange blockArgs) {
+          assert(blockArgs.size() == 2);
+          auto identityMap = builder.getMultiDimIdentityMap(logicalRank);
+          SmallVector<mlir::utils::IteratorType> linalgIteratorTypes(
+              logicalRank, mlir::utils::IteratorType::parallel);
+
+          // Get CB types and shard shapes.
+          auto cbInputType = mlir::cast<d2m::CBType>(blockArgs[0].getType());
+          auto cbOutputType = mlir::cast<d2m::CBType>(blockArgs[1].getType());
+          auto inputShardType = cbInputType.getUnderlying();
+          auto outputShardType = cbOutputType.getUnderlying();
+
+          // Create remote_load for input.
+          AffineMap inputIndexingMap = identityMap;
+          SmallVector<Value> inputIndices =
+              d2m::utils::buildGridIndices(builder, bodyLoc, inputIndexingMap);
+          auto inputTensorType = mlir::cast<RankedTensorType>(inputShardType);
+          auto inputBufferOp = builder.create<tensor::EmptyOp>(
+              bodyLoc, inputTensorType.getShape(),
+              inputTensorType.getElementType());
+          Value input =
+              builder
+                  .create<d2m::RemoteLoadOp>(bodyLoc, inputShardType,
+                                             inputBufferOp.getResult(),
+                                             inputOperand, inputIndices)
+                  .getResult();
+
+          // Create tensor.empty for output.
+          auto outputTensorType = mlir::cast<RankedTensorType>(outputShardType);
+          auto emptyOp = builder.create<tensor::EmptyOp>(
+              bodyLoc, outputTensorType.getShape(),
+              outputTensorType.getElementType());
+          Value output = emptyOp.getResult();
+
+          // Create linalg.generic that performs identity copy.
+          auto linalgGeneric = builder.create<mlir::linalg::GenericOp>(
+              bodyLoc, output.getType(), input, output,
+              SmallVector<mlir::AffineMap>{identityMap, identityMap},
+              linalgIteratorTypes,
+              [&](mlir::OpBuilder &bbBuilder, mlir::Location bbLoc,
+                  mlir::ValueRange bbArgs) {
+                // Identity: just yield the input value.
+                bbBuilder.create<mlir::linalg::YieldOp>(bbLoc, bbArgs[0]);
+              });
+
+          // Insert remote_store for output before yield.
+          AffineMap outputIndexingMap = identityMap;
+          SmallVector<Value> outputIndices =
+              d2m::utils::buildGridIndices(builder, bodyLoc, outputIndexingMap);
+          Value result = linalgGeneric->getResult(0);
+          Value storeResult = builder
+                                  .create<d2m::RemoteStoreOp>(
+                                      bodyLoc, outputOperand.getType(),
+                                      outputOperand, outputIndices, result)
+                                  .getResult();
+
+          builder.create<d2m::YieldOp>(bodyLoc, storeResult);
+        });
+
+    rewriter.replaceOp(op, unLayoutResult(rewriter, generic->getResult(0),
                                           op->getResult(0).getType()));
 
     return success();

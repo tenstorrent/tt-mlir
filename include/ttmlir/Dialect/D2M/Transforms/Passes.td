@@ -698,6 +698,34 @@ def D2MDecomposeComplexPermute: Pass<"d2m-decompose-complex-permute", "::mlir::M
   }];
 }
 
+def D2MDecomposeComplexReshape: Pass<"d2m-decompose-complex-reshape", "::mlir::ModuleOp"> {
+  let summary = "Decompose complex reshape operations that flip the innermost dimension.";
+  let description = [{
+    This pass detects reshape operations where the innermost dimension is flipped
+    (changes value), which requires a permute operation for actual data movement.
+
+    Algorithm:
+    1. Normalize ranks by adding leading 1s to the smaller-ranked shape
+    2. Compare innermost dimensions - if they differ, it needs a permute
+
+    The decomposition produces: reshape (if needed) + permute + reshape (if needed)
+    - First reshape adds leading 1s to match normalized rank
+    - Permute reorders dimensions
+    - Final reshape removes leading 1s to match output rank
+
+    Examples:
+      [32, 1] -> [1, 32]: innermost 1 vs 32 -> permute [1, 0]
+
+      [32] -> [1, 32]: normalize to [1, 32], compare to [1, 32]
+                       innermost 32 vs 32 -> no permute needed
+
+      [32] -> [32, 1]: normalize to [1, 32], compare to [32, 1]
+                       innermost 32 vs 1 -> reshape to [1, 32], permute [1, 0]
+
+      [1, 64, 1] -> [1, 1, 64]: innermost 1 vs 64 -> permute [0, 2, 1]
+  }];
+}
+
 def D2MGenerateOuterLoops : Pass<"d2m-generate-outer-loops", "::mlir::ModuleOp"> {
   let summary = "Generate outer loops.";
   let description = [{

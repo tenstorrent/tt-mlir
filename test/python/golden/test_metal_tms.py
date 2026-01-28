@@ -120,6 +120,7 @@ NOC_ISSUE_SKIP = pytest.mark.skip(
         # 4d inner permutes (gpt_oss-120b)
         [(1, 16, 128, 64), [0, 1, 3, 2]],
         [(1, 2, 128, 64), [0, 1, 3, 2]],
+        [(1, 64, 1), [0, 2, 1]],
     ],
 )
 @pytest.mark.parametrize("target", ["ttmetal"])
@@ -267,6 +268,16 @@ RESHAPE_SHAPES: List[Tuple[Tuple[int, ...], Tuple[int, ...]]] = [
     pytest.param(((64,), (1, 1, 64)), marks=ONE_D_SKIP),
     pytest.param(((768, 18, 128), (32, 24, 18, 128)), marks=SLOW_COMPILE_SKIP),
     pytest.param(((8192, 3072), (1, 8192, 3072)), marks=SLOW_COMPILE_SKIP),
+]
+
+RESHAPE_SHAPES = [
+    # ((1, 32), (32, 1)),
+    # ((1, 1, 64), (1, 64, 1)),
+    # ((1, 64), (1, 1, 64))
+    # ((64, 1), (1, 64, 1)),
+    ((64, 1), (1, 1, 64)),
+    ((1, 1, 64), (64, 1)),
+    ((64, 1, 1), (1, 1, 64)),
 ]
 
 
