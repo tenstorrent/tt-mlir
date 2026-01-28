@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ScaledDotProductAttentionPadSequenceDimRewriterPattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ScaledDotProductAttentionPadTileDimsRewritePattern.h"
 
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
@@ -75,11 +75,6 @@ LogicalResult
 ScaledDotProductAttentionPadTileDimsRewritePattern::matchAndRewrite(
     ttnn::ScaledDotProductAttentionOp srcOp, PatternRewriter &rewriter) const {
 
-  // Only apply workaround when attention mask is present
-  if (!srcOp.getAttentionMask()) {
-    return failure();
-  }
-
   auto queryType = mlir::dyn_cast<RankedTensorType>(srcOp.getQuery().getType());
   auto keyType = mlir::dyn_cast<RankedTensorType>(srcOp.getKey().getType());
   auto valueType = mlir::dyn_cast<RankedTensorType>(srcOp.getValue().getType());
@@ -94,9 +89,15 @@ ScaledDotProductAttentionPadTileDimsRewritePattern::matchAndRewrite(
   // Query, key, and value share the same head_dim
   int64_t headDim = queryType.getShape()[queryType.getRank() - 1];
 
-  bool querySeqNeedsPadding = (querySeqLen % TILE_HEIGHT != 0);
-  bool keySeqNeedsPadding = (keySeqLen % TILE_HEIGHT != 0);
-  bool valueSeqNeedsPadding = (valueSeqLen % TILE_HEIGHT != 0);
+  // Sequence padding is only needed when attention mask is present
+  // (tt-metal requires seq_len % chunk_size == 0 when mask is provided)
+  bool hasMask = srcOp.getAttentionMask() != nullptr;
+  bool querySeqNeedsPadding = hasMask && (querySeqLen % TILE_HEIGHT != 0);
+  bool keySeqNeedsPadding = hasMask && (keySeqLen % TILE_HEIGHT != 0);
+  bool valueSeqNeedsPadding = hasMask && (valueSeqLen % TILE_HEIGHT != 0);
+
+  // Head dim padding is always needed when not tile-aligned
+  // (tt-metal requires logical_shape[3] == padded_shape[3])
   bool headDimNeedsPadding = (headDim % TILE_WIDTH != 0);
 
   bool anySeqNeedsPadding =
