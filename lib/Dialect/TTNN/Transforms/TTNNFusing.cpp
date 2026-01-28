@@ -491,14 +491,12 @@ public:
     }
 
     if (!matchScoreComputation(c.softmax.getInput(), c)) {
-      llvm::outs() << "Failed to match score computation\n";
       return failure();
     }
 
     // Validate semantic constraints (single-use of intermediate ops, valid
     // scale range) before modifying the IR.
     if (!validateSemantics(c)) {
-      llvm::outs() << "Failed to validate semantics\n";
       return failure();
     }
 
@@ -1294,8 +1292,6 @@ private:
           decodeOp.getOperation(), inputLayouts, config);
 
       if (!result.isSuccess() && !isRecoverableSDPAError(result.errorMessage)) {
-        llvm::outs() << "Failed to validate decode SDPA op: "
-                     << result.errorMessage << "\n";
         rewriter.eraseOp(decodeOp);
         return failure();
       }
@@ -1330,8 +1326,6 @@ private:
           sdpaOp.getOperation(), inputLayouts, config);
 
       if (!result.isSuccess() && !isRecoverableSDPAError(result.errorMessage)) {
-        llvm::outs() << "Failed to validate SDPA op: " << result.errorMessage
-                     << "\n";
         rewriter.eraseOp(sdpaOp);
         return failure();
       }
