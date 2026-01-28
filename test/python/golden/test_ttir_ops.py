@@ -3809,3 +3809,57 @@ def test_hoisted_prod(
         target=target,
         device=device,
     )
+
+
+@x86_only
+@pytest.mark.parametrize(
+    "kernel,stride,dilation,padding,ceil_mode,count_include_pad",
+    [
+        # Use zero padding and compatible input shape for TOSA constraints
+        ([2, 2], [2, 2], [1, 1], [0, 0, 0, 0], False, True),
+    ],
+)
+@pytest.mark.parametrize("shape", [(1, 128, 128, 32)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_hoisted_avg_pool2d(
+    shape: Shape,
+    dtype: torch.dtype,
+    kernel: List[int],
+    stride: List[int],
+    dilation: List[int],
+    padding: List[int],
+    ceil_mode: bool,
+    count_include_pad: bool,
+    target: str,
+    request,
+    device,
+):
+    """Test hoisted avg_pool2d operation"""
+
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [dtype])
+        def hoisted_avg_pool2d(
+            in0: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.avg_pool2d(
+                in0,
+                kernel=kernel,
+                stride=stride,
+                dilation=dilation,
+                padding=padding,
+                ceil_mode=ceil_mode,
+                count_include_pad=count_include_pad,
+                unit_attrs=["ttir.should_hoist"],
+            )
+
+    compile_and_execute_ttir(
+        module,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        device=device,
+    )
