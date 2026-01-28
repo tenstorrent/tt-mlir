@@ -1490,7 +1490,7 @@ createEltwiseBinaryCompositeScalarOp(FlatbufferObjectCache &cache,
                      .Union();
     } else if (auto integerAttr =
                    mlir::dyn_cast<mlir::IntegerAttr>(op.getRhs())) {
-      rhsType = ::tt::target::ttnn::RhsParams::UI32;
+      rhsType = ::tt::target::ttnn::RhsParams::I32;
       rhsValue = ::tt::target::ttnn::CreateIntegralType(
                      *cache.fbb, integerAttr.getValue().getSExtValue())
                      .Union();
