@@ -38,7 +38,7 @@ def ttnn_module_str(ttir_module_str: str) -> str:
 
 @pytest.fixture
 def expected_ttnn_module_count() -> int:
-    return 5
+    return 2
 
 
 @pytest.fixture
@@ -51,4 +51,4 @@ def multi_func_shlo_module_str() -> str:
 
 @pytest.fixture
 def expected_multi_func_shlo_module_count() -> int:
-    return 7
+    return 5

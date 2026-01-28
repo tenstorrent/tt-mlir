@@ -24,6 +24,11 @@ enum ShardDistributionStrategy: uint32 {
   Grid2D,
 }
 
+enum ShardStatus: uint32 {
+  Presharded,
+  Unsharded,
+}
+
 struct CoreCoord {
   x: uint64;
   y: uint64;
@@ -86,10 +91,16 @@ table LayoutDesc {
   memory_desc: MemoryDesc;
 }
 
+table RuntimeTensorShardingDesc {
+  shard_status: ShardStatus;
+  local_shape: [int];
+}
+
 table TensorDesc {
   shape: [int];
   mesh_shape: [int32];
   layout: LayoutDesc;
+  runtime_tensor_sharding: RuntimeTensorShardingDesc;
 }
 
 table TensorRef {
