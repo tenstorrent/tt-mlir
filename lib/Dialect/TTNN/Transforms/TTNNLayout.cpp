@@ -242,13 +242,18 @@ public:
         continue;
       }
 
+      bool shouldTilize = true;
+      if (mlir::isa<ttir::MeshPartitionOp>(op)) {
+        shouldTilize = false;
+      }
+
       Location newLoc =
           appendInputSuffix(op->getLoc(), operand.getOperandNumber());
 
       // Given the operand constraint, create the desired layout for the operand
       std::optional<Value> desiredLayout =
           createToLayoutOp(rewriter, newLoc, operand.get(),
-                           g_defaultMemorySpaceDevice, /*tiled=*/true);
+                           g_defaultMemorySpaceDevice, /*tiled=*/shouldTilize);
 
       // If layout changed update the operand
       if (desiredLayout) {
