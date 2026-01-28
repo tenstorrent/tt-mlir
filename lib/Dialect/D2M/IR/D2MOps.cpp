@@ -2154,7 +2154,22 @@ bool d2m::GenericOp::hasReduction() {
 
 bool d2m::GenericOp::hasMultiUseInputOperand() {
   for (OpOperand *input : getDpsInputOperands()) {
-    if (llvm::range_size(input->get().getUsers()) > 1) {
+    // Count users that are outside this generic operation
+    unsigned numExternalUsers = 0;
+    for (auto *user : input->get().getUsers()) {
+      // Skip if the user is this operation itself
+      if (user == this->getOperation()) {
+        continue;
+      }
+      // Skip users that are nested inside this generic operation's regions
+      if (this->getOperation()->isProperAncestor(user)) {
+        continue;
+      }
+      // This is an external user
+      numExternalUsers++;
+    }
+
+    if (numExternalUsers > 1) {
       return true;
     }
   }
