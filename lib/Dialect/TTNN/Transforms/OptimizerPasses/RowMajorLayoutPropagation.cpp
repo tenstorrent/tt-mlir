@@ -197,6 +197,11 @@ private:
   // type. Inserts a toLayout op with TILE layout (required for on-device
   // typecast) to perform the dtype conversion. Returns true if conversion was
   // inserted, indicating RM propagation should stop at this point.
+  //
+  // TODO(bmalesevic, #6783): Once issue is addressed (on-device typecasting
+  // support for RM tensors), RM propagation should be allowed to continue after
+  // dtype conversion without forcing conversion to tile layout (which currently
+  // stops RM propagation).
   bool handleDtypeConversionIfNeeded(Operation *user, IRRewriter &rewriter,
                                      TTNNLayoutAttr rmOutputLayout,
                                      Type backendDataType,
