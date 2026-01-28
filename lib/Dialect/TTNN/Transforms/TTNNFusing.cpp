@@ -846,7 +846,9 @@ private:
   }
 
   std::pair<Value, Type> analyzeQ(Value v) const {
-    v = skipTransparent(v);
+    if (auto typecastOp = v.getDefiningOp<TypecastOp>()) {
+      v = typecastOp.getInput();
+    }
 
     // If Q comes from load_cached, trace through const-eval function to find
     // the original dtype before any f32 conversions.
@@ -870,10 +872,9 @@ private:
     return {v, getTargetElementType(v)};
   }
 
-  // Analyze K tensor: skip transparent ops, trace through TMs we can drop,
+  // Analyze K tensor: trace through TMs we can drop,
   // and track whether we skipped a K^T permute.
   std::tuple<Value, Type, bool> analyzeK(Value v) const {
-    v = skipTransparent(v);
     Type targetDtype = getTargetElementType(v);
     bool skippedTranspose = false;
 
@@ -907,9 +908,8 @@ private:
     return {v, targetDtype, skippedTranspose};
   }
 
-  // Analyze V tensor: skip transparent ops and trace through TMs we can drop.
+  // Analyze V tensor: trace through TMs we can drop.
   std::pair<Value, Type> analyzeV(Value v) const {
-    v = skipTransparent(v);
     Type targetDtype = getTargetElementType(v);
 
     while (Operation *defOp = v.getDefiningOp()) {
@@ -940,8 +940,18 @@ private:
   // the original mask and let broadcastMaskForSDPA() re-broadcast to the exact
   // shape required by the fused op.
   Value prepareMask(Value v) const {
-    while (auto repeatOp = v.getDefiningOp<RepeatOp>()) {
-      v = repeatOp.getInput();
+    while (Operation *defOp = v.getDefiningOp()) {
+      if (isa<TypecastOp>(defOp)) {
+        v = defOp->getOperand(0);
+        continue;
+      }
+
+      if (auto repeatOp = dyn_cast<RepeatOp>(defOp)) {
+        v = repeatOp.getInput();
+        continue;
+      }
+
+      break;
     }
     return v;
   }
