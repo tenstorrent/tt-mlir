@@ -133,25 +133,26 @@ static bool isElementwiseFusable(OpOperand *fusionTargetOperand,
 
   // Check that the producer's result is only used by the consumer
   // Count external users (users outside producer's own regions and outside
-  // consumer's regions)
+  // consumer's regions).
   for (auto result : producer->getResults()) {
     unsigned numExternalUsers = 0;
     for (auto *user : result.getUsers()) {
-      // Skip users inside the producer's own regions
+      // Skip users inside the producer's own regions.
       if (producer.getOperation()->isProperAncestor(user)) {
         continue;
       }
-      // Skip users inside the consumer's regions (e.g., remote_load operations)
+      // Skip users inside the consumer's regions (e.g., remote_load
+      // operations).
       if (consumer.getOperation()->isProperAncestor(user)) {
         continue;
       }
       numExternalUsers++;
     }
-    // Producer result should only be used by the consumer
+    // Producer result should only be used by the consumer.
     if (numExternalUsers != 1) {
       return false;
     }
-    // Verify the single external user is indeed the consumer operation itself
+    // Verify the single external user is indeed the consumer operation itself.
     bool foundConsumerAsUser = false;
     for (auto *user : result.getUsers()) {
       if (!producer.getOperation()->isProperAncestor(user) &&
@@ -384,10 +385,10 @@ static GenericOp createFusedGeneric(OpOperand *fusedOperand, GenericOp producer,
       continue;
     }
     // Skip remote_store operations that store to the producer's output operand
-    // The producer's output is now an intermediate value, not a real output
+    // The producer's output is now an intermediate value, not a real output.
     if (auto storeOp = dyn_cast<d2m::RemoteStoreOp>(&op)) {
       Value storeMemref = storeOp.getMemref();
-      // Check if this is storing to the producer's output/init operand
+      // Check if this is storing to the producer's output/init operand.
       if (storeMemref == producer.getDpsInitOperand(0)->get()) {
         // The remote_store result is the updated output tensor. In fusion,
         // we don't actually store the intermediate result. Map the store result
@@ -499,12 +500,12 @@ static GenericOp createFusedGeneric(OpOperand *fusedOperand, GenericOp producer,
     }
 
     // Handle remote_load operations - skip if loading from the fused operand
-    // (producer's result), since the producer's computation is now inline
+    // (producer's result), since the producer's computation is now inline.
     if (auto loadOp = dyn_cast<d2m::RemoteLoadOp>(&op)) {
       // Check if this remote_load is loading from the producer's result
-      // (the fusedOperand value)
+      // (the fusedOperand value).
       if (loadOp.getMemref() == fusedOperand->get()) {
-        // Map the remote_load result directly to the producer's yielded value
+        // Map the remote_load result directly to the producer's yielded value.
         irMap.map(loadOp.getResult(), producerYieldedValue);
         continue;
       }
