@@ -54,6 +54,9 @@ traceConstantToGenericOps(Operation *constOp,
 
     while (Value result = getLayoutOrCastResult(currentOp)) {
       currentValue = result;
+      if (currentValue.getUsers().empty()) {
+        break;
+      }
       // NOTE: This only follows the first user. If a result has
       // multiple users, only one path will be traced. This is acceptable for
       // the current use case but may miss optimization opportunities.
