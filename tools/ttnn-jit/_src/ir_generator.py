@@ -15,6 +15,5 @@ def generate_ir(f, debug, memory_config, *args, **kwargs):
     """Generate IR from tracing compilation."""
     compiler = TracingCompiler(f, *args, memory_config=memory_config, **kwargs)
     ir = compiler.compile()
-    # Insert output layout conversion if memory_config is provided
     print_and_verify_ir(ir, "TracingCompiler (Tracing-based)", debug)
     return ir
