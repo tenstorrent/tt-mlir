@@ -872,8 +872,13 @@ private:
     return {v, getTargetElementType(v)};
   }
 
-  Value traceKV(Value v, bool isKey) const {
-    // Trace through TMs we can drop for K/V
+  // Analyze K tensor: skip transparent ops, trace through TMs we can drop,
+  // and track whether we skipped a K^T permute.
+  std::tuple<Value, Type, bool> analyzeK(Value v) const {
+    v = skipTransparent(v);
+    Type targetDtype = getTargetElementType(v);
+    bool skippedTranspose = false;
+
     while (Operation *defOp = v.getDefiningOp()) {
       if (isa<TypecastOp>(defOp)) {
         v = defOp->getOperand(0);
@@ -889,26 +894,44 @@ private:
         break;
       }
 
-      if (isKey) {
-        if (auto permuteOp = dyn_cast<PermuteOp>(defOp)) {
-          // Only skip if it's a transpose on last two dims (K^T for matmul)
-          if (isTransposeOnLastTwoDims(permuteOp.getPermutation())) {
-            v = permuteOp.getInput();
-            continue;
-          }
+      if (auto permuteOp = dyn_cast<PermuteOp>(defOp)) {
+        // Only skip if it's a transpose on last two dims (K^T for matmul)
+        if (isTransposeOnLastTwoDims(permuteOp.getPermutation())) {
+          v = permuteOp.getInput();
+          skippedTranspose = true;
+          continue;
         }
       }
 
       break;
     }
 
-    return v;
+    return {v, targetDtype, skippedTranspose};
   }
 
-  std::pair<Value, Type> analyzeKV(Value v, bool isKey) const {
+  // Analyze V tensor: skip transparent ops and trace through TMs we can drop.
+  std::pair<Value, Type> analyzeV(Value v) const {
     v = skipTransparent(v);
     Type targetDtype = getTargetElementType(v);
-    v = traceKV(v, isKey);
+
+    while (Operation *defOp = v.getDefiningOp()) {
+      if (isa<TypecastOp>(defOp)) {
+        v = defOp->getOperand(0);
+        continue;
+      }
+
+      if (auto repeatOp = dyn_cast<RepeatInterleaveOp>(defOp)) {
+        // Only skip if it's GQA head expansion (on dim 1 in [B,H,S,D])
+        if (repeatOp.getDim() == kNumHeadsDim) {
+          v = repeatOp.getInput();
+          continue;
+        }
+        break;
+      }
+
+      break;
+    }
+
     return {v, targetDtype};
   }
 
@@ -979,9 +1002,8 @@ private:
     // This ensures K and V are validated together (important for GQA where
     // both may need repeat_interleave traced through).
     auto [preparedQ, preparedQElementType] = analyzeQ(c.query);
-    auto [preparedK, preparedKElementType] = analyzeKV(c.key, /*isKey=*/true);
-    auto [preparedV, preparedVElementType] =
-        analyzeKV(c.value, /*isKey=*/false);
+    auto [preparedK, preparedKElementType, skippedKTranspose] = analyzeK(c.key);
+    auto [preparedV, preparedVElementType] = analyzeV(c.value);
 
     // Validate and commit Q.
     if (validateShapes(preparedQ, c.key, c.value)) {
@@ -1002,8 +1024,13 @@ private:
     // If key is still in a transposed form, materialize an un-transpose so the
     // fused SDPA op sees the expected [B, H, S, D] shape. Do this before
     // restoring element type so the permute operates on the traced-back value.
-    c.key = unTransposeKeyIfNeeded(c.query, c.key, c.value, rewriter,
-                                   c.attentionMatmul.getLoc());
+    //  Only do this if we didn't already skip a K^T permute during
+    // tracing, to avoid adding a unneeded transpose when shapes are ambiguous
+    // (e.g., when seq_k == head_dim).
+    if (!skippedKTranspose) {
+      c.key = unTransposeKeyIfNeeded(c.query, c.key, c.value, rewriter,
+                                     c.attentionMatmul.getLoc());
+    }
 
     // Restore element types for K and V after any shape transformations.
     c.key = restoreElementTypeIfNeeded(c.key, preparedKElementType, rewriter);
