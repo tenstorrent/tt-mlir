@@ -1547,6 +1547,7 @@ public:
         emitter.emit(srcOp.getMemoryConfig() |
                          emitter.getMemoryConfig(srcOp.getResult()),
                      "memory_config"),
+        emitter.emit(srcOp.getConv2dSliceConfig(), "slice_config"),
     };
 
     emitter.replaceOp(*this, args);
@@ -1733,6 +1734,7 @@ public:
         emitter.emit(srcOp.getConv2dConfig(), "conv_config"),
         emitter.emit(std::nullopt, "compute_config"),
         emitter.emit(srcOp.getMirrorKernel(), "mirror_kernel"),
+        emitter.emit(srcOp.getConv2dSliceConfig(), "slice_config"),
     };
 
     emitter.replaceOp(*this, args);
@@ -1794,6 +1796,7 @@ public:
         emitter.emit(srcOp.getOutputDtype(), "output_dtype"),
         emitter.emit(srcOp.getConv2dConfig(), "conv_config"),
         emitter.emit(std::nullopt, "compute_config"),
+        emitter.emit(srcOp.getConv2dSliceConfig(), "slice_config"),
     };
 
     emitter.replaceOp(*this, args);
