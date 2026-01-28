@@ -2937,8 +2937,7 @@ def TTNN_GenericOp : TTNN_Op<"generic", [TTNN_MemoryConfigOpInterface, MemoryEff
 }
 
 def TTNN_DispatchD2MOp : TTNN_MemoryEffectOp<"dispatch_d2m",
-  [AttrSizedOperandSegments,
-   DestinationStyleOpInterface]> {
+  [AttrSizedOperandSegments]> {
   let summary = "Dispatch D2M compiled subgraph.";
   let description = [{
     References a D2M-compiled subgraph function containing ttnn.generic ops.
@@ -2993,11 +2992,6 @@ def TTNN_DispatchD2MOp : TTNN_MemoryEffectOp<"dispatch_d2m",
   }];
 
   let extraClassDeclaration = [{
-    // Required by DestinationStyleOpInterface
-    MutableOperandRange getDpsInitsMutable() {
-      return getOutputsMutable();
-    }
-
     // Returns the D2M function referenced by this op (looks up in parent module).
     func::FuncOp getD2MMainFunc();
   }];
