@@ -82,6 +82,44 @@ NOC_ISSUE_SKIP = pytest.mark.skip(
         [(3, 32, 32, 32), [0, 3, 1, 2]],
         # # 5d inner, then outer permute
         [(1, 3, 3, 3, 3), [0, 2, 1, 3, 4]],
+        # 3d outer permutes (gpt-20b)
+        [(1, 32, 128), [0, 2, 1]],
+        # 4d outer permutes (gpt-20b)
+        [(1, 128, 8, 64), [0, 2, 1, 3]],
+        [(1, 128, 1, 64), [0, 2, 1, 3]],
+        # 4d inner permutes (gpt-20b)
+        [(1, 8, 128, 64), [0, 1, 3, 2]],
+        [(1, 8, 64, 128), [0, 1, 3, 2]],
+        # 4d inner permutes (llama3-70b, qwen3-32b)
+        pytest.param(
+            (32, 8, 128, 128),
+            [0, 1, 3, 2],
+            marks=pytest.mark.skip_config(
+                ["p150"],
+                ["p300"],
+                reason="L1 memory usage exceeds capacity on p150/p300",
+            ),
+        ),
+        # 4d complex permutes (llama3-70b, qwen3-32b)
+        [(32, 1, 1, 128), [2, 1, 0, 3]],
+        # 4d outer permutes (deepseek-671b)
+        [(1, 16, 32, 32), [0, 2, 1, 3]],
+        [(1, 16, 32, 128), [0, 2, 1, 3]],
+        # 3d inner permutes (glm-358b)
+        [(1, 32, 32), [0, 2, 1]],
+        # 4d outer permutes (glm-358b)
+        [(1, 32, 8, 128), [0, 2, 1, 3]],
+        [(1, 32, 96, 128), [0, 2, 1, 3]],
+        # 4d inner permutes (glm-358b)
+        [(1, 96, 32, 128), [0, 1, 3, 2]],
+        # 3d inner permutes (gpt_oss-120b)
+        [(1, 128, 32), [0, 2, 1]],
+        # 4d outer permutes (gpt_oss-120b)
+        [(1, 128, 16, 64), [0, 2, 1, 3]],
+        [(1, 128, 2, 64), [0, 2, 1, 3]],
+        # 4d inner permutes (gpt_oss-120b)
+        [(1, 16, 128, 64), [0, 1, 3, 2]],
+        [(1, 2, 128, 64), [0, 1, 3, 2]],
     ],
 )
 @pytest.mark.parametrize("target", ["ttmetal"])
