@@ -48,6 +48,7 @@
 #include "operations/eltwise/unary/unary_composite.h"
 #include "operations/embedding/embedding.h"
 #include "operations/embedding/embedding_backward.h"
+#include "operations/experimental/dropout.h"
 #include "operations/experimental/gelu_bw.h"
 #include "operations/generic/generic_op.h"
 #include "operations/kv_cache/fill_cache.h"
@@ -248,6 +249,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::ExperimentalEltwiseBinaryBackwardOp: {
     return operations::experimental::run(
         op->type_as_ExperimentalEltwiseBinaryBackwardOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::DropoutOp: {
+    return operations::experimental::run(op->type_as_DropoutOp(), getContext());
   }
   // ANCHOR: adding_an_op_matmul_runtime_program
   case ::tt::target::ttnn::OpType::MatmulOp: {

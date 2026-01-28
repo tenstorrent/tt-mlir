@@ -2213,6 +2213,43 @@ public:
 };
 } // namespace
 
+// Dropout op conversion pattern
+//
+namespace {
+class DropoutOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::DropoutOp> {
+private:
+  std::string getPrefixSearchPattern() const override { return "ttnn.dropout"; }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn::experimental::dropout";
+  }
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::DropoutOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::DropoutOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::DropoutOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getProb()),
+        emitter.emit(srcOp.getScale()),
+        emitter.emit(srcOp.getSeed()),
+        emitter.emit(srcOp.getUsePerDeviceSeed()),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // DeallocateOp conversion pattern
 //
 namespace {
@@ -4495,6 +4532,10 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   // Experimental binary backward ops
   //
   patterns.add<ExperimentalGeluBackwardOpConversionPattern>(typeConverter, ctx);
+
+  // Experimental dropout op
+  //
+  patterns.add<DropoutOpConversionPattern>(typeConverter, ctx);
 
   // Eltwise ternary ops
   //
