@@ -6,6 +6,8 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
+#include "ttmlir/Dialect/TTNN/Types/Types.h"
+#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/Analysis/TopologicalSortUtils.h"
@@ -15,7 +17,6 @@
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/TypeSwitch.h"
-#include "llvm/Support/raw_ostream.h"
 
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRFUSING
@@ -1359,14 +1360,16 @@ public:
     Value matmulOpB = matmulOp.getB();
     RankedTensorType outputType = matmulOp.getResult().getType();
     RankedTensorType biasType = bias.getType();
-    // If the bias’s trailing two dimensions match the trailing dimensions of
-    // the matmul result, the bias is applied per-matrix. In this case, LinearOp
-    // broadcasts the matmul result against the bias across the leading
-    // dimensions. Compute the fully broadcasted output shape from the matmul
-    // and bias shapes and use it to construct the result type.
-    if (biasType.getRank() >= 2 && outputType.getRank() >= 2 &&
-        llvm::equal(outputType.getShape().take_back(2),
-                    biasType.getShape().take_back(2))) {
+    // tt-metal uses a composite LinearOp where the bias is added after the
+    // matmul, and ttnn.add supports broadcasting of both operands. Otherwise,
+    // tt-metal lowers to a fused LinearOp, which uses the matmul result shape
+    // as the output shape. The composite LinearOp requires that the bias
+    // second-to-last dim (of padded shape) does not match the tile height.
+    // Update the output type to match the broadcasted shape in this case.
+    llvm::SmallVector<int64_t> paddedBiasShape =
+        ttnn::utils::getTilePaddedShape(biasType.getShape());
+    if (paddedBiasShape.size() > 1 &&
+        paddedBiasShape[paddedBiasShape.size() - 2] != ttnn::TILE_HEIGHT) {
       llvm::SmallVector<int64_t> broadcastOutputShape;
       mlir::OpTrait::util::getBroadcastedShape(matmulOp.getType().getShape(),
                                                bias.getType().getShape(),
@@ -1379,8 +1382,8 @@ public:
         addOp.getLoc(), outputType, matmulOpA, matmulOpB, bias,
         matmulOp.getTransposeA(), matmulOp.getTransposeB());
 
-    SmallVector<int32_t> addShapeI32(addOp.getType().getShape().begin(),
-                                     addOp.getType().getShape().end());
+    llvm::SmallVector<int32_t> addShapeI32(addOp.getType().getShape().begin(),
+                                           addOp.getType().getShape().end());
     Value finalReshape = rewriter.create<ttir::ReshapeOp>(
         addOp.getLoc(), addOp.getType(), linearOp.getResult(),
         rewriter.getI32ArrayAttr(addShapeI32));
