@@ -2174,17 +2174,16 @@ def test_hoisted_gather(
     )
 
 
-@pytest.mark.skip(reason="https://github.com/tenstorrent/tt-mlir/issues/5315")
 @x86_only
 @pytest.mark.parametrize(
     "shapes,batch_dims_lhs,contract_dims_lhs,batch_dims_rhs,contract_dims_rhs",
     [
         # Standard matrix multiplication: [M, K] x [K, N] -> [M, N]
-        ([(10, 20), (20, 30), (10, 30)], [], [1], [], [0]),
+        ([(10, 20), (20, 30)], [], [1], [], [0]),
         # Batched matrix multiplication: [B, M, K] x [B, K, N] -> [B, M, N]
-        ([(5, 10, 20), (5, 20, 30), (5, 10, 30)], [0], [2], [0], [1]),
+        ([(5, 10, 20), (5, 20, 30)], [0], [2], [0], [1]),
         # 3D tensor @ 2D tensor: [B, M, K] x [K, N] -> [B, M, N]
-        ([(5, 10, 20), (20, 30), (5, 10, 30)], [], [2], [], [0]),
+        ([(5, 10, 20), (20, 30)], [], [2], [], [0]),
     ],
     ids=["standard_matmul", "batched_matmul", "3d_tensor_2d_tensor"],
 )
@@ -2204,14 +2203,12 @@ def test_hoisted_dot_general(
         def dot_general_wrapper(
             in0: Operand,
             in1: Operand,
-            out0: Operand,
             builder: TTIRBuilder,
             unit_attrs: Optional[List[str]] = None,
         ):
             return builder.dot_general(
                 in0,
                 in1,
-                out0,
                 batch_dims_lhs,
                 contract_dims_lhs,
                 batch_dims_rhs,
