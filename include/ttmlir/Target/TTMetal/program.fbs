@@ -3,11 +3,6 @@ include "ttmlir/Target/TTMetal/types.fbs";
 
 namespace tt.target.metal;
 
-enum NocIndex : ushort {
-  Noc0,
-  Noc1,
-}
-
 enum EthType : ushort {
   Sender,
   Receiver,
@@ -105,11 +100,4 @@ table KernelConfig {
 
 table ProgramDesc {
   kernels: [KernelConfig];
-}
-
-table FabricConnectionConfig {
-  noc_index: NocIndex;
-  topology: Topology;
-  cluster_axis: uint32;
-  num_links: uint32;
 }

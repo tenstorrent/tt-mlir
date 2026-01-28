@@ -104,9 +104,7 @@ def test_fabric_p2p(target: str, request, mesh_shape, fabric_config, device):
 )
 @pytest.mark.parametrize("target", ["ttnn"])
 @pytest.mark.parametrize("mesh_shape", [(2, 4)])
-def test_fabric_p2p_ttnn_generic(
-    target: str, request, mesh_shape, fabric_config, device
-):
+def test_ttnn_generic_p2p(target: str, request, mesh_shape, fabric_config, device):
     """Test fabric P2P using TTNN generic op with MeshProgramDescriptor.
 
     The kernel writes data from device 0 to device 1.

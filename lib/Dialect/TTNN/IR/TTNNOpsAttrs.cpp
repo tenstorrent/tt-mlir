@@ -1158,7 +1158,8 @@ DeviceComputeKernelConfigAttr::withDstFullSyncEn(bool value) const {
 
 ::llvm::LogicalResult MeshProgramDescriptorAttr::verify(
     ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
-    ::llvm::ArrayRef<MeshProgramAttr> meshPrograms) {
+    ::llvm::ArrayRef<MeshProgramAttr> meshPrograms,
+    FabricConnectionConfigAttr fabricConnectionConfig) {
   return ::llvm::success();
 }
 

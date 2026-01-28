@@ -3019,8 +3019,16 @@ createMeshProgramDescriptor(FlatbufferObjectCache &cache,
     meshPrograms.push_back(::tt::target::ttnn::CreateMeshProgram(
         *cache.fbb, deviceRange, programDescriptor));
   }
-  return ::tt::target::ttnn::CreateMeshProgramDescriptorDirect(*cache.fbb,
-                                                               &meshPrograms);
+  FabricConnectionConfigAttr fabricConnectionConfigAttr =
+      meshProgramDescAttr.getFabricConnectionConfig();
+  auto fabricConnectionConfig = ::tt::target::CreateFabricConnectionConfig(
+      *cache.fbb, toFlatbuffer(cache, fabricConnectionConfigAttr.getNocIndex()),
+      toFlatbuffer(cache, fabricConnectionConfigAttr.getTopology()),
+      fabricConnectionConfigAttr.getClusterAxis(),
+      fabricConnectionConfigAttr.getNumLinks());
+
+  return ::tt::target::ttnn::CreateMeshProgramDescriptorDirect(
+      *cache.fbb, &meshPrograms, fabricConnectionConfig);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::GenericOp>

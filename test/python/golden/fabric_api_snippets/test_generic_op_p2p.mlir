@@ -45,7 +45,7 @@ module attributes {} {
             ],
             semaphores = []>
         >
-      ]>
+      ], fabric_connection_config = #ttnn.fabric_connection_config<noc_index = noc0, topology = ring, cluster_axis = 1, num_links = 1>>
     }> : (tensor<32x32xbf16, #ttnn_layout_device_tile_sharded>, tensor<32x32xbf16, #ttnn_layout_device_tile_sharded>) -> ()
 
     // convert from block_sharded to interleaved before from_device or else aggregate_tensor will crash

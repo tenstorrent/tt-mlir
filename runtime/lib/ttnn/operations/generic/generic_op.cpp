@@ -257,6 +257,17 @@ createMeshProgramDescriptor(
   ::ttnn::MeshDevice *meshDevice = ioTensors[0].device();
   LOG_ASSERT(meshDevice, "Tensor must be on a mesh device");
 
+  // Extract fabric connection config from flatbuffer
+  const ::tt::target::FabricConnectionConfig *fabricConfig =
+      meshProgramDesc->fabric_connection_config();
+  LOG_ASSERT(
+      fabricConfig != nullptr,
+      "fabric_connection_config must be present in MeshProgramDescriptor");
+  LOG_DEBUG("createMeshProgramDescriptor: fabric_connection_config: topology=",
+            static_cast<uint16_t>(fabricConfig->topology()),
+            ", cluster_axis=", fabricConfig->cluster_axis(),
+            ", num_links=", fabricConfig->num_links());
+
   auto meshProgramDescriptor =
       std::make_shared<::tt::tt_metal::experimental::MeshProgramDescriptor>();
   for (const auto *meshProgram : *meshProgramDesc->mesh_programs()) {
@@ -298,12 +309,14 @@ createMeshProgramDescriptor(
           rtArgsIndexMap[kernel.runtime_args[i].first] = i;
         }
 
+        // TODO(vtangTT): Only append fabric config args to kernels on the right
+        // Noc. Need to add check for fabricConfig->noc_index() == kernel's
+        // assigned Noc. Blocked by
+        // https://github.com/tenstorrent/tt-mlir/issues/6790. For now, we just
+        // append fabric config args to all kernels.
         auto fabricConfigArgs = tt::runtime::common::appendFabricConfigArgs(
-            0, // topology = Ring
-            1, // cluster_axis
-            1, // num_links
-            nullptr, *programDescriptor, kernelHandle, deviceCoord, meshDevice,
-            {}, kernel.core_ranges);
+            fabricConfig, nullptr, *programDescriptor, kernelHandle,
+            deviceCoord, meshDevice, {}, kernel.core_ranges);
         LOG_INFO("fabricConfigArgs size: ", fabricConfigArgs.size());
 
         // Merge fabric args with each core's base runtime args

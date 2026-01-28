@@ -137,6 +137,7 @@ table MeshProgram {
 
 table MeshProgramDescriptor {
   mesh_programs: [MeshProgram];
+  fabric_connection_config: tt.target.FabricConnectionConfig;
 }
 
 union ProgramType {
