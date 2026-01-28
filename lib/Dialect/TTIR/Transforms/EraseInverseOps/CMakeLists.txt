@@ -6,6 +6,7 @@ add_mlir_dialect_library(MLIRTTIREraseInverseOps
         RMSNormCommutePatterns.cpp
         SliceCommutePatterns.cpp
         ReduceCommutePatterns.cpp
+        SoftmaxCommutePatterns.cpp
 
         ADDITIONAL_HEADER_DIRS
         ${PROJECT_SOURCE_DIR}/include/ttmlir
