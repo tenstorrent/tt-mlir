@@ -190,3 +190,17 @@ module {
     return %3 : tensor<32x1x51200xbf16>
   }
 }
+
+module {
+  func.func @dot_general_with_bias_12(%arg0: tensor<1x1x68x2048xbf16>, %arg1: tensor<2048x51200xbf16>, %bias: tensor<1x68x51200xbf16>) -> tensor<1x1x68x51200xbf16> {
+    // CHECK-LABEL: func.func @dot_general_with_bias_12
+    // CHECK: "ttir.linear"(%arg0, %arg1, %arg2)
+    // CHECK-SAME: (tensor<1x1x68x2048xbf16>, tensor<2048x51200xbf16>, tensor<1x68x51200xbf16>) -> tensor<1x1x68x51200xbf16>
+    // CHECK-NOT: "ttir.dot_general"
+    // CHECK-NOT: "ttir.matmul"
+    // CHECK-NOT: "ttir.add"
+    %0 = "ttir.matmul"(%arg0, %arg1) <{transpose_a = false, transpose_b = false}> : (tensor<1x1x68x2048xbf16>, tensor<2048x51200xbf16>) -> tensor<1x1x68x51200xbf16>
+    %1 = "ttir.add"(%0, %bias) : (tensor<1x1x68x51200xbf16>, tensor<1x68x51200xbf16>) -> tensor<1x1x68x51200xbf16>
+    return %1 : tensor<1x1x68x51200xbf16>
+  }
+}

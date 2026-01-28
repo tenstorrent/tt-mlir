@@ -15,6 +15,7 @@
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/TypeSwitch.h"
+#include "llvm/Support/raw_ostream.h"
 
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRFUSING
@@ -1341,7 +1342,7 @@ public:
       return mlir::failure();
     }
 
-    auto biasReshapeOp = bias.getDefiningOp<ReshapeOp>();
+    ReshapeOp biasReshapeOp = bias.getDefiningOp<ReshapeOp>();
     llvm::SmallVector<int64_t> broadcastShape;
     // Remove bias reshape op if the input can be broadcasted to matmul or add
     // output shape.
@@ -1356,16 +1357,23 @@ public:
 
     Value matmulOpA = matmulOp.getA();
     Value matmulOpB = matmulOp.getB();
-    auto outputType = matmulOp.getResult().getType();
-    auto biasType = bias.getType();
+    RankedTensorType outputType = matmulOp.getResult().getType();
+    RankedTensorType biasType = bias.getType();
     // If the bias’s trailing two dimensions match the trailing dimensions of
     // the matmul result, the bias is applied per-matrix. In this case, LinearOp
-    // broadcasts the matmul result across the leading dimensions of the bias.
-    // So the output type should follow the bias shape.
+    // broadcasts the matmul result against the bias across the leading
+    // dimensions. Compute the fully broadcasted output shape from the matmul
+    // and bias shapes and use it to construct the result type.
     if (biasType.getRank() >= 2 && outputType.getRank() >= 2 &&
         llvm::equal(outputType.getShape().take_back(2),
                     biasType.getShape().take_back(2))) {
-      outputType = biasType;
+      llvm::SmallVector<int64_t> broadcastOutputShape;
+      mlir::OpTrait::util::getBroadcastedShape(matmulOp.getType().getShape(),
+                                               bias.getType().getShape(),
+                                               broadcastOutputShape);
+      outputType = RankedTensorType::get(broadcastOutputShape,
+                                         outputType.getElementType(),
+                                         outputType.getEncoding());
     }
     LinearOp linearOp = rewriter.create<ttir::LinearOp>(
         addOp.getLoc(), outputType, matmulOpA, matmulOpB, bias,
