@@ -23,8 +23,7 @@ namespace tt::runtime::common {
 // complete runtime args vector for that core.
 template <typename ProgramOrDescriptor>
 std::unordered_map<::tt::tt_metal::CoreCoord, std::vector<uint32_t>>
-appendFabricConfigArgs(uint16_t topology, uint32_t cluster_axis,
-                       uint32_t num_links,
+appendFabricConfigArgs(const ::tt::target::FabricConnectionConfig *fabricConfig,
                        const target::metal::KernelConfig *kernelConfig,
                        ProgramOrDescriptor &program,
                        tt_metal::KernelHandle &handle,
