@@ -4053,14 +4053,14 @@ verifyProgramAttr(mlir::tt::ttnn::GenericOp op, ProgramAttr program,
       if (auto addressOfTensor =
               llvm::dyn_cast_or_null<KernelArgAddressOfTensorAttr>(arg)) {
         if (addressOfTensor.getTensorIndex() >= numberOfInputsAndOutputs) {
-          return op.emitError()
+          return op.emitOpError()
                  << "Address of tensor at index is out of bounds";
         }
       }
       if (auto semaphoreAt =
               llvm::dyn_cast_or_null<KernelArgSemaphoreAtAttr>(arg)) {
         if (semaphoreAt.getSemaphoreIndex() >= numberOfSemaphores) {
-          return op.emitError() << "Semaphore at index is out of bounds";
+          return op.emitOpError() << "Semaphore at index is out of bounds";
         }
       }
     }
@@ -4069,7 +4069,7 @@ verifyProgramAttr(mlir::tt::ttnn::GenericOp op, ProgramAttr program,
       if (auto semaphoreAt =
               llvm::dyn_cast_or_null<KernelArgSemaphoreAtAttr>(arg)) {
         if (semaphoreAt.getSemaphoreIndex() >= numberOfSemaphores) {
-          return op.emitError() << "Semaphore at index is out of bounds";
+          return op.emitOpError() << "Semaphore at index is out of bounds";
         }
       }
     }

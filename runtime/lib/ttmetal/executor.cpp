@@ -330,11 +330,9 @@ void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
               target::metal::KernelConfigType::NocConfig &&
           command->fabric_connection_config()->noc_index() ==
               kernelConfig->type_as_NocConfig()->noc_index()) {
-        const ::tt::target::FabricConnectionConfig *fabricConfig =
-            command->fabric_connection_config();
         auto fabricConfigArgs = common::appendFabricConfigArgs(
-            fabricConfig, kernelConfig, program, handle, deviceCoord,
-            meshDevice, rtArgsVec, coreRangeSet);
+            command->fabric_connection_config(), kernelConfig, program, handle,
+            deviceCoord, meshDevice, rtArgsVec, coreRangeSet);
 
         for (auto core : tt::tt_metal::corerange_to_cores(coreRangeSet)) {
           tt_metal::SetRuntimeArgs(program, handle, core,
