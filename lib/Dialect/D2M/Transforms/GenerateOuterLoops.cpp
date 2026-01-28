@@ -216,7 +216,10 @@ public:
     scf::LoopNest loopNest = buildLoopNest(
         rewriter, generic.getLoc(), loopBounds, regionBlock, loopedBlock);
 
-    // Mark all loops in the nest with an attribute to prevent re-processing
+    // Mark all loops in the nest with an attribute to prevent re-processing.
+    // These are called "outer loops" because they wrap the generic operation,
+    // iterating over its block factors. The generic operation's regions contain
+    // the "inner" computation that executes within each loop iteration.
     for (scf::ForOp loop : loopNest.loops) {
       loop->setAttr("d2m.outer_loop", rewriter.getUnitAttr());
     }

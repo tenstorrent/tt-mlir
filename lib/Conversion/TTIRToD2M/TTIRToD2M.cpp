@@ -391,7 +391,7 @@ protected:
                                                    ArrayAttr iteratorTypes) {
     SmallVector<int64_t> mcastGridDims;
 
-    // Iterate over the indexing map results (one per grid dimension)
+    // Iterate over the indexing map results (one per grid dimension).
     bool foundReductionDims = false;
     for (auto [gridDim, expr] : llvm::enumerate(indexingMap.getResults())) {
       if (auto dimExpr = mlir::dyn_cast<AffineDimExpr>(expr)) {
@@ -438,11 +438,11 @@ protected:
     SmallVector<Value> operands;
 
     // Process input operands - create remote_load operations using result
-    // form
+    // form.
     for (size_t i = 0; i < inputs.size(); ++i) {
-      auto cbArg = block->getArgument(i);
+      BlockArgument cbArg = block->getArgument(i);
       auto cbType = mlir::cast<d2m::CBType>(cbArg.getType());
-      auto shardType = cbType.getUnderlying();
+      Type shardType = cbType.getUnderlying();
 
       // Get the indexing map for this operand
       AffineMap indexingMap = generic.getIndexingMap(i);
@@ -1981,7 +1981,8 @@ public:
     // Keep some TTIR ops legal if they don't have D2M equivalents.
     target.addLegalOp<ttir::TTNNMetalLayoutCastOp>();
 
-    // Tensor empty is used within GenericOp regions
+    // Tensor empty is used within GenericOp regions to create local scratch
+    // buffers for remote_load and remote_store ops.
     target.addLegalOp<::mlir::tensor::EmptyOp>();
 
     if (failed(applyPartialConversion(module, target, std::move(patterns)))) {

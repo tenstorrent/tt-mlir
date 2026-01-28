@@ -114,7 +114,7 @@ void createTTIRToTTMetalFrontendPipeline(
   pm.addPass(d2m::createD2MMaterializeViewReturns());
 }
 
-void createTTIRToTTMetalUnifiedMiddleendPipeline(
+void createTTIRToTTMetalMiddleendPipeline(
     OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options) {
   d2m::D2MElementwiseFusionOptions elementwiseFusionOptions;
   {
@@ -270,7 +270,7 @@ void createTTIRToTTMetalPipeline(OpPassManager &pm,
 
   // Run regular ttir to ttmetal pipelines on IR in DeviceModule.
   createTTIRToTTMetalFrontendPipeline(devicePm, options);
-  createTTIRToTTMetalUnifiedMiddleendPipeline(devicePm, options);
+  createTTIRToTTMetalMiddleendPipeline(devicePm, options);
   createTTIRToTTMetalBackendPipeline(devicePm, options);
 
   // Run lowering to LLVM pass.
@@ -290,8 +290,8 @@ void registerTTMetalPipelines() {
       "ttir-to-ttmetal-fe-pipeline", "Frontend lowering passes.",
       tt::ttmetal::createTTIRToTTMetalFrontendPipeline);
   mlir::PassPipelineRegistration<tt::ttmetal::TTIRToTTMetalPipelineOptions>(
-      "ttir-to-ttmetal-ume-pipeline", "Unified middleend lowering passes.",
-      tt::ttmetal::createTTIRToTTMetalUnifiedMiddleendPipeline);
+      "ttir-to-ttmetal-me-pipeline", "Middleend lowering passes.",
+      tt::ttmetal::createTTIRToTTMetalMiddleendPipeline);
   mlir::PassPipelineRegistration<tt::ttmetal::TTIRToTTMetalPipelineOptions>(
       "ttir-to-ttmetal-be-pipeline", "Backend lowering passes.",
       tt::ttmetal::createTTIRToTTMetalBackendPipeline);

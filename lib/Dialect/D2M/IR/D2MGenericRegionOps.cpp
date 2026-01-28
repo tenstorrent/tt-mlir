@@ -195,17 +195,13 @@ void DMAWriteOp::getEffects(
         "present");
   }
 
-  // Verify result presence constraints
-  // Explicit CB form: CB present, localBuffer absent, result must NOT be
-  // present Implicit form: localBuffer present, CB absent, result MUST be
-  // present
   if (hasCbOperand && hasResultValue) {
     return emitOpError(
         "explicit CB form cannot have a result; result must only be present in "
-        "implicit form");
+        "implicit form.");
   }
   if (hasLocalBuffer && !hasResultValue) {
-    return emitOpError("implicit form (with localBuffer) must have a result");
+    return emitOpError("implicit form (with localBuffer) must have a result.");
   }
 
   // Verify that tensor parameters are not allowed in explicit CB form
@@ -404,10 +400,10 @@ void DMAWriteOp::getEffects(
   if (hasCbOperand && hasResultValue) {
     return emitOpError(
         "explicit CB form cannot have a result; result must only be present in "
-        "implicit form");
+        "implicit form.");
   }
   if (hasLocalBufferOperand && !hasResultValue) {
-    return emitOpError("implicit form (with localBuffer) must have a result");
+    return emitOpError("implicit form (with localBuffer) must have a result.");
   }
 
   // Verify that tensor parameters are not allowed in explicit CB form

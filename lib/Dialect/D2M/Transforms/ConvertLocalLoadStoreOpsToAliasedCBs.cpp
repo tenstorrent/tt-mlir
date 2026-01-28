@@ -47,8 +47,8 @@ static Value findAssociatedCB(Operation *op, Value memrefOperand) {
     return Value();
   }
 
-  // Find which operand index this memref corresponds to
-  unsigned operandIndex = UINT_MAX;
+  // Find which operand index this memref corresponds to.
+  std::optional<unsigned> operandIndex;
   for (unsigned i = 0; i < generic->getNumOperands(); ++i) {
     if (generic->getOperand(i) == memrefOperand) {
       operandIndex = i;
@@ -56,7 +56,7 @@ static Value findAssociatedCB(Operation *op, Value memrefOperand) {
     }
   }
 
-  if (operandIndex == UINT_MAX) {
+  if (!operandIndex.has_value()) {
     return Value();
   }
 
@@ -77,10 +77,10 @@ static Value findAssociatedCB(Operation *op, Value memrefOperand) {
   // Get the first block of the generic region (thread region block)
   Block *threadBlock = &genericRegion->front();
 
-  // The CB block arguments are in the same order as the generic operands
-  // The operand index equals the CB block arg index (confirmed by user)
-  if (threadBlock->getNumArguments() > operandIndex) {
-    return threadBlock->getArgument(operandIndex);
+  // The CB block arguments are in the same order as the generic operands.
+  // The operand index equals the CB block arg index (confirmed by user).
+  if (threadBlock->getNumArguments() > *operandIndex) {
+    return threadBlock->getArgument(*operandIndex);
   }
 
   return Value();
@@ -290,7 +290,8 @@ public:
         lastUseOfAlloc = nullptr;
       }
 
-      // Determine the actual last use (the one that appears later in the block)
+      // Determine the actual last use (the one that appears later in the
+      // block).
       Operation *lastUse = nullptr;
       if (lastUseOfAlloc && lastUseOfRemoteLoad) {
         // Both have uses, find which one is later
