@@ -9,10 +9,9 @@ import functools
 from typing import Literal
 
 from ttmlir.ir import *
-from ttmlir.passes import (
-    ttkernel_to_cpp,
-    pykernel_compile_pipeline,
-)
+from ttmlir.passes import ttkernel_to_cpp
+
+from builder.base.builder_utils import pykernel_compile_pipeline
 
 from pykernel._src.kernel_ast import TTKernelCompiler
 from pykernel._src.utils import _cleanup_source_code

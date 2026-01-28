@@ -7,11 +7,15 @@ import torch
 from typing import List, Callable, Sequence, Optional
 
 from ttmlir.ir import *
-from ttmlir.passes import ttir_to_ttmetal_backend_pipeline
 from ttmlir.dialects import ttir
 from conftest import get_request_kwargs
 
-from builder.base.builder_utils import Operand, Shape, TypeInfo
+from builder.base.builder_utils import (
+    Operand,
+    Shape,
+    TypeInfo,
+    ttir_to_ttmetal_backend_pipeline,
+)
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_apis import compile_and_execute_ttir
 from test_utils import (

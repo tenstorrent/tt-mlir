@@ -12,9 +12,10 @@ from ttmlir.ir import *
 from ttmlir.passes import (
     ttnn_to_flatbuffer_file,
     ttnn_to_flatbuffer_bin,
-    ttnn_to_ttmetal_pipeline,
     ttkernel_to_cpp_file,
 )
+
+from builder.base.builder_utils import ttnn_to_ttmetal_pipeline
 
 from ttnn_jit._src.utils import cleanup_source_code, get_dispatch_core_type
 from ttnn_jit._src.dispatch_op import run_binary, run_binary_from_capsule

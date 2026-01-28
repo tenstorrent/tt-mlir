@@ -9,11 +9,14 @@ from typing import Callable, Tuple
 
 from ttmlir.ir import Module
 from ttmlir.passes import (
+    ttmetal_to_flatbuffer_file,
+    ttnn_to_flatbuffer_file,
+)
+
+from builder.base.builder_utils import (
     stablehlo_to_ttir_pipeline,
     ttir_to_ttmetal_backend_pipeline,
     ttir_to_ttnn_backend_pipeline,
-    ttmetal_to_flatbuffer_file,
-    ttnn_to_flatbuffer_file,
 )
 from ttrt.common.api import API
 from ttrt.common.util import Binary, FileManager, Logger
