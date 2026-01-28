@@ -651,6 +651,64 @@ def test_avg_pool2d(
 
 
 @pytest.mark.parametrize(
+    "kernel,stride,dilation,padding,ceil_mode,count_include_pad",
+    [
+        ([2, 2], [2, 2], [1, 1], [1, 1, 1, 1], False, True),
+        (
+            [2, 2],
+            [1, 1],
+            [1, 1],
+            [1, 1, 1, 1],
+            True,
+            False,
+        ),  # This test will produce a different output if count_include_pad is True for spatial dims (31, 31)
+    ],
+)
+@pytest.mark.parametrize("shape", [(1, 31, 31, 32)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+def test_hoisted_avg_pool2d(
+    shape: Shape,
+    dtype: torch.dtype,
+    kernel: List[int],
+    stride: List[int],
+    dilation: List[int],
+    padding: List[int],
+    ceil_mode: bool,
+    count_include_pad: bool,
+    target: str,
+    request,
+    device,
+):
+    """Test hoisted avg_pool2d operation"""
+
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [dtype])
+        def hoisted_avg_pool2d(
+            in0: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.avg_pool2d(
+                in0,
+                kernel=kernel,
+                stride=stride,
+                dilation=dilation,
+                padding=padding,
+                ceil_mode=ceil_mode,
+                count_include_pad=count_include_pad,
+                unit_attrs=["ttir.should_hoist"],
+            )
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+    )
+
+
+@pytest.mark.parametrize(
     "shapes",
     [
         [
