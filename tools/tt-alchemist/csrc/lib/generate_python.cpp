@@ -53,17 +53,6 @@ bool TTAlchemist::generatePython(const std::string &input_file,
     return false;
   }
 
-  // Convert MLIR module to Python
-  //
-  std::string pythonCode;
-  llvm::raw_string_ostream pythonStream(pythonCode);
-  if (mlir::failed(
-          mlir::tt::emitpy::translateToPython(*module, pythonStream))) {
-    std::cout << "Failed to translate MLIR module to Python" << std::endl;
-    return false;
-  }
-  pythonStream.flush();
-
   // Create output directory if it doesn't exist
   //
   fs::path outputPath(output_dir);
@@ -103,21 +92,50 @@ bool TTAlchemist::generatePython(const std::string &input_file,
     return false;
   }
 
-  // Create main.py with the generated Python code
+  // Generate main.py
   //
-  fs::path pythonFilePath = outputPath / "main.py";
-  std::ofstream pythonFile(pythonFilePath);
-  if (!pythonFile.is_open()) {
-    std::cout << "Failed to create Python file: " << pythonFilePath
+  std::string mainCode;
+  llvm::raw_string_ostream mainStream(mainCode);
+  std::string mainFileId = "main";
+  if (mlir::failed(mlir::tt::emitpy::translateToPython(*module, mainStream,
+                                                       mainFileId))) {
+    std::cout << "Failed to translate MLIR module to main.py" << std::endl;
+    return false;
+  }
+  mainStream.flush();
+
+  fs::path mainFilePath = outputPath / "main.py";
+  std::ofstream mainFile(mainFilePath);
+  if (!mainFile.is_open()) {
+    std::cout << "Failed to create Python file: " << mainFilePath << std::endl;
+    return false;
+  }
+  mainFile << mainCode;
+  mainFile.close();
+  utils::formatCode(mainFilePath, utils::CodeGenerationTarget::Python);
+
+  // Generate consteval.py
+  //
+  std::string constevalCode;
+  llvm::raw_string_ostream constevalStream(constevalCode);
+  std::string constevalFileId = "consteval";
+  if (mlir::failed(mlir::tt::emitpy::translateToPython(*module, constevalStream,
+                                                       constevalFileId))) {
+    std::cout << "Failed to translate MLIR module to consteval.py" << std::endl;
+    return false;
+  }
+  constevalStream.flush();
+
+  fs::path constevalFilePath = outputPath / "consteval.py";
+  std::ofstream constevalFile(constevalFilePath);
+  if (!constevalFile.is_open()) {
+    std::cout << "Failed to create Python file: " << constevalFilePath
               << std::endl;
     return false;
   }
-
-  pythonFile << pythonCode;
-
-  pythonFile.close();
-
-  utils::formatCode(pythonFilePath, utils::CodeGenerationTarget::Python);
+  constevalFile << constevalCode;
+  constevalFile.close();
+  utils::formatCode(constevalFilePath, utils::CodeGenerationTarget::Python);
 
   return true;
 }

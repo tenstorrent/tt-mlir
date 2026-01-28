@@ -15,8 +15,11 @@ namespace emitpy {
 /// Translates the given operation to Python code. The operation or operations
 /// in the region of 'op' all need to be in EmitPy dialect, except for those
 /// that are explicitly labeled as (dynamically) legal ops when converting to
-/// EmitPy dialect.
-LogicalResult translateToPython(Operation *op, raw_ostream &os);
+/// EmitPy dialect. When `fileId` is not empty, only the ops of the
+/// `emitpy.file` with the matching id are emitted.
+///
+LogicalResult translateToPython(Operation *op, raw_ostream &os,
+                                std::string &fileId);
 
 } // namespace emitpy
 } // namespace tt
