@@ -2154,35 +2154,7 @@ bool d2m::GenericOp::hasReduction() {
 
 bool d2m::GenericOp::hasMultiUseInputOperand() {
   for (OpOperand *input : getDpsInputOperands()) {
-    // Count unique GenericOp consumers, not internal remote_load/remote_store
-    // operations A GenericOp input operand may be used by:
-    // 1. Other GenericOps (as their input operands)
-    // 2. remote_load/remote_store operations inside those GenericOps' regions
-    // We should only count (1), since (2) is just the mechanism to access the
-    // operand
-    llvm::SmallSet<Operation *, 4> genericConsumers;
-    for (Operation *user : input->get().getUsers()) {
-      // If it's a remote_load inside some generic, count the generic, not the
-      // load
-      if (auto remoteLoad = dyn_cast<d2m::RemoteLoadOp>(user)) {
-        if (auto parentGeneric =
-                remoteLoad->getParentOfType<d2m::GenericOp>()) {
-          genericConsumers.insert(parentGeneric);
-          continue;
-        }
-      }
-      // If it's a remote_store, similarly get its parent generic
-      if (auto remoteStore = dyn_cast<d2m::RemoteStoreOp>(user)) {
-        if (auto parentGeneric =
-                remoteStore->getParentOfType<d2m::GenericOp>()) {
-          genericConsumers.insert(parentGeneric);
-          continue;
-        }
-      }
-      // For any other user (like a GenericOp itself), count it directly
-      genericConsumers.insert(user);
-    }
-    if (genericConsumers.size() > 1) {
+    if (llvm::range_size(input->get().getUsers()) > 1) {
       return true;
     }
   }
