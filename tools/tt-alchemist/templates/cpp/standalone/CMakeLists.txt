@@ -44,6 +44,17 @@ set_property(TARGET ttnn-standalone PROPERTY CXX_STANDARD 20)
 set_property(TARGET ttnn-standalone PROPERTY EXCLUDE_FROM_ALL TRUE)
 
 # Link with TTNN which provides all necessary dependencies
-target_link_libraries(ttnn-standalone PRIVATE TTNN::TTNN)
+# Also link with dl for CPU-hoisted dylib loading support
+target_link_libraries(ttnn-standalone PRIVATE TTNN::TTNN ${CMAKE_DL_LIBS})
 
 target_precompile_headers(ttnn-standalone PRIVATE ttnn-precompiled.hpp)
+
+# If cpu_hoisted.so exists, copy it next to the executable
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/cpu_hoisted.so")
+  add_custom_command(TARGET ttnn-standalone POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+      "${CMAKE_CURRENT_SOURCE_DIR}/cpu_hoisted.so"
+      "$<TARGET_FILE_DIR:ttnn-standalone>/cpu_hoisted.so"
+    COMMENT "Copying CPU-hoisted dylib to output directory"
+  )
+endif()

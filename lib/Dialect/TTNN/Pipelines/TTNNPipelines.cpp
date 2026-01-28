@@ -352,44 +352,44 @@ void createRecoverStructureXLATorchPipeline(
 
 // Pipeline which lowers the Device module from TTNN to EmitC dialect.
 //
+// This pipeline runs passes on the nested DeviceModuleOp, preserving the
+// module structure for the EmitCLinkModulesPass to handle unwrapping.
+// This ensures CPUModuleOp is preserved for dylib compilation when
+// CPU-hoisting is used.
+//
 void createTTNNToEmitCDevicePipeline(
     OpPassManager &pm, const TTNNToEmitCDevicePipelineOptions &options) {
-  pm.addPass(createTTNNAdjustDeallocs());
 
-  // Unwrapping the device module.
-  //
-  // TODO(dmilinkovic): Should be removed after support for generating
-  // a dynamic library from CPU module is implemented inside EmitC translation
-  // pipeline - issue #6100.
-  //
-  pm.addPass(ttcore::createTTCoreUnwrapDeviceModulePass());
+  // Run passes on nested DeviceModuleOp to preserve module structure.
+  // The EmitCLinkModulesPass will handle unwrapping later.
+  auto &devicePm = pm.nest<ttcore::DeviceModuleOp>().nest<mlir::ModuleOp>();
+
+  devicePm.addPass(createTTNNAdjustDeallocs());
 
   if (options.targetDylib) {
     // In dylib path, only run tuplification with forced settings.
     // This ensures tensor inputs are always tuplified even when the input is
     // empty, which is necessary for proper dylib interface generation.
-    //
     TTNNTuplifyTensorsOptions tuplifyOptions;
     tuplifyOptions.tuplifyInputIfEmpty = true;
-    pm.addPass(createTTNNTuplifyTensors(tuplifyOptions));
+    devicePm.addPass(createTTNNTuplifyTensors(tuplifyOptions));
   } else {
     // In canonical path, run tuplification + input generation/loading.
-    //
     TTNNTuplifyTensorsOptions tuplifyOptions;
     tuplifyOptions.tuplifyInputIfEmpty = options.tuplifyInputIfEmpty;
-    pm.addPass(createTTNNTuplifyTensors(tuplifyOptions));
+    devicePm.addPass(createTTNNTuplifyTensors(tuplifyOptions));
 
     if (options.loadInputTensorsFromDisk) {
       TTNNLoadInputTensorsOptions loadOptions;
       loadOptions.tensorLoadDirectory = options.tensorLoadDirectory;
       loadOptions.tensorLoadFilePrefix = options.tensorLoadFilePrefix;
-      pm.addPass(createTTNNLoadInputTensors(loadOptions));
+      devicePm.addPass(createTTNNLoadInputTensors(loadOptions));
     } else {
-      pm.addPass(createTTNNCreateInputGenerators());
+      devicePm.addPass(createTTNNCreateInputGenerators());
     }
   }
 
-  pm.addPass(createConvertTTNNToEmitCPass());
+  devicePm.addPass(createConvertTTNNToEmitCPass());
 }
 
 // Pipeline which lowers the Device module from TTNN to EmitPy dialect.
@@ -498,7 +498,12 @@ void createTTIRToEmitCPipeline(OpPassManager &pm,
   createTTIRToTTNNDevicePipeline(pm, options);
   createTTNNToEmitCDevicePipeline(pm, options);
 
-  // TODO(dmilinkovic): Lower CPU module to LLVM - issue #6100.
+  // Lower CPU module to LLVM for dylib compilation.
+  ttir::createTTIRToLLVMCPUPipeline(pm, options);
+
+  // Link Device and CPU modules - generates extern "C" declarations for dylib
+  // functions.
+  pm.addPass(createEmitCLinkModulesPass());
 }
 
 // Complete pipeline for lowering TTIR to EmitPy.

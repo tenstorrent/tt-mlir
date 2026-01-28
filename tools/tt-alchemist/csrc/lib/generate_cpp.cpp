@@ -7,12 +7,19 @@
 #include "tt-alchemist/tt_alchemist_c_api.hpp"
 #include "utils.hpp"
 
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
+#include "ttmlir/Target/LLVM/LLVMToDynamicLib.h"
+#include "ttmlir/Target/Utils/Utils.h"
+
 #include "mlir/IR/AsmState.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/OwningOpRef.h"
 #include "mlir/Parser/Parser.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Target/Cpp/CppEmitter.h"
+
+#include "llvm/ADT/SmallVector.h"
+#include "llvm/Support/raw_ostream.h"
 
 #include <dlfcn.h>
 #include <filesystem>
@@ -51,6 +58,36 @@ bool TTAlchemist::generateCpp(const std::string &input_file,
   if (!utils::runPipeline(pm, module.get(), utils::CodeGenerationTarget::Cpp,
                           pipeline_options)) {
     return false;
+  }
+
+  // Check for CPU module with LLVM IR that needs to be compiled to dylib.
+  // After the pipeline runs, the CPU module (if present) contains LLVM IR.
+  //
+  llvm::SmallVector<char, 2048> dylibBuffer;
+  bool hasDylib = false;
+  if (auto cpuModule =
+          mlir::tt::utils::findOpAtTopLevel<mlir::tt::ttcore::CPUModuleOp>(
+              *module);
+      cpuModule != nullptr) {
+    mlir::ModuleOp cpuNestedModule = mlir::dyn_cast_if_present<mlir::ModuleOp>(
+        cpuModule.getBodyRegion().front().front());
+    if (cpuNestedModule) {
+      llvm::raw_svector_ostream dylibStream(dylibBuffer);
+      auto result = mlir::tt::llvm_to_cpu::translateLLVMToDyLib(cpuNestedModule,
+                                                                dylibStream);
+      if (mlir::succeeded(result)) {
+        hasDylib = true;
+        std::cout << "Successfully compiled CPU module to dylib ("
+                  << dylibBuffer.size() << " bytes)" << std::endl;
+      } else {
+        std::cout << "Warning: Failed to compile CPU module to dylib"
+                  << std::endl;
+      }
+    }
+
+    // Remove the CPU module from the root module before translating to C++.
+    // The C++ code will load the dylib at runtime.
+    cpuModule->erase();
   }
 
   // Convert MLIR module to C++
@@ -122,6 +159,20 @@ bool TTAlchemist::generateCpp(const std::string &input_file,
   cppFile.close();
 
   utils::formatCode(cppFilePath, utils::CodeGenerationTarget::Cpp);
+
+  // Write dylib to output directory if we have one.
+  //
+  if (hasDylib) {
+    fs::path dylibPath = outputPath / "cpu_hoisted.so";
+    std::ofstream dylibFile(dylibPath, std::ios::binary);
+    if (!dylibFile.is_open()) {
+      std::cout << "Failed to create dylib file: " << dylibPath << std::endl;
+      return false;
+    }
+    dylibFile.write(dylibBuffer.data(), dylibBuffer.size());
+    dylibFile.close();
+    std::cout << "Wrote CPU dylib to: " << dylibPath << std::endl;
+  }
 
   return true;
 }

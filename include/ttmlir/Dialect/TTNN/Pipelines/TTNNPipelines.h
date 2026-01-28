@@ -502,11 +502,13 @@ struct TTIRToTTNNBackendPipelineOptions
 
 // TTIR to EmitC end-to-end pipeline options.
 //
-// Inherits from TTIRToTTNNDevicePipelineOptions and
-// TTNNToEmitCDevicePipelineOptions to reuse the options.
+// Inherits from TTIRToTTNNDevicePipelineOptions,
+// TTNNToEmitCDevicePipelineOptions, and TTIRToLLVMCPUPipelineOptions.
 //
 struct TTIRToEmitCPipelineOptions : public TTIRToTTNNDevicePipelineOptions,
-                                    public TTNNToEmitCDevicePipelineOptions {};
+                                    public TTNNToEmitCDevicePipelineOptions,
+                                    public ttir::TTIRToLLVMCPUPipelineOptions {
+};
 
 // TTIR to EmitPy pipeline options.
 //

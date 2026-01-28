@@ -257,6 +257,59 @@ def EmitPyLinkModules : Pass<"emitpy-link-modules", "::mlir::ModuleOp"> {
   let dependentDialects = ["mlir::tt::emitpy::EmitPyDialect"];
 }
 
+def EmitCLinkModules : Pass<"emitc-link-modules", "::mlir::ModuleOp"> {
+  let summary = "Link ttcore.cpu_module and ttcore.device_module for EmitC dylib compilation";
+  let description = [{
+    This pass prepares the Device and CPU modules for EmitC dylib compilation.
+    The CPU module contains LLVM IR that will be compiled to a dynamic library (cpu_hoisted.so).
+    The Device module contains EmitC code that will call the dylib functions via dlopen/dlsym.
+
+    This pass:
+    1. Generates extern "C" declarations in the Device module for each CPU function.
+    2. Updates call sites in the Device module to reference the extern declarations.
+    3. Moves the Device module contents to the root module.
+    4. Preserves the CPU module with LLVM IR for separate dylib compilation.
+
+    Example:
+
+    Input:
+    module {
+      ttcore.cpu_module {
+        module {
+          llvm.func @cpu_hoisted_function(...) { ... }  // LLVM definition
+        }
+      }
+      ttcore.device_module {
+        module {
+          func.func private @cpu_hoisted_function()  // Forward declaration
+          func.func @forward() {
+            call @cpu_hoisted_function()
+          }
+        }
+      }
+    }
+
+    Output:
+    module {
+      // extern "C" declarations generated for dylib loading
+      emitc.verbatim "extern \"C\" void cpu_hoisted_function(...);"
+
+      func.func @forward() {
+        call @cpu_hoisted_function()  // Will be resolved at runtime via dlopen
+      }
+
+      ttcore.cpu_module {
+        module {
+          llvm.func @cpu_hoisted_function(...) { ... }  // Preserved for dylib compilation
+        }
+      }
+    }
+  }];
+
+  let constructor = "createEmitCLinkModulesPass()";
+  let dependentDialects = ["mlir::emitc::EmitCDialect"];
+}
+
 def ConvertTTKernelToEmitC : Pass<"convert-ttkernel-to-emitc", "::mlir::ModuleOp"> {
   let summary = "Convert TTKernel dialect to EmitC dialect.";
   let dependentDialects = ["mlir::emitc::EmitCDialect", "mlir::func::FuncDialect",

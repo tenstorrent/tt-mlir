@@ -1,4 +1,5 @@
 add_mlir_conversion_library(TTMLIRTTNNToEmitC
+  EmitCLinkModules.cpp
   TTNNToEmitC.cpp
   TTNNToEmitCPass.cpp
 
@@ -16,4 +17,6 @@ add_mlir_conversion_library(TTMLIRTTNNToEmitC
   MLIREmitCDialect
   MLIRFuncTransforms
   MLIRTargetCpp
+  MLIRLLVMDialect
+  MLIRTTCoreDialect
 )

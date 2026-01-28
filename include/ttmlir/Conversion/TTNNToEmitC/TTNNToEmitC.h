@@ -8,12 +8,18 @@
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/DialectConversion.h"
 
+#define GEN_PASS_DECL_CONVERTTTNNTOEMITC
+#define GEN_PASS_DECL_EMITCLINKMODULES
+#include "ttmlir/Conversion/Passes.h.inc"
+
 namespace mlir::tt {
 
 void populateTTNNToEmitCPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                                  TypeConverter &typeConverter);
 
 std::unique_ptr<OperationPass<ModuleOp>> createConvertTTNNToEmitCPass();
+
+std::unique_ptr<OperationPass<ModuleOp>> createEmitCLinkModulesPass();
 
 } // namespace mlir::tt
 

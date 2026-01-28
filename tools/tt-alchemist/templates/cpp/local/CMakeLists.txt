@@ -130,7 +130,18 @@ set_property(TARGET ttnn-local PROPERTY EXCLUDE_FROM_ALL TRUE)
 
 target_include_directories(ttnn-local PRIVATE ${INCLUDE_DIRS})
 target_link_directories(ttnn-local PRIVATE ${LINK_DIRS})
-target_link_libraries(ttnn-local PRIVATE ${LINK_LIBS})
+# Also link with dl for CPU-hoisted dylib loading support
+target_link_libraries(ttnn-local PRIVATE ${LINK_LIBS} ${CMAKE_DL_LIBS})
 target_compile_definitions(ttnn-local PRIVATE ${COMPILE_DEFS})
 
 target_precompile_headers(ttnn-local PRIVATE ttnn-precompiled.hpp)
+
+# If cpu_hoisted.so exists, copy it next to the executable
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/cpu_hoisted.so")
+  add_custom_command(TARGET ttnn-local POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+      "${CMAKE_CURRENT_SOURCE_DIR}/cpu_hoisted.so"
+      "$<TARGET_FILE_DIR:ttnn-local>/cpu_hoisted.so"
+    COMMENT "Copying CPU-hoisted dylib to output directory"
+  )
+endif()
