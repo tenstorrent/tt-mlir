@@ -420,7 +420,7 @@ def D2M_FullOp
 }
 
 //===----------------------------------------------------------------------===//
-// Scratch Memory Ops (for FPU fusion intermediate spilling)
+// Scratch Memory Ops
 //===----------------------------------------------------------------------===//
 
 def D2M_ScratchAllocateOp : D2M_Op<"scratch_allocate", [
@@ -429,13 +429,13 @@ def D2M_ScratchAllocateOp : D2M_Op<"scratch_allocate", [
   let summary = "Allocate scratch memory for intermediate spilling.";
   let description = [{
     Allocate a scratch buffer from the L1 scratchpad region for storing
-    intermediate results during fused FPU operations.
+    intermediate results.
 
     The `slot` attribute is a unique identifier for this scratch allocation
     within the enclosing scope, used for tracking and debugging.
 
-    This op is a placeholder that will be lowered by the `LowerScratchAllocate`
-    pass to a `memref.subview` of a master L1 scratchpad buffer.
+    This op is lowered by `LowerScratchAllocate` to a `memref.view` into
+    the global scratch buffer provided by `d2m.scratch_init`.
 
     Example:
     ```mlir
@@ -449,6 +449,30 @@ def D2M_ScratchAllocateOp : D2M_Op<"scratch_allocate", [
 
   let assemblyFormat = [{
     attr-dict `:` type($result)
+  }];
+}
+
+def D2M_ScratchInitOp : D2M_Op<"scratch_init", []> {
+  let summary = "Initialize scratch memory region for FPU spilling.";
+  let description = [{
+    Marks a pre-allocated byte buffer as the scratch region for intermediate
+    FPU results. This op is consumed by `LowerScratchAllocate`, which creates
+    `memref.view` ops into this buffer for each `d2m.scratch_allocate`.
+
+    The buffer must be a 1D byte buffer in L1 memory space.
+
+    Example:
+    ```mlir
+    %scratch_buffer = memref.alloc() : memref<65536xi8, #ttcore.memory_space<l1>>
+    d2m.scratch_init %scratch_buffer : memref<65536xi8, #ttcore.memory_space<l1>>
+    ```
+  }];
+
+  let arguments = (ins AnyMemRef:$buffer);
+  let results = (outs);
+
+  let assemblyFormat = [{
+    $buffer attr-dict `:` type($buffer)
   }];
 }
 

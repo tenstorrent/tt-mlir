@@ -420,6 +420,11 @@ def D2MAllocate: Pass<"d2m-allocate", "::mlir::ModuleOp"> {
           "test-buffer-size-policy",
           "std::string", /*default=*/"\"max\"",
           "Set policy for sizing stream buffers ('min', 'max').">,
+    Option<"scratchReserveBytes",
+          "scratch-reserve-bytes",
+          "std::int64_t", /*default=*/"65536",
+          "Reserve this many bytes at the end of L1 for scratchpad. "
+          "When non-zero, creates a global scratch buffer and d2m.scratch_init op.">,
   ];
 }
 
@@ -929,56 +934,58 @@ def D2MConvertLocalLoadStoreOpsToAliasedCBs : Pass<"d2m-convert-local-load-store
     This pass converts local load/store operations to aliased circular buffers.
   }];
   let dependentDialects = ["::mlir::tt::d2m::D2MDialect"];
-}def D2MLowerScratchAllocate : Pass<"d2m-lower-scratch-allocate", "::mlir::ModuleOp"> {
-  let summary = "Lower d2m.scratch_allocate ops to subviews of a master scratchpad.";
+}
+
+def D2MLowerScratchAllocate : Pass<"d2m-lower-scratch-allocate", "::mlir::ModuleOp"> {
+  let summary = "Lower d2m.scratch_allocate ops to memref.view into scratch buffer.";
   let description = [{
-    This pass lowers `d2m.scratch_allocate` operations to `memref.subview`
-    operations into a single master L1 scratchpad buffer.
+    This pass lowers `d2m.scratch_allocate` operations to `memref.view`
+    operations into the scratch buffer provided by `d2m.scratch_init`.
 
     The pass performs the following steps:
-    1. Collect all `d2m.scratch_allocate` ops in each function
-    2. Compute the size (in bytes) required for each scratch allocation
-    3. Perform liveness analysis to determine live ranges (placeholder for now)
-    4. Compute total scratch memory needed (with potential sharing for non-overlapping lifetimes)
-    5. Assert that total required size is less than the maximum allowed (32KB by default)
-    6. Insert a master scratchpad allocation at function entry with address/alignment attrs
-    7. Replace each `d2m.scratch_allocate` with a `memref.subview` into the master buffer
-
-    The master scratchpad allocation is assigned a physical L1 address via the
-    `address` attribute, which is required for downstream lowering to TTMetal.
-    The base address can be configured via `--scratch-base-address`.
+    1. Find `d2m.scratch_init` to get the pre-allocated scratch byte buffer
+    2. Collect all `d2m.scratch_allocate` ops in the function
+    3. Compute byte offsets for each allocation (sequential, no overlap)
+    4. Validate total size fits within the scratch buffer
+    5. Replace each `d2m.scratch_allocate` with `memref.view` at computed offset
+    6. Erase the `d2m.scratch_init` op
 
     Example transformation:
     ```mlir
     // Before:
     func.func @kernel(...) {
-      %scratch_0 = d2m.scratch_allocate {slot = 0} : memref<16x!ttcore.tile<32x32xbf16>, #l1>
-      %scratch_1 = d2m.scratch_allocate {slot = 1} : memref<16x!ttcore.tile<32x32xbf16>, #l1>
-      // ... use scratch_0, scratch_1 ...
+      %buf = memref.alloc() : memref<65536xi8, #l1>
+      d2m.scratch_init %buf : memref<65536xi8, #l1>
+      %s0 = d2m.scratch_allocate {slot = 0} : memref<8x!tile_bf16, #l1>
+      %s1 = d2m.scratch_allocate {slot = 1} : memref<8x!tile_bf16, #l1>
+      // ...
     }
 
     // After:
     func.func @kernel(...) {
-      %master_scratch = memref.alloc() {address = 819200, alignment = 16}
-                        : memref<32x!ttcore.tile<32x32xbf16>, #l1>
-      %scratch_0 = memref.subview %master_scratch[0][16][1] : memref<32x...> to memref<16x...>
-      %scratch_1 = memref.subview %master_scratch[16][16][1] : memref<32x...> to memref<16x...>
-      // ... use scratch_0, scratch_1 ...
-      memref.dealloc %master_scratch : memref<32x!ttcore.tile<32x32xbf16>, #l1>
+      %buf = memref.alloc() : memref<65536xi8, #l1>
+      %c0 = arith.constant 0 : index
+      %s0 = memref.view %buf[%c0][] : memref<65536xi8, #l1> to memref<8x!tile_bf16, #l1>
+      %c16384 = arith.constant 16384 : index
+      %s1 = memref.view %buf[%c16384][] : memref<65536xi8, #l1> to memref<8x!tile_bf16, #l1>
+      // ...
     }
     ```
   }];
   let dependentDialects = [
     "::mlir::tt::d2m::D2MDialect",
     "::mlir::tt::ttcore::TTCoreDialect",
-    "::mlir::memref::MemRefDialect"
+    "::mlir::memref::MemRefDialect",
+    "::mlir::arith::ArithDialect"
   ];
   let options = [
-    Option<"maxScratchSizeBytes", "max-scratch-size-bytes", "int64_t", /*default=*/"131072",
-           "Maximum allowed scratch size in bytes (default: 128KB)">,
-    Option<"scratchBaseAddress", "scratch-base-address", "int64_t", /*default=*/"819200",
-           "Base L1 address for scratch memory (default: 819200 = 800KB offset). "
-           "This should be coordinated with D2MAllocate to avoid conflicts.">,
+    Option<"testInsertDummyScratch",
+          "test-insert-dummy-scratch",
+          "bool", /*default=*/"true",
+          "For testing: insert a dummy d2m.scratch_allocate if scratch_init "
+          "is present but no scratch_allocate ops exist. Note: the dummy scratch "
+          "is in the main function, not a kernel, so it won't exercise the full "
+          "D2MToTTKernel lowering path.">,
   ];
 }
 
