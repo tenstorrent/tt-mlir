@@ -6174,7 +6174,9 @@ llvm::Expected<OpConstraints> OpModel<RMSNormOp>::getOpConstraints(
     return ::ttnn::graph::query_op_constraints(
         ::ttnn::rms_norm, device, inputSpec, epsilon.convertToFloat(),
         weightSpec, biasSpec, residualInputSpec,
-        detail::getNullableMemoryConfig(outputLayout));
+        detail::getNullableMemoryConfig(outputLayout),
+        /*program_config=*/std::nullopt,
+        /*compute_kernel_config=*/std::nullopt);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
@@ -6215,7 +6217,9 @@ llvm::Expected<size_t> OpModel<RMSNormOp>::getOpRuntime(
     return ::ttnn::graph::query_op_runtime(
         ::ttnn::rms_norm, device, inputSpec, epsilon.convertToFloat(),
         weightSpec, biasSpec, residualInputSpec,
-        detail::getNullableMemoryConfig(outputLayout));
+        detail::getNullableMemoryConfig(outputLayout),
+        /*program_config=*/std::nullopt,
+        /*compute_kernel_config=*/std::nullopt);
   };
 
   return operation::getOpRuntime(rmsNormQuery);
@@ -6258,7 +6262,9 @@ llvm::Expected<OpConstraints> OpModel<LayerNormOp>::getOpConstraints(
     return ::ttnn::graph::query_op_constraints(
         ::ttnn::layer_norm, device, inputSpec, epsilon.convertToFloat(),
         weightSpec, biasSpec, residualInputSpec,
-        detail::getNullableMemoryConfig(outputLayout));
+        detail::getNullableMemoryConfig(outputLayout),
+        /*program_config=*/std::nullopt,
+        /*compute_kernel_config=*/std::nullopt);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
@@ -6298,7 +6304,9 @@ llvm::Expected<size_t> OpModel<LayerNormOp>::getOpRuntime(
     return ::ttnn::graph::query_op_runtime(
         ::ttnn::layer_norm, device, inputSpec, epsilon.convertToFloat(),
         weightSpec, biasSpec, residualInputSpec,
-        detail::getNullableMemoryConfig(outputLayout));
+        detail::getNullableMemoryConfig(outputLayout),
+        /*program_config=*/std::nullopt,
+        /*compute_kernel_config=*/std::nullopt);
   };
 
   return operation::getOpRuntime(layerNormQuery);
