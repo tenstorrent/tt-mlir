@@ -941,48 +941,55 @@ recreateGenericOp(d2m::GenericOp genericOp,
                 }
               }
             } else if (llvm::isa<d2m::WaitOp, d2m::ReserveOp>(clonedOp)) {
-              assert(clonedOp->getNumOperands() == 1);
-              assert(clonedOp->getNumResults() == 1);
+              TT_assert(clonedOp->getNumOperands() == 1u);
+              TT_assert(clonedOp->getNumResults() == 1u);
               clonedOp->getResult(0).setType(
                   mlir::cast<d2m::CBType>(clonedOp->getOperand(0).getType())
                       .getUnderlying());
             } else if (auto remoteLoadOp =
                            llvm::dyn_cast<d2m::RemoteLoadOp>(clonedOp)) {
-              // Only update result type if the result exists (implicit form)
-              if (remoteLoadOp.isImplicitForm()) {
-                // Result exists - get shard shape from the remote tensor
-                // GridSelection operates in tensor space (before bufferization)
-                auto tensorType = mlir::cast<RankedTensorType>(
-                    remoteLoadOp.getMemref().getType());
-                auto deviceLayout =
-                    ttcore::getDeviceLayout(remoteLoadOp.getMemref());
-                if (deviceLayout) {
-                  auto shardShape = deviceLayout.getShardShape(tensorType);
-                  auto elementType = tensorType.getElementType();
-                  auto shardType =
-                      RankedTensorType::get(shardShape, elementType);
-                  remoteLoadOp.getResult().setType(shardType);
+              // RemoteLoadOp must be in implicit form at this point in the
+              // pipeline. GridSelection runs before conversion to explicit CB
+              // form.
+              TT_assertv(
+                  remoteLoadOp.isImplicitForm(),
+                  "RemoteLoadOp must be in implicit form during GridSelection");
 
-                  // Also update the localBuffer's defining operation's result
-                  // type to match the shard shape
-                  Value localBuffer = remoteLoadOp.getLocalBuffer();
-                  if (localBuffer) {
-                    if (auto *defOp = localBuffer.getDefiningOp()) {
-                      if (defOp->getNumResults() == 1) {
-                        defOp->getResult(0).setType(shardType);
-                      }
+              // Result exists - get shard shape from the remote tensor.
+              // GridSelection operates in tensor space (before bufferization).
+              auto tensorType = mlir::cast<RankedTensorType>(
+                  remoteLoadOp.getMemref().getType());
+              auto deviceLayout =
+                  ttcore::getDeviceLayout(remoteLoadOp.getMemref());
+              if (deviceLayout) {
+                auto shardShape = deviceLayout.getShardShape(tensorType);
+                auto elementType = tensorType.getElementType();
+                auto shardType = RankedTensorType::get(shardShape, elementType);
+                remoteLoadOp.getResult().setType(shardType);
+
+                // Also update the localBuffer's defining operation's result
+                // type to match the shard shape.
+                Value localBuffer = remoteLoadOp.getLocalBuffer();
+                if (localBuffer) {
+                  if (auto *defOp = localBuffer.getDefiningOp()) {
+                    if (defOp->getNumResults() == 1) {
+                      defOp->getResult(0).setType(shardType);
                     }
                   }
                 }
               }
             } else if (auto remoteStoreOp =
                            llvm::dyn_cast<d2m::RemoteStoreOp>(clonedOp)) {
-              // Only update result type if the result exists (implicit form)
-              if (remoteStoreOp.hasResultForm()) {
-                auto tensorType = mlir::cast<RankedTensorType>(
-                    remoteStoreOp.getMemref().getType());
-                remoteStoreOp.getResult().setType(tensorType);
-              }
+              // RemoteStoreOp must have result form at this point in the
+              // pipeline. GridSelection runs before conversion to explicit CB
+              // form.
+              TT_assertv(
+                  remoteStoreOp.hasResultForm(),
+                  "RemoteStoreOp must have result form during GridSelection");
+
+              auto tensorType = mlir::cast<RankedTensorType>(
+                  remoteStoreOp.getMemref().getType());
+              remoteStoreOp.getResult().setType(tensorType);
             } else if (auto tensorEmptyOp =
                            llvm::dyn_cast<mlir::tensor::EmptyOp>(clonedOp)) {
               // Update tensor.empty result type to match the associated operand

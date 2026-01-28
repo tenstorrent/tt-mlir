@@ -194,7 +194,7 @@ void createTTIRBufferizationPipeline(
 void createTTIRToTTMetalBackendPipeline(
     OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options);
 
-void createTTIRToTTMetalUnifiedMiddleendPipeline(
+void createTTIRToTTMetalMiddleendPipeline(
     OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options);
 
 void createTTIRToTTMetalPipelineDebug(

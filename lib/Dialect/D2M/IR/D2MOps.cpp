@@ -23,7 +23,9 @@
 #include "mlir/IR/Dominance.h"
 #include "mlir/IR/PatternMatch.h"
 
+#include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/TypeSwitch.h"
+#include "llvm/Support/ErrorHandling.h"
 
 #define GET_OP_CLASSES
 #include "ttmlir/Dialect/D2M/IR/D2MOps.cpp.inc"
@@ -1803,14 +1805,12 @@ mlir::AffineMap d2m::GenericOp::getIndexingMap(int64_t operandIndex) {
 }
 
 AffineMap d2m::GenericOp::getIndexingMapForOperand(Value operand) {
-  // Find the operand index for the given value
   for (unsigned i = 0; i < getNumOperands(); ++i) {
     if (getOperand(i) == operand) {
       return getIndexingMap(i);
     }
   }
-  TT_assertv(false, "Operand not found in GenericOp");
-  return AffineMap();
+  llvm_unreachable("Operand not found in GenericOp");
 }
 
 AffineMap d2m::GenericOp::getOutputIndexingMap() {
@@ -1832,8 +1832,7 @@ int64_t d2m::GenericOp::getOperandIndex(Value operand) {
       return i;
     }
   }
-  TT_assertv(false, "Operand not found in GenericOp");
-  return -1;
+  llvm_unreachable("Operand not found in GenericOp");
 }
 
 mlir::SmallVector<mlir::AffineMap> d2m::GenericOp::getIndexingMapsValue() {
