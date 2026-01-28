@@ -3399,8 +3399,11 @@ createOp(FlatbufferObjectCache &cache, TopKOp op) {
       getOperandThroughDPSOps(op.getInputTensor()));
 
   // Collect output tensors
-  auto values = cache.getOrCreate(op.getValues(), tensorValueToFlatbuffer);
-  auto indices = cache.getOrCreate(op.getIndices(), tensorValueToFlatbuffer);
+  std::vector<::flatbuffers::Offset<::tt::target::ttnn::TensorRef>> outputs;
+  for (auto result : op.getResults()) {
+    outputs.push_back(cache.getOrCreateNoSharding(
+        result, tensorValueToFlatbuffer, /*local_shape*/ std::nullopt));
+  }
 
   int32_t k = op.getK();
   int32_t dim = op.getDim();
@@ -3409,9 +3412,9 @@ createOp(FlatbufferObjectCache &cache, TopKOp op) {
   std::optional<mlir::tt::ttnn::MemoryConfigAttr> memoryConfig =
       op.getMemoryConfig();
 
-  return ::tt::target::ttnn::CreateTopKOp(
-      *cache.fbb, in, values, indices, k, dim, largest, sorted,
-      (memoryConfig ? toFlatbuffer(cache, memoryConfig.value()) : 0));
+  return ::tt::target::ttnn::CreateTopKOpDirect(
+      *cache.fbb, in, k, dim, largest, sorted,
+      (memoryConfig ? toFlatbuffer(cache, memoryConfig.value()) : 0), &outputs);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::Operation>

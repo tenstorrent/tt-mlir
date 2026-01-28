@@ -1315,7 +1315,8 @@ getOpOutputRef(OpContext opContextHandle,
   case ::tt::target::ttnn::OpType::CaptureOrExecuteTraceOp:
   case ::tt::target::ttnn::OpType::NLPCreateQKVHeadsDecodeOp:
   case ::tt::target::ttnn::OpType::SplitQueryKeyValueAndSplitHeadsOp:
-  case ::tt::target::ttnn::OpType::DumpTensorOp: {
+  case ::tt::target::ttnn::OpType::DumpTensorOp:
+  case ::tt::target::ttnn::OpType::TopKOp: {
     LOG_WARNING("getting output tensor is not supported for ",
                 ::tt::target::ttnn::EnumNamesOpType()[static_cast<size_t>(
                     opContext.type_type())]);
@@ -1474,6 +1475,10 @@ getOpInputRefs(OpContext opContextHandle,
   }
   case ::tt::target::ttnn::OpType::ReductionOp: {
     tensorRefs = {opContext.type_as_ReductionOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::TopKOp: {
+    tensorRefs = {opContext.type_as_TopKOp()->input_tensor()};
     break;
   }
   case ::tt::target::ttnn::OpType::EmbeddingOp: {
