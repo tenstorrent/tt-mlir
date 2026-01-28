@@ -42,7 +42,7 @@ dylibs = []
 runlibs = []
 perflibs = []
 metallibs = []
-install_requires = []
+install_requires = ["torch==2.7.0"]
 install_requires += ["nanobind"]
 
 if enable_ttnn:
