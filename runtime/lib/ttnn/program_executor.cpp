@@ -75,6 +75,7 @@
 #include "operations/reduction/argmax.h"
 #include "operations/reduction/prod.h"
 #include "operations/reduction/reduction.h"
+#include "operations/reduction/topk.h"
 #include "operations/tensor_serialization/dump_tensor.h"
 #include "operations/tensor_serialization/load_tensor.h"
 #include "operations/trace/begin_trace_capture.h"
@@ -521,6 +522,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::RegionEndOp: {
     return operations::debug::run(op->type_as_RegionEndOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::TopKOp: {
+    return operations::reduction::run(op->type_as_TopKOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::NONE: {
     LOG_FATAL("Unsupported operation type: ",

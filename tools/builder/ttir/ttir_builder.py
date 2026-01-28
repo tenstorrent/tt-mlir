@@ -13640,3 +13640,89 @@ class TTIRBuilder(Builder):
                                     )
 
         return sub_modules_and_builders
+
+    ############### ttir.TopKOp ###############
+    @tag(ttir.TopKOp)
+    def topk(
+        self,
+        in0: Operand,
+        k: int,
+        dim: int = -1,
+        largest: bool = True,
+        sorted: bool = True,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> Tuple[OpResult, OpResult]:
+        """
+        Creates ``ttir.topk``.
+        *Top-K selection operation.*
+        Selects the top K elements along a specified dimension of the input tensor.
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor
+        k : int
+            Number of top elements to select
+        dim : int, optional
+            Dimension along which to select top K elements (default: -1)
+        largest : bool, optional
+            If True, selects the largest K elements; if False, selects the smallest K elements (default: True)
+        sorted : bool, optional
+            If True, the selected elements are sorted in descending order (default: True)
+        unit_attrs : *Optional[List[str]]*, optional
+            Optional list of unit attributes
+        Returns
+        -------
+        (*Tuple[OpResult, OpResult]*)
+            A tuple containing two OpResults:
+            - The tensor of top K values
+            - The tensor of indices corresponding to the top K values
+        """
+        ttir_op = self.get_opview_from_method(TTIRBuilder.topk)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        k_attr = IntegerAttr.get(IntegerType.get_signed(32), k)
+        dim_attr = IntegerAttr.get(IntegerType.get_signed(32), dim)
+        largest_attr = BoolAttr.get(largest)
+        sorted_attr = BoolAttr.get(sorted)
+
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttir_op)
+        golden_values, golden_indices = op_golden_function(
+            input0, k_attr, dim_attr, largest_attr, sorted_attr, mlir_output_type
+        )
+        values = self._create_ranked_tensor_type(golden_values.shape, mlir_output_type)
+        indices = self._create_ranked_tensor_type(
+            golden_indices.shape, self._get_type_from_torch_dtype(torch.int64)
+        )
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir_op(
+            values,
+            indices,
+            in0,
+            k=k_attr,
+            dim=dim_attr,
+            largest=largest_attr,
+            sorted=sorted_attr,
+            loc=loc,
+        )
+        op_values = op.values
+        op_indices = op.indices
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            self._set_golden_tensor(op_values, golden_values)
+            self._set_golden_tensor(op_indices, golden_indices)
+
+        return op_values, op_indices

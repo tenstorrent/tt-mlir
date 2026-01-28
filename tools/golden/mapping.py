@@ -5985,6 +5985,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.ProdOp: prod_golden,
     ttir.ReduceAndOp: ttir_reduce_and_golden,
     ttir.ReduceOrOp: ttir_reduce_or_golden,
+    ttir.TopKOp: torch.topk,
     # Tensor manipulation
     ttir.SortOp: ttir_sort_golden,
     ttir.TransposeOp: transpose_golden,
