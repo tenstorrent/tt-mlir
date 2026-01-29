@@ -1609,16 +1609,22 @@ def embedding_golden(
     indices_tensor : GoldenMapTensor
         Tensor containing indices to look up
     weight_tensor : GoldenMapTensor
-        Weight tensor containing embedding vectors
+        Weight tensor containing embedding vectors. Can be "effectively 2D"
+        with leading singleton dimensions (e.g., shape (1, 1, vocab, embed)).
 
     Returns
     -------
     GoldenMapTensor
         Embedded vectors corresponding to input indices
     """
-    embedding = torch.nn.Embedding.from_pretrained(weight_tensor)
+    # Handle "effectively 2D" weights with leading singleton dimensions.
+    # Reshape to 2D for torch.nn.Embedding which requires exactly 2D weights.
+    vocab_size = weight_tensor.size(-2)
+    embed_dim = weight_tensor.size(-1)
+    weight_2d = weight_tensor.reshape(vocab_size, embed_dim)
+    embedding = torch.nn.Embedding.from_pretrained(weight_2d)
     golden_typecast = indices_tensor.to(torch.int32)
-    golden_input = torch.clamp(golden_typecast, 0, (weight_tensor.size()[0] - 1))
+    golden_input = torch.clamp(golden_typecast, 0, (vocab_size - 1))
     return embedding(golden_input)
 
 
