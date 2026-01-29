@@ -1914,41 +1914,6 @@ public:
 };
 } // namespace
 
-namespace {
-class ReduceOrOpConversionPattern
-    : public OpConversionPattern<ttir::ReduceOrOp> {
-public:
-  using OpConversionPattern<ttir::ReduceOrOp>::OpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(ttir::ReduceOrOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    Value input = adaptor.getInput();
-
-    // Convert input to boolean tensor if needed
-    input = convertToBooleanTensor(input, op.getLoc(), rewriter);
-
-    auto inputType = cast<RankedTensorType>(input.getType());
-    int64_t rank = inputType.getRank();
-
-    auto resultType = dyn_cast<RankedTensorType>(
-        this->getTypeConverter()->convertType(op.getResult().getType()));
-    assert(resultType && "Result type must be a ranked tensor type.");
-
-    // Get dimensions to reduce and keep_dim attribute
-    SmallVector<int64_t> dims = getDimsFromAttribute(op, rank);
-    bool keepDim = getKeepDimFromAttribute(op);
-
-    // Create a chain of reduction operations
-    Value result = createReductionOpChain<tosa::ReduceAnyOp>(
-        input, resultType, dims, keepDim, op.getLoc(), rewriter);
-
-    rewriter.replaceOp(op, result);
-    return success();
-  }
-};
-} // namespace
-
 //===----------------------------------------------------------------------===//
 // Linalg Conversions Patterns
 //===----------------------------------------------------------------------===//
@@ -3203,11 +3168,10 @@ void populateTTIRToTosaPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                Relu6OpConversionPattern, GatherOpConversionPattern,
                LogicalNotOpConversionPattern, MaxOpConversionPattern,
                MinOpConversionPattern, SumOpConversionPattern,
-               ProdOpConversionPattern, ReduceOrOpConversionPattern,
-               MeanOpConversionPattern, LayerNormOpConversionPattern,
-               SqueezeOpConversionPattern, UnsqueezeOpConversionPattern,
-               MaxPool2dOpConversionPattern, Conv2dOpConversionPattern>(
-      typeConverter, ctx);
+               ProdOpConversionPattern, MeanOpConversionPattern,
+               LayerNormOpConversionPattern, SqueezeOpConversionPattern,
+               UnsqueezeOpConversionPattern, MaxPool2dOpConversionPattern,
+               Conv2dOpConversionPattern>(typeConverter, ctx);
 
   // Special operations
   patterns.add<WhereOpConversionPattern, ReshapeOpConversionPattern,
