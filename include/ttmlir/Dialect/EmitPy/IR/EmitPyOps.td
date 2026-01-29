@@ -446,26 +446,6 @@ def EmitPy_GlobalStatementOp : EmitPy_Op<"global_statement",
   let assemblyFormat = "$name `:` type($result) attr-dict";
 }
 
-def EmitPy_GetGlobalOp : EmitPy_Op<"get_global",
-    [Pure, DeclareOpInterfaceMethods<SymbolUserOpInterface>]> {
-  let summary = "Obtain access to a global variable";
-  let description = [{
-    The `emitpy.get_global` operation retrieves the value of a named global variable.
-
-    Example:
-
-    ```mlir
-    %1 = emitpy.get_global @x : !emitpy.opaque<"[ttnn.Tensor]">
-    ```
-  }];
-
-  let arguments = (ins FlatSymbolRefAttr:$name);
-  let results = (outs AnyType:$result);
-
-  let hasVerifier = 1;
-  let assemblyFormat = "$name `:` type($result) attr-dict";
-}
-
 def EmitPy_AssignGlobalOp : EmitPy_Op<"assign_global",
     [DeclareOpInterfaceMethods<SymbolUserOpInterface>]> {
   let summary = "Assign a value to a global variable";
