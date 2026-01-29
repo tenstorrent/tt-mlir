@@ -679,13 +679,13 @@ private:
 } // namespace
 
 //===----------------------------------------------------------------------===//
-// Embedding to Gather Pattern (CPUFallback)
+// Embedding to Gather Pattern
 //===----------------------------------------------------------------------===//
 
 namespace {
 // Converts ttir.embedding to ttir.gather for CPU fallback path.
-// This avoids using tensor.gather which lacks bufferization support in upstream
-// MLIR.
+// This allows us not to use tensor.gather which lacks bufferization support in
+// upstream MLIR.
 struct EmbeddingToGatherConversionPattern
     : public OpConversionPattern<ttir::EmbeddingOp> {
   using OpConversionPattern<ttir::EmbeddingOp>::OpConversionPattern;
@@ -713,7 +713,12 @@ struct EmbeddingToGatherConversionPattern
     auto indicesShape = inputType.getShape();
     int64_t indicesRank = indicesShape.size();
     auto weightShape = weightType.getShape();
-    int64_t embeddingDim = weightShape[1];
+    int64_t weightRank = weightType.getRank();
+
+    // Weight is "effectively 2D" with shape (1, 1, ..., 1, vocab_size,
+    // embedding_dim). The embedding dimension is always the last dimension.
+    int64_t embeddingDim = weightShape[weightRank - 1];
+    int64_t vocabDimIndex = weightRank - 2;
 
     // Add trailing dimension of size 1 to indices for index_vector_dim.
     SmallVector<int64_t> newIndicesShape(indicesShape.begin(),
@@ -730,17 +735,21 @@ struct EmbeddingToGatherConversionPattern
 
     // Build gather attributes:
     // - offset_dims: the embedding dimension appears at position indicesRank
-    // - collapsed_slice_dims: [0] - collapse the vocab dimension
-    // - start_index_map: [0] - index dimension 0 of weight
+    // - collapsed_slice_dims: all dimensions except the last (embedding dim)
+    // - start_index_map: points to the vocab dimension (second-to-last)
     // - index_vector_dim: indicesRank (the trailing singleton dimension)
-    // - slice_sizes: [1, embedding_dim]
+    // - slice_sizes: [1, 1, ..., 1, embedding_dim] matching weight rank
     SmallVector<int64_t> offsetDims{indicesRank};
-    SmallVector<int64_t> collapsedSliceDims{0};
+    SmallVector<int64_t> collapsedSliceDims;
+    for (int64_t i = 0; i < weightRank - 1; ++i) {
+      collapsedSliceDims.push_back(i);
+    }
     SmallVector<int64_t> operandBatchingDims{};
     SmallVector<int64_t> startIndicesBatchingDims{};
-    SmallVector<int64_t> startIndexMap{0};
+    SmallVector<int64_t> startIndexMap{vocabDimIndex};
     int64_t indexVectorDim = indicesRank;
-    SmallVector<int64_t> sliceSizes{1, embeddingDim};
+    SmallVector<int64_t> sliceSizes(weightRank, 1);
+    sliceSizes[weightRank - 1] = embeddingDim;
 
     auto gatherOp = rewriter.create<ttir::GatherOp>(
         op.getLoc(), resultType,
@@ -2692,13 +2701,12 @@ void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
   patterns.add<ReductionProdPattern>(typeConverter, ctx);
   patterns.add<ReverseOpConversionPattern>(typeConverter, ctx);
   patterns.add<ArgMaxPattern>(typeConverter, ctx);
+  patterns.add<EmbeddingToGatherConversionPattern>(typeConverter, ctx);
 
-  // Configure which patterns to add based on the configuration.
+  // Configure which ReductionPattern to add base on the configuration
   switch (decompConfig) {
   case DecompMode::CPUFallback:
     patterns.add<ReductionOrPattern>(typeConverter, ctx);
-    // For CPU fallback, decompose embedding to gather (reverse of TTNN).
-    patterns.add<EmbeddingToGatherConversionPattern>(typeConverter, ctx);
     break;
   case DecompMode::TTNN:
   case DecompMode::TTMetal:

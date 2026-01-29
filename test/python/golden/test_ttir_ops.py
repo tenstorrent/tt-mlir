@@ -2001,8 +2001,12 @@ def test_unique_ops(
         ((64,), (256, 64)),  # 1D indices: (seq_len,), smaller vocab and embed_dim
         ((1, 64), (1024, 256)),  # Single batch, larger vocab and embed_dim
         ((8, 128), (512, 64)),  # Different batch and seq_len
+        (
+            (2, 4),
+            (1, 1, 10, 10),
+        ),  # 2D indices, 4D weight (effectively 2D with leading singletons)
     ],
-    ids=["2d_basic", "1d_indices", "large_vocab", "varied_dims"],
+    ids=["2d_basic", "1d_indices", "large_vocab", "varied_dims", "4d_weight"],
 )
 @pytest.mark.parametrize("target", ["ttnn"])
 def test_hoisted_embedding(
@@ -2013,7 +2017,8 @@ def test_hoisted_embedding(
     device,
 ):
     """Test the hoisted embedding operation."""
-    vocab_size = weight_shape[0]
+    # Vocab size is at second-to-last dimension for "effectively 2D" weights.
+    vocab_size = weight_shape[-2]
 
     def module(builder: TTIRBuilder):
         @builder.func([indices_shape, weight_shape], [torch.float32, torch.float32])
