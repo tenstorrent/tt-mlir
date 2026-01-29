@@ -1073,7 +1073,7 @@ def compile_stablehlo_to_flatbuffer(
     # We need to generate golden dictionary before pipeline run because pipeline run modifies the graph in place.
     input_output_goldens, intermediate_goldens = builder.golden_map
 
-    stablehlo_pipeline(module, " ".join(shlo_pipeline_options), print_ir=bool(print_ir))
+    stablehlo_pipeline(module, " ".join(shlo_pipeline_options), print_ir=print_ir)
     print(f"`{fn.__name__}` successfully ran stablehlo-pipeline.")
     print(module)
 
@@ -1083,7 +1083,7 @@ def compile_stablehlo_to_flatbuffer(
             f.write(str(module))
 
     stablehlo_to_ttir_pipeline(
-        module, " ".join(shlo_to_ttir_pipeline_options), print_ir=bool(print_ir)
+        module, " ".join(shlo_to_ttir_pipeline_options), print_ir=print_ir
     )
     print(f"`{fn.__name__}` successfully transformed into a TTIR MLIR module.")
     print(module)
