@@ -244,7 +244,8 @@ public:
 
       bool shouldTilize = true;
       if (mlir::isa<ttir::MeshPartitionOp>(op)) {
-        shouldTilize = false;
+        shouldTilize =
+            shouldTilizeMeshPartitionOp(mlir::cast<ttir::MeshPartitionOp>(op));
       }
 
       Location newLoc =
@@ -280,6 +281,15 @@ public:
   }
 
 private:
+  bool shouldTilizeMeshPartitionOp(ttir::MeshPartitionOp &op) const {
+    auto inputType = mlir::cast<RankedTensorType>(op.getInput().getType());
+    int rank = inputType.getRank();
+    if (rank <= 1) {
+      return false;
+    }
+    return true;
+  }
+
   bool shouldTilize(Operation *op) const {
 
     // TTNN Reshape does not support implicit tilization/untilization
