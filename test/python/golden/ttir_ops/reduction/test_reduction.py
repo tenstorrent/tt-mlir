@@ -121,7 +121,10 @@ reduction_op_cpu_hoisted_names = [
     | Marks(
         pytest.mark.xfail(reason="Not supported in CPU hoisted mode, see issue #5810")
     ),
-    "prod",
+    "prod"
+    | Marks(
+        pytest.mark.xfail(reason="Not supported in CPU hoisted mode, see issue #5812")
+    ),
     "reduce_and" | Marks(pytest.mark.xfail(reason="Builder test not supported #5792")),
     "reduce_or" | Marks(pytest.mark.xfail(reason="Builder test not supported #5792")),
     "sum",
@@ -163,11 +166,6 @@ def test_reduction_cpu_hoisted_ops(
             pytest.mark.xfail(
                 reason="Not supported in CPU hoisted mode, see issues #5811",
             )
-        )
-
-    if reduction_op_name == "prod" and (dim_arg is None or len(dim_arg) == 1):
-        request.node.add_marker(
-            pytest.xfail(reason="Not supported in CPU hoisted mode, see issue #5812")
         )
 
     def module(builder: TTIRBuilder):
