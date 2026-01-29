@@ -585,14 +585,6 @@ static LogicalResult printOperation(PythonEmitter &emitter,
   return success();
 }
 
-static LogicalResult printOperation(PythonEmitter &emitter, AssignOp assignOp) {
-  if (failed(emitter.emitAssignPrefix(*assignOp))) {
-    return failure();
-  }
-
-  return emitter.emitOperands(*assignOp);
-}
-
 static LogicalResult printOperation(PythonEmitter &emitter,
                                     GetAttrOp getAttrOp) {
   if (failed(emitter.emitAssignPrefix(*getAttrOp))) {
@@ -747,18 +739,23 @@ static LogicalResult printOperation(PythonEmitter &emitter,
   return success();
 }
 
-static LogicalResult printOperation(PythonEmitter &emitter, SetItemOp op) {
+static LogicalResult printOperation(PythonEmitter &emitter, AssignOp op) {
   raw_indented_ostream &os = emitter.ostream();
 
   if (failed(emitter.emitOperand(op.getTarget(), "target"))) {
     return failure();
   }
 
-  os << "[";
-  if (failed(emitter.emitOperand(op.getIndex(), "index"))) {
-    return failure();
+  // If index is present, emit subscript assignment: target[index] = value
+  if (op.getIndex()) {
+    os << "[";
+    if (failed(emitter.emitOperand(op.getIndex(), "index"))) {
+      return failure();
+    }
+    os << "]";
   }
-  os << "] = ";
+
+  os << " = ";
 
   if (failed(emitter.emitOperand(op.getValue(), "value"))) {
     return failure();
@@ -905,8 +902,7 @@ LogicalResult PythonEmitter::emitOperation(Operation &op) {
           // EmitPy ops.
           .Case<CallOpaqueOp, ImportOp, AssignOp, GetAttrOp, SetAttrOp,
                 ConstantOp, SubscriptOp, ClassOp, GlobalOp, AssignGlobalOp,
-                GlobalStatementOp, CreateDictOp, SetItemOp, ExpressionOp,
-                YieldOp, IfOp>(
+                GlobalStatementOp, CreateDictOp, ExpressionOp, YieldOp, IfOp>(
               [&](auto op) { return printOperation(*this, op); })
           .Case<LiteralOp>([&](auto op) {
             registerDeferredValue(op.getResult(), op.getValue());
