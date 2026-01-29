@@ -648,9 +648,25 @@ index a73917b..78cc827 100644
                       llvm::SmallDenseSet<Value>& seenValues) {
    EdgeNode target = edge.target;
 diff --git a/shardy/dialect/sdy/transforms/propagation/op_sharding_rule_registry.cc b/shardy/dialect/sdy/transforms/propagation/op_sharding_rule_registry.cc
-index ab93067..283d6ad 100644
+index ab93067..b181797 100644
 --- a/shardy/dialect/sdy/transforms/propagation/op_sharding_rule_registry.cc
 +++ b/shardy/dialect/sdy/transforms/propagation/op_sharding_rule_registry.cc
+@@ -187,12 +187,12 @@ void addGatherScatterFactors(
+
+   // We add factors for all collapsed slice dimensions.
+   for (int64_t collapsedSliceDim : collapsedSliceDims) {
+-    // To keep the operand dim sharded for gather, we need an all-reduce on the
+-    // result.
++    // For gather: use kNeedReplication to all-gather operand before gather,
++    // instead of kReduction which would insert all-reduce after gather.
+     addUnblockedFactorFn(
+         collapsedSliceDim, /*indicesDim=*/kNullDim,
+         /*slicesDim=*/kNullDim, inputType.getDimSize(collapsedSliceDim),
+-        isScatter ? FactorType::kPassThrough : FactorType::kReduction);
++        isScatter ? FactorType::kPassThrough : FactorType::kNeedReplication);
+   }
+
+   // Add a factor for the index-vector-dim, if it's present.
 @@ -303,6 +303,37 @@ OpShardingRuleAttr createOpShardingRule(Operation* op,
          }
          return builder.build();

@@ -327,10 +327,11 @@ createOp(FlatbufferObjectCache &cache, TypecastOp op) {
   ::tt::target::DataType dtype = toFlatbuffer(cache, op.getDtype());
   auto output =
       cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
-
                                   /*local_shape*/ std::nullopt);
+  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
 
-  return ::tt::target::ttnn::CreateTypecastOp(*cache.fbb, input, dtype, output);
+  return ::tt::target::ttnn::CreateTypecastOp(*cache.fbb, input, dtype,
+                                              memoryConfig, output);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::ToDeviceOp>
@@ -1615,7 +1616,7 @@ createEltwiseBinaryCompositeScalarOp(FlatbufferObjectCache &cache,
                      .Union();
     } else if (auto integerAttr =
                    mlir::dyn_cast<mlir::IntegerAttr>(op.getRhs())) {
-      rhsType = ::tt::target::ttnn::RhsParams::UI32;
+      rhsType = ::tt::target::ttnn::RhsParams::I32;
       rhsValue = ::tt::target::ttnn::CreateIntegralType(
                      *cache.fbb, integerAttr.getValue().getSExtValue())
                      .Union();
@@ -2228,7 +2229,6 @@ createRandOp(FlatbufferObjectCache &cache, RandOp op) {
       seed, dtype, layout, memoryConfig, out);
 }
 
-template <typename RepeatOp>
 ::flatbuffers::Offset<::tt::target::ttnn::RepeatOp>
 createRepeatOp(FlatbufferObjectCache &cache, RepeatOp op) {
   auto in = cache.at<::tt::target::ttnn::TensorRef>(
@@ -2236,11 +2236,12 @@ createRepeatOp(FlatbufferObjectCache &cache, RepeatOp op) {
   ::llvm::ArrayRef<int64_t> repeatDims = op.getRepeatDims().getShape();
   auto out =
       cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
-
                                   /*local_shape*/ std::nullopt);
+  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
 
   return ::tt::target::ttnn::CreateRepeatOp(
-      *cache.fbb, in, out, cache.fbb->CreateVector<int64_t>(repeatDims));
+      *cache.fbb, in, out, cache.fbb->CreateVector<int64_t>(repeatDims),
+      memoryConfig);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::PadOp>

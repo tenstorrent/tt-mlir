@@ -1933,11 +1933,12 @@ public:
     auto resultType = op.getType();
     ttnn::TTNNLayoutAttr outputLayoutAttr =
         mlir::cast<ttnn::TTNNLayoutAttr>(resultType.getEncoding());
-    ttcore::DataType outputDataType = outputLayoutAttr.getDataType();
+    ttcore::DataTypeAttr outputDataTypeAttr = ttcore::DataTypeAttr::get(
+        op.getContext(), outputLayoutAttr.getDataType());
 
     rewriter.replaceOpWithNewOp<ttnn::TypecastOp>(
         op, this->getTypeConverter()->convertType(resultType),
-        adaptor.getInput(), outputDataType);
+        adaptor.getInput(), outputDataTypeAttr);
     return success();
   }
 };

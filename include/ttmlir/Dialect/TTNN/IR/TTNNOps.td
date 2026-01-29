@@ -82,8 +82,17 @@ def TTNN_TypecastOp : TTNN_Op<"typecast"> {
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         TTCore_DataTypeAttr:$dtype);
+                         TTCore_DataTypeAttr:$dtype,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
     let results = (outs AnyRankedTensor:$result);
+
+    let builders =
+    [
+      OpBuilder<(ins "Type": $resultType, "Value": $input, "ttcore::DataTypeAttr": $dtype),
+      [{
+        build($_builder, $_state, resultType, input, dtype, /*memory_config=*/nullptr);
+      }]>
+    ];
 
     let hasFolder = 1;
     let hasCanonicalizeMethod = 1;
@@ -1366,7 +1375,7 @@ def TTNN_ReshapeOp : TTNN_Op<"reshape", [TTNN_MemoryConfigOpInterface]> {
     }];
 }
 
-def TTNN_RepeatOp : TTNN_Op<"repeat"> {
+def TTNN_RepeatOp : TTNN_Op<"repeat", [TTNN_MemoryConfigOpInterface]> {
     let summary = "Repeat op.";
     let description = [{
       Returns a new tensor filled with repetition of input tensor according to number of times specified in repeat_dims.
@@ -1377,9 +1386,18 @@ def TTNN_RepeatOp : TTNN_Op<"repeat"> {
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         TTNN_ShapeAttr:$repeat_dims);
+                         TTNN_ShapeAttr:$repeat_dims,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
     let results = (outs AnyRankedTensor:$result);
+
+    let builders =
+    [
+      OpBuilder<(ins "Type": $resultType, "Value": $input, "ttnn::ShapeAttr": $repeat_dims),
+      [{
+        build($_builder, $_state, resultType, input, repeat_dims, /*memory_config=*/nullptr);
+      }]>
+    ];
 
     let hasVerifier = 1;
 }

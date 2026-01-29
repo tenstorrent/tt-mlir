@@ -2,6 +2,9 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "stablehlo/dialect/StablehloOps.h"
+#include "llvm/Support/Error.h"
+
 #include "ttmlir/Dialect/StableHLO/Transforms/Passes.h"
 #include "ttmlir/Dialect/StableHLO/Utils/GSPMDUtils.h"
 #include "ttmlir/Dialect/StableHLO/Utils/ShardyUtils.h"
@@ -34,11 +37,64 @@ updateShardStatus(MLIRContext *context, mlir::ModuleOp &module,
       newArgAttrs =
           llvm::SmallVector<mlir::NamedAttribute>(argAttrDict.getValue());
 
+      // We want to find the @Sharding custom call followed by the
+      // @SPMDFullToShardShape custom call to determine the sharded type. The
+      // pattern looks like: %0 = stablehlo.custom_call @Sharding(%arg0)
+      // {mhlo.sharding = "{devices=[8,1]<=[8]}"} : (tensor<1024x1024xf32>) ->
+      // tensor<1024x1024xf32> %1 = stablehlo.custom_call
+      // @SPMDFullToShardShape(%0) {mhlo.sharding = "{manual}"} :
+      // (tensor<1024x1024xf32>) -> tensor<128x1024xf32>
       if (argAttrDict.contains(mlir::tt::gspmd_utils::kXlaShardingAttr)) {
-        module.emitError("GSPMD presharding annotations are not supported.");
-      }
+        shardStatus = mlir::tt::ttcore::ShardStatus::Presharded;
 
-      if (argAttrDict.contains(mlir::sdy::TensorShardingAttr::name)) {
+        // Check if its replicated, mhlo.sharding = "{replicated}"}
+        auto shardingStrAttr = mlir::cast<mlir::StringAttr>(
+            argAttrDict.get(mlir::tt::gspmd_utils::kXlaShardingAttr));
+        if (shardingStrAttr &&
+            shardingStrAttr.getValue().contains("replicated")) {
+          newType = mlir::cast<mlir::RankedTensorType>(arg.getType());
+        } else {
+          mlir::stablehlo::CustomCallOp shardingOp;
+          for (auto *user : arg.getUsers()) {
+            if (!mlir::isa<mlir::stablehlo::CustomCallOp>(user)) {
+              continue;
+            }
+            mlir::stablehlo::CustomCallOp customCallOp =
+                mlir::cast<mlir::stablehlo::CustomCallOp>(user);
+            if (customCallOp.getCallTargetName() ==
+                mlir::tt::gspmd_utils::kShardingCustomCallTargetName) {
+              shardingOp = customCallOp;
+              break;
+            }
+          }
+
+          if (!shardingOp) {
+            return module.emitError(
+                "GSPMD presharded argument missing @Sharding custom call.");
+          }
+
+          mlir::stablehlo::CustomCallOp fullToShardOp;
+          for (auto *user : shardingOp.getResult(0).getUsers()) {
+            if (!mlir::isa<mlir::stablehlo::CustomCallOp>(user)) {
+              continue;
+            }
+            mlir::stablehlo::CustomCallOp customCallOp =
+                mlir::cast<mlir::stablehlo::CustomCallOp>(user);
+            if (customCallOp.getCallTargetName() ==
+                mlir::tt::gspmd_utils::kSPMDFullToShardShapeCallTargetName) {
+              fullToShardOp = customCallOp;
+              break;
+            }
+          }
+
+          if (!fullToShardOp) {
+            return module.emitError("GSPMD presharded argument missing "
+                                    "@SPMDFullToShardShape custom call.");
+          }
+          newType = mlir::cast<mlir::RankedTensorType>(
+              fullToShardOp.getResult(0).getType());
+        }
+      } else if (argAttrDict.contains(mlir::sdy::TensorShardingAttr::name)) {
         shardStatus = mlir::tt::ttcore::ShardStatus::Presharded;
         auto meshOp = shardy_utils::getMeshOps(module)[0];
         auto global_shape = mlir::cast<mlir::RankedTensorType>(arg.getType());
@@ -87,10 +143,36 @@ updateShardStatus(MLIRContext *context, mlir::ModuleOp &module,
           llvm::SmallVector<mlir::NamedAttribute>(resultAttrDict.getValue());
 
       if (resultAttrDict.contains(mlir::tt::gspmd_utils::kXlaShardingAttr)) {
-        module.emitError("GSPMD presharding annotations are not supported.");
-      }
+        shardStatus = mlir::tt::ttcore::ShardStatus::Presharded;
 
-      if (resultAttrDict.contains(mlir::sdy::TensorShardingAttr::name)) {
+        // Check if its replicated, mhlo.sharding = "{replicated}"}
+        auto shardingStrAttr = mlir::cast<mlir::StringAttr>(
+            resultAttrDict.get(mlir::tt::gspmd_utils::kXlaShardingAttr));
+        if (shardingStrAttr &&
+            shardingStrAttr.getValue().contains("replicated")) {
+          newType = mlir::cast<mlir::RankedTensorType>(funcType.getResult(i));
+        } else {
+          // We want to backtrack from the function return to find the
+          // @SPMDShardToFullShape custom call and extract its input type. This
+          // input shape is its local device shape. The pattern looks like: %3 =
+          // stablehlo.custom_call @SPMDShardToFullShape(%2) {mhlo.sharding =
+          // "{devices=[8,1]<=[8]}"} : (tensor<128x1024xf32>) ->
+          // tensor<1024x1024xf32> return %3 : tensor<1024x1024xf32>
+          Value retVal = funcOp.getBody().back().getTerminator()->getOperand(i);
+
+          auto shardToFullOp =
+              retVal.getDefiningOp<mlir::stablehlo::CustomCallOp>();
+          if (!shardToFullOp ||
+              shardToFullOp.getCallTargetName() !=
+                  mlir::tt::gspmd_utils::kSPMDShardToFullShapeCallTargetName) {
+            return module.emitError("GSPMD presharded result missing "
+                                    "@SPMDShardToFullShape custom call.");
+          }
+
+          newType = mlir::cast<mlir::RankedTensorType>(
+              shardToFullOp.getOperand(0).getType());
+        }
+      } else if (resultAttrDict.contains(mlir::sdy::TensorShardingAttr::name)) {
         shardStatus = mlir::tt::ttcore::ShardStatus::Presharded;
         auto meshOp = shardy_utils::getMeshOps(module)[0];
         auto global_shape =
