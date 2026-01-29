@@ -5231,6 +5231,27 @@ def ttnn_bitwise_xor_golden(
     return torch.bitwise_xor(input_tensor, other_tensor).to(output_dtype)
 
 
+def stablehlo_div_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.div(input_tensor, other_tensor).to(output_dtype)
+
+
+def stablehlo_rem_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.remainder(input_tensor, other_tensor).to(output_dtype)
+
+
+def stablehlo_atan2_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.atan2(input_tensor, other_tensor).to(output_dtype)
+
+
 def ttnn_bitwise_not_golden(
     input_tensor: GoldenMapTensor, output_type_mlir: Type
 ) -> GoldenMapTensor:
@@ -5442,6 +5463,14 @@ def ttnn_mish_golden(
     return torch.nn.functional.mish(input_tensor).to(output_dtype)
 
 
+    return torch.subtract(input_tensor, other_tensor).to(output_dtype)
+
+
+def stablehlo_shift_left_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.bitwise_left_shift(input_tensor, other_tensor).to(output_dtype)
 ################ Debug Op Golden Functions ###############
 
 
@@ -5641,14 +5670,18 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     stablehlo.XorOp: stablehlo_xor_golden,
     stablehlo.NotOp: stablehlo_not_golden,
     stablehlo.SliceOp: stablehlo_slice_golden,
+    stablehlo.DivOp: stablehlo_div_golden,
     stablehlo.MaxOp: stablehlo_maximum_golden,
     stablehlo.MinOp: stablehlo_minimum_golden,
     stablehlo.MulOp: stablehlo_multiply_golden,
     # bitcast conversion operation
     stablehlo.BroadcastInDimOp: torch.broadcast_to,
     stablehlo.SubtractOp: stablehlo_subtract_golden,
+    stablehlo.RemOp: stablehlo_rem_golden,
     stablehlo.PowOp: stablehlo_pow_golden,
+    stablehlo.Atan2Op: stablehlo_atan2_golden,
     stablehlo.ShiftRightLogicalOp: stablehlo_shift_right_logical_golden,
+    stablehlo.ShiftLeftOp: stablehlo_shift_left_golden,
     stablehlo.ReverseOp: stablehlo_reverse_golden,
     stablehlo.DotGeneralOp: dot_general_golden,
     stablehlo.DynamicSliceOp: dynamic_slice_golden,
@@ -5781,3 +5814,4 @@ def get_golden_function(ttir_op_class: type, **kwargs) -> Optional[Callable]:
         return GOLDEN_MAPPINGS[ttir_op_class]
 
     assert False, f"No golden function found for TTIR operation: {ttir_op_class}"
+
