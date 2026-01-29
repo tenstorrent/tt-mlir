@@ -219,6 +219,42 @@ def test_linear(shapes: List[Shape], request, device):
     )
 
 
+@x86_only
+@pytest.mark.parametrize(
+    "shapes",
+    [
+        [(10, 64, 32), (32, 128), (128,)],
+        [(10, 20), (20, 30)],
+    ],
+    ids=["3D_with_bias", "2D_no_bias"],
+)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_hoisted_linear(
+    shapes: List[Shape], dtype: torch.dtype, target: str, request, device
+):
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, [dtype] * len(shapes))
+        def hoisted_linear(
+            *inputs,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            builder = inputs[-1]
+            in0 = inputs[0]
+            in1 = inputs[1]
+            bias = inputs[2] if len(inputs) > 3 else None
+            return builder.linear(in0, in1, bias, unit_attrs=["ttir.should_hoist"])
+
+    compile_and_execute_ttir(
+        module,
+        test_base=request.node.name,
+        target=target,
+        device=device,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
 @pytest.mark.parametrize("shape", [(1, 1, 32)], ids=shape_str)
 @pytest.mark.parametrize("broadcast_dimensions", [[1, 16, 1]])
 def test_broadcast(shape: List[int], broadcast_dimensions: List[int], request, device):
@@ -1646,10 +1682,6 @@ def test_cpu_hoistable_single_operand_ops(
     device,
     dtype: torch.dtype = torch.float32,
 ):
-    pytest.skip(
-        reason="Softmax does not lower to loops properly https://github.com/tenstorrent/tt-mlir/issues/3232"
-    )
-
     def module(builder: TTIRBuilder):
         @builder.func([shape], [dtype])
         def softmax(
@@ -1676,26 +1708,21 @@ def test_cpu_hoistable_single_operand_ops(
 @pytest.mark.parametrize(
     "shapes,permutation",
     [
-        # [(input_shape, output_shape), permutation]
-        ([(2, 3, 4), (4, 2, 3)], [2, 0, 1]),
-        ([(128, 128), (128, 128)], [0, 1]),
-        ([(128, 64, 32), (32, 128, 64)], [2, 0, 1]),
+        ([(2, 3, 4)], [2, 0, 1]),
+        ([(128, 128)], [0, 1]),
+        ([(128, 64, 32)], [2, 0, 1]),
     ],
 )
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
-@pytest.mark.xfail(reason="Fails Golden")
 def test_hoisted_permute(shapes, permutation, request, target: str, device):
     def module(builder: TTIRBuilder):
-        @builder.func(shapes, [torch.float32] * len(shapes))
+        @builder.func(shapes, [torch.float32])
         def permute(
             in0: Operand,
-            in1: Operand,
             builder: TTIRBuilder,
             unit_attrs: Optional[List[str]] = None,
         ):
-            return permute(
-                in0, in1, builder, permutation, unit_attrs=["ttir.should_hoist"]
-            )
+            return builder.permute(in0, permutation, unit_attrs=["ttir.should_hoist"])
 
     compile_and_execute_ttir(
         module,
@@ -1960,6 +1987,61 @@ def test_unique_ops(
         **get_request_kwargs(request),
         target=target,
         device=device,
+    )
+
+
+@x86_only
+@pytest.mark.parametrize(
+    "indices_shape,weight_shape",
+    [
+        (
+            (32, 32),
+            (512, 128),
+        ),  # 2D indices: (batch, seq_len), weight: (vocab, embed_dim)
+        ((64,), (256, 64)),  # 1D indices: (seq_len,), smaller vocab and embed_dim
+        ((1, 64), (1024, 256)),  # Single batch, larger vocab and embed_dim
+        ((8, 128), (512, 64)),  # Different batch and seq_len
+        (
+            (2, 4),
+            (1, 1, 10, 10),
+        ),  # 2D indices, 4D weight (effectively 2D with leading singletons)
+    ],
+    ids=["2d_basic", "1d_indices", "large_vocab", "varied_dims", "4d_weight"],
+)
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_hoisted_embedding(
+    indices_shape: Shape,
+    weight_shape: Shape,
+    target: str,
+    request,
+    device,
+):
+    """Test the hoisted embedding operation."""
+    # Vocab size is at second-to-last dimension for "effectively 2D" weights.
+    vocab_size = weight_shape[-2]
+
+    def module(builder: TTIRBuilder):
+        @builder.func([indices_shape, weight_shape], [torch.float32, torch.float32])
+        def hoisted_embedding(
+            indices: Operand,
+            weight: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            # Generate valid indices within [0, vocab_size) range.
+            valid_indices = torch.randint(
+                0, vocab_size, indices_shape, dtype=torch.float32
+            )
+            builder.set_goldens(inputs={indices: valid_indices})
+            return builder.embedding(indices, weight, unit_attrs=["ttir.should_hoist"])
+
+    compile_and_execute_ttir(
+        module,
+        test_base=request.node.name,
+        target=target,
+        device=device,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -2366,6 +2448,45 @@ def test_layer_norm(
                 weight=weight,
                 bias=bias,
                 unit_attrs=unit_attrs,
+            )
+
+    compile_and_execute_ttir(
+        module,
+        test_base=request.node.name,
+        device=device,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+    )
+
+
+@x86_only
+@pytest.mark.parametrize(
+    "shape,normalized_shape",
+    [
+        ((32, 128), [128]),
+        ((2, 4, 64), [64]),
+    ],
+)
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+def test_hoisted_layer_norm(
+    shape: Shape,
+    normalized_shape: List[int],
+    target: str,
+    request,
+    device,
+):
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [torch.float32])
+        def layer_norm(
+            in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+        ):
+            return builder.layer_norm(
+                in0,
+                normalized_shape=normalized_shape,
+                weight=None,
+                bias=None,
+                unit_attrs=["ttir.should_hoist"],
             )
 
     compile_and_execute_ttir(
