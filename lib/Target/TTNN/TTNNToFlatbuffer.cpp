@@ -2233,7 +2233,8 @@ createRandOp(FlatbufferObjectCache &cache, RandOp op) {
 createDropoutOp(FlatbufferObjectCache &cache, DropoutOp op) {
   auto in = cache.at<::tt::target::ttnn::TensorRef>(
       getOperandThroughDPSOps(op.getInput()));
-  auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer);
+  auto out = cache.getOrCreateNoSharding(
+      op.getResult(), tensorValueToFlatbuffer, /*local_shape*/ std::nullopt);
   float prob = op.getProb().convertToFloat();
   float scale = op.getScale().convertToFloat();
   uint32_t seed = op.getSeed();
