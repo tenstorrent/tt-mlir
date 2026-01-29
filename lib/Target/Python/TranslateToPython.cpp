@@ -764,43 +764,22 @@ static LogicalResult printOperation(PythonEmitter &emitter,
   return success();
 }
 
-static LogicalResult printOperation(PythonEmitter &emitter,
-                                    SetValueForDictKeyOp op) {
+static LogicalResult printOperation(PythonEmitter &emitter, SetItemOp op) {
   raw_indented_ostream &os = emitter.ostream();
 
-  if (failed(emitter.emitOperand(op.getDict(), "dict_arg"))) {
+  if (failed(emitter.emitOperand(op.getTarget(), "target"))) {
     return failure();
   }
 
   os << "[";
-  if (failed(emitter.emitOperand(op.getKey(), "dict_key"))) {
+  if (failed(emitter.emitOperand(op.getIndex(), "index"))) {
     return failure();
   }
   os << "] = ";
 
-  if (failed(emitter.emitOperand(op.getValue(), "dict_value"))) {
+  if (failed(emitter.emitOperand(op.getValue(), "value"))) {
     return failure();
   }
-  return success();
-}
-
-static LogicalResult printOperation(PythonEmitter &emitter,
-                                    GetValueForDictKeyOp op) {
-  if (failed(emitter.emitAssignPrefix(*op))) {
-    return failure();
-  }
-
-  raw_indented_ostream &os = emitter.ostream();
-
-  if (failed(emitter.emitOperand(op.getDict(), "dict_arg"))) {
-    return failure();
-  }
-
-  os << "[";
-  if (failed(emitter.emitOperand(op.getKey(), "dict_key"))) {
-    return failure();
-  }
-  os << "]";
 
   return success();
 }
@@ -910,8 +889,8 @@ LogicalResult PythonEmitter::emitOperation(Operation &op) {
           // EmitPy ops.
           .Case<CallOpaqueOp, ImportOp, AssignOp, GetAttrOp, SetAttrOp,
                 ConstantOp, SubscriptOp, ClassOp, GlobalOp, AssignGlobalOp,
-                GlobalStatementOp, CreateDictOp, SetValueForDictKeyOp,
-                GetValueForDictKeyOp, ExpressionOp, YieldOp, FileOp>(
+                GlobalStatementOp, CreateDictOp, SetItemOp, ExpressionOp,
+                YieldOp, FileOp>(
               [&](auto op) { return printOperation(*this, op); })
           .Case<GetGlobalOp>([&](auto op) {
             registerDeferredValue(op.getResult(), op.getName());

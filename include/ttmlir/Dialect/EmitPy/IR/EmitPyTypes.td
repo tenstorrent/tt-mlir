@@ -69,7 +69,7 @@ def EmitPy_DictType : EmitPy_Type<"Dict", "dict"> {
     ```mlir
     !emitpy.dict                    // Untyped dictionary (Any, Any)
     !emitpy.dict<i32, f32>          // Both key and value types specified
-    !emitpy.dict<!emitpy.opaque<"str">, !emitpy.opaque<"ttnn.Tensor">>
+    !emitpy.dict<!emitpy.str, !emitpy.opaque<"ttnn.Tensor">>
     ```
   }];
 

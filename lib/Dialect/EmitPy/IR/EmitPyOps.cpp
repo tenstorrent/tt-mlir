@@ -7,9 +7,10 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/OpImplementation.h"
+#include "mlir/Interfaces/SideEffectInterfaces.h"
+#include "llvm/Support/Casting.h"
 #include "llvm/Support/LogicalResult.h"
 
-#include "llvm/Support/Casting.h"
 #include <string_view>
 
 using namespace mlir;
@@ -600,9 +601,8 @@ LogicalResult SubscriptOp::verify() {
   Type valueType = getValue().getType();
   Type indexType = getIndex().getType();
   if (!isa<DictType>(valueType) && isa<StringType>(indexType)) {
-    return emitOpError()
-           << "cannot use index of string type to access elements of "
-           << valueType << " value.";
+    return emitOpError() << "cannot use string index on non-dict type "
+                         << valueType;
   }
   return success();
 }
@@ -794,38 +794,31 @@ LogicalResult CreateDictOp::verify() {
     return emitOpError() << "dictionary name must be a valid Python identifier";
   }
 
-  if (getLiteralExpr() && !getItems().empty()) {
-    return emitOpError(
-        "cannot have both literal_expr and items operands; use either "
-        "literal_expr for Python dict literals or items for key-value pairs");
-  }
-
-  if (!getLiteralExpr() && getItems().size() % 2 != 0) {
-    return emitOpError(
-        "items must be alternating key-value pairs (even count required)");
-  }
-
-  if (getLiteralExpr() && getLiteralExpr()->empty()) {
-    return emitOpError("literal_expr must not be empty");
-  }
-
-  return success();
-}
-
-//===----------------------------------------------------------------------===//
-// SetValueForDictKeyOp
-//===----------------------------------------------------------------------===//
-
-LogicalResult SetValueForDictKeyOp::verify() {
-  Type keyType = getKey().getType();
-
-  // If key is an opaque type, verify it represents a string
-  if (auto opaqueType = dyn_cast<OpaqueType>(keyType)) {
-    StringRef value = opaqueType.getValue();
-    if (value != "str") {
-      return emitOpError()
-             << "key with opaque type must represent a string type "
-             << "(!emitpy.opaque<\"str\">), but got: " << opaqueType;
+  if (getLiteralExpr()) {
+    if (getLiteralExpr()->empty()) {
+      return emitOpError("literal_expr must not be empty");
+    }
+    if (!getItems().empty()) {
+      return emitOpError(
+          "cannot have both literal_expr and items operands; use either "
+          "literal_expr for Python dict literals or items for key-value pairs");
+    }
+  } else {
+    if (getItems().empty()) {
+      return emitOpError("cannot have both literal_expr and items empty; for an"
+                         "empty dict, use literal_expr = \"{}\" instead");
+    }
+    if (getItems().size() % 2 != 0) {
+      return emitOpError(
+          "items must be alternating key-value pairs (even count required)");
+    }
+    for (size_t i = 1; i < getItems().size(); i += 2) {
+      Type keyType = getItems()[i].getType();
+      if (!isa<IndexType, StringType>(keyType)) {
+        return emitOpError()
+               << "dictionary keys must be index or string type, but got "
+               << keyType << " at position " << i;
+      }
     }
   }
 
@@ -833,20 +826,24 @@ LogicalResult SetValueForDictKeyOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
-// GetValueForDictKeyOp
+// SetItemOp
 //===----------------------------------------------------------------------===//
 
-LogicalResult GetValueForDictKeyOp::verify() {
-  Type keyType = getKey().getType();
+void SetItemOp::getEffects(
+    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
+        &effects) {
+  // SetItem modifies the target container in-place
+  effects.emplace_back(MemoryEffects::Write::get(),
+                       SideEffects::DefaultResource::get());
+}
 
-  // If key is an opaque type, verify it represents a string
-  if (auto opaqueType = dyn_cast<OpaqueType>(keyType)) {
-    StringRef value = opaqueType.getValue();
-    if (value != "str") {
-      return emitOpError()
-             << "key with opaque type must represent a string type "
-             << "(!emitpy.opaque<\"str\">), but got: " << opaqueType;
-    }
+LogicalResult SetItemOp::verify() {
+  Type targetType = getTarget().getType();
+  Type indexType = getIndex().getType();
+
+  if (!isa<DictType>(targetType) && isa<StringType>(indexType)) {
+    return emitOpError() << "cannot use string index on non-dict type "
+                         << targetType;
   }
 
   return success();

@@ -125,7 +125,7 @@ public:
           continue;
         }
 
-        auto strType = emitpy::OpaqueType::get(&getContext(), "str");
+        auto strType = emitpy::StringType::get(&getContext());
         auto tensorListType =
             emitpy::OpaqueType::get(&getContext(), "[ttnn.Tensor]");
         auto innerDictType =
