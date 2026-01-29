@@ -170,5 +170,83 @@ void registerRuntimeUtilsBindings(nb::module_ &m) {
     MeshBuffer
         A buffer object with address(), size(), and deallocate() methods
     )");
+
+  // ==========================================================================
+  // L1 Memory Address Query APIs
+  // ==========================================================================
+  // These APIs provide direct access to L1 memory layout information,
+  // enabling accurate calculation of available L1 space for D2M allocator.
+
+  m.def(
+      "get_l1_base_allocator_addr",
+      [](::ttnn::MeshDevice *mesh_device) -> uint32_t {
+        return mesh_device->allocator()->get_base_allocator_addr(
+            tt_metal::HalMemType::L1);
+      },
+      nb::arg("mesh_device"),
+      R"(
+    Get the base L1 allocator address (start of allocatable L1 region).
+
+    This is the lowest address in L1 that can be used for buffer allocation,
+    after reserved space for firmware and other system use.
+
+    Parameters
+    ----------
+    mesh_device : ttnn.MeshDevice
+        The TTNN mesh device
+
+    Returns
+    -------
+    int
+        The base L1 allocator address in bytes
+    )");
+
+  m.def(
+      "get_lowest_occupied_compute_l1_address",
+      [](::ttnn::MeshDevice *mesh_device) -> std::optional<uint64_t> {
+        return mesh_device->lowest_occupied_compute_l1_address();
+      },
+      nb::arg("mesh_device"),
+      R"(
+    Get the lowest occupied L1 address from tensor allocations.
+
+    L1 buffers grow downward from high addresses. This returns the lowest
+    address currently occupied by allocated tensors. The region between
+    get_l1_base_allocator_addr() and this address is available for
+    circular buffers / D2M use.
+
+    Parameters
+    ----------
+    mesh_device : ttnn.MeshDevice
+        The TTNN mesh device
+
+    Returns
+    -------
+    Optional[int]
+        The lowest occupied L1 address, or None if no allocations exist
+    )");
+
+  m.def(
+      "get_l1_size_per_core",
+      [](::ttnn::MeshDevice *mesh_device) -> uint32_t {
+        return mesh_device->l1_size_per_core();
+      },
+      nb::arg("mesh_device"),
+      R"(
+    Get the total L1 size per core.
+
+    This is the maximum L1 address (exclusive) for each core.
+    Used as fallback when no L1 allocations exist.
+
+    Parameters
+    ----------
+    mesh_device : ttnn.MeshDevice
+        The TTNN mesh device
+
+    Returns
+    -------
+    int
+        The L1 size per core in bytes
+    )");
 }
 } // namespace tt::runtime::python

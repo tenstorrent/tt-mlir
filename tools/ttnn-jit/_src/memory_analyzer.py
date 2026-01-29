@@ -5,7 +5,12 @@ import ttnn
 import ttnn.device
 
 from ttmlir.dialects import ttnn as ttnn_dialect
-from ttnn_jit._src import allocate_l1_buffer, allocate_dram_buffer
+from ttnn_jit._src import (
+    allocate_dram_buffer,
+    get_l1_base_allocator_addr,
+    get_lowest_occupied_compute_l1_address,
+    get_l1_size_per_core,
+)
 from ttnn_jit._src.conversions import ttnn_dtype_from_mlir_element_type
 from ttnn_jit._src.tensor_translator import TILE_WIDTH, TILE_HEIGHT
 
@@ -15,16 +20,15 @@ class MemoryAnalyzer:
     Extracts memory addresses that can be used by D2M allocator by taking into
     account the already-in-use memory blocks prior to jit.
 
-    This class allocates temporary buffers using Metal's allocator to get the
-    actual start addresses of free memory blocks, then deallocates them.
-
-    Mote: This class acts in the following way:
+    This class queries the device's allocator directly to determine available
+    memory ranges.
+    This class acts in the following way:
     1. L1:
-        1.1 It allocates the bigest possible L1 temporary buffer using Metal's allocator,
-        1.2 It stores the [start,end) address range of the allocated buffer,
-        1.3 It deallocates the allocated buffer,
+        1.1 Uses lowest_occupied_compute_l1_address() to get the end of free region
+        1.2 Uses get_l1_base_allocator_addr() to get the start of free region
+        1.3 Stores the [start, end) address range
     2. DRAM:
-        2.1 It allocates the bigest possible DRAM temporary buffer using Metal's allocator,
+        2.1 It allocates the biggest possible DRAM temporary buffer using Metal's allocator,
         2.2 It stores the [start,end) address range of the allocated buffer,
         2.3 It deallocates the allocated buffer,
     3. Output tensor:
@@ -83,10 +87,10 @@ class MemoryAnalyzer:
             return
 
         # Cache the address ranges at initialization
-        self._l1_addr_range = self._allocate_and_get_addr_range(
-            l1_buffer_size, allocate_l1_buffer, "L1"
-        )
+        # L1: Use direct allocator query via lowest_occupied_compute_l1_address
+        self._l1_addr_range = self._get_l1_addr_range()
 
+        # DRAM: Use temporary buffer allocation approach
         self._dram_addr_range = self._allocate_and_get_addr_range(
             dram_buffer_size, allocate_dram_buffer, "DRAM"
         )
@@ -101,6 +105,40 @@ class MemoryAnalyzer:
     def _round_down_to_alignment(self, value: int) -> int:
         """Round down to the nearest multiple of ALIGNMENT."""
         return (value // self.ALIGNMENT) * self.ALIGNMENT
+
+    def _get_l1_addr_range(self) -> tuple[int, int]:
+        """
+        Calculate L1 address range using lowest_occupied_compute_l1_address API.
+        This directly queries the allocator for the exact available L1 region
+        without needing to allocate temporary buffers.
+
+        L1 Memory Layout (per core):
+        +----------------------------+ <-- High Address (l1_size_per_core)
+        |    Allocated L1 Buffers    |
+        +----------------------------+        ( Grow downward )
+        |    Allocated L1 Buffers    |
+        +----------------------------+ <-- lowest_occupied_compute_l1_address()
+        |                            |
+        |         FREE SPACE         |
+        |                            |
+        +----------------------------+
+        |            CBs             |
+        +----------------------------+ <-- get_l1_base_allocator_addr()
+        |  Reserved (firmware, etc.) |
+        +----------------------------+ <-- Low Address (0)
+
+        Since at the time of execution of D2M, there's no CBs allocated, the
+        free space is essentially [get_l1_base_allocator_addr, lowest_occupied_compute_l1_address).
+
+        Returns:
+            tuple[int, int]: (start_addr, end_addr) for available L1 region
+        """
+        start = get_l1_base_allocator_addr(self.device)
+        lowest = get_lowest_occupied_compute_l1_address(self.device)
+        # If no allocations exist, lowest is None, use full L1 size
+        end = lowest if lowest is not None else get_l1_size_per_core(self.device)
+        end = self._round_down_to_alignment(end)
+        return (start, end)
 
     def _bytes_to_kb(self, bytes_val: int) -> float:
         """Convert bytes to KB."""

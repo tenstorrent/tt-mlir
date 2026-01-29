@@ -57,6 +57,9 @@ try:
         allocate_l1_buffer,
         allocate_dram_buffer,
         MeshBuffer,
+        get_l1_base_allocator_addr,
+        get_lowest_occupied_compute_l1_address,
+        get_l1_size_per_core,
     )
     from ttnn_jit.runtime._ttnn_jit import JitCache
 except ModuleNotFoundError:
@@ -79,5 +82,8 @@ except ModuleNotFoundError:
         allocate_l1_buffer,
         allocate_dram_buffer,
         MeshBuffer,
+        get_l1_base_allocator_addr,
+        get_lowest_occupied_compute_l1_address,
+        get_l1_size_per_core,
     )
     from ttnn_jit._ttnn_jit import JitCache
