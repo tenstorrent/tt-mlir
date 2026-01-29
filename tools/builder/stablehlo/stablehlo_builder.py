@@ -4166,6 +4166,283 @@ class StableHLOBuilder(Builder):
 
         return sub_module, sub_builder
 
+    ############### stablehlo.CompareOp ###############
+    # StableHLO uses a single CompareOp with a comparison_direction attribute.
+    # We provide separate methods for each comparison direction for convenience.
+
+    def _compare(
+        self,
+        in0: Operand,
+        in1: Operand,
+        comparison_direction: str,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpResult:
+        """
+        Internal helper for creating stablehlo.CompareOp with a specific direction.
+
+        Parameters
+        ----------
+        in0 : Operand
+            Left-hand side input tensor
+        in1 : Operand
+            Right-hand side input tensor
+        comparison_direction : str
+            Comparison direction: "EQ", "NE", "GE", "GT", "LE", or "LT"
+        loc : Optional[str], optional
+            Location for the operation
+        unit_attrs : Optional[List[str]], optional
+            Optional list of unit attributes
+        sharding_attr : Optional[sdy.TensorShardingPerValueAttr], optional
+            Optional sharding attribute
+
+        Returns
+        -------
+        OpResult
+            Result of the compare operation (boolean tensor)
+        """
+        # Create comparison direction attribute
+        comparison_direction_attr = stablehlo.ComparisonDirectionAttr.get(
+            comparison_direction
+        )
+
+        # Create output type (boolean tensor with same shape as input)
+        input_shape = in0.type.shape
+        output_type = RankedTensorType.get(input_shape, IntegerType.get_signless(1))
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = stablehlo.CompareOp(
+            output_type,
+            in0,
+            in1,
+            comparison_direction=comparison_direction_attr,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if sharding_attr is not None:
+            op.operation.attributes["sdy.sharding"] = sharding_attr
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            input1 = self._get_golden_tensor(in1)
+            op_golden_function = get_golden_function(
+                stablehlo.CompareOp, comparison_direction=comparison_direction
+            )
+            golden_output = op_golden_function(
+                input0, input1, op_result.type.element_type
+            )
+            self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    def compare_eq(
+        self,
+        in0: Operand,
+        in1: Operand,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpResult:
+        """
+        Creates ``stablehlo.compare`` with EQ (equal) direction.
+
+        Performs element-wise equality comparison.
+
+        Parameters
+        ----------
+        in0 : Operand
+            Left-hand side input tensor
+        in1 : Operand
+            Right-hand side input tensor
+        loc : Optional[str], optional
+            Location for the operation
+        unit_attrs : Optional[List[str]], optional
+            Optional list of unit attributes
+        sharding_attr : Optional[sdy.TensorShardingPerValueAttr], optional
+            Optional sharding attribute
+
+        Returns
+        -------
+        OpResult
+            Boolean tensor with True where elements are equal
+        """
+        return self._compare(in0, in1, "EQ", loc, unit_attrs, sharding_attr)
+
+    def compare_ne(
+        self,
+        in0: Operand,
+        in1: Operand,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpResult:
+        """
+        Creates ``stablehlo.compare`` with NE (not equal) direction.
+
+        Performs element-wise not-equal comparison.
+
+        Parameters
+        ----------
+        in0 : Operand
+            Left-hand side input tensor
+        in1 : Operand
+            Right-hand side input tensor
+        loc : Optional[str], optional
+            Location for the operation
+        unit_attrs : Optional[List[str]], optional
+            Optional list of unit attributes
+        sharding_attr : Optional[sdy.TensorShardingPerValueAttr], optional
+            Optional sharding attribute
+
+        Returns
+        -------
+        OpResult
+            Boolean tensor with True where elements are not equal
+        """
+        return self._compare(in0, in1, "NE", loc, unit_attrs, sharding_attr)
+
+    def compare_ge(
+        self,
+        in0: Operand,
+        in1: Operand,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpResult:
+        """
+        Creates ``stablehlo.compare`` with GE (greater or equal) direction.
+
+        Performs element-wise greater-or-equal comparison.
+
+        Parameters
+        ----------
+        in0 : Operand
+            Left-hand side input tensor
+        in1 : Operand
+            Right-hand side input tensor
+        loc : Optional[str], optional
+            Location for the operation
+        unit_attrs : Optional[List[str]], optional
+            Optional list of unit attributes
+        sharding_attr : Optional[sdy.TensorShardingPerValueAttr], optional
+            Optional sharding attribute
+
+        Returns
+        -------
+        OpResult
+            Boolean tensor with True where in0 >= in1
+        """
+        return self._compare(in0, in1, "GE", loc, unit_attrs, sharding_attr)
+
+    def compare_gt(
+        self,
+        in0: Operand,
+        in1: Operand,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpResult:
+        """
+        Creates ``stablehlo.compare`` with GT (greater than) direction.
+
+        Performs element-wise greater-than comparison.
+
+        Parameters
+        ----------
+        in0 : Operand
+            Left-hand side input tensor
+        in1 : Operand
+            Right-hand side input tensor
+        loc : Optional[str], optional
+            Location for the operation
+        unit_attrs : Optional[List[str]], optional
+            Optional list of unit attributes
+        sharding_attr : Optional[sdy.TensorShardingPerValueAttr], optional
+            Optional sharding attribute
+
+        Returns
+        -------
+        OpResult
+            Boolean tensor with True where in0 > in1
+        """
+        return self._compare(in0, in1, "GT", loc, unit_attrs, sharding_attr)
+
+    def compare_le(
+        self,
+        in0: Operand,
+        in1: Operand,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpResult:
+        """
+        Creates ``stablehlo.compare`` with LE (less or equal) direction.
+
+        Performs element-wise less-or-equal comparison.
+
+        Parameters
+        ----------
+        in0 : Operand
+            Left-hand side input tensor
+        in1 : Operand
+            Right-hand side input tensor
+        loc : Optional[str], optional
+            Location for the operation
+        unit_attrs : Optional[List[str]], optional
+            Optional list of unit attributes
+        sharding_attr : Optional[sdy.TensorShardingPerValueAttr] = None,
+            Optional sharding attribute
+
+        Returns
+        -------
+        OpResult
+            Boolean tensor with True where in0 <= in1
+        """
+        return self._compare(in0, in1, "LE", loc, unit_attrs, sharding_attr)
+
+    def compare_lt(
+        self,
+        in0: Operand,
+        in1: Operand,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpResult:
+        """
+        Creates ``stablehlo.compare`` with LT (less than) direction.
+
+        Performs element-wise less-than comparison.
+
+        Parameters
+        ----------
+        in0 : Operand
+            Left-hand side input tensor
+        in1 : Operand
+            Right-hand side input tensor
+        loc : Optional[str], optional
+            Location for the operation
+        unit_attrs : Optional[List[str]], optional
+            Optional list of unit attributes
+        sharding_attr : Optional[sdy.TensorShardingPerValueAttr], optional
+            Optional sharding attribute
+
+        Returns
+        -------
+        OpResult
+            Boolean tensor with True where in0 < in1
+        """
+        return self._compare(in0, in1, "LT", loc, unit_attrs, sharding_attr)
+
     ############### stablehlo.PowOp ###############
 
     @tag(stablehlo.PowOp)

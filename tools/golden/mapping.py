@@ -4428,6 +4428,84 @@ def stablehlo_subtract_golden(
     return torch.subtract(input_tensor, other_tensor).to(output_dtype)
 
 
+def stablehlo_compare_eq_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    """
+    Golden function for StableHLO compare with EQ (equal) direction.
+
+    Performs element-wise equality comparison.
+    """
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    result_bool = torch.eq(input_tensor, other_tensor)
+    return result_bool.to(output_dtype)
+
+
+def stablehlo_compare_ne_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    """
+    Golden function for StableHLO compare with NE (not equal) direction.
+
+    Performs element-wise not-equal comparison.
+    """
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    result_bool = torch.ne(input_tensor, other_tensor)
+    return result_bool.to(output_dtype)
+
+
+def stablehlo_compare_ge_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    """
+    Golden function for StableHLO compare with GE (greater or equal) direction.
+
+    Performs element-wise greater-or-equal comparison.
+    """
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    result_bool = torch.ge(input_tensor, other_tensor)
+    return result_bool.to(output_dtype)
+
+
+def stablehlo_compare_gt_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    """
+    Golden function for StableHLO compare with GT (greater than) direction.
+
+    Performs element-wise greater-than comparison.
+    """
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    result_bool = torch.gt(input_tensor, other_tensor)
+    return result_bool.to(output_dtype)
+
+
+def stablehlo_compare_le_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    """
+    Golden function for StableHLO compare with LE (less or equal) direction.
+
+    Performs element-wise less-or-equal comparison.
+    """
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    result_bool = torch.le(input_tensor, other_tensor)
+    return result_bool.to(output_dtype)
+
+
+def stablehlo_compare_lt_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    """
+    Golden function for StableHLO compare with LT (less than) direction.
+
+    Performs element-wise less-than comparison.
+    """
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    result_bool = torch.lt(input_tensor, other_tensor)
+    return result_bool.to(output_dtype)
+
+
 def stablehlo_shift_right_logical_golden(
     input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
 ) -> GoldenMapTensor:
@@ -5776,6 +5854,21 @@ def get_golden_function(ttir_op_class: type, **kwargs) -> Optional[Callable]:
             return tilize_golden
         else:
             return untilize_golden
+
+    # Handle StableHLO CompareOp with comparison_direction parameter
+    if ttir_op_class == stablehlo.CompareOp and "comparison_direction" in kwargs:
+        direction = kwargs["comparison_direction"]
+        compare_golden_map = {
+            "EQ": stablehlo_compare_eq_golden,
+            "NE": stablehlo_compare_ne_golden,
+            "GE": stablehlo_compare_ge_golden,
+            "GT": stablehlo_compare_gt_golden,
+            "LE": stablehlo_compare_le_golden,
+            "LT": stablehlo_compare_lt_golden,
+        }
+        if direction in compare_golden_map:
+            return compare_golden_map[direction]
+        assert False, f"Unknown comparison direction: {direction}"
 
     if ttir_op_class in GOLDEN_MAPPINGS:
         return GOLDEN_MAPPINGS[ttir_op_class]
