@@ -283,7 +283,7 @@ void DMAWriteOp::getEffects(
                        true, mlir::SideEffects::DefaultResource::get());
 }
 
-void ExperimentalWriteRowMaskTileOp::getEffects(
+void WriteRowMaskTileOp::getEffects(
     mlir::SmallVectorImpl<
         mlir::SideEffects::EffectInstance<mlir::MemoryEffects::Effect>>
         &effects) {
@@ -291,7 +291,7 @@ void ExperimentalWriteRowMaskTileOp::getEffects(
                        0, true, mlir::SideEffects::DefaultResource::get());
 }
 
-void ExperimentalWriteColMaskTileOp::getEffects(
+void WriteColMaskTileOp::getEffects(
     mlir::SmallVectorImpl<
         mlir::SideEffects::EffectInstance<mlir::MemoryEffects::Effect>>
         &effects) {

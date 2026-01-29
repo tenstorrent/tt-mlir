@@ -24,8 +24,8 @@ module attributes {ttcore.system_desc = #system_desc} {
                                                %arg3: memref<1x1x1x1x!ttcore.tile<32x32, f32>, #shard_1x1, #l1>) {
     // CHECK-NOT: d2m.block_mask
     // CHECK: d2m.generic
-    // CHECK: d2m.experimental::write_row_mask_tile
-    // CHECK: d2m.experimental::write_col_mask_tile
+    // CHECK: d2m.write_row_mask_tile
+    // CHECK: d2m.write_col_mask_tile
     // CHECK: scf.for
     // CHECK:   scf.for
     d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map, #map1, #map1, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<compute>]}
@@ -51,8 +51,8 @@ module attributes {ttcore.system_desc = #system_desc} {
                                                 %arg3: memref<1x1x1x1x!ttcore.tile<32x32, f32>, #shard_1x1, #l1>) {
     // CHECK-NOT: d2m.block_mask
     // CHECK: d2m.generic
-    // CHECK: d2m.experimental::write_row_mask_tile
-    // CHECK: d2m.experimental::write_col_mask_tile
+    // CHECK: d2m.write_row_mask_tile
+    // CHECK: d2m.write_col_mask_tile
     // Interior loop
     // CHECK: scf.for
     // CHECK:   scf.for
@@ -74,11 +74,11 @@ module attributes {ttcore.system_desc = #system_desc} {
     // OOB rows fill
     // CHECK: scf.for
     // CHECK:   scf.for
-    // CHECK:     d2m.experimental::tile_fill
+    // CHECK:     d2m.tile_fill
     // OOB cols fill
     // CHECK: scf.for
     // CHECK:   scf.for
-    // CHECK:     d2m.experimental::tile_fill
+    // CHECK:     d2m.tile_fill
     d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map, #map1, #map1, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<compute>]}
         ins(%arg0, %arg2, %arg3 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #shard_2x2, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #shard_1x1, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #shard_1x1, #l1>)
         outs(%arg1 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #shard_2x2, #l1>) {

@@ -81,17 +81,18 @@ struct DecomposeBlockMaskPattern : OpRewritePattern<BlockMaskOp> {
     Value globalRegionEndVal =
         rewriter.create<arith::ConstantIndexOp>(loc, globalRegionEnd);
 
-    // localStart = max(globalRegionStart - globalCoreStart, 0).
-    //            = globalRegionStart - min(globalRegionStart, globalCoreStart).
+    // We define localStart = max(globalRegionStart - globalCoreStart, 0); in
+    // turn this can be rewritten as localStart = globalRegionStart -
+    // min(globalRegionStart, globalCoreStart).
     Value clampedStart = rewriter.create<arith::MinUIOp>(
         loc, globalRegionStartVal, globalCoreStart);
     Value localStart =
         rewriter.create<arith::SubIOp>(loc, globalRegionStartVal, clampedStart);
 
-    // localEnd = min(globalRegionEnd - globalCoreStart, shardSize).
-    // Safe version to avoid underflow:
-    //   clampedEnd = max(min(globalRegionEnd, globalCoreEnd), globalCoreStart).
-    //   localEnd = clampedEnd - globalCoreStart.
+    // Similarly, we define localEnd = min(globalRegionEnd - globalCoreStart,
+    // shardSize). However, to avoid underflow on unsigned, we re-express it as
+    // clampedEnd = max(min(globalRegionEnd, globalCoreEnd), globalCoreStart),
+    // and localEnd = clampedEnd - globalCoreStart, which is equivalent.
     Value globalCoreEnd =
         rewriter.create<arith::AddIOp>(loc, globalCoreStart, shardSizeVal);
     Value clampedEnd =
@@ -205,16 +206,13 @@ struct DecomposeBlockMaskPattern : OpRewritePattern<BlockMaskOp> {
         rewriter.create<arith::ConstantIndexOp>(loc, validColsInLastTile);
 
     TT_assert(rowMaskCB);
-    rewriter.create<ExperimentalWriteRowMaskTileOp>(loc, validRowsVal,
-                                                    rowMaskCB);
+    rewriter.create<WriteRowMaskTileOp>(loc, validRowsVal, rowMaskCB);
     TT_assert(colMaskCB);
-    rewriter.create<ExperimentalWriteColMaskTileOp>(loc, validColsVal,
-                                                    colMaskCB);
+    rewriter.create<WriteColMaskTileOp>(loc, validColsVal, colMaskCB);
 
     // === Tile operation helpers ===
     auto createFillTile = [&]() {
-      return rewriter.create<ExperimentalTileFillOp>(loc, tileType, fillScalar)
-          .getResult();
+      return rewriter.create<TileFillOp>(loc, tileType, fillScalar).getResult();
     };
 
     auto emitPassthrough = [&](Value localRowIdx, Value localColIdx) {
