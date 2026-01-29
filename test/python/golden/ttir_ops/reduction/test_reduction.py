@@ -123,7 +123,7 @@ reduction_op_cpu_hoisted_names = [
     "min",
     "prod",
     "reduce_and" | Marks(pytest.mark.xfail(reason="Builder test not supported #5792")),
-    "reduce_or",
+    "reduce_or" | Marks(pytest.mark.xfail(reason="Builder test not supported #5792")),
     "sum",
 ]
 
