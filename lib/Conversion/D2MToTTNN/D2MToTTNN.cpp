@@ -227,8 +227,6 @@ public:
   }
 
   static std::tuple<Value, Value> extractIOAndCB(Value operand) {
-    llvm::errs() << "extracting IO and CB from operand:\n";
-    operand.dump();
     if (auto streamLayoutOp = mlir::dyn_cast_if_present<d2m::StreamLayoutOp>(
             operand.getDefiningOp())) {
       auto castOp = mlir::dyn_cast_if_present<ttir::TTNNMetalLayoutCastOp>(
@@ -250,7 +248,7 @@ public:
         TT_assertv(castOp,
                    "Expected TTNNMetalLayoutCastOp producing view input.");
         return {castOp.getOperand(), operand};
-      } else if (auto streamLayoutOp =
+      } if (auto streamLayoutOp =
                      mlir::dyn_cast_if_present<d2m::StreamLayoutOp>(
                          viewOp.getInput().getDefiningOp())) {
         auto innerCastOp =
