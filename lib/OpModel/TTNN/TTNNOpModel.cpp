@@ -1363,7 +1363,7 @@ llvm::Expected<OpConstraints> OpModel<PowScalarOp>::getOpConstraints(
   // The invoke function of PowScalarOp is templated over the exponent value
   // type. That's why the following code is arranged in this way.
   if (auto value = mlir::dyn_cast<mlir::IntegerAttr>(exponent)) {
-    uint32_t convertedExponent = static_cast<uint32_t>(value.getInt());
+    int32_t convertedExponent = static_cast<int32_t>(value.getInt());
     auto query = powScalarQuery(convertedExponent);
     return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
                                        query);
@@ -1407,7 +1407,7 @@ llvm::Expected<size_t> OpModel<PowScalarOp>::getOpRuntime(
   // The invoke function of PowScalarOp is templated over the exponent value
   // type. That's why the following code is arranged in this way.
   if (auto value = mlir::dyn_cast<mlir::IntegerAttr>(exponent)) {
-    uint32_t convertedExponent = static_cast<uint32_t>(value.getInt());
+    int32_t convertedExponent = static_cast<int32_t>(value.getInt());
     auto query = powScalarQuery(convertedExponent);
     return operation::getOpRuntime(query);
   }
@@ -6174,7 +6174,9 @@ llvm::Expected<OpConstraints> OpModel<RMSNormOp>::getOpConstraints(
     return ::ttnn::graph::query_op_constraints(
         ::ttnn::rms_norm, device, inputSpec, epsilon.convertToFloat(),
         weightSpec, biasSpec, residualInputSpec,
-        detail::getNullableMemoryConfig(outputLayout));
+        detail::getNullableMemoryConfig(outputLayout),
+        /*program_config=*/std::nullopt,
+        /*compute_kernel_config=*/std::nullopt);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
@@ -6215,7 +6217,9 @@ llvm::Expected<size_t> OpModel<RMSNormOp>::getOpRuntime(
     return ::ttnn::graph::query_op_runtime(
         ::ttnn::rms_norm, device, inputSpec, epsilon.convertToFloat(),
         weightSpec, biasSpec, residualInputSpec,
-        detail::getNullableMemoryConfig(outputLayout));
+        detail::getNullableMemoryConfig(outputLayout),
+        /*program_config=*/std::nullopt,
+        /*compute_kernel_config=*/std::nullopt);
   };
 
   return operation::getOpRuntime(rmsNormQuery);
@@ -6258,7 +6262,9 @@ llvm::Expected<OpConstraints> OpModel<LayerNormOp>::getOpConstraints(
     return ::ttnn::graph::query_op_constraints(
         ::ttnn::layer_norm, device, inputSpec, epsilon.convertToFloat(),
         weightSpec, biasSpec, residualInputSpec,
-        detail::getNullableMemoryConfig(outputLayout));
+        detail::getNullableMemoryConfig(outputLayout),
+        /*program_config=*/std::nullopt,
+        /*compute_kernel_config=*/std::nullopt);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
@@ -6298,7 +6304,9 @@ llvm::Expected<size_t> OpModel<LayerNormOp>::getOpRuntime(
     return ::ttnn::graph::query_op_runtime(
         ::ttnn::layer_norm, device, inputSpec, epsilon.convertToFloat(),
         weightSpec, biasSpec, residualInputSpec,
-        detail::getNullableMemoryConfig(outputLayout));
+        detail::getNullableMemoryConfig(outputLayout),
+        /*program_config=*/std::nullopt,
+        /*compute_kernel_config=*/std::nullopt);
   };
 
   return operation::getOpRuntime(layerNormQuery);

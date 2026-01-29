@@ -101,8 +101,8 @@ table FloatingPointType {
   value: float;
 }
 
-table UIntegralType {
-  value: uint32;
+table IntegralType {
+  value: int32;
 }
 
 enum PlacementType: ushort {
