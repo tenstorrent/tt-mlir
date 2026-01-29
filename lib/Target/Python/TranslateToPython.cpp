@@ -348,7 +348,13 @@ std::string PythonEmitter::getSubscriptName(SubscriptOp op) {
   std::string name;
   llvm::raw_string_ostream ss(name);
   auto index = op.getIndex();
-  std::string indexName = "index_" + std::to_string(valueInScopeCount.top()++);
+
+  // Only generate a new name if index doesn't already have one
+  std::string indexName;
+  if (!valueMapper.count(index)) {
+    indexName = "index_" + std::to_string(valueInScopeCount.top()++);
+  }
+
   ss << "[" << getOrCreateName(index, indexName) << "]";
   return name;
 }
