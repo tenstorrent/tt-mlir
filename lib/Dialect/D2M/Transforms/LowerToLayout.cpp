@@ -11,8 +11,7 @@
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTCore/Utils/AffineMapUtils.h"
 
-#include "mlir/Dialect/Bufferization/IR/Bufferization.h"
-#include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/ADT/ArrayRef.h"
 
@@ -105,6 +104,84 @@ static bool needsMasking(ttcore::MetalLayoutAttr layout,
 } // namespace
 
 namespace {
+
+// ============================================================================
+// Helper functions for building GenericOp regions with RemoteLoad/RemoteStore
+// ============================================================================
+
+// Extract the underlying shard type from a circular buffer block argument
+static Type getShardTypeFromCB(Value cbBlockArg) {
+  auto cbType = mlir::cast<CBType>(cbBlockArg.getType());
+  return cbType.getUnderlying();
+}
+
+// Build identity grid indices for a given grid rank
+static SmallVector<Value>
+buildIdentityGridIndices(OpBuilder &builder, Location loc, size_t gridRank) {
+  AffineMap indexingMap = builder.getMultiDimIdentityMap(gridRank);
+  return d2m::utils::buildGridIndices(builder, loc, indexingMap);
+}
+
+// Create a RemoteLoadOp in implicit form (returns loaded memref directly)
+static Value createRemoteLoad(OpBuilder &builder, Location loc, Type shardType,
+                              Value source, ArrayRef<Value> indices) {
+  // Create a buffer for the load result
+  auto tensorType = mlir::cast<RankedTensorType>(shardType);
+  auto bufferOp = builder.create<tensor::EmptyOp>(loc, tensorType.getShape(),
+                                                  tensorType.getElementType());
+  Value buffer = bufferOp.getResult();
+  return builder.create<RemoteLoadOp>(loc, shardType, buffer, source, indices)
+      .getResult();
+}
+
+// Create a tensor.empty with identical result type
+static Value createTensorEmpty(OpBuilder &builder, Location loc,
+                               Type shardType) {
+  auto tensorType = mlir::cast<RankedTensorType>(shardType);
+  return builder
+      .create<tensor::EmptyOp>(loc, tensorType.getShape(),
+                               tensorType.getElementType())
+      .getResult();
+}
+
+// Create a RemoteStoreOp in implicit form and return the result
+static Value createRemoteStore(OpBuilder &builder, Location loc,
+                               Value destination, ArrayRef<Value> indices,
+                               Value localBuffer) {
+  return builder
+      .create<RemoteStoreOp>(loc, destination.getType(), destination, indices,
+                             localBuffer)
+      .getResult();
+}
+
+// Complete identity load-store pattern: load from input, acquire output buffer,
+// and return both along with the indices. This is useful for operations that
+// need to perform transformations between load and store (e.g., tilize, mask).
+struct IdentityLoadStoreResult {
+  Value src;
+  Value dst;
+  SmallVector<Value> indices;
+};
+
+static IdentityLoadStoreResult
+buildIdentityLoadStore(OpBuilder &builder, Location loc, Value inputCBBlockArg,
+                       Value outputCBBlockArg, Value input, Value output,
+                       int64_t outputOperandIndex) {
+  auto inputType = mlir::cast<RankedTensorType>(input.getType());
+  auto inputLayout =
+      mlir::cast<ttcore::MetalLayoutAttr>(inputType.getEncoding());
+  size_t gridRank = inputLayout.getGridShape(inputType).size();
+
+  Type inputShardType = getShardTypeFromCB(inputCBBlockArg);
+  Type outputShardType = getShardTypeFromCB(outputCBBlockArg);
+  SmallVector<Value> indices = buildIdentityGridIndices(builder, loc, gridRank);
+
+  Value src = createRemoteLoad(builder, loc, inputShardType, input, indices);
+  Value dst = createTensorEmpty(builder, loc, outputShardType);
+
+  return {src, dst, indices};
+}
+
 class D2MLowerToLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
   // Helper struct to build intermediate bounce types.
   class BounceTypeBuilder {
@@ -419,21 +496,27 @@ public:
       std::tie(indexingMaps, iteratorTypes) =
           GenericOp::buildParallelAffineMapsAndIteratorTypes(
               rewriter, /*arity=*/2, gridRank);
-      auto indexingMap = mlir::cast<AffineMapAttr>(indexingMaps[0]);
+      auto indexingMapAttr = mlir::cast<AffineMapAttr>(indexingMaps[0]);
+      AffineMap indexingMap = indexingMapAttr.getValue();
 
       return rewriter
           .create<GenericOp>(
               loc, viewOp, output,
               [&](OpBuilder &builder, Location innerLoc, ValueRange blockArgs) {
-                Value outputCB =
-                    builder.create<ReserveOp>(innerLoc, blockArgs[1])
-                        .getResult();
-                auto dma = builder.create<d2m::DMAOp>(innerLoc, viewOp,
-                                                      indexingMap, outputCB);
-                builder.create<d2m::DMAWaitOp>(innerLoc, dma);
-                builder.create<YieldOp>(innerLoc, outputCB);
+                // Load from input, store to output (load+store pair for proper
+                // CB association)
+                Type inputShardType = getShardTypeFromCB(blockArgs[0]);
+                SmallVector<Value> indices = d2m::utils::buildGridIndices(
+                    builder, innerLoc, indexingMap);
+
+                // Load-store idiom
+                Value loadedData = createRemoteLoad(
+                    builder, innerLoc, inputShardType, viewOp, indices);
+                Value storeResult = createRemoteStore(builder, innerLoc, output,
+                                                      indices, loadedData);
+                builder.create<YieldOp>(innerLoc, storeResult);
               },
-              ThreadType::Datamovement, grid)
+              ThreadType::Unified, grid)
           .getResult(0);
     }
     // DRAM operations use the view directly without immediate
@@ -544,38 +627,29 @@ public:
     std::tie(indexingMaps, iteratorTypes) =
         GenericOp::buildParallelAffineMapsAndIteratorTypes(
             rewriter, /*arity=*/2, gridRank);
-    auto indexingMap = mlir::cast<AffineMapAttr>(indexingMaps[0]);
+    auto indexingMapAttr = mlir::cast<AffineMapAttr>(indexingMaps[0]);
+    AffineMap indexingMap = indexingMapAttr.getValue();
 
-    return rewriter
-        .create<GenericOp>(
-            loc, viewInput, viewOutput,
-            [&](OpBuilder &builder, Location innerLoc, ValueRange blockArgs) {
-              DMAOp dma;
-              Value yield;
-              if (isSrcDramOrReblock) {
-                Value outputCB =
-                    builder.create<ReserveOp>(innerLoc, blockArgs[1])
-                        .getResult();
-                dma = builder.create<d2m::DMAOp>(innerLoc, viewInput,
-                                                 indexingMap, outputCB);
-                yield = outputCB;
-              } else {
-                // Note: Naturally you'd think to use a WaitOp since this is in
-                // input cb, but in the layout lowering there is no producer
-                // thread. The ReserveOp here effectively unwraps the CB so the
-                // DMA can access it.
-                Value inputCB =
-                    builder.create<ReserveOp>(innerLoc, blockArgs[0])
-                        .getResult();
-                dma = builder.create<d2m::DMAOp>(innerLoc, inputCB, viewOutput,
-                                                 indexingMap);
-                yield = inputCB;
-              }
-              builder.create<d2m::DMAWaitOp>(innerLoc, dma);
-              builder.create<YieldOp>(innerLoc, yield);
-            },
-            ThreadType::Datamovement)
-        .getResult(0);
+    auto result =
+        rewriter
+            .create<GenericOp>(
+                loc, viewInput, viewOutput,
+                [&](OpBuilder &builder, Location innerLoc,
+                    ValueRange blockArgs) {
+                  Type inputShardType = getShardTypeFromCB(blockArgs[0]);
+                  SmallVector<Value> indices = d2m::utils::buildGridIndices(
+                      builder, innerLoc, indexingMap);
+
+                  // Use load+store idiom for proper CB association
+                  Value loadedData = createRemoteLoad(
+                      builder, innerLoc, inputShardType, viewInput, indices);
+                  Value storeResult = createRemoteStore(
+                      builder, innerLoc, viewOutput, indices, loadedData);
+                  builder.create<YieldOp>(innerLoc, storeResult);
+                },
+                ThreadType::Unified)
+            .getResult(0);
+    return result;
   }
 
   Value lowerFormatConversionGeneric(PatternRewriter &rewriter, Value input,
@@ -591,18 +665,28 @@ public:
         .create<GenericOp>(
             loc, input, output,
             [=](OpBuilder &builder, Location innerLoc, ValueRange blockArgs) {
-              Value src =
-                  builder.create<WaitOp>(innerLoc, blockArgs[0]).getResult();
-              Value dst =
-                  builder.create<ReserveOp>(innerLoc, blockArgs[1]).getResult();
+              auto [src, dst, indices] =
+                  buildIdentityLoadStore(builder, innerLoc, blockArgs[0],
+                                         blockArgs[1], input, output, 1);
+
+              Value result;
               if (inputTiled) {
-                builder.create<TileUntilizeBlockOp>(innerLoc, src, dst);
+                result = builder
+                             .create<TileUntilizeBlockOp>(
+                                 innerLoc, dst.getType(), src, dst)
+                             .getResult();
               } else {
-                builder.create<TileTilizeBlockOp>(innerLoc, src, dst);
+                result = builder
+                             .create<TileTilizeBlockOp>(innerLoc, dst.getType(),
+                                                        src, dst)
+                             .getResult();
               }
-              builder.create<YieldOp>(innerLoc, dst);
+
+              Value storeResult =
+                  createRemoteStore(builder, innerLoc, output, indices, result);
+              builder.create<YieldOp>(innerLoc, storeResult);
             },
-            ThreadType::Compute)
+            ThreadType::Unified)
         .getResult(0);
   }
 
@@ -619,10 +703,8 @@ public:
     auto genericOp = rewriter.create<GenericOp>(
         loc, input, output,
         [&](OpBuilder &builder, Location innerLoc, ValueRange blockArgs) {
-          Value src =
-              builder.create<WaitOp>(innerLoc, blockArgs[0]).getResult();
-          Value dst =
-              builder.create<ReserveOp>(innerLoc, blockArgs[1]).getResult();
+          auto [src, dst, indices] = buildIdentityLoadStore(
+              builder, innerLoc, blockArgs[0], blockArgs[1], input, output, 1);
 
           // Create index constants for logical bounds.
           // Note: For multicore, per-core bounds are computed in
@@ -633,14 +715,16 @@ public:
           Value logicalColsVal =
               builder.create<arith::ConstantIndexOp>(innerLoc, logicalCols);
 
-          // Apply block-level masking. BlockMaskOp is side-effecting and writes
-          // to dst, so we yield dst to propagate the result.
-          builder.create<BlockMaskOp>(innerLoc, src, dst, logicalRowsVal,
-                                      logicalColsVal, fillValue);
+          // Apply block-level masking. BlockMaskOp returns the masked result.
+          Value maskedResult = builder.create<BlockMaskOp>(
+              innerLoc, dst.getType(), src, dst, logicalRowsVal, logicalColsVal,
+              fillValue);
 
-          builder.create<YieldOp>(innerLoc, ValueRange{dst});
+          Value storeResult = createRemoteStore(builder, innerLoc, output,
+                                                indices, maskedResult);
+          builder.create<YieldOp>(innerLoc, ValueRange{storeResult});
         },
-        ThreadType::Compute);
+        ThreadType::Unified);
 
     return genericOp.getResult(0);
   }

@@ -263,7 +263,7 @@ def D2M_GenericOp : D2M_Op<"generic",
                      "ValueRange": $outputs,
                      "ArrayAttr": $indexingMaps,
                      "ArrayAttr": $iteratorTypes,
-                     CArg<"ThreadType", "ThreadType::Compute">: $singleThreadType,
+                     CArg<"ThreadType", "ThreadType::Unified">: $singleThreadType,
                      CArg<"ttcore::GridAttr", "nullptr">: $grid,
                      CArg<"ArrayRef<int64_t>", "{}">: $blockFactors)>,
       OpBuilder<(ins "ValueRange": $inputs,
@@ -271,13 +271,13 @@ def D2M_GenericOp : D2M_Op<"generic",
                      "ArrayAttr": $indexingMaps,
                      "ArrayAttr": $iteratorTypes,
                      "llvm::function_ref<void(OpBuilder&, Location, ValueRange)>": $singleThreadRegionBuilder,
-                     CArg<"ThreadType", "ThreadType::Compute">: $singleThreadType,
+                     CArg<"ThreadType", "ThreadType::Unified">: $singleThreadType,
                      CArg<"ttcore::GridAttr", "nullptr">: $grid,
                      CArg<"ArrayRef<int64_t>", "{}">: $blockFactors)>,
       OpBuilder<(ins "ValueRange": $inputs,
                      "ValueRange": $outputs,
                      "llvm::function_ref<void(OpBuilder&, Location, ValueRange)>": $singleThreadRegionBuilder,
-                     CArg<"ThreadType", "ThreadType::Compute">: $singleThreadType,
+                     CArg<"ThreadType", "ThreadType::Unified">: $singleThreadType,
                      CArg<"ttcore::GridAttr", "nullptr">: $grid,
                      CArg<"ArrayRef<int64_t>", "{}">: $blockFactors)>,
     ];
@@ -299,14 +299,23 @@ def D2M_GenericOp : D2M_Op<"generic",
       }
       SmallVector<ttcore::IteratorType> getIteratorTypesValue();
       bool isComputeOnlyForm() {
-        auto threads = getThreads();
-        return threads.size() == 1 && mlir::cast<ThreadAttr>(threads[0]).getThreadType() == ThreadType::Compute;
+        for (unsigned i = 0; i < getNumRegions(); ++i) {
+          if (hasComputeOpsInRegion(i)) {
+            return true;
+          }
+        }
+        return false;
       }
       bool isDMAOnlyForm() {
-        return llvm::none_of(getThreads(), [](Attribute attr) {
-          return mlir::cast<d2m::ThreadAttr>(attr).getThreadType() ==
-                d2m::ThreadType::Compute;
-        });
+        if (getNumRegions() == 0) {
+          return false;
+        }
+        for (unsigned i = 0; i < getNumRegions(); ++i) {
+          if (hasComputeOpsInRegion(i)) {
+            return false;
+          }
+        }
+        return true;
       }
       bool isAffineMapForm() { return !getIndexingMaps().empty(); }
       bool isLoweredLoopForm() { return !isAffineMapForm(); }
@@ -330,6 +339,10 @@ def D2M_GenericOp : D2M_Op<"generic",
       unsigned getNumLoops();
       unsigned getNumDims();
       AffineMap getIndexingMap(int64_t operandIndex);
+      AffineMap getIndexingMapForOperand(Value operand);
+      AffineMap getOutputIndexingMap();
+      SmallVector<int64_t> getOutputGridDimPositions();
+      int64_t getOperandIndex(Value operand);
       bool hasCompatibleBlocking(GenericOp gOp);
       bool hasSkipOpEltwiseFusionTrait();
       bool hasReduction();
@@ -337,6 +350,10 @@ def D2M_GenericOp : D2M_Op<"generic",
       bool isAllParallel();
       bool hasComputeOpsInRegion(unsigned regionIndex = 0);
       bool isNontriviallyEltwiseFused();
+      static Value findAssocOperand(memref::AllocOp allocOp);
+      static Value findAssocOperand(::mlir::tensor::EmptyOp emptyOp);
+      static Value findAssocCBByOperandIndex(Operation *op, unsigned operandIndex);
+      static Value findAssocCBByOperand(Operation *op, Value operand);
     }];
 }
 

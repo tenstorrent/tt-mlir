@@ -23,14 +23,14 @@ func.func @basic_to_layout_view_return(%arg0: tensor<256x768xf32>) -> tensor<8x8
   %view = d2m.view_layout %to_layout : tensor<1x1x8x24x!ttcore.tile<32x32, f32>, #layout1x1>
       -> tensor<8x8x1x3x!ttcore.tile<32x32, f32>, #layout8x8>
 
+  // Materialization uses load+store pair for proper CB association
   // CHECK: d2m.empty() : tensor<8x8x1x3x!ttcore.tile<32x32, f32>
   // CHECK: %[[MATERIALIZED:.*]] = d2m.generic
   // CHECK-SAME: grid = #ttcore.grid<8x8>
-  // CHECK-SAME: threads = [#d2m.thread<datamovement>]
+  // CHECK-SAME: threads = [#d2m.thread<unified>]
   // CHECK: ins(%[[VIEW]]
-  // CHECK: d2m.reserve
-  // CHECK: d2m.dma
-  // CHECK: d2m.dma_wait
+  // CHECK: d2m.remote_load
+  // CHECK: d2m.remote_store
   // CHECK: d2m.yield
   // CHECK: return %[[MATERIALIZED]]
   return %view : tensor<8x8x1x3x!ttcore.tile<32x32, f32>, #layout8x8>
@@ -42,14 +42,14 @@ func.func @view_returned_directly(%arg0: tensor<1x1x8x24x!ttcore.tile<32x32, f32
   // CHECK: %[[VIEW:.*]] = d2m.view_layout %arg0
   %view = d2m.view_layout %arg0 : tensor<1x1x8x24x!ttcore.tile<32x32, f32>, #layout1x1> -> tensor<8x8x1x3x!ttcore.tile<32x32, f32>, #layout8x8>
 
+  // Materialization uses load+store pair for proper CB association
   // CHECK: d2m.empty() : tensor<8x8x1x3x!ttcore.tile<32x32, f32>
   // CHECK: %[[MATERIALIZED:.*]] = d2m.generic
   // CHECK-SAME: grid = #ttcore.grid<8x8>
-  // CHECK-SAME: threads = [#d2m.thread<datamovement>]
+  // CHECK-SAME: threads = [#d2m.thread<unified>]
   // CHECK: ins(%[[VIEW]]
-  // CHECK: d2m.reserve
-  // CHECK: d2m.dma
-  // CHECK: d2m.dma_wait
+  // CHECK: d2m.remote_load
+  // CHECK: d2m.remote_store
   // CHECK: d2m.yield
   // CHECK: return %[[MATERIALIZED]]
   return %view : tensor<8x8x1x3x!ttcore.tile<32x32, f32>, #layout8x8>
@@ -97,12 +97,12 @@ func.func @mixed_returns(%arg0: tensor<1x1x8x24x!ttcore.tile<32x32, f32>, #layou
   // CHECK: %[[VIEW:.*]] = d2m.view_layout %arg0
   %view = d2m.view_layout %arg0 : tensor<1x1x8x24x!ttcore.tile<32x32, f32>, #layout1x1> -> tensor<8x8x1x3x!ttcore.tile<32x32, f32>, #layout8x8>
 
+  // Materialization uses load+store pair
   // CHECK: d2m.empty() : tensor<8x8x1x3x!ttcore.tile<32x32, f32>
   // CHECK: %[[MATERIALIZED:.*]] = d2m.generic
   // CHECK: ins(%[[VIEW]]
-  // CHECK: d2m.reserve
-  // CHECK: d2m.dma
-  // CHECK: d2m.dma_wait
+  // CHECK: d2m.remote_load
+  // CHECK: d2m.remote_store
   // CHECK: d2m.yield
   // CHECK: return %[[MATERIALIZED]], %arg1
   return %view, %arg1 : tensor<8x8x1x3x!ttcore.tile<32x32, f32>, #layout8x8>, tensor<8x8x1x3x!ttcore.tile<32x32, f32>, #layout8x8>
@@ -117,14 +117,14 @@ func.func @higher_rank_view_return(%arg0: tensor<1x4x4x2x3x6x!ttcore.tile<32x32,
   // CHECK: %[[VIEW:.*]] = d2m.view_layout %arg0
   %view = d2m.view_layout %arg0 : tensor<1x4x4x2x3x6x!ttcore.tile<32x32, f32>, #layout_6d_1x4x4> -> tensor<1x8x2x1x6x6x!ttcore.tile<32x32, f32>, #layout_6d_1x8x2>
 
+  // Materialization uses load+store pair
   // CHECK: d2m.empty() : tensor<1x8x2x1x6x6x!ttcore.tile<32x32, f32>
   // CHECK: %[[MATERIALIZED:.*]] = d2m.generic
   // CHECK-SAME: grid = #ttcore.grid<1x8x2>
-  // CHECK-SAME: threads = [#d2m.thread<datamovement>]
+  // CHECK-SAME: threads = [#d2m.thread<unified>]
   // CHECK: ins(%[[VIEW]]
-  // CHECK: d2m.reserve
-  // CHECK: d2m.dma
-  // CHECK: d2m.dma_wait
+  // CHECK: d2m.remote_load
+  // CHECK: d2m.remote_store
   // CHECK: d2m.yield
   // CHECK: return %[[MATERIALIZED]]
   return %view : tensor<1x8x2x1x6x6x!ttcore.tile<32x32, f32>, #layout_6d_1x8x2>
@@ -144,14 +144,14 @@ func.func @view_before_device_to_host(%arg0: tensor<1x1x8x24x!ttcore.tile<32x32,
 
   // The view is consumed by a device-to-host to_host op.
   // The pass should materialize the view BEFORE this to_host op.
+  // Materialization uses load+store pair
   // CHECK: d2m.empty() : tensor<8x8x1x3x!ttcore.tile<32x32, f32>
   // CHECK: %[[MATERIALIZED:.*]] = d2m.generic
   // CHECK-SAME: grid = #ttcore.grid<8x8>
-  // CHECK-SAME: threads = [#d2m.thread<datamovement>]
+  // CHECK-SAME: threads = [#d2m.thread<unified>]
   // CHECK: ins(%[[VIEW]]
-  // CHECK: d2m.reserve
-  // CHECK: d2m.dma
-  // CHECK: d2m.dma_wait
+  // CHECK: d2m.remote_load
+  // CHECK: d2m.remote_store
   // CHECK: d2m.yield
   // CHECK: d2m.to_host %[[MATERIALIZED]]
   %to_host = d2m.to_host %view, %host_empty layout = #layout8x8 : tensor<8x8x1x3x!ttcore.tile<32x32, f32>, #layout8x8> into tensor<256x768xf32> -> tensor<256x768xf32>
