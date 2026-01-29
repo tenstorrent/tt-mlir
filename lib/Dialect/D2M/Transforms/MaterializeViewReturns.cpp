@@ -3,10 +3,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Asserts.h"
+#include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
+#include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/PatternMatch.h"
@@ -74,23 +77,36 @@ Value materializeView(OpBuilder &builder, Location loc, Value viewResult) {
                                                          /*arity=*/2, rank);
 
   // Create a datamovement generic op that materializes the view.
-  // The region reserves the output circular buffer, issues a DMA to fetch data
-  // from the view (which applies the affine transformation), waits for the DMA
-  // to complete, then yields the output buffer.
-  auto indexingMap = mlir::cast<AffineMapAttr>(indexingMaps[0]);
+  auto indexingMapAttr = mlir::cast<AffineMapAttr>(indexingMaps[0]);
+  AffineMap indexingMap = indexingMapAttr.getValue();
   auto genericOp = builder.create<GenericOp>(
       loc, viewResult, emptyOp.getResult(),
-      [&](OpBuilder &builder, Location loc, ValueRange blockArgs) {
-        Value outputCB =
-            builder.create<d2m::ReserveOp>(loc, blockArgs[1]).getResult();
-        // Issue a DMA from the view to the output buffer.
-        // The DMA will fetch data according to the view's affine map.
-        auto dma =
-            builder.create<d2m::DMAOp>(loc, viewResult, indexingMap, outputCB);
-        builder.create<d2m::DMAWaitOp>(loc, dma);
-        builder.create<d2m::YieldOp>(loc, outputCB);
+      [&](OpBuilder &builder, Location innerLoc, ValueRange blockArgs) {
+        SmallVector<Value> indices =
+            utils::buildGridIndices(builder, innerLoc, indexingMap);
+        auto inputCbType = mlir::cast<d2m::CBType>(blockArgs[0].getType());
+        auto inputShardType = inputCbType.getUnderlying();
+
+        // Create a buffer for the load result
+        auto inputTensorType = mlir::cast<RankedTensorType>(inputShardType);
+        auto inputBufferOp = builder.create<tensor::EmptyOp>(
+            innerLoc, inputTensorType.getShape(),
+            inputTensorType.getElementType());
+        Value inputBuffer = inputBufferOp.getResult();
+
+        Value loadedData =
+            builder
+                .create<RemoteLoadOp>(innerLoc, inputShardType, inputBuffer,
+                                      viewResult, indices)
+                .getResult();
+        Value storeResult =
+            builder
+                .create<RemoteStoreOp>(innerLoc, emptyOp.getType(),
+                                       emptyOp.getResult(), indices, loadedData)
+                .getResult();
+        builder.create<d2m::YieldOp>(innerLoc, storeResult);
       },
-      ThreadType::Datamovement, grid, SmallVector<int64_t>{1, 1});
+      ThreadType::Unified, grid, SmallVector<int64_t>{1, 1});
 
   return genericOp.getResult(0);
 }
