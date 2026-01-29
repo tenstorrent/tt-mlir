@@ -83,12 +83,7 @@ static ValuesVectorType collectInputArguments(const OpsVectorType &operations) {
 }
 
 // Returns the CPU-compatible element type for the given element type.
-// Conversion rules:
-//   - Signed integers   -> si32
-//   - Unsigned integers -> ui32
-//   - Signless integers -> i32
-//   - Floats            -> f32
-//   - Other types       -> unchanged
+// Both integer and float types are converted to 32-bit equivalents.
 static mlir::Type getCPUCompatibleElementType(mlir::MLIRContext *context,
                                               mlir::Type elementType) {
   if (elementType.isSignedInteger()) {
@@ -290,7 +285,8 @@ struct CPUHoistedOpsDescriptor {
   OpsVectorType operations;
   // Values representing the outputs of the hoisted operations.
   ValuesVectorType outputValues;
-  // Suffix for the hoisted function name (appears after "cpu_hoisted_").
+  // Suffix for the hoisted function name (appears after "cpu_hoisted_",
+  // and before the implementation hash).
   llvm::SmallString<64> funcNameSuffix;
 
   CPUHoistedOpsDescriptor(const OpsVectorType &ops,
@@ -300,6 +296,16 @@ struct CPUHoistedOpsDescriptor {
         funcNameSuffix(std::move(suffix)) {}
 };
 
+// Helper function to drop sign information from integer tensor types,
+// used inside CPU-hoisted function definitions. The sign information is NOT
+// dropped from CPU-hoisted function declarations.
+//
+// TODO(dmilinkovic): this workaround is needed because:
+// - TOSA and Linalg ops, to which CPU-hoisted ops are getting lowered to,
+//   do not support signed/unsigned integer types.
+// - Rest of the graph might depend on signed/unsigned integer types,
+//   so we cannot change the types in the function declaration.
+// This approach should be revisited in the future - issue #6797.
 static mlir::Type dropSignInformation(mlir::Type type) {
   auto tensorType = mlir::dyn_cast<mlir::RankedTensorType>(type);
   if (!tensorType) {
@@ -621,14 +627,11 @@ CPUHoistAnalyzerType singleOpHoistAnalyzer(ShouldHoistOpType predicate) {
 // HoistAnalyzer which hoists const-eval functions as a whole.
 CPUHoistAnalyzerType constEvalHoistAnalyzer() {
   return [](func::FuncOp funcOp) {
-    llvm::SmallVector<CPUHoistedOpsDescriptor> hoistedOpsDescriptors;
-
     if (!ttmlir::utils::isConstEvalFunc(funcOp)) {
-      return hoistedOpsDescriptors;
+      return llvm::SmallVector<CPUHoistedOpsDescriptor>{};
     }
 
-    // Using the containing function name as the CPU-hoisted function's suffix.
-    CPUHoistedOpsDescriptor descriptor({}, {}, funcOp.getName());
+    CPUHoistedOpsDescriptor descriptor({}, {}, llvm::StringRef("const_eval"));
 
     auto walkResult = funcOp.walk([&](mlir::Operation *nestedOp) {
       // Skip the FuncOp itself.
@@ -654,8 +657,7 @@ CPUHoistAnalyzerType constEvalHoistAnalyzer() {
               mlir::dyn_cast<mlir::tt::ttir::MeshShardOp>(nestedOp)) {
         // If there is a non-identity TTIR MeshShardOp, skip CPU hoisting
         // altogether.
-        // TODO(dmilinkovic):
-        // https://github.com/tenstorrent/tt-mlir/issues/6709.
+        // TODO(dmilinkovic) - issue #6709,
         if (meshShardOp.getShardType() != ttcore::MeshShardType::Identity) {
           return WalkResult::interrupt();
         }
@@ -665,7 +667,7 @@ CPUHoistAnalyzerType constEvalHoistAnalyzer() {
       }
 
       // If there is any CCL op, skip CPU hoisting altogether.
-      // TODO(dmilinkovic) - https://github.com/tenstorrent/tt-mlir/issues/6709.
+      // TODO(dmilinkovic) - issue #6709
       if (mlir::isa<mlir::tt::ttir::AllGatherOp, mlir::tt::ttir::AllReduceOp,
                     mlir::tt::ttir::ReduceScatterOp,
                     mlir::tt::ttir::CollectivePermuteOp,
@@ -678,19 +680,19 @@ CPUHoistAnalyzerType constEvalHoistAnalyzer() {
       return WalkResult::advance();
     });
 
-    // If the const-eval consists only of creation ops, we skip it,
-    // since it does not add any meaningful value to hoist them.
-    bool onlyCreationOps =
-        llvm::all_of(descriptor.operations, [](mlir::Operation *op) {
-          return op->hasTrait<ttcore::Trait::TTCoreCreationOpTrait>();
-        });
-
-    if (!onlyCreationOps && !walkResult.wasInterrupted() &&
-        !descriptor.operations.empty()) {
-      hoistedOpsDescriptors.push_back(std::move(descriptor));
+    if (walkResult.wasInterrupted() || descriptor.operations.empty()) {
+      return llvm::SmallVector<CPUHoistedOpsDescriptor>{};
     }
 
-    return hoistedOpsDescriptors;
+    // If the const-eval consists only of creation ops, we skip it,
+    // since it does not add any meaningful value to hoist them.
+    if (llvm::all_of(descriptor.operations, [](mlir::Operation *op) {
+          return op->hasTrait<ttcore::Trait::TTCoreCreationOpTrait>();
+        })) {
+      return llvm::SmallVector<CPUHoistedOpsDescriptor>{};
+    }
+
+    return llvm::SmallVector<CPUHoistedOpsDescriptor>{descriptor};
   };
 }
 
