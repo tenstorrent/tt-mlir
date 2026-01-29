@@ -678,6 +678,89 @@ private:
 };
 } // namespace
 
+//===----------------------------------------------------------------------===//
+// Embedding to Gather Pattern (CPUFallback)
+//===----------------------------------------------------------------------===//
+
+namespace {
+// Converts ttir.embedding to ttir.gather for CPU fallback path.
+// This avoids using tensor.gather which lacks bufferization support in upstream
+// MLIR.
+struct EmbeddingToGatherConversionPattern
+    : public OpConversionPattern<ttir::EmbeddingOp> {
+  using OpConversionPattern<ttir::EmbeddingOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::EmbeddingOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    Value input = adaptor.getInput();
+    Value weight = adaptor.getWeight();
+
+    auto inputType = mlir::cast<RankedTensorType>(input.getType());
+    auto weightType = mlir::cast<RankedTensorType>(weight.getType());
+    auto resultType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(op.getResult().getType()));
+
+    // Cast indices to integer type if needed (gather requires integer indices).
+    if (!inputType.getElementType().isIntOrIndex()) {
+      auto newInputType =
+          RankedTensorType::get(inputType.getShape(), rewriter.getI64Type());
+      input =
+          rewriter.create<ttir::TypecastOp>(op.getLoc(), newInputType, input);
+      inputType = mlir::cast<RankedTensorType>(input.getType());
+    }
+
+    auto indicesShape = inputType.getShape();
+    int64_t indicesRank = indicesShape.size();
+    auto weightShape = weightType.getShape();
+    int64_t embeddingDim = weightShape[1];
+
+    // Add trailing dimension of size 1 to indices for index_vector_dim.
+    SmallVector<int64_t> newIndicesShape(indicesShape.begin(),
+                                         indicesShape.end());
+    newIndicesShape.push_back(1);
+    auto reshapedIndicesType =
+        RankedTensorType::get(newIndicesShape, inputType.getElementType());
+
+    SmallVector<int32_t> newIndicesShapeI32(newIndicesShape.begin(),
+                                            newIndicesShape.end());
+    Value reshapedIndices = rewriter.create<ttir::ReshapeOp>(
+        op.getLoc(), reshapedIndicesType, input,
+        rewriter.getI32ArrayAttr(newIndicesShapeI32));
+
+    // Build gather attributes:
+    // - offset_dims: the embedding dimension appears at position indicesRank
+    // - collapsed_slice_dims: [0] - collapse the vocab dimension
+    // - start_index_map: [0] - index dimension 0 of weight
+    // - index_vector_dim: indicesRank (the trailing singleton dimension)
+    // - slice_sizes: [1, embedding_dim]
+    SmallVector<int64_t> offsetDims{indicesRank};
+    SmallVector<int64_t> collapsedSliceDims{0};
+    SmallVector<int64_t> operandBatchingDims{};
+    SmallVector<int64_t> startIndicesBatchingDims{};
+    SmallVector<int64_t> startIndexMap{0};
+    int64_t indexVectorDim = indicesRank;
+    SmallVector<int64_t> sliceSizes{1, embeddingDim};
+
+    auto gatherOp = rewriter.create<ttir::GatherOp>(
+        op.getLoc(), resultType,
+        /*input=*/weight,
+        /*start_indices=*/reshapedIndices,
+        /*offset_dims=*/offsetDims,
+        /*collapsed_slice_dims=*/collapsedSliceDims,
+        /*operand_batching_dims=*/operandBatchingDims,
+        /*start_indices_batching_dims=*/startIndicesBatchingDims,
+        /*start_index_map=*/startIndexMap,
+        /*index_vector_dim=*/indexVectorDim,
+        /*slice_sizes=*/sliceSizes,
+        /*indices_are_sorted=*/false);
+
+    rewriter.replaceOp(op, gatherOp);
+    return success();
+  }
+};
+} // namespace
+
 namespace {
 
 // Pattern detection - Analyze gather indices to detect replicate padding:
@@ -2610,10 +2693,12 @@ void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
   patterns.add<ReverseOpConversionPattern>(typeConverter, ctx);
   patterns.add<ArgMaxPattern>(typeConverter, ctx);
 
-  // Configure which ReductionPattern to add base on the configuration
+  // Configure which patterns to add based on the configuration.
   switch (decompConfig) {
   case DecompMode::CPUFallback:
     patterns.add<ReductionOrPattern>(typeConverter, ctx);
+    // For CPU fallback, decompose embedding to gather (reverse of TTNN).
+    patterns.add<EmbeddingToGatherConversionPattern>(typeConverter, ctx);
     break;
   case DecompMode::TTNN:
   case DecompMode::TTMetal:
