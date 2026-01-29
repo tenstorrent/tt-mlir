@@ -218,11 +218,16 @@ class MemoryAnalyzer:
 
         Args:
             shape: tensor shape
-            mlir_layout: TTNNLayoutAttr from MLIR encoding
+            mlir_layout: TTNNLayoutAttr from MLIR encoding (may be None for ND tensors)
 
         Returns:
-            ttnn.MemoryConfig matching the MLIR encoding
+            ttnn.MemoryConfig matching the MLIR encoding, or DRAM_MEMORY_CONFIG as fallback
         """
+        # Handle case where layout encoding is not a TTNNLayoutAttr
+        # (e.g., N-dimensional sharded tensors with different encoding)
+        if mlir_layout is None:
+            return ttnn.DRAM_MEMORY_CONFIG
+
         buffer_type = ttnn_dialect.ir.BufferTypeAttr.maybe_downcast(
             mlir_layout.memref.memory_space
         )
