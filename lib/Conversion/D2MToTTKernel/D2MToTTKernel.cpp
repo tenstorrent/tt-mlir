@@ -1140,14 +1140,12 @@ public:
   };
 };
 
-class D2MExperimentalTileFillRewriter
-    : public OpConversionPattern<d2m::ExperimentalTileFillOp> {
+class D2MTileFillRewriter : public OpConversionPattern<d2m::TileFillOp> {
 public:
-  using OpConversionPattern<d2m::ExperimentalTileFillOp>::OpConversionPattern;
+  using OpConversionPattern<d2m::TileFillOp>::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(d2m::ExperimentalTileFillOp op,
-                  d2m::ExperimentalTileFillOpAdaptor adaptor,
+  matchAndRewrite(d2m::TileFillOp op, d2m::TileFillOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
     Value dstIdx = getDstIdxFromResult(op.getResult());
 
@@ -1163,15 +1161,14 @@ public:
   }
 };
 
-class D2MExperimentalWriteRowMaskTileRewriter
-    : public OpConversionPattern<d2m::ExperimentalWriteRowMaskTileOp> {
+class D2MWriteRowMaskTileRewriter
+    : public OpConversionPattern<d2m::WriteRowMaskTileOp> {
 public:
-  using OpConversionPattern<
-      d2m::ExperimentalWriteRowMaskTileOp>::OpConversionPattern;
+  using OpConversionPattern<d2m::WriteRowMaskTileOp>::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(d2m::ExperimentalWriteRowMaskTileOp op,
-                  d2m::ExperimentalWriteRowMaskTileOpAdaptor adaptor,
+  matchAndRewrite(d2m::WriteRowMaskTileOp op,
+                  d2m::WriteRowMaskTileOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
     Location loc = op->getLoc();
     Value validRows = adaptor.getValidRows();
@@ -1186,15 +1183,14 @@ public:
   }
 };
 
-class D2MExperimentalWriteColMaskTileRewriter
-    : public OpConversionPattern<d2m::ExperimentalWriteColMaskTileOp> {
+class D2MWriteColMaskTileRewriter
+    : public OpConversionPattern<d2m::WriteColMaskTileOp> {
 public:
-  using OpConversionPattern<
-      d2m::ExperimentalWriteColMaskTileOp>::OpConversionPattern;
+  using OpConversionPattern<d2m::WriteColMaskTileOp>::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(d2m::ExperimentalWriteColMaskTileOp op,
-                  d2m::ExperimentalWriteColMaskTileOpAdaptor adaptor,
+  matchAndRewrite(d2m::WriteColMaskTileOp op,
+                  d2m::WriteColMaskTileOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
     Location loc = op->getLoc();
     Value validCols = adaptor.getValidCols();
@@ -2036,9 +2032,9 @@ void populateD2MToTTKernelPatterns(
 
                ttkernel::D2MTilizeUntilizeRewriter<d2m::TileTilizeBlockOp, ttkernel::ExperimentalTilizeBlockOp>,
                ttkernel::D2MTilizeUntilizeRewriter<d2m::TileUntilizeBlockOp, ttkernel::ExperimentalUntilizeBlockOp>,
-               ttkernel::D2MExperimentalTileFillRewriter,
-               ttkernel::D2MExperimentalWriteRowMaskTileRewriter,
-               ttkernel::D2MExperimentalWriteColMaskTileRewriter,
+               ttkernel::D2MTileFillRewriter,
+               ttkernel::D2MWriteRowMaskTileRewriter,
+               ttkernel::D2MWriteColMaskTileRewriter,
                ttkernel::D2MTileTransposeRewriter,
                ttkernel::D2MDstReinterpretCastRewriter,
                ttkernel::AcquireDstRewriter,

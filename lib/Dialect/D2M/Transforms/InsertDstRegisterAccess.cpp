@@ -309,16 +309,14 @@ public:
         Operation *loopOp = nullptr;
         Region *loopRegion = nullptr;
 
-        if (auto affineFor = dyn_cast<affine::AffineForOp>(op)) {
-          if (affineFor->hasAttr("d2m.linalg_root")) {
-            loopOp = affineFor;
-            loopRegion = &affineFor.getRegion();
-          }
-        } else if (auto scfFor = dyn_cast<scf::ForOp>(op)) {
-          if (scfFor->hasAttr("d2m.linalg_root")) {
-            loopOp = scfFor;
-            loopRegion = &scfFor.getRegion();
-          }
+        if (auto affineFor = dyn_cast<affine::AffineForOp>(op);
+            affineFor && affineFor->hasAttr("d2m.linalg_root")) {
+          loopOp = affineFor;
+          loopRegion = &affineFor.getRegion();
+        } else if (auto scfFor = dyn_cast<scf::ForOp>(op);
+                   scfFor && scfFor->hasAttr("d2m.linalg_root")) {
+          loopOp = scfFor;
+          loopRegion = &scfFor.getRegion();
         }
 
         if (loopOp && loopRegion) {
@@ -649,18 +647,15 @@ public:
     BlockArgument blockArg = lookThroughSubView(loadOrStore.getMemRef());
 
     std::set<int64_t> guardDims = {};
-    if (blockArg && !gOp.isExplicitDatamovementForm()) {
+    if (blockArg && !gOp.isExplicitDatamovementForm() &&
+        !gOp.isScratchInput(blockArg.getArgNumber())) {
       auto nonParticipatingLoopDims =
           gOp.getNonParticipatingLoopDims(blockArg.getArgNumber());
       auto iteratorTypes = gOp.getIteratorTypesValue();
 
       for (int64_t dim : nonParticipatingLoopDims) {
-        // Only add reduction dims to guardDims - these need loop guards to
-        // ensure CB<->DST copies happen at the correct iteration.
-        // Parallel non-participating dims are broadcasts and don't need guards.
-        if (iteratorTypes[dim] == ttcore::IteratorType::Reduction) {
-          guardDims.insert(dim);
-        }
+        TT_assert(iteratorTypes[dim] == ttcore::IteratorType::Reduction);
+        guardDims.insert(dim);
       }
     }
 

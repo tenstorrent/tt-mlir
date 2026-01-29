@@ -791,7 +791,7 @@ public:
           Value logicalColsVal =
               builder.create<arith::ConstantIndexOp>(innerLoc, logicalCols);
 
-          // BlockMaskOp WITH mask CBs - the mask writes will be handled
+          // BlockMaskOp with mask CBs - the mask writes will be handled
           // in DecomposeMasking, which runs after bufferization.
           builder.create<BlockMaskOp>(innerLoc, src, dst, rowMaskCB, colMaskCB,
                                       logicalRowsVal, logicalColsVal,

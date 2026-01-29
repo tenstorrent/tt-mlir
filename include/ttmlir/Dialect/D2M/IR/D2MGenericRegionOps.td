@@ -750,10 +750,10 @@ def D2M_TileTypecastOp : D2M_GenericRegionComputeUnaryDstOp<"tile_typecast", [D2
 // D2M Masking Ops
 //===----------------------------------------------------------------------===//
 
-def D2M_ExperimentalTileFillOp : D2M_GenericRegionComputeOp<"experimental::tile_fill"> {
-    let summary = "D2M Experimental Tile Fill Op";
+def D2M_TileFillOp : D2M_GenericRegionComputeOp<"tile_fill"> {
+    let summary = "D2M Tile Fill Op";
     let description = [{
-        The `experimental::tile_fill` operation creates a tile filled with a constant scalar value.
+        The `tile_fill` operation creates a tile filled with a constant scalar value.
         All elements in the resulting tile will have the same value as the input scalar.
 
         This operation abstracts away the complexity of creating a constant-filled tile,
@@ -1989,14 +1989,14 @@ def D2M_GetGlobalOperandOp : D2M_GenericRegionOp<"get_global_operand", [Pure]> {
 }
 
 //===----------------------------------------------------------------------===//
-// D2M Experimental Index Tile Ops (Used for partial tile masking)
+// D2M Write Mask Tile Ops (Used for partial tile masking)
 //===----------------------------------------------------------------------===//
 
-def D2M_ExperimentalWriteRowMaskTileOp : D2M_GenericRegionOp<"experimental::write_row_mask_tile",
+def D2M_WriteRowMaskTileOp : D2M_GenericRegionOp<"write_row_mask_tile",
   [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
     let summary = "Write row mask pattern to a tile CB";
     let description = [{
-        The `experimental::write_row_mask_tile` operation writes a row mask pattern
+        The `write_row_mask_tile` operation writes a row mask pattern
         to a tile CB, where element[i,j] = 1.0 if i < validRows, else 0.0.
 
         This is used for partial tile OOB masking. The operation writes directly
@@ -2009,11 +2009,11 @@ def D2M_ExperimentalWriteRowMaskTileOp : D2M_GenericRegionOp<"experimental::writ
     let assemblyFormat = [{ `(` $validRows `)` `to` $output attr-dict `:` type($validRows) `,` type($output) }];
 }
 
-def D2M_ExperimentalWriteColMaskTileOp : D2M_GenericRegionOp<"experimental::write_col_mask_tile",
+def D2M_WriteColMaskTileOp : D2M_GenericRegionOp<"write_col_mask_tile",
   [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
     let summary = "Write column mask pattern to a tile CB";
     let description = [{
-        The `experimental::write_col_mask_tile` operation writes a column mask pattern
+        The `write_col_mask_tile` operation writes a column mask pattern
         to a tile CB, where element[i,j] = 1.0 if j < validCols, else 0.0.
 
         This is used for partial tile OOB masking. The operation writes directly
