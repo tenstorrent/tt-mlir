@@ -1511,9 +1511,7 @@ public:
 
     llvm::SmallVector<int64_t, 5> toNdhwcPermutation = {
         batchDim, depthDim, heightDim, widthDim, channelDim};
-    bool needsPermute = !llvm::equal(
-        toNdhwcPermutation,
-        llvm::to_vector(llvm::seq<int64_t>(0, toNdhwcPermutation.size())));
+    bool needsPermute = !op.isNDHWC();
 
     Value input = adaptor.getInput();
     if (needsPermute) {
