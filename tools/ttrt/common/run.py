@@ -834,16 +834,11 @@ class Run:
                                     end_get_output - start_get_output
                                 )
 
-                                # (todo: tapspatel) Temporary workaround for getting multi-device tensors back to host.
-                                # Currently, ttrt.runtime.to_host will return back a list of tensors, outputs[i] is a single multi-device tensor (with multiple device shards).
-                                if (
-                                    self["--print-input-output-tensors"]
-                                    or self["--enable-golden"]
-                                ):
-                                    ttrt.runtime.memcpy(
-                                        outputs[i],
-                                        output_host,
-                                    )
+                                combined_output_tensor = ttrt.runtime.create_multi_device_host_tensor_from_shards(output_host, {}, fb_mesh_shape)
+                                ttrt.runtime.memcpy(
+                                    outputs[i],
+                                    combined_output_tensor,
+                                )
                                 ttrt.runtime.deallocate_tensor(
                                     runtime_output_tensor, force=True
                                 )
