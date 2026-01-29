@@ -26,26 +26,21 @@ if (USE_TTNN_JIT_WHEEL)
   install(FILES
       $<TARGET_FILE:JITCPP>
       $<TARGET_FILE:_ttnn_jit>
-      $<TARGET_FILE:TTMLIRRuntime>
-      $<TARGET_FILE:_ttmlir_runtime>
-    DESTINATION ttnn_jit/runtime
-    COMPONENT TTNNJITWheel
-    EXCLUDE_FROM_ALL
-  )
-  install(DIRECTORY ${CMAKE_BINARY_DIR}/python_packages/ttmlir/
-    DESTINATION ttnn_jit/runtime/ttmlir
+    DESTINATION ttnn_jit/
     COMPONENT TTNNJITWheel
     EXCLUDE_FROM_ALL
   )
 
+  # Build ttnn-jit wheel with --find-links pointing to ttmlir wheel location
+  set(TTMLIR_WHEEL_DIR "${CMAKE_SOURCE_DIR}/python/dist")
   add_custom_command(
     COMMAND rm -rf build ttnn_jit.egg-info
     COMMAND python -m pip install build patchelf
     COMMAND TTMLIR_DEV_BUILD=ON python -m build --wheel --outdir build
-    COMMAND python -m pip install build/ttnn_jit-*.whl --force-reinstall
+    COMMAND python -m pip install --find-links ${TTMLIR_WHEEL_DIR} build/ttnn_jit-*.whl --force-reinstall
     COMMAND touch ${CMAKE_CURRENT_BINARY_DIR}/build/.installed
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
-    DEPENDS _ttnn_jit
+    DEPENDS _ttnn_jit ttmlir-wheel
     OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/build/.ttnn-jit-installed
   )
 

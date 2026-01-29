@@ -244,3 +244,19 @@ install(DIRECTORY ${CMAKE_BINARY_DIR}/python_packages/ DESTINATION . COMPONENT T
 
 install(DIRECTORY ${CMAKE_BINARY_DIR}/python/dialects/ DESTINATION python/dialects COMPONENT Test EXCLUDE_FROM_ALL)
 install(DIRECTORY ${CMAKE_BINARY_DIR}/python_packages/ DESTINATION python_packages COMPONENT Test EXCLUDE_FROM_ALL)
+
+add_custom_command(
+  COMMAND rm -rf build dist *.egg-info
+  COMMAND python -m pip install build
+  COMMAND TTMLIR_DEV_BUILD=ON python -m build --wheel
+  COMMAND ${CMAKE_COMMAND} -E touch ${CMAKE_CURRENT_BINARY_DIR}/.ttmlir-wheel-built
+  WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+  DEPENDS TTMLIRPythonModules
+  OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/.ttmlir-wheel-built
+  COMMENT "Building ttmlir wheel"
+)
+
+add_custom_target(ttmlir-wheel
+  COMMENT "ttmlir wheel"
+  DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/.ttmlir-wheel-built _ttmlir_runtime TTMLIRPythonModules
+)
