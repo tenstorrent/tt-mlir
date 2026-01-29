@@ -4354,7 +4354,8 @@ def stablehlo_get_dimension_size_golden(
         )
         output_tensor.shard_map[device_id] = shard
 
-    return output_tensor
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return output_tensor.to(output_dtype)
 
 
 def stablehlo_sine_golden(

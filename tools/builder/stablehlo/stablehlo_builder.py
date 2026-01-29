@@ -1266,7 +1266,7 @@ class StableHLOBuilder(Builder):
         if not self._disable_golden_check:
             input0 = self._get_golden_tensor(in0)
             op_golden_function = get_golden_function(stablehlo_op)
-            golden_output = op_golden_function(input0, dimension_attr, op_result.type)
+            golden_output = op_golden_function(input0, dimension_attr, op_result.type.element_type)
             self._set_golden_tensor(op_result, golden_output)
 
         return op_result
@@ -1293,7 +1293,7 @@ class StableHLOBuilder(Builder):
             input0 = self._get_golden_tensor(operand)
             op_golden_function = get_golden_function(stablehlo_op)
             golden_output = op_golden_function(
-                input0, old_op.dimension, new_op_result.type
+                input0, old_op.dimension, new_op_result.type.element_type
             )
             self._set_golden_tensor(new_op_result, golden_output)
 
@@ -1337,7 +1337,7 @@ class StableHLOBuilder(Builder):
                         op_golden_function = get_golden_function(stablehlo_op)
                         input0 = self._get_golden_tensor(old_op.operand)
                         golden_output = op_golden_function(
-                            input0, old_op.dimension, new_op_result.type
+                            input0, old_op.dimension, new_op_result.type.element_type
                         )
                         get_dimension_size_builder._set_golden_tensor(
                             new_op_result, golden_output
