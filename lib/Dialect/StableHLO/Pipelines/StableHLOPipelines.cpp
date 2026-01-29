@@ -22,14 +22,14 @@ void createStableHLOPipeline(OpPassManager &pm,
   pm.addPass(
       mlir::tt::ttcore::createTTPopulateArgumentTypes(options.argumentTypeMap));
 
-  // Convert any xla.sdy ops to sdy ops.
-  pm.addPass(createConvertXlaSdyToSdyPass());
-
   // Partially convert sdy ops to stablehlo.
   pm.addPass(createPartiallyConvertSdyToStableHLOPass());
 
   // Annotate arguments with whether they are already pre-sharded or not.
   pm.addPass(createApplyArgumentShardStatusPass());
+
+  // Convert any xla.sdy ops to sdy ops.
+  pm.addPass(createConvertXlaSdyToSdyPass());
 
   // Analyze the mesh of the graph and update shardings or annotations to match
   // the target device.

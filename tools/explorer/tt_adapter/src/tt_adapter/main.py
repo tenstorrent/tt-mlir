@@ -184,6 +184,7 @@ class TTAdapter(model_explorer.Adapter):
             # Get performance results.
             perf_trace = self.model_runner.get_perf_trace(model_path)
             memory_trace = self.model_runner.get_memory_usage(model_path)
+            golden_results = self.model_runner.get_golden_results(model_path)
             cpp_code = self.model_runner.get_cpp_code(model_path)
 
             with open(optimized_model_path, "r") as model_file:
@@ -197,6 +198,7 @@ class TTAdapter(model_explorer.Adapter):
                 self.model_runner,
                 perf_trace,
                 memory_trace,
+                golden_results,
             )
 
             if overlays:
