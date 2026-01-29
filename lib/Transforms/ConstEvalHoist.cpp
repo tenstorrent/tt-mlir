@@ -3,7 +3,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreTraits.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/FunctionTypes.h"
@@ -104,20 +106,44 @@ struct ConstEvalAnalysisResults {
 
 namespace {
 
-// DRAM budget for const-eval in bytes.
-// Wormhole has ~12GB DRAM, we use 2/3 (~8GB) as budget for const-eval
-// to leave room for activations and other runtime allocations.
-constexpr int64_t kConstEvalDramBudgetBytes = 0ll * 1024 * 1024 * 1024; // 8GB
+// Helper to get DRAM capacity from ChipDescAttr.
+// Returns 0 if chip desc is not available.
+static int64_t getDramCapacityBytes(func::FuncOp funcOp) {
+  auto chipDesc = ttcore::getOpChipDescAttr(funcOp);
+  if (!chipDesc) {
+    return 0;
+  }
+  return static_cast<int64_t>(chipDesc.getUsableDramChannelSize()) *
+         static_cast<int64_t>(chipDesc.getNumDramChannels());
+}
+
+// Helper to round up to the nearest multiple.
+static int64_t roundUpToMultiple(int64_t value, int64_t multiple) {
+  return ((value + multiple - 1) / multiple) * multiple;
+}
 
 // Helper to estimate tensor size in bytes from a ranked tensor type.
+// Accounts for TTNN tile padding (32x32 tiles) on the last two dimensions.
 static int64_t getTensorSizeInBytes(mlir::Type type) {
   auto tensorType = mlir::dyn_cast<mlir::RankedTensorType>(type);
   if (!tensorType || !tensorType.hasStaticShape()) {
     return 0;
   }
 
+  auto shape = tensorType.getShape();
+  int64_t rank = shape.size();
+
+  // Calculate number of elements with tile padding on last 2 dims.
+  // TTNN uses 32x32 tiles, so last 2 dimensions are padded to multiples of 32.
+  constexpr int64_t kTileSize = 32;
   int64_t numElements = 1;
-  for (int64_t dim : tensorType.getShape()) {
+
+  for (int64_t i = 0; i < rank; ++i) {
+    int64_t dim = shape[i];
+    // Apply tile padding to last 2 dimensions (if rank >= 2)
+    if (rank >= 2 && i >= rank - 2) {
+      dim = roundUpToMultiple(dim, kTileSize);
+    }
     numElements *= dim;
   }
 
@@ -144,11 +170,17 @@ public:
   ConstEvalAnalyze(func::FuncOp funcOp)
       : funcOp(funcOp),
         constParams(mlir::tt::ttcore::getConstsAndParams(funcOp)),
-        accumulatedConstEvalBytes(0) {
+        dramCapacityBytes(getDramCapacityBytes(funcOp)),
+        constEvalDisabled(false) {
     buildConstEvalSubgraphs();
   }
 
   ConstEvalAnalysisResults getAnalysisResults() {
+    // If const-eval was disabled due to exceeding DRAM capacity, return empty.
+    if (constEvalDisabled) {
+      return ConstEvalAnalysisResults();
+    }
+
     llvm::DenseMap<mlir::Value, size_t> rootToId;
     llvm::DenseMap<size_t, ConstEvalSubgraph> idToSubgraph;
     size_t currentId = 0;
@@ -192,12 +224,139 @@ public:
   }
 
 private:
+  // Helper to format bytes as human-readable string.
+  static std::string formatBytes(int64_t bytes) {
+    if (bytes >= 1024 * 1024 * 1024) {
+      return std::to_string(bytes / (1024 * 1024 * 1024)) + "." +
+             std::to_string((bytes % (1024 * 1024 * 1024)) * 10 /
+                            (1024 * 1024 * 1024)) +
+             " GB";
+    }
+    if (bytes >= 1024 * 1024) {
+      return std::to_string(bytes / (1024 * 1024)) + "." +
+             std::to_string((bytes % (1024 * 1024)) * 10 / (1024 * 1024)) +
+             " MB";
+    }
+    if (bytes >= 1024) {
+      return std::to_string(bytes / 1024) + "." +
+             std::to_string((bytes % 1024) * 10 / 1024) + " KB";
+    }
+    return std::to_string(bytes) + " B";
+  }
+
   void buildConstEvalSubgraphs() {
+    // First pass: build the subgraphs using DSU.
     for (auto &block : funcOp.getBlocks()) {
       for (auto &opRef : block.getOperations()) {
         processOp(&opRef);
       }
     }
+
+    // Second pass: calculate peak DRAM usage during const-eval.
+    // This accounts for: all subgraph outputs + max execution overhead (inputs + intermediates).
+    int64_t totalConstEvalBytes = estimatePeakConstEvalBytes();
+
+    // Log const-eval size estimation.
+    llvm::errs() << "[ConstEvalHoist] " << funcOp.getName()
+                 << ": estimated const-eval size: " << formatBytes(totalConstEvalBytes)
+                 << " (DRAM capacity: " << formatBytes(dramCapacityBytes)
+                 << ")\n";
+
+    // If total exceeds DRAM capacity, disable const-eval entirely.
+    if (dramCapacityBytes > 0 && totalConstEvalBytes > dramCapacityBytes) {
+      constEvalDisabled = true;
+      funcOp.emitWarning()
+          << "Const-eval disabled: estimated size ("
+          << formatBytes(totalConstEvalBytes) << ") exceeds DRAM capacity ("
+          << formatBytes(dramCapacityBytes)
+          << "). Falling back to runtime evaluation of constant subgraphs.";
+    }
+  }
+
+  // Estimate peak DRAM usage during const-eval execution.
+  // 
+  // When multiple const-eval subgraphs execute sequentially:
+  // - Completed subgraphs: only their final outputs remain in DRAM
+  // - Currently executing subgraph: all intermediate tensors + inputs + outputs
+  //
+  // Peak memory = (sum of all subgraph outputs) + max(subgraph execution overhead)
+  // where execution overhead = (all ops in subgraph) - (subgraph outputs)
+  //                          = intermediate tensors that get freed after execution
+  int64_t estimatePeakConstEvalBytes() {
+    // Group ops by their DSU root to identify subgraphs.
+    llvm::DenseMap<mlir::Value, llvm::SmallVector<mlir::Operation *, 8>> subgraphOps;
+    llvm::SmallPtrSet<mlir::Operation *, 32> allConstEvalOps;
+    
+    for (auto &block : funcOp.getBlocks()) {
+      for (auto &op : block.getOperations()) {
+        if (op.getNumResults() > 0 && dsu.valueExists(op.getResult(0))) {
+          mlir::Value root = dsu.findRoot(op.getResult(0));
+          subgraphOps[root].push_back(&op);
+          allConstEvalOps.insert(&op);
+        }
+      }
+    }
+
+    // Calculate total output size (what remains in DRAM after all const-eval).
+    int64_t totalOutputBytes = 0;
+    // Calculate max execution overhead (intermediate tensors during execution).
+    int64_t maxExecutionOverhead = 0;
+
+    for (auto &[root, ops] : subgraphOps) {
+      llvm::SmallPtrSet<mlir::Operation *, 16> subgraphOpSet(ops.begin(), ops.end());
+      
+      int64_t subgraphTotalBytes = 0;  // All tensors in this subgraph
+      int64_t subgraphOutputBytes = 0; // Only outputs used outside
+
+      for (auto *op : ops) {
+        for (auto result : op->getResults()) {
+          int64_t resultBytes = getTensorSizeInBytes(result.getType());
+          subgraphTotalBytes += resultBytes;
+
+          // Check if this result is used outside the subgraph.
+          bool usedOutside = false;
+          for (auto &use : result.getUses()) {
+            mlir::Operation *user = use.getOwner();
+            if (!allConstEvalOps.contains(user)) {
+              usedOutside = true;
+              break;
+            }
+          }
+          if (usedOutside) {
+            subgraphOutputBytes += resultBytes;
+          }
+        }
+      }
+
+      totalOutputBytes += subgraphOutputBytes;
+      
+      // Execution overhead = intermediate tensors that get freed after subgraph completes.
+      // Note: We do NOT count const/param block arguments as DRAM usage because:
+      // - They start in system_memory
+      // - to_device ops copy them to DRAM, and those ops' outputs are already in subgraphTotalBytes
+      int64_t executionOverhead = subgraphTotalBytes - subgraphOutputBytes;
+      maxExecutionOverhead = std::max(maxExecutionOverhead, executionOverhead);
+    }
+
+    // Account for non-const arguments (activation inputs) that also reside in DRAM.
+    // These are already loaded before const-eval starts and take up DRAM space.
+    int64_t nonConstArgBytes = 0;
+    for (auto arg : funcOp.getArguments()) {
+      if (!constParams.contains(arg)) {
+        nonConstArgBytes += getTensorSizeInBytes(arg.getType());
+      }
+    }
+
+    // Log breakdown for debugging.
+    llvm::errs() << "[ConstEvalHoist] " << funcOp.getName() << " breakdown:\n"
+                 << "  - const-eval outputs (persisted): " << formatBytes(totalOutputBytes) << "\n"
+                 << "  - max execution overhead (intermediates): " << formatBytes(maxExecutionOverhead) << "\n"
+                 << "  - non-const args (activations): " << formatBytes(nonConstArgBytes) << "\n"
+                 << "  - num subgraphs: " << subgraphOps.size() << "\n";
+
+    // Peak DRAM usage during const-eval:
+    // = all persisted outputs + max intermediate overhead during any subgraph execution
+    return totalOutputBytes + maxExecutionOverhead + nonConstArgBytes;
   }
 
   void processOp(Operation *op) {
@@ -228,18 +387,6 @@ private:
       return;
     }
 
-    // Check DRAM budget before adding to const-eval.
-    // Estimate the output tensor size and check against budget.
-    int64_t opOutputBytes = 0;
-    for (auto result : op->getResults()) {
-      opOutputBytes += getTensorSizeInBytes(result.getType());
-    }
-
-    if (accumulatedConstEvalBytes + opOutputBytes > kConstEvalDramBudgetBytes) {
-      // Budget exceeded - skip this op from const-eval
-      return;
-    }
-
     auto operandConstEval = [&](mlir::Value operand) {
       if (auto blockArg = mlir::dyn_cast<mlir::BlockArgument>(operand)) {
         return constParams.contains(blockArg);
@@ -260,9 +407,6 @@ private:
     // Initialize DSU entries for results.
     llvm::for_each(op->getResults(),
                    [&](mlir::Value result) { dsu.init(result); });
-
-    // Update accumulated const-eval size.
-    accumulatedConstEvalBytes += opOutputBytes;
 
     // Union all operands and results except for block arguments and shared ops.
     llvm::SmallVector<mlir::Value> graphsToJoin;
@@ -302,8 +446,11 @@ private:
   // Set of ops which every subgraph + original graph must duplicate.
   llvm::SmallVector<mlir::Operation *, 1> sharedOps;
 
-  // Accumulated size of const-eval tensors in bytes for DRAM budget tracking.
-  int64_t accumulatedConstEvalBytes;
+  // DRAM capacity in bytes from system descriptor.
+  int64_t dramCapacityBytes;
+
+  // Flag to disable const-eval if total size exceeds DRAM capacity.
+  bool constEvalDisabled;
 };
 } // namespace
 
