@@ -13642,6 +13642,7 @@ class TTIRBuilder(Builder):
         return sub_modules_and_builders
 
     ############### ttir.TopKOp ###############
+
     @tag(ttir.TopKOp)
     def topk(
         self,
@@ -13650,6 +13651,8 @@ class TTIRBuilder(Builder):
         dim: int = -1,
         largest: bool = True,
         sorted: bool = True,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> Tuple[OpResult, OpResult]:
         """
@@ -13684,8 +13687,8 @@ class TTIRBuilder(Builder):
         else:
             mlir_output_type = self._get_type_from_torch_dtype(output_type)
 
-        k_attr = IntegerAttr.get(IntegerType.get_signed(32), k)
-        dim_attr = IntegerAttr.get(IntegerType.get_signed(32), dim)
+        k_attr = IntegerAttr.get(IntegerType.get_signless(32), k)
+        dim_attr = IntegerAttr.get(IntegerType.get_signless(32), dim)
         largest_attr = BoolAttr.get(largest)
         sorted_attr = BoolAttr.get(sorted)
 
