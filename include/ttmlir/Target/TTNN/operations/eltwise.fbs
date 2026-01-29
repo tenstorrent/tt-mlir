@@ -55,7 +55,7 @@ table EltwiseBinaryCompositeOp {
 
 union RhsParams {
   FP: FloatingPointType,
-  UI32: UIntegralType,
+  I32: IntegralType,
 }
 
 enum EltwiseBinaryCompositeScalarOpType: uint32 {

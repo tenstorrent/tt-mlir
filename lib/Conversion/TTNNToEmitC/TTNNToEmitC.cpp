@@ -581,11 +581,8 @@ public:
       auto exponent = attr.getValue().convertToFloat();
       exponentAttr = emitter.template emit<float>(exponent);
     } else if (auto attr = mlir::dyn_cast<IntegerAttr>(srcOp.getRhs())) {
-      auto exponent = static_cast<uint32_t>(attr.getValue().getSExtValue());
-      // An explicit cast to uint32_t is required here to avoid ambiguous
-      // function overload resolution during C++ code generation.
-      std::string exponentStr = "uint32_t(" + std::to_string(exponent) + ")";
-      exponentAttr = emitc::OpaqueAttr::get(rewriter.getContext(), exponentStr);
+      auto exponent = static_cast<int32_t>(attr.getValue().getSExtValue());
+      exponentAttr = emitter.template emit<int32_t>(exponent);
     } else {
       return failure();
     }
