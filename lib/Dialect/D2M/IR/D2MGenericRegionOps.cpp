@@ -1097,23 +1097,23 @@ mlir::OpFoldResult IterIndexOp::fold(FoldAdaptor adaptor) {
 }
 
 //===----------------------------------------------------------------------===//
-// IMIndexOp
+// BlockIndexOp
 //===----------------------------------------------------------------------===//
 
-void IMIndexOp::getAsmResultNames(
+void BlockIndexOp::getAsmResultNames(
     function_ref<void(Value, StringRef)> setNameFn) {
   int64_t dim = getDim();
-  setNameFn(getResult(), "im" + std::to_string(dim));
+  setNameFn(getResult(), "block" + std::to_string(dim));
 }
 
-void IMIndexOp::inferResultRanges(
+void BlockIndexOp::inferResultRanges(
     ::llvm::ArrayRef<::mlir::ConstantIntRanges> argRanges,
     mlir::SetIntRangeFn setResultRange) {
   setResultRange(getResult(),
                  getIndexRange(0, std::numeric_limits<uint32_t>::max()));
 }
 
-mlir::OpFoldResult IMIndexOp::fold(FoldAdaptor adaptor) {
+mlir::OpFoldResult BlockIndexOp::fold(FoldAdaptor adaptor) {
   return adaptor.getDimAttr();
 }
 

@@ -18,12 +18,12 @@ namespace mlir::tt::d2m {
 
 namespace {
 
-// Update all IterIndexOp and IMIndexOp dimensions to reflect the new iteration
-// order after interchange. For interchange [2, 0, 1]:
+// Update all IterIndexOp and BlockIndexOp dimensions to reflect the new
+// iteration order after interchange. For interchange [2, 0, 1]:
 //   IterIndex(2) -> IterIndex(0) (2 is at position 0)
 //   IterIndex(0) -> IterIndex(1) (0 is at position 1)
 //   IterIndex(1) -> IterIndex(2) (1 is at position 2)
-// Same logic applies to IMIndexOp.
+// Same logic applies to BlockIndexOp.
 static void updateIndexOpsForInterchange(GenericOp generic, Builder &builder,
                                          ArrayRef<int64_t> interchange) {
   // Compute the inverse permutation: maps old dimension to new position
@@ -43,13 +43,13 @@ static void updateIndexOpsForInterchange(GenericOp generic, Builder &builder,
     });
   }
 
-  // Update all IMIndexOps in the generic's regions (same logic)
+  // Update all BlockIndexOps in the generic's regions (same logic)
   for (Region &region : generic->getRegions()) {
-    region.walk([&](IMIndexOp imIndex) {
-      int64_t oldDim = imIndex.getDim();
+    region.walk([&](BlockIndexOp blockIndex) {
+      int64_t oldDim = blockIndex.getDim();
       if (oldDim < static_cast<int64_t>(inverseInterchange.size())) {
         int64_t newDim = inverseInterchange[oldDim];
-        imIndex.setDimAttr(builder.getI64IntegerAttr(newDim));
+        blockIndex.setDimAttr(builder.getI64IntegerAttr(newDim));
       }
     });
   }

@@ -40,8 +40,8 @@ module {
         ins(%stream : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #ttcore.view<map(4)>, #dram>)
         outs(%alloc : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>) {
     ^unified0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb1: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>):
-      %idx0 = d2m.im_index(0) : index
-      %idx1 = d2m.im_index(1) : index
+      %idx0 = d2m.block_index(0) : index
+      %idx1 = d2m.block_index(1) : index
       %buffer_in = memref.alloc() : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
       %in = d2m.remote_load %buffer_in %stream[%idx0, %idx1] : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #ttcore.view<map(4)>, #dram> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
       %buffer = memref.alloc() : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
@@ -88,8 +88,8 @@ module {
         ins(%stream0, %stream1 : memref<1x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #ttcore.view<map(4)>, #dram>, memref<2x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #ttcore.view<map(4)>, #dram>)
         outs(%alloc : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_>) {
     ^unified0(%cb0: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>>, %cb1: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>>, %cb2: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>>):
-      %idx0 = d2m.im_index(0) : index
-      %idx1 = d2m.im_index(1) : index
+      %idx0 = d2m.block_index(0) : index
+      %idx1 = d2m.block_index(1) : index
       %buffer_lhs = memref.alloc() : memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
       %buffer_rhs = memref.alloc() : memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
       %buffer_out = memref.alloc() : memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
@@ -127,8 +127,8 @@ module {
         ins(%stream : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #ttcore.view<map(4)>, #dram>)
         outs(%alloc : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>) {
     ^unified0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb1: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>):
-      %idx0 = d2m.im_index(0) : index
-      %idx1 = d2m.im_index(1) : index
+      %idx0 = d2m.block_index(0) : index
+      %idx1 = d2m.block_index(1) : index
       %buffer_mem = memref.alloc() : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
       %mem0 = d2m.remote_load %buffer_mem %stream[%idx0, %idx1] : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #ttcore.view<map(4)>, #dram> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
     }

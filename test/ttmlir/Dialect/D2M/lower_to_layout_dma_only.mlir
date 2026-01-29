@@ -14,8 +14,8 @@ func.func @test_remote_input(%arg0: tensor<2x4x32x32xf32, #layout_src>, %arg1: t
   // CHECK: d2m.generic
   // CHECK-SAME: threads = [#d2m.thread<unified>]
   // CHECK: ^unified0
-  // CHECK: %[[ITER0:.*]] = d2m.im_index(0) : index
-  // CHECK: %[[ITER1:.*]] = d2m.im_index(1) : index
+  // CHECK: %[[ITER0:.*]] = d2m.block_index(0) : index
+  // CHECK: %[[ITER1:.*]] = d2m.block_index(1) : index
   // CHECK: d2m.remote_load %{{.*}} %[[VIEW]][%[[ITER0]], %[[ITER1]]]
   // CHECK: d2m.remote_store
   // CHECK-NOT: d2m.dma

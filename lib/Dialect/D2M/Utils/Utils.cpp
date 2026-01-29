@@ -113,11 +113,11 @@ computeDimConstraints(mlir::ArrayRef<mlir::AffineMap> indexingMaps,
 
 SmallVector<Value> buildGridIndices(OpBuilder &builder, Location loc,
                                     AffineMap indexingMap) {
-  // Create dimension values by creating IMIndexOp for each dimension
+  // Create dimension values by creating BlockIndexOp for each dimension
   SmallVector<Value> dimValues;
   for (unsigned i = 0; i < indexingMap.getNumDims(); ++i) {
     dimValues.push_back(
-        builder.create<IMIndexOp>(loc, static_cast<int64_t>(i)));
+        builder.create<BlockIndexOp>(loc, static_cast<int64_t>(i)));
   }
 
   // For each result expression, use expandAffineExpr to translate to arith ops

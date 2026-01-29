@@ -1835,15 +1835,15 @@ def D2M_IterIndexOp : D2M_IndexOp<"iter_index"> {
     }];
 }
 
-def D2M_IMIndexOp : D2M_IndexOp<"im_index"> {
-    let summary = "Indexing Map Index op.";
+def D2M_BlockIndexOp : D2M_IndexOp<"block_index"> {
+    let summary = "Block Index op.";
     let description = [{
-      Return the index for the given indexing map dimension. This op represents
+      Return the index for the given block dimension. This op represents
       a high-level symbolic index that requires grid/block calculation during
       loop generation.
 
       Unlike IterIndexOp which directly maps to a loop induction variable,
-      IMIndexOp is created when expanding indexing map expressions and requires
+      BlockIndexOp is created when expanding indexing map expressions and requires
       combining grid indices with block factors and loop indices to compute
       the final value.
     }];

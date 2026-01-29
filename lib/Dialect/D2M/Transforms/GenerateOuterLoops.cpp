@@ -78,14 +78,14 @@ public:
     SmallVector<Value> virtualGridIndices;
     bool virtualGridIndicesCreated = false;
 
-    // Handle IMIndexOp: apply full grid/block calculation
-    loopNest.loops.back().walk([&](IMIndexOp index) {
+    // Handle BlockIndexOp: apply full grid/block calculation
+    loopNest.loops.back().walk([&](BlockIndexOp index) {
       uint64_t dim = index.getDim();
       assert(dim < loopNest.loops.size());
       scf::ForOp loop = loopNest.loops[dim];
       Value iterIndex = loop.getInductionVar();
 
-      // Set insertion point to before the IMIndexOp so we can create
+      // Set insertion point to before the BlockIndexOp so we can create
       // operations that will be used to replace it
       rewriter.setInsertionPoint(index);
 
@@ -101,7 +101,7 @@ public:
               loc, static_cast<int64_t>(gridDim), gridMapping);
         }
         virtualGridIndicesCreated = true;
-        // Reset insertion point back to before the IMIndexOp
+        // Reset insertion point back to before the BlockIndexOp
         rewriter.setInsertionPoint(index);
       }
 
