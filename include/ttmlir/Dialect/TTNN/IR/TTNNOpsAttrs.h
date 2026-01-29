@@ -63,6 +63,26 @@ parseCoordBracketStyle(::mlir::AsmParser &parser,
   return ::mlir::success();
 }
 
+inline void printCoordBracketStyle(::mlir::AsmPrinter &printer,
+                                   MeshOffsetAttr meshOffsetAttr) {
+  printer << "(" << meshOffsetAttr.getY() << "," << meshOffsetAttr.getX()
+          << ")";
+}
+
+inline ::mlir::ParseResult
+parseCoordBracketStyle(::mlir::AsmParser &parser,
+                       MeshOffsetAttr &meshOffsetAttr) {
+  int64_t y, x;
+
+  if (parser.parseLParen() || parser.parseInteger(y) || parser.parseComma() ||
+      parser.parseInteger(x) || parser.parseRParen()) {
+    return ::mlir::failure();
+  }
+
+  meshOffsetAttr = MeshOffsetAttr::get(parser.getContext(), y, x);
+  return ::mlir::success();
+}
+
 class MemoryConfigAttr::Builder {
 public:
   /// Build from another MemoryConfigAttr.
