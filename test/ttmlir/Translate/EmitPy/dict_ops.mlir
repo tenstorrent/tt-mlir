@@ -2,7 +2,7 @@
 // RUN: ttmlir-translate --mlir-to-python -o %t2 %t
 // RUN: FileCheck %s --input-file=%t2
 // Test EmitPy to Python translation for dictionary operations:
-// create_dict, set_value_for_dict_key, get_value_for_dict_key
+// create_dict, subscript, set_item
 
 //===----------------------------------------------------------------------===//
 // CreateDictOp translation tests
@@ -58,27 +58,7 @@ module {
 // -----
 
 //===----------------------------------------------------------------------===//
-// SetValueForDictKeyOp translation tests
-//===----------------------------------------------------------------------===//
-
-module {
-  emitpy.global @_CONST_EVAL_CACHE = #emitpy.opaque<"{}"> : !emitpy.dict
-
-  // CHECK-LABEL: def test_set_value_index_key
-  func.func @test_set_value_index_key(%arg0: !emitpy.opaque<"[ttnn.Tensor]">) {
-    // CHECK: global _CONST_EVAL_CACHE
-    %dict = emitpy.global_statement @_CONST_EVAL_CACHE : !emitpy.dict
-    %key = emitpy.literal "5" : index
-    // CHECK: _CONST_EVAL_CACHE[5] = {{.*}}
-    emitpy.set_value_for_dict_key %dict[%key] = %arg0 : (!emitpy.dict, index, !emitpy.opaque<"[ttnn.Tensor]">)
-    return
-  }
-}
-
-// -----
-
-//===----------------------------------------------------------------------===//
-// GetValueForDictKeyOp translation tests
+// SubscriptOp translation tests
 //===----------------------------------------------------------------------===//
 
 module {
@@ -90,9 +70,29 @@ module {
     %dict = emitpy.global_statement @_CONST_EVAL_CACHE : !emitpy.dict
     %key = emitpy.literal "5" : index
     // CHECK: {{.*}} = _CONST_EVAL_CACHE[5]
-    %tensors = emitpy.get_value_for_dict_key %dict[%key] : (!emitpy.dict, index) -> !emitpy.opaque<"[ttnn.Tensor]">
+    %tensors = emitpy.subscript %dict[%key] : (!emitpy.dict, index) -> !emitpy.opaque<"[ttnn.Tensor]">
     // CHECK: return {{.*}}
     return %tensors : !emitpy.opaque<"[ttnn.Tensor]">
+  }
+}
+
+// -----
+
+//===----------------------------------------------------------------------===//
+// SetItemOp translation tests
+//===----------------------------------------------------------------------===//
+
+module {
+  emitpy.global @_CONST_EVAL_CACHE = #emitpy.opaque<"{}"> : !emitpy.dict
+
+  // CHECK-LABEL: def test_set_value_index_key
+  func.func @test_set_value_index_key(%arg0: !emitpy.opaque<"[ttnn.Tensor]">) {
+    // CHECK: global _CONST_EVAL_CACHE
+    %dict = emitpy.global_statement @_CONST_EVAL_CACHE : !emitpy.dict
+    %key = emitpy.literal "5" : index
+    // CHECK: _CONST_EVAL_CACHE[5] = {{.*}}
+    emitpy.set_item %dict[%key] = %arg0 : (!emitpy.dict, index, !emitpy.opaque<"[ttnn.Tensor]">)
+    return
   }
 }
 
@@ -111,9 +111,9 @@ module {
     %dict = emitpy.global_statement @tensor_cache : !emitpy.dict
     %key = emitpy.literal "42" : index
     // CHECK: tensor_cache[42] = {{.*}}
-    emitpy.set_value_for_dict_key %dict[%key] = %arg0 : (!emitpy.dict, index, !emitpy.opaque<"ttnn.Tensor">)
+    emitpy.set_item %dict[%key] = %arg0 : (!emitpy.dict, index, !emitpy.opaque<"ttnn.Tensor">)
     // CHECK: {{.*}} = tensor_cache[42]
-    %output = emitpy.get_value_for_dict_key %dict[%key] : (!emitpy.dict, index) -> !emitpy.opaque<"ttnn.Tensor">
+    %output = emitpy.subscript %dict[%key] : (!emitpy.dict, index) -> !emitpy.opaque<"ttnn.Tensor">
     // CHECK: return {{.*}}
     return %output : !emitpy.opaque<"ttnn.Tensor">
   }

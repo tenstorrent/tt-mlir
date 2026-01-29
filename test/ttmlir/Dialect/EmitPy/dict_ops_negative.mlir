@@ -79,3 +79,33 @@ module {
     return %dict : !emitpy.dict
   }
 }
+
+// -----
+
+//===----------------------------------------------------------------------===//
+// SubscriptOp negative tests
+//===----------------------------------------------------------------------===//
+
+// Test cannot use string index on non-dict type
+module {
+  func.func @test_subscript_string_on_non_dict(%arr: !emitpy.opaque<"[int]">, %key: !emitpy.str) -> !emitpy.opaque<"int"> {
+    // CHECK: error: 'emitpy.subscript' op cannot use string index on non-dict type '!emitpy.opaque<"[int]">'
+    %elem = emitpy.subscript %arr[%key] : (!emitpy.opaque<"[int]">, !emitpy.str) -> !emitpy.opaque<"int">
+    return %elem : !emitpy.opaque<"int">
+  }
+}
+
+// -----
+
+//===----------------------------------------------------------------------===//
+// SetItemOp negative tests
+//===----------------------------------------------------------------------===//
+
+// Test cannot use string index on non-dict type
+module {
+  func.func @test_set_item_string_on_non_dict(%arr: !emitpy.opaque<"[int]">, %key: !emitpy.str, %value: !emitpy.opaque<"int">) {
+    // CHECK: error: 'emitpy.set_item' op cannot use string index on non-dict type '!emitpy.opaque<"[int]">'
+    emitpy.set_item %arr[%key] = %value : (!emitpy.opaque<"[int]">, !emitpy.str, !emitpy.opaque<"int">)
+    return
+  }
+}
