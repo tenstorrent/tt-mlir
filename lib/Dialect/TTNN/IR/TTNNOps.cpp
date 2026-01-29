@@ -4368,6 +4368,13 @@ mlir::tt::ttnn::ScaledDotProductAttentionDecodeOp::verify() {
     return emitOpError("Output must be a 4D tensor");
   }
 
+  if (queryType.getShape() != resultType.getShape()) {
+    return emitOpError("Query and result must have the same shape");
+  }
+  if (queryType.getElementType() != resultType.getElementType()) {
+    return emitOpError("Query and result must have the same element type");
+  }
+
   if (queryType.getShape()[0] != 1) {
     return emitOpError("Query dim 0 must be 1");
   }
@@ -4545,12 +4552,18 @@ mlir::tt::ttnn::PagedScaledDotProductAttentionDecodeOp::verify() {
   RankedTensorType valueType = getValue().getType();
   RankedTensorType resultType = getResult().getType();
 
-  if (queryType != resultType) {
-    return emitOpError("Query and result must have the same type");
+  if (queryType.getShape() != resultType.getShape()) {
+    return emitOpError("Query and result must have the same shape");
+  }
+  if (queryType.getElementType() != resultType.getElementType()) {
+    return emitOpError("Query and result must have the same element type");
   }
 
-  if (keyType != valueType) {
-    return emitOpError("Key and value must have the same type");
+  if (keyType.getShape() != valueType.getShape()) {
+    return emitOpError("Key and value must have the same shape");
+  }
+  if (keyType.getElementType() != valueType.getElementType()) {
+    return emitOpError("Key and value must have the same element type");
   }
 
   size_t queryRank = queryType.getShape().size();

@@ -2418,9 +2418,9 @@ TEST_F(OpModelBase, typecastOp) {
   RankedTensorType rankedTensorTypeF32 =
       RankedTensorType::get(tensorShape, builder.getF32Type());
 
-  auto typecast =
-      builder.create<TypecastOp>(builder.getUnknownLoc(), rankedTensorTypeF32,
-                                 input, ttcore::DataType::Float32);
+  auto typecast = builder.create<TypecastOp>(
+      builder.getUnknownLoc(), rankedTensorTypeF32, input,
+      ttcore::DataTypeAttr::get(&context, ttcore::DataType::Float32));
 
   auto constraintsExp = getOpConstraints(typecast.getOperation());
   if (constraintsExp) {

@@ -374,6 +374,32 @@ Tensor createMultiDeviceHostTensor(
       });
 }
 
+Tensor createMultiDeviceBorrowedHostTensor(
+    std::vector<void *> &data, const std::vector<std::uint32_t> &shape,
+    const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
+    ::tt::target::DataType dataType,
+    const std::unordered_map<std::string, std::string> &strategy,
+    const std::vector<uint32_t> &meshShape) {
+  using RetType = Tensor;
+  LOG_ASSERT(!shape.empty());
+  LOG_ASSERT(!stride.empty());
+  LOG_ASSERT(itemsize > 0);
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() -> RetType {
+        return ::tt::runtime::ttnn::createMultiDeviceBorrowedHostTensor(
+            data, shape, stride, itemsize, dataType, strategy, meshShape);
+      },
+      [&]() -> RetType {
+        return ::tt::runtime::ttmetal::createMultiDeviceBorrowedHostTensor(
+            data, shape, stride, itemsize, dataType, strategy, meshShape);
+      },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("createMultiDeviceBorrowedHostTensor",
+                                    HostRuntime::Distributed);
+      });
+}
+
 Tensor createEmptyTensor(Device device, Layout layout,
                          const std::vector<std::uint32_t> &shape,
                          const std::vector<std::uint32_t> &stride,

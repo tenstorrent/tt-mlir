@@ -133,7 +133,15 @@ def execute_extracted_ops(
     execution_results = []
 
     for op in workflow_internal.progress_bar(ops, desc="Executing submodules..."):
-        sub_module = op.as_module()
+        try:
+            sub_module = op.as_module()
+        except Exception as e:
+            print(f"ERROR: Failed to create module from op")
+            print(f"Origin model: {op.origin_model}")
+            print(f"Module string:\n{op.as_module_str()}")
+            print(f"Exception: {e}")
+            continue
+
         execution_result = executor.execute(sub_module)
         execution_results.append(execution_result)
 

@@ -46,8 +46,8 @@ struct TTIRToTTIRDecompositionPass
     // Configure which ops to decompose based on the configuration
     switch (decompConfig) {
     case DecompMode::CPUFallback:
-      // CPU fallback only decomposes dot_general, reduce_or, reduce_and
-      // All other ops are legal (won't be decomposed)
+      // CPU fallback decomposes dot_general, reduce_or, reduce_and, embedding.
+      // All other ops are legal (won't be decomposed).
       target.addLegalOp<ttir::IndexOp>();
       target.addLegalOp<ttir::GetDimensionSizeOp>();
       target.addLegalOp<ttir::GatherOp>();
@@ -56,10 +56,11 @@ struct TTIRToTTIRDecompositionPass
       target.addLegalOp<ttir::RequantizeOp>();
       target.addLegalOp<ttir::DequantizeOp>();
 
-      // These three are illegal (will be decomposed)
+      // These ops are illegal (will be decomposed).
       target.addIllegalOp<ttir::DotGeneralOp>();
       target.addIllegalOp<ttir::ReduceAndOp>();
       target.addIllegalOp<ttir::ReduceOrOp>();
+      target.addIllegalOp<ttir::EmbeddingOp>();
       break;
 
     case DecompMode::TTNN:
