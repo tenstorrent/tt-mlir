@@ -1547,7 +1547,7 @@ public:
         emitter.emit(srcOp.getMemoryConfig() |
                          emitter.getMemoryConfig(srcOp.getResult()),
                      "memory_config"),
-        emitter.emit(srcOp.getConv2dSliceConfig(), "slice_config"),
+        emitter.emit(srcOp.getConv2dSliceConfig(), "dram_slice_config"),
     };
 
     emitter.replaceOp(*this, args);
