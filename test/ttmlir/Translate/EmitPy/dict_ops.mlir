@@ -2,7 +2,7 @@
 // RUN: ttmlir-translate --mlir-to-python -o %t2 %t
 // RUN: FileCheck %s --input-file=%t2
 // Test EmitPy to Python translation for dictionary operations:
-// create_dict, subscript, set_item
+// create_dict, subscript, assign
 
 //===----------------------------------------------------------------------===//
 // CreateDictOp translation tests
@@ -79,7 +79,7 @@ module {
 // -----
 
 //===----------------------------------------------------------------------===//
-// SetItemOp translation tests
+// AssignOp translation tests
 //===----------------------------------------------------------------------===//
 
 module {
@@ -91,7 +91,7 @@ module {
     %dict = emitpy.global_statement @_CONST_EVAL_CACHE : !emitpy.dict
     %key = emitpy.literal "5" : index
     // CHECK: _CONST_EVAL_CACHE[5] = {{.*}}
-    emitpy.set_item %dict[%key] = %arg0 : (!emitpy.dict, index, !emitpy.opaque<"[ttnn.Tensor]">)
+    emitpy.assign %dict[%key] = %arg0 : (!emitpy.dict, index, !emitpy.opaque<"[ttnn.Tensor]">)
     return
   }
 }
@@ -111,7 +111,7 @@ module {
     %dict = emitpy.global_statement @tensor_cache : !emitpy.dict
     %key = emitpy.literal "42" : index
     // CHECK: tensor_cache[42] = {{.*}}
-    emitpy.set_item %dict[%key] = %arg0 : (!emitpy.dict, index, !emitpy.opaque<"ttnn.Tensor">)
+    emitpy.assign %dict[%key] = %arg0 : (!emitpy.dict, index, !emitpy.opaque<"ttnn.Tensor">)
     // CHECK: {{.*}} = tensor_cache[42]
     %output = emitpy.subscript %dict[%key] : (!emitpy.dict, index) -> !emitpy.opaque<"ttnn.Tensor">
     // CHECK: return {{.*}}

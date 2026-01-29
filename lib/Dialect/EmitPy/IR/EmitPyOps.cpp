@@ -812,7 +812,7 @@ LogicalResult CreateDictOp::verify() {
       return emitOpError(
           "items must be alternating key-value pairs (even count required)");
     }
-    for (size_t i = 1; i < getItems().size(); i += 2) {
+    for (size_t i = 0; i < getItems().size(); i += 2) {
       Type keyType = getItems()[i].getType();
       if (!isa<IndexType, StringType>(keyType)) {
         return emitOpError()
@@ -826,24 +826,89 @@ LogicalResult CreateDictOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
-// SetItemOp
+// AssignOp
 //===----------------------------------------------------------------------===//
 
-void SetItemOp::getEffects(
+void AssignOp::getEffects(
     SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
         &effects) {
-  // SetItem modifies the target container in-place
+  // Assign modifies the target in-place
   effects.emplace_back(MemoryEffects::Write::get(),
                        SideEffects::DefaultResource::get());
 }
 
-LogicalResult SetItemOp::verify() {
-  Type targetType = getTarget().getType();
-  Type indexType = getIndex().getType();
+LogicalResult AssignOp::verify() {
+  // If index is provided, verify it's compatible with target type
+  if (getIndex()) {
+    Type targetType = getTarget().getType();
+    Type indexType = getIndex().getType();
 
-  if (!isa<DictType>(targetType) && isa<StringType>(indexType)) {
-    return emitOpError() << "cannot use string index on non-dict type "
-                         << targetType;
+    if (!isa<DictType>(targetType) && isa<StringType>(indexType)) {
+      return emitOpError() << "cannot use string index on non-dict type "
+                           << targetType;
+    }
+  }
+
+  return success();
+}
+
+void AssignOp::print(OpAsmPrinter &p) {
+  p << " " << getTarget();
+  if (getIndex()) {
+    p << "[" << getIndex() << "]";
+  }
+  p << " = " << getValue() << " : (";
+  p << getTarget().getType();
+  if (getIndex()) {
+    p << ", " << getIndex().getType();
+  }
+  p << ", " << getValue().getType() << ")";
+}
+
+ParseResult AssignOp::parse(OpAsmParser &parser, OperationState &result) {
+  OpAsmParser::UnresolvedOperand target, index, value;
+  Type targetType, indexType, valueType;
+  bool hasIndex = false;
+
+  if (parser.parseOperand(target)) {
+    return parser.emitError(parser.getNameLoc(), "expected target operand");
+  }
+  if (succeeded(parser.parseOptionalLSquare())) {
+    hasIndex = true;
+    if (parser.parseOperand(index) || parser.parseRSquare()) {
+      return parser.emitError(parser.getNameLoc(), "expected index operand");
+    }
+  }
+  if (parser.parseEqual() || parser.parseOperand(value)) {
+    return parser.emitError(parser.getNameLoc(),
+                            "expected '=' and value operand");
+  }
+  if (parser.parseColon() || parser.parseLParen() ||
+      parser.parseType(targetType)) {
+    return parser.emitError(parser.getNameLoc(), "expected target type");
+  }
+  if (hasIndex) {
+    if (parser.parseComma() || parser.parseType(indexType)) {
+      return parser.emitError(parser.getNameLoc(), "expected index type");
+    }
+  }
+  if (parser.parseComma() || parser.parseType(valueType) ||
+      parser.parseRParen()) {
+    return parser.emitError(parser.getNameLoc(), "expected value type");
+  }
+  if (parser.resolveOperand(target, targetType, result.operands)) {
+    return parser.emitError(parser.getNameLoc(),
+                            "failed to resolve target operand");
+  }
+  if (hasIndex) {
+    if (parser.resolveOperand(index, indexType, result.operands)) {
+      return parser.emitError(parser.getNameLoc(),
+                              "failed to resolve index operand");
+    }
+  }
+  if (parser.resolveOperand(value, valueType, result.operands)) {
+    return parser.emitError(parser.getNameLoc(),
+                            "failed to resolve value operand");
   }
 
   return success();

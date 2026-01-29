@@ -113,7 +113,7 @@ def EmitPy_SubscriptOp : EmitPy_Op<"subscript", [Pure, PyExpressionInterface]> {
   let summary = "Subscript operation";
   let description = [{
     The `emitpy.subscript` operation represents Python subscript access.
-    This is the read counterpart to `emitpy.set_item`.
+    This is the read counterpart to `emitpy.assign`.
 
     Supports reading from any subscriptable object (arrays, dicts, etc.)
     with integer or string keys.
@@ -142,29 +142,6 @@ def EmitPy_SubscriptOp : EmitPy_Op<"subscript", [Pure, PyExpressionInterface]> {
   let assemblyFormat = "$value `[` $index `]` attr-dict `:` functional-type(operands, results)";
 }
 
-def EmitPy_AssignOp : EmitPy_Op<"assign"> {
-  let summary = "Assign operation";
-  let description = [{
-    The `emitpy.assign` operation represents a Python variable assignment.
-    This models `new_var = old_var` or `var = constant`.
-
-    Example:
-
-    ```mlir
-    %2 = emitpy.assign %1 : <!emitpy.opaque<"ttnn.Tensor">>
-    ```
-    ```Python
-    // Code emitted for the operation above.
-    v2 = v1;
-    ```
-  }];
-
-  let arguments = (ins
-    EmitPy_OpaqueType:$value);
-
-  let results = (outs AnyType:$result);
-  let assemblyFormat = "$value attr-dict `:` functional-type(operands, results)";
-}
 
 def EmitPy_GetAttrOp : EmitPy_Op<"get_attr", [Pure, PyExpressionInterface]> {
   let summary = "Get attribute from an object";
@@ -306,38 +283,43 @@ def EmitPy_CreateDictOp : EmitPy_Op<"create_dict", [Pure]> {
   }];
 }
 
-def EmitPy_SetItemOp : EmitPy_Op<"set_item",
+def EmitPy_AssignOp : EmitPy_Op<"assign",
     [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
-  let summary = "Set item operation for subscript assignment";
+  let summary = "Assign operation";
   let description = [{
-    The `emitpy.set_item` operation represents Python subscript assignment.
-    This is the write counterpart to `emitpy.subscript`.
+    The `emitpy.assign` operation represents Python assignment.
+    It supports both simple variable assignment and subscript assignment.
 
-    Supports assignment to any subscriptable object (arrays, dicts, etc.)
-    with integer or string keys.
+    When index is provided, it represents subscript assignment (write counterpart to `emitpy.subscript`).
+    When index is not provided, it represents simple variable assignment.
 
-    Example:
+    Examples:
 
     ```mlir
+    // Subscript assignment
     %dict = emitpy.create_dict "dict" {literal_expr = "{}"} : () -> !emitpy.dict
     %key = emitpy.literal "5" : index
-    emitpy.set_item %dict[%key] = %value : (!emitpy.dict, index, !emitpy.opaque<"[ttnn.Tensor]">)
+    emitpy.assign %dict[%key] = %value : (!emitpy.dict, index, !emitpy.opaque<"[ttnn.Tensor]">)
+
+    // Simple assignment
+    emitpy.assign %target = %value : (!emitpy.opaque<"int">, !emitpy.opaque<"int">)
     ```
 
     ```python
     // Code emitted:
     dict[5] = value
+    target = value
     ```
   }];
 
   let arguments = (ins
-    Arg<AnyTypeOf<[EmitPy_OpaqueType, EmitPy_DictType]>, "target container">:$target,
-    Arg<AnyTypeOf<[Index, EmitPy_StringType]>, "index or key">:$index,
+    Arg<EmitPy_Type, "target">:$target,
+    Optional<AnyTypeOf<[Index, EmitPy_StringType]>>:$index,
     Arg<EmitPy_Type, "value to set">:$value
   );
 
   let hasVerifier = 1;
-  let assemblyFormat = "$target `[` $index `]` `=` $value attr-dict `:` `(` type($target) `,` type($index) `,` type($value) `)`";
+  let hasCustomAssemblyFormat = 1;
 }
 
 def EmitPy_VerbatimOp : EmitPy_Op<"verbatim"> {
