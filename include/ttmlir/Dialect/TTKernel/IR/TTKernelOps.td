@@ -2204,6 +2204,53 @@ def TTKernel_ExperimentalUntilizeBlockOp : TTKernel_Op<"experimental::untilize_b
     }];
 }
 
+def TTKernel_ExperimentalTileFillOp : TTKernel_SFPUOp<"experimental::tile_fill", [TTKernel_UnaryOpTrait]> {
+    let summary = "Experimental Tile Fill Op";
+    let description = [{
+      Creates a tile in DST filled with a constant scalar value. All elements in the
+      resulting tile will have the same value as the input scalar. The DST register
+      buffer must be in acquired state via *tile_regs_acquire* call. This call is
+      blocking and is only available on the compute engine.
+    }];
+
+    let arguments = (ins IndexLike:$dst_index, F32:$value);
+
+    let assemblyFormat = [{
+      `(` $dst_index `,` $value `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_ExperimentalWriteRowMaskTileOp : TTKernel_Op<"experimental::write_row_mask_tile"> {
+    let summary = "Experimental Write Row Mask Tile Op";
+    let description = [{
+      Writes a row mask tile pattern to a CB, where element[i,j] = 1.0 if i < validRows, else 0.0.
+      This is used in dataflow kernels to generate OOB mask tiles directly in L1 memory,
+      avoiding DST register pressure in the compute kernel.
+    }];
+
+    let arguments = (ins I32:$validRows, TTKernel_CB:$cb);
+
+    let assemblyFormat = [{
+      `(` $validRows `,` $cb `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_ExperimentalWriteColMaskTileOp : TTKernel_Op<"experimental::write_col_mask_tile"> {
+    let summary = "Experimental Write Col Mask Tile Op";
+    let description = [{
+      Writes a column mask tile pattern to a CB, where element[i,j] = 1.0 if j < validCols, else 0.0.
+      This is used in dataflow kernels to generate OOB mask tiles directly in L1 memory,
+      avoiding DST register pressure in the compute kernel.
+    }];
+
+    let arguments = (ins I32:$validCols, TTKernel_CB:$cb);
+
+    let assemblyFormat = [{
+      `(` $validCols `,` $cb `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+
 def TTKernel_UntilizeInitOp : TTKernel_Op<"untilize_init"> {
     let summary = "UntilizeInitOp call.";
     let description = [{

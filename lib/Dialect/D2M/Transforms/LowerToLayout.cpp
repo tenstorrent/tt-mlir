@@ -608,6 +608,10 @@ public:
 
   // Lower masking operation using a d2m.generic with BlockMaskOp.
   // The BlockMaskOp operates at block level and gets decomposed later.
+  //
+  // Strategy: Use CB-based mask generation (L1 writes + copy_tile).
+  // This is more reliable than SFPU-based mask generation which has
+  // complex face iteration pattern, at cost of extra memory usage.
   Value lowerMaskingGeneric(PatternRewriter &rewriter, Value input,
                             Value output, Location loc,
                             ArrayRef<int64_t> logicalShape,
@@ -616,31 +620,105 @@ public:
     int64_t logicalRows = logicalShape[logicalShape.size() - 2];
     int64_t logicalCols = logicalShape[logicalShape.size() - 1];
 
+    // Check if partial masking is needed (non-tile-aligned shape).
+    auto inputType = mlir::cast<RankedTensorType>(input.getType());
+    auto inputLayout =
+        mlir::cast<ttcore::MetalLayoutAttr>(inputType.getEncoding());
+    // shardRank is the shard shape rank (used for indexing maps).
+    const size_t shardRank = inputLayout.getShardShape(inputType).size();
+
+    // Create scratch mask tensors (single tile each).
+    // These are used as scratch CBs to write masks via L1, then copy to DST.
+    // The mask tensor must have same rank as input tensor for GenericOp to
+    // work. Use the input's logical shape but with 1s except last two dims
+    // (32x32).
+    auto inputLogicalShape = inputLayout.getLogicalShape();
+    SmallVector<int64_t> maskLogicalShape(inputLogicalShape.begin(),
+                                          inputLogicalShape.end());
+    // Set all dims to 1 except last two which are 32x32 (single tile).
+    for (size_t i = 0; i < maskLogicalShape.size(); ++i) {
+      if (i < maskLogicalShape.size() - 2) {
+        maskLogicalShape[i] = 1;
+      } else {
+        maskLogicalShape[i] = 32;
+      }
+    }
+    auto maskLayout = ttcore::MetalLayoutAttr::get(
+        rewriter.getContext(), maskLogicalShape, ttcore::OOBVal::Undef,
+        ttcore::MemorySpace::DeviceL1, ttcore::TensorMemoryLayout::Sharded);
+
+    auto elemType = inputType.getElementType();
+    // Mask tensor shape: [grid_shape..., ..., 1, 1] in tile coordinates.
+    // This is a single tile on each core.
+    auto gridShape = inputLayout.getGridShape(inputType);
+    SmallVector<int64_t> maskShape;
+    for (auto dim : gridShape) {
+      maskShape.push_back(dim);
+    }
+    maskShape.push_back(1);
+    maskShape.push_back(1);
+
+    Value rowMaskTensor =
+        rewriter.create<d2m::EmptyOp>(loc, maskShape, elemType, maskLayout)
+            .getResult();
+    Value colMaskTensor =
+        rewriter.create<d2m::EmptyOp>(loc, maskShape, elemType, maskLayout)
+            .getResult();
+
+    // Input list includes scratch mask CBs.
+    SmallVector<Value> allInputs = {input, rowMaskTensor, colMaskTensor};
+    SmallVector<Value> allOutputs = {output};
+
+    // Build indexing maps based on shard rank (iteration space).
+    AffineMap identityMap = rewriter.getMultiDimIdentityMap(shardRank);
+    // For mask operands: broadcast (constant 0 for each grid/shard dim).
+    SmallVector<AffineExpr> zeroExprs(shardRank,
+                                      rewriter.getAffineConstantExpr(0));
+    AffineMap constantMap =
+        AffineMap::get(shardRank, 0, zeroExprs, rewriter.getContext());
+    SmallVector<AffineMap> indexingMaps = {
+        identityMap, // input: iterate over all tiles.
+        constantMap, // rowMask: single tile, constant.
+        constantMap, // colMask: single tile, constant.
+        identityMap  // output: iterate over all tiles.
+    };
+    Attribute parallel = rewriter.getAttr<ttcore::IteratorTypeAttr>(
+        ttcore::IteratorType::Parallel);
+    ArrayAttr indexingMapsAttr = rewriter.getAffineMapArrayAttr(indexingMaps);
+    ArrayAttr iteratorTypesAttr =
+        rewriter.getArrayAttr(SmallVector<Attribute>(shardRank, parallel));
+
     auto genericOp = rewriter.create<GenericOp>(
-        loc, input, output,
+        loc, ValueRange(allInputs), ValueRange(allOutputs), indexingMapsAttr,
+        iteratorTypesAttr,
         [&](OpBuilder &builder, Location innerLoc, ValueRange blockArgs) {
+          // blockArgs: [inputCB, rowMaskCB, colMaskCB, outputCB].
           Value src =
               builder.create<WaitOp>(innerLoc, blockArgs[0]).getResult();
+          Value rowMaskCB =
+              builder.create<WaitOp>(innerLoc, blockArgs[1]).getResult();
+          Value colMaskCB =
+              builder.create<WaitOp>(innerLoc, blockArgs[2]).getResult();
           Value dst =
-              builder.create<ReserveOp>(innerLoc, blockArgs[1]).getResult();
+              builder.create<ReserveOp>(innerLoc, blockArgs[3]).getResult();
 
-          // Create index constants for logical bounds.
-          // Note: For multicore, per-core bounds are computed in
-          // DecomposeMasking using CoreIndexOp to determine global tile
-          // position.
           Value logicalRowsVal =
               builder.create<arith::ConstantIndexOp>(innerLoc, logicalRows);
           Value logicalColsVal =
               builder.create<arith::ConstantIndexOp>(innerLoc, logicalCols);
 
-          // Apply block-level masking. BlockMaskOp is side-effecting and writes
-          // to dst, so we yield dst to propagate the result.
-          builder.create<BlockMaskOp>(innerLoc, src, dst, logicalRowsVal,
-                                      logicalColsVal, fillValue);
+          // BlockMaskOp with mask CBs - the mask writes will be handled
+          // in DecomposeMasking, which runs after bufferization.
+          builder.create<BlockMaskOp>(innerLoc, src, dst, rowMaskCB, colMaskCB,
+                                      logicalRowsVal, logicalColsVal,
+                                      fillValue);
 
           builder.create<YieldOp>(innerLoc, ValueRange{dst});
         },
         ThreadType::Compute);
+
+    // Mark mask inputs (indices 1, 2) as scratch - they don't need streaming.
+    genericOp.setScratchInputsAttr(rewriter.getDenseI64ArrayAttr({1, 2}));
 
     return genericOp.getResult(0);
   }
