@@ -26,7 +26,9 @@ if (USE_TTNN_JIT_WHEEL)
   install(FILES
       $<TARGET_FILE:JITCPP>
       $<TARGET_FILE:_ttnn_jit>
-    DESTINATION ttnn_jit/
+      $<TARGET_FILE:TTMLIRRuntime>
+      $<TARGET_FILE:_ttmlir_runtime>
+    DESTINATION ttnn_jit/runtime
     COMPONENT TTNNJITWheel
     EXCLUDE_FROM_ALL
   )
