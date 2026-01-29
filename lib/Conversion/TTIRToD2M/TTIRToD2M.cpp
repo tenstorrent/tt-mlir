@@ -4,6 +4,7 @@
 
 #include "ttmlir/Conversion/TTIRToD2M/TTIRToD2M.h"
 
+#include "ttmlir/AffineMapUtils.h"
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2M.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
@@ -205,9 +206,11 @@ protected:
     auto [indexAffineMap, optimalGrid] =
         getGridAndAffineMapForTTNNTensor(rewriter, tensorType);
 
+    // Note: indexAffineMap is no longer stored in the layout; virtualization
+    // is handled by ViewLayoutOp/StreamLayoutOp remapping attributes.
     auto metalLayout = ttcore::MetalLayoutAttr::get(
         rewriter.getContext(), tensorType.getShape(), ttcore::OOBVal::Undef,
-        memSpace, memLayout, collapsedIntervals, dimAlignments, indexAffineMap);
+        memSpace, memLayout, collapsedIntervals, dimAlignments);
 
     llvm::SmallVector<int64_t> unshardedShape =
         metalLayout.getPhysicalShape(ttcore::TileType::getDefaultShape());
@@ -240,10 +243,13 @@ protected:
         // GridSelection by insertTTNNDRAMStreams().
         llvm::SmallVector<int64_t> unitGrid(
             metalTensorType.getShape().size() / 2, 1);
+        auto resultType = d2m::utils::reblockTensor(metalTensorType, unitGrid);
+        // Compute remapping from input shape to output shape
+        mlir::AffineMap remapping = ttmlir::utils::calculateReblockMap(
+            metalTensorType.getShape(), resultType.getShape(),
+            rewriter.getContext());
         auto unitReblockingView = rewriter.create<d2m::ViewLayoutOp>(
-            value.getLoc(),
-            d2m::utils::reblockTensor(metalTensorType, unitGrid),
-            metalCastOp->getResult(0));
+            value.getLoc(), resultType, metalCastOp->getResult(0), remapping);
         return unitReblockingView.getResult();
       }
       // For DRAM operands, we can return the metal cast result directly.
@@ -270,21 +276,12 @@ protected:
       DenseIntElementsAttr emptyCollapseIntervals =
           DenseIntElementsAttr::get(emptyIntervalType, ArrayRef<int64_t>{});
 
-      // For ND uncollapsed shapes, instantiate a core virtual grid map that
-      // collapses the default ND unit grid to a 2D unit grid. These mappings
-      // will be replaced if the layout is optimized in GridSelection.
-      AffineMap coreVirtMap = AffineMap::get(rewriter.getContext());
-      if (logicalShape.size() > 2) {
-        llvm::SmallVector<int64_t> unitGrid(logicalShape.size(), 1);
-        coreVirtMap = ttmlir::d2m::utils::grids::createCoreVirtMaps(
-                          rewriter.getContext(), unitGrid, {1, 1})
-                          .first;
-      }
-
+      // Note: For ND uncollapsed shapes, core virtual grid maps are no longer
+      // stored in the layout; virtualization is handled by
+      // ViewLayoutOp/StreamLayoutOp remapping attributes.
       layout = ttcore::MetalLayoutAttr::get(
           rewriter.getContext(), logicalShape, ttcore::OOBVal::Undef, memSpace,
-          ttcore::TensorMemoryLayout::Sharded, emptyCollapseIntervals,
-          coreVirtMap);
+          ttcore::TensorMemoryLayout::Sharded, emptyCollapseIntervals);
 
     } else {
       layout = ttcore::MetalLayoutAttr::get(
@@ -1428,12 +1425,11 @@ public:
         rewriter, permutation, inputShape, deviceRank,
         inputLayout.getLogicalShape(), inputLayout.getDimAlignments());
 
-    // Create the result layout by composing with input layout.
+    // Create the result layout WITHOUT the affine map (map is on the op now).
     auto resultLayout = ttcore::MetalLayoutAttr::get(
         ctx, permuted.logicalShape, inputLayout.getOobVal(),
         inputLayout.getMemorySpace(), inputLayout.getMemoryLayout(),
-        inputLayout.getCollapsedIntervals(), permuted.dimAlignments,
-        permuted.transposeMap);
+        inputLayout.getCollapsedIntervals(), permuted.dimAlignments);
 
     auto viewType = mlir::RankedTensorType::get(
         permuted.physicalShape, inputTensorType.getElementType(), resultLayout);
@@ -1442,8 +1438,8 @@ public:
     auto storage = rewriter.create<d2m::EmptyOp>(
         loc, permuted.physicalShape, inputTensorType.getElementType(),
         resultLayout);
-    auto stream =
-        rewriter.create<d2m::StreamLayoutOp>(loc, viewType, inputs[0], storage);
+    auto stream = rewriter.create<d2m::StreamLayoutOp>(
+        loc, viewType, inputs[0], storage, permuted.transposeMap);
     inputs[0] = stream.getResult();
     unsigned logicalRank = deviceRank / 2;
     // For inner permute, we alse need a GenericOp to transpose each individual
@@ -1679,17 +1675,18 @@ public:
 
     auto outTy = mlir::cast<RankedTensorType>(outputs[0].getType());
     auto layout = mlir::cast<ttcore::MetalLayoutAttr>(outTy.getEncoding());
+    // Create layout WITHOUT the affine map (map is on the op now).
     auto newLayout = ttcore::MetalLayoutAttr::get(
         layout.getContext(), layout.getLogicalShape(), layout.getOobVal(),
         layout.getMemorySpace(), layout.getMemoryLayout(),
-        layout.getCollapsedIntervals(), layout.getDimAlignments(), deviceMap);
+        layout.getCollapsedIntervals(), layout.getDimAlignments());
     auto newOutTy = RankedTensorType::get(outTy.getShape(),
                                           outTy.getElementType(), newLayout);
 
     auto storage =
         rewriter.create<d2m::EmptyOp>(op.getLoc(), outputs[0].getType());
     auto view = rewriter.create<d2m::StreamLayoutOp>(
-        op.getLoc(), newOutTy, inputs[0], storage.getResult());
+        op.getLoc(), newOutTy, inputs[0], storage.getResult(), deviceMap);
 
     rewriter.replaceOp(op, unLayoutResult(rewriter, view->getResult(0),
                                           op->getResult(0).getType()));

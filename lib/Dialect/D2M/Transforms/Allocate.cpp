@@ -1383,9 +1383,10 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         getStreamType(bufferType.getShape(), reblockingMap,
                       oldOperandType.getElementType(), remappedMemspace);
 
+    // Pass remapping to the op (will eventually replace map in type's layout).
     auto streamOp = rewriter.create<d2m::StreamLayoutOp>(
         op.getLoc(), /* result */ streamType, /* input */ operand.get(),
-        /* storage */ bufferAllocOp);
+        /* storage */ bufferAllocOp, reblockingMap);
 
     rewriter.startOpModification(op);
     {

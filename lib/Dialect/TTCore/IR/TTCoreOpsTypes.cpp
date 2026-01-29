@@ -845,23 +845,25 @@ static llvm::SmallVector<int64_t> applyCollapsedIntervalsAndAlignments(
   return resultShape;
 }
 
-MetalLayoutAttr MetalLayoutAttr::compose(AffineMap affineMap) const {
-  if (getIndexAffineMap().isEmpty()) {
-    return withIndexAffineMap(affineMap);
-  }
+// MetalLayoutAttr MetalLayoutAttr::compose(AffineMap affineMap) const {
+//   if (getIndexAffineMap().isEmpty()) {
+//     return withIndexAffineMap(affineMap);
+//   }
 
-  return ttcore::MetalLayoutAttr::get(
-      getContext(), getLogicalShape(), getDimAlignments(),
-      getCollapsedIntervals(), getOobVal(), getMemorySpace(), getMemoryLayout(),
-      getIndexAffineMap().compose(affineMap));
-}
+//   return ttcore::MetalLayoutAttr::get(
+//       getContext(), getLogicalShape(), getDimAlignments(),
+//       getCollapsedIntervals(), getOobVal(), getMemorySpace(),
+//       getMemoryLayout(), getIndexAffineMap().compose(affineMap));
+// }
 
-MetalLayoutAttr MetalLayoutAttr::withIndexAffineMap(AffineMap affineMap) const {
-  return ttcore::MetalLayoutAttr::get(
-      getContext(), getLogicalShape(), getDimAlignments(),
-      getCollapsedIntervals(), getOobVal(), getMemorySpace(), getMemoryLayout(),
-      affineMap.isIdentity() ? AffineMap::get(getContext()) : affineMap);
-}
+// MetalLayoutAttr MetalLayoutAttr::withIndexAffineMap(AffineMap affineMap)
+// const {
+//   return ttcore::MetalLayoutAttr::get(
+//       getContext(), getLogicalShape(), getDimAlignments(),
+//       getCollapsedIntervals(), getOobVal(), getMemorySpace(),
+//       getMemoryLayout(), affineMap.isIdentity() ?
+//       AffineMap::get(getContext()) : affineMap);
+// }
 
 llvm::SmallVector<int64_t>
 MetalLayoutAttr::getPhysicalShape(ArrayRef<int64_t> tileShape) const {
@@ -879,12 +881,6 @@ MetalLayoutAttr::getPhysicalShape(ArrayRef<int64_t> tileShape) const {
     physicalShape[physicalShape.size() - 1] /= tileShape[1];
   }
   return physicalShape;
-}
-
-llvm::SmallVector<int64_t>
-MetalLayoutAttr::getPhysicalGridShape(ShapedType tensorType) const {
-  return getPhysicalGridShapeFromShapeAndMap(
-      tensorType.getShape(), getGridShape(tensorType), getIndexAffineMap());
 }
 
 // Takes various shape fields and returns the expected physical shape, which
@@ -960,15 +956,6 @@ llvm::SmallVector<int64_t> MetalLayoutAttr::normalizeAndFlattenIntervals(
 llvm::SmallVector<int64_t> MetalLayoutAttr::getNormalizedIntervals() const {
   return normalizeAndFlattenIntervals(getCollapsedIntervals(),
                                       getLogicalShape().size());
-}
-
-mlir::AffineMap
-MetalLayoutAttr::getIndexAffineMapOrIdentity(unsigned rank) const {
-  mlir::AffineMap map = getIndexAffineMap();
-  if (!map || map.getNumResults() == 0) {
-    return mlir::AffineMap::getMultiDimIdentityMap(rank, getContext());
-  }
-  return map;
 }
 
 // Compute basic tile-based dimension alignments for the last two dimensions of
@@ -1149,40 +1136,35 @@ MetalLayoutAttr::computeDefaultCollapsedIntervals(MLIRContext *context,
   return collapsedIntervals;
 }
 
-static inline std::pair<DenseIntElementsAttr, llvm::SmallVector<int64_t>>
-createDefaultCollapsedIntervalsAndAlignments(::mlir::MLIRContext *context,
-                                             ArrayRef<int64_t> logicalShape) {
+// static inline std::pair<DenseIntElementsAttr, llvm::SmallVector<int64_t>>
+// createDefaultCollapsedIntervalsAndAlignments(::mlir::MLIRContext *context,
+//                                              ArrayRef<int64_t> logicalShape)
+//                                              {
 
-  auto flattenedIntervals =
-      computeDefaultFlattenedIntervals(context, logicalShape.size());
-  auto collapsedIntervals = MetalLayoutAttr::computeDefaultCollapsedIntervals(
-      context, logicalShape.size());
+//   auto flattenedIntervals =
+//       computeDefaultFlattenedIntervals(context, logicalShape.size());
+//   auto collapsedIntervals =
+//   MetalLayoutAttr::computeDefaultCollapsedIntervals(
+//       context, logicalShape.size());
 
-  // Set alignments based on the flattened intervals.
-  llvm::SmallVector<int64_t> dimAlignmentsVec =
-      MetalLayoutAttr::computeTileAlignments(logicalShape, flattenedIntervals);
-  return {collapsedIntervals, dimAlignmentsVec};
-}
-
-// Getter with no intervals or alignments, we calculate them both.
-MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
-                                     ArrayRef<int64_t> logicalShape,
-                                     OOBVal oobVal, MemorySpace memorySpace,
-                                     TensorMemoryLayout memoryLayout,
-                                     mlir::AffineMap indexAffineMap) {
-
-  auto [collapsedIntervals, dimAlignmentsVec] =
-      createDefaultCollapsedIntervalsAndAlignments(context, logicalShape);
-  return get(context, logicalShape, dimAlignmentsVec, collapsedIntervals,
-             oobVal, memorySpace, memoryLayout, indexAffineMap);
-}
+//   // Set alignments based on the flattened intervals.
+//   llvm::SmallVector<int64_t> dimAlignmentsVec =
+//       MetalLayoutAttr::computeTileAlignments(logicalShape,
+//       flattenedIntervals);
+//   return {collapsedIntervals, dimAlignmentsVec};
+// }
 
 MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
                                      ArrayRef<int64_t> logicalShape,
                                      OOBVal oobVal, MemorySpace memorySpace,
                                      TensorMemoryLayout memoryLayout) {
-  return get(context, logicalShape, oobVal, memorySpace, memoryLayout,
-             mlir::AffineMap::get(context));
+  auto collapsedIntervals =
+      computeDefaultCollapsedIntervals(context, logicalShape.size());
+  auto dimAlignments = computeTileAlignments(
+      logicalShape,
+      normalizeAndFlattenIntervals(collapsedIntervals, logicalShape.size()));
+  return get(context, logicalShape, dimAlignments, collapsedIntervals, oobVal,
+             memorySpace, memoryLayout);
 }
 
 // Getter with explicit collapsedIntervals, we calculate the alignments.
@@ -1191,24 +1173,11 @@ MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
                                      OOBVal oobVal, MemorySpace memorySpace,
                                      TensorMemoryLayout memoryLayout,
                                      DenseIntElementsAttr collapsedIntervals) {
-  return get(context, logicalShape, oobVal, memorySpace, memoryLayout,
-             collapsedIntervals, mlir::AffineMap::get(context));
-}
-
-// Getter with explicit collapsedIntervals, we calculate the alignments.
-MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
-                                     ArrayRef<int64_t> logicalShape,
-                                     OOBVal oobVal, MemorySpace memorySpace,
-                                     TensorMemoryLayout memoryLayout,
-                                     DenseIntElementsAttr collapsedIntervals,
-                                     mlir::AffineMap indexAffineMap) {
-  llvm::SmallVector<int64_t> normalizedIntervals =
-      normalizeAndFlattenIntervals(collapsedIntervals, logicalShape.size());
-  llvm::SmallVector<int64_t> dimAlignmentsVec =
-      computeTileAlignments(logicalShape, normalizedIntervals);
-
-  return get(context, logicalShape, dimAlignmentsVec, collapsedIntervals,
-             oobVal, memorySpace, memoryLayout, indexAffineMap);
+  auto dimAlignments = computeTileAlignments(
+      logicalShape,
+      normalizeAndFlattenIntervals(collapsedIntervals, logicalShape.size()));
+  return get(context, logicalShape, dimAlignments, collapsedIntervals, oobVal,
+             memorySpace, memoryLayout);
 }
 
 // Getter with explicit collapsedIntervals and dimAlignments.
@@ -1219,7 +1188,7 @@ MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
                                      DenseIntElementsAttr collapsedIntervals,
                                      ArrayRef<int64_t> dimAlignments) {
   return get(context, logicalShape, dimAlignments, collapsedIntervals, oobVal,
-             memorySpace, memoryLayout, mlir::AffineMap::get(context));
+             memorySpace, memoryLayout);
 }
 
 mlir::MemRefType
@@ -1238,24 +1207,12 @@ MetalLayoutAttr::getMemRefType(mlir::RankedTensorType tensorType) {
       MemorySpaceAttr::get(tensorType.getContext(), layout.getMemorySpace()));
 }
 
-MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
-                                     ArrayRef<int64_t> logicalShape,
-                                     OOBVal oobVal, MemorySpace memorySpace,
-                                     TensorMemoryLayout memoryLayout,
-                                     DenseIntElementsAttr collapsedIntervals,
-                                     ArrayRef<int64_t> dimAlignments,
-                                     mlir::AffineMap indexAffineMap) {
-  return get(context, logicalShape, dimAlignments, collapsedIntervals, oobVal,
-             memorySpace, memoryLayout, indexAffineMap);
-}
-
 ::mlir::LogicalResult MetalLayoutAttr::verify(
     ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
     ::llvm::ArrayRef<int64_t> logicalShape,
     ::llvm::ArrayRef<int64_t> dimAlignments,
     DenseIntElementsAttr collapsedIntervals, OOBVal oobVal,
-    MemorySpace memorySpace, TensorMemoryLayout memoryLayout,
-    ::mlir::AffineMap indexAffineMap) {
+    MemorySpace memorySpace, TensorMemoryLayout memoryLayout) {
 
   int64_t logicalRank = logicalShape.size();
 

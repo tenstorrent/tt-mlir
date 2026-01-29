@@ -78,8 +78,10 @@ RankedTensorType reblockTensor(RankedTensorType oldTensor,
   auto [newShape, reblockMap] = ttmlir::utils::calculateReblockMapForGrid(
       oldTensor.getShape(), newGridShape, oldTensor.getContext());
 
-  ttcore::MetalLayoutAttr newLayout = oldLayout.withIndexAffineMap(reblockMap);
-  return RankedTensorType::get(newShape, oldTensor.getElementType(), newLayout);
+  // The layout no longer stores the index map - reblock maps are now handled
+  // by ViewLayoutOp/StreamLayoutOp remapping attributes. Just use the same
+  // layout with the new shape.
+  return RankedTensorType::get(newShape, oldTensor.getElementType(), oldLayout);
 }
 
 std::optional<SmallVector<int64_t>>

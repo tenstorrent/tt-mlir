@@ -32,14 +32,29 @@ def D2M_ViewLayoutOp : D2M_Op<"view_layout", [
   let description = [{
     Create a representational view of a tensor/memref with a different layout.
     This is a no-op for codegen; consumers are expected to compose layouts.
+
+    The optional `remapping` attribute specifies an affine map that describes
+    how indices in the result map to indices in the input. When present, this
+    map is used for index transformation instead of being embedded in the
+    result type's layout attribute.
   }];
 
-  let arguments = (ins AnyRankedTensorOrMemRef:$input, DefaultValuedAttr<BoolAttr, "false">:$reinterpretLayout);
+  let arguments = (ins AnyRankedTensorOrMemRef:$input,
+                       DefaultValuedAttr<BoolAttr, "false">:$reinterpretLayout,
+                       OptionalAttr<AffineMapAttr>:$remapping);
   let results = (outs AnyRankedTensorOrMemRef:$result);
 
   let assemblyFormat = [{
-    $input attr-dict `:` type($input) `->` type($result)
+    $input (`remapping` `=` $remapping^)? attr-dict `:` type($input) `->` type($result)
   }];
+
+  let builders = [
+    // Primary builder: result type, input, and remapping (reinterpretLayout defaults to false)
+    OpBuilder<(ins "Type":$result, "Value":$input, "AffineMap":$remapping), [{
+      build($_builder, $_state, result, input, $_builder.getBoolAttr(false),
+            remapping ? AffineMapAttr::get(remapping) : nullptr);
+    }]>,
+  ];
 
   let extraClassDeclaration = [{
     bool isReblockOnly();
@@ -208,11 +223,25 @@ def D2M_StreamLayoutOp : D2M_Op<"stream_layout", [
   let description = [{
     Represent a streaming relationship between a source tensor/memref and a
     storage buffer, producing a view result.
+
+    The optional `remapping` attribute specifies an affine map that describes
+    how indices in the result map to indices in the input. When present, this
+    map is used for index transformation instead of being embedded in the
+    result type's layout attribute.
   }];
 
   let arguments = (ins AnyRankedTensorOrMemRef:$input,
-                       AnyRankedTensorOrMemRef:$storage);
+                       AnyRankedTensorOrMemRef:$storage,
+                       OptionalAttr<AffineMapAttr>:$remapping);
   let results = (outs AnyRankedTensorOrMemRef:$result);
+
+  let builders = [
+    // Primary builder: result type, input, storage, and remapping
+    OpBuilder<(ins "Type":$result, "Value":$input, "Value":$storage, "AffineMap":$remapping), [{
+      build($_builder, $_state, result, input, storage,
+            remapping ? AffineMapAttr::get(remapping) : nullptr);
+    }]>,
+  ];
 
   let hasVerifier = 1;
 }

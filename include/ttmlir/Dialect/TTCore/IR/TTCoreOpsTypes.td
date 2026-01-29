@@ -418,14 +418,10 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_
     DefaultValuedParameter<"MemorySpace",
                             "MemorySpace::System">:$memory_space,
 
-   AttrParameter<"TensorMemoryLayout", "Tensor memory layout">:$memory_layout,
-
-    // Optional index remapping (e.g., view remap or virtual→physical grid mapping).
-    // Defaults to empty, which is treated as identity.
-    DefaultValuedParameter<"AffineMap", "$_builder.getEmptyAffineMap()">:$indexAffineMap
+   AttrParameter<"TensorMemoryLayout", "Tensor memory layout">:$memory_layout
   );
 
-  let assemblyFormat = "`<` `logical_shape` `=` custom<DimensionList>($logical_shape) `,` `dim_alignments` `=` custom<DimensionList>($dim_alignments) `,` `collapsed_intervals` `=` $collapsed_intervals `,` $oob_val `,` $memory_space `,` $memory_layout `,` `index_map` `=` custom<IdentityAffineMap>($indexAffineMap) `>`";
+  let assemblyFormat = "`<` `logical_shape` `=` custom<DimensionList>($logical_shape) `,` `dim_alignments` `=` custom<DimensionList>($dim_alignments) `,` `collapsed_intervals` `=` $collapsed_intervals `,` $oob_val `,` $memory_space `,` $memory_layout `>`";
 
   let extraClassDeclaration = [{
     static MetalLayoutAttr get(::mlir::MLIRContext *context,
@@ -437,20 +433,8 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_
                                      ArrayRef<int64_t> logicalShape,
                                      OOBVal oobVal, MemorySpace memorySpace,
                                      TensorMemoryLayout memoryLayout,
-                                     mlir::AffineMap indexAffineMap
-                                     );
-
-    static MetalLayoutAttr get(::mlir::MLIRContext *context,
-                                     ArrayRef<int64_t> logicalShape,
-                                     OOBVal oobVal, MemorySpace memorySpace,
-                                     TensorMemoryLayout memoryLayout,
                                      DenseIntElementsAttr collapseIntervals);
-    static MetalLayoutAttr get(::mlir::MLIRContext *context,
-                                     ArrayRef<int64_t> logicalShape,
-                                     OOBVal oobVal, MemorySpace memorySpace,
-                                     TensorMemoryLayout memoryLayout,
-                                     DenseIntElementsAttr collapseIntervals,
-                                     mlir::AffineMap indexAffineMap);
+
     static MetalLayoutAttr get(::mlir::MLIRContext *context,
                                      ArrayRef<int64_t> logicalShape,
                                      OOBVal oobVal, MemorySpace memorySpace,
@@ -459,17 +443,6 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_
                                      ArrayRef<int64_t> dimAlignments
                                      );
 
-    static MetalLayoutAttr get(::mlir::MLIRContext *context,
-                                     ArrayRef<int64_t> logicalShape,
-                                     OOBVal oobVal, MemorySpace memorySpace,
-                                     TensorMemoryLayout memoryLayout,
-                                     DenseIntElementsAttr collapseIntervals,
-                                     ArrayRef<int64_t> dimAlignments,
-                                     mlir::AffineMap indexAffineMap
-                                     );
-
-    MetalLayoutAttr compose(mlir::AffineMap indexAffineMap) const;
-    MetalLayoutAttr withIndexAffineMap(mlir::AffineMap indexAffineMap) const;
 
     // Derive the physical tensor shape from logical shape and grid.
     llvm::SmallVector<int64_t> getPhysicalShape(ArrayRef<int64_t> tileShape) const;
@@ -503,19 +476,8 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_
 
     llvm::SmallVector<int64_t> getNormalizedIntervals() const;
 
-    // Returns the explicit index_map if present; otherwise returns an
-    // identity map of the provided rank.
-    mlir::AffineMap getIndexAffineMapOrIdentity(unsigned rank) const;
-
     // Returns the full rank (including grid dimensions).
     unsigned getRank() const { return getNormalizedIntervals().size(); }
-
-    // Computes the implied physical grid shape using the grid shape and index map (if present)
-    llvm::SmallVector<int64_t> getPhysicalGridShape(ShapedType tensorType) const;
-
-    std::optional<mlir::AffineMap> getVirtualizationMapIfExists() {
-      return getIndexAffineMap();
-    }
 
     // Returns true if this layout has two or more dims collapsed into a single dim
     bool hasNonTrivialCollapsedDims(ArrayRef<int64_t> deviceShape);

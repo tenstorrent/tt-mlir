@@ -247,15 +247,11 @@ class D2MLowerToLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
       bool virtualBounceNeeded = tensorGridShape.size() > 2 ||
                                  ((tensorGridShape[0] > targetGridShape[0]) ||
                                   (tensorGridShape[1] > targetGridShape[1]));
-      auto newIndexMap = referenceLayout.getIndexAffineMap();
-      bool hasNonTrivialIndexMap =
-          !newIndexMap.isEmpty() && !newIndexMap.isIdentity();
 
       ttcore::MetalLayoutAttr layout;
-      if (hasNonTrivialIndexMap && virtualBounceNeeded) {
-        // If the reference layout has a virtual grid, the bounce shape should
-        // not copy its index map.
-        newIndexMap = AffineMap::get(ctx);
+      if (virtualBounceNeeded) {
+        // If the tensor has a virtual grid, the bounce shape should be
+        // recomputed.
         tensorGridShape =
             computeVirtualGridBounceShape(tensorGridShape, targetGridShape);
 
@@ -272,14 +268,14 @@ class D2MLowerToLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
             ctx, referenceLayout.getLogicalShape(),
             referenceLayout.getDimAlignments(), collapsedIntervals,
             referenceLayout.getOobVal(), ttcore::MemorySpace::DeviceDRAM,
-            ttcore::TensorMemoryLayout::Interleaved, newIndexMap);
+            ttcore::TensorMemoryLayout::Interleaved);
       } else {
         layout = ttcore::MetalLayoutAttr::get(
             ctx, referenceLayout.getLogicalShape(),
             referenceLayout.getDimAlignments(),
             referenceLayout.getCollapsedIntervals(),
             referenceLayout.getOobVal(), ttcore::MemorySpace::DeviceL1,
-            referenceLayout.getMemoryLayout(), newIndexMap);
+            referenceLayout.getMemoryLayout());
       }
 
       ArrayRef<int64_t> tileShape;
@@ -307,45 +303,44 @@ class D2MLowerToLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
       auto memSpace = newMemSpace.value_or(baseLayout.getMemorySpace());
       auto elementType = newElementType.value_or(baseType.getElementType());
 
-      // Do not consider a tensor with a identity index map as having a virtual
-      // grid.
-      bool hasVirtualGrid = !baseLayout.getIndexAffineMap().isEmpty() &&
-                            !baseLayout.getIndexAffineMap().isIdentity();
       SmallVector<int64_t> tensorGrid;
       if (newTensorGrid.has_value()) {
         tensorGrid.assign(newTensorGrid->begin(), newTensorGrid->end());
       } else {
         auto currentGrid = llvm::to_vector(baseLayout.getGridShape(baseType));
         tensorGrid = currentGrid;
+        // Check if grid exceeds target (virtual grid scenario).
+        bool hasVirtualGrid = tensorGrid.size() > 2 ||
+                              tensorGrid[0] > targetGridShape[0] ||
+                              tensorGrid[1] > targetGridShape[1];
         if (hasVirtualGrid && reblockVirtualGridShapes) {
           tensorGrid =
               computeVirtualGridBounceShape(tensorGrid, targetGridShape);
         }
       }
 
-      AffineMap newIndexMap = AffineMap::get(ctx);
-      if (memSpace == ttcore::MemorySpace::DeviceL1 &&
-          baseLayout.getMemorySpace() == ttcore::MemorySpace::DeviceL1) {
-        newIndexMap = baseLayout.getIndexAffineMap();
-      }
-
       ttcore::MetalLayoutAttr layout;
+      // Check if we need to reblock virtual grid shapes.
+      auto currentGrid = llvm::to_vector(baseLayout.getGridShape(baseType));
+      bool hasVirtualGrid = currentGrid.size() > 2 ||
+                            currentGrid[0] > targetGridShape[0] ||
+                            currentGrid[1] > targetGridShape[1];
       if (hasVirtualGrid && reblockVirtualGridShapes) {
         // Recompute default collapsed intervals and dim alignments if virtual
         // grid shape is being reblocked.
         auto [collapsedIntervals, dimAlignments] =
             computeGridAwareCollapsedIntervalsAndDimAlignments(baseLayout,
                                                                targetGridShape);
-        layout = ttcore::MetalLayoutAttr::get(
-            ctx, baseLayout.getLogicalShape(), dimAlignments,
-            collapsedIntervals, baseLayout.getOobVal(), memSpace,
-            baseLayout.getMemoryLayout(), AffineMap::get(ctx));
+        layout = ttcore::MetalLayoutAttr::get(ctx, baseLayout.getLogicalShape(),
+                                              dimAlignments, collapsedIntervals,
+                                              baseLayout.getOobVal(), memSpace,
+                                              baseLayout.getMemoryLayout());
       } else {
         // Otherwise, preserve dim alignments and collapsed intervals.
         layout = ttcore::MetalLayoutAttr::get(
             ctx, baseLayout.getLogicalShape(), baseLayout.getDimAlignments(),
             baseLayout.getCollapsedIntervals(), baseLayout.getOobVal(),
-            memSpace, baseLayout.getMemoryLayout(), newIndexMap);
+            memSpace, baseLayout.getMemoryLayout());
       }
 
       ArrayRef<int64_t> tileShape;
@@ -394,9 +389,6 @@ public:
     auto inputLayout = *inputInfo.layout;
     auto outputLayout = *outputInfo.layout;
 
-    // Check if output has virtual grid for later use.
-    bool outputHasVirtualGrid = !outputLayout.getIndexAffineMap().isEmpty();
-
     // Classify the type of mapping change to choose the optimal approach.
     // Simple reblocking: only grid shape differs, all other layout properties
     // are identical. For tilized tensors, we can use a direct device-space
@@ -429,61 +421,45 @@ public:
 
       // Build an affine map that transforms input device coordinates to output
       // device coordinates via the shared logical space. This map handles grid
-      // redistribution, collapse changes, padding changes, and virtual grid
-      // index_maps.
+      // redistribution, collapse changes, and padding changes.
       viewMap = ttcore::utils::buildLayoutTransformMap(
           inputLayout, inputInfo.type, outputLayout, outputInfo.type);
     }
 
-    // Embed the transformation map in the output layout.
+    // Create the layout for the view result.
     auto newLayout = ttcore::MetalLayoutAttr::get(
         rewriter.getContext(), outputLayout.getLogicalShape(),
         outputLayout.getDimAlignments(), outputLayout.getCollapsedIntervals(),
         outputLayout.getOobVal(), outputLayout.getMemorySpace(),
-        outputLayout.getMemoryLayout(), viewMap);
+        outputLayout.getMemoryLayout());
 
     auto viewType =
         RankedTensorType::get(outputInfo.type.getShape(),
                               outputInfo.type.getElementType(), newLayout);
 
-    Value viewOp = rewriter.create<ViewLayoutOp>(loc, viewType, input,
-                                                 /*reinterpretLayout=*/false);
+    Value viewOp = rewriter.create<ViewLayoutOp>(loc, viewType, input, viewMap);
 
     // Materialize L1→L1 transformations with a DMA generic that performs the
     // actual data movement according to the view's affine map.
     if (!inputInfo.isDRAM() && !outputInfo.isDRAM()) {
       auto gridShape = outputInfo.getGridShape();
 
-      // If the output has a virtual grid (and by our early check, input does
-      // too with the same grid shape), we need to include the virtual→physical
-      // coordinate translation in the grid attribute.
+      // Check if grid shape exceeds physical bounds (virtual grid scenario).
       ttcore::GridAttr grid;
-      if (outputHasVirtualGrid) {
-        // Check if this is actually a virtual grid (grid shape exceeds physical
-        // bounds)
-        bool isVirtualGrid =
-            (gridShape.size() > 2) || (gridShape[0] > targetGridShape[0] ||
-                                       gridShape[1] > targetGridShape[1]);
+      bool isVirtualGrid =
+          (gridShape.size() > 2) || (gridShape[0] > targetGridShape[0] ||
+                                     gridShape[1] > targetGridShape[1]);
 
-        if (isVirtualGrid) {
-          // Create the virtual grid coordinate maps and use the inverse map
-          // for the grid's coordinate translation.
-          auto physicalGridShape =
-              outputInfo.layout->getPhysicalGridShape(outputInfo.type);
-          auto [fwdMap, invMap] = ttmlir::d2m::utils::grids::createCoreVirtMaps(
-              rewriter.getContext(), gridShape, physicalGridShape);
-          grid =
-              ttcore::GridAttr::get(rewriter.getContext(), gridShape, invMap);
-        } else {
-          // If the operand has index_map but doesn't exceed physical grid
-          // (e.g., reblocking, transpose), derive the grid inverse map from
-          // the output's index_map to ensure roundtrip consistency.
-          auto indexMap = outputLayout.getIndexAffineMap();
-          auto invMap = ttmlir::utils::createGridInverseMapFromIndexMap(
-              indexMap, gridShape.size(), rewriter.getContext());
-          grid =
-              ttcore::GridAttr::get(rewriter.getContext(), gridShape, invMap);
-        }
+      if (isVirtualGrid) {
+        // Create the virtual grid coordinate maps and use the inverse map
+        // for the grid's coordinate translation.
+        // Physical grid is clamped to target grid shape.
+        SmallVector<int64_t> physicalGridShape = {
+            std::min(gridShape[0], targetGridShape[0]),
+            std::min(gridShape[1], targetGridShape[1])};
+        auto [fwdMap, invMap] = ttmlir::d2m::utils::grids::createCoreVirtMaps(
+            rewriter.getContext(), gridShape, physicalGridShape);
+        grid = ttcore::GridAttr::get(rewriter.getContext(), gridShape, invMap);
       } else {
         grid = ttcore::GridAttr::get(rewriter.getContext(), gridShape);
       }
@@ -600,15 +576,14 @@ public:
       auto baseLayout =
           mlir::cast<ttcore::MetalLayoutAttr>(fromTy.getEncoding());
 
+      // Create layout WITHOUT the affine map - it goes on the op now.
       auto enc = ttcore::MetalLayoutAttr::get(
           ctx, baseLayout.getLogicalShape(), baseLayout.getDimAlignments(),
           baseLayout.getCollapsedIntervals(), baseLayout.getOobVal(),
-          baseLayout.getMemorySpace(), baseLayout.getMemoryLayout(), map);
+          baseLayout.getMemorySpace(), baseLayout.getMemoryLayout());
       auto resultTy =
           RankedTensorType::get(toTy.getShape(), toTy.getElementType(), enc);
-      return rewriter
-          .create<ViewLayoutOp>(loc, resultTy, fromVal,
-                                /*reinterpretLayout=*/false)
+      return rewriter.create<ViewLayoutOp>(loc, resultTy, fromVal, map)
           .getResult();
     };
 
@@ -874,10 +849,10 @@ public:
         (ttcore::isTiled(currentInfo.type) ==
          ttcore::isTiled(targetInfo.type))) {
       // Check if layout properties differ (excluding memSpace and memLayout).
+      // Note: index affine map is no longer in the layout; virtualization is
+      // handled by ViewLayoutOp/StreamLayoutOp remapping.
       bool needsMappingChange =
           (currentInfo.getGridShape() != targetInfo.getGridShape() ||
-           currentInfo.layout->getIndexAffineMap() !=
-               targetInfo.layout->getIndexAffineMap() ||
            currentInfo.layout->getLogicalShape() !=
                targetInfo.layout->getLogicalShape() ||
            currentInfo.layout->getDimAlignments() !=
@@ -925,8 +900,7 @@ public:
               targetInfo.layout->getCollapsedIntervals(),
               targetInfo.layout->getOobVal(),
               ttcore::MemorySpace::DeviceL1, // Stay in L1
-              targetInfo.layout->getMemoryLayout(),
-              targetInfo.layout->getIndexAffineMap());
+              targetInfo.layout->getMemoryLayout());
 
           auto scalarTargetGridShape = targetInfo.getGridShape();
           auto scalarTargetDeviceShape =
@@ -957,16 +931,14 @@ public:
           // Simple reblocking or untilized complex: use direct approach.
           auto deviceShape = llvm::to_vector(targetInfo.type.getShape());
 
-          // Use target's layout properties (including index_map) but stay in
-          // L1.
+          // Use target's layout properties but stay in L1.
           auto intermediateLayout = ttcore::MetalLayoutAttr::get(
               rewriter.getContext(), targetInfo.layout->getLogicalShape(),
               targetInfo.layout->getDimAlignments(),
               targetInfo.layout->getCollapsedIntervals(),
               targetInfo.layout->getOobVal(),
               ttcore::MemorySpace::DeviceL1, // Force L1 for reblocking.
-              targetInfo.layout->getMemoryLayout(),
-              targetInfo.layout->getIndexAffineMap());
+              targetInfo.layout->getMemoryLayout());
 
           auto intermediateType = RankedTensorType::get(
               deviceShape, currentInfo.type.getElementType(),

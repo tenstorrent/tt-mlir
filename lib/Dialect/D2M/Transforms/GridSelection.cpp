@@ -275,27 +275,12 @@ static ttcore::MetalLayoutAttr layoutWithOptimalGrid(
           oldLayout.getLogicalShape(), targetSquareGridShape,
           oldLayout.getNormalizedIntervals());
 
-  // If using a virtual grid, compute required forward index affine map.
-  AffineMap indexAffineMap = oldLayout.getIndexAffineMap();
-  if (isVirtualGrid) {
-    auto physicalGridShape = findLegalPhysicalGridForVolume(
-        ttmlir::utils::volume(optimalGrid), targetSquareGridShape);
-    // At this point, it should be guaranteed that we can find a legal physical
-    // grid
-    TT_assertv(!physicalGridShape.empty(),
-               "Unable to find 2D rect that can fit virtual grid {} within "
-               "device grid {}",
-               ttmlir::utils::formatIterable(optimalGrid, "x"),
-               ttmlir::utils::formatIterable(targetSquareGridShape, "x"));
-    auto [fwdMap, _] = ttmlir::d2m::utils::grids::createCoreVirtMaps(
-        builder.getContext(), optimalGrid, physicalGridShape);
-    indexAffineMap = fwdMap;
-  }
-
+  // Virtualization (index affine map) is no longer stored in the layout;
+  // it's handled by ViewLayoutOp/StreamLayoutOp remapping attributes.
   return ttcore::MetalLayoutAttr::get(
       builder.getContext(), oldLayout.getLogicalShape(), oldLayout.getOobVal(),
       oldLayout.getMemorySpace(), oldLayout.getMemoryLayout(),
-      collapsedIntervals, newDimAlignments, indexAffineMap);
+      collapsedIntervals, newDimAlignments);
 }
 
 static RankedTensorType tensorWithOptimalGrid(
@@ -406,8 +391,12 @@ static void optimizeToLayoutGrid(d2m::ToLayoutOp toLayoutOp,
   // Reblock it back to original shape to preserve IR correctness.
   auto viewOutputType =
       utils::reblockTensor(newTensorType, oldLayout.getGridShape(outputType));
-  auto view = builder.create<d2m::ViewLayoutOp>(
-      toLayoutOp.getLoc(), viewOutputType, newToLayoutOp.getResult(0));
+  mlir::AffineMap remapping = ttmlir::utils::calculateReblockMap(
+      newTensorType.getShape(), viewOutputType.getShape(),
+      builder.getContext());
+  auto view =
+      builder.create<d2m::ViewLayoutOp>(toLayoutOp.getLoc(), viewOutputType,
+                                        newToLayoutOp.getResult(0), remapping);
 
   // We expect the ToLayout to be used in one of two ways:
   // 1. Directly by a single GenericOp (or operations within its region)
@@ -722,26 +711,13 @@ updateStreamLayoutOps(ArrayRef<StreamLayoutUpdateInfo> streamLayoutsToUpdate,
             storageLayout.getLogicalShape(), targetSquareGridShape,
             storageLayout.getNormalizedIntervals());
 
-    // If using a virtual grid, compute required forward index affine map.
-    AffineMap storageIndexMap = storageLayout.getIndexAffineMap();
-    if (info.isVirtualGrid) {
-      auto physicalGridShape = findLegalPhysicalGridForVolume(
-          ttmlir::utils::volume<int64_t>(optimalGrid), targetSquareGridShape);
-      TT_assertv(!physicalGridShape.empty(),
-                 "Unable to find 2D rect that can fit virtual grid {} within "
-                 "device grid {}",
-                 ttmlir::utils::formatIterable(optimalGrid, "x"),
-                 ttmlir::utils::formatIterable(targetSquareGridShape, "x"));
-      auto [fwdMap, _] = ttmlir::d2m::utils::grids::createCoreVirtMaps(
-          builder.getContext(), optimalGrid, physicalGridShape);
-      storageIndexMap = fwdMap;
-    }
-
+    // Virtualization (index affine map) is no longer stored in the layout;
+    // it's handled by StreamLayoutOp remapping attribute.
     auto newStorageLayout = ttcore::MetalLayoutAttr::get(
         builder.getContext(), storageLayout.getLogicalShape(),
         storageDimAlignments, storageLayout.getCollapsedIntervals(),
         storageLayout.getOobVal(), storageLayout.getMemorySpace(),
-        storageLayout.getMemoryLayout(), storageIndexMap);
+        storageLayout.getMemoryLayout());
 
     llvm::SmallVector<int64_t> tileShape;
     if (auto tileType =
@@ -783,15 +759,21 @@ updateStreamLayoutOps(ArrayRef<StreamLayoutUpdateInfo> streamLayoutsToUpdate,
         mlir::cast<ttcore::MetalLayoutAttr>(outputStreamType.getEncoding());
     mlir::AffineMap reblockMap = ttmlir::utils::calculateReblockMap(
         oldStorageShape, newStorageShape, builder.getContext());
-    auto newOutputIndexMap =
-        outputLayout.getIndexAffineMapOrIdentity(outputStreamType.getRank())
-            .compose(reblockMap);
+    // Compose existing remapping (now on the op, not layout) with the reblock
+    // map.
+    mlir::AffineMap existingRemapping =
+        streamLayout.getRemapping()
+            ? streamLayout.getRemapping().value()
+            : mlir::AffineMap::getMultiDimIdentityMap(
+                  outputStreamType.getRank(), builder.getContext());
+    auto newOutputIndexMap = existingRemapping.compose(reblockMap);
 
+    // Create layout WITHOUT the index map - it goes on the op now.
     auto newOutputLayout = ttcore::MetalLayoutAttr::get(
         builder.getContext(), outputLayout.getLogicalShape(),
         storageDimAlignments, outputLayout.getCollapsedIntervals(),
         outputLayout.getOobVal(), outputLayout.getMemorySpace(),
-        outputLayout.getMemoryLayout(), newOutputIndexMap);
+        outputLayout.getMemoryLayout());
 
     auto newStreamOutputType = RankedTensorType::get(
         newStorageShape, outputStreamType.getElementType(), newOutputLayout);
@@ -799,7 +781,7 @@ updateStreamLayoutOps(ArrayRef<StreamLayoutUpdateInfo> streamLayoutsToUpdate,
     builder.setInsertionPoint(streamLayout);
     auto newStreamLayout = builder.create<d2m::StreamLayoutOp>(
         streamLayout.getLoc(), newStreamOutputType, streamLayout.getInput(),
-        newStorageEmpty);
+        newStorageEmpty, newOutputIndexMap);
 
     // We expect the StreamLayout to be used only by the GenericOp we're
     // optimizing. Check that all uses are either the GenericOp itself or
@@ -885,8 +867,10 @@ recreateGenericOp(d2m::GenericOp genericOp,
     auto tensorType =
         mlir::cast<mlir::RankedTensorType>(operand.get().getType());
     auto viewTensorType = utils::reblockTensor(tensorType, optimalGrid);
+    mlir::AffineMap remapping = ttmlir::utils::calculateReblockMap(
+        tensorType.getShape(), viewTensorType.getShape(), builder.getContext());
     auto view = builder.create<d2m::ViewLayoutOp>(
-        genericOp.getLoc(), viewTensorType, operand.get());
+        genericOp.getLoc(), viewTensorType, operand.get(), remapping);
     newOperands.push_back(view.getResult());
   }
 
@@ -1207,14 +1191,17 @@ insertTTNNDRAMStreams(d2m::GenericOp genericOp,
         baseMetalLayout.getDeviceShape(optimalOperandGrids[operandIdx],
                                        ttcore::TileType::getDefaultShape());
 
+    // Compute remapping for the stream op (moved from layout to op attribute).
+    mlir::AffineMap remapping = ttmlir::utils::calculateReblockMap(
+        unShardedShapeWithGrid, fakeShardedShape, builder.getContext());
+
+    // Create layout WITHOUT the affine map - it goes on the op now.
     auto streamOutputLayout = ttcore::MetalLayoutAttr::get(
         builder.getContext(), baseMetalLayout.getLogicalShape(),
         baseMetalLayout.getOobVal(), ttcore::MemorySpace::DeviceDRAM,
         ttcore::TensorMemoryLayout::Interleaved,
         baseMetalLayout.getCollapsedIntervals(),
-        baseMetalLayout.getDimAlignments(),
-        ttmlir::utils::calculateReblockMap(
-            unShardedShapeWithGrid, fakeShardedShape, builder.getContext()));
+        baseMetalLayout.getDimAlignments());
 
     auto streamOutputTensor = mlir::RankedTensorType::get(
         fakeShardedShape, metalTensor.getElementType(), streamOutputLayout);
@@ -1233,7 +1220,8 @@ insertTTNNDRAMStreams(d2m::GenericOp genericOp,
     auto storageOp =
         builder.create<d2m::EmptyOp>(castOp.getLoc(), storageTensor);
     auto streamOp = builder.create<d2m::StreamLayoutOp>(
-        castOp.getLoc(), streamOutputTensor, castOp.getResult(), storageOp);
+        castOp.getLoc(), streamOutputTensor, castOp.getResult(), storageOp,
+        remapping);
     castOp.getResult().replaceAllUsesExcept(streamOp.getResult(), streamOp);
   }
 

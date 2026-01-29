@@ -59,11 +59,13 @@ public:
   void insertStream(PatternRewriter &rewriter, OpOperand &operand,
                     d2m::GenericOp op) const {
     auto memref = mlir::cast<MemRefType>(operand.get().getType());
-    auto streamAttr = rewriter.getAttr<ttcore::ViewLayoutAttr>(
-        rewriter.getMultiDimIdentityMap(memref.getRank()));
+    // Remapping is identity for this stream (moved from ViewLayoutAttr to op).
+    mlir::AffineMap remapping =
+        rewriter.getMultiDimIdentityMap(memref.getRank());
+    // Result memref has no layout attribute - remapping is on the op.
     auto streamMemref =
-        MemRefType::get(memref.getShape(), memref.getElementType(), streamAttr,
-                        memref.getMemorySpace());
+        MemRefType::get(memref.getShape(), memref.getElementType(),
+                        /*layout=*/nullptr, memref.getMemorySpace());
     auto storageAttr =
         ttcore::ShardLayoutAttr::get(memref, /*buffers=*/numStreamBuffers);
     auto storageMemref =
@@ -72,7 +74,7 @@ public:
                             ttcore::MemorySpace::DeviceL1));
     auto storage = rewriter.create<memref::AllocOp>(op.getLoc(), storageMemref);
     auto streamLayout = rewriter.create<d2m::StreamLayoutOp>(
-        op.getLoc(), streamMemref, operand.get(), storage);
+        op.getLoc(), streamMemref, operand.get(), storage, remapping);
     rewriter.modifyOpInPlace(
         op, [&]() { operand.assign(streamLayout.getResult()); });
   }

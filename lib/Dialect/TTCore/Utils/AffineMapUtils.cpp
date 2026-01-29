@@ -253,18 +253,10 @@ mlir::AffineMap buildDeviceToLogicalMap(MetalLayoutAttr layout,
       mlir::AffineMap::get(physRank, 0, logicalExprs, context);
 
   // Compose: device → physical → logical.
-  auto deviceToLogical = physicalToLogical.compose(deviceToPhysical);
-
-  // If the layout has an existing index map (view), compose through it.
-  // The index map transforms device coordinates before the standard
-  // device→physical→logical transformation.
-  auto existingIndexMap = layout.getIndexAffineMap();
-  if (existingIndexMap && !existingIndexMap.isEmpty()) {
-    // Compose: modified_device → device → physical → logical.
-    deviceToLogical = deviceToLogical.compose(existingIndexMap);
-  }
-
-  return deviceToLogical;
+  // Note: any view remapping (formerly index_map) is now handled separately
+  // by the caller, as it's stored on ViewLayoutOp/StreamLayoutOp rather than
+  // in the layout attribute.
+  return physicalToLogical.compose(deviceToPhysical);
 }
 
 // Build complete layout transformation from one layout to another.

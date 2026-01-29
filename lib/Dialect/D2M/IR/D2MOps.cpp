@@ -760,10 +760,23 @@ mlir::LogicalResult d2m::StreamLayoutOp::bufferize(
     return maybeStorage;
   }
 
-  ::llvm::SmallVector<mlir::Value> invocationStack;
+  // Build the memref result type WITHOUT a view layout attribute - the
+  // remapping is now on the op, not embedded in the type.
+  auto tensorType = mlir::cast<RankedTensorType>(getResult().getType());
+  auto layout = mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
+  auto outMemrefType = MemRefType::get(
+      tensorType.getShape(), tensorType.getElementType(),
+      /*layout=*/nullptr,
+      ttcore::MemorySpaceAttr::get(getContext(), layout.getMemorySpace()));
+
+  // Compute the remapping affine map from input shape to output shape.
+  mlir::AffineMap remapping = ttmlir::utils::calculateReblockMap(
+      mlir::cast<mlir::ShapedType>(getInput().getType()).getShape(),
+      mlir::cast<mlir::ShapedType>(getResult().getType()).getShape(),
+      getContext());
+
   Value result = rewriter.create<d2m::StreamLayoutOp>(
-      getLoc(), *getBufferType(getResult(), options, state, invocationStack),
-      *maybeInput, *maybeStorage);
+      getLoc(), outMemrefType, *maybeInput, *maybeStorage, remapping);
   mlir::bufferization::replaceOpWithBufferizedValues(rewriter, *this, result);
   return success();
 }
@@ -791,20 +804,30 @@ void d2m::StreamLayoutOp::getCanonicalizationPatterns(
       return failure();
     }
 
-    auto viewMemref = mlir::dyn_cast<MemRefType>(viewOp.getResult().getType());
-    if (!viewMemref) {
-      return failure();
+    // Compose the remapping maps from both ops.
+    mlir::AffineMap viewMap = viewOp.getRemapping()
+                                  ? viewOp.getRemapping().value()
+                                  : mlir::AffineMap();
+    mlir::AffineMap streamMap =
+        op.getRemapping() ? op.getRemapping().value() : mlir::AffineMap();
+
+    mlir::AffineMap composedMap;
+    if (viewMap && streamMap) {
+      composedMap = viewMap.compose(streamMap);
+    } else if (viewMap) {
+      composedMap = viewMap;
+    } else {
+      composedMap = streamMap;
     }
 
+    // Create result memref without ViewLayoutAttr - remapping is on the op.
     auto currentResultMemref = mlir::cast<MemRefType>(op.getResult().getType());
-    auto streamAttr = rewriter.getAttr<ttcore::ViewLayoutAttr>(
-        viewMemref.getLayout().getAffineMap().compose(
-            currentResultMemref.getLayout().getAffineMap()));
     auto newMemref = MemRefType::get(
         currentResultMemref.getShape(), currentResultMemref.getElementType(),
-        streamAttr, currentResultMemref.getMemorySpace());
+        /*layout=*/nullptr, currentResultMemref.getMemorySpace());
+
     rewriter.replaceOpWithNewOp<StreamLayoutOp>(
-        op, newMemref, viewOp.getInput(), op.getStorage());
+        op, newMemref, viewOp.getInput(), op.getStorage(), composedMap);
     return success();
   });
 }
@@ -966,17 +989,23 @@ mlir::LogicalResult d2m::ViewLayoutOp::bufferize(
     return maybeInput;
   }
 
-  // Build the memref result type from the tensor result encoding so that any
-  // index_map on the encoding is honored when creating the view layout.
-  ::llvm::SmallVector<mlir::Value> dummy;
-  auto outMemrefTypeOr = getBufferType(getResult(), options, state, dummy);
-  if (mlir::failed(outMemrefTypeOr)) {
-    return outMemrefTypeOr;
-  }
+  // Build the memref result type WITHOUT a view layout attribute - the
+  // remapping is now on the op, not embedded in the type.
+  auto tensorType = mlir::cast<RankedTensorType>(getResult().getType());
+  auto layout = mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
+  auto outMemrefType = MemRefType::get(
+      tensorType.getShape(), tensorType.getElementType(),
+      /*layout=*/nullptr,
+      ttcore::MemorySpaceAttr::get(getContext(), layout.getMemorySpace()));
 
-  auto outMemrefType = mlir::cast<mlir::MemRefType>(*outMemrefTypeOr);
-  auto newOp = rewriter.create<d2m::ViewLayoutOp>(
-      getLoc(), outMemrefType, *maybeInput, getReinterpretLayout());
+  // Compute the remapping affine map from input shape to output shape.
+  mlir::AffineMap remapping = ttmlir::utils::calculateReblockMap(
+      mlir::cast<mlir::ShapedType>(getInput().getType()).getShape(),
+      mlir::cast<mlir::ShapedType>(getResult().getType()).getShape(),
+      getContext());
+
+  auto newOp = rewriter.create<d2m::ViewLayoutOp>(getLoc(), outMemrefType,
+                                                  *maybeInput, remapping);
 
   mlir::bufferization::replaceOpWithBufferizedValues(rewriter, *this,
                                                      newOp.getResult());
@@ -1012,10 +1041,10 @@ bool d2m::ViewLayoutOp::isReblockOnly() {
     return resultView.getAffineMap() == reblockMap;
   }
 
-  auto resultLayout = mlir::cast<ttcore::MetalLayoutAttr>(
-      mlir::cast<RankedTensorType>(getType()).getEncoding());
-
-  return resultLayout.getIndexAffineMap() == reblockMap;
+  // For tensor types, the remapping is now on the op, not in the layout.
+  mlir::AffineMap opRemapping =
+      getRemapping() ? getRemapping().value() : mlir::AffineMap();
+  return opRemapping == reblockMap;
 }
 
 mlir::OpFoldResult d2m::ViewLayoutOp::fold(FoldAdaptor adaptor) {
@@ -1061,17 +1090,17 @@ mlir::OpFoldResult d2m::ViewLayoutOp::fold(FoldAdaptor adaptor) {
   setOperand(consecutiveView.getInput());
 
   // Recompute the reblock map from the original input to the final result.
-  mlir::AffineMap reblockMap = ttmlir::utils::calculateReblockMap(
-      mlir::cast<mlir::ShapedType>(consecutiveView.getInput().getType())
-          .getShape(),
-      mlir::cast<mlir::ShapedType>(getType()).getShape(), getContext());
-  auto resultType = mlir::cast<RankedTensorType>(getType());
-  auto resultLayout =
-      mlir::cast<ttcore::MetalLayoutAttr>(resultType.getEncoding());
-  ttcore::MetalLayoutAttr newLayout =
-      resultLayout.withIndexAffineMap(reblockMap);
-  getResult().setType(
-      RankedTensorType::Builder(resultType).setEncoding(newLayout));
+  // mlir::AffineMap reblockMap = ttmlir::utils::calculateReblockMap(
+  //     mlir::cast<mlir::ShapedType>(consecutiveView.getInput().getType())
+  //         .getShape(),
+  //     mlir::cast<mlir::ShapedType>(getType()).getShape(), getContext());
+  // auto resultType = mlir::cast<RankedTensorType>(getType());
+  // auto resultLayout =
+  //     mlir::cast<ttcore::MetalLayoutAttr>(resultType.getEncoding());
+  // ttcore::MetalLayoutAttr newLayout =
+  //     resultLayout.withIndexAffineMap(reblockMap);
+  // getResult().setType(
+  //     RankedTensorType::Builder(resultType).setEncoding(newLayout));
 
   return getResult();
 }
@@ -1092,25 +1121,28 @@ void d2m::GenericOp::build(mlir::OpBuilder &builder,
   if (!grid) {
     auto gridShape = ttcore::getGridShape(outputs[0]);
 
-    // Check if output operand has a virtual grid and IS NOT a view. If so,
-    // infer a physical grid shape and inverse map for the grid attr such that
-    // invMap(physGrid) = virtGrid
-    bool outputIsView = mlir::isa<ViewOpInterface>(outputs[0].getDefiningOp());
-    auto layout = ttcore::getDeviceLayout(
-        mlir::dyn_cast<ShapedType>(outputs[0].getType()));
-    auto metalLayout = mlir::dyn_cast<ttcore::MetalLayoutAttr>(layout);
-
-    // Only consider non-identity index maps for virtualization. Identity maps
-    // and empty maps both represent "no transformation".
-    bool hasNonIdentityIndexMap = false;
-    if (metalLayout) {
-      auto indexMap = metalLayout.getIndexAffineMap();
-      hasNonIdentityIndexMap = !indexMap.isEmpty() && !indexMap.isIdentity();
+    // Check if output operand comes from a view op with a remapping.
+    // If so, use the remapping to derive virtualization.
+    mlir::AffineMap outputRemapping;
+    if (auto viewOp =
+            mlir::dyn_cast_if_present<ViewLayoutOp>(outputs[0].getDefiningOp());
+        viewOp && viewOp.getRemapping()) {
+      outputRemapping = viewOp.getRemapping().value();
+    } else if (auto streamOp = mlir::dyn_cast_if_present<StreamLayoutOp>(
+                   outputs[0].getDefiningOp());
+               streamOp && streamOp.getRemapping()) {
+      outputRemapping = streamOp.getRemapping().value();
     }
 
-    if (!outputIsView && metalLayout && hasNonIdentityIndexMap) {
+    // Only consider non-identity remappings for virtualization.
+    bool hasNonIdentityRemapping = outputRemapping &&
+                                   !outputRemapping.isEmpty() &&
+                                   !outputRemapping.isIdentity();
+
+    if (hasNonIdentityRemapping) {
       auto shapedType = mlir::cast<ShapedType>(outputs[0].getType());
-      auto physicalGridShape = metalLayout.getPhysicalGridShape(shapedType);
+      auto layout = ttcore::getDeviceLayout(shapedType);
+      auto physicalGridShape = layout.getPhysicalGridShape(shapedType);
 
       // Check if the grid actually exceeds the physical grid (needs
       // virtualization)
@@ -1122,12 +1154,11 @@ void d2m::GenericOp::build(mlir::OpBuilder &builder,
             builder.getContext(), gridShape, physicalGridShape);
         grid = builder.getAttr<ttcore::GridAttr>(gridShape, invMap);
       } else {
-        // If the operand has index_map but doesn't exceed physical grid (e.g.,
+        // If the operand has remapping but doesn't exceed physical grid (e.g.,
         // reblocking, transpose), derive the grid inverse map from the
-        // output's index_map to ensure roundtrip consistency.
-        auto indexMap = metalLayout.getIndexAffineMap();
+        // output's remapping to ensure roundtrip consistency.
         auto invMap = ttmlir::utils::createGridInverseMapFromIndexMap(
-            indexMap, gridShape.size(), builder.getContext());
+            outputRemapping, gridShape.size(), builder.getContext());
         grid = builder.getAttr<ttcore::GridAttr>(gridShape, invMap);
       }
     } else {

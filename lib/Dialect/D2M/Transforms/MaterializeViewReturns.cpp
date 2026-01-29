@@ -60,8 +60,7 @@ Value materializeView(OpBuilder &builder, Location loc, Value viewResult) {
   auto newLayout = ttcore::MetalLayoutAttr::get(
       builder.getContext(), layout.getLogicalShape(), layout.getDimAlignments(),
       layout.getCollapsedIntervals(), layout.getOobVal(),
-      layout.getMemorySpace(), layout.getMemoryLayout(),
-      builder.getEmptyAffineMap());
+      layout.getMemorySpace(), layout.getMemoryLayout());
   auto emptyOp = builder.create<d2m::EmptyOp>(
       loc, tensorType.getShape(), tensorType.getElementType(), newLayout);
 
