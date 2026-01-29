@@ -74,10 +74,9 @@ private:
 
     size_t outputFeatureDim = 0;
     if constexpr (std::is_same_v<ConvOpType, Conv2dOp> ||
-                  std::is_same_v<ConvOpType, ConvTranspose2dOp>) {
+                  std::is_same_v<ConvOpType, ConvTranspose2dOp> ||
+                  std::is_same_v<ConvOpType, Conv3dOp>) {
       outputFeatureDim = convOp.getChannelDim();
-    } else if constexpr (std::is_same_v<ConvOpType, Conv3dOp>) {
-      outputFeatureDim = 4;
     } else {
       static_assert(ttmlir::utils::always_false<ConvOpType>(),
                     "Unsupported ConvOpType");
@@ -824,10 +823,9 @@ private:
 
     size_t outputFeatureDim = 0;
     if constexpr (std::is_same_v<ConvOpType, Conv2dOp> ||
-                  std::is_same_v<ConvOpType, ConvTranspose2dOp>) {
+                  std::is_same_v<ConvOpType, ConvTranspose2dOp> ||
+                  std::is_same_v<ConvOpType, Conv3dOp>) {
       outputFeatureDim = convOp.getChannelDim();
-    } else if constexpr (std::is_same_v<ConvOpType, Conv3dOp>) {
-      outputFeatureDim = 4;
     } else {
       static_assert(ttmlir::utils::always_false<ConvOpType>(),
                     "Unsupported ConvOpType");
@@ -886,11 +884,9 @@ private:
 
     size_t outputFeatureDim = 0;
     size_t kernelOutputFeatureDim = 0;
-    if constexpr (std::is_same_v<ConvOpType, Conv2dOp>) {
+    if constexpr (std::is_same_v<ConvOpType, Conv2dOp> ||
+                  std::is_same_v<ConvOpType, Conv3dOp>) {
       outputFeatureDim = convOp.getChannelDim();
-      kernelOutputFeatureDim = 0;
-    } else if constexpr (std::is_same_v<ConvOpType, Conv3dOp>) {
-      outputFeatureDim = 4;
       kernelOutputFeatureDim = 0;
     } else if constexpr (std::is_same_v<ConvOpType, ConvTranspose2dOp>) {
       outputFeatureDim = convOp.getChannelDim();
