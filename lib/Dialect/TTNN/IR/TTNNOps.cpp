@@ -2310,13 +2310,32 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
 
     // Verify that the dimensions of the matmul of A and B are broadcast
     // compatible with input bias.
-    llvm::SmallVector<int64_t> matmulShape = expectedOutputShape;
-    if (!OpTrait::util::getBroadcastedShape(matmulShape, biasShape,
-                                            expectedOutputShape)) {
+    llvm::SmallVector<int64_t> broadcastShape;
+    if (!mlir::OpTrait::util::getBroadcastedShape(expectedOutputShape,
+                                                  biasShape, broadcastShape)) {
       return emitOpError("Bias shape(")
              << ttmlir::utils::join(biasShape, ",")
              << ") is not broadcast compatible with the matmul output shape("
-             << ttmlir::utils::join(matmulShape, ",") << ")";
+             << ttmlir::utils::join(expectedOutputShape, ",") << ")";
+    }
+
+    // tt-metal uses a composite LinearOp where the bias is added after the
+    // matmul, and ttnn.add supports broadcasting of both operands. Otherwise,
+    // tt-metal lowers to a fused LinearOp, which uses the matmul result shape
+    // as the output shape. The composite LinearOp requires that the bias
+    // second-to-last dim (of padded shape) does not match the tile height.
+    // Update the expected output shape to the fully broadcasted shape when:
+    // 1) The matmul result is a scalar (vector x vector), so the inferred
+    //    output shape is empty and must be derived from the bias via
+    //    broadcasting, or
+    // 2) The bias second-to-last dim (of padded shape) does not match the
+    //    tile height, indicating the composite LinearOp is used.
+    llvm::SmallVector<int64_t> paddedBiasShape =
+        ttnn::utils::getTilePaddedShape(biasShape);
+    if (expectedOutputShape.empty() ||
+        (paddedBiasShape.size() > 1 &&
+         paddedBiasShape[paddedBiasShape.size() - 2] != ttnn::TILE_HEIGHT)) {
+      expectedOutputShape = broadcastShape;
     }
   }
 
