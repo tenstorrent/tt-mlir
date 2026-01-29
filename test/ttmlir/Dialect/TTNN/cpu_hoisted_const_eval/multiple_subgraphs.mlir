@@ -14,11 +14,11 @@ module {
 
   // First const-eval function.
   // CHECK-LABEL: func.func private @forward_split_const_eval_0{{.*}} -> tensor<32x32xbf16
-  // CHECK: call @cpu_hoisted_forward_split_const_eval_0_{{.*}}
+  // CHECK: call @cpu_hoisted_const_eval_{{.*}}
 
   // Second const-eval function.
   // CHECK-LABEL: func.func private @forward_split_const_eval_1{{.*}} -> tensor<32x32xbf16
-  // CHECK: call @cpu_hoisted_forward_split_const_eval_1_{{.*}}
+  // CHECK: call @cpu_hoisted_const_eval_{{.*}}
 
   // CHECK-LABEL: func.func @forward_split
   func.func @forward_split(%arg0: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<input>},
@@ -48,11 +48,11 @@ module {
   }
 
   // Should have declarations for multiple hoisted functions.
-  // CHECK-LABEL: func.func private @cpu_hoisted_forward_split_const_eval_0_{{.*}}{{.*}} -> tensor<32x32xf32
-  // CHECK-LABEL: func.func private @cpu_hoisted_forward_split_const_eval_1_{{.*}}{{.*}} -> tensor<32x32xf32
+  // CHECK-LABEL: func.func private @cpu_hoisted_const_eval_{{.*}} -> tensor<32x32xf32
+  // CHECK-LABEL: func.func private @cpu_hoisted_const_eval_{{.*}} -> tensor<32x32xf32
 
   // CHECK: ttcore.cpu_module {
   // CHECK: builtin.module {
-  // CHECK: llvm.func @cpu_hoisted_forward_split_const_eval_0_{{.*}}(
-  // CHECK: llvm.func @cpu_hoisted_forward_split_const_eval_1_{{.*}}(
+  // CHECK: llvm.func @cpu_hoisted_const_eval_{{.*}}(
+  // CHECK: llvm.func @cpu_hoisted_const_eval_{{.*}}(
 }
