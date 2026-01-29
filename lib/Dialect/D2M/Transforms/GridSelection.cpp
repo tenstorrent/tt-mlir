@@ -925,29 +925,8 @@ recreateGenericOp(d2m::GenericOp genericOp,
             // For nested linalg.generic ops, update result types to match the
             // new output operand types (which have changed due to grid
             // updates).
-            if (llvm::isa<DestinationStyleOpInterface>(clonedOp)) {
-              auto numInputs = clonedOp->getAttrOfType<mlir::DenseI32ArrayAttr>(
-                  "operandSegmentSizes");
-              if (numInputs && numInputs.size() >= 2) {
-                int32_t numIns = numInputs[0];
-                int32_t numOuts = numInputs[1];
-
-                for (uint32_t i = 0; static_cast<int32_t>(i) < numOuts &&
-                                     i < clonedOp->getNumResults();
-                     ++i) {
-                  auto outputOperandType =
-                      clonedOp->getOperand(numIns + i).getType();
-                  clonedOp->getResult(i).setType(outputOperandType);
-                }
-              }
-            } else if (llvm::isa<d2m::WaitOp, d2m::ReserveOp>(clonedOp)) {
-              TT_assert(clonedOp->getNumOperands() == 1u);
-              TT_assert(clonedOp->getNumResults() == 1u);
-              clonedOp->getResult(0).setType(
-                  mlir::cast<d2m::CBType>(clonedOp->getOperand(0).getType())
-                      .getUnderlying());
-            } else if (auto remoteLoadOp =
-                           llvm::dyn_cast<d2m::RemoteLoadOp>(clonedOp)) {
+            if (auto remoteLoadOp =
+                    llvm::dyn_cast<d2m::RemoteLoadOp>(clonedOp)) {
               // RemoteLoadOp must be in implicit form at this point in the
               // pipeline. GridSelection runs before conversion to explicit CB
               // form.
@@ -990,6 +969,21 @@ recreateGenericOp(d2m::GenericOp genericOp,
               auto tensorType = mlir::cast<RankedTensorType>(
                   remoteStoreOp.getMemref().getType());
               remoteStoreOp.getResult().setType(tensorType);
+            } else if (llvm::isa<DestinationStyleOpInterface>(clonedOp)) {
+              auto numInputs = clonedOp->getAttrOfType<mlir::DenseI32ArrayAttr>(
+                  "operandSegmentSizes");
+              if (numInputs && numInputs.size() >= 2) {
+                int32_t numIns = numInputs[0];
+                int32_t numOuts = numInputs[1];
+
+                for (uint32_t i = 0; static_cast<int32_t>(i) < numOuts &&
+                                     i < clonedOp->getNumResults();
+                     ++i) {
+                  auto outputOperandType =
+                      clonedOp->getOperand(numIns + i).getType();
+                  clonedOp->getResult(i).setType(outputOperandType);
+                }
+              }
             } else if (auto tensorEmptyOp =
                            llvm::dyn_cast<mlir::tensor::EmptyOp>(clonedOp)) {
               // Update tensor.empty result type to match the associated operand

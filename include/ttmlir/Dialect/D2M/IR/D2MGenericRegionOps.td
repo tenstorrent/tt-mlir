@@ -12,6 +12,7 @@ include "ttmlir/Dialect/D2M/IR/D2MOpsAttrs.td"
 include "ttmlir/Dialect/D2M/IR/D2MOpsInterfaces.td"
 
 include "mlir/Dialect/Bufferization/IR/BufferizableOpInterface.td"
+include "mlir/Interfaces/DestinationStyleOpInterface.td"
 include "mlir/IR/OpAsmInterface.td"
 include "mlir/Interfaces/ControlFlowInterfaces.td"
 include "mlir/Interfaces/InferIntRangeInterface.td"
@@ -1018,6 +1019,7 @@ def D2M_DMAWaitOp : D2M_GenericRegionDatamovementOp<"dma_wait", [MemoryEffects<[
 def D2M_RemoteLoadOp : D2M_GenericRegionDatamovementOp<"remote_load",
   [ AttrSizedOperandSegments
   , MemoryEffects<[MemRead, MemWrite]>
+  , DestinationStyleOpInterface
   , DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>
   , DeclareOpInterfaceMethods<BufferizableOpInterface, [
       "bufferizesToMemoryRead",
@@ -1178,6 +1180,12 @@ def D2M_RemoteLoadOp : D2M_GenericRegionDatamovementOp<"remote_load",
     let hasVerifier = 1;
 
     let extraClassDeclaration = [{
+      // Required by DestinationStyleOpInterface.
+      // The localBuffer operand is the DPS init (destination) for the load.
+      MutableOperandRange getDpsInitsMutable() {
+        return getLocalBufferMutable();
+      }
+
       /// Returns the operand index (for this op!) for the local buffer parameter.
       /// Returns UINT_MAX if localBuffer is not present (explicit CB form).
       unsigned getLocalBufferOperandIndex() {
@@ -1243,6 +1251,7 @@ def D2M_RemoteLoadOp : D2M_GenericRegionDatamovementOp<"remote_load",
 def D2M_RemoteStoreOp : D2M_GenericRegionDatamovementOp<"remote_store",
   [ AttrSizedOperandSegments
   , MemoryEffects<[MemRead, MemWrite]>
+  , DestinationStyleOpInterface
   , DeclareOpInterfaceMethods<BufferizableOpInterface, [
       "bufferizesToMemoryRead",
       "bufferizesToMemoryWrite",
@@ -1323,6 +1332,12 @@ def D2M_RemoteStoreOp : D2M_GenericRegionDatamovementOp<"remote_store",
     let hasVerifier = 1;
 
     let extraClassDeclaration = [{
+      // Required by DestinationStyleOpInterface.
+      // The memref operand is the DPS init (destination) for the store.
+      MutableOperandRange getDpsInitsMutable() {
+        return getMemrefMutable();
+      }
+
       /// Returns the operand index of the memref/tensor.
       unsigned getMemRefOperandIndex() { return 0; }
 
@@ -1839,13 +1854,10 @@ def D2M_BlockIndexOp : D2M_IndexOp<"block_index"> {
     let summary = "Block Index op.";
     let description = [{
       Return the index for the given block dimension. This op represents
-      a high-level symbolic index that requires grid/block calculation during
-      loop generation.
-
-      Unlike IterIndexOp which directly maps to a loop induction variable,
-      BlockIndexOp is created when expanding indexing map expressions and requires
-      combining grid indices with block factors and loop indices to compute
-      the final value.
+      a symbolic index that requires grid/block calculation during
+      loop generation. It is created when expanding indexing map expressions
+      and requires combining grid indices with block factors and loop indices
+      to compute the final value.
     }];
 }
 
