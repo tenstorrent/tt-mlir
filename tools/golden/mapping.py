@@ -427,6 +427,32 @@ def mlir_datatype_to_torch_dtype(mlir_datatype: DataType) -> torch.dtype:
             raise TypeError(f"Unsupported MLIR DataType: {mlir_datatype}")
 
 
+def convert_golden_intermediates_to_torch(
+    goldens: Dict[str, Dict[int, GoldenMapTensor]],
+) -> Dict[str, Dict[int, torch.Tensor]]:
+    golden_torch_tensors = {}
+
+    for loc, golden in goldens.items():
+        golden_torch_tensors[loc] = golden.golden_map_tensor_as_torch_tensors()
+
+    return golden_torch_tensors
+
+
+def convert_golden_input_output_to_torch(
+    goldens: Dict[int, Dict[str, Dict[int, GoldenMapTensor]]],
+) -> Dict[int, Dict[str, Dict[int, torch.Tensor]]]:
+    golden_torch_tensors = {}
+
+    for program_index, loc_map in goldens.items():
+        golden_torch_tensors[program_index] = {}
+        for loc, golden in loc_map.items():
+            golden_torch_tensors[program_index][
+                loc
+            ] = golden.golden_map_tensor_as_torch_tensors()
+
+    return golden_torch_tensors
+
+
 def cbrt_golden(x: GoldenMapTensor) -> GoldenMapTensor:
     """
     Custom golden function for cubic root.
