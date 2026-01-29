@@ -408,6 +408,7 @@ class Perf:
                         env_vars["TT_METAL_DEVICE_PROFILER"] = "1"
                         env_vars["TTNN_OP_PROFILER"] = "1"
                         env_vars["TT_METAL_DEVICE_PROFILER_DISPATCH"] = "0"
+                        env_vars["TT_METAL_PROFILER_CPP_POST_PROCESS"] = "1"
 
                     tracy_capture_tool_command = f"{self.tracy_capture_tool_path} -o {tracy_file_path} -f -p {port}"
                     self.tracy_capture_tool_process = subprocess.Popen(
