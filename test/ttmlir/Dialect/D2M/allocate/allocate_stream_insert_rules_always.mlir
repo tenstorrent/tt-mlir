@@ -36,9 +36,9 @@ module {
         ins(%lhs, %rhs : memref<1x1x2x3x!ttcore.tile<32x32, f32>, #ttcore.shard<12288x4096, 1>, #l1>, memref<1x1x3x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)
         outs(%r : memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)  {
     ^unified0(%cb0: !d2m.cb<memref<2x3x!ttcore.tile<32x32, f32>, #l1>>, %cb1: !d2m.cb<memref<3x4x!ttcore.tile<32x32, f32>, #l1>>, %cb2: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>):
-      %iter0 = d2m.iter_index(0) : index
-      %iter1 = d2m.iter_index(1) : index
-      %iter2 = d2m.iter_index(2) : index
+      %iter0 = d2m.block_index(0) : index
+      %iter1 = d2m.block_index(1) : index
+      %iter2 = d2m.block_index(2) : index
       %buffer_lhs = memref.alloc() : memref<2x3x!ttcore.tile<32x32, f32>, #l1>
       %0 = d2m.remote_load %buffer_lhs %lhs[%iter0, %iter2] : memref<2x3x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x2x3x!ttcore.tile<32x32, f32>, #ttcore.shard<12288x4096, 1>, #l1> -> memref<2x3x!ttcore.tile<32x32, f32>, #l1>
       %buffer_rhs = memref.alloc() : memref<3x4x!ttcore.tile<32x32, f32>, #l1>
@@ -66,9 +66,9 @@ module {
         ins(%stream_lhs, %rhs : memref<1x1x2x3x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1>, memref<1x1x3x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)
         outs(%r : memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)  {
     ^unified0(%cb0: !d2m.cb<memref<2x3x!ttcore.tile<32x32, f32>, #l1>>, %cb1: !d2m.cb<memref<3x4x!ttcore.tile<32x32, f32>, #l1>>, %cb2: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>):
-      %iter0 = d2m.iter_index(0) : index
-      %iter1 = d2m.iter_index(1) : index
-      %iter2 = d2m.iter_index(2) : index
+      %iter0 = d2m.block_index(0) : index
+      %iter1 = d2m.block_index(1) : index
+      %iter2 = d2m.block_index(2) : index
       %buffer_lhs = memref.alloc() : memref<2x3x!ttcore.tile<32x32, f32>, #l1>
       %0 = d2m.remote_load %buffer_lhs %stream_lhs[%iter0, %iter2] : memref<2x3x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x2x3x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1> -> memref<2x3x!ttcore.tile<32x32, f32>, #l1>
       %buffer_rhs = memref.alloc() : memref<3x4x!ttcore.tile<32x32, f32>, #l1>

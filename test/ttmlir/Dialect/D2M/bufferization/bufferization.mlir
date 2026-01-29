@@ -71,8 +71,8 @@ func.func @remote_load_bufferization() -> tensor<2x2x1x1x!ttcore.tile<32x32, f32
       ins(%view : tensor<2x2x1x1x!ttcore.tile<32x32, f32>, #layout_view>)
       outs(%output : tensor<2x2x1x1x!ttcore.tile<32x32, f32>, #layout_grid2x2>)  {
   ^unified0(%cb0: !d2m.cb<tensor<1x1x!ttcore.tile<32x32, f32>>>, %cb1: !d2m.cb<tensor<1x1x!ttcore.tile<32x32, f32>>>):
-    %iter0 = d2m.iter_index(0) : index
-    %iter1 = d2m.iter_index(1) : index
+    %iter0 = d2m.block_index(0) : index
+    %iter1 = d2m.block_index(1) : index
     %buffer = tensor.empty() : tensor<1x1x!ttcore.tile<32x32, f32>>
     // CHECK: d2m.remote_load %{{.*}} %[[VIEW]][{{.*}}, {{.*}}] : memref<1x1x!ttcore.tile<32x32, f32>>, memref<2x2x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<(d0, d1, d2, d3) -> (d1, d0, d2, d3)>, #l1> -> memref<1x1x!ttcore.tile<32x32, f32>, #l1>
     %load_result = d2m.remote_load %buffer %view[%iter0, %iter1] : tensor<1x1x!ttcore.tile<32x32, f32>>, tensor<2x2x1x1x!ttcore.tile<32x32, f32>, #layout_view> -> tensor<1x1x!ttcore.tile<32x32, f32>>

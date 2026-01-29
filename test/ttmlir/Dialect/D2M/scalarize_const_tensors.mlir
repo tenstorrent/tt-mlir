@@ -25,8 +25,8 @@ module {
       // CHECK: ^{{.*}}(%[[CB0:.*]]: !d2m.cb<tensor<4x4x!ttcore.tile<32x32, f32>>>, %[[CB_OUT:.*]]: !d2m.cb<tensor<4x4x!ttcore.tile<32x32, f32>>>):
       // CHECK-NOT: %cb1
       // CHECK: %[[SCALAR:.*]] = arith.constant 2.500000e+00 : f32
-      %iter0 = d2m.iter_index(0) : index
-      %iter1 = d2m.iter_index(1) : index
+      %iter0 = d2m.block_index(0) : index
+      %iter1 = d2m.block_index(1) : index
       %buffer0 = tensor.empty() : tensor<4x4x!ttype_f32>
       %buffer1 = tensor.empty() : tensor<4x4x!ttype_f32>
       %10 = d2m.remote_load %buffer0 %arg0[%iter0, %iter1] : tensor<4x4x!ttype_f32>, tensor<1x1x4x4x!ttype_f32, #layout> -> tensor<4x4x!ttype_f32>
@@ -67,8 +67,8 @@ module {
       // CHECK: ^{{.*}}(%[[CB0:.*]]: !d2m.cb<tensor<4x4x!ttcore.tile<32x32, f32>>>, %[[CB_OUT:.*]]: !d2m.cb<tensor<4x4x!ttcore.tile<32x32, f32>>>):
       // CHECK-NOT: %cb1
       // CHECK: %[[SCALAR:.*]] = arith.constant 3.000000e+00 : f32
-      %iter0 = d2m.iter_index(0) : index
-      %iter1 = d2m.iter_index(1) : index
+      %iter0 = d2m.block_index(0) : index
+      %iter1 = d2m.block_index(1) : index
       %buffer0 = tensor.empty() : tensor<4x4x!ttype_f32>
       %buffer1 = tensor.empty() : tensor<4x4x!ttype_f32>
       %10 = d2m.remote_load %buffer0 %arg0[%iter0, %iter1] : tensor<4x4x!ttype_f32>, tensor<1x1x4x4x!ttype_f32, #layout> -> tensor<4x4x!ttype_f32>
@@ -105,8 +105,8 @@ module {
         ins(%arg0, %1 : tensor<1x1x4x4x!ttype_f32, #layout>, tensor<1x1x4x4x!ttype_f32, #layout>)
         outs(%2 : tensor<1x1x4x4x!ttype_f32, #layout>)  {
     ^unified0(%cb0: !d2m.cb<tensor<4x4x!ttype_f32>>, %cb1: !d2m.cb<tensor<4x4x!ttype_f32>>, %cb2: !d2m.cb<tensor<4x4x!ttype_f32>>):
-      %iter0 = d2m.iter_index(0) : index
-      %iter1 = d2m.iter_index(1) : index
+      %iter0 = d2m.block_index(0) : index
+      %iter1 = d2m.block_index(1) : index
       %buffer0 = tensor.empty() : tensor<4x4x!ttype_f32>
       %buffer1 = tensor.empty() : tensor<4x4x!ttype_f32>
       %10 = d2m.remote_load %buffer0 %arg0[%iter0, %iter1] : tensor<4x4x!ttype_f32>, tensor<1x1x4x4x!ttype_f32, #layout> -> tensor<4x4x!ttype_f32>
@@ -143,8 +143,8 @@ module {
     // CHECK: ^unified0(%cb0: !d2m.cb<tensor<8x8x!ttcore.tile<32x32, bf16>>>, %cb1: !d2m.cb<tensor<8x8x!ttcore.tile<32x32, bf16>>>)
     ^unified0(%cb0: !d2m.cb<tensor<8x8x!ttcore.tile<32x32, bf16>>>, %cb1: !d2m.cb<tensor<8x8x!ttcore.tile<32x32, bf16>>>, %cb2: !d2m.cb<tensor<8x8x!ttcore.tile<32x32, bf16>>>):
       // CHECK: %[[SCALAR:.*]] = arith.constant 5.000000e-01 : f32
-      %iter0 = d2m.iter_index(0) : index
-      %iter1 = d2m.iter_index(1) : index
+      %iter0 = d2m.block_index(0) : index
+      %iter1 = d2m.block_index(1) : index
       %buffer0 = tensor.empty() : tensor<8x8x!ttcore.tile<32x32, bf16>>
       %buffer1 = tensor.empty() : tensor<8x8x!ttcore.tile<32x32, bf16>>
       %3 = d2m.remote_load %buffer0 %view[%iter0, %iter1] : tensor<8x8x!ttcore.tile<32x32, bf16>>, tensor<1x1x8x8x!ttcore.tile<32x32, bf16>, #ttcore.metal_layout<logical_shape = 256x256, dim_alignments = 32x32, collapsed_intervals = dense<[[0, -1]]> : tensor<1x2xi64>, undef, l1, sharded, index_map = (d0, d1, d2, d3) -> (d0 * 8 + d2, d1 * 8 + d3, 0, 0)>> -> tensor<8x8x!ttcore.tile<32x32, bf16>>

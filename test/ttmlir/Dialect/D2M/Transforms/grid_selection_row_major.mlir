@@ -16,10 +16,10 @@ module attributes {ttcore.device = #any_device} {
         ins(%stream : tensor<1x1x1x1x1x64x64x32xf32, #ttcore.metal_layout<logical_shape = 1x64x64x32, dim_alignments = 1x1x32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded, index_map = (d0, d1, d2, d3, d4, d5, d6, d7) -> (d0, d2, d1, d3, d4, d6, d5, d7)>>)
         outs(%4 : tensor<1x1x1x1x1x64x64x32xf32, #ttcore.metal_layout<logical_shape = 1x64x64x32, dim_alignments = 1x1x32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded, index_map=map(0)>>)  {
     ^unified0(%cb0: !d2m.cb<tensor<1x64x64x32xf32>>, %cb1: !d2m.cb<tensor<1x64x64x32xf32>>):
-      %i = d2m.iter_index(0) : index
-      %j = d2m.iter_index(1) : index
-      %k = d2m.iter_index(2) : index
-      %l = d2m.iter_index(3) : index
+      %i = d2m.block_index(0) : index
+      %j = d2m.block_index(1) : index
+      %k = d2m.block_index(2) : index
+      %l = d2m.block_index(3) : index
       %buffer = tensor.empty() : tensor<1x64x64x32xf32>
       %9 = d2m.remote_load %buffer %stream[%i, %j, %k, %l]
         : tensor<1x64x64x32xf32>, tensor<1x1x1x1x1x64x64x32xf32, #ttcore.metal_layout<logical_shape = 1x64x64x32, dim_alignments = 1x1x32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded, index_map = (d0, d1, d2, d3, d4, d5, d6, d7) -> (d0, d2, d1, d3, d4, d6, d5, d7)>>
