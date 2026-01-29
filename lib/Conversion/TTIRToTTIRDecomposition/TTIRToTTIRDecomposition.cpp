@@ -861,9 +861,6 @@ struct DotGeneralToMatmulConversionPattern
   matchAndRewrite(ttir::DotGeneralOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    // Check if the original op should be hoisted.
-    bool shouldHoist = ttir::utils::hasShouldHoistAttr(op);
-
     Value lhs = adaptor.getLhs();
     auto lhsType = mlir::cast<RankedTensorType>(lhs.getType());
     int64_t lhsRank = lhsType.getRank();
@@ -897,11 +894,11 @@ struct DotGeneralToMatmulConversionPattern
     ttir::PermuteOp lhsPermute = createPermuteOp(
         rewriter,
         ttmlir::utils::appendLocationSuffix(op.getLoc(), "_permuteLhs"), lhs,
-        lhsType, lhsPermutation, shouldHoist);
+        lhsType, lhsPermutation);
     ttir::PermuteOp rhsPermute = createPermuteOp(
         rewriter,
         ttmlir::utils::appendLocationSuffix(op.getLoc(), "_permuteRhs"), rhs,
-        rhsType, rhsPermutation, shouldHoist);
+        rhsType, rhsPermutation);
 
     // Compute final shape for lhs and rhs.
     // for lhs (batch dims, prod(result dims), prod(contract dims))
@@ -919,12 +916,11 @@ struct DotGeneralToMatmulConversionPattern
     ttir::ReshapeOp lhsMatmulInput = createMatmulFinal(
         rewriter,
         ttmlir::utils::appendLocationSuffix(op.getLoc(), "_reshapeLhs"),
-        lhsPermute, lhsType, lhsMatmulInputShape, shouldHoist);
+        lhsPermute, lhsType, lhsMatmulInputShape);
     ttir::ReshapeOp rhsMatmulInput = createMatmulFinal(
         rewriter,
         ttmlir::utils::appendLocationSuffix(op.getLoc(), "_reshapeRhs"),
-        rhsPermute, rhsType, rhsMatmulInputShape, shouldHoist);
-
+        rhsPermute, rhsType, rhsMatmulInputShape);
     // Get shape of matmul op result.
 
     SmallVector<int64_t> matmulDestinationShape;
@@ -940,11 +936,6 @@ struct DotGeneralToMatmulConversionPattern
     auto matmulOp = rewriter.create<ttir::MatmulOp>(
         op.getLoc(), RankedTensorType::get(matmulDestinationShape, elementType),
         lhsMatmulInput, rhsMatmulInput);
-
-    // Propagate the hoist attribute to the matmul op.
-    if (shouldHoist) {
-      ttir::utils::addShouldHoistAttr(matmulOp, rewriter);
-    }
 
     // Reshape the result by unrolling the prod(lhsResultDims) to original
     // lhsResultDims and likewise for rhsResultDims.
@@ -969,11 +960,6 @@ struct DotGeneralToMatmulConversionPattern
 
     reshapeOutput->setLoc(ttmlir::utils::appendLocationSuffix(
         reshapeOutput->getLoc(), "_reshapeOutput"));
-
-    // Propagate the hoist attribute to the final reshape op.
-    if (shouldHoist) {
-      ttir::utils::addShouldHoistAttr(reshapeOutput, rewriter);
-    }
 
     return success();
   }
@@ -1022,10 +1008,10 @@ private:
     return permutation;
   }
 
-  ttir::PermuteOp createPermuteOp(PatternRewriter &rewriter, Location loc,
-                                  Value input, RankedTensorType inputType,
-                                  const SmallVector<int64_t> &permutation,
-                                  bool shouldHoist = false) const {
+  ttir::PermuteOp
+  createPermuteOp(PatternRewriter &rewriter, Location loc, Value input,
+                  RankedTensorType inputType,
+                  const SmallVector<int64_t> &permutation) const {
 
     SmallVector<int64_t> destinationShape =
         ttmlir::utils::applyPermutation(inputType.getShape(), permutation);
@@ -1036,10 +1022,6 @@ private:
                               inputType.getEncoding()),
         input, permutation);
 
-    // Propagate the hoist attribute to the permute op.
-    if (shouldHoist) {
-      ttir::utils::addShouldHoistAttr(permuteOp, rewriter);
-    }
     return permuteOp;
   }
 
@@ -1066,10 +1048,10 @@ private:
     return finalShape;
   }
 
-  ttir::ReshapeOp createMatmulFinal(PatternRewriter &rewriter, Location loc,
-                                    Value input, RankedTensorType type,
-                                    const SmallVector<int64_t> &finalShape,
-                                    bool shouldHoist = false) const {
+  ttir::ReshapeOp
+  createMatmulFinal(PatternRewriter &rewriter, Location loc, Value input,
+                    RankedTensorType type,
+                    const SmallVector<int64_t> &finalShape) const {
 
     llvm::SmallVector<int32_t> finalShapeI32(finalShape.begin(),
                                              finalShape.end());
@@ -1079,10 +1061,6 @@ private:
         RankedTensorType::get(finalShape, type.getElementType(),
                               type.getEncoding()),
         input, rewriter.getI32ArrayAttr(finalShapeI32));
-    // Propagate the hoist attribute to the reshape op.
-    if (shouldHoist) {
-      ttir::utils::addShouldHoistAttr(reshapeOp, rewriter);
-    }
 
     return reshapeOp;
   }
