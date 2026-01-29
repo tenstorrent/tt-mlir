@@ -7392,7 +7392,7 @@ llvm::Expected<OpConstraints> OpModel<TopKOp>::getOpConstraints(
   // Create query closure
   auto topKQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
-        ::ttnn::top_k, device, inputSpec, static_cast<uint32_t>(k),
+        ::ttnn::topk, device, inputSpec, static_cast<uint32_t>(k),
         static_cast<int8_t>(dim), largest, sorted,
         detail::getNullableMemoryConfig(outputLayout));
   };
@@ -7422,7 +7422,7 @@ llvm::Expected<size_t> OpModel<TopKOp>::getOpRuntime(
   // Create query closure
   auto topKQuery = [=]() {
     return ::ttnn::graph::query_op_runtime(
-        ::ttnn::top_k, device, inputSpec, static_cast<uint32_t>(k),
+        ::ttnn::topk, device, inputSpec, static_cast<uint32_t>(k),
         static_cast<int8_t>(dim), largest, sorted,
         detail::getNullableMemoryConfig(outputLayout));
   };

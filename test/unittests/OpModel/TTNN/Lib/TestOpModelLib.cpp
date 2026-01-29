@@ -1569,7 +1569,7 @@ TEST_F(OpModelTest, Sort) {
   llvm::consumeError(runtimeExp.takeError());
 }
 
-Test_F(OpModelTest, TopK) {
+TEST_F(OpModelTest, TopK) {
   const llvm::SmallVector<int64_t> tensorShape = {workerCoresN300,
                                                   workerCoresN300};
   const auto workerGrid = CreateWorkerGrid(gridShapeHwN300);
