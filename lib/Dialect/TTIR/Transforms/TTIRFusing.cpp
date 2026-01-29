@@ -1312,35 +1312,18 @@ public:
     // - array<2xi32>: same padding for H and W dimensions, respectively.
     // - array<4xi32>: [top, left, bottom, right] format.
     // All 3 cases are covered here.
-    mlir::Attribute paddingAttr = op.getPaddingAttr();
-    SmallVector<int32_t> newPadding;
-    if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(paddingAttr)) {
-      int32_t poolHWPadding = static_cast<int32_t>(intAttr.getInt());
-      newPadding = {padOpPadding[PAD_OP_H_LOW] + poolHWPadding,
-                    padOpPadding[PAD_OP_W_LOW] + poolHWPadding,
-                    padOpPadding[PAD_OP_H_HIGH] + poolHWPadding,
-                    padOpPadding[PAD_OP_W_HIGH] + poolHWPadding};
-    } else if (auto arrayAttr =
-                   mlir::dyn_cast<mlir::DenseI32ArrayAttr>(paddingAttr)) {
-
-      size_t arrayAttrSize = arrayAttr.size();
-      TT_assertv((arrayAttrSize == 2 || arrayAttrSize == 4),
-                 "Invalid 2D pooling op attribute size.");
-
-      if (arrayAttrSize == 2) {
-        newPadding = {padOpPadding[PAD_OP_H_LOW] + arrayAttr[0],   // H
-                      padOpPadding[PAD_OP_W_LOW] + arrayAttr[1],   // W
-                      padOpPadding[PAD_OP_H_HIGH] + arrayAttr[0],  // H
-                      padOpPadding[PAD_OP_W_HIGH] + arrayAttr[1]}; // W
-      } else {
-        newPadding = {padOpPadding[PAD_OP_H_LOW] + arrayAttr[POOL_OP_H_LOW],
-                      padOpPadding[PAD_OP_W_LOW] + arrayAttr[POOL_OP_W_LOW],
-                      padOpPadding[PAD_OP_H_HIGH] + arrayAttr[POOL_OP_H_HIGH],
-                      padOpPadding[PAD_OP_W_HIGH] + arrayAttr[POOL_OP_W_HIGH]};
-      }
-    } else {
+    auto poolOpPadding =
+        ttmlir::utils::getQuadrupleOfInteger<int32_t>(op.getPaddingAttr());
+    if (!poolOpPadding) {
       TT_assertv(false, "Invalid 2D pooling op attribute type.");
     }
+
+    SmallVector<int32_t> newPadding = {
+        padOpPadding[PAD_OP_H_LOW] + std::get<0>(*poolOpPadding),
+        padOpPadding[PAD_OP_W_LOW] + std::get<1>(*poolOpPadding),
+        padOpPadding[PAD_OP_H_HIGH] + std::get<2>(*poolOpPadding),
+        padOpPadding[PAD_OP_W_HIGH] + std::get<3>(*poolOpPadding),
+    };
 
     rewriter.modifyOpInPlace(op, [&]() {
       op.getInputMutable().assign(padOp.getInput());
@@ -1364,12 +1347,6 @@ private:
 
   // Padding array size in PadOp for NHWC tensors.
   static constexpr size_t PAD_OP_NHWC_ARRAY_SIZE = 8;
-
-  // Pool2dOp padding indices for the [top, left, bottom, right] attr. format:
-  static constexpr size_t POOL_OP_H_LOW = 0;
-  static constexpr size_t POOL_OP_W_LOW = 1;
-  static constexpr size_t POOL_OP_H_HIGH = 2;
-  static constexpr size_t POOL_OP_W_HIGH = 3;
 };
 
 // Fuse MatmulOp followed by AddOp into a single LinearOp.
