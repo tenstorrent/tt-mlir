@@ -8,8 +8,8 @@
 #include "tt/runtime/detail/ttnn/types/types.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
 
-namespace tt::runtime::ttnn::operations::reduction {
+namespace tt::runtime::ttnn::operations::reduction::topk {
 void run(const ::tt::target::ttnn::TopKOp *op, ProgramContext &context);
-} // namespace tt::runtime::ttnn::operations::reduction
+} // namespace tt::runtime::ttnn::operations::reduction::topk
 
 #endif // RUNTIME_LIB_TTNN_OPERATIONS_REDUCTION_TOPK_H

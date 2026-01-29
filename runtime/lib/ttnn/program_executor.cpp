@@ -524,7 +524,7 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
     return operations::debug::run(op->type_as_RegionEndOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::TopKOp: {
-    return operations::reduction::run(op->type_as_TopKOp(), getContext());
+    return operations::reduction::topk::run(op->type_as_TopKOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::NONE: {
     LOG_FATAL("Unsupported operation type: ",
