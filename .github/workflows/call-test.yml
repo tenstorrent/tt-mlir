@@ -60,6 +60,11 @@ jobs:
       with:
         job_name: "run-tests (${{ matrix.build.runs-on }},${{ matrix.build.image }},${{ strategy.job-index }})"
 
+    - name: Log out tt-triage exception
+      shell: bash
+      run: |
+        echo "device timeout, potential hang detected, the device is unrecoverable"
+
     - name: Set reusable strings
       id: strings
       shell: bash

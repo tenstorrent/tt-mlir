@@ -18,7 +18,7 @@ jobs:
         GH_TOKEN: ${{ github.token }}
     steps:
       - name: Collect CI/CD data
-        uses: tenstorrent/tt-github-actions/.github/actions/collect_data@main
+        uses: vvukomanTT/tt-github-actions/.github/actions/collect_data@vvukoman/add-triage-tag-to-failure-signature
         if: ${{ github.event_name == 'workflow_run' }}
         with:
           repository: ${{ github.repository }}
