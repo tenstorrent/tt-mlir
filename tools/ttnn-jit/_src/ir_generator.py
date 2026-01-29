@@ -29,7 +29,7 @@ class MockTensor:
 def create_output_layout_from_memory_config(
     ctx, memory_config, tensor_shape, element_type
 ):
-
+    """Passes memory_config wrapped in a MockTensor to create output layout."""
     dtype = ttnn_dtype_from_mlir_dtype(element_type)
     mock_tensor_arg = MockTensor(tensor_shape, dtype, memory_config)
     if memory_config.buffer_type == ttnn.BufferType.DRAM:
@@ -51,12 +51,12 @@ def _convert_return_operands(return_op, module_ctx, memory_config, debug):
         for idx, ret_val in enumerate(return_values):
             ret_type = ret_val.type
 
-            # only convert tensor types; pass through non-tensors
+            # only convert tensor types
             if not isinstance(ret_type, RankedTensorType):
                 new_return_values.append(ret_val)
                 continue
 
-            # extract shape and element type
+            # get shape and element type
             try:
                 tensor_shape = [int(dim) for dim in ret_type.shape]
             except (TypeError, ValueError) as e:
@@ -104,7 +104,7 @@ def _update_function_type(func_op, module_ctx):
     """Update function signature to match actual return operand types."""
     input_types = [arg.type for arg in func_op.arguments]
 
-    # extract output types from return ops
+    # get output types from return ops
     output_types = []
     for block in func_op.regions[0].blocks:
         for op in block.operations:
