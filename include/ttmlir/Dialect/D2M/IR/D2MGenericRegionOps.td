@@ -1473,7 +1473,7 @@ def D2M_YieldOp : D2M_GenericRegionOp<"yield", [
   ]> {
     let summary = "Yield op.";
     let description = [{
-      Yield operation, return control flow to another thread. Corresponds to a circular buffer push.
+      D2M yield equivalent, required for enforcing pure tensor semantics on the tensor form of the GenericOp.
     }];
 
     let arguments = (ins Variadic<AnyRankedTensor>:$values);
