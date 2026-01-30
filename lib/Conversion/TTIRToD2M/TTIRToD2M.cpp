@@ -1637,9 +1637,14 @@ class D2MMeshShardOpRewriter : public OpConversionPattern<ttir::MeshShardOp> {
   }
 };
 
+struct TensorManipulationInfo {
+  AffineMap map;
+  bool canBeTilized;
+};
+
 namespace {
 template <typename TensorManipulationOp,
-          AffineMap (*LogicalAffineMapFn)(TensorManipulationOp)>
+          TensorManipulationInfo (*LogicalInfoFn)(TensorManipulationOp)>
 class D2MTensorManipulationOpRewriter
     : public OpConversionPattern<TensorManipulationOp>,
       D2MNamedRewriterCommon {
@@ -1659,8 +1664,9 @@ public:
   matchAndRewrite(TensorManipulationOp op,
                   typename TensorManipulationOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    TensorManipulationInfo info = LogicalInfoFn(op);
     AffineMap deviceMap =
-        projectLogicalMapToUnitDeviceSpace(rewriter, LogicalAffineMapFn(op));
+        projectLogicalMapToUnitDeviceSpace(rewriter, info.map);
 
     auto origInputs = adaptor.getOperands();
     auto origOutputs =
@@ -1668,7 +1674,7 @@ public:
 
     auto [inputs, outputs] =
         toLayoutOperandsAndResults(rewriter, {origInputs, origOutputs},
-                                   /*tiled*/ false);
+                                   /*tiled*/ info.canBeTilized);
     assert(outputs.size() == 1);
 
     auto outTy = mlir::cast<RankedTensorType>(outputs[0].getType());
@@ -1740,13 +1746,25 @@ public:
 };
 } // namespace
 
-static AffineMap rearrangeLogicalMap(ttir::RearrangeOp op) {
+static TensorManipulationInfo rearrangeLogicalInfo(ttir::RearrangeOp op) {
   mlir::FailureOr<AffineMap> maybeMap = op.getInvPatternMap();
   assert(succeeded(maybeMap));
-  return *maybeMap;
+  AffineMap invMap = *maybeMap;
+  bool canBeTilized = false;
+  unsigned inputRank = invMap.getNumResults();
+  unsigned outputRank = invMap.getNumDims();
+  if (inputRank >= 2 && outputRank >= 2) {
+    AffineExpr expectedInner2 =
+        getAffineDimExpr(outputRank - 2, op.getContext());
+    AffineExpr expectedInner1 =
+        getAffineDimExpr(outputRank - 1, op.getContext());
+    canBeTilized = invMap.getResult(inputRank - 2) == expectedInner2 &&
+                   invMap.getResult(inputRank - 1) == expectedInner1;
+  }
+  return {invMap, canBeTilized};
 }
 
-static AffineMap sliceLogicalMap(ttir::SliceStaticOp op) {
+static TensorManipulationInfo sliceLogicalInfo(ttir::SliceStaticOp op) {
   MLIRContext *ctx = op.getContext();
   SmallVector<int32_t> begins =
       extractFromIntegerArrayAttr<int32_t>(op.getBegins());
@@ -1765,10 +1783,22 @@ static AffineMap sliceLogicalMap(ttir::SliceStaticOp op) {
   for (size_t d = 0; d < begins.size(); d++) {
     exprs.push_back(getAffineDimExpr(d, ctx) * step[d] + begins[d]);
   }
-  return AffineMap::get(exprs.size(), 0, exprs, ctx);
+  AffineMap map = AffineMap::get(exprs.size(), 0, exprs, ctx);
+  bool canBeTilized = false;
+  size_t rank = begins.size();
+  if (rank >= 2) {
+    ArrayRef<int64_t> inputShape = op.getInput().getType().getShape();
+    canBeTilized =
+        begins[rank - 2] == 0 &&
+        ends[rank - 2] == static_cast<int32_t>(inputShape[rank - 2]) &&
+        step[rank - 2] == 1 && begins[rank - 1] == 0 &&
+        ends[rank - 1] == static_cast<int32_t>(inputShape[rank - 1]) &&
+        step[rank - 1] == 1;
+  }
+  return {map, canBeTilized};
 }
 
-static AffineMap permuteLogicalMap(ttir::PermuteOp op) {
+static TensorManipulationInfo permuteLogicalInfo(ttir::PermuteOp op) {
   auto *ctx = op.getContext();
   ArrayRef<int64_t> permutation = op.getPermutation();
   unsigned logicalRank = permutation.size();
@@ -1779,17 +1809,22 @@ static AffineMap permuteLogicalMap(ttir::PermuteOp op) {
         permutation[logicalRank - 1] == static_cast<int64_t>(logicalRank - 2));
   assert(noInnerPermute && "Complex permutes (both inner and outer "
                            "permutations) are not supported.");
+  // Check if innermost two dimensions are identity-mapped (preserved).
+  bool canBeTilized =
+      permutation[logicalRank - 2] == static_cast<int64_t>(logicalRank - 2) &&
+      permutation[logicalRank - 1] == static_cast<int64_t>(logicalRank - 1);
   SmallVector<AffineExpr> results(logicalRank);
   for (auto [dstIdx, srcIdx] : llvm::enumerate(permutation)) {
     results[dstIdx] = mlir::getAffineDimExpr(srcIdx, ctx);
   }
-  return AffineMap::get(logicalRank, /*numSymbols=*/0, results, ctx);
+  AffineMap map = AffineMap::get(logicalRank, /*numSymbols=*/0, results, ctx);
+  return {map, canBeTilized};
 }
 
 // Compute logical map for ReshapeOp: linearize output coords, delinearize to
 // input coords. This handles rank changes (e.g., 2D -> 3D).
 // Returns a map from output logical coords to input logical coords.
-static AffineMap reshapeLogicalMap(ttir::ReshapeOp op) {
+static TensorManipulationInfo reshapeLogicalInfo(ttir::ReshapeOp op) {
   auto inputTensorType = mlir::cast<RankedTensorType>(op.getInput().getType());
   auto outputTensorType =
       mlir::cast<RankedTensorType>(op.getResult().getType());
@@ -1799,6 +1834,14 @@ static AffineMap reshapeLogicalMap(ttir::ReshapeOp op) {
 
   int32_t inputLogicalRank = static_cast<int32_t>(inputShape.size());
   int32_t outputLogicalRank = static_cast<int32_t>(outputShape.size());
+
+  bool canBeTilized = false;
+  if (inputLogicalRank >= 2 && outputLogicalRank >= 2) {
+    canBeTilized =
+        inputShape[inputLogicalRank - 2] ==
+            outputShape[outputLogicalRank - 2] &&
+        inputShape[inputLogicalRank - 1] == outputShape[outputLogicalRank - 1];
+  }
 
   MLIRContext *ctx = op.getContext();
   Builder builder(ctx);
@@ -1836,7 +1879,8 @@ static AffineMap reshapeLogicalMap(ttir::ReshapeOp op) {
     }
   }
 
-  return AffineMap::get(outputLogicalRank, 0, reshapeExprs, ctx);
+  AffineMap map = AffineMap::get(outputLogicalRank, 0, reshapeExprs, ctx);
+  return {map, canBeTilized};
 }
 
 } // namespace mlir::tt
@@ -1903,12 +1947,12 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
     // Data movement.
     D2MNamedElementwiseRewriter<ttir::TypecastOp,        d2m::TileTypecastOp>,
     // Tensor manipulation/View ops.
-    D2MTensorManipulationOpRewriter<ttir::RearrangeOp,   rearrangeLogicalMap>,
-    D2MTensorManipulationOpRewriter<ttir::ReshapeOp,     reshapeLogicalMap>,
-    D2MTensorManipulationOpRewriter<ttir::SliceStaticOp, sliceLogicalMap>,
+    D2MTensorManipulationOpRewriter<ttir::RearrangeOp,   rearrangeLogicalInfo>,
+    D2MTensorManipulationOpRewriter<ttir::ReshapeOp,     reshapeLogicalInfo>,
+    D2MTensorManipulationOpRewriter<ttir::SliceStaticOp, sliceLogicalInfo>,
     // Permute (handles transpose ops, since they're canonicalized into permutes).
     D2MPermuteRewriter,
-    D2MTensorManipulationOpRewriter<ttir::PermuteOp, permuteLogicalMap>
+    D2MTensorManipulationOpRewriter<ttir::PermuteOp, permuteLogicalInfo>
   >(typeConverter, ctx, defaultInputMemSpace, defaultOutputMemSpace, ttnnMode, collapseTensors, enableMulticastInference);
 
 

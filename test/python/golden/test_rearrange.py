@@ -34,6 +34,12 @@ def _test_pattern_map(pattern, shape, pattern_map):
 @pytest.mark.parametrize(
     "shape,pattern",
     [
+        # Tilized: inner dims preserved
+        ((3, 32, 64), "z y x -> z y x"),
+        ((2, 3, 32, 64), "w z y x -> z w y x"),
+        ((2, 3, 32, 64), "w z y x -> (w z) y x"),
+        ((4, 3, 32, 64), "w z y x -> (z w) y x"),
+        # Non-tilized: inner dims modified
         ((3, 32, 32), "z y x -> y z x"),
         ((3, 32, 32), "z y x -> (y z) x"),
         ((3, 32, 32), "z y x -> y (z x)"),
