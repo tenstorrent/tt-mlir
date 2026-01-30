@@ -4758,7 +4758,7 @@ mlir::tt::ttnn::PagedScaledDotProductAttentionDecodeOp::verify() {
                          << ", but got: " << dim;
   }
 
-  if (K <= 0 || K >= inputType.getDimSize(normalizedDim)) {
+  if (K <= 0 || K > inputType.getDimSize(normalizedDim)) {
     return emitOpError() << "K should be between 1 and the size of the "
                             "specified dimension ("
                          << normalizedDim << "), but got: " << K;
