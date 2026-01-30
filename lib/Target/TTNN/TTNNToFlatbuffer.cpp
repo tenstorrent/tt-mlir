@@ -2011,13 +2011,13 @@ createEltwiseUnaryCompositeOp(FlatbufferObjectCache &cache,
       ::tt::target::ttnn::EltwiseUnaryCompositeOpParams::NONE;
   ::flatbuffers::Offset<void> params = 0;
 
-  // Helper lambda to convert attribute to float
-  auto attrToFloat = [](mlir::Attribute attr) -> float {
+  // Helper lambda to convert attribute to double
+  auto attrToDouble = [](mlir::Attribute attr) -> double {
     if (auto floatAttr = mlir::dyn_cast<mlir::FloatAttr>(attr)) {
-      return floatAttr.getValue().convertToFloat();
+      return floatAttr.getValue().convertToDouble();
     }
     if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(attr)) {
-      return static_cast<float>(intAttr.getValue().getSExtValue());
+      return static_cast<double>(intAttr.getValue().getSExtValue());
     }
     llvm_unreachable("Unsupported attribute type for clamp");
   };
@@ -2028,8 +2028,8 @@ createEltwiseUnaryCompositeOp(FlatbufferObjectCache &cache,
     type = ::tt::target::ttnn::EltwiseUnaryCompositeOpType::ClampScalar;
     paramsType =
         ::tt::target::ttnn::EltwiseUnaryCompositeOpParams::ClampScalarOpParams;
-    auto min = attrToFloat(op.getMin());
-    auto max = attrToFloat(op.getMax());
+    auto min = attrToDouble(op.getMin());
+    auto max = attrToDouble(op.getMax());
     params = ::tt::target::ttnn::CreateClampScalarOpParams(*cache.fbb, min, max)
                  .Union();
   } else if constexpr (std::is_same_v<EltwiseUnaryCompositeOp, ClampTensorOp>) {
