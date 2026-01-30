@@ -240,6 +240,15 @@ def TTNNFusing: Pass<"ttnn-fusing", "::mlir::ModuleOp">
   ];
 }
 
+def TTNND2MFusing: Pass<"ttnn-d2m-fusing", "::mlir::ModuleOp"> {
+  let summary = "TTNN D2M fusing pass.";
+  let description = [{
+    This pass identifies potential subgraphs that can be fused through D2M compilation.
+
+    Right now, this is limited to eltwise chains.
+  }];
+}
+
 def TTNNTraceHoistTransform : Pass<"ttnn-trace-hoist-transform", "::mlir::ModuleOp"> {
   let summary = "TTNN Trace hoist transform";
   let description = [{
@@ -497,6 +506,13 @@ def TTNNRemoveDeallocs: Pass<"ttnn-remove-deallocs", "::mlir::ModuleOp"> {
   let description = [{
     This pass removes all ttnn.deallocate operations from the IR.
     Useful for debugging purposes to isolate issues related to deallocation.
+  }];
+}
+
+def TTNNCollaspeD2M : Pass<"ttnn-collaspe-d2m", "::mlir::ModuleOp"> {
+  let summary = "Collapse D2M subgraph modules(s) back into original module.";
+  let description = [{
+    This pass collapses D2M subgraph modules(s) back into original module.
   }];
 }
 
