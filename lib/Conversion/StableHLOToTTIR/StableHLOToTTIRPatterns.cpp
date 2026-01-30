@@ -4912,22 +4912,18 @@ private:
     // Total number of expanded indices (one per one scalar update).
     int64_t expandedNumIndices = numScatterPositions * windowSize;
 
-    // First, flatten the original indices to shape [numScatterPositions,
-    // originalIndexSize].
+    // First, reshape the original indices to shape
+    // [numScatterPositions, originalIndexSize].
     int64_t originalIndexSize = indicesShape[indexVectorDim];
-    llvm::SmallVector<int64_t> reshapedOrigIndicesShape = {numScatterPositions,
-                                                           originalIndexSize};
     Value reshapedOrigIndices = ttir::utils::createReshapeOp(
-        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_flatten_indices"),
-        indices, reshapedOrigIndicesShape);
+        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_reshape_indices"),
+        indices, {numScatterPositions, originalIndexSize});
 
     // Reshape to [numScatterPositions, 1, originalIndexSize] for repeat.
-    llvm::SmallVector<int64_t> reshapeForRepeatShape = {numScatterPositions, 1,
-                                                        originalIndexSize};
     Value reshapedForRepeat = ttir::utils::createReshapeOp(
         rewriter,
         ttmlir::utils::appendLocationSuffix(loc, "_reshape_for_repeat"),
-        reshapedOrigIndices, reshapeForRepeatShape);
+        reshapedOrigIndices, {numScatterPositions, 1, originalIndexSize});
 
     // Repeat along dim 1 to get [numScatterPositions, windowSize,
     // originalIndexSize].
@@ -4935,101 +4931,72 @@ private:
         numScatterPositions, windowSize, originalIndexSize};
     RankedTensorType afterRepeatType =
         RankedTensorType::get(afterRepeatShape, indicesType.getElementType());
-    llvm::SmallVector<int64_t> repeatDims = {1, windowSize, 1};
     Value repeatedIndices = rewriter.create<ttir::RepeatOp>(
         ttmlir::utils::appendLocationSuffix(loc, "_repeat_indices"),
         afterRepeatType, reshapedForRepeat,
-        rewriter.getDenseI64ArrayAttr(repeatDims));
+        rewriter.getDenseI64ArrayAttr({1, windowSize, 1}));
 
     // Flatten to [numScatterPositions * windowSize, originalIndexSize].
-    llvm::SmallVector<int64_t> repeatedIndicesShape = {expandedNumIndices,
-                                                       originalIndexSize};
     Value flatRepeatedIndices = ttir::utils::createReshapeOp(
         rewriter,
         ttmlir::utils::appendLocationSuffix(loc, "_flatten_repeated_indices"),
-        repeatedIndices, repeatedIndicesShape);
+        repeatedIndices, {expandedNumIndices, originalIndexSize});
 
-    // Generate window offset coordinates for each window dimension.
-    // For window shape [W1, W2, ...], dimension i's pattern repeats every
-    // product(windowShape[i+1:]).
+    // Generate window offset coordinates for each window dimension, and create
+    // a single ConstantOp per dimension.
+    //
+    // For window shape [W1, W2, ...], we compute the coordinate for each
+    // position in the flattened window. For position i in the window:
+    //   coord[d] = (i / product(windowShape[d+1:])) % windowShape[d]
+    //
+    // These coordinates are later repeated for each scatter position.
     llvm::SmallVector<Value> windowOffsetSlices;
 
-    for (size_t windowDimIdx = 0; windowDimIdx < windowShape.size();
-         ++windowDimIdx) {
-      int64_t dimSize = windowShape[windowDimIdx];
+    // Compute window offsets for each dimension in memory.
+    // windowOffsets[d][i] = coordinate of window position i in dimension d.
+    llvm::SmallVector<llvm::SmallVector<int64_t>> windowOffsets(
+        windowShape.size());
+    for (size_t d = 0; d < windowShape.size(); ++d) {
+      windowOffsets[d].reserve(windowSize);
+    }
 
-      // Calculate repeat factors.
-      int64_t innerRepeat = 1;
-      for (size_t j = windowDimIdx + 1; j < windowShape.size(); ++j) {
-        innerRepeat *= windowShape[j];
+    // For each position in the flattened window, compute multi-dimensional
+    // coordinates. For dimension d: coord = (i / stride) % windowShape[d],
+    // where stride = product of windowShape[d+1:].
+    for (int64_t i = 0; i < windowSize; ++i) {
+      int64_t stride = 1;
+      for (size_t d = windowShape.size(); d-- > 0;) {
+        windowOffsets[d].push_back((i / stride) % windowShape[d]);
+        stride *= windowShape[d]; // repeats the same seq during each outer loop
       }
-      int64_t outerRepeat = windowSize / (dimSize * innerRepeat);
+    }
 
-      // Create [0, 1, ..., dimSize-1].
-      llvm::SmallVector<int64_t> arangeShape = {dimSize};
-      RankedTensorType arangeType =
-          RankedTensorType::get(arangeShape, indicesType.getElementType());
-      Value arange = rewriter.create<ttir::ArangeOp>(
-          ttmlir::utils::appendLocationSuffix(
-              loc, "_window_arange_" + std::to_string(windowDimIdx)),
-          arangeType, /*start=*/0, /*end=*/dimSize, /*step=*/1,
-          /*arange_dimension=*/0);
+    // Create constant tensors for each window dimension's offsets.
+    Type indexElementType = indicesType.getElementType();
+    for (size_t dim = 0; dim < windowShape.size(); ++dim) {
+      // Build the final offset values: repeat window offsets for each scatter
+      // position. Pattern: [w0, w1, ..., wN-1, w0, w1, ..., wN-1, ...]
+      //                     |---- window ---|  |--- window ----|
+      //                    |--------- numScatterPositions times -----|
+      llvm::SmallVector<int64_t> finalOffsetValues;
+      finalOffsetValues.reserve(expandedNumIndices);
+      for (int64_t i = 0; i < numScatterPositions; ++i) {
+        for (int64_t w = 0; w < windowSize; ++w) {
+          finalOffsetValues.push_back(windowOffsets[dim][w]);
+        }
+      }
 
-      // Reshape to [1, dimSize, 1] for tiling.
-      llvm::SmallVector<int64_t> reshapeShape = {1, dimSize, 1};
-      Value reshapedArange = ttir::utils::createReshapeOp(
-          rewriter,
-          ttmlir::utils::appendLocationSuffix(
-              loc, "_reshape_arange_" + std::to_string(windowDimIdx)),
-          arange, reshapeShape);
-
-      // Tile to [outerRepeat, dimSize, innerRepeat].
-      llvm::SmallVector<int64_t> tiledShape = {outerRepeat, dimSize,
-                                               innerRepeat};
-      RankedTensorType tiledType =
-          RankedTensorType::get(tiledShape, indicesType.getElementType());
-      llvm::SmallVector<int64_t> tileRepeats = {outerRepeat, 1, innerRepeat};
-      Value tiledArange = rewriter.create<ttir::RepeatOp>(
-          ttmlir::utils::appendLocationSuffix(
-              loc, "_tile_arange_" + std::to_string(windowDimIdx)),
-          tiledType, reshapedArange,
-          rewriter.getDenseI64ArrayAttr(tileRepeats));
-
-      // Flatten to [windowSize, 1].
-      llvm::SmallVector<int64_t> flatWindowOffsetShape = {windowSize, 1};
-      Value flatWindowOffset = ttir::utils::createReshapeOp(
-          rewriter,
-          ttmlir::utils::appendLocationSuffix(
-              loc, "_flatten_window_offset_" + std::to_string(windowDimIdx)),
-          tiledArange, flatWindowOffsetShape);
-
-      // Tile to [numScatterPositions * windowSize, 1].
-      llvm::SmallVector<int64_t> reshapeForScatterRepeat = {1, windowSize, 1};
-      Value reshapedForScatterRepeat = ttir::utils::createReshapeOp(
-          rewriter,
-          ttmlir::utils::appendLocationSuffix(loc,
-                                              "_reshape_offset_for_scatter_" +
-                                                  std::to_string(windowDimIdx)),
-          flatWindowOffset, reshapeForScatterRepeat);
-
-      llvm::SmallVector<int64_t> scatterRepeatShape = {numScatterPositions,
-                                                       windowSize, 1};
-      RankedTensorType scatterRepeatType = RankedTensorType::get(
-          scatterRepeatShape, indicesType.getElementType());
-      llvm::SmallVector<int64_t> scatterRepeats = {numScatterPositions, 1, 1};
-      Value scatterRepeatedOffset = rewriter.create<ttir::RepeatOp>(
-          ttmlir::utils::appendLocationSuffix(
-              loc, "_scatter_repeat_offset_" + std::to_string(windowDimIdx)),
-          scatterRepeatType, reshapedForScatterRepeat,
-          rewriter.getDenseI64ArrayAttr(scatterRepeats));
-
-      // Flatten to [expandedNumIndices, 1].
-      llvm::SmallVector<int64_t> finalOffsetShape = {expandedNumIndices, 1};
-      Value finalOffset = ttir::utils::createReshapeOp(
-          rewriter,
-          ttmlir::utils::appendLocationSuffix(
-              loc, "_final_offset_" + std::to_string(windowDimIdx)),
-          scatterRepeatedOffset, finalOffsetShape);
+      // Create constant tensor with shape [expandedNumIndices, 1].
+      // (to match the shape of individial slices generated in the next
+      // step of the algorithm, since they are all pushed to indexSlices)
+      RankedTensorType finalOffsetType =
+          RankedTensorType::get({expandedNumIndices, 1}, indexElementType);
+      auto finalOffsetAttr =
+          DenseIntElementsAttr::get(finalOffsetType, finalOffsetValues);
+      Value finalOffset = rewriter.create<ttir::ConstantOp>(
+          ttmlir::utils::appendLocationSuffix(loc, "_window_offset_" +
+                                                       std::to_string(dim)),
+          finalOffsetType, finalOffsetAttr);
 
       windowOffsetSlices.push_back(finalOffset);
     }
@@ -5039,7 +5006,6 @@ private:
     llvm::SmallVector<Value> indexSlices;
     size_t origIdxPos = 0;
     size_t windowIdxPos = 0;
-
     for (int64_t operandDim = 0; operandDim < operandRank; ++operandDim) {
       if (insertedDimsSet.contains(operandDim)) {
         // This dimension is indexed by scatter - slice from original indices.
@@ -5069,13 +5035,12 @@ private:
       }
     }
 
-    // Compute flat 1D indices using the shared helper.
     Value flatIndices = computeFlatIndicesFromSlices(
         loc, rewriter, indexSlices, operandShape, indicesType.getElementType());
 
     // Flatten the computed indices to 1D.
     return ttir::utils::flattenTensor(rewriter, loc, flatIndices,
-                                      "_expanded_indices_flatten");
+                                      "_flatten_expanded_indices");
   }
 
   Value extractElementWiseScatterIndices(mlir::stablehlo::ScatterOp op,
