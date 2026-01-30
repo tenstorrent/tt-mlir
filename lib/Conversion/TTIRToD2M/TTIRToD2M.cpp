@@ -1719,7 +1719,6 @@ private:
                        .getResult();
     }
 
-    // Get Metal type for output.
     auto outputMetalType =
         getMetalTensorFromTTNNTensor(rewriter, op.getOutput());
 
