@@ -205,6 +205,7 @@ private:
           rewriter.getBoolAttr(convOp.getBias() != nullptr),
           convOp.getGroupsAttr(), convOp.getDevice(), inputDtypeAttr,
           outputDtypeAttr, conv2dConfig, convOp.getComputeConfigAttr(),
+          convOp.getConv2dSliceConfigAttr(),
           /*mirror_kernel=*/rewriter.getBoolAttr(true));
     }
   }
@@ -244,7 +245,7 @@ private:
           convOp.getStrideAttr(), convOp.getPaddingAttr(),
           convOp.getDilationAttr(), convOp.getGroupsAttr(), convOp.getDevice(),
           inputDtypeAttr, outputDtypeAttr, conv2dConfig,
-          convOp.getComputeConfigAttr());
+          convOp.getComputeConfigAttr(), convOp.getConv2dSliceConfigAttr());
     }
   }
 };

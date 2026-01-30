@@ -1447,6 +1447,7 @@ public:
         emitter.template emit<::ttnn::WormholeComputeKernelConfig>(
             srcOp.getComputeConfig()),
         emitter.emit(srcOp.getMirrorKernel()),
+        emitter.emit(srcOp.getConv2dSliceConfig()),
     };
 
     emitter.replaceOp(*this, args);
@@ -1508,6 +1509,7 @@ public:
         emitter.emit(srcOp.getConv2dConfig()),
         emitter.template emit<::ttnn::WormholeComputeKernelConfig>(
             srcOp.getComputeConfig()),
+        emitter.emit(srcOp.getConv2dSliceConfig()),
     };
 
     emitter.replaceOp(*this, args);
@@ -1662,6 +1664,7 @@ public:
         emitter.template emit<::ttnn::WormholeComputeKernelConfig>(
             srcOp.getComputeConfig()),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
+        emitter.emit(srcOp.getConv2dSliceConfig()),
     };
 
     emitter.replaceOp(*this, args);

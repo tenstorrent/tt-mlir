@@ -5146,6 +5146,7 @@ llvm::Expected<OpConstraints> OpModel<ConvTranspose2dOp>::getOpConstraints(
     llvm::ArrayRef<int32_t> stride, llvm::ArrayRef<int32_t> padding,
     llvm::ArrayRef<int32_t> output_padding, llvm::ArrayRef<int32_t> dilation,
     uint32_t groups, std::optional<Conv2dConfigAttr> conv2dConfig,
+    std::optional<Conv2dSliceConfigAttr> conv2dSliceConfig,
     TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   // Prepare weight tensor first.
@@ -5153,7 +5154,7 @@ llvm::Expected<OpConstraints> OpModel<ConvTranspose2dOp>::getOpConstraints(
       getPrepareConv2dWeightsOpOutputTensorSpec(
           inputShape, inputLayout, weightShape, weightLayout, in_channels,
           out_channels, batch_size, input_height, input_width, kernel_size,
-          stride, padding, dilation, groups, conv2dConfig, std::nullopt,
+          stride, padding, dilation, groups, conv2dConfig, conv2dSliceConfig,
           biasLayout.has_value(), /*transpose*/ true);
   if (!preparedWeightExp) {
     return preparedWeightExp.takeError();
@@ -5190,6 +5191,9 @@ llvm::Expected<OpConstraints> OpModel<ConvTranspose2dOp>::getOpConstraints(
 
   std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig>
       conv2dConfigConverted = conversion::getConv2dConfig(conv2dConfig);
+  std::optional<::ttnn::operations::conv::conv2d::Conv2dSliceConfig>
+      conv2dSliceConfigConverted =
+          conversion::getConv2dSliceConfig(conv2dSliceConfig);
 
   // Create query closure
   auto convTranspose2dOpQuery = [=]() {
@@ -5203,7 +5207,8 @@ llvm::Expected<OpConstraints> OpModel<ConvTranspose2dOp>::getOpConstraints(
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
         groups, outputDtype, biasSpec, conv2dConfigConverted,
         /* compute_config */ std::nullopt,
-        detail::getNullableMemoryConfig(outputLayout));
+        detail::getNullableMemoryConfig(outputLayout),
+        conv2dSliceConfigConverted);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
@@ -5223,6 +5228,7 @@ llvm::Expected<size_t> OpModel<ConvTranspose2dOp>::getOpRuntime(
     llvm::ArrayRef<int32_t> stride, llvm::ArrayRef<int32_t> padding,
     llvm::ArrayRef<int32_t> output_padding, llvm::ArrayRef<int32_t> dilation,
     uint32_t groups, std::optional<Conv2dConfigAttr> conv2dConfig,
+    std::optional<Conv2dSliceConfigAttr> conv2dSliceConfig,
     TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   // Prepare weight tensor first.
@@ -5268,6 +5274,9 @@ llvm::Expected<size_t> OpModel<ConvTranspose2dOp>::getOpRuntime(
 
   std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig>
       conv2dConfigConverted = conversion::getConv2dConfig(conv2dConfig);
+  std::optional<::ttnn::operations::conv::conv2d::Conv2dSliceConfig>
+      conv2dSliceConfigConverted =
+          conversion::getConv2dSliceConfig(conv2dSliceConfig);
 
   // Create query closure
   auto convTranspose2dOpQuery = [=]() {
@@ -5281,7 +5290,8 @@ llvm::Expected<size_t> OpModel<ConvTranspose2dOp>::getOpRuntime(
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
         groups, outputDtype, biasSpec, conv2dConfigConverted,
         /* compute_config */ std::nullopt,
-        detail::getNullableMemoryConfig(outputLayout));
+        detail::getNullableMemoryConfig(outputLayout),
+        conv2dSliceConfigConverted);
   };
 
   return operation::getOpRuntime(convTranspose2dOpQuery);
@@ -5428,7 +5438,8 @@ OpModel<PrepareConvTranspose2dWeightsOp>::getOpConstraints(
     ttcore::DataType inputDtype, std::optional<ttcore::DataType> outputDtype,
     std::optional<Conv2dConfigAttr> conv2dConfig,
     std::optional<DeviceComputeKernelConfigAttr> deviceComputeKernelConfig,
-    bool mirrorKernel, TTNNLayoutAttr outputLayout) {
+    std::optional<Conv2dSliceConfigAttr> conv2dSliceConfig, bool mirrorKernel,
+    TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
@@ -5461,8 +5472,7 @@ OpModel<PrepareConvTranspose2dWeightsOp>::getOpConstraints(
         hasBias, groups, device, conversion::getDataType(inputDtype),
         convertedOutputDtype, conversion::getConv2dConfig(conv2dConfig),
         conversion::getDeviceComputeKernelConfig(deviceComputeKernelConfig),
-        std::optional<::ttnn::operations::conv::conv2d::Conv2dSliceConfig>{},
-        mirrorKernel);
+        conversion::getConv2dSliceConfig(conv2dSliceConfig), mirrorKernel);
   };
 
   return operation::getOpConstraints(weightLayout.getContext(), deviceGrid,
@@ -5488,6 +5498,7 @@ OpModel<PrepareConvTranspose2dBiasOp>::getOpConstraints(
     ttcore::DataType inputDtype, std::optional<ttcore::DataType> outputDtype,
     std::optional<Conv2dConfigAttr> conv2dConfig,
     std::optional<DeviceComputeKernelConfigAttr> deviceComputeKernelConfig,
+    std::optional<Conv2dSliceConfigAttr> conv2dSliceConfig,
     TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
@@ -5521,7 +5532,7 @@ OpModel<PrepareConvTranspose2dBiasOp>::getOpConstraints(
         groups, device, conversion::getDataType(inputDtype),
         convertedOutputDtype, conversion::getConv2dConfig(conv2dConfig),
         conversion::getDeviceComputeKernelConfig(deviceComputeKernelConfig),
-        std::optional<::ttnn::operations::conv::conv2d::Conv2dSliceConfig>{});
+        conversion::getConv2dSliceConfig(conv2dSliceConfig));
   };
 
   return operation::getOpConstraints(biasLayout.getContext(), deviceGrid,
