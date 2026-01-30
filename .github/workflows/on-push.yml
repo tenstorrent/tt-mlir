@@ -2,28 +2,19 @@ name: On push
 
 on:
   workflow_dispatch:
-    inputs:
-      run_id:
-        type: string
-        required: true
-      run_attempt:
-        type: string
-        required: true
 
 jobs:
   produce-cicd-data:
     runs-on: ubuntu-latest
-    env:
-        GH_TOKEN: ${{ github.token }}
     steps:
-      - name: Collect CI/CD data
-        uses: vvukomanTT/tt-github-actions/.github/actions/collect_data@vvukoman/add-triage-tag-to-failure-signature
-        with:
-          repository: ${{ github.repository }}
-          run_id: ${{ inputs.run_id }}
-          run_attempt: ${{ inputs.run_attempt }}
-          sftp_host: ${{ secrets.SFTP_CICD_WRITER_HOSTNAME }}
-          sftp_user: ${{ secrets.SFTP_CICD_WRITER_USERNAME }}
-          sftp_optest_host: ${{ secrets.SFTP_OP_TEST_WRITER_HOSTNAME }}
-          sftp_optest_user: ${{ secrets.SFTP_OP_TEST_WRITER_USERNAME }}
-          ssh-private-key: ${{ secrets.SFTP_CICD_WRITER_KEY }}
+    - name: Log out tt-triage exception
+      shell: bash
+      run: |
+        echo "device timeout, potential hang detected, the device is unrecoverable"
+
+  collect-data:
+    uses: ./.github/workflows/workflow-run-collect-data.yml
+    secrets: inherit
+    with:
+      run_id: ${{ github.run_id }}
+      run_attempt: ${{ github.run_attempt }}
