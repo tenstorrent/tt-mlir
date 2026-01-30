@@ -4644,6 +4644,9 @@ public:
     ArrayRef<int64_t> inputShape = inputType.getShape();
     RankedTensorType outputType = mlir::cast<RankedTensorType>(
         this->getTypeConverter()->convertType(srcOp.getResults()[0].getType()));
+    RankedTensorType updateType =
+        mlir::cast<RankedTensorType>(updateTensor.getType());
+    ArrayRef<int64_t> updateShape = updateType.getShape();
 
     // Single-dimensional scatter.
     if (scatterDimsToOperandDims.size() == 1) {
@@ -4667,7 +4670,8 @@ public:
       constexpr int32_t SCATTER_DIMENSION = 0;
 
       // Scatter indices, input, and update tensors flattened to 1D.
-      Value flattenedIndices = flattenMultiDimScatterIndices(srcOp, rewriter);
+      Value flattenedIndices = flattenMultiDimScatterIndices(
+          srcOp, inputShape, updateShape, rewriter);
       Value flattenedInput = ttir::utils::flattenTensor(
           rewriter, srcOp.getLoc(), inputTensor, "_input_flatten");
       Value flattenedUpdate = ttir::utils::flattenTensor(
@@ -4700,63 +4704,25 @@ private:
   LogicalResult checkBasicLegality(mlir::stablehlo::ScatterOp &op,
                                    mlir::stablehlo::ScatterOp::Adaptor adaptor,
                                    ConversionPatternRewriter &rewriter) const {
-    auto input_batching_dims =
+    auto inputBatchingDims =
         adaptor.getScatterDimensionNumbers().getInputBatchingDims();
-    auto scatter_indices_batching_dims =
+    auto scatterIndicesBatchingDims =
         adaptor.getScatterDimensionNumbers().getScatterIndicesBatchingDims();
-    if (!input_batching_dims.empty() ||
-        !scatter_indices_batching_dims.empty()) {
+    if (!inputBatchingDims.empty() || !scatterIndicesBatchingDims.empty()) {
       return rewriter.notifyMatchFailure(
           op, "Scatter doesn't currently support scatter with batching "
               "dimensions");
     }
 
-    // Validate update_window_dims and inserted_window_dims.
-    ArrayRef<int64_t> updateWindowDims =
-        adaptor.getScatterDimensionNumbers().getUpdateWindowDims();
     ArrayRef<int64_t> insertedWindowDims =
         adaptor.getScatterDimensionNumbers().getInsertedWindowDims();
-
-    int64_t inputRank =
-        mlir::cast<RankedTensorType>(op.getInputs()[0].getType()).getRank();
-
-    // Get update tensor rank and shape.
     RankedTensorType updateType =
         mlir::cast<RankedTensorType>(op.getUpdates()[0].getType());
-    int64_t updateRank = updateType.getRank();
     ArrayRef<int64_t> updateShape = updateType.getShape();
 
     // Get index tensor shape.
     RankedTensorType indexType = op.getScatterIndices().getType();
     ArrayRef<int64_t> indexShape = indexType.getShape();
-
-    // Verify openxla.org/stablehlo/spec#scatter (C8):
-    // indices into updates tensor.
-    for (auto dim : updateWindowDims) {
-      if (dim < 0 || dim >= updateRank) {
-        return rewriter.notifyMatchFailure(
-            op, "update_window_dims contains invalid dimension index");
-      }
-    }
-
-    // Verify openxla.org/stablehlo/spec#scatter (C11):
-    // indices into inputs tensor.
-    for (auto dim : insertedWindowDims) {
-      if (dim < 0 || dim >= inputRank) {
-        return rewriter.notifyMatchFailure(
-            op, "inserted_window_dims contains invalid dimension index");
-      }
-    }
-
-    // Verify openxla.org/stablehlo/spec#scatter (C2):
-    // rank(inputs[0]) = size(update_window_dims) + size(inserted_window_dims) +
-    // size(input_batching_dims).
-    if (inputRank != static_cast<int64_t>(updateWindowDims.size() +
-                                          insertedWindowDims.size() +
-                                          input_batching_dims.size())) {
-      return rewriter.notifyMatchFailure(
-          op, "Scatter does not support window scatter.");
-    }
 
     // Check that scatter_dims_to_operand_dims is in order.
     ArrayRef<int64_t> scatterDimsToOperandDims =
@@ -4778,6 +4744,17 @@ private:
       return rewriter.notifyMatchFailure(
           op, "TTIR multi-dimensional scatter currently only supports "
               "index_vector_dim being the last dimension");
+    }
+
+    if (multiDimensionalScatter &&
+        llvm::DenseSet<int64_t>(scatterDimsToOperandDims.begin(),
+                                scatterDimsToOperandDims.end()) !=
+            llvm::DenseSet<int64_t>(insertedWindowDims.begin(),
+                                    insertedWindowDims.end())) {
+      return rewriter.notifyMatchFailure(
+          op, "TTIR multi-dimensional scatter requires "
+              "scatter_dims_to_operand_dims and inserted_window_dims to "
+              "contain the same elements");
     }
 
     // Checks that apply to single dimensional scatter.
@@ -4817,12 +4794,10 @@ private:
     // Calculate strides for each dimension.
     // stride[d] = product of operandShape[d+1..operandRank-1]
     llvm::SmallVector<int64_t> strides(operandRank);
-    for (int64_t d = 0; d < operandRank; ++d) {
-      int64_t stride = 1;
-      for (int64_t j = d + 1; j < operandRank; ++j) {
-        stride *= operandShape[j];
-      }
+    int64_t stride = 1;
+    for (int64_t d = operandRank - 1; d >= 0; --d) {
       strides[d] = stride;
+      stride *= operandShape[d];
     }
 
     Value flatIndices = nullptr;
@@ -4892,37 +4867,31 @@ private:
   ///
   /// Returns flattened 1D indices tensor.
   Value flattenMultiDimScatterIndices(mlir::stablehlo::ScatterOp op,
+                                      ArrayRef<int64_t> operandShape,
+                                      ArrayRef<int64_t> updateShape,
                                       PatternRewriter &rewriter) const {
-    Location loc = op.getLoc();
-    Value operand = op.getInputs()[0];
     Value indices = op.getScatterIndices();
     RankedTensorType indicesType =
         mlir::cast<RankedTensorType>(indices.getType());
-    RankedTensorType operandType =
-        mlir::cast<RankedTensorType>(operand.getType());
+    ArrayRef<int64_t> indicesShape = indicesType.getShape();
     auto scatterDimNumbers = op.getScatterDimensionNumbers();
     ArrayRef<int64_t> insertedWindowDims =
         scatterDimNumbers.getInsertedWindowDims();
+    ArrayRef<int64_t> updateWindowDims =
+        scatterDimNumbers.getUpdateWindowDims();
     int64_t indexVectorDim = scatterDimNumbers.getIndexVectorDim();
-    ArrayRef<int64_t> indicesShape = indicesType.getShape();
-    ArrayRef<int64_t> operandShape = operandType.getShape();
-    int64_t operandRank = operandType.getRank();
+    int64_t operandRank = operandShape.size();
+    Location loc = op.getLoc();
 
-    // Identify which operand dimensions are window dimensions
-    // (not in inserted_window_dims).
-    llvm::SmallVector<int64_t> operandWindowDims;
+    // Build set of inserted window dims for fast lookup.
     llvm::DenseSet<int64_t> insertedDimsSet(insertedWindowDims.begin(),
                                             insertedWindowDims.end());
-    for (int64_t d = 0; d < operandRank; ++d) {
-      if (!insertedDimsSet.contains(d)) {
-        operandWindowDims.push_back(d);
-      }
-    }
 
-    // Calculate window shape from operand dimensions.
+    // Calculate window shape from update dimensions at update_window_dims.
+    // The window size is determined by the update tensor.
     llvm::SmallVector<int64_t> windowShape;
-    for (int64_t dim : operandWindowDims) {
-      windowShape.push_back(operandShape[dim]);
+    for (int64_t dim : updateWindowDims) {
+      windowShape.push_back(updateShape[dim]);
     }
 
     // Calculate total window size (product of window dimensions).

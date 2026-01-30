@@ -60,7 +60,22 @@ module @jit_scatter attributes {} {
         return %result : tensor<1x18xf32>
     }
 
-    func.func @test_multidim_scatter_with_window(%arg186: tensor<1x2xbf16>, %arg187: tensor<1xi64>, %arg188: tensor<1xi64>) -> (tensor<1x7x2xbf16>) {
+    func.func @test_multidim_scatter_with_window(%updates: tensor<1x2xbf16>) -> tensor<1x7x2xbf16> {
+        // CHECK: "ttir.scatter"
+        // CHECK-SAME: <{dim = 0 : i32, scatter_reduce_type = #ttcore.reduce_type<sum>}>
+        // Operand: zeros tensor to scatter into
+        %cst_16 = stablehlo.constant dense<0.000000e+00> : tensor<1x7x2xbf16>
+        // Indices: scatter at position [0, 3] (batch=0, row=3)
+        %indices = stablehlo.constant dense<[[0, 3]]> : tensor<1x2xi64>
+        %result = "stablehlo.scatter"(%cst_16, %indices, %updates) <{scatter_dimension_numbers = #stablehlo.scatter<update_window_dims = [1], inserted_window_dims = [0, 1], scatter_dims_to_operand_dims = [0, 1], index_vector_dim = 1>}> ({
+        ^bb0(%arg0: tensor<bf16>, %arg1: tensor<bf16>):
+            %sum = stablehlo.add %arg0, %arg1 : tensor<bf16>
+            stablehlo.return %sum : tensor<bf16>
+        }) : (tensor<1x7x2xbf16>, tensor<1x2xi64>, tensor<1x2xbf16>) -> tensor<1x7x2xbf16>
+        return %result : tensor<1x7x2xbf16>
+    }
+
+    func.func @test_multidim_scatter_with_window_extracted_from_model(%arg186: tensor<1x2xbf16>, %arg187: tensor<1xi64>, %arg188: tensor<1xi64>) -> (tensor<1x7x2xbf16>) {
         // CHECK: "ttir.scatter"
         // CHECK-SAME: <{dim = 0 : i32, scatter_reduce_type = #ttcore.reduce_type<sum>}>
         %c_13 = stablehlo.constant dense<7> : tensor<1xi64>
