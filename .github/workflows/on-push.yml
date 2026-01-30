@@ -1,14 +1,6 @@
 name: On push
 
 on:
-  workflow_run:
-    workflows: # List workflow that we want to collect data for
-      - "On PR"
-      - "On push"
-      - "Nightly run"
-      - "Run Perf Benchmarks"
-    types:
-      - completed
   workflow_dispatch:
     inputs:
       run_id:
