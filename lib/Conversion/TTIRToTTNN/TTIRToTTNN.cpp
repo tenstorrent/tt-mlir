@@ -580,9 +580,19 @@ public:
   LogicalResult
   matchAndRewrite(TTIROpTy op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    rewriter.replaceOpWithNewOp<TTNNOpTy>(
-        op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), adaptor.getMin(), adaptor.getMax());
+    if constexpr (std::is_same_v<TTIROpTy, ttir::ClampScalarOp>) {
+      // ClampScalarOp: pass attributes directly, preserving their type (F32Attr or I32Attr)
+      // Must pass nullptr for optional memory_config argument
+      rewriter.replaceOpWithNewOp<TTNNOpTy>(
+          op, this->getTypeConverter()->convertType(op.getType()),
+          adaptor.getInput(), adaptor.getMin(), adaptor.getMax(),
+          /*memory_config=*/nullptr);
+    } else {
+      // ClampTensorOp: pass tensor values directly
+      rewriter.replaceOpWithNewOp<TTNNOpTy>(
+          op, this->getTypeConverter()->convertType(op.getType()),
+          adaptor.getInput(), adaptor.getMin(), adaptor.getMax());
+    }
     return success();
   }
 };
