@@ -28,7 +28,7 @@ if (USE_TTNN_JIT_WHEEL)
       $<TARGET_FILE:_ttnn_jit>
       $<TARGET_FILE:TTMLIRRuntime>
       $<TARGET_FILE:_ttmlir_runtime>
-    DESTINATION ttnn_jit/runtime
+    DESTINATION ttnn_jit
     COMPONENT TTNNJITWheel
     EXCLUDE_FROM_ALL
   )
