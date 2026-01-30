@@ -2238,6 +2238,25 @@ createRandOp(FlatbufferObjectCache &cache, RandOp op) {
       seed, dtype, layout, memoryConfig, out);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::DropoutOp>
+createDropoutOp(FlatbufferObjectCache &cache, DropoutOp op) {
+  auto in = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+  auto out = cache.getOrCreateNoSharding(
+      op.getResult(), tensorValueToFlatbuffer, /*local_shape*/ std::nullopt);
+  float prob = op.getProb().convertToFloat();
+  float scale = op.getScale().convertToFloat();
+  uint32_t seed = op.getSeed();
+  bool usePerDeviceSeed = op.getUsePerDeviceSeed();
+  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
+  auto resultType = mlir::cast<RankedTensorType>(op.getResult().getType());
+  ::tt::target::DataType outputDtype = toFlatbuffer(
+      cache, ttcore::elementTypeToDataType(resultType.getElementType()));
+  return ::tt::target::ttnn::CreateDropoutOp(*cache.fbb, in, prob, scale, seed,
+                                             usePerDeviceSeed, outputDtype,
+                                             memoryConfig, out);
+}
+template <typename RepeatOp>
 ::flatbuffers::Offset<::tt::target::ttnn::RepeatOp>
 createRepeatOp(FlatbufferObjectCache &cache, RepeatOp op) {
   auto in = cache.at<::tt::target::ttnn::TensorRef>(
@@ -3695,6 +3714,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto randOp = dyn_cast<RandOp>(op); randOp) {
     return createOperation(cache, createRandOp(cache, randOp), debugString,
                            locInfo);
+  }
+  if (auto dropoutOp = dyn_cast<DropoutOp>(op); dropoutOp) {
+    return createOperation(cache, createDropoutOp(cache, dropoutOp),
+                           debugString, locInfo);
   }
   if (auto reshapeOp = dyn_cast<ReshapeOp>(op); reshapeOp) {
     return createOperation(cache, createReshapeOp(cache, reshapeOp),

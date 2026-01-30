@@ -975,7 +975,9 @@ struct OpModel<LinearOp> {
       std::optional<TTNNLayoutAttr> biasLayout, TTNNLayoutAttr outputLayout,
       bool transposeA, bool transposeB,
       std::optional<llvm::StringRef> activation,
-      std::optional<mlir::Attribute> programConfigAttr = std::nullopt);
+      std::optional<mlir::Attribute> programConfigAttr = std::nullopt,
+      std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig =
+          std::nullopt);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputShapeA, TTNNLayoutAttr inputLayoutA,
@@ -996,7 +998,9 @@ struct OpModel<MatmulOp> {
       TTNNLayoutAttr inputLayoutA, llvm::ArrayRef<int64_t> inputShapeB,
       TTNNLayoutAttr inputLayoutB, TTNNLayoutAttr outputLayout, bool transposeA,
       bool transposeB, std::optional<llvm::StringRef> activation = std::nullopt,
-      std::optional<mlir::Attribute> programConfigAttr = std::nullopt);
+      std::optional<mlir::Attribute> programConfigAttr = std::nullopt,
+      std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig =
+          std::nullopt);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputShapeA, TTNNLayoutAttr inputLayoutA,
@@ -1693,6 +1697,23 @@ struct OpModel<mlir::tt::ttnn::RandOp> {
       mlir::tt::ttnn::MemoryConfigAttr memoryConfig,
       mlir::tt::ttnn::Layout layout, llvm::APFloat low, llvm::APFloat high,
       uint32_t seed, mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
+};
+
+//===----------------------------------------------------------------------===//
+// DropoutOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<mlir::tt::ttnn::DropoutOp> {
+  static llvm::Expected<OpConstraints> getOpConstraints(
+      mlir::tt::ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+      TTNNLayoutAttr inputLayout, llvm::APFloat prob, llvm::APFloat scale,
+      uint32_t seed, bool usePerDeviceSeed, TTNNLayoutAttr outputLayout);
+
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+               llvm::APFloat prob, llvm::APFloat scale, uint32_t seed,
+               bool usePerDeviceSeed, TTNNLayoutAttr outputLayout);
 };
 
 //===----------------------------------------------------------------------===//

@@ -1310,6 +1310,42 @@ public:
 };
 } // namespace
 
+// Dropout op conversion pattern
+//
+namespace {
+class DropoutOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<tt::ttnn::DropoutOp> {
+private:
+  std::string getPrefixSearchPattern() const override { return "ttnn.dropout"; }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn.experimental.dropout";
+  }
+
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      tt::ttnn::DropoutOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(tt::ttnn::DropoutOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<tt::ttnn::DropoutOp> emitter(
+        srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getProb(), "probability"),
+        emitter.emit(srcOp.getScale(), "scale"),
+        emitter.emit(srcOp.getSeed(), "seed"),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // Prod op conversion pattern
 //
 namespace {
@@ -3798,6 +3834,11 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                PowScalarOpConversionPattern,
                GeluBackwardOpConversionPattern>(typeConverter, ctx, enableGoldenMode);
   // clang-format on
+
+  // Experimental dropout op
+  //
+  patterns.add<DropoutOpConversionPattern>(typeConverter, ctx,
+                                           enableGoldenMode);
 
   patterns.add<EltwiseTernaryOpConversionPattern<ttnn::WhereOp>>(
       typeConverter, ctx, enableGoldenMode);
