@@ -64,6 +64,8 @@ MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTNNLayoutAttrGet(MlirContext ctx,
 MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTNNTensorMemoryLayoutAttrGet(
     MlirContext ctx, uint32_t tensorMemoryLayout);
 
+MLIR_CAPI_EXPORTED bool ttmlirIsBufferTypeAttr(MlirAttribute attr);
+
 MLIR_CAPI_EXPORTED MlirAttribute
 ttmlirTTNNBufferTypeAttrGet(MlirContext ctx, uint32_t bufferType);
 

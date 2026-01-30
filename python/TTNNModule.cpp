@@ -58,15 +58,26 @@ void populateTTNNModule(nb::module_ &m) {
       .def_prop_ro("value", [](tt::ttnn::ShardDistributionStrategyAttr self) {
         return static_cast<uint32_t>(self.getValue());
       });
-  tt_attribute_class<tt::ttnn::BufferTypeAttr>(m, "BufferTypeAttr")
-      .def_static(
+  mlir::python::nanobind_adaptors::mlir_attribute_subclass(
+      m, "BufferTypeAttr", ttmlirIsBufferTypeAttr)
+      .def_classmethod(
           "get",
-          [](MlirContext ctx, uint32_t bufferType) {
-            return wrap(tt::ttnn::BufferTypeAttr::get(
-                unwrap(ctx), static_cast<tt::ttnn::BufferType>(bufferType)));
-          })
-      .def_prop_ro("value", [](tt::ttnn::BufferTypeAttr self) {
-        return static_cast<uint32_t>(self.getValue());
+          [](nb::object cls, MlirContext ctx, uint32_t bufferType) {
+            return cls(ttmlirTTNNBufferTypeAttrGet(ctx, bufferType));
+          },
+          nb::arg("cls"), nb::arg("ctx"), nb::arg("bufferType"))
+      .def_classmethod(
+          "from_attribute",
+          [](nb::object cls, MlirAttribute attr) {
+            if (!ttmlirIsBufferTypeAttr(attr)) {
+              throw std::runtime_error("Attribute is not a BufferTypeAttr");
+            }
+            return cls(attr);
+          },
+          nb::arg("cls"), nb::arg("attr"))
+      .def_property_readonly("value", [](MlirAttribute self) {
+        return static_cast<uint32_t>(
+            mlir::cast<tt::ttnn::BufferTypeAttr>(unwrap(self)).getValue());
       });
 
   tt_attribute_class<tt::ttnn::ShardSpecAttr>(m, "ShardSpecAttr")

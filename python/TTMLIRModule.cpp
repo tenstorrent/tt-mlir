@@ -85,6 +85,10 @@ NB_MODULE(_ttmlir, m) {
       "context_init_hook",
       [](MlirContext context) {
         mlir::MLIRContext *mlirContext = unwrap(context);
+        mlir::DialectRegistry registry;
+        mlir::tt::registerAllDialects(registry);
+        mlir::tt::registerAllExtensions(registry);
+        mlirContext->appendDialectRegistry(registry);
         mlirContext->loadAllAvailableDialects();
       },
       nb::arg("context"));

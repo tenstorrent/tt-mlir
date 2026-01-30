@@ -123,6 +123,10 @@ MlirAttribute ttmlirTTNNBufferTypeAttrGet(MlirContext ctx,
       BufferTypeAttr::get(unwrap(ctx), static_cast<BufferType>(bufferType)));
 }
 
+MLIR_CAPI_EXPORTED bool ttmlirIsBufferTypeAttr(MlirAttribute attr) {
+  return mlir::isa<BufferTypeAttr>(unwrap(attr));
+}
+
 MlirAttribute ttmlirTTNNShardSpecAttrGet(MlirContext ctx,
                                          MlirAttribute coreRangeSetAttr,
                                          MlirAttribute shapeAttr,
