@@ -255,6 +255,13 @@ static const std::vector<L1Reservation> kEmptyL1Reservations;
 static const llvm::DenseMap<Operation *, TTNNLayoutAttr> kEmptyL1ResidentsMap;
 static const llvm::DenseMap<Operation *, OpConfig> kEmptyModifiedOpConfigs;
 
+// Forward declaration for fragmentation check used by merge validation.
+static bool validateOpAfterJoinWithFragmentationReserve(
+    const L1ChainConfig &chainB, size_t joinOpIndex,
+    uint64_t fragmentationReserve,
+    const llvm::DenseMap<Operation *, int64_t> &schedulePositionMap,
+    const std::vector<L1Reservation> &l1Reservations);
+
 // Validate that Chain B can execute with Chain A's output in L1.
 // This validates each op in Chain B (up to and including joinOp) with
 // Chain A's output as additional L1 usage. At the join op, we also
@@ -339,6 +346,22 @@ static bool validateChainBWithMergedInput(
     }
   }
 
+  // Validate the op after the join op with fragmentation reserve.
+  // For RHS merge, the reserve is the source chain's output size.
+  const auto &specs = chainB.getOpL1MemSpecs();
+  for (size_t i = 0; i < specs.size(); ++i) {
+    if (specs[i].op == joinOp) {
+      if (!validateOpAfterJoinWithFragmentationReserve(
+              chainB, i, sourceOutputSize, schedulePositionMap,
+              l1Reservations)) {
+        TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                     "RHS merge rejected: fragmentation check failed");
+        return false;
+      }
+      break;
+    }
+  }
+
   return true;
 }
 
@@ -380,6 +403,13 @@ static bool validateChainWithPredecessorInL1(
     }
     uint64_t totalAdditionalL1 = predecessorOutputSize + reservedL1;
 
+    TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                 "  Chain C op {} validation: predecessorL1={} bytes, "
+                 "reservedL1={} bytes (from {} reservations), "
+                 "totalAdditionalL1={} bytes",
+                 ttmlir::opToString(op), predecessorOutputSize, reservedL1,
+                 l1Reservations.size(), totalAdditionalL1);
+
     // Validate the operation with total additional L1 usage.
     op_constraint_validation::ValidationResult result =
         op_constraint_validation::validateOperation(
@@ -392,6 +422,68 @@ static bool validateChainWithPredecessorInL1(
           ttmlir::opToString(op), predecessorOutputSize, result.errorMessage);
       return false;
     }
+  }
+
+  return true;
+}
+
+// Validate the op immediately after the join op with additional L1 reservation
+// to account for potential fragmentation. After a chain merge, the join op's
+// output may get allocated at a low address (squeezed below other tensors in
+// L1). When those tensors are deallocated, the output remains stranded at the
+// low address and may overlap with the CB region of subsequent ops.
+// This function validates the next op with extra fragmentation reserve.
+static bool validateOpAfterJoinWithFragmentationReserve(
+    const L1ChainConfig &chainB, size_t joinOpIndex,
+    uint64_t fragmentationReserve,
+    const llvm::DenseMap<Operation *, int64_t> &schedulePositionMap,
+    const std::vector<L1Reservation> &l1Reservations) {
+
+  const auto &specs = chainB.getOpL1MemSpecs();
+  if (joinOpIndex + 1 >= specs.size()) {
+    // No op after join op, nothing to validate.
+    return true;
+  }
+
+  const OpConfig &joinOpConfig = specs[joinOpIndex].config;
+  Operation *nextOp = specs[joinOpIndex + 1].op;
+  const OpConfig &nextOpConfig = specs[joinOpIndex + 1].config;
+
+  // Build input layouts for the next op.
+  std::vector<TTNNLayoutAttr> nextOpInputLayouts =
+      utils::extractInputLayouts(nextOp);
+
+  // The next op's first input comes from the join op's output.
+  if (!nextOpInputLayouts.empty() && joinOpConfig.outputLayout) {
+    nextOpInputLayouts[0] = joinOpConfig.outputLayout;
+  }
+
+  // Get active L1 reservations at the next op's position.
+  auto nextOpPosIt = schedulePositionMap.find(nextOp);
+  uint64_t nextOpReservedL1 = 0;
+  if (nextOpPosIt != schedulePositionMap.end()) {
+    nextOpReservedL1 =
+        getActiveL1Reservations(nextOpPosIt->second, l1Reservations);
+  }
+
+  uint64_t totalReservedL1 = nextOpReservedL1 + fragmentationReserve;
+
+  TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+               "Fragmentation check for next op {}: baseReservedL1={} bytes, "
+               "fragmentationReserve={} bytes, totalReservedL1={} bytes",
+               ttmlir::opToString(nextOp), nextOpReservedL1,
+               fragmentationReserve, totalReservedL1);
+
+  op_constraint_validation::ValidationResult result =
+      op_constraint_validation::validateOperation(
+          nextOp, nextOpInputLayouts, nextOpConfig, totalReservedL1);
+
+  if (!result.isSuccess()) {
+    TTMLIR_DEBUG(
+        ttmlir::LogComponent::DFShardingPolicy,
+        "Fragmentation check failed for next op {} with reserve {}: {}",
+        ttmlir::opToString(nextOp), fragmentationReserve, result.errorMessage);
+    return false;
   }
 
   return true;
@@ -448,6 +540,18 @@ static bool validateThreeWayMergeJoinOp(
     TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
                  "3-way merge join op validation failed for {}: {}",
                  ttmlir::opToString(joinOp), result.errorMessage);
+    return false;
+  }
+
+  // Validate the op after the join op with fragmentation reserve.
+  // For 3-way merge, the reserve is the sum of both input sizes.
+  uint64_t fragmentationReserve =
+      lhsLayout.getShardSizeInBytes() + rhsLayout.getShardSizeInBytes();
+  if (!validateOpAfterJoinWithFragmentationReserve(
+          chainB, /*joinOpIndex=*/0, fragmentationReserve, schedulePositionMap,
+          l1Reservations)) {
+    TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                 "3-way merge rejected: fragmentation check failed");
     return false;
   }
 
