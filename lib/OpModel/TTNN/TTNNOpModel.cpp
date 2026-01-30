@@ -1363,7 +1363,7 @@ llvm::Expected<OpConstraints> OpModel<PowScalarOp>::getOpConstraints(
   // The invoke function of PowScalarOp is templated over the exponent value
   // type. That's why the following code is arranged in this way.
   if (auto value = mlir::dyn_cast<mlir::IntegerAttr>(exponent)) {
-    uint32_t convertedExponent = static_cast<uint32_t>(value.getInt());
+    int32_t convertedExponent = static_cast<int32_t>(value.getInt());
     auto query = powScalarQuery(convertedExponent);
     return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
                                        query);
@@ -1407,7 +1407,7 @@ llvm::Expected<size_t> OpModel<PowScalarOp>::getOpRuntime(
   // The invoke function of PowScalarOp is templated over the exponent value
   // type. That's why the following code is arranged in this way.
   if (auto value = mlir::dyn_cast<mlir::IntegerAttr>(exponent)) {
-    uint32_t convertedExponent = static_cast<uint32_t>(value.getInt());
+    int32_t convertedExponent = static_cast<int32_t>(value.getInt());
     auto query = powScalarQuery(convertedExponent);
     return operation::getOpRuntime(query);
   }
@@ -3504,10 +3504,18 @@ llvm::Expected<OpConstraints> OpModel<RepeatOp>::getOpConstraints(
   // Convert repeats to ttnn::Shape
   ::ttnn::Shape repeatShape = conversion::getShape(repeats);
 
+  // Convert output layout to memory config
+  std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
+      detail::getNullableMemoryConfig(outputLayout);
+
+  // Convert Shape to SmallVector<uint32_t> to use overload with memory_config
+  ::ttsl::SmallVector<uint32_t> repeatVec(repeatShape.cbegin(),
+                                          repeatShape.cend());
+
   // Create query closure
   auto repeatOpQuery = [=]() {
-    return ::ttnn::graph::query_op_constraints(::ttnn::repeat, device,
-                                               inputSpec, repeatShape);
+    return ::ttnn::graph::query_op_constraints(
+        ::ttnn::repeat, device, inputSpec, repeatVec, outputMemoryConfig);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
@@ -3531,13 +3539,21 @@ llvm::Expected<size_t> OpModel<RepeatOp>::getOpRuntime(
   }
   ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
-  // Convert repeats to ttnn::Shape
-  ::ttnn::Shape repeatShape = conversion::getShape(repeats);
+  // Convert repeats to SmallVector<uint32_t> to use overload with memory_config
+  ::ttsl::SmallVector<uint32_t> repeatVec;
+  repeatVec.reserve(repeats.size());
+  for (int64_t r : repeats) {
+    repeatVec.push_back(static_cast<uint32_t>(r));
+  }
+
+  // Convert output layout to memory config
+  std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
+      detail::getNullableMemoryConfig(outputLayout);
 
   // Create query closure
   auto repeatOpQuery = [=]() {
     return ::ttnn::graph::query_op_runtime(::ttnn::repeat, device, inputSpec,
-                                           repeatShape);
+                                           repeatVec, outputMemoryConfig);
   };
 
   return operation::getOpRuntime(repeatOpQuery);
@@ -4119,7 +4135,10 @@ llvm::Expected<OpConstraints> OpModel<LinearOp>::getOpConstraints(
     return ::ttnn::graph::query_op_constraints(
         ::ttnn::linear, device, inputSpecA, inputSpecB, biasTensor, transposeA,
         transposeB, outputMemoryConfig, outputDType, programConfig,
-        activationStr);
+        activationStr, /*compute_kernel_config=*/std::nullopt,
+        /*core_grid=*/std::nullopt, /*output_tile=*/std::nullopt,
+        /*optional_output_tensor=*/std::nullopt,
+        /*global_cb=*/std::nullopt, /*sub_device_id=*/std::nullopt);
   };
 
   return operation::getOpConstraints(inputLayoutA.getContext(), deviceGrid,
@@ -4169,7 +4188,12 @@ llvm::Expected<size_t> OpModel<LinearOp>::getOpRuntime(
   auto linearOpQuery = [=]() {
     return ::ttnn::graph::query_op_runtime(
         ::ttnn::linear, device, inputSpecA, inputSpecB, biasTensor, transposeA,
-        transposeB, outputMemoryConfig, outputDType);
+        transposeB, outputMemoryConfig, outputDType,
+        /*program_config=*/std::nullopt,
+        /*activation=*/std::nullopt, /*compute_kernel_config=*/std::nullopt,
+        /*core_grid=*/std::nullopt, /*output_tile=*/std::nullopt,
+        /*optional_output_tensor=*/std::nullopt,
+        /*global_cb=*/std::nullopt, /*sub_device_id=*/std::nullopt);
   };
 
   return operation::getOpRuntime(linearOpQuery);
@@ -4223,7 +4247,10 @@ llvm::Expected<OpConstraints> OpModel<MatmulOp>::getOpConstraints(
   auto matmulOpQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
         ::ttnn::matmul, device, inputSpecA, inputSpecB, transposeA, transposeB,
-        outputMemoryConfig, outputDType, programConfig, activationStr);
+        outputMemoryConfig, outputDType, programConfig, activationStr,
+        /*compute_kernel_config=*/std::nullopt, /*core_grid=*/std::nullopt,
+        /*output_tile=*/std::nullopt, /*optional_output_tensor=*/std::nullopt,
+        /*global_cb=*/std::nullopt, /*sub_device_id=*/std::nullopt);
   };
 
   return operation::getOpConstraints(inputLayoutA.getContext(), deviceGrid,
@@ -4262,9 +4289,17 @@ llvm::Expected<size_t> OpModel<MatmulOp>::getOpRuntime(
 
   // Create query closure
   auto matmulOpQuery = [=]() {
-    return ::ttnn::graph::query_op_runtime(::ttnn::matmul, device, inputSpecA,
-                                           inputSpecB, transposeA, transposeB,
-                                           outputMemoryConfig, outputDType);
+    return ::ttnn::graph::query_op_runtime(
+        ::ttnn::matmul, device, inputSpecA, inputSpecB, transposeA, transposeB,
+        outputMemoryConfig, outputDType,
+        /*program_config=*/std::nullopt,
+        /*activation=*/std::nullopt,
+        /*compute_kernel_config=*/std::nullopt,
+        /*core_grid=*/std::nullopt,
+        /*output_tile=*/std::nullopt,
+        /*optional_output_tensor=*/std::nullopt,
+        /*global_cb=*/std::nullopt,
+        /*sub_device_id=*/std::nullopt);
   };
 
   return operation::getOpRuntime(matmulOpQuery);
@@ -6155,7 +6190,9 @@ llvm::Expected<OpConstraints> OpModel<RMSNormOp>::getOpConstraints(
     return ::ttnn::graph::query_op_constraints(
         ::ttnn::rms_norm, device, inputSpec, epsilon.convertToFloat(),
         weightSpec, biasSpec, residualInputSpec,
-        detail::getNullableMemoryConfig(outputLayout));
+        detail::getNullableMemoryConfig(outputLayout),
+        /*program_config=*/std::nullopt,
+        /*compute_kernel_config=*/std::nullopt);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
@@ -6196,7 +6233,9 @@ llvm::Expected<size_t> OpModel<RMSNormOp>::getOpRuntime(
     return ::ttnn::graph::query_op_runtime(
         ::ttnn::rms_norm, device, inputSpec, epsilon.convertToFloat(),
         weightSpec, biasSpec, residualInputSpec,
-        detail::getNullableMemoryConfig(outputLayout));
+        detail::getNullableMemoryConfig(outputLayout),
+        /*program_config=*/std::nullopt,
+        /*compute_kernel_config=*/std::nullopt);
   };
 
   return operation::getOpRuntime(rmsNormQuery);
@@ -6239,7 +6278,9 @@ llvm::Expected<OpConstraints> OpModel<LayerNormOp>::getOpConstraints(
     return ::ttnn::graph::query_op_constraints(
         ::ttnn::layer_norm, device, inputSpec, epsilon.convertToFloat(),
         weightSpec, biasSpec, residualInputSpec,
-        detail::getNullableMemoryConfig(outputLayout));
+        detail::getNullableMemoryConfig(outputLayout),
+        /*program_config=*/std::nullopt,
+        /*compute_kernel_config=*/std::nullopt);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
@@ -6279,7 +6320,9 @@ llvm::Expected<size_t> OpModel<LayerNormOp>::getOpRuntime(
     return ::ttnn::graph::query_op_runtime(
         ::ttnn::layer_norm, device, inputSpec, epsilon.convertToFloat(),
         weightSpec, biasSpec, residualInputSpec,
-        detail::getNullableMemoryConfig(outputLayout));
+        detail::getNullableMemoryConfig(outputLayout),
+        /*program_config=*/std::nullopt,
+        /*compute_kernel_config=*/std::nullopt);
   };
 
   return operation::getOpRuntime(layerNormQuery);

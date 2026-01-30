@@ -6,7 +6,14 @@
 set -e -o pipefail
 
 echo "Run Optimizer Models Perf Tests"
-llvm-lit -v --xunit-xml-output $TEST_REPORT_PATH $BUILD_DIR/test/ttmlir/Silicon/TTNN/n150/optimizer
+
+# Enable perf feature for lit if running in perf mode
+LIT_PARAMS=""
+if [ "$1" = "perf" ]; then
+    LIT_PARAMS="-D TTMLIR_ENABLE_OPTIMIZER_MODELS_PERF_TESTS=1"
+fi
+
+llvm-lit -v $LIT_PARAMS --xunit-xml-output $TEST_REPORT_PATH $BUILD_DIR/test/ttmlir/Silicon/TTNN/n150/optimizer
 echo
 if [ "$IMAGE_NAME" = "speedy" ]; then
     echo "Running optimizer tests"

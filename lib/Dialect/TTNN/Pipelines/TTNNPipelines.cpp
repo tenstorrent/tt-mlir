@@ -221,11 +221,6 @@ void createTTIRToTTNNDevicePipeline(
 
   pm.addPass(mlir::createCanonicalizerPass());
 
-  // Add Decomposition pass here to ensure it runs before hoisting.
-  TTIRToTTIRDecompositionOptions decompOptions;
-  decompOptions.decompConfig = DecompMode::CPUFallback;
-  pm.addPass(mlir::tt::createTTIRToTTIRDecompositionPass(decompOptions));
-
   // Create device module, if not already present.
   pm.addPass(ttcore::createTTCoreWrapDeviceModulePass());
 
