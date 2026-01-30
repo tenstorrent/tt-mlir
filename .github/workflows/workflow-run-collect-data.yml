@@ -10,6 +10,7 @@ on:
       - "Run Perf Benchmarks"
     types:
       - completed
+  workflow_dispatch:
 
 jobs:
   produce-cicd-data:
