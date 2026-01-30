@@ -33,6 +33,75 @@
 namespace mlir::tt {
 
 namespace {
+
+/// Virtualize a shape to at least 2D by prepending a dimension of 1.
+/// Device operations require at least 2D tensors, so 1D tensors are
+/// expanded to [1, N] internally. This is a zero-cost type reinterpretation.
+static SmallVector<int64_t> virtualizeTo2D(ArrayRef<int64_t> shape) {
+  if (shape.size() == 1) {
+    return {1, shape[0]};
+  }
+  return SmallVector<int64_t>(shape);
+}
+
+/// Check if this is a trivial 1D<->2D reshape that becomes identity after
+/// virtualization. Cases: [N] -> [1, N] or [1, N] -> [N].
+static bool isTrivialRankChangeReshape(ArrayRef<int64_t> inputShape,
+                                       ArrayRef<int64_t> outputShape) {
+  auto virtInput = virtualizeTo2D(inputShape);
+  auto virtOutput = virtualizeTo2D(outputShape);
+  return virtInput == virtOutput;
+}
+
+/// Compute logical map for reshape: linearize output coords, delinearize to
+/// input coords. This handles rank changes (e.g., 2D -> 3D).
+/// Returns a map from output logical coords to input logical coords.
+/// This generalized version accepts explicit shapes, allowing callers to pass
+/// virtualized shapes for 1D tensor handling.
+static AffineMap reshapeLogicalMapFromShapes(MLIRContext *ctx,
+                                             ArrayRef<int64_t> inputShape,
+                                             ArrayRef<int64_t> outputShape) {
+  int32_t inputLogicalRank = static_cast<int32_t>(inputShape.size());
+  int32_t outputLogicalRank = static_cast<int32_t>(outputShape.size());
+
+  Builder builder(ctx);
+
+  SmallVector<int64_t> outputStrides;
+  int64_t stride = 1;
+  for (int64_t i = outputShape.size() - 1; i >= 0; --i) {
+    outputStrides.insert(outputStrides.begin(), stride);
+    stride *= outputShape[i];
+  }
+
+  SmallVector<int64_t> inputStrides;
+  stride = 1;
+  for (int64_t i = inputShape.size() - 1; i >= 0; --i) {
+    inputStrides.insert(inputStrides.begin(), stride);
+    stride *= inputShape[i];
+  }
+
+  AffineExpr linearIdx = builder.getAffineConstantExpr(0);
+  for (int32_t i = 0; i < outputLogicalRank; ++i) {
+    AffineExpr dim = builder.getAffineDimExpr(i);
+    AffineExpr strideExpr = builder.getAffineConstantExpr(outputStrides[i]);
+    linearIdx = linearIdx + dim * strideExpr;
+  }
+
+  SmallVector<AffineExpr> reshapeExprs;
+  AffineExpr remainingIdx = linearIdx;
+  for (int32_t i = 0; i < inputLogicalRank; ++i) {
+    if (i == inputLogicalRank - 1) {
+      reshapeExprs.push_back(remainingIdx);
+    } else {
+      AffineExpr strideExpr = builder.getAffineConstantExpr(inputStrides[i]);
+      reshapeExprs.push_back(remainingIdx.floorDiv(strideExpr));
+      remainingIdx = remainingIdx % strideExpr;
+    }
+  }
+
+  return AffineMap::get(outputLogicalRank, 0, reshapeExprs, ctx);
+}
+
 class D2MNamedRewriterCommon {
 protected:
   using base = D2MNamedRewriterCommon;
@@ -251,7 +320,10 @@ protected:
     }
 
     auto tensorType = mlir::cast<mlir::RankedTensorType>(value.getType());
-    ArrayRef<int64_t> logicalShape = tensorType.getShape();
+    ArrayRef<int64_t> originalShape = tensorType.getShape();
+
+    // Virtualize 1D tensors to 2D for device operations.
+    llvm::SmallVector<int64_t> logicalShape = virtualizeTo2D(originalShape);
 
     Type elementType = tensorType.getElementType();
     llvm::SmallVector<int64_t> tileShape;
@@ -1659,8 +1731,29 @@ public:
   matchAndRewrite(TensorManipulationOp op,
                   typename TensorManipulationOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    AffineMap deviceMap =
-        projectLogicalMapToUnitDeviceSpace(rewriter, LogicalAffineMapFn(op));
+    auto inputType = mlir::cast<RankedTensorType>(op.getInput().getType());
+    auto outputType = mlir::cast<RankedTensorType>(op.getResult().getType());
+    ArrayRef<int64_t> inputShape = inputType.getShape();
+    ArrayRef<int64_t> outputShape = outputType.getShape();
+
+    AffineMap deviceMap;
+    // Only apply trivial reshape optimization for ReshapeOp.
+    // Other ops like PermuteOp have same input/output shapes but still
+    // need to rearrange data, so they must use the logical map.
+    if constexpr (std::is_same_v<TensorManipulationOp, ttir::ReshapeOp>) {
+      if (isTrivialRankChangeReshape(inputShape, outputShape)) {
+        // Trivial 1D<->2D reshapes become identity after virtualization.
+        // Device rank is 2x the virtualized logical rank (grid + shard dims).
+        unsigned virtLogicalRank = std::max<size_t>(outputShape.size(), 2);
+        deviceMap = rewriter.getMultiDimIdentityMap(virtLogicalRank * 2);
+      } else {
+        AffineMap logicalMap = LogicalAffineMapFn(op);
+        deviceMap = projectLogicalMapToUnitDeviceSpace(rewriter, logicalMap);
+      }
+    } else {
+      AffineMap logicalMap = LogicalAffineMapFn(op);
+      deviceMap = projectLogicalMapToUnitDeviceSpace(rewriter, logicalMap);
+    }
 
     auto origInputs = adaptor.getOperands();
     auto origOutputs =
@@ -1786,57 +1879,17 @@ static AffineMap permuteLogicalMap(ttir::PermuteOp op) {
   return AffineMap::get(logicalRank, /*numSymbols=*/0, results, ctx);
 }
 
-// Compute logical map for ReshapeOp: linearize output coords, delinearize to
-// input coords. This handles rank changes (e.g., 2D -> 3D).
-// Returns a map from output logical coords to input logical coords.
+/// Compute logical map for ReshapeOp using virtualized shapes.
+/// Shapes are virtualized to at least 2D to match device tensor layout,
+/// which expands 1D tensors to [1, N] internally.
 static AffineMap reshapeLogicalMap(ttir::ReshapeOp op) {
   auto inputTensorType = mlir::cast<RankedTensorType>(op.getInput().getType());
   auto outputTensorType =
       mlir::cast<RankedTensorType>(op.getResult().getType());
-
-  ArrayRef<int64_t> inputShape = inputTensorType.getShape();
-  ArrayRef<int64_t> outputShape = outputTensorType.getShape();
-
-  int32_t inputLogicalRank = static_cast<int32_t>(inputShape.size());
-  int32_t outputLogicalRank = static_cast<int32_t>(outputShape.size());
-
-  MLIRContext *ctx = op.getContext();
-  Builder builder(ctx);
-
-  SmallVector<int64_t> outputStrides;
-  int64_t stride = 1;
-  for (int64_t i = outputShape.size() - 1; i >= 0; --i) {
-    outputStrides.insert(outputStrides.begin(), stride);
-    stride *= outputShape[i];
-  }
-
-  SmallVector<int64_t> inputStrides;
-  stride = 1;
-  for (int64_t i = inputShape.size() - 1; i >= 0; --i) {
-    inputStrides.insert(inputStrides.begin(), stride);
-    stride *= inputShape[i];
-  }
-
-  AffineExpr linearIdx = builder.getAffineConstantExpr(0);
-  for (int32_t i = 0; i < outputLogicalRank; ++i) {
-    AffineExpr dim = builder.getAffineDimExpr(i);
-    AffineExpr strideExpr = builder.getAffineConstantExpr(outputStrides[i]);
-    linearIdx = linearIdx + dim * strideExpr;
-  }
-
-  SmallVector<AffineExpr> reshapeExprs;
-  AffineExpr remainingIdx = linearIdx;
-  for (int32_t i = 0; i < inputLogicalRank; ++i) {
-    if (i == inputLogicalRank - 1) {
-      reshapeExprs.push_back(remainingIdx);
-    } else {
-      AffineExpr strideExpr = builder.getAffineConstantExpr(inputStrides[i]);
-      reshapeExprs.push_back(remainingIdx.floorDiv(strideExpr));
-      remainingIdx = remainingIdx % strideExpr;
-    }
-  }
-
-  return AffineMap::get(outputLogicalRank, 0, reshapeExprs, ctx);
+  auto virtInputShape = virtualizeTo2D(inputTensorType.getShape());
+  auto virtOutputShape = virtualizeTo2D(outputTensorType.getShape());
+  return reshapeLogicalMapFromShapes(op.getContext(), virtInputShape,
+                                     virtOutputShape);
 }
 
 } // namespace mlir::tt

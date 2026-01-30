@@ -578,8 +578,11 @@ bufferValueToFlatbuffer(FlatbufferObjectCache &cache, Value value,
   auto memrefType = mlir::cast<MemRefType>(value.getType());
   auto bufferDesc =
       cache.getOrCreate(memrefType, memrefTypeToFlatbuffer, device, systemDesc);
-  return target::metal::CreateBufferRef(*cache.fbb, cache.nextGlobalId(),
-                                        address, bufferDesc);
+  uint32_t gid = cache.nextGlobalId();
+  // Store the global_id for this value so expand_shape/collapse_shape can reuse
+  // it for buffer aliasing.
+  cache.setGlobalId(value, gid);
+  return target::metal::CreateBufferRef(*cache.fbb, gid, address, bufferDesc);
 }
 
 static flatbuffers::Offset<target::metal::TensorRef>
@@ -1025,6 +1028,50 @@ std::shared_ptr<void> translateTTMetalToFlatbuffer(
       } else if (auto funcOp = dyn_cast_if_present<func::FuncOp>(op); funcOp) {
         // Unqualified walk will visit the root op itself last, we should
         // ignore this.
+        return;
+      } else if (auto expandOp = dyn_cast_if_present<memref::ExpandShapeOp>(op);
+                 expandOp) {
+        // Shape manipulation ops are compile-time only. Create a new BufferRef
+        // with the expanded shape but sharing the same global_id as the source
+        // (they point to the same memory). This is needed for 1D tensor support
+        // where we expand 1D to 2D before copying to the aligned bounce buffer.
+        auto srcGlobalId = cache.getGlobalId(expandOp.getSrc());
+        if (srcGlobalId.has_value()) {
+          auto device =
+              ttcore::lookupDevice(expandOp->getParentOfType<func::FuncOp>());
+          auto resultMemref =
+              mlir::cast<MemRefType>(expandOp.getResult().getType());
+          auto bufferDesc = cache.getOrCreate(
+              resultMemref, memrefTypeToFlatbuffer, device, systemDesc);
+          // Reuse the source's global_id so they share the same buffer at
+          // runtime.
+          auto bufRef = target::metal::CreateBufferRef(*cache.fbb, *srcGlobalId,
+                                                       0, bufferDesc);
+          cache.insert(expandOp.getResult(), bufRef);
+          cache.setGlobalId(expandOp.getResult(), *srcGlobalId);
+        }
+        return;
+      } else if (auto collapseOp =
+                     dyn_cast_if_present<memref::CollapseShapeOp>(op);
+                 collapseOp) {
+        // Shape manipulation ops are compile-time only. Create a new BufferRef
+        // with the collapsed shape but sharing the same global_id as the
+        // source.
+        auto srcGlobalId = cache.getGlobalId(collapseOp.getSrc());
+        if (srcGlobalId.has_value()) {
+          auto device =
+              ttcore::lookupDevice(collapseOp->getParentOfType<func::FuncOp>());
+          auto resultMemref =
+              mlir::cast<MemRefType>(collapseOp.getResult().getType());
+          auto bufferDesc = cache.getOrCreate(
+              resultMemref, memrefTypeToFlatbuffer, device, systemDesc);
+          // Reuse the source's global_id so they share the same buffer at
+          // runtime.
+          auto bufRef = target::metal::CreateBufferRef(*cache.fbb, *srcGlobalId,
+                                                       0, bufferDesc);
+          cache.insert(collapseOp.getResult(), bufRef);
+          cache.setGlobalId(collapseOp.getResult(), *srcGlobalId);
+        }
         return;
       } else {
         llvm_unreachable("Encountered unsupported op.");
