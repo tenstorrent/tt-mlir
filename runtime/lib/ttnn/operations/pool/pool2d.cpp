@@ -102,8 +102,7 @@ void runMaxPool2dOp(
   std::array<uint32_t, 2> kernelSize, stride, dilation;
   std::copy_n(op->kernel_size()->begin(), 2, kernelSize.begin());
   std::copy_n(op->stride()->begin(), 2, stride.begin());
-  std::copy_n(op->extra_params_as_MaxPool2dExtraParams()->dilation()->begin(),
-              2, dilation.begin());
+  std::copy_n(op->dilation()->begin(), 2, dilation.begin());
 
   std::variant<std::array<uint32_t, 2>, std::array<uint32_t, 4>> padding;
   if (op->padding()->size() == 2) {

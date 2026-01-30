@@ -762,12 +762,14 @@ def avg_pool2d_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTenso
     kernel_size = kwargs.get("kernel")
     stride = kwargs.get("stride", kernel_size)  # Default stride = kernel size
     padding = kwargs.get("padding", 0)
+    dilation = kwargs.get("dilation", 1)  # Default dilation = 1
     ceil_mode = kwargs.get("ceil_mode", False)
     count_include_pad = kwargs.get("count_include_pad", True)
 
     kernel_size = unpack_mlir_attr(kernel_size)
     stride = unpack_mlir_attr(stride)
     padding = unpack_mlir_attr(padding)
+    dilation = unpack_mlir_attr(dilation)
 
     # Check if padding exceeds half kernel size (tt-metal constraint)
     # This mirrors the decomposition in TTIRToTTNN.cpp

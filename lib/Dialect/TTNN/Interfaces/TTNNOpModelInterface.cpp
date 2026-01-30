@@ -247,21 +247,12 @@ getPoolingOpConstraints(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
   ttcore::GridAttr deviceGrid =
       ttcore::lookupDevice(op.getOperation()).getWorkerGrid();
 
-  // AvgPool2dOp doesn't have dilation, use default value (1, 1)
-  if constexpr (std::is_same_v<OpT, ttnn::AvgPool2dOp>) {
-    return opConstraintsCache().getOrCompute(
-        op_model::OpModel<OpT>::getOpConstraints, op, deviceGrid, inputShape,
-        inputs[0], op.getBatchSize(), op.getInputHeight(), op.getInputWidth(),
-        op.getChannels(), op.getKernelSize(), op.getStride(), op.getPadding(),
-        op.getCeilMode(), op.getReallocateHaloOutput(), opConfig.outputLayout);
-  } else {
-    return opConstraintsCache().getOrCompute(
-        op_model::OpModel<OpT>::getOpConstraints, op, deviceGrid, inputShape,
-        inputs[0], op.getBatchSize(), op.getInputHeight(), op.getInputWidth(),
-        op.getChannels(), op.getKernelSize(), op.getStride(), op.getPadding(),
-        op.getDilation(), op.getCeilMode(), op.getReallocateHaloOutput(),
-        opConfig.outputLayout);
-  }
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<OpT>::getOpConstraints, op, deviceGrid, inputShape,
+      inputs[0], op.getBatchSize(), op.getInputHeight(), op.getInputWidth(),
+      op.getChannels(), op.getKernelSize(), op.getStride(), op.getPadding(),
+      op.getDilation(), op.getCeilMode(), op.getReallocateHaloOutput(),
+      opConfig.outputLayout);
 }
 
 template <typename OpT>
@@ -272,21 +263,12 @@ getPoolingOpRuntime(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
 
   const auto inputShape = op.getInput().getType().getShape();
 
-  // AvgPool2dOp doesn't have dilation, use default value (1, 1)
-  if constexpr (std::is_same_v<OpT, ttnn::AvgPool2dOp>) {
-    return opRuntimeCache().getOrCompute(
-        op_model::OpModel<OpT>::getOpRuntime, op, inputShape, inputs[0],
-        op.getBatchSize(), op.getInputHeight(), op.getInputWidth(),
-        op.getChannels(), op.getKernelSize(), op.getStride(), op.getPadding(),
-        op.getCeilMode(), op.getReallocateHaloOutput(), opConfig.outputLayout);
-  } else {
-    return opRuntimeCache().getOrCompute(
-        op_model::OpModel<OpT>::getOpRuntime, op, inputShape, inputs[0],
-        op.getBatchSize(), op.getInputHeight(), op.getInputWidth(),
-        op.getChannels(), op.getKernelSize(), op.getStride(), op.getPadding(),
-        op.getDilation(), op.getCeilMode(), op.getReallocateHaloOutput(),
-        opConfig.outputLayout);
-  }
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<OpT>::getOpRuntime, op, inputShape, inputs[0],
+      op.getBatchSize(), op.getInputHeight(), op.getInputWidth(),
+      op.getChannels(), op.getKernelSize(), op.getStride(), op.getPadding(),
+      op.getDilation(), op.getCeilMode(), op.getReallocateHaloOutput(),
+      opConfig.outputLayout);
 }
 
 template <typename OpT>

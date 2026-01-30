@@ -11,6 +11,7 @@ func.func public @test_avgpool2d_workaround(%arg0: tensor<8x256x6x6xf32>) -> ten
   // CHECK-SAME: -> tensor<8x6x6x256xf32>
   // CHECK: %[[AVGPOOL:[0-9]+]] = "ttir.avg_pool2d"(%[[PERMUTE]]
   // CHECK-SAME: ceil_mode = false,
+  // CHECK-SAME: dilation = array<i32: 1, 1>,
   // CHECK-SAME: kernel = array<i32: 1, 1>,
   // CHECK-SAME: padding = array<i32: 1, 1, 1, 1>,
   // CHECK-SAME: stride = array<i32: 1, 1>

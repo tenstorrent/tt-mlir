@@ -146,14 +146,14 @@ def test_hoisted_max_pool2d(
 @pytest.mark.parametrize("shape", [(1, 32, 32, 64)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
 @pytest.mark.parametrize(
-    "kernel,stride,padding,ceil_mode,count_include_pad",
+    "kernel,stride,dilation,padding,ceil_mode,count_include_pad",
     [
-        ([3, 3], [1, 1], [0, 0, 0, 0], False, True),
-        ([3, 3], [2, 2], [0, 0, 0, 0], False, True),
-        ([4, 4], [2, 2], [2, 2, 2, 2], False, True),
-        ([3, 3], [2, 2], [1, 1, 1, 1], True, True),
-        ([4, 4], [2, 2], [2, 2, 2, 2], False, False),
-        ([8, 8], [1, 1], [7, 7, 7, 7], False, True),
+        ([3, 3], [1, 1], [1, 1], [0, 0, 0, 0], False, True),
+        ([3, 3], [2, 2], [1, 1], [0, 0, 0, 0], False, True),
+        ([4, 4], [2, 2], [1, 1], [2, 2, 2, 2], False, True),
+        ([3, 3], [2, 2], [1, 1], [1, 1, 1, 1], True, True),
+        ([4, 4], [2, 2], [1, 1], [2, 2, 2, 2], False, False),
+        ([8, 8], [1, 1], [1, 1], [7, 7, 7, 7], False, True),
     ],
 )
 @pytest.mark.parametrize("target", ["ttnn", "emitpy", "emitc"])
@@ -162,6 +162,7 @@ def test_avg_pool2d(
     dtype: torch.dtype,
     kernel: List[int],
     stride: List[int],
+    dilation: List[int],
     padding: List[int],
     ceil_mode: bool,
     count_include_pad: bool,
@@ -180,6 +181,7 @@ def test_avg_pool2d(
                 in0,
                 kernel=kernel,
                 stride=stride,
+                dilation=dilation,
                 padding=padding,
                 ceil_mode=ceil_mode,
                 count_include_pad=count_include_pad,

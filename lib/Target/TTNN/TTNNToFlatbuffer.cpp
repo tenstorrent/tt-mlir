@@ -2377,6 +2377,8 @@ createPool2dOp(FlatbufferObjectCache &cache, Pool2dOp op) {
       toFlatbuffer(cache, op.getStride());
   ::flatbuffers::Offset<::flatbuffers::Vector<int32_t>> padding =
       toFlatbuffer(cache, op.getPadding());
+  ::flatbuffers::Offset<::flatbuffers::Vector<int32_t>> dilation =
+      toFlatbuffer(cache, op.getDilation());
 
   auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
 
@@ -2391,11 +2393,8 @@ createPool2dOp(FlatbufferObjectCache &cache, Pool2dOp op) {
   } else if constexpr (std::is_same_v<Pool2dOp, MaxPool2dOp>) {
     extraParamsType =
         ::tt::target::ttnn::Pool2dExtraParams::MaxPool2dExtraParams;
-    ::flatbuffers::Offset<::flatbuffers::Vector<int32_t>> dilation =
-        toFlatbuffer(cache, op.getDilation());
     extraParams =
-        ::tt::target::ttnn::CreateMaxPool2dExtraParams(*cache.fbb, dilation)
-            .Union();
+        ::tt::target::ttnn::CreateMaxPool2dExtraParams(*cache.fbb).Union();
   } else {
     llvm_unreachable("unhandled Pool2dOp");
   }
@@ -2403,7 +2402,7 @@ createPool2dOp(FlatbufferObjectCache &cache, Pool2dOp op) {
   return ::tt::target::ttnn::CreatePool2dOp(
       *cache.fbb, type, in, out, op.getBatchSize(), op.getInputHeight(),
       op.getInputWidth(), op.getChannels(), kernelSize, stride, padding,
-      extraParamsType, extraParams, memoryConfig,
+      dilation, extraParamsType, extraParams, memoryConfig,
       toFlatbuffer(cache, op.getAppliedShardScheme()), op.getCeilMode(),
       op.getReallocateHaloOutput());
 }

@@ -1389,8 +1389,8 @@ private:
             RankedTensorType::get(resultPermuteShape,
                                   originalOutputTy.getElementType(),
                                   originalOutputTy.getEncoding()),
-            input, kernelAttr, strideAttr, paddingAttr, ceilModeAttr,
-            /*count_include_pad=*/rewriter.getBoolAttr(true));
+            input, kernelAttr, strideAttr, dilationAttr, paddingAttr,
+            ceilModeAttr, /*count_include_pad=*/rewriter.getBoolAttr(true));
       } else if constexpr (std::is_same_v<PoolOpType, ttir::MaxPool2dOp>) {
         newPool = rewriter.create<PoolOpType>(
             op.getLoc(),

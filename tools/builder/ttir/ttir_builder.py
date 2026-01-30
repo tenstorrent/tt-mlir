@@ -11619,6 +11619,7 @@ class TTIRBuilder(Builder):
         in0: Operand,
         kernel: Union[int, List[int]],
         stride: Union[int, List[int]],
+        dilation: Union[int, List[int]],
         padding: Union[int, List[int]],
         ceil_mode: bool,
         count_include_pad: bool = True,
@@ -11668,6 +11669,11 @@ class TTIRBuilder(Builder):
                     IntegerAttr.get(IntegerType.get_signed(32), stride)
                     if isinstance(stride, int)
                     else DenseI32ArrayAttr.get(stride)
+                ),
+                "dilation": (
+                    IntegerAttr.get(IntegerType.get_signed(32), dilation)
+                    if isinstance(dilation, int)
+                    else DenseI32ArrayAttr.get(dilation)
                 ),
                 "padding": (
                     IntegerAttr.get(IntegerType.get_signed(32), padding)

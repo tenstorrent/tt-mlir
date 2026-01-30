@@ -1328,7 +1328,7 @@ template <typename Pool2dOp>
 static bool isIdentityPool2d(Pool2dOp op) {
   auto kernel = ttmlir::utils::getPairOfInteger<int32_t>(op.getKernel());
   auto stride = ttmlir::utils::getPairOfInteger<int32_t>(op.getStride());
-  auto dilation = verification_utils::pool2d::getPoolingDilation(op);
+  auto dilation = ttmlir::utils::getPairOfInteger<int32_t>(op.getDilation());
   auto padding = ttmlir::utils::getQuadrupleOfInteger<int32_t>(op.getPadding());
 
   auto tupleToArray = [](const auto &t) {

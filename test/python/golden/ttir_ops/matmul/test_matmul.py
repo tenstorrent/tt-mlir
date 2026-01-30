@@ -49,7 +49,7 @@ def test_matmul(
     pipeline_options = []
     compile_and_execute_ttir(
         module,
-       **get_request_kwargs(request),
+        **get_request_kwargs(request),
         target=target,
         device=device,
         pipeline_options=pipeline_options,

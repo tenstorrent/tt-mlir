@@ -145,7 +145,9 @@ def test_rms_norm(
 @pytest.mark.parametrize("dimension", [0, 1, 2])
 @pytest.mark.parametrize("numeric_stable", [False, True])
 @pytest.mark.parametrize("target", ["ttnn", "emitpy", "emitc"])
-def test_softmax(shape: Shape, dimension: int, numeric_stable: bool, target: str, request, device):
+def test_softmax(
+    shape: Shape, dimension: int, numeric_stable: bool, target: str, request, device
+):
 
     # Create a wrapper function that captures dimension
     def module(builder: TTIRBuilder):
@@ -293,7 +295,7 @@ def test_hoisted_layer_norm(
                 bias=None,
                 unit_attrs=["ttir.should_hoist"],
             )
-    
+
     compile_and_execute_ttir(
         module,
         **get_request_kwargs(request),

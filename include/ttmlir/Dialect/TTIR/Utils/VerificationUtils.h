@@ -12,7 +12,6 @@
 #include "llvm/Support/MathExtras.h"
 
 #include <array>
-#include <utility>
 
 namespace mlir::tt::ttir::verification_utils {
 
@@ -244,37 +243,6 @@ OutputTensorDims getPool2dOutputDims(PoolOp *op) {
   return outputDims;
 }
 
-template <typename Pool2dOp>
-static llvm::Expected<std::pair<int32_t, int32_t>>
-getPoolingDilation(Pool2dOp op) {
-  // Handle both pointer and non-pointer types
-  using OpType = std::remove_pointer_t<Pool2dOp>;
-
-  // For AvgPool2d, dilation is not applicable and defaults to (1, 1)
-  if constexpr (std::is_same_v<OpType, mlir::tt::ttir::AvgPool2dOp>) {
-    return std::make_pair(1, 1);
-  } else {
-    // Check if op is a pointer or not
-    if constexpr (std::is_pointer_v<Pool2dOp>) {
-      auto dilation =
-          ttmlir::utils::getPairOfInteger<int32_t>(op->getDilation());
-      if (!dilation) {
-        return llvm::createStringError(llvm::toString(dilation.takeError()) +
-                                       " for dilation attribute");
-      }
-      return dilation;
-    } else {
-      auto dilation =
-          ttmlir::utils::getPairOfInteger<int32_t>(op.getDilation());
-      if (!dilation) {
-        return llvm::createStringError(llvm::toString(dilation.takeError()) +
-                                       " for dilation attribute");
-      }
-      return dilation;
-    }
-  }
-}
-
 template <typename PoolOp>
 llvm::Expected<Pool2dParams> getPool2dParams(PoolOp *op) {
   auto kernel = ttmlir::utils::getPairOfInteger<int32_t>(op->getKernel());
@@ -289,7 +257,7 @@ llvm::Expected<Pool2dParams> getPool2dParams(PoolOp *op) {
                                    " for stride attribute");
   }
 
-  auto dilation = getPoolingDilation(op);
+  auto dilation = ttmlir::utils::getPairOfInteger<int32_t>(op->getDilation());
   if (!dilation) {
     return llvm::createStringError(llvm::toString(dilation.takeError()) +
                                    " for dilation attribute");
