@@ -2868,7 +2868,7 @@ static MatmulAttrs unpackMatmulAttrs(const OpConfig::OpSpecificAttrs &attrs,
          "Please create a MatmulAttrs or leave it to be uninitialized.");
 
   if (std::holds_alternative<UninitializedAttrs>(attrs)) {
-    return MatmulAttrs{op.getMatmulProgramConfig()};
+    return MatmulAttrs{op.getMatmulProgramConfig(), op.getComputeConfig()};
   }
 
   MatmulAttrs matmulAttrs = std::get<MatmulAttrs>(attrs);
@@ -2877,7 +2877,11 @@ static MatmulAttrs unpackMatmulAttrs(const OpConfig::OpSpecificAttrs &attrs,
   return MatmulAttrs{(matmulAttrs.matmulProgramConfig.has_value() &&
                       matmulAttrs.matmulProgramConfig.value())
                          ? matmulAttrs.matmulProgramConfig
-                         : op.getMatmulProgramConfig()};
+                         : op.getMatmulProgramConfig(),
+                     (matmulAttrs.computeKernelConfig.has_value() &&
+                      matmulAttrs.computeKernelConfig.value())
+                         ? matmulAttrs.computeKernelConfig
+                         : op.getComputeConfig()};
 }
 
 llvm::Expected<op_model::OpConstraints>
@@ -2915,7 +2919,7 @@ LinearOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
       op_model::OpModel<LinearOp>::getOpConstraints, *this, deviceGrid,
       inputShapeA, inputs[0], inputShapeB, inputs[1], biasShape, biasLayout,
       opConfig.outputLayout, getTransposeA(), getTransposeB(), activation,
-      attr.matmulProgramConfig);
+      attr.matmulProgramConfig, attr.computeKernelConfig);
 }
 
 llvm::Expected<size_t>
@@ -2988,7 +2992,8 @@ MatmulOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<MatmulOp>::getOpConstraints, *this, deviceGrid,
       inputShapeA, inputs[0], inputShapeB, inputs[1], opConfig.outputLayout,
-      getTransposeA(), getTransposeB(), activation, attr.matmulProgramConfig);
+      getTransposeA(), getTransposeB(), activation, attr.matmulProgramConfig,
+      attr.computeKernelConfig);
 }
 
 llvm::Expected<size_t>

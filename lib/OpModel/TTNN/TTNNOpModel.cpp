@@ -4090,7 +4090,8 @@ llvm::Expected<OpConstraints> OpModel<LinearOp>::getOpConstraints(
     std::optional<llvm::ArrayRef<int64_t>> biasShape,
     std::optional<TTNNLayoutAttr> biasLayout, TTNNLayoutAttr outputLayout,
     bool transposeA, bool transposeB, std::optional<llvm::StringRef> activation,
-    std::optional<mlir::Attribute> programConfigAttr) {
+    std::optional<mlir::Attribute> programConfigAttr,
+    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
@@ -4130,12 +4131,16 @@ llvm::Expected<OpConstraints> OpModel<LinearOp>::getOpConstraints(
       programConfigAttr ? conversion::getMatmulProgramConfig(*programConfigAttr)
                         : std::nullopt;
 
+  std::optional<::ttnn::DeviceComputeKernelConfig>
+      computeKernelConfigConverted =
+          conversion::getDeviceComputeKernelConfig(computeKernelConfig);
+
   // Create query closure
   auto linearOpQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
         ::ttnn::linear, device, inputSpecA, inputSpecB, biasTensor, transposeA,
         transposeB, outputMemoryConfig, outputDType, programConfig,
-        activationStr, /*compute_kernel_config=*/std::nullopt,
+        activationStr, computeKernelConfigConverted,
         /*core_grid=*/std::nullopt, /*output_tile=*/std::nullopt,
         /*optional_output_tensor=*/std::nullopt,
         /*global_cb=*/std::nullopt, /*sub_device_id=*/std::nullopt);
@@ -4210,7 +4215,8 @@ llvm::Expected<OpConstraints> OpModel<MatmulOp>::getOpConstraints(
     TTNNLayoutAttr inputLayoutA, llvm::ArrayRef<int64_t> inputShapeB,
     TTNNLayoutAttr inputLayoutB, TTNNLayoutAttr outputLayout, bool transposeA,
     bool transposeB, std::optional<llvm::StringRef> activation,
-    std::optional<mlir::Attribute> programConfigAttr) {
+    std::optional<mlir::Attribute> programConfigAttr,
+    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
@@ -4243,12 +4249,16 @@ llvm::Expected<OpConstraints> OpModel<MatmulOp>::getOpConstraints(
       programConfigAttr ? conversion::getMatmulProgramConfig(*programConfigAttr)
                         : std::nullopt;
 
+  std::optional<::ttnn::DeviceComputeKernelConfig>
+      computeKernelConfigConverted =
+          conversion::getDeviceComputeKernelConfig(computeKernelConfig);
+
   // Create query closure
   auto matmulOpQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
         ::ttnn::matmul, device, inputSpecA, inputSpecB, transposeA, transposeB,
         outputMemoryConfig, outputDType, programConfig, activationStr,
-        /*compute_kernel_config=*/std::nullopt, /*core_grid=*/std::nullopt,
+        computeKernelConfigConverted, /*core_grid=*/std::nullopt,
         /*output_tile=*/std::nullopt, /*optional_output_tensor=*/std::nullopt,
         /*global_cb=*/std::nullopt, /*sub_device_id=*/std::nullopt);
   };
