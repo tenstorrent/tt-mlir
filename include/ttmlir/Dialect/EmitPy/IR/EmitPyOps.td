@@ -121,6 +121,9 @@ def EmitPy_SubscriptOp : EmitPy_Op<"subscript", [Pure, PyExpressionInterface]> {
     Example:
 
     ```mlir
+    %0 = emitpy.literal "0" : index
+    %1 = emitpy.subscript %arg0[%0] : (!emitpy.opaque<"[ttnn.Tensor]">, index) -> !emitpy.opaque<"ttnn.Tensor">
+    ...
     %dict = emitpy.global_statement @_CONST_EVAL_CACHE : !emitpy.dict
     %key = emitpy.literal "5" : index
     %tensors = emitpy.subscript %dict[%key] : (!emitpy.dict, index) -> !emitpy.opaque<"[ttnn.Tensor]">
@@ -128,6 +131,8 @@ def EmitPy_SubscriptOp : EmitPy_Op<"subscript", [Pure, PyExpressionInterface]> {
 
     ```python
     // Code emitted:
+    var_0 = subscript_arg[0]
+    ...
     tensors = _CONST_EVAL_CACHE[5]
     ```
   }];
