@@ -7,23 +7,34 @@ set -e -o pipefail
 
 export PYTHONPATH="$INSTALL_DIR/tt-metal/ttnn:$INSTALL_DIR/tt-metal"
 
-# Download and install ttnn-jit wheel
-echo "Downloading ttnn-jit wheel..."
+# Download and install ttmlir and ttnn-jit wheels
+echo "Downloading wheels..."
 cd $WORK_DIR
 
 # This script may be called multiple times in the same test job.
-# Delete the downloaded wheel since gh run will not overwrite an existing file.
+# Delete the downloaded wheels since gh run will not overwrite an existing file.
+if [ -f ttmlir*.whl ]; then
+    rm -f ttmlir*.whl
+fi
 if [ -f ttnn_jit*.whl ]; then
     rm -f ttnn_jit*.whl
 fi
 
+# Download both wheels
+gh run download $RUN_ID --repo tenstorrent/tt-mlir --name ttmlir-whl-$IMAGE_NAME
 gh run download $RUN_ID --repo tenstorrent/tt-mlir --name ttnn-jit-whl-$IMAGE_NAME
+
+echo "Installing ttmlir wheel..."
+if pip show ttmlir &> /dev/null; then
+    pip uninstall -y ttmlir
+fi
 
 echo "Installing ttnn-jit wheel..."
 if pip show ttnn-jit &> /dev/null; then
     pip uninstall -y ttnn-jit
 fi
-pip install ttnn_jit*.whl --upgrade
+# Use --find-links to ensure pip can find the ttmlir wheel
+pip install ttnn_jit*.whl --find-links . --upgrade
 
 echo "Running ttnn-jit tests..."
 if [ "$1" == "nightly" ]; then
