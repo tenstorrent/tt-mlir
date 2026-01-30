@@ -669,7 +669,15 @@ def conv_transpose2d_golden(
     return result
 
 
-def max_pool2d_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
+def ttir_max_pool2d_golden(
+    input_tensor: GoldenMapTensor,
+    kernel_attr: Union[IntegerAttr, DenseI32ArrayAttr],
+    stride_attr: Union[IntegerAttr, DenseI32ArrayAttr],
+    padding_attr: Union[IntegerAttr, DenseI32ArrayAttr],
+    dilation_attr: Union[IntegerAttr, DenseI32ArrayAttr],
+    ceil_mode_attr: BoolAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
     """
     Custom golden function for max_pool2d with layout transformation.
 
@@ -677,30 +685,30 @@ def max_pool2d_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTenso
     ----------
     input_tensor : GoldenMapTensor
         Input tensor for max pooling
-    **kwargs : dict
-        Keyword arguments containing:
-        - kernel_size: Union[int, List[int]] - Size of the pooling kernel
-        - stride: Union[int, List[int]] - Stride for pooling operation
-        - padding: Union[int, List[int]] - Padding for pooling operation
-        - dilation: Union[int, List[int]] - Dilation for pooling operation
-        - ceil_mode: bool - Whether to use ceiling mode for pooling
+    kernel_attr : Union[IntegerAttr, DenseI32ArrayAttr]
+        Size of the pooling kernel
+    stride_attr : Union[IntegerAttr, DenseI32ArrayAttr]
+        Stride for pooling operation
+    padding_attr : Union[IntegerAttr, DenseI32ArrayAttr]
+        Padding for pooling operation
+    dilation_attr : Union[IntegerAttr, DenseI32ArrayAttr]
+        Dilation for pooling operation
+    ceil_mode_attr : BoolAttr
+        Whether to use ceiling mode for pooling
+    output_type_mlir : Type
+        MLIR type for the output tensor
 
     Returns
     -------
     GoldenMapTensor
         Result of 2D max pooling with layout transformation
     """
-    # Get parameters from ttir_kwargs
-    kernel_size = kwargs.get("kernel")
-    stride = kwargs.get("stride", kernel_size)  # Default stride = kernel size
-    padding = kwargs.get("padding", 0)
-    dilation = kwargs.get("dilation", 1)
-    ceil_mode = kwargs.get("ceil_mode", False)
-
-    kernel_size = unpack_mlir_attr(kernel_size)
-    stride = unpack_mlir_attr(stride)
-    padding = unpack_mlir_attr(padding)
-    dilation = unpack_mlir_attr(dilation)
+    kernel_size = unpack_mlir_attr(kernel_attr)
+    stride = unpack_mlir_attr(stride_attr)
+    padding = unpack_mlir_attr(padding_attr)
+    dilation = unpack_mlir_attr(dilation_attr)
+    ceil_mode = unpack_mlir_attr(ceil_mode_attr)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
 
     # Convert padding from [top, left, bottom, right] format to PyTorch format
     if isinstance(padding, (list, tuple)) and len(padding) == 4:
@@ -730,7 +738,7 @@ def max_pool2d_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTenso
     input_tensor = input_tensor.transpose(-2, -1).transpose(-3, -2)
     result = maxpool_object(input_tensor)
     result = result.transpose(-3, -2).transpose(-2, -1)
-    return result
+    return result.to(output_dtype)
 
 
 def avg_pool2d_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
@@ -5666,7 +5674,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.CbrtOp: cbrt_golden,
     ttir.Conv2dOp: conv2d_golden,
     ttir.ConvTranspose2dOp: conv_transpose2d_golden,
-    ttir.MaxPool2dOp: max_pool2d_golden,
+    ttir.MaxPool2dOp: ttir_max_pool2d_golden,
     ttir.AvgPool2dOp: avg_pool2d_golden,
     ttir.MaxPool2dWithIndicesOp: ttir_max_pool2d_with_indices,
     ttir.ArgMaxOp: argmax_golden,

@@ -3913,6 +3913,86 @@ class TTIRBuilder(Builder):
 
     ############### ttir.MaxPool2dOp ###############
 
+    @tag(ttir.MaxPool2dOp)
+    def max_pool2d(
+        self,
+        in0: Operand,
+        kernel: Union[int, List[int]],
+        stride: Union[int, List[int]],
+        dilation: Union[int, List[int]],
+        padding: Union[int, List[int]],
+        ceil_mode: bool,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttir_op = self.get_opview_from_method(TTIRBuilder.max_pool2d)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        if isinstance(kernel, int):
+            kernel_attr = IntegerAttr.get(IntegerType.get_signless(32), kernel)
+        else:
+            kernel_attr = DenseI32ArrayAttr.get(kernel)
+
+        if isinstance(stride, int):
+            stride_attr = IntegerAttr.get(IntegerType.get_signless(32), stride)
+        else:
+            stride_attr = DenseI32ArrayAttr.get(stride)
+
+        if isinstance(padding, int):
+            padding_attr = IntegerAttr.get(IntegerType.get_signless(32), padding)
+        else:
+            padding_attr = DenseI32ArrayAttr.get(padding)
+
+        if isinstance(dilation, int):
+            dilation_attr = IntegerAttr.get(IntegerType.get_signless(32), dilation)
+        else:
+            dilation_attr = DenseI32ArrayAttr.get(dilation)
+
+        ceil_mode_attr = BoolAttr.get(ceil_mode)
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(
+            input0,
+            kernel_attr,
+            stride_attr,
+            padding_attr,
+            dilation_attr,
+            ceil_mode_attr,
+            mlir_output_type,
+        )
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir_op(
+            result,
+            in0,
+            kernel_attr,
+            stride_attr,
+            dilation_attr,
+            padding_attr,
+            ceil_mode_attr,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
     @parse(ttir.MaxPool2dOp)
     def max_pool2d_parser(
         self,
@@ -3946,11 +4026,12 @@ class TTIRBuilder(Builder):
             op_golden_function = get_golden_function(ttir_op)
             golden_output = op_golden_function(
                 input0,
-                kernel=kernel_attr,
-                stride=stride_attr,
-                padding=padding_attr,
-                dilation=dilation_attr,
-                ceil_mode=ceil_mode_attr,
+                kernel_attr,
+                stride_attr,
+                padding_attr,
+                dilation_attr,
+                ceil_mode_attr,
+                result.element_type,
             )
             self._set_golden_tensor(new_op_result, golden_output)
 
@@ -4004,11 +4085,12 @@ class TTIRBuilder(Builder):
                         op_golden_function = get_golden_function(ttir_op)
                         golden_output = op_golden_function(
                             input0,
-                            kernel=kernel_attr,
-                            stride=stride_attr,
-                            padding=padding_attr,
-                            dilation=dilation_attr,
-                            ceil_mode=ceil_mode_attr,
+                            kernel_attr,
+                            stride_attr,
+                            padding_attr,
+                            dilation_attr,
+                            ceil_mode_attr,
+                            result.element_type,
                         )
                         max_pool2d_builder._set_golden_tensor(
                             new_op_result, golden_output
@@ -11463,75 +11545,6 @@ class TTIRBuilder(Builder):
             self._set_golden_tensor(op_result, golden_output)
 
         return op_result
-
-    def max_pool2d(
-        self,
-        in0: Operand,
-        kernel: Union[int, List[int]],
-        stride: Union[int, List[int]],
-        dilation: Union[int, List[int]],
-        padding: Union[int, List[int]],
-        ceil_mode: bool,
-        unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
-        """
-        Creates ``ttir.max_pool2d``.
-
-        *Max pooling operation.*
-
-        Applies a 2D max pooling over an input signal composed of several input planes.
-
-        Parameters
-        ----------
-        in0 : Operand
-            Input tensor
-        kernel_size : *Union[int, List[int]]*
-            Size of the pooling window
-        stride : *Optional[Union[int, List[int]]]*
-            Stride of the pooling window (default: None, same as kernel_size)
-        padding : *Union[int, List[int]]*, optional
-            Padding added to all sides of input (default: 0)
-        dilation : *Union[int, List[int]]*, optional
-            Controls spacing between kernel elements (default: 1)
-        ceil_mode : bool, optional
-            When True, use ceil instead of floor for output shape (default: False)
-        unit_attrs : *Optional[List[str]]*
-            Optional list of unit attributes
-
-        Returns
-        -------
-        (*OpView*)
-            Output tensor after max pooling
-        """
-
-        return self._op_proxy(
-            ttir.MaxPool2dOp,
-            [in0],
-            ttir_kwargs={
-                "kernel": (
-                    IntegerAttr.get(IntegerType.get_signed(32), kernel)
-                    if isinstance(kernel, int)
-                    else DenseI32ArrayAttr.get(kernel)
-                ),
-                "stride": (
-                    IntegerAttr.get(IntegerType.get_signed(32), stride)
-                    if isinstance(stride, int)
-                    else DenseI32ArrayAttr.get(stride)
-                ),
-                "dilation": (
-                    IntegerAttr.get(IntegerType.get_signed(32), dilation)
-                    if isinstance(dilation, int)
-                    else DenseI32ArrayAttr.get(dilation)
-                ),
-                "padding": (
-                    IntegerAttr.get(IntegerType.get_signed(32), padding)
-                    if isinstance(padding, int)
-                    else DenseI32ArrayAttr.get(padding)
-                ),
-                "ceil_mode": ceil_mode,
-            },
-            unit_attrs=unit_attrs,
-        )
 
     def avg_pool2d(
         self,
