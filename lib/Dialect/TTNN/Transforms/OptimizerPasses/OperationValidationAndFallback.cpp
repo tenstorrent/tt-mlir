@@ -24,7 +24,7 @@
 #include <cassert>
 #include <cstddef>
 #include <optional>
-#include <unordered_set>
+#include <set>
 #include <vector>
 
 namespace mlir::tt::ttnn {
@@ -368,10 +368,39 @@ bool tryFallbacks(Operation *operation,
                           /*currentDistance*/ 0.0, allCombinations);
 
   // Sort combinations by total distance (ascending)
-  std::sort(allCombinations.begin(), allCombinations.end(),
-            [](const CombinationCandidate &a, const CombinationCandidate &b) {
-              return a.totalDistance < b.totalDistance;
-            });
+  // Use stable_sort to maintain deterministic ordering when distances are equal
+  std::stable_sort(
+      allCombinations.begin(), allCombinations.end(),
+      [](const CombinationCandidate &a, const CombinationCandidate &b) {
+        if (a.totalDistance != b.totalDistance) {
+          return a.totalDistance < b.totalDistance;
+        }
+        // Tiebreaker: content-based lexicographic comparison for full
+        // determinism across runs when distances are equal
+        for (size_t i = 0; i < a.layouts.size() && i < b.layouts.size(); ++i) {
+          const auto &aLayout = a.layouts[i];
+          const auto &bLayout = b.layouts[i];
+
+          // Compare layout type first (prefer TILE over ROW_MAJOR for
+          // consistency)
+          if (aLayout.getLayout() != bLayout.getLayout()) {
+            return static_cast<int>(aLayout.getLayout()) <
+                   static_cast<int>(bLayout.getLayout());
+          }
+          // Then data type
+          if (aLayout.getDataType() != bLayout.getDataType()) {
+            return static_cast<int>(aLayout.getDataType()) <
+                   static_cast<int>(bLayout.getDataType());
+          }
+          // Then buffer type
+          if (aLayout.getBufferType() != bLayout.getBufferType()) {
+            return static_cast<int>(aLayout.getBufferType()) <
+                   static_cast<int>(bLayout.getBufferType());
+          }
+        }
+        // All layouts match - combinations are equivalent
+        return false;
+      });
 
   TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
                "Generated {} combinations, testing by distance",
@@ -425,21 +454,31 @@ createFallbackTransforms(TTNNLayoutAttr originalLayout,
   // TODO(rpavlovicTT): Expand to more combinations if needed in the future.
   //                    E.g. Bfp8. At the moment we don't create new
   //                    MemoryLayouts as Interleaved should always work.
-  // Use unordered_set to automatically deduplicate during generation, for case
+  // Use set to automatically deduplicate during generation, for case
   // a target configuration isn't viable e.g. bfp8 and row-major combination
-  // isn't possible
-  struct TTNNLayoutAttrHash {
-    size_t operator()(const TTNNLayoutAttr &attr) const {
-      return std::hash<const void *>()(attr.getAsOpaquePointer());
-    }
-  };
-  struct TTNNLayoutAttrEqual {
+  // isn't possible. Using std::set instead of std::unordered_set provides
+  // deterministic iteration order for consistent fallback selection.
+  struct TTNNLayoutAttrCompare {
     bool operator()(const TTNNLayoutAttr &a, const TTNNLayoutAttr &b) const {
-      return a == b;
+      // Content-based comparison for deterministic ordering across runs
+      // Compare by: Layout -> DataType -> BufferType -> MemLayout
+      if (a.getLayout() != b.getLayout()) {
+        return static_cast<int>(a.getLayout()) <
+               static_cast<int>(b.getLayout());
+      }
+      if (a.getDataType() != b.getDataType()) {
+        return static_cast<int>(a.getDataType()) <
+               static_cast<int>(b.getDataType());
+      }
+      if (a.getBufferType() != b.getBufferType()) {
+        return static_cast<int>(a.getBufferType()) <
+               static_cast<int>(b.getBufferType());
+      }
+      // Layouts match - fallbacks are equivalent
+      return false;
     }
   };
-  std::unordered_set<TTNNLayoutAttr, TTNNLayoutAttrHash, TTNNLayoutAttrEqual>
-      fallbackLayoutsSet;
+  std::set<TTNNLayoutAttr, TTNNLayoutAttrCompare> fallbackLayoutsSet;
 
   // Define the 4 target data types for fallbacks
   std::vector<ttcore::DataType> targetDataTypes = {
