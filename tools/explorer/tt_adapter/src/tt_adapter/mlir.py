@@ -933,9 +933,13 @@ class GraphHandler:
                 self.process_function(operation)
 
     def process_function(self, func):
+        if "const_eval" in func.name.value:
+            namespace = "const_eval/" + func.name.value
+        else:
+            namespace = ""
         for region in func.regions:
             self.append_after = []
-            self.process_region(region)
+            self.process_region(region, namespace)
             for node in self.append_after:
                 self.graph.nodes.append(node)
 
@@ -1035,6 +1039,9 @@ class GraphHandler:
             if isinstance(operand, ir.Value) and not isinstance(
                 operand.owner, ir.Operation
             ):
+                # Skip block argument inputs for ttcore.load_cached ops
+                if op.name == "ttcore.load_cached":
+                    continue
                 if operand not in self.operands_in_graph:
                     block_args.append(operand)
 
@@ -1056,6 +1063,8 @@ class GraphHandler:
 
     def add_edges(self, block):
         for op in block.operations:
+            if op.name == "ttcore.load_cached":
+                continue
             # Create edges for this operation
             for operand_index, operand in enumerate(op.operands):
                 if operand.owner == block:

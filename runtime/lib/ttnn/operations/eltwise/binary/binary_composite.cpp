@@ -131,8 +131,8 @@ void run(const ::tt::target::ttnn::EltwiseBinaryCompositeScalarOp *op,
     case ::tt::target::ttnn::RhsParams::FP:
       runPowScalarOp(op, op->rhs_as_FP()->value(), context);
       break;
-    case ::tt::target::ttnn::RhsParams::UI32:
-      runPowScalarOp(op, op->rhs_as_UI32()->value(), context);
+    case ::tt::target::ttnn::RhsParams::I32:
+      runPowScalarOp(op, op->rhs_as_I32()->value(), context);
       break;
     default:
       LOG_FATAL("unknown exponent type");
