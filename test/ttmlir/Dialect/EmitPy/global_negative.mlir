@@ -39,18 +39,6 @@ module {
 module {
   emitpy.global @typed_global = 0
 
-  func.func @get_global_type_mismatch() -> !emitpy.opaque<"[ttnn.Tensor]"> {
-    // CHECK: error: 'emitpy.get_global' op result type ('!emitpy.opaque<"[ttnn.Tensor]">') does not match global's type ('i64')
-    %0 = emitpy.get_global @typed_global : !emitpy.opaque<"[ttnn.Tensor]">
-    return %0 : !emitpy.opaque<"[ttnn.Tensor]">
-  }
-}
-
-// -----
-
-module {
-  emitpy.global @typed_global = 0
-
   func.func @assign_global_type_mismatch(%arg0: !emitpy.opaque<"[ttnn.Tensor]">) -> () {
     // CHECK: error: 'emitpy.assign_global' op value type ('!emitpy.opaque<"[ttnn.Tensor]">') does not match global's type ('i64')
     emitpy.assign_global @typed_global = %arg0 : !emitpy.opaque<"[ttnn.Tensor]">
@@ -66,28 +54,6 @@ module {
   func.func @global_statement_type_mismatch() -> !emitpy.opaque<"[ttnn.Tensor]"> {
     // CHECK: error: 'emitpy.global_statement' op result type ('!emitpy.opaque<"[ttnn.Tensor]">') does not match global's type ('i64')
     %0 = emitpy.global_statement @typed_global : !emitpy.opaque<"[ttnn.Tensor]">
-    return %0 : !emitpy.opaque<"[ttnn.Tensor]">
-  }
-}
-
-// -----
-
-module {
-  func.func @get_global_nonexistent() -> !emitpy.opaque<"[ttnn.Tensor]"> {
-    // CHECK: error: 'emitpy.get_global' op 'nonexistent_global' does not reference a valid emitpy.global
-    %0 = emitpy.get_global @nonexistent_global : !emitpy.opaque<"[ttnn.Tensor]">
-    return %0 : !emitpy.opaque<"[ttnn.Tensor]">
-  }
-}
-
-// -----
-
-module {
-  emitpy.global @global_var = #emitpy.opaque<"None">
-
-  func.func @get_another_global_nonexistent() -> !emitpy.opaque<"[ttnn.Tensor]"> {
-    // CHECK: error: 'emitpy.get_global' op 'global_var_1' does not reference a valid emitpy.global
-    %0 = emitpy.get_global @global_var_1 : !emitpy.opaque<"[ttnn.Tensor]">
     return %0 : !emitpy.opaque<"[ttnn.Tensor]">
   }
 }

@@ -734,20 +734,6 @@ GlobalStatementOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
 }
 
 //===----------------------------------------------------------------------===//
-// GetGlobalOp
-//===----------------------------------------------------------------------===//
-
-LogicalResult GetGlobalOp::verify() {
-  StringRef name = getName();
-  return isValidPythonIdentifier(getOperation(), name);
-}
-
-LogicalResult
-GetGlobalOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
-  return verifyNearestGlobalSymbol<GetGlobalOp>(*this, symbolTable);
-}
-
-//===----------------------------------------------------------------------===//
 // CreateDictOp
 //===----------------------------------------------------------------------===//
 
