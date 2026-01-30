@@ -33,6 +33,10 @@ public:
     std::string setAddress(const std::string& address);
     int setPort(int port);
 
+    std::string tracyOutputFileName = "output.tracy";
+    std::string tracyOpsTimeFileName = "tracy_ops_times.csv";
+    std::string tracyOpsDataFileName = "tracy_ops_data.csv";
+
 private:
     ProfilerManager() = default;
 
@@ -42,10 +46,6 @@ private:
     std::string m_outputDirectory;
     std::string m_address;
     int m_port;
-
-    std::string tracyOutputFileName = "output.tracy";
-    std::string tracyOpsTimeFileName = "tracy_ops_times.csv";
-    std::string tracyOpsDataFileName = "tracy_ops_data.csv";
 };
 
 ProfilerManager& ProfilerManager::instance() {
@@ -107,7 +107,7 @@ public:
 
     void start(const std::string& command);
     void stop();
-    void execute(const std::string& command);
+    void execute(const std::string& command, const std::string& output_file);
     pid_t pid() const;
 
 private:
@@ -160,15 +160,42 @@ void ProcessManager::stop() {
   m_pid = -1;
 }
 
-void ProcessManager::execute(const std::string& command) {
-  int ret = system(command.c_str());
+void ProcessManager::execute(const std::string& command, const std::string& output_file) {
+  std::string cmd = command + " > " + output_file;
+  int ret = system(cmd.c_str());
   if (ret != 0) {
-    throw std::runtime_error("Command failed with return code: " + std::to_string(ret));
+      throw std::runtime_error("Command failed with return code: " + std::to_string(ret));
   }
 }
 
 pid_t ProcessManager::pid() const {
   return m_pid;
+}
+
+void post_process_op_times() {
+  std::string command = ProfilerManager::instance().getCSVExportTimesCommand();
+  std::string opTimesFilePath = ProfilerManager::instance().getOutputDirectory() + "/" + ProfilerManager::instance().tracyOpsTimeFileName;
+
+  try {
+    ProcessManager::instance().execute(command, opTimesFilePath);
+  } catch (const std::runtime_error& e) {
+    throw std::runtime_error("Failed to export ops time data with command: " + command + ". Error: " + e.what());
+  }
+
+  std::cout << "Op times exported." << std::endl;
+}
+
+void post_process_op_data() {
+  std::string command = ProfilerManager::instance().getCSVExportDataCommand();
+  std::string opDataFilePath = ProfilerManager::instance().getOutputDirectory() + "/" + ProfilerManager::instance().tracyOpsDataFileName;
+
+  try {
+    ProcessManager::instance().execute(command, opDataFilePath);
+  } catch (const std::runtime_error& e) {
+    throw std::runtime_error("Failed to export ops data with command: " + command + ". Error: " + e.what());
+  }
+
+  std::cout << "Op data exported." << std::endl;
 }
 
 void start_profiler(std::string outputDirectory, std::string address, int port) {
@@ -189,30 +216,9 @@ void start_profiler(std::string outputDirectory, std::string address, int port) 
 void stop_profiler() {
   ProcessManager::instance().stop();
   std::cout << "Profiler stopped." << std::endl;
-}
 
-void post_process_op_times() {
-  std::string command = ProfilerManager::instance().getCSVExportTimesCommand();
-
-  try {
-    ProcessManager::instance().execute(command);
-  } catch (const std::runtime_error& e) {
-    throw std::runtime_error("Failed to export ops time data with command: " + command + ". Error: " + e.what());
-  }
-
-  std::cout << "Ops time data exported." << std::endl;
-}
-
-void post_process_op_data() {
-  std::string command = ProfilerManager::instance().getCSVExportDataCommand();
-
-  try {
-    ProcessManager::instance().execute(command);
-  } catch (const std::runtime_error& e) {
-    throw std::runtime_error("Failed to export ops data with command: " + command + ". Error: " + e.what());
-  }
-
-  std::cout << "Ops data exported." << std::endl;
+  post_process_op_times();
+  post_process_op_data();
 }
 
 namespace tt::profiler::python {
@@ -229,11 +235,5 @@ void registerProfilerBindings(nb::module_ &m) {
   
   m.def("stop_profiler", &stop_profiler,
         "Stop the profiler");
-  
-  m.def("post_process_op_times", &post_process_op_times,
-        "Post-process and export operations time data to CSV");
-
-  m.def("post_process_op_data", &post_process_op_data,
-        "Post-process and export operations data to CSV");
 }
 } // namespace tt::profiler::python

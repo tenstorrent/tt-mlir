@@ -11,6 +11,13 @@ import shutil
 
 from tracy.process_ops_logs import process_ops
 
+'''
+TT_METAL_CLEAR_L1=1
+TT_METAL_DEVICE_PROFILER=1
+TTNN_OP_PROFILER=1
+TT_METAL_DEVICE_PROFILER_DISPATCH=0
+TT_METAL_PROFILER_CPP_POST_PROCESS=1
+'''
 
 @contextmanager
 def trace(log_dir: str, port: int):
