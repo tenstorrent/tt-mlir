@@ -223,7 +223,7 @@ public:
           bbBuilder.create<mlir::linalg::YieldOp>(bbLoc, filled);
         });
 
-    rewriter.eraseOp(op);
+    rewriter.replaceOp(op, op.getOutput());
     return success();
   }
 };
