@@ -17,7 +17,7 @@ table EnqueueProgramCommand {
   buffers: [BufferRef];
   cbs: [CBRef];
   program: ProgramDesc;
-  fabric_connection_config: FabricConnectionConfig;
+  fabric_connection_config: tt.target.FabricConnectionConfig;
 }
 
 table EnqueueWriteBufferCommand {

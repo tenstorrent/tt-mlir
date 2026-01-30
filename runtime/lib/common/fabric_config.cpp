@@ -14,19 +14,23 @@ namespace tt::runtime::common {
 template <typename ProgramOrDescriptor>
 std::unordered_map<::tt::tt_metal::CoreCoord, std::vector<uint32_t>>
 appendFabricConfigArgs(
-    const target::metal::FabricConnectionConfig *fabricConnectionConfig,
+    const ::tt::target::FabricConnectionConfig *fabricConnectionConfig,
     const target::metal::KernelConfig *kernelConfig,
     ProgramOrDescriptor &program, tt_metal::KernelHandle &handle,
     const tt_metal::distributed::MeshCoordinate deviceCoord,
     const tt_metal::distributed::MeshDevice *meshDevice,
     std::vector<uint32_t> rtArgsVec,
     const tt::tt_metal::CoreRangeSet &coreRangeSet) {
+  LOG_ASSERT(fabricConnectionConfig != nullptr,
+             "Fabric connection config must be available.");
+  tt::target::Topology topology_type = fabricConnectionConfig->topology();
+  uint32_t cluster_axis = fabricConnectionConfig->cluster_axis();
+  uint32_t num_links = fabricConnectionConfig->num_links();
+
   std::unordered_map<tt::tt_metal::CoreCoord, std::vector<uint32_t>>
       fabricConfigArgs;
 
   tt::tt_fabric::FabricApiType api_type;
-  uint32_t num_links = fabricConnectionConfig->num_links();
-  auto topology_type = fabricConnectionConfig->topology();
 
   // insert topology specific args (device specific)
   auto num_topology_arg_idx = rtArgsVec.size();
@@ -37,7 +41,6 @@ appendFabricConfigArgs(
       topology_type == tt::target::Topology::Ring) {
     // Add topology type (Line=0, Ring=1) and axis (for 1D)
     rtArgsVec.push_back(static_cast<uint32_t>(topology_type));
-    uint32_t cluster_axis = fabricConnectionConfig->cluster_axis();
     LOG_ASSERT(cluster_axis < 2, "Invalid cluster axis, must be < 2");
     rtArgsVec.push_back(cluster_axis);
 
@@ -122,7 +125,7 @@ appendFabricConfigArgs(
 
 template std::unordered_map<::tt::tt_metal::CoreCoord, std::vector<uint32_t>>
 appendFabricConfigArgs<tt::tt_metal::Program>(
-    const target::metal::FabricConnectionConfig *fabricConnectionConfig,
+    const ::tt::target::FabricConnectionConfig *fabricConnectionConfig,
     const target::metal::KernelConfig *kernelConfig,
     tt::tt_metal::Program &program, tt_metal::KernelHandle &handle,
     const tt_metal::distributed::MeshCoordinate deviceCoord,
@@ -132,7 +135,7 @@ appendFabricConfigArgs<tt::tt_metal::Program>(
 
 template std::unordered_map<::tt::tt_metal::CoreCoord, std::vector<uint32_t>>
 appendFabricConfigArgs<tt::tt_metal::ProgramDescriptor>(
-    const target::metal::FabricConnectionConfig *fabricConnectionConfig,
+    const ::tt::target::FabricConnectionConfig *fabricConnectionConfig,
     const target::metal::KernelConfig *kernelConfig,
     tt::tt_metal::ProgramDescriptor &program, tt_metal::KernelHandle &handle,
     const tt_metal::distributed::MeshCoordinate deviceCoord,
