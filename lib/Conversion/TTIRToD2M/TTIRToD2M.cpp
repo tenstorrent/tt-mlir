@@ -1575,7 +1575,7 @@ private:
 };
 } // namespace
 
-// Simple conversion for ttir.to_layout -> d2m.to_layout.
+// Conversion for ttir.to_layout -> d2m.to_layout.
 class D2MToLayoutOpRewriter : public D2MNamedRewriterCommon,
                               public OpConversionPattern<ttir::ToLayoutOp> {
 public:
@@ -1599,7 +1599,7 @@ public:
         mlir::isa_and_nonnull<ttnn::TTNNLayoutAttr>(outType.getEncoding());
 
     if (!outputIsTTNN) {
-      // Default case: non-TTNN output, use simple conversion.
+      // use simple conversion
       Value empty = rewriter.create<d2m::EmptyOp>(
           op.getLoc(), outType.getShape(), outType.getElementType(),
           outType.getEncoding());
@@ -1622,7 +1622,6 @@ public:
                        .getResult();
     }
 
-    // Get Metal type for output.
     auto outputMetalType =
         getMetalTensorFromTTNNTensor(rewriter, op.getOutput());
 

@@ -248,6 +248,7 @@ def test_l1_to_l1_change_shard_strategy(
     )
 
 
+# l1 sharded -> dram interleaved output memory layout
 @pytest.mark.xfail(
     reason="L1 Sharded -> DRAM Interleaved layout transformation fails, see issue #6735",
 )
