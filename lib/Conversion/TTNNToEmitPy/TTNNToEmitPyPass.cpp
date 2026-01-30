@@ -127,8 +127,9 @@ struct ConvertTTNNToEmitPyPass
     // Create a global cache dictionary
     //
     auto opaqueAttr = emitpy::OpaqueAttr::get(&getContext(), "{}");
-    builder.create<emitpy::GlobalOp>(module->getLoc(), "_CONST_EVAL_CACHE",
-                                     opaqueAttr);
+    auto globalCacheDict = builder.create<emitpy::GlobalOp>(
+        module->getLoc(), "_CONST_EVAL_CACHE", opaqueAttr);
+    globalCacheDict->setAttr("emitpy.consteval", builder.getUnitAttr());
 
     // If we are in the module-export path (i.e., `target-module=true`),
     // const-eval functions must also take `device` as an explicit argument so
