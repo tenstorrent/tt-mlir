@@ -233,14 +233,32 @@ class Builder(metaclass=BuilderMeta):
 
     @property
     def context(self) -> Context:
+        """
+        Get the MLIR context for this builder.
+        
+        Returns:
+            Context: The MLIR context used for creating operations and types.
+        """
         return self._ctx
 
     @property
     def location(self) -> Location:
+        """
+        Get the current insertion location in the IR.
+        
+        Returns:
+            Location: The current location where new operations will be inserted.
+        """
         return self._loc
 
     @property
     def mesh_shape(self) -> Tuple[int, int]:
+        """
+        Get the mesh shape (device grid dimensions).
+        
+        Returns:
+            Tuple[int, int]: A tuple of (x, y) dimensions representing the device mesh.
+        """
         return self._mesh_shape
 
     @property
