@@ -2775,16 +2775,27 @@ public:
     auto elementType = resultType.getElementType();
     TypedAttr minAttr, maxAttr;
 
+    // Helper to convert attribute to double
+    auto attrToDouble = [](mlir::Attribute attr) -> double {
+      if (auto floatAttr = mlir::dyn_cast<mlir::FloatAttr>(attr)) {
+        return floatAttr.getValueAsDouble();
+      }
+      if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(attr)) {
+        return static_cast<double>(intAttr.getValue().getSExtValue());
+      }
+      llvm_unreachable("Unsupported attribute type for clamp");
+    };
+
     if (isa<FloatType>(elementType)) {
       minAttr =
-          rewriter.getFloatAttr(elementType, op.getMin().convertToDouble());
+          rewriter.getFloatAttr(elementType, attrToDouble(op.getMin()));
       maxAttr =
-          rewriter.getFloatAttr(elementType, op.getMax().convertToDouble());
+          rewriter.getFloatAttr(elementType, attrToDouble(op.getMax()));
     } else if (isa<IntegerType>(elementType)) {
       minAttr = rewriter.getIntegerAttr(
-          elementType, static_cast<int64_t>(op.getMin().convertToDouble()));
+          elementType, static_cast<int64_t>(attrToDouble(op.getMin())));
       maxAttr = rewriter.getIntegerAttr(
-          elementType, static_cast<int64_t>(op.getMax().convertToDouble()));
+          elementType, static_cast<int64_t>(attrToDouble(op.getMax())));
     } else {
       return rewriter.notifyMatchFailure(op,
                                          "Unsupported element type for clamp");

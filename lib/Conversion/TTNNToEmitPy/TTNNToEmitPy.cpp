@@ -98,14 +98,33 @@ public:
 
     ttnn_to_emitpy::EmitPyTTNNEmitter<SourceOp> emitter(
         srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
-    llvm::SmallVector<mlir::Attribute> args{
-        emitter.emit(srcOp.getInput()),
-        emitter.emit(srcOp.getMin()),
-        emitter.emit(srcOp.getMax()),
-        emitter.emit(srcOp.getMemoryConfig() |
-                         emitter.getMemoryConfig(srcOp.getResult()),
-                     "memory_config"),
-    };
+
+    llvm::SmallVector<mlir::Attribute> args;
+    args.push_back(emitter.emit(srcOp.getInput()));
+
+    if constexpr (std::is_same_v<SourceOp, mlir::tt::ttnn::ClampScalarOp>) {
+      // Helper to convert attribute to APFloat for ClampScalarOp
+      auto attrToAPFloat = [](mlir::Attribute attr) -> llvm::APFloat {
+        if (auto floatAttr = mlir::dyn_cast<mlir::FloatAttr>(attr)) {
+          return floatAttr.getValue();
+        }
+        if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(attr)) {
+          return llvm::APFloat(
+              static_cast<float>(intAttr.getValue().getSExtValue()));
+        }
+        llvm_unreachable("Unsupported attribute type for clamp");
+      };
+      args.push_back(emitter.emit(attrToAPFloat(srcOp.getMin())));
+      args.push_back(emitter.emit(attrToAPFloat(srcOp.getMax())));
+    } else {
+      // ClampTensorOp uses tensor values
+      args.push_back(emitter.emit(srcOp.getMin()));
+      args.push_back(emitter.emit(srcOp.getMax()));
+    }
+
+    args.push_back(emitter.emit(srcOp.getMemoryConfig() |
+                                    emitter.getMemoryConfig(srcOp.getResult()),
+                                "memory_config"));
 
     emitter.replaceOp(*this, args);
 

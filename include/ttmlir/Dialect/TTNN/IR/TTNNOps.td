@@ -2197,8 +2197,8 @@ def TTNN_ClampScalarOp : TTNN_Op<"clamp_scalar", [TTNN_MemoryConfigOpInterface]>
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         F32Attr:$min,
-                         F32Attr:$max,
+                         AnyAttrOf<[F32Attr, I32Attr]>:$min,
+                         AnyAttrOf<[F32Attr, I32Attr]>:$max,
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
     let results = (outs AnyRankedTensor:$result);
@@ -2209,7 +2209,9 @@ def TTNN_ClampScalarOp : TTNN_Op<"clamp_scalar", [TTNN_MemoryConfigOpInterface]>
     [
       OpBuilder<(ins "Type": $resultType, "Value": $input, "::llvm::APFloat": $min, "::llvm::APFloat": $max),
       [{
-        build($_builder, $_state, resultType, input, min, max, /* memory_config */ nullptr);
+        auto minAttr = $_builder.getF32FloatAttr(min.convertToFloat());
+        auto maxAttr = $_builder.getF32FloatAttr(max.convertToFloat());
+        build($_builder, $_state, resultType, input, minAttr, maxAttr, /* memory_config */ nullptr);
       }]>
     ];
 }
