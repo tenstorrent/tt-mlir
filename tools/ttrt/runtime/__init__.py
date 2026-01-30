@@ -47,6 +47,7 @@ try:
         create_empty_tensor,
         create_multi_device_host_tensor,
         create_multi_device_borrowed_host_tensor,
+        create_multi_device_host_tensor_from_shards,
         set_fabric_config,
         wait,
         to_host,
