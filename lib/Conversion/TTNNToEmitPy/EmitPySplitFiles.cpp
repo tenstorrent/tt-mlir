@@ -23,6 +23,16 @@ namespace mlir::tt {
 
 class EmitPySplitFiles : public impl::EmitPySplitFilesBase<EmitPySplitFiles> {
 
+  struct FuncOpAnalyser {
+    func::FuncOp funcOp;
+    llvm::SetVector<Operation *> constevalDefUseChain;
+    llvm::SmallVector<func::CallOp> crossFileCallOps;
+    mlir::Value globalDict = nullptr;
+    mlir::Value outerDictKey = nullptr;
+    mlir::Value deviceArg = nullptr;
+    llvm::DenseMap<Operation *, unsigned> opIndices;
+  };
+
 public:
   using impl::EmitPySplitFilesBase<EmitPySplitFiles>::EmitPySplitFilesBase;
 
@@ -36,94 +46,38 @@ public:
     auto constevalFile =
         builder.create<emitpy::FileOp>(moduleOp->getLoc(), "consteval");
 
-    llvm::SmallVector<Operation *> importOps;
-    llvm::SmallVector<Operation *> uncategorizedOps;
-
     // Categorize top-level module operations.
-    for (auto &op : llvm::make_early_inc_range(moduleOp.getOps())) {
-      if (isa<emitpy::FileOp>(op)) {
-        continue;
-      }
-      if (isa<emitpy::ImportOp>(op)) {
-        importOps.push_back(&op);
-        continue;
-      }
-      if (op.hasAttr("emitpy.consteval")) {
-        op.moveBefore(&constevalFile.getBodyRegion().front(),
-                      constevalFile.getBodyRegion().front().end());
-        continue;
-      }
-      if (auto funcOp = dyn_cast<func::FuncOp>(op)) {
-        if (ttmlir::utils::isConstEvalFunc(funcOp) ||
-            ttmlir::utils::isForwardCPUFunc(funcOp)) {
-          op.moveBefore(&constevalFile.getBodyRegion().front(),
-                        constevalFile.getBodyRegion().front().end());
-          continue;
-        }
-      }
-      uncategorizedOps.push_back(&op);
+    ModuleOpAnalyser moduleAnalyser;
+    categorizeModuleOperations(moduleOp, moduleAnalyser);
+
+    // Move 'pure' consteval functions (isolated segments of consteval logic) to
+    // the consteval file.
+    for (auto *funcOp : moduleAnalyser.constevalFuncOps) {
+      funcOp->moveBefore(&constevalFile.getBodyRegion().front(),
+                         constevalFile.getBodyRegion().front().end());
     }
 
     llvm::SmallVector<llvm::StringRef> executeFuncNames;
-    // Process uncategorized operations.
-    for (auto *uncategorizedOp : uncategorizedOps) {
+    // Process uncategorized operations (functions that are not 'pure' consteval
+    // functions).
+    for (auto *uncategorizedOp : moduleAnalyser.uncategorizedOps) {
       if (auto funcOp = dyn_cast<func::FuncOp>(uncategorizedOp)) {
         std::string funcName = funcOp.getName().str();
-        llvm::SmallVector<Operation *> constevalOps;
-        llvm::SmallVector<func::CallOp> hoistedCallOps;
-        mlir::Value globalDict = nullptr;
-        mlir::Value outerDictKey = nullptr;
+        FuncOpAnalyser funcOpAnalyser;
+        populateFuncOpAnalyser(funcOp, funcOpAnalyser);
 
-        // Assign sequential indices to operations for deterministic ordering.
-        llvm::DenseMap<Operation *, unsigned> opIndices;
-        unsigned index = 0;
-
-        // Search for globalDict and outerDictKey in the function body.
-        // Collect all operations that are explicitly marked with attribute as
-        // consteval.
-        funcOp.walk([&](Operation *op) {
-          opIndices[op] = index++;
-          if (isa<emitpy::GlobalStatementOp>(op)) {
-            globalDict = op->getResult(0);
-          }
-          if (auto constantOp = dyn_cast<emitpy::ConstantOp>(op)) {
-            // Look for the constant with a value equal to the function name
-            auto funcNameAttr =
-                emitpy::OpaqueAttr::get(&getContext(), "\"" + funcName + "\"");
-            if (constantOp.getValue() == funcNameAttr) {
-              outerDictKey = constantOp->getResult(0);
-            }
-          }
-          if (op->hasAttr("emitpy.consteval")) {
-            constevalOps.push_back(op);
-          }
-          if (auto callOp = dyn_cast<func::CallOp>(op)) {
-            if (auto calledFunc = constevalFile.lookupSymbol<func::FuncOp>(
-                    callOp.getCallee())) {
-              if (ttmlir::utils::isForwardCPUFunc(calledFunc)) {
-                hoistedCallOps.push_back(callOp);
-              }
-            }
-          }
-        });
-
-        // Replace func::CallOp with emitpy::CallOpaqueOp for hoisted functions
-        // to avoid symbol resolution errors.
-        for (auto callHoistedOp : llvm::make_early_inc_range(hoistedCallOps)) {
-          builder.setInsertionPoint(callHoistedOp);
-          auto callOpaqueHoistedOp = builder.create<emitpy::CallOpaqueOp>(
-              callHoistedOp.getLoc(), callHoistedOp.getResultTypes(),
-              callHoistedOp.getCallee().str(), callHoistedOp.getOperands());
-          callOpaqueHoistedOp->setDiscardableAttrs(
-              callHoistedOp->getDiscardableAttrDictionary());
-          callHoistedOp.replaceAllUsesWith(callOpaqueHoistedOp);
-          callHoistedOp->erase();
+        // If there are no consteval operations to process for this function,
+        // skip it. This function will be part of the main file in its entirety.
+        if (!hasConstevalLogic(funcOpAnalyser)) {
+          continue;
         }
 
-        // If there are no globalDict or outerDictKey, there are no
-        // consteval operations to process for this function.
-        if (!globalDict || !outerDictKey) {
-          continue;
+        // Replace func::CallOp with emitpy::CallOpaqueOp for cross-file
+        // functions calls to avoid symbol resolution errors (i.e. calls to
+        // hoisted functions).
+        for (auto callOp :
+             llvm::make_early_inc_range(funcOpAnalyser.crossFileCallOps)) {
+          replaceCallWithCallOpaque(builder, callOp);
         }
 
         auto strType = emitpy::OpaqueType::get(&getContext(), "str");
@@ -136,70 +90,23 @@ public:
         executeFuncNames.push_back(
             builder.getStringAttr(executeFuncName).getValue());
 
-        // Check if the original function has a device argument.
-        mlir::Value originalDeviceArg = nullptr;
-        if (funcOp.getNumArguments() > 0) {
-          auto lastArg = funcOp.getArgument(funcOp.getNumArguments() - 1);
-          if (lastArg.getType() == deviceType) {
-            originalDeviceArg = lastArg;
-          }
-        }
-
         // Create execute function that will store complete consteval logic of
         // the current funcOp. This function will be a part of the
         // consteval file and will be called from the main file.
-        llvm::SmallVector<Type> executeInputTypes = {tensorListType};
-        if (originalDeviceArg) {
-          executeInputTypes.push_back(deviceType);
-        }
-        builder.setInsertionPointToEnd(&constevalFile.getBodyRegion().front());
-        auto executeConstevalFunc = builder.create<func::FuncOp>(
-            funcOp.getLoc(), executeFuncName,
-            builder.getFunctionType(executeInputTypes, {innerDictType}));
-        executeConstevalFunc.addEntryBlock();
-        Block &entryBlock = executeConstevalFunc.getBody().front();
-
-        // Map original funcOp input to the input of the new execute function.
-        mlir::IRMapping mapping;
-        mlir::Value originalInput = funcOp.getArgument(0);
-        mapping.map(originalInput, entryBlock.getArgument(0));
-        if (originalDeviceArg) {
-          mapping.map(originalDeviceArg, entryBlock.getArgument(1));
-          executeConstevalFunc.setArgAttr(1, "emitpy.name",
-                                          builder.getStringAttr("device"));
-        }
-
-        auto constevalUseDefChain = getSortedConstevalUseDefChain(constevalOps);
-
-        // Clone all operations in the consteval use-def chain into the execute
-        // function. Operations that are not explicity marked as consteval
-        // should stay in the original function and be cloned in the execute
-        // function. Operations that are explicitly marked as consteval should
-        // be erased from original function.
-        builder.setInsertionPointToStart(&entryBlock);
-        for (Operation *op : constevalUseDefChain) {
-          Operation *cloned = builder.clone(*op, mapping);
-          for (unsigned i = 0; i < op->getNumResults(); ++i) {
-            mapping.map(op->getResult(i), cloned->getResult(i));
-          }
-        }
-
-        // Add return operation to the execute function.
-        auto dictResult = builder.create<emitpy::GetValueForDictKeyOp>(
-            funcOp.getLoc(), innerDictType, mapping.lookup(globalDict),
-            mapping.lookup(outerDictKey));
-        builder.create<func::ReturnOp>(funcOp.getLoc(), dictResult.getResult());
+        auto executeConstevalFunc = createExecuteConstevalFunction(
+            builder, funcOpAnalyser, constevalFile);
+        populateExecuteConstevalFunctionBody(builder, executeConstevalFunc,
+                                             funcOpAnalyser);
 
         // Insert call of the execute function at the beginning of the original
         // function.
-        builder.setInsertionPointToStart(&funcOp.getFunctionBody().front());
-        llvm::SmallVector<Value> executeCallOperands = {originalInput};
-        if (originalDeviceArg) {
-          executeCallOperands.push_back(originalDeviceArg);
+        llvm::SmallVector<Value> executeCallOperands = {funcOp.getArgument(0)};
+        if (funcOpAnalyser.deviceArg) {
+          executeCallOperands.push_back(funcOpAnalyser.deviceArg);
         }
-        auto callExecuteOp = builder.create<emitpy::CallOpaqueOp>(
-            funcOp.getLoc(), innerDictType, executeFuncName,
-            executeCallOperands);
+        auto callExecuteOp =
+            createCallAtFunctionStart(builder, funcOp, executeFuncName,
+                                      executeCallOperands, innerDictType);
 
         // Map non-consteval subscript operations to appropriate key constants
         // to transform constEvalFuncWrapperResult[i] ->
@@ -272,7 +179,8 @@ public:
 
         // Erase explicitly marked consteval operations from the original
         // function body.
-        for (Operation *op : llvm::reverse(constevalOps)) {
+        for (Operation *op :
+             llvm::reverse(funcOpAnalyser.constevalDefUseChain)) {
           op->erase();
         }
       }
@@ -311,6 +219,13 @@ public:
   }
 
 private:
+  struct ModuleOpAnalyser {
+    llvm::SmallVector<Operation *> importOps;
+    llvm::SmallVector<Operation *> constevalMarkedOps;
+    llvm::SmallVector<Operation *> constevalFuncOps;
+    llvm::SmallVector<Operation *> uncategorizedOps;
+  };
+
   llvm::SetVector<Operation *> getSortedConstevalUseDefChain(
       const llvm::SmallVector<Operation *> &constevalOps) {
     llvm::SmallVector<Operation *> workload(constevalOps.begin(),
@@ -331,6 +246,166 @@ private:
     }
 
     return topologicalSort(useDefChain);
+  }
+
+  void categorizeModuleOperations(ModuleOp moduleOp,
+                                  ModuleOpAnalyser &moduleAnalyser) {
+    for (auto &op : moduleOp.getOps()) {
+      if (isa<emitpy::FileOp>(op)) {
+        continue;
+      }
+      if (isa<emitpy::ImportOp>(op)) {
+        moduleAnalyser.importOps.push_back(&op);
+        continue;
+      }
+      if (op.hasAttr("emitpy.consteval")) {
+        moduleAnalyser.constevalMarkedOps.push_back(&op);
+        continue;
+      }
+      if (auto funcOp = dyn_cast<func::FuncOp>(op)) {
+        if (ttmlir::utils::isConstEvalFunc(funcOp) ||
+            ttmlir::utils::isForwardCPUFunc(funcOp)) {
+          moduleAnalyser.constevalFuncOps.push_back(&op);
+          continue;
+        }
+      }
+      moduleAnalyser.uncategorizedOps.push_back(&op);
+    }
+  }
+
+  void populateFuncOpAnalyser(func::FuncOp funcOp,
+                              FuncOpAnalyser &funcOpAnalyser) {
+    ModuleOp moduleOp = getOperation();
+    llvm::SmallVector<Operation *> constevalOps;
+    unsigned index = 0;
+
+    funcOpAnalyser.funcOp = funcOp;
+    // Search for globalDict and outerDictKey in the function body.
+    // Collect all operations that are explicitly marked with attribute as
+    // consteval.
+    funcOp.walk([&](Operation *op) {
+      funcOpAnalyser.opIndices[op] = index++;
+      if (isa<emitpy::GlobalStatementOp>(op)) {
+        funcOpAnalyser.globalDict = op->getResult(0);
+      }
+      if (auto constantOp = dyn_cast<emitpy::ConstantOp>(op)) {
+        // Look for the constant with a value equal to the function name.
+        auto funcNameAttr = emitpy::OpaqueAttr::get(
+            &getContext(), "\"" + funcOp.getName().str() + "\"");
+        if (constantOp.getValue() == funcNameAttr) {
+          funcOpAnalyser.outerDictKey = constantOp->getResult(0);
+        }
+      }
+      if (op->hasAttr("emitpy.consteval")) {
+        constevalOps.push_back(op);
+      }
+      if (auto callOp = dyn_cast<func::CallOp>(op)) {
+        if (auto calledFunc =
+                moduleOp.lookupSymbol<func::FuncOp>(callOp.getCallee())) {
+          if (ttmlir::utils::isForwardCPUFunc(calledFunc)) {
+            funcOpAnalyser.crossFileCallOps.push_back(callOp);
+          }
+        }
+      }
+    });
+
+    funcOpAnalyser.constevalDefUseChain =
+        getSortedConstevalUseDefChain(constevalOps);
+
+    auto deviceType = emitpy::OpaqueType::get(&getContext(), "ttnn.Device");
+    if (funcOp.getNumArguments() > 0) {
+      auto lastArg = funcOp.getArgument(funcOp.getNumArguments() - 1);
+      if (lastArg.getType() == deviceType) {
+        funcOpAnalyser.deviceArg = lastArg;
+      }
+    }
+  }
+
+  bool hasConstevalLogic(const FuncOpAnalyser &funcOpAnalyser) {
+    return !funcOpAnalyser.constevalDefUseChain.empty();
+  }
+
+  void replaceCallWithCallOpaque(OpBuilder &builder, func::CallOp callOp) {
+    builder.setInsertionPoint(callOp);
+    auto callOpaqueOp = builder.create<emitpy::CallOpaqueOp>(
+        callOp.getLoc(), callOp.getResultTypes(), callOp.getCallee().str(),
+        callOp.getOperands());
+    callOpaqueOp->setDiscardableAttrs(callOp->getDiscardableAttrDictionary());
+    callOp.replaceAllUsesWith(callOpaqueOp);
+    callOp->erase();
+  }
+
+  func::FuncOp
+  createExecuteConstevalFunction(OpBuilder &builder,
+                                 const FuncOpAnalyser &funcOpAnalyser,
+                                 emitpy::FileOp constevalFile) {
+    auto tensorListType =
+        emitpy::OpaqueType::get(&getContext(), "[ttnn.Tensor]");
+    auto deviceType = emitpy::OpaqueType::get(&getContext(), "ttnn.Device");
+    llvm::SmallVector<Type> executeInputTypes = {tensorListType};
+    if (funcOpAnalyser.deviceArg) {
+      executeInputTypes.push_back(deviceType);
+    }
+    std::string funcName = funcOpAnalyser.funcOp.getName().str();
+    std::string executeFuncName = "execute_" + funcName + "_consteval";
+    builder.setInsertionPointToEnd(&constevalFile.getBodyRegion().front());
+    auto executeConstevalFunc = builder.create<func::FuncOp>(
+        funcOpAnalyser.funcOp.getLoc(), executeFuncName,
+        builder.getFunctionType(executeInputTypes, {innerDictType}));
+    executeConstevalFunc.addEntryBlock();
+    return executeConstevalFunc;
+  }
+
+  void
+  populateExecuteConstevalFunctionBody(OpBuilder &builder,
+                                       func::FuncOp executeConstevalFunc,
+                                       const FuncOpAnalyser &funcOpAnalyser) {
+    Block &entryBlock = executeConstevalFunc.getBody().front();
+    FuncOp funcOp = funcOpAnalyser.funcOp;
+    mlir::Value originalDeviceArg = funcOpAnalyser.deviceArg;
+    auto strType = emitpy::OpaqueType::get(&getContext(), "str");
+    auto tensorListType =
+        emitpy::OpaqueType::get(&getContext(), "[ttnn.Tensor]");
+    auto innerDictType =
+        emitpy::DictType::get(&getContext(), strType, tensorListType);
+    // Map original funcOp input to the input of the new
+    // execute function.
+    mlir::IRMapping mapping;
+    mlir::Value originalInput = funcOp.getArgument(0);
+    mapping.map(originalInput, entryBlock.getArgument(0));
+    if (originalDeviceArg) {
+      mapping.map(originalDeviceArg, entryBlock.getArgument(1));
+      executeConstevalFunc.setArgAttr(1, "emitpy.name",
+                                      builder.getStringAttr("device"));
+    }
+
+    // Clone all operations in the consteval use-def chain into the execute
+    // function. Operations that are not explicity marked as consteval
+    // should stay in the original function and be cloned in the execute
+    // function. Operations that are explicitly marked as consteval should
+    // be erased from original function.
+    builder.setInsertionPointToStart(&entryBlock);
+    for (Operation *op : funcOpAnalyser.constevalDefUseChain) {
+      Operation *cloned = builder.clone(*op, mapping);
+      for (unsigned i = 0; i < op->getNumResults(); ++i) {
+        mapping.map(op->getResult(i), cloned->getResult(i));
+      }
+    }
+
+    // Add return operation to the execute function.
+    auto dictResult = builder.create<emitpy::GetValueForDictKeyOp>(
+        funcOp.getLoc(), innerDictType,
+        mapping.lookup(funcOpAnalyser.globalDict),
+        mapping.lookup(funcOpAnalyser.outerDictKey));
+    builder.create<func::ReturnOp>(funcOp.getLoc(), dictResult.getResult());
+  }
+
+  emitpy::CallOpaqueOp createCallAtFunctionStart(
+      OpBuilder &builder, func::FuncOp funcOp, std::string calleeName,
+      llvm::SmallVector<Value> calleeOperands, Type calleeResultType) {
+    builder.setInsertionPointToStart(&funcOp.getFunctionBody().front());
+    builder.create<emitpy::CallOpaqueOp>(funcOp.getLoc(), calleeResultType,
+                                         calleeName, calleeOperands);
   }
 };
 
