@@ -189,8 +189,8 @@ enum EltwiseUnaryCompositeOpType: uint32 {
 }
 
 table ClampScalarOpParams {
-  min: float;
-  max: float;
+  min: double;
+  max: double;
 }
 
 table ClampTensorOpParams {
