@@ -25,6 +25,13 @@ from builder.base.builder_utils import (
 
 
 class BuilderMeta(type):
+    """
+    Metaclass for the Builder class that automatically constructs operation maps.
+    
+    This metaclass registers builder methods, parser methods, and split methods
+    from the Builder class into internal dictionaries for efficient operation lookup.
+    It enables dynamic dispatch of builder operations based on OpView types.
+    """
     def __new__(mcls, name, bases, namespace):
         cls = super().__new__(mcls, name, bases, namespace)
         cls.build_opview_to_builder_map()
@@ -34,6 +41,21 @@ class BuilderMeta(type):
 
 
 class Builder(metaclass=BuilderMeta):
+    """
+    Core builder class for constructing MLIR operations and managing compilation context.
+    
+    The Builder class provides a high-level interface for constructing MLIR IR, managing
+    compilation state, and tracking golden tensors for verification. It supports multiple
+    mesh configurations and maintains mapping between operands and their golden values.
+    
+    Attributes:
+        _ctx (Context): MLIR context for operation creation.
+        _loc (Location): Current location for operation insertion.
+        _meshes (Dict[str, OrderedDict]): Mesh configurations mapping mesh names to dimensions.
+        _goldens (Dict[Operand, GoldenMapTensor]): Mapping from operands to their golden tensor values.
+        _func_ops_generated (Dict): Maps function operations to their ordered inputs and outputs.
+        _bypass_ops (List[str]): List of operation locations to skip during golden comparison.
+    """
     opview_to_builder_map: Dict[OpView, Callable] = {}
     opview_to_parser_map: Dict[OpView, Callable] = {}
     opview_to_split_map: Dict[OpView, Callable] = {}
@@ -50,6 +72,22 @@ class Builder(metaclass=BuilderMeta):
         ] = OrderedDict([("x", 1), ("y", 1)]),
         disable_golden_check: bool = False,
     ):
+        """
+        Initialize a new Builder instance.
+        
+        Args:
+            ctx (Context): MLIR context for creating operations and types.
+            location (Location): Current insertion location in the module.
+            mesh_name (Union[List[str], str]): Name(s) of mesh configuration(s). Default: "mesh".
+            mesh_dict (Union[List[OrderedDict], OrderedDict]): Mesh dimension specifications.
+                Each OrderedDict maps dimension names (e.g., "x", "y") to their size.
+                Default: OrderedDict([("x", 1), ("y", 1)]) for 1x1 mesh.
+            disable_golden_check (bool): Whether to disable golden tensor validation.
+                Default: False (checks enabled).
+        
+        Raises:
+            ValueError: If mesh_name and mesh_dict lengths do not match.
+        """
         self._ctx = ctx
         self._loc = location
         self._global_id = -1
