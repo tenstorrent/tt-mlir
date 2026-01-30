@@ -69,7 +69,7 @@ def EmitPy_DictType : EmitPy_Type<"Dict", "dict"> {
     ```mlir
     !emitpy.dict                    // Untyped dictionary (Any, Any)
     !emitpy.dict<i32, f32>          // Both key and value types specified
-    !emitpy.dict<!emitpy.opaque<"str">, !emitpy.opaque<"ttnn.Tensor">>
+    !emitpy.dict<!emitpy.str, !emitpy.opaque<"ttnn.Tensor">>
     ```
   }];
 
@@ -83,7 +83,12 @@ def EmitPy_DictType : EmitPy_Type<"Dict", "dict"> {
   let hasCustomAssemblyFormat = 1;
 }
 
+def EmitPy_StringType : EmitPy_Type<"String", "str"> {
+  let summary = "EmitPy string type.";
+  let assemblyFormat = "";
+}
+
 // Type constraint that matches any EmitPy dialect type
-def EmitPy_Type : AnyTypeOf<[EmitPy_OpaqueType, EmitPy_ClassType, EmitPy_DictType]>;
+def EmitPy_Type : AnyTypeOf<[EmitPy_OpaqueType, EmitPy_ClassType, EmitPy_DictType, EmitPy_StringType]>;
 
 #endif // TTMLIR_TTMLIR_DIALECT_EMITPY_IR_EMITPYTYPES_TD

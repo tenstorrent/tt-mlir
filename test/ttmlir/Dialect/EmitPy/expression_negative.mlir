@@ -69,9 +69,10 @@ func.func @test_expression_unsupported_op(%arg0: !emitpy.opaque<"int">) -> !emit
   // expected-error @+1 {{contains an unsupported operation}}
   %0 = emitpy.expression(%arg0) : (!emitpy.opaque<"int">) -> !emitpy.opaque<"int"> {
   ^bb0(%a: !emitpy.opaque<"int">):
-    // emitpy.assign doesn't implement PyExpressionInterface
-    %1 = emitpy.assign %a : (!emitpy.opaque<"int">) -> !emitpy.opaque<"int">
-    emitpy.yield %1 : !emitpy.opaque<"int">
+    %result = emitpy.call_opaque "identity"(%a) : (!emitpy.opaque<"int">) -> !emitpy.opaque<"int">
+    // emitpy.assign doesn't implement PyExpressionInterface (it's a statement operation)
+    emitpy.assign %a = %result : (!emitpy.opaque<"int">, !emitpy.opaque<"int">)
+    emitpy.yield %result : !emitpy.opaque<"int">
   }
   return %0 : !emitpy.opaque<"int">
 }
