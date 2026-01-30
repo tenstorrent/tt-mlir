@@ -103,6 +103,38 @@ struct ConstEvalAnalysisResults {
 } // namespace
 
 namespace {
+// Helper to estimate tensor size in bytes from a ranked tensor type.
+// Uses product(shape) * elemSizeBytes; getElementSizeBytes() already reflects
+// tile size when element type is TileType.
+static int64_t getTensorSizeInBytes(mlir::Type type) {
+  auto tensorType = mlir::dyn_cast<mlir::RankedTensorType>(type);
+  if (!tensorType || !tensorType.hasStaticShape()) {
+    return 0;
+  }
+
+  int64_t numElements = 1;
+  for (int64_t dim : tensorType.getShape()) {
+    numElements *= dim;
+  }
+  int64_t elemSizeBytes = static_cast<int64_t>(
+      ttcore::getElementSizeBytes(tensorType.getElementType()));
+  return numElements * elemSizeBytes;
+}
+
+static int64_t estimateSubgraphMemoryUsage(const ConstEvalSubgraph &subgraph) {
+  int64_t totalBytes = 0;
+
+  // Calculate memory for all op results (outputs + intermediates)
+  // This is conservative but safe - assumes all tensors exist at peak
+  for (auto *op : subgraph.ops) {
+    for (auto result : op->getResults()) {
+      totalBytes += getTensorSizeInBytes(result.getType());
+    }
+  }
+
+  return totalBytes;
+}
+
 // Analyzer class to detect const-eval subgraphs in a given FuncOp using
 // a Disjoint Subset Union algorithm.
 class ConstEvalAnalyze {
@@ -461,7 +493,18 @@ private:
       return;
     }
 
-    // Create new functions for each subgraph
+    // Sort subgraphs by estimated memory usage (smallest first).
+    // This helps reduce DRAM fragmentation by executing small functions first,
+    // freeing their memory early, and leaving larger contiguous free blocks
+    // for larger functions that execute later.
+    // Memory estimation includes tile padding (32x32) for accurate DRAM usage.
+    std::sort(subgraphs.begin(), subgraphs.end(),
+              [](const ConstEvalSubgraph &a, const ConstEvalSubgraph &b) {
+                return estimateSubgraphMemoryUsage(a) <
+                       estimateSubgraphMemoryUsage(b);
+              });
+
+    // Create new functions for each subgraph (now in sorted order)
     for (size_t i = 0; i < subgraphs.size(); ++i) {
       auto &subgraph = subgraphs[i];
 
