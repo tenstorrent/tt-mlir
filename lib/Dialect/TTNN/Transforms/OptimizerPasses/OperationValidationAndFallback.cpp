@@ -381,18 +381,16 @@ bool tryFallbacks(Operation *operation,
           const auto &aLayout = a.layouts[i];
           const auto &bLayout = b.layouts[i];
 
-          // Compare layout type first (prefer TILE over ROW_MAJOR for
-          // consistency)
+          // Compare layout type first (RowMajor before Tile based on enum
+          // order)
           if (aLayout.getLayout() != bLayout.getLayout()) {
             return static_cast<int>(aLayout.getLayout()) <
                    static_cast<int>(bLayout.getLayout());
           }
-          // Then data type
           if (aLayout.getDataType() != bLayout.getDataType()) {
             return static_cast<int>(aLayout.getDataType()) <
                    static_cast<int>(bLayout.getDataType());
           }
-          // Then buffer type
           if (aLayout.getBufferType() != bLayout.getBufferType()) {
             return static_cast<int>(aLayout.getBufferType()) <
                    static_cast<int>(bLayout.getBufferType());
@@ -461,7 +459,7 @@ createFallbackTransforms(TTNNLayoutAttr originalLayout,
   struct TTNNLayoutAttrCompare {
     bool operator()(const TTNNLayoutAttr &a, const TTNNLayoutAttr &b) const {
       // Content-based comparison for deterministic ordering across runs
-      // Compare by: Layout -> DataType -> BufferType -> MemLayout
+      // Compare by: Layout -> DataType -> BufferType
       if (a.getLayout() != b.getLayout()) {
         return static_cast<int>(a.getLayout()) <
                static_cast<int>(b.getLayout());
