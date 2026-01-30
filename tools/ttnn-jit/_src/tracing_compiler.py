@@ -92,7 +92,7 @@ class TracingCompiler:
             traceback.print_exc()
             raise e
 
-        return module
+        return module, return_type
 
     def _create_input_types(self, ctx):
         """
