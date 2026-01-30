@@ -7054,6 +7054,74 @@ llvm::Expected<OpConstraints> OpModel<mlir::tt::ttnn::RandOp>::getOpConstraints(
 }
 
 //===----------------------------------------------------------------------===//
+// DropoutOp
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<OpConstraints>
+OpModel<mlir::tt::ttnn::DropoutOp>::getOpConstraints(
+    mlir::tt::ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+    TTNNLayoutAttr inputLayout, llvm::APFloat prob, llvm::APFloat scale,
+    uint32_t seed, bool usePerDeviceSeed, TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  float probVal = prob.convertToFloat();
+  float scaleVal = scale.convertToFloat();
+
+  // Create query closure
+  auto dropoutOpQuery = [=]() {
+    return ::ttnn::graph::query_op_constraints(
+        ::ttnn::experimental::dropout, device, inputSpec, probVal, scaleVal,
+        seed, usePerDeviceSeed);
+  };
+
+  return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
+                                     dropoutOpQuery);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> OpModel<mlir::tt::ttnn::DropoutOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    llvm::APFloat prob, llvm::APFloat scale, uint32_t seed,
+    bool usePerDeviceSeed, TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  float probVal = prob.convertToFloat();
+  float scaleVal = scale.convertToFloat();
+
+  // Create query closure
+  auto dropoutOpQuery = [=]() {
+    return ::ttnn::graph::query_op_runtime(::ttnn::experimental::dropout,
+                                           device, inputSpec, probVal, scaleVal,
+                                           seed, usePerDeviceSeed);
+  };
+
+  return operation::getOpRuntime(dropoutOpQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
 // ConstantOp
 //===----------------------------------------------------------------------===//
 
