@@ -246,3 +246,26 @@ def test_l1_to_l1_change_shard_strategy(
         ttnn_dtype=ttnn_dtype,
         memory_config=output_memory_config,
     )
+
+
+@pytest.mark.xfail(
+    reason="L1 Sharded -> DRAM Interleaved layout transformation fails, see issue #6735",
+)
+def test_dram_output_layout(device):
+    shape = (1024, 1024)
+    max_grid = (7, 7)
+    dtype = torch.float16
+
+    output_memory_config = ttnn.DRAM_MEMORY_CONFIG
+
+    run_op_test(
+        device,
+        shape,
+        max_grid,
+        dtype,
+        op=abs,
+        num_inputs=1,
+        buffer_type=ttnn.BufferType.L1,
+        shard_strategy=ttnn.ShardStrategy.BLOCK,
+        memory_config=output_memory_config,
+    )
