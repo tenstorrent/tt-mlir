@@ -2856,7 +2856,7 @@ TEST_P(OpModelConvTranspose2dParam, ConvTranspose2d) {
       CreateWorkerGrid(), inputShape, inputLayout, weightShape, weightLayout,
       std::nullopt, std::nullopt, in_channels, out_channels, batch_size,
       input_height, input_width, kernel_size, stride, padding, output_padding,
-      dilation, groups, std::nullopt, outputLayout);
+      dilation, groups, std::nullopt, std::nullopt, outputLayout);
   // Manually cast to bool because EXPECT_TRUE requires a const bool operator
   // which llvm::Expected<T> does not have
   EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
@@ -2875,7 +2875,7 @@ TEST_P(OpModelConvTranspose2dParam, ConvTranspose2d) {
       inputShape, inputLayout, weightShape, weightLayout, std::nullopt,
       std::nullopt, in_channels, out_channels, batch_size, input_height,
       input_width, kernel_size, stride, padding, output_padding, dilation,
-      groups, std::nullopt, outputLayout);
+      groups, std::nullopt, std::nullopt, outputLayout);
   // Manually cast to bool because EXPECT_TRUE requires a const bool operator
   // which llvm::Expected<T> does not have
   EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);

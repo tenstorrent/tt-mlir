@@ -804,6 +804,9 @@ createOp(FlatbufferObjectCache &cache, PrepareConvTranspose2dWeightsOp op) {
       ::flatbuffers::Offset<::tt::target::ttnn::DeviceComputeKernelConfig>>
       computeConfig = toFlatbuffer(cache, op.getComputeConfig());
 
+  std::optional<::flatbuffers::Offset<::tt::target::ttnn::Conv2dSliceConfig>>
+      sliceConfig = toFlatbuffer(cache, op.getConv2dSliceConfig());
+
   return ::tt::target::ttnn::CreatePrepareConvTranspose2dWeightsOp(
       *cache.fbb, weightTensor, output, memoryConfig, inputTensorLayout,
       weightsFormat, op.getInChannels(), op.getOutChannels(), op.getBatchSize(),
@@ -811,7 +814,7 @@ createOp(FlatbufferObjectCache &cache, PrepareConvTranspose2dWeightsOp op) {
       dilation, op.getHasBias(), op.getGroups(),
       cache.at<::tt::target::DeviceRef>(device), inputDtype, outputDtype,
       conv2dConfig.value_or(0), computeConfig.value_or(0),
-      op.getMirrorKernel());
+      sliceConfig.value_or(0), op.getMirrorKernel());
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::PrepareConvTranspose2dBiasOp>
@@ -852,13 +855,16 @@ createOp(FlatbufferObjectCache &cache, PrepareConvTranspose2dBiasOp op) {
       ::flatbuffers::Offset<::tt::target::ttnn::DeviceComputeKernelConfig>>
       computeConfig = toFlatbuffer(cache, op.getComputeConfig());
 
+  std::optional<::flatbuffers::Offset<::tt::target::ttnn::Conv2dSliceConfig>>
+      sliceConfig = toFlatbuffer(cache, op.getConv2dSliceConfig());
+
   return ::tt::target::ttnn::CreatePrepareConvTranspose2dBiasOp(
       *cache.fbb, biasTensor, output, memoryConfig, inputTensorLayout,
       op.getInChannels(), op.getOutChannels(), op.getBatchSize(),
       op.getInputHeight(), op.getInputWidth(), kernelSize, stride, padding,
       dilation, op.getGroups(), cache.at<::tt::target::DeviceRef>(device),
       inputDtype, outputDtype, conv2dConfig.value_or(0),
-      computeConfig.value_or(0));
+      computeConfig.value_or(0), sliceConfig.value_or(0));
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::Conv2dOp>
@@ -951,6 +957,9 @@ createOp(FlatbufferObjectCache &cache, ConvTranspose2dOp op) {
       ::flatbuffers::Offset<::tt::target::ttnn::DeviceComputeKernelConfig>>
       computeConfig = toFlatbuffer(cache, op.getComputeConfig());
 
+  std::optional<::flatbuffers::Offset<::tt::target::ttnn::Conv2dSliceConfig>>
+      sliceConfig = toFlatbuffer(cache, op.getConv2dSliceConfig());
+
   auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
 
   return ::tt::target::ttnn::CreateConvTranspose2dOp(
@@ -959,7 +968,7 @@ createOp(FlatbufferObjectCache &cache, ConvTranspose2dOp op) {
       op.getOutChannels(), op.getBatchSize(), op.getInputHeight(),
       op.getInputWidth(), kernelSize, stride, padding, outputPadding, dilation,
       op.getGroups(), outputDtype, conv2dConfig.value_or(0),
-      computeConfig.value_or(0), memoryConfig);
+      computeConfig.value_or(0), memoryConfig, sliceConfig.value_or(0));
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::Conv3dOp>
