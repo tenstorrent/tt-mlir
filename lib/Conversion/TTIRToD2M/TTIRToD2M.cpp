@@ -1581,10 +1581,10 @@ class D2MToLayoutOpRewriter : public D2MNamedRewriterCommon,
 public:
   D2MToLayoutOpRewriter(const TypeConverter &typeConverter,
                         MLIRContext *context, bool ttnnMode)
-      // default values for memory spaces and collapseTensors. Only ttnnMode is
-      // used.
+      // default values for memory spaces, collapseTensors,
+      // enableMulticastInference. Only ttnnMode is used.
       : D2MNamedRewriterCommon(ttcore::MemorySpace::DeviceDRAM,
-                               ttcore::MemorySpace::DeviceDRAM, ttnnMode,
+                               ttcore::MemorySpace::DeviceDRAM, ttnnMode, false,
                                false),
         OpConversionPattern<ttir::ToLayoutOp>(typeConverter, context) {}
 
@@ -1595,10 +1595,8 @@ public:
   matchAndRewrite(ttir::ToLayoutOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     auto outType = mlir::cast<RankedTensorType>(op.getOutput().getType());
-    bool outputIsTTNN =
-        mlir::isa_and_nonnull<ttnn::TTNNLayoutAttr>(outType.getEncoding());
 
-    if (!outputIsTTNN) {
+    if (!ttnnMode) {
       // use simple conversion
       Value empty = rewriter.create<d2m::EmptyOp>(
           op.getLoc(), outType.getShape(), outType.getElementType(),
@@ -1608,6 +1606,10 @@ public:
       rewriter.replaceOp(op, newOp.getResult(0));
       return success();
     }
+
+    bool outputIsTTNN =
+        mlir::isa_and_nonnull<ttnn::TTNNLayoutAttr>(outType.getEncoding());
+    assert(outputIsTTNN);
 
     // TTNN output handling.
     // Convert input to Metal layout if needed.
@@ -2025,7 +2027,7 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
 
 
   // ToLayout 1:1 conversion.
-  patterns.add<D2MToLayoutOpRewriter>(typeConverter, ctx, defaultInputMemSpace, defaultOutputMemSpace, ttnnMode, collapseTensors, enableMulticastInference);
+  patterns.add<D2MToLayoutOpRewriter>(typeConverter, ctx, ttnnMode);
 
   // Creation ops 1:1 conversion.
   patterns.add<D2MEmptyOpRewriter, D2MFullOpRewriter>(typeConverter, ctx);
