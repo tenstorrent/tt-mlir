@@ -143,6 +143,13 @@ class Builder(metaclass=BuilderMeta):
 
     @classmethod
     def build_opview_to_builder_map(cls):
+        """
+        Build mapping from OpView types to their corresponding builder methods.
+        
+        This class method scans all attributes of the Builder class and identifies
+        methods decorated with @tag. These methods are then registered in the
+        opview_to_builder_map dictionary for efficient operation dispatch.
+        """
         for attr_name in dir(cls):
             attr = getattr(cls, attr_name)
             func = attr
@@ -152,6 +159,12 @@ class Builder(metaclass=BuilderMeta):
 
     @classmethod
     def build_opview_to_parser_map(cls):
+        """
+        Build mapping from OpView types to their corresponding parser methods.
+        
+        Identifies and registers all methods decorated with @parse into
+        opview_to_parser_map for parsing operations from MLIR text format.
+        """
         for attr_name in dir(cls):
             attr = getattr(cls, attr_name)
             func = attr
@@ -161,6 +174,12 @@ class Builder(metaclass=BuilderMeta):
 
     @classmethod
     def build_opview_to_split(cls, map):
+        """
+        Build mapping from OpView types to their corresponding split methods.
+        
+        Registers all methods decorated with @split into opview_to_split_map
+        for decomposing complex operations into simpler ones when needed.
+        """
         for attr_name in dir(cls):
             attr = getattr(cls, attr_name)
             func = attr
@@ -169,9 +188,27 @@ class Builder(metaclass=BuilderMeta):
                 cls.opview_to_split_map[func._split] = attr
 
     def get_opview_from_method(self, method: func) -> OpView:
+        """
+        Extract the OpView tag from a builder method.
+        
+        Args:
+            method (func): The builder method to inspect.
+        
+        Returns:
+            OpView: The OpView type associated with the method, or None if not tagged.
+        """
         return getattr(method, "_tag", None)
 
     def get_opview_from_parser(self, parser: func) -> OpView:
+        """
+        Extract the OpView type that a parser method handles.
+        
+        Args:
+            parser (func): The parser method to inspect.
+        
+        Returns:
+            OpView: The OpView type the parser can handle, or None if not registered.
+        """
         return getattr(parser, "_parse", None)
 
     def get_opview_from_split(self, split: func) -> OpView:
