@@ -3316,6 +3316,77 @@ mlir::tt::ttnn::ReduceScatterOp::fold(FoldAdaptor adaptor) {
   return success();
 }
 
+static mlir::OpFoldResult foldIdentityPermute(mlir::tt::ttnn::PermuteOp op) {
+  llvm::ArrayRef<int64_t> perm = op.getPermutation();
+
+  bool isIdentity = true;
+  for (size_t i = 0; i < perm.size(); ++i) {
+    if (perm[i] != static_cast<int64_t>(i)) {
+      isIdentity = false;
+      break;
+    }
+  }
+
+  if (isIdentity) {
+    return op.getInput();
+  }
+  return nullptr;
+}
+
+mlir::OpFoldResult foldConsecutivePermutes(mlir::tt::ttnn::PermuteOp op) {
+  auto permuteOperand =
+      op.getInput().getDefiningOp<mlir::tt::ttnn::PermuteOp>();
+  if (!permuteOperand) {
+    return nullptr;
+  }
+
+  if (!permuteOperand->hasOneUse()) {
+    return nullptr;
+  }
+
+  llvm::ArrayRef<int64_t> firstPerm = permuteOperand.getPermutation();
+  llvm::ArrayRef<int64_t> secondPerm = op.getPermutation();
+
+  llvm::SmallVector<int64_t> combinedPerm(firstPerm.size());
+  for (size_t i = 0; i < secondPerm.size(); ++i) {
+    combinedPerm[i] = firstPerm[secondPerm[i]];
+  }
+
+  mlir::Value newInput = permuteOperand.getInput();
+  op->setOperand(0, newInput);
+
+  op.setPermutationAttr(
+      mlir::DenseI64ArrayAttr::get(op.getContext(), combinedPerm));
+
+  auto originalType =
+      mlir::cast<mlir::RankedTensorType>(op.getResult().getType());
+  auto inputType = mlir::cast<mlir::RankedTensorType>(newInput.getType());
+
+  llvm::SmallVector<int64_t> newShape;
+  newShape.reserve(combinedPerm.size());
+  for (int64_t idx : combinedPerm) {
+    newShape.push_back(inputType.getDimSize(idx));
+  }
+
+  auto newResultType = mlir::RankedTensorType::get(
+      newShape, originalType.getElementType(), originalType.getEncoding());
+
+  op.getResult().setType(newResultType);
+
+  return op.getResult();
+}
+
+// Permute folder
+mlir::OpFoldResult mlir::tt::ttnn::PermuteOp::fold(FoldAdaptor adaptor) {
+  if (auto result = foldIdentityPermute(*this)) {
+    return result;
+  }
+  if (auto result = foldConsecutivePermutes(*this)) {
+    return result;
+  }
+  return nullptr;
+}
+
 //===----------------------------------------------------------------------===//
 // UpsampleOp
 //===----------------------------------------------------------------------===//
