@@ -27,8 +27,17 @@ inline constexpr llvm::StringLiteral kCompAttrsAttr("reoutline.comp_attrs");
 inline constexpr llvm::StringLiteral kDecompositionAttr("decomposition");
 
 inline const llvm::SmallVector<llvm::SmallVector<int64_t, 2>, 7>
-    SupportedMeshes = {
-        {{1, 1}, {1, 2}, {1, 4}, {1, 8}, {2, 4}, {1, 32}, {8, 4}}};
+    SupportedMeshes = {{{1, 1},
+                        {1, 2},
+                        {1, 4},
+                        {1, 8},
+                        {2, 4},
+                        {1, 32},
+                        {8, 4},
+                        {8, 8},
+                        {8, 16},
+                        {8, 32},
+                        {16, 16}}};
 
 // Check if the meshMap is valid.
 // todo: https://github.com/tenstorrent/tt-mlir/issues/4668
