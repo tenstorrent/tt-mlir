@@ -11686,6 +11686,35 @@ class TTIRBuilder(Builder):
             unit_attrs=unit_attrs,
         )
 
+    def global_avg_pool2d(
+        self,
+        in0: Operand,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        """
+        Creates ``ttir.global_avg_pool2d``.
+        *Global average pooling operation.*
+
+        Applies a global average pooling over an input signal composed of several input planes.
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor
+        unit_attrs : *Optional[List[str]]*
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            Output tensor after global average pooling
+        """
+        return self._op_proxy(
+            ttir.GlobalAvgPool2dOp,
+            [in0],
+            unit_attrs=unit_attrs,
+        )
+
     def select(
         self,
         in0: Operand,
@@ -11922,15 +11951,18 @@ class TTIRBuilder(Builder):
         self,
         in0: Operand,
         in1: Operand,
-        bias: Optional[Operand] = None,
+        transpose_a: bool = False,
+        transpose_b: bool = False,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpView:
-        inputs = [in0, in1]
-        if bias:
-            inputs.append(bias)
+        kwargs = {
+            "transpose_a": transpose_a,
+            "transpose_b": transpose_b,
+        }
         return self._op_proxy(
             ttir.MatmulOp,
-            inputs,
+            [in0, in1],
+            ttir_kwargs=kwargs,
             unit_attrs=unit_attrs,
         )
 

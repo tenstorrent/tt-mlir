@@ -725,6 +725,84 @@ public:
 };
 } // namespace
 
+// MaxPool2dWithIndicesOp conversion pattern
+//
+namespace {
+class MaxPool2dWithIndicesOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::MaxPool2dWithIndicesOp> {
+
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::MaxPool2dWithIndicesOp>::
+      TTNNToEmitPyBaseOpConversionPattern;
+
+  // Override convertOpName to return "ttnn.max_pool2d" instead of
+  // "ttnn.max_pool2d_with_indices"
+  std::string convertOpName(mlir::tt::ttnn::MaxPool2dWithIndicesOp op) const {
+    return "ttnn.max_pool2d";
+  }
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::MaxPool2dWithIndicesOp maxPool2dWithIndicesOp,
+                  OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::MaxPool2dWithIndicesOp>
+        emitter(maxPool2dWithIndicesOp, adaptor, rewriter,
+                this->isGoldenModeEnabled());
+
+    SmallVector<int32_t> padding;
+    if (maxPool2dWithIndicesOp.getPadding().size() == 2) {
+      padding.push_back(
+          static_cast<uint32_t>(maxPool2dWithIndicesOp.getPadding()[0]));
+      padding.push_back(
+          static_cast<uint32_t>(maxPool2dWithIndicesOp.getPadding()[1]));
+    } else {
+      padding.push_back(
+          static_cast<uint32_t>(maxPool2dWithIndicesOp.getPadding()[0]));
+      padding.push_back(
+          static_cast<uint32_t>(maxPool2dWithIndicesOp.getPadding()[2]));
+      padding.push_back(
+          static_cast<uint32_t>(maxPool2dWithIndicesOp.getPadding()[1]));
+      padding.push_back(
+          static_cast<uint32_t>(maxPool2dWithIndicesOp.getPadding()[3]));
+    }
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(maxPool2dWithIndicesOp.getInput()),
+        emitter.emit(maxPool2dWithIndicesOp.getBatchSize()),
+        emitter.emit(maxPool2dWithIndicesOp.getInputHeight()),
+        emitter.emit(maxPool2dWithIndicesOp.getInputWidth()),
+        emitter.emit(maxPool2dWithIndicesOp.getChannels()),
+        emitter.template emit<std::vector<uint32_t>>(
+            maxPool2dWithIndicesOp.getKernelSizeAttr()),
+        emitter.template emit<std::vector<uint32_t>>(
+            maxPool2dWithIndicesOp.getStrideAttr()),
+        emitter.template emit<
+            std::variant<std::array<uint32_t, 2>, std::array<uint32_t, 4>>>(
+            rewriter.getI32ArrayAttr(padding)),
+        emitter.template emit<std::vector<uint32_t>>(
+            maxPool2dWithIndicesOp.getDilationAttr()),
+        emitter.emit(maxPool2dWithIndicesOp.getCeilMode(), "ceil_mode"),
+        emitter.emit(
+            emitter.getMemoryConfig(maxPool2dWithIndicesOp.getResult()),
+            "memory_config"),
+        emitter.emit(maxPool2dWithIndicesOp.getAppliedShardScheme(),
+                     "applied_shard_scheme"),
+        emitter.emit(maxPool2dWithIndicesOp.getReallocateHaloOutput(),
+                     "reallocate_halo_output"),
+        // Add return_indices=True parameter to match the runtime implementation
+        emitter.emit(true, "return_indices"),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // Upsample op conversion pattern
 //
 namespace {
@@ -3880,6 +3958,7 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   patterns.add<AvgPool2dOpConversionPattern,
                GlobalAvgPool2dOpConversionPattern,
                MaxPool2dOpConversionPattern,
+               MaxPool2dWithIndicesOpConversionPattern,
                UpsampleOpConversionPattern
               >(typeConverter, ctx, enableGoldenMode);
   // clang-format on
