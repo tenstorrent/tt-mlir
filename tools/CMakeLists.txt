@@ -6,7 +6,6 @@ endif()
 if(TTMLIR_ENABLE_BINDINGS_PYTHON AND MLIR_ENABLE_BINDINGS_PYTHON)
   add_subdirectory(builder)
   add_subdirectory(golden)
-  add_subdirectory(profiler)
 
   if (TTMLIR_ENABLE_PYKERNEL)
     add_subdirectory(pykernel)
@@ -34,4 +33,8 @@ endif()
 # TTMLIR_ENABLE_RUNTIME is needed because tt-metal doesn't build without it => can't install TT-NN dependencies
 if (TTMLIR_ENABLE_ALCHEMIST AND TTMLIR_ENABLE_RUNTIME)
   add_subdirectory(tt-alchemist)
+endif()
+
+if (TTMLIR_ENABLE_RUNTIME)
+  add_subdirectory(tt_profiler)
 endif()

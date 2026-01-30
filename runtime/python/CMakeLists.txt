@@ -25,6 +25,7 @@ set(TTMLIR_RUNTIME_PYTHON_SRCS
   __init__.cpp
   runtime/runtime.cpp
   binary/binary.cpp
+  profiler/profiler.cpp
 )
 
 if (TTMLIR_ENABLE_RUNTIME_TESTS)
@@ -56,12 +57,20 @@ else()
   )
 endif()
 
-target_include_directories(_ttmlir_runtime
-  PRIVATE
+set(TTMLIR_RUNTIME_PYTHON_INCLUDES
   ${CMAKE_CURRENT_SOURCE_DIR}
   ${PROJECT_SOURCE_DIR}/runtime/include
   ${PROJECT_BINARY_DIR}/runtime/include
   ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common
+)
+
+if (TT_RUNTIME_ENABLE_PERF_TRACE)
+  list(APPEND TTMLIR_RUNTIME_PYTHON_INCLUDES ${PROJECT_SOURCE_DIR}/runtime/profiler)
+endif()
+
+target_include_directories(_ttmlir_runtime
+  PRIVATE
+  ${TTMLIR_RUNTIME_PYTHON_INCLUDES}
 )
 
 target_link_libraries(_ttmlir_runtime
@@ -69,6 +78,14 @@ target_link_libraries(_ttmlir_runtime
   TTMLIRRuntime
 )
 add_dependencies(_ttmlir_runtime TTMLIRRuntime)
+
+if (TT_RUNTIME_ENABLE_PERF_TRACE)
+  target_link_libraries(_ttmlir_runtime
+    PRIVATE
+    TTMLIRProfiler
+  )
+  add_dependencies(_ttmlir_runtime TTMLIRProfiler)
+endif()
 
 if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   target_compile_options(nanobind-static PRIVATE

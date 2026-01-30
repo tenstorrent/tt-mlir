@@ -42,6 +42,10 @@ endif()
 
 add_subdirectory(bin)
 
+if (TT_RUNTIME_ENABLE_PERF_TRACE)
+  add_subdirectory(profiler)
+endif()
+
 # Add coverage_config to all targets in runtime
 if(CODE_COVERAGE AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
   foreach(target IN ITEMS TTRuntimeTTNNTestLib)
