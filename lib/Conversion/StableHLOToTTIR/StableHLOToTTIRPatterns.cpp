@@ -6507,6 +6507,68 @@ public:
 };
 } // namespace
 
+namespace {
+// Patter to convert mhlo.topk to ttir.top_k
+class StableHLOTopKOpMHLOConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
+  using OpConversionPattern<mlir::stablehlo::CustomCallOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CustomCallOp srcOp,
+                  mlir::stablehlo::CustomCallOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    StringAttr funcName = adaptor.getCallTargetNameAttr();
+    if (funcName != "mhlo.topk") {
+      return failure();
+    }
+
+    SmallVector<Type> resultTypes;
+    if (failed(this->getTypeConverter()->convertTypes(srcOp->getResultTypes(),
+                                                      resultTypes))) {
+      return failure();
+    }
+    auto input = adaptor.getOperands()[0];
+    IntegerAttr dimAttr = IntegerAttr::get(rewriter.getIntegerType(32), -1);
+    auto sortedAttr = BoolAttr::get(rewriter.getContext(), true);
+
+    auto dictAttr = mlir::dyn_cast_or_null<mlir::DictionaryAttr>(
+        srcOp->getDiscardableAttr("mhlo.attributes"));
+    if (!dictAttr) {
+      return rewriter.notifyMatchFailure(srcOp,
+                                         "Missing mhlo.attributes dictionary");
+    }
+
+    auto kAttr = dictAttr.getAs<IntegerAttr>("k");
+    if (!kAttr) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Missing k attribute in mhlo.attributes");
+    }
+    APInt kValueI64 = kAttr.getValue();
+    // Check if value fits in i32
+    if (!kValueI64.isIntN(32)) {
+      return rewriter.notifyMatchFailure(srcOp,
+                                         "k value is too large for i32: " +
+                                             Twine(kValueI64.getSExtValue()));
+    }
+
+    // Convert i64 to i32
+    int32_t kValueI32 = static_cast<int32_t>(kValueI64.getSExtValue());
+    kAttr = IntegerAttr::get(rewriter.getIntegerType(32), kValueI32);
+
+    auto largestAttr = dictAttr.getAs<BoolAttr>("largest");
+    if (!largestAttr) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Missing largest attribute in mhlo.attributes");
+    }
+
+    rewriter.replaceOpWithNewOp<ttir::TopKOp>(srcOp, resultTypes, input, kAttr,
+                                              dimAttr, largestAttr, sortedAttr);
+    return success();
+  }
+};
+} // namespace
+
 static void
 addElementwiseUnaryOpsConversionPatterns(MLIRContext *ctx,
                                          RewritePatternSet &patterns,
@@ -6593,6 +6655,7 @@ static void addReduceOpsConversionPatterns(MLIRContext *ctx,
                                            RewritePatternSet &patterns,
                                            TypeConverter &typeConverter) {
   patterns.add<StableHLOToTTIRReduceOpConversionPattern>(typeConverter, ctx);
+  patterns.add<StableHLOTopKOpMHLOConversionPattern>(typeConverter, ctx);
 }
 
 static void
