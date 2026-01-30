@@ -64,3 +64,9 @@ jobs:
       shell: bash
       run: |
         echo "device timeout, potential hang detected, the device is unrecoverable"
+
+    - name: Collect data
+      uses: ./.github/workflows/workflow-run-collect-data.yml
+      with:
+        run_id: ${{ github.run_id }}
+        run_attempt: ${{ github.run_attempt }}

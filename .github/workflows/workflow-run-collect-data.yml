@@ -1,16 +1,14 @@
 name: "[internal] Collect workflow data"
-run-name: "Collect data for run_id ${{ github.event.workflow_run.id }} attempt ${{ github.event.workflow_run.run_attempt }}"
 
 on:
-  workflow_run:
-    workflows: # List workflow that we want to collect data for
-      - "On PR"
-      - "On push"
-      - "Nightly run"
-      - "Run Perf Benchmarks"
-    types:
-      - completed
-  workflow_dispatch:
+  workflow_call:
+    inputs:
+      run_id:
+        type: string
+        required: true
+      run_attempt:
+        type: string
+        required: true
 
 jobs:
   produce-cicd-data:
@@ -23,8 +21,8 @@ jobs:
         if: ${{ github.event_name == 'workflow_run' }}
         with:
           repository: ${{ github.repository }}
-          run_id: ${{ github.event.workflow_run.id }}
-          run_attempt: ${{ github.event.workflow_run.run_attempt }}
+          run_id: ${{ inputs.run_id }}
+          run_attempt: ${{ inputs.run_attempt }}
           sftp_host: ${{ secrets.SFTP_CICD_WRITER_HOSTNAME }}
           sftp_user: ${{ secrets.SFTP_CICD_WRITER_USERNAME }}
           sftp_optest_host: ${{ secrets.SFTP_OP_TEST_WRITER_HOSTNAME }}
