@@ -259,9 +259,9 @@ public:
         TT_assertv(castOp,
                    "Expected TTNNMetalLayoutCastOp producing view input.");
         return {castOp.getOperand(), operand};
-      } if (auto streamLayoutOp =
-                     mlir::dyn_cast_if_present<d2m::StreamLayoutOp>(
-                         viewOp.getInput().getDefiningOp())) {
+      }
+      if (auto streamLayoutOp = mlir::dyn_cast_if_present<d2m::StreamLayoutOp>(
+              viewOp.getInput().getDefiningOp())) {
         auto innerCastOp =
             mlir::dyn_cast_if_present<ttir::TTNNMetalLayoutCastOp>(
                 streamLayoutOp.getInput().getDefiningOp());
