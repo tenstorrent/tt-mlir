@@ -102,14 +102,14 @@ private:
       }
     }
 
-    TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+    TTMLIR_DEBUG(ttmlir::LogComponent::D2MFusion,
                  "ElementwiseFusionAnalysis found {} valid fusion groups",
                  fusionGroups.size());
     for (const auto &group : fusionGroups) {
-      TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+      TTMLIR_DEBUG(ttmlir::LogComponent::D2MFusion,
                    "  Fusion group with {} ops", group.size());
       for ([[maybe_unused]] Operation *op : group) {
-        TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer, "    {} at {}",
+        TTMLIR_DEBUG(ttmlir::LogComponent::D2MFusion, "    {} at {}",
                      op->getName(), op->getLoc());
       }
     }
@@ -214,7 +214,7 @@ private:
     Operation *exitOp = fusionGroup.back();
     llvm::SmallVector<Value> outputs(exitOp->getResults());
     if (outputs.empty()) {
-      TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+      TTMLIR_DEBUG(ttmlir::LogComponent::D2MFusion,
                    "Fusion group {} has no external outputs", groupIdx);
     }
 
