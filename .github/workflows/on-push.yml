@@ -1,78 +1,38 @@
-name: On push
+name: "[internal] Collect workflow data"
+run-name: "Collect data for run_id ${{ github.event.workflow_run.id }} attempt ${{ github.event.workflow_run.run_attempt }}"
 
 on:
+  workflow_run:
+    workflows: # List workflow that we want to collect data for
+      - "On PR"
+      - "On push"
+      - "Nightly run"
+      - "Run Perf Benchmarks"
+    types:
+      - completed
   workflow_dispatch:
-  push:
-    branches: [ "main" ]
-
-permissions:
-  checks: write
-  packages: write
-  contents: read
-  pages: write
-  id-token: write
+    inputs:
+      run_id:
+        type: string
+        required: true
+      run_attempt:
+        type: string
+        required: true
 
 jobs:
-  pre-commit:
-    uses: ./.github/workflows/call-pre-commit.yml
-    secrets: inherit
-  build-image:
-    uses: ./.github/workflows/call-build-docker.yml
-    secrets: inherit
-    with:
-      dockbuild: "all"
-  prepare-run:
-    uses: ./.github/workflows/call-prepare-run.yml
-    with:
-      builder_build: true
-    secrets: inherit
-  release-build:
-    needs: [ prepare-run, build-image ]
-    if: needs.prepare-run.outputs.skip_build != 'true'
-    uses: ./.github/workflows/call-build-release.yml
-    secrets: inherit
-    with:
-      docker_image: ${{ needs.build-image.outputs.docker-image }}
-      runner: ${{ needs.prepare-run.outputs.runner }}
-      sh_builder: ${{ fromJson(needs.prepare-run.outputs.sh_builder) }}
-      component_matrix: ${{ needs.prepare-run.outputs.build_matrix }}
-  debug-build:
-    needs: [ prepare-run, build-image ]
-    if: needs.prepare-run.outputs.skip_build != 'true'
-    uses: ./.github/workflows/call-build-debug.yml
-    secrets: inherit
-    with:
-      docker-image: ${{ needs.build-image.outputs.docker-image }}
-  test:
-    needs: [ prepare-run, build-image, release-build ]
-    if: needs.prepare-run.outputs.skip_build != 'true'
-    uses: ./.github/workflows/call-test.yml
-    secrets: inherit
-    with:
-      docker_image: ${{ needs.build-image.outputs.docker-image }}
-      test_matrix: ${{ needs.prepare-run.outputs.test_matrix }}
-      timeout: ${{ fromJson(needs.prepare-run.outputs.test_timeout) }}
-  save-durations:
-    needs: test
+  produce-cicd-data:
     runs-on: ubuntu-latest
-    if: success() && github.ref == 'refs/heads/main'
+    env:
+        GH_TOKEN: ${{ github.token }}
     steps:
-      - name: Set test durations
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
-        run: |
-          echo "This is main branch, getting test durations"
-          rm -rf _test_durations_d
-          rm -rf _test_durations
-          gh run download ${{ github.run_id }} --repo tenstorrent/tt-mlir --pattern "test-durations*" --dir _test_durations_d
-          find _test_durations_d -name "_test_duration" -exec cat {} + > _test_durations
-          gh variable set test_durations --body "$(cat _test_durations)" --repo tenstorrent/tt-mlir
-          rm -rf _test_durations*
-  docs:
-    if: github.ref == 'refs/heads/main'
-    needs: build-image
-    uses: ./.github/workflows/call-build-docs.yml
-    secrets: inherit
-    with:
-      docker-image: ${{ needs.build-image.outputs.docker-image }}
+      - name: Collect CI/CD data
+        uses: vvukomanTT/tt-github-actions/.github/actions/collect_data@vvukoman/add-triage-tag-to-failure-signature
+        with:
+          repository: ${{ github.repository }}
+          run_id: ${{ inputs.run_id }}
+          run_attempt: ${{ inputs.run_attempt }}
+          sftp_host: ${{ secrets.SFTP_CICD_WRITER_HOSTNAME }}
+          sftp_user: ${{ secrets.SFTP_CICD_WRITER_USERNAME }}
+          sftp_optest_host: ${{ secrets.SFTP_OP_TEST_WRITER_HOSTNAME }}
+          sftp_optest_user: ${{ secrets.SFTP_OP_TEST_WRITER_USERNAME }}
+          ssh-private-key: ${{ secrets.SFTP_CICD_WRITER_KEY }}
