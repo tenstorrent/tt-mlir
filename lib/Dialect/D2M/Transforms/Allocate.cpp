@@ -707,26 +707,12 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
           "\tadding memref value ctx: root {}, memref type {}, has stream: {}",
           asOperand(operandCtx.root), memrefType, operandCtx.hasStream);
 
-      Value operandValue = operandCtx.operand->get();
       const bool isIgnoredOutput =
           operandCtx.isOutput && !allowL1OutputSpilling;
 
       if (isIgnoredOutput) {
         // For now, disabled `allow-l1-output-spilling` also means
         // "don't insert streams but allow them in the incoming IR".
-      } else {
-        if (!operandCtx.hasStream) {
-          // Generics in "explicit datamovement" form manage their own
-          // streams and it is an error for the incoming IR not to
-          // have them.
-          TT_assertv(!genericCtx.isExplicitDatamovement,
-                     "[allow-l1-output-spilling: {}] {} operand '{}' of a "
-                     "generic op in explicit "
-                     "datamovement form must have a stream",
-                     allowL1OutputSpilling,
-                     (operandCtx.isOutput ? "output" : "input"),
-                     asOperand(operandValue));
-        }
       }
 
       MemrefValueContext &memrefCtx = addMemrefValueContext(
@@ -1433,7 +1419,11 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
   /// information
   static bool inferStreamRequirement(d2m::GenericOp genericOp,
                                      uint32_t operandIndex) {
-    TT_debug(!genericOp.isExplicitDatamovementForm());
+    // Explicit datamovement ops should allocate their own streams, if they need
+    // them.
+    if (genericOp.isExplicitDatamovementForm()) {
+      return false;
+    }
 
     const AffineMap indexingMap = genericOp.getIndexingMap(operandIndex);
     const auto broadcastDims = indexingMap.getBroadcastDims();

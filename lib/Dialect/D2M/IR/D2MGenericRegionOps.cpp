@@ -308,29 +308,40 @@ void DMAWriteOp::getEffects(
           "operands directly");
     }
 
-    // Verify mcast dimensions are parallel iterator type
-    if (!mcastDimIndices.empty()) {
-      AffineMap indexingMap = genericOp.getIndexingMap(*operandIndex);
-      ArrayAttr iteratorTypes = genericOp.getIteratorTypes();
+    // Forbid high-level mcast form in explicit datamovement form
+    if (genericOp.isExplicitDatamovementForm() && !getMcastDims().empty()) {
+      return emitOpError(
+          "high-level multicast form (mcast dims) is not allowed in explicit "
+          "datamovement form; use low-level multicast (mcore/mshape) instead");
+    }
 
-      for (int64_t gridDim : mcastDimIndices) {
-        if (gridDim < 0 ||
-            gridDim >= static_cast<int64_t>(indexingMap.getNumResults())) {
-          return emitOpError("mcast dimension index ")
-                 << gridDim << " is out of bounds for grid rank "
-                 << indexingMap.getNumResults();
-        }
+    // Skip checks that rely on indexing maps and iterator types when in
+    // explicit datamovement form
+    if (!genericOp.isExplicitDatamovementForm()) {
+      // Verify mcast dimensions are parallel iterator type
+      if (!mcastDimIndices.empty()) {
+        AffineMap indexingMap = genericOp.getIndexingMap(*operandIndex);
+        ArrayAttr iteratorTypes = genericOp.getIteratorTypes();
 
-        AffineExpr expr = indexingMap.getResult(gridDim);
-        if (auto dimExpr = mlir::dyn_cast<AffineDimExpr>(expr)) {
-          int64_t iterDimPos = dimExpr.getPosition();
-          auto iterType =
-              mlir::cast<ttcore::IteratorTypeAttr>(iteratorTypes[iterDimPos]);
-          if (iterType.getValue() != ttcore::IteratorType::Parallel) {
+        for (int64_t gridDim : mcastDimIndices) {
+          if (gridDim < 0 ||
+              gridDim >= static_cast<int64_t>(indexingMap.getNumResults())) {
             return emitOpError("mcast dimension index ")
-                   << gridDim
-                   << " must correspond to a parallel iterator type, but "
-                      "found reduction";
+                   << gridDim << " is out of bounds for grid rank "
+                   << indexingMap.getNumResults();
+          }
+
+          AffineExpr expr = indexingMap.getResult(gridDim);
+          if (auto dimExpr = mlir::dyn_cast<AffineDimExpr>(expr)) {
+            int64_t iterDimPos = dimExpr.getPosition();
+            auto iterType =
+                mlir::cast<ttcore::IteratorTypeAttr>(iteratorTypes[iterDimPos]);
+            if (iterType.getValue() != ttcore::IteratorType::Parallel) {
+              return emitOpError("mcast dimension index ")
+                     << gridDim
+                     << " must correspond to a parallel iterator type, but "
+                        "found reduction";
+            }
           }
         }
       }
