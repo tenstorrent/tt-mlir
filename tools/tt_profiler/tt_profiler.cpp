@@ -26,6 +26,8 @@ public:
     std::string getAddress();
     int getPort();
     std::string getCaptureReleaseCommand();
+    std::string getCSVExportTimesCommand();
+    std::string getCSVExportDataCommand();
 
     std::string setOutputDirectory(const std::string& outputDirectory);
     std::string setAddress(const std::string& address);
@@ -68,10 +70,26 @@ std::string ProfilerManager::getCaptureReleaseCommand() {
   return "/code/jan-2/tt-mlir/build/python_packages/tt_profiler/capture-release -o " + outputPath + " -a " + m_address + " -p " + std::to_string(m_port) + " -f";
 }
 
+std::string ProfilerManager::getCSVExportTimesCommand() {
+  std::string tracyFilePath = m_outputDirectory + "/" + tracyOutputFileName;
+  std::string tracyOpsTimesFilePath = m_outputDirectory + "/" + tracyOpsTimeFileName;
+
+  std::string childCalls = "CompileProgram,HWCommandQueue_write_buffer";
+  return "/code/jan-2/tt-mlir/build/python_packages/tt_profiler/csvexport-release -u -p TT_DNN -x " + childCalls + " " + tracyFilePath;
+}
+
+std::string ProfilerManager::getCSVExportDataCommand() {
+  std::string tracyFilePath = m_outputDirectory + "/" + tracyOutputFileName;
+  std::string tracyOpsDataFilePath = m_outputDirectory + "/" + tracyOpsDataFileName;
+
+  return "/code/jan-2/tt-mlir/build/python_packages/tt_profiler/csvexport-release -m -s \";\" " + tracyFilePath;
+}
+
 std::string ProfilerManager::setOutputDirectory(const std::string& outputDirectory) {
   m_outputDirectory = outputDirectory;
   return m_outputDirectory;
 }
+
 
 std::string ProfilerManager::setAddress(const std::string& address) {
   m_address = address;
@@ -87,13 +105,13 @@ class ProcessManager {
 public:
     static ProcessManager& instance();
 
-    pid_t start(const std::string& command);
+    void start(const std::string& command);
     void stop();
+    void execute(const std::string& command);
     pid_t pid() const;
 
 private:
     ProcessManager() = default;
-    ~ProcessManager();
 
     ProcessManager(const ProcessManager&) = delete;
     ProcessManager& operator=(const ProcessManager&) = delete;
@@ -106,22 +124,27 @@ ProcessManager& ProcessManager::instance() {
   return instance;
 }
 
-pid_t ProcessManager::start(const std::string& command) {
+void ProcessManager::start(const std::string& command) {
+  if (m_pid > 0) {
+    throw std::runtime_error("Process already running with PID: " + std::to_string(m_pid));
+  }
+
+  std::cout << "Starting process with command: " << command << std::endl;
+
   pid_t pid = fork();
   if (pid < 0) {
     throw std::runtime_error("Failed to fork process for command: " + command);
   }
 
   if (pid == 0) {
+    setsid();
     execl("/bin/sh", "sh", "-c", command.c_str(), nullptr);
     perror("execl failed");
-    _exit(127);
+    _exit(1);
   }
 
-  std::this_thread::sleep_for(std::chrono::seconds(2));
-
   m_pid = pid;
-  return m_pid;
+  std::this_thread::sleep_for(std::chrono::seconds(2));
 }
 
 void ProcessManager::stop() {
@@ -129,18 +152,23 @@ void ProcessManager::stop() {
     return;
   }
 
-  kill(m_pid, SIGTERM);
+  killpg(m_pid, SIGINT);
+
   int status;
   waitpid(m_pid, &status, 0);
+
   m_pid = -1;
+}
+
+void ProcessManager::execute(const std::string& command) {
+  int ret = system(command.c_str());
+  if (ret != 0) {
+    throw std::runtime_error("Command failed with return code: " + std::to_string(ret));
+  }
 }
 
 pid_t ProcessManager::pid() const {
   return m_pid;
-}
-
-ProcessManager::~ProcessManager() {
-  stop();
 }
 
 void start_profiler(std::string outputDirectory, std::string address, int port) {
@@ -163,8 +191,28 @@ void stop_profiler() {
   std::cout << "Profiler stopped." << std::endl;
 }
 
-void post_process_ops_time_data() {
+void post_process_op_times() {
+  std::string command = ProfilerManager::instance().getCSVExportTimesCommand();
 
+  try {
+    ProcessManager::instance().execute(command);
+  } catch (const std::runtime_error& e) {
+    throw std::runtime_error("Failed to export ops time data with command: " + command + ". Error: " + e.what());
+  }
+
+  std::cout << "Ops time data exported." << std::endl;
+}
+
+void post_process_op_data() {
+  std::string command = ProfilerManager::instance().getCSVExportDataCommand();
+
+  try {
+    ProcessManager::instance().execute(command);
+  } catch (const std::runtime_error& e) {
+    throw std::runtime_error("Failed to export ops data with command: " + command + ". Error: " + e.what());
+  }
+
+  std::cout << "Ops data exported." << std::endl;
 }
 
 namespace tt::profiler::python {
@@ -181,5 +229,11 @@ void registerProfilerBindings(nb::module_ &m) {
   
   m.def("stop_profiler", &stop_profiler,
         "Stop the profiler");
+  
+  m.def("post_process_op_times", &post_process_op_times,
+        "Post-process and export operations time data to CSV");
+
+  m.def("post_process_op_data", &post_process_op_data,
+        "Post-process and export operations data to CSV");
 }
 } // namespace tt::profiler::python
