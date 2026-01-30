@@ -2640,6 +2640,8 @@ def TTNN_PermuteOp : TTNN_Op<"permute"> {
           );
       }
     }];
+
+    let hasFolder = 1;
 }
 
 def TTNN_UpsampleOp : TTNN_Op<"upsample"> {

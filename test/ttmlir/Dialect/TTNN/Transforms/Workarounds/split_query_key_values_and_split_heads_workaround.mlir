@@ -58,7 +58,6 @@ module  {
     // CHECK: "ttnn.slice_static"
     // CHECK: "ttnn.slice_static"
     // CHECK: "ttnn.reshape"
-    // CHECK: "ttnn.permute"
     // CHECK: "ttnn.reshape"
     // CHECK: "ttnn.permute"
     // CHECK: "ttnn.permute"
