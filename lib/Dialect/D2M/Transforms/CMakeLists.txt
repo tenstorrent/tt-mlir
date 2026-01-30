@@ -3,11 +3,7 @@ add_mlir_dialect_library(MLIRD2MTransforms
         DecomposeMasking.cpp
         DecomposeComplexPermute.cpp
         GenericApplyInterchange.cpp
-        GenericGenerateDatamovement.cpp
-        GenericGenerateLoops.cpp
-        GenericHWThreadSelection.cpp
         GenericLinearizeMemref.cpp
-        GenericLowerDMAs.cpp
         GenericRegionsToFuncs.cpp
         GenericReplaceGlobals.cpp
         GenericTileComputeLoops.cpp
@@ -15,6 +11,7 @@ add_mlir_dialect_library(MLIRD2MTransforms
         InsertDstRegisterAccess.cpp
         InsertStreams.cpp
         LinalgToAffine.cpp
+        LowerLoadStoreOpsToDMA.cpp
         LowerToLayout.cpp
         MaterializeViewReturns.cpp
         ElementwiseFusion.cpp
@@ -22,6 +19,13 @@ add_mlir_dialect_library(MLIRD2MTransforms
         SFPUTileLoopFission.cpp
         GlobalDataFormatConversion.cpp
         ScalarizeConstTensors.cpp
+        GenerateOuterLoops.cpp
+        LowerMulticastLoads.cpp
+        SplitUnifiedThread.cpp
+        PreallocateMcastSemaphores.cpp
+        ScheduleDMA.cpp
+        LowerLoadStoreOpsToExplicitCBForm.cpp
+        ConvertLocalLoadStoreOpsToAliasedCBs.cpp
 
         ADDITIONAL_HEADER_DIRS
         ${PROJECT_SOURCE_DIR}/include/ttmlir

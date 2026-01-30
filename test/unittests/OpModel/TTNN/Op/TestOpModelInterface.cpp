@@ -5462,4 +5462,63 @@ TEST_F(OpModelBase, AssignOpInterfaceWithOutputDtype) {
   }
 }
 
+TEST_F(OpModelBase, DropoutOpInterface) {
+  // Test DropoutOp with default parameters
+  llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
+  auto input = createEmptyTensor(tensorShape);
+  auto outputType = createRankedTensorType(tensorShape);
+
+  auto dropoutOp = builder.create<DropoutOp>(
+      builder.getUnknownLoc(), outputType, input,
+      /*prob=*/nullptr, /*scale=*/nullptr, /*seed=*/nullptr,
+      /*use_per_device_seed=*/nullptr, /*memory_config=*/nullptr);
+  dropoutOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
+
+  auto backend = dyn_cast<OpModel>(dropoutOp.getOperation());
+  auto constraintsExp =
+      backend.getOpConstraints(getInputLayouts(dropoutOp), OpConfig(nullptr));
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
+    EXPECT_GE(cbSize, 0);
+    EXPECT_GE(l1PeakSize, 0);
+    EXPECT_GE(outputSize, 0);
+  } else {
+    FAIL() << "Missing L1 constraints for DropoutOp (default params); Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  // Test DropoutOp with custom parameters
+  auto dropoutOpCustom = builder.create<DropoutOp>(
+      builder.getUnknownLoc(), outputType, input, builder.getF32FloatAttr(0.2),
+      builder.getF32FloatAttr(1.25), builder.getUI32IntegerAttr(21),
+      builder.getBoolAttr(true),
+      /*memory_config=*/nullptr);
+  dropoutOpCustom->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
+
+  auto backendCustom = dyn_cast<OpModel>(dropoutOpCustom.getOperation());
+  auto constraintsExpCustom = backendCustom.getOpConstraints(
+      getInputLayouts(dropoutOpCustom), OpConfig(nullptr));
+  if (constraintsExpCustom) {
+    auto l1 = constraintsExpCustom.get();
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
+    EXPECT_GE(cbSize, 0);
+    EXPECT_GE(l1PeakSize, 0);
+    EXPECT_GE(outputSize, 0);
+  } else {
+    FAIL() << "Missing L1 constraints for DropoutOp (custom params); Error="
+           << llvm::toString(constraintsExpCustom.takeError()) << std::endl;
+  }
+
+  auto runtimeExp = getOpRuntime(dropoutOpCustom.getOperation());
+  if (runtimeExp) {
+    EXPECT_GE(runtimeExp.get(), 0);
+  } else {
+    FAIL() << "Missing runtime for DropoutOp; Error="
+           << llvm::toString(runtimeExp.takeError()) << std::endl;
+  }
+}
+
 } // namespace mlir::tt::ttnn

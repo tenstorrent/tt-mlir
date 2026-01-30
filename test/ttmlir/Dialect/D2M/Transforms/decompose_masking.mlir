@@ -23,8 +23,9 @@ func.func @decompose_block_mask_zero(%input: memref<2x2x!ttcore.tile<32x32, f32>
     // CHECK: arith.select
     // CHECK: d2m.tile_mul
     // CHECK: d2m.tile_add
-    d2m.block_mask %input, %output, %c50, %c50, <zero>
+    %result = d2m.block_mask %input, %output, %c50, %c50, <zero>
         : (memref<2x2x!ttcore.tile<32x32, f32>>, memref<2x2x!ttcore.tile<32x32, f32>>)
+        -> memref<2x2x!ttcore.tile<32x32, f32>>
     return
 }
 
@@ -39,8 +40,9 @@ func.func @decompose_block_mask_neginf(%input: memref<2x2x!ttcore.tile<32x32, f3
     // CHECK: arith.select
     // CHECK: d2m.tile_mul
     // CHECK: d2m.tile_add
-    d2m.block_mask %input, %output, %c50, %c50, <neginf>
+    %result = d2m.block_mask %input, %output, %c50, %c50, <neginf>
         : (memref<2x2x!ttcore.tile<32x32, f32>>, memref<2x2x!ttcore.tile<32x32, f32>>)
+        -> memref<2x2x!ttcore.tile<32x32, f32>>
     return
 }
 
@@ -55,8 +57,9 @@ func.func @decompose_block_mask_complete_tile_oob(%input: memref<2x2x!ttcore.til
     // CHECK: arith.select
     // CHECK: d2m.tile_mul
     // CHECK: d2m.tile_add
-    d2m.block_mask %input, %output, %c32, %c32, <zero>
+    %result = d2m.block_mask %input, %output, %c32, %c32, <zero>
         : (memref<2x2x!ttcore.tile<32x32, f32>>, memref<2x2x!ttcore.tile<32x32, f32>>)
+        -> memref<2x2x!ttcore.tile<32x32, f32>>
     return
 }
 
@@ -72,7 +75,8 @@ func.func @decompose_block_mask_dynamic_bounds(%input: memref<2x2x!ttcore.tile<3
     // CHECK: arith.select
     // CHECK: d2m.tile_mul
     // CHECK: d2m.tile_add
-    d2m.block_mask %input, %output, %rows, %cols, <zero>
+    %result = d2m.block_mask %input, %output, %rows, %cols, <zero>
         : (memref<2x2x!ttcore.tile<32x32, f32>>, memref<2x2x!ttcore.tile<32x32, f32>>)
+        -> memref<2x2x!ttcore.tile<32x32, f32>>
     return
 }
