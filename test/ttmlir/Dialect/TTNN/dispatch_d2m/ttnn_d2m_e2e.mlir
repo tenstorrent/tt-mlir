@@ -9,9 +9,8 @@ module {
     // CHECK: %[[MM1:.*]] = "ttnn.matmul"
     // CHECK: %[[EMPTY1:.*]] = "ttnn.empty"
     // CHECK: "ttnn.generic"(%[[MM1]], %[[EMPTY1]])
-    // CHECK-SAME: symbol_ref = @datamovement_kernel3
-    // CHECK-SAME: symbol_ref = @datamovement_kernel4
-    // CHECK-SAME: symbol_ref = @compute_kernel5
+    // CHECK-SAME: symbol_ref = @datamovement_kernel2
+    // CHECK-SAME: symbol_ref = @compute_kernel3
     %0 = "ttnn.matmul"(%arg0, %arg1) : (tensor<64x128xbf16, #layout>, tensor<128x256xbf16, #layout>) -> tensor<64x256xbf16, #layout>
     %1 = "ttnn.exp"(%0) : (tensor<64x256xbf16, #layout>) -> tensor<64x256xbf16, #layout>
     %2 = "ttnn.log"(%1) : (tensor<64x256xbf16, #layout>) -> tensor<64x256xbf16, #layout>
@@ -21,18 +20,15 @@ module {
     // CHECK: %[[EMPTY2:.*]] = "ttnn.empty"
     // CHECK: "ttnn.generic"(%[[MM2]], %[[EMPTY2]])
     // CHECK-SAME: symbol_ref = @datamovement_kernel0
-    // CHECK-SAME: symbol_ref = @datamovement_kernel1
-    // CHECK-SAME: symbol_ref = @compute_kernel2
+    // CHECK-SAME: symbol_ref = @compute_kernel1
     %4 = "ttnn.matmul"(%arg2, %arg3) : (tensor<64x128xbf16, #layout>, tensor<128x256xbf16, #layout>) -> tensor<64x256xbf16, #layout>
     %5 = "ttnn.abs"(%4) : (tensor<64x256xbf16, #layout>) -> tensor<64x256xbf16, #layout>
     %6 = "ttnn.sigmoid"(%5) : (tensor<64x256xbf16, #layout>) -> tensor<64x256xbf16, #layout>
 
     return %6 : tensor<64x256xbf16, #layout>
   }
-  // CHECK: func.func private @datamovement_kernel0()
-  // CHECK: func.func private @datamovement_kernel1()
-  // CHECK: func.func private @compute_kernel2()
-  // CHECK: func.func private @datamovement_kernel3()
-  // CHECK: func.func private @datamovement_kernel4()
-  // CHECK: func.func private @compute_kernel5()
+  // CHECK: func.func private @datamovement_kernel0
+  // CHECK: func.func private @compute_kernel1
+  // CHECK: func.func private @datamovement_kernel2
+  // CHECK: func.func private @compute_kernel3
 }
