@@ -1,5 +1,5 @@
 [
-  { "runs-on": "p150",
-        "image": "tracy",
-            "script": "builder.sh", "args": ["test/python/golden", "", "run-ttrt"] }
+  { "runs-on": "n300",
+        "image": "speedy",
+            "script": "ttrt.sh", "args": ["run", "Silicon"] }
 ]
