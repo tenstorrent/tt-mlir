@@ -13,6 +13,7 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
+#include "ttmlir/Utils.h"
 
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/BuiltinOps.h"
@@ -51,42 +52,6 @@ findMaxDimAndAspectRatio(ArrayRef<int64_t> physicalShape) {
   return {maxDimIndex, aspectRatio};
 }
 
-/// Finds a 2D grid (y, x) such that y * x = grid volume.
-/// The returned grid aims to be as square as possible while respecting the
-/// provided target grid shape bounds.
-static llvm::SmallVector<int64_t>
-findLegalPhysicalGridForVolume(int64_t gridVolume,
-                               ArrayRef<int64_t> targetGridShape) {
-  TT_assertv(gridVolume > 0, "Grid volume must be positive");
-  TT_assertv(targetGridShape.size() >= 2u,
-             "Target grid shape must provide at least two dimensions");
-  TT_assertv((targetGridShape[0] > 0 && targetGridShape[1] > 0),
-             "Target grid dimensions must be positive");
-
-  auto fitsTarget = [&](int64_t dimY, int64_t dimX) {
-    return dimY <= targetGridShape[0] && dimX <= targetGridShape[1];
-  };
-
-  int64_t y = 1;
-  // Find the largest factor of grid volume that is <= sqrt(gridVolume)
-  for (int64_t i = static_cast<int64_t>(std::sqrt(gridVolume)); i > 0; --i) {
-    if (gridVolume % i == 0) {
-      int64_t candidateY = i;
-      int64_t candidateX = gridVolume / i;
-      if (fitsTarget(candidateY, candidateX)) {
-        return {candidateY, candidateX};
-      }
-      if (fitsTarget(candidateX, candidateY)) {
-        return {candidateX, candidateY};
-      }
-      if (y == 1) {
-        y = candidateY;
-      }
-    }
-  }
-  return {};
-}
-
 static llvm::SmallVector<int64_t>
 computeOptimalBlockShardedGrid(ArrayRef<int64_t> physicalShape,
                                ArrayRef<int64_t> targetSquareGridShape);
@@ -114,8 +79,8 @@ computeOptimalVirtualGrid(ArrayRef<int64_t> physicalShape,
     for (const auto &grid : factorCombinations) {
       int64_t gridVolume = ttmlir::utils::volume<int64_t>(grid);
       if (gridVolume <= targetGridVolume && gridVolume > bestGridVolume) {
-        auto physGrid =
-            findLegalPhysicalGridForVolume(gridVolume, targetSquareGridShape);
+        auto physGrid = ttmlir::utils::findLegalPhysicalGridForVolume(
+            gridVolume, targetSquareGridShape);
         if (!physGrid.empty()) {
 
           bestGrid = grid;
@@ -290,7 +255,7 @@ static ttcore::MetalLayoutAttr layoutWithOptimalGrid(
   // If using a virtual grid, compute required forward index affine map.
   AffineMap indexAffineMap = oldLayout.getIndexAffineMap();
   if (isVirtualGrid) {
-    auto physicalGridShape = findLegalPhysicalGridForVolume(
+    auto physicalGridShape = ttmlir::utils::findLegalPhysicalGridForVolume(
         ttmlir::utils::volume(optimalGrid), targetSquareGridShape);
     // At this point, it should be guaranteed that we can find a legal physical
     // grid
@@ -873,7 +838,7 @@ updateStreamLayoutOps(ArrayRef<StreamLayoutUpdateInfo> streamLayoutsToUpdate,
     // If using a virtual grid, compute required forward index affine map.
     AffineMap storageIndexMap = storageLayout.getIndexAffineMap();
     if (info.isVirtualGrid) {
-      auto physicalGridShape = findLegalPhysicalGridForVolume(
+      auto physicalGridShape = ttmlir::utils::findLegalPhysicalGridForVolume(
           ttmlir::utils::volume<int64_t>(optimalGrid), targetSquareGridShape);
       TT_assertv(!physicalGridShape.empty(),
                  "Unable to find 2D rect that can fit virtual grid {} within "

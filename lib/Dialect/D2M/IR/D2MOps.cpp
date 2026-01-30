@@ -1080,42 +1080,6 @@ mlir::OpFoldResult d2m::ViewLayoutOp::fold(FoldAdaptor adaptor) {
 // GenericOp
 //===----------------------------------------------------------------------===//
 
-/// Finds a 2D grid (y, x) such that y * x = grid volume.
-/// The returned grid aims to be as square as possible while respecting the
-/// provided target grid shape bounds.
-static llvm::SmallVector<int64_t>
-findLegalPhysicalGridForVolume(int64_t gridVolume,
-                               ArrayRef<int64_t> targetGridShape) {
-  TT_assertv(gridVolume > 0, "Grid volume must be positive");
-  TT_assertv(targetGridShape.size() >= 2u,
-             "Target grid shape must provide at least two dimensions");
-  TT_assertv((targetGridShape[0] > 0 && targetGridShape[1] > 0),
-             "Target grid dimensions must be positive");
-
-  auto fitsTarget = [&](int64_t dimY, int64_t dimX) {
-    return dimY <= targetGridShape[0] && dimX <= targetGridShape[1];
-  };
-
-  int64_t y = 1;
-  // Find the largest factor of grid volume that is <= sqrt(gridVolume)
-  for (int64_t i = static_cast<int64_t>(std::sqrt(gridVolume)); i > 0; --i) {
-    if (gridVolume % i == 0) {
-      int64_t candidateY = i;
-      int64_t candidateX = gridVolume / i;
-      if (fitsTarget(candidateY, candidateX)) {
-        return {candidateY, candidateX};
-      }
-      if (fitsTarget(candidateX, candidateY)) {
-        return {candidateX, candidateY};
-      }
-      if (y == 1) {
-        y = candidateY;
-      }
-    }
-  }
-  return {};
-}
-
 void d2m::GenericOp::build(mlir::OpBuilder &builder,
                            mlir::OperationState &state, ValueRange inputs,
                            ValueRange outputs, ArrayAttr indexingMaps,
@@ -1126,14 +1090,15 @@ void d2m::GenericOp::build(mlir::OpBuilder &builder,
   TT_assertv(outputs.size() == 1u, "expected single output");
 
   if (!grid) {
-    auto gridShape = ttcore::getGridShape(outputs[0]);
+    auto output = outputs[0];
+    auto gridShape = ttcore::getGridShape(output);
 
     // Check if output operand has a virtual grid and IS NOT a view. If so,
     // infer a physical grid shape and inverse map for the grid attr such that
     // invMap(physGrid) = virtGrid
-    bool outputIsView = mlir::isa<ViewOpInterface>(outputs[0].getDefiningOp());
-    auto layout = ttcore::getDeviceLayout(
-        mlir::dyn_cast<ShapedType>(outputs[0].getType()));
+    bool outputIsView = mlir::isa<ViewOpInterface>(output.getDefiningOp());
+    auto layout =
+        ttcore::getDeviceLayout(mlir::dyn_cast<ShapedType>(output.getType()));
     auto metalLayout = mlir::dyn_cast<ttcore::MetalLayoutAttr>(layout);
 
     // Only consider non-identity index maps for virtualization. Identity maps
@@ -1145,43 +1110,19 @@ void d2m::GenericOp::build(mlir::OpBuilder &builder,
     }
 
     if (metalLayout && hasNonIdentityIndexMap) {
-      auto shapedType = mlir::cast<ShapedType>(outputs[0].getType());
 
-      // HACK: need to properly determine target grid shape here (pass as
-      // parameter?)
-      SmallVector<int64_t> deviceGridShape = {8, 8};
-      auto targetGridShape =
-          (outputIsView)
-              ? findLegalPhysicalGridForVolume(ttmlir::utils::volume(gridShape),
-                                               deviceGridShape)
-              : metalLayout.getPhysicalGridShape(shapedType);
-
-      // If GenericOp has a *non-viewed physical* output tensor, it may be
-      // aliased to a local CB. It is imperative that we align the compute grid
-      // with the tensor grid by building a inverse mapping into the GridAttr.
-      //
-      // If the output is a *view* (later inferred to a stream), we only require
-      // a virtual grid map if the operand grid exceeds the physical grid
-      // extent. This is important because we can't always build an appropriate
-      // inverse map for any given view.
-      bool operandGridisHWOrNDSharded =
-          (gridShape[0] == 1 && gridShape[1] > deviceGridShape[1]) ||
-          (gridShape[0] > deviceGridShape[0] && gridShape[1] == 1) ||
-          (gridShape.size() > 2);
-
-      bool gridMismatch = !llvm::equal(gridShape, targetGridShape);
-      bool needsVirtualization =
-          (outputIsView) ? operandGridisHWOrNDSharded : gridMismatch;
+      auto physGridShape = d2m::utils::getPhysicalGridShape(output);
+      bool needsVirtualization = !llvm::equal(gridShape, physGridShape);
 
       if (needsVirtualization) {
         // True virtualization: map virtual grid to physical hardware
         llvm::dbgs() << "Creating core virtualization map for grid shape: "
                      << ttmlir::utils::formatIterable(gridShape, "x")
                      << " and physical grid shape: "
-                     << ttmlir::utils::formatIterable(targetGridShape, "x")
+                     << ttmlir::utils::formatIterable(physGridShape, "x")
                      << "\n";
         auto [_, invMap] = ttmlir::d2m::utils::grids::createCoreVirtMaps(
-            builder.getContext(), gridShape, targetGridShape);
+            builder.getContext(), gridShape, physGridShape);
         grid = builder.getAttr<ttcore::GridAttr>(gridShape, invMap);
       } else if (!outputIsView) {
         llvm::dbgs() << "No virtualization needed for grid shape: "
@@ -1498,11 +1439,10 @@ static mlir::LogicalResult verifyAffineBlocking(
     }
   }
 
-  bool outputIsViewOrStream = false;
-  for (auto output : getOutputs()) {
-    // determine if any outputs are views or streams
-    outputIsViewOrStream |= mlir::isa<ViewOpInterface>(output.getDefiningOp());
-  }
+  // determine if any outputs are views or streams
+  bool outputIsViewOrStream = llvm::any_of(getOutputs(), [](Value output) {
+    return output.getDefiningOp<ViewOpInterface>() != nullptr;
+  });
 
   if (!getGrid().getMapping().isEmpty()) {
 
@@ -1983,19 +1923,7 @@ d2m::GenericOp::getOperandShardShapes(bool convertTileToScalar) {
 
 mlir::SmallVector<int64_t> d2m::GenericOp::getPhysicalGridShape() {
   TT_assert(getOutputs().size() == 1u);
-  if (auto viewOp = getOutputs().front().getDefiningOp<d2m::ViewLayoutOp>()) {
-    ttcore::DeviceAttr device = ttcore::lookupDevice(viewOp);
-    auto deviceGridShape = device.getWorkerGrid().getShape();
-    auto outputGridShape = ttcore::getGridShape(getOutputs().front());
-    auto physicalGridShape = findLegalPhysicalGridForVolume(
-        ttmlir::utils::volume<int64_t>(outputGridShape), deviceGridShape);
-    return physicalGridShape;
-  }
-
-  auto outputType = mlir::cast<ShapedType>(getOutputs().front().getType());
-  ttcore::DeviceLayoutInterface deviceLayout =
-      ttcore::getDeviceLayout(outputType);
-  return deviceLayout.getPhysicalGridShape(outputType);
+  return d2m::utils::getPhysicalGridShape(getOutputs().front());
 }
 
 mlir::SmallVector<int64_t> d2m::GenericOp::getLoopBounds() {

@@ -108,4 +108,44 @@ computeDimConstraints(mlir::ArrayRef<mlir::AffineMap> indexingMaps,
   return constrainedDims;
 }
 
+static llvm::SmallVector<int64_t>
+getPhysicalGridShapeFromShapeAndMap(ArrayRef<int64_t> overallDeviceShape,
+                                    AffineMap map) {
+  TT_assert(map.getNumResults() >= 2u);
+  auto gridResultMap = ttmlir::utils::affineMapTakeFrontResults(map, 2);
+  TT_assert(overallDeviceShape.size() == gridResultMap.getNumDims());
+  return ttmlir::utils::evalShape(gridResultMap, overallDeviceShape);
+}
+
+SmallVector<int64_t> getPhysicalGridShape(Value tensorOrMemref) {
+  // handle view-like ops first
+  if (auto viewOp = tensorOrMemref.getDefiningOp<d2m::ViewOpInterface>()) {
+    ttcore::DeviceAttr device = ttcore::lookupDevice(viewOp);
+    auto deviceGridShape = device.getWorkerGrid().getShape();
+    auto outputGridShape = ttcore::getGridShape(tensorOrMemref);
+    auto physicalGridShape = ttmlir::utils::findLegalPhysicalGridForVolume(
+        ttmlir::utils::volume<int64_t>(outputGridShape), deviceGridShape);
+    return physicalGridShape;
+  }
+
+  // If not a view, extract DeviceLayoutInterface and get physical grid shape
+  // by applying virtualization map to device shape
+  auto shapeType = tensorOrMemref.getType();
+  ttcore::DeviceLayoutInterface layout;
+  SmallVector<int64_t> deviceShape;
+  layout = ttcore::getDeviceLayout(tensorOrMemref);
+  TT_assert(layout);
+  deviceShape = llvm::to_vector(
+      dyn_cast<ShapedType>(tensorOrMemref.getType()).getShape());
+
+  if (auto vmap = layout.getVirtualizationMapIfExists()) {
+    TT_assert(!vmap->isEmpty());
+    return getPhysicalGridShapeFromShapeAndMap(deviceShape, *vmap);
+  }
+  // If no virtualization map, physical grid shape == virtual grid shape.
+  SmallVector<int64_t> gridShape =
+      to_vector(layout.getGridShape(dyn_cast<ShapedType>(shapeType)));
+  return gridShape;
+}
+
 } // namespace mlir::tt::d2m::utils

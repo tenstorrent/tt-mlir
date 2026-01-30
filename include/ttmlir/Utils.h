@@ -17,6 +17,7 @@
 #include "llvm/Support/LineIterator.h"
 #include "llvm/Support/MemoryBuffer.h"
 
+#include <cassert>
 #include <cstdint>
 #include <numeric>
 #include <tuple>
@@ -172,6 +173,43 @@ computeCartesianProduct(llvm::ArrayRef<llvm::SmallVector<T>> possibilities) {
   enumerateCombinations(enumerateCombinations);
 
   return cartesianProduct;
+}
+
+/// Finds a 2D grid (y, x) such that y * x = grid volume.
+/// The returned grid aims to be as square as possible while respecting the
+/// provided target grid shape bounds.
+/// - If either MxN or NxM grids are feasible where M > N, MxN is chosen
+inline llvm::SmallVector<int64_t>
+findLegalPhysicalGridForVolume(int64_t gridVolume,
+                               mlir::ArrayRef<int64_t> targetGridShape) {
+  assert(gridVolume > 0 && "Grid volume must be positive");
+  assert(targetGridShape.size() >= 2u &&
+         "Target grid shape must provide at least two dimensions");
+  assert((targetGridShape[0] > 0 && targetGridShape[1] > 0) &&
+         "Target grid dimensions must be positive");
+
+  auto fitsTarget = [&](int64_t dimY, int64_t dimX) {
+    return dimY <= targetGridShape[0] && dimX <= targetGridShape[1];
+  };
+
+  int64_t y = 1;
+  // Find the largest factor of grid volume that is <= sqrt(gridVolume)
+  for (int64_t i = static_cast<int64_t>(std::sqrt(gridVolume)); i > 0; --i) {
+    if (gridVolume % i == 0) {
+      int64_t candidateY = i;
+      int64_t candidateX = gridVolume / i;
+      if (fitsTarget(candidateY, candidateX)) {
+        return {candidateY, candidateX};
+      }
+      if (fitsTarget(candidateX, candidateY)) {
+        return {candidateX, candidateY};
+      }
+      if (y == 1) {
+        y = candidateY;
+      }
+    }
+  }
+  return {};
 }
 
 // Prepacks `MlirAttribute`s stored in input array into a vector of
