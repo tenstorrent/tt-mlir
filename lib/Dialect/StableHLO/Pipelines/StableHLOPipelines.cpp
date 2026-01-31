@@ -77,6 +77,9 @@ void createStableHLOPipeline(OpPassManager &pm,
   pm.nest<mlir::func::FuncOp>().addPass(
       mlir::sdy::createReshardToCollectivesPass());
 
+  // Canonicalize shardy CCL ops
+  pm.addPass(createShardyCCLCanonicalizationPass());
+
   // Split tensor dimensions according to tensor sharding annotations.
   pm.addPass(createUpdateGlobalToLocalShapesPass());
 
