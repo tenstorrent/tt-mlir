@@ -23,6 +23,11 @@ from golden import *
 
 
 class TTIRBuilder(Builder):
+    """Builder for TTIR dialect operations.
+    
+    This class extends the base Builder to provide convenience methods for creating
+    TTIR operations, handling golden tensor verification, and managing tensor layouts.
+    """
 
     # ----- Methods -----
 
@@ -36,12 +41,28 @@ class TTIRBuilder(Builder):
         ] = OrderedDict([("x", 1), ("y", 1)]),
         disable_golden_check: bool = False,
     ):
+        """Initialize the TTIRBuilder.
+
+        Args:
+            ctx: The MLIR Context.
+            location: The default MLIR Location.
+            mesh_name: Name(s) of the mesh. Defaults to "mesh".
+            mesh_dict: Dictionary defining mesh dimensions. Defaults to {"x": 1, "y": 1}.
+            disable_golden_check: If True, skips golden tensor generation and checking.
+        """
         super().__init__(ctx, location, mesh_name, mesh_dict, disable_golden_check)
 
     # ----- Private methods ----
 
     def _get_empty_op(self, tensor_type: RankedTensorType) -> OpResult:
-        """Get TTIR-specific empty operation."""
+        """Get TTIR-specific empty operation.
+        
+        Args:
+            tensor_type: The type of the empty tensor to create.
+            
+        Returns:
+            The result of the created empty operation.
+        """
         return ttir.EmptyOp(tensor_type).result
 
     def _organize_eltwise_ttir(
@@ -64,6 +85,32 @@ class TTIRBuilder(Builder):
         loc: Optional[Union[str, Location]] = None,
         skip_golden: bool = False,
     ) -> Any:
+        """Generic proxy for creating TTIR operations with golden checks.
+
+        This method handles:
+        1. Calculating output shape/type using golden functions (if available).
+        2. Creating the output tensor type.
+        3. Invoking the actual TTIR op creation function.
+        4. Setting attributes.
+        5. Running and storing golden tensor results for verification.
+
+        Args:
+            op_ttir_function: The TTIR op creation function to call.
+            inputs: List of input operands.
+            unit_attrs: List of unit attributes to set on the op.
+            organize_ttir_args: Function to organize args for the TTIR op.
+            organize_golden_args: Function to organize args for the golden function.
+            output_shape: Explicit output shape (if not calculable from golden).
+            output_type: Explicit output type (if not calculable from golden).
+            output_create_fn: Custom function to create output type.
+            golden_kwargs: Keyword args for the golden function.
+            ttir_kwargs: Keyword args for the TTIR op function.
+            loc: Location for the operation.
+            skip_golden: If True, skip golden check for this specific call.
+
+        Returns:
+            The result of the created operation.
+        """
         if not golden_kwargs:
             golden_kwargs = ttir_kwargs
 
@@ -175,6 +222,21 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Creates a ttir.all_to_all operation.
+
+        Args:
+            input: The input operand.
+            split_dim: The dimension to split.
+            concat_dim: The dimension to concatenate.
+            split_count: The number of splits.
+            replica_groups: List of replica groups involved in the collective.
+            output_type: Optional explicit output dtype.
+            loc: Optional location string.
+            unit_attrs: Optional unit attributes.
+
+        Returns:
+            The result of the all_to_all operation.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.all_to_all)
 
         if output_type is None:
@@ -277,6 +339,18 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Creates a ttir.collective_broadcast operation.
+
+        Args:
+            input: The input operand.
+            replica_groups: List of replica groups (pairs) for broadcast.
+            output_type: Optional explicit output dtype.
+            loc: Optional location string.
+            unit_attrs: Optional unit attributes.
+
+        Returns:
+            The result of the collective_broadcast operation.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.collective_broadcast)
 
         if output_type is None:
@@ -357,6 +431,18 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Creates a ttir.collective_permute operation.
+
+        Args:
+            input: The input operand.
+            source_target_pairs: List of (source, target) pairs for permutation.
+            output_type: Optional explicit output dtype.
+            loc: Optional location string.
+            unit_attrs: Optional unit attributes.
+
+        Returns:
+            The result of the collective_permute operation.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.collective_permute)
 
         if output_type is None:
@@ -438,6 +524,20 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Creates a ttir.reduce_scatter operation.
+
+        Args:
+            input: The input operand.
+            reduce_type: The type of reduction (e.g., Sum, Max).
+            scatter_dim: The dimension to scatter along.
+            cluster_axis: The cluster axis for the operation.
+            output_type: Optional explicit output dtype.
+            loc: Optional location string.
+            unit_attrs: Optional unit attributes.
+
+        Returns:
+            The result of the reduce_scatter operation.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.reduce_scatter)
 
         if output_type is None:
@@ -535,6 +635,19 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Creates a ttir.all_reduce operation.
+
+        Args:
+            input: The input operand.
+            cluster_axis: The cluster axis for the operation.
+            reduce_type: The type of reduction (e.g., Sum, Max).
+            output_type: Optional explicit output dtype.
+            loc: Optional location string.
+            unit_attrs: Optional unit attributes.
+
+        Returns:
+            The result of the all_reduce operation.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.all_reduce)
 
         if output_type is None:
@@ -625,6 +738,21 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Creates a ttir.mesh_shard operation.
+
+        Args:
+            input: The input operand.
+            shard_type: The type of sharding.
+            shard_direction: The direction of sharding.
+            shard_shape: The shape of the shard.
+            shard_dims: The dimensions to shard.
+            output_type: Optional explicit output dtype.
+            loc: Optional location string.
+            unit_attrs: Optional unit attributes.
+
+        Returns:
+            The result of the mesh_shard operation.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.mesh_shard)
 
         if output_type is None:
@@ -729,6 +857,19 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Creates a ttir.all_gather operation.
+
+        Args:
+            input: The input operand.
+            all_gather_dim: The dimension to gather along.
+            cluster_axis: The cluster axis for the operation.
+            output_type: Optional explicit output dtype.
+            loc: Optional location string.
+            unit_attrs: Optional unit attributes.
+
+        Returns:
+            The result of the all_gather operation.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.all_gather)
 
         if output_type is None:

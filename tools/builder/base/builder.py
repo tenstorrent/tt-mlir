@@ -25,6 +25,11 @@ from builder.base.builder_utils import (
 
 
 class BuilderMeta(type):
+    """Metaclass for the Builder class.
+    
+    Automatically builds maps between opviews and builder/parser/split methods
+    when the Builder class is created.
+    """
     def __new__(mcls, name, bases, namespace):
         cls = super().__new__(mcls, name, bases, namespace)
         cls.build_opview_to_builder_map()
@@ -34,6 +39,11 @@ class BuilderMeta(type):
 
 
 class Builder(metaclass=BuilderMeta):
+    """Base class for MLIR builders.
+    
+    This class provides the core infrastructure for building MLIR modules,
+    managing golden tensors for verification, and handling IR generation.
+    """
     opview_to_builder_map: Dict[OpView, Callable] = {}
     opview_to_parser_map: Dict[OpView, Callable] = {}
     opview_to_split_map: Dict[OpView, Callable] = {}
@@ -50,6 +60,18 @@ class Builder(metaclass=BuilderMeta):
         ] = OrderedDict([("x", 1), ("y", 1)]),
         disable_golden_check: bool = False,
     ):
+        """Initialize the Builder.
+
+        Args:
+            ctx: The MLIR Context.
+            location: The default MLIR Location.
+            mesh_name: Name(s) of the mesh. Defaults to "mesh".
+            mesh_dict: Dictionary defining mesh dimensions. Defaults to {"x": 1, "y": 1}.
+            disable_golden_check: If True, skips golden tensor generation and checking.
+        
+        Raises:
+            ValueError: If mesh_name and mesh_dict lengths do not match.
+        """
         self._ctx = ctx
         self._loc = location
         self._global_id = -1
@@ -105,6 +127,7 @@ class Builder(metaclass=BuilderMeta):
 
     @classmethod
     def build_opview_to_builder_map(cls):
+        """Builds the mapping from OpView classes to their builder methods."""
         for attr_name in dir(cls):
             attr = getattr(cls, attr_name)
             func = attr
@@ -114,6 +137,7 @@ class Builder(metaclass=BuilderMeta):
 
     @classmethod
     def build_opview_to_parser_map(cls):
+        """Builds the mapping from OpView classes to their parser methods."""
         for attr_name in dir(cls):
             attr = getattr(cls, attr_name)
             func = attr
@@ -123,6 +147,7 @@ class Builder(metaclass=BuilderMeta):
 
     @classmethod
     def build_opview_to_split(cls, map):
+        """Builds the mapping from OpView classes to their split methods."""
         for attr_name in dir(cls):
             attr = getattr(cls, attr_name)
             func = attr
@@ -131,25 +156,31 @@ class Builder(metaclass=BuilderMeta):
                 cls.opview_to_split_map[func._split] = attr
 
     def get_opview_from_method(self, method: func) -> OpView:
+        """Retrieves the OpView associated with a builder method."""
         return getattr(method, "_tag", None)
 
     def get_opview_from_parser(self, parser: func) -> OpView:
+        """Retrieves the OpView associated with a parser method."""
         return getattr(parser, "_parse", None)
 
     def get_opview_from_split(self, split: func) -> OpView:
+        """Retrieves the OpView associated with a split method."""
         return getattr(split, "_split", None)
 
     def get_builder_from_opview(self, opview: OpView) -> Callable:
+        """Retrieves the builder method for a given OpView."""
         if opview not in self.opview_to_builder_map:
             assert False, f"No builder found for opview {opview}"
         return self.opview_to_builder_map.get(opview)
 
     def get_parser_from_opview(self, opview: OpView) -> Callable:
+        """Retrieves the parser method for a given OpView."""
         if opview not in self.opview_to_parser_map:
             assert False, f"No parser found for opview {opview}"
         return self.opview_to_parser_map.get(opview)
 
     def get_split_from_opview(self, opview: OpView) -> Callable:
+        """Retrieves the split method for a given OpView."""
         if opview not in self.opview_to_split_map:
             assert False, f"No split function found for opview {opview}"
         return self.opview_to_split_map.get(opview)
@@ -158,14 +189,17 @@ class Builder(metaclass=BuilderMeta):
 
     @property
     def context(self) -> Context:
+        """Returns the MLIR Context."""
         return self._ctx
 
     @property
     def location(self) -> Location:
+        """Returns the current MLIR Location."""
         return self._loc
 
     @property
     def mesh_shape(self) -> Tuple[int, int]:
+        """Returns the shape of the mesh."""
         return self._mesh_shape
 
     @property
@@ -175,6 +209,13 @@ class Builder(metaclass=BuilderMeta):
         Dict[int, Dict[str, Dict[int, GoldenMapTensor]]],
         Dict[str, Dict[int, GoldenMapTensor]],
     ]:
+        """Retrieves the golden map information.
+
+        Returns:
+            A tuple containing:
+            - Input/Output golden info: {program_index: {loc: {device_id: GoldenMapTensor}}}
+            - Intermediate golden info: {loc: {device_id: GoldenMapTensor}}
+        """
         # { program_index: {loc: {device_id: GoldenMapTensor} } }
         input_output_golden_info: Dict[int, Dict[str, Dict[int, GoldenMapTensor]]] = {}
         intermediate_golden_info: Dict[str, Dict[int, GoldenMapTensor]] = {}
@@ -236,9 +277,11 @@ class Builder(metaclass=BuilderMeta):
         return input_output_golden_info, intermediate_golden_info
 
     def get_shape(self, input: Operand) -> Shape:
+        """Returns the shape of the given operand."""
         return self._get_type(input).shape
 
     def get_type(self, input: Operand) -> Type:
+        """Returns the element type of the given operand."""
         return self._get_type(input).element_type
 
     def set_goldens(
@@ -247,6 +290,13 @@ class Builder(metaclass=BuilderMeta):
         outputs: Dict[Operand, Union[torch.tensor, Dict[int : torch.tensor]]] = None,
         set_all_outputs: bool = True,
     ):
+        """Sets golden tensors for inputs and optionally outputs.
+
+        Args:
+            inputs: Dictionary mapping operands to golden data (tensor, map, or callable).
+            outputs: Optional dictionary mapping output operands to golden data.
+            set_all_outputs: If True, marks all provided outputs for checking.
+        """
         self._set_goldens(self._create_builder_golden_from_torch_tensor(inputs))
 
         if outputs != None:
@@ -259,6 +309,12 @@ class Builder(metaclass=BuilderMeta):
         inputs: Dict[Operand, GoldenMapTensor],
         outputs: Dict[Operand, GoldenMapTensor] = None,
     ):
+        """Sets golden tensors directly from GoldenMapTensors.
+
+        Args:
+            inputs: Dictionary mapping operands to GoldenMapTensors for inputs.
+            outputs: Optional dictionary mapping operands to GoldenMapTensors for outputs.
+        """
         self._set_goldens(inputs)
 
         if outputs != None:
@@ -268,19 +324,39 @@ class Builder(metaclass=BuilderMeta):
     def set_operand_goldens(
         self, operands: Dict[Operand, Union[torch.tensor, Dict[int : torch.tensor]]]
     ):
+        """Sets golden tensors for arbitrary operands and marks them for checking.
+
+        Args:
+            operands: Dictionary mapping operands to golden data.
+        """
         self._set_goldens(self._create_builder_golden_from_torch_tensor(operands))
         self.set_goldens_to_check(operands.keys())
 
     def set_goldens_to_check(self, operands: List[Operand], override: bool = False):
+        """Configures which operands should be checked against goldens.
+
+        Args:
+            operands: List of operands to check.
+            override: If True, replaces the existing list of operands to check.
+        """
         if override:
             self._goldens_to_store = operands
         else:
             self._goldens_to_store.extend(operands)
 
     def set_graph_level_check(self, check: bool):
+        """Enables or disables forced graph-level golden checking."""
         self._force_graph_level_check = check
 
     def bypass(self, operand: Operand):
+        """Marks an operand's operation to bypass golden comparison.
+        
+        Args:
+            operand: The operand whose producing op should be bypassed.
+        
+        Raises:
+            TypeError: If the operand is a BlockArgument.
+        """
         if isinstance(operand, BlockArgument):
             raise TypeError("Cannot bypass BlockArgument")
 
@@ -290,6 +366,13 @@ class Builder(metaclass=BuilderMeta):
     def set_arg_attribute(
         self, operand: Operand, new_attr_name: str, new_attr: Attribute
     ):
+        """Sets an attribute on a function argument.
+
+        Args:
+            operand: The argument operand.
+            new_attr_name: The name of the new attribute.
+            new_attr: The attribute value.
+        """
         func_op = operand.owner.owner
 
         arg_attr_list = func_op.arg_attrs
@@ -712,6 +795,20 @@ class Builder(metaclass=BuilderMeta):
         original_inputs: List[Operand],
         loc: Optional[str] = None,
     ):
+        """Creates a CallOp to a nested function.
+
+        This method handles creating the nested function operation, setting up
+        golden tensors for inputs and outputs, and linking the call to the
+        current module.
+
+        Args:
+            nested_func: The python function to call.
+            original_inputs: List of input operands for the call.
+            loc: Optional location string.
+
+        Returns:
+            The result(s) of the function call.
+        """
         fn_input_types = []
         for operand in original_inputs:
             fn_input_types.append(operand.type)
@@ -778,6 +875,17 @@ class Builder(metaclass=BuilderMeta):
         return parsed_function(self, parsed_op, global_dict)
 
     def get_input_types(self, func_op: func.FuncOp):
+        """Retrieves input types from a FuncOp.
+
+        Args:
+            func_op: The function operation.
+
+        Returns:
+            List of RankedTensorType for the inputs.
+
+        Raises:
+            ValueError: If an input is not a RankedTensorType.
+        """
         inputs_types = []
         inputs_shapes = []
         input_encodings = []
@@ -799,6 +907,15 @@ class Builder(metaclass=BuilderMeta):
     def parse_root_module(
         self, parsed_root_module: Module, golden_inputs: Dict[str, [List[torch.tensor]]]
     ):
+        """Parses a root module and reconstructs it with golden tensor checks.
+
+        Args:
+            parsed_root_module: The module to parse.
+            golden_inputs: Dictionary mapping function names to lists of golden input tensors.
+
+        Returns:
+            The newly created root module.
+        """
         found_cpu_module = False
 
         for entry in parsed_root_module.body.operations:
@@ -866,6 +983,7 @@ class Builder(metaclass=BuilderMeta):
         parsed_builtin_module: Module,
         golden_inputs: Dict[str, [List[torch.tensor]]],
     ):
+        """Parses a builtin module (inside a device module)."""
         new_builtin_module = Module.create()
         cloned_op = new_builtin_module.operation.clone()
         self._current_module_insertion_point = cloned_op.regions[0].blocks[0]
@@ -882,6 +1000,7 @@ class Builder(metaclass=BuilderMeta):
     def parse_func(
         self, parsed_func: func.FuncOp, golden_inputs: Dict[str, [List[torch.tensor]]]
     ):
+        """Parses a function and regenerates it with golden checking."""
         fn_input_types = self.get_input_types(parsed_func)
 
         parsed_func_golden_inputs = []
@@ -966,6 +1085,7 @@ class Builder(metaclass=BuilderMeta):
     def parse_nested_func(
         self, parsed_func: func.FuncOp, golden_inputs: List[GoldenMapTensor]
     ):
+        """Parses a nested function."""
         fn_input_types = self.get_input_types(parsed_func)
 
         ordered_inputs = []
@@ -1023,6 +1143,7 @@ class Builder(metaclass=BuilderMeta):
         parsed_op: func.CallOp,
         global_dict: Dict[Operand, Operand],
     ) -> Tuple[Operation, Dict[Operand, GoldenMapTensor]]:
+        """Parses a CallOp."""
         is_hoisted = False
         parsed_op_attributes = parsed_op.attributes
         parsed_op_callee_value = parsed_op.callee.value
@@ -1118,6 +1239,7 @@ class Builder(metaclass=BuilderMeta):
         self,
         old_op: func.CallOp,
     ) -> Tuple[Module, TTIRBuilder]:
+        """Splits a CallOp into its own module and builder for isolation."""
         is_hoisted = False
         for attr in old_op.attributes:
             if attr.name == "ttir.cpu_hoisted_call":
@@ -1149,6 +1271,7 @@ class Builder(metaclass=BuilderMeta):
     # ----- Helper decorator functions ----
 
     def func(self, input_shapes: List[List[int]], input_types: List[torch.dtype]):
+        """Decorator for defining builder functions with signature info."""
         def wrapper(fn):
             encoding_fn = self.create_tensor_encoding
             fn_input_types = [
@@ -1194,6 +1317,7 @@ class Builder(metaclass=BuilderMeta):
         return wrapper
 
     def device_module(self, root_func: Callable):
+        """Decorator for wrapping a function in a DeviceModuleOp."""
         def wrapper(self):
             device_module_op = ttcore.DeviceModuleOp()
             region = device_module_op.regions[0]
@@ -1211,6 +1335,7 @@ class Builder(metaclass=BuilderMeta):
         return wrapper(self)
 
     def cpu_module(self, root_func: Callable):
+        """Decorator for wrapping a function in a CPUModuleOp."""
         def wrapper(self):
             cpu_module_op = ttcore.CPUModuleOp()
             region = cpu_module_op.regions[0]
@@ -1236,6 +1361,16 @@ class Builder(metaclass=BuilderMeta):
         annotation: str,
         loc: Optional[str] = None,
     ) -> OpResult:
+        """Annotates an operand with a string.
+
+        Args:
+            operand: The operand to annotate.
+            annotation: The annotation text.
+            loc: Optional location string.
+
+        Returns:
+            The annotated result (pass-through).
+        """
         debug_op = self.get_opview_from_method(Builder.annotate)
         annotation_attr = StringAttr.get(annotation)
 
@@ -1265,6 +1400,15 @@ class Builder(metaclass=BuilderMeta):
         operand: Operand,
         loc: Optional[str] = None,
     ) -> OpResult:
+        """Inserts a breakpoint on an operand.
+
+        Args:
+            operand: The operand to break on.
+            loc: Optional location string.
+
+        Returns:
+            The pass-through result.
+        """
         debug_op = self.get_opview_from_method(Builder.breakpoint)
 
         if loc is None:
@@ -1293,6 +1437,16 @@ class Builder(metaclass=BuilderMeta):
         file_path: str,
         loc: Optional[str] = None,
     ) -> OpResult:
+        """Takes a memory snapshot of an operand to a file.
+
+        Args:
+            operand: The operand to snapshot.
+            file_path: The path to save the snapshot to.
+            loc: Optional location string.
+
+        Returns:
+            The pass-through result.
+        """
         debug_op = self.get_opview_from_method(Builder.memory_snapshot)
         file_path_attr = StringAttr.get(file_path)
 

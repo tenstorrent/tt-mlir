@@ -33,6 +33,18 @@ def logical_not(
     dtype: torch.dtype,
     unit_attrs: Optional[List[str]] = None,
 ):
+    """Helper to create logical_not op and set goldens.
+
+    Args:
+        in0: Input operand.
+        builder: TTIRBuilder instance.
+        shape: Shape of the input.
+        dtype: Data type of the input.
+        unit_attrs: Optional unit attributes.
+
+    Returns:
+        The result of logical_not operation.
+    """
     randn_tensor = torch.randn(shape, dtype=torch.float32)
     input_tensor = randn_tensor.uniform_(-10.0, 10.0)
     input_tensor[torch.abs(input_tensor) < 4.0] = 0.0
@@ -89,6 +101,15 @@ def test_dot_general(
     request,
     device,
 ):
+    """Test dot_general operation with various configurations.
+    
+    Args:
+        shapes: List of input shapes.
+        batch_dims_lhs: Batch dimensions for LHS.
+        contract_dims_lhs: Contraction dimensions for LHS.
+        batch_dims_rhs: Batch dimensions for RHS.
+        contract_dims_rhs: Contraction dimensions for RHS.
+    """
     def module(builder: TTIRBuilder):
         @builder.func(shapes, [torch.float32, torch.float32])
         def dot_general(
@@ -119,6 +140,17 @@ def gt(
     builder: TTIRBuilder,
     unit_attrs: Optional[List[str]] = None,
 ):
+    """Helper to create greater-than op.
+    
+    Args:
+        in0: Left input operand.
+        in1: Right input operand.
+        builder: TTIRBuilder instance.
+        unit_attrs: Optional unit attributes.
+    
+    Returns:
+        The result of gt operation.
+    """
     return builder.gt(in0, in1, unit_attrs=unit_attrs)
 
 
