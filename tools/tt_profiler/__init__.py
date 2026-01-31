@@ -3,3 +3,4 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from ._ttmlir_profiler import *
+from .tt_profiler import trace
