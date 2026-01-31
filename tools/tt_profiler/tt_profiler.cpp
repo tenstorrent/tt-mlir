@@ -15,6 +15,7 @@
 #include <sys/types.h>
 #include <signal.h>
 #include <sys/wait.h>
+#include <stdlib.h>
 
 namespace nb = nanobind;
 
@@ -25,7 +26,7 @@ public:
     std::string getOutputDirectory();
     std::string getAddress();
     int getPort();
-    std::string getCaptureReleaseCommand();
+    std::string getCaptureCommand();
     std::string getCSVExportTimesCommand();
     std::string getCSVExportDataCommand();
 
@@ -65,7 +66,7 @@ int ProfilerManager::getPort() {
   return m_port;
 }
 
-std::string ProfilerManager::getCaptureReleaseCommand() {
+std::string ProfilerManager::getCaptureCommand() {
   std::string outputPath = m_outputDirectory + "/" + tracyOutputFileName;
   return "/code/jan-2/tt-mlir/build/python_packages/tt_profiler/capture-release -o " + outputPath + " -a " + m_address + " -p " + std::to_string(m_port) + " -f";
 }
@@ -199,10 +200,32 @@ void post_process_op_data() {
 }
 
 void start_profiler(std::string outputDirectory, std::string address, int port) {
+  std::vector<std::string> profilerEnvVars = {
+    "TT_METAL_CLEAR_L1=1",
+    "TT_METAL_DEVICE_PROFILER=1",
+    "TTNN_OP_PROFILER=1",
+    "TT_METAL_DEVICE_PROFILER_DISPATCH=0",
+    "TT_METAL_PROFILER_CPP_POST_PROCESS=1",
+  };
+
+  for (const auto &envVar : profilerEnvVars) {
+    auto pos = envVar.find('=');
+    if (pos == std::string::npos) {
+        throw std::runtime_error("Invalid env var: " + envVar);
+    }
+
+    std::string key = envVar.substr(0, pos);
+    std::string value = envVar.substr(pos + 1);
+
+    if (setenv(key.c_str(), value.c_str(), 1) != 0) {
+        throw std::runtime_error("Failed to set environment variable: " + envVar);
+    }
+  }
+
   ProfilerManager::instance().setOutputDirectory(outputDirectory);
   ProfilerManager::instance().setAddress(address);
   ProfilerManager::instance().setPort(port);
-  std::string command = ProfilerManager::instance().getCaptureReleaseCommand();
+  std::string command = ProfilerManager::instance().getCaptureCommand();
 
   try {
     ProcessManager::instance().start(command);

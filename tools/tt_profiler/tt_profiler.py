@@ -11,14 +11,18 @@ import shutil
 
 from tracy.process_ops_logs import process_ops
 
-'''
-TT_METAL_CLEAR_L1=1
-TT_METAL_DEVICE_PROFILER=1
-TTNN_OP_PROFILER=1
-TT_METAL_DEVICE_PROFILER_DISPATCH=0
-TT_METAL_PROFILER_CPP_POST_PROCESS=1
-'''
+from ._ttmlir_profiler import *
 
+@contextmanager
+def trace(log_dir: str):
+    tt_profiler.start_profiler(log_dir)
+
+    try:
+        yield
+    finally:
+        tt_profiler.stop_profiler()
+
+'''
 @contextmanager
 def trace(log_dir: str, port: int):
     os.makedirs(log_dir, exist_ok=True)
@@ -89,3 +93,4 @@ def trace(log_dir: str, port: int):
 
         if os.path.exists(profiler_csv_file_path):
             shutil.copy(profiler_csv_file_path, log_dir)
+'''
