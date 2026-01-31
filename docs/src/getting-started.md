@@ -19,14 +19,15 @@ You can use tt-mlir with Ubuntu or Mac OS, however the runtime does not work on 
 - Ninja
 - CMake 3.24 or higher
 - Python 3.11
+- python3.11-dev
 - python3.11-venv
 
 #### Ubuntu
 
-Install Clang, Ninja, CMake, and python3.11-venv:
+Install Clang, Ninja, CMake, python3.11-dev, and python3.11-venv:
 
 ```bash
-sudo apt install git clang cmake ninja-build pip python3.11-venv
+sudo apt install git clang cmake ninja-build pip python3.11-dev python3.11-venv
 ```
 
 You should now have the required dependencies installed.
