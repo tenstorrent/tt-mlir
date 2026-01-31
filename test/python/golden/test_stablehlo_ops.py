@@ -479,6 +479,38 @@ def test_unary_ops(
     )
 
 
+@pytest.mark.parametrize("shape", [(64, 128), (32, 64, 128)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.parametrize("dimension", [0, 1])
+def test_get_dimension_size(
+    shape: Shape,
+    dtype: torch.dtype,
+    dimension: int,
+    target: str,
+    request,
+    device,
+):
+    def module_get_dimension_size(builder: StableHLOBuilder):
+        @builder.func([shape], [dtype])
+        def get_dimension_size(
+            in0: Operand,
+            builder: StableHLOBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            builder.set_graph_level_check(True)
+            return builder.get_dimension_size(in0, dimension, unit_attrs=unit_attrs)
+
+    compile_and_execute_shlo(
+        module_get_dimension_size,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        device=device,
+    )
+
+
 _RESHAPE_CASES = [
     # shapes, semantic id, skip_ttmetal?
     ([(2, 3), (3, 2)], "swap", True),
