@@ -3439,7 +3439,33 @@ def TTIR_Conv3dOp : TTIR_NamedOp<"conv3d"> {
                          AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$stride,
                          AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$padding,
                          I32Attr:$groups,
+                         DefaultValuedAttr<I64Attr, "0">:$batch_dim,
+                         DefaultValuedAttr<I64Attr, "1">:$depth_dim,
+                         DefaultValuedAttr<I64Attr, "2">:$height_dim,
+                         DefaultValuedAttr<I64Attr, "3">:$width_dim,
+                         DefaultValuedAttr<I64Attr, "4">:$channel_dim,
                          DefaultValuedAttr<StrAttr, "\"zeros\"">:$padding_mode);
+
+    let builders = [
+      OpBuilder<(ins "Type":$result, "Value":$input, "Value":$weight,
+                     "Value":$bias, "::mlir::Attribute":$stride,
+                     "::mlir::Attribute":$padding, "uint32_t":$groups,
+                     "::mlir::StringAttr":$padding_mode), [{
+        build($_builder, $_state, result, input, weight, bias, stride, padding,
+              $_builder.getI32IntegerAttr(groups),
+              $_builder.getI64IntegerAttr(0), $_builder.getI64IntegerAttr(1),
+              $_builder.getI64IntegerAttr(2), $_builder.getI64IntegerAttr(3),
+              $_builder.getI64IntegerAttr(4), padding_mode);
+      }]>
+    ];
+
+    let extraClassDeclaration = [{
+      bool isNDHWC() {
+        return getBatchDim() == 0 && getDepthDim() == 1 &&
+               getHeightDim() == 2 && getWidthDim() == 3 &&
+               getChannelDim() == 4;
+      }
+    }];
 
     let results = (outs AnyRankedTensor:$result);
 
