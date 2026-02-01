@@ -179,10 +179,10 @@ get_line_regions(int32_t my_idx, int32_t start_idx, int32_t end_idx,
     // Non-wrapped range: destinations are [start_idx..end_idx]
     if (my_idx < start_idx) {
       // Sender before range: forward only
-      return {start_idx - my_idx, end_idx - start_idx + 1, -1, -1};
+      return {start_idx - my_idx, end_idx - start_idx + 1, 0, 0};
     } else if (my_idx > end_idx) {
       // Sender after range: backward only
-      return {-1, -1, my_idx - end_idx, end_idx - start_idx + 1};
+      return {0, 0, my_idx - end_idx, end_idx - start_idx + 1};
     } else {
       // Sender inside range: both directions
       return {1, end_idx - my_idx, 1, my_idx - start_idx};
@@ -205,6 +205,7 @@ get_line_regions(int32_t my_idx, int32_t start_idx, int32_t end_idx,
       // which can have a gap which is not supported so assert
       WAYPOINT("DA30");
       ASSERT(start_idx - end_idx == 1);
+      return {1, size - 1 - my_idx, 1, my_idx + 1};
 
     } else if (in_lower) { // Sender inside lower segment [0..end_idx]
       // Backward: covers [0..my_idx-1] (rest of lower segment)
@@ -213,6 +214,10 @@ get_line_regions(int32_t my_idx, int32_t start_idx, int32_t end_idx,
       WAYPOINT("DA31");
       ASSERT(start_idx - end_idx == 1);
       return {1, end_idx - my_idx, 1, my_idx};
+    } else {
+      WAYPOINT("DA33");
+      ASSERT(false);
+      return {0, 0, 0, 0};
     }
   }
 }

@@ -344,7 +344,7 @@ def test_fabric_mcast_1x8_ring(
 
 
 @pytest.mark.frontend("ttir")
-@pytest.mark.parametrize("fabric_config", [tt_runtime.runtime.FabricConfig.FABRIC_2D])
+@pytest.mark.parametrize("fabric_config", [tt_runtime.runtime.FabricConfig.FABRIC_1D])
 @pytest.mark.parametrize("target", ["ttmetal"])
 @pytest.mark.parametrize("mesh_shape", [(2, 4)])
 @pytest.mark.parametrize(

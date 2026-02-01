@@ -233,7 +233,7 @@ fabric_fast_write_any_len(FabricConnectionManager &fabric_connection_manager,
   fabric_set_unicast_route_custom(
       static_cast<volatile tt_l1_ptr HybridMeshPacketHeader *>(packet_header),
       dst_dev_id, dst_mesh_id, unicast_params.ns_hops, unicast_params.ew_hops,
-      unicast_params.ns_dir, unicast_params.ew_direction);
+      unicast_params.ns_dir, unicast_params.ew_dir);
   // bool result = fabric_set_unicast_route(
   //     static_cast<volatile tt_l1_ptr HybridMeshPacketHeader
   //     *>(packet_header), dst_dev_id, dst_mesh_id);
@@ -280,46 +280,6 @@ FORCE_INLINE void fabric_mcast_fast_write_any_len(
   auto mcast_params =
       get_mcast_params(fabric_connection_manager.get_topology(), my_device_id,
                        dst_dev_id_start, dst_dev_id_end);
-  DPRINT << "active " << (uint32_t)mcast_params.params_per_direction[0].active
-         << "\n";
-  DPRINT << "start_hop: "
-         << (uint32_t)mcast_params.params_per_direction[0]
-                .mcast_command_header.start_distance_in_hops
-         << "\n";
-  DPRINT << "range: "
-         << (uint32_t)mcast_params.params_per_direction[0]
-                .mcast_command_header.range_hops
-         << "\n";
-  DPRINT << "active " << (uint32_t)mcast_params.params_per_direction[1].active
-         << "\n";
-  DPRINT << "start_hop: "
-         << (uint32_t)mcast_params.params_per_direction[1]
-                .mcast_command_header.start_distance_in_hops
-         << "\n";
-  DPRINT << "range: "
-         << (uint32_t)mcast_params.params_per_direction[1]
-                .mcast_command_header.range_hops
-         << "\n";
-  DPRINT << "active " << (uint32_t)mcast_params.params_per_direction[2].active
-         << "\n";
-  DPRINT << "start_hop: "
-         << (uint32_t)mcast_params.params_per_direction[2]
-                .mcast_command_header.start_distance_in_hops
-         << "\n";
-  DPRINT << "range: "
-         << (uint32_t)mcast_params.params_per_direction[2]
-                .mcast_command_header.range_hops
-         << "\n";
-  DPRINT << "active " << (uint32_t)mcast_params.params_per_direction[3].active
-         << "\n";
-  DPRINT << "start_hop: "
-         << (uint32_t)mcast_params.params_per_direction[3]
-                .mcast_command_header.start_distance_in_hops
-         << "\n";
-  DPRINT << "range: "
-         << (uint32_t)mcast_params.params_per_direction[3]
-                .mcast_command_header.range_hops
-         << "\n";
   for (uint32_t i = 0; i < MAX_SEND_DIR; i++) {
     if (mcast_params.params_per_direction[i].active) {
       DPRINT << "header set up for dir" << i << "\n";
