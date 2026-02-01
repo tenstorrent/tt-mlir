@@ -5,8 +5,7 @@
 #ifndef EXPERIMENTAL_FABRIC_1D_ROUTING_H
 #define EXPERIMENTAL_FABRIC_1D_ROUTING_H
 
-#ifndef FABRIC_2D             // 1D Fabric
-#include "api/debug/dprint.h" // TODO: remove this
+#ifndef FABRIC_2D // 1D Fabric
 
 struct UnicastParams {
   uint32_t outgoing_direction;
@@ -217,12 +216,12 @@ FORCE_INLINE McastParams get_mcast_params_line(TopologyInfo &topology,
   uint32_t bwd_dir =
       static_cast<uint32_t>(topology.routing_directions[topology.axis].second);
 
-  if (start_fwd != -1) {
+  if (range_fwd != 0) {
     result.params_per_direction[fwd_dir].active = true;
     result.params_per_direction[fwd_dir].mcast_command_header = {
         static_cast<uint8_t>(start_fwd), static_cast<uint8_t>(range_fwd)};
   }
-  if (start_bwd != -1) {
+  if (range_bwd != 0) {
     result.params_per_direction[bwd_dir].active = true;
     result.params_per_direction[bwd_dir].mcast_command_header = {
         static_cast<uint8_t>(start_bwd), static_cast<uint8_t>(range_bwd)};
