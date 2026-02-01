@@ -171,13 +171,6 @@ FORCE_INLINE McastParams get_mcast_params_unidir_ring(
   // Assert: at least one destination (not including sender)
   WAYPOINT("DA43");
   ASSERT(!(my_idx == start_idx && start_idx == end_idx));
-  // remove my_idx from endpoints since we don't send to ourselves
-  if (my_idx == start_idx) {
-    my_idx = (my_idx + 1) % size;
-  }
-  if (my_idx == end_idx) {
-    my_idx = (my_idx - 1 + size) % size;
-  }
 
   McastParams result;
   bool is_forward =
@@ -258,23 +251,6 @@ FORCE_INLINE McastParams get_mcast_params_unidir_torus(
       ((my_y - start_y + size) % size) < ((end_y - start_y + size) % size);
   // remove my_y from endpoints before calling get_ring_regions since we don't
   // send to ourselves
-  // TODO: perhaps can move this in get_ring regions since it's always used?
-  if (ns_region_exists) {
-    if (my_y == start_y) {
-      my_y = (my_y + 1) % size_y;
-    }
-    if (my_y == end_y) {
-      my_y = (my_y - 1 + size_y) % size_y;
-    }
-  }
-  if (ew_region_exists) {
-    if (my_x == start_x) {
-      my_x = (my_x + 1) % size_x;
-    }
-    if (my_x == end_x) {
-      my_x = (my_x - 1 + size_x) % size_x;
-    }
-  }
   auto [ns_start_1, ns_range_1, ns_start_2_gap, ns_range_2] =
       get_ring_regions(my_y, start_y, end_y, size_y, is_forward);
   auto [ew_start_1, ew_range_1, ew_start_2_gap, ew_range_2] =
