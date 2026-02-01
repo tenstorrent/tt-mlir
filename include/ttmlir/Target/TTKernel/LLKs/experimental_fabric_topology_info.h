@@ -113,11 +113,23 @@ struct TopologyInfo {
   }
 };
 
+// returns start_1, range_1, start_2, range_2
+// precondition: at least one destination (not including sender)
 FORCE_INLINE std::tuple<int32_t, int32_t, int32_t, int32_t>
 get_ring_regions(int32_t my_idx, int32_t start_idx, int32_t end_idx,
                  int32_t size, bool is_forward) {
+  // assert precondition: at least one destination (not including sender)
   WAYPOINT("DA06");
   ASSERT(my_idx != start_idx && my_idx != end_idx);
+
+  // remove my_idx from endpoints since we don't send to ourselves
+  if (my_idx == start_idx) {
+    my_idx = (my_idx + 1) % size;
+  }
+  if (my_idx == end_idx) {
+    my_idx = (my_idx - 1 + size) % size;
+  }
+
   bool in_between = ((my_idx - start_idx + size) % size) <
                     ((end_idx - start_idx + size) % size);
   if (!in_between) {
@@ -142,6 +154,66 @@ get_ring_regions(int32_t my_idx, int32_t start_idx, int32_t end_idx,
     WAYPOINT("DA08");
     ASSERT(start_1 + range_1 - 1 + start_2_gap + range_2 - 1 < size);
     return {start_1, range_1, start_2_gap, range_2};
+  }
+}
+
+// returns start_fwd, range_fwd, start_bwd, range_bwd
+// precondition: at least one destination (not including sender)
+FORCE_INLINE std::tuple<int32_t, int32_t, int32_t, int32_t>
+get_line_regions(int32_t my_idx, int32_t start_idx, int32_t end_idx,
+                 int32_t size) {
+  // assert precondition: at least one destination (not including sender)
+  WAYPOINT("DA32");
+  ASSERT(!(my_idx == start_idx && start_idx == end_idx));
+
+  // remove my_idx from endpoints since we don't send to ourselves
+  if (my_idx == start_idx) {
+    my_idx = (my_idx + 1) % size;
+  }
+  if (my_idx == end_idx) {
+    my_idx = (my_idx - 1 + size) % size;
+  }
+
+  bool wraps = (start_idx > end_idx);
+  if (!wraps) {
+    // Non-wrapped range: destinations are [start_idx..end_idx]
+    if (my_idx < start_idx) {
+      // Sender before range: forward only
+      return {start_idx - my_idx, end_idx - start_idx + 1, -1, -1};
+    } else if (my_idx > end_idx) {
+      // Sender after range: backward only
+      return {-1, -1, my_idx - end_idx, end_idx - start_idx + 1};
+    } else {
+      // Sender inside range: both directions
+      return {1, end_idx - my_idx, 1, my_idx - start_idx};
+    }
+  } else {
+    // Wrapped range: destinations are [start_idx..size-1] and [0..end_idx]
+    bool in_upper = (my_idx > start_idx && my_idx < size);
+    bool in_lower = (my_idx > 0 && my_idx < end_idx);
+    bool in_gap = (my_idx > end_idx && my_idx < start_idx);
+
+    // to do: add check for regions that can be 0
+    if (in_gap) {
+      // Sender in gap: send both directions to cover both segments
+      return {start_idx - my_idx, size - start_idx, my_idx - end_idx,
+              end_idx + 1};
+    } else if (in_upper) {
+      // Sender inside upper segment [start_idx..size-1]
+      // Forward: covers [my_idx+1..size-1] (rest of upper segment)
+      // Backward: covers [0, end_idx] and [start_idx, my_idx-1]
+      // which can have a gap which is not supported so assert
+      WAYPOINT("DA30");
+      ASSERT(start_idx - end_idx == 1);
+
+    } else if (in_lower) { // Sender inside lower segment [0..end_idx]
+      // Backward: covers [0..my_idx-1] (rest of lower segment)
+      // Forward: covers [my_idx+1, end_idx] and [start_idx, size-1] (includes
+      // gap + upper segment) assert no gap since not supported right now
+      WAYPOINT("DA31");
+      ASSERT(start_idx - end_idx == 1);
+      return {1, end_idx - my_idx, 1, my_idx};
+    }
   }
 }
 
