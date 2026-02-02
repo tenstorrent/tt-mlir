@@ -5,6 +5,7 @@
 #include "ttmlir/Dialect/D2M/IR/D2M.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
+#include "ttmlir/FunctionTypes.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Builders.h"
@@ -145,11 +146,6 @@ public:
     ModuleOp module = getOperation();
 
     module.walk([&](func::FuncOp funcOp) {
-      // Skip external functions.
-      if (funcOp.isExternal()) {
-        return;
-      }
-
       // Check if any argument or result types need promotion.
       bool needsPromotion = false;
       for (Type argType : funcOp.getArgumentTypes()) {
@@ -168,6 +164,29 @@ public:
       }
 
       if (!needsPromotion) {
+        return;
+      }
+
+      // For external functions, only update CPU-hoisted declarations.
+      // Other external functions should be skipped.
+      if (funcOp.isExternal()) {
+        if (!ttmlir::utils::isForwardCPUDeclarationFunc(funcOp)) {
+          return;
+        }
+        // Update the function signature for CPU-hoisted declarations.
+        SmallVector<Type> newArgTypes;
+        for (Type argType : funcOp.getArgumentTypes()) {
+          newArgTypes.push_back(promoteTypeIfNeeded(argType));
+        }
+
+        SmallVector<Type> newResultTypes;
+        for (Type resultType : funcOp.getResultTypes()) {
+          newResultTypes.push_back(promoteTypeIfNeeded(resultType));
+        }
+
+        auto newFuncType =
+            FunctionType::get(funcOp.getContext(), newArgTypes, newResultTypes);
+        funcOp.setType(newFuncType);
         return;
       }
 
