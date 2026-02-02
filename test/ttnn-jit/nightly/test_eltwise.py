@@ -12,6 +12,7 @@ from utils import (
     _get_ttnn_op,
     all_close_check,
     memory_configs_equal,
+    get_expected_memory_config,
     create_dram_tensor,
     create_sharded_tile_tensor,
     run_op_test,
@@ -353,7 +354,9 @@ def test_binary_ops_mixed1(device, shape, max_grid, shard_strategy, dtype, op):
         debug=True,
     )(op)
     output_tensor = op_jit(input0, input1)
-    assert memory_configs_equal(output_tensor.memory_config(), input0.memory_config())
+
+    expected_memory_config = get_expected_memory_config(output_tensor.shape())
+    assert memory_configs_equal(output_tensor.memory_config(), expected_memory_config)
     golden_output = op(input0, input1)
     pcc = ttnn.pearson_correlation_coefficient(
         golden_output.cpu().to_torch(), output_tensor.cpu().to_torch()
@@ -574,8 +577,9 @@ def test_interop_jit_to_ttnn_unary_l1(
     golden_jit_output = golden_jit_op(input_tensor)
     golden_result = ttnn_unary_op(golden_jit_output)
 
+    expected_memory_config = get_expected_memory_config(golden_result.shape())
     assert memory_configs_equal(
-        interop_result.memory_config(), golden_result.memory_config()
+        interop_result.memory_config(), expected_memory_config
     )
     assert all_close_check(interop_result, golden_result)
 
@@ -625,8 +629,9 @@ def test_interop_two_jit_to_ttnn_binary_l1(
     golden_output2 = golden_jit_op2(input2)
     golden_result = ttnn_binary_op(golden_output1, golden_output2)
 
+    expected_memory_config = get_expected_memory_config(golden_result.shape())
     assert memory_configs_equal(
-        interop_result.memory_config(), golden_result.memory_config()
+        interop_result.memory_config(), expected_memory_config
     )
     assert all_close_check(interop_result, golden_result)
 
@@ -669,8 +674,9 @@ def test_interop_jit_and_ttnn_to_binary_l1(
     golden_jit_output = golden_jit_op(input_tensor)
     golden_result = ttnn_binary_op(golden_jit_output, ttnn_tensor)
 
+    expected_memory_config = get_expected_memory_config(golden_result.shape())
     assert memory_configs_equal(
-        interop_result.memory_config(), golden_result.memory_config()
+        interop_result.memory_config(), expected_memory_config
     )
     assert all_close_check(interop_result, golden_result)
 
@@ -705,8 +711,9 @@ def test_interop_jit_to_ttnn_unary_dram(device, shape, dtype, jit_op, ttnn_unary
     golden_jit_output = golden_jit_op(input_tensor)
     golden_result = ttnn_unary_op(golden_jit_output)
 
+    expected_memory_config = get_expected_memory_config(golden_result.shape())
     assert memory_configs_equal(
-        interop_result.memory_config(), golden_result.memory_config()
+        interop_result.memory_config(), expected_memory_config
     )
     assert all_close_check(interop_result, golden_result)
 
@@ -750,8 +757,9 @@ def test_interop_two_jit_to_ttnn_binary_dram(
     golden_output2 = golden_jit_op2(input2)
     golden_result = ttnn_binary_op(golden_output1, golden_output2)
 
+    expected_memory_config = get_expected_memory_config(golden_result.shape())
     assert memory_configs_equal(
-        interop_result.memory_config(), golden_result.memory_config()
+        interop_result.memory_config(), expected_memory_config
     )
     assert all_close_check(interop_result, golden_result)
 
@@ -788,8 +796,9 @@ def test_interop_jit_and_ttnn_to_binary_dram(
     golden_jit_output = golden_jit_op(input_tensor)
     golden_result = ttnn_binary_op(golden_jit_output, ttnn_tensor)
 
+    expected_memory_config = get_expected_memory_config(golden_result.shape())
     assert memory_configs_equal(
-        interop_result.memory_config(), golden_result.memory_config()
+        interop_result.memory_config(), expected_memory_config
     )
     assert all_close_check(interop_result, golden_result)
 
