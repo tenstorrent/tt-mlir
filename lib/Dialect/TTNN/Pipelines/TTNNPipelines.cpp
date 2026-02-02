@@ -253,8 +253,13 @@ void createTTIRToTTNNDevicePipeline(
 
     // Const-eval hoisting pass.
     if (options.enableConstEval) {
+      // Run CSE before const-eval hoisting to eliminate duplicate subgraphs.
+      devicePm.addPass(mlir::createCSEPass());
       // Hoist const-eval subgraphs into separate functions in Device module.
       devicePm.addPass(transforms::createConstEvalHoistTransform());
+      // Run CSE again after hoisting to eliminate duplicates within const_eval
+      // functions.
+      devicePm.addPass(mlir::createCSEPass());
     }
   }
 

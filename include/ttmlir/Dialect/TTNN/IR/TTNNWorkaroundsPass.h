@@ -337,6 +337,10 @@ public:
   // Upcasts bf16/f16 to f32 for better precision during reduce operations.
   static TTNNOperandsWorkarounds
   createAllReduceOpOperandsWorkarounds(mlir::Operation *op);
+
+  // Create workarounds for sparse_matmul op operands.
+  // Sparsity tensor must be in ROW_MAJOR layout.
+  static TTNNOperandsWorkarounds createSparseMatmulOpOperandsWorkarounds();
 };
 
 } // namespace mlir::tt::ttnn::wa

@@ -624,7 +624,7 @@ createOp(FlatbufferObjectCache &cache, SparseMatmulOp op) {
       getOperandThroughDPSOps(op.getB()));
   auto sparsity = cache.at<::tt::target::ttnn::TensorRef>(
       getOperandThroughDPSOps(op.getSparsity()));
-  auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer);
+  auto output = cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer, std::nullopt);
 
   ::flatbuffers::Offset<::tt::target::ttnn::MatmulMultiCoreReuseMultiCast1DProgramConfig>
       programConfig = 0;

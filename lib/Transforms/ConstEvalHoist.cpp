@@ -9,6 +9,7 @@
 #include "ttmlir/FunctionTypes.h"
 #include "ttmlir/Transforms/Passes.h"
 #include "ttmlir/Utils.h"
+#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
@@ -26,6 +27,7 @@ namespace mlir::tt::transforms {
 #define GEN_PASS_DEF_CONSTEVALHOISTTRANSFORM
 #define GEN_PASS_DEF_UNDOCONSTEVALTRANSFORM
 #include "ttmlir/Transforms/Passes.h.inc"
+
 
 static bool isSharedOp(mlir::Operation *op) {
   assert(op != nullptr);
@@ -104,35 +106,29 @@ struct ConstEvalAnalysisResults {
 
 namespace {
 // Helper to estimate tensor size in bytes from a ranked tensor type.
-// Uses product(shape) * elemSizeBytes; getElementSizeBytes() already reflects
-// tile size when element type is TileType.
+// For TileType elements, each element in shape represents one tile.
+// For scalar types, this is shape * element_size.
 static int64_t getTensorSizeInBytes(mlir::Type type) {
-  auto tensorType = mlir::dyn_cast<mlir::RankedTensorType>(type);
-  if (!tensorType || !tensorType.hasStaticShape()) {
-    return 0;
-  }
-
-  int64_t numElements = 1;
-  for (int64_t dim : tensorType.getShape()) {
-    numElements *= dim;
-  }
-  int64_t elemSizeBytes = static_cast<int64_t>(
-      ttcore::getElementSizeBytes(tensorType.getElementType()));
-  return numElements * elemSizeBytes;
-}
-
-static int64_t estimateSubgraphMemoryUsage(const ConstEvalSubgraph &subgraph) {
-  int64_t totalBytes = 0;
-
-  // Calculate memory for all op results (outputs + intermediates)
-  // This is conservative but safe - assumes all tensors exist at peak
-  for (auto *op : subgraph.ops) {
-    for (auto result : op->getResults()) {
-      totalBytes += getTensorSizeInBytes(result.getType());
+  auto tensorType = mlir::cast<mlir::RankedTensorType>(type);
+  auto shape = tensorType.getShape();
+  
+  // Check for dynamic shapes - return 0 to avoid counting unknown sizes
+  for (auto dim : shape) {
+    if (mlir::ShapedType::isDynamic(dim)) {
+      return 0;
     }
   }
-
-  return totalBytes;
+  
+  // Calculate total number of elements in shape
+  int64_t numElements = std::accumulate(shape.begin(), shape.end(), 1LL,
+                                        std::multiplies<int64_t>());
+  
+  auto elementType = tensorType.getElementType();
+  
+  // For scalar types, calculate element size from data type
+  const auto dataType = ttcore::elementTypeToDataType(elementType);
+  int64_t elementSizeBytes = (ttcore::getNumberOfBits(dataType) + 7) / 8;
+  return numElements * elementSizeBytes;
 }
 
 // Analyzer class to detect const-eval subgraphs in a given FuncOp using
@@ -288,6 +284,107 @@ private:
 
 // Common implementation shared between passes
 namespace {
+
+// Deduplicate ops with identical operands and attributes in a const-eval function.
+// This is a more aggressive CSE that ignores location differences.
+// CSE doesn't merge ops with different locations, but for const-eval functions
+// we want to eliminate duplicates regardless of location to save memory.
+static void deduplicateConstEvalOps(func::FuncOp funcOp) {
+  // Key: (op_name, operands, attributes) -> first instance
+  // We use a custom key that includes operands to ensure we only merge
+  // truly equivalent operations.
+  struct OpSignature {
+    StringRef opName;
+    SmallVector<Value, 4> operands;
+    DictionaryAttr attrs;
+    
+    bool operator==(const OpSignature &other) const {
+      return opName == other.opName && 
+             operands == other.operands && 
+             attrs == other.attrs;
+    }
+  };
+  
+  struct OpSignatureHash {
+    size_t operator()(const OpSignature &sig) const {
+      size_t hash = llvm::hash_value(sig.opName);
+      for (auto operand : sig.operands) {
+        hash = llvm::hash_combine(hash, mlir::hash_value(operand));
+      }
+      hash = llvm::hash_combine(hash, mlir::hash_value(sig.attrs));
+      return hash;
+    }
+  };
+  
+  std::unordered_map<OpSignature, Operation *, OpSignatureHash> seenOps;
+  SmallVector<Operation *, 8> opsToErase;
+  
+  funcOp.walk([&](Operation *op) {
+    // Skip terminators and ops without results
+    if (op->hasTrait<mlir::OpTrait::IsTerminator>() || 
+        op->getNumResults() == 0) {
+      return;
+    }
+    
+    // Skip ops with side effects (except for memory allocation which we handle)
+    if (auto memInterface = dyn_cast<mlir::MemoryEffectOpInterface>(op)) {
+      SmallVector<mlir::MemoryEffects::EffectInstance> effects;
+      memInterface.getEffects(effects);
+      // Skip ops with write effects
+      bool hasWriteEffect = llvm::any_of(effects, [](const auto &effect) {
+        return isa<mlir::MemoryEffects::Write>(effect.getEffect());
+      });
+      if (hasWriteEffect) {
+        return;
+      }
+    }
+    
+    // Create signature
+    OpSignature sig;
+    sig.opName = op->getName().getStringRef();
+    sig.operands.assign(op->operand_begin(), op->operand_end());
+    sig.attrs = op->getAttrDictionary();
+    
+    auto [it, inserted] = seenOps.insert({sig, op});
+    if (inserted) {
+      // First instance, keep it
+      return;
+    }
+    
+    // Duplicate found - replace uses with first instance
+    Operation *firstOp = it->second;
+    
+    // Verify result types match (should always be true for identical ops)
+    if (op->getNumResults() != firstOp->getNumResults()) {
+      return;
+    }
+    
+    bool typesMatch = true;
+    for (size_t i = 0; i < op->getNumResults(); ++i) {
+      if (op->getResult(i).getType() != firstOp->getResult(i).getType()) {
+        typesMatch = false;
+        break;
+      }
+    }
+    
+    if (!typesMatch) {
+      return;
+    }
+    
+    // Replace all uses
+    for (size_t i = 0; i < op->getNumResults(); ++i) {
+      op->getResult(i).replaceAllUsesWith(firstOp->getResult(i));
+    }
+    
+    opsToErase.push_back(op);
+  });
+  
+  // Erase duplicates
+  for (Operation *op : opsToErase) {
+    op->erase();
+  }
+}
+
 // Deduplicate operations with TTCoreDuplicateConstEvalTrait in a function.
 // Assumes any op with TTCoreDuplicateConstEvalTrait is equivalent to the same
 // op with the same attrs.
@@ -445,6 +542,58 @@ public:
 } // namespace
 
 namespace {
+
+// Structure to hold memory analysis results for a subgraph
+struct SubgraphMemoryStats {
+  int64_t outputSize;      // Size of persistent tensors (stay in DRAM)
+  int64_t peakFootprint;   // Max estimated memory usage during execution (Output + Transient)
+  size_t originalIndex;    // Index to track original order
+};
+
+// Helper function to estimate the peak memory footprint of a subgraph.
+// It assumes a worst-case scenario where all intermediate tensors are alive simultaneously
+// (sum of all intermediates + sum of all outputs).
+static SubgraphMemoryStats analyzeSubgraphMemory(const ConstEvalSubgraph &subgraph, size_t index) {
+  int64_t totalOutputSize = 0;
+  int64_t totalInternalSize = 0;
+  
+  // Create a set of ops in the subgraph for fast lookup
+  llvm::SmallPtrSet<mlir::Operation *, 8> opSet(subgraph.ops.begin(), subgraph.ops.end());
+
+  for (auto *op : subgraph.ops) {
+    for (auto result : op->getResults()) {
+      int64_t tensorSize = getTensorSizeInBytes(result.getType());
+      
+      // Check if the result is used outside the subgraph (Output)
+      bool isOutput = false;
+      for (auto *user : result.getUsers()) {
+        if (!opSet.contains(user)) { 
+          isOutput = true; 
+          break; 
+        }
+      }
+
+      if (isOutput) {
+        totalOutputSize += tensorSize;
+      } else {
+        // This is an intermediate tensor used only within the subgraph.
+        // It consumes scratchpad memory during execution but is deallocated afterwards.
+        totalInternalSize = std::max(tensorSize, totalInternalSize);
+      }
+    }
+  }
+
+  // Calculate estimated peak memory.
+  // Ideally, this should use liveness analysis, but summing up all intermediates
+  // provides a safe upper bound for the worst-case footprint.
+  int64_t estimatedPeak = totalInternalSize + totalOutputSize;
+
+  return {totalOutputSize, estimatedPeak, index};
+}
+
+} // namespace
+
+namespace {
 // Transform pass to hoist const-eval subgraphs into separate funcs, invoked
 // w/ ttcore.load_cached ops.
 class ConstEvalHoistTransform
@@ -493,16 +642,39 @@ private:
       return;
     }
 
-    // Sort subgraphs by estimated memory usage (smallest first).
-    // This helps reduce DRAM fragmentation by executing small functions first,
-    // freeing their memory early, and leaving larger contiguous free blocks
-    // for larger functions that execute later.
-    // Memory estimation includes tile padding (32x32) for accurate DRAM usage.
-    std::sort(subgraphs.begin(), subgraphs.end(),
-              [](const ConstEvalSubgraph &a, const ConstEvalSubgraph &b) {
-                return estimateSubgraphMemoryUsage(a) <
-                       estimateSubgraphMemoryUsage(b);
+    // [Analysis Phase]
+    // Analyze memory characteristics of each subgraph before hoisting.
+    std::vector<SubgraphMemoryStats> stats;
+    stats.reserve(subgraphs.size());
+    
+    for(size_t i = 0; i < subgraphs.size(); ++i) {
+        stats.push_back(analyzeSubgraphMemory(subgraphs[i], i));
+    }
+
+    // [Sorting Phase]
+    // Strategy: Peak Memory First (Descending)
+    // 
+    // Rationale:
+    // 1. OOM Prevention: Subgraphs with high peak memory (large scratchpad usage)
+    //    should run first when the DRAM is relatively empty.
+    // 2. Fragmentation Reduction: Typically, subgraphs with high peak usage also 
+    //    produce larger outputs. Placing them at low addresses (early execution)
+    //    mimics a "Best-Fit" allocation strategy.
+    // 3. As execution progresses, accumulated "Output" tensors reduce the available 
+    //    ceiling for "Internal" tensors.
+    std::sort(stats.begin(), stats.end(), 
+              [](const SubgraphMemoryStats& a, const SubgraphMemoryStats& b) {
+                  return a.peakFootprint < b.peakFootprint; 
               });
+
+    // [Reordering Phase]
+    // Apply the sorted order to the subgraphs vector.
+    llvm::SmallVector<ConstEvalSubgraph, 4> sortedSubgraphs;
+    sortedSubgraphs.reserve(subgraphs.size());
+    for(const auto& stat : stats) {
+        sortedSubgraphs.push_back(std::move(subgraphs[stat.originalIndex]));
+    }
+    subgraphs = std::move(sortedSubgraphs);
 
     // Create new functions for each subgraph (now in sorted order)
     for (size_t i = 0; i < subgraphs.size(); ++i) {
@@ -536,12 +708,32 @@ private:
 
     collectSubgraphBoundary(subgraph.ops, outputs);
 
+    // Deduplicate outputs - same value should only be returned once.
+    // Keep track of mapping from original output index to unique output index.
+    llvm::SmallVector<mlir::Value, 4> uniqueOutputs;
+    llvm::DenseMap<mlir::Value, size_t> outputToUniqueIdx;
+    llvm::SmallVector<size_t, 4> originalToUniqueIdx;
+    
+    for (auto output : outputs) {
+      auto it = outputToUniqueIdx.find(output);
+      if (it == outputToUniqueIdx.end()) {
+        // First occurrence of this value
+        size_t uniqueIdx = uniqueOutputs.size();
+        outputToUniqueIdx[output] = uniqueIdx;
+        uniqueOutputs.push_back(output);
+        originalToUniqueIdx.push_back(uniqueIdx);
+      } else {
+        // Duplicate - map to the same unique index
+        originalToUniqueIdx.push_back(it->second);
+      }
+    }
+
     // Get types for function signature.
     for (auto input : inputs) {
       inputTypes.push_back(input.getType());
     }
 
-    for (auto output : outputs) {
+    for (auto output : uniqueOutputs) {
       outputTypes.push_back(output.getType());
     }
 
@@ -604,9 +796,9 @@ private:
       processOp(op, valueMap, builder);
     }
 
-    // Create return operation.
+    // Create return operation with unique outputs only.
     llvm::SmallVector<mlir::Value, 4> returnValues;
-    for (auto output : outputs) {
+    for (auto output : uniqueOutputs) {
       auto it = valueMap.find(output);
       assert(it != valueMap.end() &&
              "Subgraph did not contain value it should output.");
@@ -614,6 +806,11 @@ private:
     }
 
     builder.create<func::ReturnOp>(originalFunc.getLoc(), returnValues);
+
+    // Deduplicate operations within the const-eval function.
+    // CSE may not eliminate duplicates if they have different locations,
+    // so we perform an aggressive deduplication here that ignores location.
+    deduplicateConstEvalOps(newFuncOp);
 
     auto &originalEntryBlock = originalFunc.getBody().front();
     // Manually order LoadCachedOp as first n ops in original func--we may
@@ -626,13 +823,38 @@ private:
     auto calleeAttr =
         mlir::SymbolRefAttr::get(builder.getContext(), newFuncName);
 
-    // Create the LoadCachedOp with the correct argument order
+    // Create the LoadCachedOp with unique output types
     auto callOp = builder.create<ttcore::LoadCachedOp>(
         originalFunc.getLoc(), outputTypes, calleeAttr, ValueRange(inputs));
 
     // Replace uses of original outputs with call results.
+    // Use originalToUniqueIdx to map duplicate outputs to the same result.
     for (size_t i = 0; i < outputs.size(); ++i) {
-      outputs[i].replaceAllUsesWith(callOp.getResult(i));
+      size_t uniqueIdx = originalToUniqueIdx[i];
+      outputs[i].replaceAllUsesWith(callOp.getResult(uniqueIdx));
+    }
+
+    // Check if load_cached results are actually used (not just deallocated)
+    bool hasRealUsers = false;
+    for (auto result : callOp.getResults()) {
+      for (auto *user : result.getUsers()) {
+        if (!isNonConsumingUser(user)) {
+          hasRealUsers = true;
+          break;
+        }
+      }
+      if (hasRealUsers) {
+        break;
+      }
+    }
+
+    // If load_cached has no real users (only deallocate or no users),
+    // remove the const-eval function and load_cached op entirely
+    if (!hasRealUsers) {
+      callOp.erase();
+      newFuncOp.erase();
+      // Don't remove original ops - they're still needed
+      return;
     }
 
     // Remove the original operations (in reverse order to handle
@@ -667,6 +889,15 @@ private:
     for (size_t i = 0; i < clonedOp->getNumResults(); ++i) {
       valueMap.insert({op->getResult(i), clonedOp->getResult(i)});
     }
+  }
+
+  // Check if an operation is a "non-consuming" user that doesn't actually
+  // use the value for computation (e.g., deallocate ops just free memory).
+  static bool isNonConsumingUser(mlir::Operation *user) {
+    // DeallocateOp doesn't actually use the value - it just frees memory.
+    // If the only users outside a subgraph are deallocate ops, the value
+    // shouldn't be considered an output of the const-eval function.
+    return mlir::isa<mlir::tt::ttnn::DeallocateOp>(user);
   }
 
   // Collect inputs and outputs of the subgraph.
