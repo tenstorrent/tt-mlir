@@ -4713,18 +4713,18 @@ AggregateTensorOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
-// DispatchD2MOp - TTNN Op Model Interface
+// D2MSubgraphOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
 llvm::Expected<op_model::OpConstraints>
-DispatchD2MOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+D2MSubgraphOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                                 const OpConfig &opConfig) {
   return issueErrorForGetOpConstraints(
       getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
 }
 
 llvm::Expected<size_t>
-DispatchD2MOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+D2MSubgraphOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
                             const OpConfig &opConfig) {
   return issueErrorForGetOpRuntime(
       getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);

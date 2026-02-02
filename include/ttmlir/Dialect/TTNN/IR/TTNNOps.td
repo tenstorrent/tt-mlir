@@ -2939,7 +2939,7 @@ def TTNN_GenericOp : TTNN_Op<"generic", [TTNN_MemoryConfigOpInterface, MemoryEff
     let hasVerifier = 1;
 }
 
-def TTNN_DispatchD2MOp : TTNN_MemoryEffectOp<"dispatch_d2m",
+def TTNN_D2MSubgraphOp : TTNN_MemoryEffectOp<"d2m_subgraph",
   [AttrSizedOperandSegments]> {
   let summary = "Dispatch D2M compiled subgraph.";
   let description = [{
@@ -2958,7 +2958,7 @@ def TTNN_DispatchD2MOp : TTNN_MemoryEffectOp<"dispatch_d2m",
     Example:
     ```mlir
     // Before D2M compilation
-    %result = ttnn.dispatch_d2m @d2m_subgraph
+    %result = ttnn.d2m_subgraph @d2m_subgraph
         ins(%a : tensor<...>)
         outs(%out : tensor<...>) : tensor<...>
 
@@ -2967,7 +2967,7 @@ def TTNN_DispatchD2MOp : TTNN_MemoryEffectOp<"dispatch_d2m",
     }
 
     // After D2M compilation
-    %result = ttnn.dispatch_d2m @d2m_subgraph
+    %result = ttnn.d2m_subgraph @d2m_subgraph
         ins(%a : tensor<...>)
         outs(%out : tensor<...>) : tensor<...>
 

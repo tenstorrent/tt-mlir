@@ -7,7 +7,7 @@
 module {
   // CHECK-LABEL: func.func @one_d2m_subgraph
   func.func @one_d2m_subgraph(%arg0: tensor<64x64xbf16, #ttnn_layout>, %arg1: tensor<64x64xbf16, #ttnn_layout>, %out: tensor<64x64xbf16, #ttnn_layout>) -> tensor<64x64xbf16, #ttnn_layout> {
-    %0 = ttnn.dispatch_d2m @d2m_subgraph
+    %0 = ttnn.d2m_subgraph @d2m_subgraph
         ins(%arg0, %arg1 : tensor<64x64xbf16, #ttnn_layout>, tensor<64x64xbf16, #ttnn_layout>)
         outs(%out : tensor<64x64xbf16, #ttnn_layout>) : tensor<64x64xbf16, #ttnn_layout>
     return %0 : tensor<64x64xbf16, #ttnn_layout>
@@ -29,10 +29,10 @@ module {
 module {
   // CHECK-LABEL: func.func @two_d2m_subgraph_b2b
   func.func @two_d2m_subgraph_b2b(%arg0: tensor<64x64xbf16, #ttnn_layout>, %out0: tensor<64x64xbf16, #ttnn_layout>, %out1: tensor<64x64xbf16, #ttnn_layout>) -> tensor<64x64xbf16, #ttnn_layout> {
-    %0 = ttnn.dispatch_d2m @d2m_subgraph_0
+    %0 = ttnn.d2m_subgraph @d2m_subgraph_0
         ins(%arg0 : tensor<64x64xbf16, #ttnn_layout>)
         outs(%out0 : tensor<64x64xbf16, #ttnn_layout>) : tensor<64x64xbf16, #ttnn_layout>
-    %2 = ttnn.dispatch_d2m @d2m_subgraph_1
+    %2 = ttnn.d2m_subgraph @d2m_subgraph_1
         ins(%0 : tensor<64x64xbf16, #ttnn_layout>)
         outs(%out1 : tensor<64x64xbf16, #ttnn_layout>) : tensor<64x64xbf16, #ttnn_layout>
     return %2 : tensor<64x64xbf16, #ttnn_layout>
@@ -65,12 +65,12 @@ module {
   func.func @mixed_ttnn_ops_d2m_subgraph(%arg0: tensor<64x64xbf16, #ttnn_layout>, %arg1: tensor<64x64xbf16, #ttnn_layout>, %out0: tensor<64x64xbf16, #ttnn_layout>, %out1: tensor<64x64xbf16, #ttnn_layout>) -> tensor<64x64xbf16, #ttnn_layout> {
     // CHECK: "ttnn.add"
     %0 = "ttnn.add"(%arg0, %arg1) <{dtype = #ttcore.supportedDataTypes<bf16>}> : (tensor<64x64xbf16, #ttnn_layout>, tensor<64x64xbf16, #ttnn_layout>) -> tensor<64x64xbf16, #ttnn_layout>
-    %1 = ttnn.dispatch_d2m @d2m_subgraph_0
+    %1 = ttnn.d2m_subgraph @d2m_subgraph_0
         ins(%0 : tensor<64x64xbf16, #ttnn_layout>)
         outs(%out0 : tensor<64x64xbf16, #ttnn_layout>) : tensor<64x64xbf16, #ttnn_layout>
     // CHECK: "ttnn.neg"
     %3 = "ttnn.neg"(%1) : (tensor<64x64xbf16, #ttnn_layout>) -> tensor<64x64xbf16, #ttnn_layout>
-    %4 = ttnn.dispatch_d2m @d2m_subgraph_1
+    %4 = ttnn.d2m_subgraph @d2m_subgraph_1
         ins(%3 : tensor<64x64xbf16, #ttnn_layout>)
         outs(%out1 : tensor<64x64xbf16, #ttnn_layout>) : tensor<64x64xbf16, #ttnn_layout>
     return %4 : tensor<64x64xbf16, #ttnn_layout>

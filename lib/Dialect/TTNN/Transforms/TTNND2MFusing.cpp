@@ -284,7 +284,7 @@ private:
     rewriter.create<func::ReturnOp>(loc, returnValues);
 
     rewriter.setInsertionPoint(firstOp);
-    auto dispatchOp = rewriter.create<DispatchD2MOp>(
+    auto dispatchOp = rewriter.create<D2MSubgraphOp>(
         loc, outputTypes, inputs.getArrayRef(), outputBuffers,
         SymbolRefAttr::get(rewriter.getContext(), funcName));
 

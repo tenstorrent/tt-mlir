@@ -8,7 +8,7 @@ module {
   func.func @long_chain(%arg0: tensor<64x128xbf16, #layout>, %arg1: tensor<128x256xbf16, #layout>) -> tensor<64x256xbf16, #layout> {
     // CHECK: %[[MATMUL:.*]] = "ttnn.matmul"
     // CHECK: %[[EMPTY:.*]] = "ttnn.empty"
-    // CHECK: ttnn.dispatch_d2m @d2m_subgraph_0
+    // CHECK: ttnn.d2m_subgraph @d2m_subgraph_0
     // CHECK-NEXT: ins(%[[MATMUL]] : tensor<64x256xbf16
     // CHECK-NEXT: outs(%[[EMPTY]] : tensor<64x256xbf16
     %0 = "ttnn.matmul"(%arg0, %arg1) : (tensor<64x128xbf16, #layout>, tensor<128x256xbf16, #layout>) -> tensor<64x256xbf16, #layout>
@@ -26,7 +26,7 @@ module {
     // CHECK: %[[MM1:.*]] = "ttnn.matmul"
     // CHECK: %[[MM2:.*]] = "ttnn.matmul"
     // CHECK: %[[EMPTY:.*]] = "ttnn.empty"
-    // CHECK: ttnn.dispatch_d2m @d2m_subgraph_1
+    // CHECK: ttnn.d2m_subgraph @d2m_subgraph_1
     // CHECK-NEXT: ins(%[[MM1]], %[[MM2]] :
     // CHECK-NEXT: outs(%[[EMPTY]] :
     %0 = "ttnn.matmul"(%arg0, %arg1) : (tensor<64x128xbf16, #layout>, tensor<128x256xbf16, #layout>) -> tensor<64x256xbf16, #layout>
@@ -43,7 +43,7 @@ module {
     // CHECK: "ttnn.matmul"
     // CHECK: %[[EXP:.*]] = "ttnn.exp"
     // CHECK: %[[EMPTY:.*]] = "ttnn.empty"
-    // CHECK: ttnn.dispatch_d2m @d2m_subgraph_2
+    // CHECK: ttnn.d2m_subgraph @d2m_subgraph_2
     // CHECK-NEXT: ins(%[[EXP]] :
     // CHECK-NEXT: outs(%[[EMPTY]] :
     // CHECK: "ttnn.matmul"(%[[EXP]],
@@ -62,7 +62,7 @@ module {
     // CHECK: %[[MM1:.*]] = "ttnn.matmul"
     // CHECK: %[[MM2:.*]] = "ttnn.matmul"
     // CHECK: %[[EMPTY:.*]] = "ttnn.empty"
-    // CHECK: ttnn.dispatch_d2m @d2m_subgraph_3
+    // CHECK: ttnn.d2m_subgraph @d2m_subgraph_3
     // CHECK-NEXT: ins(%[[MM1]], %[[MM2]] :
     // CHECK-NEXT: outs(%[[EMPTY]] :
     %0 = "ttnn.matmul"(%arg0, %arg1) : (tensor<64x128xbf16, #layout>, tensor<128x256xbf16, #layout>) -> tensor<64x256xbf16, #layout>
@@ -81,7 +81,7 @@ module {
     // CHECK: %[[MM1:.*]] = "ttnn.matmul"
     // CHECK: %[[MM2:.*]] = "ttnn.matmul"
     // CHECK: %[[EMPTY:.*]] = "ttnn.empty"
-    // CHECK: ttnn.dispatch_d2m @d2m_subgraph_4
+    // CHECK: ttnn.d2m_subgraph @d2m_subgraph_4
     // CHECK-NEXT: ins(%[[MM1]], %[[MM2]] :
     // CHECK-NEXT: outs(%[[EMPTY]] :
     %0 = "ttnn.matmul"(%arg0, %arg1) : (tensor<64x128xbf16, #layout>, tensor<128x256xbf16, #layout>) -> tensor<64x256xbf16, #layout>
@@ -98,7 +98,7 @@ module {
   func.func @diamond_pattern(%arg0: tensor<64x128xbf16, #layout>, %arg1: tensor<128x256xbf16, #layout>) -> tensor<64x256xbf16, #layout> {
     // CHECK: %[[MM:.*]] = "ttnn.matmul"
     // CHECK: %[[EMPTY:.*]] = "ttnn.empty"
-    // CHECK: ttnn.dispatch_d2m @d2m_subgraph_5
+    // CHECK: ttnn.d2m_subgraph @d2m_subgraph_5
     // CHECK-NEXT: ins(%[[MM]] :
     // CHECK-NEXT: outs(%[[EMPTY]] :
     %0 = "ttnn.matmul"(%arg0, %arg1) : (tensor<64x128xbf16, #layout>, tensor<128x256xbf16, #layout>) -> tensor<64x256xbf16, #layout>
@@ -116,7 +116,7 @@ module {
     // CHECK: "ttnn.matmul"
     // CHECK: %[[EXP:.*]] = "ttnn.exp"
     // CHECK: %[[EMPTY:.*]] = "ttnn.empty"
-    // CHECK: ttnn.dispatch_d2m @d2m_subgraph_6
+    // CHECK: ttnn.d2m_subgraph @d2m_subgraph_6
     // CHECK-NEXT: ins(%[[EXP]] :
     // CHECK-NEXT: outs(%[[EMPTY]] :
     // CHECK: "ttnn.matmul"(%[[EXP]],
@@ -136,7 +136,7 @@ module {
   func.func @single_eltwise_no_chain(%arg0: tensor<64x128xbf16, #layout>, %arg1: tensor<128x256xbf16, #layout>) -> tensor<64x256xbf16, #layout> {
     // CHECK: "ttnn.matmul"
     // CHECK: "ttnn.relu"
-    // CHECK-NOT: ttnn.dispatch_d2m
+    // CHECK-NOT: ttnn.d2m_subgraph
     %0 = "ttnn.matmul"(%arg0, %arg1) : (tensor<64x128xbf16, #layout>, tensor<128x256xbf16, #layout>) -> tensor<64x256xbf16, #layout>
     %1 = "ttnn.relu"(%0) : (tensor<64x256xbf16, #layout>) -> tensor<64x256xbf16, #layout>
 
@@ -148,7 +148,7 @@ module {
     // Chain 1: 3 ops
     // CHECK: %[[MM1:.*]] = "ttnn.matmul"
     // CHECK: %[[EMPTY1:.*]] = "ttnn.empty"
-    // CHECK: ttnn.dispatch_d2m @d2m_subgraph_8
+    // CHECK: ttnn.d2m_subgraph @d2m_subgraph_8
     // CHECK-NEXT: ins(%[[MM1]] :
     // CHECK-NEXT: outs(%[[EMPTY1]] :
     %0 = "ttnn.matmul"(%arg0, %arg1) : (tensor<64x128xbf16, #layout>, tensor<128x256xbf16, #layout>) -> tensor<64x256xbf16, #layout>
@@ -159,7 +159,7 @@ module {
     // Chain 2: 2 ops
     // CHECK: %[[MM2:.*]] = "ttnn.matmul"
     // CHECK: %[[EMPTY2:.*]] = "ttnn.empty"
-    // CHECK: ttnn.dispatch_d2m @d2m_subgraph_7
+    // CHECK: ttnn.d2m_subgraph @d2m_subgraph_7
     // CHECK-NEXT: ins(%[[MM2]] :
     // CHECK-NEXT: outs(%[[EMPTY2]] :
     %4 = "ttnn.matmul"(%arg2, %arg3) : (tensor<64x128xbf16, #layout>, tensor<128x256xbf16, #layout>) -> tensor<64x256xbf16, #layout>
