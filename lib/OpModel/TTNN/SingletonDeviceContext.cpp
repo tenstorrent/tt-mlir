@@ -34,8 +34,8 @@ void SingletonDeviceContext::resetInstance() {
 void SingletonDeviceContext::closeInstance() {
   SingletonDeviceContext &instance = getInstance();
   assert(instance.m_device != nullptr && "No device to close");
-  ::tt::tt_metal::experimental::disable_mock_mode();
   instance.m_device.reset();
+  ::tt::tt_metal::experimental::disable_mock_mode();
 }
 
 void SingletonDeviceContext::setExternalDevice(
@@ -49,12 +49,12 @@ void SingletonDeviceContext::setExternalDevice(
 }
 
 void SingletonDeviceContext::openDevice(const size_t traceRegionSize) {
-  ::tt::tt_metal::experimental::configure_mock_mode(::tt::ARCH::WORMHOLE_B0, 1);
+  size_t numDevices = ::tt::tt_metal::GetNumAvailableDevices();
+  ::tt::tt_metal::experimental::configure_mock_mode(::tt::ARCH::WORMHOLE_B0, numDevices);
   assert(m_device == nullptr &&
          "Device is already initialized. Cannot open device again.");
   // todo: this replicates logic in
   // runtime/include/tt/runtime/detail/common/common.h, move to shared location
-  size_t numDevices = ::tt::tt_metal::GetNumAvailableDevices();
   size_t numPCIeDevices = ::tt::tt_metal::GetNumPCIeDevices();
   ::tt::tt_metal::DispatchCoreType dispatchCoreType =
       numDevices == numPCIeDevices ? ::tt::tt_metal::DispatchCoreType::WORKER
