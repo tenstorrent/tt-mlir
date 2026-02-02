@@ -4756,6 +4756,23 @@ mlir::tt::ttnn::PagedScaledDotProductAttentionDecodeOp::verify() {
            << getD2mFunc() << "' in parent module.";
   }
 
+  // Verify input types match function arguments
+  if (mainFunc.getNumArguments() != getInputs().size()) {
+    return emitOpError("D2M function must have ")
+           << getInputs().size() << " arguments, got "
+           << mainFunc.getNumArguments();
+  }
+
+  for (auto [idx, pair] : llvm::enumerate(
+           llvm::zip(getInputs().getTypes(), mainFunc.getArgumentTypes()))) {
+    auto [inputType, funcArgType] = pair;
+    if (inputType != funcArgType) {
+      return emitOpError("D2M function argument type ")
+             << idx << " mismatch: expected " << inputType << ", got "
+             << funcArgType;
+    }
+  }
+
   // Verify return types match op results
   if (mainFunc.getNumResults() != getNumResults()) {
     return emitOpError("D2M function must have ")

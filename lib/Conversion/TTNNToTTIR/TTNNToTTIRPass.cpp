@@ -34,9 +34,9 @@ struct ConvertTTNNToTTIRPass
 
   ConvertTTNNToTTIRPass() = default;
 
-  void collectD2MSubgraphs(ModuleOp module) {
+  void collectD2MSubgraphs(ModuleOp moduleOp) {
     d2mSubgraphs.clear();
-    module.walk([&](ttnn::DispatchD2MOp dispatchOp) {
+    moduleOp.walk([&](ttnn::DispatchD2MOp dispatchOp) {
       if (func::FuncOp func = dispatchOp.getD2MMainFunc()) {
         d2mSubgraphs.insert(func);
       }
@@ -49,8 +49,8 @@ struct ConvertTTNNToTTIRPass
   }
 
   void runOnOperation() final {
-    ModuleOp module = getOperation();
-    collectD2MSubgraphs(module);
+    ModuleOp moduleOp = getOperation();
+    collectD2MSubgraphs(moduleOp);
 
     ::mlir::ConversionTarget target(getContext());
 

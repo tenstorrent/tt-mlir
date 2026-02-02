@@ -27,14 +27,13 @@ public:
     ModuleOp moduleOp = getOperation();
     SmallVector<func::FuncOp> funcsToDelete;
 
-    moduleOp.walk([&](DispatchD2MOp dispatchOp) -> WalkResult {
+    moduleOp.walk([&](DispatchD2MOp dispatchOp) {
       func::FuncOp mainFunc = dispatchOp.getD2MMainFunc();
       if (failed(inlineDispatchOp(moduleOp, dispatchOp))) {
         signalPassFailure();
-        return WalkResult::interrupt();
+        return;
       }
       funcsToDelete.push_back(mainFunc);
-      return WalkResult::advance();
     });
 
     for (func::FuncOp func : funcsToDelete) {
@@ -51,14 +50,12 @@ private:
              << dispatchOp.getD2mFunc() << "' in parent module";
     }
 
-    // Map func args to dispatch op operands.
+    // Map func args to dispatch op input operands
     OpBuilder builder(dispatchOp);
     IRMapping mapping;
-    auto allOperands =
-        llvm::concat<Value>(dispatchOp.getInputs(), dispatchOp.getOutputs());
-    for (auto [arg, operand] :
-         llvm::zip(mainFunc.getArguments(), allOperands)) {
-      mapping.map(arg, operand);
+    for (auto [arg, input] :
+         llvm::zip(mainFunc.getArguments(), dispatchOp.getInputs())) {
+      mapping.map(arg, input);
     }
 
     // Clone function body operations and map return value.

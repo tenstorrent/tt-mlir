@@ -27,7 +27,7 @@ namespace mlir::tt::ttnn {
 namespace {
 
 // 1. Find exit ops: eltwise ops where all consumers are non-eltwise
-// 2. From each exit, BFS backward through eltwise producers
+// 2. From each exit, DFS backward through eltwise producers
 // 3. Include producer P only if ALL of P's consumers are already in the fusion
 //    group (this ensures no escaping from middle of a fusion group)
 // 4. Stop at non-eltwise producers (these are entry points)
@@ -115,9 +115,8 @@ private:
     }
   }
 
-  // BFS backward from exit op and include producer only if all its consumers
-  // are in the fusion set. BFS order guarantees correctness since consumers are
-  // processed before their producers.
+  // DFS backward from exit op and include producer only if all its consumers
+  // are in the fusion set.
   FusionGroup buildFusionGroup(Operation *exitOp) {
     llvm::DenseSet<Operation *> fusionSet;
     llvm::SmallVector<Operation *> stack;
