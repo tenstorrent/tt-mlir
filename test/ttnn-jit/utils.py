@@ -78,8 +78,15 @@ def _get_input_transform(
 
 def get_block_sharding_grid(shape):
     """Infer a TTNN grid/end coord for block sharding the given logical tensor shape"""
-    assert len(shape) == 2, f"Only 2D shapes are supported"
-    tile_shape = [shape[0] // 32, shape[1] // 32]
+    # collapse dims [0, -1)
+    if len(shape) > 2:
+        collapsed_dim = 1
+        for i in range(len(shape) - 1):
+            collapsed_dim *= shape[i]
+    else:
+        collapsed_dim = shape[0]
+    tile_shape = [collapsed_dim // 32, shape[-1] // 32]
+
     grid = []
     for dim in tile_shape:
         for grid_dim in reversed(range(8)):
@@ -87,6 +94,18 @@ def get_block_sharding_grid(shape):
                 grid.append(grid_dim)
                 break
     return list(reversed(grid))
+
+
+def get_expected_memory_config(tensor_shape):
+    """Get expected block sharded memory config for a given tensor shape"""
+    grid = get_block_sharding_grid(tensor_shape)
+
+    return ttnn.create_sharded_memory_config(
+        shape=tensor_shape,
+        core_grid=ttnn.CoreGrid(x=grid[0] + 1, y=grid[1] + 1),
+        strategy=ttnn.ShardStrategy.BLOCK,
+        use_height_and_width_as_shard_shape=False,
+    )
 
 
 def pcc_check(result, golden_result, threshold=0.99):
@@ -254,15 +273,8 @@ def run_op_test(
             assert memory_configs_equal(output_tensor.memory_config(), memory_config)
         else:
             # ttnn-jit will by default set l1 block sharded output memory config
-            # create expected memory config to check for
-            output_shape = golden_tensor.shape()
-            expected_grid = get_block_sharding_grid(output_shape)
-            expected_memory_config = ttnn.create_sharded_memory_config(
-                shape=output_shape,
-                core_grid=ttnn.CoreGrid(x=expected_grid[0] + 1, y=expected_grid[1] + 1),
-                strategy=ttnn.ShardStrategy.BLOCK,
-                use_height_and_width_as_shard_shape=False,
-            )
+            # get expected memory config to check for
+            expected_memory_config = get_expected_memory_config(golden_tensor.shape())
             assert memory_configs_equal(
                 output_tensor.memory_config(), expected_memory_config
             )

@@ -11,6 +11,7 @@ import pytest
 from utils import (
     all_close_check,
     memory_configs_equal,
+    get_expected_memory_config,
     create_dram_tensor,
 )
 from op_definitions import exp, cosh, add
@@ -88,8 +89,9 @@ def test_mesh_tensor_eltwise(
         interop_result = ttnn.sum(interop_result, dim=0)
         golden_result = ttnn.sum(golden_result, dim=0)
 
+    expected_memory_config = get_expected_memory_config(golden_result.shape())
     assert memory_configs_equal(
-        interop_result.memory_config(), golden_result.memory_config()
+        interop_result.memory_config(), expected_memory_config
     )
 
     # compare each device shard
