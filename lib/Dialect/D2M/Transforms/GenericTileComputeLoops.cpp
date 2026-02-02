@@ -124,7 +124,7 @@ struct D2MGenericComputeRewriter : public OpRewritePattern<linalg::GenericOp> {
 
   LogicalResult matchAndRewrite(linalg::GenericOp op,
                                 PatternRewriter &rewriter) const final {
-    // Current limitation: we only check the output's shape during DST
+    // Current limita'tion: we only check the output's shape during DST
     // subblocking optimization, ignoring other operands that might reside in
     // the DST and so could lead to overflows.
     //
@@ -150,15 +150,13 @@ struct D2MGenericComputeRewriter : public OpRewritePattern<linalg::GenericOp> {
     const unsigned baseDstCapacity =
         ttcore::getOpChipDescAttr(op).getDstLogicalSizeTiles(
             largestDstType, false, maxDstPhysicalSizeTiles);
+    llvm::errs() << "baseDstCapacity: " << baseDstCapacity << "\n";
 
-    SmallVector<int64_t> subblockSizes(outputTensor.getShape().size(), 1);
+    SmallVector<int64_t> subblockSizes(outputTensor.getShape().size(),
+                                       enableTwoPhaseDestTiling ? 2 : 1);
+    unsigned dstCapacity = baseDstCapacity * (enableTwoPhaseDestTiling ? 2 : 1);
+    llvm::errs() << "dstCapacity: " << dstCapacity << "\n";
     if (optimizeSubblocking) {
-      // For two-phase tiling, first phase tiles to 2×DST capacity.
-      unsigned dstCapacity = baseDstCapacity;
-      if (enableTwoPhaseDestTiling) {
-        dstCapacity *= 2;
-      }
-
       subblockSizes = calculateOptimalSubblockSizes(
           op.getIndexingMapsArray(), op.getInputs(), outputTensor.getShape(),
           dstCapacity);
