@@ -1232,6 +1232,82 @@ class StableHLOBuilder(Builder):
 
         return abs_module, abs_builder
 
+    ################ stablehlo.SortOp ###############
+
+    @tag(stablehlo.SortOp)
+    def sort(
+        self,
+        in0: Operand,
+        dimension: int = -1,
+        is_stable: bool = False,
+        descending: bool = False,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpResult:
+        stablehlo_op = self.get_opview_from_method(StableHLOBuilder.sort)
+
+        dimension_attr = IntegerAttr.get(IntegerType.get_signless(64), dimension)
+        is_stable_attr = BoolAttr.get(is_stable)
+
+        op = stablehlo_op(
+            [in0.type],
+            [in0],
+            dimension=dimension_attr,
+            is_stable=is_stable_attr,
+            loc=loc,
+        )
+
+        element_type = RankedTensorType(in0.type).element_type
+        scalar_type = RankedTensorType.get([], element_type)
+        compare_direction = stablehlo.ComparisonDirectionAttr.get(
+            "GT" if descending else "LT", self._ctx
+        )
+        if isinstance(element_type, (BF16Type, F16Type, F32Type, F64Type)):
+            compare_type = stablehlo.ComparisonTypeAttr.get("TOTALORDER", self._ctx)
+        elif isinstance(element_type, IntegerType):
+            compare_kind = "UNSIGNED" if element_type.is_unsigned else "SIGNED"
+            compare_type = stablehlo.ComparisonTypeAttr.get(compare_kind, self._ctx)
+        else:
+            compare_type = stablehlo.ComparisonTypeAttr.get("TOTALORDER", self._ctx)
+
+        comparator_region = op.comparator
+        comparator_block = Block.create_at_start(
+            comparator_region, [scalar_type, scalar_type]
+        )
+        with InsertionPoint(comparator_block):
+            compare_result = stablehlo.CompareOp(
+                comparator_block.arguments[0],
+                comparator_block.arguments[1],
+                compare_direction,
+                compare_type=compare_type,
+            ).result
+            stablehlo.ReturnOp([compare_result], loc=op.location)
+
+        op_result = op.results[0]
+
+        if sharding_attr is not None:
+            op.operation.attributes["sdy.sharding"] = sharding_attr
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            op_golden_function = get_golden_function(stablehlo_op)
+            golden_output = op_golden_function(
+                input0,
+                dimension_attr,
+                is_stable_attr,
+                BoolAttr.get(descending),
+                op_result.type.element_type,
+            )
+            self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+
     ################ stablehlo.GetDimensionSizeOp ###############
 
     @tag(stablehlo.GetDimensionSizeOp)
