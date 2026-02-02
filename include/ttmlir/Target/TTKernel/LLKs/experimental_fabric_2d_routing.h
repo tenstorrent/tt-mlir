@@ -52,21 +52,21 @@ FORCE_INLINE UnicastParams get_unicast_params(TopologyInfo &topology,
                                               uint16_t dst_device_id) {
   if (topology.topology_type == TopologyInfo::TopologyType::Ring) {
     // Assert: Shortest path not supported for ring topology.
-    WAYPOINT("DA32");
+    WAYPOINT("DA34");
     ASSERT(topology.routing_mode ==
            TopologyInfo::RoutingMode::UnidirectionalRingTorus);
     return get_unicast_params_unidir_ring(topology, my_device_id,
                                           dst_device_id);
   } else if (topology.topology_type == TopologyInfo::TopologyType::Torus) {
     // Assert: Shortest path not supported for torus topology.
-    WAYPOINT("DA33");
+    WAYPOINT("DA35");
     ASSERT(topology.routing_mode ==
            TopologyInfo::RoutingMode::UnidirectionalRingTorus);
     return get_unicast_params_unidir_torus(topology, my_device_id,
                                            dst_device_id);
   } else {
     // Assert: Unsupported topology type.
-    WAYPOINT("DA34");
+    WAYPOINT("DA36");
     ASSERT(false);
     return UnicastParams(); // unreachable, satisfies compiler
   }
@@ -79,7 +79,7 @@ FORCE_INLINE UnicastParams get_unicast_params_unidir_ring(
   int32_t dest_idx =
       topology.get_logical_mesh_position(dst_device_id)[topology.axis];
   int32_t size = topology.mesh_shape[topology.axis];
-  WAYPOINT("DA35");
+  WAYPOINT("DA37");
   ASSERT(my_idx != dest_idx);
 
   bool is_forward =
@@ -107,7 +107,7 @@ FORCE_INLINE UnicastParams get_unicast_params_unidir_ring(
     result.ns_hops = num_hops;
     result.ns_dir = outgoing_direction;
   } else {
-    WAYPOINT("DA36");
+    WAYPOINT("DA38");
     ASSERT(false);
   }
 
@@ -116,7 +116,7 @@ FORCE_INLINE UnicastParams get_unicast_params_unidir_ring(
 
 FORCE_INLINE UnicastParams get_unicast_params_unidir_torus(
     TopologyInfo &topology, uint16_t my_device_id, uint16_t dst_device_id) {
-  WAYPOINT("DA37");
+  WAYPOINT("DA39");
   ASSERT(NUM_DIMS == 2);
   int32_t my_y = topology.get_logical_mesh_position(my_device_id)[0];
   int32_t dest_y = topology.get_logical_mesh_position(dst_device_id)[0];
@@ -124,7 +124,7 @@ FORCE_INLINE UnicastParams get_unicast_params_unidir_torus(
   int32_t my_x = topology.get_logical_mesh_position(my_device_id)[1];
   int32_t dest_x = topology.get_logical_mesh_position(dst_device_id)[1];
   int32_t size_x = topology.mesh_shape[1];
-  WAYPOINT("DA38");
+  WAYPOINT("DA40");
   ASSERT(!(my_y == dest_y && my_x == dest_x));
 
   UnicastParams result;
@@ -145,7 +145,7 @@ FORCE_INLINE UnicastParams get_unicast_params_unidir_torus(
   result.outgoing_direction =
       result.ns_hops > 0 ? result.ns_dir : result.ew_dir;
 
-  WAYPOINT("DA39");
+  WAYPOINT("DA41");
   ASSERT(result.ns_hops != 0 || result.ew_hops != 0);
 
   return result;
@@ -157,28 +157,28 @@ FORCE_INLINE McastParams get_mcast_params(TopologyInfo &topology,
                                           uint16_t dst_end_device_id) {
   if (topology.topology_type == TopologyInfo::TopologyType::Ring) {
     // Assert: Shortest path not supported for ring topology.
-    WAYPOINT("DA40");
+    WAYPOINT("DA42");
     ASSERT(topology.routing_mode ==
            TopologyInfo::RoutingMode::UnidirectionalRingTorus);
     return get_mcast_params_unidir_ring(topology, my_device_id,
                                         dst_start_device_id, dst_end_device_id);
   } else if (topology.topology_type == TopologyInfo::TopologyType::Torus) {
     // Assert: Shortest path not supported for torus topology.
-    WAYPOINT("DA41");
+    WAYPOINT("DA43");
     ASSERT(topology.routing_mode ==
            TopologyInfo::RoutingMode::UnidirectionalRingTorus);
     return get_mcast_params_unidir_torus(
         topology, my_device_id, dst_start_device_id, dst_end_device_id);
   } else if (topology.topology_type == TopologyInfo::TopologyType::Line) {
     // Assert: UnidirectionalRingTorus not supported for line topology.
-    WAYPOINT("DA42");
-    // ASSERT(topology.routing_mode !=
-    //         TopologyInfo::RoutingMode::UnidirectionalRingTorus);
+    WAYPOINT("DA44");
+    ASSERT(topology.routing_mode !=
+           TopologyInfo::RoutingMode::UnidirectionalRingTorus);
     return get_mcast_params_line(topology, my_device_id, dst_start_device_id,
                                  dst_end_device_id);
   } else {
     // Assert: Unsupported topology type.
-    WAYPOINT("DA43");
+    WAYPOINT("DA45");
     ASSERT(false);
     return McastParams(); // unreachable, satisfies compiler
   }
@@ -200,7 +200,7 @@ FORCE_INLINE McastParams get_mcast_params_line(TopologyInfo &topology,
   int32_t size = topology.mesh_shape[topology.axis];
 
   // Assert: at least one destination (not including sender)
-  WAYPOINT("DA29");
+  WAYPOINT("DA46");
   ASSERT(!(my_idx == start_idx && start_idx == end_idx));
 
   auto [start_fwd, range_fwd, start_bwd, range_bwd] =
@@ -214,7 +214,7 @@ FORCE_INLINE McastParams get_mcast_params_line(TopologyInfo &topology,
 
   if (range_fwd != 0) {
     // sender must be inside or adjacent to mcast region
-    WAYPOINT("DA44");
+    WAYPOINT("DA47");
     ASSERT(start_fwd == 1);
     result.params_per_direction[fwd_dir].active = true;
     if (fwd_dir == eth_chan_directions::EAST) {
@@ -226,13 +226,13 @@ FORCE_INLINE McastParams get_mcast_params_line(TopologyInfo &topology,
     } else if (fwd_dir == eth_chan_directions::SOUTH) {
       result.params_per_direction[fwd_dir].s_num_hops = range_fwd;
     } else {
-      WAYPOINT("DA46");
+      WAYPOINT("DA48");
       ASSERT(false);
     }
   }
   if (range_bwd != 0) {
     // sender must be inside or adjacent to mcast region
-    WAYPOINT("DA45");
+    WAYPOINT("DA49");
     ASSERT(start_bwd == 1);
     result.params_per_direction[bwd_dir].active = true;
     if (bwd_dir == eth_chan_directions::EAST) {
@@ -244,7 +244,7 @@ FORCE_INLINE McastParams get_mcast_params_line(TopologyInfo &topology,
     } else if (bwd_dir == eth_chan_directions::SOUTH) {
       result.params_per_direction[bwd_dir].s_num_hops = range_bwd;
     } else {
-      WAYPOINT("DA46");
+      WAYPOINT("DA50");
       ASSERT(false);
     }
   }
@@ -266,7 +266,7 @@ FORCE_INLINE McastParams get_mcast_params_unidir_ring(
   int32_t size = topology.mesh_shape[topology.axis];
 
   // Assert: at least one destination (not including sender)
-  WAYPOINT("DA43");
+  WAYPOINT("DA51");
   ASSERT(!(my_idx == start_idx && start_idx == end_idx));
 
   McastParams result;
@@ -281,10 +281,10 @@ FORCE_INLINE McastParams get_mcast_params_unidir_ring(
   auto [start_1, range_1, start_2_gap, range_2] =
       get_ring_regions(my_idx, start_idx, end_idx, size, is_forward);
   // sender must be inside or adjacent to mcast region
-  WAYPOINT("DA44");
+  WAYPOINT("DA52");
   ASSERT(start_1 == 1);
   // gap not supported
-  WAYPOINT("DA45");
+  WAYPOINT("DA53");
   ASSERT(start_2_gap == 1);
 
   result.params_per_direction[dir].active = true;
@@ -299,7 +299,7 @@ FORCE_INLINE McastParams get_mcast_params_unidir_ring(
   } else if (dir == eth_chan_directions::SOUTH) {
     result.params_per_direction[dir].s_num_hops = range_1 + range_2;
   } else {
-    WAYPOINT("DA46");
+    WAYPOINT("DA54");
     ASSERT(false);
   }
 
@@ -309,7 +309,7 @@ FORCE_INLINE McastParams get_mcast_params_unidir_ring(
 FORCE_INLINE McastParams get_mcast_params_unidir_torus(
     TopologyInfo &topology, uint16_t my_device_id, uint16_t dst_start_device_id,
     uint16_t dst_end_device_id) {
-  WAYPOINT("DA47");
+  WAYPOINT("DA55");
   ASSERT(NUM_DIMS == 2);
   int32_t my_y = topology.get_logical_mesh_position(my_device_id)[0];
   int32_t start_y = topology.get_logical_mesh_position(dst_start_device_id)[0];
@@ -321,7 +321,7 @@ FORCE_INLINE McastParams get_mcast_params_unidir_torus(
   int32_t size_x = topology.mesh_shape[1];
 
   // Assert: at least one destination (not including sender)
-  WAYPOINT("DA48");
+  WAYPOINT("DA56");
   ASSERT(!(my_device_id == dst_start_device_id &&
            dst_start_device_id == dst_end_device_id));
 
@@ -346,19 +346,19 @@ FORCE_INLINE McastParams get_mcast_params_unidir_torus(
     std::tie(ns_start_1, ns_range_1, ns_start_2_gap, ns_range_2) =
         get_ring_regions(my_y, start_y, end_y, size_y, is_forward);
     // sender must be inside or adjacent to mcast region
-    WAYPOINT("DA49");
+    WAYPOINT("DA57");
     ASSERT(ns_start_1 == 1);
     // gap not supported
-    WAYPOINT("DA50");
+    WAYPOINT("DA58");
     ASSERT(ns_start_2_gap == 1);
   }
   if (ew_region_exists) {
     std::tie(ew_start_1, ew_range_1, ew_start_2_gap, ew_range_2) =
         get_ring_regions(my_x, start_x, end_x, size_x, is_forward);
     // sender must be inside or adjacent to mcast region
-    WAYPOINT("DA51");
+    WAYPOINT("DA59");
     ASSERT(ew_start_1 == 1);
-    WAYPOINT("DA52");
+    WAYPOINT("DA60");
     ASSERT(ew_start_2_gap == 1);
   }
 
@@ -372,7 +372,7 @@ FORCE_INLINE McastParams get_mcast_params_unidir_torus(
     } else if (ns_dir == eth_chan_directions::SOUTH) {
       result.params_per_direction[ns_dir].s_num_hops = ns_range_1 + ns_range_2;
     } else {
-      WAYPOINT("DA53");
+      WAYPOINT("DA61");
       ASSERT(false);
     }
 
@@ -384,7 +384,7 @@ FORCE_INLINE McastParams get_mcast_params_unidir_torus(
         result.params_per_direction[ns_dir].w_num_hops =
             ew_range_1 + ew_range_2;
       } else {
-        WAYPOINT("DA54");
+        WAYPOINT("DA62");
         ASSERT(false);
       }
     }
@@ -397,12 +397,12 @@ FORCE_INLINE McastParams get_mcast_params_unidir_torus(
     } else if (ew_dir == eth_chan_directions::WEST) {
       result.params_per_direction[ew_dir].w_num_hops = ew_range_1 + ew_range_2;
     } else {
-      WAYPOINT("DA55");
+      WAYPOINT("DA63");
       ASSERT(false);
     }
   }
 
-  WAYPOINT("DA56");
+  WAYPOINT("DA64");
   ASSERT(ns_region_exists || ew_region_exists);
 
   return result;
@@ -456,7 +456,7 @@ void fabric_set_unicast_route_custom(
           1; // West only: branch at hop 1
     }
   } else {
-    WAYPOINT("DA57");
+    WAYPOINT("DA65");
     ASSERT(false);
   }
 }

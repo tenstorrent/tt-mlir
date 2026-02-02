@@ -44,7 +44,7 @@ get_connection_index_by_tag(RoutingPlaneConnectionManager &fabric_connections,
     }
   }
 
-  WAYPOINT("DA09");
+  WAYPOINT("DA13");
   ASSERT(false);
   return -1;
 }
@@ -56,7 +56,7 @@ struct FabricConnectionManager {
   bool initialized = false;
 
   FORCE_INLINE TopologyInfo &get_topology() {
-    WAYPOINT("DA10");
+    WAYPOINT("DA14");
     ASSERT(initialized);
     return topology_info;
   }
@@ -64,12 +64,12 @@ struct FabricConnectionManager {
   FORCE_INLINE std::pair<WorkerToFabricEdmSender &,
                          volatile tt_l1_ptr PACKET_HEADER_TYPE *>
   get_connection_and_packet_header(uint32_t dir) {
-    WAYPOINT("DA11");
+    WAYPOINT("DA15");
     ASSERT(initialized);
     auto connection_index =
         get_connection_index_by_tag(fabric_connections, dir);
     DPRINT << "connection_index" << connection_index << "\n";
-    WAYPOINT("DA12");
+    WAYPOINT("DA16");
     ASSERT(connection_index != -1);
     volatile tt_l1_ptr PACKET_HEADER_TYPE *packet_header =
         PacketHeaderPool::header_table[route_id].first + connection_index;
@@ -78,13 +78,13 @@ struct FabricConnectionManager {
   }
 
   FORCE_INLINE RoutingPlaneConnectionManager &get_fabric_connections() {
-    WAYPOINT("DA13");
+    WAYPOINT("DA17");
     ASSERT(initialized);
     return fabric_connections;
   }
 
   FORCE_INLINE volatile tt_l1_ptr PACKET_HEADER_TYPE *get_header(uint32_t dir) {
-    WAYPOINT("DA14");
+    WAYPOINT("DA18");
     ASSERT(initialized);
     return PacketHeaderPool::header_table[route_id].first + dir;
   }
@@ -130,7 +130,7 @@ setup_fabric_connections(FabricConnectionManager &fabric_connection_manager) {
     // set up packet header pool
     fabric_connection_manager.route_id =
         PacketHeaderPool::allocate_header_n(num_send_dir);
-    WAYPOINT("DA15");
+    WAYPOINT("DA19");
     ASSERT(fabric_connection_manager.route_id != -1);
   }
   fabric_connection_manager.initialized = true;
@@ -176,7 +176,7 @@ calculate_initial_direction_and_hops(TopologyInfo &topology_info,
       initial_dir = static_cast<uint32_t>(eth_chan_directions::WEST);
     }
   } else {
-    WAYPOINT("DA16");
+    WAYPOINT("DA20");
     ASSERT(false);
   }
 
@@ -221,7 +221,7 @@ fabric_fast_write_any_len(FabricConnectionManager &fabric_connection_manager,
           MEM_TENSIX_ROUTING_TABLE_BASE);
   uint16_t my_device_id = routing_table->my_device_id;
   uint16_t my_mesh_id = routing_table->my_mesh_id;
-  WAYPOINT("DA17");
+  WAYPOINT("DA21");
   ASSERT(my_mesh_id == dst_mesh_id); // we dont support inter-mesh routing yet
 
   auto unicast_params = get_unicast_params(
@@ -272,7 +272,7 @@ FORCE_INLINE void fabric_mcast_fast_write_any_len(
           MEM_TENSIX_ROUTING_TABLE_BASE);
   uint16_t my_device_id = routing_table->my_device_id;
   uint16_t my_mesh_id = routing_table->my_mesh_id;
-  WAYPOINT("DA18");
+  WAYPOINT("DA22");
   ASSERT(my_mesh_id == dst_mesh_id); // we dont support inter-mesh routing yet
 
   // Get routing info and set up headers for each directions

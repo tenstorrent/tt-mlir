@@ -163,7 +163,7 @@ FORCE_INLINE std::tuple<int32_t, int32_t, int32_t, int32_t>
 get_line_regions(int32_t my_idx, int32_t start_idx, int32_t end_idx,
                  int32_t size) {
   // assert precondition: at least one destination (not including sender)
-  WAYPOINT("DA32");
+  WAYPOINT("DA09");
   ASSERT(!(my_idx == start_idx && start_idx == end_idx));
 
   // remove my_idx from endpoints since we don't send to ourselves
@@ -203,7 +203,7 @@ get_line_regions(int32_t my_idx, int32_t start_idx, int32_t end_idx,
       // Forward: covers [my_idx+1..size-1] (rest of upper segment)
       // Backward: covers [0, end_idx] and [start_idx, my_idx-1]
       // which can have a gap which is not supported so assert
-      WAYPOINT("DA30");
+      WAYPOINT("DA10");
       ASSERT(start_idx - end_idx == 1);
       return {1, size - 1 - my_idx, 1, my_idx + 1};
 
@@ -211,11 +211,11 @@ get_line_regions(int32_t my_idx, int32_t start_idx, int32_t end_idx,
       // Backward: covers [0..my_idx-1] (rest of lower segment)
       // Forward: covers [my_idx+1, end_idx] and [start_idx, size-1] (includes
       // gap + upper segment) assert no gap since not supported right now
-      WAYPOINT("DA31");
+      WAYPOINT("DA11");
       ASSERT(start_idx - end_idx == 1);
       return {1, end_idx - my_idx, 1, my_idx};
     } else {
-      WAYPOINT("DA33");
+      WAYPOINT("DA12");
       ASSERT(false);
       return {0, 0, 0, 0};
     }

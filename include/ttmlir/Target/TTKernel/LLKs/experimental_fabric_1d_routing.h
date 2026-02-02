@@ -40,20 +40,20 @@ FORCE_INLINE UnicastParams get_unicast_params(TopologyInfo &topology,
                                               uint16_t dst_device_id) {
   if (topology.topology_type == TopologyInfo::TopologyType::Ring) {
     // Assert: Shortest path not supported for ring topology.
-    WAYPOINT("DA19");
+    WAYPOINT("DA23");
     ASSERT(topology.routing_mode ==
            TopologyInfo::RoutingMode::UnidirectionalRingTorus);
     return get_unicast_params_unidir_ring(topology, my_device_id,
                                           dst_device_id);
   } else if (topology.topology_type == TopologyInfo::TopologyType::Line) {
     // Assert: Unidirectional routing mode not supported for line topology.
-    WAYPOINT("DA20");
+    WAYPOINT("DA24");
     ASSERT(topology.routing_mode !=
            TopologyInfo::RoutingMode::UnidirectionalRingTorus);
     return get_unicast_params_line(topology, my_device_id, dst_device_id);
   } else {
     // Assert: Unsupported topology type.
-    WAYPOINT("DA21");
+    WAYPOINT("DA25");
     ASSERT(false);
     return UnicastParams();
   }
@@ -66,7 +66,7 @@ FORCE_INLINE UnicastParams get_unicast_params_unidir_ring(
   int32_t dest_idx =
       topology.get_logical_mesh_position(dst_device_id)[topology.axis];
   int32_t size = topology.mesh_shape[topology.axis];
-  WAYPOINT("DA22");
+  WAYPOINT("DA26");
   ASSERT(my_idx != dest_idx);
 
   bool is_forward =
@@ -92,7 +92,7 @@ FORCE_INLINE UnicastParams get_unicast_params_line(TopologyInfo &topology,
       topology.get_logical_mesh_position(my_device_id)[topology.axis];
   int32_t dest_idx =
       topology.get_logical_mesh_position(dst_device_id)[topology.axis];
-  WAYPOINT("DA23");
+  WAYPOINT("DA27");
   ASSERT(my_idx != dest_idx);
 
   UnicastParams result;
@@ -115,7 +115,7 @@ FORCE_INLINE McastParams get_mcast_params(TopologyInfo &topology,
                                           uint16_t dst_end_device_id) {
   if (topology.topology_type == TopologyInfo::TopologyType::Ring) {
     // Assert: Shortest path not supported for ring topology.
-    WAYPOINT("DA24");
+    WAYPOINT("DA28");
     ASSERT(topology.routing_mode ==
            TopologyInfo::RoutingMode::UnidirectionalRingTorus);
     return get_mcast_params_unidir_ring(topology, my_device_id,
@@ -124,13 +124,14 @@ FORCE_INLINE McastParams get_mcast_params(TopologyInfo &topology,
     // dst_start_device_id, dst_end_device_id);
   } else if (topology.topology_type == TopologyInfo::TopologyType::Line) {
     // Assert: Unidirectional routing mode not supported for line topology.
-    // WAYPOINT("DA25"); ASSERT(topology.routing_mode !=
-    // TopologyInfo::RoutingMode::UnidirectionalRingTorus);
+    WAYPOINT("DA29");
+    ASSERT(topology.routing_mode !=
+           TopologyInfo::RoutingMode::UnidirectionalRingTorus);
     return get_mcast_params_line(topology, my_device_id, dst_start_device_id,
                                  dst_end_device_id);
   } else {
     // Assert: Unsupported topology type.
-    WAYPOINT("DA26");
+    WAYPOINT("DA30");
     ASSERT(false);
     return McastParams();
   }
@@ -150,7 +151,7 @@ FORCE_INLINE McastParams get_mcast_params_unidir_ring(
   // DPRINT << "my_idx: " << my_idx << ", start_idx: " << start_idx << ",
   // end_idx: " << end_idx << "\n";
   //  Assert: at least one destination (not including sender)
-  WAYPOINT("DA27");
+  WAYPOINT("DA31");
   ASSERT(!(my_idx == start_idx && start_idx == end_idx));
 
   McastParams result;
@@ -165,7 +166,7 @@ FORCE_INLINE McastParams get_mcast_params_unidir_ring(
   auto [start_1, range_1, start_2_gap, range_2] =
       get_ring_regions(my_idx, start_idx, end_idx, size, is_forward);
   // ASSERT: gap not supported
-  WAYPOINT("DA28");
+  WAYPOINT("DA32");
   ASSERT(start_2_gap == 1);
   // DPRINT << "start_hop: " << (uint32_t)start_hop << ", range: " <<
   // (uint32_t)range << "\n";
@@ -193,7 +194,7 @@ FORCE_INLINE McastParams get_mcast_params_line(TopologyInfo &topology,
   int32_t size = topology.mesh_shape[topology.axis];
 
   // Assert: at least one destination (not including sender)
-  WAYPOINT("DA29");
+  WAYPOINT("DA33");
   ASSERT(!(my_idx == start_idx && start_idx == end_idx));
 
   // if (topology.topology_type == TopologyInfo::TopologyType::Ring) {
