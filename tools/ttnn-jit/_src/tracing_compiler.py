@@ -28,6 +28,7 @@ from ttnn_jit._src.tensor_translator import (
     _create_sharded_tensor_layout,
     _calculate_tile_shape,
 )
+from utils import get_maximal_block_sharding_grid
 import ttnn
 
 
@@ -112,6 +113,22 @@ class TracingCompiler:
 
         # Insert output layout conversion if memory_config provided
         try:
+
+            if self.memory_config is None:
+                # If no memory_config is provided, set output layout to block-sharded
+                output_tensor_shape = [int(dim) for dim in return_type.shape]
+                block_sharded_grid = get_maximal_block_sharding_grid(
+                    output_tensor_shape
+                )
+
+                block_sharded_memory_config = ttnn.create_sharded_memory_config(
+                    shape=output_tensor_shape,
+                    core_grid=block_sharded_grid,
+                    strategy=ttnn.ShardStrategy.BLOCK,
+                    use_height_and_width_as_shard_shape=False,
+                )
+                self.memory_config = block_sharded_memory_config
+
             module = self._insert_output_layout_conversion(module, self.memory_config)
         except Exception as e:
             print(f"Output layout conversion insertion failed: {e}")
