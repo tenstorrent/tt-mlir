@@ -819,7 +819,6 @@ def D2M_BlockMaskOp : D2M_GenericRegionComputeOp<"block_mask",
                        %logical_rows, %logical_cols, <zero>
             : (memref<2x3x!ttcore.tile<32x32, f32>>, memref<2x3x!ttcore.tile<32x32, f32>>,
                memref<1x1x!ttcore.tile<32x32, f32>>, memref<1x1x!ttcore.tile<32x32, f32>>)
->>>>>>> ad6c9ff20 (almost working? wrong results in 1 tile)
         ```
     }];
 

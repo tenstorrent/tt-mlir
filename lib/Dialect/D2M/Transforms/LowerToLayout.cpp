@@ -777,14 +777,27 @@ public:
         iteratorTypesAttr,
         [&](OpBuilder &builder, Location innerLoc, ValueRange blockArgs) {
           // blockArgs: [inputCB, rowMaskCB, colMaskCB, outputCB].
-          Value src =
-              builder.create<WaitOp>(innerLoc, blockArgs[0]).getResult();
-          Value rowMaskCB =
-              builder.create<WaitOp>(innerLoc, blockArgs[1]).getResult();
-          Value colMaskCB =
-              builder.create<WaitOp>(innerLoc, blockArgs[2]).getResult();
-          Value dst =
-              builder.create<ReserveOp>(innerLoc, blockArgs[3]).getResult();
+          Type inputShardType = getShardTypeFromCB(blockArgs[0]);
+          Type rowMaskShardType = getShardTypeFromCB(blockArgs[1]);
+          Type colMaskShardType = getShardTypeFromCB(blockArgs[2]);
+          Type outputShardType = getShardTypeFromCB(blockArgs[3]);
+
+          size_t gridRank = gridShape.size();
+          SmallVector<Value> indices =
+              buildIdentityGridIndices(builder, innerLoc, gridRank);
+
+          // Load input data.
+          Value src = createRemoteLoad(builder, innerLoc, inputShardType, input,
+                                       indices);
+
+          // Create scratch buffers for masks (not loading real data).
+          Value rowMaskBuf =
+              createTensorEmpty(builder, innerLoc, rowMaskShardType);
+          Value colMaskBuf =
+              createTensorEmpty(builder, innerLoc, colMaskShardType);
+
+          // Create output buffer.
+          Value dst = createTensorEmpty(builder, innerLoc, outputShardType);
 
           Value logicalRowsVal =
               builder.create<arith::ConstantIndexOp>(innerLoc, logicalRows);
@@ -793,13 +806,16 @@ public:
 
           // BlockMaskOp with mask CBs - the mask writes will be handled
           // in DecomposeMasking, which runs after bufferization.
-          builder.create<BlockMaskOp>(innerLoc, src, dst, rowMaskCB, colMaskCB,
-                                      logicalRowsVal, logicalColsVal,
-                                      fillValue);
+          builder.create<BlockMaskOp>(innerLoc, src, dst, rowMaskBuf,
+                                      colMaskBuf, logicalRowsVal,
+                                      logicalColsVal, fillValue);
 
-            builder.create<YieldOp>(innerLoc, ValueRange{dst});
-          },
-          ThreadType::Unified);
+          // Store result to output.
+          Value storeResult =
+              createRemoteStore(builder, innerLoc, output, indices, dst);
+          builder.create<YieldOp>(innerLoc, storeResult);
+        },
+        ThreadType::Unified);
 
     // Mark mask inputs (indices 1, 2) as scratch - they don't need streaming.
     genericOp.setScratchInputsAttr(rewriter.getDenseI64ArrayAttr({1, 2}));

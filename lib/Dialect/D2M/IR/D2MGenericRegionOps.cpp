@@ -375,22 +375,6 @@ void DMAWriteOp::getEffects(
   return mlir::success();
 }
 
-void ExperimentalWriteRowIndexTileOp::getEffects(
-    mlir::SmallVectorImpl<
-        mlir::SideEffects::EffectInstance<mlir::MemoryEffects::Effect>>
-        &effects) {
-  effects.emplace_back(mlir::MemoryEffects::Write::get(), &getOutputMutable(),
-                       0, true, mlir::SideEffects::DefaultResource::get());
-}
-
-void ExperimentalWriteColIndexTileOp::getEffects(
-    mlir::SmallVectorImpl<
-        mlir::SideEffects::EffectInstance<mlir::MemoryEffects::Effect>>
-        &effects) {
-  effects.emplace_back(mlir::MemoryEffects::Write::get(), &getOutputMutable(),
-                       0, true, mlir::SideEffects::DefaultResource::get());
-}
-
 void WriteRowMaskTileOp::getEffects(
     mlir::SmallVectorImpl<
         mlir::SideEffects::EffectInstance<mlir::MemoryEffects::Effect>>
@@ -405,11 +389,6 @@ void WriteColMaskTileOp::getEffects(
         &effects) {
   effects.emplace_back(mlir::MemoryEffects::Write::get(), &getOutputMutable(),
                        0, true, mlir::SideEffects::DefaultResource::get());
-}
-
-bool DMAOp::bufferizesToMemoryRead(mlir::OpOperand &operand,
-                                   const mlir::bufferization::AnalysisState &) {
-  return operand.get() == getSrc();
 }
 
 ::mlir::LogicalResult RemoteStoreOp::verify() {
@@ -1451,11 +1430,7 @@ BlockMaskOp::bufferize(mlir::RewriterBase &rewriter,
   auto newOp = rewriter.create<mlir::tt::d2m::BlockMaskOp>(
       old->getLoc(), in, out, rowMaskCb, colMaskCb, getLogicalRows(),
       getLogicalCols(), getFillValue());
-  // DPS-style op: replace uses of result with the output buffer, not the new
-  // op's result. This ensures downstream ops correctly use the original buffer
-  // allocation.
-  rewriter.replaceAllUsesWith(getResult(), out);
-  rewriter.eraseOp(*this);
+  rewriter.replaceOp(old, newOp->getResults());
   return mlir::success();
 }
 // NOLINTEND(clang-analyzer-core.StackAddressEscape)
@@ -1474,16 +1449,10 @@ bool BlockMaskOp::bufferizesToMemoryWrite(
 }
 
 mlir::bufferization::AliasingValueList
-BlockMaskOp::getAliasingValues(mlir::OpOperand &operand,
+BlockMaskOp::getAliasingValues(mlir::OpOperand &,
                                const mlir::bufferization::AnalysisState &) {
-  mlir::bufferization::AliasingValueList aliasList;
-  // Result aliases output operand since this is a DPS-style op that writes
-  // in-place to the output buffer.
-  if (operand.get() == getOutput()) {
-    aliasList.addAlias(
-        {getResult(), mlir::bufferization::BufferRelation::Equivalent});
-  }
-  return aliasList;
+  // No result, so nothing to alias.
+  return {};
 }
 
 mlir::FailureOr<mlir::bufferization::BufferLikeType>
