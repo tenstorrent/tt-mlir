@@ -99,11 +99,14 @@ def get_device_id_t3k_1d_mesh_shape(mesh_coord):
     else:
         return 11 - mesh_coord[1]
 
+
 def get_device_id_t3k_2d_mesh_shape(mesh_coord):
     return mesh_coord[0] * 4 + mesh_coord[1]
 
+
 def get_device_id_6u_2d_mesh_shape(mesh_coord):
     return mesh_coord[0] * 4 + mesh_coord[1]
+
 
 def wrap_range(start, end, size):
     length = (end - start) % size + 1
@@ -114,6 +117,9 @@ def wrap_range(start, end, size):
 @pytest.mark.parametrize("fabric_config", [tt_runtime.runtime.FabricConfig.FABRIC_1D])
 @pytest.mark.parametrize("target", ["ttmetal"])
 @pytest.mark.parametrize("mesh_shape", [(1, 8)])
+@pytest.mark.parametrize(
+    "topology, cluster_axis, routing_mode", [("linear", 1, "bidir_line_mesh")]
+)
 @pytest.mark.parametrize(
     "src_coord, dst_coord_start, dst_coord_end",
     [
@@ -136,10 +142,16 @@ def test_fabric_mcast_1x8_line(
     src_coord,
     dst_coord_start,
     dst_coord_end,
+    topology,
+    cluster_axis,
+    routing_mode,
 ):
+    shard_shape = (32, 32)
+    full_shape = (shard_shape[0] * mesh_shape[0], shard_shape[1] * mesh_shape[1])
+
     with open(
         os.path.join(
-            os.path.dirname(__file__), "fabric_api_snippets/test_fabric_mcast_1x8.mlir"
+            os.path.dirname(__file__), "fabric_api_snippets/test_fabric_mcast.mlir"
         ),
         "r",
         encoding="utf-8",
@@ -149,18 +161,49 @@ def test_fabric_mcast_1x8_line(
     # Replace device IDs with parameterized values
     mlir_text = (
         mlir_text.replace(
-            "%src_dev_id = arith.constant 0 : i16",
-            f"%src_dev_id = arith.constant {get_device_id_t3k_1d_mesh_shape(src_coord)} : i16",
+            "insert_src_dev_id",
+            f"{get_device_id_t3k_1d_mesh_shape(src_coord)}",
         )
         .replace(
-            "%dst_dev_id_start = arith.constant 1 : i16",
-            f"%dst_dev_id_start = arith.constant {get_device_id_t3k_1d_mesh_shape(dst_coord_start)} : i16",
+            "insert_dst_dev_id_start",
+            f"{get_device_id_t3k_1d_mesh_shape(dst_coord_start)}",
         )
         .replace(
-            "%dst_dev_id_end = arith.constant 2 : i16",
-            f"%dst_dev_id_end = arith.constant {get_device_id_t3k_1d_mesh_shape(dst_coord_end)} : i16",
+            "insert_dst_dev_id_end",
+            f"{get_device_id_t3k_1d_mesh_shape(dst_coord_end)}",
         )
-        .replace("topology = ring", "topology = linear")
+        .replace(
+            "insert_mesh_shape_0",
+            f"{mesh_shape[0]}",
+        )
+        .replace(
+            "insert_mesh_shape_1",
+            f"{mesh_shape[1]}",
+        )
+        .replace(
+            "insert_chip_ids",
+            f"[{', '.join(f'{i}' for i in range(0, mesh_shape[0] * mesh_shape[1]))}]",
+        )
+        .replace(
+            "insert_full_tensor_shape_0",
+            f"{full_shape[0]}",
+        )
+        .replace(
+            "insert_full_tensor_shape_1",
+            f"{full_shape[1]}",
+        )
+        .replace(
+            "insert_topology",
+            f"{topology}",
+        )
+        .replace(
+            "insert_cluster_axis",
+            f"{cluster_axis}",
+        )
+        .replace(
+            "insert_routing_mode",
+            f"{routing_mode}",
+        )
     )
 
     ctx = Context()
@@ -170,8 +213,6 @@ def test_fabric_mcast_1x8_line(
         module = Module.parse(mlir_text)
         print("Module:", module)
 
-    shard_shape = (32, 32)
-    full_shape = (shard_shape[0] * mesh_shape[0], shard_shape[1] * mesh_shape[1])
     input_tensor = torch.zeros(full_shape, dtype=torch.bfloat16)
     for i in range(0, mesh_shape[0]):
         for j in range(0, mesh_shape[1]):
@@ -235,6 +276,9 @@ def test_fabric_mcast_1x8_line(
 @pytest.mark.parametrize("target", ["ttmetal"])
 @pytest.mark.parametrize("mesh_shape", [(1, 8)])
 @pytest.mark.parametrize(
+    "topology, cluster_axis, routing_mode", [("ring", 1, "unidir_ring_torus")]
+)
+@pytest.mark.parametrize(
     "src_coord, dst_coord_start, dst_coord_end",
     [
         ((0, 0), (0, 1), (0, 4)),
@@ -253,10 +297,16 @@ def test_fabric_mcast_1x8_ring(
     src_coord,
     dst_coord_start,
     dst_coord_end,
+    topology,
+    cluster_axis,
+    routing_mode,
 ):
+    shard_shape = (32, 32)
+    full_shape = (shard_shape[0] * mesh_shape[0], shard_shape[1] * mesh_shape[1])
+
     with open(
         os.path.join(
-            os.path.dirname(__file__), "fabric_api_snippets/test_fabric_mcast_1x8.mlir"
+            os.path.dirname(__file__), "fabric_api_snippets/test_fabric_mcast.mlir"
         ),
         "r",
         encoding="utf-8",
@@ -266,16 +316,48 @@ def test_fabric_mcast_1x8_ring(
     # Replace device IDs with parameterized values
     mlir_text = (
         mlir_text.replace(
-            "%src_dev_id = arith.constant 0 : i16",
-            f"%src_dev_id = arith.constant {get_device_id_t3k_1d_mesh_shape(src_coord)} : i16",
+            "insert_src_dev_id",
+            f"{get_device_id_t3k_1d_mesh_shape(src_coord)}",
         )
         .replace(
-            "%dst_dev_id_start = arith.constant 1 : i16",
-            f"%dst_dev_id_start = arith.constant {get_device_id_t3k_1d_mesh_shape(dst_coord_start)} : i16",
+            "insert_dst_dev_id_start",
+            f"{get_device_id_t3k_1d_mesh_shape(dst_coord_start)}",
         )
         .replace(
-            "%dst_dev_id_end = arith.constant 2 : i16",
-            f"%dst_dev_id_end = arith.constant {get_device_id_t3k_1d_mesh_shape(dst_coord_end)} : i16",
+            "insert_dst_dev_id_end",
+            f"{get_device_id_t3k_1d_mesh_shape(dst_coord_end)}",
+        )
+        .replace(
+            "insert_mesh_shape_0",
+            f"{mesh_shape[0]}",
+        )
+        .replace(
+            "insert_mesh_shape_1",
+            f"{mesh_shape[1]}",
+        )
+        .replace(
+            "insert_chip_ids",
+            f"[{', '.join(f'{i}' for i in range(0, mesh_shape[0] * mesh_shape[1]))}]",
+        )
+        .replace(
+            "insert_full_tensor_shape_0",
+            f"{full_shape[0]}",
+        )
+        .replace(
+            "insert_full_tensor_shape_1",
+            f"{full_shape[1]}",
+        )
+        .replace(
+            "insert_topology",
+            f"{topology}",
+        )
+        .replace(
+            "insert_cluster_axis",
+            f"{cluster_axis}",
+        )
+        .replace(
+            "insert_routing_mode",
+            f"{routing_mode}",
         )
     )
 
@@ -349,6 +431,9 @@ def test_fabric_mcast_1x8_ring(
 @pytest.mark.parametrize("target", ["ttmetal"])
 @pytest.mark.parametrize("mesh_shape", [(2, 4)])
 @pytest.mark.parametrize(
+    "topology, cluster_axis, routing_mode", [("linear", 1, "bidir_line_mesh")]
+)
+@pytest.mark.parametrize(
     "src_coord, dst_coord_start, dst_coord_end",
     [
         ((1, 0), (1, 1), (1, 3)),
@@ -366,10 +451,16 @@ def test_fabric_mcast_2x4_line(
     src_coord,
     dst_coord_start,
     dst_coord_end,
+    topology,
+    cluster_axis,
+    routing_mode,
 ):
+    shard_shape = (32, 32)
+    full_shape = (shard_shape[0] * mesh_shape[0], shard_shape[1] * mesh_shape[1])
+
     with open(
         os.path.join(
-            os.path.dirname(__file__), "fabric_api_snippets/test_fabric_mcast_2x4.mlir"
+            os.path.dirname(__file__), "fabric_api_snippets/test_fabric_mcast.mlir"
         ),
         "r",
         encoding="utf-8",
@@ -379,16 +470,48 @@ def test_fabric_mcast_2x4_line(
     # Replace device IDs with parameterized values
     mlir_text = (
         mlir_text.replace(
-            "%src_dev_id = arith.constant 0 : i16",
-            f"%src_dev_id = arith.constant {get_device_id_t3k_2d_mesh_shape(src_coord)} : i16",
+            "insert_src_dev_id",
+            f"{get_device_id_t3k_2d_mesh_shape(src_coord)}",
         )
         .replace(
-            "%dst_dev_id_start = arith.constant 1 : i16",
-            f"%dst_dev_id_start = arith.constant {get_device_id_t3k_2d_mesh_shape(dst_coord_start)} : i16",
+            "insert_dst_dev_id_start",
+            f"{get_device_id_t3k_2d_mesh_shape(dst_coord_start)}",
         )
         .replace(
-            "%dst_dev_id_end = arith.constant 2 : i16",
-            f"%dst_dev_id_end = arith.constant {get_device_id_t3k_2d_mesh_shape(dst_coord_end)} : i16",
+            "insert_dst_dev_id_end",
+            f"{get_device_id_t3k_2d_mesh_shape(dst_coord_end)}",
+        )
+        .replace(
+            "insert_mesh_shape_0",
+            f"{mesh_shape[0]}",
+        )
+        .replace(
+            "insert_mesh_shape_1",
+            f"{mesh_shape[1]}",
+        )
+        .replace(
+            "insert_chip_ids",
+            f"[{', '.join(f'{i}' for i in range(0, mesh_shape[0] * mesh_shape[1]))}]",
+        )
+        .replace(
+            "insert_full_tensor_shape_0",
+            f"{full_shape[0]}",
+        )
+        .replace(
+            "insert_full_tensor_shape_1",
+            f"{full_shape[1]}",
+        )
+        .replace(
+            "insert_topology",
+            f"{topology}",
+        )
+        .replace(
+            "insert_cluster_axis",
+            f"{cluster_axis}",
+        )
+        .replace(
+            "insert_routing_mode",
+            f"{routing_mode}",
         )
     )
 
@@ -399,8 +522,6 @@ def test_fabric_mcast_2x4_line(
         module = Module.parse(mlir_text)
         print("Module:", module)
 
-    shard_shape = (32, 32)
-    full_shape = (shard_shape[0] * mesh_shape[0], shard_shape[1] * mesh_shape[1])
     input_tensor = torch.zeros(full_shape, dtype=torch.bfloat16)
     for i in range(0, mesh_shape[0]):
         for j in range(0, mesh_shape[1]):
@@ -456,6 +577,7 @@ def test_fabric_mcast_2x4_line(
                 f"Shard {i * mesh_shape[1] + j}: {output_tensors['program_0']['device_output_0'][start_y:start_y+shard_shape[0], start_x:start_x+shard_shape[1]].unique()}"
             )
 
+
 # TODO:Issue if we use 4x8 since the directions are inverted and apis currently assume ns is dim 0 (look into if this is fixable)
 @pytest.mark.frontend("ttir")
 @pytest.mark.parametrize(
@@ -464,10 +586,13 @@ def test_fabric_mcast_2x4_line(
 @pytest.mark.parametrize("target", ["ttmetal"])
 @pytest.mark.parametrize("mesh_shape", [(8, 4)])
 @pytest.mark.parametrize(
+    "topology, cluster_axis, routing_mode", [("ring", 1, "unidir_ring_torus")]
+)
+@pytest.mark.parametrize(
     "src_coord, dst_coord_start, dst_coord_end",
     [
-        ((0, 0), (0, 1), (0, 3)), 
-        ((0, 3), (0, 0), (0, 1)), 
+        ((0, 0), (0, 1), (0, 3)),
+        ((0, 3), (0, 0), (0, 1)),
         ((0, 1), (0, 0), (0, 3)),
         # ((0, 0), (0, 3), (0, 7)), # start dist not supported in 2d fabric mcast
         # ((0, 3), (0, 0), (0, 5)), # unsupported (has a gap)
@@ -482,10 +607,16 @@ def test_fabric_mcast_8x4_ring(
     src_coord,
     dst_coord_start,
     dst_coord_end,
+    topology,
+    cluster_axis,
+    routing_mode,
 ):
+    shard_shape = (32, 32)
+    full_shape = (shard_shape[0] * mesh_shape[0], shard_shape[1] * mesh_shape[1])
+
     with open(
         os.path.join(
-            os.path.dirname(__file__), "fabric_api_snippets/test_fabric_mcast_8x4.mlir"
+            os.path.dirname(__file__), "fabric_api_snippets/test_fabric_mcast.mlir"
         ),
         "r",
         encoding="utf-8",
@@ -495,16 +626,48 @@ def test_fabric_mcast_8x4_ring(
     # Replace device IDs with parameterized values
     mlir_text = (
         mlir_text.replace(
-            "%src_dev_id = arith.constant 0 : i16",
-            f"%src_dev_id = arith.constant {get_device_id_6u_2d_mesh_shape(src_coord)} : i16",
+            "insert_src_dev_id",
+            f"{get_device_id_6u_2d_mesh_shape(src_coord)}",
         )
         .replace(
-            "%dst_dev_id_start = arith.constant 1 : i16",
-            f"%dst_dev_id_start = arith.constant {get_device_id_6u_2d_mesh_shape(dst_coord_start)} : i16",
+            "insert_dst_dev_id_start",
+            f"{get_device_id_6u_2d_mesh_shape(dst_coord_start)}",
         )
         .replace(
-            "%dst_dev_id_end = arith.constant 2 : i16",
-            f"%dst_dev_id_end = arith.constant {get_device_id_6u_2d_mesh_shape(dst_coord_end)} : i16",
+            "insert_dst_dev_id_end",
+            f"{get_device_id_6u_2d_mesh_shape(dst_coord_end)}",
+        )
+        .replace(
+            "insert_mesh_shape_0",
+            f"{mesh_shape[0]}",
+        )
+        .replace(
+            "insert_mesh_shape_1",
+            f"{mesh_shape[1]}",
+        )
+        .replace(
+            "insert_chip_ids",
+            f"[{', '.join(f'{i}' for i in range(0, mesh_shape[0] * mesh_shape[1]))}]",
+        )
+        .replace(
+            "insert_full_tensor_shape_0",
+            f"{full_shape[0]}",
+        )
+        .replace(
+            "insert_full_tensor_shape_1",
+            f"{full_shape[1]}",
+        )
+        .replace(
+            "insert_topology",
+            f"{topology}",
+        )
+        .replace(
+            "insert_cluster_axis",
+            f"{cluster_axis}",
+        )
+        .replace(
+            "insert_routing_mode",
+            f"{routing_mode}",
         )
     )
 
@@ -515,8 +678,6 @@ def test_fabric_mcast_8x4_ring(
         module = Module.parse(mlir_text)
         print("Module:", module)
 
-    shard_shape = (32, 32)
-    full_shape = (shard_shape[0] * mesh_shape[0], shard_shape[1] * mesh_shape[1])
     input_tensor = torch.zeros(full_shape, dtype=torch.bfloat16)
     for i in range(0, mesh_shape[0]):
         for j in range(0, mesh_shape[1]):
@@ -572,6 +733,7 @@ def test_fabric_mcast_8x4_ring(
                 f"Shard {i * mesh_shape[1] + j}: {output_tensors['program_0']['device_output_0'][start_y:start_y+shard_shape[0], start_x:start_x+shard_shape[1]].unique()}"
             )
 
+
 # TODO:Issue if we use 4x8 since the directions are inverted and apis currently assume ns is dim 0 (look into if this is fixable)
 @pytest.mark.frontend("ttir")
 @pytest.mark.parametrize(
@@ -580,15 +742,18 @@ def test_fabric_mcast_8x4_ring(
 @pytest.mark.parametrize("target", ["ttmetal"])
 @pytest.mark.parametrize("mesh_shape", [(8, 4)])
 @pytest.mark.parametrize(
+    "topology, cluster_axis, routing_mode", [("torus", 1, "unidir_ring_torus")]
+)
+@pytest.mark.parametrize(
     "src_coord, dst_coord_start, dst_coord_end",
     [
-        ((0, 0), (0, 1), (0, 3)), # dim 1
-        ((0, 1), (0, 0), (0, 3)), # dim 1
-        ((5, 2), (6, 2), (7, 2)), # dim 0
-        ((3, 3), (0, 3), (7, 3)), # dim 0
-        ((1, 1), (2, 1), (4, 3)), # dim 0, 1
-        ((1, 1), (1, 1), (4, 3)), # dim 0, 1
-        ((3, 2), (0, 0), (7, 3)), # broadcast
+        ((0, 0), (0, 1), (0, 3)),  # dim 1
+        ((0, 1), (0, 0), (0, 3)),  # dim 1
+        ((5, 2), (6, 2), (7, 2)),  # dim 0
+        ((3, 3), (0, 3), (7, 3)),  # dim 0
+        ((1, 1), (2, 1), (4, 3)),  # dim 0, 1
+        ((1, 1), (1, 1), (4, 3)),  # dim 0, 1
+        ((3, 2), (0, 0), (7, 3)),  # broadcast
         # ((0, 0), (0, 3), (0, 7)), # start dist not supported in 2d fabric mcast
         # ((0, 3), (0, 0), (0, 5)), # unsupported (has a gap)
     ],
@@ -602,10 +767,16 @@ def test_fabric_mcast_8x4_torus(
     src_coord,
     dst_coord_start,
     dst_coord_end,
+    topology,
+    cluster_axis,
+    routing_mode,
 ):
+    shard_shape = (32, 32)
+    full_shape = (shard_shape[0] * mesh_shape[0], shard_shape[1] * mesh_shape[1])
+
     with open(
         os.path.join(
-            os.path.dirname(__file__), "fabric_api_snippets/test_fabric_mcast_8x4.mlir"
+            os.path.dirname(__file__), "fabric_api_snippets/test_fabric_mcast.mlir"
         ),
         "r",
         encoding="utf-8",
@@ -615,18 +786,49 @@ def test_fabric_mcast_8x4_torus(
     # Replace device IDs with parameterized values
     mlir_text = (
         mlir_text.replace(
-            "%src_dev_id = arith.constant 0 : i16",
-            f"%src_dev_id = arith.constant {get_device_id_6u_2d_mesh_shape(src_coord)} : i16",
+            "insert_src_dev_id",
+            f"{get_device_id_6u_2d_mesh_shape(src_coord)}",
         )
         .replace(
-            "%dst_dev_id_start = arith.constant 1 : i16",
-            f"%dst_dev_id_start = arith.constant {get_device_id_6u_2d_mesh_shape(dst_coord_start)} : i16",
+            "insert_dst_dev_id_start",
+            f"{get_device_id_6u_2d_mesh_shape(dst_coord_start)}",
         )
         .replace(
-            "%dst_dev_id_end = arith.constant 2 : i16",
-            f"%dst_dev_id_end = arith.constant {get_device_id_6u_2d_mesh_shape(dst_coord_end)} : i16",
+            "insert_dst_dev_id_end",
+            f"{get_device_id_6u_2d_mesh_shape(dst_coord_end)}",
         )
-        .replace("topology = ring", "topology = torus")
+        .replace(
+            "insert_mesh_shape_0",
+            f"{mesh_shape[0]}",
+        )
+        .replace(
+            "insert_mesh_shape_1",
+            f"{mesh_shape[1]}",
+        )
+        .replace(
+            "insert_chip_ids",
+            f"[{', '.join(f'{i}' for i in range(0, mesh_shape[0] * mesh_shape[1]))}]",
+        )
+        .replace(
+            "insert_full_tensor_shape_0",
+            f"{full_shape[0]}",
+        )
+        .replace(
+            "insert_full_tensor_shape_1",
+            f"{full_shape[1]}",
+        )
+        .replace(
+            "insert_topology",
+            f"{topology}",
+        )
+        .replace(
+            "insert_cluster_axis",
+            f"{cluster_axis}",
+        )
+        .replace(
+            "insert_routing_mode",
+            f"{routing_mode}",
+        )
     )
 
     ctx = Context()
@@ -636,8 +838,6 @@ def test_fabric_mcast_8x4_torus(
         module = Module.parse(mlir_text)
         print("Module:", module)
 
-    shard_shape = (32, 32)
-    full_shape = (shard_shape[0] * mesh_shape[0], shard_shape[1] * mesh_shape[1])
     input_tensor = torch.zeros(full_shape, dtype=torch.bfloat16)
     for i in range(0, mesh_shape[0]):
         for j in range(0, mesh_shape[1]):
@@ -779,4 +979,4 @@ def test_ttnn_generic_p2p(target: str, request, mesh_shape, fabric_config, devic
     # print(f"Device 4 region [32:64, 0:32]: = \n{actual_output[32:64, 0:32]}")
     # print(f"Device 5 region [32:64, 32:64]: = \n{actual_output[32:64, 32:64]}")
     # print(f"Device 6 region [32:64, 64:96]: = \n{actual_output[32:64, 64:96]}")
-    # print(f"Device 7 region [32:64, 96:128]: = \n{actual_output[32:64, 96:128]}")
+    # print(f"Device 7 region [32:64, 96:128]: = \n{actual_output[32:64, 96:128]}"):

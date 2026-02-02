@@ -276,7 +276,6 @@ FORCE_INLINE void fabric_mcast_fast_write_any_len(
   ASSERT(my_mesh_id == dst_mesh_id); // we dont support inter-mesh routing yet
 
   // Get routing info and set up headers for each directions
-  // TODO: for 2d, limit to sender in mcast grid
   auto mcast_params =
       get_mcast_params(fabric_connection_manager.get_topology(), my_device_id,
                        dst_dev_id_start, dst_dev_id_end);

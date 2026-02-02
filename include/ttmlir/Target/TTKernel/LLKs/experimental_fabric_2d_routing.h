@@ -357,8 +357,7 @@ FORCE_INLINE McastParams get_mcast_params_unidir_torus(
     ASSERT(ew_start_2_gap == 1);
   }
 
-  // TODO: i don't like that we're explicitly checking north and south here
-  // maybe can have a function function to set correct hop field or abstract to
+  // TODO: have a function function to set correct hop field or abstract to
   // array indexed by dir same issue with setting hops exists in other functions
   if (ns_region_exists) {
     result.params_per_direction[ns_dir].active = true;
