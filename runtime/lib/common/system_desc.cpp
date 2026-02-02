@@ -48,17 +48,17 @@ static ::tt::target::Arch toFlatbuffer(::tt::ARCH arch) {
 }
 
 // Determines FabricConfig based on mesh topology:
-// - Fabric1DRing: all relevant axes have wraparound connections
-// - Fabric1D: regular mesh without wraparound
-// - Fabric2D: irregular topology (broken/missing links)
-static ::tt::target::FabricConfig computeFabricConfig(
+// - FABRIC_1D_RING: all relevant axes have wraparound connections
+// - FABRIC_1D: regular mesh without wraparound
+// - FABRIC_2D: irregular topology (broken/missing links)
+static ::tt::runtime::flatbuffer::FabricConfig computeFabricConfig(
     const ::tt::tt_metal::distributed::MeshDevice &meshDevice,
     const std::vector<::tt::tt_metal::IDevice *> &devices) {
 
   using Coord = std::pair<uint32_t, uint32_t>;
 
   if (devices.size() <= 1) {
-    return ::tt::target::FabricConfig::Fabric1D;
+    return ::tt::runtime::flatbuffer::FabricConfig::FABRIC_1D;
   }
 
   auto meshShape = meshDevice.shape();
@@ -108,20 +108,20 @@ static ::tt::target::FabricConfig computeFabricConfig(
     for (uint32_t col = 0; col < numCols; ++col) {
       auto chip = getChipAt(row, col);
       if (!chip) {
-        return ::tt::target::FabricConfig::Fabric2D;
+        return ::tt::runtime::flatbuffer::FabricConfig::FABRIC_2D;
       }
 
       if (col + 1 < numCols) {
         auto right = getChipAt(row, col + 1);
         if (!right || !areConnected(*chip, *right)) {
-          return ::tt::target::FabricConfig::Fabric2D;
+          return ::tt::runtime::flatbuffer::FabricConfig::FABRIC_2D;
         }
       }
 
       if (row + 1 < numRows) {
         auto below = getChipAt(row + 1, col);
         if (!below || !areConnected(*chip, *below)) {
-          return ::tt::target::FabricConfig::Fabric2D;
+          return ::tt::runtime::flatbuffer::FabricConfig::FABRIC_2D;
         }
       }
     }
@@ -147,8 +147,8 @@ static ::tt::target::FabricConfig computeFabricConfig(
   bool isRing = (numRows == 1) ? colRing
                                : (numCols == 1) ? rowRing : (rowRing && colRing);
 
-  return isRing ? ::tt::target::FabricConfig::Fabric1DRing
-                : ::tt::target::FabricConfig::Fabric1D;
+  return isRing ? ::tt::runtime::flatbuffer::FabricConfig::FABRIC_1D_RING
+                : ::tt::runtime::flatbuffer::FabricConfig::FABRIC_1D;
 }
 
 static std::vector<::tt::target::ChipChannel>

@@ -242,15 +242,26 @@ def TTCore_Topology: I32EnumAttr<"Topology", "CCL Topology Type",
   let cppNamespace = "::mlir::tt::ttcore";
 }
 
-def TTCore_FabricConfig_Fabric1D : I32EnumAttrCase<"Fabric1D", 0, "fabric_1d">;
-def TTCore_FabricConfig_Fabric1DRing : I32EnumAttrCase<"Fabric1DRing", 1, "fabric_1d_ring">;
-def TTCore_FabricConfig_Fabric2D : I32EnumAttrCase<"Fabric2D", 2, "fabric_2d">;
+// FabricConfig values must match tt::runtime::flatbuffer::FabricConfig
+def TTCore_FabricConfig_Disabled : I32EnumAttrCase<"Disabled", 0, "disabled">;
+def TTCore_FabricConfig_Fabric1D : I32EnumAttrCase<"Fabric1D", 1, "fabric_1d">;
+def TTCore_FabricConfig_Fabric1DRing : I32EnumAttrCase<"Fabric1DRing", 2, "fabric_1d_ring">;
+def TTCore_FabricConfig_Fabric2D : I32EnumAttrCase<"Fabric2D", 3, "fabric_2d">;
+def TTCore_FabricConfig_Fabric2DTorusX : I32EnumAttrCase<"Fabric2DTorusX", 4, "fabric_2d_torus_x">;
+def TTCore_FabricConfig_Fabric2DTorusY : I32EnumAttrCase<"Fabric2DTorusY", 5, "fabric_2d_torus_y">;
+def TTCore_FabricConfig_Fabric2DTorusXY : I32EnumAttrCase<"Fabric2DTorusXY", 6, "fabric_2d_torus_xy">;
+def TTCore_FabricConfig_Custom : I32EnumAttrCase<"Custom", 7, "custom">;
 
 def TTCore_FabricConfig : I32EnumAttr<"FabricConfig", "Fabric Configuration",
                           [
+                           TTCore_FabricConfig_Disabled,
                            TTCore_FabricConfig_Fabric1D,
                            TTCore_FabricConfig_Fabric1DRing,
                            TTCore_FabricConfig_Fabric2D,
+                           TTCore_FabricConfig_Fabric2DTorusX,
+                           TTCore_FabricConfig_Fabric2DTorusY,
+                           TTCore_FabricConfig_Fabric2DTorusXY,
+                           TTCore_FabricConfig_Custom,
                           ]> {
   let genSpecializedAttr = 0;
   let cppNamespace = "::mlir::tt::ttcore";

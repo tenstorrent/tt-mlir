@@ -507,21 +507,11 @@ mlir::FailureOr<SystemDescAttr> SystemDescAttr::getFromBuffer(
     }
   }
 
-  // Parse fabric config
-  FabricConfigAttr fabricConfigAttr;
+  // Parse fabric config - values match between runtime::flatbuffer::FabricConfig
+  // and mlir::tt::ttcore::FabricConfig, so we can cast directly
   auto binaryFabricConfig = binarySystemDesc->fabric_config();
-  switch (binaryFabricConfig) {
-  case ::tt::target::FabricConfig::Fabric1D:
-    fabricConfigAttr = FabricConfigAttr::get(context, FabricConfig::Fabric1D);
-    break;
-  case ::tt::target::FabricConfig::Fabric1DRing:
-    fabricConfigAttr =
-        FabricConfigAttr::get(context, FabricConfig::Fabric1DRing);
-    break;
-  case ::tt::target::FabricConfig::Fabric2D:
-    fabricConfigAttr = FabricConfigAttr::get(context, FabricConfig::Fabric2D);
-    break;
-  }
+  FabricConfigAttr fabricConfigAttr = FabricConfigAttr::get(
+      context, static_cast<FabricConfig>(binaryFabricConfig));
 
   // Generate system desc attribute
   auto systemDescAttr = SystemDescAttr::get(

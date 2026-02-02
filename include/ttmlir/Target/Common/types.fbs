@@ -1,3 +1,5 @@
+include "tt/runtime/flatbuffer/types.fbs";
+
 namespace tt.target;
 
 struct Dim2d {
@@ -127,7 +129,7 @@ table SystemDesc {
   chip_capabilities: [ChipCapability];
   chip_coords: [ChipCoord];
   chip_channels: [ChipChannel];
-  fabric_config: FabricConfig = Fabric1D;
+  fabric_config: tt.runtime.flatbuffer.FabricConfig = FABRIC_1D;
 }
 
 table DeviceRef {
@@ -181,8 +183,3 @@ enum Topology: ushort {
   Torus,
 }
 
-enum FabricConfig : byte {
-  Fabric1D = 0,
-  Fabric1DRing = 1,
-  Fabric2D = 2,
-}
