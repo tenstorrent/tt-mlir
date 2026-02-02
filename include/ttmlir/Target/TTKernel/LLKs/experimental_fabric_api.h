@@ -23,6 +23,7 @@ namespace experimental {
 //
 // Fabric Write:
 //   void fabric_fast_write_any_len(fcm, dst_mesh_id, dst_dev_id, ...)
+//   void fabric_mcast_fast_write_any_len(fcm, dst_mesh_id, ...)
 //
 ////////////////////////////////////////////////////////////////////////
 
@@ -68,7 +69,6 @@ struct FabricConnectionManager {
     ASSERT(initialized);
     auto connection_index =
         get_connection_index_by_tag(fabric_connections, dir);
-    DPRINT << "connection_index" << connection_index << "\n";
     WAYPOINT("DA16");
     ASSERT(connection_index != -1);
     volatile tt_l1_ptr PACKET_HEADER_TYPE *packet_header =
@@ -145,51 +145,8 @@ close_fabric_connections(FabricConnectionManager &fabric_connection_manager) {
   }
 }
 
-////////////////// Routing Helper Functions /////////////////////
-
-#ifdef FABRIC_2D
-
-FORCE_INLINE std::pair<uint32_t, uint32_t>
-calculate_initial_direction_and_hops(TopologyInfo &topology_info,
-                                     uint16_t dst_device_id,
-                                     uint16_t my_device_id) {
-  auto *routing_info =
-      reinterpret_cast<tt_l1_ptr intra_mesh_routing_path_t<2, true> *>(
-          ROUTING_PATH_BASE_2D);
-
-  uint32_t initial_dir = static_cast<uint32_t>(eth_chan_directions::EAST);
-
-  const auto &compressed_route = routing_info->paths[dst_device_id];
-  uint8_t ns_hops = compressed_route.get_ns_hops();
-  uint8_t ew_hops = compressed_route.get_ew_hops();
-
-  if (ns_hops > 0) {
-    if (compressed_route.get_ns_direction()) {
-      initial_dir = static_cast<uint32_t>(eth_chan_directions::SOUTH);
-    } else {
-      initial_dir = static_cast<uint32_t>(eth_chan_directions::NORTH);
-    }
-  } else if (ew_hops > 0) {
-    if (compressed_route.get_ew_direction()) {
-      initial_dir = static_cast<uint32_t>(eth_chan_directions::EAST);
-    } else {
-      initial_dir = static_cast<uint32_t>(eth_chan_directions::WEST);
-    }
-  } else {
-    WAYPOINT("DA20");
-    ASSERT(false);
-  }
-
-  return {initial_dir, ns_hops + ew_hops};
-}
-
-// Note: experimental_fabric_2d_routing.h is emitted separately by TTKernelToCpp
-
-#else // 1D Fabric (only supports line/ring topologies)
-
-// Note: experimental_fabric_1d_routing.h is emitted separately by TTKernelToCpp
-
-#endif
+////////////////// Routing Helper Functions (emitted separately)
+////////////////////////
 
 ////////////////// Fabric Write APIs (and helpers) /////////////////////
 
@@ -209,8 +166,6 @@ fabric_fast_write(WorkerToFabricEdmSender &connection,
   noc_async_writes_flushed(); // TODO: remove this???
 }
 
-// Note: in ring and torus fabric, there are multiple routes but we are using
-// shortest path route
 FORCE_INLINE void
 fabric_fast_write_any_len(FabricConnectionManager &fabric_connection_manager,
                           uint16_t dst_mesh_id, uint16_t dst_dev_id,
@@ -234,9 +189,6 @@ fabric_fast_write_any_len(FabricConnectionManager &fabric_connection_manager,
       static_cast<volatile tt_l1_ptr HybridMeshPacketHeader *>(packet_header),
       dst_dev_id, dst_mesh_id, unicast_params.ns_hops, unicast_params.ew_hops,
       unicast_params.ns_dir, unicast_params.ew_dir);
-  // bool result = fabric_set_unicast_route(
-  //     static_cast<volatile tt_l1_ptr HybridMeshPacketHeader
-  //     *>(packet_header), dst_dev_id, dst_mesh_id);
 #else // 1D fabric
   static_cast<volatile tt_l1_ptr LowLatencyPacketHeader *>(packet_header)
       ->to_chip_unicast(unicast_params.num_hops);
@@ -253,16 +205,9 @@ fabric_fast_write_any_len(FabricConnectionManager &fabric_connection_manager,
   fabric_fast_write(connection, packet_header, src_addr, dest_addr, len_bytes);
 }
 
-// maybe to do: be able to chece header setup for both chip write and noc write
-// and invoke api to re-use previous value for 1d: start_distance, range for 2d:
-// dst_dev_id, dst_mesh_id, MeshMcastRange (ranges.e, ranges.w, ranges.n,
-// ranges.s)
-
-// dest_start_logical_index must be < dest_end in all dimensions
-// we never send to ourself
-
-// Note: in ring and torus fabric, there are multiple routes but we are using
-// shortest path route
+// Conditions:
+// - dest_start_logical_index <= dest_end_logical_index in all dimensions
+// - there is at least one destination (not including sender);
 FORCE_INLINE void fabric_mcast_fast_write_any_len(
     FabricConnectionManager &fabric_connection_manager, uint16_t dst_mesh_id,
     uint16_t dst_dev_id_start, uint16_t dst_dev_id_end, uint64_t dest_addr,
@@ -281,16 +226,15 @@ FORCE_INLINE void fabric_mcast_fast_write_any_len(
                        dst_dev_id_start, dst_dev_id_end);
   for (uint32_t i = 0; i < MAX_SEND_DIR; i++) {
     if (mcast_params.params_per_direction[i].active) {
-      DPRINT << "header set up for dir" << i << "\n";
       auto [connection, packet_header] =
           fabric_connection_manager.get_connection_and_packet_header(i);
 #ifdef FABRIC_2D
       fabric_set_mcast_route(
           static_cast<volatile tt_l1_ptr HybridMeshPacketHeader *>(
               packet_header),
-          my_device_id, // what should this even be? (only relevant for
+          my_device_id, // TODO: what should this even be? (only relevant for
                         // inter-mesh)
-          my_mesh_id,   // what should this even be? (only relevant for
+          my_mesh_id,   // TODO: what should this even be? (only relevant for
                         // inter-mesh)
           mcast_params.params_per_direction[i].e_num_hops,
           mcast_params.params_per_direction[i].w_num_hops,
@@ -307,11 +251,8 @@ FORCE_INLINE void fabric_mcast_fast_write_any_len(
   while (len_bytes > max_fabric_payload_size) {
     for (uint32_t i = 0; i < MAX_SEND_DIR; i++) {
       if (mcast_params.params_per_direction[i].active) {
-        DPRINT << "sending in dir" << i << "\n";
         auto [connection, packet_header] =
             fabric_connection_manager.get_connection_and_packet_header(i);
-        // DPRINT << "packet info" <<
-        // packet_header->routing_fields.route_buffer[0] << "\n";
         fabric_fast_write(connection, packet_header, src_addr, dest_addr,
                           max_fabric_payload_size);
       }
@@ -324,7 +265,6 @@ FORCE_INLINE void fabric_mcast_fast_write_any_len(
 
   for (uint32_t i = 0; i < MAX_SEND_DIR; i++) {
     if (mcast_params.params_per_direction[i].active) {
-      DPRINT << "sending set up for dir" << i << "\n";
       auto [connection, packet_header] =
           fabric_connection_manager.get_connection_and_packet_header(i);
       fabric_fast_write(connection, packet_header, src_addr, dest_addr,

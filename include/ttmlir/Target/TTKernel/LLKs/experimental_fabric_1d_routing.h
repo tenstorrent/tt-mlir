@@ -117,8 +117,6 @@ FORCE_INLINE McastParams get_mcast_params(TopologyInfo &topology,
     ASSERT(topology.routing_mode == TopologyInfo::RoutingMode::UnidirRingTorus);
     return get_mcast_params_unidir_ring(topology, my_device_id,
                                         dst_start_device_id, dst_end_device_id);
-    // return get_mcast_params_shortest_path(topology, my_device_id,
-    // dst_start_device_id, dst_end_device_id);
   } else if (topology.topology_type == TopologyInfo::TopologyType::Line) {
     // Assert: Only BidirLineMesh routing mode supported for line topology.
     WAYPOINT("DA29");
@@ -144,8 +142,6 @@ FORCE_INLINE McastParams get_mcast_params_unidir_ring(
       topology.get_logical_mesh_position(dst_end_device_id)[topology.axis];
   int32_t size = topology.mesh_shape[topology.axis];
 
-  // DPRINT << "my_idx: " << my_idx << ", start_idx: " << start_idx << ",
-  // end_idx: " << end_idx << "\n";
   //  Assert: at least one destination (not including sender)
   WAYPOINT("DA31");
   ASSERT(!(my_idx == start_idx && start_idx == end_idx));
@@ -164,8 +160,6 @@ FORCE_INLINE McastParams get_mcast_params_unidir_ring(
   // ASSERT: gap not supported
   WAYPOINT("DA32");
   ASSERT(start_2_gap == 1);
-  // DPRINT << "start_hop: " << (uint32_t)start_hop << ", range: " <<
-  // (uint32_t)range << "\n";
 
   result.params_per_direction[dir].active = true;
   result.params_per_direction[dir].mcast_command_header = {
@@ -192,17 +186,6 @@ FORCE_INLINE McastParams get_mcast_params_line(TopologyInfo &topology,
   // Assert: at least one destination (not including sender)
   WAYPOINT("DA33");
   ASSERT(!(my_idx == start_idx && start_idx == end_idx));
-
-  // if (topology.topology_type == TopologyInfo::TopologyType::Ring) {
-  //   // to actually implement this, we will translate the ring to start from
-  //   the farthest position from my_idx
-  //   // that is closer in the backward direction (than the forward),
-  //   // for even sized ring, we break the tie by preferring the forward
-  //   direction as closer int farthest_backward_idx = (my_idx - (size - 1) / 2)
-  //   % size; my_idx = my_idx - farthest_backward_idx % size; start_idx =
-  //   start_idx - farthest_backward_idx % size; end_idx = end_idx -
-  //   farthest_backward_idx % size;
-  // }
 
   auto [start_fwd, range_fwd, start_bwd, range_bwd] =
       get_line_regions(my_idx, start_idx, end_idx, size);

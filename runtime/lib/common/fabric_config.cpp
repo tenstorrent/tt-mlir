@@ -69,16 +69,14 @@ appendFabricConfigArgs(
   }
 
   // add forward and backward directions for each dim
-  // we don't have topology verification, that's something that we should add
-  // and expose for users too! this is especially problematic for t3k folded
-  // case
   for (uint32_t dim = 0; dim < meshDevice->shape().dims(); dim++) {
     routing_directions.push_back(
         std::make_pair(tt_fabric::eth_chan_directions::COUNT,
                        tt_fabric::eth_chan_directions::COUNT));
 
     // Forward direction
-    // don't set forward for edge coords on line even if physical link exists
+    // don't set forward for edge coords on line/mesh even if physical link
+    // exists
     if ((topology_type == tt::target::Topology::Linear ||
          topology_type == tt::target::Topology::Mesh) &&
         deviceCoord[dim] == meshDevice->shape()[dim] - 1) {
@@ -86,8 +84,6 @@ appendFabricConfigArgs(
     } else {
       auto forwardCoord = deviceCoord;
       forwardCoord[dim] = (forwardCoord[dim] + 1) % meshDevice->shape()[dim];
-      // what i really want to know is whether the forward coord is a neighbour
-      // (inferrable from topo?) and to get dir
       auto forward_directions = get_neighbour_eth_directions(
           meshDevice->get_fabric_node_id(deviceCoord),
           meshDevice->get_fabric_node_id(forwardCoord));
@@ -137,7 +133,7 @@ appendFabricConfigArgs(
          topology_type == tt::target::Topology::Mesh) &&
         deviceCoord[dim] == 0) {
       rtArgsVec.push_back(
-          -1); // this is technically wrong since its unsigned!!!!
+          -1); // TODO: fix this is technically wrong since its unsigned!!!!
     } else {
       auto backwardCoord = deviceCoord;
       backwardCoord[dim] = (backwardCoord[dim] + meshDevice->shape()[dim] - 1) %
