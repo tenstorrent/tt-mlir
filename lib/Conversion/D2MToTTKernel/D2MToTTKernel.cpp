@@ -929,20 +929,13 @@ public:
                                       adaptor.getTrueValue(),
                                       adaptor.getFalseValue(), dstIdx},
                                      /*allowHoisting*/ false);
-      const auto elemType =
-          mlir::cast<ttcore::TileType>(op.getTrueValue().getType())
-              .getElementType();
-      const bool isCBF32 = llvm::isa<Float32Type>(elemType);
-      if (isCBF32) {
-        if (std::is_same_v<ConcreteOp, d2m::TileWhereOp>) {
-          rewriter.create<ttkernel::WhereTileF32Op>(
-              op->getLoc(), adaptor.getCondition(), adaptor.getTrueValue(),
-              adaptor.getFalseValue(), dstIdx);
-        }
-      } else {
-        rewriter.create<SFPUOp>(op->getLoc(), adaptor.getCondition(),
-                                adaptor.getTrueValue(), adaptor.getFalseValue(),
-                                dstIdx);
+      if constexpr (std::is_same_v<ConcreteOp, d2m::TileWhereOp>) {
+        const auto dtype =
+            mlir::cast<ttcore::TileType>(op.getTrueValue().getType())
+                .getDataType();
+        rewriter.create<ttkernel::WhereTileOp>(
+            op->getLoc(), adaptor.getCondition(), adaptor.getTrueValue(),
+            adaptor.getFalseValue(), dstIdx, dtype);
       }
     }
 
