@@ -194,9 +194,7 @@ def test_muladd_broadcast_jit_l1(device, shape, max_grid, dtype):
     golden_result = mul_add(A, B, C)
 
     expected_memory_config = get_expected_memory_config(golden_result.shape())
-    assert memory_configs_equal(
-        interop_result.memory_config(), expected_memory_config
-    )
+    assert memory_configs_equal(interop_result.memory_config(), expected_memory_config)
     assert all_close_check(interop_result, golden_result)
 
 
@@ -220,9 +218,7 @@ def test_muladd_broadcast_jit_dram(device, shape, dtype):
     golden_result = mul_add(A, B, C)
 
     expected_memory_config = get_expected_memory_config(golden_result.shape())
-    assert memory_configs_equal(
-        interop_result.memory_config(), expected_memory_config
-    )
+    assert memory_configs_equal(interop_result.memory_config(), expected_memory_config)
     assert all_close_check(interop_result, golden_result)
 
 
