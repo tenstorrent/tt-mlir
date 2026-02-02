@@ -3911,6 +3911,204 @@ class TTIRBuilder(Builder):
 
         return scatter_module, scatter_builder
 
+    ############### ttir.MaxPool2dOp ###############
+
+    @tag(ttir.MaxPool2dOp)
+    def max_pool2d(
+        self,
+        in0: Operand,
+        kernel: Union[int, List[int]],
+        stride: Union[int, List[int]],
+        dilation: Union[int, List[int]],
+        padding: Union[int, List[int]],
+        ceil_mode: bool,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttir_op = self.get_opview_from_method(TTIRBuilder.max_pool2d)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        if isinstance(kernel, int):
+            kernel_attr = IntegerAttr.get(IntegerType.get_signless(32), kernel)
+        else:
+            kernel_attr = DenseI32ArrayAttr.get(kernel)
+
+        if isinstance(stride, int):
+            stride_attr = IntegerAttr.get(IntegerType.get_signless(32), stride)
+        else:
+            stride_attr = DenseI32ArrayAttr.get(stride)
+
+        if isinstance(padding, int):
+            padding_attr = IntegerAttr.get(IntegerType.get_signless(32), padding)
+        else:
+            padding_attr = DenseI32ArrayAttr.get(padding)
+
+        if isinstance(dilation, int):
+            dilation_attr = IntegerAttr.get(IntegerType.get_signless(32), dilation)
+        else:
+            dilation_attr = DenseI32ArrayAttr.get(dilation)
+
+        ceil_mode_attr = BoolAttr.get(ceil_mode)
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(
+            input0,
+            kernel_attr,
+            stride_attr,
+            padding_attr,
+            dilation_attr,
+            ceil_mode_attr,
+            mlir_output_type,
+        )
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir_op(
+            result,
+            in0,
+            kernel_attr,
+            stride_attr,
+            dilation_attr,
+            padding_attr,
+            ceil_mode_attr,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(ttir.MaxPool2dOp)
+    def max_pool2d_parser(
+        self,
+        old_op: ttir.MaxPool2dOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.max_pool2d_parser)
+
+        in0 = global_dict[old_op.input]
+        result = old_op.result.type
+        kernel_attr = old_op.kernel
+        stride_attr = old_op.stride
+        dilation_attr = old_op.dilation
+        padding_attr = old_op.padding
+        ceil_mode_attr = old_op.ceil_mode
+
+        new_op = ttir_op(
+            result,
+            in0,
+            kernel_attr,
+            stride_attr,
+            dilation_attr,
+            padding_attr,
+            ceil_mode_attr,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            op_golden_function = get_golden_function(ttir_op)
+            golden_output = op_golden_function(
+                input0,
+                kernel_attr,
+                stride_attr,
+                padding_attr,
+                dilation_attr,
+                ceil_mode_attr,
+                result.element_type,
+            )
+            self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(ttir.MaxPool2dOp)
+    def max_pool2d_split(
+        self,
+        old_op: ttir.MaxPool2dOp,
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(TTIRBuilder.max_pool2d_split)
+
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
+            max_pool2d_module = Module.create()
+            max_pool2d_builder = TTIRBuilder(old_ctx, old_loc)
+            op_input_types = [old_op.input.type]
+
+            with InsertionPoint(max_pool2d_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="max_pool2d_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
+                    kernel_attr = old_op.kernel
+                    stride_attr = old_op.stride
+                    dilation_attr = old_op.dilation
+                    padding_attr = old_op.padding
+                    ceil_mode_attr = old_op.ceil_mode
+
+                    new_op = ttir_op(
+                        result,
+                        in0,
+                        kernel_attr,
+                        stride_attr,
+                        dilation_attr,
+                        padding_attr,
+                        ceil_mode_attr,
+                        loc=old_op.location,
+                    )
+                    new_op_result = new_op.result
+
+                    if not self._disable_golden_check:
+                        input0 = self._get_golden_tensor(old_op.input)
+                        op_golden_function = get_golden_function(ttir_op)
+                        golden_output = op_golden_function(
+                            input0,
+                            kernel_attr,
+                            stride_attr,
+                            padding_attr,
+                            dilation_attr,
+                            ceil_mode_attr,
+                            result.element_type,
+                        )
+                        max_pool2d_builder._set_golden_tensor(
+                            new_op_result, golden_output
+                        )
+                        max_pool2d_builder._set_golden_tensor(in0, input0)
+                        ordered_inputs.append(in0)
+                        ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                max_pool2d_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return max_pool2d_module, max_pool2d_builder
+
     ############### ttir.MaxPool2dWithIndicesOp ###############
 
     @tag(ttir.MaxPool2dWithIndicesOp)
@@ -5329,203 +5527,6 @@ class TTIRBuilder(Builder):
                 ]
 
         return gt_module, gt_builder
-
-    ############### ttir.PoolingOp ###############
-
-    # NOTE: Supports both NCHW and NHWC layouts based on window_dimensions.
-    # Layout is determined by spatial dim indices (where window_dimensions > 1):
-    # - NCHW: spatial dims at [2, 3], window_dimensions like [1, 1, kH, kW]
-    # - NHWC: spatial dims at [1, 2], window_dimensions like [1, kH, kW, 1]
-    # If exactly 2 spatial dims cannot be identified, defaults to NCHW.
-    # See: lib/Conversion/TTIRToTTIRDecomposition/TTIRToTTIRDecomposition.cpp
-    @tag(ttir.PoolingOp)
-    def pooling(
-        self,
-        in0: Operand,
-        pooling_method: str,
-        window_dimensions: List[int],
-        window_strides: List[int],
-        padding: List[int],
-        window_dilations: List[int],
-        base_dilations: Optional[List[int]] = None,
-        output_type: Optional[torch.dtype] = None,
-        loc: Optional[str] = None,
-        unit_attrs: Optional[List[str]] = None,
-    ) -> OpResult:
-        ttir_op = self.get_opview_from_method(TTIRBuilder.pooling)
-
-        if base_dilations is None:
-            base_dilations = [1] * len(window_dimensions)
-
-        pooling_method_attr = Attribute.parse(f"#ttir<pooling_method {pooling_method}>")
-        window_dimensions_attr = DenseI64ArrayAttr.get(window_dimensions)
-        window_strides_attr = DenseI64ArrayAttr.get(window_strides)
-        padding_attr = DenseI64ArrayAttr.get(padding)
-        window_dilations_attr = DenseI64ArrayAttr.get(window_dilations)
-        base_dilations_attr = DenseI64ArrayAttr.get(base_dilations)
-
-        if output_type is None:
-            mlir_output_type = self.get_type(in0)
-        else:
-            mlir_output_type = self._get_type_from_torch_dtype(output_type)
-
-        input0 = self._get_golden_tensor(in0)
-        op_golden_function = get_golden_function(ttir_op)
-        golden_output = op_golden_function(
-            input0,
-            pooling_method_attr,
-            window_dimensions_attr,
-            window_strides_attr,
-            base_dilations_attr,
-            window_dilations_attr,
-            padding_attr,
-            mlir_output_type,
-        )
-        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
-
-        if loc is None:
-            loc = self._get_location()
-        else:
-            loc = Location.name(loc)
-
-        op = ttir_op(
-            [result],
-            [in0],
-            pooling_method_attr,
-            window_dimensions_attr,
-            window_strides_attr,
-            base_dilations_attr,
-            window_dilations_attr,
-            padding_attr,
-            loc=loc,
-        )
-        op_result = op.result
-
-        if unit_attrs is not None:
-            for attr_name in unit_attrs:
-                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
-
-        if not self._disable_golden_check:
-            self._set_golden_tensor(op_result, golden_output)
-
-        return op_result
-
-    @parse(ttir.PoolingOp)
-    def pooling_parser(
-        self,
-        old_op: ttir.PoolingOp,
-        global_dict: Dict[Operand, Operand],
-    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
-        ttir_op = self.get_opview_from_parser(TTIRBuilder.pooling_parser)
-
-        new_inputs = []
-        for old_input in old_op.inputs:
-            new_inputs.append(global_dict[old_input])
-
-        pooling_method_attr = old_op.pooling_method
-        window_dimensions_attr = old_op.window_dimensions
-        window_strides_attr = old_op.window_strides
-        padding_attr = old_op.padding
-        window_dilations_attr = old_op.window_dilations
-        base_dilations_attr = old_op.base_dilations
-        result = old_op.result.type
-
-        new_op = ttir_op(
-            [result],
-            new_inputs,
-            pooling_method_attr,
-            window_dimensions_attr,
-            window_strides_attr,
-            base_dilations_attr,
-            window_dilations_attr,
-            padding_attr,
-            loc=old_op.location,
-        )
-        new_op_result = new_op.result
-
-        if not self._disable_golden_check:
-            input0 = self._get_golden_tensors(new_inputs)[0]
-            op_golden_function = get_golden_function(ttir_op)
-            golden_output = op_golden_function(
-                input0,
-                pooling_method_attr,
-                window_dimensions_attr,
-                window_strides_attr,
-                base_dilations_attr,
-                window_dilations_attr,
-                padding_attr,
-                result.element_type,
-            )
-            self._set_golden_tensor(new_op_result, golden_output)
-
-        op_map_dictionary = {}
-        op_map_dictionary[old_op.result] = new_op_result
-        return new_op, op_map_dictionary
-
-    @split(ttir.PoolingOp)
-    def pooling_split(
-        self,
-        old_op: ttir.PoolingOp,
-    ) -> Tuple[Module, TTIRBuilder]:
-        ttir_op = self.get_opview_from_split(TTIRBuilder.pooling_split)
-
-        old_ctx = old_op.context
-        old_loc = Location.unknown(old_ctx)
-        with old_ctx, old_loc:
-            pool_module = Module.create()
-            pool_builder = TTIRBuilder(old_ctx, old_loc)
-            op_input_types = [old_op.inputs[0].type]
-
-            with InsertionPoint(pool_module.body):
-
-                ordered_inputs = []
-                ordered_outputs = []
-
-                @func.func(*op_input_types, name="pool_module")
-                def decorated_func(*inputs):
-                    in0 = inputs[0]
-                    result = old_op.result.type
-
-                    new_op = ttir_op(
-                        [result],
-                        [in0],
-                        old_op.pooling_method,
-                        old_op.window_dimensions,
-                        old_op.window_strides,
-                        old_op.base_dilations,
-                        old_op.window_dilations,
-                        old_op.padding,
-                        loc=old_op.location,
-                    )
-                    new_op_result = new_op.result
-
-                    if not self._disable_golden_check:
-                        op_golden_function = get_golden_function(ttir_op)
-                        input0 = self._get_golden_tensor(old_op.inputs[0])
-                        golden_output = op_golden_function(
-                            input0,
-                            old_op.pooling_method,
-                            old_op.window_dimensions,
-                            old_op.window_strides,
-                            old_op.base_dilations,
-                            old_op.window_dilations,
-                            old_op.padding,
-                            result.element_type,
-                        )
-                        pool_builder._set_golden_tensor(new_op_result, golden_output)
-                        pool_builder._set_golden_tensor(in0, input0)
-                        ordered_inputs.append(in0)
-                        ordered_outputs.append(new_op_result)
-
-                    return new_op
-
-                new_func_op = decorated_func.func_op
-                pool_builder._func_ops_generated[new_func_op] = [
-                    ordered_inputs,
-                    ordered_outputs,
-                ]
-
-        return pool_module, pool_builder
 
     ############### ttir.BatchNormInferenceOp ###############
 
@@ -11544,75 +11545,6 @@ class TTIRBuilder(Builder):
             self._set_golden_tensor(op_result, golden_output)
 
         return op_result
-
-    def max_pool2d(
-        self,
-        in0: Operand,
-        kernel: Union[int, List[int]],
-        stride: Union[int, List[int]],
-        dilation: Union[int, List[int]],
-        padding: Union[int, List[int]],
-        ceil_mode: bool,
-        unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
-        """
-        Creates ``ttir.max_pool2d``.
-
-        *Max pooling operation.*
-
-        Applies a 2D max pooling over an input signal composed of several input planes.
-
-        Parameters
-        ----------
-        in0 : Operand
-            Input tensor
-        kernel_size : *Union[int, List[int]]*
-            Size of the pooling window
-        stride : *Optional[Union[int, List[int]]]*
-            Stride of the pooling window (default: None, same as kernel_size)
-        padding : *Union[int, List[int]]*, optional
-            Padding added to all sides of input (default: 0)
-        dilation : *Union[int, List[int]]*, optional
-            Controls spacing between kernel elements (default: 1)
-        ceil_mode : bool, optional
-            When True, use ceil instead of floor for output shape (default: False)
-        unit_attrs : *Optional[List[str]]*
-            Optional list of unit attributes
-
-        Returns
-        -------
-        (*OpView*)
-            Output tensor after max pooling
-        """
-
-        return self._op_proxy(
-            ttir.MaxPool2dOp,
-            [in0],
-            ttir_kwargs={
-                "kernel": (
-                    IntegerAttr.get(IntegerType.get_signed(32), kernel)
-                    if isinstance(kernel, int)
-                    else DenseI32ArrayAttr.get(kernel)
-                ),
-                "stride": (
-                    IntegerAttr.get(IntegerType.get_signed(32), stride)
-                    if isinstance(stride, int)
-                    else DenseI32ArrayAttr.get(stride)
-                ),
-                "dilation": (
-                    IntegerAttr.get(IntegerType.get_signed(32), dilation)
-                    if isinstance(dilation, int)
-                    else DenseI32ArrayAttr.get(dilation)
-                ),
-                "padding": (
-                    IntegerAttr.get(IntegerType.get_signed(32), padding)
-                    if isinstance(padding, int)
-                    else DenseI32ArrayAttr.get(padding)
-                ),
-                "ceil_mode": ceil_mode,
-            },
-            unit_attrs=unit_attrs,
-        )
 
     def avg_pool2d(
         self,

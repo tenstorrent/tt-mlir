@@ -37,6 +37,7 @@
 #include "llvm/Support/FormatVariadic.h"
 #include "llvm/Support/LogicalResult.h"
 
+#include "mlir/IR/Value.h"
 #include "llvm/ADT/STLExtras.h"
 #include <cstdint>
 #include <numeric>
@@ -1345,124 +1346,12 @@ static bool isIdentityPool2d(Pool2dOp op) {
          llvm::all_of(tupleToArray(*padding), [](int32_t v) { return v == 0; });
 }
 
-// Checks if a PoolingOp is an identity operation.
-// Identity operations can be folded away when all window dimensions=1,
-// strides=1, dilations=1, and padding=0.
-static bool isIdentityPooling(mlir::tt::ttir::PoolingOp op) {
-  return llvm::all_of(op.getWindowDimensions(),
-                      [](int64_t dim) { return dim == 1; }) &&
-         llvm::all_of(op.getWindowStrides(),
-                      [](int64_t stride) { return stride == 1; }) &&
-         llvm::all_of(op.getBaseDilations(),
-                      [](int64_t dilation) { return dilation == 1; }) &&
-         llvm::all_of(op.getWindowDilations(),
-                      [](int64_t dilation) { return dilation == 1; }) &&
-         llvm::all_of(op.getPadding(), [](int64_t pad) { return pad == 0; });
-}
-
-//===----------------------------------------------------------------------===//
-// PoolingOp
-// Ensures the following constraints:
-// - All inputs are ranked tensors of equal rank.
-// - `window_strides`, `window_dilations`, and `window_dimensions` match input
-// rank.
-// - `padding` contains 2 x input rank elements (low/high per dimension).
-// - Number of inputs equals number of outputs.
-//===----------------------------------------------------------------------===//
-
-::mlir::LogicalResult mlir::tt::ttir::PoolingOp::verify() {
-
-  uint32_t inputRank =
-      mlir::cast<RankedTensorType>(getInputs()[0].getType()).getRank();
-
-  for (auto input : getInputs()) {
-    auto inputType = mlir::cast<RankedTensorType>(input.getType());
-    if (inputType.getRank() != inputRank) {
-      return emitOpError("All input tensors must have the same rank.");
-    }
-  }
-
-  if (getWindowStrides().size() != inputRank) {
-    return emitOpError("Window strides must have the same number of elements "
-                       "as the rank of the input tensor.");
-  }
-
-  if (getWindowDilations().size() != inputRank) {
-    return emitOpError("Window dilations must have the same number of elements "
-                       "as the rank of the input tensor.");
-  }
-
-  if (getWindowDimensions().size() != inputRank) {
-    return emitOpError(
-        "Window dimensions must have the same number of elements "
-        "as the rank of the input tensor.");
-  }
-
-  if (getPadding().size() != 2 * inputRank) {
-    return emitOpError("Padding must have the same number of elements as twice "
-                       "the rank of the input tensor.");
-  }
-
-  if (getInputs().size() != getResults().size()) {
-    return emitOpError("Number of inputs and outputs must be the same.");
-  }
-
-  return success();
-}
-
-// Rewrites the current PoolingOp to operate directly on quantized operands.
-//
-// This method constructs a new PoolingOp using the provided quantized inputs
-// and result type, preserving the original operation's attributes.
-//
-// Returns:
-// - A pointer to the newly created quantized PoolingOp.
-mlir::Operation *mlir::tt::ttir::PoolingOp::rewriteWithQuantizedInputs(
-    mlir::PatternRewriter &rewriter,
-    mlir::ArrayRef<mlir::Value> sourceOperands) {
-  // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
-  // Can only commute if the pooling method is Max.
-  if (this->getPoolingMethod() != PoolingMethod::Max) {
-    return nullptr;
-  }
-  SmallVector<Type> resultTypes;
-  for (auto [idx, in] : llvm::enumerate(sourceOperands)) {
-    // Can only commute in the per tensor quantized case.
-    if (auto perAxis = mlir::dyn_cast<mlir::quant::UniformQuantizedPerAxisType>(
-            in.getType())) {
-      return nullptr;
-    }
-    auto inType = mlir::cast<RankedTensorType>(in.getType());
-    auto outType = mlir::cast<RankedTensorType>(getResult(idx).getType());
-    auto newResultType = RankedTensorType::get(
-        outType.getShape(), inType.getElementType(), outType.getEncoding());
-    resultTypes.push_back(newResultType);
-  }
-  auto newOp = rewriter.create<mlir::tt::ttir::PoolingOp>(
-      getLoc(), resultTypes, sourceOperands, getPoolingMethod(),
-      getWindowDimensions(), getWindowStrides(), getBaseDilations(),
-      getWindowDilations(), getPadding());
-  // NOLINTEND(clang-analyzer-core.StackAddressEscape)
-  return newOp.getOperation();
-}
-
-// Folds PoolingOp when it is an identity operation.
-::mlir::LogicalResult
-mlir::tt::ttir::PoolingOp::fold(FoldAdaptor adaptor,
-                                SmallVectorImpl<OpFoldResult> &results) {
-  if (isIdentityPooling(*this)) {
-    results.append(getInputs().begin(), getInputs().end());
-    return mlir::success();
-  }
-  return mlir::failure();
-}
-
 //===----------------------------------------------------------------------===//
 // Generic Pool2dOp verification
 //===----------------------------------------------------------------------===//
 
-template <typename PoolingOp>
-static mlir::LogicalResult verifyPooling2dOp(PoolingOp *op) {
+template <typename Pool2dOp>
+static mlir::LogicalResult verifyPooling2dOp(Pool2dOp *op) {
 
   // Verify tensor ranks.
   if (verification_utils::verifyTensorRanks(op).failed()) {
@@ -1510,7 +1399,7 @@ static mlir::LogicalResult verifyPooling2dOp(PoolingOp *op) {
 // AvgPool2dOp
 //===----------------------------------------------------------------------===//
 
-// AvgPool2dOp verification
+// AvgPool2dOp verification.
 ::mlir::LogicalResult mlir::tt::ttir::AvgPool2dOp::verify() {
   return verifyPooling2dOp(this);
 }
@@ -1523,9 +1412,24 @@ static mlir::LogicalResult verifyPooling2dOp(PoolingOp *op) {
   return {};
 }
 
+// Rewrites operation with quantization, if possible.
+::mlir::Operation *mlir::tt::ttir::AvgPool2dOp::rewriteWithQuantizedInputs(
+    mlir::PatternRewriter &rewriter,
+    mlir::ArrayRef<mlir::Value> sourceOperands) {
+  // Unlike MaxPool2dOp which only compares values (scale-invariant), AvgPool2d
+  // performs a calculation which causes precision loss due to integer division
+  // truncation and scale parameter mismatch.
+  return nullptr;
+}
+
 //===----------------------------------------------------------------------===//
 // MaxPool2dOp
 //===----------------------------------------------------------------------===//
+
+// MaxPool2dOp verification.
+::mlir::LogicalResult mlir::tt::ttir::MaxPool2dOp::verify() {
+  return verifyPooling2dOp(this);
+}
 
 // Folds MaxPool2dOp when it is an identity operation.
 ::mlir::OpFoldResult mlir::tt::ttir::MaxPool2dOp::fold(FoldAdaptor adaptor) {
@@ -1535,10 +1439,37 @@ static mlir::LogicalResult verifyPooling2dOp(PoolingOp *op) {
   return {};
 }
 
-// MaxPool2dOp verification
-::mlir::LogicalResult mlir::tt::ttir::MaxPool2dOp::verify() {
-  return verifyPooling2dOp(this);
+// Rewrites operation with quantization, if possible.
+::mlir::Operation *mlir::tt::ttir::MaxPool2dOp::rewriteWithQuantizedInputs(
+    mlir::PatternRewriter &rewriter,
+    mlir::ArrayRef<mlir::Value> sourceOperands) {
+  // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
+  using mlir::quant::UniformQuantizedPerAxisType;
+
+  mlir::Value input = sourceOperands[0];
+  if (mlir::dyn_cast<UniformQuantizedPerAxisType>(input.getType())) {
+    return nullptr;
+  }
+
+  RankedTensorType outType =
+      mlir::cast<RankedTensorType>(getResult().getType());
+
+  RankedTensorType newOutType = RankedTensorType::get(
+      outType.getShape(),
+      mlir::cast<RankedTensorType>(input.getType()).getElementType(),
+      outType.getEncoding());
+
+  return rewriter
+      .create<mlir::tt::ttir::MaxPool2dOp>(
+          getLoc(), newOutType, input, getKernelAttr(), getStrideAttr(),
+          getDilationAttr(), getPaddingAttr(), getCeilModeAttr())
+      .getOperation();
+  // NOLINTEND(clang-analyzer-core.StackAddressEscape)
 }
+
+//===----------------------------------------------------------------------===//
+// MaxPool2dWithIndicesOp
+//===----------------------------------------------------------------------===//
 
 // MaxPool2dWithIndicesOp verification
 ::mlir::LogicalResult mlir::tt::ttir::MaxPool2dWithIndicesOp::verify() {

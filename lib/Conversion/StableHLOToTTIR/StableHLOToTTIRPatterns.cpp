@@ -37,6 +37,7 @@
 #include "llvm/ADT/APFloat.h"
 #include "llvm/ADT/STLExtras.h"
 
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringExtras.h"
 #include <algorithm>
 #include <cmath>
@@ -2443,10 +2444,10 @@ public:
 //    either zero or negative infinity (NEG_INF). Function arguments or more
 //    complex expressions are not currently supported.
 //  - Mixed dtypes across inputs are supported, but reduction op must match
-//  type.
+//    the input type.
 //  - `CumSum` lowering only works for single-input/single-output cases and
 //    must satisfy specific window/padding rules (see isCumSum()).
-// This conversion is tailored toward cases like maxpool2d, avgpool2d (via
+// This conversion is tailored toward cases like max_pool2d, avg_pool2d (via
 // sum+div), and cumulative sum.
 // TODO(anusingh):
 //  - Support initialization via function arguments
@@ -2455,40 +2456,47 @@ public:
 //===----------------------------------------------------------------------===//
 
 namespace {
+
 class StableHLOToTTIRReduceWindowOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::ReduceWindowOp> {
   using OpConversionPattern<
       mlir::stablehlo::ReduceWindowOp>::OpConversionPattern;
-
-private:
-  static DenseI64ArrayAttr prependValues(DenseI64ArrayAttr windowDimensions,
-                                         int64_t value, int64_t count,
-                                         PatternRewriter &rewriter) {
-    assert(windowDimensions.size() == count &&
-           "Window dimensions size must match number of prepending values.");
-    SmallVector<int64_t> winDims4D = SmallVector<int64_t>(count, value);
-    llvm::append_range(winDims4D, windowDimensions.asArrayRef());
-    return rewriter.getDenseI64ArrayAttr(winDims4D);
-  }
 
 public:
   LogicalResult
   matchAndRewrite(mlir::stablehlo::ReduceWindowOp srcOp,
                   mlir::stablehlo::ReduceWindowOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    // Check basic structure of the ReduceWindowOp
+    using TypicalInitReductionValue::NEG_INF;
+    using TypicalInitReductionValue::ZERO;
+
+    // Validate basic op structure.
     if (!hasValidOpStructure(srcOp)) {
       return rewriter.notifyMatchFailure(
           srcOp, "Invalid structure of reduce window block.");
     }
 
-    // Extract initialization constant value per input.
+    // Validate input shapes and ranks.
+    RankedTensorType firstInputType =
+        mlir::cast<RankedTensorType>(srcOp.getInputs()[0].getType());
+    for (Value input : srcOp.getInputs()) {
+      if (mlir::cast<RankedTensorType>(input.getType()).getShape() !=
+          firstInputType.getShape()) {
+        return rewriter.notifyMatchFailure(
+            srcOp, "All inputs must have the same shape.");
+      }
+    }
+    int64_t inputRank = firstInputType.getRank();
+    if (!llvm::is_contained({1, 2, 4}, inputRank)) {
+      return rewriter.notifyMatchFailure(srcOp, "Invalid input tensor rank.");
+    }
+
+    // Validate init values.
     std::optional<llvm::SmallVector<TypicalInitReductionValue>> initValues =
         extractInitValues(srcOp);
     if (!initValues) {
       return rewriter.notifyMatchFailure(
-          srcOp, "Unable to extract constant initialization value.");
-      ;
+          srcOp, "Failed to extract constant init values.");
     }
     if (initValues->size() != srcOp.getInputs().size()) {
       return rewriter.notifyMatchFailure(
@@ -2496,14 +2504,12 @@ public:
     }
 
     // Validate block body.
-    Block &block = *srcOp.getBody().getBlocks().begin();
+    Block &block = srcOp.getBody().getBlocks().front();
     auto &operations = block.getOperations();
-    // Collect reduction ops.
     SmallVector<mlir::Operation *> reductionOps;
     for (Operation &op : llvm::drop_end(operations, 1)) {
       if (!isa<mlir::stablehlo::AddOp, mlir::stablehlo::MaxOp>(&op)) {
-        return rewriter.notifyMatchFailure(srcOp,
-                                           "Unsupported reduction body op.");
+        return rewriter.notifyMatchFailure(srcOp, "Unsupported reduction op.");
       }
       reductionOps.push_back(&op);
     }
@@ -2516,32 +2522,56 @@ public:
           srcOp, "Mismatch between inputs and body ops.");
     }
 
-    auto windowDimensions = adaptor.getWindowDimensionsAttr();
-    auto windowStrides = adaptor.getWindowStridesAttr();
-    auto baseDilations = adaptor.getBaseDilationsAttr();
-    auto window_dilations = adaptor.getWindowDilationsAttr();
-    auto padding_ = adaptor.getPaddingAttr();
+    // Validate op attributes or assign default values if not provided.
 
-    // Generate defaults if they dont exist (these defaults are what the
-    // stablehlo dialect intends when they are not provided)
-    windowStrides = windowStrides
-                        ? windowStrides
-                        : rewriter.getDenseI64ArrayAttr(
-                              SmallVector<int64_t>(windowDimensions.size(), 1));
-    baseDilations = baseDilations
-                        ? baseDilations
-                        : rewriter.getDenseI64ArrayAttr(
-                              SmallVector<int64_t>(windowDimensions.size(), 1));
-    window_dilations = window_dilations
-                           ? window_dilations
-                           : rewriter.getDenseI64ArrayAttr(SmallVector<int64_t>(
-                                 windowDimensions.size(), 1));
-    auto padding =
-        padding_ ? rewriter.getDenseI64ArrayAttr(
-                       SmallVector<int64_t>(padding_.getValues<int64_t>()))
-                 : rewriter.getDenseI64ArrayAttr(
-                       SmallVector<int64_t>(windowDimensions.size() * 2, 0));
-    // Handle cumsum case.
+    DenseI64ArrayAttr windowDimensions = adaptor.getWindowDimensionsAttr();
+    if (windowDimensions.size() != inputRank) {
+      return rewriter.notifyMatchFailure(srcOp,
+                                         "Invalid pooling window dimensions.");
+    }
+
+    DenseI64ArrayAttr windowStrides = adaptor.getWindowStridesAttr();
+    if (!windowStrides) {
+      windowStrides = rewriter.getDenseI64ArrayAttr(
+          SmallVector<int64_t>(windowDimensions.size(), 1));
+    }
+    if (windowStrides.size() != inputRank) {
+      return rewriter.notifyMatchFailure(srcOp,
+                                         "Invalid pooling window strides.");
+    }
+
+    DenseI64ArrayAttr windowDilations = adaptor.getWindowDilationsAttr();
+    if (!windowDilations) {
+      windowDilations = rewriter.getDenseI64ArrayAttr(
+          SmallVector<int64_t>(windowDimensions.size(), 1));
+    }
+    if (windowDilations.size() != inputRank) {
+      return rewriter.notifyMatchFailure(srcOp,
+                                         "Invalid pooling window dilations.");
+    }
+
+    DenseI64ArrayAttr baseDilations = adaptor.getBaseDilationsAttr();
+    if (!baseDilations) {
+      baseDilations = rewriter.getDenseI64ArrayAttr(
+          SmallVector<int64_t>(windowDimensions.size(), 1));
+    }
+    if (baseDilations.size() != inputRank) {
+      return rewriter.notifyMatchFailure(srcOp,
+                                         "Invalid base dilations in pooling.");
+    }
+
+    DenseI64ArrayAttr padding =
+        adaptor.getPaddingAttr()
+            ? rewriter.getDenseI64ArrayAttr(SmallVector<int64_t>(
+                  adaptor.getPaddingAttr().getValues<int64_t>()))
+            : rewriter.getDenseI64ArrayAttr(
+                  SmallVector<int64_t>(windowDimensions.size() * 2, 0));
+
+    BoolAttr ceilMode = rewriter.getBoolAttr(false);
+
+    BoolAttr countIncludesPad = rewriter.getBoolAttr(true);
+
+    // Handle the special case of lowering to CumSumOp.
     if (srcOp.getInputs().size() == 1) {
       std::optional<int64_t> dimension =
           isCumSum(srcOp, adaptor, (*initValues)[0], reductionOps[0], padding);
@@ -2554,155 +2584,211 @@ public:
         return success();
       }
     }
-    // Check if the input is 2D and needs to be reshaped to 4D.
-    // TTIR pooling ops require 4D inputs.
+
+    // Not a special case of CumSumOp - lowering to TTIR pooling ops is
+    // supported only for 2D and 4D input tensors.
+    if (!(inputRank == 2 || inputRank == 4)) {
+      return rewriter.notifyMatchFailure(srcOp, "Invalid input tensor rank.");
+    }
+
+    // Deduce whether a reshape (2D->4D) or a permute (4D->4D) operation is
+    // needed to prepare input for TTIR pooling ops.
     bool needsReshape = false;
-    if (!srcOp.getInputs().empty()) {
-      auto firstInputType =
-          mlir::cast<RankedTensorType>(adaptor.getInputs()[0].getType());
-      needsReshape = (firstInputType.getRank() == 2);
+    bool needsPermute = false;
+    SmallVector<int64_t> permutation;        // populated only if needsPermute
+    SmallVector<int64_t> inversePermutation; // populated only if needsPermute
+    SmallVector<size_t, 2> spatialDimIndices = {1, 2}; // default for NHWC
+    if (inputRank == 4) {
+      // 4D input that maybe needs to be permuted to NHWC format which is
+      // expected by TTIR pooling ops. TTIR ops operate on spatial dimensions
+      // H and W. To deduce whether a permute operation is needed, non-1 values
+      // in windowDimensions attribute signalize a spatial dimension.
+      SmallVector<size_t> indicesGreaterThanOne =
+          indicesOfValuesGreaterThanOne(windowDimensions.asArrayRef());
+      if (indicesGreaterThanOne.size() > 2) {
+        return rewriter.notifyMatchFailure(
+            srcOp, "Conversion is not supported when more than 2 spatials "
+                   "dimensions are specified.");
+      }
+      if (indicesGreaterThanOne.size() < 2) {
+        // The default behavior is to assume a channel-first tensor (NCHW),
+        // if spatial dimensions cannot be determined from windowDimensions.
+        spatialDimIndices = {2, 3};
+      } else { // exactly two found
+        spatialDimIndices = {indicesGreaterThanOne[0],
+                             indicesGreaterThanOne[1]};
+      }
+
+      // PermuteOp is needed if spatial dimensions (HW) are not 1 and 2 (NHWC).
+      if (spatialDimIndices[0] != 1 || spatialDimIndices[1] != 2) {
+        needsPermute = true;
+
+        // Build desired layout: spatial H at index 1, spatial W at index 2.
+        const int64_t SPATIAL_H = -3; // -3 is a placeholder to indicate H dim
+        const int64_t SPATIAL_W = -2; // -2 is a placeholder to indicate W dim
+
+        std::vector<int64_t> desiredLayout(inputRank, -1);
+        desiredLayout[1] = SPATIAL_H;
+        desiredLayout[2] = SPATIAL_W;
+        int64_t nonSpatialCount = 0;
+        for (size_t i = 0; i < desiredLayout.size(); ++i) {
+          if (desiredLayout[i] == -1) {
+            desiredLayout[i] = nonSpatialCount++;
+          }
+        }
+
+        std::vector<int64_t> currentLayout(inputRank, -1);
+        currentLayout[spatialDimIndices[0]] = SPATIAL_H;
+        currentLayout[spatialDimIndices[1]] = SPATIAL_W;
+        nonSpatialCount = 0;
+        for (size_t i = 0; i < currentLayout.size(); ++i) {
+          if (currentLayout[i] == -1) {
+            currentLayout[i] = nonSpatialCount++;
+          }
+        }
+
+        permutation = ttmlir::utils::generatePermutation(
+            llvm::ArrayRef(currentLayout), llvm::ArrayRef(desiredLayout));
+
+        inversePermutation = ttmlir::utils::inversePermutation(permutation);
+      }
+    } else {
+      // 2D input needs reshape to 4D.
+      needsReshape = true;
+      spatialDimIndices = {0, 1};
     }
 
-    DenseI64ArrayAttr adjustedWindowDimensions = windowDimensions;
-    DenseI64ArrayAttr adjustedWindowStrides = windowStrides;
-    DenseI64ArrayAttr adjustedBaseDilations = baseDilations;
-    DenseI64ArrayAttr adjustedWindowDilations = window_dilations;
-    DenseI64ArrayAttr adjustedPadding = padding;
+    // Construct attributes for TTIR pooling ops.
 
-    if (needsReshape) {
-      adjustedWindowDimensions =
-          prependValues(windowDimensions, 1, 2, rewriter);
+    DenseI32ArrayAttr kernelForTTIROps = extract2xI32For2DPoolOpAttr(
+        windowDimensions, spatialDimIndices, rewriter);
 
-      adjustedWindowStrides = prependValues(windowStrides, 1, 2, rewriter);
+    DenseI32ArrayAttr strideForTTIROps =
+        extract2xI32For2DPoolOpAttr(windowStrides, spatialDimIndices, rewriter);
 
-      adjustedBaseDilations = prependValues(baseDilations, 1, 2, rewriter);
+    DenseI32ArrayAttr dilationForTTIROps = extract2xI32For2DPoolOpAttr(
+        windowDilations, spatialDimIndices, rewriter);
 
-      adjustedWindowDilations = prependValues(window_dilations, 1, 2, rewriter);
-
-      adjustedPadding = prependValues(padding, 0, 4, rewriter);
-    }
+    DenseI32ArrayAttr paddingForTTIROps =
+        extract4xI32PaddingAttr(padding, spatialDimIndices, rewriter);
 
     // Build per-input pooling ops.
     SmallVector<Value> resultVals;
     for (size_t i = 0; i < srcOp.getInputs().size(); ++i) {
       Value input = adaptor.getInputs()[i];
-      mlir::RankedTensorType inputType =
+      Value result;
+      TypicalInitReductionValue initVal = (*initValues)[i];
+      mlir::Operation *reductionOp = reductionOps[i];
+      RankedTensorType inputType =
           mlir::cast<RankedTensorType>(input.getType());
-      mlir::RankedTensorType resultType = cast<RankedTensorType>(
+      RankedTensorType resultType = cast<RankedTensorType>(
           getTypeConverter()->convertType(srcOp.getResult(i).getType()));
 
-      // Reshape 2D input to 4D if needed: [H, W] -> [1, 1, H, W].
-      if (needsReshape && inputType.getRank() == 2) {
-        SmallVector<int64_t> shape4D = {1, 1};
-        llvm::append_range(shape4D, inputType.getShape());
-        SmallVector<int32_t> shape4DI32(shape4D.begin(), shape4D.end());
+      if (needsReshape) {
+        ArrayRef<int64_t> shape2D = inputType.getShape();
+        SmallVector<int64_t> shape4DI64 = {1, shape2D[0], shape2D[1], 1};
+        SmallVector<int32_t> shape4D(shape4DI64.begin(), shape4DI64.end());
+        RankedTensorType inputType4D = RankedTensorType::get(
+            shape4DI64, inputType.getElementType(), inputType.getEncoding());
 
-        auto inputType4D = RankedTensorType::get(
-            shape4D, inputType.getElementType(), inputType.getEncoding());
-
-        input = rewriter.create<ttir::ReshapeOp>(
-            srcOp.getLoc(), inputType4D, input,
-            rewriter.getI32ArrayAttr(shape4DI32));
-
-        SmallVector<int64_t> resultShape4D = {1, 1};
-        llvm::append_range(resultShape4D, resultType.getShape());
-        resultType =
-            RankedTensorType::get(resultShape4D, resultType.getElementType(),
-                                  resultType.getEncoding());
+        input =
+            rewriter.create<ttir::ReshapeOp>(srcOp.getLoc(), inputType4D, input,
+                                             rewriter.getI32ArrayAttr(shape4D));
+        resultType = RankedTensorType::get(
+            /*shape*/ {1, resultType.getShape()[0], resultType.getShape()[1],
+                       1},
+            resultType.getElementType(), resultType.getEncoding());
       }
 
-      TypicalInitReductionValue initVal = (*initValues)[i];
-      mlir::Operation *frontOp = reductionOps[i];
-      ttir::PoolingMethod method;
-      if (isMaxPool(srcOp, initVal, frontOp)) {
-        method = ttir::PoolingMethod::Max;
-      } else if (isSumPool(srcOp, initVal, frontOp)) {
+      if (needsPermute) {
+        SmallVector<int64_t> permutedInputShape =
+            ttmlir::utils::applyPermutation(inputType.getShape(), permutation);
+        input = rewriter.create<ttir::PermuteOp>(
+            srcOp.getLoc(),
+            RankedTensorType::get(permutedInputShape,
+                                  inputType.getElementType(),
+                                  inputType.getEncoding()),
+            input, permutation);
+
+        // Apply output permutation.
+        SmallVector<int64_t> permutedResultShape =
+            ttmlir::utils::applyPermutation(resultType.getShape(), permutation);
+        resultType = RankedTensorType::get(permutedResultShape,
+                                           resultType.getElementType(),
+                                           resultType.getEncoding());
+      }
+
+      auto restoreOriginalLayout = [&](Value result) -> Value {
+        RankedTensorType originalResultType = cast<RankedTensorType>(
+            getTypeConverter()->convertType(srcOp.getResult(i).getType()));
+        if (needsReshape) {
+          result = rewriter.create<ttir::ReshapeOp>(
+              srcOp.getLoc(), originalResultType, result,
+              rewriter.getI32ArrayAttr(
+                  SmallVector<int32_t>(originalResultType.getShape().begin(),
+                                       originalResultType.getShape().end())));
+        }
+        if (needsPermute) {
+          result = rewriter.create<ttir::PermuteOp>(
+              srcOp.getLoc(), originalResultType, result, inversePermutation);
+        }
+        return result;
+      };
+
+      if (isa<mlir::stablehlo::MaxOp>(reductionOp) && initVal == NEG_INF) {
+        result = rewriter
+                     .create<ttir::MaxPool2dOp>(
+                         srcOp.getLoc(), resultType, input, kernelForTTIROps,
+                         strideForTTIROps, dilationForTTIROps,
+                         paddingForTTIROps, ceilMode)
+                     .getResult();
+      } else if (isa<mlir::stablehlo::AddOp>(reductionOp) && initVal == ZERO) {
+        // Special case of sum pooling followed by a convenient div op.
+        // TODO(acicovic): Check why was i == 0 originally added as a condition.
         std::optional<mlir::Operation *> divOp = extractDivisor(srcOp);
         if (divOp && i == 0) {
-          method = ttir::PoolingMethod::Average;
-          ttir::PoolingOp poolingOp = rewriter.create<ttir::PoolingOp>(
-              srcOp.getLoc(), resultType, input, method,
-              adjustedWindowDimensions, adjustedWindowStrides,
-              adjustedBaseDilations, adjustedWindowDilations, adjustedPadding);
-          (*divOp)->getResult(0).replaceAllUsesWith(poolingOp.getResult(0));
-          Value result = poolingOp->getResult(0);
-
-          // Reshape 4D output back to 2D if needed: [1, 1, H, W] -> [H, W].
-          if (needsReshape) {
-            auto originalResultType = cast<RankedTensorType>(
-                getTypeConverter()->convertType(srcOp.getResult(i).getType()));
-            result = rewriter.create<ttir::ReshapeOp>(
-                srcOp.getLoc(), originalResultType, result,
-                rewriter.getI32ArrayAttr(
-                    SmallVector<int32_t>(originalResultType.getShape().begin(),
-                                         originalResultType.getShape().end())));
-          }
-
+          // Average pooling: sum pooling followed by division.
+          // Create AvgPool2dOp directly.
+          ttir::AvgPool2dOp avgPool2dOp = rewriter.create<ttir::AvgPool2dOp>(
+              srcOp.getLoc(), resultType, input, kernelForTTIROps,
+              strideForTTIROps, dilationForTTIROps, paddingForTTIROps, ceilMode,
+              countIncludesPad);
+          result = restoreOriginalLayout(avgPool2dOp.getResult());
           resultVals.push_back(result);
           (*divOp)->getResult(0).replaceAllUsesWith(result);
           rewriter.eraseOp(*divOp);
           continue;
         }
-        method = ttir::PoolingMethod::Sum;
+
+        // Sum pooling imitated as average pooling followed by multiplication.
+        ttir::AvgPool2dOp avgPool2dOp = rewriter.create<ttir::AvgPool2dOp>(
+            srcOp.getLoc(), resultType, input, kernelForTTIROps,
+            strideForTTIROps, dilationForTTIROps, paddingForTTIROps, ceilMode,
+            countIncludesPad);
+        int32_t kernelSize = kernelForTTIROps[0] * kernelForTTIROps[1];
+        DenseElementsAttr splatAttr = DenseElementsAttr::get(
+            resultType, rewriter.getFloatAttr(resultType.getElementType(),
+                                              static_cast<double>(kernelSize)));
+        ttir::ConstantOp kernelSizeConst = rewriter.create<ttir::ConstantOp>(
+            srcOp.getLoc(), resultType, splatAttr);
+        ttir::MultiplyOp mulOp = rewriter.create<ttir::MultiplyOp>(
+            srcOp.getLoc(), resultType, avgPool2dOp.getResult(),
+            kernelSizeConst.getResult());
+        result = mulOp.getResult();
       } else {
-        return rewriter.notifyMatchFailure(srcOp, "Unsupported pooling method");
-      }
-      ttir::PoolingOp poolingOp = rewriter.create<ttir::PoolingOp>(
-          srcOp.getLoc(), resultType, input, method, adjustedWindowDimensions,
-          adjustedWindowStrides, adjustedBaseDilations, adjustedWindowDilations,
-          adjustedPadding);
-
-      Value result = poolingOp.getResult(0);
-
-      // Reshape 4D output back to 2D if needed: [1, 1, H, W] -> [H, W].
-      if (needsReshape) {
-        auto originalResultType = cast<RankedTensorType>(
-            getTypeConverter()->convertType(srcOp.getResult(i).getType()));
-        result = rewriter.create<ttir::ReshapeOp>(
-            srcOp.getLoc(), originalResultType, result,
-            rewriter.getI32ArrayAttr(
-                SmallVector<int32_t>(originalResultType.getShape().begin(),
-                                     originalResultType.getShape().end())));
+        return rewriter.notifyMatchFailure(
+            srcOp, "Invalid combination of reduction function and init value.");
       }
 
+      result = restoreOriginalLayout(result);
       resultVals.push_back(result);
     }
+
     rewriter.replaceOp(srcOp, resultVals);
     return success();
   }
 
 private:
-  // Requirements for max pooling.
-  // 1. Front op in the block must be 'max'.
-  // 2. InitValue must be negative infinity.
-  bool isMaxPool(mlir::stablehlo::ReduceWindowOp &srcOp,
-                 TypicalInitReductionValue initValue,
-                 mlir::Operation *frontOp) const {
-    if (!isa<mlir::stablehlo::MaxOp>(frontOp)) {
-      return false;
-    }
-    if (initValue != TypicalInitReductionValue::NEG_INF) {
-      return false;
-    }
-    return true;
-  }
-
-  // Requirements for sum pooling.
-  // 1. Front op in the block must be 'add'.
-  // 2. InitValue must be zero.
-  bool isSumPool(mlir::stablehlo::ReduceWindowOp &srcOp,
-                 TypicalInitReductionValue initValue,
-                 mlir::Operation *frontOp) const {
-    if (!isa<mlir::stablehlo::AddOp>(frontOp)) {
-      return false;
-    }
-    if (initValue != TypicalInitReductionValue::ZERO) {
-      return false;
-    }
-
-    return true;
-  }
-
   // This function verifies all the required conditions to convert stablehlo
   // reduce_window op to TTIR cumsum op and also determine the dimension
   // attribute along which the cumulative sum will be computed.
@@ -2721,7 +2807,7 @@ private:
   //    whose size is 1, is the required dimension.
   // 2. (If padding is non-splat vector): Window dimension attribute must have
   //    all elements equal to 1 except one; whose location is the required
-  //    dimension and value must be qual to size of the required dimension.
+  //    dimension and value must be equal to size of the required dimension.
   std::optional<int64_t>
   isCumSum(mlir::stablehlo::ReduceWindowOp &srcOp,
            mlir::stablehlo::ReduceWindowOp::Adaptor adaptor,
@@ -2765,7 +2851,7 @@ private:
     return mlir::dyn_cast_if_present<mlir::stablehlo::ConstantOp>(valueDef);
   }
 
-  // Extract the constant initialization value.
+  // Extract constant initialization values.
   std::optional<llvm::SmallVector<TypicalInitReductionValue>>
   extractInitValues(mlir::stablehlo::ReduceWindowOp &srcOp) const {
     llvm::SmallVector<TypicalInitReductionValue> initValues;
@@ -2781,9 +2867,6 @@ private:
       } else {
         return std::nullopt;
       }
-    }
-    if (initValues.size() != srcOp.getInitValues().size()) {
-      return std::nullopt;
     }
     return initValues;
   }
@@ -2955,9 +3038,47 @@ private:
     }
     return std::nullopt;
   }
-};
-} // namespace
 
+  // Extracts indices of all elements in the given array that have the value
+  // greter than 1.
+  static SmallVector<size_t>
+  indicesOfValuesGreaterThanOne(const ArrayRef<int64_t> input) {
+    SmallVector<size_t> results;
+    for (size_t i = 0; i < input.size(); ++i) {
+      if (input[i] > 1) {
+        results.push_back(i);
+      }
+    }
+    return results;
+  }
+
+  // Extract attribute values for two spatial dimensions from an attribute of
+  // a 4D tensor input.
+  static DenseI32ArrayAttr
+  extract2xI32For2DPoolOpAttr(DenseI64ArrayAttr attr,
+                              SmallVector<size_t, 2> spatialDimIndices,
+                              PatternRewriter &rewriter) {
+    return rewriter.getDenseI32ArrayAttr(
+        {static_cast<int32_t>(attr[spatialDimIndices[0]]),   // H
+         static_cast<int32_t>(attr[spatialDimIndices[1]])}); // W
+  }
+
+  // Extract attribute values for padding from an attribute of
+  // a 4D tensor input (8 padding values).
+  static DenseI32ArrayAttr
+  extract4xI32PaddingAttr(DenseI64ArrayAttr padding8,
+                          SmallVector<size_t, 2> spatialDimIndices,
+                          PatternRewriter &rewriter) {
+    return rewriter.getDenseI32ArrayAttr({
+        static_cast<int32_t>(padding8[spatialDimIndices[0] * 2]),     // H low
+        static_cast<int32_t>(padding8[spatialDimIndices[1] * 2]),     // W low
+        static_cast<int32_t>(padding8[spatialDimIndices[0] * 2 + 1]), // H high
+        static_cast<int32_t>(padding8[spatialDimIndices[1] * 2 + 1]), // W high
+    });
+  }
+};
+
+} // namespace
 namespace {
 class StableHLOToTTIRBroadcastInDimOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::BroadcastInDimOp> {
@@ -3417,10 +3538,10 @@ enum StableHLOChannelType {
   kChannelTypeHostToDevice = 3,
 };
 
-// Decompose SelectAndScatter into MaxPool2dWithIndices + ScatterInDim:
+// Decompose SelectAndScatter into MaxPool2dWithIndices + Scatter:
 // 1. MaxPool2dWithIndices finds the maximum values and their flattened indices
 // within each pooling window.
-// 2. ScatterInDim scatters the corresponding source values back into those
+// 2. Scatter scatters the corresponding source values back into those
 // positions.
 //
 // This decomposition currently supports only SelectAndScatter operations where
@@ -3429,7 +3550,7 @@ enum StableHLOChannelType {
 // workloads.
 //
 // If multiple windows overlap (e.g., stride < window size), several source
-// values may map to the same index. In that case, ScatterInDim reduces them
+// values may map to the same index. In that case, Scatter reduces them
 // using the reduction function specified in the scatter operation (e.g., add,
 // multiply, etc.).
 //
@@ -3460,7 +3581,7 @@ enum StableHLOChannelType {
 //   - Indices:    [[ 4,  6],
 //                  [13, 15]]
 //
-// Step 2: ScatterInDim
+// Step 2: Scatter
 //   - Scatter the source values [[10,20],[30,40]] into the flattened positions
 //   above.
 //   - Result (reshaped back to 4x4):
@@ -3616,7 +3737,7 @@ public:
         permutation, "_permuteFullTensor");
 
     // Calling MaxPool2dWithIndices op on operand
-    // and obtaining indices which will be used for ScatterInDim
+    // and obtaining indices which will be used for Scatter
     auto pooledType = RankedTensorType::get(sourcePermShape,
                                             source.getType().getElementType());
     auto indicesType =

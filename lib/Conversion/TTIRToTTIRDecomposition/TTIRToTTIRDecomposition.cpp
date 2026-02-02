@@ -1168,366 +1168,46 @@ private:
 };
 } // namespace
 
+// The following pattern rewriter will replace a pooling op with a FullOp in the
+// case where the pooling operation is applied to the result of a FullOp.
 namespace {
-struct PoolingToPool2dPattern : public OpConversionPattern<ttir::PoolingOp> {
+template <typename Pool2dOp>
+class PoolingToFullOp : public OpConversionPattern<Pool2dOp> {
 public:
-  using OpConversionPattern<ttir::PoolingOp>::OpConversionPattern;
+  using OpConversionPattern<Pool2dOp>::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(ttir::PoolingOp op, OpAdaptor adaptor,
+  matchAndRewrite(Pool2dOp op, typename Pool2dOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    llvm::SmallVector<int64_t> spatialDimIndices =
-        getIndicesOfElementsLargerThanOne(op.getWindowDimensions());
-    size_t numSpatialDimIndices = spatialDimIndices.size();
-    if (numSpatialDimIndices > 2) {
-      return rewriter.notifyMatchFailure(
-          op, "No decompositions for a pooling op with " +
-                  std::to_string(numSpatialDimIndices) + " spatial dimensions");
+
+    ttir::FullOp fullOp =
+        dyn_cast_or_null<ttir::FullOp>(op.getInput().getDefiningOp());
+    if (!fullOp) {
+      return failure();
     }
 
-    LogicalResult legalityResult =
-        canDecompose2DPoolingOp(op, rewriter, spatialDimIndices);
-    if (!legalityResult.succeeded()) {
-      return legalityResult;
-    }
+    std::variant<int64_t, float> fillValue =
+        isa<IntegerAttr>(fullOp.getFillValue())
+            ? dyn_cast<IntegerAttr>(fullOp.getFillValue())
+                  .getValue()
+                  .getSExtValue()
+            : dyn_cast<FloatAttr>(fullOp.getFillValue())
+                  .getValue()
+                  .convertToFloat();
 
-    switch (op.getPoolingMethod()) {
-    case ttir::PoolingMethod::Max: {
-      llvm::SmallVector<Value> outputs = rewritePool2d<ttir::MaxPool2dOp>(
-          op, adaptor, rewriter, spatialDimIndices);
-      rewriter.replaceOp(op, outputs);
-      return success();
-    }
-    case ttir::PoolingMethod::Average: {
-      llvm::SmallVector<Value> outputs = rewritePool2d<ttir::AvgPool2dOp>(
-          op, adaptor, rewriter, spatialDimIndices);
-      rewriter.replaceOp(op, outputs);
-      return success();
-    }
-    case ttir::PoolingMethod::Sum: {
-      llvm::SmallVector<Value> outputs =
-          rewriteSumPool2d(op, adaptor, rewriter, spatialDimIndices);
-      rewriter.replaceOp(op, outputs);
-      return success();
-    }
-    }
-  }
-
-private:
-  llvm::SmallVector<int64_t>
-  getIndicesOfElementsLargerThanOne(llvm::ArrayRef<int64_t> input) const {
-    llvm::SmallVector<int64_t, 2> result;
-    for (size_t i = 0; i < input.size(); i++) {
-      if (input[i] > 1) {
-        result.push_back(i);
-      }
-    }
-    return result;
-  }
-
-  LogicalResult
-  canDecompose2DPoolingOp(ttir::PoolingOp op,
-                          ConversionPatternRewriter &rewriter,
-                          llvm::SmallVector<int64_t> spatialDimIndices) const {
-
-    // Window dimensions must be 4 in length
-    if (op.getWindowDimensions().size() != 4) {
-      return rewriter.notifyMatchFailure(
-          op, "Polling 2D op is only supported for 4D tensor.");
-    }
-
-    // Window strides must be 4 in length
-    if (op.getWindowStrides().size() != 4) {
-      return rewriter.notifyMatchFailure(
-          op, "Polling 2D op is only supported for 4D tensor.");
-    }
-
-    // Operand rank(s) must be 4
-    for (Value operand : op.getInputs()) {
-      auto operandType = mlir::cast<mlir::RankedTensorType>(operand.getType());
-      if (operandType.getRank() != 4) {
-        return rewriter.notifyMatchFailure(
-            op, "Polling 2D op is only supported for 4D tensor.");
-      }
-    }
-
-    // Window dimensions will have two or less than two non 1 elements;
-    // representing the kernel size for max pooling operation.
-    size_t numSpatialDimIndices = spatialDimIndices.size();
-    if (numSpatialDimIndices > 2) {
-      return rewriter.notifyMatchFailure(op, "Rank of kernel_size for " +
-                                                 op.getOperationName() +
-                                                 " op is greater than 2.");
-    }
-
-    // Window strides will have two or less than two non 1 elements;
-    // representing the strides for max pooling operation.
-    llvm::SmallVector<int64_t> trueWindowStrideIndices =
-        getIndicesOfElementsLargerThanOne(op.getWindowStrides());
-    size_t windowStrideSize = trueWindowStrideIndices.size();
-    if (windowStrideSize > 2) {
-      return rewriter.notifyMatchFailure(op, "Rank of strides for " +
-                                                 op.getOperationName() +
-                                                 " is greater than 2.");
-    }
-
-    // Padding must be 8 in length
-    if (op.getPadding().size() != 8) {
-      return rewriter.notifyMatchFailure(
-          op, "Number of elements in padding does not match with " +
-                  op.getOperationName() + " op.");
-    }
-
-    return success();
-  }
-
-  // ttir.pooling op supports variadic inputs; so corresponding pooling op (max
-  // pool or average pool) is created for each input along with input/output
-  // permutation. The last leaf op(s) are returned back which will replace the
-  // original op.
-  template <typename PoolOpType>
-  llvm::SmallVector<Value>
-  rewritePool2d(ttir::PoolingOp op, OpAdaptor adaptor,
-                ConversionPatternRewriter &rewriter,
-                llvm::SmallVector<int64_t> spatialDimIndices) const {
-
-    const int64_t SPATIAL_H = -3;
-    const int64_t SPATIAL_W = -2;
-    const int64_t NON_SPATIAL = -1;
-
-    auto inputType =
-        mlir::cast<RankedTensorType>(adaptor.getInputs()[0].getType());
-    assert(inputType.getRank() == 4 && "Input must be 4D tensor");
-    std::vector<int64_t> desiredLayout(inputType.getRank(), NON_SPATIAL);
-    desiredLayout[inputType.getRank() - 3] = SPATIAL_H;
-    desiredLayout[inputType.getRank() - 2] = SPATIAL_W;
-
-    int64_t nonSpatialCount = 0;
-    for (int64_t i = 0; i < static_cast<int64_t>(desiredLayout.size()); i++) {
-      if (desiredLayout[i] == NON_SPATIAL) {
-        desiredLayout[i] = nonSpatialCount;
-        nonSpatialCount++;
-      }
-    }
-
-    int64_t numWinDims = op.getWindowDimensions().size();
-    // Using default indices for channel first tensor if window dimension
-    // attribute does not contain two non 1 elements for kernel size.
-    // [TODO] (mmanzoor) Add an option to distinguish channel first vs channel
-    // last and support channel last default indices.
-    // https://github.com/tenstorrent/tt-mlir/issues/2237
-    spatialDimIndices =
-        (spatialDimIndices.size() == 2)
-            ? spatialDimIndices
-            : llvm::SmallVector<int64_t>({numWinDims - 2, numWinDims - 1});
-
-    std::vector<int64_t> currentLayout(inputType.getRank(), NON_SPATIAL);
-    currentLayout[spatialDimIndices[0]] = SPATIAL_H;
-    currentLayout[spatialDimIndices[1]] = SPATIAL_W;
-
-    nonSpatialCount = 0;
-    for (int64_t i = 0; i < static_cast<int64_t>(currentLayout.size()); i++) {
-      if (currentLayout[i] == NON_SPATIAL) {
-        currentLayout[i] = nonSpatialCount;
-        nonSpatialCount++;
-      }
-    }
-
-    auto permutation = ttmlir::utils::generatePermutation(
-        llvm::ArrayRef(currentLayout), llvm::ArrayRef(desiredLayout));
-    auto inverseOfPermutation = ttmlir::utils::inversePermutation(permutation);
-
-    auto kernelAttr = rewriter.getDenseI32ArrayAttr({
-        static_cast<int32_t>(op.getWindowDimensions()[spatialDimIndices[0]]),
-        static_cast<int32_t>(op.getWindowDimensions()[spatialDimIndices[1]]),
-    });
-
-    auto strideAttr = rewriter.getDenseI32ArrayAttr({
-        static_cast<int32_t>(op.getWindowStrides()[spatialDimIndices[0]]),
-        static_cast<int32_t>(op.getWindowStrides()[spatialDimIndices[1]]),
-    });
-
-    auto dilationAttr = rewriter.getDenseI32ArrayAttr({
-        static_cast<int32_t>(op.getWindowDilations()[spatialDimIndices[0]]),
-        static_cast<int32_t>(op.getWindowDilations()[spatialDimIndices[1]]),
-    });
-
-    auto paddingAttr = rewriter.getDenseI32ArrayAttr({
-        static_cast<int32_t>(op.getPadding()[2 * spatialDimIndices[0]]), // top
-        static_cast<int32_t>(op.getPadding()[2 * spatialDimIndices[1]]), // left
-        static_cast<int32_t>(
-            op.getPadding()[2 * spatialDimIndices[0] + 1]), // bottom
-        static_cast<int32_t>(
-            op.getPadding()[2 * spatialDimIndices[1] + 1]), // right
-    });
-
-    auto ceilModeAttr = rewriter.getBoolAttr(false);
-
-    llvm::SmallVector<Value> outputs;
-    for (size_t i = 0; i < adaptor.getInputs().size(); i++) {
-      Value input = adaptor.getInputs()[i];
-      Value originalOutput = op.getResults()[i];
-      RankedTensorType originalOutputTy = mlir::cast<RankedTensorType>(
-          getTypeConverter()->convertType(originalOutput.getType()));
-      // Apply input permutation.
-      RankedTensorType inputTy = mlir::cast<RankedTensorType>(input.getType());
-      auto inputPermuteShape =
-          ::ttmlir::utils::applyPermutation(inputTy.getShape(), permutation);
-      input = rewriter.create<ttir::PermuteOp>(
-          ttmlir::utils::appendLocationSuffix(op.getLoc(), "_permuteInput"),
-          RankedTensorType::get(inputPermuteShape, inputTy.getElementType(),
-                                inputTy.getEncoding()),
-          input, permutation);
-
-      // Apply output permutation.
-      auto resultPermuteShape = ::ttmlir::utils::applyPermutation(
-          originalOutputTy.getShape(), permutation);
-      PoolOpType newPool;
-      if constexpr (std::is_same_v<PoolOpType, ttir::AvgPool2dOp>) {
-        newPool = rewriter.create<PoolOpType>(
-            op.getLoc(),
-            RankedTensorType::get(resultPermuteShape,
-                                  originalOutputTy.getElementType(),
-                                  originalOutputTy.getEncoding()),
-            input, kernelAttr, strideAttr, dilationAttr, paddingAttr,
-            ceilModeAttr, /*count_include_pad=*/rewriter.getBoolAttr(true));
-      } else if constexpr (std::is_same_v<PoolOpType, ttir::MaxPool2dOp>) {
-        newPool = rewriter.create<PoolOpType>(
-            op.getLoc(),
-            RankedTensorType::get(resultPermuteShape,
-                                  originalOutputTy.getElementType(),
-                                  originalOutputTy.getEncoding()),
-            input, kernelAttr, strideAttr, dilationAttr, paddingAttr,
-            ceilModeAttr);
-      } else {
-        llvm_unreachable("Pool2dOp must be AvgPool2dOp or MaxPool2dOp");
-      }
-      // Applying the inverse of permutation to the output will restore the
-      // tensor to the original layout.
-      auto output = rewriter.create<ttir::PermuteOp>(
-          ttmlir::utils::appendLocationSuffix(op.getLoc(), "_permuteOutput"),
-          originalOutputTy, newPool, inverseOfPermutation);
-      outputs.push_back(output);
-    }
-
-    return outputs;
-  }
-
-  // tt-metal doesn't support sum pooling. Therefore, sum pooling is implemented
-  // by performing 'average pooling' multiplied by 'kernel size'. If pooling op
-  // has multiple inputs then multiple average pooling op will be created and
-  // each will be multiplied with the kernel size. This will return last leaf
-  // op(s) (multiply op) which will replace the original op.
-  llvm::SmallVector<Value>
-  rewriteSumPool2d(ttir::PoolingOp op, OpAdaptor adaptor,
-                   ConversionPatternRewriter &rewriter,
-                   llvm::SmallVector<int64_t> spatialDimIndices) const {
-    // Create average pooling op.
-    llvm::SmallVector<Value> avgPoolOutputs = rewritePool2d<ttir::AvgPool2dOp>(
-        op, adaptor, rewriter, spatialDimIndices);
-
-    // Calculate kernel size and create constant op.
-    auto kernel = op.getWindowDimensions();
-    int64_t kernelSize = std::accumulate(kernel.begin(), kernel.end(),
-                                         int64_t{1}, std::multiplies<>());
-    RankedTensorType outputType =
-        mlir::cast<RankedTensorType>(op.getResult(0).getType());
-    auto elementType = outputType.getElementType();
-    mlir::Attribute constantValue;
-    if (mlir::isa<mlir::FloatType>(elementType)) {
-      constantValue = mlir::FloatAttr::get(elementType, kernelSize);
-    } else if (mlir::isa<mlir::IntegerType>(elementType)) {
-      constantValue = mlir::IntegerAttr::get(elementType, kernelSize);
-    } else {
-      llvm_unreachable("Un-supported data type for sum pooling 2d op.");
-    }
-
-    mlir::DenseElementsAttr constantValueAttr =
-        mlir::SplatElementsAttr::get(outputType, constantValue);
-    auto constantOp = rewriter.create<ttir::ConstantOp>(
-        ttmlir::utils::appendLocationSuffix(op->getLoc(), "_constant"),
-        outputType, constantValueAttr);
-
-    llvm::SmallVector<Value> sumPoolOutputs;
-    // Multiply each average pooling op with kernel size.
-    for (Value inputOp : avgPoolOutputs) {
-      auto outputOp = rewriter.create<ttir::MultiplyOp>(
-          ttmlir::utils::appendLocationSuffix(op->getLoc(), "_multiply"),
-          outputType, inputOp, constantOp);
-      sumPoolOutputs.push_back(outputOp);
-    }
-
-    return sumPoolOutputs;
-  }
-};
-} // namespace
-
-// The following pattern rewriter will replace a PoolingOp with a FullOp in the
-// case where the pooling operation is applied to the result of a FullOp
-namespace {
-class PoolingToFullOp : public OpConversionPattern<ttir::PoolingOp> {
-public:
-  using OpConversionPattern<ttir::PoolingOp>::OpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(ttir::PoolingOp op, ttir::PoolingOp::Adaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    int64_t kernelSize = std::accumulate(op.getWindowDimensions().begin(),
-                                         op.getWindowDimensions().end(), 1,
-                                         std::multiplies<int64_t>());
-    SmallVector<Value> newResults;
-    // If all the inputs are constant ops with splat values then we can easily
-    // cannonicalize this
-    for (size_t i = 0; i < op.getInputs().size(); i++) {
-      ttir::FullOp constant =
-          dyn_cast_or_null<ttir::FullOp>(op.getInputs()[i].getDefiningOp());
-      if (!constant) {
-        return failure();
-      }
-      ttir::FullOp newConstant;
-
-      std::variant<int64_t, float> constValue;
-      std::variant<int64_t, float> newConstValue;
-
-      constValue = isa<IntegerAttr>(constant.getFillValue())
-                       ? dyn_cast<IntegerAttr>(constant.getFillValue())
-                             .getValue()
-                             .getSExtValue()
-                       : dyn_cast<FloatAttr>(constant.getFillValue())
-                             .getValue()
-                             .convertToFloat();
-
-      if (op.getPoolingMethod() == ttir::PoolingMethod::Max ||
-          op.getPoolingMethod() == ttir::PoolingMethod::Average) {
-        newConstValue = constValue;
-      } else if (op.getPoolingMethod() == ttir::PoolingMethod::Sum) {
-        // Handle variant multiplication correctly using std::visit
-        newConstValue = std::visit(
-            [kernelSize](auto &&arg) -> std::variant<int64_t, float> {
-              return arg * kernelSize;
-            },
-            constValue);
-      } else {
-        return rewriter.notifyMatchFailure(op.getLoc(),
-                                           "Unknown pooling method");
-      }
-
-      mlir::Attribute newConstValueAttr =
-          std::holds_alternative<int64_t>(newConstValue)
-              ? cast<mlir::Attribute>(IntegerAttr::get(
-                    IntegerType::get(rewriter.getContext(), 32),
-                    std::get<int64_t>(newConstValue)))
-              : cast<mlir::Attribute>(
-                    FloatAttr::get(Float32Type::get(rewriter.getContext()),
-                                   std::get<float>(newConstValue)));
-
-      newConstant = rewriter.create<ttir::FullOp>(
-          op.getLoc(), op.getResult(i).getType(), newConstValueAttr);
-      newResults.push_back(newConstant);
-    }
+    mlir::Attribute fillValueAttr =
+        std::holds_alternative<int64_t>(fillValue)
+            ? cast<mlir::Attribute>(
+                  IntegerAttr::get(IntegerType::get(rewriter.getContext(), 32),
+                                   std::get<int64_t>(fillValue)))
+            : cast<mlir::Attribute>(
+                  FloatAttr::get(Float32Type::get(rewriter.getContext()),
+                                 std::get<float>(fillValue)));
 
     rewriter.replaceOp(
-        op, ValueRange(ArrayRef<Value>(newResults.begin(), newResults.end())));
+        op, rewriter.create<ttir::FullOp>(op.getLoc(), op.getResult().getType(),
+                                          fillValueAttr));
+
     return success();
   }
 };
@@ -2684,8 +2364,8 @@ void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
                                              RewritePatternSet &patterns,
                                              TypeConverter &typeConverter,
                                              DecompMode decompConfig) {
-  patterns.add<PoolingToPool2dPattern>(typeConverter, ctx);
-  patterns.add<PoolingToFullOp>(typeConverter, ctx);
+  patterns.add<PoolingToFullOp<ttir::MaxPool2dOp>>(typeConverter, ctx);
+  patterns.add<PoolingToFullOp<ttir::AvgPool2dOp>>(typeConverter, ctx);
   patterns.add<IndexToSliceConversionPattern>(typeConverter, ctx);
   patterns.add<GatherToSliceRepeatConcatConversionPattern>(typeConverter, ctx);
   patterns.add<GatherToEmbeddingConversionPattern>(typeConverter, ctx);
