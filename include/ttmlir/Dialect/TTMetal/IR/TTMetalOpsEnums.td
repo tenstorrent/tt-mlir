@@ -60,4 +60,16 @@ def TTMetal_EthType : I32EnumAttr<"EthType", "TT EthType",
   let cppNamespace = "::mlir::tt::ttmetal";
 }
 
+def TTMetal_RoutingModeBidirLineMesh : I32EnumAttrCase<"BidirLineMesh", 0, "bidir_line_mesh">;
+def TTMetal_RoutingModeUnidirRingTorus : I32EnumAttrCase<"UnidirRingTorus", 1, "unidir_ring_torus">;
+
+def TTMetal_RoutingMode : I32EnumAttr<"RoutingMode", "TT RoutingMode",
+                           [
+                            TTMetal_RoutingModeBidirLineMesh,
+                            TTMetal_RoutingModeUnidirRingTorus,
+                           ]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::mlir::tt::ttmetal";
+}
+
 #endif

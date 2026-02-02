@@ -39,17 +39,15 @@ FORCE_INLINE UnicastParams get_unicast_params(TopologyInfo &topology,
                                               uint16_t my_device_id,
                                               uint16_t dst_device_id) {
   if (topology.topology_type == TopologyInfo::TopologyType::Ring) {
-    // Assert: Shortest path not supported for ring topology.
+    // Assert: Only UnidirRingTorus routing mode supported for ring topology.
     WAYPOINT("DA23");
-    ASSERT(topology.routing_mode ==
-           TopologyInfo::RoutingMode::UnidirectionalRingTorus);
+    ASSERT(topology.routing_mode == TopologyInfo::RoutingMode::UnidirRingTorus);
     return get_unicast_params_unidir_ring(topology, my_device_id,
                                           dst_device_id);
   } else if (topology.topology_type == TopologyInfo::TopologyType::Line) {
-    // Assert: Unidirectional routing mode not supported for line topology.
+    // Assert: Only BidirLineMesh routing mode supported for line topology.
     WAYPOINT("DA24");
-    ASSERT(topology.routing_mode !=
-           TopologyInfo::RoutingMode::UnidirectionalRingTorus);
+    ASSERT(topology.routing_mode == TopologyInfo::RoutingMode::BidirLineMesh);
     return get_unicast_params_line(topology, my_device_id, dst_device_id);
   } else {
     // Assert: Unsupported topology type.
@@ -70,7 +68,7 @@ FORCE_INLINE UnicastParams get_unicast_params_unidir_ring(
   ASSERT(my_idx != dest_idx);
 
   bool is_forward =
-      (topology.routing_direction == TopologyInfo::RoutingDirection::SouthEast);
+      (topology.routing_direction == TopologyInfo::RoutingDirection::Forward);
   UnicastParams result;
   result.outgoing_direction =
       is_forward ? static_cast<uint32_t>(
@@ -114,19 +112,17 @@ FORCE_INLINE McastParams get_mcast_params(TopologyInfo &topology,
                                           uint16_t dst_start_device_id,
                                           uint16_t dst_end_device_id) {
   if (topology.topology_type == TopologyInfo::TopologyType::Ring) {
-    // Assert: Shortest path not supported for ring topology.
+    // Assert: Only UnidirRingTorus routing mode supported for ring topology.
     WAYPOINT("DA28");
-    ASSERT(topology.routing_mode ==
-           TopologyInfo::RoutingMode::UnidirectionalRingTorus);
+    ASSERT(topology.routing_mode == TopologyInfo::RoutingMode::UnidirRingTorus);
     return get_mcast_params_unidir_ring(topology, my_device_id,
                                         dst_start_device_id, dst_end_device_id);
     // return get_mcast_params_shortest_path(topology, my_device_id,
     // dst_start_device_id, dst_end_device_id);
   } else if (topology.topology_type == TopologyInfo::TopologyType::Line) {
-    // Assert: Unidirectional routing mode not supported for line topology.
+    // Assert: Only BidirLineMesh routing mode supported for line topology.
     WAYPOINT("DA29");
-    ASSERT(topology.routing_mode !=
-           TopologyInfo::RoutingMode::UnidirectionalRingTorus);
+    ASSERT(topology.routing_mode == TopologyInfo::RoutingMode::BidirLineMesh);
     return get_mcast_params_line(topology, my_device_id, dst_start_device_id,
                                  dst_end_device_id);
   } else {
@@ -156,7 +152,7 @@ FORCE_INLINE McastParams get_mcast_params_unidir_ring(
 
   McastParams result;
   bool is_forward =
-      (topology.routing_direction == TopologyInfo::RoutingDirection::SouthEast);
+      (topology.routing_direction == TopologyInfo::RoutingDirection::Forward);
   uint32_t dir = is_forward
                      ? static_cast<uint32_t>(
                            topology.routing_directions[topology.axis].first)

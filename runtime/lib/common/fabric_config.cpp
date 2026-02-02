@@ -12,17 +12,8 @@
 
 namespace tt::runtime::common {
 
-// only for ring/torus topologies
-enum class RoutingMode {
-  ShortestPath = 0,
-  UnidirectionalRingTorus,
-};
-
-// only for ring/torus topologies and UnidirectionalRingTorus routing mode
-enum class RoutingDirection {
-  SouthEast,
-  NorthWest,
-};
+// only for UnidirRingTorus routing mode
+enum class RoutingDirection { Forward, Backward };
 
 template <typename ProgramOrDescriptor>
 std::unordered_map<::tt::tt_metal::CoreCoord, std::vector<uint32_t>>
@@ -39,6 +30,7 @@ appendFabricConfigArgs(
   tt::target::Topology topology_type = fabricConnectionConfig->topology();
   uint32_t cluster_axis = fabricConnectionConfig->cluster_axis();
   uint32_t num_links = fabricConnectionConfig->num_links();
+  tt::target::RoutingMode routing_mode = fabricConnectionConfig->routing_mode();
 
   std::unordered_map<tt::tt_metal::CoreCoord, std::vector<uint32_t>>
       fabricConfigArgs;
@@ -56,7 +48,6 @@ appendFabricConfigArgs(
   rtArgsVec.push_back(1);
   LOG_ASSERT(meshDevice->shape().dims() == 2,
              "Only 2d mesh device is supported");
-  RoutingMode routing_mode = RoutingMode::UnidirectionalRingTorus;
   std::vector<
       std::pair<tt_fabric::eth_chan_directions, tt_fabric::eth_chan_directions>>
       routing_directions;
@@ -230,7 +221,7 @@ appendFabricConfigArgs(
     rtArgsVecPerCore.push_back(0);
     std::vector<tt_fabric::eth_chan_directions> connection_directions;
     for (uint32_t dim = 0; dim < meshDevice->shape().dims(); dim++) {
-      if (routing_mode == RoutingMode::ShortestPath ||
+      if (routing_mode != target::metal::RoutingMode::UnidirRingTorus ||
           topology_type == target::Topology::Linear ||
           topology_type == target::Topology::Mesh) {
         if (routing_directions[dim].first !=
@@ -248,13 +239,13 @@ appendFabricConfigArgs(
           // set south east routing mode
           connection_directions.push_back(routing_directions[dim].first);
           rtArgsVecPerCore[routing_direction_idx] =
-              static_cast<uint32_t>(RoutingDirection::SouthEast);
+              static_cast<uint32_t>(RoutingDirection::Forward);
         } else if (i % 2 == 1 && routing_directions[dim].second !=
                                      tt_fabric::eth_chan_directions::COUNT) {
           // set north west routing mode
           connection_directions.push_back(routing_directions[dim].second);
           rtArgsVecPerCore[routing_direction_idx] =
-              static_cast<uint32_t>(RoutingDirection::NorthWest);
+              static_cast<uint32_t>(RoutingDirection::Backward);
         }
       }
     }

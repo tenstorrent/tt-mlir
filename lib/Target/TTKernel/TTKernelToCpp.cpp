@@ -281,16 +281,14 @@ void dprint(Arg &&arg, ArgV&&... argv) {
         hasCall("experimental::get_logical_mesh_position") ||
         hasCall("experimental::get_device_id_from_logical_mesh_position")) {
       // Emit in order: topology_info → routing → api
-      // 1. Topology info (defines TopologyInfo, constants)
+      // 1. Topology info
       auto experimentalFabricTopologyInfoLLKs =
           StringRef(experimental_fabric_topology_info_generated,
                     experimental_fabric_topology_info_generated_len);
       builder->create<emitc::VerbatimOp>(loc,
                                          experimentalFabricTopologyInfoLLKs);
 
-      // 2. Routing headers (define UnicastParams, McastParams, routing
-      // functions) The #ifdef FABRIC_1D / FABRIC_2D guards will select the
-      // right one
+      // 2. Routing functions
       auto experimentalFabric1DRoutingLLKs =
           StringRef(experimental_fabric_1d_routing_generated,
                     experimental_fabric_1d_routing_generated_len);
@@ -301,7 +299,7 @@ void dprint(Arg &&arg, ArgV&&... argv) {
                     experimental_fabric_2d_routing_generated_len);
       builder->create<emitc::VerbatimOp>(loc, experimentalFabric2DRoutingLLKs);
 
-      // 3. Fabric API (uses routing functions)
+      // 3. Fabric APIs
       auto experimentalFabricAPILLKs =
           StringRef(experimental_fabric_api_generated,
                     experimental_fabric_api_generated_len);

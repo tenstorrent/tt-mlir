@@ -656,6 +656,7 @@ fabricConnectionConfigToFlatbuffer(
       *cache.fbb, toFlatbuffer(cache, fabricConnectionConfig.getNocIndex()),
       toFlatbuffer(cache, fabricConnectionConfig.getTopology()),
       fabricConnectionConfig.getClusterAxis(),
+      toFlatbuffer(fabricConnectionConfig.getRoutingMode()),
       fabricConnectionConfig.getNumLinks());
 }
 
