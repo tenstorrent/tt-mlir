@@ -2218,7 +2218,7 @@ def TTNN_ClampScalarOp : TTNN_Op<"clamp_scalar", [TTNN_MemoryConfigOpInterface]>
         auto minAttr = $_builder.getI32IntegerAttr(min.getInt());
         auto maxAttr = $_builder.getI32IntegerAttr(max.getInt());
         build($_builder, $_state, resultType, input, minAttr, maxAttr, /* memory_config */ nullptr);
-      }]>
+      }]>,
       OpBuilder<(ins "Type": $resultType, "Value": $input, "::mlir::Attribute": $min, "::mlir::Attribute": $max),
       [{
         build($_builder, $_state, resultType, input, min, max, /* memory_config */ nullptr);
