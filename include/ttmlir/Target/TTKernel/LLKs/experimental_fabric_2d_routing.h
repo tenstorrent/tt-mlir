@@ -7,7 +7,7 @@
 
 #ifdef FABRIC_2D
 
-struct UnicastParams {
+struct UnicastRoutingParams {
   // uint16_t dst_dev_id;
   // uint16_t dst_mesh_id,
   uint8_t outgoing_direction;
@@ -17,8 +17,8 @@ struct UnicastParams {
   uint8_t ew_dir;
 };
 
-struct McastParams {
-  struct McastParamsPerDirection {
+struct McastRoutingParams {
+  struct McastRoutingParamsPerDirection {
     bool active = false;
     // uint16_t dst_dev_id;
     // uint16_t dst_mesh_id;
@@ -28,28 +28,27 @@ struct McastParams {
     uint16_t s_num_hops = 0;
   };
 
-  std::array<McastParamsPerDirection, MAX_SEND_DIR> params_per_direction;
+  std::array<McastRoutingParamsPerDirection, MAX_SEND_DIR> params_per_direction;
 };
 
 // Forward declarations
-FORCE_INLINE UnicastParams get_unicast_params_unidir_ring(
+FORCE_INLINE UnicastRoutingParams get_unicast_params_unidir_ring(
     TopologyInfo &topology, uint16_t my_device_id, uint16_t dst_device_id);
-FORCE_INLINE UnicastParams get_unicast_params_unidir_torus(
+FORCE_INLINE UnicastRoutingParams get_unicast_params_unidir_torus(
     TopologyInfo &topology, uint16_t my_device_id, uint16_t dst_device_id);
-FORCE_INLINE McastParams get_mcast_params_unidir_ring(
+FORCE_INLINE McastRoutingParams get_mcast_params_unidir_ring(
     TopologyInfo &topology, uint16_t my_device_id, uint16_t dst_start_device_id,
     uint16_t dst_end_device_id);
-FORCE_INLINE McastParams get_mcast_params_unidir_torus(
+FORCE_INLINE McastRoutingParams get_mcast_params_unidir_torus(
     TopologyInfo &topology, uint16_t my_device_id, uint16_t dst_start_device_id,
     uint16_t dst_end_device_id);
-FORCE_INLINE McastParams get_mcast_params_line(TopologyInfo &topology,
-                                               uint16_t my_device_id,
-                                               uint16_t dst_start_device_id,
-                                               uint16_t dst_end_device_id);
+FORCE_INLINE McastRoutingParams
+get_mcast_params_line(TopologyInfo &topology, uint16_t my_device_id,
+                      uint16_t dst_start_device_id, uint16_t dst_end_device_id);
 
-FORCE_INLINE UnicastParams get_unicast_params(TopologyInfo &topology,
-                                              uint16_t my_device_id,
-                                              uint16_t dst_device_id) {
+FORCE_INLINE UnicastRoutingParams get_unicast_params(TopologyInfo &topology,
+                                                     uint16_t my_device_id,
+                                                     uint16_t dst_device_id) {
   if (topology.topology_type == TopologyInfo::TopologyType::Ring) {
     // Assert: Only UnidirRingTorus routing mode supported for ring topology.
     WAYPOINT("DA34");
@@ -66,11 +65,11 @@ FORCE_INLINE UnicastParams get_unicast_params(TopologyInfo &topology,
     // Assert: Unsupported topology type.
     WAYPOINT("DA36");
     ASSERT(false);
-    return UnicastParams(); // unreachable, satisfies compiler
+    return UnicastRoutingParams(); // unreachable, satisfies compiler
   }
 }
 
-FORCE_INLINE UnicastParams get_unicast_params_unidir_ring(
+FORCE_INLINE UnicastRoutingParams get_unicast_params_unidir_ring(
     TopologyInfo &topology, uint16_t my_device_id, uint16_t dst_device_id) {
   int32_t my_idx =
       topology.get_logical_mesh_position(my_device_id)[topology.axis];
@@ -91,7 +90,7 @@ FORCE_INLINE UnicastParams get_unicast_params_unidir_ring(
                       ? static_cast<uint8_t>((dest_idx - my_idx + size) % size)
                       : static_cast<uint8_t>((my_idx - dest_idx + size) % size);
 
-  UnicastParams result;
+  UnicastRoutingParams result;
   // result.dst_dev_id = dst_device_id;
   // result.dst_mesh_id = 0; // fix???
   if (outgoing_direction == eth_chan_directions::EAST ||
@@ -112,7 +111,7 @@ FORCE_INLINE UnicastParams get_unicast_params_unidir_ring(
   return result;
 }
 
-FORCE_INLINE UnicastParams get_unicast_params_unidir_torus(
+FORCE_INLINE UnicastRoutingParams get_unicast_params_unidir_torus(
     TopologyInfo &topology, uint16_t my_device_id, uint16_t dst_device_id) {
   WAYPOINT("DA39");
   ASSERT(NUM_DIMS == 2);
@@ -125,7 +124,7 @@ FORCE_INLINE UnicastParams get_unicast_params_unidir_torus(
   WAYPOINT("DA40");
   ASSERT(!(my_y == dest_y && my_x == dest_x));
 
-  UnicastParams result;
+  UnicastRoutingParams result;
   bool is_forward =
       (topology.routing_direction == TopologyInfo::RoutingDirection::Forward);
   result.ns_dir =
@@ -149,10 +148,10 @@ FORCE_INLINE UnicastParams get_unicast_params_unidir_torus(
   return result;
 }
 
-FORCE_INLINE McastParams get_mcast_params(TopologyInfo &topology,
-                                          uint16_t my_device_id,
-                                          uint16_t dst_start_device_id,
-                                          uint16_t dst_end_device_id) {
+FORCE_INLINE McastRoutingParams get_mcast_params(TopologyInfo &topology,
+                                                 uint16_t my_device_id,
+                                                 uint16_t dst_start_device_id,
+                                                 uint16_t dst_end_device_id) {
   if (topology.topology_type == TopologyInfo::TopologyType::Ring) {
     // Assert: Only UnidirRingTorus routing mode supported for ring topology.
     WAYPOINT("DA42");
@@ -175,16 +174,15 @@ FORCE_INLINE McastParams get_mcast_params(TopologyInfo &topology,
     // Assert: Unsupported topology type.
     WAYPOINT("DA45");
     ASSERT(false);
-    return McastParams(); // unreachable, satisfies compiler
+    return McastRoutingParams(); // unreachable, satisfies compiler
   }
 }
 
 // Note: in line don't use wrap with sender inside; in ring, if sender inside,
 // only broadcast to full ring to assure this
-FORCE_INLINE McastParams get_mcast_params_line(TopologyInfo &topology,
-                                               uint16_t my_device_id,
-                                               uint16_t dst_start_device_id,
-                                               uint16_t dst_end_device_id) {
+FORCE_INLINE McastRoutingParams get_mcast_params_line(
+    TopologyInfo &topology, uint16_t my_device_id, uint16_t dst_start_device_id,
+    uint16_t dst_end_device_id) {
   // TODO: check that my_device_id and dst_device_id are in same line/ring
   int32_t my_idx =
       topology.get_logical_mesh_position(my_device_id)[topology.axis];
@@ -201,7 +199,7 @@ FORCE_INLINE McastParams get_mcast_params_line(TopologyInfo &topology,
   auto [start_fwd, range_fwd, start_bwd, range_bwd] =
       get_line_regions(my_idx, start_idx, end_idx, size);
 
-  McastParams result;
+  McastRoutingParams result;
   uint32_t fwd_dir =
       static_cast<uint32_t>(topology.routing_directions[topology.axis].first);
   uint32_t bwd_dir =
@@ -248,7 +246,7 @@ FORCE_INLINE McastParams get_mcast_params_line(TopologyInfo &topology,
 }
 
 // 2d fabric mcast limitation: sender must be inside or adjacent to mcast region
-FORCE_INLINE McastParams get_mcast_params_unidir_ring(
+FORCE_INLINE McastRoutingParams get_mcast_params_unidir_ring(
     TopologyInfo &topology, uint16_t my_device_id, uint16_t dst_start_device_id,
     uint16_t dst_end_device_id) {
   // TODO: check that my_device_id and dst_device_id are in same ring
@@ -264,7 +262,7 @@ FORCE_INLINE McastParams get_mcast_params_unidir_ring(
   WAYPOINT("DA51");
   ASSERT(!(my_idx == start_idx && start_idx == end_idx));
 
-  McastParams result;
+  McastRoutingParams result;
   bool is_forward =
       (topology.routing_direction == TopologyInfo::RoutingDirection::Forward);
   uint32_t dir = is_forward
@@ -301,7 +299,7 @@ FORCE_INLINE McastParams get_mcast_params_unidir_ring(
   return result;
 }
 
-FORCE_INLINE McastParams get_mcast_params_unidir_torus(
+FORCE_INLINE McastRoutingParams get_mcast_params_unidir_torus(
     TopologyInfo &topology, uint16_t my_device_id, uint16_t dst_start_device_id,
     uint16_t dst_end_device_id) {
   WAYPOINT("DA55");
@@ -320,7 +318,7 @@ FORCE_INLINE McastParams get_mcast_params_unidir_torus(
   ASSERT(!(my_device_id == dst_start_device_id &&
            dst_start_device_id == dst_end_device_id));
 
-  McastParams result;
+  McastRoutingParams result;
   bool is_forward =
       (topology.routing_direction == TopologyInfo::RoutingDirection::Forward);
   uint32_t ns_dir =

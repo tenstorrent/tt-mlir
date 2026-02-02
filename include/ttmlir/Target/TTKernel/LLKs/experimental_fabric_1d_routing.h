@@ -7,37 +7,35 @@
 
 #ifndef FABRIC_2D // 1D Fabric
 
-struct UnicastParams {
+struct UnicastRoutingParams {
   uint32_t outgoing_direction;
   uint32_t num_hops;
 };
 
-struct McastParams {
-  struct McastParamsPerDirection {
+struct McastRoutingParams {
+  struct McastRoutingParamsPerDirection {
     bool active = false;
     tt::tt_fabric::MulticastRoutingCommandHeader mcast_command_header;
   };
 
-  std::array<McastParamsPerDirection, MAX_SEND_DIR> params_per_direction;
+  std::array<McastRoutingParamsPerDirection, MAX_SEND_DIR> params_per_direction;
 };
 
 // Forward declarations
-FORCE_INLINE UnicastParams get_unicast_params_unidir_ring(
+FORCE_INLINE UnicastRoutingParams get_unicast_params_unidir_ring(
     TopologyInfo &topology, uint16_t my_device_id, uint16_t dst_device_id);
-FORCE_INLINE UnicastParams get_unicast_params_line(TopologyInfo &topology,
-                                                   uint16_t my_device_id,
-                                                   uint16_t dst_device_id);
-FORCE_INLINE McastParams get_mcast_params_unidir_ring(
+FORCE_INLINE UnicastRoutingParams get_unicast_params_line(
+    TopologyInfo &topology, uint16_t my_device_id, uint16_t dst_device_id);
+FORCE_INLINE McastRoutingParams get_mcast_params_unidir_ring(
     TopologyInfo &topology, uint16_t my_device_id, uint16_t dst_start_device_id,
     uint16_t dst_end_device_id);
-FORCE_INLINE McastParams get_mcast_params_line(TopologyInfo &topology,
-                                               uint16_t my_device_id,
-                                               uint16_t dst_start_device_id,
-                                               uint16_t dst_end_device_id);
+FORCE_INLINE McastRoutingParams
+get_mcast_params_line(TopologyInfo &topology, uint16_t my_device_id,
+                      uint16_t dst_start_device_id, uint16_t dst_end_device_id);
 
-FORCE_INLINE UnicastParams get_unicast_params(TopologyInfo &topology,
-                                              uint16_t my_device_id,
-                                              uint16_t dst_device_id) {
+FORCE_INLINE UnicastRoutingParams get_unicast_params(TopologyInfo &topology,
+                                                     uint16_t my_device_id,
+                                                     uint16_t dst_device_id) {
   if (topology.topology_type == TopologyInfo::TopologyType::Ring) {
     // Assert: Only UnidirRingTorus routing mode supported for ring topology.
     WAYPOINT("DA23");
@@ -53,11 +51,11 @@ FORCE_INLINE UnicastParams get_unicast_params(TopologyInfo &topology,
     // Assert: Unsupported topology type.
     WAYPOINT("DA25");
     ASSERT(false);
-    return UnicastParams();
+    return UnicastRoutingParams();
   }
 }
 
-FORCE_INLINE UnicastParams get_unicast_params_unidir_ring(
+FORCE_INLINE UnicastRoutingParams get_unicast_params_unidir_ring(
     TopologyInfo &topology, uint16_t my_device_id, uint16_t dst_device_id) {
   int32_t my_idx =
       topology.get_logical_mesh_position(my_device_id)[topology.axis];
@@ -69,7 +67,7 @@ FORCE_INLINE UnicastParams get_unicast_params_unidir_ring(
 
   bool is_forward =
       (topology.routing_direction == TopologyInfo::RoutingDirection::Forward);
-  UnicastParams result;
+  UnicastRoutingParams result;
   result.outgoing_direction =
       is_forward ? static_cast<uint32_t>(
                        topology.routing_directions[topology.axis].first)
@@ -82,9 +80,8 @@ FORCE_INLINE UnicastParams get_unicast_params_unidir_ring(
   return result;
 }
 
-FORCE_INLINE UnicastParams get_unicast_params_line(TopologyInfo &topology,
-                                                   uint16_t my_device_id,
-                                                   uint16_t dst_device_id) {
+FORCE_INLINE UnicastRoutingParams get_unicast_params_line(
+    TopologyInfo &topology, uint16_t my_device_id, uint16_t dst_device_id) {
   // TODO: check that my_device_id and dst_device_id are in same line/ring
   int32_t my_idx =
       topology.get_logical_mesh_position(my_device_id)[topology.axis];
@@ -93,7 +90,7 @@ FORCE_INLINE UnicastParams get_unicast_params_line(TopologyInfo &topology,
   WAYPOINT("DA27");
   ASSERT(my_idx != dest_idx);
 
-  UnicastParams result;
+  UnicastRoutingParams result;
   if (my_idx < dest_idx) {
     result.outgoing_direction =
         static_cast<uint32_t>(topology.routing_directions[topology.axis].first);
@@ -107,10 +104,10 @@ FORCE_INLINE UnicastParams get_unicast_params_line(TopologyInfo &topology,
   return result;
 }
 
-FORCE_INLINE McastParams get_mcast_params(TopologyInfo &topology,
-                                          uint16_t my_device_id,
-                                          uint16_t dst_start_device_id,
-                                          uint16_t dst_end_device_id) {
+FORCE_INLINE McastRoutingParams get_mcast_params(TopologyInfo &topology,
+                                                 uint16_t my_device_id,
+                                                 uint16_t dst_start_device_id,
+                                                 uint16_t dst_end_device_id) {
   if (topology.topology_type == TopologyInfo::TopologyType::Ring) {
     // Assert: Only UnidirRingTorus routing mode supported for ring topology.
     WAYPOINT("DA28");
@@ -127,11 +124,11 @@ FORCE_INLINE McastParams get_mcast_params(TopologyInfo &topology,
     // Assert: Unsupported topology type.
     WAYPOINT("DA30");
     ASSERT(false);
-    return McastParams();
+    return McastRoutingParams();
   }
 }
 
-FORCE_INLINE McastParams get_mcast_params_unidir_ring(
+FORCE_INLINE McastRoutingParams get_mcast_params_unidir_ring(
     TopologyInfo &topology, uint16_t my_device_id, uint16_t dst_start_device_id,
     uint16_t dst_end_device_id) {
   int32_t my_idx =
@@ -146,7 +143,7 @@ FORCE_INLINE McastParams get_mcast_params_unidir_ring(
   WAYPOINT("DA31");
   ASSERT(!(my_idx == start_idx && start_idx == end_idx));
 
-  McastParams result;
+  McastRoutingParams result;
   bool is_forward =
       (topology.routing_direction == TopologyInfo::RoutingDirection::Forward);
   uint32_t dir = is_forward
@@ -170,10 +167,9 @@ FORCE_INLINE McastParams get_mcast_params_unidir_ring(
 
 // Note: in line don't use wrap with sender inside; in ring, if sender inside,
 // only broadcast to full ring to assure this
-FORCE_INLINE McastParams get_mcast_params_line(TopologyInfo &topology,
-                                               uint16_t my_device_id,
-                                               uint16_t dst_start_device_id,
-                                               uint16_t dst_end_device_id) {
+FORCE_INLINE McastRoutingParams get_mcast_params_line(
+    TopologyInfo &topology, uint16_t my_device_id, uint16_t dst_start_device_id,
+    uint16_t dst_end_device_id) {
   // TODO: check that my_device_id and dst_device_id are in same line/ring
   int32_t my_idx =
       topology.get_logical_mesh_position(my_device_id)[topology.axis];
@@ -190,7 +186,7 @@ FORCE_INLINE McastParams get_mcast_params_line(TopologyInfo &topology,
   auto [start_fwd, range_fwd, start_bwd, range_bwd] =
       get_line_regions(my_idx, start_idx, end_idx, size);
 
-  McastParams result;
+  McastRoutingParams result;
   uint32_t fwd_dir =
       static_cast<uint32_t>(topology.routing_directions[topology.axis].first);
   uint32_t bwd_dir =
