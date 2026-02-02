@@ -233,9 +233,6 @@ FORCE_INLINE McastParams get_mcast_params_line(TopologyInfo &topology,
   if (range_bwd != 0) {
     // sender must be inside or adjacent to mcast region
     WAYPOINT("DA45");
-    WATCHER_RING_BUFFER_PUSH(16);
-    WATCHER_RING_BUFFER_PUSH(start_bwd);
-    WATCHER_RING_BUFFER_PUSH(range_bwd);
     ASSERT(start_bwd == 1);
     result.params_per_direction[bwd_dir].active = true;
     if (bwd_dir == eth_chan_directions::EAST) {
