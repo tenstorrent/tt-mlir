@@ -12,6 +12,19 @@ namespace mlir::tt::stablehlo::utils {
 
 #ifdef TTMLIR_ENABLE_STABLEHLO
 
+// Composite op flattening/re-outlining related string definitions.
+inline constexpr llvm::StringLiteral kReoutlineGroupAttr("reoutline.group");
+inline constexpr llvm::StringLiteral kReoutlineSeedAttr("reoutline.seed");
+inline constexpr llvm::StringLiteral
+    kReoutlineOrigNameAttr("reoutline.orig_name");
+inline constexpr llvm::StringLiteral
+    kReoutlineCompAttrsAttr("reoutline.comp_attrs");
+
+// Composite op related string definitions.
+inline constexpr llvm::StringLiteral kCompDecompositionKey("decomposition");
+inline constexpr llvm::StringLiteral kCompAttrsKey("composite_attributes");
+inline constexpr llvm::StringLiteral kCompNameKey("name");
+
 // Create a new private function with the provided ops within the module.
 // - Captures become function arguments (in declared order).
 // - Escapes become function results (in declared order).

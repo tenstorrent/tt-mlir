@@ -2,11 +2,10 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/StableHLO/Transforms/Passes.h"
 #include "ttmlir/Dialect/StableHLO/Transforms/ShardyCCLToStableHLOCCL.h"
 #include "ttmlir/Dialect/StableHLO/Utils/GSPMDUtils.h"
 #include "ttmlir/Dialect/StableHLO/Utils/ShardyUtils.h"
-#include "ttmlir/Dialect/TTIR/IR/TTIR.h"
+#include "ttmlir/Dialect/StableHLO/Utils/StableHLOUtils.h"
 
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
@@ -364,7 +363,7 @@ convertShardyCCLToStableHLOCCL(MLIRContext *context,
   const bool hasProtectedConst = [&] {
     bool found = false;
     rootModule.walk([&](mlir::stablehlo::ConstantOp cst) {
-      if (cst->hasAttr(sharding_utils::kReoutlineGroupAttr)) {
+      if (cst->hasAttr(utils::kReoutlineGroupAttr)) {
         found = true;
         return mlir::WalkResult::interrupt();
       }

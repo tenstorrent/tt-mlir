@@ -5,7 +5,6 @@
 #ifndef TTMLIR_DIALECT_STABLEHLO_UTILS_SHARDINGUTILS_H
 #define TTMLIR_DIALECT_STABLEHLO_UTILS_SHARDINGUTILS_H
 
-#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 
 namespace mlir::tt::sharding_utils {
@@ -18,23 +17,6 @@ inline constexpr llvm::StringRef kXlaSdyMeshesAttr = "xla.sdy.meshes";
 inline constexpr llvm::StringRef kDefaultMeshName = "mesh";
 inline constexpr llvm::StringRef kTTShardingConstraintTargetName =
     "tt.sharding_constraint";
-
-// Composite op flattening/re-outlining related string definitions.
-inline constexpr llvm::StringLiteral kReoutlineGroupAttr("reoutline.group");
-inline constexpr llvm::StringLiteral kReoutlineSeedAttr("reoutline.seed");
-inline constexpr llvm::StringLiteral
-    kReoutlineOrigNameAttr("reoutline.orig_name");
-inline constexpr llvm::StringLiteral
-    kReoutlineCompAttrsAttr("reoutline.comp_attrs");
-
-// Composite op related string definitions.
-inline constexpr llvm::StringLiteral kDecompositionKey("decomposition");
-inline constexpr llvm::StringLiteral kCompAttrsKey("composite_attributes");
-inline constexpr llvm::StringLiteral kNameKey("name");
-
-// Denotes that the op came from a sdy.all_slice composite op.
-inline constexpr llvm::StringLiteral
-    kFromAllSliceCompositeAttr("from_all_slice_composite");
 
 inline const llvm::SmallVector<llvm::SmallVector<int64_t, 2>, 7>
     SupportedMeshes = {{{1, 1},

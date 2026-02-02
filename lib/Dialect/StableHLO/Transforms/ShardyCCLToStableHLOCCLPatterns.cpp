@@ -3,10 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/StableHLO/Transforms/ShardyCCLToStableHLOCCL.h"
-#include "ttmlir/Dialect/StableHLO/Utils/ShardingUtils.h"
 #include "ttmlir/Dialect/StableHLO/Utils/ShardyUtils.h"
 #include "ttmlir/Dialect/StableHLO/Utils/StableHLOUtils.h"
-#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -20,7 +18,6 @@
 #include "mlir/Support/LLVM.h"
 #include "stablehlo/dialect/StablehloOps.h"
 #include "llvm/ADT/SmallVector.h"
-#include "llvm/ADT/StringExtras.h"
 #include <cassert>
 #include <shardy/dialect/sdy/ir/constants.h>
 #include <shardy/dialect/sdy/ir/dialect.h>
@@ -589,9 +586,9 @@ public:
           callee_loc, mlir::stablehlo::CompositeOp::getOperationName());
       state.addOperands(inputOperand.get());
       state.addTypes(prevType);
-      state.addAttribute(sharding_utils::kDecompositionKey, decomp);
-      state.addAttribute(sharding_utils::kCompAttrsKey, compAttrs);
-      state.addAttribute(sharding_utils::kNameKey, targetName);
+      state.addAttribute(utils::kCompDecompositionKey, decomp);
+      state.addAttribute(utils::kCompAttrsKey, compAttrs);
+      state.addAttribute(utils::kCompNameKey, targetName);
 
       mlir::Operation *newOp = rewriter.create(state);
       auto comp = llvm::cast<mlir::stablehlo::CompositeOp>(newOp);

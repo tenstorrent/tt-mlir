@@ -5,21 +5,16 @@
 #include "ttmlir/Conversion/TTIRToTTNN/TTIRToTTNN.h"
 
 #include "ttmlir/Conversion/TTIRToTTNN/Utils.h"
-#include "ttmlir/Dialect/StableHLO/Utils/ShardingUtils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
-#include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
-#include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
 
-#include "mlir/Dialect/Quant/IR/Quant.h"
-#include "mlir/Dialect/Quant/IR/QuantTypes.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
@@ -31,7 +26,6 @@
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "llvm/ADT/SmallVector.h"
-#include "llvm/Support/Casting.h"
 
 #include "llvm/Support/LogicalResult.h"
 #include "llvm/Support/raw_ostream.h"
@@ -2074,26 +2068,6 @@ public:
                                    ConversionPatternRewriter &rewriter) const {
     auto meshDevice = ::ttnn::utils::getOrInsertDevice(rewriter, op);
 
-    // ttnn.mesh_partition op(s) should be inserted (instead of
-    // ttnn.distribute_tensor) if:
-    // 1. the ttir.mesh_shard op came from sdy.all_slice composite op
-    // 2. the input tensor is located in device memory.
-    bool tensorOnDevice = false;
-    RankedTensorType input =
-        mlir::cast<RankedTensorType>(adaptor.getInput().getType());
-    if (auto layoutAttr = mlir::dyn_cast_if_present<ttnn::TTNNLayoutAttr>(
-            input.getEncoding())) {
-      ttnn::BufferType bufferType = layoutAttr.getBufferType();
-      tensorOnDevice = ttnn::isDeviceBufferType(bufferType);
-    } else {
-      op.emitError("Input tensor is not encoded with ttnn.TTNNLayoutAttr");
-      return failure();
-    }
-    if (op->hasAttr(sharding_utils::kFromAllSliceCompositeAttr) &&
-        tensorOnDevice) {
-      return rewriteToMeshPartition(op, adaptor, rewriter);
-    }
-
     auto srcMeshShapeAttr = meshDevice.getMeshShapeAttr();
     if (!srcMeshShapeAttr) {
       op.emitError("Mesh shape is not available");
@@ -2206,38 +2180,6 @@ public:
     rewriter.replaceOpWithNewOp<ttnn::AggregateTensorOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getInput(), meshComposerConfig, meshDevice);
-    return success();
-  }
-
-  LogicalResult
-  rewriteToMeshPartition(ttir::MeshShardOp op, OpAdaptor adaptor,
-                         ConversionPatternRewriter &rewriter) const {
-    if (adaptor.getShardType() != ttcore::MeshShardType::Devices) {
-      op.emitError(
-          "Expected \"devices\" shard type for mesh partition. Got \"" +
-          stringifyMeshShardType(adaptor.getShardType()) + "\"");
-      return failure();
-    }
-    auto shardDims = adaptor.getShardDims();
-    llvm::SmallVector<int32_t> tensorDims;
-    llvm::SmallVector<uint32_t> clusterAxes;
-    for (auto [dimIdx, dim] : llvm::enumerate(shardDims)) {
-      if (dim >= 0) {
-        tensorDims.push_back(static_cast<int32_t>(dimIdx));
-        clusterAxes.push_back(static_cast<uint32_t>(dim));
-      }
-    }
-
-    mlir::Value currInput = adaptor.getInput();
-    for (size_t i = 0; i < tensorDims.size(); ++i) {
-      currInput = rewriter.create<ttnn::MeshPartitionOp>(
-          op.getLoc(), this->getTypeConverter()->convertType(op.getType()),
-          currInput, rewriter.getI32IntegerAttr(tensorDims[i]),
-          rewriter.getUI32IntegerAttr(clusterAxes[i]),
-          /*memory_config=*/nullptr);
-    }
-    rewriter.replaceOp(op, currInput);
-
     return success();
   }
 };
