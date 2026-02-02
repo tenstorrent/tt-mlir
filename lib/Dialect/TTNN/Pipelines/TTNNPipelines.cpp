@@ -296,9 +296,11 @@ void createTTIRToTTNNDevicePipeline(
 
     if (options.enableD2MFusing) {
       if (!options.optimizerPassEnabled) {
-        llvm::llvm_unreachable_internal(
-            "D2M fusing pass only supported with optimizer enabled");
+        llvm::errs()
+            << "WARNING: D2M fusing pass only supported with Optimizer "
+               "enabled. Automatically enabling Optimizer as a dependency.\n";
       }
+      options.optimizerPassEnabled = true;
       devicePm.addPass(tt::ttnn::createTTNND2MFusing());
     }
 
