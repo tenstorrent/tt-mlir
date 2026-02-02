@@ -4,6 +4,7 @@
 
 #include "ttmlir/AffineMapUtils.h"
 #include "ttmlir/Asserts.h"
+#include "ttmlir/Dialect/D2M/IR/D2M.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
 
@@ -17,6 +18,63 @@
 namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MGENERICTILECOMPUTELOOPS
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h.inc"
+
+// Analyze the compute ops in a region to determine the DST capacity divisor
+// for Phase 2 tiling. This determines how much of DST each inner iteration
+// can use:
+// - FPU ops (add, sub, mul with tile operands): divisor=1 (full DST per
+// iteration)
+// - SFPU unary ops: divisor=1 (in-place, full DST per iteration)
+// - SFPU binary ops: divisor=2 (half DST per iteration, need space for 2
+// operands)
+// - SFPU ternary ops: divisor=4 (quarter DST per iteration, need space for 3
+// operands)
+//
+// Returns the worst-case divisor across all ops in the region.
+static unsigned getDstCapacityDivisor(Region &region) {
+  unsigned maxDivisor = 1; // Default for FPU/unary
+
+  region.walk([&](Operation *op) {
+    // Check if this is a D2M compute op with DST operands
+    auto dstInterface = dyn_cast<OperandLoadStoreRegisterOpInterface>(op);
+    if (!dstInterface) {
+      return;
+    }
+
+    // Get the operands that load from DST register
+    SmallVector<int64_t> dstOperands =
+        dstInterface.getOperandsLoadFromDstRegister();
+
+    // FPU binary ops (TileAddOp, TileSubOp, TileMulOp with tile-tile operands)
+    // use the FPU and don't need extra DST space for operands
+    if (isa<TileAddOp, TileSubOp, TileMulOp>(op)) {
+      // Check if it's actually using FPU (no DST operands) or SFPU path
+      if (dstOperands.empty()) {
+        // FPU path - no DST operands needed, divisor stays at 1
+        return;
+      }
+    }
+
+    // Determine divisor based on number of DST operands
+    size_t numDstOperands = dstOperands.size();
+    unsigned requiredDivisor = 1; // Default
+
+    if (numDstOperands <= 1) {
+      // Unary SFPU op - in-place, can use full DST
+      requiredDivisor = 1;
+    } else if (numDstOperands == 2) {
+      // Binary SFPU op - need space for 2 operands, use half DST
+      requiredDivisor = 2;
+    } else if (numDstOperands >= 3) {
+      // Ternary SFPU op - need space for 3 operands, use quarter DST
+      requiredDivisor = 4;
+    }
+
+    maxDivisor = std::max(maxDivisor, requiredDivisor);
+  });
+
+  return maxDivisor;
+}
 
 // Determines the subblocking of the output block shape within the constraint of
 // the DST capacity.
@@ -150,12 +208,12 @@ struct D2MGenericComputeRewriter : public OpRewritePattern<linalg::GenericOp> {
     const unsigned baseDstCapacity =
         ttcore::getOpChipDescAttr(op).getDstLogicalSizeTiles(
             largestDstType, false, maxDstPhysicalSizeTiles);
-    llvm::errs() << "baseDstCapacity: " << baseDstCapacity << "\n";
 
+    // Phase 1 always tiles to 2x DST capacity (creates outer scratch_space_loop
+    // with 2 iterations)
     SmallVector<int64_t> subblockSizes(outputTensor.getShape().size(),
                                        enableTwoPhaseDestTiling ? 2 : 1);
     unsigned dstCapacity = baseDstCapacity * (enableTwoPhaseDestTiling ? 2 : 1);
-    llvm::errs() << "dstCapacity: " << dstCapacity << "\n";
     if (optimizeSubblocking) {
       subblockSizes = calculateOptimalSubblockSizes(
           op.getIndexingMapsArray(), op.getInputs(), outputTensor.getShape(),
@@ -175,9 +233,14 @@ struct D2MGenericComputeRewriter : public OpRewritePattern<linalg::GenericOp> {
       return failure();
     }
 
+    llvm::errs() << "phase 1 tiledGeneric: \n";
+    tiledGeneric.value().op->dump();
+
     // Phase 2: If two-phase tiling is enabled, tile the inner linalg.generic
-    // again from 2×DST to 1×DST. This creates an inner loop that iterates
-    // twice per outer iteration.
+    // based on the compute op type:
+    // - FPU/SFPU unary: tile to 1×DST (1 inner iteration, 2 total)
+    // - SFPU binary: tile to 1/2×DST (2 inner iterations, 4 total)
+    // - SFPU ternary: tile to 1/4×DST (4 inner iterations, 8 total)
     if (enableTwoPhaseDestTiling && optimizeSubblocking) {
       auto innerOp =
           dyn_cast<linalg::GenericOp>(tiledGeneric.value().op.getOperation());
@@ -188,12 +251,22 @@ struct D2MGenericComputeRewriter : public OpRewritePattern<linalg::GenericOp> {
       auto innerOutputTensor =
           mlir::cast<MemRefType>(innerOp.getOutputs().front().getType());
 
+      // Determine the DST capacity divisor based on the ops in the region:
+      // - FPU/SFPU unary: divisor=1 → phase2DstCapacity=DST → 2 inner
+      // iterations
+      // - SFPU binary: divisor=2 → phase2DstCapacity=DST/2 → 4 inner iterations
+      // - SFPU ternary: divisor=4 → phase2DstCapacity=DST/4 → 8 inner
+      // iterations
+      unsigned dstDivisor = getDstCapacityDivisor(innerOp.getRegion());
+      unsigned phase2DstCapacity = baseDstCapacity / dstDivisor;
+      unsigned expectedInnerIterations = 2 * dstDivisor;
+
       SmallVector<int64_t> phase2SubblockSizes = calculateOptimalSubblockSizes(
           innerOp.getIndexingMapsArray(), innerOp.getInputs(),
-          innerOutputTensor.getShape(), baseDstCapacity);
+          innerOutputTensor.getShape(), phase2DstCapacity);
 
       // Verify that two-phase tiling is valid: the inner output shape must
-      // divide evenly by the subblock sizes to produce exactly 2 iterations.
+      // divide evenly by the subblock sizes.
       // TODO(jdesousa): Implement iteration peeling for non-divisible cases.
       int64_t totalIterations = 1;
       ArrayRef<int64_t> innerShape = innerOutputTensor.getShape();
@@ -204,10 +277,11 @@ struct D2MGenericComputeRewriter : public OpRewritePattern<linalg::GenericOp> {
             "subblock sizes. Iteration peeling not yet implemented.");
         totalIterations *= innerShape[i] / phase2SubblockSizes[i];
       }
-      TT_assertv(totalIterations == 2,
-                 "Two-phase dest tiling expects exactly 2 iterations in the "
-                 "inner loop (got {0}). Iteration peeling not yet implemented.",
-                 totalIterations);
+      TT_assertv(totalIterations ==
+                     static_cast<int64_t>(expectedInnerIterations),
+                 "Two-phase dest tiling expects {0} inner iterations based on "
+                 "op type (got {1}). Iteration peeling not yet implemented.",
+                 expectedInnerIterations, totalIterations);
 
       linalg::LinalgTilingOptions phase2TilingOptions;
       phase2TilingOptions.setTileSizes(phase2SubblockSizes);
