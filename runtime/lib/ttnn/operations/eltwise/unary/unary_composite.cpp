@@ -37,8 +37,7 @@ static void runEltwiseUnaryCompositeClampScalarOp(
 
   const ::ttnn::Tensor &in = tensorPool.getTTNNTensorAndValidate(op->in());
 
-  double min = op->params_as_ClampScalarOpParams()->min();
-  double max = op->params_as_ClampScalarOpParams()->max();
+  const auto *params = op->params_as_ClampScalarOpParams();
 
   std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
       ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
@@ -47,17 +46,16 @@ static void runEltwiseUnaryCompositeClampScalarOp(
                  outputMemoryConfig.has_value(),
              "Memory config must exist for device tensors");
 
-  // Cast min/max to appropriate type based on input tensor datatype
+  // Use the union type to determine whether to use int or float clamp
   ::ttnn::Tensor out;
-  if (in.dtype() == ::ttnn::DataType::INT32 ||
-      in.dtype() == ::ttnn::DataType::UINT32 ||
-      in.dtype() == ::ttnn::DataType::UINT16 ||
-      in.dtype() == ::ttnn::DataType::UINT8) {
-    // For integer types, cast to int32_t
-    out = ::ttnn::clamp(in, static_cast<int32_t>(min), static_cast<int32_t>(max), outputMemoryConfig);
+  if (params->min_type() == ::tt::target::ttnn::RhsParams::I32) {
+    int32_t min = params->min_as_I32()->value();
+    int32_t max = params->max_as_I32()->value();
+    out = ::ttnn::clamp(in, min, max, outputMemoryConfig);
   } else {
-    // For float types, cast to float
-    out = ::ttnn::clamp(in, static_cast<float>(min), static_cast<float>(max), outputMemoryConfig);
+    float min = params->min_as_FP()->value();
+    float max = params->max_as_FP()->value();
+    out = ::ttnn::clamp(in, min, max, outputMemoryConfig);
   }
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);

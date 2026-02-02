@@ -2011,13 +2011,22 @@ createEltwiseUnaryCompositeOp(FlatbufferObjectCache &cache,
       ::tt::target::ttnn::EltwiseUnaryCompositeOpParams::NONE;
   ::flatbuffers::Offset<void> params = 0;
 
-  // Helper lambda to convert attribute to double
-  auto attrToDouble = [](mlir::Attribute attr) -> double {
+  // Helper lambda to convert attribute to RhsParams union
+  auto attrToRhsParams =
+      [&cache](mlir::Attribute attr)
+      -> std::pair<::tt::target::ttnn::RhsParams,
+                   ::flatbuffers::Offset<void>> {
     if (auto floatAttr = mlir::dyn_cast<mlir::FloatAttr>(attr)) {
-      return floatAttr.getValue().convertToDouble();
+      return {::tt::target::ttnn::RhsParams::FP,
+              ::tt::target::ttnn::CreateFloatingPointType(
+                  *cache.fbb, floatAttr.getValue().convertToFloat())
+                  .Union()};
     }
     if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(attr)) {
-      return static_cast<double>(intAttr.getValue().getSExtValue());
+      return {::tt::target::ttnn::RhsParams::I32,
+              ::tt::target::ttnn::CreateIntegralType(
+                  *cache.fbb, intAttr.getValue().getSExtValue())
+                  .Union()};
     }
     llvm_unreachable("Unsupported attribute type for clamp");
   };
@@ -2028,9 +2037,10 @@ createEltwiseUnaryCompositeOp(FlatbufferObjectCache &cache,
     type = ::tt::target::ttnn::EltwiseUnaryCompositeOpType::ClampScalar;
     paramsType =
         ::tt::target::ttnn::EltwiseUnaryCompositeOpParams::ClampScalarOpParams;
-    auto min = attrToDouble(op.getMin());
-    auto max = attrToDouble(op.getMax());
-    params = ::tt::target::ttnn::CreateClampScalarOpParams(*cache.fbb, min, max)
+    auto [minType, minValue] = attrToRhsParams(op.getMin());
+    auto [maxType, maxValue] = attrToRhsParams(op.getMax());
+    params = ::tt::target::ttnn::CreateClampScalarOpParams(
+                 *cache.fbb, minType, minValue, maxType, maxValue)
                  .Union();
   } else if constexpr (std::is_same_v<EltwiseUnaryCompositeOp, ClampTensorOp>) {
     type = ::tt::target::ttnn::EltwiseUnaryCompositeOpType::ClampTensor;
