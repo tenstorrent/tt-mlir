@@ -52,11 +52,11 @@ class CMakeBuild(build_ext):
     @staticmethod
     def get_python_version() -> str:
         """
-        Parse TTMLIR_PYTHON_VERSION environment variable. This is needed bc tt-metal will use Python3.10 while tt-mlir will use Python3.11.
+        Parse TTMLIR_PYTHON_VERSION environment variable. This is needed bc tt-metal will use Python3.10 while tt-mlir will use Python3.12.
             eg: TTMLIR_PYTHON_VERSION="python3.10" -> "cpython-310"
                 TTMLIR_PYTHON_VERSION="3.10" -> "cpython-310"
         """
-        python_version_env = os.getenv("TTMLIR_PYTHON_VERSION", "python3.11")
+        python_version_env = os.getenv("TTMLIR_PYTHON_VERSION", "python3.12")
         match = re.search(r"(\d+)\.(\d+)", python_version_env)
 
         if match:
@@ -64,7 +64,7 @@ class CMakeBuild(build_ext):
             minor = match.group(2)
             return f"cpython-{major}{minor}"
 
-        return "cpython-311"
+        return "cpython-312"
 
     @staticmethod
     def get_working_dir():
