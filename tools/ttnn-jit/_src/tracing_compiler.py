@@ -122,7 +122,9 @@ class TracingCompiler:
 
                 block_sharded_memory_config = ttnn.create_sharded_memory_config(
                     shape=output_tensor_shape,
-                    core_grid=block_sharded_grid,
+                    core_grid=ttnn.CoreGrid(
+                        x=block_sharded_grid[0] + 1, y=block_sharded_grid[1] + 1
+                    ),
                     strategy=ttnn.ShardStrategy.BLOCK,
                     use_height_and_width_as_shard_shape=False,
                 )
