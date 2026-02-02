@@ -4,12 +4,9 @@
 
 #include "ttmlir/Conversion/StableHLOToTTIR/StableHLOLegalizeComposite.h"
 
-#include "ttmlir/Conversion/StableHLOToTTIR/StableHLOToTTIR.h"
-#include "ttmlir/Dialect/StableHLO/Utils/ShardingUtils.h"
 #include "ttmlir/Dialect/StableHLO/Utils/ShardyUtils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
-#include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/BuiltinAttributes.h"
@@ -20,7 +17,7 @@
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "stablehlo/dialect/StablehloOps.h"
-#include "llvm/Support/LogicalResult.h"
+
 #include <shardy/dialect/sdy/ir/dialect.h>
 
 using namespace mlir;
@@ -353,22 +350,20 @@ public:
 
     mlir::Value currInput = adaptor.getOperands().front();
     auto meshShape = shardyMeshSharding->getMeshShape();
+    // Replace the composite op with 1 or more ttir.mesh_partition ops.
     for (size_t i = 0; i < tensorDims.size(); ++i) {
-      // Compute new shape for the result tensor, with dimension divided by mesh
-      // axis size
       auto currInputType = mlir::cast<RankedTensorType>(currInput.getType());
       llvm::SmallVector<int64_t> newShape(currInputType.getShape().begin(),
                                           currInputType.getShape().end());
-      // Defensive bounds check: tensorDims[i] < rank
       if (static_cast<size_t>(tensorDims[i]) >= newShape.size()) {
         return rewriter.notifyMatchFailure(
             srcOp, "Invalid mesh partition dimension index.");
       }
-      // Defensive bounds check: clusterAxes[i] < mesh shape size
       if (static_cast<size_t>(clusterAxes[i]) >= meshShape.size()) {
         return rewriter.notifyMatchFailure(srcOp, "Invalid mesh axis index.");
       }
-      // Integer divide dimension by mesh axis size
+      // Compute new shape for the result tensor, with original dimension
+      // divided by mesh axis size
       int64_t meshAxisSize = meshShape[clusterAxes[i]];
       if (newShape[tensorDims[i]] < 0 ||
           newShape[tensorDims[i]] % meshAxisSize != 0) {

@@ -3917,6 +3917,12 @@ mlir::OpFoldResult mlir::tt::ttir::RepeatOp::fold(FoldAdaptor fold) {
            << dim;
   }
 
+  std::optional<uint32_t> clusterAxis = getClusterAxis();
+  if (clusterAxis.has_value() && clusterAxis.value() > 1) {
+    return emitOpError("Cluster axis must be either None, 0 or 1, got " +
+                       std::to_string(clusterAxis.value()));
+  }
+
   return success();
 }
 
