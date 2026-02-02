@@ -215,8 +215,9 @@ def TTCore_SystemDescAttr : TTCore_Attr<"SystemDesc", "system_desc"> {
                         ArrayRefParameter<"unsigned">:$chipDescIndices,
                         ArrayRefParameter<"ChipCapabilityAttr">:$chipCapabilities,
                         ArrayRefParameter<"ChipCoordAttr">:$chipCoords,
-                        OptionalArrayRefParameter<"ChipChannelAttr">:$chipChannels);
-  let assemblyFormat = "`<` `[` $cpuDescs `]` `,` `[` $chipDescs `]` `,` `[` $chipDescIndices `]` `,` `[` $chipCapabilities `]` `,` `[` $chipCoords `]` (`,` `[` $chipChannels^ `]`)? `>`";
+                        OptionalArrayRefParameter<"ChipChannelAttr">:$chipChannels,
+                        OptionalParameter<"FabricConfigAttr">:$fabricConfig);
+  let assemblyFormat = "`<` `[` $cpuDescs `]` `,` `[` $chipDescs `]` `,` `[` $chipDescIndices `]` `,` `[` $chipCapabilities `]` `,` `[` $chipCoords `]` (`,` `[` $chipChannels^ `]`)? (`,` $fabricConfig^)? `>`";
 
   let extraClassDeclaration = [{
     static SystemDescAttr getDefault(MLIRContext *context, Arch arch = Arch::WormholeB0, const llvm::SmallVector<int64_t> &meshShape = {1});
@@ -753,6 +754,10 @@ def TTCore_ArgumentTypeAttr : EnumAttr<TTCore_Dialect, TTCore_ArgumentType, "arg
 
 
 def TTCore_TopologyAttr : EnumAttr<TTCore_Dialect, TTCore_Topology, "topology"> {
+  let assemblyFormat = "`<` $value `>`";
+}
+
+def TTCore_FabricConfigAttr : EnumAttr<TTCore_Dialect, TTCore_FabricConfig, "fabric_config"> {
   let assemblyFormat = "`<` $value `>`";
 }
 #endif // TTMLIR_DIALECT_TTCore_IR_TTCOREOPSTYPES_TD

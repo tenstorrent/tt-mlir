@@ -127,6 +127,7 @@ table SystemDesc {
   chip_capabilities: [ChipCapability];
   chip_coords: [ChipCoord];
   chip_channels: [ChipChannel];
+  fabric_config: FabricConfig = Fabric1D;
 }
 
 table DeviceRef {
@@ -178,4 +179,10 @@ enum Topology: ushort {
   Linear,
   Mesh,
   Torus,
+}
+
+enum FabricConfig : byte {
+  Fabric1D = 0,
+  Fabric1DRing = 1,
+  Fabric2D = 2,
 }

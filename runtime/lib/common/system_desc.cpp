@@ -47,6 +47,110 @@ static ::tt::target::Arch toFlatbuffer(::tt::ARCH arch) {
   LOG_FATAL("Unsupported arch");
 }
 
+// Determines FabricConfig based on mesh topology:
+// - Fabric1DRing: all relevant axes have wraparound connections
+// - Fabric1D: regular mesh without wraparound
+// - Fabric2D: irregular topology (broken/missing links)
+static ::tt::target::FabricConfig computeFabricConfig(
+    const ::tt::tt_metal::distributed::MeshDevice &meshDevice,
+    const std::vector<::tt::tt_metal::IDevice *> &devices) {
+
+  using Coord = std::pair<uint32_t, uint32_t>;
+
+  if (devices.size() <= 1) {
+    return ::tt::target::FabricConfig::Fabric1D;
+  }
+
+  auto meshShape = meshDevice.shape();
+  uint32_t numRows = meshShape.num_rows();
+  uint32_t numCols = meshShape.num_cols();
+
+  // Build bidirectional mappings between chip IDs and mesh coordinates.
+  std::unordered_map<ChipId, Coord> chipToCoord;
+  std::map<Coord, ChipId> coordToChip;
+
+  size_t idx = 0;
+  for (uint32_t row = 0; row < numRows; ++row) {
+    for (uint32_t col = 0; col < numCols && idx < devices.size(); ++col) {
+      ChipId id = devices[idx++]->id();
+      chipToCoord[id] = {row, col};
+      coordToChip[{row, col}] = id;
+    }
+  }
+
+  // Build adjacency set from ethernet connections.
+  std::unordered_map<ChipId, std::set<ChipId>> adjacency;
+  for (const auto *device : devices) {
+    for (const auto &ethCore : device->get_active_ethernet_cores(true)) {
+      try {
+        auto [remoteChip, remoteCore] =
+            device->get_connected_ethernet_core(ethCore);
+        if (chipToCoord.count(remoteChip)) {
+          adjacency[device->id()].insert(remoteChip);
+        }
+      } catch (...) {
+      }
+    }
+  }
+
+  auto areConnected = [&](ChipId a, ChipId b) {
+    auto it = adjacency.find(a);
+    return it != adjacency.end() && it->second.count(b);
+  };
+
+  auto getChipAt = [&](uint32_t row, uint32_t col) -> std::optional<ChipId> {
+    auto it = coordToChip.find({row, col});
+    return it != coordToChip.end() ? std::optional(it->second) : std::nullopt;
+  };
+
+  // Verify all expected adjacent connections exist.
+  for (uint32_t row = 0; row < numRows; ++row) {
+    for (uint32_t col = 0; col < numCols; ++col) {
+      auto chip = getChipAt(row, col);
+      if (!chip) {
+        return ::tt::target::FabricConfig::Fabric2D;
+      }
+
+      if (col + 1 < numCols) {
+        auto right = getChipAt(row, col + 1);
+        if (!right || !areConnected(*chip, *right)) {
+          return ::tt::target::FabricConfig::Fabric2D;
+        }
+      }
+
+      if (row + 1 < numRows) {
+        auto below = getChipAt(row + 1, col);
+        if (!below || !areConnected(*chip, *below)) {
+          return ::tt::target::FabricConfig::Fabric2D;
+        }
+      }
+    }
+  }
+
+  // Check for wraparound connections on each axis.
+  auto hasWraparound = [&](uint32_t axisSize, auto getEdgeChips) {
+    if (axisSize <= 1) {
+      return true;
+    }
+    auto [first, last] = getEdgeChips();
+    return first && last && areConnected(*first, *last);
+  };
+
+  bool rowRing = hasWraparound(numRows, [&]() {
+    return std::make_pair(getChipAt(0, 0), getChipAt(numRows - 1, 0));
+  });
+
+  bool colRing = hasWraparound(numCols, [&]() {
+    return std::make_pair(getChipAt(0, 0), getChipAt(0, numCols - 1));
+  });
+
+  bool isRing = (numRows == 1) ? colRing
+                               : (numCols == 1) ? rowRing : (rowRing && colRing);
+
+  return isRing ? ::tt::target::FabricConfig::Fabric1DRing
+                : ::tt::target::FabricConfig::Fabric1D;
+}
+
 static std::vector<::tt::target::ChipChannel>
 getAllDeviceConnections(const std::vector<::tt::tt_metal::IDevice *> &devices) {
   std::set<std::tuple<ChipId, tt::tt_metal::CoreCoord, ChipId,
@@ -72,16 +176,16 @@ getAllDeviceConnections(const std::vector<::tt::tt_metal::IDevice *> &devices) {
       // Skip on blackhole. When link is down, get_connected_ethernet_core
       // will throw an exception.
       // See https://github.com/tenstorrent/tt-mlir/issues/3423 for BH
-      if (workaround::Env::get().blackholeWorkarounds) {
-        getConnection &= device->arch() != ::tt::ARCH::BLACKHOLE;
-      }
-      // See https://github.com/tenstorrent/tt-mlir/issues/3781 for WH
-      getConnection &= device->arch() != ::tt::ARCH::WORMHOLE_B0;
+      // if (workaround::Env::get().blackholeWorkarounds) {
+      //   getConnection &= device->arch() != ::tt::ARCH::BLACKHOLE;
+      // }
+      // // See https://github.com/tenstorrent/tt-mlir/issues/3781 for WH
+      // getConnection &= device->arch() != ::tt::ARCH::WORMHOLE_B0;
       if (!getConnection) {
         continue;
       }
       std::tuple<ChipId, tt::tt_metal::CoreCoord> connectedDevice =
-          device->get_connected_ethernet_core(ethernetCore);
+      device->get_connected_ethernet_core(ethernetCore);
       addConnection(device->id(), ethernetCore, std::get<0>(connectedDevice),
                     std::get<1>(connectedDevice));
     }
@@ -143,6 +247,7 @@ calculateDRAMUnreservedEnd(const ::tt::tt_metal::IDevice *device) {
 
 static std::unique_ptr<::tt::runtime::SystemDesc> getCurrentSystemDescImpl(
     const ::tt::tt_metal::distributed::MeshDevice &meshDevice) {
+
   std::vector<::tt::tt_metal::IDevice *> devices = meshDevice.get_devices();
   std::sort(devices.begin(), devices.end(),
             [](const ::tt::tt_metal::IDevice *a,
@@ -223,9 +328,11 @@ static std::unique_ptr<::tt::runtime::SystemDesc> getCurrentSystemDescImpl(
     }
     chipCapabilities.push_back(chipCapability);
   }
-  // Extract chip connected channels
   std::vector<::tt::target::ChipChannel> allConnections =
       getAllDeviceConnections(devices);
+
+  auto fabricConfig = computeFabricConfig(meshDevice, devices);
+
   // Store CPUDesc
   std::vector<::flatbuffers::Offset<tt::target::CPUDesc>> cpuDescs;
   cpuDescs.emplace_back(::tt::target::CreateCPUDesc(
@@ -235,7 +342,7 @@ static std::unique_ptr<::tt::runtime::SystemDesc> getCurrentSystemDescImpl(
   // Create SystemDesc
   auto systemDesc = ::tt::target::CreateSystemDescDirect(
       fbb, &cpuDescs, &chipDescs, &chipDescIndices, &chipCapabilities,
-      &chipCoords, &allConnections);
+      &chipCoords, &allConnections, fabricConfig);
   ::ttmlir::Version ttmlirVersion = ::ttmlir::getVersion();
   ::tt::target::Version version(ttmlirVersion.major, ttmlirVersion.minor,
                                 ttmlirVersion.patch);

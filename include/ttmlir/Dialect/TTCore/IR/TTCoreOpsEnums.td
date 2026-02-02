@@ -241,4 +241,18 @@ def TTCore_Topology: I32EnumAttr<"Topology", "CCL Topology Type",
   let genSpecializedAttr = 0;
   let cppNamespace = "::mlir::tt::ttcore";
 }
+
+def TTCore_FabricConfig_Fabric1D : I32EnumAttrCase<"Fabric1D", 0, "fabric_1d">;
+def TTCore_FabricConfig_Fabric1DRing : I32EnumAttrCase<"Fabric1DRing", 1, "fabric_1d_ring">;
+def TTCore_FabricConfig_Fabric2D : I32EnumAttrCase<"Fabric2D", 2, "fabric_2d">;
+
+def TTCore_FabricConfig : I32EnumAttr<"FabricConfig", "Fabric Configuration",
+                          [
+                           TTCore_FabricConfig_Fabric1D,
+                           TTCore_FabricConfig_Fabric1DRing,
+                           TTCore_FabricConfig_Fabric2D,
+                          ]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::mlir::tt::ttcore";
+}
 #endif // TTMLIR_DIALECT_TTCORE_IR_TTCOREOPSENUMS_TD

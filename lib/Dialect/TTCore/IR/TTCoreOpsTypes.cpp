@@ -129,6 +129,15 @@ SystemDescAttr createDefaultBlackholeSystemDesc(
     }
   }
 
+  // Default fabric config: use ring if multi-chip, otherwise 1D
+  FabricConfigAttr fabricConfigAttr;
+  if (numberOfChips > 1) {
+    fabricConfigAttr =
+        FabricConfigAttr::get(context, FabricConfig::Fabric1DRing);
+  } else {
+    fabricConfigAttr = FabricConfigAttr::get(context, FabricConfig::Fabric1D);
+  }
+
   return SystemDescAttr::get(
       context,
       // CPU Descriptors
@@ -145,7 +154,9 @@ SystemDescAttr createDefaultBlackholeSystemDesc(
           ChipCoordAttr::get(context, 0, 0, 0, 0),
       },
       // Chip Channel Connections
-      chipChannelList);
+      chipChannelList,
+      // Fabric Config
+      fabricConfigAttr);
 }
 
 SystemDescAttr
@@ -243,6 +254,15 @@ createDefaultWormholeSystemDesc(mlir::MLIRContext *context,
     }
   }
 
+  // Default fabric config: use ring if multi-chip, otherwise 1D
+  FabricConfigAttr fabricConfigAttr;
+  if (numberOfChips > 1) {
+    fabricConfigAttr =
+        FabricConfigAttr::get(context, FabricConfig::Fabric1DRing);
+  } else {
+    fabricConfigAttr = FabricConfigAttr::get(context, FabricConfig::Fabric1D);
+  }
+
   return SystemDescAttr::get(
       context,
       // CPU Descriptors
@@ -259,7 +279,9 @@ createDefaultWormholeSystemDesc(mlir::MLIRContext *context,
           ChipCoordAttr::get(context, 0, 0, 0, 0),
       },
       // Chip Channel Connections
-      chipChannelList);
+      chipChannelList,
+      // Fabric Config
+      fabricConfigAttr);
 }
 } // namespace
 
@@ -485,10 +507,26 @@ mlir::FailureOr<SystemDescAttr> SystemDescAttr::getFromBuffer(
     }
   }
 
+  // Parse fabric config
+  FabricConfigAttr fabricConfigAttr;
+  auto binaryFabricConfig = binarySystemDesc->fabric_config();
+  switch (binaryFabricConfig) {
+  case ::tt::target::FabricConfig::Fabric1D:
+    fabricConfigAttr = FabricConfigAttr::get(context, FabricConfig::Fabric1D);
+    break;
+  case ::tt::target::FabricConfig::Fabric1DRing:
+    fabricConfigAttr =
+        FabricConfigAttr::get(context, FabricConfig::Fabric1DRing);
+    break;
+  case ::tt::target::FabricConfig::Fabric2D:
+    fabricConfigAttr = FabricConfigAttr::get(context, FabricConfig::Fabric2D);
+    break;
+  }
+
   // Generate system desc attribute
   auto systemDescAttr = SystemDescAttr::get(
       context, cpuDescList, chipDescList, chipIndicesList, chipCapabilitiesList,
-      chipCoordinateList, chipChannelList);
+      chipCoordinateList, chipChannelList, fabricConfigAttr);
 
   return systemDescAttr;
 }
