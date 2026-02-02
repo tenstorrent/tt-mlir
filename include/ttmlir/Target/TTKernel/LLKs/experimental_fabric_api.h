@@ -332,10 +332,6 @@ FORCE_INLINE void fabric_mcast_fast_write_any_len(
                         len_bytes);
     }
   }
-
-  for (uint32_t i = 0; i < 100000; i++) {
-    asm("nop");
-  }
 }
 
 } // namespace experimental

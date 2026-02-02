@@ -120,14 +120,14 @@ get_ring_regions(int32_t my_idx, int32_t start_idx, int32_t end_idx,
                  int32_t size, bool is_forward) {
   // assert precondition: at least one destination (not including sender)
   WAYPOINT("DA06");
-  ASSERT(my_idx != start_idx && my_idx != end_idx);
+  ASSERT(!(my_idx == start_idx && start_idx == end_idx));
 
   // remove my_idx from endpoints since we don't send to ourselves
   if (my_idx == start_idx) {
-    my_idx = (my_idx + 1) % size;
+    start_idx = (start_idx + 1) % size;
   }
   if (my_idx == end_idx) {
-    my_idx = (my_idx - 1 + size) % size;
+    end_idx = (end_idx - 1 + size) % size;
   }
 
   bool in_between = ((my_idx - start_idx + size) % size) <
