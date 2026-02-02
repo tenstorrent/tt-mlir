@@ -407,9 +407,7 @@ def test_interop_jit_to_ttnn_unary_l1(
     golden_result = ttnn_unary_op(golden_jit_output)
 
     expected_memory_config = get_expected_memory_config(golden_result.shape())
-    assert memory_configs_equal(
-        interop_result.memory_config(), expected_memory_config
-    )
+    assert memory_configs_equal(interop_result.memory_config(), expected_memory_config)
     assert all_close_check(interop_result, golden_result)
 
 
@@ -449,9 +447,7 @@ def test_interop_two_jit_to_ttnn_binary_l1(
     golden_result = ttnn_binary_op(golden_output1, golden_output2)
 
     expected_memory_config = get_expected_memory_config(golden_result.shape())
-    assert memory_configs_equal(
-        interop_result.memory_config(), expected_memory_config
-    )
+    assert memory_configs_equal(interop_result.memory_config(), expected_memory_config)
     assert all_close_check(interop_result, golden_result)
 
 
@@ -480,9 +476,7 @@ def test_interop_jit_to_ttnn_unary_dram(device, shape, dtype, jit_op, ttnn_unary
     golden_result = ttnn_unary_op(golden_jit_output)
 
     expected_memory_config = get_expected_memory_config(golden_result.shape())
-    assert memory_configs_equal(
-        interop_result.memory_config(), expected_memory_config
-    )
+    assert memory_configs_equal(interop_result.memory_config(), expected_memory_config)
     assert all_close_check(interop_result, golden_result)
 
 
@@ -518,7 +512,5 @@ def test_interop_two_jit_to_ttnn_binary_dram(
     golden_result = ttnn_binary_op(golden_output1, golden_output2)
 
     expected_memory_config = get_expected_memory_config(golden_result.shape())
-    assert memory_configs_equal(
-        interop_result.memory_config(), expected_memory_config
-    )
+    assert memory_configs_equal(interop_result.memory_config(), expected_memory_config)
     assert all_close_check(interop_result, golden_result)
