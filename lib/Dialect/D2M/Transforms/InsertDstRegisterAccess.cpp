@@ -357,8 +357,15 @@ public:
           return WalkResult::advance();
         }
 
-        // Remove the marker attribute after identifying the loop.
-        forOp->removeAttr("d2m.linalg_root");
+        // Skip if already processed (prevents double processing in greedy
+        // rewriter)
+        if (forOp->hasAttr("d2m.dst_access_inserted")) {
+          return WalkResult::advance();
+        }
+
+        // Mark as processed, but keep d2m.linalg_root for downstream passes
+        // like D2MSFPUTileLoopFission.
+        forOp->setAttr("d2m.dst_access_inserted", rewriter.getUnitAttr());
 
         // Insert DST register access for this loop nest.
         Region &dstRegisterAccessRegion = forOp.getRegion();
