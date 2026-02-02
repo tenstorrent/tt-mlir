@@ -10,7 +10,6 @@
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/PatternMatch.h"
-#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MSPILLANDSCRATCH
@@ -18,11 +17,23 @@ namespace mlir::tt::d2m {
 
 namespace {
 
-/// Determine if an operation is a D2M tile compute op that could be a "leaf"
-/// in the compute DAG (i.e., its result is consumed by another tile op).
-static bool isTileComputeOp(Operation *op) {
-  return isa<TileAddOp, TileSubOp, TileMulOp, TileDivOp>(op);
-}
+/// Information about a loop nest with d2m.scratch_space_loop
+struct ScratchLoopInfo {
+  affine::AffineForOp scratchLoop; // The loop with d2m.scratch_space_loop attr
+  affine::AffineForOp linalgRoot;  // The nested loop with d2m.linalg_root attr
+  SmallVector<affine::AffineForOp> innerLoops; // All inner affine loops
+  SmallVector<int64_t> scratchShape;           // Shape for scratch buffer
+  int64_t scratchSpaceIterations = 0; // Iterations of scratch_space_loop
+};
+
+/// Information about an intermediate allocation that needs to become scratch
+struct IntermediateAllocInfo {
+  memref::AllocOp allocOp;
+  ScratchLoopInfo *producer; // Loop nest that writes to this alloc
+  ScratchLoopInfo *consumer; // Loop nest that reads from this alloc
+  SmallVector<affine::AffineStoreOp> stores; // Stores to this alloc
+  SmallVector<affine::AffineLoadOp> loads;   // Loads from this alloc
+};
 
 /// Find the innermost affine.for loop with d2m.linalg_root attribute
 static affine::AffineForOp findLinalgRootLoop(affine::AffineForOp scratchLoop) {
@@ -37,215 +48,108 @@ static affine::AffineForOp findLinalgRootLoop(affine::AffineForOp scratchLoop) {
   return result;
 }
 
-/// Analyze the compute DAG to find leaf ops (ops whose results are used by
-/// other tile compute ops) and build a mapping from leaf results to scratch
-/// slots.
-static void analyzeComputeDAG(affine::AffineForOp rootLoop,
-                              SmallVector<Operation *> &leafOps,
-                              DenseMap<Value, unsigned> &leafResultToSlot) {
-  // Find the innermost loop body
-  affine::AffineForOp innermostLoop = rootLoop;
+/// Collect inner affine loops from a linalg_root loop
+static void collectInnerLoops(affine::AffineForOp rootLoop,
+                              SmallVector<affine::AffineForOp> &innerLoops) {
+  innerLoops.push_back(rootLoop);
   rootLoop.getBody()->walk(
-      [&](affine::AffineForOp forOp) { innermostLoop = forOp; });
+      [&](affine::AffineForOp innerFor) { innerLoops.push_back(innerFor); });
+}
 
-  unsigned slotIdx = 0;
-  innermostLoop.getBody()->walk([&](Operation *op) {
-    if (!isTileComputeOp(op)) {
-      return;
+/// Compute the scratch shape from loop bounds
+/// Returns: [scratch_space_iterations, inner_loop_dim0, inner_loop_dim1, ...]
+static bool computeScratchShape(ScratchLoopInfo &info) {
+  // Get scratch_space_loop iterations
+  if (!info.scratchLoop.hasConstantBounds()) {
+    return false;
+  }
+  int64_t lower = info.scratchLoop.getConstantLowerBound();
+  int64_t upper = info.scratchLoop.getConstantUpperBound();
+  int64_t step = info.scratchLoop.getStepAsInt();
+  info.scratchSpaceIterations = (upper - lower) / step;
+  info.scratchShape.push_back(info.scratchSpaceIterations);
+
+  // Add inner loop bounds
+  for (auto loopOp : info.innerLoops) {
+    if (!loopOp.hasConstantBounds()) {
+      return false;
     }
+    int64_t loopUpper = loopOp.getConstantUpperBound();
+    int64_t loopLower = loopOp.getConstantLowerBound();
+    info.scratchShape.push_back(loopUpper - loopLower);
+  }
 
-    // Check if this op's result is used by another tile compute op
-    bool isLeaf = false;
-    for (Operation *user : op->getResult(0).getUsers()) {
-      if (isTileComputeOp(user)) {
-        isLeaf = true;
-        break;
-      }
+  return true;
+}
+
+/// Check if a memref is an intermediate allocation (not an input/output of the
+/// generic op, but created inside the generic region)
+static bool isIntermediateAlloc(memref::AllocOp allocOp, GenericOp genericOp) {
+  // Check if alloc is inside the generic op's region
+  if (!genericOp->isProperAncestor(allocOp)) {
+    return false;
+  }
+
+  // Check that it's not one of the generic's operands
+  Value allocResult = allocOp.getResult();
+  for (Value operand : genericOp->getOperands()) {
+    if (operand == allocResult) {
+      return false;
     }
+  }
 
-    if (isLeaf) {
-      leafOps.push_back(op);
-      leafResultToSlot[op->getResult(0)] = slotIdx++;
+  return true;
+}
+
+/// Check if a memref value traces back to the target allocation through
+/// subviews
+static bool tracesToAlloc(Value memref, Value targetAlloc) {
+  Value current = memref;
+  while (current) {
+    if (current == targetAlloc) {
+      return true;
+    }
+    if (auto subview = current.getDefiningOp<memref::SubViewOp>()) {
+      current = subview.getSource();
+    } else {
+      break;
+    }
+  }
+  return false;
+}
+
+/// Collect all affine stores to a given memref within a loop nest
+static void collectStoresInLoop(Value memref, ScratchLoopInfo &loopInfo,
+                                SmallVector<affine::AffineStoreOp> &stores) {
+  loopInfo.scratchLoop.walk([&](affine::AffineStoreOp storeOp) {
+    if (tracesToAlloc(storeOp.getMemref(), memref)) {
+      stores.push_back(storeOp);
     }
   });
 }
 
-/// Pattern to match affine.for loops with d2m.scratch_space_loop attribute
-/// and insert scratch allocations with spill/reload stores.
-struct InsertSpillAndScratchPattern
-    : public OpRewritePattern<affine::AffineForOp> {
-  using OpRewritePattern<affine::AffineForOp>::OpRewritePattern;
-
-  LogicalResult matchAndRewrite(affine::AffineForOp forOp,
-                                PatternRewriter &rewriter) const final {
-    // Only match loops tagged with d2m.scratch_space_loop
-    if (!forOp->hasAttr("d2m.scratch_space_loop")) {
-      return failure();
+/// Collect all affine loads from a given memref within a loop nest
+static void collectLoadsInLoop(Value memref, ScratchLoopInfo &loopInfo,
+                               SmallVector<affine::AffineLoadOp> &loads) {
+  loopInfo.scratchLoop.walk([&](affine::AffineLoadOp loadOp) {
+    if (tracesToAlloc(loadOp.getMemref(), memref)) {
+      loads.push_back(loadOp);
     }
+  });
+}
 
-    // Check if we've already processed this loop
-    if (forOp->hasAttr("d2m.scratch_inserted")) {
-      return failure();
-    }
-
-    // Find the innermost affine loop with d2m.linalg_root
-    affine::AffineForOp rootLoop = findLinalgRootLoop(forOp);
-    if (!rootLoop) {
-      return failure();
-    }
-
-    // Find the parent d2m.generic to get the element type
-    auto genericOp = forOp->getParentOfType<GenericOp>();
-    if (!genericOp) {
-      return failure();
-    }
-
-    // Get tile element type from the first output operand of the generic
-    Type tileType;
-    if (!genericOp.getOutputs().empty()) {
-      auto outType = genericOp.getOutputs().front().getType();
-      if (auto memrefType = dyn_cast<MemRefType>(outType)) {
-        tileType = memrefType.getElementType();
-      }
-    }
-
-    if (!tileType || !isa<ttcore::TileType>(tileType)) {
-      return failure();
-    }
-
-    // Analyze the compute DAG
-    SmallVector<Operation *> leafOps;
-    DenseMap<Value, unsigned> leafResultToSlot;
-    analyzeComputeDAG(rootLoop, leafOps, leafResultToSlot);
-
-    // If no leaf ops found, nothing to spill
-    if (leafOps.empty()) {
-      rewriter.modifyOpInPlace(forOp, [&]() {
-        forOp->setAttr("d2m.scratch_inserted", rewriter.getUnitAttr());
-      });
-      return success();
-    }
-
-    // Create L1 memory space attribute
-    auto l1Attr = ttcore::MemorySpaceAttr::get(rewriter.getContext(),
-                                               ttcore::MemorySpace::DeviceL1);
-
-    // Collect the affine loop nest to determine scratch shape and indices
-    SmallVector<affine::AffineForOp> affineLoopNest;
-    affineLoopNest.push_back(rootLoop);
-    rootLoop.getBody()->walk([&](affine::AffineForOp innerFor) {
-      affineLoopNest.push_back(innerFor);
-    });
-
-    // Determine scratch buffer shape from ALL loop bounds:
-    // 1. The outer affine.for (scratch_space_loop) - determines how many
-    //    DST-sized chunks we need to hold (e.g., 2 iterations = 2x DST)
-    // 2. The inner affine loops - determines the shape of each chunk
-    SmallVector<int64_t> scratchShape;
-    SmallVector<Value> loopIndices;
-
-    // First, include the scratch_space_loop (forOp) bounds
-    // This ensures scratch holds data from ALL iterations, not just one
-    if (!forOp.hasConstantBounds()) {
-      return failure();
-    }
-    int64_t lower = forOp.getConstantLowerBound();
-    int64_t upper = forOp.getConstantUpperBound();
-    int64_t step = forOp.getStepAsInt();
-    int64_t numIterations = (upper - lower) / step;
-    scratchShape.push_back(numIterations);
-    loopIndices.push_back(forOp.getInductionVar());
-
-    // Then add the inner affine loop bounds
-    for (auto loopOp : affineLoopNest) {
-      // Get the constant loop bounds
-      if (!loopOp.hasConstantBounds()) {
-        return failure();
-      }
-      int64_t upperBound = loopOp.getConstantUpperBound();
-      int64_t lowerBound = loopOp.getConstantLowerBound();
-      scratchShape.push_back(upperBound - lowerBound);
-      loopIndices.push_back(loopOp.getInductionVar());
-    }
-
-    int64_t totalTiles = 1;
-    for (int64_t dim : scratchShape) {
-      totalTiles *= dim;
-    }
-
-    // Create scratch memref type with shape matching CB subviews
-    auto scratchMemRefType =
-        MemRefType::get(scratchShape, tileType, AffineMap(), l1Attr);
-
-    // Insert scratch allocations before the scratch_space_loop
-    rewriter.setInsertionPoint(forOp);
-    Location loc = forOp.getLoc();
-
-    // Allocate one scratch buffer per leaf op
-    SmallVector<Value> scratchBuffers;
-    for (size_t i = 0; i < leafOps.size(); ++i) {
-      auto scratch = rewriter.create<ScratchAllocateOp>(loc, scratchMemRefType,
-                                                        totalTiles);
-      scratchBuffers.push_back(scratch.getResult());
-    }
-
-    // Insert spill stores after each leaf op using affine.store.
-    // The scratch_space_loop now uses affine loops, so indices are valid
-    // affine dimension IDs.
-    for (auto [leafOp, slot] :
-         llvm::zip(leafOps, llvm::seq<unsigned>(0, leafOps.size()))) {
-      Value leafResult = leafOp->getResult(0);
-      Value scratchBuf = scratchBuffers[slot];
-
-      rewriter.setInsertionPointAfter(leafOp);
-      rewriter.create<affine::AffineStoreOp>(leafOp->getLoc(), leafResult,
-                                             scratchBuf, loopIndices);
-    }
-
-    // Find parent ops (ops that consume leaf results) and insert reloads
-    SmallVector<Operation *> parentOps;
-    for (Operation *leafOp : leafOps) {
-      for (Operation *user : leafOp->getResult(0).getUsers()) {
-        if (isTileComputeOp(user) && !llvm::is_contained(parentOps, user)) {
-          parentOps.push_back(user);
-        }
-      }
-    }
-
-    // For each parent op, reload the operands that came from leaf ops
-    // using affine.load (indices are now valid affine dimension IDs).
-    for (Operation *parentOp : parentOps) {
-      rewriter.setInsertionPoint(parentOp);
-
-      for (unsigned i = 0; i < parentOp->getNumOperands(); ++i) {
-        Value operand = parentOp->getOperand(i);
-        auto it = leafResultToSlot.find(operand);
-        if (it != leafResultToSlot.end()) {
-          unsigned slot = it->second;
-          Value scratchBuf = scratchBuffers[slot];
-
-          // Insert reload from scratch using all loop indices
-          Value reloaded = rewriter.create<affine::AffineLoadOp>(
-              parentOp->getLoc(), scratchBuf, loopIndices);
-
-          // Replace the operand with the reloaded value
-          rewriter.modifyOpInPlace(
-              parentOp, [&]() { parentOp->setOperand(i, reloaded); });
-        }
-      }
-    }
-
-    // Mark the loop as having scratch inserted
-    rewriter.modifyOpInPlace(forOp, [&]() {
-      forOp->setAttr("d2m.scratch_inserted", rewriter.getUnitAttr());
-      forOp->setAttr("d2m.num_scratch_buffers",
-                     rewriter.getI64IntegerAttr(leafOps.size()));
-    });
-
-    return success();
+/// Get the loop indices for scratch access
+/// Returns: [scratch_space_loop_iv, inner_loop_iv0, inner_loop_iv1, ...]
+static SmallVector<Value> getScratchIndices(ScratchLoopInfo &info) {
+  SmallVector<Value> indices;
+  indices.push_back(info.scratchLoop.getInductionVar());
+  for (auto loopOp : info.innerLoops) {
+    indices.push_back(loopOp.getInductionVar());
   }
-};
+  return indices;
+}
 
+/// Main pass implementation
 class D2MSpillAndScratch
     : public impl::D2MSpillAndScratchBase<D2MSpillAndScratch> {
 public:
@@ -253,13 +157,187 @@ public:
       D2MSpillAndScratch>::D2MSpillAndScratchBase;
 
   void runOnOperation() final {
-    MLIRContext *ctx = &getContext();
-    RewritePatternSet patterns(ctx);
-    patterns.add<InsertSpillAndScratchPattern>(ctx);
+    ModuleOp moduleOp = getOperation();
 
-    if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
-      signalPassFailure();
+    moduleOp.walk([&](GenericOp genericOp) {
+      if (failed(processGenericOp(genericOp))) {
+        // Continue processing other generics even if one fails
+      }
+    });
+  }
+
+private:
+  LogicalResult processGenericOp(GenericOp genericOp) {
+    // Step 1: Find all scratch_space_loop nests in this generic
+    SmallVector<ScratchLoopInfo> scratchLoops;
+
+    genericOp.walk([&](affine::AffineForOp forOp) {
+      if (forOp->hasAttr("d2m.scratch_space_loop") &&
+          !forOp->hasAttr("d2m.scratch_inserted")) {
+        ScratchLoopInfo info;
+        info.scratchLoop = forOp;
+        info.linalgRoot = findLinalgRootLoop(forOp);
+
+        if (info.linalgRoot) {
+          collectInnerLoops(info.linalgRoot, info.innerLoops);
+          if (computeScratchShape(info)) {
+            scratchLoops.push_back(info);
+          }
+        }
+      }
+    });
+
+    if (scratchLoops.size() < 2) {
+      // Need at least 2 loop nests to have producer/consumer relationship
+      return success();
     }
+
+    // Step 2: Find intermediate allocations that connect the loop nests
+    SmallVector<IntermediateAllocInfo> intermediates;
+
+    genericOp.walk([&](memref::AllocOp allocOp) {
+      if (!isIntermediateAlloc(allocOp, genericOp)) {
+        return;
+      }
+
+      IntermediateAllocInfo allocInfo;
+      allocInfo.allocOp = allocOp;
+      allocInfo.producer = nullptr;
+      allocInfo.consumer = nullptr;
+
+      Value allocResult = allocOp.getResult();
+
+      // Find which loop nests write to and read from this allocation
+      for (auto &loopInfo : scratchLoops) {
+        SmallVector<affine::AffineStoreOp> stores;
+        collectStoresInLoop(allocResult, loopInfo, stores);
+        if (!stores.empty()) {
+          allocInfo.producer = &loopInfo;
+          allocInfo.stores = stores;
+        }
+
+        SmallVector<affine::AffineLoadOp> loads;
+        collectLoadsInLoop(allocResult, loopInfo, loads);
+        if (!loads.empty()) {
+          allocInfo.consumer = &loopInfo;
+          allocInfo.loads = loads;
+        }
+      }
+
+      // Only include if we found both producer and consumer
+      if (allocInfo.producer && allocInfo.consumer &&
+          allocInfo.producer != allocInfo.consumer) {
+        intermediates.push_back(allocInfo);
+      }
+    });
+
+    if (intermediates.empty()) {
+      // Mark loops as processed even if no intermediates found
+      for (auto &info : scratchLoops) {
+        info.scratchLoop->setAttr("d2m.scratch_inserted",
+                                  UnitAttr::get(&getContext()));
+      }
+      return success();
+    }
+
+    // Step 3: Replace intermediate allocations with scratch buffers
+    IRRewriter rewriter(&getContext());
+    auto l1Attr = ttcore::MemorySpaceAttr::get(&getContext(),
+                                               ttcore::MemorySpace::DeviceL1);
+
+    for (auto &allocInfo : intermediates) {
+      ScratchLoopInfo &producer = *allocInfo.producer;
+
+      // Get element type from the original allocation
+      MemRefType origType = allocInfo.allocOp.getType();
+      Type elementType = origType.getElementType();
+
+      // Create scratch buffer type based on loop structure
+      // Shape: [scratch_space_iterations, inner_dim0, inner_dim1, ...]
+      auto scratchMemRefType = MemRefType::get(
+          producer.scratchShape, elementType, AffineMap(), l1Attr);
+
+      int64_t totalTiles = 1;
+      for (int64_t dim : producer.scratchShape) {
+        totalTiles *= dim;
+      }
+
+      // Insert scratch allocation at the same location as the original alloc
+      // This ensures proper dominance for both producer and consumer
+      rewriter.setInsertionPoint(allocInfo.allocOp);
+      Location loc = allocInfo.allocOp.getLoc();
+
+      auto scratchOp = rewriter.create<ScratchAllocateOp>(
+          loc, scratchMemRefType, totalTiles);
+      Value scratchBuf = scratchOp.getResult();
+
+      // Step 4: Update stores in the producer loop
+      // Change from storing to subview of full allocation to storing to scratch
+      // with scratch_space_loop iterator included
+      SmallVector<Value> producerIndices = getScratchIndices(producer);
+
+      for (auto storeOp : allocInfo.stores) {
+        rewriter.setInsertionPoint(storeOp);
+
+        // Get the value being stored
+        Value storedValue = storeOp.getValue();
+
+        // Create new store to scratch buffer with full indices
+        rewriter.create<affine::AffineStoreOp>(storeOp.getLoc(), storedValue,
+                                               scratchBuf, producerIndices);
+
+        // Erase the old store
+        rewriter.eraseOp(storeOp);
+      }
+
+      // Step 5: Update loads in the consumer loop
+      ScratchLoopInfo &consumer = *allocInfo.consumer;
+      SmallVector<Value> consumerIndices = getScratchIndices(consumer);
+
+      for (auto loadOp : allocInfo.loads) {
+        rewriter.setInsertionPoint(loadOp);
+
+        // Create new load from scratch buffer with full indices
+        Value reloaded = rewriter.create<affine::AffineLoadOp>(
+            loadOp.getLoc(), scratchBuf, consumerIndices);
+
+        // Replace all uses of the old load with the new one
+        rewriter.replaceOp(loadOp, reloaded);
+      }
+
+      // Step 6: Clean up - remove subviews and old allocation if no longer used
+      // First, collect all subviews of this allocation
+      SmallVector<memref::SubViewOp> subviews;
+      for (Operation *user : allocInfo.allocOp.getResult().getUsers()) {
+        if (auto subview = dyn_cast<memref::SubViewOp>(user)) {
+          subviews.push_back(subview);
+        }
+      }
+
+      // Erase subviews that have no remaining users
+      for (auto subview : subviews) {
+        if (subview.getResult().use_empty()) {
+          rewriter.eraseOp(subview);
+        }
+      }
+
+      // Erase the original allocation if it has no remaining users
+      if (allocInfo.allocOp.getResult().use_empty()) {
+        rewriter.eraseOp(allocInfo.allocOp);
+      }
+    }
+
+    // Mark all scratch loops as processed
+    for (auto &info : scratchLoops) {
+      info.scratchLoop->setAttr("d2m.scratch_inserted",
+                                UnitAttr::get(&getContext()));
+      info.scratchLoop->setAttr(
+          "d2m.num_scratch_buffers",
+          IntegerAttr::get(IntegerType::get(&getContext(), 64),
+                           intermediates.size()));
+    }
+
+    return success();
   }
 };
 
