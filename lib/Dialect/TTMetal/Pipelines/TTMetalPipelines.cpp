@@ -129,7 +129,6 @@ void createTTIRToTTMetalMiddleendPipeline(
         options.maxDstPhysicalSizeTiles;
   }
   pm.addPass(d2m::createD2MElementwiseFusion(elementwiseFusionOptions));
-  pm.addPass(createLinalgElementwiseOpFusionPass());
   pm.addPass(mlir::createCanonicalizerPass());
   createTTIRBufferizationPipeline(pm, options);
   pm.addPass(d2m::createD2MAddScratchInputs());
@@ -191,7 +190,7 @@ void createTTIRToTTMetalMiddleendPipeline(
   pm.addPass(d2m::createD2MOpScheduler(opSchedulerOptions));
   pm.addPass(d2m::createD2MSpillAndScratch());
   pm.addPass(d2m::createD2MLowerScratchAllocate());
-
+  pm.addPass(mlir::createCanonicalizerPass());
   d2m::D2MInsertDstRegisterAccessOptions insertDstRegisterAccessOptions;
   {
     insertDstRegisterAccessOptions.useTileMatmul = options.useTileMatmul;
