@@ -4,7 +4,6 @@
 
 #include "ttmlir/Dialect/StableHLO/Utils/StableHLOUtils.h"
 #include "mlir/IR/IRMapping.h"
-#include "ttmlir/Dialect/StableHLO/Utils/ShardingUtils.h"
 
 namespace mlir::tt::stablehlo::utils {
 
@@ -52,11 +51,11 @@ mlir::func::FuncOp createPrivateFunction(
   for (mlir::Operation *op : ops) {
     mlir::Operation *cloned = internalBuilder.clone(*op, mapping);
     // Strip the reoutline attrs inside the callee.
-    if (cloned->hasAttr(sharding_utils::kReoutlineGroupAttr)) {
-      cloned->removeAttr(sharding_utils::kReoutlineGroupAttr);
+    if (cloned->hasAttr(utils::kReoutlineGroupAttr)) {
+      cloned->removeAttr(utils::kReoutlineGroupAttr);
     }
-    if (cloned->hasAttr(sharding_utils::kReoutlineSeedAttr)) {
-      cloned->removeAttr(sharding_utils::kReoutlineSeedAttr);
+    if (cloned->hasAttr(utils::kReoutlineSeedAttr)) {
+      cloned->removeAttr(utils::kReoutlineSeedAttr);
     }
   }
 
