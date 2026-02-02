@@ -111,12 +111,19 @@ class D2M_GenericRegionComputeFPUOrSFPUBinary<string mnemonic, list<Trait> trait
 
     mlir::SmallVector<int64_t> getOperandsLoadFromDstRegister() {
       assert(this->getNumOperands() == 2 && "Binary operation must have 2 operands");
+      auto lhsType = this->getOperand(0).getType();
       auto rhsType = this->getOperand(1).getType();
+
+      // If either operand is a float32, use SFPU to maintian accuracy.
+      if (ttcore::getDataType(lhsType) == ttcore::DataType::Float32 || ttcore::getDataType(rhsType) == ttcore::DataType::Float32) {
+        return {0, 1};
+      }
+
       // If RHS is a scalar (not a tile), only load LHS from DST (SFPU path)
       if (!mlir::isa<::mlir::tt::ttcore::TileType>(rhsType)) {
         return {0};
       }
-      // Both operands are tiles - FPU reads directly from CBs, no DST load needed
+      // Both operands are tiles (not float32) - FPU reads directly from CBs, no DST load needed
       return {};
     }
   }];
@@ -1638,6 +1645,7 @@ class D2M_CBOp<string mnemonic, list<Trait> traits = []> : D2M_GenericRegionOp<m
         mlir::Value value, const mlir::bufferization::BufferizationOptions &,
         const mlir::bufferization::BufferizationState &,
         ::llvm::SmallVector<mlir::Value> &) {
+      getOperation()->dump();
       llvm_unreachable("intentionally unimplemented, this op can only accept block arguments which should have already been converted");
     }
 
