@@ -368,37 +368,37 @@ bool tryFallbacks(Operation *operation,
                           /*currentDistance*/ 0.0, allCombinations);
 
   // Sort combinations by total distance (ascending)
-  // Use stable_sort to maintain deterministic ordering when distances are equal
-  std::stable_sort(
-      allCombinations.begin(), allCombinations.end(),
-      [](const CombinationCandidate &a, const CombinationCandidate &b) {
-        if (a.totalDistance != b.totalDistance) {
-          return a.totalDistance < b.totalDistance;
-        }
-        // Tiebreaker: content-based lexicographic comparison for full
-        // determinism across runs when distances are equal
-        for (size_t i = 0; i < a.layouts.size() && i < b.layouts.size(); ++i) {
-          const auto &aLayout = a.layouts[i];
-          const auto &bLayout = b.layouts[i];
+  // Comparator includes full tiebreaker for deterministic ordering
+  std::sort(allCombinations.begin(), allCombinations.end(),
+            [](const CombinationCandidate &a, const CombinationCandidate &b) {
+              if (a.totalDistance != b.totalDistance) {
+                return a.totalDistance < b.totalDistance;
+              }
+              // Tiebreaker: content-based lexicographic comparison for full
+              // determinism across runs when distances are equal
+              for (size_t i = 0; i < a.layouts.size() && i < b.layouts.size();
+                   ++i) {
+                const auto &aLayout = a.layouts[i];
+                const auto &bLayout = b.layouts[i];
 
-          // Compare layout type first (RowMajor before Tile based on enum
-          // order)
-          if (aLayout.getLayout() != bLayout.getLayout()) {
-            return static_cast<int>(aLayout.getLayout()) <
-                   static_cast<int>(bLayout.getLayout());
-          }
-          if (aLayout.getDataType() != bLayout.getDataType()) {
-            return static_cast<int>(aLayout.getDataType()) <
-                   static_cast<int>(bLayout.getDataType());
-          }
-          if (aLayout.getBufferType() != bLayout.getBufferType()) {
-            return static_cast<int>(aLayout.getBufferType()) <
-                   static_cast<int>(bLayout.getBufferType());
-          }
-        }
-        // All layouts match - combinations are equivalent
-        return false;
-      });
+                // Compare layout type first (RowMajor before Tile based on enum
+                // order)
+                if (aLayout.getLayout() != bLayout.getLayout()) {
+                  return static_cast<int>(aLayout.getLayout()) <
+                         static_cast<int>(bLayout.getLayout());
+                }
+                if (aLayout.getDataType() != bLayout.getDataType()) {
+                  return static_cast<int>(aLayout.getDataType()) <
+                         static_cast<int>(bLayout.getDataType());
+                }
+                if (aLayout.getBufferType() != bLayout.getBufferType()) {
+                  return static_cast<int>(aLayout.getBufferType()) <
+                         static_cast<int>(bLayout.getBufferType());
+                }
+              }
+              // All layouts match - combinations are equivalent
+              return false;
+            });
 
   TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
                "Generated {} combinations, testing by distance",
