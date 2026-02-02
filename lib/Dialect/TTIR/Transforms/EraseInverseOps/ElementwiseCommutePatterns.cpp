@@ -134,20 +134,63 @@ private:
 
   bool isCommuteDownwardsFavorable(ElementwiseInterfaceType op,
                                    TMOpType tmOperand) const override {
-    // Commuting downwards is favorable if the all other operands a satisfy one
+    // Commuting downwards is favorable if the all other operands satisfy one
     // of the following:
-    // - Are an identical TM
-    // - Are on a consteval-able path
+    // - Are an identical TM (will be erased, net benefit)
+    // - Are on a consteval-able path AND don't have broadcast (inverse TM is simple)
+    //
+    // Cost model:
+    // - Removed: 1 TM (tmOperand)
+    // - Added: N inverse TMs (one per other operand) + 1 result TM
+    // - Net: (N + 1) - 1 = N TMs added
+    //
+    // Favorable if:
+    // 1. All N other operands have identical TMs (N removed, 1 added, net: 1-N benefit)
+    // 2. Other operands are consteval-able with simple inverse (const-evaled at compile time)
+    //
+    // NOT favorable if:
+    // - Inverse TM would create broadcast+reshape chains (too complex for const-eval benefit)
 
     assert(!isa<DestinationStyleOpInterface>(op.getOperation()) &&
            "DPS ops are not supported");
+    
     for (auto operand : op->getOperands()) {
-      if (checkIdenticalTms(operand.getDefiningOp(), tmOperand) ||
-          ttcore::valueTracesToConstantArgs(operand)) {
+      if (operand.getDefiningOp() == tmOperand) {
+        continue; // Skip the TM we're commuting
+      }
+      
+      // Case 1: Identical TM - always favorable (will be erased)
+      if (checkIdenticalTms(operand.getDefiningOp(), tmOperand)) {
         continue;
       }
+      
+      // Case 2: Consteval-able - check if inverse TM would be complex
+      if (ttcore::valueTracesToConstantArgs(operand)) {
+        // If operand goes through a broadcast, inverse TM becomes complex
+        // (reshape -> broadcast -> reshape chain)
+        // This is too expensive even for const-eval paths
+        Operation *defOp = operand.getDefiningOp();
+        while (defOp) {
+          if (isa<ttir::BroadcastOp>(defOp)) {
+            // Found broadcast in the chain - inverse will be complex
+            return false;
+          }
+          // Walk up the chain for simple ops
+          if (defOp->getNumOperands() == 1 && 
+              isa<ttir::ReshapeOp, ttir::PermuteOp>(defOp)) {
+            defOp = defOp->getOperand(0).getDefiningOp();
+          } else {
+            break;
+          }
+        }
+        // No broadcast found - simple inverse TM is OK for consteval path
+        continue;
+      }
+      
+      // Case 3: Neither identical TM nor consteval-able - not favorable
       return false;
     }
+    
     return true;
   }
 };
