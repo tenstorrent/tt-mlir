@@ -8,8 +8,6 @@
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
-#include "mlir/Dialect/SCF/IR/SCF.h"
-#include "mlir/Dialect/SCF/IR/SCFOps.h.inc"
 #include "mlir/IR/IRMapping.h"
 #include "mlir/IR/PatternMatch.h"
 #include "llvm/ADT/STLExtras.h"
@@ -245,32 +243,46 @@ struct D2MSFPUTileLoopFission
         return WalkResult::advance();
       }
 
-      // Find top-level nested affine.for in the compute region and try to
-      // fission.
-      Block &computeBlock = gop.getRegion(0).front();
-
-      // Get the innermost scf.for loop first
-      scf::ForOp scfInnermost;
-
-      for (Operation &op : computeBlock) {
-        if (auto scfOuter = dyn_cast<scf::ForOp>(op)) {
-          scfInnermost = findInnermostLoop(scfOuter);
+      // Find affine.for loops marked with d2m.linalg_root attribute.
+      // This attribute is set by GenericTileComputeLoops and preserved by
+      // InsertDstRegisterAccess.
+      // Collect loops first to avoid iterator invalidation during modification.
+      SmallVector<affine::AffineForOp> loopsToProcess;
+      gop.walk([&](affine::AffineForOp forOp) {
+        if (forOp->hasAttr("d2m.linalg_root")) {
+          loopsToProcess.push_back(forOp);
         }
-      }
+      });
 
-      if (scfInnermost) {
-        for (Operation &op : *scfInnermost.getBody()) {
-          if (auto forOp = dyn_cast<affine::AffineForOp>(&op)) {
-            if (containsD2MGenericComputeOp(forOp)) {
-              IRRewriter rewriter(ctx);
-              rewriter.setInsertionPoint(forOp);
+      for (auto forOp : loopsToProcess) {
+        IRRewriter rewriter(ctx);
 
-              insertLoadOps(forOp, rewriter);
+        // Use a worklist to process all loops (original and newly created).
+        // Each fission creates a new loop that may also need fissioning.
+        SmallVector<affine::AffineForOp> worklist;
+        worklist.push_back(forOp);
 
-              if (fissionAtStore(forOp, rewriter)) {
-                changed = true;
+        while (!worklist.empty()) {
+          auto currentLoop = worklist.pop_back_val();
+
+          // Insert any missing loads for compute ops
+          insertLoadOps(currentLoop, rewriter);
+
+          // Fission at the first store
+          if (fissionAtStore(currentLoop, rewriter)) {
+            changed = true;
+
+            // The fission creates a new loop after currentLoop.
+            // Both the modified currentLoop and the new loop may need
+            // further fissioning.
+            if (auto nextOp = currentLoop->getNextNode()) {
+              if (auto newLoop = dyn_cast<affine::AffineForOp>(nextOp)) {
+                // Add the new loop to the worklist for processing
+                worklist.push_back(newLoop);
               }
             }
+            // Also re-add currentLoop in case it has more stores to fission
+            worklist.push_back(currentLoop);
           }
         }
       }
