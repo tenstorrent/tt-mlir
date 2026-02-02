@@ -2787,10 +2787,8 @@ public:
     };
 
     if (isa<FloatType>(elementType)) {
-      minAttr =
-          rewriter.getFloatAttr(elementType, attrToDouble(op.getMin()));
-      maxAttr =
-          rewriter.getFloatAttr(elementType, attrToDouble(op.getMax()));
+      minAttr = rewriter.getFloatAttr(elementType, attrToDouble(op.getMin()));
+      maxAttr = rewriter.getFloatAttr(elementType, attrToDouble(op.getMax()));
     } else if (isa<IntegerType>(elementType)) {
       minAttr = rewriter.getIntegerAttr(
           elementType, static_cast<int64_t>(attrToDouble(op.getMin())));

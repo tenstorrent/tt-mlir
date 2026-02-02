@@ -3963,7 +3963,8 @@ ClampScalarOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
       return floatAttr.getValue();
     }
     if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(attr)) {
-      return llvm::APFloat(static_cast<float>(intAttr.getValue().getSExtValue()));
+      return llvm::APFloat(
+          static_cast<float>(intAttr.getValue().getSExtValue()));
     }
     llvm_unreachable("Unsupported attribute type for clamp");
   };
@@ -3987,7 +3988,8 @@ ClampScalarOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
       return floatAttr.getValue();
     }
     if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(attr)) {
-      return llvm::APFloat(static_cast<float>(intAttr.getValue().getSExtValue()));
+      return llvm::APFloat(
+          static_cast<float>(intAttr.getValue().getSExtValue()));
     }
     llvm_unreachable("Unsupported attribute type for clamp");
   };

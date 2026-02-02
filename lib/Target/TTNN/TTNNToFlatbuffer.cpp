@@ -2012,10 +2012,8 @@ createEltwiseUnaryCompositeOp(FlatbufferObjectCache &cache,
   ::flatbuffers::Offset<void> params = 0;
 
   // Helper lambda to convert attribute to RhsParams union
-  auto attrToRhsParams =
-      [&cache](mlir::Attribute attr)
-      -> std::pair<::tt::target::ttnn::RhsParams,
-                   ::flatbuffers::Offset<void>> {
+  auto attrToRhsParams = [&cache](mlir::Attribute attr)
+      -> std::pair<::tt::target::ttnn::RhsParams, ::flatbuffers::Offset<void>> {
     if (auto floatAttr = mlir::dyn_cast<mlir::FloatAttr>(attr)) {
       return {::tt::target::ttnn::RhsParams::FP,
               ::tt::target::ttnn::CreateFloatingPointType(
