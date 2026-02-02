@@ -27,7 +27,7 @@ public:
     ModuleOp moduleOp = getOperation();
     SmallVector<func::FuncOp> funcsToDelete;
 
-    moduleOp.walk([&](DispatchD2MOp dispatchOp) {
+    moduleOp.walk([&](D2MSubgraphOp dispatchOp) {
       func::FuncOp mainFunc = dispatchOp.getD2MMainFunc();
       if (failed(inlineDispatchOp(moduleOp, dispatchOp))) {
         signalPassFailure();
@@ -43,7 +43,7 @@ public:
 
 private:
   LogicalResult inlineDispatchOp(ModuleOp parentModule,
-                                 DispatchD2MOp dispatchOp) {
+                                 D2MSubgraphOp dispatchOp) {
     func::FuncOp mainFunc = dispatchOp.getD2MMainFunc();
     if (!mainFunc) {
       return dispatchOp.emitOpError("could not find D2M function '")

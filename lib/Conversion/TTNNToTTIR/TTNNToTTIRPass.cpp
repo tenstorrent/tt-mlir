@@ -36,7 +36,7 @@ struct ConvertTTNNToTTIRPass
 
   void collectD2MSubgraphs(ModuleOp moduleOp) {
     d2mSubgraphs.clear();
-    moduleOp.walk([&](ttnn::DispatchD2MOp dispatchOp) {
+    moduleOp.walk([&](ttnn::D2MSubgraphOp dispatchOp) {
       if (func::FuncOp func = dispatchOp.getD2MMainFunc()) {
         d2mSubgraphs.insert(func);
       }
@@ -66,8 +66,7 @@ struct ConvertTTNNToTTIRPass
 
     // Mark TTNN dialect as dynamically legal for all ops that:
     // 1. Do not have the `hoist_generic_via_d2m` attribute, and
-    // 2. Are not inside a D2M subgraph function (referenced by dispatch_d2m
-    // ops).
+    // 2. Are not inside a D2M subgraph function (referenced by d2m_subgraph)
     target.addDynamicallyLegalDialect<ttnn::TTNNDialect>([this](Operation *op) {
       if (isInsideD2MSubgraph(op)) {
         return false;

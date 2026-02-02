@@ -6,9 +6,9 @@
 module {
   // CHECK-LABEL: func.func @one_d2m_subgraph
   func.func @one_d2m_subgraph(%arg0: tensor<32x32xf32, #ttnn_layout>, %out: tensor<32x32xf32, #ttnn_layout>) -> tensor<32x32xf32, #ttnn_layout> {
-    // CHECK-NOT: ttnn.dispatch_d2m
+    // CHECK-NOT: ttnn.d2m_subgraph
     // CHECK: "ttnn.generic"
-    %0 = ttnn.dispatch_d2m @d2m_subgraph_0
+    %0 = ttnn.d2m_subgraph @d2m_subgraph_0
         ins(%arg0 : tensor<32x32xf32, #ttnn_layout>)
         outs(%out : tensor<32x32xf32, #ttnn_layout>) : tensor<32x32xf32, #ttnn_layout>
     return %0 : tensor<32x32xf32, #ttnn_layout>
@@ -33,14 +33,14 @@ module {
 module {
   // CHECK-LABEL: func.func @two_d2m_subgraph_b2b
   func.func @two_d2m_subgraph_b2b(%arg0: tensor<32x32xf32, #ttnn_layout>, %out0: tensor<32x32xf32, #ttnn_layout>, %out1: tensor<32x32xf32, #ttnn_layout>) -> tensor<32x32xf32, #ttnn_layout> {
-    // CHECK-NOT: ttnn.dispatch_d2m
+    // CHECK-NOT: ttnn.d2m_subgraph
     // CHECK: "ttnn.generic"
-    %0 = ttnn.dispatch_d2m @d2m_subgraph_0
+    %0 = ttnn.d2m_subgraph @d2m_subgraph_0
         ins(%arg0 : tensor<32x32xf32, #ttnn_layout>)
         outs(%out0 : tensor<32x32xf32, #ttnn_layout>) : tensor<32x32xf32, #ttnn_layout>
-    // CHECK-NOT: ttnn.dispatch_d2m
+    // CHECK-NOT: ttnn.d2m_subgraph
     // CHECK: "ttnn.generic"
-    %2 = ttnn.dispatch_d2m @d2m_subgraph_1
+    %2 = ttnn.d2m_subgraph @d2m_subgraph_1
         ins(%0 : tensor<32x32xf32, #ttnn_layout>)
         outs(%out1 : tensor<32x32xf32, #ttnn_layout>) : tensor<32x32xf32, #ttnn_layout>
     return %2 : tensor<32x32xf32, #ttnn_layout>
@@ -76,16 +76,16 @@ module {
   func.func @mixed_ttnn_ops_d2m_subgraph(%arg0: tensor<32x32xf32, #ttnn_layout>, %arg1: tensor<32x32xf32, #ttnn_layout>, %out0: tensor<32x32xf32, #ttnn_layout>, %out1: tensor<32x32xf32, #ttnn_layout>) -> tensor<32x32xf32, #ttnn_layout> {
     // CHECK: "ttnn.add"
     %0 = "ttnn.add"(%arg0, %arg1) <{dtype = #ttcore.supportedDataTypes<f32>}> : (tensor<32x32xf32, #ttnn_layout>, tensor<32x32xf32, #ttnn_layout>) -> tensor<32x32xf32, #ttnn_layout>
-    // CHECK-NOT: ttnn.dispatch_d2m
+    // CHECK-NOT: ttnn.d2m_subgraph
     // CHECK: "ttnn.generic"
-    %1 = ttnn.dispatch_d2m @d2m_subgraph_0
+    %1 = ttnn.d2m_subgraph @d2m_subgraph_0
         ins(%0 : tensor<32x32xf32, #ttnn_layout>)
         outs(%out0 : tensor<32x32xf32, #ttnn_layout>) : tensor<32x32xf32, #ttnn_layout>
     // CHECK: "ttnn.exp"
     %2 = "ttnn.exp"(%1) : (tensor<32x32xf32, #ttnn_layout>) -> tensor<32x32xf32, #ttnn_layout>
-    // CHECK-NOT: ttnn.dispatch_d2m
+    // CHECK-NOT: ttnn.d2m_subgraph
     // CHECK: "ttnn.generic"
-    %3 = ttnn.dispatch_d2m @d2m_subgraph_1
+    %3 = ttnn.d2m_subgraph @d2m_subgraph_1
         ins(%2 : tensor<32x32xf32, #ttnn_layout>)
         outs(%out1 : tensor<32x32xf32, #ttnn_layout>) : tensor<32x32xf32, #ttnn_layout>
     return %3 : tensor<32x32xf32, #ttnn_layout>
