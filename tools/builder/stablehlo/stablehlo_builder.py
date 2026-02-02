@@ -1263,13 +1263,7 @@ class StableHLOBuilder(Builder):
         compare_direction = stablehlo.ComparisonDirectionAttr.get(
             "GT" if descending else "LT", self._ctx
         )
-        if isinstance(element_type, (BF16Type, F16Type, F32Type, F64Type)):
-            compare_type = stablehlo.ComparisonTypeAttr.get("TOTALORDER", self._ctx)
-        elif isinstance(element_type, IntegerType):
-            compare_kind = "UNSIGNED" if element_type.is_unsigned else "SIGNED"
-            compare_type = stablehlo.ComparisonTypeAttr.get(compare_kind, self._ctx)
-        else:
-            compare_type = stablehlo.ComparisonTypeAttr.get("TOTALORDER", self._ctx)
+        compare_type = stablehlo.ComparisonTypeAttr.get("TOTALORDER", self._ctx)
 
         comparator_region = op.comparator
         comparator_block = Block.create_at_start(
@@ -1307,6 +1301,189 @@ class StableHLOBuilder(Builder):
 
         return op_result
 
+    @parse(stablehlo.SortOp)
+    def sort_parser(
+        self,
+        old_op: stablehlo.SortOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        stablehlo_op = self.get_opview_from_parser(StableHLOBuilder.sort_parser)
+
+        input_operand = global_dict[old_op.inputs[0]]
+        descending = False
+        for block in old_op.comparator.blocks:
+            for op in block.operations:
+                if isinstance(op, stablehlo.CompareOp):
+                    direction_attr = getattr(op, "comparison_direction", None)
+                    if direction_attr is None:
+                        direction_attr = op.operation.attributes.get(
+                            "comparison_direction"
+                        )
+                    if direction_attr is None:
+                        direction_attr = op.operation.attributes.get(
+                            "compare_direction"
+                        )
+                    if direction_attr is not None:
+                        if hasattr(direction_attr, "value"):
+                            direction_str = str(direction_attr.value)
+                        else:
+                            direction_str = str(direction_attr)
+                        if "GT" in direction_str or "GE" in direction_str:
+                            descending = True
+                    break
+            if descending:
+                break
+
+        new_op = stablehlo_op(
+            [old_op.result.type],
+            [input_operand],
+            dimension=old_op.dimension,
+            is_stable=old_op.is_stable,
+            loc=old_op.location,
+        )
+        element_type = RankedTensorType(input_operand.type).element_type
+        scalar_type = RankedTensorType.get([], element_type)
+        compare_direction = stablehlo.ComparisonDirectionAttr.get(
+            "GT" if descending else "LT", self._ctx
+        )
+        compare_type = stablehlo.ComparisonTypeAttr.get("TOTALORDER", self._ctx)
+
+        comparator_region = new_op.comparator
+        comparator_block = Block.create_at_start(
+            comparator_region, [scalar_type, scalar_type]
+        )
+        with InsertionPoint(comparator_block):
+            compare_result = stablehlo.CompareOp(
+                comparator_block.arguments[0],
+                comparator_block.arguments[1],
+                compare_direction,
+                compare_type=compare_type,
+            ).result
+            stablehlo.ReturnOp([compare_result], loc=new_op.location)
+
+        new_op_result = new_op.results[0]
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(input_operand)
+            op_golden_function = get_golden_function(stablehlo_op)
+            golden_output = op_golden_function(
+                input0,
+                old_op.dimension,
+                old_op.is_stable,
+                BoolAttr.get(descending),
+                new_op_result.type.element_type,
+            )
+            self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(stablehlo.SortOp)
+    def sort_split(
+        self,
+        old_op: stablehlo.SortOp,
+    ) -> Tuple[Module, StableHLOBuilder]:
+        stablehlo_op = self.get_opview_from_split(StableHLOBuilder.sort_split)
+
+        old_context = old_op.context
+        old_loc = Location.unknown(old_context)
+        with old_context, old_loc:
+            sort_module = Module.create()
+            sort_builder = StableHLOBuilder(old_context, old_loc)
+            op_input_types = [
+                old_op.inputs[0].type,
+            ]
+
+            with InsertionPoint(sort_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="sort_module")
+                def decorated_func(*inputs):
+                    input_operand = inputs[0]
+                    descending = False
+                    for block in old_op.comparator.blocks:
+                        for op in block.operations:
+                            if isinstance(op, stablehlo.CompareOp):
+                                direction_attr = getattr(
+                                    op, "comparison_direction", None
+                                )
+                                if direction_attr is None:
+                                    direction_attr = op.operation.attributes.get(
+                                        "comparison_direction"
+                                    )
+                                if direction_attr is None:
+                                    direction_attr = op.operation.attributes.get(
+                                        "compare_direction"
+                                    )
+                                if direction_attr is not None:
+                                    if hasattr(direction_attr, "value"):
+                                        direction_str = str(direction_attr.value)
+                                    else:
+                                        direction_str = str(direction_attr)
+                                    if "GT" in direction_str or "GE" in direction_str:
+                                        descending = True
+                                break
+                        if descending:
+                            break
+
+                    new_op = stablehlo_op(
+                        [input_operand.type],
+                        [input_operand],
+                        dimension=old_op.dimension,
+                        is_stable=old_op.is_stable,
+                        loc=old_op.location,
+                    )
+                    element_type = RankedTensorType(input_operand.type).element_type
+                    scalar_type = RankedTensorType.get([], element_type)
+                    compare_direction = stablehlo.ComparisonDirectionAttr.get(
+                        "GT" if descending else "LT", sort_builder._ctx
+                    )
+                    compare_type = stablehlo.ComparisonTypeAttr.get(
+                        "TOTALORDER", sort_builder._ctx
+                    )
+
+                    comparator_region = new_op.comparator
+                    comparator_block = Block.create_at_start(
+                        comparator_region, [scalar_type, scalar_type]
+                    )
+                    with InsertionPoint(comparator_block):
+                        compare_result = stablehlo.CompareOp(
+                            comparator_block.arguments[0],
+                            comparator_block.arguments[1],
+                            compare_direction,
+                            compare_type=compare_type,
+                        ).result
+                        stablehlo.ReturnOp([compare_result], loc=new_op.location)
+
+                    new_op_result = new_op.results[0]
+
+                    if not self._disable_golden_check:
+                        op_golden_function = get_golden_function(stablehlo_op)
+                        input0 = self._get_golden_tensor(old_op.inputs[0])
+                        golden_output = op_golden_function(
+                            input0,
+                            old_op.dimension,
+                            old_op.is_stable,
+                            BoolAttr.get(descending),
+                            new_op_result.type.element_type,
+                        )
+                        sort_builder._set_golden_tensor(new_op_result, golden_output)
+                        sort_builder._set_golden_tensor(input_operand, input0)
+                        ordered_inputs.append(input_operand)
+                        ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                sort_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return sort_module, sort_builder
 
     ################ stablehlo.GetDimensionSizeOp ###############
 

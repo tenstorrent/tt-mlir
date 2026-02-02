@@ -477,11 +477,13 @@ def test_unary_ops(
         target=target,
         device=device,
     )
-    
+
+
 @pytest.mark.parametrize("shape", [(256, 256)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
 @pytest.mark.parametrize("dimension", [1, 0], ids=["dim1", "dim0"])
 @pytest.mark.parametrize("descending", [True, False])
+@pytest.mark.parametrize("is_stable", [True, False])
 @pytest.mark.parametrize("target", ["ttnn"])
 def test_sort(
     shape: Shape,
@@ -515,6 +517,7 @@ def test_sort(
         target=target,
         device=device,
     )
+
 
 @pytest.mark.parametrize("shape", [(64, 128), (32, 64, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
