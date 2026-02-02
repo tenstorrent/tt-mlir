@@ -76,7 +76,8 @@ private:
 
     size_t outputFeatureDim = 0;
     if constexpr (std::is_same_v<ConvOpType, Conv2dOp> ||
-                  std::is_same_v<ConvOpType, ConvTranspose2dOp>) {
+                  std::is_same_v<ConvOpType, ConvTranspose2dOp> ||
+                  std::is_same_v<ConvOpType, Conv3dOp>) {
       outputFeatureDim = convOp.getChannelDim();
     } else {
       static_assert(ttmlir::utils::always_false<ConvOpType>(),
@@ -811,18 +812,21 @@ private:
     return true;
   }
 
-  // Scale must have rank 4 and size 1 in all dimensions except the output
+  // Scale must have rank 4/5 and size 1 in all dimensions except the output
   // feature dim.
   // For Conv2dOp: shape (1, 1, 1, out_channels)
+  // For Conv3dOp: shape (1, 1, 1, 1, out_channels)
   static bool hasValidScaleShape(ConvOpType convOp,
                                  RankedTensorType scaleType) {
-    if (!scaleType || scaleType.getRank() != 4) {
+    const int64_t expectedRank = std::is_same_v<ConvOpType, Conv3dOp> ? 5 : 4;
+    if (!scaleType || scaleType.getRank() != expectedRank) {
       return false;
     }
 
     size_t outputFeatureDim = 0;
     if constexpr (std::is_same_v<ConvOpType, Conv2dOp> ||
-                  std::is_same_v<ConvOpType, ConvTranspose2dOp>) {
+                  std::is_same_v<ConvOpType, ConvTranspose2dOp> ||
+                  std::is_same_v<ConvOpType, Conv3dOp>) {
       outputFeatureDim = convOp.getChannelDim();
     } else {
       static_assert(ttmlir::utils::always_false<ConvOpType>(),
@@ -876,12 +880,14 @@ private:
 
     // Create a new shape to match weight layout.
     llvm::SmallVector<int64_t> newShape(scaleType.getShape());
-    assert(newShape.size() == 4 &&
-           "Scale tensor must have 4 dimensions for reshaping.");
+    const size_t expectedRank = std::is_same_v<ConvOpType, Conv3dOp> ? 5 : 4;
+    assert(newShape.size() == expectedRank &&
+           "Scale tensor must have expected rank for reshaping.");
 
     size_t outputFeatureDim = 0;
     size_t kernelOutputFeatureDim = 0;
-    if constexpr (std::is_same_v<ConvOpType, Conv2dOp>) {
+    if constexpr (std::is_same_v<ConvOpType, Conv2dOp> ||
+                  std::is_same_v<ConvOpType, Conv3dOp>) {
       outputFeatureDim = convOp.getChannelDim();
       kernelOutputFeatureDim = 0;
     } else if constexpr (std::is_same_v<ConvOpType, ConvTranspose2dOp>) {
@@ -3496,6 +3502,7 @@ public:
     {
       RewritePatternSet patterns(&getContext());
       patterns.add<ConvTagWeights<Conv2dOp>>(&getContext());
+      patterns.add<ConvTagWeights<Conv3dOp>>(&getContext());
       if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
         signalPassFailure();
         return;
@@ -3505,6 +3512,7 @@ public:
       RewritePatternSet patterns(&getContext());
       patterns.add<ConvAddBias<Conv2dOp>>(&getContext());
       patterns.add<ConvAddBias<ConvTranspose2dOp>>(&getContext());
+      patterns.add<ConvAddBias<Conv3dOp>>(&getContext());
 
       // Add patterns for each reduction op type.
       patterns.add<ReductionWithReshapePattern<SumOp>>(&getContext());

@@ -2105,14 +2105,6 @@ public:
   constexpr static uint32_t SPATIAL_DIM_HEIGHT = 1;
   constexpr static uint32_t SPATIAL_DIM_WIDTH = 2;
 
-  // NDHWC
-  static inline const std::vector<int64_t> conv3dLayout = {
-      ConvolutionDimension::BATCH,
-      SPATIAL_DIM_DEPTH,
-      SPATIAL_DIM_HEIGHT,
-      SPATIAL_DIM_WIDTH,
-      ConvolutionDimension::FEATURE,
-  };
   // OIDHW
   static inline const std::vector<int64_t> conv3dKernelLayout = {
       ConvolutionKernelDimension::OUTPUT_FEATURES,
@@ -2163,49 +2155,20 @@ public:
     auto outputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(op.getType()));
 
-    // Permute input to NDHWC layout
-    Value input = adaptor.getLhs();
-    RankedTensorType inputType = mlir::cast<RankedTensorType>(input.getType());
-    auto inputPermutation = generateConvPermutation(op, conv3dLayout);
-    auto permutedInputShape =
-        ttmlir::utils::applyPermutation(inputType.getShape(), inputPermutation);
-    Value permutedInput = rewriter.create<ttir::PermuteOp>(
-        ttmlir::utils::appendLocationSuffix(op.getLoc(), "_input"),
-        RankedTensorType::get(permutedInputShape, inputType.getElementType(),
-                              inputType.getEncoding()),
-        input, inputPermutation);
+    Value result = createConv3d(rewriter, op, adaptor, adaptor.getLhs(),
+                                adaptor.getRhs(), outputType);
 
-    Value result = createConv3d(rewriter, op, adaptor, permutedInput,
-                                adaptor.getRhs(), outputType.getShape());
-
-    // Apply inverse permutation to restore original layout.
-    llvm::SmallVector<int64_t> outputLayout(conv3dLayout.size(),
-                                            ConvolutionDimension::INVALID_DIM);
-    outputLayout[adaptor.getDimensionNumbers().getOutputBatchDimension()] =
-        ConvolutionDimension::BATCH;
-    outputLayout[adaptor.getDimensionNumbers().getOutputFeatureDimension()] =
-        ConvolutionDimension::FEATURE;
-    for (const auto [spatialCount, spatialDim] : llvm::enumerate(
-             adaptor.getDimensionNumbers().getOutputSpatialDimensions())) {
-      outputLayout[spatialDim] = spatialCount;
-    }
-
-    // Set the output to NCDHW layout
-    auto outputPermutation = ttmlir::utils::generatePermutation(
-        llvm::ArrayRef(conv3dLayout), llvm::ArrayRef(outputLayout));
-
-    rewriter.replaceOpWithNewOp<ttir::PermuteOp>(op, op.getResult().getType(),
-                                                 result, outputPermutation);
+    rewriter.replaceOp(op, result);
 
     return success();
   }
 
 private:
-  // Create a Conv3d operation with NDHWC input and OIDHW weights.
+  // Create a Conv3d operation with explicit dimension attributes.
   Value createConv3d(ConversionPatternRewriter &rewriter,
                      mlir::stablehlo::ConvolutionOp op, OpAdaptor adaptor,
-                     Value permutedInput, Value weight,
-                     llvm::ArrayRef<int64_t> outputShape) const {
+                     Value input, Value weight,
+                     RankedTensorType outputType) const {
 
     auto windowStrides = getI64ArrayOrDefault(adaptor.getWindowStridesAttr(),
                                               NUM_SPATIAL_DIMS, 1);
@@ -2234,19 +2197,14 @@ private:
     auto groupsAttr =
         rewriter.getI32IntegerAttr(adaptor.getFeatureGroupCount());
 
-    llvm::SmallVector<int64_t> newOutputShape{
-        outputShape[adaptor.getDimensionNumbers().getOutputBatchDimension()],
-        outputShape[adaptor.getDimensionNumbers()
-                        .getOutputSpatialDimensions()[SPATIAL_DIM_DEPTH]],
-        outputShape[adaptor.getDimensionNumbers()
-                        .getOutputSpatialDimensions()[SPATIAL_DIM_HEIGHT]],
-        outputShape[adaptor.getDimensionNumbers()
-                        .getOutputSpatialDimensions()[SPATIAL_DIM_WIDTH]],
-        outputShape[adaptor.getDimensionNumbers().getOutputFeatureDimension()]};
-
-    RankedTensorType inputType =
-        mlir::cast<RankedTensorType>(permutedInput.getType());
-    RankedTensorType outputType = inputType.clone(newOutputShape);
+    auto outputSpatialDims =
+        adaptor.getDimensionNumbers().getOutputSpatialDimensions();
+    int64_t batchDim = adaptor.getDimensionNumbers().getOutputBatchDimension();
+    int64_t depthDim = outputSpatialDims[SPATIAL_DIM_DEPTH];
+    int64_t heightDim = outputSpatialDims[SPATIAL_DIM_HEIGHT];
+    int64_t widthDim = outputSpatialDims[SPATIAL_DIM_WIDTH];
+    int64_t channelDim =
+        adaptor.getDimensionNumbers().getOutputFeatureDimension();
 
     // Permute weight to OIDHW layout
     Value permutedWeight = weight;
@@ -2262,8 +2220,13 @@ private:
         permutedWeight, kernelPermutation);
 
     mlir::Value newConv = rewriter.create<ttir::Conv3dOp>(
-        op.getLoc(), outputType, Value(permutedInput), Value(permutedWeight),
-        Value(), strideAttr, paddingAttr, groupsAttr,
+        op.getLoc(), outputType, Value(input), Value(permutedWeight), Value(),
+        strideAttr, paddingAttr, groupsAttr,
+        rewriter.getI64IntegerAttr(batchDim),
+        rewriter.getI64IntegerAttr(depthDim),
+        rewriter.getI64IntegerAttr(heightDim),
+        rewriter.getI64IntegerAttr(widthDim),
+        rewriter.getI64IntegerAttr(channelDim),
         /*padding_mode=*/nullptr);
 
     return newConv;
