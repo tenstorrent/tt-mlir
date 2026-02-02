@@ -3,13 +3,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
-#include "mlir/IR/IRMapping.h"
 #include "stablehlo/dialect/StablehloOps.h"
-#include "ttmlir/Dialect/StableHLO/Transforms/Passes.h"
-#include "ttmlir/Dialect/StableHLO/Utils/ShardingUtils.h"
 #include "ttmlir/Dialect/StableHLO/Utils/ShardyUtils.h"
 #include "ttmlir/Dialect/StableHLO/Utils/StableHLOUtils.h"
-#include "llvm/Support/Error.h"
 
 namespace mlir::tt::stablehlo {
 #define GEN_PASS_DEF_REOUTLINECOMPOSITEPASS
@@ -22,8 +18,8 @@ static void collectGroups(
     mlir::func::FuncOp func,
     llvm::DenseMap<GroupKey, llvm::SmallVector<mlir::Operation *>> &groups) {
   func.walk([&](mlir::Operation *op) {
-    if (auto attr = op->getAttrOfType<mlir::StringAttr>(
-            sharding_utils::kReoutlineGroupAttr)) {
+    if (auto attr =
+            op->getAttrOfType<mlir::StringAttr>(utils::kReoutlineGroupAttr)) {
       groups[attr].push_back(op);
     }
   });
@@ -197,13 +193,13 @@ void replaceWithComposite(mlir::func::FuncOp parentFunc,
   mlir::DictionaryAttr compAttrs = mlir::DictionaryAttr::get(ctx);
   mlir::StringAttr targetName = builder.getStringAttr(callee.getSymName());
   for (mlir::Operation *op : opsToErase) {
-    if (op->hasAttr(sharding_utils::kReoutlineSeedAttr)) {
+    if (op->hasAttr(utils::kReoutlineSeedAttr)) {
       if (auto origName = op->getAttrOfType<mlir::StringAttr>(
-              sharding_utils::kReoutlineOrigNameAttr)) {
+              utils::kReoutlineOrigNameAttr)) {
         targetName = origName;
       }
       if (auto compAttr = op->getAttrOfType<mlir::DictionaryAttr>(
-              sharding_utils::kReoutlineCompAttrsAttr)) {
+              utils::kReoutlineCompAttrsAttr)) {
         compAttrs = compAttr;
       }
     }
@@ -213,9 +209,9 @@ void replaceWithComposite(mlir::func::FuncOp parentFunc,
                              mlir::stablehlo::CompositeOp::getOperationName());
   state.addOperands(operands);
   state.addTypes(resultTypes);
-  state.addAttribute(sharding_utils::kDecompositionKey, decomp);
-  state.addAttribute(sharding_utils::kCompAttrsKey, compAttrs);
-  state.addAttribute(sharding_utils::kNameKey, targetName);
+  state.addAttribute(utils::kCompDecompositionKey, decomp);
+  state.addAttribute(utils::kCompAttrsKey, compAttrs);
+  state.addAttribute(utils::kCompNameKey, targetName);
 
   mlir::Operation *newOp = mlir::Operation::create(state);
   builder.insert(newOp);
@@ -238,8 +234,8 @@ void replaceWithComposite(mlir::func::FuncOp parentFunc,
       continue;
     }
     if (groupKey) {
-      auto attr = op->getAttrOfType<mlir::StringAttr>(
-          sharding_utils::kReoutlineGroupAttr);
+      auto attr =
+          op->getAttrOfType<mlir::StringAttr>(utils::kReoutlineGroupAttr);
       if (!attr || attr != groupKey) {
         continue;
       }
@@ -267,7 +263,7 @@ public:
     for (mlir::func::FuncOp func : module.getOps<mlir::func::FuncOp>()) {
       llvm::DenseMap<GroupKey, llvm::SmallVector<mlir::Operation *>> groups;
       // Collect ops per group. Group key is defined by
-      // sharding_utils::kGroupAttr.
+      // utils::kReoutlineGroupAttr.
       collectGroups(func, groups);
       if (groups.empty()) {
         continue;
