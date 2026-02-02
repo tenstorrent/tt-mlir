@@ -250,6 +250,38 @@ public:
 
     unsigned getCurrSliceIndex() { return currSliceIndex; }
 
+    // Get the first input slot (for SFPU binary ops that overwrite first
+    // operand)
+    unsigned getFirstInputSliceIndex() {
+      assert(!inputStack.empty() && "No input slots allocated");
+      return inputStack.front();
+    }
+
+    // Deallocate all inputs except the first one (for SFPU binary output reuse)
+    void deallocateAllButFirstInput() {
+      assert(inputStack.size() >= 1 && "Need at least one input to keep");
+
+      // Keep the first input slot (will be used for output)
+      unsigned firstInput = inputStack.front();
+      inputStack.erase(inputStack.begin());
+
+      // Deallocate remaining inputs
+      while (!inputStack.empty()) {
+        unsigned id = inputStack.pop_back_val();
+        sliceStack.push_back(id);
+
+        LDBG() << "======== DEALLOCATE (keeping first) =========";
+        std::string sliceStackStr = "SliceStack = ";
+        for (auto it : sliceStack) {
+          sliceStackStr += std::to_string(it) + ",";
+        }
+        LDBG() << sliceStackStr;
+      }
+
+      // Put the first input back as current (it will be the output)
+      currSliceIndex = firstInput;
+    }
+
   private:
     unsigned dstSliceCapacity = 0;
 
@@ -1448,18 +1480,13 @@ public:
           int64_t dstSliceIndex = -1;
           // If op has scalar rhs, treat it as in-place (unary-like behavior)
           if (dstRegInPlace || rhsIsScalar) {
-            bool isUnaryOp = computeOp->getNumOperands() == 1;
-            bool isTileMatmul = mlir::isa<d2m::TileMatmulOp>(computeOp);
-            bool isReduction = mlir::isa<d2m::TileReduceMaxOp>(computeOp) ||
-                               mlir::isa<d2m::TileReduceSumOp>(computeOp);
-            assert(
-                (isUnaryOp || isTileMatmul || isReduction || rhsIsScalar) &&
-                "Only unary ops, tile matmul, reductions, and tile+scalar ops "
-                "supported for destination register in place, multi-operand "
-                "ops "
-                "would reference wrong tile, but those ops should be setting "
-                "output tile.");
             dstSliceIndex = dstStackAllocator.getCurrSliceIndex();
+          } else if (numLoads >= 2) {
+            // SFPU binary/ternary ops: output overwrites first operand's slot
+            // to maximize DST utilization (e.g., a0,a1,b0,b1 -> c0,a1,c1,b1)
+            dstSliceIndex = dstStackAllocator.getFirstInputSliceIndex();
+            dstStackAllocator.deallocateAllButFirstInput();
+            dstStackAllocator.setStoreToDst();
           } else {
             dstSliceIndex = dstStackAllocator.allocate(true);
             dstStackAllocator.setStoreToDst();
@@ -1492,21 +1519,22 @@ public:
               hasTileInputs &&
               (computeOp.getDstRegInPlace() || computeOp.isScalarOperand(1));
 
-          // If op stores to dst in place or has scalar rhs, we don't need to
-          // allocate a new dst register, just use the current dst index.
-          int32_t allocatedIndex = (overwriteInput)
-                                       ? dstStackAllocator.getCurrSliceIndex()
-                                       : dstStackAllocator.allocate(true);
+          int32_t allocatedIndex;
+          if (overwriteInput) {
+            // Unary ops or scalar RHS: output overwrites the single input
+            allocatedIndex = dstStackAllocator.getCurrSliceIndex();
+          } else if (numLoads >= 2) {
+            // SFPU binary/ternary ops: output overwrites first operand's slot
+            // to maximize DST utilization (e.g., a0,a1,b0,b1 -> c0,a1,c1,b1)
+            allocatedIndex = dstStackAllocator.getFirstInputSliceIndex();
+            dstStackAllocator.deallocateAllButFirstInput();
+          } else {
+            // Fallback: allocate a new slot
+            allocatedIndex = dstStackAllocator.allocate(true);
+          }
 
           dstIntermediates[computeOp] = {allocatedIndex,
                                          outermostInnerComputeLoop};
-
-          if (!overwriteInput) {
-            // binary ops must deallocate all non-scalar inputs
-            for (int i = 0; i < numLoads; ++i) {
-              dstStackAllocator.deallocate();
-            }
-          }
         }
       }
     });
