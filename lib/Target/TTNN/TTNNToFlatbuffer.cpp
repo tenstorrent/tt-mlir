@@ -1021,7 +1021,9 @@ createOp(FlatbufferObjectCache &cache, Conv3dOp op) {
 createOp(FlatbufferObjectCache &cache, MeshPartitionOp op) {
   auto input = cache.at<::tt::target::ttnn::TensorRef>(
       getOperandThroughDPSOps(op.getInput()));
-  auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer);
+  auto output =
+      cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
+                                  /*local_shape*/ std::nullopt);
 
   auto memoryConfig = toFlatbuffer(cache, op.getMemoryConfig()).value_or(0);
   return ::tt::target::ttnn::CreateMeshPartitionOp(

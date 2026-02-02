@@ -242,19 +242,13 @@ public:
         continue;
       }
 
-      bool shouldTilize = true;
-      if (mlir::isa<ttir::MeshPartitionOp>(op)) {
-        shouldTilize =
-            shouldTilizeMeshPartitionOp(mlir::cast<ttir::MeshPartitionOp>(op));
-      }
-
       Location newLoc =
           appendInputSuffix(op->getLoc(), operand.getOperandNumber());
 
       // Given the operand constraint, create the desired layout for the operand
-      std::optional<Value> desiredLayout =
-          createToLayoutOp(rewriter, newLoc, operand.get(),
-                           g_defaultMemorySpaceDevice, /*tiled=*/shouldTilize);
+      std::optional<Value> desiredLayout = createToLayoutOp(
+          rewriter, newLoc, operand.get(), g_defaultMemorySpaceDevice,
+          /*tiled=*/shouldTilizeOperand(op));
 
       // If layout changed update the operand
       if (desiredLayout) {
@@ -267,8 +261,9 @@ public:
 
     for (auto it : llvm::enumerate(op->getResultTypes())) {
       RankedTensorType ty = mlir::cast<RankedTensorType>(it.value());
-      std::optional<RankedTensorType> desiredType = createDesiredType(
-          rewriter, ty, g_defaultMemorySpaceDevice, /*tiled=*/shouldTilize(op));
+      std::optional<RankedTensorType> desiredType =
+          createDesiredType(rewriter, ty, g_defaultMemorySpaceDevice,
+                            /*tiled=*/shouldTilizeResult(op));
       if (desiredType) {
         rewriter.modifyOpInPlace(op, [&]() {
           modified = true;
@@ -281,16 +276,22 @@ public:
   }
 
 private:
-  bool shouldTilizeMeshPartitionOp(ttir::MeshPartitionOp &op) const {
-    auto inputType = mlir::cast<RankedTensorType>(op.getInput().getType());
-    int rank = inputType.getRank();
-    if (rank <= 1) {
-      return false;
+  bool shouldTilizeOperand(Operation *op) const {
+    if (auto meshPartitionOp = mlir::dyn_cast<ttir::MeshPartitionOp>(op)) {
+      auto inputType =
+          mlir::cast<RankedTensorType>(meshPartitionOp.getInput().getType());
+      int rank = inputType.getRank();
+      if (rank <= 1) {
+        return false;
+      }
+      int lastDim = inputType.getShape().back();
+      int secondLastDim = inputType.getShape()[rank - 2];
+      return lastDim % 32 == 0 && secondLastDim % 32 == 0;
     }
     return true;
   }
 
-  bool shouldTilize(Operation *op) const {
+  bool shouldTilizeResult(Operation *op) const {
 
     // TTNN Reshape does not support implicit tilization/untilization
     // Therefore input output layouts should be the same
