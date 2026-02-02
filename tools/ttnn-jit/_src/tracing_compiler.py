@@ -16,7 +16,7 @@ from ttmlir.ir import (
     TypeAttr,
 )
 
-from ttnn_jit._src.utils import cleanup_source_code
+from ttnn_jit._src.utils import cleanup_source_code, get_maximal_block_sharding_grid
 from ttnn_jit._src.tensor_translator import create_tensor_layout
 from ttnn_jit._src.conversions import (
     mlir_dtype_from_ttnn_dtype,
@@ -28,7 +28,6 @@ from ttnn_jit._src.tensor_translator import (
     _create_sharded_tensor_layout,
     _calculate_tile_shape,
 )
-from utils import get_maximal_block_sharding_grid
 import ttnn
 
 
