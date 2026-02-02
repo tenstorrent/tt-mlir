@@ -435,7 +435,7 @@ public:
 
     // Operations to be outlined in the composite op (if input is fully
     // replicated).
-    mlir::SmallVector<mlir::Operation *> ops;
+    mlir::SmallVector<mlir::Operation *> ops_to_outline;
 
     for (auto it = axesPerDim.begin(), e = axesPerDim.end(); it != e; ++it) {
       int64_t sliceDim =
@@ -490,7 +490,7 @@ public:
           mlir::RankedTensorType::get(reshapeShape, prevType.getElementType());
       auto reshaped = rewriter.create<mlir::stablehlo::ReshapeOp>(
           srcOp.getLoc(), reshapedType, result);
-      ops.push_back(reshaped.getOperation());
+      ops_to_outline.push_back(reshaped.getOperation());
 
       // 2) Replica groups for the target mesh axis.
       auto groups = createDenseAttrFromReplicaGroups(
@@ -508,7 +508,7 @@ public:
           /*split_count=*/parts,
           /*replica_groups=*/groups,
           /*channel_handle=*/ch);
-      ops.push_back(allToAll.getOperation());
+      ops_to_outline.push_back(allToAll.getOperation());
 
       // 4) Static slice the "parts" axis to take index 0 only.
       llvm::SmallVector<int64_t> startIdx(reshapeShape.size(), 0);
@@ -531,7 +531,7 @@ public:
       auto slice = rewriter.create<mlir::stablehlo::SliceOp>(
           srcOp.getLoc(), slicedType, allToAllOut, startAttr, limitAttr,
           stridesAttr);
-      ops.push_back(slice.getOperation());
+      ops_to_outline.push_back(slice.getOperation());
 
       // 5) Remove the singleton "parts" axis → final shape with chunkLen at
       // sliceDim.
@@ -540,7 +540,7 @@ public:
           mlir::RankedTensorType::get(shape, prevType.getElementType());
       auto squeezed = rewriter.create<mlir::stablehlo::ReshapeOp>(
           srcOp.getLoc(), finalType, slice.getResult());
-      ops.push_back(squeezed.getOperation());
+      ops_to_outline.push_back(squeezed.getOperation());
       // Thread through for the next dimension (if any).
       result = squeezed.getResult();
       prevType = finalType;
@@ -554,11 +554,11 @@ public:
       // in a stablehlo.composite op.
       static int allSliceOpNumber = 0;
       ++allSliceOpNumber;
-      if (ops.empty()) {
+      if (ops_to_outline.empty()) {
         return rewriter.notifyMatchFailure(
             srcOp, "Cannot create composite op: no operations to outline.");
       }
-      mlir::OpBuilder builder(ops.front());
+      mlir::OpBuilder builder(ops_to_outline.front());
       mlir::MLIRContext *ctx = builder.getContext();
 
       // Step 1: Attach the out_sharding attribute to the composite op.
@@ -571,7 +571,7 @@ public:
       // Step 2: Create a private function for the composite op.
       mlir::func::FuncOp callee = utils::createPrivateFunction(
           moduleOp, srcOp.getOperationName(), std::to_string(allSliceOpNumber),
-          inputOperand.get(), result, ops);
+          inputOperand.get(), result, ops_to_outline);
       mlir::SymbolRefAttr decomp =
           mlir::SymbolRefAttr::get(ctx, callee.getSymName());
       mlir::DictionaryAttr compAttrs =
@@ -596,7 +596,7 @@ public:
       result.replaceAllUsesWith(comp.getResult(0));
 
       // Step 4: Erase the original ops.
-      for (auto *op : llvm::reverse(ops)) {
+      for (auto *op : llvm::reverse(ops_to_outline)) {
         rewriter.eraseOp(op);
       }
     } else {

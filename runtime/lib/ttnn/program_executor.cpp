@@ -96,7 +96,6 @@
 #include "tt/runtime/detail/ttnn/utils.h"
 #include "tt/runtime/perf.h"
 #include "tt/runtime/utils.h"
-#include "ttmlir/Target/TTNN/program_generated.h"
 
 namespace tt::runtime::ttnn {
 
