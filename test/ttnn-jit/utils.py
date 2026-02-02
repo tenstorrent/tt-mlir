@@ -253,8 +253,18 @@ def run_op_test(
         if memory_config is not None:
             assert memory_configs_equal(output_tensor.memory_config(), memory_config)
         else:
+            # ttnn-jit will by default set l1 block sharded output memory config
+            # create expected memory config to check for
+            output_shape = golden_tensor.shape()
+            expected_grid = get_block_sharding_grid(output_shape)
+            expected_memory_config = ttnn.create_sharded_memory_config(
+                shape=output_shape,
+                core_grid=ttnn.CoreGrid(x=expected_grid[0] + 1, y=expected_grid[1] + 1),
+                strategy=ttnn.ShardStrategy.BLOCK,
+                use_height_and_width_as_shard_shape=False,
+            )
             assert memory_configs_equal(
-                output_tensor.memory_config(), golden_tensor.memory_config()
+                output_tensor.memory_config(), expected_memory_config
             )
         print("--------------------------------")
         print("Output:")
