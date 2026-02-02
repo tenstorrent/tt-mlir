@@ -4746,10 +4746,10 @@ mlir::tt::ttnn::PagedScaledDotProductAttentionDecodeOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
-// DispatchD2MOp
+// D2MSubgraphOp
 //===----------------------------------------------------------------------===//
 
-::mlir::LogicalResult mlir::tt::ttnn::DispatchD2MOp::verify() {
+::mlir::LogicalResult mlir::tt::ttnn::D2MSubgraphOp::verify() {
   func::FuncOp mainFunc = getD2MMainFunc();
   if (!mainFunc) {
     return emitOpError("Could not find D2M function '")
@@ -4793,7 +4793,7 @@ mlir::tt::ttnn::PagedScaledDotProductAttentionDecodeOp::verify() {
   return success();
 }
 
-func::FuncOp mlir::tt::ttnn::DispatchD2MOp::getD2MMainFunc() {
+func::FuncOp mlir::tt::ttnn::D2MSubgraphOp::getD2MMainFunc() {
   ModuleOp parentModule = getOperation()->getParentOfType<ModuleOp>();
   if (!parentModule) {
     return nullptr;
@@ -4805,7 +4805,7 @@ func::FuncOp mlir::tt::ttnn::DispatchD2MOp::getD2MMainFunc() {
       SymbolTable::lookupSymbolIn(parentModule, nameAttr));
 }
 
-void mlir::tt::ttnn::DispatchD2MOp::getEffects(
+void mlir::tt::ttnn::D2MSubgraphOp::getEffects(
     SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
         &effects) {
   effects.emplace_back(MemoryEffects::Read::get(),

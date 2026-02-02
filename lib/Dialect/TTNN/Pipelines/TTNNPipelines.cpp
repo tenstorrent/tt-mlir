@@ -632,11 +632,11 @@ void registerTTNNPipelines() {
       "XLA/Torch. ",
       mlir::tt::ttnn::createRecoverStructureXLATorchPipeline);
 
-  // TTNN D2M pipeline - runs D2M compilation on TTNN dispatch_d2m ops.
+  // TTNN D2M pipeline - runs D2M compilation on TTNN d2m_subgraph ops.
   //
   mlir::PassPipelineRegistration<>(
       "ttnn-through-d2m-pipeline",
-      "Pipeline to compile D2M subgraphs inside ttnn.dispatch_d2m ops.",
+      "Pipeline to compile D2M subgraphs inside ttnn.d2m_subgraph ops.",
       [](OpPassManager &pm) {
         auto &devicePm =
             pm.nest<ttcore::DeviceModuleOp>().nest<mlir::ModuleOp>();
