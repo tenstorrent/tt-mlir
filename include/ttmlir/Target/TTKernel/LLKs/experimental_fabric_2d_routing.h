@@ -319,8 +319,8 @@ FORCE_INLINE McastParams get_mcast_params_unidir_torus(
   int32_t end_y = topology.get_logical_mesh_position(dst_end_device_id)[0];
   int32_t size_y = topology.mesh_shape[0];
   int32_t my_x = topology.get_logical_mesh_position(my_device_id)[1];
-  int32_t start_x = topology.get_logical_mesh_position(dst_start_device_id)[0];
-  int32_t end_x = topology.get_logical_mesh_position(dst_end_device_id)[0];
+  int32_t start_x = topology.get_logical_mesh_position(dst_start_device_id)[1];
+  int32_t end_x = topology.get_logical_mesh_position(dst_end_device_id)[1];
   int32_t size_x = topology.mesh_shape[1];
 
   // Assert: at least one destination (not including sender)
@@ -339,28 +339,31 @@ FORCE_INLINE McastParams get_mcast_params_unidir_torus(
       is_forward ? static_cast<uint32_t>(topology.routing_directions[1].first)
                  : static_cast<uint32_t>(topology.routing_directions[1].second);
 
-  // (stray comment) Check if my_idx is strictly between start_idx and end_idx
-  // on the ring
   bool ns_region_exists = !(my_y == start_y && start_y == end_y);
   bool ew_region_exists = !(my_x == start_x && start_x == end_x);
   bool ns_region_contains_my_y = ((my_y - start_y + size_y) % size_y) <
                                  ((end_y - start_y + size_y) % size_y);
-  // remove my_y from endpoints before calling get_ring_regions since we don't
-  // send to ourselves
-  auto [ns_start_1, ns_range_1, ns_start_2_gap, ns_range_2] =
-      get_ring_regions(my_y, start_y, end_y, size_y, is_forward);
-  auto [ew_start_1, ew_range_1, ew_start_2_gap, ew_range_2] =
-      get_ring_regions(my_x, start_x, end_x, size_x, is_forward);
-  // sender must be inside or adjacent to mcast region
-  WAYPOINT("DA49");
-  ASSERT(ns_start_1 == 1);
-  WAYPOINT("DA50");
-  ASSERT(ew_start_1 == 1);
-  // gap not supported
-  WAYPOINT("DA51");
-  ASSERT(ns_start_2_gap == 1);
-  WAYPOINT("DA52");
-  ASSERT(ew_start_2_gap == 1);
+  int32_t ns_start_1 = 0, ns_range_1 = 0, ns_start_2_gap = 0, ns_range_2 = 0;
+  int32_t ew_start_1 = 0, ew_range_1 = 0, ew_start_2_gap = 0, ew_range_2 = 0;
+  if (ns_region_exists) {
+    std::tie(ns_start_1, ns_range_1, ns_start_2_gap, ns_range_2) =
+        get_ring_regions(my_y, start_y, end_y, size_y, is_forward);
+    // sender must be inside or adjacent to mcast region
+    WAYPOINT("DA49");
+    ASSERT(ns_start_1 == 1);
+    // gap not supported
+    WAYPOINT("DA50");
+    ASSERT(ns_start_2_gap == 1);
+  }
+  if (ew_region_exists) {
+    std::tie(ew_start_1, ew_range_1, ew_start_2_gap, ew_range_2) =
+        get_ring_regions(my_x, start_x, end_x, size_x, is_forward);
+    // sender must be inside or adjacent to mcast region
+    WAYPOINT("DA51");
+    ASSERT(ew_start_1 == 1);
+    WAYPOINT("DA52");
+    ASSERT(ew_start_2_gap == 1);
+  }
 
   // TODO: i don't like that we're explicitly checking north and south here
   // maybe can have a function function to set correct hop field or abstract to

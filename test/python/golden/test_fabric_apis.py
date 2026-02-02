@@ -99,10 +99,11 @@ def get_device_id_t3k_1d_mesh_shape(mesh_coord):
     else:
         return 11 - mesh_coord[1]
 
-
 def get_device_id_t3k_2d_mesh_shape(mesh_coord):
     return mesh_coord[0] * 4 + mesh_coord[1]
 
+def get_device_id_6u_2d_mesh_shape(mesh_coord):
+    return mesh_coord[0] * 4 + mesh_coord[1]
 
 def wrap_range(start, end, size):
     length = (end - start) % size + 1
