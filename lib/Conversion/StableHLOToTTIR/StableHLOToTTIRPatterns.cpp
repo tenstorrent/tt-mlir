@@ -2487,7 +2487,7 @@ public:
       }
     }
     int64_t inputRank = firstInputType.getRank();
-    if (!llvm::is_contained({1, 2, 4}, inputRank)) {
+    if (inputRank > 4) {
       return rewriter.notifyMatchFailure(srcOp, "Invalid input tensor rank.");
     }
 
