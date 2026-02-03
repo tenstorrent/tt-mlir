@@ -272,8 +272,8 @@ protected:
       mlir::func::FuncOp inputFuncOp;
       // Only create input function if the forward function has inputs
       if (!forwardFuncOp.getFunctionType().getInputs().empty()) {
-        inputFuncOp = createInputFunctionImpl(
-            rewriter, forwardFuncOp.getLoc(), forwardFuncOp, functionPrefix);
+        inputFuncOp = createInputFunctionImpl(rewriter, forwardFuncOp.getLoc(),
+                                              forwardFuncOp, functionPrefix);
       }
       forwardAndInputFuncOps.emplace_back(forwardFuncOp, inputFuncOp);
     }
