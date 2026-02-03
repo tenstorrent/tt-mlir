@@ -214,6 +214,12 @@ void createTTIRToTTNNDevicePipeline(
   // Resolve options controlled by optimization_level.
   options.resolveOptimizationLevelOptions();
 
+  // TODO(dmilinkovic): Remove this once multithreading issues in MetalContext
+  // are resolved - tt-metal issue #31041.
+  if (options.optimizerPassEnabled) {
+    static_cast<PassManager &>(pm).getContext()->disableMultithreading();
+  }
+
   // Mark all public functions without a type assigned to them as Device Forward
   // functions before any other. This provides a consistent mechanism for
   // identifying Device Forward functions downstream.

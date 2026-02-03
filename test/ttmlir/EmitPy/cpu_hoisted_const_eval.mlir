@@ -78,32 +78,33 @@ func.func @forward_all_const(%arg0: tensor<32x16xf32> {ttcore.argument_type = #t
   return %0 : tensor<32x16xf32>
 }
 
-// Verify that CPU-hoisted functions are generated with golden_function calls.
+// Verify that 5 CPU-hoisted functions are generated with golden_function calls.
 
 // CHECK-LABEL : # File: "consteval"
 
-// CHECK-LABEL: def cpu_hoisted_forward_const_eval_0_{{.*}}
+// CHECK-LABEL: def cpu_hoisted_const_eval_{{.*}}
 // CHECK: golden_function
-// CHECK-LABEL: def cpu_hoisted_forward_split_const_eval_0_{{.*}}
+// CHECK-LABEL: def cpu_hoisted_const_eval_{{.*}}
 // CHECK: golden_function
-// CHECK-LABEL: def cpu_hoisted_forward_merge_const_eval_0_{{.*}}
+// CHECK-LABEL: def cpu_hoisted_const_eval_{{.*}}
 // CHECK: golden_function
-// CHECK-LABEL: def cpu_hoisted_forward_zeros_const_eval_0_{{.*}}
+// CHECK-LABEL: def cpu_hoisted_const_eval_{{.*}}
 // CHECK: golden_function
-// CHECK-LABEL: def cpu_hoisted_forward_all_const_const_eval_0_{{.*}}
+// CHECK-LABEL: def cpu_hoisted_const_eval_{{.*}}
 // CHECK: golden_function
 
 // CHECK-LABEL: def forward_const_eval_0(
-// CHECK: cpu_hoisted_forward_const_eval_{{.*}}
+// CHECK: cpu_hoisted_const_eval_{{.*}}
 // CHECK-LABEL: def forward_split_const_eval_0(
-// CHECK: cpu_hoisted_forward_split_const_eval_{{.*}}
-// CHECK: cpu_hoisted_forward_split_const_eval_{{.*}}
+// CHECK: cpu_hoisted_const_eval_{{.*}}
+// CHECK-LABEL: def forward_split_const_eval_1(
+// CHECK: cpu_hoisted_const_eval_{{.*}}
 // CHECK-LABEL: def forward_merge_const_eval_0(
-// CHECK: cpu_hoisted_forward_merge_const_eval_{{.*}}
+// CHECK: cpu_hoisted_const_eval_{{.*}}
 // CHECK-LABEL: def forward_zeros_const_eval_0(
-// CHECK: cpu_hoisted_forward_zeros_const_eval_{{.*}}
+// CHECK: cpu_hoisted_const_eval_{{.*}}
 // CHECK-LABEL: def forward_all_const_const_eval_0(
-// CHECK: cpu_hoisted_forward_all_const_const_eval_{{.*}}
+// CHECK: cpu_hoisted_const_eval_{{.*}}
 
 // CHECK-LABEL: def execute_forward_consteval
 // CHECK-LABEL: def execute_forward_split_consteval

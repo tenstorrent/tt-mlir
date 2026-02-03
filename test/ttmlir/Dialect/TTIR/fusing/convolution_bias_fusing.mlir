@@ -50,3 +50,20 @@ func.func @test_conv_double_add_bias_fusing(%arg0: tensor<1x3x224x224xbf16>, %ar
     return %5 : tensor<1x64x112x112xbf16>
 }
 }
+// -----
+module {
+func.func @test_conv3d_bias_fusing(%arg0: tensor<1x8x28x28x32xbf16>, %arg1: tensor<32x32x3x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>}, %arg2: tensor<1x1x1x1x32xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>}) -> tensor<1x6x26x26x32xbf16> {
+    // CHECK: func.func @test_conv3d_bias_fusing
+    // CHECK: "ttir.conv3d"(%{{.*}}, %{{.*}}, %{{.*}}
+    // CHECK-NOT: "ttir.add"
+    %1 = "ttir.conv3d"(%arg0, %arg1)
+            <{
+              stride = array<i32: 1, 1, 1>,
+              padding = array<i32: 0, 0, 0>,
+              groups = 1 : i32,
+              padding_mode = "zeros"
+            }> : (tensor<1x8x28x28x32xbf16>, tensor<32x32x3x3x3xbf16>) -> tensor<1x6x26x26x32xbf16>
+    %2 = "ttir.add"(%1, %arg2) : (tensor<1x6x26x26x32xbf16>, tensor<1x1x1x1x32xbf16>) -> tensor<1x6x26x26x32xbf16>
+    return %2 : tensor<1x6x26x26x32xbf16>
+}
+}

@@ -14,7 +14,7 @@ module {
 
   // Single merged const-eval function (all const-eval ops merge).
   // CHECK-LABEL: func.func private @forward_merge_const_eval_0{{.*}} -> tensor<32x32xbf16
-  // CHECK: call @cpu_hoisted_forward_merge_const_eval_0_{{.*}}
+  // CHECK: call @cpu_hoisted_const_eval_{{.*}}
 
   // CHECK-LABEL: func.func @forward_merge
   func.func @forward_merge(%arg0: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<input>},
@@ -47,10 +47,10 @@ module {
   }
 
   // Should have only ONE hoisted function declaration (merged subgraph).
-  // CHECK-LABEL: func.func private @cpu_hoisted_forward_merge_const_eval_0_{{.*}}{{.*}} -> tensor<32x32xf32
+  // CHECK-LABEL: func.func private @cpu_hoisted_const_eval_{{.*}} -> tensor<32x32xf32
 
   // CHECK: ttcore.cpu_module {
   // CHECK: builtin.module {
   // Should have only ONE hoisted function (merged).
-  // CHECK: llvm.func @cpu_hoisted_forward_merge_const_eval_0_{{.*}}(
+  // CHECK: llvm.func @cpu_hoisted_const_eval_{{.*}}(
 }

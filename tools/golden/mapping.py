@@ -669,7 +669,15 @@ def conv_transpose2d_golden(
     return result
 
 
-def max_pool2d_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
+def ttir_max_pool2d_golden(
+    input_tensor: GoldenMapTensor,
+    kernel_attr: Union[IntegerAttr, DenseI32ArrayAttr],
+    stride_attr: Union[IntegerAttr, DenseI32ArrayAttr],
+    padding_attr: Union[IntegerAttr, DenseI32ArrayAttr],
+    dilation_attr: Union[IntegerAttr, DenseI32ArrayAttr],
+    ceil_mode_attr: BoolAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
     """
     Custom golden function for max_pool2d with layout transformation.
 
@@ -677,30 +685,30 @@ def max_pool2d_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTenso
     ----------
     input_tensor : GoldenMapTensor
         Input tensor for max pooling
-    **kwargs : dict
-        Keyword arguments containing:
-        - kernel_size: Union[int, List[int]] - Size of the pooling kernel
-        - stride: Union[int, List[int]] - Stride for pooling operation
-        - padding: Union[int, List[int]] - Padding for pooling operation
-        - dilation: Union[int, List[int]] - Dilation for pooling operation
-        - ceil_mode: bool - Whether to use ceiling mode for pooling
+    kernel_attr : Union[IntegerAttr, DenseI32ArrayAttr]
+        Size of the pooling kernel
+    stride_attr : Union[IntegerAttr, DenseI32ArrayAttr]
+        Stride for pooling operation
+    padding_attr : Union[IntegerAttr, DenseI32ArrayAttr]
+        Padding for pooling operation
+    dilation_attr : Union[IntegerAttr, DenseI32ArrayAttr]
+        Dilation for pooling operation
+    ceil_mode_attr : BoolAttr
+        Whether to use ceiling mode for pooling
+    output_type_mlir : Type
+        MLIR type for the output tensor
 
     Returns
     -------
     GoldenMapTensor
         Result of 2D max pooling with layout transformation
     """
-    # Get parameters from ttir_kwargs
-    kernel_size = kwargs.get("kernel")
-    stride = kwargs.get("stride", kernel_size)  # Default stride = kernel size
-    padding = kwargs.get("padding", 0)
-    dilation = kwargs.get("dilation", 1)
-    ceil_mode = kwargs.get("ceil_mode", False)
-
-    kernel_size = unpack_mlir_attr(kernel_size)
-    stride = unpack_mlir_attr(stride)
-    padding = unpack_mlir_attr(padding)
-    dilation = unpack_mlir_attr(dilation)
+    kernel_size = unpack_mlir_attr(kernel_attr)
+    stride = unpack_mlir_attr(stride_attr)
+    padding = unpack_mlir_attr(padding_attr)
+    dilation = unpack_mlir_attr(dilation_attr)
+    ceil_mode = unpack_mlir_attr(ceil_mode_attr)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
 
     # Convert padding from [top, left, bottom, right] format to PyTorch format
     if isinstance(padding, (list, tuple)) and len(padding) == 4:
@@ -725,41 +733,44 @@ def max_pool2d_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTenso
 
     # TTIR max_pool2d is channels last. PyTorch max_pool2d is channels first.
     maxpool_object = torch.nn.MaxPool2d(
-        kernel_size, stride, torch_padding, dilation, ceil_mode
+        kernel_size=kernel_size,
+        stride=stride,
+        padding=torch_padding,
+        dilation=dilation,
+        ceil_mode=ceil_mode,
     )
     input_tensor = input_tensor.transpose(-2, -1).transpose(-3, -2)
     result = maxpool_object(input_tensor)
     result = result.transpose(-3, -2).transpose(-2, -1)
-    return result
+    return result.to(output_dtype)
 
 
 def avg_pool2d_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
     """
-    Custom golden function for max_pool2d with layout transformation.
+    Custom golden function for avg_pool2d with layout transformation.
 
     Parameters
     ----------
     input_tensor : GoldenMapTensor
-        Input tensor for max pooling
+        Input tensor for avg pooling
     **kwargs : dict
         Keyword arguments containing:
         - kernel_size: Union[int, List[int]] - Size of the pooling kernel
         - stride: Union[int, List[int]] - Stride for pooling operation
         - padding: Union[int, List[int]] - Padding for pooling operation
-        - dilation: Union[int, List[int]] - Dilation for pooling operation
         - ceil_mode: bool - Whether to use ceiling mode for pooling
         - count_include_pad: bool - Whether to include padding in the average calculation
 
     Returns
     -------
     GoldenMapTensor
-        Result of 2D max pooling with layout transformation
+        Result of 2D avg pooling with layout transformation
     """
     # Get parameters from ttir_kwargs
     kernel_size = kwargs.get("kernel")
     stride = kwargs.get("stride", kernel_size)  # Default stride = kernel size
     padding = kwargs.get("padding", 0)
-    dilation = kwargs.get("dilation", 1)
+    dilation = kwargs.get("dilation", 1)  # Default dilation = 1
     ceil_mode = kwargs.get("ceil_mode", False)
     count_include_pad = kwargs.get("count_include_pad", True)
 
@@ -768,37 +779,99 @@ def avg_pool2d_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTenso
     padding = unpack_mlir_attr(padding)
     dilation = unpack_mlir_attr(dilation)
 
-    # Convert padding from [top, left, bottom, right] format to PyTorch format
+    # Check if padding exceeds half kernel size (tt-metal constraint)
+    # This mirrors the decomposition in TTIRToTTNN.cpp
+    if isinstance(kernel_size, (list, tuple)):
+        kernel_h, kernel_w = kernel_size
+    else:
+        kernel_h = kernel_w = kernel_size
+
+    max_pad_h = kernel_h // 2
+    max_pad_w = kernel_w // 2
+
+    # Convert padding from [top, left, bottom, right] format or other formats
     if isinstance(padding, (list, tuple)) and len(padding) == 4:
-        # PyTorch MaxPool2d expects symmetric padding: (height_padding, width_padding)
         top, left, bottom, right = padding
-        # For symmetric padding, top should equal bottom and left should equal right
+    elif isinstance(padding, (list, tuple)) and len(padding) == 2:
+        top = bottom = padding[0]
+        left = right = padding[1]
+    elif isinstance(padding, int):
+        top = bottom = left = right = padding
+    else:
+        top = bottom = left = right = 0
+
+    # TTIR avg_pool2d is channels last. PyTorch avg_pool2d is channels first.
+    # Convert to channels first before any padding operations
+    input_tensor = input_tensor.transpose(-2, -1).transpose(-3, -2)
+
+    # If padding exceeds half kernel size, we need to manually pad first
+    if top > max_pad_h or left > max_pad_w or bottom > max_pad_h or right > max_pad_w:
+        import torch.nn.functional as F
+
+        # Manually apply padding with zeros for avg pooling
+        # For channels-first (N, C, H, W), F.pad expects [left, right, top, bottom]
+        manual_padding = [left, right, top, bottom]
+        input_tensor = F.pad(input_tensor, manual_padding, mode="constant", value=0.0)
+        # Now use zero padding for the pooling operation
+        torch_padding = 0
+    else:
+        # Standard case: padding within limits
         if top == bottom and left == right:
             torch_padding = (top, left)
         else:
             # For asymmetric padding, we need to manually pad the input tensor first
-            # and then use zero padding for the MaxPool2d operation
             import torch.nn.functional as F
 
-            # PyTorch F.pad expects padding in reverse order: [left, right, top, bottom]
+            # For channels-first (N, C, H, W), F.pad expects [left, right, top, bottom]
             manual_padding = [left, right, top, bottom]
             input_tensor = F.pad(
-                input_tensor, manual_padding, mode="constant", value=float("-inf")
+                input_tensor, manual_padding, mode="constant", value=0.0
             )
             torch_padding = 0
-    else:
-        torch_padding = padding
 
-    # TTIR max_pool2d is channels last. PyTorch max_pool2d is channels first.
-    if dilation != [1, 1]:
-        raise ValueError("Dilation is not supported for torch.nn.AvgPool2d")
-    maxpool_object = torch.nn.AvgPool2d(
+    avgpool_object = torch.nn.AvgPool2d(
         kernel_size, stride, torch_padding, ceil_mode, count_include_pad
     )
-    input_tensor = input_tensor.transpose(-2, -1).transpose(-3, -2)
-    result = maxpool_object(input_tensor)
+    result = avgpool_object(input_tensor)
+    # Convert back to channels last
     result = result.transpose(-3, -2).transpose(-2, -1)
     return result
+
+
+def global_avg_pool2d_golden(
+    input_tensor: GoldenMapTensor,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    """
+    Custom golden function for global_avg_pool2d with layout transformation.
+
+    Global average pooling performs average pooling over the entire spatial dimensions.
+
+    Parameters
+    ----------
+    input_tensor : GoldenMapTensor
+        Input tensor for global avg pooling (N, H, W, C format - channels last)
+    **kwargs : dict
+        Additional keyword arguments (unused for global pooling)
+
+    Returns
+    -------
+    GoldenMapTensor
+        Result of global 2D avg pooling with layout transformation (N, 1, 1, C format)
+    """
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    # TTIR global_avg_pool2d is channels last. PyTorch adaptive_avg_pool2d is channels first.
+    # Convert from (N, H, W, C) to (N, C, H, W)
+    input_tensor = input_tensor.transpose(-2, -1).transpose(-3, -2)
+
+    # Use adaptive average pooling to reduce spatial dimensions to 1x1
+    import torch.nn.functional as F
+
+    result = F.adaptive_avg_pool2d(input_tensor, (1, 1))
+
+    # Convert back from (N, C, 1, 1) to (N, 1, 1, C)
+    result = result.transpose(-3, -2).transpose(-2, -1)
+    return result.to(output_dtype)
 
 
 def batch_norm_golden(
@@ -2907,6 +2980,20 @@ def ttir_rand_golden(
     return GoldenMapTensor({0: rand_tensor}, (1, 1))
 
 
+def ttir_dropout_golden(
+    input_tensor: GoldenMapTensor,
+    prob: FloatAttr,
+    scale: FloatAttr,
+    seed: IntegerAttr,
+    use_per_device_seed: BoolAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    prob_val = unpack_mlir_attr(prob)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+
+    return torch.dropout(input_tensor, prob_val, True).to(output_dtype)
+
+
 def ttir_cos_golden(
     input_tensor: GoldenMapTensor, output_type_mlir: Type
 ) -> GoldenMapTensor:
@@ -3296,132 +3383,6 @@ def ttir_convolution_golden(
     # Permute output back to the expected output layout if needed
     if output_permutation != list(range(result.ndim)):
         result = result.permute(output_permutation)
-
-    return result.to(output_dtype)
-
-
-# NOTE: Supports both NCHW and NHWC layouts based on spatial_dim_indices.
-# Layout detection follows TTIRToTTIRDecomposition behavior:
-# - NCHW: spatial dims at [2, 3] for 4D tensor (window_dimensions like [1, 1, kH, kW])
-# - NHWC: spatial dims at [1, 2] for 4D tensor (window_dimensions like [1, kH, kW, 1])
-# Spatial dims are detected by finding indices where window_dimensions > 1.
-# If exactly 2 spatial dims cannot be identified, defaults to NCHW (last two positions).
-# See: lib/Conversion/TTIRToTTIRDecomposition/TTIRToTTIRDecomposition.cpp
-# PyTorch pooling expects NCHW, so we permute NHWC to NCHW before pooling and back after.
-def ttir_pooling_golden(
-    input_tensor: GoldenMapTensor,
-    pooling_method_attr: Attribute,
-    window_dimensions_attr: DenseI64ArrayAttr,
-    window_strides_attr: DenseI64ArrayAttr,
-    base_dilations_attr: DenseI64ArrayAttr,
-    window_dilations_attr: DenseI64ArrayAttr,
-    padding_attr: DenseI64ArrayAttr,
-    output_type_mlir: Type,
-) -> GoldenMapTensor:
-    import torch.nn.functional as F
-
-    pooling_method = pooling_method_attr
-    window_dimensions = unpack_mlir_attr(window_dimensions_attr)
-    window_strides = unpack_mlir_attr(window_strides_attr)
-    base_dilations = unpack_mlir_attr(base_dilations_attr)
-    window_dilations = unpack_mlir_attr(window_dilations_attr)
-    padding = unpack_mlir_attr(padding_attr)
-    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
-
-    num_dims = len(window_dimensions)
-
-    # Find spatial dimensions (those with window_dimensions > 1)
-    spatial_dim_indices = [i for i, dim in enumerate(window_dimensions) if dim > 1]
-
-    # Default to last two dimensions if we don't have exactly 2 spatial dims
-    # (matches C++ decomposition behavior - assumes NCHW)
-    if len(spatial_dim_indices) != 2:
-        spatial_dim_indices = [num_dims - 2, num_dims - 1]
-
-    # Determine if input is NHWC (spatial at [1, 2]) or NCHW (spatial at [2, 3])
-    # For 4D tensors: NCHW has spatial at [2, 3], NHWC has spatial at [1, 2]
-    is_nhwc = num_dims == 4 and spatial_dim_indices == [1, 2]
-
-    # If NHWC, permute to NCHW for PyTorch pooling (which expects NCHW)
-    if is_nhwc:
-        # NHWC [N, H, W, C] -> NCHW [N, C, H, W]
-        pool_input = input_tensor.permute(0, 3, 1, 2)
-        # After permute, spatial dims are now at [2, 3] (H, W in NCHW)
-        nchw_spatial_indices = [2, 3]
-    else:
-        pool_input = input_tensor
-        nchw_spatial_indices = spatial_dim_indices
-
-    # Extract kernel, stride, dilation for the spatial dimensions
-    kernel = [window_dimensions[i] for i in spatial_dim_indices]
-    stride = [window_strides[i] for i in spatial_dim_indices]
-    dilation = [window_dilations[i] for i in spatial_dim_indices]
-
-    # Convert padding from flat array to [top, left, bottom, right] format
-    # padding is [dim0_low, dim0_high, dim1_low, dim1_high, dim2_low, dim2_high, dim3_low, dim3_high]
-    pool_padding = [
-        padding[2 * spatial_dim_indices[0]],  # top
-        padding[2 * spatial_dim_indices[1]],  # left
-        padding[2 * spatial_dim_indices[0] + 1],  # bottom
-        padding[2 * spatial_dim_indices[1] + 1],  # right
-    ]
-
-    # Handle padding - convert from [top, left, bottom, right] to PyTorch format
-    top, left, bottom, right = pool_padding
-    pooling_method_str = str(pooling_method)
-
-    if top == bottom and left == right:
-        torch_padding = (top, left)
-        padded_input = pool_input
-    else:
-        # For asymmetric padding, manually pad first
-        # PyTorch F.pad expects padding in reverse order: [left, right, top, bottom]
-        manual_padding = [left, right, top, bottom]
-        if "Max" in pooling_method_str:
-            padded_input = F.pad(
-                pool_input, manual_padding, mode="constant", value=float("-inf")
-            )
-        else:
-            padded_input = F.pad(pool_input, manual_padding, mode="constant", value=0)
-        torch_padding = 0
-
-    # Call appropriate torch function (input is now in NCHW format)
-    if "Max" in pooling_method_str:
-        result = torch.nn.functional.max_pool2d(
-            padded_input,
-            kernel_size=kernel,
-            stride=stride,
-            padding=torch_padding,
-            dilation=dilation,
-            ceil_mode=False,
-        )
-    elif "Average" in pooling_method_str:
-        result = torch.nn.functional.avg_pool2d(
-            padded_input,
-            kernel_size=kernel,
-            stride=stride,
-            padding=torch_padding,
-            ceil_mode=False,
-            count_include_pad=True,
-        )
-    elif "Sum" in pooling_method_str:
-        result = torch.nn.functional.avg_pool2d(
-            padded_input,
-            kernel_size=kernel,
-            stride=stride,
-            padding=torch_padding,
-            ceil_mode=False,
-            count_include_pad=True,
-        )
-        kernel_size_val = kernel[0] * kernel[1]
-        result = torch.mul(result, kernel_size_val)
-    else:
-        raise ValueError(f"Unknown pooling method: {pooling_method_str}")
-
-    # If input was NHWC, permute result back from NCHW to NHWC
-    if is_nhwc:
-        # NCHW [N, C, H', W'] -> NHWC [N, H', W', C]
-        result = result.permute(0, 2, 3, 1)
 
     return result.to(output_dtype)
 
@@ -4525,6 +4486,24 @@ def stablehlo_slice_golden(
         shard_map[device_id] = shard_map[device_id].to(output_dtype)
 
     return GoldenMapTensor(shard_map, input_tensor.mesh_shape)
+
+
+def stablehlo_get_dimension_size_golden(
+    input_tensor: GoldenMapTensor,
+    dimension_attr: IntegerAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    dimension = unpack_mlir_attr(dimension_attr)
+    output_tensor = input_tensor.clone()
+
+    for device_id, shard in input_tensor.shard_map.items():
+        shard = torch.tensor(
+            input_tensor.shard_at(device_id).size(dimension), dtype=torch.int32
+        )
+        output_tensor.shard_map[device_id] = shard
+
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return output_tensor.to(output_dtype)
 
 
 def stablehlo_sine_golden(
@@ -5769,6 +5748,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.FullOp: ttir_full_golden,
     ttir.ArangeOp: ttir_arange_golden,
     ttir.RandOp: ttir_rand_golden,
+    ttir.DropoutOp: ttir_dropout_golden,
     # Quantization operations
     ttir.QuantizeOp: quantize_golden,
     ttir.DequantizeOp: torch.dequantize,
@@ -5777,9 +5757,9 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.CbrtOp: cbrt_golden,
     ttir.Conv2dOp: conv2d_golden,
     ttir.ConvTranspose2dOp: conv_transpose2d_golden,
-    ttir.MaxPool2dOp: max_pool2d_golden,
+    ttir.MaxPool2dOp: ttir_max_pool2d_golden,
     ttir.AvgPool2dOp: avg_pool2d_golden,
-    ttir.PoolingOp: ttir_pooling_golden,
+    ttir.GlobalAvgPool2dOp: global_avg_pool2d_golden,
     ttir.MaxPool2dWithIndicesOp: ttir_max_pool2d_with_indices,
     ttir.ArgMaxOp: argmax_golden,
     ttir.LinearOp: linear_golden,
@@ -5836,6 +5816,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     stablehlo.XorOp: stablehlo_xor_golden,
     stablehlo.NotOp: stablehlo_not_golden,
     stablehlo.SliceOp: stablehlo_slice_golden,
+    stablehlo.GetDimensionSizeOp: stablehlo_get_dimension_size_golden,
     stablehlo.MaxOp: stablehlo_maximum_golden,
     stablehlo.MinOp: stablehlo_minimum_golden,
     stablehlo.MulOp: stablehlo_multiply_golden,

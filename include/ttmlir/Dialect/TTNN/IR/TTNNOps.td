@@ -1642,6 +1642,7 @@ def TTNN_PrepareConvTranspose2dWeightsOp : TTNN_Op<"prepare_conv_transpose2d_wei
                          OptionalAttr<TTCore_DataTypeAttr>:$output_dtype,
                          OptionalAttr<TTNN_Conv2dConfigAttr>:$conv2d_config,
                          OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config,
+                         OptionalAttr<TTNN_Conv2dSliceConfigAttr>:$conv2d_slice_config,
                          DefaultValuedAttr<BoolAttr, "true">:$mirror_kernel);
 
     let results = (outs AnyRankedTensor:$result);
@@ -1669,7 +1670,8 @@ def TTNN_PrepareConvTranspose2dBiasOp : TTNN_Op<"prepare_conv_transpose2d_bias",
                          TTCore_DataTypeAttr:$input_dtype,
                          OptionalAttr<TTCore_DataTypeAttr>:$output_dtype,
                          OptionalAttr<TTNN_Conv2dConfigAttr>:$conv2d_config,
-                         OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config);
+                         OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config,
+                         OptionalAttr<TTNN_Conv2dSliceConfigAttr>:$conv2d_slice_config);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -1931,7 +1933,8 @@ def TTNN_ConvTranspose2dOp : TTNN_Op<"conv_transpose2d", [TTNN_DtypeOpInterface,
                          OptionalAttr<TTCore_DataTypeAttr>:$dtype,
                          OptionalAttr<TTNN_Conv2dConfigAttr>:$conv2d_config,
                          OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config,
-                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
+                         OptionalAttr<TTNN_Conv2dSliceConfigAttr>:$conv2d_slice_config);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -2321,6 +2324,46 @@ def TTNN_RandOp : TTNN_CreationOp<"rand", [TTCore_NonCacheableTrait]> {
                        TTNN_MemoryConfigAttr:$memory_config);
 
   let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+}
+
+def TTNN_DropoutOp : TTNN_Op<"dropout", [TTNN_MemoryConfigOpInterface, TTCore_NonCacheableTrait]> {
+  let summary = "Dropout operation.";
+  let description = [{
+    Applies dropout to the input tensor element-wise.
+
+    Example:
+      %result = "ttnn.dropout"(%input) <{prob = 0.2 : f32, scale = 1.25 : f32, seed = 42 : ui32}> : (tensor<64x128xbf16>) -> tensor<64x128xbf16>
+
+    Attributes:
+      - `prob` (Float): Dropout probability. Elements are zeroed with this probability [Default: 0.0].
+      - `scale` (Float): Scale factor applied to non-zeroed elements. Typically 1/(1-prob) [Default: 1.0].
+      - `seed` (Integer): Seed for the random number generator [Default: 0].
+      - `use_per_device_seed` (Bool): Whether to use a different seed per device [Default: true].
+      - `memory_config` (MemoryConfig): Memory configuration for the output tensor.
+
+    Inputs:
+      - `input` (Tensor): The input tensor.
+
+    Output:
+      - `result` (Tensor): The output tensor with dropout applied.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       DefaultValuedAttr<F32Attr, "0.0">:$prob,
+                       DefaultValuedAttr<F32Attr, "1.0">:$scale,
+                       DefaultValuedAttr<UI32Attr, "0">:$seed,
+                       DefaultValuedAttr<BoolAttr, "true">:$use_per_device_seed,
+                       OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let extraClassDeclaration = [{
+    wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+      return wa::TTNNOperandsWorkaroundsFactory::createDropoutOpOperandsWorkarounds();
+    }
+  }];
 
   let hasVerifier = 1;
 }

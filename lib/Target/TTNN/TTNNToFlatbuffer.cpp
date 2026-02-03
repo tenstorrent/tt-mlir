@@ -804,6 +804,9 @@ createOp(FlatbufferObjectCache &cache, PrepareConvTranspose2dWeightsOp op) {
       ::flatbuffers::Offset<::tt::target::ttnn::DeviceComputeKernelConfig>>
       computeConfig = toFlatbuffer(cache, op.getComputeConfig());
 
+  std::optional<::flatbuffers::Offset<::tt::target::ttnn::Conv2dSliceConfig>>
+      sliceConfig = toFlatbuffer(cache, op.getConv2dSliceConfig());
+
   return ::tt::target::ttnn::CreatePrepareConvTranspose2dWeightsOp(
       *cache.fbb, weightTensor, output, memoryConfig, inputTensorLayout,
       weightsFormat, op.getInChannels(), op.getOutChannels(), op.getBatchSize(),
@@ -811,7 +814,7 @@ createOp(FlatbufferObjectCache &cache, PrepareConvTranspose2dWeightsOp op) {
       dilation, op.getHasBias(), op.getGroups(),
       cache.at<::tt::target::DeviceRef>(device), inputDtype, outputDtype,
       conv2dConfig.value_or(0), computeConfig.value_or(0),
-      op.getMirrorKernel());
+      sliceConfig.value_or(0), op.getMirrorKernel());
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::PrepareConvTranspose2dBiasOp>
@@ -852,13 +855,16 @@ createOp(FlatbufferObjectCache &cache, PrepareConvTranspose2dBiasOp op) {
       ::flatbuffers::Offset<::tt::target::ttnn::DeviceComputeKernelConfig>>
       computeConfig = toFlatbuffer(cache, op.getComputeConfig());
 
+  std::optional<::flatbuffers::Offset<::tt::target::ttnn::Conv2dSliceConfig>>
+      sliceConfig = toFlatbuffer(cache, op.getConv2dSliceConfig());
+
   return ::tt::target::ttnn::CreatePrepareConvTranspose2dBiasOp(
       *cache.fbb, biasTensor, output, memoryConfig, inputTensorLayout,
       op.getInChannels(), op.getOutChannels(), op.getBatchSize(),
       op.getInputHeight(), op.getInputWidth(), kernelSize, stride, padding,
       dilation, op.getGroups(), cache.at<::tt::target::DeviceRef>(device),
       inputDtype, outputDtype, conv2dConfig.value_or(0),
-      computeConfig.value_or(0));
+      computeConfig.value_or(0), sliceConfig.value_or(0));
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::Conv2dOp>
@@ -951,6 +957,9 @@ createOp(FlatbufferObjectCache &cache, ConvTranspose2dOp op) {
       ::flatbuffers::Offset<::tt::target::ttnn::DeviceComputeKernelConfig>>
       computeConfig = toFlatbuffer(cache, op.getComputeConfig());
 
+  std::optional<::flatbuffers::Offset<::tt::target::ttnn::Conv2dSliceConfig>>
+      sliceConfig = toFlatbuffer(cache, op.getConv2dSliceConfig());
+
   auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
 
   return ::tt::target::ttnn::CreateConvTranspose2dOp(
@@ -959,7 +968,7 @@ createOp(FlatbufferObjectCache &cache, ConvTranspose2dOp op) {
       op.getOutChannels(), op.getBatchSize(), op.getInputHeight(),
       op.getInputWidth(), kernelSize, stride, padding, outputPadding, dilation,
       op.getGroups(), outputDtype, conv2dConfig.value_or(0),
-      computeConfig.value_or(0), memoryConfig);
+      computeConfig.value_or(0), memoryConfig, sliceConfig.value_or(0));
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::Conv3dOp>
@@ -2229,6 +2238,25 @@ createRandOp(FlatbufferObjectCache &cache, RandOp op) {
       seed, dtype, layout, memoryConfig, out);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::DropoutOp>
+createDropoutOp(FlatbufferObjectCache &cache, DropoutOp op) {
+  auto in = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+  auto out = cache.getOrCreateNoSharding(
+      op.getResult(), tensorValueToFlatbuffer, /*local_shape*/ std::nullopt);
+  float prob = op.getProb().convertToFloat();
+  float scale = op.getScale().convertToFloat();
+  uint32_t seed = op.getSeed();
+  bool usePerDeviceSeed = op.getUsePerDeviceSeed();
+  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
+  auto resultType = mlir::cast<RankedTensorType>(op.getResult().getType());
+  ::tt::target::DataType outputDtype = toFlatbuffer(
+      cache, ttcore::elementTypeToDataType(resultType.getElementType()));
+  return ::tt::target::ttnn::CreateDropoutOp(*cache.fbb, in, prob, scale, seed,
+                                             usePerDeviceSeed, outputDtype,
+                                             memoryConfig, out);
+}
+template <typename RepeatOp>
 ::flatbuffers::Offset<::tt::target::ttnn::RepeatOp>
 createRepeatOp(FlatbufferObjectCache &cache, RepeatOp op) {
   auto in = cache.at<::tt::target::ttnn::TensorRef>(
@@ -3686,6 +3714,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto randOp = dyn_cast<RandOp>(op); randOp) {
     return createOperation(cache, createRandOp(cache, randOp), debugString,
                            locInfo);
+  }
+  if (auto dropoutOp = dyn_cast<DropoutOp>(op); dropoutOp) {
+    return createOperation(cache, createDropoutOp(cache, dropoutOp),
+                           debugString, locInfo);
   }
   if (auto reshapeOp = dyn_cast<ReshapeOp>(op); reshapeOp) {
     return createOperation(cache, createReshapeOp(cache, reshapeOp),
