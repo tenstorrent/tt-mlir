@@ -742,6 +742,7 @@ def execute_fb(
                     ),
                 )
                 golden_inputs_torch.append(torch_tensor)
+
         golden_outputs_torch = []
         outputs_torch = []
         for i, o_dict in enumerate(output_dict):
