@@ -2606,6 +2606,12 @@ def TTNN_MeshPartitionOp: TTNN_Op<"mesh_partition", [TTNN_MemoryConfigOpInterfac
                        OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
   let results = (outs AnyRankedTensor:$result);
   let hasVerifier = 1;
+
+  let extraClassDeclaration = [{
+    wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+      return wa::TTNNOperandsWorkaroundsFactory::createMeshPartitionOpOperandsWorkarounds();
+    }
+  }];
 }
 
 def TTNN_PermuteOp : TTNN_Op<"permute"> {

@@ -1,4 +1,4 @@
-// // RUN: ttmlir-opt -split-input-file --ttir-to-ttnn-backend-pipeline="mesh-shape=2,4" -o %t %s
+// // RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="mesh-shape=2,4" -o %t %s
 // // RUN: FileCheck %s --input-file=%t
 
 module attributes {ttcore.meshes = #ttcore.meshes<[<"mesh" = 2x4>]>} {
@@ -20,29 +20,7 @@ module attributes {ttcore.meshes = #ttcore.meshes<[<"mesh" = 2x4>]>} {
 // CHECK-SAME: <{layout = #ttnn.layout<row_major>}>
 // CHECK: "ttnn.mesh_partition"(%1)
 // CHECK-SAME: <{cluster_axis = 1 : ui32, dim = 0 : si32}>
-// CHECK: %3 = "ttnn.to_layout"(%2)
-// CHECK-SAME: <{layout = #ttnn.layout<row_major>}>
-// CHECK: "ttnn.mesh_partition"(%3)
+// CHECK: "ttnn.mesh_partition"(%2)
 // CHECK-SAME: <{cluster_axis = 0 : ui32, dim = 1 : si32}>
-
-// -----
-
-module attributes {ttcore.meshes = #ttcore.meshes<[<"mesh" = 2x4>]>} {
-  ttcore.device_module {
-    builtin.module attributes {ttcore.meshes = #ttcore.meshes<[<"mesh" = 2x4>]>} {
-      func.func @test_sdy_all_slice_composite_tiled(%arg0: tensor<32x32xbf16> {ttcore.shard_status = #ttcore.shard_status<presharded>}) -> (tensor<32x32xbf16> {ttcore.shard_status = #ttcore.shard_status<unsharded>}) {
-        %0 = "ttir.mesh_shard"(%arg0) <{shard_dims = array<i64: -1>, shard_direction = #ttcore.shard_direction<full_to_shard>, shard_shape = array<i64: 1>, shard_type = #ttcore.shard_type<identity>}> : (tensor<32x32xbf16>) -> tensor<32x32xbf16>
-        %1 = "ttir.mesh_partition"(%0) <{cluster_axis = 1 : ui32, dim = 0 : si32}> : (tensor<32x32xbf16>) -> tensor<8x32xbf16>
-        %2 = "ttir.mesh_shard"(%1) <{shard_dims = array<i64: 1, 0>, shard_direction = #ttcore.shard_direction<shard_to_full>, shard_shape = array<i64: 4, 2>, shard_type = #ttcore.shard_type<identity>}> : (tensor<8x32xbf16>) -> tensor<32x32xbf16>
-        return %2 : tensor<32x32xbf16>
-      }
-    }
-  }
-}
-
-// CHECK-LABEL: @test_sdy_all_slice_composite_tiled
-// CHECK-NOT: "ttnn.to_layout"
-// CHECK: "ttnn.mesh_partition"(%arg0)
-// CHECK-SAME: <{cluster_axis = 1 : ui32, dim = 0 : si32}>
-// Layout should not be changed (stays TILED):
-// CHECK-SAME: (tensor<32x32xbf16, #ttnn_layout>) -> tensor<8x32xbf16, #ttnn_layout>
+// CHECK: %4 = "ttnn.to_layout"(%3)
+// CHECK-SAME: <{layout = #ttnn.layout<tile>}>

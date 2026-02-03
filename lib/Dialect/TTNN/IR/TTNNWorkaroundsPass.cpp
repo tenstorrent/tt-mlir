@@ -263,6 +263,17 @@ TTNNOperandsWorkaroundsFactory::createMeshShardOpOperandsWorkarounds(
       .addOutputOperandWorkaround(sysMemWorkaround);
 }
 
+// Factory method to create a set of workarounds for mesh partition op operands.
+// The input tensor to the op should always be in row-major layout.
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createMeshPartitionOpOperandsWorkarounds() {
+  wa::TTNNOperandWorkarounds inputRowMajorWorkaround;
+  inputRowMajorWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
+  return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addInputOperandWorkaround(inputRowMajorWorkaround)
+      .addOutputOperandWorkaround(inputRowMajorWorkaround);
+}
+
 // Factory method to create a set of workaround for concat operation operands.
 // tt-metal applies padding (before concatenation) to the input tensors if the
 // layout is tile and the shape is not divisible by tile size along concatenated
