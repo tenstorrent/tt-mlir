@@ -928,6 +928,50 @@ def batch_norm_golden(
     return result
 
 
+def rms_norm_golden(
+    input: GoldenMapTensor,
+    weight: Optional[GoldenMapTensor] = None,
+    bias: Optional[GoldenMapTensor] = None,
+    normalized_shape: List[int] = None,
+    epsilon: float = 1e-5,
+) -> GoldenMapTensor:
+    """
+    Custom golden function for RMS normalization operation.
+    Parameters
+    ----------
+    input : GoldenMapTensor
+        Input tensor to RMS normalization operation
+    weight : GoldenMapTensor, optional
+        Weight tensor for scaling (default: None)
+    bias : GoldenMapTensor, optional
+        Bias tensor for shifting (default: None)
+    normalized_shape : List[int], optional
+        Shape of the input tensor to normalize (default: None)
+    epsilon : float, optional
+        Small value to avoid division by zero (default: 1e-5)
+    Returns
+    -------
+    GoldenMapTensor
+        RMS normalized output tensor
+    """
+    # Convert to float for computation
+    input_float = input.float()
+
+    rms_norm = torch.nn.functional.rms_norm(
+        input_float,
+        normalized_shape=normalized_shape,
+        weight=weight,
+        eps=epsilon,
+    )
+
+    # Apply bias (shift) if provided
+    if bias is not None:
+        rms_norm = torch.add(rms_norm, bias.float())
+
+    # Convert back to original dtype
+    return rms_norm.to(input.dtype)
+
+
 def ttir_rms_norm_golden(
     input: GoldenMapTensor,
     weight: Optional[GoldenMapTensor],
@@ -5472,32 +5516,6 @@ def ttnn_linear_golden(
     return torch.add(output, bias_tensor).to(output_dtype)
 
 
-def ttnn_rms_norm_golden(
-    input: GoldenMapTensor,
-    weight: Optional[GoldenMapTensor],
-    bias: Optional[GoldenMapTensor],
-    normalized_shape: ArrayAttr,
-    epsilon: FloatAttr,
-    output_type_mlir: Type,
-) -> GoldenMapTensor:
-    normalized_shape = unpack_mlir_attr(normalized_shape)
-    epsilon = unpack_mlir_attr(epsilon)
-    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
-    input_float = input.float()
-
-    rms_norm = torch.nn.functional.rms_norm(
-        input_float,
-        normalized_shape=normalized_shape,
-        weight=weight,
-        eps=epsilon,
-    )
-
-    if bias is not None:
-        rms_norm = torch.add(rms_norm, bias)
-
-    return rms_norm.to(output_dtype)
-
-
 def ttnn_layer_norm_golden(
     input: GoldenMapTensor,
     weight: Optional[GoldenMapTensor],
@@ -5904,7 +5922,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttnn.MatmulOp: ttnn_matmul_golden,
     ttnn.LinearOp: ttnn_linear_golden,
     ttnn.LayerNormOp: ttnn_layer_norm_golden,
-    ttnn.RMSNormOp: ttnn_rms_norm_golden,
+    ttnn.RMSNormOp: rms_norm_golden,
     # Tensor manipulation
     ttnn.ConcatOp: ttnn_concat_golden,
     ttnn.RepeatOp: ttnn_repeat_golden,
