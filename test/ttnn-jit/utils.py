@@ -274,7 +274,7 @@ def run_op_test(
         else:
             # ttnn-jit will by default set l1 block sharded output memory config
             # get expected memory config to check for
-            expected_memory_config = get_expected_memory_config(golden_tensor.shape())
+            expected_memory_config = get_expected_memory_config(golden_tensor.shape)
             assert memory_configs_equal(
                 output_tensor.memory_config(), expected_memory_config
             )
