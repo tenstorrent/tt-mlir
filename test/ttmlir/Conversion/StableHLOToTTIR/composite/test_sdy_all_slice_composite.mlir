@@ -25,10 +25,8 @@ module {
 }
 
 // CHECK-LABEL: func.func @test_sdy_all_slice_composite
-// CHECK: "ttir.mesh_shard"
-// CHECK-SAME: shard_type = #ttcore.shard_type<identity>
-// CHECK: "ttir.mesh_shard"
-// CHECK-SAME: shard_dims = array<i64: 1, 0>
-// CHECK-SAME: shard_direction = #ttcore.shard_direction<full_to_shard>
-// CHECK-SAME: shard_shape = array<i64: 4, 2>
-// CHECK-SAME: shard_type = #ttcore.shard_type<devices>
+// CHECK: "ttir.mesh_partition"
+// CHECK-SAME: <{cluster_axis = 0 : ui32, dim = 1 : si32}> : (tensor<4x32xbf16>) -> tensor<4x16xbf16>
+// CHECK: "ttir.mesh_partition"
+// CHECK-SAME: <{cluster_axis = 1 : ui32, dim = 0 : si32}> : (tensor<4x16xbf16>) -> tensor<1x16xbf16>
+// CHECK-NOT: func.func private @sdy.all_slice1
