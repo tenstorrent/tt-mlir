@@ -27,15 +27,63 @@ namespace mlir::tt {
 //   - main.py: Contains the main execution logic
 //   - consteval.py: Contains const-evaluated functions and caching logic
 //
-// Key transformations:
-//   1. Moves const-evaluated functions to consteval.py
-//   2. Extracts caching logic for const-evaluated function calls into separate
-//      functions in consteval.py
-//   3. Patches original functions to call the extracted caching functions
-//   4. Manages imports between files
+// Example transformation:
 //
-// The pass enables better code organization and separation of concerns by
-// isolating compile-time evaluation logic from runtime execution logic.
+// BEFORE (single main.py):
+//   import ttnn
+//   import utils
+//   _CONST_EVAL_CACHE = {}
+//
+//   def cpu_hoisted_const_eval_0(input):        # CPU-hoisted function
+//       ...
+//
+//   def main_const_eval_0(input):               # Const-eval function
+//       ...
+//
+//   def _main(input):                           # Main with inline caching
+//       global _CONST_EVAL_CACHE
+//       ...
+//       utils_constEvalFuncWrapper_0 =
+//       utils.constEvalFuncWrapper("main_const_eval_0", ..., _CONST_EVAL_CACHE,
+//       ...) utils_constEvalFuncWrapper_0_0 = utils_constEvalFuncWrapper_0[0]
+//       ...
+//   ...
+//
+// AFTER (split files):
+//   main.py:
+//     import ttnn
+//     import utils
+//     from consteval import consteval__main
+//
+//     def _main(input):
+//         var_0 = consteval__main(input)         # Call to consteval caching
+//         function
+//         ...
+//         result = var_0["main_const_eval_0"][0] # Lookup result in cache
+//         ...
+//   ...
+//
+//   consteval.py:
+//     import ttnn
+//     import utils
+//     _CONST_EVAL_CACHE = {}
+//
+//     def cpu_hoisted_const_eval_0(input):      # Moved from main
+//         ...
+//
+//     def main_const_eval_0(input):             # Moved from main
+//         result = cpu_hoisted_const_eval_0(...)
+//         ...
+//
+//     def consteval__main(inputs):              # Extracted consteval caching
+//     logic from _main function
+//         global _CONST_EVAL_CACHE
+//         ...
+//         utils.constEvalFuncWrapper(main_const_eval_0, ..., _CONST_EVAL_CACHE,
+//         ...)
+//         ...
+//         return _CONST_EVAL_CACHE["_main"]
+//     ...
 //
 //===----------------------------------------------------------------------===//
 
@@ -126,12 +174,23 @@ public:
     moveOperationsToFile(constevalFile, moduleAnalysis.constevalOps);
 
     // Extract consteval caching logic from functions that call consteval
-    // functions.
+    // functions into separate functions in the consteval file. Collect the
+    // names of the created consteval caching functions to later import them
+    // into the main file.
     llvm::SmallVector<llvm::StringRef> constevalFuncNames;
     for (auto *uncategorizedOp : moduleAnalysis.uncategorizedOps) {
       if (auto funcOp = dyn_cast<func::FuncOp>(uncategorizedOp)) {
         CacheConstevalAnalysisResult analysis =
             analyzeFunction(funcOp, constevalFile, &getContext());
+        // Replace func::CallOp with emitpy::CallOpaqueOp for cross-file calls.
+        // This prevents symbol resolution errors when calling cpu-hoisted
+        // functions that have been moved to the consteval file.
+        for (auto callOp :
+             llvm::make_early_inc_range(analysis.crossFileCallOps)) {
+          replaceCallWithCallOpaque(builder, callOp);
+        }
+        // The function that does not have consteval caching logic will stay in
+        // the main file as it is.
         if (!hasCacheConstevalLogic(analysis)) {
           continue;
         }
@@ -139,7 +198,6 @@ public:
                 splitConstevalCacheLogic(builder, constevalFile, analysis))) {
           return;
         }
-        // Collect the name of the created consteval caching function.
         constevalFuncNames.push_back(
             builder.getStringAttr("consteval_" + funcOp.getName()).getValue());
       }
@@ -167,7 +225,7 @@ public:
       importOp->erase();
     }
 
-    // Move uncategorized operations to the main file.
+    // Move remaining uncategorized operations to the main file.
     moveOperationsToFile(mainFile, moduleAnalysis.uncategorizedOps);
   }
 
@@ -232,14 +290,18 @@ private:
       if (isa<emitpy::FileOp>(op)) {
         continue;
       }
+      // Collect the import operations separately to copy them to both files.
       if (isa<emitpy::ImportOp>(op)) {
         result.importOps.push_back(&op);
         continue;
       }
+      // Collect the operation that defines the global cache dictionary as a
+      // consteval operation.
       if (auto globalOp = dyn_cast<emitpy::GlobalOp>(op)) {
         result.constevalOps.push_back(&op);
         continue;
       }
+      // Collect the consteval and cpu-hoisted functions.
       if (auto funcOp = dyn_cast<func::FuncOp>(op)) {
         if (ttmlir::utils::isConstEvalFunc(funcOp) ||
             ttmlir::utils::isForwardCPUFunc(funcOp)) {
@@ -331,13 +393,6 @@ private:
                            CacheConstevalAnalysisResult &analysis) {
     TypeHelper types(&getContext());
     func::FuncOp funcOp = analysis.funcOp;
-
-    // Replace func::CallOp with emitpy::CallOpaqueOp for cross-file calls.
-    // This prevents symbol resolution errors when calling cpu-hoisted functions
-    // that have been moved to the consteval file.
-    for (auto callOp : llvm::make_early_inc_range(analysis.crossFileCallOps)) {
-      replaceCallWithCallOpaque(builder, callOp);
-    }
 
     // Create a function in the consteval file that contains all the caching
     // logic (cache lookups, wrapper calls to const-evaluated functions, cache

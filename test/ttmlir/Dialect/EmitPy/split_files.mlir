@@ -22,19 +22,21 @@ module {
 
 // CHECK: module {
 // CHECK:   emitpy.file "main" {
-// CHECK:     emitpy.import import "utils"
 // CHECK:     emitpy.import import "ttnn"
-// CHECK:     emitpy.import from "consteval" import "execute_forward_consteval"
+// CHECK:     emitpy.import import "utils"
+// CHECK:     emitpy.import from "consteval" import "consteval_forward"
 // CHECK:     func.func @forward(
-// CHECK:       emitpy.call_opaque "execute_forward_consteval"
+// CHECK:       emitpy.call_opaque "consteval_forward"
 // CHECK:       emitpy.call_opaque "ttnn.add"
 // CHECK:   }
 // CHECK:   emitpy.file "consteval" {
-// CHECK:     emitpy.import import "utils"
 // CHECK:     emitpy.import import "ttnn"
+// CHECK:     emitpy.import import "utils"
 // CHECK:     emitpy.global @_CONST_EVAL_CACHE
+// CHECK:     func.func @cpu_hoisted_const_eval_{{.*}}
+// CHECK:       ttnn.add
 // CHECK:     func.func private @forward_const_eval_0
-// CHECK:       emitpy.call_opaque "ttnn.add"
-// CHECK:     func.func @execute_forward_consteval(
+// CHECK:       call @cpu_hoisted_const_eval_{{.*}}
+// CHECK:     func.func @consteval_forward(
 // CHECK:   }
 // CHECK: }

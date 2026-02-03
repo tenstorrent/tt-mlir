@@ -15,7 +15,7 @@
 // CHECK-LABEL: def forward_const_eval_0(
 // CHECK-SAME: device
 // CHECK-NOT: utils.DeviceGetter.get_device
-// CHECK-LABEL: def execute_forward_consteval(
+// CHECK-LABEL: def consteval_forward(
 // CHECK-SAME: device
 // CHECK: utils.constEvalFuncWrapper(
 // CHECK-SAME: device
