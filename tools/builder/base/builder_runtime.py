@@ -685,9 +685,9 @@ def execute_fb(
     )
     output_tensors = {}
     golden_report = {}
-    verify_intermediates = enable_intermediate_verification or len(bypass_ops) > 0
     if bypass_ops is None:
         bypass_ops = []
+    verify_intermediates = enable_intermediate_verification or len(bypass_ops) > 0
     if input_output_goldens is None:
         disable_golden = True
 
@@ -945,8 +945,29 @@ def execute_py(
     golden_report = {}
 
     try:
-        # Parse the AST to find function names from the compiled source
-        tree = ast.parse(compiled_bin)
+        # Split the compiled source into main.py and consteval.py if markers exist
+        main_source = compiled_bin
+        consteval_source = None
+
+        if (
+            "#=== main.py ===" in compiled_bin
+            and "#=== consteval.py ===" in compiled_bin
+        ):
+            parts = compiled_bin.split("#=== consteval.py ===")
+            main_source = parts[0].replace("#=== main.py ===", "").strip()
+            consteval_source = parts[1].strip() if len(parts) > 1 else None
+
+        # If consteval source exists, create and register the consteval module
+        if consteval_source:
+            consteval_module = types.ModuleType("consteval")
+            sys.modules["consteval"] = consteval_module
+            exec(
+                compile(consteval_source, filename="consteval", mode="exec"),
+                consteval_module.__dict__,
+            )
+
+        # Parse the AST to find function names from the main source
+        tree = ast.parse(main_source)
         program_names = []
         for node in ast.walk(tree):
             if (
@@ -962,7 +983,7 @@ def execute_py(
         module_name = program_names[0] if program_names else "emitpy_module"
         module = types.ModuleType(module_name)
         sys.modules[module_name] = module
-        exec(compile(compiled_bin, filename=module_name, mode="exec"), module.__dict__)
+        exec(compile(main_source, filename=module_name, mode="exec"), module.__dict__)
 
         for program_index, program_name in enumerate(program_names):
             program_golden_report = {}
@@ -1113,13 +1134,13 @@ def execute_cpp(
         metal_lib_candidates = [
             p for p in TT_METAL_RUNTIME_ROOT.glob("build*/lib") if p.is_dir()
         ]
-        if len(metal_lib_candidates) != 1:
-            found = "\n".join(f"- {p}" for p in metal_lib_candidates) or "- <none>"
-            raise TTBuilderRuntimeException(
-                "Expected exactly one TT-Metal build lib directory matching "
-                f"`{TT_METAL_RUNTIME_ROOT}/build*/lib`, but found {len(metal_lib_candidates)}:\n"
-                f"{found}"
-            )
+        # if len(metal_lib_candidates) != 1:
+        #    found = "\n".join(f"- {p}" for p in metal_lib_candidates) or "- <none>"
+        #    raise TTBuilderRuntimeException(
+        #        "Expected exactly one TT-Metal build lib directory matching "
+        #        f"`{TT_METAL_RUNTIME_ROOT}/build*/lib`, but found {len(metal_lib_candidates)}:\n"
+        #        f"{found}"
+        #    )
         metal_lib_dir = str(metal_lib_candidates[0])
 
     output_dir = os.path.dirname(cpp_path)

@@ -251,7 +251,8 @@ void LegalOpConfigAnalysis::fillOpSpecificAttrs() {
           auto programConfig =
               generateMatmulProgramConfig(op, opConfig.outputLayout);
           if (programConfig.has_value()) {
-            opConfig.opSpecificAttrs = MatmulAttrs{programConfig.value()};
+            opConfig.opSpecificAttrs =
+                MatmulAttrs{programConfig.value(), matmulOp.getComputeConfig()};
           }
           TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
                        "Filled op specific attrs for matmul/linear op {}, "

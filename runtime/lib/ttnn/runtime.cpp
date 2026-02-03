@@ -254,6 +254,22 @@ createOwnedHostTensor(const void *data, const std::vector<std::uint32_t> &shape,
   return createMultiDeviceHostTensor(tensorShards, strategy, meshShape);
 }
 
+Tensor createMultiDeviceBorrowedHostTensor(
+    std::vector<void *> &data, const std::vector<std::uint32_t> &shape,
+    const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
+    ::tt::target::DataType dataType,
+    const std::unordered_map<std::string, std::string> &strategy,
+    const std::vector<uint32_t> &meshShape) {
+  std::vector<::tt::runtime::Tensor> tensorShards;
+  tensorShards.reserve(data.size());
+  std::transform(data.begin(), data.end(), std::back_inserter(tensorShards),
+                 [&](void *dataShard) -> ::tt::runtime::Tensor {
+                   return createBorrowedHostTensor(dataShard, shape, stride,
+                                                   itemsize, dataType);
+                 });
+  return createMultiDeviceHostTensor(tensorShards, strategy, meshShape);
+}
+
 ::tt::runtime::Tensor createEmptyTensor(
     Device device, Layout layout, const std::vector<std::uint32_t> &shape,
     const std::vector<std::uint32_t> &stride, std::uint32_t itemsize) {
@@ -1070,6 +1086,10 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_RandOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::DropoutOp: {
+    tensorRef = opContext.type_as_DropoutOp()->out();
+    break;
+  }
   case ::tt::target::ttnn::OpType::ReductionArgMaxOp: {
     tensorRef = opContext.type_as_ReductionArgMaxOp()->out();
     break;
@@ -1355,6 +1375,10 @@ getOpInputRefs(OpContext opContextHandle,
     break;
   }
   case ::tt::target::ttnn::OpType::RandOp: {
+    break;
+  }
+  case ::tt::target::ttnn::OpType::DropoutOp: {
+    tensorRefs = {opContext.type_as_DropoutOp()->in()};
     break;
   }
   case ::tt::target::ttnn::OpType::ToMemoryConfigOp: {

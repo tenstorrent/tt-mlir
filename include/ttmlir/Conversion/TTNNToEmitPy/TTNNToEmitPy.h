@@ -27,7 +27,7 @@ std::unique_ptr<OperationPass<ModuleOp>> createEmitPyNameVarsPass();
 
 std::unique_ptr<OperationPass<ModuleOp>> createEmitPyLinkModulesPass();
 
-std::unique_ptr<OperationPass<ModuleOp>> createEmitPySplitFilesPass();
+std::unique_ptr<OperationPass<ModuleOp>> createCodegenSplitFilesPass();
 
 } // namespace mlir::tt
 

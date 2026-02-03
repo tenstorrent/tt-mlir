@@ -315,7 +315,7 @@ struct TTIRToTTNNDevicePipelineOptions
   Option<bool> enableCPUHoistedConstEval{
       *this, "enable-cpu-hoisted-const-eval",
       llvm::cl::desc("Enable hoisting const-eval ops to CPU module."),
-      llvm::cl::init(false)};
+      llvm::cl::init(true)};
 
   // Force const-eval function inputs to system memory.
   Option<bool> enableConstEvalInputsToSystemMemory{
@@ -506,7 +506,13 @@ struct TTIRToTTNNBackendPipelineOptions
 // TTNNToEmitCDevicePipelineOptions to reuse the options.
 //
 struct TTIRToEmitCPipelineOptions : public TTIRToTTNNDevicePipelineOptions,
-                                    public TTNNToEmitCDevicePipelineOptions {};
+                                    public TTNNToEmitCDevicePipelineOptions {
+  TTIRToEmitCPipelineOptions() {
+    // TODO(dmilinkovic): Remove once CPU-hoisting is supported on EmitC - issue
+    // #6100.
+    this->enableCPUHoistedConstEval = false;
+  }
+};
 
 // TTIR to EmitPy pipeline options.
 //

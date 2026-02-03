@@ -813,14 +813,11 @@ convertXlaSdyToSdyDictionary(mlir::MLIRContext *context,
     llvm::SmallVector<mlir::sdy::DimensionShardingAttr> dimShardings =
         parseDimensionShardings(dimsContent, context);
 
-    if (!dimShardings.empty()) {
-      mlir::sdy::TensorShardingAttr sharding =
-          mlir::sdy::TensorShardingAttr::get(context, meshName, dimShardings,
-                                             {}, {});
-      newArgAttrs.emplace_back(
-          mlir::StringAttr::get(context, mlir::sdy::TensorShardingAttr::name),
-          sharding);
-    }
+    mlir::sdy::TensorShardingAttr sharding = mlir::sdy::TensorShardingAttr::get(
+        context, meshName, dimShardings, {}, {});
+    newArgAttrs.emplace_back(
+        mlir::StringAttr::get(context, mlir::sdy::TensorShardingAttr::name),
+        sharding);
   }
 
   return mlir::DictionaryAttr::get(context, newArgAttrs);

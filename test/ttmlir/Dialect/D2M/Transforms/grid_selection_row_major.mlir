@@ -1,4 +1,5 @@
 // RUN: ttmlir-opt --ttcore-register-device --ttir-to-d2m --d2m-grid-selection --canonicalize --split-input-file %s | FileCheck %s
+
 #any_device = #ttcore.device<workerGrid = #ttcore.grid<8x8, (d0, d1) -> (0, d0, d1)>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1] -> (0, 0, 0, d0 * s1 + d1 * s1 + d2 + s0), meshShape = , chipIds = [0]>
 module attributes {ttcore.device = #any_device} {
   func.func @test_grid_selection_row_major(%arg0: tensor<1x64x64x32xf32>) -> tensor<1x64x64x32xf32> {
@@ -14,10 +15,15 @@ module attributes {ttcore.device = #any_device} {
     %6 = d2m.generic {block_factors = [1, 1, 1, 1], grid = #ttcore.grid<1x1x1x1>, indexing_maps = [affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>], iterator_types = [#ttcore.iterator_type<parallel>, #ttcore.iterator_type<parallel>, #ttcore.iterator_type<parallel>, #ttcore.iterator_type<parallel>], threads = [#d2m.thread<datamovement>]}
         ins(%stream : tensor<1x1x1x1x1x64x64x32xf32, #ttcore.metal_layout<logical_shape = 1x64x64x32, dim_alignments = 1x1x32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded, index_map = (d0, d1, d2, d3, d4, d5, d6, d7) -> (d0, d2, d1, d3, d4, d6, d5, d7)>>)
         outs(%4 : tensor<1x1x1x1x1x64x64x32xf32, #ttcore.metal_layout<logical_shape = 1x64x64x32, dim_alignments = 1x1x32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded, index_map=map(0)>>)  {
-    ^datamovement0(%cb0: !d2m.cb<tensor<1x64x64x32xf32>>, %cb1: !d2m.cb<tensor<1x64x64x32xf32>>):
-      %9 = d2m.reserve %cb1 : <tensor<1x64x64x32xf32>> -> tensor<1x64x64x32xf32>
-      %tx = d2m.dma %stream<affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>>, %9 : (tensor<1x1x1x1x1x64x64x32xf32, #ttcore.metal_layout<logical_shape = 1x64x64x32, dim_alignments = 1x1x32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded, index_map = (d0, d1, d2, d3, d4, d5, d6, d7) -> (d0, d2, d1, d3, d4, d6, d5, d7)>>, tensor<1x64x64x32xf32>) -> !d2m.mem_tx
-      d2m.dma_wait %tx
+    ^unified0(%cb0: !d2m.cb<tensor<1x64x64x32xf32>>, %cb1: !d2m.cb<tensor<1x64x64x32xf32>>):
+      %i = d2m.block_index(0) : index
+      %j = d2m.block_index(1) : index
+      %k = d2m.block_index(2) : index
+      %l = d2m.block_index(3) : index
+      %buffer = tensor.empty() : tensor<1x64x64x32xf32>
+      %9 = d2m.remote_load %buffer %stream[%i, %j, %k, %l]
+        : tensor<1x64x64x32xf32>, tensor<1x1x1x1x1x64x64x32xf32, #ttcore.metal_layout<logical_shape = 1x64x64x32, dim_alignments = 1x1x32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded, index_map = (d0, d1, d2, d3, d4, d5, d6, d7) -> (d0, d2, d1, d3, d4, d6, d5, d7)>>
+        -> tensor<1x64x64x32xf32>
       d2m.yield %9 : (tensor<1x64x64x32xf32>)
     } : tensor<1x1x1x1x1x64x64x32xf32, #ttcore.metal_layout<logical_shape = 1x64x64x32, dim_alignments = 1x1x32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded, index_map=map(0)>>
     %7 = d2m.empty() : tensor<1x64x64x32xf32>

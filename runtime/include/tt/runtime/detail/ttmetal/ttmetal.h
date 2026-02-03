@@ -63,6 +63,13 @@ Tensor createMultiDeviceHostTensor(
     const std::unordered_map<std::string, std::string> &strategy,
     const std::vector<uint32_t> &meshShape);
 
+Tensor createMultiDeviceBorrowedHostTensor(
+    std::vector<void *> &data, const std::vector<std::uint32_t> &shape,
+    const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
+    ::tt::target::DataType dataType,
+    const std::unordered_map<std::string, std::string> &strategy,
+    const std::vector<uint32_t> &meshShape);
+
 Layout getLayout(Binary executableHandle, std::uint32_t programIndex,
                  std::uint32_t inputIndex);
 Tensor toLayout(Tensor tensor, Device device, Layout layout,

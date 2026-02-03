@@ -119,6 +119,7 @@ def TTIRToD2M: Pass<"ttir-to-d2m", "::mlir::ModuleOp"> {
           )}]>,
       Option<"collapseTensorsTo2D", "collapse-tensors-2d", "bool", /*default=*/"true", "Default collapse all tensors to 2D">,
       Option<"ttnnMode", "ttnn-mode", "bool", /*default=*/"false", "Enable translation of TTNN Tensors">,
+      Option<"enableMulticastInference", "enable-multicast-inference", "bool", /*default=*/"true", "Enable automatic multicast inference for reduction operations">,
   ];
 }
 
@@ -198,7 +199,11 @@ def ConvertTTNNToEmitPy : Pass<"convert-ttnn-to-emitpy", "::mlir::ModuleOp"> {
   let dependentDialects = ["mlir::tt::emitpy::EmitPyDialect", "mlir::tt::ttnn::TTNNDialect"];
   let options = [
     Option<"enableGoldenMode", "enable-golden-mode", "bool", /*default=*/"false",
-    "Enable golden mode for EmitPy conversion. In golden mode, ttnn ops are executed on CPU using golden functions attached to ttnn ops. These golden functions perform Torch library calls.">
+    "Enable golden mode for EmitPy conversion. In golden mode, ttnn ops are executed on CPU using golden functions attached to ttnn ops. These golden functions perform Torch library calls.">,
+    // `target-module` is forwarded from the TTNN EmitPy pipeline options.
+    // Issue: https://github.com/tenstorrent/tt-mlir/issues/6746
+    Option<"targetModule", "target-module", "bool", /*default=*/"false",
+      "Tailor EmitPy conversion for Python module export target. When enabled, const-eval functions accept device as an explicit argument instead of opening it via a singleton.">
   ];
 }
 
@@ -253,14 +258,14 @@ def EmitPyLinkModules : Pass<"emitpy-link-modules", "::mlir::ModuleOp"> {
   let dependentDialects = ["mlir::tt::emitpy::EmitPyDialect"];
 }
 
-def EmitPySplitFiles: Pass<"emitpy-split-files", "::mlir::ModuleOp"> {
+def CodegenSplitFiles: Pass<"codegen-split-files", "::mlir::ModuleOp"> {
   let summary = "Organize EmitPy operations into separate files.";
   let description = [{
     This pass organizes EmitPy operations into two files:
     - main.py: Runtime execution logic.
     - consteval.py: Complete consteval logic.
   }];
-  let constructor = "createEmitPySplitFilesPass()";
+  let constructor = "createCodegenSplitFilesPass()";
 }
 
 def ConvertTTKernelToEmitC : Pass<"convert-ttkernel-to-emitc", "::mlir::ModuleOp"> {

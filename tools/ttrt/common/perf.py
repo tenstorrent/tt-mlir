@@ -85,11 +85,11 @@ class Perf:
             help="test file to save results to",
         )
         Perf.register_arg(
-            name="--disable-golden",
+            name="--enable-golden",
             type=bool,
             default=False,
             choices=[True, False],
-            help="disable golden comparison for intermediate and output tensors",
+            help="enable golden comparison for intermediate and output tensors",
         )
         Perf.register_arg(
             name="--memory",
@@ -408,6 +408,7 @@ class Perf:
                         env_vars["TT_METAL_DEVICE_PROFILER"] = "1"
                         env_vars["TTNN_OP_PROFILER"] = "1"
                         env_vars["TT_METAL_DEVICE_PROFILER_DISPATCH"] = "0"
+                        env_vars["TT_METAL_PROFILER_CPP_POST_PROCESS"] = "1"
 
                     tracy_capture_tool_command = f"{self.tracy_capture_tool_path} -o {tracy_file_path} -f -p {port}"
                     self.tracy_capture_tool_process = subprocess.Popen(
@@ -422,8 +423,8 @@ class Perf:
                     if self["--disable-eth-dispatch"]:
                         command_options += " --disable-eth-dispatch "
 
-                    if self["--disable-golden"]:
-                        command_options += " --disable-golden "
+                    if self["--enable-golden"]:
+                        command_options += " --enable-golden "
 
                     if self["--enable-program-cache"]:
                         command_options += " --enable-program-cache "
