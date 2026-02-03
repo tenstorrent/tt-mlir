@@ -217,10 +217,10 @@ void mlir::tt::ttir::ClampScalarOp::getCanonicalizationPatterns(
     } else {
       newMin = mlir::IntegerAttr::get(
           mlir::cast<mlir::IntegerAttr>(op.getMin()).getType(),
-          static_cast<int64_t>(newMinVal.convertToFloat()));
+          static_cast<int32_t>(newMinVal.convertToDouble()));
       newMax = mlir::IntegerAttr::get(
           mlir::cast<mlir::IntegerAttr>(op.getMax()).getType(),
-          static_cast<int64_t>(newMaxVal.convertToFloat()));
+          static_cast<int32_t>(newMaxVal.convertToDouble()));
     }
 
     rewriter.replaceOpWithNewOp<ClampScalarOp>(
