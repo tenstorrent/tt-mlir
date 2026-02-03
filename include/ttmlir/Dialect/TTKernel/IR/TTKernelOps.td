@@ -392,6 +392,46 @@ def TTKernel_MulTilesOp : TTKernel_FPUOp<"mul_tiles", [TTKernel_BinaryOpTrait]> 
     }];
 }
 
+def TTKernel_BinaryDestReuseTilesInitOp : TTKernel_InitOp<"binary_dest_reuse_tiles_init"> {
+    let summary = "Init for binary op with dest reuse";
+    let description = [{
+      Init function for binary_dest_reuse_tiles operation.
+      Must be run before binary_dest_reuse_tiles.
+      `eltwise_binary_type` specifies the operation (add/sub/mul).
+      `reuse_type` specifies which source register gets the DST operand.
+    }];
+
+    let arguments = (ins TTKernel_CB:$in_cb,
+                         TTKernel_EltwiseBinaryTypeAttr:$eltwise_binary_type,
+                         TTKernel_BinaryDestReuseTypeAttr:$reuse_type);
+
+    let assemblyFormat = [{
+      `(` $in_cb `,` $eltwise_binary_type `,` $reuse_type `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_BinaryDestReuseTilesOp : TTKernel_FPUOp<"binary_dest_reuse_tiles"> {
+    let summary = "Binary op with one operand from DST";
+    let description = [{
+      Performs element-wise binary op where one operand comes from DST and one
+      from a CB. If reuse_type is dest_to_srca, DST[dst_tile_index] is loaded
+      to SRCA and CB tile is loaded to SRCB. If dest_to_srcb, the opposite.
+      Result is written back to DST[dst_tile_index].
+      The DST register buffer must be in acquired state via *tile_regs_acquire* call.
+      `eltwise_binary_type` specifies the operation (add/sub/mul).
+    }];
+
+    let arguments = (ins TTKernel_CB:$in_cb,
+                         IndexLike:$in_tile_index,
+                         IndexLike:$dst_tile_index,
+                         TTKernel_EltwiseBinaryTypeAttr:$eltwise_binary_type,
+                         TTKernel_BinaryDestReuseTypeAttr:$reuse_type);
+
+    let assemblyFormat = [{
+      `(` $in_cb `,` $in_tile_index `,` $dst_tile_index `,` $eltwise_binary_type `,` $reuse_type `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
 def TTKernel_UnaryBcastInitOp : TTKernel_InitOp<"unary_bcast_init"> {
     let summary = "Init function";
     let description = [{
@@ -596,6 +636,36 @@ def TTKernel_BinaryMinTileOp : TTKernel_SFPUOp<"binary_min_tile", [TTKernel_Bina
 
     let assemblyFormat = [{
       `(` $dst0_index `,` $dst1_index `,` $odst_index `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_ClampScalarTileInitOp : TTKernel_InitOp<"clamp_tile_init"> {
+    let summary = "Init function for clamp_scalar_tile operation.";
+    let description = [{
+      Must be run before clamp_scalar_tile.
+    }];
+
+    let arguments = (ins);
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_ClampScalarTileOp : TTKernel_SFPUOp<"clamp_tile", [TTKernel_UnaryOpTrait]> {
+    let summary = "Clamp tile elements to scalar range";
+    let description = [{
+      Performs element-wise clamping of tile values to the range [min, max]
+      DST[dst_index] <- clamp(DST[dst_index], min, max)
+      on DST register operand. The DST register buffer must be in
+      acquired state via *tile_regs_acquire* call.
+      min and max are uint 32-bit representations of the float values.
+    }];
+
+    let arguments = (ins IndexLike:$dst_index, I32:$min_param, I32:$max_param);
+
+    let assemblyFormat = [{
+      `(` $dst_index `,` $min_param `,` $max_param `)` attr-dict `:` functional-type(operands, results)
     }];
 }
 
@@ -2809,6 +2879,125 @@ def TTKernel_ConvertLogicalYToTranslatedOp : TTKernel_Op<"experimental::convert_
 
   let assemblyFormat = [{
     `(` $logical_y `)` attr-dict `:` functional-type(operands, results)
+  }];
+}
+
+//===----------------------------------------------------------------------===//
+// TTKernel Fabric API operations
+//===----------------------------------------------------------------------===//
+
+def TTKernel_GetMyDeviceIdOp : TTKernel_Op<"experimental::get_my_device_id", [Pure]> {
+  let summary = "GetMyDeviceId";
+  let description = [{
+    Get my device id. This is a 16 bit value.
+  }];
+
+  let arguments = (ins);
+  let results = (outs I16:$my_device_id);
+
+  let assemblyFormat = [{
+    `(` `)` attr-dict `:` functional-type(operands, results)
+  }];
+}
+
+def TTKernel_FabricWriteOp : TTKernel_Op<"experimental::fabric_fast_write_any_len"> {
+  let summary = "FabricWriteOp";
+  let description = [{
+    FabricWriteOp
+  }];
+
+  let arguments = (ins TTKernel_FabricConnectionManager:$fabric_connection_manager, I16:$dst_mesh_id, I16:$dst_dev_id, TTKernel_NocAddr:$dst_addr, I32:$src_addr, I32:$len_bytes);
+  let results = (outs);
+
+  let assemblyFormat = [{
+    `(` $fabric_connection_manager `,` $dst_mesh_id `,` $dst_dev_id `,` $dst_addr `,` $src_addr `,` $len_bytes `)` attr-dict `:` functional-type(operands, results)
+  }];
+}
+
+def TTKernel_CreateFabricConnectionManagerOp : TTKernel_Op<"experimental::create_fabric_connection_manager"> {
+  let summary = "CreateFabricConnectionManager";
+  let description = [{
+    Create fabric connection manager. The fabric connection manager is required for all fabric operations.
+  }];
+
+  let arguments = (ins);
+  let results = (outs TTKernel_FabricConnectionManager:$fabric_connection_manager);
+
+  let assemblyFormat = [{
+    `(` `)` attr-dict `:` functional-type(operands, results)
+  }];
+}
+
+def TTKernel_SetupFabricConnectionsOp : TTKernel_Op<"experimental::setup_fabric_connections"> {
+  let summary = "SetupFabricConnections";
+  let description = [{
+    Setup fabric connections for inter-device communication. The connection scheme
+    is derived from the attribute `TTMetal_FabricConnectionConfigAttr` in the
+    `EnqueueProgramOp`.
+
+   `TTMetal_FabricConnectionConfigAttr` specifies:
+      - `noc_index`: Which NOC the fabric uses (must match kernel's NocConfig)
+      - `topology`: The routing scheme to use for the mesh device (e.g. Line, Ring)
+      - `cluster_axis`: The axis along which the to route for 1D topologies
+      - `num_links`: Number of routing planes (connections to fabric routers)
+
+    After setup, the `FabricConnectionManager` can be used with ops like
+    `fabric_fast_write_any_len` to send data to other devices in the mesh.
+  }];
+
+  let arguments = (ins TTKernel_FabricConnectionManager:$fabric_connection_manager);
+  let results = (outs);
+
+  let assemblyFormat = [{
+    `(` $fabric_connection_manager `)` attr-dict `:` functional-type(operands, results)
+  }];
+}
+
+def TTKernel_CloseFabricConnectionsOp : TTKernel_Op<"experimental::close_fabric_connections"> {
+  let summary = "CloseFabricConnections";
+  let description = [{
+    Close fabric connections.
+  }];
+
+  let arguments = (ins TTKernel_FabricConnectionManager:$fabric_connection_manager);
+  let results = (outs);
+
+  let assemblyFormat = [{
+    `(` $fabric_connection_manager `)` attr-dict `:` functional-type(operands, results)
+  }];
+}
+
+//===----------------------------------------------------------------------===//
+// TTKernel Logical Mesh Position operations
+//===----------------------------------------------------------------------===//
+
+def TTKernel_GetLogicalMeshPositionOp : TTKernel_Op<"experimental::get_logical_mesh_position"> {
+  let summary = "GetLogicalMeshPosition";
+  let description = [{
+    Get the logical mesh position for a given device ID.
+  }];
+
+  let arguments = (ins TTKernel_FabricConnectionManager:$fcm, I32:$device_id);
+  let results = (outs TTKernel_MeshPosition:$position);
+
+  let assemblyFormat = [{
+    `(` $fcm `,` $device_id `)` attr-dict `:` functional-type(operands, results)
+  }];
+}
+
+def TTKernel_GetDeviceIdFromLogicalMeshPositionOp : TTKernel_Op<"experimental::get_device_id_from_logical_mesh_position"> {
+  let summary = "GetDeviceIdFromLogicalMeshPosition";
+  let description = [{
+    Get the device ID for a given logical mesh position.
+    Takes a MeshPosition and returns the corresponding device ID.
+    Maps to get_device_id_from_logical_mesh_position(fcm, position) in device code.
+  }];
+
+  let arguments = (ins TTKernel_FabricConnectionManager:$fcm, TTKernel_MeshPosition:$position);
+  let results = (outs I16:$device_id);
+
+  let assemblyFormat = [{
+    `(` $fcm `,` $position `)` attr-dict `:` functional-type(operands, results)
   }];
 }
 

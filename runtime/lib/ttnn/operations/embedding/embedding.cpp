@@ -23,7 +23,7 @@ void run(const ::tt::target::ttnn::EmbeddingOp *op, ProgramContext &context) {
   ::ttnn::Layout layout = utils::isTilized(op->out())
                               ? ::ttnn::TILE_LAYOUT
                               : ::ttnn::ROW_MAJOR_LAYOUT;
-  auto embeddingsType = ::ttnn::operations::embedding::EmbeddingsType::GENERIC;
+  auto embeddingsType = ::ttnn::prim::EmbeddingsType::GENERIC;
   ::ttnn::DataType outputDataType = utils::getDataType(op->out());
 
   std::optional<::ttnn::MemoryConfig> outputMemoryConfig =

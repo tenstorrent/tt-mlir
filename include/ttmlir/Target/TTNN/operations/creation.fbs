@@ -33,10 +33,6 @@ table EmptyOp {
   out: tt.target.ttnn.TensorRef;
 }
 
-table IntegralType {
-  value: int32;
-}
-
 union FillValueType {
   FP: FloatingPointType,
   I32: IntegralType,

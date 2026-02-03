@@ -8,4 +8,5 @@ add_mlir_library(MLIRD2MUtils
   LINK_LIBS PUBLIC
   MLIRIR
   MLIRAffineDialect
+  MLIRAffineUtils
 )

@@ -63,6 +63,21 @@ static uint64_t getChainOutputSizeBytes(const L1ChainConfig &chain) {
   return lastSpec.config.outputLayout.getShardSizeInBytes();
 }
 
+// Create an L1 interleaved layout for an op's output using the device's
+// worker grid. Used for L1 reservations where we want to keep tensors in
+// L1 interleaved instead of spilling to DRAM.
+static TTNNLayoutAttr createL1InterleavedLayout(Operation *op,
+                                                RankedTensorType outputType,
+                                                TTNNLayoutAttr baseLayout) {
+
+  static auto deviceAttr = ttcore::lookupDevice(op);
+  static ttcore::GridAttr l1InterleavedGrid = deviceAttr.getWorkerGrid();
+
+  return baseLayout.withBufferType(BufferType::L1)
+      .withMemoryLayout(TensorMemoryLayout::Interleaved)
+      .withGrid(outputType, l1InterleavedGrid, {{0, -1}});
+}
+
 // Build a map from Operation* to its resolved output layout within a chain.
 static llvm::DenseMap<Operation *, TTNNLayoutAttr>
 buildResolvedLayoutMap(const L1ChainConfig &chain) {
@@ -137,6 +152,12 @@ buildInputLayoutsFromResolvedConfigs(
 
   for (size_t i = 0; i < op->getNumOperands(); ++i) {
     Value operand = op->getOperand(i);
+
+    // Skip non-tensor operands (e.g., device type)
+    if (!mlir::isa<RankedTensorType>(operand.getType())) {
+      continue;
+    }
+
     Operation *producerOp = operand.getDefiningOp();
 
     // First check if this edge has a reshard entry - use reshard output layout.
@@ -225,12 +246,21 @@ static bool validateScheduleRangeWithReservation(
     const llvm::DenseMap<Operation *, int64_t> &schedulePositionMap,
     const std::vector<L1Reservation> &existingReservations, int64_t startPos,
     int64_t endPos, uint64_t additionalL1,
-    const llvm::DenseMap<Operation *, TTNNLayoutAttr> &l1ResidentsLayoutMap);
+    const llvm::DenseMap<Operation *, TTNNLayoutAttr> &l1ResidentsLayoutMap,
+    const llvm::DenseMap<Operation *, OpConfig> &modifiedOpConfigs);
 
 // Static empty containers for validation calls that don't need reservations.
 static const llvm::DenseMap<Operation *, int64_t> kEmptySchedulePositionMap;
 static const std::vector<L1Reservation> kEmptyL1Reservations;
 static const llvm::DenseMap<Operation *, TTNNLayoutAttr> kEmptyL1ResidentsMap;
+static const llvm::DenseMap<Operation *, OpConfig> kEmptyModifiedOpConfigs;
+
+// Forward declaration for fragmentation check used by merge validation.
+static bool validateOpAfterJoinWithFragmentationReserve(
+    const L1ChainConfig &chainB, size_t joinOpIndex,
+    uint64_t fragmentationReserve,
+    const llvm::DenseMap<Operation *, int64_t> &schedulePositionMap,
+    const std::vector<L1Reservation> &l1Reservations);
 
 // Validate that Chain B can execute with Chain A's output in L1.
 // This validates each op in Chain B (up to and including joinOp) with
@@ -316,6 +346,22 @@ static bool validateChainBWithMergedInput(
     }
   }
 
+  // Validate the op after the join op with fragmentation reserve.
+  // For RHS merge, the reserve is the source chain's output size.
+  const auto &specs = chainB.getOpL1MemSpecs();
+  for (size_t i = 0; i < specs.size(); ++i) {
+    if (specs[i].op == joinOp) {
+      if (!validateOpAfterJoinWithFragmentationReserve(
+              chainB, i, sourceOutputSize, schedulePositionMap,
+              l1Reservations)) {
+        TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                     "RHS merge rejected: fragmentation check failed");
+        return false;
+      }
+      break;
+    }
+  }
+
   return true;
 }
 
@@ -357,6 +403,13 @@ static bool validateChainWithPredecessorInL1(
     }
     uint64_t totalAdditionalL1 = predecessorOutputSize + reservedL1;
 
+    TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                 "  Chain C op {} validation: predecessorL1={} bytes, "
+                 "reservedL1={} bytes (from {} reservations), "
+                 "totalAdditionalL1={} bytes",
+                 ttmlir::opToString(op), predecessorOutputSize, reservedL1,
+                 l1Reservations.size(), totalAdditionalL1);
+
     // Validate the operation with total additional L1 usage.
     op_constraint_validation::ValidationResult result =
         op_constraint_validation::validateOperation(
@@ -369,6 +422,68 @@ static bool validateChainWithPredecessorInL1(
           ttmlir::opToString(op), predecessorOutputSize, result.errorMessage);
       return false;
     }
+  }
+
+  return true;
+}
+
+// Validate the op immediately after the join op with additional L1 reservation
+// to account for potential fragmentation. After a chain merge, the join op's
+// output may get allocated at a low address (squeezed below other tensors in
+// L1). When those tensors are deallocated, the output remains stranded at the
+// low address and may overlap with the CB region of subsequent ops.
+// This function validates the next op with extra fragmentation reserve.
+static bool validateOpAfterJoinWithFragmentationReserve(
+    const L1ChainConfig &chainB, size_t joinOpIndex,
+    uint64_t fragmentationReserve,
+    const llvm::DenseMap<Operation *, int64_t> &schedulePositionMap,
+    const std::vector<L1Reservation> &l1Reservations) {
+
+  const auto &specs = chainB.getOpL1MemSpecs();
+  if (joinOpIndex + 1 >= specs.size()) {
+    // No op after join op, nothing to validate.
+    return true;
+  }
+
+  const OpConfig &joinOpConfig = specs[joinOpIndex].config;
+  Operation *nextOp = specs[joinOpIndex + 1].op;
+  const OpConfig &nextOpConfig = specs[joinOpIndex + 1].config;
+
+  // Build input layouts for the next op.
+  std::vector<TTNNLayoutAttr> nextOpInputLayouts =
+      utils::extractInputLayouts(nextOp);
+
+  // The next op's first input comes from the join op's output.
+  if (!nextOpInputLayouts.empty() && joinOpConfig.outputLayout) {
+    nextOpInputLayouts[0] = joinOpConfig.outputLayout;
+  }
+
+  // Get active L1 reservations at the next op's position.
+  auto nextOpPosIt = schedulePositionMap.find(nextOp);
+  uint64_t nextOpReservedL1 = 0;
+  if (nextOpPosIt != schedulePositionMap.end()) {
+    nextOpReservedL1 =
+        getActiveL1Reservations(nextOpPosIt->second, l1Reservations);
+  }
+
+  uint64_t totalReservedL1 = nextOpReservedL1 + fragmentationReserve;
+
+  TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+               "Fragmentation check for next op {}: baseReservedL1={} bytes, "
+               "fragmentationReserve={} bytes, totalReservedL1={} bytes",
+               ttmlir::opToString(nextOp), nextOpReservedL1,
+               fragmentationReserve, totalReservedL1);
+
+  op_constraint_validation::ValidationResult result =
+      op_constraint_validation::validateOperation(
+          nextOp, nextOpInputLayouts, nextOpConfig, totalReservedL1);
+
+  if (!result.isSuccess()) {
+    TTMLIR_DEBUG(
+        ttmlir::LogComponent::DFShardingPolicy,
+        "Fragmentation check failed for next op {} with reserve {}: {}",
+        ttmlir::opToString(nextOp), fragmentationReserve, result.errorMessage);
+    return false;
   }
 
   return true;
@@ -425,6 +540,18 @@ static bool validateThreeWayMergeJoinOp(
     TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
                  "3-way merge join op validation failed for {}: {}",
                  ttmlir::opToString(joinOp), result.errorMessage);
+    return false;
+  }
+
+  // Validate the op after the join op with fragmentation reserve.
+  // For 3-way merge, the reserve is the sum of both input sizes.
+  uint64_t fragmentationReserve =
+      lhsLayout.getShardSizeInBytes() + rhsLayout.getShardSizeInBytes();
+  if (!validateOpAfterJoinWithFragmentationReserve(
+          chainB, /*joinOpIndex=*/0, fragmentationReserve, schedulePositionMap,
+          l1Reservations)) {
+    TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                 "3-way merge rejected: fragmentation check failed");
     return false;
   }
 
@@ -569,6 +696,1012 @@ static llvm::SmallVector<MergeCandidate> findAllMergeCandidates(
                candidates.size(), chainBIndex);
 
   return candidates;
+}
+
+//===----------------------------------------------------------------------===//
+// Concat Input Chain Constraints
+//===----------------------------------------------------------------------===//
+
+// Determine the required input memory layout for a concat op based on its dim.
+// Returns std::nullopt if concat doesn't have a specific sharding constraint.
+//
+// Backend constraints:
+// - Block sharded: NOT supported for concat
+// - Width concat (dim = last) requires HEIGHT_SHARDED inputs
+// - Height concat (dim = second-to-last) requires WIDTH_SHARDED inputs
+//
+static std::optional<TensorMemoryLayout>
+getConcatRequiredInputMemLayout(Operation *concatOp) {
+  auto concat = llvm::dyn_cast<ttnn::ConcatOp>(concatOp);
+  if (!concat) {
+    return std::nullopt;
+  }
+
+  // Get the concat dimension
+  int32_t dim = concat.getDim();
+
+  // Get the rank of the input tensor
+  auto inputType = mlir::cast<RankedTensorType>(concat.getOperand(0).getType());
+  int64_t rank = inputType.getRank();
+
+  // Normalize negative dim
+  if (dim < 0) {
+    dim += rank;
+  }
+
+  // Backend constraints for sharded concat:
+  // - Width concat (dim = last) requires HEIGHT_SHARDED
+  // - Height concat (dim = second-to-last) requires WIDTH_SHARDED
+  if (dim == rank - 1) {
+    // Width concat -> needs height sharded inputs
+    return TensorMemoryLayout::HeightSharded;
+  }
+  if (dim == rank - 2) {
+    // Height concat -> needs width sharded inputs
+    return TensorMemoryLayout::WidthSharded;
+  }
+
+  // Other dims - return nullopt to not constrain (will likely fail validation)
+  return std::nullopt;
+}
+
+// Pre-pass to set preferred output memory layout for chains that feed into
+// or consume from concat. This allows pickOpShardConfigs to prefer compatible
+// sharding types, enabling seamless chain merging.
+//
+// Must be called after chain building but before resolution.
+//
+static void
+setConcatChainPreferences(std::vector<L1ChainConfig> &l1ChainConfigs) {
+
+  // Build temporary op-to-chain map
+  llvm::DenseMap<Operation *, size_t> opToChainMap;
+  for (size_t i = 0; i < l1ChainConfigs.size(); ++i) {
+    for (const auto &spec : l1ChainConfigs[i].getOpL1MemSpecs()) {
+      opToChainMap[spec.op] = i;
+    }
+  }
+
+  // Find concat chains and set preferences for their input and output chains
+  for (size_t concatChainIdx = 0; concatChainIdx < l1ChainConfigs.size();
+       ++concatChainIdx) {
+    L1ChainConfig &concatChain = l1ChainConfigs[concatChainIdx];
+    if (!concatChain.isConcatChain) {
+      continue;
+    }
+
+    Operation *concatOp = concatChain.getOpL1MemSpecs()[0].op;
+    auto requiredMemLayout = getConcatRequiredInputMemLayout(concatOp);
+
+    if (!requiredMemLayout) {
+      TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                   "Concat {}: no specific sharding preference for this dim",
+                   ttmlir::opToString(concatOp));
+      continue;
+    }
+
+    TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                 "Concat {} prefers {} inputs", ttmlir::opToString(concatOp),
+                 stringifyTensorMemoryLayout(*requiredMemLayout));
+
+    // Set preference for input chains (producers of concat's operands)
+    for (size_t i = 0; i < concatOp->getNumOperands(); ++i) {
+      Operation *producerOp = concatOp->getOperand(i).getDefiningOp();
+      if (!producerOp) {
+        continue;
+      }
+
+      auto chainIt = opToChainMap.find(producerOp);
+      if (chainIt == opToChainMap.end()) {
+        continue;
+      }
+
+      size_t inputChainIdx = chainIt->second;
+      L1ChainConfig &inputChain = l1ChainConfigs[inputChainIdx];
+
+      inputChain.preferredOutputMemLayout = *requiredMemLayout;
+
+      TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                   "  Input chain {}: set preferredOutputMemLayout to {}",
+                   inputChainIdx,
+                   stringifyTensorMemoryLayout(*requiredMemLayout));
+    }
+
+    // Set preference for output chain (consumer of concat's result)
+    // This enables seamless merging between concat and its consumer.
+    // Concat's output will have the same memory layout as its inputs,
+    // so the consumer should prefer the same layout.
+    if (concatOp->hasOneUse()) {
+      Operation *consumerOp = *concatOp->user_begin();
+      auto consumerChainIt = opToChainMap.find(consumerOp);
+      if (consumerChainIt != opToChainMap.end()) {
+        size_t consumerChainIdx = consumerChainIt->second;
+        L1ChainConfig &consumerChain = l1ChainConfigs[consumerChainIdx];
+
+        // Only set if consumer's first op is the concat user
+        if (!consumerChain.getOpL1MemSpecs().empty() &&
+            consumerChain.getOpL1MemSpecs()[0].op == consumerOp) {
+          consumerChain.preferredOutputMemLayout = *requiredMemLayout;
+
+          TTMLIR_DEBUG(
+              ttmlir::LogComponent::DFShardingPolicy,
+              "  Consumer chain {}: set preferredOutputMemLayout to {}",
+              consumerChainIdx,
+              stringifyTensorMemoryLayout(*requiredMemLayout));
+        }
+      }
+    }
+  }
+}
+
+//===----------------------------------------------------------------------===//
+// Concat Chain Resolution
+//===----------------------------------------------------------------------===//
+
+// Resolve concat chains by validating that all incoming L1-sharded inputs
+// can be consumed directly. This is called after regular chains are resolved
+// but before chain merging.
+//
+// For each concat chain:
+// 1. Find all input chains (producers of concat's operands)
+// 2. Check if all input chains are Completed (successfully L1-sharded)
+// 3. Validate concat can consume all L1 inputs by querying the backend
+// 4. Validate N-way merge: each subsequent input chain can execute while
+//    previous chains' outputs stay in L1
+// 5. If successful, mark input chains with spillLocation = None and
+//    complete the concat chain with the backend-determined output layout
+//
+static void resolveConcatChains(
+    std::vector<L1ChainConfig> &l1ChainConfigs,
+    const llvm::DenseMap<Operation *, size_t> &opToChainMap,
+    const llvm::DenseMap<Operation *, std::vector<OpConfig>> &legalConfigs) {
+
+  for (size_t concatChainIdx = 0; concatChainIdx < l1ChainConfigs.size();
+       ++concatChainIdx) {
+    L1ChainConfig &concatChain = l1ChainConfigs[concatChainIdx];
+
+    if (!concatChain.isConcatChain) {
+      continue;
+    }
+
+    Operation *concatOp = concatChain.getOpL1MemSpecs()[0].op;
+
+    TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                 "Resolving concat chain {} for op {}", concatChainIdx,
+                 ttmlir::opToString(concatOp));
+
+    // Find all input chains (producers of concat's operands)
+    llvm::SmallVector<size_t> inputChainIndices;
+    std::vector<TTNNLayoutAttr> inputLayouts;
+    bool allInputChainsCompleted = true;
+
+    for (size_t i = 0; i < concatOp->getNumOperands(); ++i) {
+      Operation *producerOp = concatOp->getOperand(i).getDefiningOp();
+      if (!producerOp) {
+        TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                     "  Operand {}: no defining op (block arg), cannot do L1 "
+                     "optimization",
+                     i);
+        allInputChainsCompleted = false;
+        break;
+      }
+
+      auto chainIt = opToChainMap.find(producerOp);
+      if (chainIt == opToChainMap.end()) {
+        TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                     "  Operand {}: producer {} not in any chain", i,
+                     producerOp->getName());
+        allInputChainsCompleted = false;
+        break;
+      }
+
+      const L1ChainConfig &inputChain = l1ChainConfigs[chainIt->second];
+      if (inputChain.getState() != L1ChainState::Completed) {
+        TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                     "  Operand {}: input chain {} not Completed (state={})", i,
+                     chainIt->second, inputChain.getStateString());
+        allInputChainsCompleted = false;
+        break;
+      }
+
+      if (inputChain.getLastOp() != producerOp) {
+        TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                     "  Operand {}: producer {} is not last op of chain {}", i,
+                     producerOp->getName(), chainIt->second);
+        allInputChainsCompleted = false;
+        break;
+      }
+
+      inputChainIndices.push_back(chainIt->second);
+      TTNNLayoutAttr outputLayout =
+          inputChain.getOpL1MemSpecs().back().config.outputLayout;
+      inputLayouts.push_back(outputLayout);
+
+      TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                   "  Operand {}: from chain {}, layout: {}", i,
+                   chainIt->second, outputLayout);
+    }
+
+    if (!allInputChainsCompleted) {
+      TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                   "Concat chain {}: not all inputs are L1-sharded, marking "
+                   "as Failed",
+                   concatChainIdx);
+      concatChain.fail();
+      continue;
+    }
+
+    // Check if any input chain's last op is a fork (has users besides concat).
+    // Fork handling is complex - it requires validating all ops between the
+    // fork and its last user across all branches. We don't support this for
+    // concat inputs, so fail if any input chain has a fork.
+    bool hasInputFork = false;
+    for (size_t idx : inputChainIndices) {
+      Operation *lastOp = l1ChainConfigs[idx].getLastOp();
+      if (!lastOp || lastOp->getNumResults() == 0) {
+        continue;
+      }
+      Value output = lastOp->getResult(0);
+      for (Operation *user : output.getUsers()) {
+        if (user != concatOp) {
+          hasInputFork = true;
+          TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                       "Concat chain {}: input chain {} has fork at last op "
+                       "(user: {}), cannot do L1 optimization",
+                       concatChainIdx, idx, user->getName());
+          break;
+        }
+      }
+      if (hasInputFork) {
+        break;
+      }
+    }
+
+    if (hasInputFork) {
+      concatChain.fail();
+      continue;
+    }
+
+    // Validate concat can consume all L1 inputs
+    // Try each legal config for concat to find one that works with L1 inputs.
+    // The config must have an L1 sharded output that matches the inputs'
+    // memory layout type.
+    const std::vector<OpConfig> &concatLegalConfigs =
+        legalConfigs.lookup(concatOp);
+
+    if (concatLegalConfigs.empty()) {
+      TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                   "Concat chain {}: no legal configs available",
+                   concatChainIdx);
+      concatChain.fail();
+      continue;
+    }
+
+    // For sharded concat, the backend requires output grid to match input grid.
+    // Construct an output layout based on the first input's layout, keeping
+    // the same grid and memory layout type.
+    TTNNLayoutAttr firstInputLayout = inputLayouts[0];
+    RankedTensorType concatOutputType =
+        mlir::cast<RankedTensorType>(concatOp->getResult(0).getType());
+    llvm::ArrayRef<int64_t> outputShape = concatOutputType.getShape();
+
+    // Build output layout with same grid/memory config as first input
+    TTNNLayoutAttr outputLayout = firstInputLayout.withTensorShape(outputShape);
+
+    TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                 "Concat chain {}: constructed output layout from input: {}",
+                 concatChainIdx, outputLayout);
+
+    OpConfig selectedConfig;
+    selectedConfig.outputLayout = outputLayout;
+
+    op_constraint_validation::ValidationResult result =
+        op_constraint_validation::validateOperation(
+            concatOp, inputLayouts, selectedConfig, /*additionalL1Usage=*/0);
+
+    if (!result.isSuccess()) {
+      TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                   "Concat chain {}: validation failed: {}", concatChainIdx,
+                   result.errorMessage);
+      concatChain.fail();
+      continue;
+    }
+
+    TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                 "Concat chain {}: validation succeeded with output layout: {}",
+                 concatChainIdx, outputLayout);
+
+    // Validate N-way merge: each subsequent input chain can execute while
+    // previous chains' outputs stay in L1
+    bool nWayMergeValid = true;
+    uint64_t accumulatedL1 = 0;
+
+    for (size_t i = 0; i < inputChainIndices.size(); ++i) {
+      if (i > 0) {
+        // Validate chain[i] can execute while previous chains' outputs stay
+        // in L1
+        const L1ChainConfig &chainI = l1ChainConfigs[inputChainIndices[i]];
+        if (!validateChainWithPredecessorInL1(chainI, accumulatedL1,
+                                              kEmptySchedulePositionMap,
+                                              kEmptyL1Reservations)) {
+          TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                       "Concat chain {}: N-way merge failed - chain {} cannot "
+                       "execute with {} bytes of predecessor output in L1",
+                       concatChainIdx, inputChainIndices[i], accumulatedL1);
+          nWayMergeValid = false;
+          break;
+        }
+      }
+      accumulatedL1 +=
+          getChainOutputSizeBytes(l1ChainConfigs[inputChainIndices[i]]);
+    }
+
+    if (!nWayMergeValid) {
+      concatChain.fail();
+      continue;
+    }
+
+    // Success! Mark input chains as spillLocation = None (no spill needed)
+    for (size_t idx : inputChainIndices) {
+      l1ChainConfigs[idx].spillLocation = SpillLocation::None;
+      TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                   "Concat chain {}: marking input chain {} spillLocation = "
+                   "None",
+                   concatChainIdx, idx);
+    }
+
+    // Complete concat chain with the validated config
+    // Use the actual output layout from backend validation if available,
+    // otherwise use the selected config's output layout
+    if (result.actualOutputLayout) {
+      selectedConfig.outputLayout = result.actualOutputLayout;
+    }
+
+    llvm::DenseMap<Operation *, OpConfig> selectedConfigs;
+    selectedConfigs[concatOp] = selectedConfig;
+    llvm::DenseMap<Edge, MemReconfigEntry> emptyReconfigMap;
+
+    // Transition state from Built -> Resolved before completing
+    concatChain.resolve();
+    concatChain.complete(selectedConfigs, emptyReconfigMap);
+
+    // Set spillLocation based on output layout
+    if (!selectedConfig.outputLayout.hasDRAMBufferType()) {
+      concatChain.spillLocation = SpillLocation::DRAM;
+    }
+
+    TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                 "Concat chain {} resolved successfully with output layout: {}",
+                 concatChainIdx, selectedConfig.outputLayout);
+  }
+}
+
+//===----------------------------------------------------------------------===//
+// L1 Reservation Timeline (forward declarations)
+//===----------------------------------------------------------------------===//
+
+// Represents a reservation of L1 memory for an op's output that stays in L1
+// across multiple consumer chains. Used for forked ops like reshape that
+// benefit from staying in L1 interleaved instead of spilling to DRAM.
+struct L1Reservation {
+  Operation *sourceOp; // The op whose output is reserved in L1
+  int64_t startPos;    // Schedule position where reservation starts
+  int64_t endPos;      // Schedule position where reservation ends (last user)
+  uint64_t sizeBytes;  // L1 size reserved in bytes
+};
+
+// Forward declaration - defined later in the file.
+static llvm::DenseMap<size_t, llvm::DenseMap<Operation *, TTNNLayoutAttr>>
+buildAllChainLayoutMaps(const std::vector<L1ChainConfig> &l1ChainConfigs);
+
+//===----------------------------------------------------------------------===//
+// L1 Reservation Helper Functions
+//===----------------------------------------------------------------------===//
+
+// Try to validate an op with L1 interleaved output and return the L1 size.
+// Returns 0 if validation fails or the op doesn't support L1 interleaved.
+static uint64_t tryGetL1InterleavedSize(Operation *op) {
+  if (op->getNumResults() == 0) {
+    return 0;
+  }
+
+  auto outputType =
+      mlir::dyn_cast<RankedTensorType>(op->getResult(0).getType());
+  if (!outputType) {
+    return 0;
+  }
+
+  auto currentLayout =
+      mlir::dyn_cast_or_null<TTNNLayoutAttr>(outputType.getEncoding());
+  if (!currentLayout || currentLayout.hasL1BufferType()) {
+    return 0;
+  }
+
+  TTNNLayoutAttr l1Layout =
+      createL1InterleavedLayout(op, outputType, currentLayout);
+
+  // Convert input layouts to L1 interleaved for validation
+  std::vector<TTNNLayoutAttr> inputLayouts = utils::extractInputLayouts(op);
+  for (size_t i = 0; i < inputLayouts.size(); ++i) {
+    auto inputType =
+        mlir::dyn_cast<RankedTensorType>(op->getOperand(i).getType());
+    if (inputType) {
+      inputLayouts[i] =
+          createL1InterleavedLayout(op, inputType, inputLayouts[i]);
+    }
+  }
+
+  OpConfig l1Config;
+  l1Config.outputLayout = l1Layout;
+
+  op_constraint_validation::ValidationResult result =
+      op_constraint_validation::validateOperation(op, inputLayouts, l1Config,
+                                                  0);
+
+  return result.isSuccess() ? result.outputL1Usage : 0;
+}
+
+// Check if an operation is the last op in a chain that spills to DRAM.
+// Returns the chain index if found, -1 otherwise.
+static int64_t
+findSpilledChainForOp(Operation *op,
+                      const std::vector<L1ChainConfig> &l1ChainConfigs) {
+  for (size_t chainIdx = 0; chainIdx < l1ChainConfigs.size(); ++chainIdx) {
+    const auto &chain = l1ChainConfigs[chainIdx];
+    if (chain.getState() != L1ChainState::Completed) {
+      continue;
+    }
+    if (chain.spillLocation != SpillLocation::DRAM) {
+      continue;
+    }
+    const auto &specs = chain.getOpL1MemSpecs();
+    if (!specs.empty() && specs.back().op == op) {
+      return static_cast<int64_t>(chainIdx);
+    }
+  }
+  return -1;
+}
+
+// Find the schedule position of the last user of a value.
+static int64_t findLastUserPosition(
+    Value output,
+    const llvm::DenseMap<Operation *, int64_t> &schedulePositionMap) {
+  int64_t lastPos = -1;
+  for (Operation *user : output.getUsers()) {
+    auto posIt = schedulePositionMap.find(user);
+    if (posIt != schedulePositionMap.end()) {
+      lastPos = std::max(lastPos, posIt->second);
+    }
+  }
+  return lastPos;
+}
+
+// Find which operand index of a consumer corresponds to a given value.
+static std::optional<size_t> findOperandIndex(Operation *consumer,
+                                              Value forkOutput) {
+  for (size_t i = 0; i < consumer->getNumOperands(); ++i) {
+    if (consumer->getOperand(i) == forkOutput) {
+      return i;
+    }
+  }
+  return std::nullopt;
+}
+
+// Check if an operation is a conv2d with deallocate_activation=true.
+// If so, return a modified config with deallocate_activation=false.
+// Returns std::nullopt if no modification is needed.
+// Used for fork handling where we need to keep the input alive for other
+// consumers.
+static std::optional<OpConfig>
+tryDisableDeallocateActivation(Operation *op, const OpConfig &config) {
+  if (!mlir::isa<ttnn::Conv2dOp, ttnn::ConvTranspose2dOp>(op)) {
+    return std::nullopt;
+  }
+
+  const auto *conv2dAttrs = std::get_if<Conv2dAttrs>(&config.opSpecificAttrs);
+  if (!conv2dAttrs || !conv2dAttrs->conv2dConfig.has_value()) {
+    return std::nullopt;
+  }
+
+  Conv2dConfigAttr conv2dConfig = conv2dAttrs->conv2dConfig.value();
+  if (!conv2dConfig || !conv2dConfig.getDeallocateActivation() ||
+      !conv2dConfig.getDeallocateActivation().getValue()) {
+    return std::nullopt;
+  }
+
+  // Create modified config with deallocate_activation=false
+  Conv2dAttrs modifiedAttrs = *conv2dAttrs;
+  modifiedAttrs.conv2dConfig = conv2dConfig.withDeallocateActivation(false);
+
+  OpConfig modifiedConfig = config;
+  modifiedConfig.opSpecificAttrs = modifiedAttrs;
+  return modifiedConfig;
+}
+
+// Validate that an op can accept a specific input layout and produce its
+// expected output layout. For matmul/linear ops, uses withIgnorePhysicalLayout
+// during validation. Returns true only if validation succeeds AND the actual
+// output layout matches the config's expected output layout.
+static bool validateOpWithInputLayout(Operation *op, size_t inputOperandIndex,
+                                      TTNNLayoutAttr inputLayout,
+                                      const OpConfig &config) {
+  // Build input layouts - use provided layout for the specified operand,
+  // extract current layouts for other operands
+  std::vector<TTNNLayoutAttr> inputLayouts = utils::extractInputLayouts(op);
+  if (inputOperandIndex >= inputLayouts.size()) {
+    return false;
+  }
+  inputLayouts[inputOperandIndex] = inputLayout;
+
+  // For matmul/linear ops without fused activation, use
+  // withIgnorePhysicalLayout to avoid strict grid matching during validation
+  // (similar to preprocessFirstOp). When activation is present, we need full
+  // layout because the internal unary op for activation cannot handle partial
+  // memory configs (crashes in validate_shard_spec).
+  // TODO(tt-metal#34500): Remove activation check once tt-metal handles partial
+  // memory configs in fused activations.
+  bool useIgnorePhysicalLayout = false;
+  if (auto matmulOp = mlir::dyn_cast<ttnn::MatmulOp>(op)) {
+    useIgnorePhysicalLayout = !matmulOp.getActivation().has_value();
+  } else if (auto linearOp = mlir::dyn_cast<ttnn::LinearOp>(op)) {
+    useIgnorePhysicalLayout = !linearOp.getActivation().has_value();
+  }
+
+  OpConfig testConfig = config;
+  TTNNLayoutAttr expectedLayout = config.outputLayout;
+  if (useIgnorePhysicalLayout && testConfig.outputLayout) {
+    testConfig.outputLayout =
+        testConfig.outputLayout.withIgnorePhysicalLayout(true);
+  }
+
+  op_constraint_validation::ValidationResult result =
+      op_constraint_validation::validateOperation(op, inputLayouts, testConfig,
+                                                  0);
+  if (!result.isSuccess()) {
+    return false;
+  }
+
+  // Verify the actual output layout matches the expected config layout.
+  // This ensures the op will produce the layout we planned for.
+  if (result.actualOutputLayout != expectedLayout) {
+    TTMLIR_TRACE(ttmlir::LogComponent::DFShardingPolicy,
+                 "  Op actual output {} != expected {}",
+                 result.actualOutputLayout, expectedLayout);
+    return false;
+  }
+
+  return true;
+}
+
+// Get the selected OpConfig for an operation.
+// If the op is in a chain, returns the config from opL1MemSpecs.
+// Otherwise, creates a config from the IR's output layout.
+static std::optional<OpConfig>
+getSelectedConfig(Operation *op,
+                  const llvm::DenseMap<Operation *, size_t> &opToChainMap,
+                  const std::vector<L1ChainConfig> &l1ChainConfigs) {
+  auto chainIt = opToChainMap.find(op);
+  if (chainIt != opToChainMap.end()) {
+    // Op is in a chain - find its config in opL1MemSpecs
+    const auto &specs = l1ChainConfigs[chainIt->second].getOpL1MemSpecs();
+    for (const auto &spec : specs) {
+      if (spec.op == op) {
+        return spec.config;
+      }
+    }
+  }
+
+  // Op not in chain - get layout from IR
+  if (op->getNumResults() == 0) {
+    return std::nullopt;
+  }
+  auto resultType =
+      mlir::dyn_cast<RankedTensorType>(op->getResult(0).getType());
+  if (!resultType || !resultType.getEncoding()) {
+    return std::nullopt;
+  }
+  TTNNLayoutAttr layout = utils::getLayoutAttrFromTensor(resultType);
+  return OpConfig(layout, OpConfig::OpSpecificAttrs{});
+}
+
+//===----------------------------------------------------------------------===//
+// L1 Reservations for Reshape Ops
+//===----------------------------------------------------------------------===//
+
+// Apply L1 reservations for reshape ops.
+// This keeps reshape outputs in L1 interleaved instead of spilling to DRAM,
+// benefiting subsequent ops that can consume L1 interleaved inputs.
+//
+// Also handles the case where reshape's input comes from a chain that would
+// spill to DRAM - if reshape is the only user, we can avoid the DRAM spill.
+static void applyL1ReservationsForReshapes(
+    std::vector<L1ChainConfig> &l1ChainConfigs,
+    const llvm::SmallVector<Operation *> &schedule,
+    const llvm::DenseMap<Operation *, int64_t> &schedulePositionMap,
+    std::vector<L1Reservation> &l1Reservations) {
+
+  // Build lookup maps for validation
+  llvm::DenseMap<Operation *, size_t> opToChainMap =
+      buildOpToChainMap(l1ChainConfigs);
+  llvm::DenseMap<size_t, llvm::DenseMap<Operation *, TTNNLayoutAttr>>
+      chainLayoutMaps = buildAllChainLayoutMaps(l1ChainConfigs);
+
+  for (Operation *op : schedule) {
+    if (!isa<ttnn::ReshapeOp>(op)) {
+      continue;
+    }
+
+    // Get schedule position
+    auto posIt = schedulePositionMap.find(op);
+    if (posIt == schedulePositionMap.end()) {
+      continue;
+    }
+    int64_t reshapePos = posIt->second;
+
+    // Check if reshape's input comes from a chain that spills to DRAM.
+    // If so and reshape is the only user, avoid the DRAM spill.
+    Value reshapeInput = op->getOperand(0);
+    Operation *inputDefOp = reshapeInput.getDefiningOp();
+
+    if (inputDefOp && reshapeInput.hasOneUse()) {
+      int64_t spilledChainIdx =
+          findSpilledChainForOp(inputDefOp, l1ChainConfigs);
+
+      if (spilledChainIdx >= 0) {
+        auto inputPosIt = schedulePositionMap.find(inputDefOp);
+        if (inputPosIt != schedulePositionMap.end()) {
+          int64_t inputPos = inputPosIt->second;
+
+          // Reshape must immediately follow the chain's last op
+          if (reshapePos == inputPos + 1) {
+            L1ChainConfig &chain =
+                l1ChainConfigs[static_cast<size_t>(spilledChainIdx)];
+            chain.spillLocation = SpillLocation::L1Interleaved;
+
+            TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                         "Avoiding DRAM spill for chain {} feeding reshape {}",
+                         spilledChainIdx, ttmlir::opToString(op));
+          }
+        }
+      }
+    }
+
+    // Try to get L1 interleaved size via backend validation
+    uint64_t l1Size = tryGetL1InterleavedSize(op);
+    if (l1Size == 0) {
+      continue;
+    }
+
+    // Compute L1 interleaved layout for the reshape output
+    auto outputType = mlir::cast<RankedTensorType>(op->getResult(0).getType());
+    auto currentLayout = mlir::cast<TTNNLayoutAttr>(outputType.getEncoding());
+    TTNNLayoutAttr l1Layout =
+        createL1InterleavedLayout(op, outputType, currentLayout);
+
+    // Find last user position
+    int64_t lastUserPos = reshapePos;
+    for (Operation *user : op->getUsers()) {
+      if (mlir::isa<func::ReturnOp>(user)) {
+        // User is a return op - must spill to DRAM
+        return;
+      }
+      auto userPosIt = schedulePositionMap.find(user);
+      if (userPosIt != schedulePositionMap.end()) {
+        lastUserPos = std::max(lastUserPos, userPosIt->second);
+      }
+    }
+
+    llvm::DenseMap<Operation *, TTNNLayoutAttr> reshapeOutputMap;
+    reshapeOutputMap[op] = l1Layout;
+
+    // Validate all ops in the range can execute with this reservation
+    if (!validateScheduleRangeWithReservation(
+            schedule, l1ChainConfigs, opToChainMap, chainLayoutMaps,
+            schedulePositionMap, l1Reservations, reshapePos, lastUserPos,
+            l1Size, reshapeOutputMap, kEmptyModifiedOpConfigs)) {
+      continue;
+    }
+
+    l1Reservations.push_back({op, reshapePos, lastUserPos, l1Size});
+
+    // Create L1ChainConfig for reshape so optimizer updates its layout
+
+    L1ChainConfig reshapeChain;
+    OpL1MemSpec reshapeSpec;
+    reshapeSpec.op = op;
+    reshapeSpec.tensorSplitFactor = 1;
+    reshapeSpec.config.outputLayout = l1Layout;
+    reshapeChain.addOpL1MemSpec(std::move(reshapeSpec));
+    reshapeChain.build();
+    reshapeChain.resolve();
+
+    llvm::DenseMap<Operation *, OpConfig> selectedConfigs;
+    selectedConfigs[op] = OpConfig{l1Layout};
+    llvm::DenseMap<Edge, MemReconfigEntry> emptyReconfigMap;
+    reshapeChain.complete(selectedConfigs, emptyReconfigMap);
+    reshapeChain.spillLocation = SpillLocation::None;
+
+    l1ChainConfigs.push_back(std::move(reshapeChain));
+
+    TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                 "L1 reservation: reshape {} in L1 (pos [{}, {}], {} bytes)",
+                 ttmlir::opToString(op), reshapePos, lastUserPos, l1Size);
+  }
+}
+
+//===----------------------------------------------------------------------===//
+// L1 Reservations for Fork Ops
+//===----------------------------------------------------------------------===//
+
+// Apply L1 reservations for fork ops (ops with multiple users).
+// This tries to keep forked tensors in L1 instead of spilling to DRAM,
+// avoiding redundant DRAM reads by multiple consumers.
+//
+// Algorithm:
+// 1. For each chain that spills to DRAM and has a forked output (multiple
+// users)
+// 2. Try passing the chain's sharded output layout to all consumers
+// 3. If that fails, try L1 interleaved as fallback
+// 4. Validate memory pressure across all chains in the fork span
+// 5. If valid, update spill location and create L1 reservation
+static void applyL1ReservationsForForkOps(
+    std::vector<L1ChainConfig> &l1ChainConfigs,
+    const llvm::SmallVector<Operation *> &schedule,
+    const llvm::DenseMap<Operation *, int64_t> &schedulePositionMap,
+    std::vector<L1Reservation> &l1Reservations) {
+
+  // Build lookup maps for validation
+  llvm::DenseMap<Operation *, size_t> opToChainMap =
+      buildOpToChainMap(l1ChainConfigs);
+  llvm::DenseMap<size_t, llvm::DenseMap<Operation *, TTNNLayoutAttr>>
+      chainLayoutMaps = buildAllChainLayoutMaps(l1ChainConfigs);
+
+  for (auto &chain : l1ChainConfigs) {
+    if (chain.getState() != L1ChainState::Completed) {
+      continue;
+    }
+    if (chain.spillLocation != SpillLocation::DRAM) {
+      continue;
+    }
+
+    Operation *lastOp = chain.getLastOp();
+    if (lastOp->getNumResults() == 0) {
+      continue;
+    }
+
+    if (lastOp->getNumResults() > 1) {
+      // Currently only handle single-output ops
+      continue;
+    }
+
+    Value forkOutput = lastOp->getResult(0);
+
+    // Step 1: Check if this is a fork (multiple users)
+    if (forkOutput.hasOneUse()) {
+      continue;
+    }
+
+    // Get fork op's resolved sharded layout
+    const auto &specs = chain.getOpL1MemSpecs();
+    if (specs.empty()) {
+      continue;
+    }
+    TTNNLayoutAttr shardedLayout = specs.back().config.outputLayout;
+    if (!shardedLayout) {
+      continue;
+    }
+
+    // Get schedule position
+    auto forkPosIt = schedulePositionMap.find(lastOp);
+    if (forkPosIt == schedulePositionMap.end()) {
+      continue;
+    }
+    int64_t forkPos = forkPosIt->second;
+
+    // Find last user position
+    int64_t lastUserPos = findLastUserPosition(forkOutput, schedulePositionMap);
+    if (lastUserPos < 0) {
+      continue;
+    }
+
+    TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                 "Fork op {} has {} users, span [{}, {}]",
+                 ttmlir::opToString(lastOp),
+                 std::distance(forkOutput.getUsers().begin(),
+                               forkOutput.getUsers().end()),
+                 forkPos, lastUserPos);
+
+    // Step 2: Try passing sharded layout to all consumers
+    bool allConsumersValidWithSharded = true;
+    llvm::DenseMap<Operation *, OpConfig> modifiedOpConfigsSharded;
+    for (Operation *user : forkOutput.getUsers()) {
+      auto operandIdx = findOperandIndex(user, forkOutput);
+      if (!operandIdx) {
+        allConsumersValidWithSharded = false;
+        break;
+      }
+
+      // Workaround for tt-metal issue #34951: Reduction ops (MeanOp, SumOp)
+      // return invalid TensorSpec (DRAM + BLOCK_SHARDED) when given sharded
+      // input and DRAM output. Reject sharded inputs for these ops until fixed.
+      if (isa<ttnn::MeanOp, ttnn::SumOp, ttnn::MinOp, ttnn::MaxOp>(user)) {
+        TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                     "  Consumer {} is reduction op - rejecting sharded input",
+                     ttmlir::opToString(user));
+        allConsumersValidWithSharded = false;
+        break;
+      }
+
+      // Get consumer's selected config and validate with fork input
+      auto selectedConfig =
+          getSelectedConfig(user, opToChainMap, l1ChainConfigs);
+      if (!selectedConfig) {
+        allConsumersValidWithSharded = false;
+        break;
+      }
+
+      // For conv2d ops with deallocate_activation=true, try with false
+      // since we need to keep the input alive for other consumers.
+      OpConfig configToValidate = *selectedConfig;
+      if (auto modifiedConfig =
+              tryDisableDeallocateActivation(user, configToValidate)) {
+        TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                     "  Conv2d consumer {}: trying with "
+                     "deallocate_activation=false",
+                     ttmlir::opToString(user));
+        configToValidate = *modifiedConfig;
+        modifiedOpConfigsSharded[user] = configToValidate;
+      }
+
+      if (!validateOpWithInputLayout(user, *operandIdx, shardedLayout,
+                                     configToValidate)) {
+        allConsumersValidWithSharded = false;
+        TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                     "  Consumer {} cannot accept sharded input",
+                     ttmlir::opToString(user));
+        break;
+      }
+    }
+
+    if (allConsumersValidWithSharded) {
+      // Validate memory pressure with sharded layout
+      uint64_t l1Size = shardedLayout.getShardSizeInBytes();
+
+      // Build map with fork op's sharded layout for non-chain op validation
+      llvm::DenseMap<Operation *, TTNNLayoutAttr> forkOutputMap;
+      forkOutputMap[lastOp] = shardedLayout;
+
+      if (validateScheduleRangeWithReservation(
+              schedule, l1ChainConfigs, opToChainMap, chainLayoutMaps,
+              schedulePositionMap, l1Reservations, forkPos, lastUserPos, l1Size,
+              forkOutputMap, modifiedOpConfigsSharded)) {
+        // SUCCESS: Keep sharded, no spill needed
+        chain.spillLocation = SpillLocation::None;
+        l1Reservations.push_back({lastOp, forkPos, lastUserPos, l1Size});
+
+        // Apply config updates for conv2d ops that need
+        // deallocate_activation=false
+        for (const auto &[op, newConfig] : modifiedOpConfigsSharded) {
+          auto chainIt = opToChainMap.find(op);
+          if (chainIt != opToChainMap.end()) {
+            l1ChainConfigs[chainIt->second].updateOpConfig(op, newConfig);
+            TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                         "  Updated conv2d {} config: "
+                         "deallocate_activation=false",
+                         ttmlir::opToString(op));
+          }
+        }
+
+        TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                     "Fork op {}: keeping sharded in L1 ({} bytes)",
+                     ttmlir::opToString(lastOp), l1Size);
+        continue;
+      }
+    }
+
+    // Step 3: Try L1 interleaved fallback
+    // Use tryGetL1InterleavedSize to validate and get L1 size
+    uint64_t l1InterleavedSize = tryGetL1InterleavedSize(lastOp);
+    if (l1InterleavedSize == 0) {
+      TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                   "Fork op {}: L1 interleaved validation failed for op itself",
+                   ttmlir::opToString(lastOp));
+      continue;
+    }
+
+    auto forkOutputType = mlir::cast<RankedTensorType>(forkOutput.getType());
+    TTNNLayoutAttr l1InterleavedLayout =
+        createL1InterleavedLayout(lastOp, forkOutputType, shardedLayout);
+
+    bool allConsumersValidWithL1Interleaved = true;
+    llvm::DenseMap<Operation *, OpConfig> modifiedOpConfigsL1Interleaved;
+    for (Operation *user : forkOutput.getUsers()) {
+      auto operandIdx = findOperandIndex(user, forkOutput);
+      if (!operandIdx) {
+        allConsumersValidWithL1Interleaved = false;
+        break;
+      }
+      // Get consumer's selected config and validate with L1 interleaved input
+      auto selectedConfig =
+          getSelectedConfig(user, opToChainMap, l1ChainConfigs);
+      if (!selectedConfig) {
+        allConsumersValidWithL1Interleaved = false;
+        break;
+      }
+
+      // For conv2d ops with deallocate_activation=true, try with false
+      // since we need to keep the input alive for other consumers.
+      OpConfig configToValidate = *selectedConfig;
+      if (auto modifiedConfig =
+              tryDisableDeallocateActivation(user, configToValidate)) {
+        TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                     "  Conv2d consumer {}: trying with "
+                     "deallocate_activation=false (L1 interleaved)",
+                     ttmlir::opToString(user));
+        configToValidate = *modifiedConfig;
+        modifiedOpConfigsL1Interleaved[user] = configToValidate;
+      }
+
+      TTMLIR_TRACE(
+          ttmlir::LogComponent::DFShardingPolicy,
+          "  Validating consumer {} with L1 interleaved input and config {}",
+          ttmlir::opToString(user), configToValidate.outputLayout);
+
+      if (!validateOpWithInputLayout(user, *operandIdx, l1InterleavedLayout,
+                                     configToValidate)) {
+        allConsumersValidWithL1Interleaved = false;
+        TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                     "  Consumer {} cannot accept L1 interleaved input",
+                     ttmlir::opToString(user));
+        break;
+      }
+    }
+
+    if (!allConsumersValidWithL1Interleaved) {
+      TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                   "Fork op {}: consumers cannot accept L1 interleaved, "
+                   "keeping DRAM spill",
+                   ttmlir::opToString(lastOp));
+      continue;
+    }
+
+    // Step 4: Validate memory pressure with L1 interleaved reservation
+    // Build map with fork op's L1 interleaved layout for non-chain op
+    // validation
+    llvm::DenseMap<Operation *, TTNNLayoutAttr> forkL1InterleavedMap;
+    forkL1InterleavedMap[lastOp] = l1InterleavedLayout;
+
+    if (!validateScheduleRangeWithReservation(
+            schedule, l1ChainConfigs, opToChainMap, chainLayoutMaps,
+            schedulePositionMap, l1Reservations, forkPos, lastUserPos,
+            l1InterleavedSize, forkL1InterleavedMap,
+            modifiedOpConfigsL1Interleaved)) {
+      TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                   "Fork op {}: L1 interleaved fails memory validation, "
+                   "keeping DRAM spill",
+                   ttmlir::opToString(lastOp));
+      continue;
+    }
+
+    // SUCCESS: Use L1 interleaved
+    chain.spillLocation = SpillLocation::L1Interleaved;
+    l1Reservations.push_back({lastOp, forkPos, lastUserPos, l1InterleavedSize});
+
+    // Apply config updates for conv2d ops that need deallocate_activation=false
+    for (const auto &[op, newConfig] : modifiedOpConfigsL1Interleaved) {
+      auto chainIt = opToChainMap.find(op);
+      if (chainIt != opToChainMap.end()) {
+        l1ChainConfigs[chainIt->second].updateOpConfig(op, newConfig);
+        TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                     "  Updated conv2d {} config: deallocate_activation=false",
+                     ttmlir::opToString(op));
+      }
+    }
+
+    TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                 "Fork op {}: using L1 interleaved ({} bytes)",
+                 ttmlir::opToString(lastOp), l1InterleavedSize);
+  }
 }
 
 //===----------------------------------------------------------------------===//
@@ -729,7 +1862,8 @@ static void applyChainMerges(std::vector<L1ChainConfig> &l1ChainConfigs,
               schedule, l1ChainConfigs, opToChainMap, chainLayoutMaps,
               schedulePositionMap, l1Reservations,
               chainALastOpPosIt->second + 1, chainCFirstOpPosIt->second - 1,
-              operand0Candidate->sourceOutputSize, chainAOutputMap)) {
+              operand0Candidate->sourceOutputSize, chainAOutputMap,
+              kEmptyModifiedOpConfigs)) {
         TTMLIR_DEBUG(
             ttmlir::LogComponent::DFShardingPolicy,
             "3-way merge rejected: intermediate ops validation failed");
@@ -860,7 +1994,8 @@ static void applyChainMerges(std::vector<L1ChainConfig> &l1ChainConfigs,
           if (!validateScheduleRangeWithReservation(
                   schedule, l1ChainConfigs, opToChainMap, chainLayoutMaps,
                   schedulePositionMap, l1Reservations, startPos, endPos,
-                  candidate.sourceOutputSize, sourceOutputMap)) {
+                  candidate.sourceOutputSize, sourceOutputMap,
+                  kEmptyModifiedOpConfigs)) {
             TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
                          "Chain merge candidate rejected: intermediate ops "
                          "between chain {} and join op {} cannot execute with "
@@ -905,20 +2040,6 @@ static void applyChainMerges(std::vector<L1ChainConfig> &l1ChainConfigs,
   }
 }
 
-//===----------------------------------------------------------------------===//
-// L1 Reservation Timeline
-//===----------------------------------------------------------------------===//
-
-// Represents a reservation of L1 memory for an op's output that stays in L1
-// across multiple consumer chains. Used for forked ops like reshape that
-// benefit from staying in L1 interleaved instead of spilling to DRAM.
-struct L1Reservation {
-  Operation *sourceOp; // The op whose output is reserved in L1
-  int64_t startPos;    // Schedule position where reservation starts
-  int64_t endPos;      // Schedule position where reservation ends (last user)
-  uint64_t sizeBytes;  // L1 size reserved in bytes
-};
-
 // Compute total L1 reserved at a given schedule position.
 // This is O(n) for now; can be optimized with Fenwick tree later.
 static uint64_t
@@ -955,6 +2076,8 @@ static std::optional<TTNNLayoutAttr> extractOutputLayoutFromIR(Operation *op) {
 // The l1ResidentsLayoutMap provides layouts for ops whose outputs will be
 // in L1 (from merged chains), used when building input layouts for non-chain
 // ops that consume those outputs.
+// The modifiedOpConfigs provides overridden configs for specific ops (e.g.,
+// conv2d with deallocate_activation=false for fork handling).
 static bool validateScheduleRangeWithReservation(
     const llvm::SmallVector<Operation *> &schedule,
     const std::vector<L1ChainConfig> &l1ChainConfigs,
@@ -964,7 +2087,8 @@ static bool validateScheduleRangeWithReservation(
     const llvm::DenseMap<Operation *, int64_t> &schedulePositionMap,
     const std::vector<L1Reservation> &existingReservations, int64_t startPos,
     int64_t endPos, uint64_t additionalL1,
-    const llvm::DenseMap<Operation *, TTNNLayoutAttr> &l1ResidentsLayoutMap) {
+    const llvm::DenseMap<Operation *, TTNNLayoutAttr> &l1ResidentsLayoutMap,
+    const llvm::DenseMap<Operation *, OpConfig> &modifiedOpConfigs) {
 
   // Early exit if range is invalid or empty
   if (startPos > endPos) {
@@ -978,6 +2102,10 @@ static bool validateScheduleRangeWithReservation(
     }
 
     Operation *op = schedule[static_cast<size_t>(pos)];
+
+    if (mlir::isa<ToLayoutOp>(op)) {
+      continue;
+    }
 
     // Get existing L1 reservations at this position
     uint64_t existingL1 = getActiveL1Reservations(pos, existingReservations);
@@ -1022,10 +2150,18 @@ static bool validateScheduleRangeWithReservation(
         return false;
       }
 
+      // Check if there's a modified config for this op (e.g., conv2d with
+      // deallocate_activation disabled for fork handling)
+      OpConfig configToUse = spec->config;
+      auto modifiedIt = modifiedOpConfigs.find(op);
+      if (modifiedIt != modifiedOpConfigs.end()) {
+        configToUse = modifiedIt->second;
+      }
+
       // Validate with additional L1
       op_constraint_validation::ValidationResult result =
           op_constraint_validation::validateOperation(
-              op, *inputLayoutsOpt, spec->config, totalAdditionalL1);
+              op, *inputLayoutsOpt, configToUse, totalAdditionalL1);
 
       if (!result.isSuccess()) {
         TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
@@ -1161,9 +2297,40 @@ void DFShardingPolicy::run() {
                     ttnn::MultiplyOp, ttnn::ReluOp, ttnn::Relu6Op,
                     ttnn::TypecastOp, ttnn::SiluOp, ttnn::MatmulOp,
                     ttnn::LinearOp, ttnn::MinimumOp, ttnn::GeluOp, ttnn::NegOp,
-                    ttnn::RsqrtOp, ttnn::PowScalarOp, ttnn::SliceStaticOp,
-                    ttnn::RotaryEmbeddingOp>(currentOp) &&
+                    ttnn::RsqrtOp, ttnn::ConcatOp, ttnn::PowScalarOp,
+                    ttnn::SliceStaticOp, ttnn::RotaryEmbeddingOp>(currentOp) &&
           legalConfigs.lookup(currentOp).size() > 0;
+
+      // Special handling for ConcatOp: isolate it into its own single-op
+      // chain. This allows us to handle concat specially by:
+      // 1. Breaking any incoming chain at concat
+      // 2. Starting a new chain after concat's user
+      // 3. Resolving concat without ShardSolver by validating if all
+      //    incoming L1-sharded inputs can be consumed directly
+      if (llvm::isa<ttnn::ConcatOp>(currentOp) && validForSharding) {
+        // First, finalize any current chain that was being built
+        if (!l1ChainConfigs->back().isEmpty()) {
+          l1ChainConfigs->back().build();
+          l1ChainConfigs->push_back(L1ChainConfig());
+        }
+
+        // Create a single-op chain for concat
+        OpL1MemSpec concatSpec;
+        concatSpec.op = currentOp;
+        concatSpec.tensorSplitFactor = 1;
+        l1ChainConfigs->back().addOpL1MemSpec(std::move(concatSpec));
+        l1ChainConfigs->back().isConcatChain = true;
+        l1ChainConfigs->back().build();
+
+        TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                     "Created isolated concat chain for op {}",
+                     ttmlir::opToString(currentOp));
+
+        // Start a new chain for subsequent ops
+        l1ChainConfigs->push_back(L1ChainConfig());
+        currentOp = nullptr;
+        continue;
+      }
 
       // Check for next op only if there are still unscheduled ops
       Operation *nextOp = nullptr;
@@ -1205,8 +2372,18 @@ void DFShardingPolicy::run() {
                          ttmlir::opToString(nextOp));
             currentOp = nullptr;
           } else {
-            currentOp = nextOp;
-            continue;
+            // Don't continue chain into ConcatOp - it needs its own chain
+            if (llvm::isa<ttnn::ConcatOp>(nextOp)) {
+              TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                           "Breaking L1 chain at op {} because next op {} is "
+                           "ConcatOp",
+                           ttmlir::opToString(currentOp),
+                           ttmlir::opToString(nextOp));
+              currentOp = nullptr;
+            } else {
+              currentOp = nextOp;
+              continue;
+            }
           }
         }
       }
@@ -1232,6 +2409,10 @@ void DFShardingPolicy::run() {
                  l1ChainConfig);
   }
 
+  // Set preferred output memory layout for chains feeding into concat.
+  // This must be done before resolution so pickOpShardConfigs can use it.
+  setConcatChainPreferences(*l1ChainConfigs);
+
   // Resolve shard chain configs.
   //
   mlir::tt::ttnn::MemoryLayoutAnalysisProgressTracker progressTracker;
@@ -1242,13 +2423,21 @@ void DFShardingPolicy::run() {
        ++chainIndex) {
     L1ChainConfig &l1ChainConfig = (*l1ChainConfigs)[chainIndex];
 
+    // Skip concat chains - they are resolved separately after all regular
+    // chains are processed, so we can check if their inputs are L1-sharded.
+    if (l1ChainConfig.isConcatChain) {
+      TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                   "Skipping concat chain {} - will resolve later", chainIndex);
+      continue;
+    }
+
     // Count operations in this chain
     size_t numOpsInChain = l1ChainConfig.getOpL1MemSpecs().size();
     Operation *firstOp = l1ChainConfig.getOpL1MemSpecs()[0].op;
     progressTracker.startL1Chain(firstOp, chainIndex, numOpsInChain);
     ShardSolver shardSolver = l1ChainConfig.resolveWithSolver(
-        tensorTypePossibleLayouts, legalConfigs, usableL1CacheSize,
-        overrideReshardEdges, overrideOutputLayout);
+        tensorTypePossibleLayouts, legalConfigs, overrideReshardEdges,
+        overrideOutputLayout);
 
     if (l1ChainConfig.getState() == L1ChainState::Failed) {
       TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
@@ -1275,10 +2464,29 @@ void DFShardingPolicy::run() {
     progressTracker.finishL1Chain(firstOp, chainIndex, true);
   }
 
-  // Chain merging: attempt to merge chains where Chain A's output can stay
-  // in L1 and be consumed as RHS by a join op in Chain B.
-  std::vector<L1Reservation> l1Reservations; // Empty for now
+  // Build op-to-chain map for concat resolution and chain merging.
+  llvm::DenseMap<Operation *, size_t> opToChainMap =
+      buildOpToChainMap(*l1ChainConfigs);
+
+  // Resolve concat chains now that all regular chains are processed.
+  // This allows us to check if concat's input chains are L1-sharded.
+  resolveConcatChains(*l1ChainConfigs, opToChainMap, legalConfigs);
+
+  // Post-processing: apply L1 reservations for forked ops (like reshape)
+  // BEFORE chain merges so merges account for reserved L1 memory.
+  std::vector<L1Reservation> l1Reservations;
   if (funcToProcess) {
+    llvm::DenseMap<Operation *, int64_t> schedulePositionMap =
+        buildSchedulePositionMap((*schedule)[funcToProcess]);
+    applyL1ReservationsForReshapes(*l1ChainConfigs, (*schedule)[funcToProcess],
+                                   schedulePositionMap, l1Reservations);
+
+    // Apply L1 reservations for fork ops (ops with multiple users)
+    applyL1ReservationsForForkOps(*l1ChainConfigs, (*schedule)[funcToProcess],
+                                  schedulePositionMap, l1Reservations);
+
+    // Attempt to merge chains where Chain A's output can stay in L1 and be
+    // consumed as RHS by a join op in Chain B.
     applyChainMerges(*l1ChainConfigs, (*schedule)[funcToProcess],
                      l1Reservations);
   }

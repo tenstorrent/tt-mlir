@@ -217,12 +217,11 @@ struct TTIRToTTNNDevicePipelineOptions
       llvm::cl::desc(
           "Enable row major layout generation in legal layout analysis."),
       llvm::cl::init(false)};
-
   // Option to override maximum percent of L1 storage that can be used
   // by tensors in Optimizer analysis.
   // This is a value between 0.0 and 1.0, where 1.0 means that the entire L1
   // storage can be used by tensors.
-  // The default value is 0.8.
+  // The default value is 0.95.
   //
   Option<float> tensorL1UsageCap{
       *this, OptionNames::tensorL1UsageCap,
@@ -316,7 +315,7 @@ struct TTIRToTTNNDevicePipelineOptions
   Option<bool> enableCPUHoistedConstEval{
       *this, "enable-cpu-hoisted-const-eval",
       llvm::cl::desc("Enable hoisting const-eval ops to CPU module."),
-      llvm::cl::init(false)};
+      llvm::cl::init(true)};
 
   // Force const-eval function inputs to system memory.
   Option<bool> enableConstEvalInputsToSystemMemory{
@@ -507,7 +506,13 @@ struct TTIRToTTNNBackendPipelineOptions
 // TTNNToEmitCDevicePipelineOptions to reuse the options.
 //
 struct TTIRToEmitCPipelineOptions : public TTIRToTTNNDevicePipelineOptions,
-                                    public TTNNToEmitCDevicePipelineOptions {};
+                                    public TTNNToEmitCDevicePipelineOptions {
+  TTIRToEmitCPipelineOptions() {
+    // TODO(dmilinkovic): Remove once CPU-hoisting is supported on EmitC - issue
+    // #6100.
+    this->enableCPUHoistedConstEval = false;
+  }
+};
 
 // TTIR to EmitPy pipeline options.
 //

@@ -137,6 +137,11 @@ public:
         [ctx](mlir::tt::ttkernel::TensorAccessorPageMappingType type) -> Type {
           return emitc::OpaqueType::get(ctx, "PageMapping");
         });
+    addConversion(
+        [ctx](mlir::tt::ttkernel::FabricConnectionManagerType type) -> Type {
+          return emitc::OpaqueType::get(
+              ctx, "experimental::FabricConnectionManager");
+        });
   }
 };
 } // namespace
@@ -270,6 +275,32 @@ public:
           datatypeToDataformatEnumValue(builder, op.getInDtype()));
       template_args.push_back(
           datatypeToDataformatEnumValue(builder, op.getOutDtype()));
+      return ArrayAttr::get(op.getContext(), template_args);
+    } else if constexpr (std::is_same_v<SourceOp,
+                                        ttkernel::BinaryDestReuseTilesInitOp> ||
+                         std::is_same_v<SourceOp,
+                                        ttkernel::BinaryDestReuseTilesOp>) {
+      SmallVector<Attribute, 2> template_args;
+      StringRef eltwiseType;
+      switch (op.getEltwiseBinaryType()) {
+      case ttkernel::EltwiseBinaryType::Add:
+        eltwiseType = "ELWADD";
+        break;
+      case ttkernel::EltwiseBinaryType::Sub:
+        eltwiseType = "ELWSUB";
+        break;
+      case ttkernel::EltwiseBinaryType::Mul:
+        eltwiseType = "ELWMUL";
+        break;
+      }
+      template_args.push_back(
+          emitc::OpaqueAttr::get(op.getContext(), eltwiseType));
+      StringRef reuseType =
+          op.getReuseType() == ttkernel::BinaryDestReuseType::DestToSrcA
+              ? "EltwiseBinaryReuseDestType::DEST_TO_SRCA"
+              : "EltwiseBinaryReuseDestType::DEST_TO_SRCB";
+      template_args.push_back(
+          emitc::OpaqueAttr::get(op.getContext(), reuseType));
       return ArrayAttr::get(op.getContext(), template_args);
     }
     return ArrayAttr();
@@ -594,6 +625,45 @@ public:
 } // namespace
 
 namespace {
+class TTKernelCreateFabricConnectionManagerOpRewriter
+    : public OpConversionPattern<ttkernel::CreateFabricConnectionManagerOp> {
+  using Op = ttkernel::CreateFabricConnectionManagerOp;
+
+public:
+  TTKernelCreateFabricConnectionManagerOpRewriter(
+      const TypeConverter &typeConverter, MLIRContext *context)
+      : OpConversionPattern(typeConverter, context) {}
+
+  LogicalResult
+  matchAndRewrite(Op op,
+                  ttkernel::CreateFabricConnectionManagerOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    if (op.getResult().getUses().empty()) {
+      rewriter.eraseOp(op);
+    } else {
+      mlir::Type opaqueStructType =
+          this->getTypeConverter()->convertType(op->getResultTypes()[0]);
+
+      mlir::Type lvalueType = emitc::LValueType::get(opaqueStructType);
+
+      // Declare the struct variable
+      auto varOp = rewriter.create<emitc::VariableOp>(
+          op->getLoc(), lvalueType,
+          emitc::OpaqueAttr::get(op.getContext(), ""));
+
+      // Load the value from the lvalue variable
+      auto loadOp =
+          rewriter.create<emitc::LoadOp>(op->getLoc(), opaqueStructType, varOp);
+
+      // Replace the original operation with the loaded value so it can be used.
+      rewriter.replaceOp(op, loadOp.getResult());
+    }
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 template <typename SourceOp, typename Adaptor = typename SourceOp::Adaptor>
 class TTKernelClassMethodRewriter : public OpConversionPattern<SourceOp> {
 public:
@@ -892,6 +962,8 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::MulTilesOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::SubTilesInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::SubTilesOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::BinaryDestReuseTilesInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::BinaryDestReuseTilesOp>,
 
         // Transpose Ops
         TTKernelToEmitCOpaqueRewriter<ttkernel::TransposeInitOp>,
@@ -1004,6 +1076,8 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::WhereTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::WhereTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::WhereTileF32Op>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::ClampScalarTileInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::ClampScalarTileOp>,
 
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetNocAddrOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::NocAsyncReadOp>,
@@ -1035,6 +1109,15 @@ public:
             ttkernel::NocAsyncWriteMulticastLoopbackSrcOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ConvertLogicalXToTranslatedOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ConvertLogicalYToTranslatedOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::GetMyDeviceIdOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::FabricWriteOp>,
+        TTKernelToEmitCOpaqueRewriter<
+            ttkernel::CreateFabricConnectionManagerOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::SetupFabricConnectionsOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::CloseFabricConnectionsOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::GetLogicalMeshPositionOp>,
+        TTKernelToEmitCOpaqueRewriter<
+            ttkernel::GetDeviceIdFromLogicalMeshPositionOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetWritePtrOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetReadPtrOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetTileSizeOp>,
@@ -1066,6 +1149,9 @@ public:
 
     patterns.add<TTKernelTensorAccessorArgsOpRewriter>(typeConverter,
                                                        funcOp.getContext());
+
+    patterns.add<TTKernelCreateFabricConnectionManagerOpRewriter>(
+        typeConverter, funcOp.getContext());
 
     patterns.add<
         TTKernelClassMethodRewriter<ttkernel::TensorAccessorGetNocAddrOp>,

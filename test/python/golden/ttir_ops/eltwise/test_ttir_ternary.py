@@ -5,7 +5,7 @@
 import pytest
 import torch
 from typing import Callable, List, Optional, Tuple
-from conftest import x86_only
+from conftest import x86_only, get_request_kwargs
 from builder.base.builder_utils import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_apis import (
@@ -40,8 +40,24 @@ def module_where(dtype: torch.dtype):
     return _module_where
 
 
+def module_clamp_tensor(dtype: torch.dtype):
+    def _module_clamp_tensor(builder: TTIRBuilder):
+        @builder.func([(128, 128), (128, 128), (128, 128)], [dtype] * 3)
+        def clamp_tensor(
+            in0: Operand,
+            in1: Operand,
+            in2: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.clamp_tensor(in0, in1, in2, unit_attrs=unit_attrs)
+
+    return _module_clamp_tensor
+
+
 ternary_ops = [
     module_where,
+    module_clamp_tensor,
 ]
 
 
@@ -55,9 +71,7 @@ def test_ternary_ops(
     pipeline_options = []
     compile_and_execute_ttir(
         test_fn(dtype),
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
         pipeline_options=pipeline_options,
@@ -132,9 +146,65 @@ def test_ternary_eltwise_ops_implicit_broadcast(
 
     compile_and_execute_ttir(
         module_implicit_broadcast,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+    )
+
+
+@pytest.mark.parametrize("shape", [(64, 128)], ids=shape_str)
+@pytest.mark.parametrize("max_arg,min_arg", [(0.8, -0.5)])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+def test_clamp_scalar(
+    shape: Shape, max_arg: float, min_arg: float, target: str, request, device
+):
+    def module_clamp_scalar(builder: TTIRBuilder):
+        @builder.func([shape], [torch.float32])
+        def clamp_scalar(
+            in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+        ):
+            # Set input values explicitly in range [-1, 1]
+            input_tensor = torch.rand(shape, dtype=torch.float32) * 2 - 1
+            builder.set_goldens(inputs={in0: input_tensor})
+            return builder.clamp_scalar(
+                in0, max_arg=max_arg, min_arg=min_arg, unit_attrs=unit_attrs
+            )
+
+    compile_and_execute_ttir(
+        module_clamp_scalar,
         test_base=request.node.name,
+        device=device,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+    )
+
+
+@x86_only
+@pytest.mark.parametrize("shape", [(64, 128)], ids=shape_str)
+@pytest.mark.parametrize("max_arg,min_arg", [(0.8, -0.5)])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+def test_hoisted_clamp_scalar(
+    shape: Shape, max_arg: float, min_arg: float, target: str, request, device
+):
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [torch.float32])
+        def hoisted_clamp_scalar(
+            in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+        ):
+            # Set input values explicitly in range [-1, 1]
+            input_tensor = torch.rand(shape, dtype=torch.float32) * 2 - 1
+            builder.set_goldens(inputs={in0: input_tensor})
+            return builder.clamp_scalar(
+                in0,
+                max_arg=max_arg,
+                min_arg=min_arg,
+                unit_attrs=["ttir.should_hoist"],
+            )
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )

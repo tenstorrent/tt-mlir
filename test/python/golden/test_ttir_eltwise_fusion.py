@@ -9,6 +9,7 @@ from typing import List, Callable, Sequence, Optional
 from ttmlir.ir import *
 from ttmlir.passes import ttir_to_ttmetal_backend_pipeline
 from ttmlir.dialects import ttir
+from conftest import get_request_kwargs
 
 from builder.base.builder_utils import Operand, Shape, TypeInfo
 from builder.ttir.ttir_builder import TTIRBuilder
@@ -27,8 +28,6 @@ pytestmark = pytest.mark.frontend("ttir")
 ### ----------------------------------------------------------------------- ###
 # Main Parameter Sets to Reduce Verbiage
 ### ----------------------------------------------------------------------- ###
-
-enablePrintIR = True
 
 gridParams = [
     "override-device-shape=1,1",
@@ -203,11 +202,7 @@ def test_eltwise_fuse_cosh(
         module,
         target=target,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
-        test_base=request.node.name,
-        save_artifacts=True,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
-        print_ir=enablePrintIR,
+        **get_request_kwargs(request),
         device=device,
     )
 
@@ -271,11 +266,7 @@ def test_eltwise_sanity_check_unary_op(
         module,
         target=target,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
-        test_base=request.node.name,
-        save_artifacts=True,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
-        print_ir=enablePrintIR,
+        **get_request_kwargs(request),
         device=device,
     )
 
@@ -330,11 +321,7 @@ def test_eltwise_fuse_unary_chain(
         module,
         target=target,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
-        test_base=request.node.name,
-        save_artifacts=True,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
-        print_ir=enablePrintIR,
+        **get_request_kwargs(request),
         device=device,
     )
 
@@ -374,11 +361,7 @@ def test_eltwise_fuse_converging_unary_branches(
         module,
         target=target,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
-        test_base=request.node.name,
-        save_artifacts=True,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
-        print_ir=enablePrintIR,
+        **get_request_kwargs(request),
         device=device,
     )
 
@@ -393,6 +376,9 @@ def test_eltwise_fuse_converging_unary_branches(
 @pytest.mark.parametrize("shape", [(128, 128)])
 @pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
 @pytest.mark.parametrize("target", ["ttmetal"])
+@pytest.mark.skip(
+    reason="TODO(ckaravasilisTT): reenable when binary FPU fusion is supported"
+)
 def test_eltwise_fuse_binary_reduction_tree(
     grid: str, shape: Shape, dtype: torch.dtype, target: str, request, device
 ):
@@ -452,11 +438,7 @@ def test_eltwise_fuse_binary_reduction_tree(
         module,
         target=target,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
-        test_base=request.node.name,
-        save_artifacts=True,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
-        print_ir=enablePrintIR,
+        **get_request_kwargs(request),
         device=device,
     )
 
@@ -499,11 +481,7 @@ def test_eltwise_fuse_where_simple(
         module,
         target=target,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
-        test_base=request.node.name,
-        save_artifacts=True,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
-        print_ir=enablePrintIR,
+        **get_request_kwargs(request),
         device=device,
     )
 
@@ -555,11 +533,7 @@ def test_eltwise_fuse_where_with_unary_chains(
         module,
         target=target,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
-        test_base=request.node.name,
-        save_artifacts=True,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
-        print_ir=enablePrintIR,
+        **get_request_kwargs(request),
         device=device,
     )
 
@@ -594,8 +568,8 @@ def test_eltwise_fuse_where_with_binary_inputs(
             builder.set_goldens(inputs={cond: condition_tensor})
 
             # Binary ops for true and false branches
-            true_branch = builder.add(in0, in1)
-            false_branch = builder.multiply(in2, in3)
+            true_branch = builder.div(in0, in1)
+            false_branch = builder.pow(in2, in3)
 
             return builder.where(cond, true_branch, false_branch)
 
@@ -605,11 +579,7 @@ def test_eltwise_fuse_where_with_binary_inputs(
         module,
         target=target,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
-        test_base=request.node.name,
-        save_artifacts=True,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
-        print_ir=enablePrintIR,
+        **get_request_kwargs(request),
         device=device,
     )
 
@@ -640,7 +610,7 @@ def test_diamond_unary_op_fanout(
             floor_0 = builder.floor(abs_0)
             neg_1 = builder.neg(floor_0)
 
-            return builder.add(neg_0, neg_1)
+            return builder.div(neg_0, neg_1)
 
     options = [grid]
 
@@ -648,10 +618,6 @@ def test_diamond_unary_op_fanout(
         module,
         target=target,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
-        test_base=request.node.name,
-        save_artifacts=True,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
-        print_ir=enablePrintIR,
+        **get_request_kwargs(request),
         device=device,
     )

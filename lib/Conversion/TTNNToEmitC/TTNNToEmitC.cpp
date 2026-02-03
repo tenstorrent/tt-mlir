@@ -581,11 +581,8 @@ public:
       auto exponent = attr.getValue().convertToFloat();
       exponentAttr = emitter.template emit<float>(exponent);
     } else if (auto attr = mlir::dyn_cast<IntegerAttr>(srcOp.getRhs())) {
-      auto exponent = static_cast<uint32_t>(attr.getValue().getSExtValue());
-      // An explicit cast to uint32_t is required here to avoid ambiguous
-      // function overload resolution during C++ code generation.
-      std::string exponentStr = "uint32_t(" + std::to_string(exponent) + ")";
-      exponentAttr = emitc::OpaqueAttr::get(rewriter.getContext(), exponentStr);
+      auto exponent = static_cast<int32_t>(attr.getValue().getSExtValue());
+      exponentAttr = emitter.template emit<int32_t>(exponent);
     } else {
       return failure();
     }
@@ -1450,6 +1447,7 @@ public:
         emitter.template emit<::ttnn::WormholeComputeKernelConfig>(
             srcOp.getComputeConfig()),
         emitter.emit(srcOp.getMirrorKernel()),
+        emitter.emit(srcOp.getConv2dSliceConfig()),
     };
 
     emitter.replaceOp(*this, args);
@@ -1511,6 +1509,7 @@ public:
         emitter.emit(srcOp.getConv2dConfig()),
         emitter.template emit<::ttnn::WormholeComputeKernelConfig>(
             srcOp.getComputeConfig()),
+        emitter.emit(srcOp.getConv2dSliceConfig()),
     };
 
     emitter.replaceOp(*this, args);
@@ -1665,6 +1664,53 @@ public:
         emitter.template emit<::ttnn::WormholeComputeKernelConfig>(
             srcOp.getComputeConfig()),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
+        emitter.emit(srcOp.getConv2dSliceConfig()),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
+// PadOp conversion pattern
+//
+namespace {
+class PadOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::PadOp> {
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::PadOp>::TTNNToEmitCBaseOpConversionPattern;
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::PadOp padOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::PadOp> emitter(
+        padOp, adaptor, rewriter);
+
+    // Convert padding from flat array to ArrayAttr of DenseI32ArrayAttr pairs
+    auto paddingArray = padOp.getPadding();
+    llvm::SmallVector<mlir::Attribute, 4> paddingPairs;
+    for (size_t i = 0; i < paddingArray.size(); i += 2) {
+      mlir::SmallVector<int32_t, 2> paddingPair = {paddingArray[i],
+                                                   paddingArray[i + 1]};
+
+      paddingPairs.push_back(
+          mlir::DenseI32ArrayAttr::get(rewriter.getContext(), paddingPair));
+    }
+
+    mlir::ArrayAttr paddingPairsArrayAttr =
+        mlir::ArrayAttr::get(rewriter.getContext(), paddingPairs);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(padOp.getInput()),
+        emitter.emit<::ttsl::SmallVector<std::array<uint32_t, 2>>>(
+            paddingPairsArrayAttr),
+        emitter.emit(padOp.getValue()),
+        emitter.emit(padOp.getUseMulticore()),
+        emitter.emit(padOp.getMemoryConfig()) |
+            emitter.getMemoryConfig(padOp.getResult()),
     };
 
     emitter.replaceOp(*this, args);
@@ -2204,6 +2250,43 @@ public:
         emitter.emit(srcOp.getLow()),
         emitter.emit(srcOp.getHigh()),
         emitter.emit(srcOp.getSeed()),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
+// Dropout op conversion pattern
+//
+namespace {
+class DropoutOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::DropoutOp> {
+private:
+  std::string getPrefixSearchPattern() const override { return "ttnn.dropout"; }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn::experimental::dropout";
+  }
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::DropoutOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::DropoutOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::DropoutOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getProb()),
+        emitter.emit(srcOp.getScale()),
+        emitter.emit(srcOp.getSeed()),
+        emitter.emit(srcOp.getUsePerDeviceSeed()),
     };
 
     emitter.replaceOp(*this, args);
@@ -4496,6 +4579,10 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   //
   patterns.add<ExperimentalGeluBackwardOpConversionPattern>(typeConverter, ctx);
 
+  // Experimental dropout op
+  //
+  patterns.add<DropoutOpConversionPattern>(typeConverter, ctx);
+
   // Eltwise ternary ops
   //
   patterns.add<EltwiseTernaryOpConversionPattern<mlir::tt::ttnn::WhereOp>>(
@@ -4503,13 +4590,13 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
 
   // Tensor manipulation ops
   //
-  patterns.add<TransposeOpConversionPattern, ConcatOpConversionPattern,
-               ReshapeOpConversionPattern, RepeatOpConversionPattern,
-               RepeatInterleaveOpConversionPattern,
-               SliceStaticOpConversionPattern, SliceDynamicOpConversionPattern,
-               SortOpConversionPattern, PermuteOpConversionPattern,
-               DefaultOpConversionPattern<mlir::tt::ttnn::PadOp>>(typeConverter,
-                                                                  ctx);
+  patterns
+      .add<TransposeOpConversionPattern, ConcatOpConversionPattern,
+           ReshapeOpConversionPattern, RepeatOpConversionPattern,
+           RepeatInterleaveOpConversionPattern, SliceStaticOpConversionPattern,
+           SliceDynamicOpConversionPattern, SortOpConversionPattern,
+           PermuteOpConversionPattern, PadOpConversionPattern>(typeConverter,
+                                                               ctx);
 
   // Quantization ops.
   //

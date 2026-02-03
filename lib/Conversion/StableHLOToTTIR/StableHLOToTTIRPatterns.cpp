@@ -8,6 +8,7 @@
 #include "ttmlir/Dialect/StableHLO/Utils/GSPMDUtils.h"
 #include "ttmlir/Dialect/StableHLO/Utils/ShardingUtils.h"
 #include "ttmlir/Dialect/StableHLO/Utils/ShardyUtils.h"
+#include "ttmlir/Dialect/StableHLO/Utils/Utils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
@@ -36,6 +37,7 @@
 #include "llvm/ADT/APFloat.h"
 #include "llvm/ADT/STLExtras.h"
 
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringExtras.h"
 #include <algorithm>
 #include <cmath>
@@ -44,6 +46,27 @@
 
 using namespace mlir;
 using namespace mlir::tt;
+
+// Helper to extract values from optional StableHLO attributes with defaults.
+// StableHLO convolution attributes like window_strides, lhs_dilation, etc.
+// are optional and default to 1 (or 0 for padding) when not specified.
+static llvm::SmallVector<int64_t>
+getI64ArrayOrDefault(mlir::DenseI64ArrayAttr attr, size_t size,
+                     int64_t defaultValue) {
+  if (attr) {
+    return llvm::SmallVector<int64_t>(attr.asArrayRef());
+  }
+  return llvm::SmallVector<int64_t>(size, defaultValue);
+}
+
+// Helper for padding which uses DenseIntElementsAttr in StableHLO.
+static llvm::SmallVector<int64_t>
+getPaddingOrDefault(mlir::DenseIntElementsAttr attr, size_t numSpatialDims) {
+  if (attr) {
+    return llvm::SmallVector<int64_t>(attr.getValues<int64_t>());
+  }
+  return llvm::SmallVector<int64_t>(numSpatialDims * 2, 0);
+}
 
 // Typical initialization values for reduction ops.
 enum TypicalInitReductionValue {
@@ -1320,13 +1343,909 @@ private:
 };
 } // namespace
 
+//===----------------------------------------------------------------------===//
+// Convolution passes
+//===----------------------------------------------------------------------===//
+
+template <uint32_t NDims>
+using PaddingMatrix = std::array<std::array<int64_t, 2>, NDims>;
+
+template <uint32_t NDims>
+static PaddingMatrix<NDims> getPaddingMatrix(ArrayRef<int64_t> padding) {
+  assert(padding.size() >= 2 * NDims &&
+         "padding must be at least 2 * NDims sized array");
+
+  PaddingMatrix<NDims> paddingMatrix;
+
+  for (std::size_t i = 0; i < NDims; ++i) {
+    paddingMatrix[i] = {padding[i * 2], padding[i * 2 + 1]};
+  }
+  return paddingMatrix;
+}
+
 namespace {
-class StableHLOToTTIRConvolutionOpConversionPattern
+struct ConvolutionDecompositionPattern
     : public OpConversionPattern<mlir::stablehlo::ConvolutionOp> {
+public:
   using OpConversionPattern<
       mlir::stablehlo::ConvolutionOp>::OpConversionPattern;
 
+  enum ConvolutionDimension { BATCH = -1, FEATURE = -2, INVALID_DIM = -3 };
+  enum ConvolutionKernelDimension {
+    INPUT_FEATURES = -1,
+    OUTPUT_FEATURES = -2,
+    INVALID_KERNEL_DIM = -3
+  };
+
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::ConvolutionOp op,
+                  mlir::stablehlo::ConvolutionOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override = 0;
+
+protected:
+  static bool isNDimensional(mlir::stablehlo::ConvolutionOp op,
+                             uint32_t numSpatialDims) {
+    return op.getDimensionNumbers().getInputSpatialDimensions().size() ==
+           numSpatialDims;
+  }
+
+  static bool isSupportedConv(mlir::stablehlo::ConvolutionOp op) {
+
+    if (op.getWindowReversal() &&
+        llvm::any_of(*op.getWindowReversal(), ttmlir::utils::identity<bool>)) {
+      return false;
+    }
+
+    return true;
+  }
+
+  // This function will generate the transpose indices needed to convert a
+  // convolution input to a desired layout. The reason for the separate
+  // function is to encapsulate the logic for constructuring the inputLayout.
+  static llvm::SmallVector<int64_t>
+  generateConvPermutation(mlir::stablehlo::ConvolutionOp op,
+                          llvm::ArrayRef<int64_t> ttnnConvolutionLayout) {
+
+    llvm::SmallVector<int64_t> inputLayout(ttnnConvolutionLayout.size(),
+                                           ConvolutionDimension::INVALID_DIM);
+    inputLayout[op.getDimensionNumbers().getInputBatchDimension()] =
+        ConvolutionDimension::BATCH;
+    inputLayout[op.getDimensionNumbers().getInputFeatureDimension()] =
+        ConvolutionDimension::FEATURE;
+
+    for (const auto [spatialCount, spatialDim] : llvm::enumerate(
+             op.getDimensionNumbers().getInputSpatialDimensions())) {
+      inputLayout[spatialDim] = spatialCount;
+    }
+
+    return ttmlir::utils::generatePermutation(llvm::ArrayRef(inputLayout),
+                                              ttnnConvolutionLayout);
+  }
+
+  // This function will generate the transpose indices needed to convert a
+  // convolution input to a desired layout. The reason for the separate
+  // function is to encapsulate the logic for constructuring the kernelLayout.
+  static llvm::SmallVector<int64_t> generateConvKernelPermutation(
+      mlir::stablehlo::ConvolutionOp op,
+      llvm::ArrayRef<int64_t> ttnnConvolutionKernelLayout) {
+
+    llvm::SmallVector<int64_t> kernelLayout(
+        ttnnConvolutionKernelLayout.size(),
+        ConvolutionKernelDimension::INVALID_KERNEL_DIM);
+    kernelLayout[op.getDimensionNumbers().getKernelOutputFeatureDimension()] =
+        ConvolutionKernelDimension::OUTPUT_FEATURES;
+    kernelLayout[op.getDimensionNumbers().getKernelInputFeatureDimension()] =
+        ConvolutionKernelDimension::INPUT_FEATURES;
+
+    for (const auto [spatialCount, spatialDim] : llvm::enumerate(
+             op.getDimensionNumbers().getKernelSpatialDimensions())) {
+      kernelLayout[spatialDim] = spatialCount;
+    }
+
+    return ttmlir::utils::generatePermutation(llvm::ArrayRef(kernelLayout),
+                                              ttnnConvolutionKernelLayout);
+  }
+};
+} // namespace
+
+// Helper structure to hold sliced convolution inputs for batch group
+// decomposition.
+struct ConvolutionSlices {
+  llvm::SmallVector<Value> inputs;
+  llvm::SmallVector<Value> weights;
+  llvm::SmallVector<llvm::SmallVector<int64_t>> outputShapes;
+};
+
+// Helper function to slice inputs and weights for batch group decomposition.
+static ConvolutionSlices
+sliceForBatchGroups(ConversionPatternRewriter &rewriter, Location loc,
+                    Value input, Value weight, int64_t kernelOutputFeatureDim,
+                    uint64_t groupCount, int64_t groupDimensionIndex) {
+  ConvolutionSlices slices;
+
+  auto inputType = mlir::cast<RankedTensorType>(input.getType());
+  auto weightType = mlir::cast<RankedTensorType>(weight.getType());
+
+  llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
+  llvm::ArrayRef<int64_t> weightShape = weightType.getShape();
+
+  int64_t inputSliceSize = inputShape[groupDimensionIndex] / groupCount;
+  int64_t weightSliceSize = weightShape[kernelOutputFeatureDim] / groupCount;
+
+  for (uint64_t i = 0; i < groupCount; ++i) {
+    // Slice input.
+    llvm::SmallVector<int32_t> inputBegins(inputShape.size(), 0);
+    llvm::SmallVector<int32_t> inputEnds(inputShape.begin(), inputShape.end());
+    llvm::SmallVector<int32_t> inputSteps(inputShape.size(), 1);
+    inputBegins[groupDimensionIndex] = i * inputSliceSize;
+    inputEnds[groupDimensionIndex] = (i + 1) * inputSliceSize;
+
+    llvm::SmallVector<int64_t> inputSliceShape(inputShape.begin(),
+                                               inputShape.end());
+    inputSliceShape[groupDimensionIndex] = inputSliceSize;
+
+    auto inputSlice = rewriter.create<ttir::SliceStaticOp>(
+        ttmlir::utils::appendLocationSuffix(loc, "_inputSlice"),
+        RankedTensorType::get(inputSliceShape, inputType.getElementType(),
+                              inputType.getEncoding()),
+        input, rewriter.getI32ArrayAttr(inputBegins),
+        rewriter.getI32ArrayAttr(inputEnds),
+        rewriter.getI32ArrayAttr(inputSteps));
+    slices.inputs.push_back(inputSlice);
+
+    // Slice weight.
+    llvm::SmallVector<int32_t> weightBegins(weightShape.size(), 0);
+    llvm::SmallVector<int32_t> weightEnds(weightShape.begin(),
+                                          weightShape.end());
+    llvm::SmallVector<int32_t> weightSteps(weightShape.size(), 1);
+    weightBegins[kernelOutputFeatureDim] = i * weightSliceSize;
+    weightEnds[kernelOutputFeatureDim] = (i + 1) * weightSliceSize;
+
+    llvm::SmallVector<int64_t> weightSliceShape(weightShape.begin(),
+                                                weightShape.end());
+    weightSliceShape[kernelOutputFeatureDim] = weightSliceSize;
+
+    auto weightSlice = rewriter.create<ttir::SliceStaticOp>(
+        ttmlir::utils::appendLocationSuffix(loc, "_weightSlice"),
+        RankedTensorType::get(weightSliceShape, weightType.getElementType(),
+                              weightType.getEncoding()),
+        weight, rewriter.getI32ArrayAttr(weightBegins),
+        rewriter.getI32ArrayAttr(weightEnds),
+        rewriter.getI32ArrayAttr(weightSteps));
+    slices.weights.push_back(weightSlice);
+  }
+
+  return slices;
+}
+
+// A decomposition pattern that matches to a stablehlo.convolution op that does
+// 1D convolution. Since that is not supported in ttnn, we reshape the inputs
+// and the output to match a 2D stablehlo.convolution op. The expectation is
+// that the new stablehlo.convolution op will be picked up by the
+// ConvolutionToConv2dPattern and translated into ttir.conv2d op.
+namespace {
+struct Legalize1DConvolutionPattern : public ConvolutionDecompositionPattern {
 public:
+  using ConvolutionDecompositionPattern::ConvolutionDecompositionPattern;
+  constexpr static uint32_t NUM_SPATIAL_DIMS = 1;
+
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::ConvolutionOp op,
+                  mlir::stablehlo::ConvolutionOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    if (!(isSupportedConv(op) && isNDimensional(op, NUM_SPATIAL_DIMS))) {
+      return failure();
+    }
+
+    auto outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(op.getType()));
+
+    llvm::ArrayRef<int64_t> outputShape = outputType.getShape();
+
+    uint64_t batchGroupCount = adaptor.getBatchGroupCount();
+    uint64_t featureGroupCount = adaptor.getFeatureGroupCount();
+
+    // Prepare inputs/weights (slice if batchGroupCount > 1).
+    llvm::SmallVector<Value> inputSlices;
+    llvm::SmallVector<Value> weightSlices;
+    llvm::SmallVector<llvm::SmallVector<int64_t>> outputSliceShapes;
+    assert(featureGroupCount == 1 ||
+           batchGroupCount == 1 &&
+               "At least one of the group counts must be 1.");
+
+    // Split (X, Y, Z) is defined as splitting X into Y groups along the Z
+    // dimension. If batch_group_count > 1: lhses = split(lhs,
+    // batch_group_count, input_batch_dimension). rhses = split(rhs,
+    // batch_group_count, kernel_output_feature_dimension). results... =
+    // convolution(lhses..., rhses..., ..., batch_group_count=1, ...). result =
+    // concatenate(results, output_feature_dimension).
+    if (batchGroupCount > 1) {
+      auto slices = sliceForBatchGroups(
+          rewriter, op.getLoc(), adaptor.getLhs(), adaptor.getRhs(),
+          adaptor.getDimensionNumbers().getKernelOutputFeatureDimension(),
+          batchGroupCount,
+          adaptor.getDimensionNumbers().getInputBatchDimension());
+      inputSlices = std::move(slices.inputs);
+      weightSlices = std::move(slices.weights);
+
+      int64_t outputFeatureDim =
+          adaptor.getDimensionNumbers().getOutputFeatureDimension();
+      int64_t outputSliceSize = outputShape[outputFeatureDim] / batchGroupCount;
+      for (uint64_t i = 0; i < batchGroupCount; ++i) {
+        llvm::SmallVector<int64_t> outputSliceShape(outputShape.begin(),
+                                                    outputShape.end());
+        outputSliceShape[outputFeatureDim] = outputSliceSize;
+        outputSliceShapes.push_back(outputSliceShape);
+      }
+    } else {
+      inputSlices.push_back(adaptor.getLhs());
+      weightSlices.push_back(adaptor.getRhs());
+      outputSliceShapes.push_back(
+          llvm::SmallVector<int64_t>(outputShape.begin(), outputShape.end()));
+    }
+
+    llvm::SmallVector<Value> results;
+    for (size_t i = 0; i < inputSlices.size(); ++i) {
+      Value result = convert1DConvTo2D(rewriter, op.getLoc(), inputSlices[i],
+                                       weightSlices[i], outputSliceShapes[i],
+                                       outputType.getElementType(),
+                                       outputType.getEncoding(), adaptor);
+      results.push_back(result);
+    }
+
+    if (batchGroupCount > 1) {
+      int64_t outputFeatureDim =
+          adaptor.getDimensionNumbers().getOutputFeatureDimension();
+      auto concatOp = rewriter.create<ttir::ConcatOp>(
+          op.getLoc(), outputType, results, outputFeatureDim);
+      rewriter.replaceOp(op, concatOp);
+    } else {
+      rewriter.replaceOp(op, results[0]);
+    }
+
+    return success();
+  }
+
+private:
+  // Convert a 1D convolution to a 2D convolution by adding a dimension.
+  Value convert1DConvTo2D(ConversionPatternRewriter &rewriter, Location loc,
+                          Value input, Value weight,
+                          llvm::ArrayRef<int64_t> expectedOutputShape,
+                          Type outputElementType, Attribute outputEncoding,
+                          OpAdaptor adaptor) const {
+    auto inputType = mlir::cast<RankedTensorType>(input.getType());
+    auto weightType = mlir::cast<RankedTensorType>(weight.getType());
+
+    llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
+    llvm::ArrayRef<int64_t> weightShape = weightType.getShape();
+
+    // Add dimension to shapes for 2D conversion.
+    llvm::SmallVector<int64_t> conv2dInputShape(inputShape.begin(),
+                                                inputShape.end());
+    conv2dInputShape.push_back(1);
+    llvm::SmallVector<int64_t> conv2dWeightShape(weightShape.begin(),
+                                                 weightShape.end());
+    conv2dWeightShape.push_back(1);
+    llvm::SmallVector<int64_t> conv2dOutputShape(expectedOutputShape.begin(),
+                                                 expectedOutputShape.end());
+    conv2dOutputShape.push_back(1);
+
+    // Reshape input and weight to 2D.
+    ttir::ReshapeOp reshapeInput = createReshapeOp(
+        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_reshapeInput"),
+        input, conv2dInputShape);
+    ttir::ReshapeOp reshapeWeight = createReshapeOp(
+        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_reshapeWeight"),
+        weight, conv2dWeightShape);
+
+    // Get 1D attrs with defaults, then extend to 2D by adding default for new
+    // dim.
+    auto windowStrides1D =
+        getI64ArrayOrDefault(adaptor.getWindowStridesAttr(), 1, 1);
+    auto lhsDilation1D =
+        getI64ArrayOrDefault(adaptor.getLhsDilationAttr(), 1, 1);
+    auto rhsDilation1D =
+        getI64ArrayOrDefault(adaptor.getRhsDilationAttr(), 1, 1);
+
+    windowStrides1D.push_back(1);
+    lhsDilation1D.push_back(1);
+    rhsDilation1D.push_back(1);
+
+    mlir::DenseI64ArrayAttr conv2dOpWindowsStridesAttr =
+        rewriter.getDenseI64ArrayAttr(windowStrides1D);
+    mlir::DenseI64ArrayAttr conv2dOpInputDilationAttr =
+        rewriter.getDenseI64ArrayAttr(lhsDilation1D);
+    mlir::DenseI64ArrayAttr conv2dOpWeightDilationAttr =
+        rewriter.getDenseI64ArrayAttr(rhsDilation1D);
+
+    // Window reversal: default to false for 1D, add false for new dimension.
+    llvm::SmallVector<bool> windowReversal1D(1, false);
+    if (auto windowReversalAttr = adaptor.getWindowReversalAttr()) {
+      windowReversal1D =
+          llvm::SmallVector<bool>(windowReversalAttr.asArrayRef());
+    }
+    windowReversal1D.push_back(false);
+    mlir::DenseBoolArrayAttr conv2dOpWindowReversalAttr =
+        rewriter.getDenseBoolArrayAttr(windowReversal1D);
+
+    // Prepare padding: get 1D padding (or default [0,0]) and add [0,0] for 2D.
+    auto conv2dOpPaddingVec = getPaddingOrDefault(adaptor.getPaddingAttr(), 1);
+    conv2dOpPaddingVec.push_back(0); // Low padding for new dimension
+    conv2dOpPaddingVec.push_back(0); // High padding for new dimension
+    mlir::DenseIntElementsAttr conv2dOpPaddingAttr =
+        mlir::DenseIntElementsAttr::get(
+            mlir::RankedTensorType::get({2, 2}, rewriter.getI64Type()),
+            conv2dOpPaddingVec);
+
+    // The additional spatial dimension is added at the end (3rd in 0 indexed
+    // array).
+    llvm::SmallVector<int64_t> conv2dInputSpatialDimensions(
+        adaptor.getDimensionNumbers().getInputSpatialDimensions());
+    conv2dInputSpatialDimensions.push_back(3);
+
+    llvm::SmallVector<int64_t> conv2dKernelSpatialDimensions(
+        adaptor.getDimensionNumbers().getKernelSpatialDimensions());
+    conv2dKernelSpatialDimensions.push_back(3);
+
+    llvm::SmallVector<int64_t> conv2dOutputSpatialDimensions(
+        adaptor.getDimensionNumbers().getOutputSpatialDimensions());
+    conv2dOutputSpatialDimensions.push_back(3);
+
+    // Create StableHLO ConvDimensionNumbersAttr.
+    mlir::stablehlo::ConvDimensionNumbersAttr conv2dDimensionNumbers =
+        mlir::stablehlo::ConvDimensionNumbersAttr::get(
+            rewriter.getContext(),
+            adaptor.getDimensionNumbers().getInputBatchDimension(),
+            adaptor.getDimensionNumbers().getInputFeatureDimension(),
+            conv2dInputSpatialDimensions,
+            adaptor.getDimensionNumbers().getKernelInputFeatureDimension(),
+            adaptor.getDimensionNumbers().getKernelOutputFeatureDimension(),
+            conv2dKernelSpatialDimensions,
+            adaptor.getDimensionNumbers().getOutputBatchDimension(),
+            adaptor.getDimensionNumbers().getOutputFeatureDimension(),
+            conv2dOutputSpatialDimensions);
+
+    // Create the 2D convolution using StableHLO ConvolutionOp.
+    // batch_group_count is always 1 here because slicing is handled by the
+    // caller (matchAndRewrite) when batch_group_count > 1.
+    auto new2dConvolutionOp = mlir::stablehlo::ConvolutionOp::create(
+        rewriter, loc,
+        RankedTensorType::get(conv2dOutputShape, outputElementType,
+                              outputEncoding),
+        reshapeInput.getResult(), reshapeWeight.getResult(),
+        conv2dOpWindowsStridesAttr, conv2dOpPaddingAttr,
+        conv2dOpInputDilationAttr, conv2dOpWeightDilationAttr,
+        conv2dOpWindowReversalAttr, conv2dDimensionNumbers,
+        adaptor.getFeatureGroupCount(), /*batchGroupCount=*/1,
+        /*precisionConfig=*/nullptr);
+
+    ttir::ReshapeOp reshapeOutput = createReshapeOp(
+        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_reshapeOutput"),
+        new2dConvolutionOp.getResult(), expectedOutputShape);
+
+    return reshapeOutput;
+  }
+
+  ttir::ReshapeOp createReshapeOp(PatternRewriter &rewriter, Location loc,
+                                  Value input,
+                                  ::llvm::ArrayRef<int64_t> targetShape) const {
+    auto inputType = mlir::cast<mlir::RankedTensorType>(input.getType());
+    auto shapeAttr =
+        rewriter.getI32ArrayAttr(llvm::SmallVector<int32_t>(targetShape));
+
+    return rewriter.create<ttir::ReshapeOp>(
+        loc,
+        RankedTensorType::get(targetShape, inputType.getElementType(),
+                              inputType.getEncoding()),
+        input, shapeAttr);
+  }
+};
+} // namespace
+
+namespace {
+struct ConvolutionToConv2dPattern : public ConvolutionDecompositionPattern {
+public:
+  using ConvolutionDecompositionPattern::ConvolutionDecompositionPattern;
+
+  constexpr static uint32_t NUM_SPATIAL_DIMS = 2;
+  constexpr static uint32_t SPATIAL_DIM_HEIGHT = 0;
+  constexpr static uint32_t SPATIAL_DIM_WIDTH = 1;
+
+  // NHWC
+  static inline const std::vector<int64_t> conv2dLayout = {
+      ConvolutionDimension::BATCH,
+      SPATIAL_DIM_HEIGHT,
+      SPATIAL_DIM_WIDTH,
+      ConvolutionDimension::FEATURE,
+  };
+  // OIHW
+  static inline const std::vector<int64_t> conv2dKernelLayout = {
+      ConvolutionKernelDimension::OUTPUT_FEATURES,
+      ConvolutionKernelDimension::INPUT_FEATURES,
+      SPATIAL_DIM_HEIGHT,
+      SPATIAL_DIM_WIDTH,
+  };
+  // IOHW; for conv_transpose2d
+  static inline const std::vector<int64_t> conv2dTransposeKernelLayout = {
+      ConvolutionKernelDimension::INPUT_FEATURES,
+      ConvolutionKernelDimension::OUTPUT_FEATURES,
+      SPATIAL_DIM_HEIGHT,
+      SPATIAL_DIM_WIDTH,
+  };
+
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::ConvolutionOp op,
+                  mlir::stablehlo::ConvolutionOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    if (!(isSupportedConv(op) && isNDimensional(op, NUM_SPATIAL_DIMS))) {
+      return failure();
+    }
+
+    uint64_t batchGroupCount = adaptor.getBatchGroupCount();
+    uint64_t featureGroupCount = adaptor.getFeatureGroupCount();
+
+    assert(batchGroupCount == 1 ||
+           featureGroupCount == 1 &&
+               "At least one of the group counts must be 1.");
+    auto outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(op.getType()));
+
+    // Prepare inputs/weights (slice if batchGroupCount > 1).
+    llvm::SmallVector<Value> inputSlices;
+    llvm::SmallVector<Value> weightSlices;
+    llvm::SmallVector<llvm::SmallVector<int64_t>> outputSliceShapes;
+
+    if (batchGroupCount > 1) {
+
+      auto slices = sliceForBatchGroups(
+          rewriter, op.getLoc(), adaptor.getLhs(), adaptor.getRhs(),
+          adaptor.getDimensionNumbers().getKernelOutputFeatureDimension(),
+          batchGroupCount,
+          adaptor.getDimensionNumbers().getInputBatchDimension());
+      inputSlices = std::move(slices.inputs);
+      weightSlices = std::move(slices.weights);
+
+      llvm::ArrayRef<int64_t> outputShape = outputType.getShape();
+      int64_t outputBatchDim =
+          adaptor.getDimensionNumbers().getOutputBatchDimension();
+      int64_t outputFeatureDim =
+          adaptor.getDimensionNumbers().getOutputFeatureDimension();
+      int64_t outputBatchSliceSize = outputShape[outputBatchDim];
+      int64_t outputFeatureSliceSize =
+          outputShape[outputFeatureDim] / batchGroupCount;
+      for (uint64_t i = 0; i < batchGroupCount; ++i) {
+        llvm::SmallVector<int64_t> outputSliceShape(outputShape.begin(),
+                                                    outputShape.end());
+        outputSliceShape[outputBatchDim] = outputBatchSliceSize;
+        outputSliceShape[outputFeatureDim] = outputFeatureSliceSize;
+        outputSliceShapes.push_back(outputSliceShape);
+      }
+    } else {
+      inputSlices.push_back(adaptor.getLhs());
+      weightSlices.push_back(adaptor.getRhs());
+      llvm::ArrayRef<int64_t> outputShape = outputType.getShape();
+      outputSliceShapes.push_back(
+          llvm::SmallVector<int64_t>(outputShape.begin(), outputShape.end()));
+    }
+
+    llvm::SmallVector<Value> results;
+    for (size_t i = 0; i < inputSlices.size(); ++i) {
+      Value result =
+          createConv2dForSlice(rewriter, op, adaptor, inputSlices[i],
+                               weightSlices[i], outputSliceShapes[i]);
+      results.push_back(result);
+    }
+
+    Value finalResult;
+    if (batchGroupCount > 1) {
+      // Concat on feature dimension in the output layout.
+      // Find which dimension is the feature dimension.
+      int64_t featureDim =
+          adaptor.getDimensionNumbers().getOutputFeatureDimension();
+      finalResult = rewriter.create<ttir::ConcatOp>(op.getLoc(), outputType,
+                                                    results, featureDim);
+    } else {
+      finalResult = results[0];
+    }
+
+    rewriter.replaceOp(op, finalResult);
+
+    return success();
+  }
+
+private:
+  // Create a Conv2d or ConvTranspose2d operation for a single slice.
+  Value createConv2dForSlice(ConversionPatternRewriter &rewriter,
+                             mlir::stablehlo::ConvolutionOp op,
+                             OpAdaptor adaptor, Value input, Value weight,
+                             llvm::ArrayRef<int64_t> outputShape) const {
+
+    bool isTransposed = tt::stablehlo::utils::isTransposedConv(op);
+
+    auto windowStrides = getI64ArrayOrDefault(adaptor.getWindowStridesAttr(),
+                                              NUM_SPATIAL_DIMS, 1);
+    auto rhsDilation =
+        getI64ArrayOrDefault(adaptor.getRhsDilationAttr(), NUM_SPATIAL_DIMS, 1);
+    auto lhsDilation =
+        getI64ArrayOrDefault(adaptor.getLhsDilationAttr(), NUM_SPATIAL_DIMS, 1);
+    auto padding =
+        getPaddingOrDefault(adaptor.getPaddingAttr(), NUM_SPATIAL_DIMS);
+
+    auto strideAttr = rewriter.getDenseI32ArrayAttr({
+        static_cast<int32_t>(windowStrides[SPATIAL_DIM_HEIGHT]),
+        static_cast<int32_t>(windowStrides[SPATIAL_DIM_WIDTH]),
+    });
+    auto dilationAttr = rewriter.getDenseI32ArrayAttr({
+        static_cast<int32_t>(rhsDilation[SPATIAL_DIM_HEIGHT]),
+        static_cast<int32_t>(rhsDilation[SPATIAL_DIM_WIDTH]),
+    });
+
+    // Padding is a list of 2-tuples, the order of the 2-tuples is in
+    // most-significant spatial dimension first order For Conv2d the most
+    // significant spatial dimension is the height, followed by the width.
+    auto paddingMatrix = getPaddingMatrix<NUM_SPATIAL_DIMS>(padding);
+    auto paddingAttr = rewriter.getDenseI32ArrayAttr({
+        static_cast<int32_t>(paddingMatrix[SPATIAL_DIM_HEIGHT][0]),
+        static_cast<int32_t>(paddingMatrix[SPATIAL_DIM_WIDTH][0]),
+        static_cast<int32_t>(paddingMatrix[SPATIAL_DIM_HEIGHT][1]),
+        static_cast<int32_t>(paddingMatrix[SPATIAL_DIM_WIDTH][1]),
+    });
+
+    uint32_t groups = adaptor.getFeatureGroupCount();
+
+    RankedTensorType inputType = mlir::cast<RankedTensorType>(input.getType());
+
+    // Extract input dimension indices from StableHLO dimension numbers.
+    int64_t inputBatchDim =
+        adaptor.getDimensionNumbers().getInputBatchDimension();
+    int64_t inputChannelDim =
+        adaptor.getDimensionNumbers().getInputFeatureDimension();
+    auto inputSpatialDims =
+        adaptor.getDimensionNumbers().getInputSpatialDimensions();
+    int64_t inputHeightDim = inputSpatialDims[SPATIAL_DIM_HEIGHT];
+    int64_t inputWidthDim = inputSpatialDims[SPATIAL_DIM_WIDTH];
+
+    // Extract output dimension indices from StableHLO dimension numbers.
+    int64_t outputBatchDim =
+        adaptor.getDimensionNumbers().getOutputBatchDimension();
+    int64_t outputChannelDim =
+        adaptor.getDimensionNumbers().getOutputFeatureDimension();
+    auto outputSpatialDims =
+        adaptor.getDimensionNumbers().getOutputSpatialDimensions();
+    int64_t outputHeightDim = outputSpatialDims[SPATIAL_DIM_HEIGHT];
+    int64_t outputWidthDim = outputSpatialDims[SPATIAL_DIM_WIDTH];
+
+    // Build input layout array: inputLayout[i] tells us what semantic
+    // dimension is at position i.
+    llvm::SmallVector<int64_t> inputLayout(4);
+    inputLayout[inputBatchDim] = ConvolutionDimension::BATCH;
+    inputLayout[inputChannelDim] = ConvolutionDimension::FEATURE;
+    inputLayout[inputHeightDim] = SPATIAL_DIM_HEIGHT;
+    inputLayout[inputWidthDim] = SPATIAL_DIM_WIDTH;
+
+    // Build output layout array.
+    llvm::SmallVector<int64_t> outputLayout(4);
+    outputLayout[outputBatchDim] = ConvolutionDimension::BATCH;
+    outputLayout[outputChannelDim] = ConvolutionDimension::FEATURE;
+    outputLayout[outputHeightDim] = SPATIAL_DIM_HEIGHT;
+    outputLayout[outputWidthDim] = SPATIAL_DIM_WIDTH;
+
+    // If input and output have different layouts, permute input to match
+    // output.
+    Value convInput = input;
+    if (inputLayout != outputLayout) {
+      // Generate permutation from input layout to output layout.
+      auto permutation = ttmlir::utils::generatePermutation(
+          llvm::ArrayRef(inputLayout), llvm::ArrayRef(outputLayout));
+      auto permutedShape =
+          ttmlir::utils::applyPermutation(inputType.getShape(), permutation);
+      convInput = rewriter.create<ttir::PermuteOp>(
+          ttmlir::utils::appendLocationSuffix(op.getLoc(), "_input"),
+          RankedTensorType::get(permutedShape, inputType.getElementType(),
+                                inputType.getEncoding()),
+          input, permutation);
+    }
+
+    // Use output layout dimensions for the conv op since input is now permuted
+    // to match.
+    int64_t batchDim = outputBatchDim;
+    int64_t heightDim = outputHeightDim;
+    int64_t widthDim = outputWidthDim;
+    int64_t channelDim = outputChannelDim;
+
+    RankedTensorType outputType = inputType.clone(outputShape);
+
+    Value permutedWeight = weight;
+    // TTNN api handles reversing weights internally for transposed convolution.
+    // So stablehlo.reverse op is ignored and its operand is used as weight.
+    if (auto reverseOp = permutedWeight.getDefiningOp<ttir::ReverseOp>();
+        isTransposed && reverseOp) {
+      permutedWeight = reverseOp.getInput();
+    }
+    auto weightType = mlir::cast<RankedTensorType>(permutedWeight.getType());
+    auto kernelPermutation = generateConvKernelPermutation(
+        op, isTransposed ? conv2dTransposeKernelLayout : conv2dKernelLayout);
+    auto weightOutputShape = ::ttmlir::utils::applyPermutation(
+        weightType.getShape(), kernelPermutation);
+    permutedWeight = rewriter.create<ttir::PermuteOp>(
+        ttmlir::utils::appendLocationSuffix(op.getLoc(), "_weight"),
+        RankedTensorType::get(weightOutputShape, weightType.getElementType(),
+                              weightType.getEncoding()),
+        permutedWeight, kernelPermutation);
+
+    mlir::Value newConv;
+    if (isTransposed) {
+      // [TODO](mmanzoor) Verify the implementation of transposed convolution
+      // for tt-xla. https://github.com/tenstorrent/tt-mlir/issues/3293
+      // stablehlo.convolution op doesn't have output_padding
+      // attribute. So Torch-MLIR adds output_padding with padding attribute for
+      // transposed convolution during lowering.
+      // https://github.com/llvm/torch-mlir/blob/main/lib/Conversion/TorchToStablehlo/Linear.cpp
+      auto outputPaddingAttr = rewriter.getDenseI32ArrayAttr(
+          {static_cast<int32_t>(paddingMatrix[SPATIAL_DIM_HEIGHT][1] -
+                                paddingMatrix[SPATIAL_DIM_HEIGHT][0]),
+           static_cast<int32_t>(paddingMatrix[SPATIAL_DIM_WIDTH][1] -
+                                paddingMatrix[SPATIAL_DIM_WIDTH][0])});
+      // Recomputing padding attribute based on Torch-MLIR lowering of
+      // conv_transposed2d op: [top, left, bottom, right].
+      // https://github.com/llvm/torch-mlir/blob/main/lib/Conversion/TorchToStablehlo/Linear.cpp
+      // Get the kernel spatial dimension indices from the dimension numbers.
+      auto kernelSpatialDims =
+          adaptor.getDimensionNumbers().getKernelSpatialDimensions();
+      int64_t kernelHeightDim = kernelSpatialDims[SPATIAL_DIM_HEIGHT];
+      int64_t kernelWidthDim = kernelSpatialDims[SPATIAL_DIM_WIDTH];
+      paddingAttr = rewriter.getDenseI32ArrayAttr({
+          static_cast<int32_t>((weightType.getShape()[kernelHeightDim] - 1) *
+                                   rhsDilation[SPATIAL_DIM_HEIGHT] -
+                               paddingMatrix[SPATIAL_DIM_HEIGHT][0]),
+          static_cast<int32_t>((weightType.getShape()[kernelWidthDim] - 1) *
+                                   rhsDilation[SPATIAL_DIM_WIDTH] -
+                               paddingMatrix[SPATIAL_DIM_WIDTH][0]),
+          static_cast<int32_t>((weightType.getShape()[kernelHeightDim] - 1) *
+                                   rhsDilation[SPATIAL_DIM_HEIGHT] -
+                               paddingMatrix[SPATIAL_DIM_HEIGHT][0]),
+          static_cast<int32_t>((weightType.getShape()[kernelWidthDim] - 1) *
+                                   rhsDilation[SPATIAL_DIM_WIDTH] -
+                               paddingMatrix[SPATIAL_DIM_WIDTH][0]),
+      });
+      // Input dilation (lhs dilation) is used for stride for transposed
+      // convolution.
+      auto inputDilationAttr = rewriter.getDenseI32ArrayAttr({
+          static_cast<int32_t>(lhsDilation[SPATIAL_DIM_HEIGHT]),
+          static_cast<int32_t>(lhsDilation[SPATIAL_DIM_WIDTH]),
+      });
+
+      if (int64_t groups = adaptor.getFeatureGroupCount(); groups > 1) {
+        // Stablehlo.convolution/ttir.convolution op weights are in the format:
+        // (C/G, O, K_H, K_W). Torch and TTNN expect the weights to be in the
+        // format (C, O/G, K_H, K_W). Therefore it is necessary to transform the
+        // weights.
+        // (C/G, O, K_H, K_W) -> (C/G, G, O/G, K_H, K_W) -> (G, C/G,O/G, K_H,
+        // K_W) -> (C, O/G, K_H, K_W)
+        auto permutedWeightType =
+            mlir::cast<RankedTensorType>(permutedWeight.getType());
+        auto permutedWeightShape = permutedWeightType.getShape();
+
+        int64_t inChannelsPerGroup = permutedWeightShape[0];
+        int64_t totalOutChannels = permutedWeightShape[1];
+        int64_t kH = permutedWeightShape[2];
+        int64_t kW = permutedWeightShape[3];
+        int64_t outChannelsPerGroup = totalOutChannels / groups;
+        int64_t totalInChannels = inChannelsPerGroup * groups;
+
+        // Reshape (C/G, O, K_H, K_W) -> (C/G, G, O/G, K_H, K_W)
+        llvm::SmallVector<int64_t> extractedGroupsShape = {
+            inChannelsPerGroup, groups, outChannelsPerGroup, kH, kW};
+        auto extractedGroups = ttir::utils::createReshapeOp(
+            rewriter,
+            ttmlir::utils::appendLocationSuffix(op.getLoc(),
+                                                "_weight_extracted_groups"),
+            permutedWeight, extractedGroupsShape);
+
+        // Permute (C/G, G, O/G, K_H, K_W) -> (G, C/G, O/G, K_H, K_W)
+        llvm::SmallVector<int64_t> permuteOrder = {1, 0, 2, 3, 4};
+        llvm::SmallVector<int64_t> permutedGroupsShape =
+            ttmlir::utils::applyPermutation(
+                llvm::ArrayRef(extractedGroupsShape),
+                llvm::ArrayRef(permuteOrder));
+        auto permutedGroups = rewriter.create<ttir::PermuteOp>(
+            ttmlir::utils::appendLocationSuffix(op.getLoc(),
+                                                "_weight_permuted_groups"),
+            permutedWeightType.cloneWith(permutedGroupsShape,
+                                         permutedWeightType.getElementType()),
+            extractedGroups, permuteOrder);
+
+        // Reshape (G, C/G, O/G, K_H, K_W) -> (C, O/G, K_H, K_W)
+        llvm::SmallVector<int64_t> mergedGroupsShape = {
+            totalInChannels, outChannelsPerGroup, kH, kW};
+        permutedWeight = ttir::utils::createReshapeOp(
+            rewriter,
+            ttmlir::utils::appendLocationSuffix(op.getLoc(),
+                                                "_weight_merged_groups"),
+            permutedGroups, mergedGroupsShape);
+      }
+
+      // Use full builder with explicit dimension attributes.
+      newConv = rewriter.create<ttir::ConvTranspose2dOp>(
+          op.getLoc(), outputType, convInput, Value(permutedWeight), Value(),
+          inputDilationAttr, paddingAttr, outputPaddingAttr, dilationAttr,
+          rewriter.getI32IntegerAttr(groups),
+          rewriter.getI64IntegerAttr(batchDim),
+          rewriter.getI64IntegerAttr(heightDim),
+          rewriter.getI64IntegerAttr(widthDim),
+          rewriter.getI64IntegerAttr(channelDim));
+
+    } else {
+
+      // Use full builder with explicit dimension attributes.
+      newConv = rewriter.create<ttir::Conv2dOp>(
+          op.getLoc(), outputType, convInput, Value(permutedWeight), Value(),
+          strideAttr, paddingAttr, dilationAttr,
+          rewriter.getI32IntegerAttr(groups),
+          rewriter.getI64IntegerAttr(batchDim),
+          rewriter.getI64IntegerAttr(heightDim),
+          rewriter.getI64IntegerAttr(widthDim),
+          rewriter.getI64IntegerAttr(channelDim),
+          /*flattenedCompatInfo=*/nullptr);
+    }
+
+    return newConv;
+  }
+};
+} // namespace
+
+//===----------------------------------------------------------------------===//
+// Conv3d Pattern Matching
+//===----------------------------------------------------------------------===//
+
+namespace {
+struct ConvolutionToConv3dPattern : public ConvolutionDecompositionPattern {
+public:
+  using ConvolutionDecompositionPattern::ConvolutionDecompositionPattern;
+
+  constexpr static uint32_t NUM_SPATIAL_DIMS = 3;
+  constexpr static uint32_t SPATIAL_DIM_DEPTH = 0;
+  constexpr static uint32_t SPATIAL_DIM_HEIGHT = 1;
+  constexpr static uint32_t SPATIAL_DIM_WIDTH = 2;
+
+  // OIDHW
+  static inline const std::vector<int64_t> conv3dKernelLayout = {
+      ConvolutionKernelDimension::OUTPUT_FEATURES,
+      ConvolutionKernelDimension::INPUT_FEATURES,
+      SPATIAL_DIM_DEPTH,
+      SPATIAL_DIM_HEIGHT,
+      SPATIAL_DIM_WIDTH,
+  };
+
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::ConvolutionOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    if (!(isSupportedConv(op) && isNDimensional(op, NUM_SPATIAL_DIMS))) {
+      return failure();
+    }
+
+    uint64_t batchGroupCount = adaptor.getBatchGroupCount();
+
+    // For now, only support simple case without batch groups
+    if (batchGroupCount > 1) {
+      return rewriter.notifyMatchFailure(
+          op, "Conv3d does not support batch_group_count > 1 yet");
+    }
+
+    // Check that dilation is 1 for all dimensions since Conv3d doesn't support
+    // dilation yet
+    auto rhsDilation =
+        getI64ArrayOrDefault(adaptor.getRhsDilationAttr(), NUM_SPATIAL_DIMS, 1);
+    for (int64_t dilation : rhsDilation) {
+      if (dilation != 1) {
+        return rewriter.notifyMatchFailure(
+            op, "Conv3d does not support dilation != 1");
+      }
+    }
+
+    // Padding must be symmetric for all dimensions since Conv3d only
+    // supports symmetric padding
+    auto padding =
+        getPaddingOrDefault(adaptor.getPaddingAttr(), NUM_SPATIAL_DIMS);
+    auto paddingMatrix = getPaddingMatrix<NUM_SPATIAL_DIMS>(padding);
+    for (uint32_t i = 0; i < NUM_SPATIAL_DIMS; i++) {
+      if (paddingMatrix[i][0] != paddingMatrix[i][1]) {
+        return rewriter.notifyMatchFailure(
+            op, "Conv3d only supports symmetric padding");
+      }
+    }
+
+    auto outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(op.getType()));
+
+    Value result = createConv3d(rewriter, op, adaptor, adaptor.getLhs(),
+                                adaptor.getRhs(), outputType);
+
+    rewriter.replaceOp(op, result);
+
+    return success();
+  }
+
+private:
+  // Create a Conv3d operation with explicit dimension attributes.
+  Value createConv3d(ConversionPatternRewriter &rewriter,
+                     mlir::stablehlo::ConvolutionOp op, OpAdaptor adaptor,
+                     Value input, Value weight,
+                     RankedTensorType outputType) const {
+
+    auto windowStrides = getI64ArrayOrDefault(adaptor.getWindowStridesAttr(),
+                                              NUM_SPATIAL_DIMS, 1);
+    auto padding =
+        getPaddingOrDefault(adaptor.getPaddingAttr(), NUM_SPATIAL_DIMS);
+
+    auto strideAttr = rewriter.getDenseI32ArrayAttr({
+        static_cast<int32_t>(windowStrides[SPATIAL_DIM_DEPTH]),
+        static_cast<int32_t>(windowStrides[SPATIAL_DIM_HEIGHT]),
+        static_cast<int32_t>(windowStrides[SPATIAL_DIM_WIDTH]),
+    });
+
+    // Padding is a list of 2-tuples, the order of the 2-tuples is in
+    // most-significant spatial dimension first order. For Conv3d the most
+    // significant spatial dimension is the depth, followed by height, then
+    // width.
+    // Note: Conv3d only supports symmetric padding (validated in
+    // matchAndRewrite), so we only use the "before" padding values.
+    auto paddingMatrix = getPaddingMatrix<NUM_SPATIAL_DIMS>(padding);
+    auto paddingAttr = rewriter.getDenseI32ArrayAttr({
+        static_cast<int32_t>(paddingMatrix[SPATIAL_DIM_DEPTH][0]),
+        static_cast<int32_t>(paddingMatrix[SPATIAL_DIM_HEIGHT][0]),
+        static_cast<int32_t>(paddingMatrix[SPATIAL_DIM_WIDTH][0]),
+    });
+
+    auto groupsAttr =
+        rewriter.getI32IntegerAttr(adaptor.getFeatureGroupCount());
+
+    auto outputSpatialDims =
+        adaptor.getDimensionNumbers().getOutputSpatialDimensions();
+    int64_t batchDim = adaptor.getDimensionNumbers().getOutputBatchDimension();
+    int64_t depthDim = outputSpatialDims[SPATIAL_DIM_DEPTH];
+    int64_t heightDim = outputSpatialDims[SPATIAL_DIM_HEIGHT];
+    int64_t widthDim = outputSpatialDims[SPATIAL_DIM_WIDTH];
+    int64_t channelDim =
+        adaptor.getDimensionNumbers().getOutputFeatureDimension();
+
+    // Permute weight to OIDHW layout
+    Value permutedWeight = weight;
+    auto weightType = mlir::cast<RankedTensorType>(permutedWeight.getType());
+    auto kernelPermutation =
+        generateConvKernelPermutation(op, conv3dKernelLayout);
+    auto weightOutputShape = ::ttmlir::utils::applyPermutation(
+        weightType.getShape(), kernelPermutation);
+    permutedWeight = rewriter.create<ttir::PermuteOp>(
+        ttmlir::utils::appendLocationSuffix(op.getLoc(), "_weight"),
+        RankedTensorType::get(weightOutputShape, weightType.getElementType(),
+                              weightType.getEncoding()),
+        permutedWeight, kernelPermutation);
+
+    mlir::Value newConv = rewriter.create<ttir::Conv3dOp>(
+        op.getLoc(), outputType, Value(input), Value(permutedWeight), Value(),
+        strideAttr, paddingAttr, groupsAttr,
+        rewriter.getI64IntegerAttr(batchDim),
+        rewriter.getI64IntegerAttr(depthDim),
+        rewriter.getI64IntegerAttr(heightDim),
+        rewriter.getI64IntegerAttr(widthDim),
+        rewriter.getI64IntegerAttr(channelDim),
+        /*padding_mode=*/nullptr);
+
+    return newConv;
+  }
+};
+} // namespace
+namespace {
+class StableHLOToTTIRConvolutionOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::ConvolutionOp> {
+public:
+  StableHLOToTTIRConvolutionOpConversionPattern(TypeConverter &typeConverter,
+                                                MLIRContext *ctx,
+                                                PatternBenefit benefit = 2)
+      : OpConversionPattern<mlir::stablehlo::ConvolutionOp>(typeConverter, ctx,
+                                                            benefit) {}
+
   LogicalResult
   matchAndRewrite(mlir::stablehlo::ConvolutionOp srcOp,
                   mlir::stablehlo::ConvolutionOp::Adaptor adaptor,
@@ -1380,9 +2299,14 @@ public:
     // output"
     //   - Run conv with padding=[0, 0] to get larger intermediate result
     //   - Slice [1:-1, 1:-1] to remove the edges and get final output
+    // This pattern only handles negative padding.
     ArrayRef<int64_t> paddingArray = paddingAttr.asArrayRef();
     bool hasNegativePadding =
         llvm::any_of(paddingArray, [](int64_t p) { return p < 0; });
+    if (!hasNegativePadding) {
+      return failure();
+    }
+
     SmallVector<int64_t> adjustedPadding = llvm::to_vector(llvm::map_range(
         paddingArray, [](int64_t p) { return std::max<int64_t>(p, 0); }));
 
@@ -1408,26 +2332,36 @@ public:
     RankedTensorType intermediateOutputType = RankedTensorType::get(
         intermediateOutputShape, outputType.getElementType());
 
-    ttir::ConvolutionOp convOp = rewriter.create<ttir::ConvolutionOp>(
-        srcOp.getLoc(), intermediateOutputType, adaptor.getLhs(),
-        adaptor.getRhs(), Value(), windowStridesAttr, paddingAttr,
-        inputDilationAttr, kernelDilationAttr, windowReversalAttr,
-        mlir::tt::ttir::ConvolutionLayoutAttr::get(
-            getContext(), dimNums.getInputBatchDimension(),
+    // Convert padding to DenseIntElementsAttr with shape [numSpatialDims, 2].
+    mlir::DenseIntElementsAttr stablehloPaddingAttr =
+        mlir::DenseIntElementsAttr::get(
+            mlir::RankedTensorType::get(
+                {static_cast<int64_t>(numSpatialDims), 2},
+                rewriter.getI64Type()),
+            adjustedPadding);
+
+    // Create StableHLO ConvDimensionNumbersAttr.
+    mlir::stablehlo::ConvDimensionNumbersAttr stablehloDimNums =
+        mlir::stablehlo::ConvDimensionNumbersAttr::get(
+            rewriter.getContext(), dimNums.getInputBatchDimension(),
             dimNums.getInputFeatureDimension(),
             dimNums.getInputSpatialDimensions(),
-            dimNums.getKernelOutputFeatureDimension(),
             dimNums.getKernelInputFeatureDimension(),
+            dimNums.getKernelOutputFeatureDimension(),
             dimNums.getKernelSpatialDimensions(),
             dimNums.getOutputBatchDimension(),
             dimNums.getOutputFeatureDimension(),
-            dimNums.getOutputSpatialDimensions()),
-        adaptor.getFeatureGroupCountAttr(), adaptor.getBatchGroupCountAttr());
+            dimNums.getOutputSpatialDimensions());
 
-    if (!hasNegativePadding) {
-      rewriter.replaceOp(srcOp, convOp->getResult(0));
-      return success();
-    }
+    mlir::stablehlo::ConvolutionOp convOp =
+        mlir::stablehlo::ConvolutionOp::create(
+            rewriter, srcOp.getLoc(), intermediateOutputType, adaptor.getLhs(),
+            adaptor.getRhs(), windowStridesAttr, stablehloPaddingAttr,
+            inputDilationAttr, kernelDilationAttr, windowReversalAttr,
+            stablehloDimNums, adaptor.getFeatureGroupCount(),
+            adaptor.getBatchGroupCount(),
+            /*precisionConfig=*/nullptr);
+
     auto convOutputType = cast<RankedTensorType>(convOp.getResult().getType());
     auto convOutputShape = convOutputType.getShape();
 
@@ -1476,10 +2410,10 @@ public:
 //    either zero or negative infinity (NEG_INF). Function arguments or more
 //    complex expressions are not currently supported.
 //  - Mixed dtypes across inputs are supported, but reduction op must match
-//  type.
+//    the input type.
 //  - `CumSum` lowering only works for single-input/single-output cases and
 //    must satisfy specific window/padding rules (see isCumSum()).
-// This conversion is tailored toward cases like maxpool2d, avgpool2d (via
+// This conversion is tailored toward cases like max_pool2d, avg_pool2d (via
 // sum+div), and cumulative sum.
 // TODO(anusingh):
 //  - Support initialization via function arguments
@@ -1488,40 +2422,47 @@ public:
 //===----------------------------------------------------------------------===//
 
 namespace {
+
 class StableHLOToTTIRReduceWindowOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::ReduceWindowOp> {
   using OpConversionPattern<
       mlir::stablehlo::ReduceWindowOp>::OpConversionPattern;
-
-private:
-  static DenseI64ArrayAttr prependValues(DenseI64ArrayAttr windowDimensions,
-                                         int64_t value, int64_t count,
-                                         PatternRewriter &rewriter) {
-    assert(windowDimensions.size() == count &&
-           "Window dimensions size must match number of prepending values.");
-    SmallVector<int64_t> winDims4D = SmallVector<int64_t>(count, value);
-    llvm::append_range(winDims4D, windowDimensions.asArrayRef());
-    return rewriter.getDenseI64ArrayAttr(winDims4D);
-  }
 
 public:
   LogicalResult
   matchAndRewrite(mlir::stablehlo::ReduceWindowOp srcOp,
                   mlir::stablehlo::ReduceWindowOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    // Check basic structure of the ReduceWindowOp
+    using TypicalInitReductionValue::NEG_INF;
+    using TypicalInitReductionValue::ZERO;
+
+    // Validate basic op structure.
     if (!hasValidOpStructure(srcOp)) {
       return rewriter.notifyMatchFailure(
           srcOp, "Invalid structure of reduce window block.");
     }
 
-    // Extract initialization constant value per input.
+    // Validate input shapes and ranks.
+    RankedTensorType firstInputType =
+        mlir::cast<RankedTensorType>(srcOp.getInputs()[0].getType());
+    for (Value input : srcOp.getInputs()) {
+      if (mlir::cast<RankedTensorType>(input.getType()).getShape() !=
+          firstInputType.getShape()) {
+        return rewriter.notifyMatchFailure(
+            srcOp, "All inputs must have the same shape.");
+      }
+    }
+    int64_t inputRank = firstInputType.getRank();
+    if (inputRank > 4) {
+      return rewriter.notifyMatchFailure(srcOp, "Invalid input tensor rank.");
+    }
+
+    // Validate init values.
     std::optional<llvm::SmallVector<TypicalInitReductionValue>> initValues =
         extractInitValues(srcOp);
     if (!initValues) {
       return rewriter.notifyMatchFailure(
-          srcOp, "Unable to extract constant initialization value.");
-      ;
+          srcOp, "Failed to extract constant init values.");
     }
     if (initValues->size() != srcOp.getInputs().size()) {
       return rewriter.notifyMatchFailure(
@@ -1529,14 +2470,12 @@ public:
     }
 
     // Validate block body.
-    Block &block = *srcOp.getBody().getBlocks().begin();
+    Block &block = srcOp.getBody().getBlocks().front();
     auto &operations = block.getOperations();
-    // Collect reduction ops.
     SmallVector<mlir::Operation *> reductionOps;
     for (Operation &op : llvm::drop_end(operations, 1)) {
       if (!isa<mlir::stablehlo::AddOp, mlir::stablehlo::MaxOp>(&op)) {
-        return rewriter.notifyMatchFailure(srcOp,
-                                           "Unsupported reduction body op.");
+        return rewriter.notifyMatchFailure(srcOp, "Unsupported reduction op.");
       }
       reductionOps.push_back(&op);
     }
@@ -1549,32 +2488,56 @@ public:
           srcOp, "Mismatch between inputs and body ops.");
     }
 
-    auto windowDimensions = adaptor.getWindowDimensionsAttr();
-    auto windowStrides = adaptor.getWindowStridesAttr();
-    auto baseDilations = adaptor.getBaseDilationsAttr();
-    auto window_dilations = adaptor.getWindowDilationsAttr();
-    auto padding_ = adaptor.getPaddingAttr();
+    // Validate op attributes or assign default values if not provided.
 
-    // Generate defaults if they dont exist (these defaults are what the
-    // stablehlo dialect intends when they are not provided)
-    windowStrides = windowStrides
-                        ? windowStrides
-                        : rewriter.getDenseI64ArrayAttr(
-                              SmallVector<int64_t>(windowDimensions.size(), 1));
-    baseDilations = baseDilations
-                        ? baseDilations
-                        : rewriter.getDenseI64ArrayAttr(
-                              SmallVector<int64_t>(windowDimensions.size(), 1));
-    window_dilations = window_dilations
-                           ? window_dilations
-                           : rewriter.getDenseI64ArrayAttr(SmallVector<int64_t>(
-                                 windowDimensions.size(), 1));
-    auto padding =
-        padding_ ? rewriter.getDenseI64ArrayAttr(
-                       SmallVector<int64_t>(padding_.getValues<int64_t>()))
-                 : rewriter.getDenseI64ArrayAttr(
-                       SmallVector<int64_t>(windowDimensions.size() * 2, 0));
-    // Handle cumsum case.
+    DenseI64ArrayAttr windowDimensions = adaptor.getWindowDimensionsAttr();
+    if (windowDimensions.size() != inputRank) {
+      return rewriter.notifyMatchFailure(srcOp,
+                                         "Invalid pooling window dimensions.");
+    }
+
+    DenseI64ArrayAttr windowStrides = adaptor.getWindowStridesAttr();
+    if (!windowStrides) {
+      windowStrides = rewriter.getDenseI64ArrayAttr(
+          SmallVector<int64_t>(windowDimensions.size(), 1));
+    }
+    if (windowStrides.size() != inputRank) {
+      return rewriter.notifyMatchFailure(srcOp,
+                                         "Invalid pooling window strides.");
+    }
+
+    DenseI64ArrayAttr windowDilations = adaptor.getWindowDilationsAttr();
+    if (!windowDilations) {
+      windowDilations = rewriter.getDenseI64ArrayAttr(
+          SmallVector<int64_t>(windowDimensions.size(), 1));
+    }
+    if (windowDilations.size() != inputRank) {
+      return rewriter.notifyMatchFailure(srcOp,
+                                         "Invalid pooling window dilations.");
+    }
+
+    DenseI64ArrayAttr baseDilations = adaptor.getBaseDilationsAttr();
+    if (!baseDilations) {
+      baseDilations = rewriter.getDenseI64ArrayAttr(
+          SmallVector<int64_t>(windowDimensions.size(), 1));
+    }
+    if (baseDilations.size() != inputRank) {
+      return rewriter.notifyMatchFailure(srcOp,
+                                         "Invalid base dilations in pooling.");
+    }
+
+    DenseI64ArrayAttr padding =
+        adaptor.getPaddingAttr()
+            ? rewriter.getDenseI64ArrayAttr(SmallVector<int64_t>(
+                  adaptor.getPaddingAttr().getValues<int64_t>()))
+            : rewriter.getDenseI64ArrayAttr(
+                  SmallVector<int64_t>(windowDimensions.size() * 2, 0));
+
+    BoolAttr ceilMode = rewriter.getBoolAttr(false);
+
+    BoolAttr countIncludesPad = rewriter.getBoolAttr(true);
+
+    // Handle the special case of lowering to CumSumOp.
     if (srcOp.getInputs().size() == 1) {
       std::optional<int64_t> dimension =
           isCumSum(srcOp, adaptor, (*initValues)[0], reductionOps[0], padding);
@@ -1587,155 +2550,211 @@ public:
         return success();
       }
     }
-    // Check if the input is 2D and needs to be reshaped to 4D.
-    // TTIR pooling ops require 4D inputs.
+
+    // Not a special case of CumSumOp - lowering to TTIR pooling ops is
+    // supported only for 2D and 4D input tensors.
+    if (!(inputRank == 2 || inputRank == 4)) {
+      return rewriter.notifyMatchFailure(srcOp, "Invalid input tensor rank.");
+    }
+
+    // Deduce whether a reshape (2D->4D) or a permute (4D->4D) operation is
+    // needed to prepare input for TTIR pooling ops.
     bool needsReshape = false;
-    if (!srcOp.getInputs().empty()) {
-      auto firstInputType =
-          mlir::cast<RankedTensorType>(adaptor.getInputs()[0].getType());
-      needsReshape = (firstInputType.getRank() == 2);
+    bool needsPermute = false;
+    SmallVector<int64_t> permutation;        // populated only if needsPermute
+    SmallVector<int64_t> inversePermutation; // populated only if needsPermute
+    SmallVector<size_t, 2> spatialDimIndices = {1, 2}; // default for NHWC
+    if (inputRank == 4) {
+      // 4D input that maybe needs to be permuted to NHWC format which is
+      // expected by TTIR pooling ops. TTIR ops operate on spatial dimensions
+      // H and W. To deduce whether a permute operation is needed, non-1 values
+      // in windowDimensions attribute signalize a spatial dimension.
+      SmallVector<size_t> indicesGreaterThanOne =
+          indicesOfValuesGreaterThanOne(windowDimensions.asArrayRef());
+      if (indicesGreaterThanOne.size() > 2) {
+        return rewriter.notifyMatchFailure(
+            srcOp, "Conversion is not supported when more than 2 spatials "
+                   "dimensions are specified.");
+      }
+      if (indicesGreaterThanOne.size() < 2) {
+        // The default behavior is to assume a channel-first tensor (NCHW),
+        // if spatial dimensions cannot be determined from windowDimensions.
+        spatialDimIndices = {2, 3};
+      } else { // exactly two found
+        spatialDimIndices = {indicesGreaterThanOne[0],
+                             indicesGreaterThanOne[1]};
+      }
+
+      // PermuteOp is needed if spatial dimensions (HW) are not 1 and 2 (NHWC).
+      if (spatialDimIndices[0] != 1 || spatialDimIndices[1] != 2) {
+        needsPermute = true;
+
+        // Build desired layout: spatial H at index 1, spatial W at index 2.
+        const int64_t SPATIAL_H = -3; // -3 is a placeholder to indicate H dim
+        const int64_t SPATIAL_W = -2; // -2 is a placeholder to indicate W dim
+
+        std::vector<int64_t> desiredLayout(inputRank, -1);
+        desiredLayout[1] = SPATIAL_H;
+        desiredLayout[2] = SPATIAL_W;
+        int64_t nonSpatialCount = 0;
+        for (size_t i = 0; i < desiredLayout.size(); ++i) {
+          if (desiredLayout[i] == -1) {
+            desiredLayout[i] = nonSpatialCount++;
+          }
+        }
+
+        std::vector<int64_t> currentLayout(inputRank, -1);
+        currentLayout[spatialDimIndices[0]] = SPATIAL_H;
+        currentLayout[spatialDimIndices[1]] = SPATIAL_W;
+        nonSpatialCount = 0;
+        for (size_t i = 0; i < currentLayout.size(); ++i) {
+          if (currentLayout[i] == -1) {
+            currentLayout[i] = nonSpatialCount++;
+          }
+        }
+
+        permutation = ttmlir::utils::generatePermutation(
+            llvm::ArrayRef(currentLayout), llvm::ArrayRef(desiredLayout));
+
+        inversePermutation = ttmlir::utils::inversePermutation(permutation);
+      }
+    } else {
+      // 2D input needs reshape to 4D.
+      needsReshape = true;
+      spatialDimIndices = {0, 1};
     }
 
-    DenseI64ArrayAttr adjustedWindowDimensions = windowDimensions;
-    DenseI64ArrayAttr adjustedWindowStrides = windowStrides;
-    DenseI64ArrayAttr adjustedBaseDilations = baseDilations;
-    DenseI64ArrayAttr adjustedWindowDilations = window_dilations;
-    DenseI64ArrayAttr adjustedPadding = padding;
+    // Construct attributes for TTIR pooling ops.
 
-    if (needsReshape) {
-      adjustedWindowDimensions =
-          prependValues(windowDimensions, 1, 2, rewriter);
+    DenseI32ArrayAttr kernelForTTIROps = extract2xI32For2DPoolOpAttr(
+        windowDimensions, spatialDimIndices, rewriter);
 
-      adjustedWindowStrides = prependValues(windowStrides, 1, 2, rewriter);
+    DenseI32ArrayAttr strideForTTIROps =
+        extract2xI32For2DPoolOpAttr(windowStrides, spatialDimIndices, rewriter);
 
-      adjustedBaseDilations = prependValues(baseDilations, 1, 2, rewriter);
+    DenseI32ArrayAttr dilationForTTIROps = extract2xI32For2DPoolOpAttr(
+        windowDilations, spatialDimIndices, rewriter);
 
-      adjustedWindowDilations = prependValues(window_dilations, 1, 2, rewriter);
-
-      adjustedPadding = prependValues(padding, 0, 4, rewriter);
-    }
+    DenseI32ArrayAttr paddingForTTIROps =
+        extract4xI32PaddingAttr(padding, spatialDimIndices, rewriter);
 
     // Build per-input pooling ops.
     SmallVector<Value> resultVals;
     for (size_t i = 0; i < srcOp.getInputs().size(); ++i) {
       Value input = adaptor.getInputs()[i];
-      mlir::RankedTensorType inputType =
+      Value result;
+      TypicalInitReductionValue initVal = (*initValues)[i];
+      mlir::Operation *reductionOp = reductionOps[i];
+      RankedTensorType inputType =
           mlir::cast<RankedTensorType>(input.getType());
-      mlir::RankedTensorType resultType = cast<RankedTensorType>(
+      RankedTensorType resultType = cast<RankedTensorType>(
           getTypeConverter()->convertType(srcOp.getResult(i).getType()));
 
-      // Reshape 2D input to 4D if needed: [H, W] -> [1, 1, H, W].
-      if (needsReshape && inputType.getRank() == 2) {
-        SmallVector<int64_t> shape4D = {1, 1};
-        llvm::append_range(shape4D, inputType.getShape());
-        SmallVector<int32_t> shape4DI32(shape4D.begin(), shape4D.end());
+      if (needsReshape) {
+        ArrayRef<int64_t> shape2D = inputType.getShape();
+        SmallVector<int64_t> shape4DI64 = {1, shape2D[0], shape2D[1], 1};
+        SmallVector<int32_t> shape4D(shape4DI64.begin(), shape4DI64.end());
+        RankedTensorType inputType4D = RankedTensorType::get(
+            shape4DI64, inputType.getElementType(), inputType.getEncoding());
 
-        auto inputType4D = RankedTensorType::get(
-            shape4D, inputType.getElementType(), inputType.getEncoding());
-
-        input = rewriter.create<ttir::ReshapeOp>(
-            srcOp.getLoc(), inputType4D, input,
-            rewriter.getI32ArrayAttr(shape4DI32));
-
-        SmallVector<int64_t> resultShape4D = {1, 1};
-        llvm::append_range(resultShape4D, resultType.getShape());
-        resultType =
-            RankedTensorType::get(resultShape4D, resultType.getElementType(),
-                                  resultType.getEncoding());
+        input =
+            rewriter.create<ttir::ReshapeOp>(srcOp.getLoc(), inputType4D, input,
+                                             rewriter.getI32ArrayAttr(shape4D));
+        resultType = RankedTensorType::get(
+            /*shape*/ {1, resultType.getShape()[0], resultType.getShape()[1],
+                       1},
+            resultType.getElementType(), resultType.getEncoding());
       }
 
-      TypicalInitReductionValue initVal = (*initValues)[i];
-      mlir::Operation *frontOp = reductionOps[i];
-      ttir::PoolingMethod method;
-      if (isMaxPool(srcOp, initVal, frontOp)) {
-        method = ttir::PoolingMethod::Max;
-      } else if (isSumPool(srcOp, initVal, frontOp)) {
+      if (needsPermute) {
+        SmallVector<int64_t> permutedInputShape =
+            ttmlir::utils::applyPermutation(inputType.getShape(), permutation);
+        input = rewriter.create<ttir::PermuteOp>(
+            srcOp.getLoc(),
+            RankedTensorType::get(permutedInputShape,
+                                  inputType.getElementType(),
+                                  inputType.getEncoding()),
+            input, permutation);
+
+        // Apply output permutation.
+        SmallVector<int64_t> permutedResultShape =
+            ttmlir::utils::applyPermutation(resultType.getShape(), permutation);
+        resultType = RankedTensorType::get(permutedResultShape,
+                                           resultType.getElementType(),
+                                           resultType.getEncoding());
+      }
+
+      auto restoreOriginalLayout = [&](Value result) -> Value {
+        RankedTensorType originalResultType = cast<RankedTensorType>(
+            getTypeConverter()->convertType(srcOp.getResult(i).getType()));
+        if (needsReshape) {
+          result = rewriter.create<ttir::ReshapeOp>(
+              srcOp.getLoc(), originalResultType, result,
+              rewriter.getI32ArrayAttr(
+                  SmallVector<int32_t>(originalResultType.getShape().begin(),
+                                       originalResultType.getShape().end())));
+        }
+        if (needsPermute) {
+          result = rewriter.create<ttir::PermuteOp>(
+              srcOp.getLoc(), originalResultType, result, inversePermutation);
+        }
+        return result;
+      };
+
+      if (isa<mlir::stablehlo::MaxOp>(reductionOp) && initVal == NEG_INF) {
+        result = rewriter
+                     .create<ttir::MaxPool2dOp>(
+                         srcOp.getLoc(), resultType, input, kernelForTTIROps,
+                         strideForTTIROps, dilationForTTIROps,
+                         paddingForTTIROps, ceilMode)
+                     .getResult();
+      } else if (isa<mlir::stablehlo::AddOp>(reductionOp) && initVal == ZERO) {
+        // Special case of sum pooling followed by a convenient div op.
+        // TODO(acicovic): Check why was i == 0 originally added as a condition.
         std::optional<mlir::Operation *> divOp = extractDivisor(srcOp);
         if (divOp && i == 0) {
-          method = ttir::PoolingMethod::Average;
-          ttir::PoolingOp poolingOp = rewriter.create<ttir::PoolingOp>(
-              srcOp.getLoc(), resultType, input, method,
-              adjustedWindowDimensions, adjustedWindowStrides,
-              adjustedBaseDilations, adjustedWindowDilations, adjustedPadding);
-          (*divOp)->getResult(0).replaceAllUsesWith(poolingOp.getResult(0));
-          Value result = poolingOp->getResult(0);
-
-          // Reshape 4D output back to 2D if needed: [1, 1, H, W] -> [H, W].
-          if (needsReshape) {
-            auto originalResultType = cast<RankedTensorType>(
-                getTypeConverter()->convertType(srcOp.getResult(i).getType()));
-            result = rewriter.create<ttir::ReshapeOp>(
-                srcOp.getLoc(), originalResultType, result,
-                rewriter.getI32ArrayAttr(
-                    SmallVector<int32_t>(originalResultType.getShape().begin(),
-                                         originalResultType.getShape().end())));
-          }
-
+          // Average pooling: sum pooling followed by division.
+          // Create AvgPool2dOp directly.
+          ttir::AvgPool2dOp avgPool2dOp = rewriter.create<ttir::AvgPool2dOp>(
+              srcOp.getLoc(), resultType, input, kernelForTTIROps,
+              strideForTTIROps, dilationForTTIROps, paddingForTTIROps, ceilMode,
+              countIncludesPad);
+          result = restoreOriginalLayout(avgPool2dOp.getResult());
           resultVals.push_back(result);
           (*divOp)->getResult(0).replaceAllUsesWith(result);
           rewriter.eraseOp(*divOp);
           continue;
         }
-        method = ttir::PoolingMethod::Sum;
+
+        // Sum pooling imitated as average pooling followed by multiplication.
+        ttir::AvgPool2dOp avgPool2dOp = rewriter.create<ttir::AvgPool2dOp>(
+            srcOp.getLoc(), resultType, input, kernelForTTIROps,
+            strideForTTIROps, dilationForTTIROps, paddingForTTIROps, ceilMode,
+            countIncludesPad);
+        int32_t kernelSize = kernelForTTIROps[0] * kernelForTTIROps[1];
+        DenseElementsAttr splatAttr = DenseElementsAttr::get(
+            resultType, rewriter.getFloatAttr(resultType.getElementType(),
+                                              static_cast<double>(kernelSize)));
+        ttir::ConstantOp kernelSizeConst = rewriter.create<ttir::ConstantOp>(
+            srcOp.getLoc(), resultType, splatAttr);
+        ttir::MultiplyOp mulOp = rewriter.create<ttir::MultiplyOp>(
+            srcOp.getLoc(), resultType, avgPool2dOp.getResult(),
+            kernelSizeConst.getResult());
+        result = mulOp.getResult();
       } else {
-        return rewriter.notifyMatchFailure(srcOp, "Unsupported pooling method");
-      }
-      ttir::PoolingOp poolingOp = rewriter.create<ttir::PoolingOp>(
-          srcOp.getLoc(), resultType, input, method, adjustedWindowDimensions,
-          adjustedWindowStrides, adjustedBaseDilations, adjustedWindowDilations,
-          adjustedPadding);
-
-      Value result = poolingOp.getResult(0);
-
-      // Reshape 4D output back to 2D if needed: [1, 1, H, W] -> [H, W].
-      if (needsReshape) {
-        auto originalResultType = cast<RankedTensorType>(
-            getTypeConverter()->convertType(srcOp.getResult(i).getType()));
-        result = rewriter.create<ttir::ReshapeOp>(
-            srcOp.getLoc(), originalResultType, result,
-            rewriter.getI32ArrayAttr(
-                SmallVector<int32_t>(originalResultType.getShape().begin(),
-                                     originalResultType.getShape().end())));
+        return rewriter.notifyMatchFailure(
+            srcOp, "Invalid combination of reduction function and init value.");
       }
 
+      result = restoreOriginalLayout(result);
       resultVals.push_back(result);
     }
+
     rewriter.replaceOp(srcOp, resultVals);
     return success();
   }
 
 private:
-  // Requirements for max pooling.
-  // 1. Front op in the block must be 'max'.
-  // 2. InitValue must be negative infinity.
-  bool isMaxPool(mlir::stablehlo::ReduceWindowOp &srcOp,
-                 TypicalInitReductionValue initValue,
-                 mlir::Operation *frontOp) const {
-    if (!isa<mlir::stablehlo::MaxOp>(frontOp)) {
-      return false;
-    }
-    if (initValue != TypicalInitReductionValue::NEG_INF) {
-      return false;
-    }
-    return true;
-  }
-
-  // Requirements for sum pooling.
-  // 1. Front op in the block must be 'add'.
-  // 2. InitValue must be zero.
-  bool isSumPool(mlir::stablehlo::ReduceWindowOp &srcOp,
-                 TypicalInitReductionValue initValue,
-                 mlir::Operation *frontOp) const {
-    if (!isa<mlir::stablehlo::AddOp>(frontOp)) {
-      return false;
-    }
-    if (initValue != TypicalInitReductionValue::ZERO) {
-      return false;
-    }
-
-    return true;
-  }
-
   // This function verifies all the required conditions to convert stablehlo
   // reduce_window op to TTIR cumsum op and also determine the dimension
   // attribute along which the cumulative sum will be computed.
@@ -1754,7 +2773,7 @@ private:
   //    whose size is 1, is the required dimension.
   // 2. (If padding is non-splat vector): Window dimension attribute must have
   //    all elements equal to 1 except one; whose location is the required
-  //    dimension and value must be qual to size of the required dimension.
+  //    dimension and value must be equal to size of the required dimension.
   std::optional<int64_t>
   isCumSum(mlir::stablehlo::ReduceWindowOp &srcOp,
            mlir::stablehlo::ReduceWindowOp::Adaptor adaptor,
@@ -1798,7 +2817,7 @@ private:
     return mlir::dyn_cast_if_present<mlir::stablehlo::ConstantOp>(valueDef);
   }
 
-  // Extract the constant initialization value.
+  // Extract constant initialization values.
   std::optional<llvm::SmallVector<TypicalInitReductionValue>>
   extractInitValues(mlir::stablehlo::ReduceWindowOp &srcOp) const {
     llvm::SmallVector<TypicalInitReductionValue> initValues;
@@ -1814,9 +2833,6 @@ private:
       } else {
         return std::nullopt;
       }
-    }
-    if (initValues.size() != srcOp.getInitValues().size()) {
-      return std::nullopt;
     }
     return initValues;
   }
@@ -1988,9 +3004,47 @@ private:
     }
     return std::nullopt;
   }
-};
-} // namespace
 
+  // Extracts indices of all elements in the given array that have the value
+  // greter than 1.
+  static SmallVector<size_t>
+  indicesOfValuesGreaterThanOne(const ArrayRef<int64_t> input) {
+    SmallVector<size_t> results;
+    for (size_t i = 0; i < input.size(); ++i) {
+      if (input[i] > 1) {
+        results.push_back(i);
+      }
+    }
+    return results;
+  }
+
+  // Extract attribute values for two spatial dimensions from an attribute of
+  // a 4D tensor input.
+  static DenseI32ArrayAttr
+  extract2xI32For2DPoolOpAttr(DenseI64ArrayAttr attr,
+                              SmallVector<size_t, 2> spatialDimIndices,
+                              PatternRewriter &rewriter) {
+    return rewriter.getDenseI32ArrayAttr(
+        {static_cast<int32_t>(attr[spatialDimIndices[0]]),   // H
+         static_cast<int32_t>(attr[spatialDimIndices[1]])}); // W
+  }
+
+  // Extract attribute values for padding from an attribute of
+  // a 4D tensor input (8 padding values).
+  static DenseI32ArrayAttr
+  extract4xI32PaddingAttr(DenseI64ArrayAttr padding8,
+                          SmallVector<size_t, 2> spatialDimIndices,
+                          PatternRewriter &rewriter) {
+    return rewriter.getDenseI32ArrayAttr({
+        static_cast<int32_t>(padding8[spatialDimIndices[0] * 2]),     // H low
+        static_cast<int32_t>(padding8[spatialDimIndices[1] * 2]),     // W low
+        static_cast<int32_t>(padding8[spatialDimIndices[0] * 2 + 1]), // H high
+        static_cast<int32_t>(padding8[spatialDimIndices[1] * 2 + 1]), // W high
+    });
+  }
+};
+
+} // namespace
 namespace {
 class StableHLOToTTIRBroadcastInDimOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::BroadcastInDimOp> {
@@ -2450,10 +3504,10 @@ enum StableHLOChannelType {
   kChannelTypeHostToDevice = 3,
 };
 
-// Decompose SelectAndScatter into MaxPool2dWithIndices + ScatterInDim:
+// Decompose SelectAndScatter into MaxPool2dWithIndices + Scatter:
 // 1. MaxPool2dWithIndices finds the maximum values and their flattened indices
 // within each pooling window.
-// 2. ScatterInDim scatters the corresponding source values back into those
+// 2. Scatter scatters the corresponding source values back into those
 // positions.
 //
 // This decomposition currently supports only SelectAndScatter operations where
@@ -2462,7 +3516,7 @@ enum StableHLOChannelType {
 // workloads.
 //
 // If multiple windows overlap (e.g., stride < window size), several source
-// values may map to the same index. In that case, ScatterInDim reduces them
+// values may map to the same index. In that case, Scatter reduces them
 // using the reduction function specified in the scatter operation (e.g., add,
 // multiply, etc.).
 //
@@ -2493,7 +3547,7 @@ enum StableHLOChannelType {
 //   - Indices:    [[ 4,  6],
 //                  [13, 15]]
 //
-// Step 2: ScatterInDim
+// Step 2: Scatter
 //   - Scatter the source values [[10,20],[30,40]] into the flattened positions
 //   above.
 //   - Result (reshaped back to 4x4):
@@ -2649,7 +3703,7 @@ public:
         permutation, "_permuteFullTensor");
 
     // Calling MaxPool2dWithIndices op on operand
-    // and obtaining indices which will be used for ScatterInDim
+    // and obtaining indices which will be used for Scatter
     auto pooledType = RankedTensorType::get(sourcePermShape,
                                             source.getType().getElementType());
     auto indicesType =
@@ -3066,9 +4120,10 @@ public:
     }
 
     // We also extract the shard status from the @Sharding op.
-    auto shardStatusAttr =
-        definingOp->getAttrOfType<mlir::tt::ttcore::ShardStatusAttr>(
-            mlir::tt::ttcore::ShardStatusAttr::name);
+    auto runtimeTensorShardingAttr =
+        definingOp->getAttrOfType<mlir::tt::ttcore::RuntimeTensorShardingAttr>(
+            mlir::tt::ttcore::RuntimeTensorShardingAttr::name);
+    auto shardStatusAttr = runtimeTensorShardingAttr.getShardStatus();
 
     // Insert default sharding status if not present.
     if (!shardStatusAttr) {
@@ -3655,79 +4710,69 @@ public:
   matchAndRewrite(mlir::stablehlo::ScatterOp srcOp,
                   mlir::stablehlo::ScatterOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    auto outputType = mlir::cast<RankedTensorType>(
-        this->getTypeConverter()->convertType(srcOp.getResults()[0].getType()));
 
-    // Convert reduceType stablehlo attribute into ttir attribute
+    if (LogicalResult result = checkBasicLegality(srcOp, adaptor, rewriter);
+        !result.succeeded()) {
+      return result;
+    }
+
+    // Convert reduceType stablehlo attribute into ttir attribute.
     llvm::ErrorOr<ttcore::ReduceType> scatterReduceType = getReduceType(srcOp);
     if (!scatterReduceType) {
       return rewriter.notifyMatchFailure(
           srcOp, "ScatterOp cannot specify reduce type.");
     }
 
-    auto scatterDimsToOperandDims =
-        adaptor.getScatterDimensionNumbers().getScatterDimsToOperandDims();
-
-    LogicalResult legalityResult = checkBasicLegality(srcOp, adaptor, rewriter);
-    if (!legalityResult.succeeded()) {
-      return legalityResult;
-    }
-
     Value inputTensor = srcOp.getInputs()[0];
     Value updateTensor = srcOp.getUpdates()[0];
+    auto scatterDimsToOperandDims =
+        adaptor.getScatterDimensionNumbers().getScatterDimsToOperandDims();
     RankedTensorType inputType =
         mlir::cast<RankedTensorType>(inputTensor.getType());
     ArrayRef<int64_t> inputShape = inputType.getShape();
+    RankedTensorType outputType = mlir::cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(srcOp.getResults()[0].getType()));
+    RankedTensorType updateType =
+        mlir::cast<RankedTensorType>(updateTensor.getType());
+    ArrayRef<int64_t> updateShape = updateType.getShape();
 
-    // Check if single dimension scatter.
+    // Single-dimensional scatter.
     if (scatterDimsToOperandDims.size() == 1) {
-      // Single-dimensional scatter.
-      int32_t dim = scatterDimsToOperandDims[0];
-
       // Process indices to match update tensor shape.
+      int32_t dim = scatterDimsToOperandDims[0];
       Value finalIndexTensor =
           extractElementWiseScatterIndices(srcOp, rewriter);
-
-      auto dimAttr = rewriter.getI32IntegerAttr(dim);
-      auto reduceTypeAttr = ttcore::ReduceTypeAttr::get(rewriter.getContext(),
-                                                        *scatterReduceType);
 
       // Create ScatterOp.
       rewriter.replaceOpWithNewOp<ttir::ScatterOp>(
           srcOp, outputType, inputTensor, finalIndexTensor, updateTensor,
-          dimAttr, reduceTypeAttr);
+          rewriter.getI32IntegerAttr(dim),
+          ttcore::ReduceTypeAttr::get(rewriter.getContext(),
+                                      *scatterReduceType));
       return success();
     }
 
+    // Multi-dimensional scatter.
     if (scatterDimsToOperandDims.size() > 1) {
-      // Multi-dimensional scatter.
-      int32_t dim =
-          0; // Always scatter along dimension 0 for flattened tensors.
+      // Always scatter along dimension 0 for flattened tensors.
+      constexpr int32_t SCATTER_DIMENSION = 0;
 
-      // Extract multi-dimensional indices and flatten to 1D.
-      Value finalIndexTensor =
-          extractMultiDimensionalScatterIndices(srcOp, rewriter);
-
-      // Flatten input tensor to 1D.
+      // Scatter indices, input, and update tensors flattened to 1D.
+      Value flattenedIndices = flattenMultiDimScatterIndices(
+          srcOp, inputShape, updateShape, rewriter);
       Value flattenedInput = ttir::utils::flattenTensor(
           rewriter, srcOp.getLoc(), inputTensor, "_input_flatten");
-
-      // Flatten update tensor to 1D.
       Value flattenedUpdate = ttir::utils::flattenTensor(
           rewriter, srcOp.getLoc(), updateTensor, "_update_flatten");
 
-      auto dimAttr = rewriter.getI32IntegerAttr(dim);
-      auto reduceTypeAttr = ttcore::ReduceTypeAttr::get(rewriter.getContext(),
-                                                        *scatterReduceType);
-
-      // Get flattened result type.
-      RankedTensorType flattenedInputType =
-          mlir::cast<RankedTensorType>(flattenedInput.getType());
-
-      // Perform scatter operation on flattened tensors.
+      // Scatter scalars on flattened tensors.
       Value scatterResult = rewriter.create<ttir::ScatterOp>(
-          srcOp.getLoc(), flattenedInputType, flattenedInput, finalIndexTensor,
-          flattenedUpdate, dimAttr, reduceTypeAttr);
+          srcOp.getLoc(),
+          mlir::cast<RankedTensorType>(flattenedInput.getType()),
+          flattenedInput, flattenedIndices, flattenedUpdate,
+          rewriter.getI32IntegerAttr(SCATTER_DIMENSION),
+          ttcore::ReduceTypeAttr::get(rewriter.getContext(),
+                                      *scatterReduceType));
 
       // Reshape result back to original input shape.
       Value reshapedResult =
@@ -3747,66 +4792,25 @@ private:
   LogicalResult checkBasicLegality(mlir::stablehlo::ScatterOp &op,
                                    mlir::stablehlo::ScatterOp::Adaptor adaptor,
                                    ConversionPatternRewriter &rewriter) const {
-    auto input_batching_dims =
+    auto inputBatchingDims =
         adaptor.getScatterDimensionNumbers().getInputBatchingDims();
-    auto scatter_indices_batching_dims =
+    auto scatterIndicesBatchingDims =
         adaptor.getScatterDimensionNumbers().getScatterIndicesBatchingDims();
-    if (!input_batching_dims.empty() ||
-        !scatter_indices_batching_dims.empty()) {
+    if (!inputBatchingDims.empty() || !scatterIndicesBatchingDims.empty()) {
       return rewriter.notifyMatchFailure(
           op, "Scatter doesn't currently support scatter with batching "
               "dimensions");
     }
 
-    // Validate update_window_dims and inserted_window_dims.
-    ArrayRef<int64_t> updateWindowDims =
-        adaptor.getScatterDimensionNumbers().getUpdateWindowDims();
     ArrayRef<int64_t> insertedWindowDims =
         adaptor.getScatterDimensionNumbers().getInsertedWindowDims();
-
-    // Get update tensor rank and shape.
     RankedTensorType updateType =
         mlir::cast<RankedTensorType>(op.getUpdates()[0].getType());
-    int64_t updateRank = updateType.getRank();
     ArrayRef<int64_t> updateShape = updateType.getShape();
 
     // Get index tensor shape.
     RankedTensorType indexType = op.getScatterIndices().getType();
     ArrayRef<int64_t> indexShape = indexType.getShape();
-
-    // Create array to track which dimensions are covered.
-    llvm::SmallVector<bool> dimsCovered(updateRank, false);
-
-    // Check update_window_dims.
-    for (auto dim : updateWindowDims) {
-      if (dim < 0 || dim >= updateRank) {
-        return rewriter.notifyMatchFailure(
-            op, "update_window_dims contains invalid dimension index");
-      }
-      dimsCovered[dim] = true;
-    }
-
-    // Check inserted_window_dims.
-    for (auto dim : insertedWindowDims) {
-      if (dim < 0 || dim >= updateRank) {
-        return rewriter.notifyMatchFailure(
-            op, "inserted_window_dims contains invalid dimension index");
-      }
-      if (dimsCovered[dim]) {
-        return rewriter.notifyMatchFailure(
-            op, "update_window_dims and inserted_window_dims have overlapping "
-                "dimensions");
-      }
-      dimsCovered[dim] = true;
-    }
-
-    // Check that all dimensions are covered.
-    for (int64_t i = 0; i < updateRank; ++i) {
-      if (!dimsCovered[i]) {
-        return rewriter.notifyMatchFailure(
-            op, "Scatter does not support window scatter.");
-      }
-    }
 
     // Check that scatter_dims_to_operand_dims is in order.
     ArrayRef<int64_t> scatterDimsToOperandDims =
@@ -3830,10 +4834,15 @@ private:
               "index_vector_dim being the last dimension");
     }
 
-    if (multiDimensionalScatter && !updateWindowDims.empty()) {
+    if (multiDimensionalScatter &&
+        llvm::DenseSet<int64_t>(scatterDimsToOperandDims.begin(),
+                                scatterDimsToOperandDims.end()) !=
+            llvm::DenseSet<int64_t>(insertedWindowDims.begin(),
+                                    insertedWindowDims.end())) {
       return rewriter.notifyMatchFailure(
-          op, "TTIR multi-dimensional scatter requires update_window_dims to "
-              "be empty");
+          op, "TTIR multi-dimensional scatter requires "
+              "scatter_dims_to_operand_dims and inserted_window_dims to "
+              "contain the same elements");
     }
 
     // Checks that apply to single dimensional scatter.
@@ -3856,6 +4865,270 @@ private:
               "scattering along dimension 0");
     }
     return success();
+  }
+
+  /// Computes flat 1D indices from per-dimension index slices using strides.
+  ///
+  /// Takes a vector of index tensors (one per operand dimension) and computes:
+  ///   flat_index = sum(indices[d] * stride[d])
+  /// where stride[d] = product of operandShape[d+1..operandRank-1].
+  Value
+  computeFlatIndicesFromSlices(Location loc, PatternRewriter &rewriter,
+                               const llvm::SmallVector<Value> &indexSlices,
+                               ArrayRef<int64_t> operandShape,
+                               Type indexElementType) const {
+    int64_t operandRank = static_cast<int64_t>(operandShape.size());
+
+    // Calculate strides for each dimension.
+    // stride[d] = product of operandShape[d+1..operandRank-1]
+    llvm::SmallVector<int64_t> strides(operandRank);
+    int64_t stride = 1;
+    for (int64_t d = operandRank - 1; d >= 0; --d) {
+      strides[d] = stride;
+      stride *= operandShape[d];
+    }
+
+    Value flatIndices = nullptr;
+
+    for (int64_t d = 0; d < operandRank; ++d) {
+      Value dimIndices = indexSlices[d];
+      RankedTensorType dimIndicesType =
+          mlir::cast<RankedTensorType>(dimIndices.getType());
+      ArrayRef<int64_t> dimIndicesShape = dimIndicesType.getShape();
+
+      // Multiply by stride if stride > 1.
+      if (strides[d] > 1) {
+        auto scalarAttr =
+            rewriter.getI32IntegerAttr(static_cast<int32_t>(strides[d]));
+
+        RankedTensorType strideType = RankedTensorType::get(
+            dimIndicesShape, indexElementType, dimIndicesType.getEncoding());
+
+        Value strideTensor = rewriter.create<ttir::FullOp>(
+            ttmlir::utils::appendLocationSuffix(loc,
+                                                "_stride_" + std::to_string(d)),
+            strideType, scalarAttr);
+
+        dimIndices = rewriter.create<ttir::MultiplyOp>(
+            ttmlir::utils::appendLocationSuffix(
+                loc, "_dim_" + std::to_string(d) + "_stride_mul"),
+            strideType, dimIndices, strideTensor);
+      }
+
+      // Accumulate into flatIndices.
+      if (flatIndices == nullptr) {
+        flatIndices = dimIndices;
+      } else {
+        RankedTensorType addType = RankedTensorType::get(
+            dimIndicesShape, indexElementType, dimIndicesType.getEncoding());
+
+        flatIndices = rewriter.create<ttir::AddOp>(
+            ttmlir::utils::appendLocationSuffix(loc, "_add_dim_" +
+                                                         std::to_string(d)),
+            addType, flatIndices, dimIndices);
+      }
+    }
+
+    return flatIndices;
+  }
+
+  /// Computes flattened 1D indices for multi-dimensional scatter.
+  ///
+  /// Handles both cases:
+  /// - Non-empty updateWindowDims: expands indices for window positions,
+  ///   converting each scatter of a window into multiple scalar scatters.
+  /// - Empty updateWindowDims: degenerates to simple case (windowSize=1).
+  ///
+  /// Before: 1 index scatters a window of N values
+  /// After:  N indices scatter N scalar values
+  ///
+  /// Example with window expansion:
+  /// Before:
+  ///   operand:  [[[a, b], [c, d], [e, f], [g, h], [i, j]]] shape (1, 5, 2)
+  ///   indices:  [[0, 3]]                                   shape (1, 2)
+  ///   updates:  [[x, y]]                                   shape (1, 2)
+  ///   update_window_dims = [1]
+  //    inserted_window_dims = [0, 1],
+  ///   index_vector_dim = 1
+  /// After:
+  ///   flattened indices: [6, 7], shape (2) - positions in flattened operand
+  ///
+  /// Returns flattened 1D indices tensor.
+  Value flattenMultiDimScatterIndices(mlir::stablehlo::ScatterOp op,
+                                      ArrayRef<int64_t> operandShape,
+                                      ArrayRef<int64_t> updateShape,
+                                      PatternRewriter &rewriter) const {
+    Value indices = op.getScatterIndices();
+    RankedTensorType indicesType =
+        mlir::cast<RankedTensorType>(indices.getType());
+    ArrayRef<int64_t> indicesShape = indicesType.getShape();
+    auto scatterDimNumbers = op.getScatterDimensionNumbers();
+    ArrayRef<int64_t> insertedWindowDims =
+        scatterDimNumbers.getInsertedWindowDims();
+    ArrayRef<int64_t> updateWindowDims =
+        scatterDimNumbers.getUpdateWindowDims();
+    int64_t indexVectorDim = scatterDimNumbers.getIndexVectorDim();
+    int64_t operandRank = operandShape.size();
+    Location loc = op.getLoc();
+
+    // Build set of inserted window dims for fast lookup.
+    llvm::DenseSet<int64_t> insertedDimsSet(insertedWindowDims.begin(),
+                                            insertedWindowDims.end());
+
+    // Calculate window shape from update dimensions at update_window_dims.
+    // The window size is determined by the update tensor.
+    llvm::SmallVector<int64_t> windowShape;
+    for (int64_t dim : updateWindowDims) {
+      windowShape.push_back(updateShape[dim]);
+    }
+
+    // Calculate total window size (product of window dimensions).
+    int64_t windowSize = 1;
+    for (int64_t size : windowShape) {
+      windowSize *= size;
+    }
+
+    // Calculate number of scatter positions from indices tensor.
+    // All dimensions except index_vector_dim contribute to scatter positions.
+    int64_t numScatterPositions = 1;
+    for (int64_t d = 0; d < static_cast<int64_t>(indicesShape.size()); ++d) {
+      if (d != indexVectorDim) {
+        numScatterPositions *= indicesShape[d];
+      }
+    }
+
+    // Total number of expanded indices (one per one scalar update).
+    int64_t expandedNumIndices = numScatterPositions * windowSize;
+
+    // First, reshape the original indices to shape
+    // [numScatterPositions, originalIndexSize].
+    int64_t originalIndexSize = indicesShape[indexVectorDim];
+    Value reshapedOrigIndices = ttir::utils::createReshapeOp(
+        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_reshape_indices"),
+        indices, {numScatterPositions, originalIndexSize});
+
+    // Reshape to [numScatterPositions, 1, originalIndexSize] for repeat.
+    Value reshapedForRepeat = ttir::utils::createReshapeOp(
+        rewriter,
+        ttmlir::utils::appendLocationSuffix(loc, "_reshape_for_repeat"),
+        reshapedOrigIndices, {numScatterPositions, 1, originalIndexSize});
+
+    // Repeat along dim 1 to get [numScatterPositions, windowSize,
+    // originalIndexSize].
+    llvm::SmallVector<int64_t> afterRepeatShape = {
+        numScatterPositions, windowSize, originalIndexSize};
+    RankedTensorType afterRepeatType =
+        RankedTensorType::get(afterRepeatShape, indicesType.getElementType());
+    Value repeatedIndices = rewriter.create<ttir::RepeatOp>(
+        ttmlir::utils::appendLocationSuffix(loc, "_repeat_indices"),
+        afterRepeatType, reshapedForRepeat,
+        rewriter.getDenseI64ArrayAttr({1, windowSize, 1}));
+
+    // Flatten to [numScatterPositions * windowSize, originalIndexSize].
+    Value flatRepeatedIndices = ttir::utils::createReshapeOp(
+        rewriter,
+        ttmlir::utils::appendLocationSuffix(loc, "_flatten_repeated_indices"),
+        repeatedIndices, {expandedNumIndices, originalIndexSize});
+
+    // Generate window offset coordinates for each window dimension, and create
+    // a single ConstantOp per dimension.
+    //
+    // For window shape [W1, W2, ...], we compute the coordinate for each
+    // position in the flattened window. For position i in the window:
+    //   coord[d] = (i / product(windowShape[d+1:])) % windowShape[d]
+    //
+    // These coordinates are later repeated for each scatter position.
+    llvm::SmallVector<Value> windowOffsetSlices;
+
+    // Compute window offsets for each dimension in memory.
+    // windowOffsets[d][i] = coordinate of window position i in dimension d.
+    llvm::SmallVector<llvm::SmallVector<int64_t>> windowOffsets(
+        windowShape.size());
+    for (size_t d = 0; d < windowShape.size(); ++d) {
+      windowOffsets[d].reserve(windowSize);
+    }
+
+    // For each position in the flattened window, compute multi-dimensional
+    // coordinates. For dimension d: coord = (i / stride) % windowShape[d],
+    // where stride = product of windowShape[d+1:].
+    for (int64_t i = 0; i < windowSize; ++i) {
+      int64_t stride = 1;
+      for (size_t d = windowShape.size(); d-- > 0;) {
+        windowOffsets[d].push_back((i / stride) % windowShape[d]);
+        stride *= windowShape[d]; // repeats the same seq during each outer loop
+      }
+    }
+
+    // Create constant tensors for each window dimension's offsets.
+    Type indexElementType = indicesType.getElementType();
+    for (size_t dim = 0; dim < windowShape.size(); ++dim) {
+      // Build the final offset values: repeat window offsets for each scatter
+      // position. Pattern: [w0, w1, ..., wN-1, w0, w1, ..., wN-1, ...]
+      //                     |---- window ---|  |--- window ----|
+      //                    |--------- numScatterPositions times -----|
+      llvm::SmallVector<int64_t> finalOffsetValues;
+      finalOffsetValues.reserve(expandedNumIndices);
+      for (int64_t i = 0; i < numScatterPositions; ++i) {
+        for (int64_t w = 0; w < windowSize; ++w) {
+          finalOffsetValues.push_back(windowOffsets[dim][w]);
+        }
+      }
+
+      // Create constant tensor with shape [expandedNumIndices, 1].
+      // (to match the shape of individial slices generated in the next
+      // step of the algorithm, since they are all pushed to indexSlices)
+      RankedTensorType finalOffsetType =
+          RankedTensorType::get({expandedNumIndices, 1}, indexElementType);
+      auto finalOffsetAttr =
+          DenseIntElementsAttr::get(finalOffsetType, finalOffsetValues);
+      Value finalOffset = rewriter.create<ttir::ConstantOp>(
+          ttmlir::utils::appendLocationSuffix(loc, "_window_offset_" +
+                                                       std::to_string(dim)),
+          finalOffsetType, finalOffsetAttr);
+
+      windowOffsetSlices.push_back(finalOffset);
+    }
+
+    // Build per-dimension index slices by interleaving original indices
+    // and window offsets according to operand dimension order.
+    llvm::SmallVector<Value> indexSlices;
+    size_t origIdxPos = 0;
+    size_t windowIdxPos = 0;
+    for (int64_t operandDim = 0; operandDim < operandRank; ++operandDim) {
+      if (insertedDimsSet.contains(operandDim)) {
+        // This dimension is indexed by scatter - slice from original indices.
+        llvm::SmallVector<int32_t> begins = {0,
+                                             static_cast<int32_t>(origIdxPos)};
+        llvm::SmallVector<int32_t> ends = {
+            static_cast<int32_t>(expandedNumIndices),
+            static_cast<int32_t>(origIdxPos + 1)};
+        llvm::SmallVector<int32_t> steps = {1, 1};
+
+        llvm::SmallVector<int64_t> sliceShape = {expandedNumIndices, 1};
+        RankedTensorType sliceType =
+            RankedTensorType::get(sliceShape, indicesType.getElementType());
+
+        Value sliced = rewriter.create<ttir::SliceStaticOp>(
+            ttmlir::utils::appendLocationSuffix(
+                loc, "_slice_orig_idx_" + std::to_string(operandDim)),
+            sliceType, flatRepeatedIndices, rewriter.getI32ArrayAttr(begins),
+            rewriter.getI32ArrayAttr(ends), rewriter.getI32ArrayAttr(steps));
+
+        indexSlices.push_back(sliced);
+        ++origIdxPos;
+      } else {
+        // This dimension is a window dimension - use window offset.
+        indexSlices.push_back(windowOffsetSlices[windowIdxPos]);
+        ++windowIdxPos;
+      }
+    }
+
+    Value flatIndices = computeFlatIndicesFromSlices(
+        loc, rewriter, indexSlices, operandShape, indicesType.getElementType());
+
+    // Flatten the computed indices to 1D.
+    return ttir::utils::flattenTensor(rewriter, loc, flatIndices,
+                                      "_flatten_expanded_indices");
   }
 
   Value extractElementWiseScatterIndices(mlir::stablehlo::ScatterOp op,
@@ -3908,107 +5181,6 @@ private:
     }
 
     return indexTensor;
-  }
-
-  Value extractMultiDimensionalScatterIndices(mlir::stablehlo::ScatterOp op,
-                                              PatternRewriter &rewriter) const {
-    // Last dimension of indices is index_vector_dim.
-    TypedValue<RankedTensorType> indexTensor = op.getScatterIndices();
-    RankedTensorType indexType = indexTensor.getType();
-    ArrayRef<int64_t> indexShape = indexType.getShape();
-    int64_t indexVectorDim =
-        op.getScatterDimensionNumbers().getIndexVectorDim();
-
-    // Get the input tensor to determine its shape for stride calculation.
-    Value inputTensor = op.getInputs()[0];
-    RankedTensorType inputType =
-        mlir::cast<RankedTensorType>(inputTensor.getType());
-    ArrayRef<int64_t> inputShape = inputType.getShape();
-
-    // Number of dimensions being indexed.
-    int64_t numIndexDims = indexShape[indexVectorDim];
-
-    // Calculate strides for each dimension (product of subsequent dimensions).
-    llvm::SmallVector<int64_t> strides(numIndexDims);
-    for (int64_t i = 0; i < numIndexDims; ++i) {
-      int64_t stride = 1;
-      for (int64_t j = i + 1; j < numIndexDims; ++j) {
-        stride *= inputShape[j];
-      }
-      strides[i] = stride;
-    }
-
-    Value flatIndices = nullptr;
-
-    // Process each dimension.
-    for (int64_t dim = 0; dim < numIndexDims; ++dim) {
-      // Slice to get indices for this dimension.
-      llvm::SmallVector<int32_t> begins(indexType.getRank(), 0);
-      llvm::SmallVector<int32_t> ends(indexType.getShape().begin(),
-                                      indexType.getShape().end());
-      llvm::SmallVector<int32_t> steps(indexType.getRank(), 1);
-
-      begins[indexVectorDim] = static_cast<int32_t>(dim);
-      ends[indexVectorDim] = static_cast<int32_t>(dim + 1);
-
-      // Calculate slice shape.
-      llvm::SmallVector<int64_t> sliceShape(indexType.getShape());
-      sliceShape[indexVectorDim] = 1;
-
-      auto beginsAttr = rewriter.getI32ArrayAttr(begins);
-      auto endsAttr = rewriter.getI32ArrayAttr(ends);
-      auto stepsAttr = rewriter.getI32ArrayAttr(steps);
-
-      RankedTensorType sliceResultType = RankedTensorType::get(
-          sliceShape, indexType.getElementType(), indexType.getEncoding());
-
-      Value dimensionIndices = rewriter.create<ttir::SliceStaticOp>(
-          ttmlir::utils::appendLocationSuffix(
-              op.getLoc(), "_dim_" + std::to_string(dim) + "_slice"),
-          sliceResultType, indexTensor, beginsAttr, endsAttr, stepsAttr);
-
-      // Multiply by stride if stride > 1.
-      if (strides[dim] > 1) {
-        auto scalarAttr =
-            rewriter.getI32IntegerAttr(static_cast<int32_t>(strides[dim]));
-
-        RankedTensorType dimIndexType = RankedTensorType::get(
-            sliceShape, indexType.getElementType(), indexType.getEncoding());
-
-        Value strideTensor = rewriter.create<ttir::FullOp>(
-            ttmlir::utils::appendLocationSuffix(
-                op.getLoc(), "_stride_" + std::to_string(dim)),
-            dimIndexType, scalarAttr);
-
-        RankedTensorType multiplyResultType = RankedTensorType::get(
-            sliceShape, indexType.getElementType(), indexType.getEncoding());
-
-        dimensionIndices = rewriter.create<ttir::MultiplyOp>(
-            ttmlir::utils::appendLocationSuffix(
-                op.getLoc(), "_dim_" + std::to_string(dim) + "_stride_mul"),
-            multiplyResultType, dimensionIndices, strideTensor);
-      }
-
-      // Add to flat indices.
-      if (flatIndices == nullptr) {
-        flatIndices = dimensionIndices;
-      } else {
-        RankedTensorType addResultType = RankedTensorType::get(
-            sliceShape, indexType.getElementType(), indexType.getEncoding());
-
-        flatIndices = rewriter.create<ttir::AddOp>(
-            ttmlir::utils::appendLocationSuffix(
-                op.getLoc(), "_add_dim_" + std::to_string(dim)),
-            addResultType, flatIndices, dimensionIndices);
-      }
-    }
-
-    // Flatten the indices to 1D.
-    Value flattenedIndices = ttir::utils::flattenTensor(
-        rewriter, op.getLoc(), flatIndices, "_indices_flatten");
-
-    TT_assertv(flattenedIndices, "Expected valid flat indices tensor");
-    return flattenedIndices;
   }
 };
 } // namespace
@@ -5404,6 +6576,9 @@ static void addConv2dOpConversionPattern(MLIRContext *ctx,
                                          TypeConverter &typeConverter) {
   patterns.add<StableHLOToTTIRConvolutionOpConversionPattern>(typeConverter,
                                                               ctx);
+  patterns.add<Legalize1DConvolutionPattern>(typeConverter, ctx);
+  patterns.add<ConvolutionToConv2dPattern>(typeConverter, ctx);
+  patterns.add<ConvolutionToConv3dPattern>(typeConverter, ctx);
 }
 
 static void addQuantizeOpsConversionPattern(MLIRContext *ctx,

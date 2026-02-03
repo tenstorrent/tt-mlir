@@ -4,7 +4,7 @@
 import pytest
 import torch
 from typing import Callable, List, Optional
-from conftest import x86_only
+from conftest import x86_only, get_request_kwargs
 from builder.base.builder_utils import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_apis import compile_and_execute_ttir
@@ -78,13 +78,6 @@ def test_reduction_ops(
             "See: https://github.com/tenstorrent/tt-metal/pull/33904"
         )
 
-    if reduction_op_name == "argmax" and dim_arg is not None and len(dim_arg) > 1:
-        request.node.add_marker(
-            pytest.xfail(
-                reason="Fails in TTIR compilation, see issue https://github.com/tenstorrent/tt-mlir/issues/5791"
-            )
-        )
-
     if reduction_op_name == "prod" and dim_arg is None and keep_dim is True:
         request.node.add_marker(
             pytest.xfail(
@@ -114,22 +107,20 @@ def test_reduction_ops(
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
     )
 
 
 reduction_op_cpu_hoisted_names = [
-    "argmax",
+    "argmax"
+    | Marks(
+        pytest.mark.xfail(reason="Not supported in CPU hoisted mode, see issue #5809")
+    ),
     "max",
     "mean",
-    "min"
-    | Marks(
-        pytest.mark.xfail(reason="Not supported in CPU hoisted mode, see issue #5810")
-    ),
+    "min",
     "prod",
     "reduce_and" | Marks(pytest.mark.xfail(reason="Builder test not supported #5792")),
     "reduce_or" | Marks(pytest.mark.xfail(reason="Builder test not supported #5792")),
@@ -154,31 +145,6 @@ def test_reduction_cpu_hoisted_ops(
     request,
     device,
 ):
-    if reduction_op_name == "argmax" and dim_arg is not None and len(dim_arg) > 1:
-        request.node.add_marker(
-            pytest.xfail(reason="Fails in TTIR compilation, see issue #5791")
-        )
-    elif reduction_op_name == "argmax":
-        request.node.add_marker(
-            pytest.xfail(reason="Not supported in CPU hoisted mode, see issue #5809")
-        )
-
-    if (
-        (reduction_op_name == "max" or reduction_op_name == "sum")
-        and (dim_arg is None or len(dim_arg) != 1)
-        and keep_dim == False
-    ):
-        request.node.add_marker(
-            pytest.mark.xfail(
-                reason="Not supported in CPU hoisted mode, see issues #5811",
-            )
-        )
-
-    if reduction_op_name == "prod" and (dim_arg is None or len(dim_arg) == 1):
-        request.node.add_marker(
-            pytest.xfail(reason="Not supported in CPU hoisted mode, see issue #5812")
-        )
-
     def module(builder: TTIRBuilder):
         @builder.func(shapes, [dtype])
         def reduction_op_cpu_hoisted_wrapper(
@@ -206,9 +172,7 @@ def test_reduction_cpu_hoisted_ops(
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
     )

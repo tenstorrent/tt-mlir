@@ -7,7 +7,7 @@ import os
 import inspect
 import time
 import torch
-from functools import reduce
+from functools import partial, reduce
 import itertools
 import operator
 from typing import Callable, List, Optional, Tuple, Union, Literal, Dict
@@ -59,6 +59,7 @@ def _compile_and_execute(
     check_atol: bool = False,
     check_rtol: bool = False,
     enable_intermediate_verification: bool = False,
+    dump_memory: bool = False,
     **compile_kwargs,
 ) -> str:
     builder, compiled_bin, input_output_goldens, intermediate_goldens = compile_fn(
@@ -87,6 +88,7 @@ def _compile_and_execute(
             enable_intermediate_verification=enable_intermediate_verification,
             save_artifacts=compile_kwargs.get("save_artifacts", False),
             artifact_dir=compile_kwargs.get("artifact_dir", "."),
+            dump_memory=dump_memory,
         )
 
     elif target == "emitpy":
@@ -198,6 +200,7 @@ def build_module(
         print(new_module)
 
         if save_artifacts:
+            os.makedirs(artifact_dir, exist_ok=True)
             filename = os.path.join(artifact_dir, builder_type + "_module.mlir")
             with open(filename, "w") as f:
                 f.write(str(new_module))
@@ -228,6 +231,7 @@ def compile_and_execute_d2m(
     check_atol: bool = False,
     check_rtol: bool = False,
     enable_intermediate_verification: bool = False,
+    dump_memory: bool = False,
 ) -> str:
     """
     Compiles and executes a D2MBuilder function through the complete pipeline.
@@ -281,6 +285,8 @@ def compile_and_execute_d2m(
         Whether to check absolute tolerance during golden comparison
     check_rtol : bool
         Whether to check relative tolerance during golden comparison
+    dump_memory : bool
+        Dump a per-op memory report into the artifact_dir.
     """
     artifact_dir = get_artifact_dir(
         output_root, "D2MBuilder", test_base, save_artifacts
@@ -308,6 +314,7 @@ def compile_and_execute_d2m(
         check_atol=check_atol,
         check_rtol=check_rtol,
         enable_intermediate_verification=enable_intermediate_verification,
+        dump_memory=dump_memory,
     )
 
 
@@ -336,6 +343,7 @@ def compile_and_execute_shlo(
     check_atol: bool = False,
     check_rtol: bool = False,
     enable_intermediate_verification: bool = False,
+    dump_memory: bool = False,
 ) -> str:
     """
     Compiles and executes a StableHLO function through the complete pipeline.
@@ -393,6 +401,8 @@ def compile_and_execute_shlo(
         Whether to check absolute tolerance during golden comparison
     check_rtol : bool
         Whether to check relative tolerance during golden comparison
+    dump_memory : bool
+        Dump a per-op memory report into the artifact_dir.
     """
     artifact_dir = get_artifact_dir(
         output_root, "StableHLOBuilder", test_base, save_artifacts
@@ -422,6 +432,7 @@ def compile_and_execute_shlo(
         check_atol=check_atol,
         check_rtol=check_rtol,
         enable_intermediate_verification=enable_intermediate_verification,
+        dump_memory=dump_memory,
     )
 
 
@@ -448,6 +459,7 @@ def compile_and_execute_ttnn(
     check_atol: bool = False,
     check_rtol: bool = False,
     enable_intermediate_verification: bool = False,
+    dump_memory: bool = False,
 ) -> str:
     """
     Compiles and executes a TTNNBuilder function through the complete pipeline.
@@ -504,6 +516,8 @@ def compile_and_execute_ttnn(
         Whether to check absolute tolerance during golden comparison
     check_rtol : bool
         Whether to check relative tolerance during golden comparison
+    dump_memory : bool
+        Dump a per-op memory report into the artifact_dir.
     """
     artifact_dir = get_artifact_dir(
         output_root, "TTNNBuilder", test_base, save_artifacts
@@ -531,6 +545,7 @@ def compile_and_execute_ttnn(
         check_atol=check_atol,
         check_rtol=check_rtol,
         enable_intermediate_verification=enable_intermediate_verification,
+        dump_memory=dump_memory,
     )
 
 
@@ -557,6 +572,7 @@ def compile_and_execute_ttir(
     check_atol: bool = False,
     check_rtol: bool = False,
     enable_intermediate_verification: bool = False,
+    dump_memory: bool = False,
 ) -> str:
     """
     Compiles and executes a TTIR function through the complete pipeline.
@@ -610,6 +626,8 @@ def compile_and_execute_ttir(
         Whether to check absolute tolerance during golden comparison
     check_rtol : bool
         Whether to check relative tolerance during golden comparison
+    dump_memory : bool
+        Dump a per-op memory report into the artifact_dir.
     """
     artifact_dir = get_artifact_dir(
         output_root, "TTIRBuilder", test_base, save_artifacts
@@ -637,6 +655,7 @@ def compile_and_execute_ttir(
         check_atol=check_atol,
         check_rtol=check_rtol,
         enable_intermediate_verification=enable_intermediate_verification,
+        dump_memory=dump_memory,
     )
 
 
@@ -802,6 +821,9 @@ def compile_ttnn_to_flatbuffer(
         Dictionary that defines the mesh shape
     pipeline_options: *List[str]*
         Additional pipeline options to pass to the pipeline
+    save_artifacts : bool
+        Set to True to print out generated TTIR MLIR module.
+        Default is False.
 
     Returns
     -------
@@ -1051,7 +1073,7 @@ def compile_stablehlo_to_flatbuffer(
     # We need to generate golden dictionary before pipeline run because pipeline run modifies the graph in place.
     input_output_goldens, intermediate_goldens = builder.golden_map
 
-    stablehlo_pipeline(module, " ".join(shlo_pipeline_options))
+    stablehlo_pipeline(module, " ".join(shlo_pipeline_options), print_ir=print_ir)
     print(f"`{fn.__name__}` successfully ran stablehlo-pipeline.")
     print(module)
 
@@ -1060,7 +1082,9 @@ def compile_stablehlo_to_flatbuffer(
         with open(filename, "w") as f:
             f.write(str(module))
 
-    stablehlo_to_ttir_pipeline(module, " ".join(shlo_to_ttir_pipeline_options))
+    stablehlo_to_ttir_pipeline(
+        module, " ".join(shlo_to_ttir_pipeline_options), print_ir=print_ir
+    )
     print(f"`{fn.__name__}` successfully transformed into a TTIR MLIR module.")
     print(module)
 
@@ -1158,7 +1182,6 @@ def compile_ttir_module_to_flatbuffer(
             (e.g. `pytest -s` or `python -u`) and/or use pdb to reliably see
             dumps before a crash.
         Default is False (no IR printed).
-
     goldens : *Optional[Dict[Operand, GoldenMapTensor]]*, optional
         Dictionary of golden tensors to use for comparison. If None, the golden
         tensors will be generated from the builder.
@@ -1187,16 +1210,26 @@ def compile_ttir_module_to_flatbuffer(
     to_target: Callable
     target_extension: str
 
+    # Helper to wrap default pipelines with print_ir flag
+    def wrap_pipeline_with_print_ir(pipeline):
+        if print_ir:
+            return partial(pipeline, print_ir=True)
+        return pipeline
+
     if target == "ttnn":
         pipeline_fn = (
-            custom_pipeline if custom_pipeline else ttir_to_ttnn_backend_pipeline
+            custom_pipeline
+            if custom_pipeline
+            else wrap_pipeline_with_print_ir(ttir_to_ttnn_backend_pipeline)
         )
         to_target = ttnn_to_flatbuffer_bin
         to_file = ttnn_to_flatbuffer_file
         target_extension = "ttnn"
     elif target == "ttmetal":
         pipeline_fn = (
-            custom_pipeline if custom_pipeline else ttir_to_ttmetal_backend_pipeline
+            custom_pipeline
+            if custom_pipeline
+            else wrap_pipeline_with_print_ir(ttir_to_ttmetal_backend_pipeline)
         )
         to_target = ttmetal_to_flatbuffer_bin
         to_file = ttmetal_to_flatbuffer_file
@@ -1211,7 +1244,11 @@ def compile_ttir_module_to_flatbuffer(
         to_target = emitc_to_executable
         target_extension = "cpp"
     elif target == "emitpy":
-        pipeline_fn = custom_pipeline if custom_pipeline else ttir_to_emitpy_pipeline
+        pipeline_fn = (
+            custom_pipeline
+            if custom_pipeline
+            else wrap_pipeline_with_print_ir(ttir_to_emitpy_pipeline)
+        )
         to_target = emitpy_to_executable
         target_extension = "py"
     else:
@@ -1255,11 +1292,11 @@ def compile_ttir_module_to_flatbuffer(
             f.write(compiled_bin)
     if save_artifacts:
         print(f"Writing compiled flatbuffer to {output_file_bin}")
+        os.makedirs(artifact_dir, exist_ok=True)
         if target == "emitpy":
             with open(output_file_bin, "w") as f:
                 f.write(compiled_bin)
         elif target in ["ttnn", "ttmetal"]:
-
             to_file(module, output_file_bin, {}, [])
 
     return compiled_bin, input_output_goldens, intermediate_goldens

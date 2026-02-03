@@ -3254,7 +3254,7 @@ def TTIR_BroadcastOp : TTIR_NamedOp<"broadcast"> {
     let hasFolder = 1;
 }
 
-def TTIR_Conv2dOp : TTIR_NamedOp<"conv2d"> {
+def TTIR_Conv2dOp : TTIR_NamedOp<"conv2d", [DeclareOpInterfaceMethods<TTIR_QuantizableOpInterface, ["isQuantizedRewriteFavorable", "rewriteWithQuantizedInputs"]>]> {
     let summary = "Conv2d operation.";
     let description = [{
       Applies a 2D convolution over an input image composed of several input planes.
@@ -3289,7 +3289,8 @@ def TTIR_Conv2dOp : TTIR_NamedOp<"conv2d"> {
       ```
 
       Inputs:
-      - `input` (AnyRankedTensor): expected in the following format (N, H_in, W_in, C) where:
+      - `input` (AnyRankedTensor): 4D tensor where dimension indices are controlled by `batch_dim`, `height_dim`,
+        `width_dim`, and `channel_dim` attributes. Default layout is NHWC (N, H_in, W_in, C) where:
         - N is the batch size
         - H_in is the height of the input planes
         - W_in is the width of the input planes
@@ -3300,7 +3301,8 @@ def TTIR_Conv2dOp : TTIR_NamedOp<"conv2d"> {
         - G is the number of groups
         - K_H is the height of the kernel
         - K_W is the width of the kernel
-      - `bias` Optional<AnyRankedTensor>: expected in the following format (1, 1, 1, O).
+      - `bias` Optional<AnyRankedTensor>: bias tensor with output channels at position specified by `channel_dim`.
+        Default format is (1, 1, 1, O).
 
       Attributes:
       - `stride` (i32 | array<2xi32>):
@@ -3314,9 +3316,14 @@ def TTIR_Conv2dOp : TTIR_NamedOp<"conv2d"> {
         - i32: Same dilation for height and width dimensions (dH = dW = value).
         - array<2xi32>: [dH, dW] where dH is dilation for height and dW is dilation for width.
       - `groups` (i32): Number of blocked connections from input channels to output channels. Input and output channels must both be divisible by groups.
+      - `batch_dim` (i64): Index of the batch dimension in input/output tensors. Default: 0.
+      - `height_dim` (i64): Index of the height dimension in input/output tensors. Default: 1.
+      - `width_dim` (i64): Index of the width dimension in input/output tensors. Default: 2.
+      - `channel_dim` (i64): Index of the channel dimension in input/output tensors. Default: 3.
 
       Output:
-      - `result` AnyRankedTensor: expected in the following format (N, H_out, W_out, O) where:
+      - `result` AnyRankedTensor: 4D tensor with same layout as input (controlled by dimension attributes).
+        Default format is (N, H_out, W_out, O) where:
         - `H_out = (H_in + pT + pB - dH * (K_H - 1) - 1) / sH + 1`
         - `W_out = (W_in + pL + pR - dW * (K_W - 1) - 1) / sW + 1`
     }];
@@ -3328,12 +3335,34 @@ def TTIR_Conv2dOp : TTIR_NamedOp<"conv2d"> {
                          AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$padding,
                          AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$dilation,
                          I32Attr:$groups,
+                         DefaultValuedAttr<I64Attr, "0">:$batch_dim,
+                         DefaultValuedAttr<I64Attr, "1">:$height_dim,
+                         DefaultValuedAttr<I64Attr, "2">:$width_dim,
+                         DefaultValuedAttr<I64Attr, "3">:$channel_dim,
                          DefaultValuedAttr<TTIR_FlattenedCompatInfoAttr, "nullptr">:$flattened_compat_info);
+
+    let builders = [
+      OpBuilder<(ins "Type":$result, "Value":$input, "Value":$weight,
+                     "Value":$bias, "::mlir::Attribute":$stride,
+                     "::mlir::Attribute":$padding, "::mlir::Attribute":$dilation,
+                     "uint32_t":$groups,
+                     CArg<"::mlir::tt::ttir::FlattenedCompatInfoAttr", "nullptr">:$flattened_compat_info), [{
+        build($_builder, $_state, result, input, weight, bias, stride, padding,
+              dilation, $_builder.getI32IntegerAttr(groups),
+              $_builder.getI64IntegerAttr(0), $_builder.getI64IntegerAttr(1),
+              $_builder.getI64IntegerAttr(2), $_builder.getI64IntegerAttr(3),
+              flattened_compat_info);
+      }]>
+    ];
 
     let extraClassDeclaration = [{
       // Get number of output channels
       int64_t getOutputChannelSize();
       bool isBiasCompatible(llvm::ArrayRef<int64_t> biasDims);
+      bool isNHWC() {
+        return getBatchDim() == 0 && getHeightDim() == 1 &&
+               getWidthDim() == 2 && getChannelDim() == 3;
+      }
     }];
 
     let results = (outs AnyRankedTensor:$result);
@@ -3410,14 +3439,40 @@ def TTIR_Conv3dOp : TTIR_NamedOp<"conv3d"> {
                          AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$stride,
                          AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$padding,
                          I32Attr:$groups,
+                         DefaultValuedAttr<I64Attr, "0">:$batch_dim,
+                         DefaultValuedAttr<I64Attr, "1">:$depth_dim,
+                         DefaultValuedAttr<I64Attr, "2">:$height_dim,
+                         DefaultValuedAttr<I64Attr, "3">:$width_dim,
+                         DefaultValuedAttr<I64Attr, "4">:$channel_dim,
                          DefaultValuedAttr<StrAttr, "\"zeros\"">:$padding_mode);
+
+    let builders = [
+      OpBuilder<(ins "Type":$result, "Value":$input, "Value":$weight,
+                     "Value":$bias, "::mlir::Attribute":$stride,
+                     "::mlir::Attribute":$padding, "uint32_t":$groups,
+                     "::mlir::StringAttr":$padding_mode), [{
+        build($_builder, $_state, result, input, weight, bias, stride, padding,
+              $_builder.getI32IntegerAttr(groups),
+              $_builder.getI64IntegerAttr(0), $_builder.getI64IntegerAttr(1),
+              $_builder.getI64IntegerAttr(2), $_builder.getI64IntegerAttr(3),
+              $_builder.getI64IntegerAttr(4), padding_mode);
+      }]>
+    ];
+
+    let extraClassDeclaration = [{
+      bool isNDHWC() {
+        return getBatchDim() == 0 && getDepthDim() == 1 &&
+               getHeightDim() == 2 && getWidthDim() == 3 &&
+               getChannelDim() == 4;
+      }
+    }];
 
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
 }
 
-def TTIR_ConvTranspose2dOp : TTIR_NamedOp<"conv_transpose2d"> {
+def TTIR_ConvTranspose2dOp : TTIR_NamedOp<"conv_transpose2d", [DeclareOpInterfaceMethods<TTIR_QuantizableOpInterface, ["isQuantizedRewriteFavorable", "rewriteWithQuantizedInputs"]>]> {
     let summary = "ConvTranspose2d operation.";
     let description = [{
       Applies a 2D transposed convolution operator over an input image composed of several input planes.
@@ -3454,7 +3509,8 @@ def TTIR_ConvTranspose2dOp : TTIR_NamedOp<"conv_transpose2d"> {
       ```
 
       Inputs:
-      - `input` AnyRankedTensor: expected in the following format (N, H_in, W_in, C) where:
+      - `input` AnyRankedTensor: 4D tensor where dimension indices are controlled by `batch_dim`, `height_dim`,
+        `width_dim`, and `channel_dim` attributes. Default layout is NHWC (N, H_in, W_in, C) where:
         - N is the batch size
         - H_in is the height of the input planes
         - W_in is the width of the input planes
@@ -3465,7 +3521,8 @@ def TTIR_ConvTranspose2dOp : TTIR_NamedOp<"conv_transpose2d"> {
         - G is the number of groups
         - K_H is the height of the kernel
         - K_W is the width of the kernel
-      - `bias` Optional<AnyRankedTensor>: expected in the following format (1, 1, 1, O).
+      - `bias` Optional<AnyRankedTensor>: bias tensor with output channels at position specified by `channel_dim`.
+        Default format is (1, 1, 1, O).
 
       Attributes:
       - `stride` (i32 | array<2xi32>): Controls the stride for the cross-correlation.
@@ -3473,9 +3530,14 @@ def TTIR_ConvTranspose2dOp : TTIR_NamedOp<"conv_transpose2d"> {
       - `output_padding` (i32 | array<2xi32>): Controls the additional size added to one side of the output shape.
       - `dilation` (i32 | array<2xi32>): Controls the spacing between the kernel points
       - `groups` i32: Controls the connections between inputs and outputs. Must be divisible by input and output channels.
+      - `batch_dim` (i64): Index of the batch dimension in input/output tensors. Default: 0.
+      - `height_dim` (i64): Index of the height dimension in input/output tensors. Default: 1.
+      - `width_dim` (i64): Index of the width dimension in input/output tensors. Default: 2.
+      - `channel_dim` (i64): Index of the channel dimension in input/output tensors. Default: 3.
 
       Output:
-      - `result` AnyRankedTensor: expected in the following format (N, H_out, W_out, O) where:
+      - `result` AnyRankedTensor: 4D tensor with same layout as input (controlled by dimension attributes).
+        Default format is (N, H_out, W_out, O) where:
         - H_out = (H_in - 1) * stride[0] - (padding_top + padding_bottom) + dilation[0] * (K_H - 1) + output_padding[0] + 1
         - W_out = (W_in - 1) * stride[1] - (padding_left + padding_right) + dilation[1] * (K_W - 1) + output_padding[1] + 1
     }];
@@ -3488,82 +3550,36 @@ def TTIR_ConvTranspose2dOp : TTIR_NamedOp<"conv_transpose2d"> {
                          AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$output_padding,
                          AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$dilation,
                          I32Attr:$groups,
+                         DefaultValuedAttr<I64Attr, "0">:$batch_dim,
+                         DefaultValuedAttr<I64Attr, "1">:$height_dim,
+                         DefaultValuedAttr<I64Attr, "2">:$width_dim,
+                         DefaultValuedAttr<I64Attr, "3">:$channel_dim,
                          DefaultValuedAttr<TTIR_FlattenedCompatInfoAttr, "nullptr">:$flattened_compat_info);
+
+    let builders = [
+      OpBuilder<(ins "Type":$result, "Value":$input, "Value":$weight,
+                     "Value":$bias, "::mlir::Attribute":$stride,
+                     "::mlir::Attribute":$padding, "::mlir::Attribute":$output_padding,
+                     "::mlir::Attribute":$dilation, "uint32_t":$groups,
+                     CArg<"::mlir::tt::ttir::FlattenedCompatInfoAttr", "nullptr">:$flattened_compat_info), [{
+        build($_builder, $_state, result, input, weight, bias, stride, padding,
+              output_padding, dilation, $_builder.getI32IntegerAttr(groups),
+              $_builder.getI64IntegerAttr(0), $_builder.getI64IntegerAttr(1),
+              $_builder.getI64IntegerAttr(2), $_builder.getI64IntegerAttr(3),
+              flattened_compat_info);
+      }]>
+    ];
+
+    let extraClassDeclaration = [{
+      bool isNHWC() {
+        return getBatchDim() == 0 && getHeightDim() == 1 &&
+               getWidthDim() == 2 && getChannelDim() == 3;
+      }
+    }];
 
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
-}
-
-def TTIR_ConvolutionOp : TTIR_NamedOp<"convolution", [DeclareOpInterfaceMethods<TTIR_QuantizableOpInterface, ["isQuantizedRewriteFavorable", "rewriteWithQuantizedInputs"]>]> {
-  let summary = "Generalized convolution operation.";
-  let description = [{
-    This operation is a more flexible form of convolution that can handle arbitrary dimensionality
-    and supports various configuration options. It's designed to be a generalization of specific
-    convolution operations like `conv2d` and `conv_transpose2d`.
-
-    Example:
-    ```mlir
-    // 2D convolution using the generalized convolution operation
-    %lhs = ... : tensor<1x32x32x3xf32>     // Input tensor: batch size 1, 32x32 image, 3 channels
-    %rhs = ... : tensor<5x5x3x16xf32>      // Filter tensor: 5x5 kernel, 3 input channels, 16 output channels
-    %result = ttir.convolution(%lhs, %rhs) {
-        window_strides = [1, 1],
-        padding = [[0, 0], [0, 0]],
-        lhs_dilation = [1, 1],
-        rhs_dilation = [1, 1],
-        window_reversal = [false, false],
-        dimension_numbers = {
-            input_batch_dimension = 0,
-            input_feature_dimension = 3,
-            input_spatial_dimensions = [1, 2],
-            kernel_input_feature_dimension = 2,
-            kernel_output_feature_dimension = 3,
-            kernel_spatial_dimensions = [0, 1],
-            output_batch_dimension = 0,
-            output_feature_dimension = 3,
-            output_spatial_dimensions = [1, 2]
-        },
-        feature_group_count = 1,
-        batch_group_count = 1
-    } : (tensor<1x32x32x3xf32>, tensor<5x5x3x16xf32>) -> tensor<1x28x28x16xf32>
-    ```
-
-    Inputs:
-    - `input` - The input tensor.
-    - `weight` - The filter/kernel tensor.
-    - `bias` - The bias tensor.
-
-    Attributes:
-    - `window_strides` (Array): Stride of the sliding window for each spatial dimension.
-    - `padding` (Array): Padding applied to the input in each spatial dimension.
-    - `input_dilation` (Array): Dilation factor for the input in each spatial dimension.
-    - `weight_dilation` (Array): Dilation factor for the filter in each spatial dimension.
-    - `window_reversal` (Array): Whether to reverse the window in each spatial dimension.
-    - `convolution_layout` (Struct): Specifies the dimension numbering in the inputs and outputs.
-    - `feature_group_count` (Integer): Number of feature groups for grouped convolution.
-    - `batch_group_count` (Integer): Number of batch groups for grouped convolution.
-
-    Output:
-    - `result` (Tensor): Output tensor containing the result of the convolution.
-  }];
-
-  let arguments = (ins
-    AnyRankedTensor:$input,
-    AnyRankedTensor:$weight,
-    Optional<AnyRankedTensor>:$bias,
-    DenseI64ArrayAttr:$window_strides,
-    DenseI64ArrayAttr:$padding,
-    DenseI64ArrayAttr:$input_dilation,
-    DenseI64ArrayAttr:$weight_dilation,
-    DenseBoolArrayAttr:$window_reversal,
-    TTIR_ConvolutionLayoutAttr:$convolution_layout,
-    ConfinedAttr<I64Attr, [IntPositive]>:$feature_group_count,
-    ConfinedAttr<I64Attr, [IntPositive]>:$batch_group_count
-  );
-
-  let results = (outs AnyRankedTensor:$result);
-  let hasVerifier = 1;
 }
 
 def TTIR_GatherOp: TTIR_NamedOp<"gather"> {
@@ -3625,73 +3641,7 @@ def TTIR_GatherOp: TTIR_NamedOp<"gather"> {
     let results = (outs AnyRankedTensor:$result);
 }
 
-def TTIR_PoolingOp : TTIR_NamedOp<"pooling", [DeclareOpInterfaceMethods<TTIR_QuantizableOpInterface, ["rewriteWithQuantizedInputs"]>]> {
-  let summary = "General pooling operation.";
-  let description = [{
-    The `pooling` operation is a generalized pooling operation that can implement various pooling methods
-    such as max pooling, average pooling, and sum pooling.
-
-    Pooling operations are commonly used in neural networks to reduce the spatial dimensions of feature maps
-    by applying a specific function (like maximum or average) over local regions of the input tensor.
-
-    Example:
-    ```mlir
-    // Max pooling with 2x2 window and stride 2
-    %input = ... : tensor<1x32x32x16xf32>    // Batch size 1, 32x32 feature map, 16 channels
-    %result = ttir.pooling(%input) {
-        pooling_method = "MAX",
-        window_dimensions = [1, 2, 2, 1],
-        window_strides = [1, 2, 2, 1],
-        base_dilations = [1, 1, 1, 1],
-        window_dilations = [1, 1, 1, 1],
-        padding = [0, 0, 0, 0, 0, 0, 0, 0]
-    } : (tensor<1x32x32x16xf32>) -> tensor<1x16x16x16xf32>
-
-    // Average pooling with 3x3 window and stride 2
-    %input = ... : tensor<1x32x32x16xf32>    // Batch size 1, 32x32 feature map, 16 channels
-    %result = ttir.pooling(%input) {
-        pooling_method = "AVG",
-        window_dimensions = [1, 3, 3, 1],
-        window_strides = [1, 2, 2, 1],
-        base_dilations = [1, 1, 1, 1],
-        window_dilations = [1, 1, 1, 1],
-        padding = [0, 0, 0, 0, 0, 0, 0, 0]
-    } : (tensor<1x32x32x16xf32>) -> tensor<1x15x15x16xf32>
-    ```
-
-    Inputs:
-    - `inputs` (Variadic Tensor): Input tensors to be pooled.
-
-    Attributes:
-    - `pooling_method` (Enum): The pooling method to use (MAX, AVG, SUM).
-    - `window_dimensions` (Array of Integer): Dimensions of the pooling window. The rank of this array is the same as the rank of the input tensors.
-    - `window_strides` (Array of Integer): Stride of the pooling window. The rank of this array is the same as the rank of the input tensors.
-    - `base_dilations` (Array of Integer): Dilation factors for the input. The rank of this array is the same as the rank of the input tensors.
-    - `window_dilations` (Array of Integer): Dilation factors for the pooling window. The rank of this array is the same as the rank of the input tensors.
-    - `padding` (Array of Integer): Padding to apply to the input. The rank of this array is twice the rank of the input tensors, representing padding for each dimension.
-
-    Outputs:
-    - `results` (Variadic Tensor): Output tensors after pooling.
-  }];
-
-  let arguments = (ins
-    Variadic<AnyRankedTensor>:$inputs,
-    TTIR_PoolingMethodAttr:$pooling_method,
-    DenseI64ArrayAttr:$window_dimensions,
-    DenseI64ArrayAttr:$window_strides,
-    DenseI64ArrayAttr:$base_dilations,
-    DenseI64ArrayAttr:$window_dilations,
-    DenseI64ArrayAttr:$padding
-  );
-
-  let results = (outs Variadic<AnyRankedTensor>:$results);
-
-  let hasVerifier = 1;
-
-  let hasFolder = 1;
-}
-
-def TTIR_AvgPool2dOp : TTIR_NamedOp<"avg_pool2d"> {
+def TTIR_AvgPool2dOp : TTIR_NamedOp<"avg_pool2d", [DeclareOpInterfaceMethods<TTIR_QuantizableOpInterface, ["rewriteWithQuantizedInputs"]>]> {
   let summary = "2D average pooling operation.";
   let description = [{
     The `avg_pool2d` operation applies a 2D average pooling over an input tensor composed of several input planes.
@@ -3755,10 +3705,11 @@ def TTIR_AvgPool2dOp : TTIR_NamedOp<"avg_pool2d"> {
   let results = (outs AnyRankedTensor:$result);
 
   let hasVerifier = 1;
+
   let hasFolder = 1;
 }
 
-def TTIR_MaxPool2dOp : TTIR_NamedOp<"max_pool2d"> {
+def TTIR_MaxPool2dOp : TTIR_NamedOp<"max_pool2d", [DeclareOpInterfaceMethods<TTIR_QuantizableOpInterface, ["rewriteWithQuantizedInputs"]>]> {
     let summary = "2D maximum pooling operation.";
     let description = [{
       The `max_pool2d` operation applies a 2D maximum pooling over an input tensor composed of several input planes.
@@ -4969,6 +4920,43 @@ def TTIR_RandOp : TTIR_CreationOp<"rand", [TTCore_NonCacheableTrait]> {
                        DefaultValuedAttr<F32Attr, "0.0">:$low,
                        DefaultValuedAttr<F32Attr, "1.0">:$high,
                        DefaultValuedAttr<UI32Attr, "0">:$seed);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+}
+
+def TTIR_DropoutOp : TTIR_Op<"dropout", [TTCore_NonCacheableTrait]> {
+  let summary = "Dropout operation.";
+  let description = [{
+    Applies dropout to the input tensor element-wise.
+
+    During training, randomly zeroes some elements of the input tensor with
+    probability `prob` using samples from a Bernoulli distribution. The
+    remaining elements are scaled by `scale` (typically 1/(1-prob)) to maintain
+    the expected sum.
+
+    Example:
+      %result = "ttir.dropout"(%input) <{prob = 0.2 : f32, scale = 1.25 : f32, seed = 42 : ui32}> : (tensor<64x128xbf16>) -> tensor<64x128xbf16>
+
+    Attributes:
+      - `prob` (Float): Dropout probability. Elements are zeroed with this probability [Default: 0.0].
+      - `scale` (Float): Scale factor applied to non-zeroed elements. Typically 1/(1-prob) [Default: 1.0].
+      - `seed` (Integer): Seed for the random number generator [Default: 0].
+      - `use_per_device_seed` (Bool): Whether to use a different seed per device [Default: true].
+
+    Inputs:
+      - `input` (Tensor): The input tensor.
+
+    Output:
+      - `result` (Tensor): The output tensor with dropout applied.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       DefaultValuedAttr<F32Attr, "0.0">:$prob,
+                       DefaultValuedAttr<F32Attr, "1.0">:$scale,
+                       DefaultValuedAttr<UI32Attr, "0">:$seed,
+                       DefaultValuedAttr<BoolAttr, "true">:$use_per_device_seed);
 
   let results = (outs AnyRankedTensor:$result);
 

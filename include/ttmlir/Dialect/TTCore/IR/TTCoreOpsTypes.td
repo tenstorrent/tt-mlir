@@ -688,6 +688,24 @@ def TTCore_MeshesAttr : TTCore_Attr<"Meshes", "meshes"> {
   }];
 }
 
+def TTCore_RuntimeTensorShardingAttr : TTCore_Attr<"RuntimeTensorSharding", "runtime_tensor_sharding"> {
+  let summary = "Runtime tensor sharding information";
+  let description = [{
+    Holds the runtime sharding information for this tensor.
+    This includes whether the tensor is presharded/unsharded and its per device shape.
+    This attribute is required for graphs coming from torch-xla/jax where the inputs/outputs to the graph can be presharded.
+    Any tool built ontop of mlir runtime needs to know how to generate the inputs (unsharded or presharded) and this attribute encapsulate that information.
+  }];
+  let parameters = (ins
+    "ShardStatusAttr":$shardStatus,
+    "RankedTensorType":$localShape);
+
+  let assemblyFormat = [{
+        `shard_status` `=` $shardStatus `,`
+        `local_shape` `=` $localShape
+  }];
+}
+
 //===----------------------------------------------------------------------===//
 // TT type definitions
 //===----------------------------------------------------------------------===//

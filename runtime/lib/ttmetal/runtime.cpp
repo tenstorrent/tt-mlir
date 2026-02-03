@@ -195,6 +195,16 @@ Tensor createMultiDeviceHostTensor(
                                               meshShape);
 }
 
+Tensor createMultiDeviceBorrowedHostTensor(
+    std::vector<void *> &data, const std::vector<std::uint32_t> &shape,
+    const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
+    ::tt::target::DataType dataType,
+    const std::unordered_map<std::string, std::string> &strategy,
+    const std::vector<uint32_t> &meshShape) {
+  LOG_FATAL(
+      "createMultiDeviceBorrowedHostTensor not implemented for metal runtime");
+}
+
 bool isTensorAllocated(Tensor tensor) {
   LOG_FATAL("isTensorAllocated not implemented for metal runtime");
 }

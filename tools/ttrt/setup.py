@@ -43,7 +43,7 @@ runlibs = []
 perflibs = []
 metallibs = []
 install_requires = []
-install_requires += ["nanobind"]
+install_requires += ["nanobind==2.10.2"]
 
 if enable_ttnn:
     runlibs += ["_ttnncpp.so"]
@@ -149,6 +149,8 @@ if enable_runtime:
         dirs_exist_ok=True,
         ignore=tt_metal_ignore_folders,
         ignore_dangling_symlinks=True,
+        # Broken symlinks introduced in tt-umd -> tt-metal uplift
+        # issue: https://github.com/tenstorrent/tt-umd/issues/1864
     )
 
     # copy runtime dir folder
