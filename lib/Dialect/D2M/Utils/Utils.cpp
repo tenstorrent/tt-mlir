@@ -23,7 +23,9 @@ getSquareTargetGrid(mlir::ArrayRef<int64_t> targetGridShape) {
   return squareGrid;
 }
 
-Type getRegionLargestDstElemType(Region &region) {
+// Helper to find the largest DST element type in a region.
+// Returns nullptr if no DST-using ops are found.
+static Type findLargestDstElemType(Region &region) {
   auto getTypeNumberOfBits = [](Type type) {
     return ttcore::getNumberOfBits(ttcore::elementTypeToDataType(type));
   };
@@ -63,9 +65,21 @@ Type getRegionLargestDstElemType(Region &region) {
     return WalkResult::advance();
   });
 
+  return largestType;
+}
+
+Type getRegionLargestDstElemType(Region &region) {
+  Type largestType = findLargestDstElemType(region);
   assert(largestType);
+  auto getTypeNumberOfBits = [](Type type) {
+    return ttcore::getNumberOfBits(ttcore::elementTypeToDataType(type));
+  };
   TT_assert(getTypeNumberOfBits(largestType) <= 32u);
   return largestType;
+}
+
+Type getRegionLargestDstElemTypeOrNull(Region &region) {
+  return findLargestDstElemType(region);
 }
 
 RankedTensorType reblockTensor(RankedTensorType oldTensor,

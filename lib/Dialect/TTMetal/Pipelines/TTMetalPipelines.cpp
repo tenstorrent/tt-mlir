@@ -137,11 +137,9 @@ void createTTIRToTTMetalMiddleendPipeline(
     allocateOptions.testBufferSizePolicy = options.testBufferSizePolicy;
   }
   pm.addPass(d2m::createD2MAllocate(allocateOptions));
-
-  // Decompose block_mask ops now that we're in memref space.
+  pm.addPass(createCanonicalizerPassWithOptions(options));
   pm.addPass(d2m::createD2MDecomposeMasking());
 
-  pm.addPass(createCanonicalizerPassWithOptions(options));
   d2m::D2MGenericApplyInterchangeOptions applyInterchangeOptions;
   {
     applyInterchangeOptions.matmulInterchange =

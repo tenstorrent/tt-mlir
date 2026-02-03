@@ -41,7 +41,8 @@ public:
         generic->getLoc(), generic.getResultTypes(), generic.getInputs(),
         generic.getOutputs(), generic.getGrid(), generic.getBlockFactors(),
         generic.getIndexingMaps(), generic.getIteratorTypes(),
-        rewriter.getArrayAttr(threads), /*numRegions*/ 2);
+        rewriter.getArrayAttr(threads), generic.getScratchInputsAttr(),
+        /*numRegions*/ 2);
 
     // Get the original region
     Region &originalRegion = generic.getRegion(0);

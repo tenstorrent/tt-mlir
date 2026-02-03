@@ -1175,7 +1175,8 @@ void d2m::GenericOp::build(mlir::OpBuilder &builder,
       builder.getArrayAttr(builder.getAttr<ThreadAttr>(singleThreadType));
 
   build(builder, state, TypeRange(outputs), inputs, outputs, grid,
-        blockFactorsAttr, indexingMaps, iteratorTypes, threads, 1);
+        blockFactorsAttr, indexingMaps, iteratorTypes, threads,
+        /*scratch_inputs=*/nullptr, 1);
 }
 
 void d2m::GenericOp::build(
@@ -2076,7 +2077,7 @@ mlir::LogicalResult d2m::GenericOp::bufferize(
   auto bufferGeneric = rewriter.create<d2m::GenericOp>(
       getLoc(), ValueRange(), bufferInputs, bufferOutputs, getGrid(),
       getBlockFactors(), getIndexingMaps(), getIteratorTypes(), getThreads(),
-      getNumRegions());
+      getScratchInputsAttr(), getNumRegions());
   for (mlir::Region &region : bufferGeneric.getRegions()) {
     region.takeBody(getRegion(region.getRegionNumber()));
   }
@@ -2111,10 +2112,15 @@ mlir::LogicalResult d2m::GenericOp::bufferize(
 }
 
 mlir::FailureOr<mlir::bufferization::BufferLikeType>
-d2m::GenericOp::getBufferType(mlir::Value value,
-                              const mlir::bufferization::BufferizationOptions &,
-                              const mlir::bufferization::BufferizationState &,
-                              ::llvm::SmallVector<mlir::Value> &) {
+d2m::GenericOp::getBufferType(
+    mlir::Value value, const mlir::bufferization::BufferizationOptions &options,
+    const mlir::bufferization::BufferizationState &,
+    ::llvm::SmallVector<mlir::Value> &) {
+  // Handle CB types - delegate to CBType::getBufferType.
+  if (auto cbType = mlir::dyn_cast<d2m::CBType>(value.getType())) {
+    return cbType.getBufferType(options, [&]() { return this->emitError(); });
+  }
+
   auto tensorType = mlir::cast<RankedTensorType>(value.getType());
   if (mlir::isa<mlir::BlockArgument>(value)) {
     assert(!tensorType.getEncoding());
