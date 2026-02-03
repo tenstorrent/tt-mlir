@@ -517,6 +517,52 @@ def test_batch_norm_training(
     "shapes",
     [
         [
+            (1, 136, 2048),  # input
+            (1, 136, 2048),  # weight
+            (2048,),  # bias
+        ],
+    ],
+)
+@pytest.mark.parametrize("dtypes", [[torch.float32] * 3])
+@pytest.mark.parametrize("normalized_shape", [2048])
+@pytest.mark.parametrize("epsilon", [1e-5])
+def test_rms_norm(
+    shapes: List[Shape],
+    dtypes: List[torch.dtype],
+    normalized_shape: int,
+    epsilon: float,
+    request,
+    device,
+):
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, dtypes)
+        def batch_norm_training(
+            in0: Operand,
+            weight: Operand,
+            bias: Operand,
+            builder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+
+            return builder.batch_norm_training(
+                in0,
+                weight,
+                bias,
+                epsilon=epsilon,
+                normalized_shape=normalized_shape,
+            )
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        device=device,
+    )
+
+
+@pytest.mark.parametrize(
+    "shapes",
+    [
+        [
             # Matches working silicon test: embedding_backward.mlir
             (1, 32),  # input (indices) - batch=1, seq_len divisible by TILE_WIDTH (32)
             (512, 128),  # weight (vocab_size, embedding_dim)
