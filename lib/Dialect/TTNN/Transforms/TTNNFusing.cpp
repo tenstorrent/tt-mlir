@@ -174,266 +174,747 @@ private:
 
 #ifdef TTMLIR_ENABLE_OPMODEL
 
-// This is rope fusing pattern. Given this formula:
-// (x * cos) + (rotate_half(x) * sin)
-// into ttnn rotary_embedding op from ttnn.
+namespace {
+
+struct RoPEComponents {
+  SmallVector<Value> x;   // Input tensor candidates (along TM chain)
+  SmallVector<Value> cos; // Cosine embedding candidates (along TM chain)
+  SmallVector<Value> sin; // Sine embedding candidates (along TM chain)
+  AddOp addOp;            // Final add operation
+  MultiplyOp cosMul;      // x * cos multiplication
+  MultiplyOp sinMul;      // rotate_half(x) * sin multiplication
+};
+
+// Result of RoPE semantic analysis - the validated input values.
+struct RoPEInputs {
+  Value x;
+  Value cos;
+  Value sin;
+  // Permutation to convert BHSD -> original output axis order.
+  // Uses TTNN PermuteOp semantics: outputDim[i] = inputDim[permutation[i]].
+  SmallVector<int64_t, 4> outPermutation;
+};
+
+// Semantic axis analyzer for RoPE fusion.
 //
-// rotate_half is defined as half rotation of the last dimension:
-// rotate_half([x1, x2, x3, x4]) = [-x3, -x4, x1, x2]
+// RoPE (Rotary Position Embedding) computes:
+//   output = (x * cos) + (rotate_half(x) * sin)
 //
-// This pattern is broken down into two sub-patterns:
-// 1. unrotatedProjection: matches x * cos
-// 2. rotatedProjection: matches rotate_half(x) * sin
+// The structural pattern matcher (RoPEFusing) identifies the ops and
+// produces candidate values for x, cos, and sin — one candidate per point
+// along each TM chain (permute/typecast). This analyzer determines which
+// combination is valid by propagating symbolic axis labels {B, H, S, D}
+// from the inputs through every op in the subgraph up to the root (the
+// final add).
 //
-// unrotatedProjection comes as following sequence of operations:
-// cos_unsqueezed = unsqueeze(cos) - where unsqueeze will be reshape which
-// prepends dimensions to cos to match x's rank.
-// unrotated_projection = multiply(x, cos_unsqueezed)
+// Each op visitor preserves or transforms axis labels:
+//   - Elementwise (add, mul, neg, typecast): labels must be compatible;
+//     broadcast dims adopt the non-broadcast side's label.
+//   - Concat: concatenation dimension must be D (the halved dimension).
+//   - Slice: the sliced dimension must be D.
+//   - Permute: reorders axis labels according to the permutation.
 //
-// rotatedProjections comes as following sequence of operations:
-// sin_unsqueezed = unsqueeze(sin) - where unsqueeze will be reshape which
-// prepends dimensions to sin to match x's rank.
-// rotated_second_half = slice(x, ..., start = last_dim/2, end = last_dim)
-// neg_rotated_second_half = negate(rotated_second_half)
-// rotated_first_half = slice(x, ..., start = 0, end = last_dim/2)
-// rotated_x = concatenate(neg_rotated_second_half, rotated_first_half, axis =
-// last_dim) rotated_projection = multiply(rotated_x, sin_unsqueezed)
-//
-// Finally there is an add operation which adds unrotated_projection and
-// rotated_projection. x_embedding = add(unrotated_projection,
-// rotated_projection)
-//
-// This whole pattern is replaced with ttnn.rotary_embedding op.
-// This op accepts x, cos, sin and trans_mat. First three are self explanatory.
-// Trans matrix is used to perform the half rotation. If we take that we have
-// x of shape [batch_size, num_heads, seq_len, head_dim] then trans mat
-// will be of shape[head_dim, head_dim] and will look like this (lets take
-// head_dim = 4):
-// [[0, 0, 1, 0],
-//  [0, 0, 0, 1],
-//  [-1,0, 0, 0],
-//  [0,-1, 0, 0]]
-//
-// So when we multiply x with this matrix we get the desired half rotation.
+// A candidate combination is valid when the root resolves to a permutation
+// of {B, H, S, D}. If that permutation is not the identity, the returned
+// RoPEInputs includes an output permutation so the caller can insert a
+// permute after rotary_embedding to restore the original axis order.
+class RoPEAnalyzer {
+public:
+  std::optional<RoPEInputs> findValidInputs(Value root,
+                                            const RoPEComponents &components) {
+    SmallVector<Axis> expected = {Axis::B, Axis::H, Axis::S, Axis::D};
+
+    for (Value xCandidate : components.x) {
+      for (Value cosCandidate : components.cos) {
+        for (Value sinCandidate : components.sin) {
+          cache.clear();
+          currentX = xCandidate;
+          currentCos = cosCandidate;
+          currentSin = sinCandidate;
+
+          SemanticShape res = solve(root);
+          if (!res.known || res.axes.size() != expected.size()) {
+            continue;
+          }
+
+          // Result must be a permutation of {B,H,S,D} with no duplicates.
+          if (!std::is_permutation(res.axes.begin(), res.axes.end(),
+                                   expected.begin(), expected.end())) {
+            continue;
+          }
+
+          SmallVector<int64_t, 4> outPerm;
+          for (Axis a : res.axes) {
+            outPerm.push_back(static_cast<int64_t>(a));
+          }
+
+          return RoPEInputs{xCandidate, cosCandidate, sinCandidate, outPerm};
+        }
+      }
+    }
+    return std::nullopt;
+  }
+
+private:
+  enum class Axis : uint8_t { B, H, S, D, Other };
+
+  // Tracks symbolic axis labels for a tensor value. Each dimension carries
+  // an Axis label and a broadcast flag — broadcast dims (size 1) are flexible
+  // and adopt the label from the non-broadcast side during merge.
+  struct SemanticShape {
+    bool known = false;
+    SmallVector<Axis, 4> axes;
+    SmallVector<bool, 4> isBroadcast;
+
+    static SemanticShape unknown() { return {false, {}, {}}; }
+
+    // Create a seed shape with optional broadcast awareness.
+    // When a concrete tensor shape is provided, size-1 dims are marked as
+    // broadcast (flexible axis label). Without a shape, no dims are broadcast.
+    static SemanticShape seed(ArrayRef<Axis> a, ArrayRef<int64_t> shape = {}) {
+      SemanticShape s;
+      s.known = true;
+      s.axes.assign(a.begin(), a.end());
+      s.isBroadcast.resize(a.size());
+      for (size_t i = 0; i < a.size(); ++i) {
+        s.isBroadcast[i] = (!shape.empty() && shape[i] == 1);
+      }
+      return s;
+    }
+
+    bool isCompatible(const SemanticShape &other) const {
+      if (!known || !other.known) {
+        return true;
+      }
+      if (axes.size() != other.axes.size()) {
+        return false;
+      }
+      for (size_t i = 0; i < axes.size(); ++i) {
+        if (isBroadcast[i] || other.isBroadcast[i]) {
+          continue;
+        }
+        if (axes[i] != other.axes[i]) {
+          return false;
+        }
+      }
+      return true;
+    }
+
+    SemanticShape merge(const SemanticShape &other) const {
+      if (!known) {
+        return other;
+      }
+      if (!other.known) {
+        return *this;
+      }
+      SemanticShape res = *this;
+      for (size_t i = 0; i < axes.size(); ++i) {
+        if (isBroadcast[i] && !other.isBroadcast[i]) {
+          res.axes[i] = other.axes[i];
+        }
+        res.isBroadcast[i] = isBroadcast[i] && other.isBroadcast[i];
+      }
+      return res;
+    }
+  };
+
+  Value currentX;
+  Value currentCos;
+  Value currentSin;
+  mutable DenseMap<Value, SemanticShape> cache;
+
+  SemanticShape solve(Value v) {
+    if (cache.count(v)) {
+      return cache[v];
+    }
+
+    if (v == currentX) {
+      return cache[v] =
+                 SemanticShape::seed({Axis::B, Axis::H, Axis::S, Axis::D});
+    }
+    if (v == currentCos || v == currentSin) {
+      auto type = mlir::dyn_cast<RankedTensorType>(v.getType());
+      if (type && type.getRank() == 4) {
+        return cache[v] = SemanticShape::seed(
+                   {Axis::B, Axis::H, Axis::S, Axis::D}, type.getShape());
+      }
+      return cache[v] =
+                 SemanticShape::seed({Axis::B, Axis::H, Axis::S, Axis::D});
+    }
+
+    Operation *op = v.getDefiningOp();
+    if (!op) {
+      return cache[v] = SemanticShape::unknown();
+    }
+
+    SemanticShape result =
+        llvm::TypeSwitch<Operation *, SemanticShape>(op)
+            .Case<ttnn::AddOp>([&](auto add) { return visitAdd(add); })
+            .Case<MultiplyOp>([&](auto mul) { return visitMul(mul); })
+            .Case<ConcatOp>([&](auto cat) { return visitConcat(cat); })
+            .Case<SliceStaticOp>([&](auto s) { return visitSlice(s); })
+            .Case<PermuteOp>([&](auto p) { return visitPermute(p); })
+            .Case<NegOp>([&](auto neg) { return visitNeg(neg); })
+            .Case<TypecastOp>([&](auto tc) { return visitTypecast(tc); })
+            .Case<RepeatOp>([&](auto rep) { return visitRepeat(rep); })
+            .Default([&](Operation *) { return SemanticShape::unknown(); });
+
+    return cache[v] = result;
+  }
+
+  SemanticShape visitElementwise(Value lhsVal, Value rhsVal) {
+    auto lhs = solve(lhsVal);
+    auto rhs = solve(rhsVal);
+
+    if (lhs.known && rhs.known && lhs.isCompatible(rhs)) {
+      return lhs.merge(rhs);
+    }
+
+    return SemanticShape::unknown();
+  }
+
+  SemanticShape visitAdd(ttnn::AddOp op) {
+    return visitElementwise(op.getLhs(), op.getRhs());
+  }
+
+  SemanticShape visitMul(MultiplyOp op) {
+    return visitElementwise(op.getLhs(), op.getRhs());
+  }
+
+  SemanticShape visitConcat(ConcatOp op) {
+    auto lhs = solve(op.getOperand(0));
+    auto rhs = solve(op.getOperand(1));
+
+    if (lhs.known && rhs.known && lhs.isCompatible(rhs)) {
+      int64_t dim = op.getDim();
+      if (dim >= 0 && static_cast<size_t>(dim) < lhs.axes.size() &&
+          lhs.axes[dim] == Axis::D) {
+        return lhs.merge(rhs);
+      }
+    }
+
+    return SemanticShape::unknown();
+  }
+
+  // Slice validation is lightweight here — the structural matcher
+  // (isValidHalfRotationSlices) already validates complementary halves,
+  // full-range on non-sliced dims, and step=1. We only need to confirm
+  // the sliced dimension is semantic D.
+  SemanticShape visitSlice(SliceStaticOp op) {
+    auto input = solve(op.getInput());
+    if (!input.known) {
+      return SemanticShape::unknown();
+    }
+
+    auto inputType = mlir::cast<RankedTensorType>(op.getInput().getType());
+    auto outputType = mlir::cast<RankedTensorType>(op.getResult().getType());
+    auto inputShape = inputType.getShape();
+    auto outputShape = outputType.getShape();
+
+    // Any dimension that changed size must be the semantic D axis.
+    for (size_t i = 0; i < input.axes.size(); ++i) {
+      if (inputShape[i] != outputShape[i] && input.axes[i] != Axis::D) {
+        return SemanticShape::unknown();
+      }
+    }
+
+    return input;
+  }
+
+  SemanticShape visitNeg(NegOp op) { return solve(op.getInput()); }
+  SemanticShape visitTypecast(TypecastOp op) { return solve(op.getInput()); }
+  SemanticShape visitRepeat(RepeatOp op) { return solve(op.getInput()); }
+
+  SemanticShape visitPermute(PermuteOp op) {
+    auto input = solve(op.getInput());
+    if (!input.known) {
+      return SemanticShape::unknown();
+    }
+
+    auto permutation = op.getPermutation();
+    if (permutation.size() != input.axes.size()) {
+      return SemanticShape::unknown();
+    }
+
+    SemanticShape result;
+    result.known = true;
+    result.axes.resize(permutation.size());
+    result.isBroadcast.resize(permutation.size());
+
+    for (size_t i = 0; i < permutation.size(); ++i) {
+      int64_t srcIdx = permutation[i];
+      if (srcIdx < 0 || static_cast<size_t>(srcIdx) >= input.axes.size()) {
+        return SemanticShape::unknown();
+      }
+      result.axes[i] = input.axes[srcIdx];
+      result.isBroadcast[i] = input.isBroadcast[srcIdx];
+    }
+
+    return result;
+  }
+};
+
 class RoPEFusing : public mlir::OpRewritePattern<AddOp> {
   using RoPEFusing::OpRewritePattern<AddOp>::OpRewritePattern;
 
 public:
   mlir::LogicalResult
   matchAndRewrite(AddOp srcOp, mlir::PatternRewriter &rewriter) const override {
-    // Match the final add: add(unrotated_projection, rotated_projection)
-    Value lhs = srcOp.getLhs();
-    Value rhs = srcOp.getRhs();
+    RoPEComponents c;
+    c.addOp = srcOp;
 
-    // Try to identify which operand is unrotated and which is rotated
-    auto lhsMul = lhs.getDefiningOp<MultiplyOp>();
-    auto rhsMul = rhs.getDefiningOp<MultiplyOp>();
-
-    if (!lhsMul || !rhsMul) {
+    if (!matchRope(c)) {
       return failure();
     }
 
-    // Try both orderings
-    if (auto result = tryMatch(srcOp, lhsMul, rhsMul, rewriter);
-        result.succeeded()) {
-      return result;
-    }
-    if (auto result = tryMatch(srcOp, rhsMul, lhsMul, rewriter);
-        result.succeeded()) {
-      return result;
+    RoPEAnalyzer analyzer;
+    auto validInputs = analyzer.findValidInputs(srcOp.getResult(), c);
+    if (!validInputs) {
+      return failure();
     }
 
-    return failure();
+    return createFusedRoPEOp(rewriter, srcOp, *validInputs, c);
   }
 
 private:
-  mlir::LogicalResult tryMatch(AddOp srcOp, MultiplyOp unrotatedMul,
-                               MultiplyOp rotatedMul,
-                               mlir::PatternRewriter &rewriter) const {
-    // Match unrotated projection: multiply(x, cos_unsqueezed)
-    Value xUnrotated, cos;
-    if (!matchUnrotatedProjection(unrotatedMul, xUnrotated, cos)) {
-      return failure();
+  // ---------------------------------------------------------------------------
+  // TM chain utilities
+  // ---------------------------------------------------------------------------
+
+  // Skip transparent TM ops (typecast, permute) to reach the semantic source.
+  Value skipTMs(Value v) const {
+    while (Operation *defOp = v.getDefiningOp()) {
+      if (isa<TypecastOp, PermuteOp>(defOp)) {
+        v = defOp->getOperand(0);
+      } else {
+        break;
+      }
     }
 
-    // Match rotated projection: multiply(rotated_x, sin_unsqueezed)
-    Value xRotated, sin;
-    if (!matchRotatedProjection(rotatedMul, xRotated, sin)) {
-      return failure();
-    }
-
-    // Verify that both projections use the same input x
-    if (xUnrotated != xRotated) {
-      return failure();
-    }
-
-    if (!cos || !sin) {
-      return failure();
-    }
-
-    // Get input tensor shape to determine head_dim
-    auto inputType = mlir::cast<RankedTensorType>(xUnrotated.getType());
-    if (!inputType || inputType.getRank() < 1) {
-      return failure();
-    }
-
-    int64_t headDim = inputType.getShape()[inputType.getRank() - 1];
-    if (headDim <= 0 || headDim % 2 != 0) {
-      return failure();
-    }
-
-    op_model::ScopedSingletonDeviceGuard deviceGuard;
-
-    // Create rotary_embedding op
-    auto resultType = srcOp.getType();
-    auto ropeOp = rewriter.create<RotaryEmbeddingOp>(
-        srcOp.getLoc(), resultType, xUnrotated, cos, sin,
-        /*token_index=*/nullptr,
-        /*memory_config=*/nullptr, /*compute_config=*/nullptr);
-
-    // Extract input layouts from the operation
-    std::vector<TTNNLayoutAttr> inputLayouts =
-        utils::extractInputLayouts(ropeOp.getOperation());
-
-    OpConfig config(mlir::cast<TTNNLayoutAttr>(resultType.getEncoding()));
-    auto result = op_constraint_validation::validateOperation(
-        ropeOp.getOperation(), inputLayouts, config);
-
-    if (!result.isSuccess()) {
-      rewriter.eraseOp(ropeOp);
-      return failure();
-    }
-
-    rewriter.replaceOp(srcOp, ropeOp.getResult());
-    return mlir::success();
+    return v;
   }
 
-  bool matchUnrotatedProjection(MultiplyOp mulOp, Value &x,
-                                Value &cosUnsqueezed) const {
-    Value lhs = mulOp.getLhs();
-    Value rhs = mulOp.getRhs();
+  // Collect a value and all predecessors reachable through TM ops.
+  SmallVector<Value> collectCandidates(Value v) const {
+    SmallVector<Value> candidates{v};
+    while (Operation *defOp = v.getDefiningOp()) {
+      if (isa<TypecastOp, PermuteOp>(defOp)) {
+        v = defOp->getOperand(0);
+        candidates.push_back(v);
+        continue;
+      }
+      break;
+    }
 
-    // Check if one operand is the unsqueezed cos
-    if (isUnsqueezedTensor(rhs)) {
-      x = lhs;
-      cosUnsqueezed = rhs;
-      return true;
-    }
-    if (isUnsqueezedTensor(lhs)) {
-      x = rhs;
-      cosUnsqueezed = lhs;
-      return true;
-    }
-    return false;
+    return candidates;
   }
 
-  bool matchRotatedProjection(MultiplyOp mulOp, Value &x,
-                              Value &sinUnsqueezed) const {
-    Value lhs = mulOp.getLhs();
-    Value rhs = mulOp.getRhs();
+  // Walk two TM chains (permute/typecast) and return the first shared value.
+  Value findCommonTMAncestor(Value a, Value b) const {
+    DenseSet<Value> aChain;
+    for (Value v = a; v;) {
+      aChain.insert(v);
+      Operation *op = v.getDefiningOp();
+      if (!op || !isa<TypecastOp, PermuteOp>(op)) {
+        break;
+      }
+      v = op->getOperand(0);
+    }
+    for (Value v = b; v;) {
+      if (aChain.contains(v)) {
+        return v;
+      }
+      Operation *op = v.getDefiningOp();
+      if (!op || !isa<TypecastOp, PermuteOp>(op)) {
+        break;
+      }
+      v = op->getOperand(0);
+    }
+    return nullptr;
+  }
 
-    // One operand should be unsqueezed sin, the other should be rotated x
-    Value rotatedX = nullptr;
-    if (isUnsqueezedTensor(rhs)) {
-      rotatedX = lhs;
-      sinUnsqueezed = rhs;
-    } else if (isUnsqueezedTensor(lhs)) {
-      rotatedX = rhs;
-      sinUnsqueezed = lhs;
-    } else {
+  // ---------------------------------------------------------------------------
+  // Slice validation helpers
+  // ---------------------------------------------------------------------------
+
+  struct SliceParams {
+    ArrayRef<int64_t> inputShape;
+    SmallVector<int64_t> begins;
+    SmallVector<int64_t> ends;
+    SmallVector<int64_t> steps;
+  };
+
+  std::optional<SliceParams> getSliceParams(SliceStaticOp slice) const {
+    auto inputType =
+        mlir::dyn_cast<RankedTensorType>(slice.getInput().getType());
+    if (!inputType) {
+      return std::nullopt;
+    }
+
+    auto begins = ttmlir::utils::getIntegerVector<int64_t>(slice.getBegins());
+    auto ends = ttmlir::utils::getIntegerVector<int64_t>(slice.getEnds());
+    auto steps = ttmlir::utils::getIntegerVector<int64_t>(slice.getStep());
+    if (!begins || !ends || !steps) {
+      return std::nullopt;
+    }
+
+    return SliceParams{inputType.getShape(), std::move(*begins),
+                       std::move(*ends), std::move(*steps)};
+  }
+
+  // Find the single dimension that is sliced (not full range).
+  // Returns nullopt if zero or more than one dimension is sliced.
+  std::optional<size_t> findSlicedDim(const SliceParams &p) const {
+    std::optional<size_t> slicedDim;
+    for (size_t i = 0; i < p.inputShape.size(); ++i) {
+      bool isFull =
+          (p.begins[i] == 0 && p.ends[i] == p.inputShape[i] && p.steps[i] == 1);
+      if (isFull) {
+        continue;
+      }
+      if (slicedDim.has_value()) {
+        return std::nullopt; // More than one sliced dimension
+      }
+      slicedDim = i;
+    }
+    return slicedDim;
+  }
+
+  // Validates that two slices form complementary halves for rotate_half.
+  // rotate_half: concat(neg(slice[half:]), slice[:half]) -> [-second, first]
+  bool isValidHalfRotationSlices(SliceStaticOp lhsSlice, SliceStaticOp rhsSlice,
+                                 bool lhsNeg, bool rhsNeg) const {
+    auto lhsOpt = getSliceParams(lhsSlice);
+    auto rhsOpt = getSliceParams(rhsSlice);
+    if (!lhsOpt || !rhsOpt) {
+      return false;
+    }
+    const SliceParams &lhs = *lhsOpt;
+    const SliceParams &rhs = *rhsOpt;
+
+    if (lhs.inputShape != rhs.inputShape || lhs.inputShape.empty()) {
       return false;
     }
 
-    // Match the rotation pattern: concat(neg(second_half), first_half)
-    auto concatOp = rotatedX.getDefiningOp<ConcatOp>();
-    if (!concatOp || concatOp.getNumOperands() != 2) {
+    // Exactly one dimension must be sliced, and it must be the same for both.
+    auto lhsDimOpt = findSlicedDim(lhs);
+    auto rhsDimOpt = findSlicedDim(rhs);
+    if (!lhsDimOpt || !rhsDimOpt || *lhsDimOpt != *rhsDimOpt) {
+      return false;
+    }
+    size_t dim = *lhsDimOpt;
+
+    // The sliced dimension must be even (to split into two halves) with step 1.
+    int64_t dimSize = lhs.inputShape[dim];
+    if ((dimSize % 2) != 0 || lhs.steps[dim] != 1 || rhs.steps[dim] != 1) {
       return false;
     }
 
-    Value negHalf = concatOp.getOperand(0);
-    Value firstHalf = concatOp.getOperand(1);
+    // The two slices must cover [0, half) and [half, dimSize) exactly.
+    int64_t half = dimSize / 2;
+    bool lhsIsFirst = (lhs.begins[dim] == 0 && lhs.ends[dim] == half);
+    bool lhsIsSecond = (lhs.begins[dim] == half && lhs.ends[dim] == dimSize);
+    bool rhsIsFirst = (rhs.begins[dim] == 0 && rhs.ends[dim] == half);
+    bool rhsIsSecond = (rhs.begins[dim] == half && rhs.ends[dim] == dimSize);
 
-    // Check that first operand is negated second half
-    auto negOp = negHalf.getDefiningOp<NegOp>();
-    if (!negOp) {
+    if (!((lhsIsFirst && rhsIsSecond) || (lhsIsSecond && rhsIsFirst))) {
       return false;
     }
 
-    Value secondHalf = negOp.getInput();
-
-    // Both halves should be slices of the same input
-    auto firstSlice = firstHalf.getDefiningOp<SliceStaticOp>();
-    auto secondSlice = secondHalf.getDefiningOp<SliceStaticOp>();
-
-    if (!firstSlice || !secondSlice) {
-      return false;
-    }
-
-    Value input1 = firstSlice.getInput();
-    Value input2 = secondSlice.getInput();
-
-    if (input1 != input2) {
-      return false;
-    }
-
-    x = input1;
-
-    // rotary_embedding requires 4D input in form
-    // [batch_size, num_heads, seq_len, head_dim]
-    ArrayRef<int64_t> inputShape =
-        mlir::cast<RankedTensorType>(x.getType()).getShape();
-    if (inputShape.size() != 4) {
-      return false;
-    }
-
-    int64_t lastDim = inputShape.back();
-    if (lastDim <= 0 || lastDim % 2 != 0) {
-      return false;
-    }
-
-    int64_t halfDim = lastDim / 2;
-
-    // Check first_half slice: [0, halfDim)
-    auto firstBegins =
-        ttmlir::utils::getIntegerVector<int64_t>(firstSlice.getBegins());
-    auto firstEnds =
-        ttmlir::utils::getIntegerVector<int64_t>(firstSlice.getEnds());
-    if (!firstBegins || !firstEnds || firstBegins->back() != 0 ||
-        firstEnds->back() != halfDim) {
-      return false;
-    }
-
-    // Check second_half slice: [halfDim, lastDim)
-    auto secondBegins =
-        ttmlir::utils::getIntegerVector<int64_t>(secondSlice.getBegins());
-    auto secondEnds =
-        ttmlir::utils::getIntegerVector<int64_t>(secondSlice.getEnds());
-    if (!secondBegins || !secondEnds || secondBegins->back() != halfDim ||
-        secondEnds->back() != lastDim) {
+    // rotate_half produces [-second_half, first_half], so the negated
+    // operand must be the second half.
+    if ((lhsNeg && !lhsIsSecond) || (rhsNeg && !rhsIsSecond)) {
       return false;
     }
 
     return true;
   }
 
-  bool isUnsqueezedTensor(Value val) const {
-    // An unsqueezed tensor is typically a reshape that adds dimensions
-    auto reshapeOp = val.getDefiningOp<ReshapeOp>();
-    if (!reshapeOp) {
+  // ---------------------------------------------------------------------------
+  // Structural pattern matching
+  // ---------------------------------------------------------------------------
+
+  // Match concat(neg(slice(x)), slice(x)) and return the common source x.
+  Value matchRotateHalfSource(Value v) const {
+    v = skipTMs(v);
+
+    auto concatOp = v.getDefiningOp<ConcatOp>();
+    if (!concatOp || concatOp.getNumOperands() != 2) {
+      return nullptr;
+    }
+
+    auto peelToSlice = [&](Value operand, bool &wasNeg) -> SliceStaticOp {
+      operand = skipTMs(operand);
+      if (auto negOp = operand.getDefiningOp<NegOp>()) {
+        wasNeg = true;
+        operand = skipTMs(negOp.getInput());
+      } else {
+        wasNeg = false;
+      }
+      return operand.getDefiningOp<SliceStaticOp>();
+    };
+
+    bool lhsNeg = false;
+    bool rhsNeg = false;
+    SliceStaticOp lhsSlice = peelToSlice(concatOp.getOperand(0), lhsNeg);
+    SliceStaticOp rhsSlice = peelToSlice(concatOp.getOperand(1), rhsNeg);
+
+    if (!lhsSlice || !rhsSlice) {
+      return nullptr;
+    }
+
+    // Exactly one side should be negated for rotate_half.
+    if (!(lhsNeg ^ rhsNeg)) {
+      return nullptr;
+    }
+
+    Value source =
+        findCommonTMAncestor(lhsSlice.getInput(), rhsSlice.getInput());
+    if (!source) {
+      return nullptr;
+    }
+
+    if (!isValidHalfRotationSlices(lhsSlice, rhsSlice, lhsNeg, rhsNeg)) {
+      return nullptr;
+    }
+
+    return source;
+  }
+
+  // Match: (x * cos) + (rotate_half(x) * sin)
+  bool matchRope(RoPEComponents &c) const {
+    Value addLhs = skipTMs(c.addOp.getLhs());
+    Value addRhs = skipTMs(c.addOp.getRhs());
+
+    auto mul1 = addLhs.getDefiningOp<MultiplyOp>();
+    auto mul2 = addRhs.getDefiningOp<MultiplyOp>();
+    if (!mul1 || !mul2) {
       return false;
     }
 
-    auto inputShape =
-        mlir::cast<RankedTensorType>(reshapeOp.getInput().getType()).getShape();
-    SmallVector<int64_t> outputShape(
-        mlir::cast<RankedTensorType>(reshapeOp.getType()).getShape());
+    // Identify the sin branch: the multiply that has a rotate_half operand,
+    // i.e. concat(neg(slice(x, half:)), slice(x, :half)). We check both
+    // operand positions since multiply is commutative.
+    auto tryMatchSinBranch = [&](MultiplyOp mul, Value &outX,
+                                 Value &outSin) -> bool {
+      Value lhs = mul.getLhs();
+      Value rhs = mul.getRhs();
 
-    // Check that output shape is input shape with one extra leading dimension
-    SmallVector<int64_t> expectedShape(inputShape);
-    expectedShape.insert(expectedShape.begin(), 1);
-    return outputShape == expectedShape;
+      if (Value x = matchRotateHalfSource(lhs)) {
+        outX = x;
+        outSin = rhs;
+        return true;
+      }
+      if (Value x = matchRotateHalfSource(rhs)) {
+        outX = x;
+        outSin = lhs;
+        return true;
+      }
+      return false;
+    };
+
+    Value xFromSinBranch;
+    Value sinValue;
+    MultiplyOp sinMul = nullptr;
+    MultiplyOp cosMul = nullptr;
+
+    if (tryMatchSinBranch(mul1, xFromSinBranch, sinValue)) {
+      sinMul = mul1;
+      cosMul = mul2;
+    } else if (tryMatchSinBranch(mul2, xFromSinBranch, sinValue)) {
+      sinMul = mul2;
+      cosMul = mul1;
+    } else {
+      return false;
+    }
+
+    // Disambiguate x vs cos in the cos branch (x * cos or cos * x).
+    // One operand must share a common ancestor with xFromSinBranch through
+    // TM ops (permute/typecast), identifying it as x. The other is cos.
+    // Exactly one side must match; if both or neither do, we bail.
+    Value cosLhs = cosMul.getLhs();
+    Value cosRhs = cosMul.getRhs();
+
+    Value lhsAncestor = findCommonTMAncestor(cosLhs, xFromSinBranch);
+    Value rhsAncestor = findCommonTMAncestor(cosRhs, xFromSinBranch);
+
+    if (static_cast<bool>(lhsAncestor) == static_cast<bool>(rhsAncestor)) {
+      return false;
+    }
+
+    Value xValue = lhsAncestor ? lhsAncestor : rhsAncestor;
+    Value cosValue = lhsAncestor ? cosRhs : cosLhs;
+
+    // Collect candidate values for x, cos, sin. Each list includes the
+    // matched value plus all values reachable by walking back through TM ops
+    // (permute/typecast). The semantic analyzer tries all combinations to
+    // find one where axis labels resolve to a valid BHSD permutation.
+    c.x = collectCandidates(xValue);
+    c.cos = collectCandidates(cosValue);
+    c.sin = collectCandidates(sinValue);
+    c.cosMul = cosMul;
+    c.sinMul = sinMul;
+
+    return true;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Fused op creation
+  // ---------------------------------------------------------------------------
+
+  // Check whether any of the RoPE multiply/add ops compute in f32 and, if so,
+  // return a DeviceComputeKernelConfig with fp32_dest_acc_en set.
+  DeviceComputeKernelConfigAttr
+  buildComputeConfig(mlir::MLIRContext *ctx, const RoPEComponents &c) const {
+    auto usesF32 = [](Operation *op) {
+      auto resultType =
+          mlir::cast<RankedTensorType>(op->getResult(0).getType());
+      return resultType.getElementType().isF32();
+    };
+    if (usesF32(c.cosMul) || usesF32(c.sinMul) || usesF32(c.addOp)) {
+      return DeviceComputeKernelConfigAttr::get(ctx).withFp32DestAccEn(true);
+    }
+    return nullptr;
+  }
+
+  mlir::LogicalResult
+  createFusedRoPEOp(mlir::PatternRewriter &rewriter, AddOp srcOp,
+                    const RoPEInputs &inputs,
+                    const RoPEComponents &components) const {
+    op_model::ScopedSingletonDeviceGuard deviceGuard;
+
+    auto computeConfig = buildComputeConfig(rewriter.getContext(), components);
+
+    auto ropeOp = rewriter.create<RotaryEmbeddingOp>(
+        srcOp.getLoc(), inputs.x.getType(), inputs.x, inputs.cos, inputs.sin,
+        /*token_index=*/nullptr,
+        /*memory_config=*/nullptr,
+        /*compute_config=*/computeConfig);
+
+    // Validate the created op against the op model constraints.
+    std::vector<TTNNLayoutAttr> inputLayouts =
+        utils::extractInputLayouts(ropeOp.getOperation());
+    auto resultType =
+        mlir::cast<RankedTensorType>(ropeOp.getResult().getType());
+    OpConfig config(mlir::cast<TTNNLayoutAttr>(resultType.getEncoding()));
+    auto validationResult = op_constraint_validation::validateOperation(
+        ropeOp.getOperation(), inputLayouts, config);
+
+    if (!validationResult.isSuccess()) {
+      rewriter.eraseOp(ropeOp);
+      return failure();
+    }
+
+    Value result = ropeOp.getResult();
+    if (!llvm::equal(inputs.outPermutation,
+                     llvm::seq<int64_t>(0, inputs.outPermutation.size()))) {
+      DenseI64ArrayAttr permutationAttr =
+          rewriter.getDenseI64ArrayAttr(inputs.outPermutation);
+      auto permuted = rewriter.create<ttnn::PermuteOp>(
+          srcOp.getLoc(), srcOp.getType(), result, permutationAttr,
+          ttnn::MemoryConfigAttr(), mlir::FloatAttr());
+      result = permuted.getResult();
+    }
+
+    rewriter.replaceOp(srcOp, result);
+    return success();
   }
 };
+
+// Commute a downstream permute through an already-fused RotaryEmbeddingOp
+// by switching to decode mode (token_index=0).
+//
+// Matches:  rotary_embedding(x, cos, sin) → permute {2, 0, 1, 3}
+// Produces: permute(x, {2, 0, 1, 3}) → rotary_embedding(..., token_index=0)
+//
+// This is profitable because:
+//   - Decode mode uses mul_bcast_rows which broadcasts single-position cos/sin
+//     to all tile rows, instead of mul_tiles which zeros out non-first rows.
+//   - Moving the size-1 S dim to dim 0 reduces physical volume
+//     (avoids padding S=1 → 32 multiplied by batch size).
+//   - Eliminates the post-RoPE permute entirely.
+//
+// Runs after RoPEFusing and SDPAFusing in the same greedy rewrite — the
+// greedy driver iterates until fixpoint, so this picks up permutes created
+// by SDPA fusing (Q input) as well as permutes from the original IR (K path).
+class RoPEDecodeFusing : public mlir::OpRewritePattern<PermuteOp> {
+  using RoPEDecodeFusing::OpRewritePattern<PermuteOp>::OpRewritePattern;
+
+public:
+  mlir::LogicalResult
+  matchAndRewrite(PermuteOp permuteOp,
+                  mlir::PatternRewriter &rewriter) const override {
+    auto ropeOp = permuteOp.getInput().getDefiningOp<RotaryEmbeddingOp>();
+    if (!ropeOp) {
+      return failure();
+    }
+
+    // Already in decode mode.
+    if (ropeOp.getTokenIndex()) {
+      return failure();
+    }
+
+    // RoPE result must feed only into this permute.
+    if (!ropeOp.getResult().hasOneUse()) {
+      return failure();
+    }
+
+    // Permutation must be 4D and put S axis (dim 2 in BHSD) at position 0.
+    auto perm = permuteOp.getPermutation();
+    if (perm.size() != 4 || perm[0] != 2) {
+      return failure();
+    }
+
+    // Input must be rank 4 with S dim (dim 2) == 1.
+    auto inputType = mlir::cast<RankedTensorType>(ropeOp.getInput().getType());
+    if (inputType.getRank() != 4 || inputType.getShape()[2] != 1) {
+      return failure();
+    }
+
+    // cos/sin must be single-position (dim -2 == 1).
+    auto cosType = mlir::cast<RankedTensorType>(ropeOp.getCosCache().getType());
+    if (cosType.getShape()[cosType.getRank() - 2] != 1) {
+      return failure();
+    }
+
+    op_model::ScopedSingletonDeviceGuard deviceGuard;
+
+    // Create pre-permute on the original RoPE input: BHSD → permuted order.
+    auto prePermute = ttir_to_ttnn::utils::generatePermute(
+        mlir::cast<TypedValue<RankedTensorType>>(ropeOp.getInput()),
+        llvm::ArrayRef(perm), rewriter, ropeOp.getLoc());
+
+    auto tokenIndex = rewriter.getIntegerAttr(
+        rewriter.getIntegerType(32, /*isSigned=*/false), 0);
+
+    auto newRope = rewriter.create<RotaryEmbeddingOp>(
+        ropeOp.getLoc(), prePermute.getType(), prePermute.getResult(),
+        ropeOp.getCosCache(), ropeOp.getSinCache(), tokenIndex,
+        ropeOp.getMemoryConfigAttr(), ropeOp.getComputeConfigAttr());
+
+    // Validate the new op against the op model constraints.
+    std::vector<TTNNLayoutAttr> inputLayouts =
+        utils::extractInputLayouts(newRope.getOperation());
+    auto resultType =
+        mlir::cast<RankedTensorType>(newRope.getResult().getType());
+    OpConfig config(mlir::cast<TTNNLayoutAttr>(resultType.getEncoding()));
+    auto validationResult = op_constraint_validation::validateOperation(
+        newRope.getOperation(), inputLayouts, config);
+
+    if (!validationResult.isSuccess()) {
+      rewriter.eraseOp(newRope);
+      rewriter.eraseOp(prePermute);
+      return failure();
+    }
+
+    // Replace the permute's uses with the new RoPE result.
+    // The old RoPE op becomes dead and is cleaned up by the rewriter.
+    rewriter.replaceOp(permuteOp, newRope.getResult());
+    return success();
+  }
+};
+
+} // namespace
 
 // ============================================================================
 // SDPA Fusing
@@ -1374,6 +1855,7 @@ public:
 #ifdef TTMLIR_ENABLE_OPMODEL
     if (enableOpConstraints) {
       patterns.add<RoPEFusing>(&getContext());
+      patterns.add<RoPEDecodeFusing>(&getContext());
       patterns.add<SDPAFusing>(&getContext());
     }
 #endif // TTMLIR_ENABLE_OPMODEL
