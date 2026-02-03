@@ -1010,10 +1010,6 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_ToLayoutOp()->out();
     break;
   }
-  case ::tt::target::ttnn::OpType::ToDTypeOp: {
-    tensorRef = opContext.type_as_ToDTypeOp()->out();
-    break;
-  }
   case ::tt::target::ttnn::OpType::TypecastOp: {
     tensorRef = opContext.type_as_TypecastOp()->out();
     break;
@@ -1387,10 +1383,6 @@ getOpInputRefs(OpContext opContextHandle,
   }
   case ::tt::target::ttnn::OpType::ToLayoutOp: {
     tensorRefs = {opContext.type_as_ToLayoutOp()->in()};
-    break;
-  }
-  case ::tt::target::ttnn::OpType::ToDTypeOp: {
-    tensorRefs = {opContext.type_as_ToDTypeOp()->in()};
     break;
   }
   case ::tt::target::ttnn::OpType::TypecastOp: {

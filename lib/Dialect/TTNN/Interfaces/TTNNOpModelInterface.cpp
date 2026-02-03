@@ -1794,23 +1794,6 @@ ToDeviceOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
   return issueErrorForGetOpRuntime(
       getOperation(), detail::ReasonForLackOfSupport::NeedsMemoryIO);
 }
-//===----------------------------------------------------------------------===//
-// ToDTypeOp - TTNN Op Model Interface
-//===----------------------------------------------------------------------===//
-
-llvm::Expected<op_model::OpConstraints>
-ToDTypeOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
-                            const OpConfig &opConfig) {
-  return issueErrorForGetOpConstraints(
-      getOperation(), detail::ReasonForLackOfSupport::NoNeedForConstraintAPI);
-}
-
-llvm::Expected<size_t>
-ToDTypeOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
-                        const OpConfig &opConfig) {
-  return issueErrorForGetOpRuntime(
-      getOperation(), detail::ReasonForLackOfSupport::NoNeedForConstraintAPI);
-}
 
 //===----------------------------------------------------------------------===//
 // ConcatOp - TTNN Op Model Interface

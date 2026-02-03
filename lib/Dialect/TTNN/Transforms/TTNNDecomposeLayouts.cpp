@@ -372,15 +372,10 @@ private:
 
     TTNNLayoutAttr inputLayout =
         mlir::cast<TTNNLayoutAttr>(currentInputType.getEncoding());
-    if (inputLayout.isSystemBufferType()) {
-      // If the input tensor is on host, we need to cast it on the host.
-      return this->createDataTypeCastingOp<ttnn::ToDTypeOp>(op, rewriter,
-                                                            currentInput, info);
+    if (!inputLayout.isSystemBufferType()) {
+      assert(inputLayout.getLayout() == Layout::Tile &&
+             "Only tilized tensors are supported for device typecast");
     }
-
-    assert(inputLayout.getLayout() == Layout::Tile &&
-           "Only tilized tensors are supported for device typecast");
-    // If the input tensor is on device, we can cast it on the device.
     return this->createDataTypeCastingOp<ttnn::TypecastOp>(op, rewriter,
                                                            currentInput, info);
   }
