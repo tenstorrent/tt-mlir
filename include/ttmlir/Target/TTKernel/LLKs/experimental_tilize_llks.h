@@ -22,8 +22,9 @@ ALWI void llk_unpack_tilize(uint32_t operand, uint32_t tile_index,
 
   WAYPOINT("UPTW");
   _llk_unpack_tilize_(base_address + (start_tile_index * page_bytes),
-                      tile_index, unpack_src_format[operand_id], block_ct_dim,
-                      face_r_dim, num_faces, narrow_tile);
+                      tile_index, unpack_src_format[operand_id],
+                      unpack_dst_format[operand_id], block_ct_dim, face_r_dim,
+                      num_faces, narrow_tile);
   WAYPOINT("UPTD");
 }
 
