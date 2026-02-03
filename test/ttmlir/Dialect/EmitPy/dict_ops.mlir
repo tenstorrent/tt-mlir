@@ -1,6 +1,6 @@
 // RUN: ttmlir-opt --split-input-file %s | FileCheck %s
-// RUN: ttmlir-opt --split-input-file %s | ttmlir-opt --split-input-file | FileCheck %s
-// Test EmitPy dictionary operations: create_dict, set_value_for_dict_key, get_value_for_dict_key
+// Test EmitPy dictionary operations: create_dict, subscript (used to retrieve an element of certain index or for certain key),
+// assign (used to set an element of certain index or for certain key)
 
 //===----------------------------------------------------------------------===//
 // CreateDictOp tests
@@ -45,10 +45,10 @@ module {
 // Test typed dictionary with string keys and tensor values
 module {
   // CHECK-LABEL: func.func @test_create_typed_dict_string_tensor
-  func.func @test_create_typed_dict_string_tensor(%k: !emitpy.opaque<"str">, %v: !emitpy.opaque<"ttnn.Tensor">) -> !emitpy.dict<!emitpy.opaque<"str">, !emitpy.opaque<"ttnn.Tensor">> {
-    // CHECK: emitpy.create_dict "tensor_cache_2"(%arg0, %arg1) : (!emitpy.opaque<"str">, !emitpy.opaque<"ttnn.Tensor">) -> !emitpy.dict<!emitpy.opaque<"str">, !emitpy.opaque<"ttnn.Tensor">>
-    %dict = emitpy.create_dict "tensor_cache_2" (%k, %v) : (!emitpy.opaque<"str">, !emitpy.opaque<"ttnn.Tensor">) -> !emitpy.dict<!emitpy.opaque<"str">, !emitpy.opaque<"ttnn.Tensor">>
-    return %dict : !emitpy.dict<!emitpy.opaque<"str">, !emitpy.opaque<"ttnn.Tensor">>
+  func.func @test_create_typed_dict_string_tensor(%k: !emitpy.str, %v: !emitpy.opaque<"ttnn.Tensor">) -> !emitpy.dict<!emitpy.str, !emitpy.opaque<"ttnn.Tensor">> {
+    // CHECK: emitpy.create_dict "tensor_cache_2"(%arg0, %arg1) : (!emitpy.str, !emitpy.opaque<"ttnn.Tensor">) -> !emitpy.dict<!emitpy.str, !emitpy.opaque<"ttnn.Tensor">>
+    %dict = emitpy.create_dict "tensor_cache_2" (%k, %v) : (!emitpy.str, !emitpy.opaque<"ttnn.Tensor">) -> !emitpy.dict<!emitpy.str, !emitpy.opaque<"ttnn.Tensor">>
+    return %dict : !emitpy.dict<!emitpy.str, !emitpy.opaque<"ttnn.Tensor">>
   }
 }
 
@@ -79,43 +79,7 @@ module {
 // -----
 
 //===----------------------------------------------------------------------===//
-// SetValueForDictKeyOp tests
-//===----------------------------------------------------------------------===//
-
-// Test setting value with index key
-module {
-  emitpy.global @_CONST_EVAL_CACHE = #emitpy.opaque<"{}"> : !emitpy.dict
-
-  // CHECK-LABEL: func.func @test_set_value_index_key
-  func.func @test_set_value_index_key(%value: !emitpy.opaque<"[ttnn.Tensor]">) {
-    %dict = emitpy.global_statement @_CONST_EVAL_CACHE : !emitpy.dict
-    %key = emitpy.literal "5" : index
-    // CHECK: emitpy.set_value_for_dict_key %{{.*}}[%{{.*}}] = %{{.*}} : (!emitpy.dict, index, !emitpy.opaque<"[ttnn.Tensor]">)
-    emitpy.set_value_for_dict_key %dict[%key] = %value : (!emitpy.dict, index, !emitpy.opaque<"[ttnn.Tensor]">)
-    return
-  }
-}
-
-// -----
-
-// Test setting value with string key
-module {
-  emitpy.global @my_cache = #emitpy.opaque<"{}"> : !emitpy.dict
-
-  // CHECK-LABEL: func.func @test_set_value_string_key
-  func.func @test_set_value_string_key(%value: !emitpy.opaque<"ttnn.Tensor">) {
-    %dict = emitpy.global_statement @my_cache : !emitpy.dict
-    %key = "emitpy.constant"() <{value = #emitpy.opaque<"\"tensor_key\"">}> : () -> !emitpy.opaque<"str">
-    // CHECK: emitpy.set_value_for_dict_key %{{.*}}[%{{.*}}] = %{{.*}} : (!emitpy.dict, !emitpy.opaque<"str">, !emitpy.opaque<"ttnn.Tensor">)
-    emitpy.set_value_for_dict_key %dict[%key] = %value : (!emitpy.dict, !emitpy.opaque<"str">, !emitpy.opaque<"ttnn.Tensor">)
-    return
-  }
-}
-
-// -----
-
-//===----------------------------------------------------------------------===//
-// GetValueForDictKeyOp tests
+// SubscriptOp tests
 //===----------------------------------------------------------------------===//
 
 // Test getting value with index key from pre-populated dict
@@ -126,8 +90,8 @@ module {
   func.func @test_get_value_index_key() -> !emitpy.opaque<"[ttnn.Tensor]"> {
     %dict = emitpy.global_statement @_CONST_EVAL_CACHE : !emitpy.dict
     %key = emitpy.literal "5" : index
-    // CHECK: emitpy.get_value_for_dict_key %{{.*}}[%{{.*}}] : (!emitpy.dict, index) -> !emitpy.opaque<"[ttnn.Tensor]">
-    %tensors = emitpy.get_value_for_dict_key %dict[%key] : (!emitpy.dict, index) -> !emitpy.opaque<"[ttnn.Tensor]">
+    // CHECK: emitpy.subscript %{{.*}}[%{{.*}}] : (!emitpy.dict, index) -> !emitpy.opaque<"[ttnn.Tensor]">
+    %tensors = emitpy.subscript %dict[%key] : (!emitpy.dict, index) -> !emitpy.opaque<"[ttnn.Tensor]">
     return %tensors : !emitpy.opaque<"[ttnn.Tensor]">
   }
 }
@@ -141,10 +105,46 @@ module {
   // CHECK-LABEL: func.func @test_get_value_string_key
   func.func @test_get_value_string_key() -> !emitpy.opaque<"ttnn.Tensor"> {
     %dict = emitpy.global_statement @my_cache : !emitpy.dict
-    %key = "emitpy.constant"() <{value = #emitpy.opaque<"\"tensor_key\"">}> : () -> !emitpy.opaque<"str">
-    // CHECK: emitpy.get_value_for_dict_key %{{.*}}[%{{.*}}] : (!emitpy.dict, !emitpy.opaque<"str">) -> !emitpy.opaque<"ttnn.Tensor">
-    %tensor = emitpy.get_value_for_dict_key %dict[%key] : (!emitpy.dict, !emitpy.opaque<"str">) -> !emitpy.opaque<"ttnn.Tensor">
+    %key = "emitpy.constant"() <{value = #emitpy.opaque<"\"tensor_key\"">}> : () -> !emitpy.str
+    // CHECK: emitpy.subscript %{{.*}}[%{{.*}}] : (!emitpy.dict, !emitpy.str) -> !emitpy.opaque<"ttnn.Tensor">
+    %tensor = emitpy.subscript %dict[%key] : (!emitpy.dict, !emitpy.str) -> !emitpy.opaque<"ttnn.Tensor">
     return %tensor : !emitpy.opaque<"ttnn.Tensor">
+  }
+}
+
+// -----
+
+//===----------------------------------------------------------------------===//
+// AssignOp tests
+//===----------------------------------------------------------------------===//
+
+// Test setting value with index key
+module {
+  emitpy.global @_CONST_EVAL_CACHE = #emitpy.opaque<"{}"> : !emitpy.dict
+
+  // CHECK-LABEL: func.func @test_set_value_index_key
+  func.func @test_set_value_index_key(%value: !emitpy.opaque<"[ttnn.Tensor]">) {
+    %dict = emitpy.global_statement @_CONST_EVAL_CACHE : !emitpy.dict
+    %key = emitpy.literal "5" : index
+    // CHECK: emitpy.assign %{{.*}}[%{{.*}}] = %{{.*}} : (!emitpy.dict, index, !emitpy.opaque<"[ttnn.Tensor]">)
+    emitpy.assign %dict[%key] = %value : (!emitpy.dict, index, !emitpy.opaque<"[ttnn.Tensor]">)
+    return
+  }
+}
+
+// -----
+
+// Test setting value with string key
+module {
+  emitpy.global @my_cache = #emitpy.opaque<"{}"> : !emitpy.dict
+
+  // CHECK-LABEL: func.func @test_set_value_string_key
+  func.func @test_set_value_string_key(%value: !emitpy.opaque<"ttnn.Tensor">) {
+    %dict = emitpy.global_statement @my_cache : !emitpy.dict
+    %key = "emitpy.constant"() <{value = #emitpy.opaque<"\"tensor_key\"">}> : () -> !emitpy.str
+    // CHECK: emitpy.assign %{{.*}}[%{{.*}}] = %{{.*}} : (!emitpy.dict, !emitpy.str, !emitpy.opaque<"ttnn.Tensor">)
+    emitpy.assign %dict[%key] = %value : (!emitpy.dict, !emitpy.str, !emitpy.opaque<"ttnn.Tensor">)
+    return
   }
 }
 
@@ -162,10 +162,10 @@ module {
   func.func @test_set_then_get(%input: !emitpy.opaque<"ttnn.Tensor">) -> !emitpy.opaque<"ttnn.Tensor"> {
     %dict = emitpy.global_statement @tensor_cache : !emitpy.dict
     %key = emitpy.literal "42" : index
-    // CHECK: emitpy.set_value_for_dict_key %{{.*}}[%{{.*}}] = %{{.*}}
-    emitpy.set_value_for_dict_key %dict[%key] = %input : (!emitpy.dict, index, !emitpy.opaque<"ttnn.Tensor">)
-    // CHECK: emitpy.get_value_for_dict_key %{{.*}}[%{{.*}}]
-    %output = emitpy.get_value_for_dict_key %dict[%key] : (!emitpy.dict, index) -> !emitpy.opaque<"ttnn.Tensor">
+    // CHECK: emitpy.assign %{{.*}}[%{{.*}}] = %{{.*}}
+    emitpy.assign %dict[%key] = %input : (!emitpy.dict, index, !emitpy.opaque<"ttnn.Tensor">)
+    // CHECK: emitpy.subscript %{{.*}}[%{{.*}}]
+    %output = emitpy.subscript %dict[%key] : (!emitpy.dict, index) -> !emitpy.opaque<"ttnn.Tensor">
     return %output : !emitpy.opaque<"ttnn.Tensor">
   }
 }

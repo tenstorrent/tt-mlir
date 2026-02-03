@@ -7,9 +7,10 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/OpImplementation.h"
+#include "mlir/Interfaces/SideEffectInterfaces.h"
+#include "llvm/Support/Casting.h"
 #include "llvm/Support/LogicalResult.h"
 
-#include "llvm/Support/Casting.h"
 #include <string_view>
 
 using namespace mlir;
@@ -593,6 +594,20 @@ LogicalResult LiteralOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
+// SubscriptOp
+//===----------------------------------------------------------------------===//
+
+LogicalResult SubscriptOp::verify() {
+  Type valueType = getValue().getType();
+  Type indexType = getIndex().getType();
+  if (!isa<DictType>(valueType) && isa<StringType>(indexType)) {
+    return emitOpError() << "cannot use string index on non-dict type "
+                         << valueType;
+  }
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // VerbatimOp
 //===----------------------------------------------------------------------===//
 
@@ -765,38 +780,31 @@ LogicalResult CreateDictOp::verify() {
     return emitOpError() << "dictionary name must be a valid Python identifier";
   }
 
-  if (getLiteralExpr() && !getItems().empty()) {
-    return emitOpError(
-        "cannot have both literal_expr and items operands; use either "
-        "literal_expr for Python dict literals or items for key-value pairs");
-  }
-
-  if (!getLiteralExpr() && getItems().size() % 2 != 0) {
-    return emitOpError(
-        "items must be alternating key-value pairs (even count required)");
-  }
-
-  if (getLiteralExpr() && getLiteralExpr()->empty()) {
-    return emitOpError("literal_expr must not be empty");
-  }
-
-  return success();
-}
-
-//===----------------------------------------------------------------------===//
-// SetValueForDictKeyOp
-//===----------------------------------------------------------------------===//
-
-LogicalResult SetValueForDictKeyOp::verify() {
-  Type keyType = getKey().getType();
-
-  // If key is an opaque type, verify it represents a string
-  if (auto opaqueType = dyn_cast<OpaqueType>(keyType)) {
-    StringRef value = opaqueType.getValue();
-    if (value != "str") {
-      return emitOpError()
-             << "key with opaque type must represent a string type "
-             << "(!emitpy.opaque<\"str\">), but got: " << opaqueType;
+  if (getLiteralExpr()) {
+    if (getLiteralExpr()->empty()) {
+      return emitOpError("literal_expr must not be empty");
+    }
+    if (!getItems().empty()) {
+      return emitOpError(
+          "cannot have both literal_expr and items operands; use either "
+          "literal_expr for Python dict literals or items for key-value pairs");
+    }
+  } else {
+    if (getItems().empty()) {
+      return emitOpError("cannot have both literal_expr and items empty; for an"
+                         "empty dict, use literal_expr = \"{}\" instead");
+    }
+    if (getItems().size() % 2 != 0) {
+      return emitOpError(
+          "items must be alternating key-value pairs (even count required)");
+    }
+    for (size_t i = 0; i < getItems().size(); i += 2) {
+      Type keyType = getItems()[i].getType();
+      if (!isa<IndexType, StringType>(keyType)) {
+        return emitOpError()
+               << "dictionary keys must be index or string type, but got "
+               << keyType << " at position " << i;
+      }
     }
   }
 
@@ -804,20 +812,89 @@ LogicalResult SetValueForDictKeyOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
-// GetValueForDictKeyOp
+// AssignOp
 //===----------------------------------------------------------------------===//
 
-LogicalResult GetValueForDictKeyOp::verify() {
-  Type keyType = getKey().getType();
+void AssignOp::getEffects(
+    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
+        &effects) {
+  // Assign modifies the target in-place
+  effects.emplace_back(MemoryEffects::Write::get(),
+                       SideEffects::DefaultResource::get());
+}
 
-  // If key is an opaque type, verify it represents a string
-  if (auto opaqueType = dyn_cast<OpaqueType>(keyType)) {
-    StringRef value = opaqueType.getValue();
-    if (value != "str") {
-      return emitOpError()
-             << "key with opaque type must represent a string type "
-             << "(!emitpy.opaque<\"str\">), but got: " << opaqueType;
+LogicalResult AssignOp::verify() {
+  // If index is provided, verify it's compatible with target type
+  if (getIndex()) {
+    Type targetType = getTarget().getType();
+    Type indexType = getIndex().getType();
+
+    if (!isa<DictType>(targetType) && isa<StringType>(indexType)) {
+      return emitOpError() << "cannot use string index on non-dict type "
+                           << targetType;
     }
+  }
+
+  return success();
+}
+
+void AssignOp::print(OpAsmPrinter &p) {
+  p << " " << getTarget();
+  if (getIndex()) {
+    p << "[" << getIndex() << "]";
+  }
+  p << " = " << getValue() << " : (";
+  p << getTarget().getType();
+  if (getIndex()) {
+    p << ", " << getIndex().getType();
+  }
+  p << ", " << getValue().getType() << ")";
+}
+
+ParseResult AssignOp::parse(OpAsmParser &parser, OperationState &result) {
+  OpAsmParser::UnresolvedOperand target, index, value;
+  Type targetType, indexType, valueType;
+  bool hasIndex = false;
+
+  if (parser.parseOperand(target)) {
+    return parser.emitError(parser.getNameLoc(), "expected target operand");
+  }
+  if (succeeded(parser.parseOptionalLSquare())) {
+    hasIndex = true;
+    if (parser.parseOperand(index) || parser.parseRSquare()) {
+      return parser.emitError(parser.getNameLoc(), "expected index operand");
+    }
+  }
+  if (parser.parseEqual() || parser.parseOperand(value)) {
+    return parser.emitError(parser.getNameLoc(),
+                            "expected '=' and value operand");
+  }
+  if (parser.parseColon() || parser.parseLParen() ||
+      parser.parseType(targetType)) {
+    return parser.emitError(parser.getNameLoc(), "expected target type");
+  }
+  if (hasIndex) {
+    if (parser.parseComma() || parser.parseType(indexType)) {
+      return parser.emitError(parser.getNameLoc(), "expected index type");
+    }
+  }
+  if (parser.parseComma() || parser.parseType(valueType) ||
+      parser.parseRParen()) {
+    return parser.emitError(parser.getNameLoc(), "expected value type");
+  }
+  if (parser.resolveOperand(target, targetType, result.operands)) {
+    return parser.emitError(parser.getNameLoc(),
+                            "failed to resolve target operand");
+  }
+  if (hasIndex) {
+    if (parser.resolveOperand(index, indexType, result.operands)) {
+      return parser.emitError(parser.getNameLoc(),
+                              "failed to resolve index operand");
+    }
+  }
+  if (parser.resolveOperand(value, valueType, result.operands)) {
+    return parser.emitError(parser.getNameLoc(),
+                            "failed to resolve value operand");
   }
 
   return success();

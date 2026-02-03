@@ -241,17 +241,17 @@ func.func @test_multiple_expressions_in_function(%arg0: !emitpy.opaque<"int">, %
 }
 
 // CHECK-LABEL: def test_expression_with_python_builtins
-func.func @test_expression_with_python_builtins(%arg0: !emitpy.opaque<"str">, %arg1: !emitpy.opaque<"str">) -> !emitpy.opaque<"str"> {
+func.func @test_expression_with_python_builtins(%arg0: !emitpy.str, %arg1: !emitpy.str) -> !emitpy.str {
   // CHECK: return str(max(len(inputs), len(inputs_0)))
-  %0 = emitpy.expression(%arg0, %arg1) : (!emitpy.opaque<"str">, !emitpy.opaque<"str">) -> !emitpy.opaque<"str"> {
-  ^bb0(%s1: !emitpy.opaque<"str">, %s2: !emitpy.opaque<"str">):
-    %len1 = emitpy.call_opaque "len"(%s1) : (!emitpy.opaque<"str">) -> !emitpy.opaque<"int">
-    %len2 = emitpy.call_opaque "len"(%s2) : (!emitpy.opaque<"str">) -> !emitpy.opaque<"int">
+  %0 = emitpy.expression(%arg0, %arg1) : (!emitpy.str, !emitpy.str) -> !emitpy.str {
+  ^bb0(%s1: !emitpy.str, %s2: !emitpy.str):
+    %len1 = emitpy.call_opaque "len"(%s1) : (!emitpy.str) -> !emitpy.opaque<"int">
+    %len2 = emitpy.call_opaque "len"(%s2) : (!emitpy.str) -> !emitpy.opaque<"int">
     %max_len = emitpy.call_opaque "max"(%len1, %len2) : (!emitpy.opaque<"int">, !emitpy.opaque<"int">) -> !emitpy.opaque<"int">
-    %str_result = emitpy.call_opaque "str"(%max_len) : (!emitpy.opaque<"int">) -> !emitpy.opaque<"str">
-    emitpy.yield %str_result : !emitpy.opaque<"str">
+    %str_result = emitpy.call_opaque "str"(%max_len) : (!emitpy.opaque<"int">) -> !emitpy.str
+    emitpy.yield %str_result : !emitpy.str
   }
-  return %0 : !emitpy.opaque<"str">
+  return %0 : !emitpy.str
 }
 
 // CHECK-LABEL: def test_expression_with_tuple_operations

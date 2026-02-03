@@ -348,7 +348,13 @@ std::string PythonEmitter::getSubscriptName(SubscriptOp op) {
   std::string name;
   llvm::raw_string_ostream ss(name);
   auto index = op.getIndex();
-  std::string indexName = "index_" + std::to_string(valueInScopeCount.top()++);
+
+  // Only generate a new name if index doesn't already have one
+  std::string indexName;
+  if (!valueMapper.count(index)) {
+    indexName = "index_" + std::to_string(valueInScopeCount.top()++);
+  }
+
   ss << "[" << getOrCreateName(index, indexName) << "]";
   return name;
 }
@@ -602,14 +608,6 @@ static LogicalResult printOperation(PythonEmitter &emitter,
   return success();
 }
 
-static LogicalResult printOperation(PythonEmitter &emitter, AssignOp assignOp) {
-  if (failed(emitter.emitAssignPrefix(*assignOp))) {
-    return failure();
-  }
-
-  return emitter.emitOperands(*assignOp);
-}
-
 static LogicalResult printOperation(PythonEmitter &emitter,
                                     GetAttrOp getAttrOp) {
   if (failed(emitter.emitAssignPrefix(*getAttrOp))) {
@@ -764,43 +762,27 @@ static LogicalResult printOperation(PythonEmitter &emitter,
   return success();
 }
 
-static LogicalResult printOperation(PythonEmitter &emitter,
-                                    SetValueForDictKeyOp op) {
+static LogicalResult printOperation(PythonEmitter &emitter, AssignOp op) {
   raw_indented_ostream &os = emitter.ostream();
 
-  if (failed(emitter.emitOperand(op.getDict(), "dict_arg"))) {
+  if (failed(emitter.emitOperand(op.getTarget(), "target"))) {
     return failure();
   }
 
-  os << "[";
-  if (failed(emitter.emitOperand(op.getKey(), "dict_key"))) {
-    return failure();
-  }
-  os << "] = ";
-
-  if (failed(emitter.emitOperand(op.getValue(), "dict_value"))) {
-    return failure();
-  }
-  return success();
-}
-
-static LogicalResult printOperation(PythonEmitter &emitter,
-                                    GetValueForDictKeyOp op) {
-  if (failed(emitter.emitAssignPrefix(*op))) {
-    return failure();
+  // If index is present, emit subscript assignment: target[index] = value
+  if (op.getIndex()) {
+    os << "[";
+    if (failed(emitter.emitOperand(op.getIndex(), "index"))) {
+      return failure();
+    }
+    os << "]";
   }
 
-  raw_indented_ostream &os = emitter.ostream();
+  os << " = ";
 
-  if (failed(emitter.emitOperand(op.getDict(), "dict_arg"))) {
+  if (failed(emitter.emitOperand(op.getValue(), "value"))) {
     return failure();
   }
-
-  os << "[";
-  if (failed(emitter.emitOperand(op.getKey(), "dict_key"))) {
-    return failure();
-  }
-  os << "]";
 
   return success();
 }
@@ -908,10 +890,10 @@ LogicalResult PythonEmitter::emitOperation(Operation &op) {
           // Builtin ops.
           .Case<ModuleOp>([&](auto op) { return printOperation(*this, op); })
           // EmitPy ops.
-          .Case<CallOpaqueOp, ImportOp, AssignOp, GetAttrOp, SetAttrOp,
-                ConstantOp, SubscriptOp, ClassOp, GlobalOp, AssignGlobalOp,
-                GlobalStatementOp, CreateDictOp, SetValueForDictKeyOp,
-                GetValueForDictKeyOp, ExpressionOp, YieldOp, FileOp>(
+          .Case<CallOpaqueOp, ImportOp, GetAttrOp, SetAttrOp, ConstantOp,
+                SubscriptOp, ClassOp, GlobalOp, AssignGlobalOp,
+                GlobalStatementOp, CreateDictOp, AssignOp, ExpressionOp,
+                YieldOp, FileOp>(
               [&](auto op) { return printOperation(*this, op); })
           .Case<LiteralOp>([&](auto op) {
             registerDeferredValue(op.getResult(), op.getValue());

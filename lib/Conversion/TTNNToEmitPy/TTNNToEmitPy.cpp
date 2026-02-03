@@ -2599,7 +2599,7 @@ public:
                   mlir::tt::ttcore::LoadCachedOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     const char *globalDictName = "_CONST_EVAL_CACHE";
-    auto strType = emitpy::OpaqueType::get(rewriter.getContext(), "str");
+    auto strType = emitpy::StringType::get(rewriter.getContext());
     auto tensorListType =
         emitpy::OpaqueType::get(rewriter.getContext(), "[ttnn.Tensor]");
     auto innerDictType =
