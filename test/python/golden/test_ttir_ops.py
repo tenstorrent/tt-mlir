@@ -15,7 +15,6 @@ from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_apis import compile_and_execute_ttir, build_module
 from builder.base.builder_enums import *
 from ttmlir.ir import DenseI32ArrayAttr
-from ttmlir.dialects.ttir import F32Type
 from test_utils import (
     Marks,
     shape_str,
