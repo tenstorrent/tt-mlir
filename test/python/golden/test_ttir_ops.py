@@ -536,7 +536,7 @@ def test_rms_norm(
 ):
     def module(builder: TTIRBuilder):
         @builder.func(shapes, dtypes)
-        def batch_norm_training(
+        def rms_norm(
             in0: Operand,
             weight: Operand,
             bias: Operand,
@@ -544,7 +544,7 @@ def test_rms_norm(
             unit_attrs: Optional[List[str]] = None,
         ):
 
-            return builder.batch_norm_training(
+            return builder.rms_norm(
                 in0,
                 weight,
                 bias,
