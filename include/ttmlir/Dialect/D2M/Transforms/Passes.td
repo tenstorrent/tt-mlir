@@ -625,6 +625,58 @@ def D2MDecomposeMasking : Pass<"d2m-decompose-masking", "::mlir::ModuleOp"> {
   ];
 }
 
+def D2MDecomposeArange : Pass<"d2m-decompose-arange", "::mlir::ModuleOp"> {
+  let summary = "Decompose arange_block ops into low-level tile operations";
+  let description = [{
+    This pass decomposes high-level `arange_block` operations into low-level
+    tile operations for generating arange values.
+
+    The arange_block op operates at block level (memref of tiles) and generates
+    values: output[i] = start + step * i, where i is the linear index.
+
+    The decomposition:
+    1. Write full index tile to scratch CB using ExperimentalWriteFullIndexTileOp
+       (element[r][c] = r * 32 + c, giving values 0-1023)
+    2. Loop over output tiles:
+       a. Compute tile_offset = (tile_row * num_tile_cols + tile_col) * 1024
+       b. Load local index tile from scratch CB
+       c. Compute global_index = tile_offset + local_index
+       d. Compute result = start + step * global_index
+       e. Store result tile to output
+
+    Example transformation:
+    ```mlir
+    // Before:
+    d2m.arange_block %output, %full_index_cb, %num_elements {start = 0, step = 1}
+        : (memref<1x1x!ttcore.tile<32x32, f32>>, memref<1x1x!ttcore.tile<32x32, f32>>)
+
+    // After:
+    d2m.experimental::write_full_index_tile to %full_index_cb
+    scf.for %i = 0 to %num_tile_rows {
+      scf.for %j = 0 to %num_tile_cols {
+        %tile_offset = ... // (i * num_tile_cols + j) * 1024
+        %offset_tile = d2m.experimental::tile_fill %tile_offset
+        %local_idx = memref.load %full_index_cb[0, 0]
+        %global_idx = d2m.tile_add %offset_tile, %local_idx
+        %step_tile = d2m.experimental::tile_fill %step
+        %start_tile = d2m.experimental::tile_fill %start
+        %scaled = d2m.tile_mul %global_idx, %step_tile
+        %result = d2m.tile_add %scaled, %start_tile
+        memref.store %result, %output[%i, %j]
+      }
+    }
+    ```
+
+    This pass should run after bufferization and before LinalgToAffine.
+  }];
+  let dependentDialects = [
+    "::mlir::tt::d2m::D2MDialect",
+    "::mlir::memref::MemRefDialect",
+    "::mlir::arith::ArithDialect",
+    "::mlir::scf::SCFDialect"
+  ];
+}
+
 def D2MScalarizeConstTensors : Pass<"d2m-scalarize-const-tensors", "::mlir::ModuleOp"> {
   let summary = "Scalarize constant tensor inputs in d2m.generic operations";
   let description = [{

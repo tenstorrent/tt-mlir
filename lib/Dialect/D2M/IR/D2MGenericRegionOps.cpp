@@ -838,6 +838,128 @@ bool RemoteLoadOp::bufferizesToMemoryRead(
   return operand.get() == getMemref();
 }
 
+//===----------------------------------------------------------------------===//
+// ExperimentalWriteFullIndexTileOp Implementation
+//===----------------------------------------------------------------------===//
+
+void ExperimentalWriteFullIndexTileOp::getEffects(
+    mlir::SmallVectorImpl<
+        mlir::SideEffects::EffectInstance<mlir::MemoryEffects::Effect>>
+        &effects) {
+  effects.emplace_back(mlir::MemoryEffects::Write::get(), &getOutputMutable(),
+                       0, true, mlir::SideEffects::DefaultResource::get());
+}
+
+//===----------------------------------------------------------------------===//
+// ArangeBlockOp Implementation
+//===----------------------------------------------------------------------===//
+
+mlir::LogicalResult ArangeBlockOp::verify() {
+  // Basic verification - can be extended as needed.
+  return mlir::success();
+}
+
+void ArangeBlockOp::getEffects(
+    mlir::SmallVectorImpl<
+        mlir::SideEffects::EffectInstance<mlir::MemoryEffects::Effect>>
+        &effects) {
+  // Read from the full index CB.
+  effects.emplace_back(mlir::MemoryEffects::Read::get(),
+                       &getFullIndexCbMutable(), 0, true,
+                       mlir::SideEffects::DefaultResource::get());
+  // Write to the output.
+  effects.emplace_back(mlir::MemoryEffects::Write::get(), &getOutputMutable(),
+                       0, true, mlir::SideEffects::DefaultResource::get());
+}
+
+// Helper to check if an operand has tensor semantics that needs bufferization.
+static bool operandNeedsBufferization(mlir::Value operand) {
+  // Direct tensor type.
+  if (mlir::isa<mlir::RankedTensorType>(operand.getType())) {
+    return true;
+  }
+  // CB wrapping a tensor type.
+  if (auto cbType = mlir::dyn_cast<mlir::tt::d2m::CBType>(operand.getType())) {
+    return mlir::isa<mlir::RankedTensorType>(cbType.getElementType());
+  }
+  return false;
+}
+
+bool ArangeBlockOp::bufferizesToMemoryRead(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  // Only full_index_cb is read.
+  if (operand.get() != getFullIndexCb()) {
+    return false;
+  }
+  return operandNeedsBufferization(operand.get());
+}
+
+bool ArangeBlockOp::bufferizesToMemoryWrite(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  // Only output is written.
+  if (operand.get() != getOutput()) {
+    return false;
+  }
+  return operandNeedsBufferization(operand.get());
+}
+
+mlir::bufferization::AliasingValueList
+ArangeBlockOp::getAliasingValues(mlir::OpOperand &,
+                                 const mlir::bufferization::AnalysisState &) {
+  return {};
+}
+
+mlir::FailureOr<mlir::bufferization::BufferLikeType>
+ArangeBlockOp::getBufferType(mlir::Value,
+                             const mlir::bufferization::BufferizationOptions &,
+                             const mlir::bufferization::BufferizationState &,
+                             ::llvm::SmallVector<mlir::Value> &) {
+  assert(false && "ArangeBlockOp has no results");
+  return mlir::failure();
+}
+
+mlir::LogicalResult ArangeBlockOp::bufferize(
+    mlir::RewriterBase &rewriter,
+    const mlir::bufferization::BufferizationOptions &options,
+    mlir::bufferization::BufferizationState &state) {
+  mlir::Value out = getOutput();
+  mlir::Value fullIndexCb = getFullIndexCb();
+
+  // Check if anything needs bufferization.
+  bool outNeedsBufferization = operandNeedsBufferization(out);
+  bool cbNeedsBufferization = operandNeedsBufferization(fullIndexCb);
+
+  if (!outNeedsBufferization && !cbNeedsBufferization) {
+    // Already fully bufferized.
+    return mlir::success();
+  }
+
+  // Get memref for output if it's a tensor.
+  if (outNeedsBufferization) {
+    auto maybeBuffer =
+        mlir::bufferization::getBuffer(rewriter, out, options, state);
+    if (mlir::failed(maybeBuffer)) {
+      return mlir::failure();
+    }
+    out = *maybeBuffer;
+  }
+
+  // For CB operand, look through bufferization.to_tensor to get memref-based
+  // CB.
+  if (cbNeedsBufferization) {
+    if (auto toTensorOp =
+            fullIndexCb.getDefiningOp<mlir::bufferization::ToTensorOp>()) {
+      fullIndexCb = toTensorOp.getOperand();
+    }
+  }
+
+  // Create new op with memref operands.
+  rewriter.create<ArangeBlockOp>(getLoc(), out, fullIndexCb, getNumElements(),
+                                 getStart(), getStep());
+  rewriter.eraseOp(*this);
+  return mlir::success();
+}
+
 bool RemoteLoadOp::bufferizesToMemoryWrite(
     mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
   // Only result-form (no CB) operations should exist during bufferization

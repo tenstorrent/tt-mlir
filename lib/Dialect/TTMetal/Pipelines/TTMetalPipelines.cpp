@@ -140,6 +140,7 @@ void createTTIRToTTMetalMiddleendPipeline(
   pm.addPass(d2m::createD2MAllocate(allocateOptions));
   pm.addPass(createCanonicalizerPassWithOptions(options));
   pm.addPass(d2m::createD2MDecomposeMasking());
+  pm.addPass(d2m::createD2MDecomposeArange());
 
   d2m::D2MGenericApplyInterchangeOptions applyInterchangeOptions;
   {

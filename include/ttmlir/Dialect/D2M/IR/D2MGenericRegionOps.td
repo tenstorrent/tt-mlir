@@ -2027,4 +2027,81 @@ def D2M_WriteColMaskTileOp : D2M_GenericRegionOp<"write_col_mask_tile",
     let assemblyFormat = [{ `(` $validCols `)` `to` $output attr-dict `:` type($validCols) `,` type($output) }];
 }
 
+// D2M Experimental Index Tile Op (Used for arange operations)
+//===----------------------------------------------------------------------===//
+
+def D2M_ExperimentalWriteFullIndexTileOp : D2M_GenericRegionOp<"experimental::write_full_index_tile",
+  [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
+    let summary = "Write full linear index pattern to a tile CB";
+    let description = [{
+        The `experimental::write_full_index_tile` operation writes a linear index pattern
+        to a tile CB, where element[i,j] = i * 32 + j (the linear index as float).
+
+        This is used for arange operations. Each element gets its linear index value
+        (0-1023) within the tile, which can be used to compute global indices.
+
+        The resulting tile looks like:
+        [[  0,   1,   2, ...,  31],
+         [ 32,  33,  34, ...,  63],
+         [ 64,  65,  66, ...,  95],
+         ...
+         [992, 993, 994, ..., 1023]]
+
+        The operation writes directly to L1 memory, avoiding DST register pressure.
+    }];
+
+    let arguments = (ins AnyTypeOf<[AnyRankedTensorOrMemRef, D2M_CB]>:$output);
+
+    let assemblyFormat = [{ `to` $output attr-dict `:` type($output) }];
+}
+
+def D2M_ArangeBlockOp : D2M_GenericRegionComputeOp<"arange_block",
+  [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
+   DeclareOpInterfaceMethods<BufferizableOpInterface,
+     ["bufferizesToMemoryRead", "bufferizesToMemoryWrite", "bufferize",
+      "getAliasingValues", "getBufferType"]>,
+   D2M_SkipOpEltwiseFusionTrait]> {
+    let summary = "Generate arange values in a block/memref";
+    let description = [{
+        The `arange_block` operation fills a block/memref with arange values:
+        output[i] = start + step * i, where i is the linear index.
+
+        This op operates at the block level (memref of tiles) and generates
+        values for a 1D arange that has been reshaped to 2D for tiling efficiency.
+
+        The full_index_cb is a scratch CB containing an index tile where
+        element[r][c] = r * 32 + c (values 0-1023). This is written by the
+        decomposition pass using ExperimentalWriteFullIndexTileOp.
+
+        For each tile at position (tile_row, tile_col), the computation is:
+        1. tile_offset = (tile_row * num_tile_cols + tile_col) * 1024
+        2. global_idx = tile_offset + local_idx  (where local_idx comes from full_index_cb)
+        3. result = start + step * global_idx
+
+        This is a high-level op that gets decomposed in the DecomposeArange pass into:
+        1. Write index tile to scratch CB using ExperimentalWriteFullIndexTileOp
+        2. Loop over tiles computing: start + step * (tile_offset + local_idx)
+
+        Example:
+        ```mlir
+        d2m.arange_block %output, %full_index_cb, %num_elements
+                         {start = 0 : i64, step = 1 : i64}
+            : (memref<1x1x!ttcore.tile<32x32, f32>>,
+               memref<1x1x!ttcore.tile<32x32, f32>>)
+        ```
+    }];
+
+    let arguments = (ins
+        AnyTypeOf<[AnyRankedTensorOrMemRef, D2M_CB]>:$output,
+        AnyTypeOf<[AnyRankedTensorOrMemRef, D2M_CB]>:$full_index_cb,
+        I64Attr:$num_elements,
+        I64Attr:$start,
+        I64Attr:$step);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+    let hasVerifier = 1;
+}
 #endif // TTMLIR_TTMLIR_DIALECT_D2M_D2MGENERICREGIONOPS_TD
