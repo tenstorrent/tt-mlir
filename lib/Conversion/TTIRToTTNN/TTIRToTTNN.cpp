@@ -1875,7 +1875,8 @@ public:
           strideAttr, paddingAttr, dilationAttr,
           /*memory_config=*/nullptr,
           /* applied_shard_scheme=*/nullptr, adaptor.getCeilMode(),
-          /* in_place_halo=*/false, adaptor.getCountIncludePad());
+          /* in_place_halo=*/false, adaptor.getCountIncludePad(),
+          /*config_tensors_in_dram=*/rewriter.getBoolAttr(true));
     } else if constexpr (std::is_same_v<TTIROpTy, ttir::MaxPool2dOp>) {
       rewriter.replaceOpWithNewOp<TTNNOpTy>(
           op, this->getTypeConverter()->convertType(op.getResult().getType()),
@@ -1883,7 +1884,8 @@ public:
           strideAttr, paddingAttr, dilationAttr,
           /*memory_config=*/nullptr,
           /* applied_shard_scheme=*/nullptr, adaptor.getCeilMode(),
-          /* in_place_halo=*/false);
+          /* in_place_halo=*/false,
+          /*config_tensors_in_dram=*/rewriter.getBoolAttr(true));
     } else if constexpr (std::is_same_v<TTIROpTy,
                                         ttir::MaxPool2dWithIndicesOp>) {
       // Convert all result types for MaxPool2dWithIndicesOp which returns 2
@@ -1899,7 +1901,8 @@ public:
           kernelSizeAttr, strideAttr, paddingAttr, dilationAttr,
           /*memory_config=*/nullptr,
           /* applied_shard_scheme=*/nullptr, adaptor.getCeilMode(),
-          /* in_place_halo=*/false);
+          /* in_place_halo=*/false,
+          /*config_tensors_in_dram=*/rewriter.getBoolAttr(true));
     } else {
       llvm_unreachable("Pool2dOp must be AvgPool2dOp, MaxPool2dOp or "
                        "MaxPool2dWithIndicesOp");

@@ -29,7 +29,7 @@ void runAvgPool2dOp(
         const std::optional<::ttnn::operations::pool::Op2DSliceConfig> &,
         const std::optional<const ::ttnn::TensorMemoryLayout>,
         const std::optional<::ttnn::DeviceComputeKernelConfig> &, bool, bool,
-        ::ttnn::DataType, ::ttnn::Layout)> &ttnnOp) {
+        ::ttnn::DataType, ::ttnn::Layout, bool)> &ttnnOp) {
   const ::ttnn::Tensor &input = tensorPool.getTTNNTensorAndValidate(op->in());
 
   std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
@@ -74,7 +74,8 @@ void runAvgPool2dOp(
              computeKernelConfig,
              /*deallocate_input=*/false,
              /*reallocate_halo_output=*/op->reallocate_halo_output(),
-             ::ttnn::DataType::BFLOAT16, ::ttnn::Layout::ROW_MAJOR);
+             ::ttnn::DataType::BFLOAT16, ::ttnn::Layout::ROW_MAJOR,
+             /*config_tensor_in_dram=*/op->config_tensors_in_dram());
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
@@ -89,7 +90,7 @@ void runMaxPool2dOp(
         const std::optional<const ::ttnn::MemoryConfig> &,
         const std::optional<::ttnn::operations::pool::Op2DSliceConfig> &,
         std::optional<const ::ttnn::TensorMemoryLayout>, bool, bool, bool,
-        ::ttnn::DataType, ::ttnn::Layout)> &ttnnOp) {
+        ::ttnn::DataType, ::ttnn::Layout, bool)> &ttnnOp) {
   const ::ttnn::Tensor &input = tensorPool.getTTNNTensorAndValidate(op->in());
 
   std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
@@ -131,7 +132,8 @@ void runMaxPool2dOp(
              /*deallocate_input=*/false,
              /*reallocate_halo_output=*/op->reallocate_halo_output(),
              /*return_indices=*/false, ::ttnn::DataType::BFLOAT16,
-             ::ttnn::Layout::ROW_MAJOR);
+             ::ttnn::Layout::ROW_MAJOR,
+             /*config_tensor_in_dram=*/op->config_tensors_in_dram());
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), results[0]);
 }
@@ -197,7 +199,8 @@ void run(const ::tt::target::ttnn::MaxPool2dWithIndicesOp *op,
       /*deallocate_input=*/false,
       /*reallocate_halo_output=*/op->reallocate_halo_output(),
       /*return_indices=*/true, ::ttnn::DataType::BFLOAT16,
-      ::ttnn::Layout::ROW_MAJOR);
+      ::ttnn::Layout::ROW_MAJOR,
+      /*config_tensor_in_dram=*/op->config_tensors_in_dram());
 
   tensorPool.insertTTNNTensorAndValidate(op->result(), outputs[0]);
   tensorPool.insertTTNNTensorAndValidate(op->result_indices(), outputs[1]);

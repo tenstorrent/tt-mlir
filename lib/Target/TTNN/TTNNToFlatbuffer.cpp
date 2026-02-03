@@ -2409,12 +2409,14 @@ createPool2dOp(FlatbufferObjectCache &cache, Pool2dOp op) {
     llvm_unreachable("unhandled Pool2dOp");
   }
 
+  bool configTensorsInDram = op.getConfigTensorsInDram().value_or(false);
+
   return ::tt::target::ttnn::CreatePool2dOp(
       *cache.fbb, type, in, out, op.getBatchSize(), op.getInputHeight(),
       op.getInputWidth(), op.getChannels(), kernelSize, stride, padding,
       dilation, extraParamsType, extraParams, memoryConfig,
       toFlatbuffer(cache, op.getAppliedShardScheme()), op.getCeilMode(),
-      op.getReallocateHaloOutput());
+      op.getReallocateHaloOutput(), configTensorsInDram);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::MaxPool2dWithIndicesOp>
@@ -2442,11 +2444,13 @@ createMaxPool2dWithIndicesOp(FlatbufferObjectCache &cache,
   // Get memory config from operation result
   auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
 
+  bool configTensorsInDram = op.getConfigTensorsInDram().value_or(false);
+
   return ::tt::target::ttnn::CreateMaxPool2dWithIndicesOp(
       *cache.fbb, in, out, outIndices, op.getBatchSize(), op.getInputHeight(),
       op.getInputWidth(), op.getChannels(), kernelSize, stride, padding,
       dilation, memoryConfig, toFlatbuffer(cache, op.getAppliedShardScheme()),
-      op.getCeilMode(), op.getReallocateHaloOutput());
+      op.getCeilMode(), op.getReallocateHaloOutput(), configTensorsInDram);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::GlobalAvgPool2dOp>
