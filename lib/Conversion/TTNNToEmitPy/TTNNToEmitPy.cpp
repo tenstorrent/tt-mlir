@@ -2547,7 +2547,7 @@ public:
       global = rewriter.create<emitpy::GlobalStatementOp>(
           loadCachedOp.getLoc(), outerDictType, globalDictName);
       rewriter.restoreInsertionPoint(currentInsertionPoint);
-      global->setAttr("emitpy.consteval", rewriter.getUnitAttr());
+      global->setAttr("emitpy.cache_consteval", rewriter.getUnitAttr());
     }
     auto globalDict = global.getResult();
 
@@ -2557,7 +2557,7 @@ public:
       funcNameKey = rewriter.create<emitpy::ConstantOp>(loadCachedOp.getLoc(),
                                                         strType, funcNameAttr);
       rewriter.restoreInsertionPoint(currentInsertionPoint);
-      funcNameKey->setAttr("emitpy.consteval", rewriter.getUnitAttr());
+      funcNameKey->setAttr("emitpy.cache_consteval", rewriter.getUnitAttr());
     }
 
     llvm::StringRef calleeName = loadCachedOp.getCallee();
@@ -2575,7 +2575,7 @@ public:
     auto constantOp = rewriter.create<emitpy::ConstantOp>(
         loadCachedOp.getLoc(), calleeType,
         emitpy::OpaqueAttr::get(rewriter.getContext(), calleeName));
-    constantOp->setAttr("emitpy.consteval", rewriter.getUnitAttr());
+    constantOp->setAttr("emitpy.cache_consteval", rewriter.getUnitAttr());
     auto callee = constantOp->getResult(0);
 
     llvm::SmallVector<Value> operands;
@@ -2587,7 +2587,8 @@ public:
       auto tensorsInListOp = rewriter.create<emitpy::CallOpaqueOp>(
           loadCachedOp.getLoc(), tensorListType,
           ttnn_to_emitpy::kCreateListFunctionName, adaptor.getOperands());
-      tensorsInListOp->setAttr("emitpy.consteval", rewriter.getUnitAttr());
+      tensorsInListOp->setAttr("emitpy.cache_consteval",
+                               rewriter.getUnitAttr());
       auto tensorsInList = tensorsInListOp->getResult(0);
       operands.push_back(tensorsInList);
     }
@@ -2599,7 +2600,7 @@ public:
         loadCachedOp.getLoc(), strType,
         emitpy::OpaqueAttr::get(rewriter.getContext(),
                                 "\"" + calleeName.str() + "\""));
-    keyValueOp->setAttr("emitpy.consteval", rewriter.getUnitAttr());
+    keyValueOp->setAttr("emitpy.cache_consteval", rewriter.getUnitAttr());
     auto keyValue = keyValueOp->getResult(0);
     operands.push_back(keyValue);
 
@@ -2618,7 +2619,7 @@ public:
 
     auto cacheOp = rewriter.create<emitpy::CallOpaqueOp>(
         loadCachedOp.getLoc(), tensorListType, wrapperFuncName, operands);
-    cacheOp->setAttr("emitpy.consteval", rewriter.getUnitAttr());
+    cacheOp->setAttr("emitpy.cache_consteval", rewriter.getUnitAttr());
     auto cacheResult = cacheOp->getResult(0);
 
     // Unpack the result list of tensors.

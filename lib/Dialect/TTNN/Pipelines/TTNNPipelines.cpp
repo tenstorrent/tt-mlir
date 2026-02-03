@@ -521,7 +521,7 @@ void createTTIRToEmitPyPipeline(OpPassManager &pm,
 
   // Split linked module into main and consteval files.
   //
-  pm.addPass(createEmitPySplitFilesPass());
+  pm.addPass(createCodegenSplitFilesPass());
 }
 
 // Complete pipeline for lowering TTNN to EmitPy.

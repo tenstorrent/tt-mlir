@@ -1,6 +1,6 @@
 // RUN: ttmlir-opt --ttir-to-emitpy-pipeline %s | FileCheck %s
 
-// This test validates the EmitPySplitFiles pass through the TTIR to EmitPy pipeline.
+// This test validates the CodegenSplitFiles pass through the TTIR to EmitPy pipeline.
 // The test verifies:
 // - TTIR input with const-eval operations
 // - Pipeline creates separate emitpy.file ops for "main" and "consteval"
