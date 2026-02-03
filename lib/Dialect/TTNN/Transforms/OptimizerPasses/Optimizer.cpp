@@ -64,6 +64,7 @@ TTNNOptimizerOptions::TTNNOptimizerOptions(
 
 namespace {
 
+#ifdef TTMLIR_ENABLE_OPMODEL
 /// Applies the chosen layout to a D2MSubgraphOp: its result type(s), output
 /// buffer(s) (Empty op), and the referenced D2M subgraph function. Called from
 /// the optimizer apply phase. Asserts at most one result (multi-result support
@@ -141,6 +142,7 @@ void applyChosenLayoutToD2MSubgraphOp(ttnn::D2MSubgraphOp dispatchOp,
                                              newInputTypes, newResultTypes));
   }
 }
+#endif // TTMLIR_ENABLE_OPMODEL
 
 } // namespace
 
