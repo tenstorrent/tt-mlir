@@ -109,23 +109,40 @@ def runtime_str_dtype_to_torch_dtype(dtype):
     raise ValueError(f"unsupported dtype: {dtype}")
 
 
-def create_tensor(tensor):
-    isEmptyTensor = not all(tensor.shape)
+def create_tensor(tensor, mesh_shape: List[int] = None):  # *******
+    first_tensor = tensor_shards[0]
+
+    # Empty tensor if any of the dim is zero.
+    isEmptyTensor = not all(first_tensor.shape)
+
+    # Create 'owned tensor' in case of empty tensor;
     if isEmptyTensor:
         return tt_runtime.runtime.create_owned_host_tensor(
-            tensor.data_ptr(),
-            list(tensor.shape),
-            list(tensor.stride()),
-            tensor.element_size(),
-            torch_dtype_to_runtime_dtype(tensor.dtype),
+            first_tensor.data_ptr(),
+            list(first_tensor.shape),
+            list(first_tensor.stride()),
+            first_tensor.element_size(),
+            Binary.Program.to_data_type(first_tensor.dtype),
         )
 
+    if len(tensor_shards) > 1:
+        return tt_runtime.runtime.create_multi_device_borrowed_host_tensor(
+            [t.data_ptr() for t in tensor_shards],
+            list(first_tensor.shape),
+            list(first_tensor.stride()),
+            first_tensor.element_size(),
+            Binary.Program.to_data_type(first_tensor.dtype),
+            {},  # strategy: not used
+            mesh_shape,
+        )
+
+    # Create 'borrowed tensor'.
     return tt_runtime.runtime.create_borrowed_host_tensor(
-        tensor.data_ptr(),
-        list(tensor.shape),
-        list(tensor.stride()),
-        tensor.element_size(),
-        torch_dtype_to_runtime_dtype(tensor.dtype),
+        first_tensor.data_ptr(),
+        list(first_tensor.shape),
+        list(first_tensor.stride()),
+        first_tensor.element_size(),
+        Binary.Program.to_data_type(first_tensor.dtype),
     )
 
 
@@ -170,6 +187,98 @@ def program_inputs_as_dict(bin, index):
 
 def program_outputs_as_dict(bin, index):
     return json_string_as_dict(bin.get_program_outputs_as_json(index))
+
+
+def populate_inputs(self, init_fn, golden_inputs=[]):
+    if len(golden_inputs) > 0:
+        assert len(golden_inputs) == len(self.inputs)
+        for index, input_fb in enumerate(self.inputs):
+            reshaped = torch.reshape(golden_inputs[index], input_fb["desc"]["shape"])
+            self.input_tensors.append(reshaped)
+    else:
+        for i in self.inputs:
+            tensor_shards = []
+
+            if "runtime_tensor_sharding" not in i["desc"]:
+                torch_tensor = init_fn(
+                    i["desc"]["shape"],
+                    dtype=Binary.Program.from_data_type(
+                        i["desc"]["layout"]["memory_desc"]["data_type"]
+                    ),
+                )
+                tensor_shards.append(torch_tensor)
+                self.input_tensors.append(tensor_shards)
+                continue
+
+            shard_status = i["desc"]["runtime_tensor_sharding"]["shard_status"]
+            if shard_status == "Presharded":
+                local_shape = i["desc"]["runtime_tensor_sharding"]["local_shape"]
+                mesh_shape = i["desc"]["mesh_shape"]
+                num_devices = 1
+                for dim in mesh_shape:
+                    num_devices *= dim
+
+                torch_tensor = init_fn(
+                    local_shape,
+                    dtype=Binary.Program.from_data_type(
+                        i["desc"]["layout"]["memory_desc"]["data_type"]
+                    ),
+                )
+                for shard_index in range(num_devices):
+                    tensor_shard = torch_tensor.clone()
+                    tensor_shards.append(tensor_shard)
+            else:
+                torch_tensor = init_fn(
+                    i["desc"]["shape"],
+                    dtype=Binary.Program.from_data_type(
+                        i["desc"]["layout"]["memory_desc"]["data_type"]
+                    ),
+                )
+                tensor_shards.append(torch_tensor)
+            self.input_tensors.append(tensor_shards)
+
+
+def populate_outputs(self, init_fn):
+    for i in self.outputs:
+        tensor_shards = []
+
+        if "runtime_tensor_sharding" not in i["desc"]:
+            torch_tensor = init_fn(
+                i["desc"]["shape"],
+                dtype=Binary.Program.from_data_type(
+                    i["desc"]["layout"]["memory_desc"]["data_type"]
+                ),
+            )
+            tensor_shards.append(torch_tensor)
+            self.output_tensors.append(tensor_shards)
+            continue
+
+        shard_status = i["desc"]["runtime_tensor_sharding"]["shard_status"]
+        if shard_status == "Presharded":
+            local_shape = i["desc"]["runtime_tensor_sharding"]["local_shape"]
+            mesh_shape = i["desc"]["mesh_shape"]
+            num_devices = 1
+            for dim in mesh_shape:
+                num_devices *= dim
+
+            torch_tensor = init_fn(
+                local_shape,
+                dtype=Binary.Program.from_data_type(
+                    i["desc"]["layout"]["memory_desc"]["data_type"]
+                ),
+            )
+            for shard_index in range(num_devices):
+                tensor_shard = torch_tensor.clone()
+                tensor_shards.append(tensor_shard)
+        else:
+            torch_tensor = init_fn(
+                i["desc"]["shape"],
+                dtype=Binary.Program.from_data_type(
+                    i["desc"]["layout"]["memory_desc"]["data_type"]
+                ),
+            )
+            tensor_shards.append(torch_tensor)
+        self.output_tensors.append(tensor_shards)
 
 
 def mask_torch_inf_nan(tensor):
@@ -728,7 +837,15 @@ def execute_fb(
         input_dict = program_inputs_as_dict(fbb, program_index)
         output_dict = program_outputs_as_dict(fbb, program_index)
 
-        golden_inputs_torch = []
+        # golden_inputs_torch = []
+        golden_inputs_torch = populate_inputs(
+            self.torch_initializer.get_initializer(self["--init"]),
+            golden_inputs,
+        )
+        golden_outputs_torch = populate_outputs(
+            self.torch_initializer.get_initializer("zeros")
+        )
+
         for i, i_dict in enumerate(input_dict):
             if not disable_golden:
                 golden_inputs_torch.append(
@@ -761,8 +878,10 @@ def execute_fb(
 
         inputs = []
         outputs = []
+        fb_mesh_shape = fbb.get_program_mesh_shape(program_index)
+        print(f"Executing program {program_index} on mesh shape {fb_mesh_shape}")
         for i in golden_inputs_torch:
-            new_input = create_tensor(i)
+            new_input = create_tensor(i, fb_mesh_shape)
             inputs.append(new_input)
         converted_inputs = convert_input_layouts(
             device,
@@ -772,7 +891,7 @@ def execute_fb(
         )
 
         for i in outputs_torch:
-            new_output = create_tensor(i)
+            new_output = create_tensor(i, fb_mesh_shape)
             outputs.append(new_output)
 
         start_submit = time.perf_counter_ns()
@@ -796,13 +915,14 @@ def execute_fb(
             start_get_output = time.perf_counter_ns()
             output_host = tt_runtime.runtime.to_host(
                 runtime_output_tensor, untilize=True
-            )[0]
+            )
             end_get_output = time.perf_counter_ns()
             e2e_duration_nanoseconds_output += end_get_output - start_get_output
 
             if disable_golden:
                 continue
 
+            # ************
             tt_runtime.runtime.memcpy(
                 outputs[i],
                 output_host,
@@ -1113,13 +1233,13 @@ def execute_cpp(
         metal_lib_candidates = [
             p for p in TT_METAL_RUNTIME_ROOT.glob("build*/lib") if p.is_dir()
         ]
-        # if len(metal_lib_candidates) != 1:
-        #    found = "\n".join(f"- {p}" for p in metal_lib_candidates) or "- <none>"
-        #    raise TTBuilderRuntimeException(
-        #        "Expected exactly one TT-Metal build lib directory matching "
-        #        f"`{TT_METAL_RUNTIME_ROOT}/build*/lib`, but found {len(metal_lib_candidates)}:\n"
-        #        f"{found}"
-        #    )
+        if len(metal_lib_candidates) != 1:
+            found = "\n".join(f"- {p}" for p in metal_lib_candidates) or "- <none>"
+            raise TTBuilderRuntimeException(
+                "Expected exactly one TT-Metal build lib directory matching "
+                f"`{TT_METAL_RUNTIME_ROOT}/build*/lib`, but found {len(metal_lib_candidates)}:\n"
+                f"{found}"
+            )
         metal_lib_dir = str(metal_lib_candidates[0])
 
     output_dir = os.path.dirname(cpp_path)
@@ -1177,7 +1297,7 @@ def execute_cpp(
                 device,
             )
             outputs = [
-                tt_runtime.runtime.to_host(out, untilize=True)[0] for out in outputs
+                tt_runtime.runtime.to_host(out, untilize=True) for out in outputs
             ]
 
             if not disable_golden:
