@@ -928,33 +928,17 @@ def batch_norm_golden(
     return result
 
 
-def rms_norm_golden(
+def ttir_rms_norm_golden(
     input: GoldenMapTensor,
-    weight: Optional[GoldenMapTensor] = None,
-    bias: Optional[GoldenMapTensor] = None,
-    normalized_shape: List[int] = None,
-    epsilon: float = 1e-5,
+    weight: Optional[GoldenMapTensor],
+    bias: Optional[GoldenMapTensor],
+    normalized_shape: ArrayAttr,
+    epsilon: FloatAttr,
+    output_type_mlir: Type,
 ) -> GoldenMapTensor:
-    """
-    Custom golden function for RMS normalization operation.
-    Parameters
-    ----------
-    input : GoldenMapTensor
-        Input tensor to RMS normalization operation
-    weight : GoldenMapTensor, optional
-        Weight tensor for scaling (default: None)
-    bias : GoldenMapTensor, optional
-        Bias tensor for shifting (default: None)
-    normalized_shape : List[int], optional
-        Shape of the input tensor to normalize (default: None)
-    epsilon : float, optional
-        Small value to avoid division by zero (default: 1e-5)
-    Returns
-    -------
-    GoldenMapTensor
-        RMS normalized output tensor
-    """
-    # Convert to float for computation
+    normalized_shape = unpack_mlir_attr(normalized_shape)
+    epsilon = unpack_mlir_attr(epsilon)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
     input_float = input.float()
 
     rms_norm = torch.nn.functional.rms_norm(
@@ -964,12 +948,10 @@ def rms_norm_golden(
         eps=epsilon,
     )
 
-    # Apply bias (shift) if provided
     if bias is not None:
-        rms_norm = torch.add(rms_norm, bias.float())
+        rms_norm = torch.add(rms_norm, bias)
 
-    # Convert back to original dtype
-    return rms_norm.to(input.dtype)
+    return rms_norm.to(output_dtype)
 
 
 def ttir_layer_norm_golden(
@@ -1439,30 +1421,6 @@ def less_than_golden(
         Tensor with the same dtype as input_tensor containing the comparison results.
     """
     result_bool = torch.lt(input_tensor, other_tensor)
-    return result_bool.to(input_tensor.dtype)
-
-
-def logical_and_golden(
-    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, **kwargs
-) -> GoldenMapTensor:
-    """
-    Golden function for logical_and operation.
-
-    Elementwise logical AND.
-
-    Parameters
-    ----------
-    input_tensor : GoldenMapTensor
-        Left-hand side tensor.
-    other_tensor : GoldenMapTensor
-        Right-hand side tensor.
-
-    Returns
-    -------
-    GoldenMapTensor
-        Tensor with the same dtype as input_tensor containing the logical AND results.
-    """
-    result_bool = torch.logical_and(input_tensor, other_tensor)
     return result_bool.to(input_tensor.dtype)
 
 
@@ -3055,6 +3013,13 @@ def ttir_minimum_golden(
 ) -> GoldenMapTensor:
     output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
     return torch.minimum(input_tensor, other_tensor).to(output_dtype)
+
+
+def ttir_logical_and_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.logical_and(input_tensor, other_tensor).to(output_dtype)
 
 
 def ttir_logical_right_shift_golden(
@@ -5507,6 +5472,32 @@ def ttnn_linear_golden(
     return torch.add(output, bias_tensor).to(output_dtype)
 
 
+def ttnn_rms_norm_golden(
+    input: GoldenMapTensor,
+    weight: Optional[GoldenMapTensor],
+    bias: Optional[GoldenMapTensor],
+    normalized_shape: ArrayAttr,
+    epsilon: FloatAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    normalized_shape = unpack_mlir_attr(normalized_shape)
+    epsilon = unpack_mlir_attr(epsilon)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    input_float = input.float()
+
+    rms_norm = torch.nn.functional.rms_norm(
+        input_float,
+        normalized_shape=normalized_shape,
+        weight=weight,
+        eps=epsilon,
+    )
+
+    if bias is not None:
+        rms_norm = torch.add(rms_norm, bias)
+
+    return rms_norm.to(output_dtype)
+
+
 def ttnn_layer_norm_golden(
     input: GoldenMapTensor,
     weight: Optional[GoldenMapTensor],
@@ -5687,7 +5678,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.LessEqualOp: ttir_le_golden,
     ttir.LessThanOp: ttir_lt_golden,
     # Logical operations
-    ttir.LogicalAndOp: logical_and_golden,
+    ttir.LogicalAndOp: ttir_logical_and_golden,
     ttir.LogicalLeftShiftOp: logical_left_shift_golden,
     ttir.LogicalOrOp: logical_or_golden,
     ttir.LogicalRightShiftOp: ttir_logical_right_shift_golden,
@@ -5738,7 +5729,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.BatchNormInferenceOp: ttir_batch_norm_inference_golden,
     ttir.BatchNormTrainingOp: ttir_batch_norm_training_golden,
     ttir.LayerNormOp: ttir_layer_norm_golden,
-    ttir.RMSNormOp: rms_norm_golden,
+    ttir.RMSNormOp: ttir_rms_norm_golden,
     # Type operations
     ttir.TypecastOp: ttir_typecast_golden,
     # Tensor creation
@@ -5913,7 +5904,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttnn.MatmulOp: ttnn_matmul_golden,
     ttnn.LinearOp: ttnn_linear_golden,
     ttnn.LayerNormOp: ttnn_layer_norm_golden,
-    ttnn.RMSNormOp: rms_norm_golden,
+    ttnn.RMSNormOp: ttnn_rms_norm_golden,
     # Tensor manipulation
     ttnn.ConcatOp: ttnn_concat_golden,
     ttnn.RepeatOp: ttnn_repeat_golden,

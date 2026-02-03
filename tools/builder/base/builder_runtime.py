@@ -619,12 +619,12 @@ def execute_fb(
     input_output_goldens: Dict[int, Dict[str, Dict[int, GoldenMapTensor]]] = None,
     intermediate_goldens: Dict[str, Dict[int, GoldenMapTensor]] = None,
     pcc: float = 0.99,
-    atol: float = 1e-08,
+    atol: float = 1e-1,
     rtol: float = 1e-05,
     disable_golden: bool = False,
     device=None,
-    check_pcc: bool = False,
-    check_atol: bool = False,
+    check_pcc: bool = True,
+    check_atol: bool = True,
     check_rtol: bool = False,
     enable_intermediate_verification: bool = False,
     bypass_ops: List[str] = None,
@@ -742,7 +742,7 @@ def execute_fb(
                     ),
                 )
                 golden_inputs_torch.append(torch_tensor)
-
+        print(f"golden_inputs_torch: {golden_inputs_torch}", flush=True)
         golden_outputs_torch = []
         outputs_torch = []
         for i, o_dict in enumerate(output_dict):
@@ -823,6 +823,8 @@ def execute_fb(
                 ).reshape(outputs[i].get_shape())
 
             golden_tensor_torch = golden_outputs_torch[i]
+            print(f"golden_tensor_torch: {golden_tensor_torch}", flush=True)
+            print(f"output_tensor_torch: {output_tensor_torch}", flush=True)
             results = check_outputs(
                 golden_tensor_torch,
                 output_tensor_torch,
