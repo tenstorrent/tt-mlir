@@ -3585,7 +3585,6 @@ class TTIRBuilder(Builder):
         old_op: ttir.LogicalAndOp,
         global_dict: Dict[Operand, Operand],
     ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
-        print("logical_and_parser", flush=True)
         ttir_op = self.get_opview_from_parser(TTIRBuilder.logical_and_parser)
         in0 = global_dict[old_op.lhs]
         in1 = global_dict[old_op.rhs]
@@ -3615,7 +3614,6 @@ class TTIRBuilder(Builder):
         self,
         old_op: ttir.LogicalRightShiftOp,
     ) -> Tuple[Module, TTIRBuilder]:
-        print("logical_and_split", flush=True)
         ttir_op = self.get_opview_from_split(TTIRBuilder.logical_and_split)
 
         old_ctx = old_op.context
@@ -12507,7 +12505,6 @@ class TTIRBuilder(Builder):
         old_op: ttir.RMSNormOp,
         global_dict: Dict[Operand, Operand],
     ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
-        print("rms_norm_parser", flush=True)
         ttir_op = self.get_opview_from_parser(TTIRBuilder.rms_norm_parser)
         in0 = global_dict[old_op.input]
         weight = global_dict[old_op.weight] if old_op.weight else None
@@ -12550,7 +12547,6 @@ class TTIRBuilder(Builder):
         self,
         old_op: ttir.RMSNormOp,
     ) -> Tuple[Module, TTIRBuilder]:
-        print("rms_norm_split", flush=True)
         ttir_op = self.get_opview_from_split(TTIRBuilder.rms_norm_split)
 
         old_ctx = old_op.context
