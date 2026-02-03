@@ -179,7 +179,9 @@ protected:
                 : ttcore::TensorMemoryLayout::Sharded};
   }
 
-  RankedTensorType
+  // Returns the metal tensor type and the index affine map for virtualization.
+  // The indexAffineMap should be stored on ViewLayoutOp/StreamLayoutOp.
+  std::pair<RankedTensorType, mlir::AffineMap>
   getMetalTensorFromTTNNTensor(mlir::ConversionPatternRewriter &rewriter,
                                Value value) const {
     auto tensorType = mlir::cast<mlir::RankedTensorType>(value.getType());
@@ -218,7 +220,9 @@ protected:
     llvm::SmallVector<int64_t> shardedShape = metalLayout.getDeviceShape(
         optimalGrid, ttcore::TileType::getDefaultShape());
 
-    return mlir::RankedTensorType::get(shardedShape, elementType, metalLayout);
+    auto resultType =
+        mlir::RankedTensorType::get(shardedShape, elementType, metalLayout);
+    return {resultType, indexAffineMap};
   }
 
   // Create a ToLayout operation for a value using the provided layout
@@ -230,7 +234,8 @@ protected:
     bool isTTNN = isTTNNTensor(value.getType());
     if (isTTNN) {
       assert(ttnnMode && "Unexpected TTNN tensor as op operand");
-      auto metalTensorType = getMetalTensorFromTTNNTensor(rewriter, value);
+      auto [metalTensorType, indexAffineMap] =
+          getMetalTensorFromTTNNTensor(rewriter, value);
       auto metalCastOp = rewriter.create<ttir::TTNNMetalLayoutCastOp>(
           value.getLoc(), metalTensorType, value);
 
@@ -244,12 +249,12 @@ protected:
         llvm::SmallVector<int64_t> unitGrid(
             metalTensorType.getShape().size() / 2, 1);
         auto resultType = d2m::utils::reblockTensor(metalTensorType, unitGrid);
-        // Compute remapping from input shape to output shape
-        mlir::AffineMap remapping = ttmlir::utils::calculateReblockMap(
-            metalTensorType.getShape(), resultType.getShape(),
-            rewriter.getContext());
+        // Use the indexAffineMap for virtualization - this is the map that was
+        // previously stored on MetalLayoutAttr and is now stored on
+        // ViewLayoutOp.
         auto unitReblockingView = rewriter.create<d2m::ViewLayoutOp>(
-            value.getLoc(), resultType, metalCastOp->getResult(0), remapping);
+            value.getLoc(), resultType, metalCastOp->getResult(0),
+            indexAffineMap);
         return unitReblockingView.getResult();
       }
       // For DRAM operands, we can return the metal cast result directly.

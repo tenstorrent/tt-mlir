@@ -760,13 +760,17 @@ mlir::LogicalResult d2m::StreamLayoutOp::bufferize(
     return maybeStorage;
   }
 
-  // Build the memref result type WITHOUT a view layout attribute - the
-  // remapping is now on the op, not embedded in the type.
+  // Build the memref result type with a ViewLayoutAttr containing an identity
+  // map. The actual remapping is stored on the op, but we need a
+  // DeviceLayoutInterface attribute on the memref to satisfy GenericOp
+  // verification.
   auto tensorType = mlir::cast<RankedTensorType>(getResult().getType());
   auto layout = mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
+  auto identityMap =
+      AffineMap::getMultiDimIdentityMap(tensorType.getRank(), getContext());
+  auto viewLayout = ttcore::ViewLayoutAttr::get(getContext(), identityMap);
   auto outMemrefType = MemRefType::get(
-      tensorType.getShape(), tensorType.getElementType(),
-      /*layout=*/nullptr,
+      tensorType.getShape(), tensorType.getElementType(), viewLayout,
       ttcore::MemorySpaceAttr::get(getContext(), layout.getMemorySpace()));
 
   // Compute the remapping affine map from input shape to output shape.
@@ -820,14 +824,30 @@ void d2m::StreamLayoutOp::getCanonicalizationPatterns(
       composedMap = streamMap;
     }
 
-    // Create result memref without ViewLayoutAttr - remapping is on the op.
-    auto currentResultMemref = mlir::cast<MemRefType>(op.getResult().getType());
-    auto newMemref = MemRefType::get(
-        currentResultMemref.getShape(), currentResultMemref.getElementType(),
-        /*layout=*/nullptr, currentResultMemref.getMemorySpace());
+    // Create result type with ViewLayoutAttr containing identity map.
+    // Handle both tensor (before bufferization) and memref (after) types.
+    // Memrefs need a DeviceLayoutInterface attribute to satisfy GenericOp
+    // verification.
+    Type newResultType;
+    if (auto currentResultMemref =
+            mlir::dyn_cast<MemRefType>(op.getResult().getType())) {
+      auto identityMap = AffineMap::getMultiDimIdentityMap(
+          currentResultMemref.getRank(), rewriter.getContext());
+      auto viewLayout =
+          ttcore::ViewLayoutAttr::get(rewriter.getContext(), identityMap);
+      newResultType = MemRefType::get(
+          currentResultMemref.getShape(), currentResultMemref.getElementType(),
+          viewLayout, currentResultMemref.getMemorySpace());
+    } else if (auto currentResultTensor =
+                   mlir::dyn_cast<RankedTensorType>(op.getResult().getType())) {
+      // For tensor types, preserve the encoding (layout attr).
+      newResultType = currentResultTensor;
+    } else {
+      return failure();
+    }
 
     rewriter.replaceOpWithNewOp<StreamLayoutOp>(
-        op, newMemref, viewOp.getInput(), op.getStorage(), composedMap);
+        op, newResultType, viewOp.getInput(), op.getStorage(), composedMap);
     return success();
   });
 }
@@ -989,13 +1009,17 @@ mlir::LogicalResult d2m::ViewLayoutOp::bufferize(
     return maybeInput;
   }
 
-  // Build the memref result type WITHOUT a view layout attribute - the
-  // remapping is now on the op, not embedded in the type.
+  // Build the memref result type with a ViewLayoutAttr containing an identity
+  // map. The actual remapping is stored on the op, but we need a
+  // DeviceLayoutInterface attribute on the memref to satisfy GenericOp
+  // verification.
   auto tensorType = mlir::cast<RankedTensorType>(getResult().getType());
   auto layout = mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
+  auto identityMap =
+      AffineMap::getMultiDimIdentityMap(tensorType.getRank(), getContext());
+  auto viewLayout = ttcore::ViewLayoutAttr::get(getContext(), identityMap);
   auto outMemrefType = MemRefType::get(
-      tensorType.getShape(), tensorType.getElementType(),
-      /*layout=*/nullptr,
+      tensorType.getShape(), tensorType.getElementType(), viewLayout,
       ttcore::MemorySpaceAttr::get(getContext(), layout.getMemorySpace()));
 
   // Compute the remapping affine map from input shape to output shape.
@@ -1121,17 +1145,16 @@ void d2m::GenericOp::build(mlir::OpBuilder &builder,
   if (!grid) {
     auto gridShape = ttcore::getGridShape(outputs[0]);
 
-    // Check if output operand comes from a view op with a remapping.
+    // Check if output operand comes from a ViewLayoutOp with a remapping.
     // If so, use the remapping to derive virtualization.
+    // Note: We only use ViewLayoutOp remapping for virtualization, not
+    // StreamLayoutOp. StreamLayoutOp's remapping is a reblock map for DRAM
+    // streaming, not a core virtualization map.
     mlir::AffineMap outputRemapping;
     if (auto viewOp =
             mlir::dyn_cast_if_present<ViewLayoutOp>(outputs[0].getDefiningOp());
         viewOp && viewOp.getRemapping()) {
       outputRemapping = viewOp.getRemapping().value();
-    } else if (auto streamOp = mlir::dyn_cast_if_present<StreamLayoutOp>(
-                   outputs[0].getDefiningOp());
-               streamOp && streamOp.getRemapping()) {
-      outputRemapping = streamOp.getRemapping().value();
     }
 
     // Only consider non-identity remappings for virtualization.
@@ -1476,14 +1499,29 @@ static mlir::LogicalResult verifyAffineBlocking(
     }
 
     // Generic op with defined physical->virtual mapping in its grid attr should
-    // have output operand(s) with a virtual->physical mapping defined in the
-    // layout attr.
+    // have output operand(s) with a virtual->physical mapping defined either
+    // on ViewLayoutOp/StreamLayoutOp remapping or in the layout attr.
     for (auto output : getOutputs()) {
       mlir::ShapedType outputType =
           mlir::cast<mlir::ShapedType>(output.getType());
 
-      std::optional<AffineMap> maybeFwdMap =
-          ttcore::getDeviceLayout(outputType).getVirtualizationMapIfExists();
+      // First check if output comes from ViewLayoutOp or StreamLayoutOp with
+      // remapping (preferred after refactor).
+      std::optional<AffineMap> maybeFwdMap;
+      if (auto viewOp =
+              mlir::dyn_cast_if_present<ViewLayoutOp>(output.getDefiningOp());
+          viewOp && viewOp.getRemapping()) {
+        maybeFwdMap = viewOp.getRemapping();
+      } else if (auto streamOp = mlir::dyn_cast_if_present<StreamLayoutOp>(
+                     output.getDefiningOp());
+                 streamOp && streamOp.getRemapping()) {
+        maybeFwdMap = streamOp.getRemapping();
+      } else {
+        // Fall back to layout attribute for backwards compatibility.
+        maybeFwdMap =
+            ttcore::getDeviceLayout(outputType).getVirtualizationMapIfExists();
+      }
+
       if (!maybeFwdMap) {
         return emitOpError(
             "GenericOp with virtual grid attribute must have an output operand "

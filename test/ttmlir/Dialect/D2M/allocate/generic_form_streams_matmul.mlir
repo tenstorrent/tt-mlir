@@ -12,10 +12,10 @@ func.func @matmul_single_core_stream(%arg0: memref<1x2x2x2x!ttcore.tile<32x32, f
   %alloc = memref.alloc() {alignment = 64 : i64} : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_>
   // CHECK-NOT: "d2m.view_layout"
   // CHECK: [[lhs:%[a-z0-9_]+]] = "d2m.stream_layout"(%arg0,
-  %0 = "d2m.view_layout"(%arg0) : (memref<1x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_>) -> memref<1x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1_>
+  %0 = "d2m.view_layout"(%arg0) : (memref<1x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_>) -> memref<1x2x2x2x!ttcore.tile<32x32, f32>, #l1_>
   // CHECK-NOT: "d2m.view_layout"
   // CHECK: [[rhs:%[a-z0-9_]+]] = "d2m.stream_layout"(%arg1,
-  %1 = "d2m.view_layout"(%arg1) : (memref<2x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_>) -> memref<2x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1_>
+  %1 = "d2m.view_layout"(%arg1) : (memref<2x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_>) -> memref<2x1x2x2x!ttcore.tile<32x32, f32>, #l1_>
   // CHECK: d2m.generic{{.*}}
   // CHECK-NEXT: ins([[lhs]], [[rhs]] : {{.*}})
   // CHECK-NEXT: outs([[out:%[a-z0-9_]+]] : {{.*}})

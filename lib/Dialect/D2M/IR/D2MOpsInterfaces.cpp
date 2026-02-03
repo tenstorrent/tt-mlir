@@ -29,8 +29,27 @@ mlir::tt::d2m::applyViews(mlir::Operation *op) {
                           resultMemref.getRank(), resultMemref.getContext()));
   }
 
-  auto viewAttr = mlir::cast<ttcore::ViewLayoutAttr>(resultMemref.getLayout());
-  auto map = viewAttr.getAffineMap();
+  // Get the remapping from the op's attribute (ViewLayoutOp or StreamLayoutOp),
+  // not from the ViewLayoutAttr on the memref. The actual affine map
+  // transformation is stored on the op, while the memref's ViewLayoutAttr just
+  // serves as a marker for device layout verification.
+  mlir::AffineMap map;
+  if (auto viewLayoutOp = mlir::dyn_cast<mlir::tt::d2m::ViewLayoutOp>(op)) {
+    map = viewLayoutOp.getRemapping()
+              ? viewLayoutOp.getRemapping().value()
+              : mlir::AffineMap::getMultiDimIdentityMap(resultMemref.getRank(),
+                                                        op->getContext());
+  } else if (auto streamLayoutOp =
+                 mlir::dyn_cast<mlir::tt::d2m::StreamLayoutOp>(op)) {
+    map = streamLayoutOp.getRemapping()
+              ? streamLayoutOp.getRemapping().value()
+              : mlir::AffineMap::getMultiDimIdentityMap(resultMemref.getRank(),
+                                                        op->getContext());
+  } else {
+    // Fallback for other ViewOpInterface implementations - use identity map.
+    map = mlir::AffineMap::getMultiDimIdentityMap(resultMemref.getRank(),
+                                                  op->getContext());
+  }
 
   Value input = viewOp.getInput();
   auto inputMemref = mlir::cast<mlir::MemRefType>(input.getType());

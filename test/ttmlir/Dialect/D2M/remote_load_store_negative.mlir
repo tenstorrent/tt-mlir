@@ -4,7 +4,7 @@
 #dram = #ttcore.memory_space<dram>
 
 // Metal layout for remote source tensor: 2x4 grid with 2x4 shard
-#remote_layout = #ttcore.metal_layout<logical_shape = 4x8, dim_alignments = 2x4, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, dram, sharded, index_map = map(0)>
+#remote_layout = #ttcore.metal_layout<logical_shape = 4x8, dim_alignments = 2x4, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, dram, sharded>
 
 //===----------------------------------------------------------------------===//
 // RemoteLoadOp Negative Tests
@@ -28,7 +28,7 @@ func.func @test_remote_load_cb_with_tensor(
 #dram = #ttcore.memory_space<dram>
 
 // Metal layout for remote source tensor: 2x4 grid with 2x4 shard
-#remote_layout = #ttcore.metal_layout<logical_shape = 4x8, dim_alignments = 2x4, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, dram, sharded, index_map = map(0)>
+#remote_layout = #ttcore.metal_layout<logical_shape = 4x8, dim_alignments = 2x4, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, dram, sharded>
 
 //===----------------------------------------------------------------------===//
 // RemoteStoreOp Negative Tests
