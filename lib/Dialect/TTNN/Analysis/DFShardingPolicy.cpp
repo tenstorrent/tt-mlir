@@ -2292,13 +2292,16 @@ void DFShardingPolicy::run() {
       // TODO (mvasiljevic): RMSNormOp is excluded from sharding as a
       // workaround until the following metal fix is uplifted:
       // https://github.com/tenstorrent/tt-metal/pull/34335
+      // TODO (jserbedzija): SliceStaticOp is excluded from sharding as a
+      // workaround until the following metal issue is fixed:
+      // https://github.com/tenstorrent/tt-metal/issues/38016
       bool validForSharding =
           llvm::isa<ttnn::Conv2dOp, ttnn::ConvTranspose2dOp, ttnn::AddOp,
                     ttnn::MultiplyOp, ttnn::ReluOp, ttnn::Relu6Op,
                     ttnn::TypecastOp, ttnn::SiluOp, ttnn::MatmulOp,
                     ttnn::LinearOp, ttnn::MinimumOp, ttnn::GeluOp, ttnn::NegOp,
                     ttnn::RsqrtOp, ttnn::ConcatOp, ttnn::PowScalarOp,
-                    ttnn::SliceStaticOp, ttnn::RotaryEmbeddingOp>(currentOp) &&
+                    ttnn::RotaryEmbeddingOp>(currentOp) &&
           legalConfigs.lookup(currentOp).size() > 0;
 
       // Special handling for ConcatOp: isolate it into its own single-op
