@@ -80,7 +80,8 @@ computeOptimalVirtualGrid(ArrayRef<int64_t> physicalShape,
     for (const auto &grid : factorCombinations) {
       int64_t gridVolume = ttmlir::utils::volume<int64_t>(grid);
       if (gridVolume <= targetGridVolume && gridVolume > bestGridVolume) {
-        auto physGrid = utils::findLegalPhysicalGridForVolume(gridVolume, targetGridShape);
+        auto physGrid =
+            utils::findLegalPhysicalGridForVolume(gridVolume, targetGridShape);
         if (!physGrid.empty()) {
 
           bestGrid = grid;
@@ -101,7 +102,7 @@ computeOptimalVirtualGrid(ArrayRef<int64_t> physicalShape,
            ttmlir::utils::getFactors(physicalShape[shardedDimIndex]))) {
     if (factor <= targetGridVolume) {
       auto physGrid =
-          utils::findLegalPhysicalGridForVolume(factor, targetSquareGridShape);
+          utils::findLegalPhysicalGridForVolume(factor, targetGridShape);
       if (!physGrid.empty()) {
         bestFactor = factor;
         break;
