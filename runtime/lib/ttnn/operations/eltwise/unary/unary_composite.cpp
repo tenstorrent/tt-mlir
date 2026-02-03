@@ -48,7 +48,7 @@ static void runEltwiseUnaryCompositeClampScalarOp(
 
   // Use the union type to determine whether to use int or float clamp
   ::ttnn::Tensor out;
-  if (params->min_type() == ::tt::target::ttnn::RhsParams::I32) {
+  if (params->min_type() == ::tt::target::ttnn::NumberType::I32) {
     int32_t min = params->min_as_I32()->value();
     int32_t max = params->max_as_I32()->value();
     out = ::ttnn::clamp(in, min, max, outputMemoryConfig);

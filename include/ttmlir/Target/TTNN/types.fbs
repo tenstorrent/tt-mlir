@@ -116,6 +116,11 @@ table IntegralType {
   value: int32;
 }
 
+union NumberType {
+  FP: FloatingPointType,
+  I32: IntegralType,
+}
+
 enum PlacementType: ushort {
     Replicate,
     Shard,
