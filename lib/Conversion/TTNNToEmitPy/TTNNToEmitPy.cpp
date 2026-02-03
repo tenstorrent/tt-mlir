@@ -104,10 +104,22 @@ public:
     args.push_back(emitter.emit(srcOp.getInput()));
 
     if constexpr (std::is_same_v<SourceOp, mlir::tt::ttnn::ClampScalarOp>) {
-      args.push_back(
-          emitter.emit(ttmlir::utils::attributeToAPFloat(srcOp.getMin())));
-      args.push_back(
-          emitter.emit(ttmlir::utils::attributeToAPFloat(srcOp.getMax())));
+      // Emit int or float attribute based on output element type
+      auto outputType =
+          mlir::cast<mlir::RankedTensorType>(srcOp.getResult().getType());
+      auto elementType = outputType.getElementType();
+
+      if (mlir::isa<mlir::IntegerType>(elementType)) {
+        args.push_back(emitter.emit(
+            mlir::cast<mlir::IntegerAttr>(srcOp.getMin()).getInt()));
+        args.push_back(emitter.emit(
+            mlir::cast<mlir::IntegerAttr>(srcOp.getMax()).getInt()));
+      } else {
+        args.push_back(emitter.emit(
+            mlir::cast<mlir::FloatAttr>(srcOp.getMin()).getValueAsDouble()));
+        args.push_back(emitter.emit(
+            mlir::cast<mlir::FloatAttr>(srcOp.getMax()).getValueAsDouble()));
+      }
     } else {
       // ClampTensorOp uses tensor values
       args.push_back(emitter.emit(srcOp.getMin()));

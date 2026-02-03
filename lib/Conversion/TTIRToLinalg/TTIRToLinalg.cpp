@@ -2784,12 +2784,10 @@ public:
     } else if (isa<IntegerType>(elementType)) {
       minAttr = rewriter.getIntegerAttr(
           elementType,
-          static_cast<int64_t>(
-              ttmlir::utils::attributeToDouble(op.getMin())));
+          static_cast<int64_t>(ttmlir::utils::attributeToDouble(op.getMin())));
       maxAttr = rewriter.getIntegerAttr(
           elementType,
-          static_cast<int64_t>(
-              ttmlir::utils::attributeToDouble(op.getMax())));
+          static_cast<int64_t>(ttmlir::utils::attributeToDouble(op.getMax())));
     } else {
       return rewriter.notifyMatchFailure(op,
                                          "Unsupported element type for clamp");

@@ -201,20 +201,26 @@ void mlir::tt::ttir::ClampScalarOp::getCanonicalizationPatterns(
       return mlir::failure();
     }
 
-    auto newMinVal = llvm::maximum(ttmlir::utils::attributeToAPFloat(producerOp.getMin()),
-                                   ttmlir::utils::attributeToAPFloat(op.getMin()));
-    auto newMaxVal = llvm::minimum(ttmlir::utils::attributeToAPFloat(producerOp.getMax()),
-                                   ttmlir::utils::attributeToAPFloat(op.getMax()));
+    auto newMinVal =
+        llvm::maximum(ttmlir::utils::attributeToAPFloat(producerOp.getMin()),
+                      ttmlir::utils::attributeToAPFloat(op.getMin()));
+    auto newMaxVal =
+        llvm::minimum(ttmlir::utils::attributeToAPFloat(producerOp.getMax()),
+                      ttmlir::utils::attributeToAPFloat(op.getMax()));
 
     mlir::Attribute newMin, newMax;
     if (mlir::isa<mlir::FloatAttr>(op.getMin())) {
-      newMin = mlir::FloatAttr::get(mlir::cast<mlir::FloatAttr>(op.getMin()).getType(), newMinVal);
-      newMax = mlir::FloatAttr::get(mlir::cast<mlir::FloatAttr>(op.getMax()).getType(), newMaxVal);
+      newMin = mlir::FloatAttr::get(
+          mlir::cast<mlir::FloatAttr>(op.getMin()).getType(), newMinVal);
+      newMax = mlir::FloatAttr::get(
+          mlir::cast<mlir::FloatAttr>(op.getMax()).getType(), newMaxVal);
     } else {
-      newMin = mlir::IntegerAttr::get(mlir::cast<mlir::IntegerAttr>(op.getMin()).getType(),
-                                      static_cast<int64_t>(newMinVal.convertToFloat()));
-      newMax = mlir::IntegerAttr::get(mlir::cast<mlir::IntegerAttr>(op.getMax()).getType(),
-                                      static_cast<int64_t>(newMaxVal.convertToFloat()));
+      newMin = mlir::IntegerAttr::get(
+          mlir::cast<mlir::IntegerAttr>(op.getMin()).getType(),
+          static_cast<int64_t>(newMinVal.convertToFloat()));
+      newMax = mlir::IntegerAttr::get(
+          mlir::cast<mlir::IntegerAttr>(op.getMax()).getType(),
+          static_cast<int64_t>(newMaxVal.convertToFloat()));
     }
 
     rewriter.replaceOpWithNewOp<ClampScalarOp>(
