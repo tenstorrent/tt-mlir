@@ -8,6 +8,7 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
+#include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
@@ -2775,25 +2776,20 @@ public:
     auto elementType = resultType.getElementType();
     TypedAttr minAttr, maxAttr;
 
-    // Helper to convert attribute to double
-    auto attrToDouble = [](mlir::Attribute attr) -> double {
-      if (auto floatAttr = mlir::dyn_cast<mlir::FloatAttr>(attr)) {
-        return floatAttr.getValueAsDouble();
-      }
-      if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(attr)) {
-        return static_cast<double>(intAttr.getValue().getSExtValue());
-      }
-      llvm_unreachable("Unsupported attribute type for clamp");
-    };
-
     if (isa<FloatType>(elementType)) {
-      minAttr = rewriter.getFloatAttr(elementType, attrToDouble(op.getMin()));
-      maxAttr = rewriter.getFloatAttr(elementType, attrToDouble(op.getMax()));
+      minAttr = rewriter.getFloatAttr(
+          elementType, ttmlir::utils::attributeToDouble(op.getMin()));
+      maxAttr = rewriter.getFloatAttr(
+          elementType, ttmlir::utils::attributeToDouble(op.getMax()));
     } else if (isa<IntegerType>(elementType)) {
       minAttr = rewriter.getIntegerAttr(
-          elementType, static_cast<int64_t>(attrToDouble(op.getMin())));
+          elementType,
+          static_cast<int64_t>(
+              ttmlir::utils::attributeToDouble(op.getMin())));
       maxAttr = rewriter.getIntegerAttr(
-          elementType, static_cast<int64_t>(attrToDouble(op.getMax())));
+          elementType,
+          static_cast<int64_t>(
+              ttmlir::utils::attributeToDouble(op.getMax())));
     } else {
       return rewriter.notifyMatchFailure(op,
                                          "Unsupported element type for clamp");

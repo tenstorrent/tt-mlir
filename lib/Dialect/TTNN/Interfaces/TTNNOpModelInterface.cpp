@@ -13,6 +13,7 @@
 #include "ttmlir/Dialect/TTNN/Interfaces/TTNNOpModelInterface.cpp.inc"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/OpModel/TTNN/TTNNOpModel.h"
+#include "ttmlir/Utils.h"
 
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/Operation.h"
@@ -3957,22 +3958,10 @@ ClampScalarOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   ttcore::GridAttr deviceGrid =
       ttcore::lookupDevice(getOperation()).getWorkerGrid();
 
-  // Convert attributes to APFloat
-  auto attrToAPFloat = [](mlir::Attribute attr) -> llvm::APFloat {
-    if (auto floatAttr = mlir::dyn_cast<mlir::FloatAttr>(attr)) {
-      return floatAttr.getValue();
-    }
-    if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(attr)) {
-      return llvm::APFloat(
-          static_cast<float>(intAttr.getValue().getSExtValue()));
-    }
-    llvm_unreachable("Unsupported attribute type for clamp");
-  };
-
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<ClampScalarOp>::getOpConstraints, *this, deviceGrid,
-      inputShape, inputs[0], attrToAPFloat(getMin()), attrToAPFloat(getMax()),
-      opConfig.outputLayout);
+      inputShape, inputs[0], ttmlir::utils::attributeToAPFloat(getMin()),
+      ttmlir::utils::attributeToAPFloat(getMax()), opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -3982,22 +3971,10 @@ ClampScalarOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 
   const auto inputShape = getInput().getType().getShape();
 
-  // Convert attributes to APFloat
-  auto attrToAPFloat = [](mlir::Attribute attr) -> llvm::APFloat {
-    if (auto floatAttr = mlir::dyn_cast<mlir::FloatAttr>(attr)) {
-      return floatAttr.getValue();
-    }
-    if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(attr)) {
-      return llvm::APFloat(
-          static_cast<float>(intAttr.getValue().getSExtValue()));
-    }
-    llvm_unreachable("Unsupported attribute type for clamp");
-  };
-
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<ClampScalarOp>::getOpRuntime, *this, inputShape,
-      inputs[0], attrToAPFloat(getMin()), attrToAPFloat(getMax()),
-      opConfig.outputLayout);
+      inputs[0], ttmlir::utils::attributeToAPFloat(getMin()),
+      ttmlir::utils::attributeToAPFloat(getMax()), opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//

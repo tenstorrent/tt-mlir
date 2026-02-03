@@ -9,6 +9,7 @@
 #include "ttmlir/Dialect/EmitPy/IR/EmitPyTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
+#include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Value.h"
@@ -103,19 +104,10 @@ public:
     args.push_back(emitter.emit(srcOp.getInput()));
 
     if constexpr (std::is_same_v<SourceOp, mlir::tt::ttnn::ClampScalarOp>) {
-      // Helper to convert attribute to APFloat for ClampScalarOp
-      auto attrToAPFloat = [](mlir::Attribute attr) -> llvm::APFloat {
-        if (auto floatAttr = mlir::dyn_cast<mlir::FloatAttr>(attr)) {
-          return floatAttr.getValue();
-        }
-        if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(attr)) {
-          return llvm::APFloat(
-              static_cast<float>(intAttr.getValue().getSExtValue()));
-        }
-        llvm_unreachable("Unsupported attribute type for clamp");
-      };
-      args.push_back(emitter.emit(attrToAPFloat(srcOp.getMin())));
-      args.push_back(emitter.emit(attrToAPFloat(srcOp.getMax())));
+      args.push_back(
+          emitter.emit(ttmlir::utils::attributeToAPFloat(srcOp.getMin())));
+      args.push_back(
+          emitter.emit(ttmlir::utils::attributeToAPFloat(srcOp.getMax())));
     } else {
       // ClampTensorOp uses tensor values
       args.push_back(emitter.emit(srcOp.getMin()));

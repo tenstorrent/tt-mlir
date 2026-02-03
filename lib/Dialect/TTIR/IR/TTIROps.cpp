@@ -201,63 +201,22 @@ void mlir::tt::ttir::ClampScalarOp::getCanonicalizationPatterns(
       return mlir::failure();
     }
 
-    // Helper to convert attribute to double
-    auto attrToDouble = [](mlir::Attribute attr) -> std::optional<double> {
-      if (auto floatAttr = mlir::dyn_cast<mlir::FloatAttr>(attr)) {
-        return floatAttr.getValueAsDouble();
-      }
-      if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(attr)) {
-        return static_cast<double>(intAttr.getValue().getSExtValue());
-      }
-      return std::nullopt;
-    };
+    auto newMinVal = llvm::maximum(ttmlir::utils::attributeToAPFloat(producerOp.getMin()),
+                                   ttmlir::utils::attributeToAPFloat(op.getMin()));
+    auto newMaxVal = llvm::minimum(ttmlir::utils::attributeToAPFloat(producerOp.getMax()),
+                                   ttmlir::utils::attributeToAPFloat(op.getMax()));
 
-    // Get the min/max values from both ops
-    auto producerMin = producerOp.getMin();
-    auto producerMax = producerOp.getMax();
-    auto consumerMin = op.getMin();
-    auto consumerMax = op.getMax();
-
-    // Convert to doubles for comparison
-    auto producerMinVal = attrToDouble(producerMin);
-    auto producerMaxVal = attrToDouble(producerMax);
-    auto consumerMinVal = attrToDouble(consumerMin);
-    auto consumerMaxVal = attrToDouble(consumerMax);
-
-    if (!producerMinVal || !producerMaxVal || !consumerMinVal ||
-        !consumerMaxVal) {
-      return mlir::failure();
+    mlir::Attribute newMin, newMax;
+    if (mlir::isa<mlir::FloatAttr>(op.getMin())) {
+      newMin = mlir::FloatAttr::get(mlir::cast<mlir::FloatAttr>(op.getMin()).getType(), newMinVal);
+      newMax = mlir::FloatAttr::get(mlir::cast<mlir::FloatAttr>(op.getMax()).getType(), newMaxVal);
+    } else {
+      newMin = mlir::IntegerAttr::get(mlir::cast<mlir::IntegerAttr>(op.getMin()).getType(),
+                                      static_cast<int64_t>(newMinVal.convertToFloat()));
+      newMax = mlir::IntegerAttr::get(mlir::cast<mlir::IntegerAttr>(op.getMax()).getType(),
+                                      static_cast<int64_t>(newMaxVal.convertToFloat()));
     }
 
-    // Calculate the tightest bounds
-    double newMinVal = std::max(*producerMinVal, *consumerMinVal);
-    double newMaxVal = std::min(*producerMaxVal, *consumerMaxVal);
-
-    // Helper to create attribute from double
-    auto doubleToAttr = [&](double value,
-                            mlir::Attribute refAttr) -> mlir::Attribute {
-      if (mlir::isa<mlir::FloatAttr>(refAttr)) {
-        return mlir::FloatAttr::get(
-            mlir::Float32Type::get(rewriter.getContext()),
-            static_cast<float>(value));
-      }
-      if (mlir::isa<mlir::IntegerAttr>(refAttr)) {
-        return mlir::IntegerAttr::get(
-            mlir::IntegerType::get(rewriter.getContext(), 32),
-            static_cast<int32_t>(value));
-      }
-      return {};
-    };
-
-    // Create new attributes (use consumer's attribute types)
-    auto newMin = doubleToAttr(newMinVal, consumerMin);
-    auto newMax = doubleToAttr(newMaxVal, consumerMax);
-
-    if (!newMin || !newMax) {
-      return mlir::failure();
-    }
-
-    // Replace with a single ClampScalarOp with the new bounds
     rewriter.replaceOpWithNewOp<ClampScalarOp>(
         op, op.getResult().getType(), producerOp.getInput(), newMin, newMax);
     return mlir::success();
@@ -266,25 +225,10 @@ void mlir::tt::ttir::ClampScalarOp::getCanonicalizationPatterns(
   // Fold clamp with min=0 and max=6 to relu6
   patterns.add(+[](mlir::tt::ttir::ClampScalarOp op,
                    mlir::PatternRewriter &rewriter) {
-    // Helper to convert attribute to double
-    auto attrToDouble = [](mlir::Attribute attr) -> std::optional<double> {
-      if (auto floatAttr = mlir::dyn_cast<mlir::FloatAttr>(attr)) {
-        return floatAttr.getValueAsDouble();
-      }
-      if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(attr)) {
-        return static_cast<double>(intAttr.getValue().getSExtValue());
-      }
-      return std::nullopt;
-    };
+    double minVal = ttmlir::utils::attributeToDouble(op.getMin());
+    double maxVal = ttmlir::utils::attributeToDouble(op.getMax());
 
-    auto minVal = attrToDouble(op.getMin());
-    auto maxVal = attrToDouble(op.getMax());
-
-    if (!minVal || !maxVal) {
-      return mlir::failure();
-    }
-
-    if (*minVal == 0.0 && *maxVal == 6.0) {
+    if (minVal == 0.0 && maxVal == 6.0) {
       rewriter.replaceOpWithNewOp<ttir::Relu6Op>(op, op.getResult().getType(),
                                                  op.getInput());
       return mlir::success();
