@@ -28,17 +28,22 @@ module attributes {ttcore.system_desc = #system_desc} {
     // CHECK: d2m.write_col_mask_tile
     // CHECK: scf.for
     // CHECK:   scf.for
-    d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map, #map1, #map1, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<compute>]}
+    d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map, #map1, #map1, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<unified>]}
         ins(%arg0, %arg2, %arg3 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #shard_2x2, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #shard_1x1, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #shard_1x1, #l1>)
         outs(%arg1 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #shard_2x2, #l1>) {
-    ^compute0(%cb0: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1>>, %cb1: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1>>, %cb2: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1>>, %cb3: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1>>):
+    ^unified0(%cb0: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1>>, %cb1: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1>>, %cb2: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1>>, %cb3: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1>>):
+      %c0 = arith.constant 0 : index
       %c64 = arith.constant 64 : index
       %c50 = arith.constant 50 : index
-      %0 = d2m.wait %cb0 : <memref<2x2x!ttcore.tile<32x32, f32>, #l1>> -> memref<2x2x!ttcore.tile<32x32, f32>, #l1>
-      %1 = d2m.wait %cb1 : <memref<1x1x!ttcore.tile<32x32, f32>, #l1>> -> memref<1x1x!ttcore.tile<32x32, f32>, #l1>
-      %2 = d2m.wait %cb2 : <memref<1x1x!ttcore.tile<32x32, f32>, #l1>> -> memref<1x1x!ttcore.tile<32x32, f32>, #l1>
-      %3 = d2m.reserve %cb3 : <memref<2x2x!ttcore.tile<32x32, f32>, #l1>> -> memref<2x2x!ttcore.tile<32x32, f32>, #l1>
-      "d2m.block_mask"(%0, %3, %1, %2, %c50, %c64) <{fill_value = #ttcore.oob_val<inf>, operandSegmentSizes = array<i32: 1, 1, 1, 1, 1, 1>}> : (memref<2x2x!ttcore.tile<32x32, f32>, #l1>, memref<2x2x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>, index, index) -> ()
+      %buf0 = memref.alloc() : memref<2x2x!ttcore.tile<32x32, f32>, #l1>
+      %buf1 = memref.alloc() : memref<1x1x!ttcore.tile<32x32, f32>, #l1>
+      %buf2 = memref.alloc() : memref<1x1x!ttcore.tile<32x32, f32>, #l1>
+      %buf3 = memref.alloc() : memref<2x2x!ttcore.tile<32x32, f32>, #l1>
+      %0 = d2m.remote_load %buf0 %arg0[%c0, %c0] : memref<2x2x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x2x2x!ttcore.tile<32x32, f32>, #shard_2x2, #l1> -> memref<2x2x!ttcore.tile<32x32, f32>, #l1>
+      %1 = d2m.remote_load %buf1 %arg2[%c0, %c0] : memref<1x1x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #shard_1x1, #l1> -> memref<1x1x!ttcore.tile<32x32, f32>, #l1>
+      %2 = d2m.remote_load %buf2 %arg3[%c0, %c0] : memref<1x1x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #shard_1x1, #l1> -> memref<1x1x!ttcore.tile<32x32, f32>, #l1>
+      %4 = "d2m.block_mask"(%0, %buf3, %1, %2, %c50, %c64) <{fill_value = #ttcore.oob_val<inf>, operandSegmentSizes = array<i32: 1, 1, 1, 1, 1, 1>}> : (memref<2x2x!ttcore.tile<32x32, f32>, #l1>, memref<2x2x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>, index, index) -> memref<2x2x!ttcore.tile<32x32, f32>, #l1>
+      %5 = d2m.remote_store %arg1[%c0, %c0] %4 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #shard_2x2, #l1>, memref<2x2x!ttcore.tile<32x32, f32>, #l1> -> memref<1x1x2x2x!ttcore.tile<32x32, f32>, #shard_2x2, #l1>
     }
     return
   }
@@ -79,16 +84,21 @@ module attributes {ttcore.system_desc = #system_desc} {
     // CHECK: scf.for
     // CHECK:   scf.for
     // CHECK:     d2m.tile_fill
-    d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map, #map1, #map1, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<compute>]}
+    d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map, #map1, #map1, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<unified>]}
         ins(%arg0, %arg2, %arg3 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #shard_2x2, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #shard_1x1, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #shard_1x1, #l1>)
         outs(%arg1 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #shard_2x2, #l1>) {
-    ^compute0(%cb0: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1>>, %cb1: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1>>, %cb2: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1>>, %cb3: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1>>):
+    ^unified0(%cb0: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1>>, %cb1: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1>>, %cb2: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1>>, %cb3: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1>>):
+      %c0 = arith.constant 0 : index
       %c50 = arith.constant 50 : index
-      %0 = d2m.wait %cb0 : <memref<2x2x!ttcore.tile<32x32, f32>, #l1>> -> memref<2x2x!ttcore.tile<32x32, f32>, #l1>
-      %1 = d2m.wait %cb1 : <memref<1x1x!ttcore.tile<32x32, f32>, #l1>> -> memref<1x1x!ttcore.tile<32x32, f32>, #l1>
-      %2 = d2m.wait %cb2 : <memref<1x1x!ttcore.tile<32x32, f32>, #l1>> -> memref<1x1x!ttcore.tile<32x32, f32>, #l1>
-      %3 = d2m.reserve %cb3 : <memref<2x2x!ttcore.tile<32x32, f32>, #l1>> -> memref<2x2x!ttcore.tile<32x32, f32>, #l1>
-      "d2m.block_mask"(%0, %3, %1, %2, %c50, %c50) <{fill_value = #ttcore.oob_val<zero>, operandSegmentSizes = array<i32: 1, 1, 1, 1, 1, 1>}> : (memref<2x2x!ttcore.tile<32x32, f32>, #l1>, memref<2x2x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>, index, index) -> ()
+      %buf0 = memref.alloc() : memref<2x2x!ttcore.tile<32x32, f32>, #l1>
+      %buf1 = memref.alloc() : memref<1x1x!ttcore.tile<32x32, f32>, #l1>
+      %buf2 = memref.alloc() : memref<1x1x!ttcore.tile<32x32, f32>, #l1>
+      %buf3 = memref.alloc() : memref<2x2x!ttcore.tile<32x32, f32>, #l1>
+      %0 = d2m.remote_load %buf0 %arg0[%c0, %c0] : memref<2x2x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x2x2x!ttcore.tile<32x32, f32>, #shard_2x2, #l1> -> memref<2x2x!ttcore.tile<32x32, f32>, #l1>
+      %1 = d2m.remote_load %buf1 %arg2[%c0, %c0] : memref<1x1x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #shard_1x1, #l1> -> memref<1x1x!ttcore.tile<32x32, f32>, #l1>
+      %2 = d2m.remote_load %buf2 %arg3[%c0, %c0] : memref<1x1x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #shard_1x1, #l1> -> memref<1x1x!ttcore.tile<32x32, f32>, #l1>
+      %4 = "d2m.block_mask"(%0, %buf3, %1, %2, %c50, %c50) <{fill_value = #ttcore.oob_val<zero>, operandSegmentSizes = array<i32: 1, 1, 1, 1, 1, 1>}> : (memref<2x2x!ttcore.tile<32x32, f32>, #l1>, memref<2x2x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>, index, index) -> memref<2x2x!ttcore.tile<32x32, f32>, #l1>
+      %5 = d2m.remote_store %arg1[%c0, %c0] %4 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #shard_2x2, #l1>, memref<2x2x!ttcore.tile<32x32, f32>, #l1> -> memref<1x1x2x2x!ttcore.tile<32x32, f32>, #shard_2x2, #l1>
     }
     return
   }
@@ -102,16 +112,21 @@ module attributes {ttcore.system_desc = #system_desc} {
     // CHECK-NOT: d2m.block_mask
     // CHECK: d2m.generic
     // CHECK: scf.for
-    d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map, #map1, #map1, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<compute>]}
+    d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map, #map1, #map1, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<unified>]}
         ins(%arg0, %arg2, %arg3 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #shard_2x2, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #shard_1x1, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #shard_1x1, #l1>)
         outs(%arg1 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #shard_2x2, #l1>) {
-    ^compute0(%cb0: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1>>, %cb1: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1>>, %cb2: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1>>, %cb3: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1>>):
+    ^unified0(%cb0: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1>>, %cb1: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1>>, %cb2: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1>>, %cb3: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1>>):
+      %c0 = arith.constant 0 : index
       %c50 = arith.constant 50 : index
-      %0 = d2m.wait %cb0 : <memref<2x2x!ttcore.tile<32x32, f32>, #l1>> -> memref<2x2x!ttcore.tile<32x32, f32>, #l1>
-      %1 = d2m.wait %cb1 : <memref<1x1x!ttcore.tile<32x32, f32>, #l1>> -> memref<1x1x!ttcore.tile<32x32, f32>, #l1>
-      %2 = d2m.wait %cb2 : <memref<1x1x!ttcore.tile<32x32, f32>, #l1>> -> memref<1x1x!ttcore.tile<32x32, f32>, #l1>
-      %3 = d2m.reserve %cb3 : <memref<2x2x!ttcore.tile<32x32, f32>, #l1>> -> memref<2x2x!ttcore.tile<32x32, f32>, #l1>
-      "d2m.block_mask"(%0, %3, %1, %2, %c50, %c50) <{fill_value = #ttcore.oob_val<neginf>, operandSegmentSizes = array<i32: 1, 1, 1, 1, 1, 1>}> : (memref<2x2x!ttcore.tile<32x32, f32>, #l1>, memref<2x2x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>, index, index) -> ()
+      %buf0 = memref.alloc() : memref<2x2x!ttcore.tile<32x32, f32>, #l1>
+      %buf1 = memref.alloc() : memref<1x1x!ttcore.tile<32x32, f32>, #l1>
+      %buf2 = memref.alloc() : memref<1x1x!ttcore.tile<32x32, f32>, #l1>
+      %buf3 = memref.alloc() : memref<2x2x!ttcore.tile<32x32, f32>, #l1>
+      %0 = d2m.remote_load %buf0 %arg0[%c0, %c0] : memref<2x2x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x2x2x!ttcore.tile<32x32, f32>, #shard_2x2, #l1> -> memref<2x2x!ttcore.tile<32x32, f32>, #l1>
+      %1 = d2m.remote_load %buf1 %arg2[%c0, %c0] : memref<1x1x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #shard_1x1, #l1> -> memref<1x1x!ttcore.tile<32x32, f32>, #l1>
+      %2 = d2m.remote_load %buf2 %arg3[%c0, %c0] : memref<1x1x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #shard_1x1, #l1> -> memref<1x1x!ttcore.tile<32x32, f32>, #l1>
+      %4 = "d2m.block_mask"(%0, %buf3, %1, %2, %c50, %c50) <{fill_value = #ttcore.oob_val<neginf>, operandSegmentSizes = array<i32: 1, 1, 1, 1, 1, 1>}> : (memref<2x2x!ttcore.tile<32x32, f32>, #l1>, memref<2x2x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>, index, index) -> memref<2x2x!ttcore.tile<32x32, f32>, #l1>
+      %5 = d2m.remote_store %arg1[%c0, %c0] %4 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #shard_2x2, #l1>, memref<2x2x!ttcore.tile<32x32, f32>, #l1> -> memref<1x1x2x2x!ttcore.tile<32x32, f32>, #shard_2x2, #l1>
     }
     return
   }
@@ -125,16 +140,21 @@ module attributes {ttcore.system_desc = #system_desc} {
     // CHECK-NOT: d2m.block_mask
     // CHECK: d2m.generic
     // CHECK: scf.for
-    d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map, #map1, #map1, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<compute>]}
+    d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map, #map1, #map1, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<unified>]}
         ins(%arg0, %arg2, %arg3 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #shard_2x2, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #shard_1x1, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #shard_1x1, #l1>)
         outs(%arg1 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #shard_2x2, #l1>) {
-    ^compute0(%cb0: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1>>, %cb1: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1>>, %cb2: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1>>, %cb3: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1>>):
+    ^unified0(%cb0: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1>>, %cb1: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1>>, %cb2: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1>>, %cb3: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1>>):
+      %c0 = arith.constant 0 : index
       %c64 = arith.constant 64 : index
-      %0 = d2m.wait %cb0 : <memref<2x2x!ttcore.tile<32x32, f32>, #l1>> -> memref<2x2x!ttcore.tile<32x32, f32>, #l1>
-      %1 = d2m.wait %cb1 : <memref<1x1x!ttcore.tile<32x32, f32>, #l1>> -> memref<1x1x!ttcore.tile<32x32, f32>, #l1>
-      %2 = d2m.wait %cb2 : <memref<1x1x!ttcore.tile<32x32, f32>, #l1>> -> memref<1x1x!ttcore.tile<32x32, f32>, #l1>
-      %3 = d2m.reserve %cb3 : <memref<2x2x!ttcore.tile<32x32, f32>, #l1>> -> memref<2x2x!ttcore.tile<32x32, f32>, #l1>
-      "d2m.block_mask"(%0, %3, %1, %2, %c64, %c64) <{fill_value = #ttcore.oob_val<zero>, operandSegmentSizes = array<i32: 1, 1, 1, 1, 1, 1>}> : (memref<2x2x!ttcore.tile<32x32, f32>, #l1>, memref<2x2x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>, index, index) -> ()
+      %buf0 = memref.alloc() : memref<2x2x!ttcore.tile<32x32, f32>, #l1>
+      %buf1 = memref.alloc() : memref<1x1x!ttcore.tile<32x32, f32>, #l1>
+      %buf2 = memref.alloc() : memref<1x1x!ttcore.tile<32x32, f32>, #l1>
+      %buf3 = memref.alloc() : memref<2x2x!ttcore.tile<32x32, f32>, #l1>
+      %0 = d2m.remote_load %buf0 %arg0[%c0, %c0] : memref<2x2x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x2x2x!ttcore.tile<32x32, f32>, #shard_2x2, #l1> -> memref<2x2x!ttcore.tile<32x32, f32>, #l1>
+      %1 = d2m.remote_load %buf1 %arg2[%c0, %c0] : memref<1x1x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #shard_1x1, #l1> -> memref<1x1x!ttcore.tile<32x32, f32>, #l1>
+      %2 = d2m.remote_load %buf2 %arg3[%c0, %c0] : memref<1x1x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #shard_1x1, #l1> -> memref<1x1x!ttcore.tile<32x32, f32>, #l1>
+      %4 = "d2m.block_mask"(%0, %buf3, %1, %2, %c64, %c64) <{fill_value = #ttcore.oob_val<zero>, operandSegmentSizes = array<i32: 1, 1, 1, 1, 1, 1>}> : (memref<2x2x!ttcore.tile<32x32, f32>, #l1>, memref<2x2x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>, index, index) -> memref<2x2x!ttcore.tile<32x32, f32>, #l1>
+      %5 = d2m.remote_store %arg1[%c0, %c0] %4 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #shard_2x2, #l1>, memref<2x2x!ttcore.tile<32x32, f32>, #l1> -> memref<1x1x2x2x!ttcore.tile<32x32, f32>, #shard_2x2, #l1>
     }
     return
   }
@@ -148,16 +168,16 @@ module attributes {ttcore.system_desc = #system_desc} {
     // CHECK-NOT: d2m.block_mask
     // CHECK: d2m.generic
     // CHECK: scf.for
-    d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map, #map1, #map1, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<compute>]}
+    d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map, #map1, #map1, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<unified>]}
         ins(%arg0, %arg2, %arg3 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #shard_2x2, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #shard_1x1, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #shard_1x1, #l1>)
         outs(%arg1 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #shard_2x2, #l1>) {
-    ^compute0(%cb0: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1>>, %cb1: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1>>, %cb2: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1>>, %cb3: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1>>):
+    ^unified0(%cb0: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1>>, %cb1: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1>>, %cb2: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1>>, %cb3: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1>>):
       %c32 = arith.constant 32 : index
       %0 = d2m.wait %cb0 : <memref<2x2x!ttcore.tile<32x32, f32>, #l1>> -> memref<2x2x!ttcore.tile<32x32, f32>, #l1>
       %1 = d2m.wait %cb1 : <memref<1x1x!ttcore.tile<32x32, f32>, #l1>> -> memref<1x1x!ttcore.tile<32x32, f32>, #l1>
       %2 = d2m.wait %cb2 : <memref<1x1x!ttcore.tile<32x32, f32>, #l1>> -> memref<1x1x!ttcore.tile<32x32, f32>, #l1>
       %3 = d2m.reserve %cb3 : <memref<2x2x!ttcore.tile<32x32, f32>, #l1>> -> memref<2x2x!ttcore.tile<32x32, f32>, #l1>
-      "d2m.block_mask"(%0, %3, %1, %2, %c32, %c32) <{fill_value = #ttcore.oob_val<zero>, operandSegmentSizes = array<i32: 1, 1, 1, 1, 1, 1>}> : (memref<2x2x!ttcore.tile<32x32, f32>, #l1>, memref<2x2x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>, index, index) -> ()
+      %4 = "d2m.block_mask"(%0, %3, %1, %2, %c32, %c32) <{fill_value = #ttcore.oob_val<zero>, operandSegmentSizes = array<i32: 1, 1, 1, 1, 1, 1>}> : (memref<2x2x!ttcore.tile<32x32, f32>, #l1>, memref<2x2x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>, index, index) -> memref<2x2x!ttcore.tile<32x32, f32>, #l1>
     }
     return
   }
@@ -171,16 +191,16 @@ module attributes {ttcore.system_desc = #system_desc} {
     // CHECK-NOT: d2m.block_mask
     // CHECK: d2m.generic
     // CHECK: scf.for
-    d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map, #map1, #map1, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<compute>]}
+    d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map, #map1, #map1, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<unified>]}
         ins(%arg0, %arg2, %arg3 : memref<1x1x4x4x!ttcore.tile<32x32, f32>, #shard_4x4, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #shard_1x1, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #shard_1x1, #l1>)
         outs(%arg1 : memref<1x1x4x4x!ttcore.tile<32x32, f32>, #shard_4x4, #l1>) {
-    ^compute0(%cb0: !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>, %cb1: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1>>, %cb2: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1>>, %cb3: !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>):
+    ^unified0(%cb0: !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>, %cb1: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1>>, %cb2: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1>>, %cb3: !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>):
       %c100 = arith.constant 100 : index
       %0 = d2m.wait %cb0 : <memref<4x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<4x4x!ttcore.tile<32x32, f32>, #l1>
       %1 = d2m.wait %cb1 : <memref<1x1x!ttcore.tile<32x32, f32>, #l1>> -> memref<1x1x!ttcore.tile<32x32, f32>, #l1>
       %2 = d2m.wait %cb2 : <memref<1x1x!ttcore.tile<32x32, f32>, #l1>> -> memref<1x1x!ttcore.tile<32x32, f32>, #l1>
       %3 = d2m.reserve %cb3 : <memref<4x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<4x4x!ttcore.tile<32x32, f32>, #l1>
-      "d2m.block_mask"(%0, %3, %1, %2, %c100, %c100) <{fill_value = #ttcore.oob_val<zero>, operandSegmentSizes = array<i32: 1, 1, 1, 1, 1, 1>}> : (memref<4x4x!ttcore.tile<32x32, f32>, #l1>, memref<4x4x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>, index, index) -> ()
+      %4 = "d2m.block_mask"(%0, %3, %1, %2, %c100, %c100) <{fill_value = #ttcore.oob_val<zero>, operandSegmentSizes = array<i32: 1, 1, 1, 1, 1, 1>}> : (memref<4x4x!ttcore.tile<32x32, f32>, #l1>, memref<4x4x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>, index, index) -> memref<4x4x!ttcore.tile<32x32, f32>, #l1>
     }
     return
   }

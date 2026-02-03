@@ -2112,10 +2112,15 @@ mlir::LogicalResult d2m::GenericOp::bufferize(
 }
 
 mlir::FailureOr<mlir::bufferization::BufferLikeType>
-d2m::GenericOp::getBufferType(mlir::Value value,
-                              const mlir::bufferization::BufferizationOptions &,
-                              const mlir::bufferization::BufferizationState &,
-                              ::llvm::SmallVector<mlir::Value> &) {
+d2m::GenericOp::getBufferType(
+    mlir::Value value, const mlir::bufferization::BufferizationOptions &options,
+    const mlir::bufferization::BufferizationState &,
+    ::llvm::SmallVector<mlir::Value> &) {
+  // Handle CB types - delegate to CBType::getBufferType.
+  if (auto cbType = mlir::dyn_cast<d2m::CBType>(value.getType())) {
+    return cbType.getBufferType(options, [&]() { return this->emitError(); });
+  }
+
   auto tensorType = mlir::cast<RankedTensorType>(value.getType());
   if (mlir::isa<mlir::BlockArgument>(value)) {
     assert(!tensorType.getEncoding());

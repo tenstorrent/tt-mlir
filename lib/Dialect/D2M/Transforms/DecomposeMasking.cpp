@@ -389,7 +389,7 @@ struct DecomposeBlockMaskPattern : OpRewritePattern<BlockMaskOp> {
       createLocalLoop(rowStart, rowEnd, colStart, colEnd, emitFill);
     }
 
-    rewriter.eraseOp(op);
+    rewriter.replaceOp(op, op.getOutput());
     return success();
   }
 };

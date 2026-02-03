@@ -1390,6 +1390,7 @@ BlockMaskOp::bufferize(mlir::RewriterBase &rewriter,
 
   mlir::Value in = getInput();
   mlir::Value out = getOutput();
+
   if (mlir::isa<mlir::RankedTensorType>(in.getType())) {
     auto maybe = mlir::bufferization::getBuffer(rewriter, in, options, state);
     if (failed(maybe)) {
@@ -1405,7 +1406,7 @@ BlockMaskOp::bufferize(mlir::RewriterBase &rewriter,
     out = *maybe;
   }
 
-  // Bufferize mask CBs if present
+  // Bufferize mask tensors if present.
   mlir::Value rowMaskCb = getRowMaskCb();
   if (rowMaskCb && mlir::isa<mlir::RankedTensorType>(rowMaskCb.getType())) {
     auto maybe =
@@ -1426,11 +1427,11 @@ BlockMaskOp::bufferize(mlir::RewriterBase &rewriter,
     colMaskCb = *maybe;
   }
 
-  mlir::Operation *old = getOperation();
-  auto newOp = rewriter.create<mlir::tt::d2m::BlockMaskOp>(
-      old->getLoc(), in, out, rowMaskCb, colMaskCb, getLogicalRows(),
+  rewriter.create<mlir::tt::d2m::BlockMaskOp>(
+      getLoc(), out.getType(), in, out, rowMaskCb, colMaskCb, getLogicalRows(),
       getLogicalCols(), getFillValue());
-  rewriter.replaceOp(old, newOp->getResults());
+  rewriter.replaceAllUsesWith(getResult(), out);
+  rewriter.eraseOp(*this);
   return mlir::success();
 }
 // NOLINTEND(clang-analyzer-core.StackAddressEscape)
@@ -1444,15 +1445,22 @@ bool BlockMaskOp::bufferizesToMemoryRead(
 
 bool BlockMaskOp::bufferizesToMemoryWrite(
     mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
-  // Only output is written.
-  return operand.get() == getOutput();
+  // We technically write to the scratch CBs as well as output.
+  return operand.get() == getOutput() || operand.get() == getRowMaskCb() ||
+         operand.get() == getColMaskCb();
 }
 
 mlir::bufferization::AliasingValueList
-BlockMaskOp::getAliasingValues(mlir::OpOperand &,
+BlockMaskOp::getAliasingValues(mlir::OpOperand &operand,
                                const mlir::bufferization::AnalysisState &) {
-  // No result, so nothing to alias.
-  return {};
+  mlir::bufferization::AliasingValueList aliasList;
+  // Result aliases output operand since this is a DPS-style op that writes
+  // in-place to the output buffer.
+  if (operand.get() == getOutput()) {
+    aliasList.addAlias(
+        {getResult(), mlir::bufferization::BufferRelation::Equivalent});
+  }
+  return aliasList;
 }
 
 mlir::FailureOr<mlir::bufferization::BufferLikeType>

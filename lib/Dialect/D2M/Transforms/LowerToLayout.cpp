@@ -778,8 +778,6 @@ public:
         [&](OpBuilder &builder, Location innerLoc, ValueRange blockArgs) {
           // blockArgs: [inputCB, rowMaskCB, colMaskCB, outputCB].
           Type inputShardType = getShardTypeFromCB(blockArgs[0]);
-          Type rowMaskShardType = getShardTypeFromCB(blockArgs[1]);
-          Type colMaskShardType = getShardTypeFromCB(blockArgs[2]);
           Type outputShardType = getShardTypeFromCB(blockArgs[3]);
 
           size_t gridRank = gridShape.size();
@@ -790,11 +788,17 @@ public:
           Value src = createRemoteLoad(builder, innerLoc, inputShardType, input,
                                        indices);
 
-          // Create scratch buffers for masks (not loading real data).
-          Value rowMaskBuf =
-              createTensorEmpty(builder, innerLoc, rowMaskShardType);
-          Value colMaskBuf =
-              createTensorEmpty(builder, innerLoc, colMaskShardType);
+          // Load mask data from scratch CBs using RemoteLoad. This establishes
+          // the connection between local buffers and the CBs. The masks use
+          // constant zero indices (broadcast - single tile shared across grid).
+          Type rowMaskType = getShardTypeFromCB(blockArgs[1]);
+          Type colMaskType = getShardTypeFromCB(blockArgs[2]);
+          SmallVector<Value> zeroIndices(
+              gridRank, builder.create<arith::ConstantIndexOp>(innerLoc, 0));
+          Value rowMaskLocal = createRemoteLoad(builder, innerLoc, rowMaskType,
+                                                rowMaskTensor, zeroIndices);
+          Value colMaskLocal = createRemoteLoad(builder, innerLoc, colMaskType,
+                                                colMaskTensor, zeroIndices);
 
           // Create output buffer.
           Value dst = createTensorEmpty(builder, innerLoc, outputShardType);
@@ -804,15 +808,18 @@ public:
           Value logicalColsVal =
               builder.create<arith::ConstantIndexOp>(innerLoc, logicalCols);
 
-          // BlockMaskOp with mask CBs - the mask writes will be handled
+          // BlockMaskOp with mask tensors - the mask writes will be handled
           // in DecomposeMasking, which runs after bufferization.
-          builder.create<BlockMaskOp>(innerLoc, src, dst, rowMaskBuf,
-                                      colMaskBuf, logicalRowsVal,
-                                      logicalColsVal, fillValue);
+          Value masked = builder
+                             .create<BlockMaskOp>(innerLoc, dst.getType(), src,
+                                                  dst, rowMaskLocal,
+                                                  colMaskLocal, logicalRowsVal,
+                                                  logicalColsVal, fillValue)
+                             .getResult();
 
-          // Store result to output.
+          // Store the masked result to output.
           Value storeResult =
-              createRemoteStore(builder, innerLoc, output, indices, dst);
+              createRemoteStore(builder, innerLoc, output, indices, masked);
           builder.create<YieldOp>(innerLoc, storeResult);
         },
         ThreadType::Unified);

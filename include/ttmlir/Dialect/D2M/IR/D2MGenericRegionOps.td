@@ -823,13 +823,15 @@ def D2M_BlockMaskOp : D2M_GenericRegionComputeOp<"block_mask",
     }];
 
     let arguments = (ins
-        AnyTypeOf<[AnyRankedTensorOrMemRef, D2M_CB]>:$input,
-        AnyTypeOf<[AnyRankedTensorOrMemRef, D2M_CB]>:$output,
-        Optional<AnyTypeOf<[AnyRankedTensorOrMemRef, D2M_CB]>>:$row_mask_cb,
-        Optional<AnyTypeOf<[AnyRankedTensorOrMemRef, D2M_CB]>>:$col_mask_cb,
+        AnyRankedTensorOrMemRef:$input,
+        AnyRankedTensorOrMemRef:$output,
+        Optional<AnyRankedTensorOrMemRef>:$row_mask_cb,
+        Optional<AnyRankedTensorOrMemRef>:$col_mask_cb,
         Index:$logical_rows,
         Index:$logical_cols,
         TTCore_OOBValAttr:$fill_value);
+
+    let results = (outs AnyRankedTensorOrMemRef:$result);
 
     // Use default format with AttrSizedOperandSegments - the operand_segment_sizes
     // attribute is automatically added/parsed to track optional operand presence.
