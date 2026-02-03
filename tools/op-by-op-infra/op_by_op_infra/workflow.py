@@ -112,9 +112,7 @@ def _sanitize_filename(name: str) -> str:
     return sanitized
 
 
-def _save_failed_ops(
-    execution_results: list, folder_path: str
-) -> None:
+def _save_failed_ops(execution_results: list, folder_path: str) -> None:
     """Saves the last_generated_module for each failed op to a file in the specified folder."""
     failed_results = [
         (i, result)
