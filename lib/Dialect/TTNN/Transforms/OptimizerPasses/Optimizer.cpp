@@ -62,6 +62,88 @@ TTNNOptimizerOptions::TTNNOptimizerOptions(
       maxLegalLayouts(pipelineOptions.maxLegalLayouts),
       rowMajorEnabled(pipelineOptions.rowMajorEnabled) {}
 
+namespace {
+
+/// Applies the chosen layout to a D2MSubgraphOp: its result type(s), output
+/// buffer(s) (Empty op), and the referenced D2M subgraph function. Called from
+/// the optimizer apply phase. Asserts at most one result (multi-result support
+/// would require per-result layout and is not yet implemented).
+void applyChosenLayoutToD2MSubgraphOp(ttnn::D2MSubgraphOp dispatchOp,
+                                      RankedTensorType newTensorType,
+                                      TTNNLayoutAttr layoutAttr,
+                                      ttcore::GridAttr deviceGrid) {
+  assert(dispatchOp.getNumResults() <= 1 &&
+         "D2MSubgraphOp with multiple results not yet supported");
+
+  // Phase 1: Update the dispatch op's result type(s) to the chosen layout.
+  for (unsigned i = 0; i < dispatchOp.getNumResults(); ++i) {
+    dispatchOp.getResult(i).setType(newTensorType);
+  }
+
+  // Phase 2: Update each output buffer (Empty op) that the dispatch writes
+  // into: set its result type and attributes (dtype, layout, MemoryConfigAttr)
+  // to match the chosen layout so the buffer is allocated correctly.
+  for (Value output : dispatchOp.getOutputs()) {
+    if (EmptyOp emptyOp = output.getDefiningOp<EmptyOp>()) {
+      emptyOp.getResult().setType(newTensorType);
+      BufferType bufferType = layoutAttr.getBufferType();
+      TensorMemoryLayoutAttr tensorMemoryLayoutAttr = layoutAttr.getMemLayout();
+      emptyOp.setDtype(layoutAttr.getDataType());
+      if (layoutAttr.isTiled()) {
+        emptyOp.setLayout(ttnn::Layout::Tile);
+      } else {
+        emptyOp.setLayout(ttnn::Layout::RowMajor);
+      }
+      emptyOp.setMemoryConfigAttr(ttnn::MemoryConfigAttr::get(
+          dispatchOp.getContext(), tensorMemoryLayoutAttr,
+          BufferTypeAttr::get(dispatchOp.getContext(), bufferType),
+          utils::createShardSpecIfNeeded(layoutAttr, deviceGrid)));
+    }
+  }
+
+  // Phase 3: Keep the D2M subgraph function in sync with the dispatch so the
+  // verifier passes. Update (a) block argument types to match dispatch inputs,
+  // (b) all tensor result types in the body to the chosen layout, (c) the
+  // function type to (input types, result types).
+  if (func::FuncOp mainFunc = dispatchOp.getD2MMainFunc()) {
+    Block &entryBlock = mainFunc.getBody().front();
+    unsigned argIdx = 0;
+    for (Value input : dispatchOp.getInputs()) {
+      if (argIdx < entryBlock.getNumArguments()) {
+        Type inputType = input.getType();
+        if (isa<RankedTensorType>(inputType)) {
+          entryBlock.getArgument(argIdx).setType(inputType);
+        }
+        ++argIdx;
+      }
+    }
+    for (Block &block : mainFunc.getBody()) {
+      for (Operation &bodyOp : block) {
+        if (bodyOp.getNumResults() > 0) {
+          for (Value result : bodyOp.getResults()) {
+            if (isa<RankedTensorType>(result.getType())) {
+              if (mlir::OpResult opResult =
+                      mlir::dyn_cast<mlir::OpResult>(result)) {
+                opResult.setType(newTensorType);
+              }
+            }
+          }
+        }
+      }
+    }
+    llvm::SmallVector<Type> newInputTypes;
+    for (Value input : dispatchOp.getInputs()) {
+      newInputTypes.push_back(input.getType());
+    }
+    llvm::SmallVector<Type> newResultTypes(dispatchOp.getNumResults(),
+                                           newTensorType);
+    mainFunc.setType(mlir::FunctionType::get(dispatchOp.getContext(),
+                                             newInputTypes, newResultTypes));
+  }
+}
+
+} // namespace
+
 namespace impl {
 
 std::unique_ptr<::mlir::Pass> createTTNNOptimizer();
@@ -380,6 +462,12 @@ public:
           //
           if (isa<mlir::DestinationStyleOpInterface>(nextOp)) {
             nextOp->getOperands().back().getDefiningOp()->moveBefore(nextOp);
+          } else if (auto dispatchOp = dyn_cast<ttnn::D2MSubgraphOp>(nextOp)) {
+            for (Value output : dispatchOp.getOutputs()) {
+              if (Operation *defOp = output.getDefiningOp()) {
+                defOp->moveBefore(nextOp);
+              }
+            }
           }
         }
       }
@@ -434,6 +522,14 @@ public:
           //
           TTNNLayoutAttr layoutAttr =
               mlir::cast<TTNNLayoutAttr>(newTensorType.getEncoding());
+
+          // D2MSubgraphOp: apply chosen layout to result(s), output buffer(s),
+          // and D2M subgraph.
+          if (auto dispatchOp = dyn_cast<ttnn::D2MSubgraphOp>(op)) {
+            applyChosenLayoutToD2MSubgraphOp(dispatchOp, newTensorType,
+                                             layoutAttr, deviceGrid);
+            return;
+          }
 
           // Update layout attribute for ops that have layout attribute.
           if (TTNNLayoutOpInterface opWithLayoutIF =
@@ -574,6 +670,12 @@ public:
 
       processSpillOps(spillToDramOps, deviceGrid, insertedMemoryReconfigOps);
       processSpillToL1InterleavedOps(spillToL1InterleavedOps, deviceGrid);
+
+      // Sync D2M subgraph function types to match dispatch op's current inputs
+      // (e.g. after spill, first operand may be DRAM). Keeps verifier happy.
+      func->walk([&](ttnn::D2MSubgraphOp dispatchOp) {
+        syncD2MFuncTypesToDispatchInputs(dispatchOp);
+      });
 
       // Try finding ops that can be upgraded from DRAM to L1 interleaved
       // layout.
@@ -978,6 +1080,38 @@ private:
         useOp->setOperand(operandIdx, toLayoutOp->getResult(0));
       }
     }
+  }
+
+  /// Sync the D2M subgraph function's argument and function types to the
+  /// d2m_subgraph op's current input types (e.g. after spill, first operand
+  /// may be DRAM). Keeps d2m_subgraph(dram, l1) -> l1 consistent with
+  /// d2m_subgraph(dram_tensor, ...) -> l1.
+  static void syncD2MFuncTypesToDispatchInputs(ttnn::D2MSubgraphOp dispatchOp) {
+    func::FuncOp mainFunc = dispatchOp.getD2MMainFunc();
+    if (!mainFunc) {
+      return;
+    }
+    Block &entryBlock = mainFunc.getBody().front();
+    unsigned argIdx = 0;
+    for (Value input : dispatchOp.getInputs()) {
+      if (argIdx < entryBlock.getNumArguments()) {
+        Type inputType = input.getType();
+        if (isa<RankedTensorType>(inputType)) {
+          entryBlock.getArgument(argIdx).setType(inputType);
+        }
+        ++argIdx;
+      }
+    }
+    llvm::SmallVector<Type> newInputTypes;
+    for (Value input : dispatchOp.getInputs()) {
+      newInputTypes.push_back(input.getType());
+    }
+    llvm::SmallVector<Type> newResultTypes;
+    for (Value result : dispatchOp.getResults()) {
+      newResultTypes.push_back(result.getType());
+    }
+    mainFunc.setType(mlir::FunctionType::get(dispatchOp.getContext(),
+                                             newInputTypes, newResultTypes));
   }
 
   // Apply L1 interleaved layout changes to operations that have been upgraded
