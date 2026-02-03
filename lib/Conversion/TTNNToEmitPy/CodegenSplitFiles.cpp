@@ -477,7 +477,7 @@ private:
     }
 
     // Add return operation at the end of new function's body.
-    auto dictResult = builder.create<emitpy::GetValueForDictKeyOp>(
+    auto dictResult = builder.create<emitpy::SubscriptOp>(
         funcOp.getLoc(), types.innerDictType,
         mapping.lookup(analysis.globalCacheDict),
         mapping.lookup(analysis.outerDictKey));
@@ -515,7 +515,7 @@ private:
       // Create dictionary lookup operation once per cache key.
       if (!keyToLookup.count(*cacheKeyOp)) {
         builder.setInsertionPointAfter(*cacheKeyOp);
-        auto cachedValue = builder.create<emitpy::GetValueForDictKeyOp>(
+        auto cachedValue = builder.create<emitpy::SubscriptOp>(
             funcOp.getLoc(), types.tensorListType,
             constevalCacheDict.getResult(0), (*cacheKeyOp)->getResult(0));
         keyToLookup[*cacheKeyOp] = cachedValue;
