@@ -277,17 +277,17 @@ public:
 
 private:
   bool shouldTilizeOperand(Operation *op) const {
-    if (auto meshPartitionOp = mlir::dyn_cast<ttir::MeshPartitionOp>(op)) {
-      auto inputType =
-          mlir::cast<RankedTensorType>(meshPartitionOp.getInput().getType());
-      int rank = inputType.getRank();
-      if (rank <= 1) {
-        return false;
-      }
-      int lastDim = inputType.getShape().back();
-      int secondLastDim = inputType.getShape()[rank - 2];
-      return lastDim % 32 == 0 && secondLastDim % 32 == 0;
-    }
+    // if (auto meshPartitionOp = mlir::dyn_cast<ttir::MeshPartitionOp>(op)) {
+    //   auto inputType =
+    //       mlir::cast<RankedTensorType>(meshPartitionOp.getInput().getType());
+    //   int rank = inputType.getRank();
+    //   if (rank <= 1) {
+    //     return false;
+    //   }
+    //   int lastDim = inputType.getShape().back();
+    //   int secondLastDim = inputType.getShape()[rank - 2];
+    //   return lastDim % 32 == 0 && secondLastDim % 32 == 0;
+    // }
     return true;
   }
 
