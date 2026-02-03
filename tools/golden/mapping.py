@@ -5683,7 +5683,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.FullOp: ttir_full_golden,
     ttir.ArangeOp: ttir_arange_golden,
     ttir.RandOp: ttir_rand_golden,
-    # ttir.DropoutOp: ttir_dropout_golden,
+    ttir.DropoutOp: ttir_dropout_golden,
     # Quantization operations
     ttir.QuantizeOp: quantize_golden,
     ttir.DequantizeOp: torch.dequantize,
