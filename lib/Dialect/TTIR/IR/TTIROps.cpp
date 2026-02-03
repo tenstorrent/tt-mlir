@@ -3791,6 +3791,73 @@ mlir::OpFoldResult mlir::tt::ttir::RepeatOp::fold(FoldAdaptor fold) {
 }
 
 //===----------------------------------------------------------------------===//
+// TopKOp
+//===----------------------------------------------------------------------===//
+
+// TopKOp verification
+::mlir::LogicalResult mlir::tt::ttir::TopKOp::verify() {
+  auto inputType = getInput().getType();
+  auto valuesType = mlir::cast<RankedTensorType>(getValues().getType());
+  auto indicesType = mlir::cast<RankedTensorType>(getIndices().getType());
+
+  int32_t dim = getDim();
+  auto rank = inputType.getRank();
+  if (dim >= rank || dim < -rank) {
+    return emitOpError("Dimension out of range (expected to be in range of [")
+           << -rank << ", " << (rank - 1) << "], but got " << dim << ")";
+  }
+
+  if (dim < 0) {
+    dim += rank;
+  }
+
+  uint32_t k = getK();
+  if (k == 0) {
+    return emitOpError("k must be greater than 0");
+  }
+
+  if (valuesType.getRank() != rank || indicesType.getRank() != rank) {
+    return emitOpError("Values/indices rank must match input rank");
+  }
+
+  if (valuesType.getShape() != indicesType.getShape()) {
+    return emitOpError("Values and indices shapes must match");
+  }
+
+  if (valuesType.getElementType() != inputType.getElementType()) {
+    return emitOpError("Values element type must match input element type");
+  }
+
+  if (!mlir::isa<IntegerType>(indicesType.getElementType())) {
+    return emitOpError("Expected integer data type for indices but got ")
+           << indicesType.getElementType();
+  }
+
+  auto inputShape = inputType.getShape();
+  auto valuesShape = valuesType.getShape();
+  for (int64_t i = 0; i < rank; ++i) {
+    if (i == dim) {
+      if (inputShape[i] != ShapedType::kDynamic && k > inputShape[i]) {
+        return emitOpError("k cannot be greater than input dimension size");
+      }
+      if (valuesShape[i] != ShapedType::kDynamic &&
+          static_cast<int64_t>(k) != valuesShape[i]) {
+        return emitOpError("Values dimension does not match k");
+      }
+    } else {
+      if (inputShape[i] != ShapedType::kDynamic &&
+          valuesShape[i] != ShapedType::kDynamic &&
+          valuesShape[i] != inputShape[i]) {
+        return emitOpError("Values shape does not match input shape");
+      }
+    }
+  }
+
+  return success();
+}
+
+
+//===----------------------------------------------------------------------===//
 // AllGatherOp
 //===----------------------------------------------------------------------===//
 

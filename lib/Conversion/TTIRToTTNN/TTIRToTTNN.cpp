@@ -568,6 +568,28 @@ public:
     return success();
   }
 };
+
+namespace {
+class TopKOpConversionPattern : public OpConversionPattern<ttir::TopKOp> {
+public:
+  using OpConversionPattern<ttir::TopKOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::TopKOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    SmallVector<Type> resultTypes;
+    if (failed(this->getTypeConverter()->convertTypes(op->getResultTypes(),
+                                                      resultTypes))) {
+      return failure();
+    }
+    rewriter.replaceOpWithNewOp<ttnn::TopKOp>(
+        op, resultTypes, adaptor.getInput(), adaptor.getK(), adaptor.getDim(),
+        adaptor.getLargest(), adaptor.getSorted(), ttnn::MemoryConfigAttr());
+    return success();
+  }
+};
+} // namespace
+
 } // namespace
 
 namespace {
@@ -3026,6 +3048,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            RepeatInterleaveOpConversionPattern,
            SoftmaxOpConversionPattern,
            SortOpConversionPattern,
+           TopKOpConversionPattern,
            TypecastOpConversionPattern,
            ClampOpConversionPattern<ttir::ClampScalarOp, ttnn::ClampScalarOp>,
            ClampOpConversionPattern<ttir::ClampTensorOp, ttnn::ClampTensorOp>,

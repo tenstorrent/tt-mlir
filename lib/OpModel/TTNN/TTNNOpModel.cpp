@@ -3717,6 +3717,69 @@ llvm::Expected<size_t> OpModel<SortOp>::getOpRuntime(
 }
 
 //===----------------------------------------------------------------------===//
+// TopKOp
+//===----------------------------------------------------------------------===//
+llvm::Expected<OpConstraints> OpModel<TopKOp>::getOpConstraints(
+    ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+    TTNNLayoutAttr inputLayout, uint32_t k, int dim, bool largest, bool sorted,
+    TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  // Create query closure
+  auto topKOpQuery = [=]() {
+    return ::ttnn::graph::query_op_constraints(
+        ::ttnn::topk, device, inputSpec, k, dim, largest, sorted,
+        detail::getNullableMemoryConfig(outputLayout),
+        /*sub_core_grids=*/std::nullopt, /*indices_tensor=*/std::nullopt,
+        /*preallocated_output_tensors=*/std::nullopt);
+  };
+
+  return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
+                                     topKOpQuery);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> OpModel<TopKOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout, uint32_t k,
+    int dim, bool largest, bool sorted, TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  // Create query closure
+  auto topKOpQuery = [=]() {
+    return ::ttnn::graph::query_op_runtime(
+        ::ttnn::topk, device, inputSpec, k, dim, largest, sorted,
+        detail::getNullableMemoryConfig(outputLayout),
+        /*sub_core_grids=*/std::nullopt, /*indices_tensor=*/std::nullopt,
+        /*preallocated_output_tensors=*/std::nullopt);
+  };
+
+  return operation::getOpRuntime(topKOpQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
 // ArgMaxOp
 //===----------------------------------------------------------------------===//
 llvm::Expected<OpConstraints> OpModel<ArgMaxOp>::getOpConstraints(

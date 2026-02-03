@@ -1286,6 +1286,33 @@ def TTNN_SortOp : TTNN_Op<"sort"> {
   let hasVerifier = 1;
 }
 
+def TTNN_TopKOp : TTNN_Op<"topk"> {
+  let summary = "TopK op.";
+  let description = [{
+    Returns top `k` values and their indices along a given dimension.
+
+    Parameters:
+      - `input`: The input tensor.
+      - `k`: The number of elements to select.
+      - `dim`: The dimension to select from.
+      - `largest`: Whether to return the largest values.
+      - `sorted`: Whether to return results sorted along `dim`.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       UI32Attr:$k,
+                       DefaultValuedAttr<SI8Attr, "-1">:$dim,
+                       DefaultValuedAttr<BoolAttr, "true">:$largest,
+                       DefaultValuedAttr<BoolAttr, "true">:$sorted,
+                       OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+  let results = (outs AnyRankedTensor:$values,
+                      AnyRankedTensor:$indices);
+
+  let hasVerifier = 1;
+}
+
+
 def TTNN_TransposeOp : TTNN_Op<"transpose"> {
     let summary = "Transpose op.";
     let description = [{

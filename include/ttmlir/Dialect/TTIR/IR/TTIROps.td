@@ -2857,6 +2857,38 @@ def TTIR_SortOp : TTIR_NamedOp<"sort"> {
   let hasVerifier = 1;
 }
 
+def TTIR_TopKOp : TTIR_NamedOp<"topk"> {
+  let summary = "TopK operation.";
+  let description = [{
+    Returns top `k` values and their indices along a given dimension.
+
+    Input:
+      - input: AnyRankedTensor
+
+    Attributes:
+      - k (uint32): number of values to select.
+      - dim (int32): dimension to select from (default: -1, the last dim).
+      - largest (bool): if true, return largest values; else smallest.
+      - sorted (bool): if true, results are sorted along `dim`.
+
+    Returns a tuple:
+      - values: the top-k values tensor.
+      - indices: the indices of the selected values.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       UI32Attr:$k,
+                       DefaultValuedAttr<SI32Attr, "-1">:$dim,
+                       DefaultValuedAttr<BoolAttr, "true">:$largest,
+                       DefaultValuedAttr<BoolAttr, "true">:$sorted);
+
+  let results = (outs AnyRankedTensor:$values,
+                      AnyRankedTensor:$indices);
+
+  let hasVerifier = 1;
+}
+
+
 def TTIR_TransposeOp : TTIR_NamedOp<"transpose", [TTIR_TensorManipulation]> {
     let summary = "Tensor transpose operation.";
     let description = [{

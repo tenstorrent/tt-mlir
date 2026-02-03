@@ -36,6 +36,7 @@
 #include "stablehlo/dialect/StablehloOps.h"
 #include "llvm/ADT/APFloat.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/Support/JSON.h"
 
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringExtras.h"
@@ -5694,6 +5695,120 @@ public:
 } // namespace
 
 namespace {
+class StableHLOTopKConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
+  using OpConversionPattern<mlir::stablehlo::CustomCallOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CustomCallOp srcOp,
+                  mlir::stablehlo::CustomCallOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    StringAttr funcName = adaptor.getCallTargetNameAttr();
+    if (funcName != "mhlo.topk") {
+      return failure();
+    }
+
+    if (adaptor.getOperands().size() != 1 || srcOp.getResults().size() != 2) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "TopK op must have exactly one operand and two results. Got " +
+                     std::to_string(adaptor.getOperands().size()) +
+                     " operands and " +
+                     std::to_string(srcOp.getResults().size()) +
+                     " results.");
+    }
+
+    int32_t dim = -1;
+    bool largest = true;
+    bool sorted = true;
+    std::optional<uint32_t> k;
+
+    Attribute backendConfigAttr = srcOp->getAttr("backend_config");
+    if (backendConfigAttr) {
+      if (auto dict = mlir::dyn_cast<DictionaryAttr>(backendConfigAttr)) {
+        if (auto kAttr = dict.getAs<IntegerAttr>("k")) {
+          k = static_cast<uint32_t>(kAttr.getInt());
+        }
+        if (auto largestAttr = dict.getAs<BoolAttr>("largest")) {
+          largest = largestAttr.getValue();
+        }
+        if (auto sortedAttr = dict.getAs<BoolAttr>("sorted")) {
+          sorted = sortedAttr.getValue();
+        }
+        if (auto dimAttr = dict.getAs<IntegerAttr>("dim")) {
+          dim = static_cast<int32_t>(dimAttr.getInt());
+        }
+      } else if (auto str = mlir::dyn_cast<StringAttr>(backendConfigAttr)) {
+        llvm::StringRef config = str.getValue();
+        auto parsed = llvm::json::parse(config);
+        if (parsed) {
+          if (auto obj = parsed->getAsObject()) {
+            if (auto *kValue = obj->get("k")) {
+              if (auto kInt = kValue->getAsInteger()) {
+                k = static_cast<uint32_t>(*kInt);
+              }
+            }
+            if (auto *largestValue = obj->get("largest")) {
+              if (auto largestBool = largestValue->getAsBoolean()) {
+                largest = *largestBool;
+              }
+            }
+            if (auto *sortedValue = obj->get("sorted")) {
+              if (auto sortedBool = sortedValue->getAsBoolean()) {
+                sorted = *sortedBool;
+              }
+            }
+            if (auto *dimValue = obj->get("dim")) {
+              if (auto dimInt = dimValue->getAsInteger()) {
+                dim = static_cast<int32_t>(*dimInt);
+              }
+            }
+          }
+        } else {
+          int64_t kInt = 0;
+          if (llvm::to_integer(config, kInt)) {
+            k = static_cast<uint32_t>(kInt);
+          }
+        }
+      }
+    }
+
+    if (!k) {
+      auto valuesType = mlir::cast<RankedTensorType>(srcOp.getResult(0).getType());
+      auto rank = valuesType.getRank();
+      if (rank > 0) {
+        int32_t dimIndex = dim;
+        if (dimIndex < 0) {
+          dimIndex += rank;
+        }
+        if (dimIndex >= 0 && dimIndex < rank) {
+          int64_t kDim = valuesType.getDimSize(dimIndex);
+          if (kDim != ShapedType::kDynamic) {
+            k = static_cast<uint32_t>(kDim);
+          }
+        }
+      }
+    }
+
+    if (!k) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Failed to infer k for mhlo.topk custom call");
+    }
+
+    SmallVector<Type> resultTypes;
+    if (failed(this->getTypeConverter()->convertTypes(srcOp.getResultTypes(),
+                                                      resultTypes))) {
+      return failure();
+    }
+
+    rewriter.replaceOpWithNewOp<mlir::tt::ttir::TopKOp>(
+        srcOp, resultTypes, adaptor.getOperands()[0], *k, dim, largest, sorted);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 // This pattern recognizes and converts stablehlo.custom_call @tt.fill_cache
 // to ttir.fill_cache.
 class StableHLOFillCacheConversionPattern
@@ -6625,6 +6740,13 @@ static void addSortOpConversionPattern(MLIRContext *ctx,
   patterns.add<StableHLOToTTIRSortOpConversionPattern>(typeConverter, ctx);
 }
 
+static void addTopKOpConversionPattern(MLIRContext *ctx,
+                                       RewritePatternSet &patterns,
+                                       TypeConverter &typeConverter) {
+  patterns.add<StableHLOTopKConversionPattern>(typeConverter, ctx);
+}
+
+
 static void addCacheOpsConversionPattern(MLIRContext *ctx,
                                          RewritePatternSet &patterns,
                                          TypeConverter &typeConverter) {
@@ -6687,6 +6809,7 @@ void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
   addRngBitGeneratorOpConversionPattern(ctx, patterns, typeConverter);
   addErfOpConversionPattern(ctx, patterns, typeConverter);
   addSortOpConversionPattern(ctx, patterns, typeConverter);
+  addTopKOpConversionPattern(ctx, patterns, typeConverter);
   addCacheOpsConversionPattern(ctx, patterns, typeConverter);
   addOptimizationBarrierOpConversionPattern(ctx, patterns, typeConverter);
   addScaledDotProductAttentionDecodeOpConversionPattern(ctx, patterns,
