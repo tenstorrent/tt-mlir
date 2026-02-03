@@ -54,12 +54,12 @@ module {
       grid = #ttcore.grid<1x1>,
       indexing_maps = [affine_map<(d0, d1, d2) -> (d0, d2)>, affine_map<(d0, d1, d2) -> (d2, d1)>, affine_map<(d0, d1, d2) -> (d0, d1)>],
       iterator_types = [#ttcore.iterator_type<parallel>, #ttcore.iterator_type<parallel>, #ttcore.iterator_type<reduction>],
-      threads = [#d2m.thread<compute>]
+      threads = [#d2m.thread<unified>]
     }
     ins(%0, %1 : tensor<1x1x10x10x!ttcore.tile<32x32, f32>, #layout_matmul>, tensor<1x1x10x13x!ttcore.tile<32x32, f32>, #layout_matmul_2>)
     outs(%2 : tensor<1x1x10x13x!ttcore.tile<32x32, f32>, #layout_matmul_2>)  {
-    ^compute0(%cb0: !d2m.cb<tensor<10x10x!ttcore.tile<32x32, f32>>>, %cb1: !d2m.cb<tensor<10x13x!ttcore.tile<32x32, f32>>>, %cb2: !d2m.cb<tensor<10x13x!ttcore.tile<32x32, f32>>>):
-      %out = d2m.reserve %cb2 : <tensor<10x13x!ttcore.tile<32x32, f32>>> -> tensor<10x13x!ttcore.tile<32x32, f32>>
+    ^unified0(%cb0: !d2m.cb<tensor<10x10x!ttcore.tile<32x32, f32>>>, %cb1: !d2m.cb<tensor<10x13x!ttcore.tile<32x32, f32>>>, %cb2: !d2m.cb<tensor<10x13x!ttcore.tile<32x32, f32>>>):
+      %out = tensor.empty() : tensor<10x13x!ttcore.tile<32x32, f32>>
       d2m.yield %out : (tensor<10x13x!ttcore.tile<32x32, f32>>)
     } : tensor<1x1x10x13x!ttcore.tile<32x32, f32>, #layout_matmul_2>
 
@@ -101,12 +101,12 @@ module {
       grid = #ttcore.grid<1x1>,
       indexing_maps = [affine_map<(d0, d1, d2) -> (d0, d2)>, affine_map<(d0, d1, d2) -> (d2, d1)>, affine_map<(d0, d1, d2) -> (d0, d1)>],
       iterator_types = [#ttcore.iterator_type<parallel>, #ttcore.iterator_type<parallel>, #ttcore.iterator_type<reduction>],
-      threads = [#d2m.thread<compute>]
+      threads = [#d2m.thread<unified>]
     }
     ins(%0, %1 : tensor<1x1x10x13x!ttcore.tile<32x32, f32>, #layout_matmul_constrained_1>, tensor<1x1x13x13x!ttcore.tile<32x32, f32>, #layout_matmul_constrained_2>)
     outs(%2 : tensor<1x1x10x13x!ttcore.tile<32x32, f32>, #layout_matmul_constrained_1>)  {
-    ^compute0(%cb0: !d2m.cb<tensor<10x13x!ttcore.tile<32x32, f32>>>, %cb1: !d2m.cb<tensor<13x13x!ttcore.tile<32x32, f32>>>, %cb2: !d2m.cb<tensor<10x13x!ttcore.tile<32x32, f32>>>):
-      %out = d2m.reserve %cb2 : <tensor<10x13x!ttcore.tile<32x32, f32>>> -> tensor<10x13x!ttcore.tile<32x32, f32>>
+    ^unified0(%cb0: !d2m.cb<tensor<10x13x!ttcore.tile<32x32, f32>>>, %cb1: !d2m.cb<tensor<13x13x!ttcore.tile<32x32, f32>>>, %cb2: !d2m.cb<tensor<10x13x!ttcore.tile<32x32, f32>>>):
+      %out = tensor.empty() : tensor<10x13x!ttcore.tile<32x32, f32>>
       d2m.yield %out : (tensor<10x13x!ttcore.tile<32x32, f32>>)
     } : tensor<1x1x10x13x!ttcore.tile<32x32, f32>, #layout_matmul_constrained_1>
 
