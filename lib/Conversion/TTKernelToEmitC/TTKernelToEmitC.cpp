@@ -314,7 +314,13 @@ public:
       template_args.push_back(
           emitc::OpaqueAttr::get(op.getContext(), reuseType));
       return ArrayAttr::get(op.getContext(), template_args);
-    } else if constexpr (std::is_same_v<SourceOp, ttkernel::WhereTileOp>) {
+    } else if constexpr (std::is_same_v<SourceOp, ttkernel::WhereTileOp> ||
+                         std::is_same_v<SourceOp,
+                                        ttkernel::BitwiseAndBinaryTilesOp> ||
+                         std::is_same_v<SourceOp,
+                                        ttkernel::BitwiseOrBinaryTilesOp> ||
+                         std::is_same_v<SourceOp,
+                                        ttkernel::BitwiseXorBinaryTilesOp>) {
       SmallVector<Attribute, 1> template_args;
       template_args.push_back(
           datatypeToDataformatEnumNameOpaqueAttr(builder, op.getDtype()));

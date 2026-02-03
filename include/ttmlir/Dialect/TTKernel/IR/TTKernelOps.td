@@ -841,10 +841,13 @@ def TTKernel_BitwiseAndBinaryTilesOp : TTKernel_SFPUOp<"bitwise_and_binary_tile"
       acquired state via *tile_regs_acquire* call.
     }];
 
-    let arguments = (ins IndexLike:$dst0_index, IndexLike:$dst1_index, IndexLike:$odst_index);
+    let arguments = (ins IndexLike:$dst0_index,
+                         IndexLike:$dst1_index,
+                         IndexLike:$odst_index,
+                         TTCore_DataTypeAttr:$dtype);
 
     let assemblyFormat = [{
-      `(` $dst0_index `,` $dst1_index `,` $odst_index `)` attr-dict `:` functional-type(operands, results)
+      `(` $dst0_index `,` $dst1_index `,` $odst_index `,` $dtype `)` attr-dict `:` functional-type(operands, results)
     }];
 }
 
@@ -857,10 +860,13 @@ def TTKernel_BitwiseOrBinaryTilesOp : TTKernel_SFPUOp<"bitwise_or_binary_tile", 
       acquired state via *tile_regs_acquire* call.
     }];
 
-    let arguments = (ins IndexLike:$dst0_index, IndexLike:$dst1_index, IndexLike:$odst_index);
+    let arguments = (ins IndexLike:$dst0_index,
+                         IndexLike:$dst1_index,
+                         IndexLike:$odst_index,
+                         TTCore_DataTypeAttr:$dtype);
 
     let assemblyFormat = [{
-      `(` $dst0_index `,` $dst1_index `,` $odst_index `)` attr-dict `:` functional-type(operands, results)
+      `(` $dst0_index `,` $dst1_index `,` $odst_index `,` $dtype `)` attr-dict `:` functional-type(operands, results)
     }];
 }
 
@@ -873,10 +879,13 @@ def TTKernel_BitwiseXorBinaryTilesOp : TTKernel_SFPUOp<"bitwise_xor_binary_tile"
       acquired state via *tile_regs_acquire* call.
     }];
 
-    let arguments = (ins IndexLike:$dst0_index, IndexLike:$dst1_index, IndexLike:$odst_index);
+    let arguments = (ins IndexLike:$dst0_index,
+                         IndexLike:$dst1_index,
+                         IndexLike:$odst_index,
+                         TTCore_DataTypeAttr:$dtype);
 
     let assemblyFormat = [{
-      `(` $dst0_index `,` $dst1_index `,` $odst_index `)` attr-dict `:` functional-type(operands, results)
+      `(` $dst0_index `,` $dst1_index `,` $odst_index `,` $dtype `)` attr-dict `:` functional-type(operands, results)
     }];
 }
 

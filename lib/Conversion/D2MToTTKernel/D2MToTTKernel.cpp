@@ -785,6 +785,7 @@ public:
     } else {
       rewriter.create<InitOp>(op->getLoc());
     }
+
     if constexpr (std::is_same_v<SFPUOp, ttkernel::AbsTileOp> ||
                   std::is_same_v<SFPUOp, ttkernel::LogicalNotUnaryTileOp> ||
                   std::is_same_v<SFPUOp, ttkernel::ReluTileOp>) {
@@ -917,9 +918,17 @@ public:
       setInsertionPointAfterOperands(
           rewriter, {adaptor.getLhs(), adaptor.getRhs(), dstIdx},
           /*allowHoisting*/ false);
-      rewriter.create<SFPUOp>(op->getLoc(), adaptor.getLhs(), adaptor.getRhs(),
-                              dstIdx);
-
+      if constexpr (std::is_same_v<SFPUOp, ttkernel::BitwiseAndBinaryTilesOp> ||
+                    std::is_same_v<SFPUOp, ttkernel::BitwiseOrBinaryTilesOp> ||
+                    std::is_same_v<SFPUOp, ttkernel::BitwiseXorBinaryTilesOp>) {
+        const auto dtype =
+            mlir::cast<ttcore::TileType>(op.getLhs().getType()).getDataType();
+        rewriter.create<SFPUOp>(op->getLoc(), adaptor.getLhs(),
+                                adaptor.getRhs(), dstIdx, dtype);
+      } else {
+        rewriter.create<SFPUOp>(op->getLoc(), adaptor.getLhs(),
+                                adaptor.getRhs(), dstIdx);
+      }
     } else {
       // Ternary tile operation (arity == 3)
       OpBuilder::InsertionGuard guard(rewriter);
