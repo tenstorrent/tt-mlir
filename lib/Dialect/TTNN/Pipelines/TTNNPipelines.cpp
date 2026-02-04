@@ -182,6 +182,7 @@ void createTTNNPipelineWorkaroundPass(
 
   pm.addPass(createTTNNWorkarounds(workaroundOptions));
   pm.addPass(mlir::createCanonicalizerPass());
+  pm.addPass(mlir::createCSEPass());
 }
 
 void createTTNNPipelineLayoutDecompositionPass(
@@ -226,6 +227,7 @@ void createTTIRToTTNNDevicePipeline(
   pm.addPass(ttcore::createTTCoreMarkFunctionsAsForwardPass());
 
   pm.addPass(mlir::createCanonicalizerPass());
+  pm.addPass(mlir::createCSEPass());
 
   // Create device module, if not already present.
   pm.addPass(ttcore::createTTCoreWrapDeviceModulePass());

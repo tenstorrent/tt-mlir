@@ -1198,8 +1198,8 @@ module {
       %dst0_index = arith.constant 0 : i32
       %dst1_index = arith.constant 1 : i32
       %odst_index = arith.constant 2 : i32
-      // CHECK: emitc.call_opaque "bitwise_and_binary_tile"(%[[DST0_INDEX]], %[[DST1_INDEX]], %[[ODST_INDEX]])
-      "ttkernel.bitwise_and_binary_tile"(%dst0_index, %dst1_index, %odst_index) : (i32, i32, i32) -> ()
+      // CHECK: emitc.call_opaque "bitwise_and_binary_tile"(%[[DST0_INDEX]], %[[DST1_INDEX]], %[[ODST_INDEX]]) {template_args = [#emitc.opaque<"DataFormat::Int32">]}
+      "ttkernel.bitwise_and_binary_tile"(%dst0_index, %dst1_index, %odst_index) {dtype = #ttcore.supportedDataTypes<si32>} : (i32, i32, i32) -> ()
       return
     }
 
@@ -1211,8 +1211,8 @@ module {
       %dst0_index = arith.constant 0 : i32
       %dst1_index = arith.constant 1 : i32
       %odst_index = arith.constant 2 : i32
-      // CHECK: emitc.call_opaque "bitwise_or_binary_tile"(%[[DST0_INDEX]], %[[DST1_INDEX]], %[[ODST_INDEX]])
-      "ttkernel.bitwise_or_binary_tile"(%dst0_index, %dst1_index, %odst_index) : (i32, i32, i32) -> ()
+      // CHECK: emitc.call_opaque "bitwise_or_binary_tile"(%[[DST0_INDEX]], %[[DST1_INDEX]], %[[ODST_INDEX]]) {template_args = [#emitc.opaque<"DataFormat::Int32">]}
+      "ttkernel.bitwise_or_binary_tile"(%dst0_index, %dst1_index, %odst_index) {dtype = #ttcore.supportedDataTypes<si32>} : (i32, i32, i32) -> ()
       return
     }
 
@@ -1224,8 +1224,8 @@ module {
       %dst0_index = arith.constant 0 : i32
       %dst1_index = arith.constant 1 : i32
       %odst_index = arith.constant 2 : i32
-      // CHECK: emitc.call_opaque "bitwise_xor_binary_tile"(%[[DST0_INDEX]], %[[DST1_INDEX]], %[[ODST_INDEX]])
-      "ttkernel.bitwise_xor_binary_tile"(%dst0_index, %dst1_index, %odst_index) : (i32, i32, i32) -> ()
+      // CHECK: emitc.call_opaque "bitwise_xor_binary_tile"(%[[DST0_INDEX]], %[[DST1_INDEX]], %[[ODST_INDEX]]) {template_args = [#emitc.opaque<"DataFormat::Int32">]}
+      "ttkernel.bitwise_xor_binary_tile"(%dst0_index, %dst1_index, %odst_index) {dtype = #ttcore.supportedDataTypes<si32>} : (i32, i32, i32) -> ()
       return
     }
 
@@ -1246,23 +1246,8 @@ module {
       %false_index = arith.constant 2 : index
       // CHECK: %[[ODST_INDEX:.*]] = "emitc.constant"
       %odst_index = arith.constant 3 : index
-      // CHECK: emitc.call_opaque "where_tile"(%[[COND_INDEX]], %[[TRUE_INDEX]], %[[FALSE_INDEX]], %[[ODST_INDEX]])
-      "ttkernel.where_tile"(%cond_index, %true_index, %false_index, %odst_index) : (index, index, index, index) -> ()
-      return
-    }
-
-    // CHECK-LABEL: func @where_fp32_tile
-    func.func @where_fp32_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
-      // CHECK: %[[COND_INDEX:.*]] = "emitc.constant"
-      %cond_index = arith.constant 0 : index
-      // CHECK: %[[TRUE_INDEX:.*]] = "emitc.constant"
-      %true_index = arith.constant 1 : index
-      // CHECK: %[[FALSE_INDEX:.*]] = "emitc.constant"
-      %false_index = arith.constant 2 : index
-      // CHECK: %[[ODST_INDEX:.*]] = "emitc.constant"
-      %odst_index = arith.constant 3 : index
-      // CHECK: emitc.call_opaque "where_fp32_tile"(%[[COND_INDEX]], %[[TRUE_INDEX]], %[[FALSE_INDEX]], %[[ODST_INDEX]])
-      "ttkernel.where_fp32_tile"(%cond_index, %true_index, %false_index, %odst_index) : (index, index, index, index) -> ()
+      // CHECK: emitc.call_opaque "where_tile"(%[[COND_INDEX]], %[[TRUE_INDEX]], %[[FALSE_INDEX]], %[[ODST_INDEX]]) {template_args = [#emitc.opaque<"DataFormat::Float32">]}
+      "ttkernel.where_tile"(%cond_index, %true_index, %false_index, %odst_index) {dtype = #ttcore.supportedDataTypes<f32>} : (index, index, index, index) -> ()
       return
     }
   } // module
