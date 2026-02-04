@@ -7,6 +7,48 @@
 
 include "mlir/Pass/PassBase.td"
 
+// Add scratch inputs to d2m.generic ops (pre-bufferization)
+def D2MAddScratchInputs : Pass<"d2m-add-scratch-inputs", "::mlir::ModuleOp"> {
+  let summary = "Add scratch input operand to each d2m.generic op";
+  let description = [{
+    This pass adds a scratch tensor input to each d2m.generic operation.
+    The scratch tensor type is derived from the first input, ensuring type
+    consistency. The scratch is marked in the scratch_inputs attribute to
+    prevent streaming.
+
+    This pass must run in tensor space (before bufferization) so that the
+    scratch tensor flows through bufferization and D2MAllocate like any
+    other operand. Only d2m.generic ops in compute-only form (before
+    datamovement generation) and where ALL inputs are tiled are modified.
+    This excludes tilize/untilize ops which mix scalar and tiled operands.
+
+    Example transformation:
+    ```mlir
+    // Before:
+    %result = d2m.generic ins(%A : tensor<1x1x4x4x!ttcore.tile<32x32, f32>, #layout>)
+                          outs(%B : tensor<1x1x4x4x!ttcore.tile<32x32, f32>, #layout>) { ... }
+
+    // After:
+    %scratch = d2m.empty() : tensor<1x1x4x4x!ttcore.tile<32x32, f32>, #layout>
+    %result = d2m.generic scratch_inputs = [1]
+        ins(%A, %scratch : tensor<...>, tensor<...>)
+        outs(%B : tensor<...>) {
+    ^compute0(%cb_A, %cb_scratch, %cb_B):
+      // compute body (can now use %cb_scratch for intermediate storage)
+    }
+    ```
+  }];
+
+  // Note: The scratch tensor type (shape, tile type, layout) is derived from
+  // the first tiled operand of each d2m.generic, ensuring type consistency.
+  // No configuration options are needed.
+
+  let dependentDialects = [
+    "::mlir::tt::d2m::D2MDialect",
+    "::mlir::tt::ttcore::TTCoreDialect"
+  ];
+}
+
 // Elementwise fusion of d2m.generic ops on tensors
 def D2MElementwiseFusion : Pass<"d2m-elementwise-fusion", "::mlir::ModuleOp"> {
   let summary = "Fuse chains of compute-only d2m.generic elementwise ops";
@@ -420,11 +462,6 @@ def D2MAllocate: Pass<"d2m-allocate", "::mlir::ModuleOp"> {
           "test-buffer-size-policy",
           "std::string", /*default=*/"\"max\"",
           "Set policy for sizing stream buffers ('min', 'max').">,
-    Option<"scratchReserveBytes",
-          "scratch-reserve-bytes",
-          "std::int64_t", /*default=*/"65536",
-          "Reserve this many bytes at the end of L1 for scratchpad. "
-          "When non-zero, creates a global scratch buffer and d2m.scratch_init op.">,
   ];
 }
 
