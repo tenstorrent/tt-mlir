@@ -346,7 +346,6 @@ private:
                                             /*memory_config*/ nullptr);
   }
 
-  template <typename OpType>
   mlir::Value createDataTypeCastingOp(ttnn::ToLayoutOp op, IRRewriter &rewriter,
                                       mlir::Value currentInput,
                                       const OpCreationInfo &info) const {
@@ -355,8 +354,8 @@ private:
     RankedTensorType newResultType = utils::RankedTensorTypeFactory::create(
         mlir::cast<RankedTensorType>(currentInput.getType()),
         info.output.dataType);
-    return this->createOp<OpType>(rewriter, op, newResultType, currentInput,
-                                  dtypeAttr);
+    return this->createOp<ttnn::TypecastOp>(rewriter, op, newResultType,
+                                            currentInput, dtypeAttr);
   }
 
   mlir::Value
@@ -376,8 +375,7 @@ private:
       assert(inputLayout.getLayout() == Layout::Tile &&
              "Only tilized tensors are supported for device typecast");
     }
-    return this->createDataTypeCastingOp<ttnn::TypecastOp>(op, rewriter,
-                                                           currentInput, info);
+    return this->createDataTypeCastingOp(op, rewriter, currentInput, info);
   }
 
   mlir::Value createToMemoryConfigOpIfNeeded(ttnn::ToLayoutOp op,
