@@ -9,6 +9,8 @@
 #include "tt/runtime/detail/ttnn/utils.h"
 #include "ttnn/tensor/tensor_impl.hpp"
 
+#include "ttnn/operations/experimental/reshape/view.hpp"
+
 namespace tt::runtime::ttnn::operations::data_movement {
 void run(const ::tt::target::ttnn::WriteTensorOp *op, ProgramContext &context) {
   LOG_ASSERT(::tt::runtime::ttnn::utils::inSystemMemory(op->host_tensor()),
@@ -25,6 +27,24 @@ void run(const ::tt::target::ttnn::WriteTensorOp *op, ProgramContext &context) {
 
   // Note: copy_to_device replaced write_tensor and does not have a blocking
   // parameter. The operation is always blocking.
+  //
+  // After ttnn::pad, the host tensor's logical_shape retains the original
+  // (unpadded) dimensions while its padded_shape reflects the padded
+  // dimensions. The device tensor's logical_shape already reflects the padded
+  // dimensions. copy_to_device asserts logical_shape equality, so we use
+  // experimental::view to align the host tensor's logical_shape with the
+  // device tensor's. We additionally check that the host tensor's padded_shape
+  // matches the device tensor's logical_shape to ensure this only triggers for
+  // the pad case and not for genuine shape mismatches.
+  if (hostTensor.logical_shape() != deviceTensor.logical_shape() &&
+      hostTensor.padded_shape() == deviceTensor.logical_shape()) {
+    ::ttnn::Tensor aligned = ::ttnn::experimental::view(
+        hostTensor, deviceTensor.logical_shape(), hostTensor.padded_shape());
+    ::tt::tt_metal::tensor_impl::copy_to_device(aligned, deviceTensor,
+                                                ttnnCqId);
+    return;
+  }
+
   ::tt::tt_metal::tensor_impl::copy_to_device(hostTensor, deviceTensor,
                                               ttnnCqId);
 }
