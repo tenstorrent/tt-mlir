@@ -279,7 +279,6 @@ def TTIRInferKVCacheArgumentTypes: Pass<"ttir-infer-kv-cache-argument-types", ":
     to Row Major layout.
   }];
 
-  let constructor = "mlir::tt::ttir::createTTIRInferKVCacheArgumentTypes()";
   let dependentDialects = ["mlir::tt::ttcore::TTCoreDialect", "mlir::tt::ttir::TTIRDialect"];
 }
 
