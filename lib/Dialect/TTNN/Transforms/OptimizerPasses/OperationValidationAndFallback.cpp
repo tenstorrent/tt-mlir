@@ -154,10 +154,6 @@ public:
     bool validationFailed = false;
 
     moduleOp->walk([&](func::FuncOp func) {
-      if (!ttmlir::utils::isForwardDeviceFunc(func)) {
-        return;
-      }
-
       func.walk([&](Operation *operation) -> WalkResult {
         if (auto toLayoutOp = mlir::dyn_cast<ttnn::ToLayoutOp>(operation)) {
           // Skip ToLayout operations - they will be decomposed later, so there
