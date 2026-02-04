@@ -717,6 +717,14 @@ void applyFallbackTransformations(
                               result.actualOutputLayout);
     operation->getResult(0).setType(newResultType);
 
+    // Update the layout attribute for ops that have one (e.g., creation ops).
+    // The layout attribute must match the result type's layout.
+    if (TTNNLayoutOpInterface opWithLayoutIF =
+            mlir::dyn_cast<TTNNLayoutOpInterface>(operation)) {
+      opWithLayoutIF.setLayoutAttr(LayoutAttr::get(
+          operation->getContext(), result.actualOutputLayout.getLayout()));
+    }
+
     // Step 2: Add revert ToLayoutOp to convert back to expected layout for
     // consumers
     applyOutputLayoutRevert(operation, result.actualOutputLayout,
