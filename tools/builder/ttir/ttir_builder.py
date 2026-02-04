@@ -13120,6 +13120,167 @@ class TTIRBuilder(Builder):
 
         return split_qkv_module, split_qkv_builder
 
+    ############### ttir.DistributedRMSNormOp ###############
+
+    @tag(ttir.DistributedRMSNormOp)
+    def distributed_rms_norm(
+        self,
+        input: Operand,
+        cluster_axis: int,
+        weight: Optional[Operand] = None,
+        residual: Optional[Operand] = None,
+        epsilon: float = 1e-5,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        """
+        Creates ``ttir.distributed_rms_norm``.
+
+        *Distributed RMS normalization with all-gather operation.*
+
+        Performs a fused distributed RMS normalization followed by an all-gather
+        collective operation across mesh devices. This operation combines:
+        1. Optional residual addition (input + residual)
+        2. RMS normalization: output = input * rsqrt(mean(input^2) + epsilon) * weight
+        3. All-gather to collect results across cluster_axis
+
+        This is a multi-device operation that requires the tensor to be sharded
+        across a device mesh.
+
+        Parameters
+        ----------
+        input : Operand
+            Input tensor to be normalized (must be width-sharded)
+        cluster_axis : int
+            Mesh dimension to all-gather across (0 or 1)
+        weight : Optional[Operand], optional
+            Scale parameter (gamma) tensor
+        residual : Optional[Operand], optional
+            Optional residual tensor for fused add
+        epsilon : float, optional
+            Small constant for numerical stability (default: 1e-5)
+        output_type : Optional[torch.dtype], optional
+            Output data type
+        loc : Optional[str], optional
+            Location string for debugging
+        unit_attrs : Optional[List[str]], optional
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpResult*)
+            The normalized and gathered tensor
+        """
+        ttir_op = self.get_opview_from_method(TTIRBuilder.distributed_rms_norm)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(input)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        cluster_axis_attr = IntegerAttr.get(IntegerType.get_unsigned(32), cluster_axis)
+        epsilon_attr = FloatAttr.get_f32(epsilon)
+
+        # For golden computation, we simulate RMS norm (without the distributed aspect)
+        input0 = self._get_golden_tensor(input)
+        weight0 = self._get_golden_tensor(weight) if weight is not None else None
+        residual0 = self._get_golden_tensor(residual) if residual is not None else None
+
+        # Compute golden output: RMS norm simulation
+        # Add residual if present
+        if residual0 is not None:
+            normalized_input = input0 + residual0
+        else:
+            normalized_input = input0
+
+        # RMS norm: x / sqrt(mean(x^2) + eps) * weight
+        rms = torch.sqrt(
+            torch.mean(normalized_input**2, dim=-1, keepdim=True) + epsilon
+        )
+        golden_output = normalized_input / rms
+        if weight0 is not None:
+            golden_output = golden_output * weight0
+
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir_op(
+            result,
+            input,
+            cluster_axis_attr,
+            weight=weight,
+            residual=residual,
+            epsilon=epsilon_attr,
+            loc=loc,
+        )
+        new_op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            self._set_golden_tensor(new_op_result, golden_output)
+
+        return new_op_result
+
+    @parse(ttir.DistributedRMSNormOp)
+    def distributed_rms_norm_parser(
+        self,
+        old_op: ttir.DistributedRMSNormOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.distributed_rms_norm_parser)
+
+        in0 = global_dict[old_op.input]
+        weight = global_dict[old_op.weight] if old_op.weight else None
+        residual = global_dict[old_op.residual] if old_op.residual else None
+        result = old_op.result.type
+        cluster_axis_attr = old_op.cluster_axis
+        epsilon_attr = old_op.epsilon
+
+        new_op = ttir_op(
+            result,
+            in0,
+            cluster_axis_attr,
+            weight=weight,
+            residual=residual,
+            epsilon=epsilon_attr,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            weight0 = self._get_golden_tensor(weight) if weight is not None else None
+            residual0 = (
+                self._get_golden_tensor(residual) if residual is not None else None
+            )
+
+            # Compute golden
+            if residual0 is not None:
+                normalized_input = input0 + residual0
+            else:
+                normalized_input = input0
+
+            epsilon = epsilon_attr.value
+            rms = torch.sqrt(
+                torch.mean(normalized_input**2, dim=-1, keepdim=True) + epsilon
+            )
+            golden_output = normalized_input / rms
+            if weight0 is not None:
+                golden_output = golden_output * weight0
+
+            self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {old_op.result: new_op_result}
+        return new_op, op_map_dictionary
+
     ############### ttir.LayerNormOp ###############
 
     @tag(ttir.LayerNormOp)

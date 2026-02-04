@@ -2144,6 +2144,34 @@ def TTNN_RMSNormOp : TTNN_Op<"rms_norm", [AttrSizedOperandSegments, TTNN_MemoryC
     let hasVerifier = 1;
 }
 
+def TTNN_DistributedRMSNormOp : TTNN_Op<"distributed_rms_norm",
+    [AttrSizedOperandSegments, TTNN_MemoryConfigOpInterface, TTNN_ComputeKernelConfigOpInterface]> {
+    let summary = "Distributed RMS normalization with all-gather op.";
+    let description = [{
+      Fused distributed RMS normalization followed by all-gather across mesh devices.
+      Combines RMS norm computation with collective communication for efficient
+      multi-device inference.
+
+      This operation requires the input tensor to be width-sharded across devices.
+      The all-gather operation collects results along the specified cluster_axis.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         Optional<AnyRankedTensor>:$weight,
+                         Optional<AnyRankedTensor>:$residual,
+                         UI32Attr:$cluster_axis,
+                         DefaultValuedAttr<F32Attr, "1e-12">:$epsilon,
+                         OptionalAttr<UI32Attr>:$sub_device_id,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
+                         OptionalAttr<UI32Attr>:$num_links,
+                         OptionalAttr<TTCore_TopologyAttr>:$topology,
+                         OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
 def TTNN_LayerNormOp : TTNN_Op<"layer_norm", [AttrSizedOperandSegments, TTNN_MemoryConfigOpInterface]> {
     let summary = "Layer normalization op.";
     let description = [{
