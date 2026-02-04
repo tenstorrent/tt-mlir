@@ -34,7 +34,24 @@ struct ConvertTTNNToTTIRPass
 
   ConvertTTNNToTTIRPass() = default;
 
+  void collectD2MSubgraphs(ModuleOp moduleOp) {
+    d2mSubgraphs.clear();
+    moduleOp.walk([&](ttnn::D2MSubgraphOp dispatchOp) {
+      if (func::FuncOp func = dispatchOp.getD2MMainFunc()) {
+        d2mSubgraphs.insert(func);
+      }
+    });
+  }
+
+  bool isInsideD2MSubgraph(Operation *op) {
+    func::FuncOp parentFunc = op->getParentOfType<func::FuncOp>();
+    return parentFunc && d2mSubgraphs.contains(parentFunc);
+  }
+
   void runOnOperation() final {
+    ModuleOp moduleOp = getOperation();
+    collectD2MSubgraphs(moduleOp);
+
     ::mlir::ConversionTarget target(getContext());
 
     // Common legal/illegal ops/dialects for both partial and full conversion.
@@ -47,10 +64,15 @@ struct ConvertTTNNToTTIRPass
 
     RewritePatternSet patterns(&getContext());
 
-    // Mark TTNN dialect as dynamically legal for all ops that do NOT have the
-    // `hoist_generic_via_d2m` attribute
-    target.addDynamicallyLegalDialect<ttnn::TTNNDialect>(
-        [&](Operation *op) { return !utils::isTTNNHoistGenericViaD2MOp(op); });
+    // Mark TTNN dialect as dynamically legal for all ops that:
+    // 1. Do not have the `hoist_generic_via_d2m` attribute, and
+    // 2. Are not inside a D2M subgraph function (referenced by d2m_subgraph)
+    target.addDynamicallyLegalDialect<ttnn::TTNNDialect>([this](Operation *op) {
+      if (isInsideD2MSubgraph(op)) {
+        return false;
+      }
+      return !utils::isTTNNHoistGenericViaD2MOp(op);
+    });
 
     ::mlir::tt::populateTTNNToTTIRPatterns(&getContext(), patterns,
                                            typeConverter);
@@ -74,6 +96,9 @@ struct ConvertTTNNToTTIRPass
       signalPassFailure();
     }
   }
+
+private:
+  llvm::DenseSet<func::FuncOp> d2mSubgraphs;
 };
 } // namespace
 } // namespace mlir::tt::ttnn

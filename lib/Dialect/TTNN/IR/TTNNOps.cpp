@@ -6,6 +6,7 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreTraits.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsResources.h"
 
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
@@ -21,6 +22,7 @@
 #include "mlir/Dialect/Quant/IR/QuantTypes.h"
 #include "mlir/Dialect/Traits.h"
 #include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/IR/SymbolTable.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 
 #include "mlir/IR/BuiltinTypes.h"
@@ -4046,6 +4048,10 @@ mlir::tt::ttnn::SplitQueryKeyValueAndSplitHeadsOp::verify() {
   size_t numberOfInputsAndOutputs = getInputsAndOutputs().size();
   size_t numberOfSemaphores = program.getSemaphores().size();
 
+  if (numberOfInputsAndOutputs == 0) {
+    return emitError() << "GenericOp must have at least one operand";
+  }
+
   for (auto kernel : program.getKernels()) {
     auto kernelInterface = llvm::cast<KernelInterface>(kernel);
 
@@ -4737,6 +4743,75 @@ mlir::tt::ttnn::PagedScaledDotProductAttentionDecodeOp::verify() {
   }
 
   return success();
+}
+
+//===----------------------------------------------------------------------===//
+// D2MSubgraphOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttnn::D2MSubgraphOp::verify() {
+  func::FuncOp mainFunc = getD2MMainFunc();
+  if (!mainFunc) {
+    return emitOpError("Could not find D2M function '")
+           << getD2mFunc() << "' in parent module.";
+  }
+
+  // Verify input types match function arguments
+  if (mainFunc.getNumArguments() != getInputs().size()) {
+    return emitOpError("D2M function must have ")
+           << getInputs().size() << " arguments, got "
+           << mainFunc.getNumArguments();
+  }
+
+  for (auto [idx, pair] : llvm::enumerate(
+           llvm::zip(getInputs().getTypes(), mainFunc.getArgumentTypes()))) {
+    auto [inputType, funcArgType] = pair;
+    if (inputType != funcArgType) {
+      return emitOpError("D2M function argument type ")
+             << idx << " mismatch: expected " << inputType << ", got "
+             << funcArgType;
+    }
+  }
+
+  // Verify return types match op results
+  if (mainFunc.getNumResults() != getNumResults()) {
+    return emitOpError("D2M function must have ")
+           << getNumResults() << " return values, got "
+           << mainFunc.getNumResults();
+  }
+
+  for (auto [idx, pair] : llvm::enumerate(
+           llvm::zip(getResults().getTypes(), mainFunc.getResultTypes()))) {
+    auto [resultType, funcResultType] = pair;
+    if (resultType != funcResultType) {
+      return emitOpError("D2M function return type ")
+             << idx << " mismatch: expected " << resultType << ", got "
+             << funcResultType;
+    }
+  }
+
+  return success();
+}
+
+func::FuncOp mlir::tt::ttnn::D2MSubgraphOp::getD2MMainFunc() {
+  ModuleOp parentModule = getOperation()->getParentOfType<ModuleOp>();
+  if (!parentModule) {
+    return nullptr;
+  }
+
+  StringRef mainName = getD2mFunc().getRootReference();
+  StringAttr nameAttr = StringAttr::get(getContext(), mainName);
+  return dyn_cast_or_null<func::FuncOp>(
+      SymbolTable::lookupSymbolIn(parentModule, nameAttr));
+}
+
+void mlir::tt::ttnn::D2MSubgraphOp::getEffects(
+    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
+        &effects) {
+  effects.emplace_back(MemoryEffects::Read::get(),
+                       SideEffects::DefaultResource::get());
+  effects.emplace_back(MemoryEffects::Write::get(),
+                       SideEffects::DefaultResource::get());
 }
 
 } // namespace mlir::tt::ttnn
