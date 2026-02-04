@@ -395,10 +395,12 @@ public:
         args.push_back(emitter.emit(
             mlir::cast<mlir::IntegerAttr>(srcOp.getMax()).getInt()));
       } else {
-        args.push_back(emitter.emit(
-            mlir::cast<mlir::FloatAttr>(srcOp.getMin()).getValueAsDouble()));
-        args.push_back(emitter.emit(
-            mlir::cast<mlir::FloatAttr>(srcOp.getMax()).getValueAsDouble()));
+        args.push_back(emitter.emit(mlir::cast<mlir::FloatAttr>(srcOp.getMin())
+                                        .getValue()
+                                        .convertToFloat()));
+        args.push_back(emitter.emit(mlir::cast<mlir::FloatAttr>(srcOp.getMax())
+                                        .getValue()
+                                        .convertToFloat()));
       }
     } else {
       // ClampTensorOp uses tensor values
