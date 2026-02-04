@@ -246,12 +246,15 @@ std::tuple<InputTensorDims3d, WeightTensorDims3d,
            std::optional<BiasTensorDims3d>>
 getConv3dInputDims(mlir::tt::ttir::Conv3dOp *op) {
   auto inputType = op->getInput().getType();
+  int64_t batchDim = op->getBatchDim();
+  int64_t depthDim = op->getDepthDim();
+  int64_t heightDim = op->getHeightDim();
+  int64_t widthDim = op->getWidthDim();
+  int64_t channelDim = op->getChannelDim();
   InputTensorDims3d inputDims = {
-      inputType.getDimSize(llvm::to_underlying(InputDim3d::INPUT_BATCH)),
-      inputType.getDimSize(llvm::to_underlying(InputDim3d::INPUT_DEPTH)),
-      inputType.getDimSize(llvm::to_underlying(InputDim3d::INPUT_HEIGHT)),
-      inputType.getDimSize(llvm::to_underlying(InputDim3d::INPUT_WIDTH)),
-      inputType.getDimSize(llvm::to_underlying(InputDim3d::INPUT_CHANNEL))};
+      inputType.getDimSize(batchDim), inputType.getDimSize(depthDim),
+      inputType.getDimSize(heightDim), inputType.getDimSize(widthDim),
+      inputType.getDimSize(channelDim)};
 
   auto weightType = op->getWeight().getType();
   WeightTensorDims3d weightDims = {
@@ -268,8 +271,7 @@ getConv3dInputDims(mlir::tt::ttir::Conv3dOp *op) {
 
   std::optional<BiasTensorDims3d> biasDims;
   if (op->getBias()) {
-    biasDims = {op->getBias().getType().getDimSize(
-        llvm::to_underlying(BiasDim3d::BIAS_OUT_CHANNEL))};
+    biasDims = {op->getBias().getType().getDimSize(channelDim)};
   }
 
   return {inputDims, weightDims, biasDims};
@@ -278,16 +280,11 @@ getConv3dInputDims(mlir::tt::ttir::Conv3dOp *op) {
 OutputTensorDims3d getConv3dOutputDims(mlir::tt::ttir::Conv3dOp *op) {
   auto outputType = op->getResult().getType();
   OutputTensorDims3d outputDims;
-  outputDims.batchSize =
-      outputType.getDimSize(llvm::to_underlying(OutputDim3d::OUTPUT_BATCH));
-  outputDims.outputDepth =
-      outputType.getDimSize(llvm::to_underlying(OutputDim3d::OUTPUT_DEPTH));
-  outputDims.outputHeight =
-      outputType.getDimSize(llvm::to_underlying(OutputDim3d::OUTPUT_HEIGHT));
-  outputDims.outputWidth =
-      outputType.getDimSize(llvm::to_underlying(OutputDim3d::OUTPUT_WIDTH));
-  outputDims.outputChannels =
-      outputType.getDimSize(llvm::to_underlying(OutputDim3d::OUTPUT_CHANNEL));
+  outputDims.batchSize = outputType.getDimSize(op->getBatchDim());
+  outputDims.outputDepth = outputType.getDimSize(op->getDepthDim());
+  outputDims.outputHeight = outputType.getDimSize(op->getHeightDim());
+  outputDims.outputWidth = outputType.getDimSize(op->getWidthDim());
+  outputDims.outputChannels = outputType.getDimSize(op->getChannelDim());
 
   return outputDims;
 }

@@ -4,7 +4,7 @@
 import pytest
 import torch
 from typing import List, Optional
-from conftest import x86_only
+from conftest import x86_only, get_request_kwargs
 from builder.base.builder_utils import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_apis import compile_and_execute_ttir
@@ -43,10 +43,8 @@ def test_concat(shapes: List[Shape], dim: int, target: str, request, device):
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
     )
 
@@ -92,8 +90,6 @@ def test_cpu_hoistable_concat_op(
         test_base=f"{request.node.name}",
         target=target,
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -116,10 +112,8 @@ def test_pad(
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
     )
 
@@ -145,10 +139,8 @@ def test_permute(
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
     )
 
@@ -178,10 +170,8 @@ def test_repeat_interleave(
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
     )
 
@@ -201,10 +191,8 @@ def test_repeat(shape: Shape, dims: List[int], dtype, target: str, request, devi
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
     )
 
@@ -252,10 +240,8 @@ def test_reshape(shapes, dtype: torch.dtype, target: str, request, device):
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
     )
 
@@ -273,10 +259,8 @@ def test_squeeze(shape: Shape, dim: int, target: str, request, device):
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
     )
 
@@ -294,10 +278,8 @@ def test_unsqueeze(shape: Shape, dim: int, target: str, request, device):
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
     )
 
@@ -328,8 +310,6 @@ def test_cpu_hoistable_reshape_op(
         test_base=f"{request.node.name}",
         target=target,
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -337,6 +317,12 @@ def test_cpu_hoistable_reshape_op(
 @pytest.mark.parametrize(
     "shape,begins,ends,step",
     [
+        # Tilized: inner dims preserved
+        ((4, 32, 64), [1, 0, 0], [3, 32, 64], [1, 1, 1]),
+        ((6, 32, 64), [0, 0, 0], [4, 32, 64], [2, 1, 1]),
+        ((4, 5, 32, 64), [1, 2, 0, 0], [3, 4, 32, 64], [1, 1, 1, 1]),
+        ((8, 6, 64, 32), [2, 1, 0, 0], [6, 5, 64, 32], [1, 1, 1, 1]),
+        ((2, 4, 3, 32, 64), [0, 1, 1, 0, 0], [2, 3, 2, 32, 64], [1, 1, 1, 1, 1]),
         # Simple 2D
         ((64, 64), [0, 0], [32, 32], None),
         # Crop 2D
@@ -402,10 +388,8 @@ def test_slice(
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
     )
 
@@ -449,10 +433,8 @@ def test_sort(
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
     )
 
@@ -478,10 +460,8 @@ def test_transpose(
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
     )
 
@@ -515,8 +495,6 @@ def test_cpu_hoistable_transpose_op(
         test_base=f"{request.node.name}",
         target=target,
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -562,9 +540,8 @@ def test_typecast(
     pipeline_options = []
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         device=device,
-        system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
         pipeline_options=pipeline_options,
     )

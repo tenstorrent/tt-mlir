@@ -141,7 +141,9 @@ def split_and_execute(
     return results
 
 
-def compile_split_and_execute(module: Module | str) -> List[ExecutionResult]:
+def compile_split_and_execute(
+    module: Module | str, compile_only: bool = False
+) -> List[ExecutionResult]:
     """
     Compiles the original `module` (SHLO/TTIR/TTNN) down to TTNN graph, splits it into
     constituent operations, creates flatbuffer for each of them and runs it on device.
@@ -156,7 +158,7 @@ def compile_split_and_execute(module: Module | str) -> List[ExecutionResult]:
     progress_msg(compile_split_and_execute.__doc__)
 
     splitter = MLIRModuleSplitter()
-    executor = MLIRModuleExecutor()
+    executor = MLIRModuleExecutor(compile_only)
 
     results = []
 
@@ -173,7 +175,9 @@ def compile_split_and_execute(module: Module | str) -> List[ExecutionResult]:
     return results
 
 
-def split_compile_split_and_execute(module: Module | str) -> List[ExecutionResult]:
+def split_compile_split_and_execute(
+    module: Module | str, compile_only: bool = False
+) -> List[ExecutionResult]:
     """
     Splits the original `module` (SHLO/TTIR/TTNN) into constituent operations, compiles
     each of them down to TTNN graph, splits it into constituent TTNN operations, creates
@@ -189,7 +193,7 @@ def split_compile_split_and_execute(module: Module | str) -> List[ExecutionResul
     progress_msg(split_and_execute.__doc__)
 
     splitter = MLIRModuleSplitter()
-    executor = MLIRModuleExecutor()
+    executor = MLIRModuleExecutor(compile_only)
 
     results = []
 

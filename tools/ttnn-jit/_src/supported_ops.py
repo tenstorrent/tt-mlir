@@ -87,13 +87,6 @@ data_movement_ops = [
     "gather",
 ]
 
-# Composite operations - operations that should be expanded into internals
-# These are operations that are not directly supported but can be decomposed
-# into simpler operations that are supported
-composite_ops = [
-    "digamma",
-]
-
 # All supported operations (excluding composite ops that need expansion)
 all_ops = set(unary_ops + binary_ops + reduction_ops + data_movement_ops)
 
@@ -101,11 +94,6 @@ all_ops = set(unary_ops + binary_ops + reduction_ops + data_movement_ops)
 def is_supported(op_name: str) -> bool:
     """Check if an operation is directly supported (not requiring expansion)."""
     return op_name in all_ops
-
-
-def is_composite(op_name: str) -> bool:
-    """Check if an operation is a composite that needs expansion."""
-    return op_name in composite_ops
 
 
 def get_op_category(op_name: str) -> str:
@@ -118,7 +106,5 @@ def get_op_category(op_name: str) -> str:
         return "reduction"
     elif op_name in data_movement_ops:
         return "data_movement"
-    elif op_name in composite_ops:
-        return "composite"
     else:
         return "unsupported"

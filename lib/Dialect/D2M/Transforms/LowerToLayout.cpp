@@ -11,8 +11,7 @@
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTCore/Utils/AffineMapUtils.h"
 
-#include "mlir/Dialect/Bufferization/IR/Bufferization.h"
-#include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/ADT/ArrayRef.h"
 
@@ -105,6 +104,84 @@ static bool needsMasking(ttcore::MetalLayoutAttr layout,
 } // namespace
 
 namespace {
+
+// ============================================================================
+// Helper functions for building GenericOp regions with RemoteLoad/RemoteStore
+// ============================================================================
+
+// Extract the underlying shard type from a circular buffer block argument
+static Type getShardTypeFromCB(Value cbBlockArg) {
+  auto cbType = mlir::cast<CBType>(cbBlockArg.getType());
+  return cbType.getUnderlying();
+}
+
+// Build identity grid indices for a given grid rank
+static SmallVector<Value>
+buildIdentityGridIndices(OpBuilder &builder, Location loc, size_t gridRank) {
+  AffineMap indexingMap = builder.getMultiDimIdentityMap(gridRank);
+  return d2m::utils::buildGridIndices(builder, loc, indexingMap);
+}
+
+// Create a RemoteLoadOp in implicit form (returns loaded memref directly)
+static Value createRemoteLoad(OpBuilder &builder, Location loc, Type shardType,
+                              Value source, ArrayRef<Value> indices) {
+  // Create a buffer for the load result
+  auto tensorType = mlir::cast<RankedTensorType>(shardType);
+  auto bufferOp = builder.create<tensor::EmptyOp>(loc, tensorType.getShape(),
+                                                  tensorType.getElementType());
+  Value buffer = bufferOp.getResult();
+  return builder.create<RemoteLoadOp>(loc, shardType, buffer, source, indices)
+      .getResult();
+}
+
+// Create a tensor.empty with identical result type
+static Value createTensorEmpty(OpBuilder &builder, Location loc,
+                               Type shardType) {
+  auto tensorType = mlir::cast<RankedTensorType>(shardType);
+  return builder
+      .create<tensor::EmptyOp>(loc, tensorType.getShape(),
+                               tensorType.getElementType())
+      .getResult();
+}
+
+// Create a RemoteStoreOp in implicit form and return the result
+static Value createRemoteStore(OpBuilder &builder, Location loc,
+                               Value destination, ArrayRef<Value> indices,
+                               Value localBuffer) {
+  return builder
+      .create<RemoteStoreOp>(loc, destination.getType(), destination, indices,
+                             localBuffer)
+      .getResult();
+}
+
+// Complete identity load-store pattern: load from input, acquire output buffer,
+// and return both along with the indices. This is useful for operations that
+// need to perform transformations between load and store (e.g., tilize, mask).
+struct IdentityLoadStoreResult {
+  Value src;
+  Value dst;
+  SmallVector<Value> indices;
+};
+
+static IdentityLoadStoreResult
+buildIdentityLoadStore(OpBuilder &builder, Location loc, Value inputCBBlockArg,
+                       Value outputCBBlockArg, Value input, Value output,
+                       int64_t outputOperandIndex) {
+  auto inputType = mlir::cast<RankedTensorType>(input.getType());
+  auto inputLayout =
+      mlir::cast<ttcore::MetalLayoutAttr>(inputType.getEncoding());
+  size_t gridRank = inputLayout.getGridShape(inputType).size();
+
+  Type inputShardType = getShardTypeFromCB(inputCBBlockArg);
+  Type outputShardType = getShardTypeFromCB(outputCBBlockArg);
+  SmallVector<Value> indices = buildIdentityGridIndices(builder, loc, gridRank);
+
+  Value src = createRemoteLoad(builder, loc, inputShardType, input, indices);
+  Value dst = createTensorEmpty(builder, loc, outputShardType);
+
+  return {src, dst, indices};
+}
+
 class D2MLowerToLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
   // Helper struct to build intermediate bounce types.
   class BounceTypeBuilder {
@@ -317,9 +394,6 @@ public:
     auto inputLayout = *inputInfo.layout;
     auto outputLayout = *outputInfo.layout;
 
-    // Check if output has virtual grid for later use.
-    bool outputHasVirtualGrid = !outputLayout.getIndexAffineMap().isEmpty();
-
     // Classify the type of mapping change to choose the optimal approach.
     // Simple reblocking: only grid shape differs, all other layout properties
     // are identical. For tilized tensors, we can use a direct device-space
@@ -376,41 +450,6 @@ public:
     // actual data movement according to the view's affine map.
     if (!inputInfo.isDRAM() && !outputInfo.isDRAM()) {
       auto gridShape = outputInfo.getGridShape();
-
-      // If the output has a virtual grid (and by our early check, input does
-      // too with the same grid shape), we need to include the virtual→physical
-      // coordinate translation in the grid attribute.
-      ttcore::GridAttr grid;
-      if (outputHasVirtualGrid) {
-        // Check if this is actually a virtual grid (grid shape exceeds physical
-        // bounds)
-        bool isVirtualGrid =
-            (gridShape.size() > 2) || (gridShape[0] > targetGridShape[0] ||
-                                       gridShape[1] > targetGridShape[1]);
-
-        if (isVirtualGrid) {
-          // Create the virtual grid coordinate maps and use the inverse map
-          // for the grid's coordinate translation.
-          auto physicalGridShape =
-              outputInfo.layout->getPhysicalGridShape(outputInfo.type);
-          auto [fwdMap, invMap] = ttmlir::d2m::utils::grids::createCoreVirtMaps(
-              rewriter.getContext(), gridShape, physicalGridShape);
-          grid =
-              ttcore::GridAttr::get(rewriter.getContext(), gridShape, invMap);
-        } else {
-          // If the operand has index_map but doesn't exceed physical grid
-          // (e.g., reblocking, transpose), derive the grid inverse map from
-          // the output's index_map to ensure roundtrip consistency.
-          auto indexMap = outputLayout.getIndexAffineMap();
-          auto invMap = ttmlir::utils::createGridInverseMapFromIndexMap(
-              indexMap, gridShape.size(), rewriter.getContext());
-          grid =
-              ttcore::GridAttr::get(rewriter.getContext(), gridShape, invMap);
-        }
-      } else {
-        grid = ttcore::GridAttr::get(rewriter.getContext(), gridShape);
-      }
-
       const size_t gridRank = gridShape.size();
 
       // Build identity indexing maps for the generic operation. The view's
@@ -419,21 +458,27 @@ public:
       std::tie(indexingMaps, iteratorTypes) =
           GenericOp::buildParallelAffineMapsAndIteratorTypes(
               rewriter, /*arity=*/2, gridRank);
-      auto indexingMap = mlir::cast<AffineMapAttr>(indexingMaps[0]);
+      auto indexingMapAttr = mlir::cast<AffineMapAttr>(indexingMaps[0]);
+      AffineMap indexingMap = indexingMapAttr.getValue();
 
       return rewriter
           .create<GenericOp>(
               loc, viewOp, output,
               [&](OpBuilder &builder, Location innerLoc, ValueRange blockArgs) {
-                Value outputCB =
-                    builder.create<ReserveOp>(innerLoc, blockArgs[1])
-                        .getResult();
-                auto dma = builder.create<d2m::DMAOp>(innerLoc, viewOp,
-                                                      indexingMap, outputCB);
-                builder.create<d2m::DMAWaitOp>(innerLoc, dma);
-                builder.create<YieldOp>(innerLoc, outputCB);
+                // Load from input, store to output (load+store pair for proper
+                // CB association)
+                Type inputShardType = getShardTypeFromCB(blockArgs[0]);
+                SmallVector<Value> indices = d2m::utils::buildGridIndices(
+                    builder, innerLoc, indexingMap);
+
+                // Load-store idiom
+                Value loadedData = createRemoteLoad(
+                    builder, innerLoc, inputShardType, viewOp, indices);
+                Value storeResult = createRemoteStore(builder, innerLoc, output,
+                                                      indices, loadedData);
+                builder.create<YieldOp>(innerLoc, storeResult);
               },
-              ThreadType::Datamovement, grid)
+              ThreadType::Unified)
           .getResult(0);
     }
     // DRAM operations use the view directly without immediate
@@ -544,38 +589,29 @@ public:
     std::tie(indexingMaps, iteratorTypes) =
         GenericOp::buildParallelAffineMapsAndIteratorTypes(
             rewriter, /*arity=*/2, gridRank);
-    auto indexingMap = mlir::cast<AffineMapAttr>(indexingMaps[0]);
+    auto indexingMapAttr = mlir::cast<AffineMapAttr>(indexingMaps[0]);
+    AffineMap indexingMap = indexingMapAttr.getValue();
 
-    return rewriter
-        .create<GenericOp>(
-            loc, viewInput, viewOutput,
-            [&](OpBuilder &builder, Location innerLoc, ValueRange blockArgs) {
-              DMAOp dma;
-              Value yield;
-              if (isSrcDramOrReblock) {
-                Value outputCB =
-                    builder.create<ReserveOp>(innerLoc, blockArgs[1])
-                        .getResult();
-                dma = builder.create<d2m::DMAOp>(innerLoc, viewInput,
-                                                 indexingMap, outputCB);
-                yield = outputCB;
-              } else {
-                // Note: Naturally you'd think to use a WaitOp since this is in
-                // input cb, but in the layout lowering there is no producer
-                // thread. The ReserveOp here effectively unwraps the CB so the
-                // DMA can access it.
-                Value inputCB =
-                    builder.create<ReserveOp>(innerLoc, blockArgs[0])
-                        .getResult();
-                dma = builder.create<d2m::DMAOp>(innerLoc, inputCB, viewOutput,
-                                                 indexingMap);
-                yield = inputCB;
-              }
-              builder.create<d2m::DMAWaitOp>(innerLoc, dma);
-              builder.create<YieldOp>(innerLoc, yield);
-            },
-            ThreadType::Datamovement)
-        .getResult(0);
+    auto result =
+        rewriter
+            .create<GenericOp>(
+                loc, viewInput, viewOutput,
+                [&](OpBuilder &builder, Location innerLoc,
+                    ValueRange blockArgs) {
+                  Type inputShardType = getShardTypeFromCB(blockArgs[0]);
+                  SmallVector<Value> indices = d2m::utils::buildGridIndices(
+                      builder, innerLoc, indexingMap);
+
+                  // Use load+store idiom for proper CB association
+                  Value loadedData = createRemoteLoad(
+                      builder, innerLoc, inputShardType, viewInput, indices);
+                  Value storeResult = createRemoteStore(
+                      builder, innerLoc, viewOutput, indices, loadedData);
+                  builder.create<YieldOp>(innerLoc, storeResult);
+                },
+                ThreadType::Unified)
+            .getResult(0);
+    return result;
   }
 
   Value lowerFormatConversionGeneric(PatternRewriter &rewriter, Value input,
@@ -591,23 +627,37 @@ public:
         .create<GenericOp>(
             loc, input, output,
             [=](OpBuilder &builder, Location innerLoc, ValueRange blockArgs) {
-              Value src =
-                  builder.create<WaitOp>(innerLoc, blockArgs[0]).getResult();
-              Value dst =
-                  builder.create<ReserveOp>(innerLoc, blockArgs[1]).getResult();
+              auto [src, dst, indices] =
+                  buildIdentityLoadStore(builder, innerLoc, blockArgs[0],
+                                         blockArgs[1], input, output, 1);
+
+              Value result;
               if (inputTiled) {
-                builder.create<TileUntilizeBlockOp>(innerLoc, src, dst);
+                result = builder
+                             .create<TileUntilizeBlockOp>(
+                                 innerLoc, dst.getType(), src, dst)
+                             .getResult();
               } else {
-                builder.create<TileTilizeBlockOp>(innerLoc, src, dst);
+                result = builder
+                             .create<TileTilizeBlockOp>(innerLoc, dst.getType(),
+                                                        src, dst)
+                             .getResult();
               }
-              builder.create<YieldOp>(innerLoc, dst);
+
+              Value storeResult =
+                  createRemoteStore(builder, innerLoc, output, indices, result);
+              builder.create<YieldOp>(innerLoc, storeResult);
             },
-            ThreadType::Compute)
+            ThreadType::Unified)
         .getResult(0);
   }
 
   // Lower masking operation using a d2m.generic with BlockMaskOp.
   // The BlockMaskOp operates at block level and gets decomposed later.
+  //
+  // Strategy: Use CB-based mask generation (L1 writes + copy_tile).
+  // This is more reliable than SFPU-based mask generation which has
+  // complex face iteration pattern, at cost of extra memory usage.
   Value lowerMaskingGeneric(PatternRewriter &rewriter, Value input,
                             Value output, Location loc,
                             ArrayRef<int64_t> logicalShape,
@@ -616,31 +666,128 @@ public:
     int64_t logicalRows = logicalShape[logicalShape.size() - 2];
     int64_t logicalCols = logicalShape[logicalShape.size() - 1];
 
-    auto genericOp = rewriter.create<GenericOp>(
-        loc, input, output,
-        [&](OpBuilder &builder, Location innerLoc, ValueRange blockArgs) {
-          Value src =
-              builder.create<WaitOp>(innerLoc, blockArgs[0]).getResult();
-          Value dst =
-              builder.create<ReserveOp>(innerLoc, blockArgs[1]).getResult();
+    // Check if partial masking is needed (non-tile-aligned shape).
+    auto inputType = mlir::cast<RankedTensorType>(input.getType());
+    auto inputLayout =
+        mlir::cast<ttcore::MetalLayoutAttr>(inputType.getEncoding());
+    // shardRank is the shard shape rank (used for indexing maps).
+    const size_t shardRank = inputLayout.getShardShape(inputType).size();
 
-          // Create index constants for logical bounds.
-          // Note: For multicore, per-core bounds are computed in
-          // DecomposeMasking using CoreIndexOp to determine global tile
-          // position.
+    // Create scratch mask tensors (single tile each).
+    // These are used as scratch CBs to write masks via L1, then copy to DST.
+    // The mask tensor must have same rank as input tensor for GenericOp to
+    // work. Use the input's logical shape but with 1s except last two dims
+    // (32x32).
+    auto inputLogicalShape = inputLayout.getLogicalShape();
+    SmallVector<int64_t> maskLogicalShape(inputLogicalShape.begin(),
+                                          inputLogicalShape.end());
+    // Set all dims to 1 except last two which are 32x32 (single tile).
+    for (size_t i = 0; i < maskLogicalShape.size(); ++i) {
+      if (i < maskLogicalShape.size() - 2) {
+        maskLogicalShape[i] = 1;
+      } else {
+        maskLogicalShape[i] = 32;
+      }
+    }
+    auto maskLayout = ttcore::MetalLayoutAttr::get(
+        rewriter.getContext(), maskLogicalShape, ttcore::OOBVal::Undef,
+        ttcore::MemorySpace::DeviceL1, ttcore::TensorMemoryLayout::Sharded);
+
+    auto elemType = inputType.getElementType();
+    // Mask tensor shape: [grid_shape..., ..., 1, 1] in tile coordinates.
+    // This is a single tile on each core.
+    auto gridShape = inputLayout.getGridShape(inputType);
+    SmallVector<int64_t> maskShape;
+    for (auto dim : gridShape) {
+      maskShape.push_back(dim);
+    }
+    maskShape.push_back(1);
+    maskShape.push_back(1);
+
+    Value rowMaskTensor =
+        rewriter.create<d2m::EmptyOp>(loc, maskShape, elemType, maskLayout)
+            .getResult();
+    Value colMaskTensor =
+        rewriter.create<d2m::EmptyOp>(loc, maskShape, elemType, maskLayout)
+            .getResult();
+
+    // Input list includes scratch mask CBs.
+    SmallVector<Value> allInputs = {input, rowMaskTensor, colMaskTensor};
+    SmallVector<Value> allOutputs = {output};
+
+    // Build indexing maps based on shard rank (iteration space).
+    AffineMap identityMap = rewriter.getMultiDimIdentityMap(shardRank);
+    // For mask operands: broadcast (constant 0 for each grid/shard dim).
+    SmallVector<AffineExpr> zeroExprs(shardRank,
+                                      rewriter.getAffineConstantExpr(0));
+    AffineMap constantMap =
+        AffineMap::get(shardRank, 0, zeroExprs, rewriter.getContext());
+    SmallVector<AffineMap> indexingMaps = {
+        identityMap, // input: iterate over all tiles.
+        constantMap, // rowMask: single tile, constant.
+        constantMap, // colMask: single tile, constant.
+        identityMap  // output: iterate over all tiles.
+    };
+    Attribute parallel = rewriter.getAttr<ttcore::IteratorTypeAttr>(
+        ttcore::IteratorType::Parallel);
+    ArrayAttr indexingMapsAttr = rewriter.getAffineMapArrayAttr(indexingMaps);
+    ArrayAttr iteratorTypesAttr =
+        rewriter.getArrayAttr(SmallVector<Attribute>(shardRank, parallel));
+
+    auto genericOp = rewriter.create<GenericOp>(
+        loc, ValueRange(allInputs), ValueRange(allOutputs), indexingMapsAttr,
+        iteratorTypesAttr,
+        [&](OpBuilder &builder, Location innerLoc, ValueRange blockArgs) {
+          // blockArgs: [inputCB, rowMaskCB, colMaskCB, outputCB].
+          Type inputShardType = getShardTypeFromCB(blockArgs[0]);
+          Type outputShardType = getShardTypeFromCB(blockArgs[3]);
+
+          size_t gridRank = gridShape.size();
+          SmallVector<Value> indices =
+              buildIdentityGridIndices(builder, innerLoc, gridRank);
+
+          // Load input data.
+          Value src = createRemoteLoad(builder, innerLoc, inputShardType, input,
+                                       indices);
+
+          // Load mask data from scratch CBs using RemoteLoad. This establishes
+          // the connection between local buffers and the CBs. The masks use
+          // constant zero indices (broadcast - single tile shared across grid).
+          Type rowMaskType = getShardTypeFromCB(blockArgs[1]);
+          Type colMaskType = getShardTypeFromCB(blockArgs[2]);
+          SmallVector<Value> zeroIndices(
+              gridRank, builder.create<arith::ConstantIndexOp>(innerLoc, 0));
+          Value rowMaskLocal = createRemoteLoad(builder, innerLoc, rowMaskType,
+                                                rowMaskTensor, zeroIndices);
+          Value colMaskLocal = createRemoteLoad(builder, innerLoc, colMaskType,
+                                                colMaskTensor, zeroIndices);
+
+          // Create output buffer.
+          Value dst = createTensorEmpty(builder, innerLoc, outputShardType);
+
           Value logicalRowsVal =
               builder.create<arith::ConstantIndexOp>(innerLoc, logicalRows);
           Value logicalColsVal =
               builder.create<arith::ConstantIndexOp>(innerLoc, logicalCols);
 
-          // Apply block-level masking. BlockMaskOp is side-effecting and writes
-          // to dst, so we yield dst to propagate the result.
-          builder.create<BlockMaskOp>(innerLoc, src, dst, logicalRowsVal,
-                                      logicalColsVal, fillValue);
+          // BlockMaskOp with mask tensors - the mask writes will be handled
+          // in DecomposeMasking, which runs after bufferization.
+          Value masked = builder
+                             .create<BlockMaskOp>(innerLoc, dst.getType(), src,
+                                                  dst, rowMaskLocal,
+                                                  colMaskLocal, logicalRowsVal,
+                                                  logicalColsVal, fillValue)
+                             .getResult();
 
-          builder.create<YieldOp>(innerLoc, ValueRange{dst});
+          // Store the masked result to output.
+          Value storeResult =
+              createRemoteStore(builder, innerLoc, output, indices, masked);
+          builder.create<YieldOp>(innerLoc, storeResult);
         },
-        ThreadType::Compute);
+        ThreadType::Unified);
+
+    // Mark mask inputs (indices 1, 2) as scratch - they don't need streaming.
+    genericOp.setScratchInputsAttr(rewriter.getDenseI64ArrayAttr({1, 2}));
 
     return genericOp.getResult(0);
   }

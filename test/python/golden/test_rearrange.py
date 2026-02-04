@@ -14,6 +14,7 @@ from ttmlir.ir import *
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_apis import compile_and_execute_ttir
 from test_utils import Marks
+from conftest import get_request_kwargs
 
 pytestmark = pytest.mark.frontend("ttir")
 
@@ -33,6 +34,12 @@ def _test_pattern_map(pattern, shape, pattern_map):
 @pytest.mark.parametrize(
     "shape,pattern",
     [
+        # Tilized: inner dims preserved
+        ((3, 32, 64), "z y x -> z y x"),
+        ((2, 3, 32, 64), "w z y x -> z w y x"),
+        ((2, 3, 32, 64), "w z y x -> (w z) y x"),
+        ((4, 3, 32, 64), "w z y x -> (z w) y x"),
+        # Non-tilized: inner dims modified
         ((3, 32, 32), "z y x -> y z x"),
         ((3, 32, 32), "z y x -> (y z) x"),
         ((3, 32, 32), "z y x -> y (z x)"),
@@ -79,9 +86,5 @@ def test_rearrange(
         target=target,
         device=device,
         custom_pipeline=f"ttir-to-ttmetal-pipeline",
-        test_base=request.node.name,
-        save_artifacts=True,
-        print_ir=True,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
     )

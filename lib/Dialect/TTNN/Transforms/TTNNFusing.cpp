@@ -10,6 +10,7 @@
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "llvm/ADT/SmallVector.h"
 
 #ifdef TTMLIR_ENABLE_OPMODEL
 #include "ttmlir/Dialect/TTNN/Validation/OpConstraintValidation.h"
@@ -441,20 +442,28 @@ private:
 // Matches Scaled Dot Product Attention:
 //   Attention(Q, K, V) = softmax((Q @ K^T) * scale + mask) @ V
 //
-// Anchors on final matmul (attention @ V) and walks backward through:
-//   matmul -> [transparent] -> [where] -> softmax -> [transparent] ->
-//   [add(mask)] -> [transparent] -> [multiply(scale)] -> [transparent] ->
-//   matmul
+// Anchors on the final matmul (attention @ V) and walks backward:
 //
-// Uses a generic skipTransparent() utility to handle type conversions and
-// layout ops that don't change semantics, making the pattern robust to
-// variations in the IR.
+//   matmul (attention @ V)
+//      |
+//   [where]          <- optional causal masking
+//      |
+//   softmax
+//      |
+//   [add(mask)]      <- optional attention mask
+//      |
+//   [multiply(scale) | divide(scale)] <- optional scaling factor
+//      |
+//   matmul (Q @ K^T)
+//
+// Uses skipTransparent() to handle type conversions and layout ops that don't
+// change semantics, making the pattern robust to variations in the IR.
 //
 class SDPAFusing : public mlir::OpRewritePattern<MatmulOp> {
   using SDPAFusing::OpRewritePattern<MatmulOp>::OpRewritePattern;
 
-  // SDPA Query, Key, Value tensors have shape [B, H, S, D] (Batch, NumHeads,
-  // SeqLen, HeadDim).
+  // SDPA Query, Key, Value tensors have shape [B, H, S, D]
+  // (Batch, NumHeads, SeqLen, HeadDim).
   static constexpr int64_t kNumHeadsDim = 1;
   static constexpr int64_t kSeqLenDim = 2;
 
@@ -474,7 +483,7 @@ public:
                   mlir::PatternRewriter &rewriter) const override {
     SDPAComponents c;
     c.attentionMatmul = srcOp;
-    c.value = skipTransparent(srcOp.getB());
+    c.value = srcOp.getB();
 
     // Match: matmul -> [where] -> softmax -> score
     if (!matchSoftmaxPath(srcOp.getA(), c)) {
@@ -485,9 +494,17 @@ public:
       return failure();
     }
 
+    // Validate semantic constraints (single-use of intermediate ops, valid
+    // scale range) before modifying the IR.
     if (!validateSemantics(c)) {
       return failure();
     }
+
+    // Prepare inputs for SDPA: normalize Q/K/V/mask by skipping transparent ops
+    // and dropping matmul-only transforms (e.g. K^T permute, GQA head
+    // expansion). Key un-transpose for SDPA op legality is handled during input
+    // canonicalization (see unTransposeKeyIfNeeded()).
+    prepareInputsForSDPA(c, rewriter);
 
     return createSDPAOp(rewriter, c);
   }
@@ -507,7 +524,7 @@ private:
 
   // Operations that don't change semantic meaning - can be traced through.
   static bool isTransparentOp(Operation *op) {
-    return isa<ReshapeOp, RepeatOp, PermuteOp, TypecastOp>(op);
+    return isa<ToLayoutOp, ToMemoryConfigOp, TypecastOp>(op);
   }
 
   // Skip through transparent ops to find the semantic operation.
@@ -521,24 +538,173 @@ private:
     return v;
   }
 
-  // Check if key is transposed by looking at its source operation.
-  // Returns true if key came from SplitQueryKeyValueAndSplitHeadsOp with
-  // transpose_key=true.
-  bool isKeyTransposed(Value key) const {
+  // ============================================================================
+  // Layout / Transpose Utilities
+  // ============================================================================
+
+  // Check if a permutation is a transpose on the last two dimensions.
+  // For a 4D tensor [B, H, S, D], a transpose permutation would be [0, 1, 3,
+  // 2]. This is the typical transpose used before matrix multiplication.
+  static bool isTransposeOnLastTwoDims(ArrayRef<int64_t> perm) {
+    if (perm.size() < 2) {
+      return false;
+    }
+
+    size_t n = perm.size();
+    // Check that all dimensions except the last two are identity.
+    for (size_t i = 0; i < n - 2; ++i) {
+      if (perm[i] != static_cast<int64_t>(i)) {
+        return false;
+      }
+    }
+
+    // Check that the last two dimensions are swapped.
+    return perm[n - 2] == static_cast<int64_t>(n - 1) &&
+           perm[n - 1] == static_cast<int64_t>(n - 2);
+  }
+
+  // Check if key is transposed by looking at its source operation or shape.
+  // Returns true if:
+  // 1. Key came from SplitQueryKeyValueAndSplitHeadsOp with transpose_key=true
+  // 2. Key shape suggests transposition: K[B, H, D, S] where D matches Q's
+  //    head_dim and S matches V's seq_len
+  bool isKeyTransposed(Value key, Value query, Value value) const {
+    // Check explicit source first
     Operation *defOp = key.getDefiningOp();
     if (auto splitOp =
             dyn_cast_or_null<SplitQueryKeyValueAndSplitHeadsOp>(defOp)) {
       return splitOp.getTransposeKey();
     }
-    return false;
+
+    // Shape-based detection for keys transposed via permute operations
+    auto kType = mlir::dyn_cast<RankedTensorType>(key.getType());
+    auto qType = mlir::dyn_cast<RankedTensorType>(query.getType());
+    auto vType = mlir::dyn_cast<RankedTensorType>(value.getType());
+
+    if (!kType || !qType || !vType || kType.getRank() != 4 ||
+        qType.getRank() != 4 || vType.getRank() != 4) {
+      return false;
+    }
+
+    auto kShape = kType.getShape();
+    auto qShape = qType.getShape();
+    auto vShape = vType.getShape();
+
+    // Q: [B, H, S_q, head_dim], K_normal: [B, H, S_k, head_dim]
+    // K_transposed: [B, H, head_dim, S_k]
+    int64_t qHeadDim = qShape[3];
+    int64_t vSeqLen = vShape[kSeqLenDim];
+
+    // If K's dim[2] matches Q's head_dim and K's dim[3] matches V's seq_len,
+    // then K is transposed: [B, H, head_dim, seq_k]
+    bool kDim2MatchesHeadDim = kShape[2] == qHeadDim;
+    bool kDim3MatchesSeqLen = kShape[3] == vSeqLen;
+
+    return kDim2MatchesHeadDim && kDim3MatchesSeqLen;
+  }
+
+  // ============================================================================
+  // Constant Extraction
+  // ============================================================================
+
+  std::optional<float> extractConstant(Value v) const {
+    // Skip transparent ops to find the actual constant.
+    v = skipTransparent(v);
+
+    // Direct FullOp.
+    if (auto fullOp = v.getDefiningOp<FullOp>()) {
+      if (auto attr = mlir::dyn_cast<FloatAttr>(fullOp.getFillValue())) {
+        return attr.getValue().convertToFloat();
+      }
+    }
+
+    // Try load_cached - look up the const_eval function and find FullOp inside.
+    if (auto loadCached = v.getDefiningOp<ttcore::LoadCachedOp>()) {
+      auto callee = loadCached.getCallee();
+      auto moduleOp = loadCached->getParentOfType<ModuleOp>();
+      if (!moduleOp) {
+        return std::nullopt;
+      }
+
+      auto funcOp = moduleOp.lookupSymbol<func::FuncOp>(callee);
+      if (!funcOp) {
+        return std::nullopt;
+      }
+
+      // Walk the function body to find a FullOp.
+      std::optional<float> result;
+      funcOp.walk([&](FullOp fullOp) {
+        if (auto attr = mlir::dyn_cast<FloatAttr>(fullOp.getFillValue())) {
+          result = attr.getValue().convertToFloat();
+          return WalkResult::interrupt();
+        }
+        return WalkResult::advance();
+      });
+      return result;
+    }
+
+    return std::nullopt;
+  }
+
+  // ============================================================================
+  // Q/K Extraction with Scale Handling
+  // ============================================================================
+
+  // Extract tensor and its scale. Checks if skipping transparent ops leads to a
+  // multiply with a constant scale. If so, extracts the scale and returns the
+  // tensor input. Otherwise returns the original value unchanged.
+  std::pair<Value, std::optional<float>> extractTensorWithScale(Value v) const {
+    std::optional<float> scale;
+
+    // Check if transparent ops lead to a multiply (scale applied to tensor).
+    Value skipped = skipTransparent(v);
+    if (auto mulOp = skipped.getDefiningOp<MultiplyOp>()) {
+      if (auto s = extractConstant(mulOp.getRhs())) {
+        scale = s;
+        return {mulOp.getLhs(), scale};
+      }
+      if (auto s = extractConstant(mulOp.getLhs())) {
+        scale = s;
+        return {mulOp.getRhs(), scale};
+      }
+    }
+
+    // No multiply found - return original value unchanged.
+    return {v, scale};
+  }
+
+  // Returns false if we find both post-matmul scaling AND pre-scaling on Q/K,
+  // which would indicate this is likely not a standard SDPA pattern.
+  // Also rejects if Q or K comes from a LoadCachedOp (const-eval function).
+  bool extractQKWithScales(Value a, Value b, SDPAComponents &c) const {
+    auto [query, qScale] = extractTensorWithScale(a);
+    auto [key, kScale] = extractTensorWithScale(b);
+
+    // Reject if we found both post-matmul scale and pre-scaling on Q/K.
+    // Standard SDPA uses one or the other, not both.
+    bool hasPostMatmulScale = c.scale.has_value();
+    bool hasPreScale = qScale.has_value() || kScale.has_value();
+    if (hasPostMatmulScale && hasPreScale) {
+      return false;
+    }
+
+    c.query = query;
+    c.key = key;
+
+    // Combine pre-scales if present: Q*s and K*s → combined scale = s*s.
+    if (hasPreScale) {
+      float qs = qScale.value_or(1.0f);
+      float ks = kScale.value_or(1.0f);
+      c.scale = qs * ks;
+    }
+    return true;
   }
 
   // ============================================================================
   // Pattern Matching with Backtracking
   // ============================================================================
 
-  // Match: [transparent] -> [where(cond, zeros, softmax)] -> softmax
-  //    or: [transparent] -> softmax
+  // Match: [Typecast] -> [where(cond, zeros, softmax)] -> softmax
   bool matchSoftmaxPath(Value v, SDPAComponents &c) const {
     v = skipTransparent(v);
 
@@ -575,7 +741,7 @@ private:
         return false;
       }
       if (linearOp.getBias()) {
-        c.mask = skipTransparent(linearOp.getBias());
+        c.mask = linearOp.getBias();
       }
       return true;
     }
@@ -584,12 +750,12 @@ private:
     if (auto addOp = v.getDefiningOp<AddOp>()) {
       // Try lhs as score, rhs as mask
       if (matchScoreChain(addOp.getLhs(), c)) {
-        c.mask = skipTransparent(addOp.getRhs());
+        c.mask = addOp.getRhs();
         return true;
       }
       // Try rhs as score, lhs as mask
       if (matchScoreChain(addOp.getRhs(), c)) {
-        c.mask = skipTransparent(addOp.getLhs());
+        c.mask = addOp.getLhs();
         return true;
       }
       return false;
@@ -599,7 +765,8 @@ private:
     return matchScoreChain(v, c);
   }
 
-  // Match: [transparent] -> [multiply(*, scale)] -> [transparent] -> matmul
+  // Match: [transparent] -> [multiply(*, scale) | divide(*, scale)] ->
+  //        [transparent] -> matmul
   // Extracts scale if present, then matches the Q@K matmul.
   bool matchScoreChain(Value v, SDPAComponents &c) const {
     v = skipTransparent(v);
@@ -612,6 +779,17 @@ private:
       } else if (auto scale = extractConstant(mulOp.getLhs())) {
         c.scale = scale;
         v = skipTransparent(mulOp.getRhs());
+      }
+    }
+
+    // Optional divide for scale (post-matmul scaling, e.g. SegFormer style)
+    // Division by X is equivalent to multiply by 1/X.
+    else if (auto divOp = v.getDefiningOp<DivideOp>()) {
+      if (auto divisor = extractConstant(divOp.getRhs())) {
+        if (*divisor != 0.0f) {
+          c.scale = 1.0f / *divisor;
+          v = skipTransparent(divOp.getLhs());
+        }
       }
     }
 
@@ -630,113 +808,267 @@ private:
   }
 
   // ============================================================================
-  // Q/K Extraction with Scale Handling
+  // Input Canonicalization (dtype/TM/mask)
   // ============================================================================
 
-  // Extract tensor and its scale, handling TM reordering from
-  // EraseInverseOps. Skips transparent ops and extracts scale from multiply
-  // if present.
-  std::pair<Value, std::optional<float>> extractTensorWithScale(Value v) const {
-    std::optional<float> scale;
-
-    v = skipTransparent(v);
-
-    // Check if we hit a multiply (scale applied to tensor)
-    if (auto mulOp = v.getDefiningOp<MultiplyOp>()) {
-      if (auto s = extractConstant(mulOp.getRhs())) {
-        scale = s;
-        v = skipTransparent(mulOp.getLhs());
-      } else if (auto s = extractConstant(mulOp.getLhs())) {
-        scale = s;
-        v = skipTransparent(mulOp.getRhs());
-      }
+  static Value restoreElementTypeIfNeeded(Value v, Type elementType,
+                                          PatternRewriter &rewriter) {
+    auto vType = cast<RankedTensorType>(v.getType());
+    if (vType.getElementType() == elementType) {
+      return v;
     }
 
-    return {v, scale};
+    // Convert MLIR element type to ttcore::DataType.
+    auto dataType = ttcore::elementTypeToDataType(elementType);
+
+    // Create new tensor type with correctly updated encoding.
+    auto castType = utils::RankedTensorTypeFactory::create(vType, dataType);
+    return rewriter.create<TypecastOp>(
+        v.getLoc(), castType, v,
+        ttcore::DataTypeAttr::get(rewriter.getContext(), dataType));
   }
 
-  // Returns false if we find both post-matmul scaling AND pre-scaling on Q/K,
-  // which would indicate this is likely not a standard SDPA pattern.
-  bool extractQKWithScales(Value a, Value b, SDPAComponents &c) const {
-    auto [query, qScale] = extractTensorWithScale(a);
-    auto [key, kScale] = extractTensorWithScale(b);
+  // Find the element type at the end of a "TM chain" (typecast/reshape/permute/
+  // repeat_interleave), without allocating a temporary vector. This keeps dtype
+  // expectations stable when we later drop some of these ops for SDPA inputs.
+  static Type getTargetElementType(Value v) {
+    Type lastSeen = cast<RankedTensorType>(v.getType()).getElementType();
+    while (Operation *defOp = v.getDefiningOp()) {
+      if (isa<TypecastOp, ReshapeOp, PermuteOp, RepeatInterleaveOp>(defOp)) {
+        v = defOp->getOperand(0);
+        lastSeen = cast<RankedTensorType>(v.getType()).getElementType();
+        continue;
+      }
 
-    // Reject if we found both post-matmul scale and pre-scaling on Q/K.
-    // Standard SDPA uses one or the other, not both.
-    bool hasPostMatmulScale = c.scale.has_value();
-    bool hasPreScale = qScale.has_value() || kScale.has_value();
-    if (hasPostMatmulScale && hasPreScale) {
-      return false;
+      break;
     }
-
-    c.query = query;
-    c.key = key;
-
-    // Combine pre-scales if present: Q*s and K*s → combined scale = s*s
-    if (hasPreScale) {
-      float qs = qScale.value_or(1.0f);
-      float ks = kScale.value_or(1.0f);
-      c.scale = qs * ks;
-    }
-    return true;
+    return lastSeen;
   }
 
-  // ============================================================================
-  // Constant Extraction
-  // ============================================================================
-
-  std::optional<float> extractConstant(Value v) const {
-    // Skip transparent ops to find the actual constant
-    v = skipTransparent(v);
-
-    // Direct FullOp
-    if (auto fullOp = v.getDefiningOp<FullOp>()) {
-      if (auto attr = mlir::dyn_cast<FloatAttr>(fullOp.getFillValue())) {
-        return attr.getValue().convertToFloat();
-      }
+  std::pair<Value, Type> analyzeQ(Value v) const {
+    if (auto typecastOp = v.getDefiningOp<TypecastOp>()) {
+      v = typecastOp.getInput();
     }
 
-    // Try load_cached - look up the const_eval function and find FullOp
-    // inside
+    // If Q comes from load_cached, trace through const-eval function to find
+    // the original dtype before any f32 conversions.
     if (auto loadCached = v.getDefiningOp<ttcore::LoadCachedOp>()) {
-      auto callee = loadCached.getCallee();
-      auto moduleOp = loadCached->getParentOfType<ModuleOp>();
-      if (!moduleOp) {
-        return std::nullopt;
-      }
-
-      auto funcOp = moduleOp.lookupSymbol<func::FuncOp>(callee);
-      if (!funcOp) {
-        return std::nullopt;
-      }
-
-      // Walk the function body to find a FullOp
-      std::optional<float> result;
-      funcOp.walk([&](FullOp fullOp) {
-        if (auto attr = mlir::dyn_cast<FloatAttr>(fullOp.getFillValue())) {
-          result = attr.getValue().convertToFloat();
-          return WalkResult::interrupt();
+      auto funcOp = SymbolTable::lookupNearestSymbolFrom<func::FuncOp>(
+          loadCached, loadCached.getCalleeAttr());
+      if (funcOp) {
+        // Find the return op and get the value corresponding to this result.
+        unsigned resultIdx = cast<OpResult>(v).getResultNumber();
+        for (auto &block : funcOp.getBody()) {
+          if (auto returnOp = dyn_cast<func::ReturnOp>(block.getTerminator())) {
+            Value innerV = returnOp.getOperand(resultIdx);
+            // Extract original tensor before scaling to get the true dtype.
+            auto [originalTensor, scale] = extractTensorWithScale(innerV);
+            return {v, getTargetElementType(originalTensor)};
+          }
         }
-        return WalkResult::advance();
-      });
-      return result;
+      }
     }
 
-    return std::nullopt;
+    return {v, getTargetElementType(v)};
+  }
+
+  // Analyze K tensor: trace through TMs we can drop,
+  // and track whether we skipped a K^T permute.
+  std::tuple<Value, Type, bool> analyzeK(Value v) const {
+    Type targetDtype = getTargetElementType(v);
+    bool skippedTranspose = false;
+
+    while (Operation *defOp = v.getDefiningOp()) {
+      if (isa<TypecastOp>(defOp)) {
+        v = defOp->getOperand(0);
+        continue;
+      }
+
+      if (auto repeatOp = dyn_cast<RepeatInterleaveOp>(defOp)) {
+        // Only skip if it's GQA head expansion (on dim 1 in [B,H,S,D])
+        if (repeatOp.getDim() == kNumHeadsDim) {
+          v = repeatOp.getInput();
+          continue;
+        }
+        break;
+      }
+
+      if (auto permuteOp = dyn_cast<PermuteOp>(defOp)) {
+        // Only skip if it's a transpose on last two dims (K^T for matmul)
+        if (isTransposeOnLastTwoDims(permuteOp.getPermutation())) {
+          v = permuteOp.getInput();
+          skippedTranspose = true;
+          continue;
+        }
+      }
+
+      break;
+    }
+
+    return {v, targetDtype, skippedTranspose};
+  }
+
+  // Analyze V tensor: trace through TMs we can drop.
+  std::pair<Value, Type> analyzeV(Value v) const {
+    Type targetDtype = getTargetElementType(v);
+
+    while (Operation *defOp = v.getDefiningOp()) {
+      if (isa<TypecastOp>(defOp)) {
+        v = defOp->getOperand(0);
+        continue;
+      }
+
+      if (auto repeatOp = dyn_cast<RepeatInterleaveOp>(defOp)) {
+        // Only skip if it's GQA head expansion (on dim 1 in [B,H,S,D])
+        if (repeatOp.getDim() == kNumHeadsDim) {
+          v = repeatOp.getInput();
+          continue;
+        }
+        break;
+      }
+
+      break;
+    }
+
+    return {v, targetDtype};
+  }
+
+  // Trace mask back through broadcast materialization ops (e.g. RepeatOp).
+  //
+  // Many frontends materialize attention mask broadcasts early (often via
+  // `ttnn.repeat`) to match the score tensor shape. For SDPA we prefer to keep
+  // the original mask and let broadcastMaskForSDPA() re-broadcast to the exact
+  // shape required by the fused op.
+  Value prepareMask(Value v) const {
+    while (Operation *defOp = v.getDefiningOp()) {
+      if (isa<TypecastOp>(defOp)) {
+        v = defOp->getOperand(0);
+        continue;
+      }
+
+      if (auto repeatOp = dyn_cast<RepeatOp>(defOp)) {
+        v = repeatOp.getInput();
+        continue;
+      }
+
+      break;
+    }
+    return v;
+  }
+
+  // Slice mask on head dimension if it was broadcasted.
+  //
+  // TTNN SDPA expects mask with shape [B, 1, S_q, S_kv], but some frontends
+  // may broadcast the mask to [B, H, S_q, S_kv] matching Q's num_heads.
+  // We slice to [B, 1, S_q, S_kv] which SDPA can then broadcast internally.
+  Value sliceMaskOnHeadDimIfNeeded(Value mask, PatternRewriter &rewriter,
+                                   Location loc) const {
+    auto maskType = mlir::cast<RankedTensorType>(mask.getType());
+    auto maskShape = maskType.getShape();
+
+    // Only handle 4D masks.
+    if (maskShape.size() != 4) {
+      return mask;
+    }
+
+    // If head dim (dim 1) is already 1, no slicing needed.
+    if (maskShape[1] == 1) {
+      return mask;
+    }
+
+    // Slice to get [B, 1, S_q, S_kv].
+    SmallVector<int32_t> begins = {0, 0, 0, 0};
+    SmallVector<int32_t> ends = {static_cast<int32_t>(maskShape[0]), 1,
+                                 static_cast<int32_t>(maskShape[2]),
+                                 static_cast<int32_t>(maskShape[3])};
+    SmallVector<int32_t> steps = {1, 1, 1, 1};
+
+    SmallVector<int64_t> resultShape = {maskShape[0], 1, maskShape[2],
+                                        maskShape[3]};
+    auto resultType =
+        utils::RankedTensorTypeFactory::create(maskType, resultShape);
+
+    return rewriter.create<SliceStaticOp>(
+        loc, resultType, mask, rewriter.getI32ArrayAttr(begins),
+        rewriter.getI32ArrayAttr(ends), rewriter.getI32ArrayAttr(steps));
+  }
+
+  // Prepare matched inputs for SDPA operation.
+  //
+  // This normalizes inputs while keeping the pattern robust to frontend
+  // variations:
+  // - Skip transparent ops (ToLayout, ToMemoryConfig, Typecast)
+  // - Drop matmul-only transforms on K/V (K^T permute, typecast wrappers, GQA
+  //   head expansion via repeat_interleave)
+  // - Trace mask through broadcast materialization (RepeatOp) to recover the
+  //   original mask and let broadcastMaskForSDPA() re-broadcast precisely
+  //
+  // Each preparation step is only committed if shapes remain SDPA-legal.
+  void prepareInputsForSDPA(SDPAComponents &c,
+                            PatternRewriter &rewriter) const {
+    // Analyze all inputs upfront before committing any changes.
+    // This ensures K and V are validated together (important for GQA where
+    // both may need repeat_interleave traced through).
+    auto [preparedQ, preparedQElementType] = analyzeQ(c.query);
+    auto [preparedK, preparedKElementType, skippedKTranspose] = analyzeK(c.key);
+    auto [preparedV, preparedVElementType] = analyzeV(c.value);
+
+    // Validate and commit Q.
+    if (validateShapes(preparedQ, c.key, c.value)) {
+      c.query =
+          restoreElementTypeIfNeeded(preparedQ, preparedQElementType, rewriter);
+    } else {
+      c.query =
+          restoreElementTypeIfNeeded(c.query, preparedQElementType, rewriter);
+    }
+
+    // Validate K and V together - both must be prepared or neither.
+    // This handles GQA where K and V are both traced through repeat_interleave.
+    if (validateShapes(c.query, preparedK, preparedV)) {
+      c.key = preparedK;
+      c.value = preparedV;
+    }
+
+    // If key is still in a transposed form, materialize an un-transpose so the
+    // fused SDPA op sees the expected [B, H, S, D] shape. Do this before
+    // restoring element type so the permute operates on the traced-back value.
+    //  Only do this if we didn't already skip a K^T permute during
+    // tracing, to avoid adding a unneeded transpose when shapes are ambiguous
+    // (e.g., when seq_k == head_dim).
+    if (!skippedKTranspose) {
+      c.key = unTransposeKeyIfNeeded(c.query, c.key, c.value, rewriter,
+                                     c.attentionMatmul.getLoc());
+    }
+
+    // Restore element types for K and V after any shape transformations.
+    c.key = restoreElementTypeIfNeeded(c.key, preparedKElementType, rewriter);
+    c.value =
+        restoreElementTypeIfNeeded(c.value, preparedVElementType, rewriter);
+
+    if (c.mask) {
+      c.mask = prepareMask(c.mask);
+
+      // If mask is broadcasted on head dimension (dim 1), slice it to
+      // [B, 1, S_q, S_kv] since TTNN SDPA doesn't support this broadcast.
+      c.mask = sliceMaskOnHeadDimIfNeeded(c.mask, rewriter,
+                                          c.attentionMatmul.getLoc());
+
+      // The mask should have the same element type as the qkv tensors.
+      c.mask =
+          restoreElementTypeIfNeeded(c.mask, preparedQElementType, rewriter);
+    }
   }
 
   // ============================================================================
   // Key Un-transpose
   // ============================================================================
 
-  // Check if key is transposed by looking at its source operation.
-  // If key came from SplitQueryKeyValueAndSplitHeadsOp with
-  // transpose_key=true, generate a permute to restore the expected shape [B,
-  // H, S, D] for SDPA.
-  Value unTransposeKeyIfNeeded(Value query, Value key,
+  // If key appears transposed (via source op or shape heuristic), generate a
+  // permute to restore the expected shape [B, H, S, D] for SDPA.
+  Value unTransposeKeyIfNeeded(Value query, Value key, Value value,
                                mlir::PatternRewriter &rewriter,
                                Location loc) const {
-    if (!isKeyTransposed(key)) {
+    if (!isKeyTransposed(key, query, value)) {
       return key;
     }
 
@@ -750,14 +1082,41 @@ private:
   // Validation
   // ============================================================================
 
-  bool validateSemantics(const SDPAComponents &c) const {
-    if (!c.query || !c.key || !c.value || !c.softmax || !c.scoreOp) {
+  // Check if an SDPA validation error can be recovered by TTNNWorkarounds pass.
+  // These errors are handled by
+  // ScaledDotProductAttentionPadTileDimsRewritePattern which pads:
+  // - sequence dimensions to be divisible by chunk size (32) when mask is
+  //   present
+  // - head dimensions to be divisible by tile width (32) always
+  static bool isRecoverableSDPAError(const std::string &errorMessage) {
+    // Q sequence length not divisible by q_chunk_size (default 32)
+    if (errorMessage.find(
+            "Q sequence length must be divisible by q_chunk_size") !=
+        std::string::npos) {
+      return true;
+    }
+    // K sequence length not divisible by k_chunk_size (default 32)
+    if (errorMessage.find(
+            "K sequence length must be divisible by k_chunk_size") !=
+        std::string::npos) {
+      return true;
+    }
+    // Head dimension not tile-aligned (requires padding)
+    if (errorMessage.find("Padding is not supported on the head_dim") !=
+        std::string::npos) {
+      return true;
+    }
+    return false;
+  }
+
+  bool validateShapes(Value query, Value key, Value value) const {
+    if (!query || !key || !value) {
       return false;
     }
 
-    auto qType = mlir::dyn_cast<RankedTensorType>(c.query.getType());
-    auto kType = mlir::dyn_cast<RankedTensorType>(c.key.getType());
-    auto vType = mlir::dyn_cast<RankedTensorType>(c.value.getType());
+    auto qType = mlir::dyn_cast<RankedTensorType>(query.getType());
+    auto kType = mlir::dyn_cast<RankedTensorType>(key.getType());
+    auto vType = mlir::dyn_cast<RankedTensorType>(value.getType());
 
     if (!qType || !kType || !vType) {
       return false;
@@ -780,11 +1139,7 @@ private:
     int64_t vSeqLen = vShape[kSeqLenDim];
     int64_t vHeadDim = vShape[3];
 
-    // Determine if key is transposed by checking if it came from
-    // SplitQueryKeyValueAndSplitHeadsOp with transpose_key=true.
-    // If K is not transposed: [B, H, S, D] -> kShape[3] == head_dim
-    // If K is transposed: [B, H, D, S] -> kShape[2] == head_dim
-    bool keyTransposed = isKeyTransposed(c.key);
+    bool keyTransposed = isKeyTransposed(key, query, value);
     int64_t kSeqLen = keyTransposed ? kShape[3] : kShape[kSeqLenDim];
     int64_t kHeadDim = keyTransposed ? kShape[kSeqLenDim] : kShape[3];
 
@@ -815,6 +1170,18 @@ private:
     }
 
     if (qNumHeads % kNumHeads != 0) {
+      return false;
+    }
+
+    return true;
+  }
+
+  bool validateSemantics(const SDPAComponents &c) const {
+    if (!c.query || !c.key || !c.value || !c.softmax || !c.scoreOp) {
+      return false;
+    }
+
+    if (!validateShapes(c.query, c.key, c.value)) {
       return false;
     }
 
@@ -886,29 +1253,28 @@ private:
 
   mlir::LogicalResult createSDPAOp(mlir::PatternRewriter &rewriter,
                                    SDPAComponents &c) const {
+    op_model::ScopedSingletonDeviceGuard deviceGuard;
+
     // When no scale is found in the pattern, explicitly set scale=1.0 to
     // prevent tt-metal from applying the default 1/sqrt(head_dim) scaling.
     float scale = c.scale.value_or(1.0f);
     FloatAttr scaleAttr = rewriter.getF32FloatAttr(scale);
 
-    // If key is transposed (coming from SplitQueryKeyValueAndSplitHeadsOp
-    // with transpose_key=true) [B, H, D, S], un-transpose it to restore [B,
-    // H, S, D] shape expected by SDPA.
-    Value key = unTransposeKeyIfNeeded(c.query, c.key, rewriter,
-                                       c.attentionMatmul.getLoc());
+    // Capture original output element type to restore after SDPA if needed.
+    auto originalOutputType =
+        mlir::cast<RankedTensorType>(c.attentionMatmul.getResult().getType());
+    Type originalElementType = originalOutputType.getElementType();
 
     auto qType = mlir::cast<RankedTensorType>(c.query.getType());
     auto qShape = qType.getShape();
-    auto kType = mlir::cast<RankedTensorType>(key.getType());
+    auto kType = mlir::cast<RankedTensorType>(c.key.getType());
 
     // Check if this is decode mode (query seq_len == 1)
     // Query shape: [batch x num_heads x seq_len x head_size]
     bool isDecode = qShape.size() == 4 && qShape[kSeqLenDim] == 1;
-
     // Broadcast mask to the required shape for the SDPA variant.
     Value attentionMask = broadcastMaskForSDPA(
         c.mask, qType, kType, isDecode, rewriter, c.attentionMatmul.getLoc());
-
     if (isDecode) {
       // Permute query: [B, H, 1, D] -> [1, B, H, D]
       Value permutedQuery = ttir_to_ttnn::utils::generatePermute(
@@ -918,28 +1284,67 @@ private:
 
       auto decodeOp = rewriter.create<ScaledDotProductAttentionDecodeOp>(
           c.attentionMatmul.getLoc(), permutedQuery.getType(), permutedQuery,
-          key, c.value,
+          c.key, c.value,
           /*is_causal=*/rewriter.getBoolAttr(false), attentionMask,
           /*cur_pos_tensor=*/Value(),
           /*attention_sink=*/Value(), scaleAttr,
           /*memory_config=*/MemoryConfigAttr(),
           /*program_config=*/SDPAProgramConfigAttr());
 
+      // Validate the operation using op constraint validation
+      std::vector<TTNNLayoutAttr> inputLayouts =
+          utils::extractInputLayouts(decodeOp.getOperation());
+
+      auto resultType =
+          mlir::cast<RankedTensorType>(decodeOp.getResult().getType());
+      OpConfig config(mlir::cast<TTNNLayoutAttr>(resultType.getEncoding()));
+      auto result = op_constraint_validation::validateOperation(
+          decodeOp.getOperation(), inputLayouts, config);
+
+      if (!result.isSuccess() && !isRecoverableSDPAError(result.errorMessage)) {
+        rewriter.eraseOp(decodeOp);
+        return failure();
+      }
+
       // Permute result back: [1, B, H, D] -> [B, H, 1, D].
-      rewriter.replaceOp(
-          c.attentionMatmul,
-          ttir_to_ttnn::utils::generatePermute(
-              decodeOp.getResult(),
-              ttmlir::utils::inversePermutation(kToDecodePermutation), rewriter,
-              c.attentionMatmul.getLoc()));
+      Value finalResult = ttir_to_ttnn::utils::generatePermute(
+          decodeOp.getResult(),
+          ttmlir::utils::inversePermutation(kToDecodePermutation), rewriter,
+          c.attentionMatmul.getLoc());
+
+      // Restore original element type if SDPA produced a different dtype.
+      finalResult = restoreElementTypeIfNeeded(finalResult, originalElementType,
+                                               rewriter);
+
+      rewriter.replaceOp(c.attentionMatmul, finalResult);
     } else {
       auto sdpaOp = rewriter.create<ScaledDotProductAttentionOp>(
-          c.attentionMatmul.getLoc(), c.query.getType(), c.query, key, c.value,
-          attentionMask,
+          c.attentionMatmul.getLoc(), c.query.getType(), c.query, c.key,
+          c.value, attentionMask,
           /*is_causal=*/rewriter.getBoolAttr(false), scaleAttr,
           /*sliding_window_size=*/IntegerAttr(),
           /*memory_config=*/MemoryConfigAttr());
-      rewriter.replaceOp(c.attentionMatmul, sdpaOp.getResult());
+
+      // Validate the operation using op constraint validation
+      std::vector<TTNNLayoutAttr> inputLayouts =
+          utils::extractInputLayouts(sdpaOp.getOperation());
+
+      auto resultType =
+          mlir::cast<RankedTensorType>(sdpaOp.getResult().getType());
+      OpConfig config(mlir::cast<TTNNLayoutAttr>(resultType.getEncoding()));
+      auto result = op_constraint_validation::validateOperation(
+          sdpaOp.getOperation(), inputLayouts, config);
+
+      if (!result.isSuccess() && !isRecoverableSDPAError(result.errorMessage)) {
+        rewriter.eraseOp(sdpaOp);
+        return failure();
+      }
+
+      // Restore original element type if SDPA produced a different dtype.
+      Value finalResult = restoreElementTypeIfNeeded(
+          sdpaOp.getResult(), originalElementType, rewriter);
+
+      rewriter.replaceOp(c.attentionMatmul, finalResult);
     }
 
     return mlir::success();

@@ -4,10 +4,10 @@
 
 #include "ttmlir/Dialect/TTNN/Pipelines/TTNNPipelines.h"
 
-#include "ttmlir/Conversion/Passes.h"
+#include "ttmlir/Conversion/TTIRToTTIRDecomposition/TTIRToTTIRDecomposition.h"
+#include "ttmlir/Conversion/TTIRToTTNN/TTIRToTTNN.h"
 #include "ttmlir/Conversion/TTNNToEmitC/TTNNToEmitC.h"
 #include "ttmlir/Conversion/TTNNToEmitPy/TTNNToEmitPy.h"
-#include "ttmlir/Dialect/LLVM/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTCore/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTCore/Utils/PopulateArgumentTypes.h"
@@ -15,7 +15,6 @@
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/Transforms/DevicePassesWrapper.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
-#include "ttmlir/Support/Logger.h"
 #include "ttmlir/Transforms/Passes.h"
 
 #include "mlir/Pass/PassManager.h"
@@ -183,6 +182,7 @@ void createTTNNPipelineWorkaroundPass(
 
   pm.addPass(createTTNNWorkarounds(workaroundOptions));
   pm.addPass(mlir::createCanonicalizerPass());
+  pm.addPass(mlir::createCSEPass());
 }
 
 void createTTNNPipelineLayoutDecompositionPass(
@@ -215,17 +215,19 @@ void createTTIRToTTNNDevicePipeline(
   // Resolve options controlled by optimization_level.
   options.resolveOptimizationLevelOptions();
 
+  // TODO(dmilinkovic): Remove this once multithreading issues in MetalContext
+  // are resolved - tt-metal issue #31041.
+  if (options.optimizerPassEnabled) {
+    static_cast<PassManager &>(pm).getContext()->disableMultithreading();
+  }
+
   // Mark all public functions without a type assigned to them as Device Forward
   // functions before any other. This provides a consistent mechanism for
   // identifying Device Forward functions downstream.
   pm.addPass(ttcore::createTTCoreMarkFunctionsAsForwardPass());
 
   pm.addPass(mlir::createCanonicalizerPass());
-
-  // Add Decomposition pass here to ensure it runs before hoisting.
-  TTIRToTTIRDecompositionOptions decompOptions;
-  decompOptions.decompConfig = DecompMode::CPUFallback;
-  pm.addPass(mlir::tt::createTTIRToTTIRDecompositionPass(decompOptions));
+  pm.addPass(mlir::createCSEPass());
 
   // Create device module, if not already present.
   pm.addPass(ttcore::createTTCoreWrapDeviceModulePass());
@@ -433,7 +435,9 @@ void createTTNNToEmitPyDevicePipeline(
     }
   }
 
-  devicePm.addPass(createConvertTTNNToEmitPyPass());
+  ConvertTTNNToEmitPyOptions emitpyOptions;
+  emitpyOptions.targetModule = options.targetModule;
+  devicePm.addPass(createConvertTTNNToEmitPyPass(emitpyOptions));
 
   devicePm.addPass(createEmitPyNameVarsPass());
 }
@@ -459,6 +463,7 @@ void createTTIRToEmitPyCPUPipeline(OpPassManager &pm) {
   //
   ConvertTTNNToEmitPyOptions options;
   options.enableGoldenMode = true;
+  options.targetModule = false;
   cpuPm.addPass(createConvertTTNNToEmitPyPass(options));
 
   cpuPm.addPass(createEmitPyNameVarsPass());
