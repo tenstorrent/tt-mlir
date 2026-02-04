@@ -173,6 +173,11 @@ public:
         nocIndex++;
         break;
       }
+      case d2m::ThreadType::Unified: {
+        // Unified threads should have been split by SplitUnifiedThread before
+        // reaching this pass.
+        llvm_unreachable("Unexpected thread type in backend conversion");
+      }
       }
     }
     return kernelConfigs;
@@ -241,7 +246,7 @@ public:
       TT_assertv(shardLayout, "Expected shardLayoutAttr for the output of a "
                               "generic op with a virtual grid.");
 
-      auto physicalGridShape = shardLayout.getPhysicalGridShape(outputType);
+      auto physicalGridShape = d2m::utils::getPhysicalGridShape(output);
       // TTNN grids are (Width, Height), while D2M grids are (Height, Width).
       endCoreRange = {physicalGridShape[1] - 1, physicalGridShape[0] - 1};
     } else {

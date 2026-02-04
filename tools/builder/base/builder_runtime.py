@@ -685,9 +685,9 @@ def execute_fb(
     )
     output_tensors = {}
     golden_report = {}
-    verify_intermediates = enable_intermediate_verification or len(bypass_ops) > 0
     if bypass_ops is None:
         bypass_ops = []
+    verify_intermediates = enable_intermediate_verification or len(bypass_ops) > 0
     if input_output_goldens is None:
         disable_golden = True
 
@@ -1113,13 +1113,13 @@ def execute_cpp(
         metal_lib_candidates = [
             p for p in TT_METAL_RUNTIME_ROOT.glob("build*/lib") if p.is_dir()
         ]
-        if len(metal_lib_candidates) != 1:
-            found = "\n".join(f"- {p}" for p in metal_lib_candidates) or "- <none>"
-            raise TTBuilderRuntimeException(
-                "Expected exactly one TT-Metal build lib directory matching "
-                f"`{TT_METAL_RUNTIME_ROOT}/build*/lib`, but found {len(metal_lib_candidates)}:\n"
-                f"{found}"
-            )
+        # if len(metal_lib_candidates) != 1:
+        #    found = "\n".join(f"- {p}" for p in metal_lib_candidates) or "- <none>"
+        #    raise TTBuilderRuntimeException(
+        #        "Expected exactly one TT-Metal build lib directory matching "
+        #        f"`{TT_METAL_RUNTIME_ROOT}/build*/lib`, but found {len(metal_lib_candidates)}:\n"
+        #        f"{found}"
+        #    )
         metal_lib_dir = str(metal_lib_candidates[0])
 
     output_dir = os.path.dirname(cpp_path)

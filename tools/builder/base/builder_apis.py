@@ -7,7 +7,7 @@ import os
 import inspect
 import time
 import torch
-from functools import reduce
+from functools import partial, reduce
 import itertools
 import operator
 from typing import Callable, List, Optional, Tuple, Union, Literal, Dict
@@ -1073,7 +1073,7 @@ def compile_stablehlo_to_flatbuffer(
     # We need to generate golden dictionary before pipeline run because pipeline run modifies the graph in place.
     input_output_goldens, intermediate_goldens = builder.golden_map
 
-    stablehlo_pipeline(module, " ".join(shlo_pipeline_options))
+    stablehlo_pipeline(module, " ".join(shlo_pipeline_options), print_ir=print_ir)
     print(f"`{fn.__name__}` successfully ran stablehlo-pipeline.")
     print(module)
 
@@ -1082,7 +1082,9 @@ def compile_stablehlo_to_flatbuffer(
         with open(filename, "w") as f:
             f.write(str(module))
 
-    stablehlo_to_ttir_pipeline(module, " ".join(shlo_to_ttir_pipeline_options))
+    stablehlo_to_ttir_pipeline(
+        module, " ".join(shlo_to_ttir_pipeline_options), print_ir=print_ir
+    )
     print(f"`{fn.__name__}` successfully transformed into a TTIR MLIR module.")
     print(module)
 
@@ -1208,16 +1210,26 @@ def compile_ttir_module_to_flatbuffer(
     to_target: Callable
     target_extension: str
 
+    # Helper to wrap default pipelines with print_ir flag
+    def wrap_pipeline_with_print_ir(pipeline):
+        if print_ir:
+            return partial(pipeline, print_ir=True)
+        return pipeline
+
     if target == "ttnn":
         pipeline_fn = (
-            custom_pipeline if custom_pipeline else ttir_to_ttnn_backend_pipeline
+            custom_pipeline
+            if custom_pipeline
+            else wrap_pipeline_with_print_ir(ttir_to_ttnn_backend_pipeline)
         )
         to_target = ttnn_to_flatbuffer_bin
         to_file = ttnn_to_flatbuffer_file
         target_extension = "ttnn"
     elif target == "ttmetal":
         pipeline_fn = (
-            custom_pipeline if custom_pipeline else ttir_to_ttmetal_backend_pipeline
+            custom_pipeline
+            if custom_pipeline
+            else wrap_pipeline_with_print_ir(ttir_to_ttmetal_backend_pipeline)
         )
         to_target = ttmetal_to_flatbuffer_bin
         to_file = ttmetal_to_flatbuffer_file
@@ -1232,7 +1244,11 @@ def compile_ttir_module_to_flatbuffer(
         to_target = emitc_to_executable
         target_extension = "cpp"
     elif target == "emitpy":
-        pipeline_fn = custom_pipeline if custom_pipeline else ttir_to_emitpy_pipeline
+        pipeline_fn = (
+            custom_pipeline
+            if custom_pipeline
+            else wrap_pipeline_with_print_ir(ttir_to_emitpy_pipeline)
+        )
         to_target = emitpy_to_executable
         target_extension = "py"
     else:

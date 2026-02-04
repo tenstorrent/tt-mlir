@@ -6,9 +6,13 @@ module @test_convolution3d {
 
   // Test 3D convolution with different layout (NCDHW -> NDHWC conversion)
   func.func @test_conv3d_layout_conversion(%arg0: tensor<1x4x8x28x28xbf16>, %arg1: tensor<16x4x3x3x3xbf16>) -> tensor<1x16x6x26x26xbf16> {
-    // CHECK: "ttir.permute"
     // CHECK: "ttir.conv3d"
-    // CHECK: "ttir.permute"
+    // CHECK-SAME: batch_dim = 0 : i64
+    // CHECK-SAME: channel_dim = 1 : i64
+    // CHECK-SAME: depth_dim = 2 : i64
+    // CHECK-SAME: height_dim = 3 : i64
+    // CHECK-SAME: width_dim = 4 : i64
+
     %0 = stablehlo.convolution(%arg0, %arg1)
       dim_numbers = [b, f, 0, 1, 2]x[o, i, 0, 1, 2]->[b, f, 0, 1, 2],
       window = {
@@ -23,9 +27,13 @@ module @test_convolution3d {
 
   // Test 3D convolution with stride and padding
   func.func @test_conv3d_stride_padding(%arg0: tensor<1x16x8x28x28xbf16>, %arg1: tensor<32x16x3x3x3xbf16>) -> tensor<1x32x4x14x14xbf16> {
-    // CHECK: "ttir.permute"
     // CHECK: "ttir.conv3d"
-    // CHECK: "ttir.permute"
+    // CHECK-SAME: batch_dim = 0 : i64
+    // CHECK-SAME: channel_dim = 1 : i64
+    // CHECK-SAME: depth_dim = 2 : i64
+    // CHECK-SAME: height_dim = 3 : i64
+    // CHECK-SAME: width_dim = 4 : i64
+
     %0 = stablehlo.convolution(%arg0, %arg1)
       dim_numbers = [b, f, 0, 1, 2]x[o, i, 0, 1, 2]->[b, f, 0, 1, 2],
       window = {

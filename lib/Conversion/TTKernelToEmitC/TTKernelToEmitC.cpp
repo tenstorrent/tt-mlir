@@ -137,6 +137,11 @@ public:
         [ctx](mlir::tt::ttkernel::TensorAccessorPageMappingType type) -> Type {
           return emitc::OpaqueType::get(ctx, "PageMapping");
         });
+    addConversion(
+        [ctx](mlir::tt::ttkernel::FabricConnectionManagerType type) -> Type {
+          return emitc::OpaqueType::get(
+              ctx, "experimental::FabricConnectionManager");
+        });
   }
 };
 } // namespace
@@ -620,6 +625,45 @@ public:
 } // namespace
 
 namespace {
+class TTKernelCreateFabricConnectionManagerOpRewriter
+    : public OpConversionPattern<ttkernel::CreateFabricConnectionManagerOp> {
+  using Op = ttkernel::CreateFabricConnectionManagerOp;
+
+public:
+  TTKernelCreateFabricConnectionManagerOpRewriter(
+      const TypeConverter &typeConverter, MLIRContext *context)
+      : OpConversionPattern(typeConverter, context) {}
+
+  LogicalResult
+  matchAndRewrite(Op op,
+                  ttkernel::CreateFabricConnectionManagerOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    if (op.getResult().getUses().empty()) {
+      rewriter.eraseOp(op);
+    } else {
+      mlir::Type opaqueStructType =
+          this->getTypeConverter()->convertType(op->getResultTypes()[0]);
+
+      mlir::Type lvalueType = emitc::LValueType::get(opaqueStructType);
+
+      // Declare the struct variable
+      auto varOp = rewriter.create<emitc::VariableOp>(
+          op->getLoc(), lvalueType,
+          emitc::OpaqueAttr::get(op.getContext(), ""));
+
+      // Load the value from the lvalue variable
+      auto loadOp =
+          rewriter.create<emitc::LoadOp>(op->getLoc(), opaqueStructType, varOp);
+
+      // Replace the original operation with the loaded value so it can be used.
+      rewriter.replaceOp(op, loadOp.getResult());
+    }
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 template <typename SourceOp, typename Adaptor = typename SourceOp::Adaptor>
 class TTKernelClassMethodRewriter : public OpConversionPattern<SourceOp> {
 public:
@@ -811,6 +855,51 @@ public:
                                        rewriter.getStringAttr(code),
                                        ValueRange{scalarParam, dstIndex});
     rewriter.eraseOp(op);
+
+    return success();
+  }
+};
+
+// Arith MaxUIOp doesn't have an emitc lowering. We can lower it to a call to
+// std::max.
+class ArithMaxUIRewriter : public OpConversionPattern<arith::MaxUIOp> {
+public:
+  using OpConversionPattern<arith::MaxUIOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(arith::MaxUIOp op, arith::MaxUIOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    Type resultType = getTypeConverter()->convertType(op.getResult().getType());
+    if (!resultType) {
+      return failure();
+    }
+
+    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
+        op, resultType, "std::max<size_t>", adaptor.getOperands());
+
+    return success();
+  }
+};
+
+// Arith MinUIOp doesn't have an emitc lowering. We can lower it to a call to
+// std::min.
+class ArithMinUIRewriter : public OpConversionPattern<arith::MinUIOp> {
+public:
+  using OpConversionPattern<arith::MinUIOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(arith::MinUIOp op, arith::MinUIOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    Type resultType = getTypeConverter()->convertType(op.getResult().getType());
+    if (!resultType) {
+      return failure();
+    }
+
+    // Explicit type template needed for some edge cases where emitc might lower
+    // an int literal into the call with a size_t arg, creating sfpi compiler
+    // error.
+    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
+        op, resultType, "std::min<size_t>", adaptor.getOperands());
 
     return success();
   }
@@ -1027,6 +1116,9 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::TanhTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::TypecastTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::TypecastTileOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::ExperimentalTileFillOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::ExperimentalWriteRowMaskTileOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::ExperimentalWriteColMaskTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::UnaryBcastInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::UnaryBcastTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::WhereTileInitOp>,
@@ -1065,6 +1157,15 @@ public:
             ttkernel::NocAsyncWriteMulticastLoopbackSrcOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ConvertLogicalXToTranslatedOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ConvertLogicalYToTranslatedOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::GetMyDeviceIdOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::FabricWriteOp>,
+        TTKernelToEmitCOpaqueRewriter<
+            ttkernel::CreateFabricConnectionManagerOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::SetupFabricConnectionsOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::CloseFabricConnectionsOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::GetLogicalMeshPositionOp>,
+        TTKernelToEmitCOpaqueRewriter<
+            ttkernel::GetDeviceIdFromLogicalMeshPositionOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetWritePtrOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetReadPtrOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetTileSizeOp>,
@@ -1097,6 +1198,9 @@ public:
     patterns.add<TTKernelTensorAccessorArgsOpRewriter>(typeConverter,
                                                        funcOp.getContext());
 
+    patterns.add<TTKernelCreateFabricConnectionManagerOpRewriter>(
+        typeConverter, funcOp.getContext());
+
     patterns.add<
         TTKernelClassMethodRewriter<ttkernel::TensorAccessorGetNocAddrOp>,
         TTKernelClassMethodRewriter<ttkernel::TensorAccessorGetShardNocAddrOp>,
@@ -1109,8 +1213,9 @@ public:
             ttkernel::InterleavedAddrGenFastGetNocAddrOp>>(typeConverter,
                                                            funcOp.getContext());
 
-    patterns.add<ArithFloorDivRewriter, ArithBitcastRewriter>(
-        typeConverter, funcOp.getContext());
+    patterns.add<ArithFloorDivRewriter, ArithBitcastRewriter,
+                 ArithMaxUIRewriter, ArithMinUIRewriter>(typeConverter,
+                                                         funcOp.getContext());
 
     return applyFullConversion(funcOp, target, std::move(patterns));
   }

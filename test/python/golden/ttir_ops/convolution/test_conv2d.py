@@ -9,6 +9,7 @@ from typing import List, Optional, Tuple, Union
 from builder.base.builder_utils import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_apis import compile_and_execute_ttir
+from conftest import get_request_kwargs
 
 pytestmark = pytest.mark.frontend("ttir")
 
@@ -159,9 +160,7 @@ def test_conv2d(
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
+        **get_request_kwargs(request),
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
     )

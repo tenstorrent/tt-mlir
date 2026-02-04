@@ -195,6 +195,16 @@ Tensor createMultiDeviceHostTensor(
                                               meshShape);
 }
 
+Tensor createMultiDeviceBorrowedHostTensor(
+    std::vector<void *> &data, const std::vector<std::uint32_t> &shape,
+    const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
+    ::tt::target::DataType dataType,
+    const std::unordered_map<std::string, std::string> &strategy,
+    const std::vector<uint32_t> &meshShape) {
+  LOG_FATAL(
+      "createMultiDeviceBorrowedHostTensor not implemented for metal runtime");
+}
+
 bool isTensorAllocated(Tensor tensor) {
   LOG_FATAL("isTensorAllocated not implemented for metal runtime");
 }
@@ -619,8 +629,15 @@ void memcpy(Tensor dst, Tensor src) {
 
 void memcpy(Tensor dst, TensorDesc dstDesc, Tensor src, TensorDesc srcDesc) {
   LOG_ASSERT(dstDesc.dataType == srcDesc.dataType, "Tensor data type mismatch");
-  LOG_ASSERT(dstDesc.shape.size() == srcDesc.shape.size(),
-             "Tensor rank mismatch");
+  // Allow rank mismatch for reshape-style copies (e.g. [128] -> [1,128]) when
+  // total byte size matches and both are contiguous (rank normalization may
+  // promote 1D to 2D on one side while the other keeps original shape).
+  if (dstDesc.shape.size() != srcDesc.shape.size()) {
+    LOG_ASSERT(dstDesc.sizeBytes() == srcDesc.sizeBytes(),
+               "Tensor size mismatch for rank-changing copy");
+    LOG_ASSERT(!dstDesc.isPadded() && !srcDesc.isPadded(),
+               "Padded tensors with different ranks not supported for memcpy");
+  }
   void *singleDeviceTensorPtr = nullptr;
   std::visit(utils::overloaded{
                  [&](const TensorDesc &srcDesc) {

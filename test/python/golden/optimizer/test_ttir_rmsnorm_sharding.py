@@ -11,6 +11,7 @@ import torch
 from builder.base.builder_utils import Operand, Shape
 from builder.base.builder_apis import compile_and_execute_ttir
 from builder.ttir.ttir_builder import TTIRBuilder
+from conftest import get_request_kwargs
 
 # Temporarily disabled: RMSNorm with sharded input causes crash in metal.
 pytestmark = [
@@ -94,10 +95,8 @@ def test_rmsnorm_sharding(
 
     output_file_mlir = compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
+        **get_request_kwargs(request),
         device=device,
-        system_desc_path=request.config.getoption("--sys-desc"),
         pipeline_options=[
             "enable-optimizer=true",
             "memory-layout-analysis-enabled=true",

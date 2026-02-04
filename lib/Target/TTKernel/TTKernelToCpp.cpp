@@ -8,8 +8,10 @@
 
 #include "ttmlir/Target/TTKernel/LLKs/experimental_coord_translation_generated.h"
 #include "ttmlir/Target/TTKernel/LLKs/experimental_dataflow_api_generated.h"
+#include "ttmlir/Target/TTKernel/LLKs/experimental_fabric_api_generated.h"
 #include "ttmlir/Target/TTKernel/LLKs/experimental_invoke_sfpi_llks_generated.h"
 #include "ttmlir/Target/TTKernel/LLKs/experimental_matmul_llks_generated.h"
+#include "ttmlir/Target/TTKernel/LLKs/experimental_padding_llks_generated.h"
 #include "ttmlir/Target/TTKernel/LLKs/experimental_tilize_llks_generated.h"
 #include "ttmlir/Target/TTKernel/LLKs/experimental_untilize_llks_generated.h"
 
@@ -171,17 +173,10 @@ public:
                                         /*isStandard=*/false);
       emitExperimentalLLKs();
       emitDebugPrint(threadType);
-      builder->create<emitc::VerbatimOp>(loc, "namespace NAMESPACE {");
     }
   }
 
-  ~ScopedModuleHelper() {
-    if (threadType == ThreadType::Compute) {
-      builder->create<emitc::VerbatimOp>(loc, "void MAIN { kernel_main(); }");
-      builder->create<emitc::VerbatimOp>(loc,
-                                         "}"); // close namespace NAMESPACE
-    }
-  }
+  ~ScopedModuleHelper() = default;
 
   void emitComment(StringRef str) {
     builder->create<emitc::VerbatimOp>(loc, (Twine("// ") + str).str());
@@ -275,11 +270,32 @@ void dprint(Arg &&arg, ArgV&&... argv) {
       builder->create<emitc::VerbatimOp>(loc, experimentalCoordTranslationLLKs);
     }
 
+    if (hasCall("experimental::close_fabric_connections") ||
+        hasCall("experimental::setup_fabric_connections") ||
+        hasCall("experimental::get_my_device_id") ||
+        hasCall("experimental::fabric_fast_write_any_len") ||
+        hasCall("experimental::get_logical_mesh_position") ||
+        hasCall("experimental::get_device_id_from_logical_mesh_position")) {
+      auto experimentalFabricAPILLKs =
+          StringRef(experimental_fabric_api_generated,
+                    experimental_fabric_api_generated_len);
+      builder->create<emitc::VerbatimOp>(loc, experimentalFabricAPILLKs);
+    }
+
     if (hasCall("experimental::matmul_block")) {
       auto experimentalMatmulLLKs =
           StringRef(experimental_matmul_llks_generated,
                     experimental_matmul_llks_generated_len);
       builder->create<emitc::VerbatimOp>(loc, experimentalMatmulLLKs);
+    }
+
+    if (hasCall("experimental::tile_fill") ||
+        hasCall("experimental::write_row_mask_tile") ||
+        hasCall("experimental::write_col_mask_tile")) {
+      auto experimentalPaddingLLKs =
+          StringRef(experimental_padding_llks_generated,
+                    experimental_padding_llks_generated_len);
+      builder->create<emitc::VerbatimOp>(loc, experimentalPaddingLLKs);
     }
 
     if (hasVerbatim("experimental::invoke_sfpi")) {

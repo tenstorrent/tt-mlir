@@ -8,10 +8,11 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "llvm/ADT/ScopeExit.h"
-#include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/Support/SHA256.h"
 #include "llvm/Support/raw_ostream.h"
+
+#include <string>
 
 namespace mlir::tt {
 
@@ -25,7 +26,7 @@ namespace mlir::tt {
 // explicit form of all op attributes and types.
 //
 // SHA256 hex digest is 64 characters.
-inline llvm::SmallString<64> hashFuncOp(func::FuncOp func) {
+inline std::string hashFuncOp(func::FuncOp func) {
   auto originalSymName = func.getSymName();
 
   // RAII guard to undo the temporary changes made to the function
@@ -64,10 +65,7 @@ inline llvm::SmallString<64> hashFuncOp(func::FuncOp func) {
   auto digest = llvm::SHA256::hash(llvm::ArrayRef<uint8_t>(
       reinterpret_cast<const uint8_t *>(irBuffer.data()), irBuffer.size()));
 
-  llvm::SmallString<64> result;
-  llvm::raw_svector_ostream hexOs(result);
-  hexOs << llvm::toHex(digest, /*LowerCase=*/true);
-  return result;
+  return llvm::toHex(digest, /*LowerCase=*/true);
 }
 
 } // namespace mlir::tt
