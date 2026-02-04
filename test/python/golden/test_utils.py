@@ -94,6 +94,74 @@ class SkipExecIf(SkipIf):
         super().__init__(*marks_groups, mark_fn=pytest.mark.skip_exec)
 
 
+HOIST_ATTR = ["ttir.should_hoist"]
+
+
+def hoisting_params(
+    skip_hoisted_on=None,
+    skip_non_hoisted_on=None,
+    only_hoisted=False,
+    only_non_hoisted=False,
+):
+    """
+    Generate hoisting parameter combinations for pytest.parametrize.
+
+    Returns unit_attrs values directly (None or ["ttir.should_hoist"]) so tests
+    can pass them directly to builder operations without conversion.
+
+    Parameters
+    ----------
+    skip_hoisted_on : list, optional
+        Skip hoisted variant on these configs (e.g., ["ttmetal"])
+    skip_non_hoisted_on : list, optional
+        Skip non-hoisted variant on these configs
+    only_hoisted : bool
+        Only generate hoisted variant
+    only_non_hoisted : bool
+        Only generate non-hoisted variant
+
+    Returns
+    -------
+    list
+        List of pytest.param tuples for use with @pytest.mark.parametrize("unit_attrs", ...)
+
+    Example
+    -------
+    >>> @pytest.mark.parametrize("unit_attrs", hoisting_params())
+    >>> def test_div(..., unit_attrs, ...):
+    ...     builder.div(in0, in1, unit_attrs=unit_attrs)
+
+    >>> # Skip hoisted on ttmetal
+    >>> @pytest.mark.parametrize("unit_attrs", hoisting_params(skip_hoisted_on=["ttmetal"]))
+    """
+    from conftest import x86_only
+
+    params = []
+
+    # Non-hoisted variant
+    if not only_hoisted:
+        marks = []
+        if skip_non_hoisted_on:
+            for cfg in skip_non_hoisted_on:
+                cfg_list = [cfg] if isinstance(cfg, str) else cfg
+                marks.append(pytest.mark.skip_config(cfg_list))
+        if marks:
+            params.append(pytest.param(None, marks=marks, id="non_hoisted"))
+        else:
+            params.append(pytest.param(None, id="non_hoisted"))
+
+    # Hoisted variant (always x86_only)
+    if not only_non_hoisted:
+        marks = [x86_only]
+        if skip_hoisted_on:
+            for cfg in skip_hoisted_on:
+                cfg_list = [cfg] if isinstance(cfg, str) else cfg
+                marks.append(pytest.mark.skip_config(cfg_list))
+        params.append(pytest.param(HOIST_ATTR, marks=marks, id="hoisted"))
+
+    return params
+
+
 def shape_str(shape):
     """
     Converts shape tuple to string.
