@@ -927,13 +927,21 @@ private:
     const std::size_t numOutputs = outputs.size();
     const std::size_t numOperands = (numInputs + numOutputs);
 
+    // Get the layout from the output tensor to access collapse intervals.
+    auto outputTensorType =
+        mlir::cast<mlir::RankedTensorType>(outputs[0].getType());
+    auto outputLayout =
+        mlir::cast<ttcore::MetalLayoutAttr>(outputTensorType.getEncoding());
+    SmallVector<int64_t> normalizedIntervals =
+        outputLayout.getNormalizedIntervals();
+
     const std::size_t physicalRank =
         ttcore::getDeviceLayout(outputs[0]).getRank() / 2;
 
-    SmallVector<mlir::AffineMap> indexingMaps =
-        getAffineMapsArray(rewriter, op, numOperands, physicalRank);
+    SmallVector<mlir::AffineMap> indexingMaps = getAffineMapsArray(
+        rewriter, op, numOperands, physicalRank, normalizedIntervals);
     SmallVector<mlir::Attribute> iteratorTypes =
-        getIteratorTypesArray(rewriter, op, physicalRank);
+        getIteratorTypesArray(rewriter, op, physicalRank, normalizedIntervals);
 
     // Create 'd2m.generic' accepting extended operands.
     auto generic = rewriter.create<d2m::GenericOp>(
@@ -957,8 +965,8 @@ private:
 
         // Create 'linalg.generic' accepting 'blockArgs'.
 
-        SmallVector<mlir::AffineMap> linalgIndexingMaps =
-            getAffineMapsArray(rewriter, op, numOperands, physicalRank);
+        SmallVector<mlir::AffineMap> linalgIndexingMaps = getAffineMapsArray(
+            rewriter, op, numOperands, physicalRank, normalizedIntervals);
         SmallVector<mlir::utils::IteratorType> linalgIteratorTypes =
             iteratorTypeTTIRToLinalg(rewriter, iteratorTypes);
 
@@ -969,8 +977,9 @@ private:
           // Propagate 'dim_arg' as 'ReduceDim'.
           attributes.emplace_back(
               d2m::ReduceDimAttr::getMnemonic(),
-              d2m::ReduceDimAttr::get(ctx,
-                                      dimArgAsReduceDim(op, physicalRank)));
+              d2m::ReduceDimAttr::get(
+                  ctx,
+                  dimArgAsReduceDim(op, physicalRank, normalizedIntervals)));
         }
 
         auto linalgGeneric = rewriter.create<mlir::linalg::GenericOp>(
@@ -1027,7 +1036,7 @@ private:
 
   static SmallVector<mlir::AffineMap>
   getAffineMapsArray(mlir::OpBuilder &builder, ConcreteOp op, std::size_t arity,
-                     std::size_t rank) {
+                     std::size_t rank, ArrayRef<int64_t> normalizedIntervals) {
     assert(rank > 0);
     mlir::ArrayAttr dimArg = getDimArg(op);
 
@@ -1035,11 +1044,12 @@ private:
         mlir::getAffineConstantExpr(0, builder.getContext());
 
     mlir::MutableAffineMap accumulator(builder.getMultiDimIdentityMap(rank));
-    forAllDims(rank, dimArg, [&](std::size_t index, bool dropped) {
-      if (dropped) {
-        accumulator.setResult(index, zero);
-      }
-    });
+    forAllDims(rank, dimArg, normalizedIntervals,
+               [&](std::size_t index, bool dropped) {
+                 if (dropped) {
+                   accumulator.setResult(index, zero);
+                 }
+               });
     SmallVector<mlir::AffineMap> maps(arity - 2,
                                       builder.getMultiDimIdentityMap(rank));
     std::array<mlir::AffineExpr, 2> zeros{zero, zero};
@@ -1053,7 +1063,8 @@ private:
 
   static SmallVector<mlir::Attribute>
   getIteratorTypesArray(mlir::OpBuilder &builder, ConcreteOp op,
-                        std::size_t rank) {
+                        std::size_t rank,
+                        ArrayRef<int64_t> normalizedIntervals) {
     mlir::ArrayAttr dimArg = getDimArg(op);
 
     auto parallel = ttcore::IteratorTypeAttr::get(
@@ -1062,11 +1073,12 @@ private:
         builder.getContext(), ttcore::IteratorType::Reduction);
 
     SmallVector<mlir::Attribute> iterators(rank, parallel);
-    forAllDims(rank, dimArg, [&](std::size_t index, bool dropped) {
-      if (dropped) {
-        iterators[index] = reduction;
-      }
-    });
+    forAllDims(rank, dimArg, normalizedIntervals,
+               [&](std::size_t index, bool dropped) {
+                 if (dropped) {
+                   iterators[index] = reduction;
+                 }
+               });
     return iterators;
   }
 
@@ -1114,16 +1126,19 @@ private:
         one);
   }
 
-  static d2m::ReduceDim dimArgAsReduceDim(ConcreteOp op, std::size_t rank) {
+  static d2m::ReduceDim
+  dimArgAsReduceDim(ConcreteOp op, std::size_t rank,
+                    ArrayRef<int64_t> normalizedIntervals) {
     // TODO(#2613) This implements a very simple case; more work is required
     // to decompose more than 2 right-most dims being reduced over.
     assert(rank <= 64 && "rank value too large for a 64-bit set");
     std::uint64_t bits = 0;
-    forAllDims(rank, getDimArg(op), [&](std::size_t index, bool dropped) {
-      if (dropped) {
-        bits |= (1L << index);
-      }
-    });
+    forAllDims(rank, getDimArg(op), normalizedIntervals,
+               [&](std::size_t index, bool dropped) {
+                 if (dropped) {
+                   bits |= (1L << index);
+                 }
+               });
 
     switch (bits) {
     case 1:
@@ -1142,16 +1157,49 @@ private:
     return *attr;
   }
 
-  template <typename F>
-  static void forAllDims(std::size_t rank, mlir::ArrayAttr dimArg, F &&fn) {
-    SmallVector<bool> dims(rank, false);
-    for (auto reduceDim : dimArg) {
-      int64_t dim = mlir::cast<IntegerAttr>(reduceDim).getInt();
-      dim = (dim + rank) % rank;
-      assert(0 <= dim && dim < static_cast<std::int64_t>(rank));
-      dims[dim] = true;
+  // Translate a logical dimension index to a physical dimension index using
+  // the collapse intervals. Each interval [start, end) in normalizedIntervals
+  // corresponds to one physical dimension.
+  static int64_t logicalToPhysicalDim(int64_t logicalDim,
+                                      ArrayRef<int64_t> normalizedIntervals) {
+    int64_t numIntervals = normalizedIntervals.size() / 2;
+    for (int64_t i = 0; i < numIntervals; ++i) {
+      int64_t start = normalizedIntervals[i * 2];
+      int64_t end = normalizedIntervals[i * 2 + 1];
+      if (logicalDim >= start && logicalDim < end) {
+        return i; // Physical dim is the interval index
+      }
     }
-    for (std::size_t d = 0; d < rank; ++d) {
+    llvm_unreachable("logical dim not found in any collapse interval");
+  }
+
+  template <typename F>
+  static void forAllDims(std::size_t physicalRank, mlir::ArrayAttr dimArg,
+                         ArrayRef<int64_t> normalizedIntervals, F &&fn) {
+    SmallVector<bool> dims(physicalRank, false);
+    // Get the logical rank from the intervals (sum of all interval ranges).
+    int64_t logicalRank = 0;
+    if (!normalizedIntervals.empty()) {
+      // The last interval's end gives us the logical rank.
+      logicalRank = normalizedIntervals[normalizedIntervals.size() - 1];
+    }
+
+    for (auto reduceDim : dimArg) {
+      int64_t logicalDim = mlir::cast<IntegerAttr>(reduceDim).getInt();
+      // Handle negative indexing (Python-style).
+      if (logicalDim < 0) {
+        logicalDim += logicalRank;
+      }
+      assert(0 <= logicalDim && logicalDim < logicalRank);
+
+      // Translate logical dim to physical dim using collapse intervals.
+      int64_t physicalDim =
+          logicalToPhysicalDim(logicalDim, normalizedIntervals);
+      assert(0 <= physicalDim &&
+             physicalDim < static_cast<std::int64_t>(physicalRank));
+      dims[physicalDim] = true;
+    }
+    for (std::size_t d = 0; d < physicalRank; ++d) {
       std::forward<F>(fn)(d, dims[d]);
     }
   }
