@@ -25,6 +25,7 @@ set(TTMLIR_RUNTIME_PYTHON_SRCS
   __init__.cpp
   runtime/runtime.cpp
   binary/binary.cpp
+  profiler/profiler.cpp
 )
 
 if (TTMLIR_ENABLE_RUNTIME_TESTS)

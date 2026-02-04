@@ -9,8 +9,6 @@ import signal
 import subprocess
 import shutil
 
-from tracy.process_ops_logs import process_ops
-
 from ._ttmlir_profiler import *
 
 @contextmanager
