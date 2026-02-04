@@ -434,13 +434,13 @@ def D2M_ScratchAllocateOp : D2M_Op<"scratch_allocate", [
     The `slot` attribute is a unique identifier for this scratch allocation
     within the enclosing scope, used for tracking and debugging.
 
-    This op is lowered by `LowerScratchAllocate` to a `memref.view` into
-    the global scratch buffer provided by `d2m.scratch_init`.
+    This op is lowered by `LowerScratchAllocate` to a `memref.subview` into
+    the scratch CB buffer.
 
     Example:
     ```mlir
     %scratch = d2m.scratch_allocate {slot = 0 : i64}
-               : memref<16x!ttcore.tile<32x32xbf16>, #ttcore.memory_space<l1>>
+               : memref<1x!ttcore.tile<32x32xbf16>, #ttcore.memory_space<l1>>
     ```
   }];
 
@@ -452,29 +452,6 @@ def D2M_ScratchAllocateOp : D2M_Op<"scratch_allocate", [
   }];
 }
 
-def D2M_ScratchInitOp : D2M_Op<"scratch_init", []> {
-  let summary = "Initialize scratch memory region for FPU spilling.";
-  let description = [{
-    Marks a pre-allocated byte buffer as the scratch region for intermediate
-    FPU results. This op is consumed by `LowerScratchAllocate`, which creates
-    `memref.view` ops into this buffer for each `d2m.scratch_allocate`.
-
-    The buffer must be a 1D byte buffer in L1 memory space.
-
-    Example:
-    ```mlir
-    %scratch_buffer = memref.alloc() : memref<65536xi8, #ttcore.memory_space<l1>>
-    d2m.scratch_init %scratch_buffer : memref<65536xi8, #ttcore.memory_space<l1>>
-    ```
-  }];
-
-  let arguments = (ins AnyMemRef:$buffer);
-  let results = (outs);
-
-  let assemblyFormat = [{
-    $buffer attr-dict `:` type($buffer)
-  }];
-}
 
 def D2M_MeshShardOp
     : D2M_Op<"mesh_shard",

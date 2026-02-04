@@ -90,11 +90,6 @@ static Value getCB(ConversionPatternRewriter &rewriter, Value cb) {
     return rewriter.getRemappedValue(subViewOp.getSource());
   }
 
-  if (mlir::isa<memref::ViewOp>(cb.getDefiningOp())) {
-    memref::ViewOp viewOp = mlir::cast<memref::ViewOp>(cb.getDefiningOp());
-    return rewriter.getRemappedValue(viewOp.getSource());
-  }
-
   if (mlir::isa<memref::CastOp>(cb.getDefiningOp())) {
     memref::CastOp castOp = mlir::cast<memref::CastOp>(cb.getDefiningOp());
     return rewriter.getRemappedValue(castOp.getSource());
@@ -295,56 +290,6 @@ public:
     Value rowBase =
         rewriter.create<arith::MulIOp>(op.getLoc(), rowBlockIdx, tilesPerBlock);
     rewriter.replaceOpWithNewOp<arith::AddIOp>(op, rowBase, sourceIndices[1]);
-    return success();
-  };
-};
-} // namespace
-
-namespace {
-/// Rewriter for memref.view ops that convert byte buffer views to tile indices.
-/// This handles the scratch buffer views created by LowerScratchAllocate.
-///
-/// The view's byte offset is converted to a tile index:
-///   tile_start_idx = byte_offset / tile_size_bytes
-///
-/// The ViewOp is then replaced with this index value. Subsequent load/store
-/// operations through this view will add their indices to get final tile index.
-class MemRefViewRewriter : public OpConversionPattern<memref::ViewOp> {
-public:
-  using OpConversionPattern<memref::ViewOp>::OpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(memref::ViewOp op, typename memref::ViewOp::Adaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const final {
-    Location loc = op.getLoc();
-
-    // Get the result element type to compute tile size
-    auto resultType = mlir::cast<MemRefType>(op.getResult().getType());
-    Type elemType = resultType.getElementType();
-
-    // Get tile size in bytes
-    int64_t tileSizeBytes = 0;
-    if (auto tileType = mlir::dyn_cast<ttcore::TileType>(elemType)) {
-      tileSizeBytes = tileType.getSizeBytes();
-    } else {
-      // For non-tile types, compute element size
-      tileSizeBytes = ttcore::getElementSizeBytes(elemType);
-    }
-
-    if (tileSizeBytes == 0) {
-      return op.emitError("could not determine element size for view");
-    }
-
-    // Get the byte offset from the view op
-    Value byteOffset = adaptor.getByteShift();
-
-    // Compute tile start index: byte_offset / tile_size_bytes
-    Value tileSizeValue = index(rewriter, loc, tileSizeBytes);
-    Value tileStartIdx =
-        rewriter.create<arith::DivUIOp>(loc, byteOffset, tileSizeValue);
-
-    // Replace the view op with the tile start index
-    rewriter.replaceOp(op, tileStartIdx);
     return success();
   };
 };
@@ -2023,7 +1968,6 @@ void populateD2MToTTKernelPatterns(
   patterns.add<ttkernel::D2MKernelFunctionArgsRewriter,
                ttkernel::PassthroughRewriter<memref::CastOp>,
                ttkernel::MemRefSubviewRewriter,
-               ttkernel::MemRefViewRewriter,
 
                // FPU.
                ttkernel::D2MFPUOpsRewriter<d2m::TileBcastOp>,

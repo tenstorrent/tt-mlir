@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
@@ -18,45 +19,46 @@ namespace mlir::tt::d2m {
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h.inc"
 } // namespace mlir::tt::d2m
 
+using namespace mlir;
+using namespace mlir::tt;
+
 namespace {
 
-/// Information about a single scratch allocation.
-struct ScratchAllocationInfo {
-  mlir::tt::d2m::ScratchAllocateOp op;
-  int64_t slotId;
-  int64_t sizeBytes;
-  int64_t byteOffset; // Assigned byte offset in the scratch buffer
-};
-
-/// Get the total size in bytes for a memref type.
-static int64_t getMemRefSizeBytes(mlir::MemRefType memrefType) {
+/// Calculate total number of elements in a memref.
+static int64_t getNumElements(MemRefType memrefType) {
   int64_t numElements = 1;
   for (int64_t dim : memrefType.getShape()) {
-    if (dim == mlir::ShapedType::kDynamic) {
+    if (dim == ShapedType::kDynamic) {
       return -1;
     }
     numElements *= dim;
   }
-  uint64_t elemSizeBytes =
-      mlir::tt::ttcore::getElementSizeBytes(memrefType.getElementType());
-  return numElements * static_cast<int64_t>(elemSizeBytes);
+  return numElements;
 }
 
+/// Information about a single scratch allocation.
+struct ScratchAllocationInfo {
+  d2m::ScratchAllocateOp op;
+  int64_t slotId;
+  int64_t numElements;   // Number of elements (tiles) requested
+  int64_t elementOffset; // Starting element offset in scratch buffer
+};
+
 class D2MLowerScratchAllocatePass
-    : public mlir::tt::d2m::impl::D2MLowerScratchAllocateBase<
+    : public d2m::impl::D2MLowerScratchAllocateBase<
           D2MLowerScratchAllocatePass> {
 public:
-  using mlir::tt::d2m::impl::D2MLowerScratchAllocateBase<
+  using d2m::impl::D2MLowerScratchAllocateBase<
       D2MLowerScratchAllocatePass>::D2MLowerScratchAllocateBase;
 
   void runOnOperation() override {
-    mlir::ModuleOp moduleOp = getOperation();
+    ModuleOp moduleOp = getOperation();
 
-    mlir::WalkResult result = moduleOp.walk([&](mlir::func::FuncOp funcOp) {
-      if (failed(processFunction(funcOp))) {
-        return mlir::WalkResult::interrupt();
+    WalkResult result = moduleOp.walk([&](d2m::GenericOp genericOp) {
+      if (failed(processGeneric(genericOp))) {
+        return WalkResult::interrupt();
       }
-      return mlir::WalkResult::advance();
+      return WalkResult::advance();
     });
 
     if (result.wasInterrupted()) {
@@ -65,123 +67,231 @@ public:
   }
 
 private:
-  mlir::LogicalResult processFunction(mlir::func::FuncOp funcOp) {
-    // Step 1: Find scratch_init op to get the scratch buffer
-    mlir::tt::d2m::ScratchInitOp scratchInit = nullptr;
-    funcOp.walk([&](mlir::tt::d2m::ScratchInitOp op) { scratchInit = op; });
+  LogicalResult processGeneric(d2m::GenericOp genericOp) {
+    // Check if this generic has scratch inputs
+    auto scratchInputsAttr = genericOp.getScratchInputsAttr();
+    if (!scratchInputsAttr || scratchInputsAttr.empty()) {
+      return success();
+    }
 
-    // Step 2: Collect all scratch_allocate ops
-    llvm::SmallVector<ScratchAllocationInfo> allocations;
-    bool hasError = false;
+    // Get the compute region (first region)
+    if (genericOp.getNumRegions() == 0) {
+      return success();
+    }
+    Region &region = genericOp.getRegion(0);
+    if (region.empty()) {
+      return success();
+    }
+    Block &block = region.front();
 
-    funcOp.walk([&](mlir::tt::d2m::ScratchAllocateOp op) {
-      auto memrefType = mlir::cast<mlir::MemRefType>(op.getResult().getType());
-      int64_t sizeBytes = getMemRefSizeBytes(memrefType);
-
-      if (sizeBytes < 0) {
-        op.emitError("scratch allocation has dynamic shape");
-        hasError = true;
-        return;
-      }
-
-      allocations.push_back(
-          {op, static_cast<int64_t>(op.getSlot()), sizeBytes, 0});
+    // Collect all scratch_allocate ops in this region
+    SmallVector<ScratchAllocationInfo> allocations;
+    region.walk([&](d2m::ScratchAllocateOp allocOp) {
+      ScratchAllocationInfo info;
+      info.op = allocOp;
+      info.slotId = allocOp.getSlot();
+      auto memrefType =
+          mlir::dyn_cast<MemRefType>(allocOp.getResult().getType());
+      info.numElements = memrefType ? getNumElements(memrefType) : 0;
+      info.elementOffset = 0;
+      allocations.push_back(info);
     });
 
-    if (hasError) {
-      return mlir::failure();
-    }
-
-    /* ---------------------------- */
-    // If no scratch allocations but scratch_init exists and test mode is on,
-    // insert a dummy scratch_allocate for testing purposes.
-    // NOTE: We don't add a load here because that would be in the main function
-    // rather than inside a kernel, and D2MToTTKernel patterns are designed for
-    // kernel contexts. The real scratch usage will come from the FPU fission
-    // pass.
-    if (allocations.empty() && scratchInit && testInsertDummyScratch) {
-      mlir::OpBuilder builder(funcOp.getContext());
-      builder.setInsertionPointAfter(scratchInit);
-      mlir::Location loc = scratchInit.getLoc();
-
-      // Create a dummy 8-tile bf16 scratch allocation
-      auto tileType = mlir::tt::ttcore::TileType::get(
-          funcOp.getContext(), {32, 32}, mlir::tt::ttcore::DataType::BFloat16);
-      auto memSpaceAttr = mlir::tt::ttcore::MemorySpaceAttr::get(
-          funcOp.getContext(), mlir::tt::ttcore::MemorySpace::DeviceL1);
-      auto scratchType = mlir::MemRefType::get(
-          {8}, tileType, /*layout=*/nullptr, memSpaceAttr);
-
-      auto dummyAlloc = builder.create<mlir::tt::d2m::ScratchAllocateOp>(
-          loc, scratchType, /*slot=*/0);
-
-      int64_t sizeBytes = getMemRefSizeBytes(scratchType);
-      allocations.push_back({dummyAlloc, 0, sizeBytes, 0});
-    }
-    /* ---------------------------- */
-
-    // If no scratch allocations, just erase scratch_init if present
     if (allocations.empty()) {
-      if (scratchInit) {
-        scratchInit.erase();
-      }
-      return mlir::success();
+      return success();
     }
 
-    // Must have scratch_init if we have allocations
-    if (!scratchInit) {
-      funcOp.emitError("scratch_allocate ops found but no scratch_init");
-      return mlir::failure();
-    }
+    // Sort by slot ID for deterministic ordering
+    llvm::sort(allocations, [](const ScratchAllocationInfo &a,
+                               const ScratchAllocationInfo &b) {
+      return a.slotId < b.slotId;
+    });
 
-    mlir::Value scratchBuffer = scratchInit.getBuffer();
-    auto bufferType = mlir::cast<mlir::MemRefType>(scratchBuffer.getType());
-    int64_t bufferSizeBytes = bufferType.getShape()[0]; // 1D byte buffer
-
-    // Step 3: Compute sequential byte offsets
+    // Compute sequential element offsets
     int64_t currentOffset = 0;
     for (ScratchAllocationInfo &info : allocations) {
-      info.byteOffset = currentOffset;
-      currentOffset += info.sizeBytes;
+      if (info.numElements <= 0) {
+        info.op.emitOpError() << "invalid element count for scratch allocation";
+        return failure();
+      }
+      info.elementOffset = currentOffset;
+      currentOffset += info.numElements;
     }
 
-    // Step 4: Validate total size fits in buffer
-    if (currentOffset > bufferSizeBytes) {
-      funcOp.emitError("total scratch requirement (")
-          << currentOffset << " bytes) exceeds buffer size (" << bufferSizeBytes
-          << " bytes)";
-      return mlir::failure();
+    // Find the scratch CB block argument
+    int64_t scratchOperandIndex = scratchInputsAttr[0];
+    if (scratchOperandIndex >= static_cast<int64_t>(block.getNumArguments())) {
+      genericOp.emitOpError() << "scratch operand index out of bounds";
+      return failure();
+    }
+    Value scratchCB = block.getArgument(scratchOperandIndex);
+
+    auto cbType = mlir::dyn_cast<d2m::CBType>(scratchCB.getType());
+    if (!cbType) {
+      genericOp.emitOpError() << "scratch operand is not a CB type";
+      return failure();
     }
 
-    // Step 5: Replace each scratch_allocate with memref.view
-    mlir::OpBuilder builder(funcOp.getContext());
+    auto scratchMemRefType = mlir::dyn_cast<MemRefType>(cbType.getUnderlying());
+    if (!scratchMemRefType) {
+      genericOp.emitOpError() << "scratch CB does not contain a memref type";
+      return failure();
+    }
 
+    // Verify total fits in scratch buffer
+    int64_t scratchCapacity = getNumElements(scratchMemRefType);
+    if (scratchCapacity > 0 && currentOffset > scratchCapacity) {
+      genericOp.emitOpError() << "total scratch allocations (" << currentOffset
+                              << " elements) exceed scratch buffer capacity ("
+                              << scratchCapacity << " elements)";
+      return failure();
+    }
+
+    // Get the global scratch operand (the memref passed to the generic)
+    Value scratchGlobalOperand = genericOp->getOperand(scratchOperandIndex);
+
+    // Get the global shape to determine the number of grid dimensions
+    auto globalMemRefType =
+        mlir::dyn_cast<MemRefType>(scratchGlobalOperand.getType());
+    if (!globalMemRefType) {
+      genericOp.emitOpError() << "scratch operand is not a memref type";
+      return failure();
+    }
+
+    // Global shape is [GridY, GridX, ShardY, ShardX] (4D for 2D grid)
+    // We need grid indices for remote_load
+    int64_t globalRank = globalMemRefType.getRank();
+    int64_t shardRank = scratchMemRefType.getRank();
+    int64_t numGridDims = globalRank - shardRank;
+
+    if (numGridDims < 0) {
+      genericOp.emitOpError()
+          << "scratch global shape has fewer dims than shard shape";
+      return failure();
+    }
+
+    // Create a local memref.alloc for scratch access, then use remote_load to
+    // associate it with the scratch operand. The
+    // D2MConvertLocalLoadStoreOpsToAliasedCBs pass will later convert this to
+    // CB-based access (reserve/push/wait/pop).
+    OpBuilder builder(&block, block.begin());
+    auto scratchAlloc = builder.create<memref::AllocOp>(
+        genericOp.getLoc(), scratchMemRefType,
+        builder.getI64IntegerAttr(64) /*alignment*/);
+
+    // Create block indices for remote_load
+    SmallVector<Value> blockIndices;
+    for (int64_t i = 0; i < numGridDims; ++i) {
+      blockIndices.push_back(
+          builder.create<d2m::BlockIndexOp>(genericOp.getLoc(), i));
+    }
+
+    // Create remote_load to "load" scratch into local buffer.
+    // For local operands, this is essentially an alias, but it establishes
+    // the association needed for D2MConvertLocalLoadStoreOpsToAliasedCBs.
+    auto remoteLoadOp = builder.create<d2m::RemoteLoadOp>(
+        genericOp.getLoc(), scratchMemRefType, scratchAlloc.getResult(),
+        scratchGlobalOperand, blockIndices);
+    Value scratchMemRef = remoteLoadOp.getResult();
+
+    // Replace each scratch_allocate with a subview
     for (ScratchAllocationInfo &info : allocations) {
-      builder.setInsertionPoint(info.op);
-      mlir::Location loc = info.op.getLoc();
-
-      // Create byte offset constant
-      mlir::Value offset =
-          builder.create<mlir::arith::ConstantIndexOp>(loc, info.byteOffset);
-
-      // Get the target memref type from scratch_allocate result
-      auto resultType =
-          mlir::cast<mlir::MemRefType>(info.op.getResult().getType());
-
-      // Create memref.view: byte_buffer[offset] -> typed memref
-      // For static shapes, sizes array is empty
-      auto view = builder.create<mlir::memref::ViewOp>(
-          loc, resultType, scratchBuffer, offset,
-          /*sizes=*/mlir::ValueRange{});
-
-      info.op.replaceAllUsesWith(view.getResult());
-      info.op.erase();
+      if (failed(
+              replaceScratchAllocate(info, scratchMemRef, scratchMemRefType))) {
+        return failure();
+      }
     }
 
-    // Step 6: Erase scratch_init (consumed)
-    scratchInit.erase();
+    return success();
+  }
 
-    return mlir::success();
+  LogicalResult replaceScratchAllocate(ScratchAllocationInfo &info,
+                                       Value scratchMemRef,
+                                       MemRefType scratchMemRefType) {
+    d2m::ScratchAllocateOp allocOp = info.op;
+    auto resultType = mlir::dyn_cast<MemRefType>(allocOp.getResult().getType());
+    if (!resultType) {
+      return allocOp.emitOpError() << "result is not a memref type";
+    }
+
+    OpBuilder builder(allocOp);
+    Location loc = allocOp.getLoc();
+
+    // Scratch buffer has shape [1, N] tiles from AddScratchInputs.
+    // We use memref.subview with rank-reduction to extract the requested slice.
+    //
+    // For a 1D result [M]: subview [0, offset][1, M][1, 1] -> [M]
+    // For a 2D result [A, B] where A*B fits: same approach but may need
+    // explicit result type to handle strided layouts.
+
+    ArrayRef<int64_t> scratchShape = scratchMemRefType.getShape();
+    ArrayRef<int64_t> resultShape = resultType.getShape();
+
+    SmallVector<OpFoldResult> offsets;
+    SmallVector<OpFoldResult> sizes;
+    SmallVector<OpFoldResult> strides;
+
+    if (scratchShape.size() == 2) {
+      // Scratch is [1, N]. We take a slice [0, offset][1, numElements][1, 1].
+      offsets.push_back(builder.getIndexAttr(0));
+      offsets.push_back(builder.getIndexAttr(info.elementOffset));
+      sizes.push_back(builder.getIndexAttr(1));
+      sizes.push_back(builder.getIndexAttr(info.numElements));
+      strides.push_back(builder.getIndexAttr(1));
+      strides.push_back(builder.getIndexAttr(1));
+    } else if (scratchShape.size() == 1) {
+      // Scratch is [N]. Direct slice.
+      offsets.push_back(builder.getIndexAttr(info.elementOffset));
+      sizes.push_back(builder.getIndexAttr(info.numElements));
+      strides.push_back(builder.getIndexAttr(1));
+    } else {
+      return allocOp.emitOpError()
+             << "unsupported scratch shape rank: " << scratchShape.size();
+    }
+
+    // Create subview. For 1D result from [1, N] source, this performs
+    // rank-reduction by dropping the unit dimension.
+    Value result;
+    if (resultShape.size() == 1 && scratchShape.size() == 2) {
+      // Rank-reducing subview: [1, N] -> [M]
+      // The result type drops the first dimension (size 1).
+      auto subviewOp = builder.create<memref::SubViewOp>(
+          loc, resultType, scratchMemRef, offsets, sizes, strides);
+      result = subviewOp.getResult();
+    } else if (resultShape.size() == 2 && scratchShape.size() == 2 &&
+               resultShape[0] == 1) {
+      // Same rank: [1, N] -> [1, M]
+      auto subviewOp = builder.create<memref::SubViewOp>(
+          loc, resultType, scratchMemRef, offsets, sizes, strides);
+      result = subviewOp.getResult();
+    } else if (resultShape.size() == 1 && scratchShape.size() == 1) {
+      // 1D to 1D: [N] -> [M]
+      auto subviewOp = builder.create<memref::SubViewOp>(
+          loc, resultType, scratchMemRef, offsets, sizes, strides);
+      result = subviewOp.getResult();
+    } else {
+      // For other shapes, create subview with inferred type first, then cast
+      auto subviewOp = builder.create<memref::SubViewOp>(
+          loc, scratchMemRef, offsets, sizes, strides);
+      result = subviewOp.getResult();
+
+      if (result.getType() != resultType) {
+        // Try memref.cast for compatible layouts
+        if (memref::CastOp::areCastCompatible(result.getType(), resultType)) {
+          result = builder.create<memref::CastOp>(loc, resultType, result);
+        } else {
+          return allocOp.emitOpError()
+                 << "cannot create subview with result type " << resultType
+                 << " from scratch type " << scratchMemRefType
+                 << ". Consider using a 1D scratch allocation shape.";
+        }
+      }
+    }
+
+    allocOp.getResult().replaceAllUsesWith(result);
+    allocOp.erase();
+
+    return success();
   }
 };
 

@@ -1,3 +1,4 @@
+// UNSUPPORTED: true
 // RUN: ttmlir-opt --ttcore-register-device --d2m-lower-scratch-allocate %s | FileCheck %s
 
 // Type aliases

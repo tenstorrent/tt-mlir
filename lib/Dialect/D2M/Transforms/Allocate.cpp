@@ -8,7 +8,6 @@
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/Analysis/Allocation/Planner.h"
 #include "ttmlir/Dialect/D2M/Analysis/Allocation/Utils.h"
-#include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Utils.h"
@@ -298,7 +297,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
           ttcore::getCurrentScopeSystemDesc(moduleOp);
       ttcore::ChipDescAttr chipDesc = systemDesc.getChipDescs().front();
       return getMemorySpaces(chipDesc, llvm::to_vector(availableL1AddrRange),
-                             testAssumeL1Capacity, scratchReserveBytes);
+                             testAssumeL1Capacity);
     }();
     TT_ALLOC_DEBUG("using memspaces:\n\tDRAM\t{}\n\tL1\t{}",
                    to_string(memSpaces[ordinal(MemorySpace::DeviceDRAM)]),
@@ -373,53 +372,6 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
 
     if (failed(insertDeallocs(funcOp, analysis))) {
       return failure();
-    }
-
-    // If scratch reservation is enabled, create the global scratch buffer
-    // and scratch_init op at the beginning of the function.
-    if (scratchReserveBytes > 0) {
-      if (failed(insertScratchBuffer(funcOp))) {
-        return failure();
-      }
-    }
-
-    return success();
-  }
-
-  /// Insert a global scratch buffer and d2m.scratch_init op at the beginning
-  /// of the function. The scratch buffer is allocated at the end of L1
-  /// (after the space reserved for normal allocations).
-  LogicalResult insertScratchBuffer(func::FuncOp funcOp) {
-    IRRewriter rewriter(funcOp->getContext());
-
-    // Calculate the scratch base address (right after the allocator's L1 range)
-    const auto &l1Info = memSpaces[ordinal(MemorySpace::DeviceL1)];
-    AllocSizeT scratchBaseAddr = l1Info.maxAddress;
-
-    // Insert at the beginning of the function
-    Block &entryBlock = funcOp.getBody().front();
-    rewriter.setInsertionPointToStart(&entryBlock);
-    Location loc = funcOp.getLoc();
-
-    // Create a 1D byte buffer for the scratch
-    auto scratchType =
-        MemRefType::get({scratchReserveBytes}, rewriter.getI8Type(),
-                        /*layout=*/nullptr, L1Attr);
-
-    // Create memref.alloc with address and alignment attributes
-    auto scratchAlloc = rewriter.create<memref::AllocOp>(loc, scratchType);
-    scratchAlloc.setAlignment(l1Info.alignment);
-    scratchAlloc->setAttr("address",
-                          rewriter.getI64IntegerAttr(scratchBaseAddr));
-
-    // Create d2m.scratch_init to mark this buffer for LowerScratchAllocate
-    rewriter.create<d2m::ScratchInitOp>(loc, scratchAlloc.getResult());
-
-    // Insert memref.dealloc before the function's return/terminator
-    Operation *terminator = entryBlock.getTerminator();
-    if (terminator) {
-      rewriter.setInsertionPoint(terminator);
-      rewriter.create<memref::DeallocOp>(loc, scratchAlloc.getResult());
     }
 
     return success();
@@ -1808,7 +1760,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
   static MemorySpaces
   getMemorySpaces(ttcore::ChipDescAttr chipDesc,
                   SmallVector<AllocSizeT> l1AddrRangeOverride,
-                  AllocSizeT l1CapacityOverride, AllocSizeT scratchReserve) {
+                  AllocSizeT l1CapacityOverride) {
     MemorySpaces info;
     {
       // Currently, we only need L1 and DRAM slots in 'info'.
@@ -1824,12 +1776,8 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         TT_assert(l1AddrRangeOverride[0] >= chipDesc.getL1UnreservedBase());
         TT_assert(l1AddrRangeOverride[1] <= chipDesc.getL1Size());
 
-        // Reserve scratch space at the end of the specified range
-        AllocSizeT l1Max = l1AddrRangeOverride[1] - scratchReserve;
-        TT_assert(l1Max > l1AddrRangeOverride[0]);
-
         info[ordinal(MemorySpace::DeviceL1)] =
-            MemorySpaceInfo(l1AddrRangeOverride[0], l1Max,
+            MemorySpaceInfo(l1AddrRangeOverride[0], l1AddrRangeOverride[1],
                             chipDesc.getNocL1AddressAlignBytes());
       } else {
         const AllocSizeT l1AddrLimit =
@@ -1837,12 +1785,8 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
                 ? (chipDesc.getL1UnreservedBase() + l1CapacityOverride)
                 : chipDesc.getL1Size();
 
-        // Reserve scratch space at the end of L1
-        AllocSizeT l1Max = l1AddrLimit - scratchReserve;
-        TT_assert(l1Max > chipDesc.getL1UnreservedBase());
-
         info[ordinal(MemorySpace::DeviceL1)] =
-            MemorySpaceInfo(chipDesc.getL1UnreservedBase(), l1Max,
+            MemorySpaceInfo(chipDesc.getL1UnreservedBase(), l1AddrLimit,
                             chipDesc.getNocL1AddressAlignBytes());
       }
 

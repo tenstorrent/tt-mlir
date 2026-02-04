@@ -123,6 +123,11 @@ void createTTIRToTTMetalMiddleendPipeline(
         options.maxDstPhysicalSizeTiles;
   }
   pm.addPass(d2m::createD2MElementwiseFusion(elementwiseFusionOptions));
+
+  // Add scratch input to each generic (for L1 scratchpad support).
+  // This must run before bufferization so scratch flows through allocation.
+  pm.addPass(d2m::createD2MAddScratchInputs());
+
   pm.addPass(createLinalgElementwiseOpFusionPass());
   pm.addPass(mlir::createCanonicalizerPass());
   createTTIRBufferizationPipeline(pm, options);
@@ -170,6 +175,11 @@ void createTTIRToTTMetalMiddleendPipeline(
   }
   pm.addPass(d2m::createD2MOpScheduler(opSchedulerOptions));
 
+  // Inject IR for testing
+  // pm.addPass(d2m::createD2MInjectIR());
+  //  Lower scratch allocations to subviews of input scratch buffer.
+  pm.addPass(d2m::createD2MLowerScratchAllocate());
+
   d2m::D2MInsertDstRegisterAccessOptions insertDstRegisterAccessOptions;
   {
     insertDstRegisterAccessOptions.useTileMatmul = options.useTileMatmul;
@@ -214,11 +224,6 @@ void createTTIRToTTMetalMiddleendPipeline(
 
   pm.addPass(createCanonicalizerPassWithOptions(options));
   createOptimizationPasses(pm, options);
-
-  // Lower scratch allocations to subviews of a master scratchpad.
-  // This pass runs late in the middleend, after loop generation but before
-  // regions are converted to functions.
-  pm.addPass(d2m::createD2MLowerScratchAllocate());
 
   pm.addPass(d2m::createD2MGenericRegionsToFuncs());
 }
