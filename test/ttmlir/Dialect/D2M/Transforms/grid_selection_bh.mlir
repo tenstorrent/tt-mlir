@@ -25,8 +25,8 @@ module {
 // -----
 
 // Test grid selection for Blackhole matmul grid without constraining dims
-// CHECK-AFTER: #[[LAYOUT_MATMUL:.*]] = #ttcore.metal_layout<logical_shape = 320x320, dim_alignments = 32x32,  {{.*}} index_map = map(0)>
-// CHECK-AFTER: #[[LAYOUT_MATMUL_2:.*]] = #ttcore.metal_layout<logical_shape = 320x416, dim_alignments = 32x32, {{.*}} index_map = map(0)>
+// CHECK-AFTER: #[[LAYOUT_MATMUL:.*]] = #ttcore.metal_layout<logical_shape = 320x320, dim_alignments = 320x320,  {{.*}} index_map = map(0)>
+// CHECK-AFTER: #[[LAYOUT_MATMUL_2:.*]] = #ttcore.metal_layout<logical_shape = 320x416, dim_alignments = 320x416, {{.*}} index_map = map(0)>
 #layout_matmul = #ttcore.metal_layout<logical_shape = 320x320, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded, index_map = map(0)>
 #layout_matmul_2 = #ttcore.metal_layout<logical_shape = 320x416, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded, index_map = map(0)>
 
@@ -72,9 +72,9 @@ module {
 
 // -----
 // Test grid selection for Blackhole matmul grid with constraining dims
-// CHECK-AFTER: #[[LAYOUT_MATMUL_CONSTRAINED_1:.*]] = #ttcore.metal_layout<logical_shape = 320x416, dim_alignments = 32x320,  {{.*}} index_map = map(0)>
-// CHECK-AFTER: #[[LAYOUT_MATMUL_CONSTRAINED_2:.*]] = #ttcore.metal_layout<logical_shape = 416x416, dim_alignments = 320x32, {{.*}} index_map = map(0)>
-// CHECK-AFTER: #[[LAYOUT_MATMUL_CONSTRAINED_3:.*]] = #ttcore.metal_layout<logical_shape = 320x416, dim_alignments = 32x32, {{.*}} index_map = map(0)>
+// CHECK-AFTER: #[[LAYOUT_MATMUL_CONSTRAINED_1:.*]] = #ttcore.metal_layout<logical_shape = 320x416, dim_alignments = 320x320,  {{.*}} index_map = map(0)>
+// CHECK-AFTER: #[[LAYOUT_MATMUL_CONSTRAINED_2:.*]] = #ttcore.metal_layout<logical_shape = 416x416, dim_alignments = 320x416, {{.*}} index_map = map(0)>
+// CHECK-AFTER: #[[LAYOUT_MATMUL_CONSTRAINED_3:.*]] = #ttcore.metal_layout<logical_shape = 320x416, dim_alignments = 320x416, {{.*}} index_map = map(0)>
 #layout_matmul_constrained_1 = #ttcore.metal_layout<logical_shape = 320x416, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded, index_map = map(0)>
 #layout_matmul_constrained_2 = #ttcore.metal_layout<logical_shape = 416x416, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded, index_map = map(0)>
 
