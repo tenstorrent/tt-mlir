@@ -2360,6 +2360,214 @@ struct ArgMaxPattern : public OpConversionPattern<ttir::ArgMaxOp> {
 };
 } // namespace
 
+//===----------------------------------------------------------------------===//
+// SplitQueryKeyValueAndSplitHeadsOp decomposition
+//===----------------------------------------------------------------------===//
+// Decomposes ttir.split_query_key_value_and_split_heads into:
+//   - ttir.slice_static (to split Q, K, V from fused tensor)
+//   - ttir.reshape (to reshape for multi-head attention)
+//   - ttir.permute (to reorder dimensions)
+//
+// For MHA (no kv_input_tensor):
+//   Input: [batch, seq, 3 * hidden_size]
+//   1. Slice into Q, K, V each [batch, seq, hidden_size]
+//   2. Reshape each to [batch, seq, num_heads, head_size]
+//   3. Permute each with [0, 2, 1, 3] -> [batch, num_heads, seq, head_size]
+//   4. If transpose_key, permute K with [0, 1, 3, 2]
+//
+// For GQA (with kv_input_tensor and num_kv_heads):
+//   input_tensor: [batch, seq, hidden_size] for Q
+//   kv_input_tensor: [batch, seq, 2 * kv_hidden_size] for K, V
+//   Similar processing with separate num_kv_heads for K, V
+
+namespace {
+struct SplitQueryKeyValueAndSplitHeadsDecompositionPattern
+    : public OpConversionPattern<ttir::SplitQueryKeyValueAndSplitHeadsOp> {
+  using OpConversionPattern<
+      ttir::SplitQueryKeyValueAndSplitHeadsOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::SplitQueryKeyValueAndSplitHeadsOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    Location loc = op.getLoc();
+    Value inputTensor = adaptor.getInputTensor();
+    Value kvInputTensor = adaptor.getKvInputTensor();
+
+    auto inputType = mlir::cast<RankedTensorType>(inputTensor.getType());
+    auto inputShape = inputType.getShape();
+
+    uint32_t numHeads = adaptor.getNumHeads();
+    bool transposeKey = adaptor.getTransposeKey();
+
+    // Get output type to determine head_size
+    auto queryResultType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(op.getQuery().getType()));
+
+    int64_t batchSize = inputShape[0];
+    int64_t seqSize = inputShape[1];
+    int64_t headSize = queryResultType.getShape()[3];
+
+    Type elementType = inputType.getElementType();
+
+    // Permutation: [batch, seq, num_heads, head_size] ->
+    //              [batch, num_heads, seq, head_size]
+    SmallVector<int64_t> qkvPermutation = {0, 2, 1, 3};
+
+    if (kvInputTensor && adaptor.getNumKvHeads()) {
+      // GQA case: input_tensor is Q, kv_input_tensor is KV
+      uint32_t numKvHeads = *adaptor.getNumKvHeads();
+
+      // Process Q from input_tensor
+      // Reshape: [batch, seq, hidden] -> [batch, seq, num_heads, head_size]
+      SmallVector<int64_t> reshapedQShape = {
+          batchSize, seqSize, static_cast<int64_t>(numHeads), headSize};
+      auto reshapedQType = RankedTensorType::get(reshapedQShape, elementType);
+      Value reshapedQ =
+          createReshape(rewriter, loc, inputTensor, reshapedQType);
+
+      // Permute Q
+      SmallVector<int64_t> permutedQShape = {
+          batchSize, static_cast<int64_t>(numHeads), seqSize, headSize};
+      auto permutedQType = RankedTensorType::get(permutedQShape, elementType);
+      Value query = createPermute(rewriter, loc, reshapedQ, permutedQType,
+                                  qkvPermutation);
+
+      // Process K and V from kv_input_tensor
+      int64_t kvHiddenSize = static_cast<int64_t>(numKvHeads) * headSize;
+
+      // Slice K: [batch, seq, 0:kv_hidden_size]
+      SmallVector<int64_t> kvSliceShape = {batchSize, seqSize, kvHiddenSize};
+      auto kvSliceType = RankedTensorType::get(kvSliceShape, elementType);
+      Value slicedK =
+          createSlice(rewriter, loc, kvInputTensor, kvSliceType, {0, 0, 0},
+                      {batchSize, seqSize, kvHiddenSize});
+
+      // Slice V: [batch, seq, kv_hidden_size:2*kv_hidden_size]
+      Value slicedV = createSlice(rewriter, loc, kvInputTensor, kvSliceType,
+                                  {0, 0, kvHiddenSize},
+                                  {batchSize, seqSize, 2 * kvHiddenSize});
+
+      // Reshape K and V: [batch, seq, kv_hidden] ->
+      //                  [batch, seq, num_kv_heads, head_size]
+      SmallVector<int64_t> reshapedKVShape = {
+          batchSize, seqSize, static_cast<int64_t>(numKvHeads), headSize};
+      auto reshapedKVType = RankedTensorType::get(reshapedKVShape, elementType);
+      Value reshapedK = createReshape(rewriter, loc, slicedK, reshapedKVType);
+      Value reshapedV = createReshape(rewriter, loc, slicedV, reshapedKVType);
+
+      // Permute K and V
+      SmallVector<int64_t> permutedKVShape = {
+          batchSize, static_cast<int64_t>(numKvHeads), seqSize, headSize};
+      auto permutedKVType = RankedTensorType::get(permutedKVShape, elementType);
+      Value permutedK = createPermute(rewriter, loc, reshapedK, permutedKVType,
+                                      qkvPermutation);
+      Value permutedV = createPermute(rewriter, loc, reshapedV, permutedKVType,
+                                      qkvPermutation);
+
+      // Optionally transpose K
+      Value key = permutedK;
+      if (transposeKey) {
+        SmallVector<int64_t> transposedKShape = {
+            batchSize, static_cast<int64_t>(numKvHeads), headSize, seqSize};
+        auto transposedKType =
+            RankedTensorType::get(transposedKShape, elementType);
+        key = createPermute(rewriter, loc, permutedK, transposedKType,
+                            {0, 1, 3, 2});
+      }
+
+      rewriter.replaceOp(op, {query, key, permutedV});
+      return success();
+    }
+
+    // MHA case: input_tensor contains fused QKV
+    int64_t hiddenSize = inputShape[2] / 3;
+
+    // Slice Q: [batch, seq, 0:hidden_size]
+    SmallVector<int64_t> qkvSliceShape = {batchSize, seqSize, hiddenSize};
+    auto qkvSliceType = RankedTensorType::get(qkvSliceShape, elementType);
+
+    Value slicedQ = createSlice(rewriter, loc, inputTensor, qkvSliceType,
+                                {0, 0, 0}, {batchSize, seqSize, hiddenSize});
+    Value slicedK =
+        createSlice(rewriter, loc, inputTensor, qkvSliceType,
+                    {0, 0, hiddenSize}, {batchSize, seqSize, 2 * hiddenSize});
+    Value slicedV = createSlice(rewriter, loc, inputTensor, qkvSliceType,
+                                {0, 0, 2 * hiddenSize},
+                                {batchSize, seqSize, 3 * hiddenSize});
+
+    // Reshape: [batch, seq, hidden] -> [batch, seq, num_heads, head_size]
+    SmallVector<int64_t> reshapedShape = {
+        batchSize, seqSize, static_cast<int64_t>(numHeads), headSize};
+    auto reshapedType = RankedTensorType::get(reshapedShape, elementType);
+    Value reshapedQ = createReshape(rewriter, loc, slicedQ, reshapedType);
+    Value reshapedK = createReshape(rewriter, loc, slicedK, reshapedType);
+    Value reshapedV = createReshape(rewriter, loc, slicedV, reshapedType);
+
+    // Permute: [batch, seq, num_heads, head_size] ->
+    //          [batch, num_heads, seq, head_size]
+    SmallVector<int64_t> permutedShape = {
+        batchSize, static_cast<int64_t>(numHeads), seqSize, headSize};
+    auto permutedType = RankedTensorType::get(permutedShape, elementType);
+    Value query =
+        createPermute(rewriter, loc, reshapedQ, permutedType, qkvPermutation);
+    Value permutedK =
+        createPermute(rewriter, loc, reshapedK, permutedType, qkvPermutation);
+    Value value =
+        createPermute(rewriter, loc, reshapedV, permutedType, qkvPermutation);
+
+    // Optionally transpose K: [batch, num_heads, seq, head_size] ->
+    //                         [batch, num_heads, head_size, seq]
+    Value key = permutedK;
+    if (transposeKey) {
+      SmallVector<int64_t> transposedKShape = {
+          batchSize, static_cast<int64_t>(numHeads), headSize, seqSize};
+      auto transposedKType =
+          RankedTensorType::get(transposedKShape, elementType);
+      key = createPermute(rewriter, loc, permutedK, transposedKType,
+                          {0, 1, 3, 2});
+    }
+
+    rewriter.replaceOp(op, {query, key, value});
+    return success();
+  }
+
+private:
+  // Helper to create a slice operation using ttir.slice_static
+  Value createSlice(ConversionPatternRewriter &rewriter, Location loc,
+                    Value input, RankedTensorType resultType,
+                    ArrayRef<int64_t> begins, ArrayRef<int64_t> ends) const {
+    llvm::SmallVector<mlir::Attribute> beginsAttr, endsAttr, stepsAttr;
+
+    for (size_t i = 0; i < begins.size(); ++i) {
+      beginsAttr.push_back(rewriter.getI32IntegerAttr(begins[i]));
+      endsAttr.push_back(rewriter.getI32IntegerAttr(ends[i]));
+      stepsAttr.push_back(rewriter.getI32IntegerAttr(1));
+    }
+
+    return rewriter.create<ttir::SliceStaticOp>(
+        loc, resultType, input, rewriter.getArrayAttr(beginsAttr),
+        rewriter.getArrayAttr(endsAttr), rewriter.getArrayAttr(stepsAttr));
+  }
+
+  // Helper to create a reshape operation using ttir.reshape
+  Value createReshape(ConversionPatternRewriter &rewriter, Location loc,
+                      Value input, RankedTensorType resultType) const {
+    auto newShape = resultType.getShape();
+    llvm::SmallVector<int32_t> newShapeI32(newShape.begin(), newShape.end());
+    return rewriter.create<ttir::ReshapeOp>(
+        loc, resultType, input, rewriter.getI32ArrayAttr(newShapeI32));
+  }
+
+  // Helper to create a permute operation using ttir.permute
+  Value createPermute(ConversionPatternRewriter &rewriter, Location loc,
+                      Value input, RankedTensorType resultType,
+                      ArrayRef<int64_t> permutation) const {
+    return rewriter.create<ttir::PermuteOp>(loc, resultType, input,
+                                            permutation);
+  }
+};
+} // namespace
+
 void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
                                              RewritePatternSet &patterns,
                                              TypeConverter &typeConverter,
@@ -2382,6 +2590,8 @@ void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
   patterns.add<ReverseOpConversionPattern>(typeConverter, ctx);
   patterns.add<ArgMaxPattern>(typeConverter, ctx);
   patterns.add<EmbeddingToGatherConversionPattern>(typeConverter, ctx);
+  patterns.add<SplitQueryKeyValueAndSplitHeadsDecompositionPattern>(
+      typeConverter, ctx);
 
   // Configure which ReductionPattern to add base on the configuration
   switch (decompConfig) {
