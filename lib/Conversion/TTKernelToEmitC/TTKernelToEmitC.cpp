@@ -859,6 +859,51 @@ public:
     return success();
   }
 };
+
+// Arith MaxUIOp doesn't have an emitc lowering. We can lower it to a call to
+// std::max.
+class ArithMaxUIRewriter : public OpConversionPattern<arith::MaxUIOp> {
+public:
+  using OpConversionPattern<arith::MaxUIOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(arith::MaxUIOp op, arith::MaxUIOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    Type resultType = getTypeConverter()->convertType(op.getResult().getType());
+    if (!resultType) {
+      return failure();
+    }
+
+    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
+        op, resultType, "std::max<size_t>", adaptor.getOperands());
+
+    return success();
+  }
+};
+
+// Arith MinUIOp doesn't have an emitc lowering. We can lower it to a call to
+// std::min.
+class ArithMinUIRewriter : public OpConversionPattern<arith::MinUIOp> {
+public:
+  using OpConversionPattern<arith::MinUIOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(arith::MinUIOp op, arith::MinUIOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    Type resultType = getTypeConverter()->convertType(op.getResult().getType());
+    if (!resultType) {
+      return failure();
+    }
+
+    // Explicit type template needed for some edge cases where emitc might lower
+    // an int literal into the call with a size_t arg, creating sfpi compiler
+    // error.
+    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
+        op, resultType, "std::min<size_t>", adaptor.getOperands());
+
+    return success();
+  }
+};
 } // namespace
 
 namespace {
@@ -1071,6 +1116,9 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::TanhTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::TypecastTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::TypecastTileOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::ExperimentalTileFillOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::ExperimentalWriteRowMaskTileOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::ExperimentalWriteColMaskTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::UnaryBcastInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::UnaryBcastTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::WhereTileInitOp>,
@@ -1165,8 +1213,9 @@ public:
             ttkernel::InterleavedAddrGenFastGetNocAddrOp>>(typeConverter,
                                                            funcOp.getContext());
 
-    patterns.add<ArithFloorDivRewriter, ArithBitcastRewriter>(
-        typeConverter, funcOp.getContext());
+    patterns.add<ArithFloorDivRewriter, ArithBitcastRewriter,
+                 ArithMaxUIRewriter, ArithMinUIRewriter>(typeConverter,
+                                                         funcOp.getContext());
 
     return applyFullConversion(funcOp, target, std::move(patterns));
   }

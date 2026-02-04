@@ -8,6 +8,7 @@ set(LLK_HEADERS
     ${CMAKE_SOURCE_DIR}/include/ttmlir/Target/TTKernel/LLKs/experimental_invoke_sfpi_llks.h
     ${CMAKE_SOURCE_DIR}/include/ttmlir/Target/TTKernel/LLKs/experimental_dataflow_api.h
     ${CMAKE_SOURCE_DIR}/include/ttmlir/Target/TTKernel/LLKs/experimental_matmul_llks.h
+    ${CMAKE_SOURCE_DIR}/include/ttmlir/Target/TTKernel/LLKs/experimental_padding_llks.h
     ${CMAKE_SOURCE_DIR}/include/ttmlir/Target/TTKernel/LLKs/experimental_coord_translation.h
     ${CMAKE_SOURCE_DIR}/include/ttmlir/Target/TTKernel/LLKs/experimental_fabric_api.h
 )

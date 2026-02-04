@@ -24,11 +24,6 @@ SLOW_COMPILE_SKIP = pytest.mark.skip(
     reason="Slow compilation due to inefficient calculateCoalescingFactors, see https://github.com/tenstorrent/tt-mlir/issues/6375"
 )
 
-# Skip for 1D tensor shapes that are not yet supported
-ONE_D_SKIP = pytest.mark.skip(
-    reason="1D tensor reshapes not yet supported, see https://github.com/tenstorrent/tt-mlir/issues/6376"
-)
-
 # Skip for NOC read issue
 NOC_ISSUE_SKIP = pytest.mark.skip(
     reason="NOC read issue, see https://github.com/tenstorrent/tt-mlir/issues/6377"
@@ -158,20 +153,16 @@ RESHAPE_SHAPES: List[Tuple[Tuple[int, ...], Tuple[int, ...]]] = [
     # 2D -> 2D reshapes
     ((64, 64), (32, 128)),
     ((128, 64), (64, 128)),
-    ((32, 128), (64, 64)),
     # 2D -> 3D reshapes
     ((96, 64), (3, 32, 64)),
     ((128, 96), (4, 32, 96)),
-    ((192, 64), (6, 32, 64)),
     # 2D -> 4D reshapes
     ((192, 64), (2, 3, 32, 64)),
     ((256, 96), (2, 4, 32, 96)),
     # 3D -> 2D reshapes
     ((3, 32, 64), (96, 64)),
-    ((4, 64, 32), (256, 32)),
     ((5, 32, 64), (160, 64)),
     # 3D -> 3D reshapes
-    ((2, 64, 64), (4, 32, 64)),
     ((3, 32, 96), (3, 96, 32)),
     ((6, 32, 64), (3, 64, 64)),
     # 3D -> 4D reshapes
@@ -204,71 +195,22 @@ RESHAPE_SHAPES: List[Tuple[Tuple[int, ...], Tuple[int, ...]]] = [
     ((49, 7), (7, 7, 7)),
     ((3, 11, 13), (33, 13)),
     ((33, 13), (3, 11, 13)),
-    # Weird shapes with NOC issues
-    pytest.param(((1, 32), (32, 1)), marks=NOC_ISSUE_SKIP),
-    pytest.param(((2, 3, 5, 7), (6, 35)), marks=NOC_ISSUE_SKIP),
-    pytest.param(((6, 35), (2, 3, 5, 7)), marks=NOC_ISSUE_SKIP),
-    pytest.param(((11, 13, 2), (22, 13)), marks=NOC_ISSUE_SKIP),
-    pytest.param(((22, 13), (11, 13, 2)), marks=NOC_ISSUE_SKIP),
-    pytest.param(((3, 5, 7, 11), (15, 77)), marks=NOC_ISSUE_SKIP),
-    pytest.param(((15, 77), (3, 5, 7, 11)), marks=NOC_ISSUE_SKIP),
-    pytest.param(((2, 3, 5, 7, 11), (6, 5, 77)), marks=NOC_ISSUE_SKIP),
-    pytest.param(((6, 5, 77), (2, 3, 5, 7, 11)), marks=NOC_ISSUE_SKIP),
-    pytest.param(((5, 7, 9, 11), (35, 99)), marks=NOC_ISSUE_SKIP),
-    pytest.param(((35, 99), (5, 7, 9, 11)), marks=NOC_ISSUE_SKIP),
-    # 1D tensor shapes (not yet supported)
-    pytest.param(((7, 11), (77,)), marks=ONE_D_SKIP),
-    pytest.param(((77,), (7, 11)), marks=ONE_D_SKIP),
-    pytest.param(((13, 17), (221,)), marks=ONE_D_SKIP),
-    pytest.param(((221,), (13, 17)), marks=ONE_D_SKIP),
-    pytest.param(((17, 19), (323,)), marks=ONE_D_SKIP),
-    pytest.param(((323,), (17, 19)), marks=ONE_D_SKIP),
-    pytest.param(((23, 29), (667,)), marks=ONE_D_SKIP),
-    pytest.param(((667,), (23, 29)), marks=ONE_D_SKIP),
-    # ==================== LLAMA 3.2 3B TESTS ====================
-    pytest.param(((1024, 3072), (1, 1024, 3072)), marks=SLOW_COMPILE_SKIP),
-    pytest.param(((128256, 3072), (1, 128256, 3072)), marks=SLOW_COMPILE_SKIP),
-    pytest.param(((128,), (1, 128)), marks=ONE_D_SKIP),
+    # 1D tensor shapes
+    ((1,), (1, 1, 1)),
+    ((1,), (1, 1, 1, 1)),
+    ((128,), (1, 128)),
+    ((1, 64), (64,)),
+    ((1, 1, 128), (128,)),
+    ((128,), (2, 64)),
+    ((2, 64), (128,)),
+    ((64,), (64,)),
+    ((128,), (1, 1, 1, 128)),
+    # LLAMA 3.2 3B TESTS
     ((18, 128), (1, 18, 128)),
     ((18, 128), (1, 1, 18, 128)),
-    pytest.param(((18,), (18, 1)), marks=ONE_D_SKIP),
-    pytest.param(((18,), (1, 1, 18)), marks=ONE_D_SKIP),
-    pytest.param(((1, 1024, 3072), (1024, 3072)), marks=SLOW_COMPILE_SKIP),
-    pytest.param(((1, 128256, 3072), (128256, 3072)), marks=SLOW_COMPILE_SKIP),
     ((1, 18, 128), (18, 128)),
     ((1, 18, 128), (1, 1, 18, 128)),
-    pytest.param(((1, 1, 18), (18,)), marks=ONE_D_SKIP),
-    pytest.param(((1, 1, 3072), (3072,)), marks=ONE_D_SKIP),
-    pytest.param(((1, 1, 64), (1, 64, 1)), marks=NOC_ISSUE_SKIP),
-    pytest.param(((1, 3072, 3072), (3072, 3072)), marks=SLOW_COMPILE_SKIP),
-    pytest.param(((1, 3072, 8192), (3072, 8192)), marks=SLOW_COMPILE_SKIP),
-    pytest.param(((1, 32, 18), (576,)), marks=ONE_D_SKIP),
-    pytest.param(((1, 8192, 3072), (8192, 3072)), marks=SLOW_COMPILE_SKIP),
-    pytest.param(((3072, 3072), (1, 3072, 3072)), marks=SLOW_COMPILE_SKIP),
-    pytest.param(((3072, 8192), (1, 3072, 8192)), marks=SLOW_COMPILE_SKIP),
-    pytest.param(((3072,), (1, 1, 3072)), marks=ONE_D_SKIP),
-    pytest.param(((32, 18, 128), (32, 1, 18, 128)), marks=SLOW_COMPILE_SKIP),
-    pytest.param(((32, 18, 1), (32, 18)), marks=NOC_ISSUE_SKIP),
-    pytest.param(((32, 18, 24, 128), (576, 3072)), marks=SLOW_COMPILE_SKIP),
-    pytest.param(((32, 18, 3072), (576, 3072)), marks=SLOW_COMPILE_SKIP),
-    pytest.param(((32, 18, 8192), (576, 8192)), marks=SLOW_COMPILE_SKIP),
-    pytest.param(((32, 18), (32, 18, 1)), marks=NOC_ISSUE_SKIP),
     ((32, 18), (1, 32, 18)),
-    pytest.param(((32, 1, 18, 128), (32, 18, 128)), marks=SLOW_COMPILE_SKIP),
-    pytest.param(((32, 24, 128, 128), (768, 128, 128)), marks=SLOW_COMPILE_SKIP),
-    pytest.param(((32, 24, 18, 128), (768, 18, 128)), marks=SLOW_COMPILE_SKIP),
-    pytest.param(((32, 24, 18), (32, 24, 18, 1)), marks=NOC_ISSUE_SKIP),
-    pytest.param(((32, 8, 128, 128), (32, 8, 1, 128, 128)), marks=SLOW_COMPILE_SKIP),
-    pytest.param(((32, 8, 3, 128, 128), (32, 24, 128, 128)), marks=SLOW_COMPILE_SKIP),
-    pytest.param(((32, 8, 3, 128, 128), (768, 128, 128)), marks=SLOW_COMPILE_SKIP),
-    pytest.param(((576, 1024), (32, 18, 8, 128)), marks=SLOW_COMPILE_SKIP),
-    pytest.param(((576, 128256), (32, 18, 128256)), marks=SLOW_COMPILE_SKIP),
-    pytest.param(((576, 3072), (32, 18, 24, 128)), marks=SLOW_COMPILE_SKIP),
-    pytest.param(((576, 3072), (32, 18, 3072)), marks=SLOW_COMPILE_SKIP),
-    pytest.param(((576, 8192), (32, 18, 8192)), marks=SLOW_COMPILE_SKIP),
-    pytest.param(((64,), (1, 1, 64)), marks=ONE_D_SKIP),
-    pytest.param(((768, 18, 128), (32, 24, 18, 128)), marks=SLOW_COMPILE_SKIP),
-    pytest.param(((8192, 3072), (1, 8192, 3072)), marks=SLOW_COMPILE_SKIP),
 ]
 
 

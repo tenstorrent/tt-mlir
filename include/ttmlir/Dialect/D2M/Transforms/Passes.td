@@ -698,6 +698,73 @@ def D2MDecomposeComplexPermute: Pass<"d2m-decompose-complex-permute", "::mlir::M
   }];
 }
 
+def D2MRankNormalization: Pass<"d2m-rank-normalization", "::mlir::ModuleOp"> {
+  let summary = "Normalize tensor ranks by promoting low-rank tensors to 2D.";
+  let description = [{
+    This pass destructively rewrites tensor ranks to ensure all tensors have at
+    least rank 2. This is needed because the device compute kernels work with
+    2D+ tensors.
+
+    The pass directly modifies types in place - no reshape operations are inserted.
+    This is safe because adding 1's to the outer dimensions doesn't change the
+    memory layout in any way; a scalar is packed the same way regardless of rank.
+
+    The pass performs the following transformations:
+
+    1. Function argument types are promoted: tensor<N> -> tensor<1xN>,
+       tensor<f32> -> tensor<1x1xf32>
+
+    2. All operation result types are promoted similarly.
+
+    3. The function signature is updated to match the new types.
+
+    Example 1 - Scalar tensor:
+      Before:
+        func.func @main(%a: tensor<f32>) -> tensor<f32> {
+          %0 = "ttir.exp"(%a) : (tensor<f32>) -> tensor<f32>
+          return %0 : tensor<f32>
+        }
+
+      After:
+        func.func @main(%a: tensor<1x1xf32>) -> tensor<1x1xf32> {
+          %0 = "ttir.exp"(%a) : (tensor<1x1xf32>) -> tensor<1x1xf32>
+          return %0 : tensor<1x1xf32>
+        }
+
+    Example 2 - 1D tensor:
+      Before:
+        func.func @forward(%arg0: tensor<32xf32>) -> tensor<32xf32> {
+          %0 = "ttir.abs"(%arg0) : (tensor<32xf32>) -> tensor<32xf32>
+          return %0 : tensor<32xf32>
+        }
+
+      After:
+        func.func @forward(%arg0: tensor<1x32xf32>) -> tensor<1x32xf32> {
+          %0 = "ttir.abs"(%arg0) : (tensor<1x32xf32>) -> tensor<1x32xf32>
+          return %0 : tensor<1x32xf32>
+        }
+
+    Example 3 - Chained ops:
+      Before:
+        func.func @forward(%arg0: tensor<128xf32>) -> tensor<128xf32> {
+          %0 = "ttir.abs"(%arg0) : (tensor<128xf32>) -> tensor<128xf32>
+          %1 = "ttir.neg"(%0) : (tensor<128xf32>) -> tensor<128xf32>
+          return %1 : tensor<128xf32>
+        }
+
+      After:
+        func.func @forward(%arg0: tensor<1x128xf32>) -> tensor<1x128xf32> {
+          %0 = "ttir.abs"(%arg0) : (tensor<1x128xf32>) -> tensor<1x128xf32>
+          %1 = "ttir.neg"(%0) : (tensor<1x128xf32>) -> tensor<1x128xf32>
+          return %1 : tensor<1x128xf32>
+        }
+
+    This pass runs in isolation and requires no changes to existing code.
+    It should run early in the D2M pipeline, before layout lowering.
+  }];
+  let dependentDialects = ["::mlir::tt::d2m::D2MDialect"];
+}
+
 def D2MGenerateOuterLoops : Pass<"d2m-generate-outer-loops", "::mlir::ModuleOp"> {
   let summary = "Generate outer loops.";
   let description = [{

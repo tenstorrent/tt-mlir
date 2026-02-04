@@ -750,6 +750,37 @@ def D2M_TileTypecastOp : D2M_GenericRegionComputeUnaryDstOp<"tile_typecast", [D2
 // D2M Masking Ops
 //===----------------------------------------------------------------------===//
 
+def D2M_TileFillOp : D2M_GenericRegionComputeOp<"tile_fill"> {
+    let summary = "D2M Tile Fill Op";
+    let description = [{
+        The `tile_fill` operation creates a tile filled with a constant scalar value.
+        All elements in the resulting tile will have the same value as the input scalar.
+
+        This operation abstracts away the complexity of creating a constant-filled tile,
+        providing a simple interface that takes a scalar value and produces a tile suitable
+        for element-wise operations.
+    }];
+
+    let arguments = (ins AnyFloat:$value);
+    let results = (outs TTCore_Tile:$result);
+
+    let assemblyFormat = [{
+        `(` $value `)` attr-dict `:` type($value) `->` type($result)
+    }];
+
+    let extraClassDeclaration = [{
+        // This operation doesn't load from DST (it generates a new tile)
+        mlir::SmallVector<int64_t> getOperandsLoadFromDstRegister() {
+          return {};
+        }
+        bool getDstRegInPlace() { return false; }
+        // The operand is a scalar (float), not a tile
+        bool isScalarOperand(int64_t operandIdx) {
+          return true;
+        }
+    }];
+}
+
 def D2M_BlockMaskOp : D2M_GenericRegionComputeOp<"block_mask",
   [ DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
   , DeclareOpInterfaceMethods<BufferizableOpInterface, [ "bufferizesToMemoryRead"
@@ -759,6 +790,7 @@ def D2M_BlockMaskOp : D2M_GenericRegionComputeOp<"block_mask",
                                                        , "getBufferType"
                                                        ]>
   , D2M_SkipOpEltwiseFusionTrait
+  , AttrSizedOperandSegments
   ]> {
     let summary = "Mask block elements outside logical bounds with fill value";
     let description = [{
@@ -773,33 +805,40 @@ def D2M_BlockMaskOp : D2M_GenericRegionComputeOp<"block_mask",
         dimensions for this core's shard. These can be computed dynamically based on
         the core's position in the grid, enabling multicore support.
 
-        This is a high-level op that gets decomposed in a later pass into tile iteration
-        with per-tile masking logic.
+        For partial tile masking, row_mask_cb and col_mask_cb contain scratch mask
+        tiles written by a corresponding BlockMaskWriteOp in the DM region. These are
+        single-tile CBs where each element is 1.0 if valid or 0.0 if OOB.
+
+        This is a high-level op that gets decomposed in a later pass into multiple
+        loop nests that handle interior tiles, edge tiles, and corner tiles separately.
 
         Example:
         ```mlir
-        %result = d2m.block_mask %input, %output, %logical_rows, %logical_cols, <zero>
-            : (memref<2x3x!ttcore.tile<32x32, f32>>, memref<2x3x!ttcore.tile<32x32, f32>>)
-            -> memref<2x3x!ttcore.tile<32x32, f32>>
+        // With mask CBs for partial masking:
+        d2m.block_mask %input, %output, %row_mask_cb, %col_mask_cb,
+                       %logical_rows, %logical_cols, <zero>
+            : (memref<2x3x!ttcore.tile<32x32, f32>>, memref<2x3x!ttcore.tile<32x32, f32>>,
+               memref<1x1x!ttcore.tile<32x32, f32>>, memref<1x1x!ttcore.tile<32x32, f32>>)
         ```
     }];
 
     let arguments = (ins
         AnyRankedTensorOrMemRef:$input,
         AnyRankedTensorOrMemRef:$output,
+        Optional<AnyRankedTensorOrMemRef>:$row_mask_cb,
+        Optional<AnyRankedTensorOrMemRef>:$col_mask_cb,
         Index:$logical_rows,
         Index:$logical_cols,
         TTCore_OOBValAttr:$fill_value);
 
     let results = (outs AnyRankedTensorOrMemRef:$result);
 
-    let assemblyFormat = [{
-        $input `,` $output `,` $logical_rows `,` $logical_cols `,` $fill_value attr-dict
-        `:` `(` type($input) `,` type($output) `)` `->` type($result)
-    }];
+    // Use default format with AttrSizedOperandSegments - the operand_segment_sizes
+    // attribute is automatically added/parsed to track optional operand presence.
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+      bool hasMaskCBs() { return getRowMaskCb() != nullptr && getColMaskCb() != nullptr; }
     }];
 
     let hasVerifier = 1;
@@ -1948,6 +1987,44 @@ def D2M_GetGlobalOperandOp : D2M_GenericRegionOp<"get_global_operand", [Pure]> {
     let results = (outs DeviceMemRef:$result);
 
     let assemblyFormat = [{ `(` $operand_index `)` attr-dict `:` type($result) }];
+}
+
+//===----------------------------------------------------------------------===//
+// D2M Write Mask Tile Ops (Used for partial tile masking)
+//===----------------------------------------------------------------------===//
+
+def D2M_WriteRowMaskTileOp : D2M_GenericRegionOp<"write_row_mask_tile",
+  [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
+    let summary = "Write row mask pattern to a tile CB";
+    let description = [{
+        The `write_row_mask_tile` operation writes a row mask pattern
+        to a tile CB, where element[i,j] = 1.0 if i < validRows, else 0.0.
+
+        This is used for partial tile OOB masking. The operation writes directly
+        to L1 memory, avoiding DST register pressure.
+    }];
+
+    let arguments = (ins AnyTypeOf<[Index, AnyInteger]>:$validRows,
+                         AnyTypeOf<[AnyRankedTensorOrMemRef, D2M_CB]>:$output);
+
+    let assemblyFormat = [{ `(` $validRows `)` `to` $output attr-dict `:` type($validRows) `,` type($output) }];
+}
+
+def D2M_WriteColMaskTileOp : D2M_GenericRegionOp<"write_col_mask_tile",
+  [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
+    let summary = "Write column mask pattern to a tile CB";
+    let description = [{
+        The `write_col_mask_tile` operation writes a column mask pattern
+        to a tile CB, where element[i,j] = 1.0 if j < validCols, else 0.0.
+
+        This is used for partial tile OOB masking. The operation writes directly
+        to L1 memory, avoiding DST register pressure.
+    }];
+
+    let arguments = (ins AnyTypeOf<[Index, AnyInteger]>:$validCols,
+                         AnyTypeOf<[AnyRankedTensorOrMemRef, D2M_CB]>:$output);
+
+    let assemblyFormat = [{ `(` $validCols `)` `to` $output attr-dict `:` type($validCols) `,` type($output) }];
 }
 
 #endif // TTMLIR_TTMLIR_DIALECT_D2M_D2MGENERICREGIONOPS_TD
