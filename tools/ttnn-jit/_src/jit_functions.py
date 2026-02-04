@@ -565,20 +565,26 @@ class RepeatOpHandler(BaseOpHandler):
 
     def create_operation(self, *args, **kwargs):
         """Create repeat operation."""
-        if len(args) < 1:
-            raise ValueError("repeat requires at least 1 input tensor")
+        # Signature: ttnn.repeat(tensor, repeat_dims) where repeat_dims is a list or ttnn.Shape
+        if len(args) < 2:
+            raise ValueError(
+                "repeat requires 2 arguments: (input_tensor, repeat_dimensions)"
+            )
 
         operands = self._get_operands(args[:1])
         operand = operands[0]
 
-        # Extract repeat_dimensions from kwargs (required)
-        repeat_dimensions = kwargs.get("shape", None)
-        if repeat_dimensions is None:
-            raise ValueError("repeat requires 'shape' argument (repeat_dimensions)")
+        # Second argument is the repeat_dimensions (list or ttnn.Shape)
+        repeat_dimensions = args[1]
 
-        # Convert to list if needed
+        # Convert to list if needed (handles ttnn.Shape, numpy arrays, tuples, etc.)
         if hasattr(repeat_dimensions, "tolist"):
             repeat_dimensions = repeat_dimensions.tolist()
+        elif hasattr(repeat_dimensions, "__iter__") and not isinstance(
+            repeat_dimensions, (list, tuple)
+        ):
+            # Handle ttnn.Shape or similar iterable objects
+            repeat_dimensions = list(repeat_dimensions)
         else:
             repeat_dimensions = list(repeat_dimensions)
 

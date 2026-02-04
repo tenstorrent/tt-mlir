@@ -267,17 +267,17 @@ def concat_three(a, b, c):
 # ------------------------------------------------------------
 def repeat_2x1(a):
     """Repeat tensor [2, 1] - double first dimension."""
-    return ttnn.repeat(a, shape=(2, 1))
+    return ttnn.repeat(a, [2, 1])
 
 
 def repeat_1x3(a):
     """Repeat tensor [1, 3] - triple second dimension."""
-    return ttnn.repeat(a, shape=(1, 3))
+    return ttnn.repeat(a, [1, 3])
 
 
 def repeat_2x2(a):
     """Repeat tensor [2, 2] - double both dimensions."""
-    return ttnn.repeat(a, shape=(2, 2))
+    return ttnn.repeat(a, [2, 2])
 
 
 # Function that uses ttnn.identity, which should be rejected by return_modifier.
