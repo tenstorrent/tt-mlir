@@ -249,7 +249,7 @@ static ttcore::MetalLayoutAttr layoutWithOptimalGrid(
   llvm::SmallVector<int64_t> newDimAlignments =
       ttcore::MetalLayoutAttr::computeGridAwareDimAlignments(
           oldLayout.getLogicalShape(), optimalGrid,
-          oldLayout.getNormalizedIntervals());
+          oldLayout.getNormalizedIntervals(), /*forceGridAlignment=*/true);
 
   // If using a virtual grid, compute required forward index affine map.
   AffineMap indexAffineMap = oldLayout.getIndexAffineMap();
@@ -698,7 +698,8 @@ updateStreamLayoutOps(ArrayRef<StreamLayoutUpdateInfo> streamLayoutsToUpdate,
     llvm::SmallVector<int64_t> storageDimAlignments =
         ttcore::MetalLayoutAttr::computeGridAwareDimAlignments(
             storageLayout.getLogicalShape(), optimalGrid,
-            storageLayout.getNormalizedIntervals());
+            storageLayout.getNormalizedIntervals(),
+            /*forceGridAlignment=*/true);
 
     // If using a virtual grid, compute required forward index affine map.
     AffineMap storageIndexMap = storageLayout.getIndexAffineMap();

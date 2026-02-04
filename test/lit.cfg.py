@@ -108,6 +108,8 @@ if system_desc != None:
             config.targets = {"n300"}
         case "Wormhole_b0", 8:
             config.targets = {"llmbox"}
+        case "Wormhole_b0", 32:
+            config.targets = {"tg"}
         case _:
             raise ValueError(f"Unknown architecture/chip# combo: {arch}, {num_chips}")
 
