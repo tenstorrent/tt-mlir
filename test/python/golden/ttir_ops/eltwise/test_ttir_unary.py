@@ -547,7 +547,7 @@ def test_1d(shape: Shape, dtype: torch.dtype, target: str, request, device):
     )
 
 
-@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
+@pytest.mark.parametrize("shape", [(1, 2, 128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_reshape_compute(
@@ -560,7 +560,7 @@ def test_reshape_compute(
             builder: TTIRBuilder,
             unit_attrs: Optional[List[str]] = None,
         ):
-            reshaped = builder.reshape(in0, (64, 256))
+            reshaped = builder.reshape(in0, (2, 1, 128, 128))
             return neg(reshaped, builder, unit_attrs=unit_attrs)
 
     compile_and_execute_ttir(
