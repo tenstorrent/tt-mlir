@@ -213,6 +213,10 @@ RESHAPE_SHAPES: List[Tuple[Tuple[int, ...], Tuple[int, ...]]] = [
     ((32, 18), (1, 32, 18)),
 ]
 
+RESHAPE_SHAPES = [
+    ((1, 2, 128, 32), (1, 2, 1, 128, 32)),
+]
+
 
 def shapes_to_id(shapes) -> str:
     """Generate a readable test ID from input/output shapes."""

@@ -415,9 +415,22 @@ public:
       // Fast path: pure grid reblocking on tilized tensors.
       // Use calculateReblockMap which works directly on device shapes without
       // going through logical space (avoids tile alignment issues).
-      viewMap = ttmlir::utils::calculateReblockMap(inputInfo.type.getShape(),
-                                                   outputInfo.type.getShape(),
-                                                   rewriter.getContext());
+      AffineMap reblockMap = ttmlir::utils::calculateReblockMap(
+          inputInfo.type.getShape(), outputInfo.type.getShape(),
+          rewriter.getContext());
+
+      // Compose with input's existing index_map if present. This preserves
+      // view transformations (e.g., from reshape ops) when reblocking.
+      AffineMap inputIndexMap = inputLayout.getIndexAffineMap();
+      if (inputIndexMap && !inputIndexMap.isEmpty() &&
+          !inputIndexMap.isIdentity()) {
+        // The reblock map transforms output coordinates to input coordinates.
+        // The input's index_map transforms input coordinates to source
+        // coordinates. Composing: output -> input -> source.
+        viewMap = inputIndexMap.compose(reblockMap);
+      } else {
+        viewMap = reblockMap;
+      }
     } else {
       // Complex mapping: layout properties differ (padding, collapse, etc).
       // Use buildLayoutTransformMap which goes through logical space.
@@ -428,8 +441,24 @@ public:
       // device coordinates via the shared logical space. This map handles grid
       // redistribution, collapse changes, padding changes, and virtual grid
       // index_maps.
-      viewMap = ttcore::utils::buildLayoutTransformMap(
+      AffineMap transformMap = ttcore::utils::buildLayoutTransformMap(
           inputLayout, inputInfo.type, outputLayout, outputInfo.type);
+
+      // Compose with input's existing index_map if present. The
+      // buildLayoutTransformMap function intentionally does NOT compose the
+      // input's index_map (see comment in that function). However, for view
+      // transformations like reshape, we need to preserve the index_map here
+      // because it represents a data transformation, not just core
+      // virtualization.
+      AffineMap inputIndexMap = inputLayout.getIndexAffineMap();
+      if (inputIndexMap && !inputIndexMap.isEmpty() &&
+          !inputIndexMap.isIdentity()) {
+        // Compose: output coords -> input coords (transformMap) -> source
+        // coords (inputIndexMap).
+        viewMap = inputIndexMap.compose(transformMap);
+      } else {
+        viewMap = transformMap;
+      }
     }
 
     // Embed the transformation map in the output layout.
@@ -557,15 +586,23 @@ public:
     auto buildConcreteView = [&](Value fromVal, RankedTensorType fromTy,
                                  RankedTensorType toTy) -> Value {
       auto *ctx = rewriter.getContext();
-      AffineMap map = ttmlir::utils::calculateReblockMap(fromTy.getShape(),
-                                                         toTy.getShape(), ctx);
+      AffineMap reblockMap = ttmlir::utils::calculateReblockMap(
+          fromTy.getShape(), toTy.getShape(), ctx);
       auto baseLayout =
           mlir::cast<ttcore::MetalLayoutAttr>(fromTy.getEncoding());
 
+      // Compose the reblock map with any existing index_map from the source
+      // layout. This preserves view transformations (e.g., from reshape ops)
+      // when reblocking. The compose method handles the case where the existing
+      // index_map is empty/identity.
+      auto composedLayout = baseLayout.compose(reblockMap);
+
       auto enc = ttcore::MetalLayoutAttr::get(
-          ctx, baseLayout.getLogicalShape(), baseLayout.getDimAlignments(),
-          baseLayout.getCollapsedIntervals(), baseLayout.getOobVal(),
-          baseLayout.getMemorySpace(), baseLayout.getMemoryLayout(), map);
+          ctx, composedLayout.getLogicalShape(),
+          composedLayout.getDimAlignments(),
+          composedLayout.getCollapsedIntervals(), composedLayout.getOobVal(),
+          composedLayout.getMemorySpace(), composedLayout.getMemoryLayout(),
+          composedLayout.getIndexAffineMap());
       auto resultTy =
           RankedTensorType::get(toTy.getShape(), toTy.getElementType(), enc);
       return rewriter
@@ -897,8 +934,30 @@ public:
       ArrayRef<int64_t> tileShape = ttcore::getTensorTileShape(targetInfo.type);
       auto deviceShape = currentInfo.layout->getDeviceShape(
           currentInfo.getGridShape(), tileShape);
+
+      // When tilizing, if the input has a non-identity index_map (e.g., from
+      // reshape), the tilize operation MATERIALIZES the view by reading data
+      // according to the index_map. After materialization, the output should
+      // have an identity index_map since the data is now physically rearranged.
+      auto currentLayout = *currentInfo.layout;
+      auto inputIndexMap = currentLayout.getIndexAffineMap();
+      bool hasNonIdentityIndexMap = inputIndexMap && !inputIndexMap.isEmpty() &&
+                                    !inputIndexMap.isIdentity();
+      ttcore::MetalLayoutAttr outputLayout;
+      if (hasNonIdentityIndexMap) {
+        // Strip the index_map - data is being materialized.
+        outputLayout = ttcore::MetalLayoutAttr::get(
+            rewriter.getContext(), currentLayout.getLogicalShape(),
+            currentLayout.getDimAlignments(),
+            currentLayout.getCollapsedIntervals(), currentLayout.getOobVal(),
+            currentLayout.getMemorySpace(), currentLayout.getMemoryLayout(),
+            AffineMap::get(rewriter.getContext())); // Identity map
+      } else {
+        outputLayout = currentLayout;
+      }
+
       auto tiledType = RankedTensorType::get(
-          deviceShape, targetInfo.type.getElementType(), *currentInfo.layout);
+          deviceShape, targetInfo.type.getElementType(), outputLayout);
       auto tiledEmpty = createEmpty(tiledType);
       currentValue = lowerFormatConversionGeneric(rewriter, currentValue,
                                                   tiledEmpty, op.getLoc());
@@ -1098,8 +1157,40 @@ public:
       }
     }
 
-    // 9. DEVICE→SYSTEM: Creates final ToLayoutOp with layout attribute.
+    // 9. MATERIALIZE VIEW BEFORE SYSTEM TRANSFER: If the current layout has a
+    // non-identity index_map (e.g., from reshape), materialize the view by
+    // copying data according to the index_map. This ensures the data is in the
+    // correct order before transferring to host.
     if (currentInfo.hasLayout() && !targetInfo.hasLayout()) {
+      auto currentLayout = *currentInfo.layout;
+      auto indexMap = currentLayout.getIndexAffineMap();
+      bool hasNonIdentityIndexMap =
+          indexMap && !indexMap.isEmpty() && !indexMap.isIdentity();
+
+      if (hasNonIdentityIndexMap && currentInfo.isL1()) {
+        // Create a target layout with identity index_map but same other
+        // properties.
+        auto materializedLayout = ttcore::MetalLayoutAttr::get(
+            rewriter.getContext(), currentLayout.getLogicalShape(),
+            currentLayout.getDimAlignments(),
+            currentLayout.getCollapsedIntervals(), currentLayout.getOobVal(),
+            currentLayout.getMemorySpace(), currentLayout.getMemoryLayout(),
+            AffineMap::get(rewriter.getContext())); // Identity/empty map
+
+        auto materializedType = RankedTensorType::get(
+            currentInfo.type.getShape(), currentInfo.type.getElementType(),
+            materializedLayout);
+        auto materializedEmpty = createEmpty(materializedType);
+
+        // Use lowerMappingChange to materialize the view - this will create
+        // a ViewLayoutOp + DMA generic that copies data according to the
+        // index_map.
+        currentValue =
+            lowerMappingChange(rewriter, currentValue, materializedEmpty,
+                               op.getLoc(), targetGridShape);
+        currentInfo = TensorInfo::from(currentValue);
+      }
+
       // Device→system creates a ToLayoutOp with layout attribute set.
       currentValue = lowerSystemLayoutChange(rewriter, currentValue,
                                              op.getOutput(), op.getLoc());
