@@ -2632,6 +2632,8 @@ public:
     DenseI32ArrayAttr dilationForTTIROps = extract2xI32For2DPoolOpAttr(
         windowDilations, spatialDimIndices, rewriter);
 
+    // Padding is constructed later, and per-input.
+
     // Build per-input pooling ops.
     SmallVector<Value> resultVals;
     for (size_t i = 0; i < srcOp.getInputs().size(); ++i) {
@@ -2642,19 +2644,18 @@ public:
 
       // Check if this input comes from a fusable PadOp and compute per-input
       // effective padding.
-      SmallVector<int64_t> effectivePaddingVec(padding.asArrayRef());
-      if (auto padOp =
+      SmallVector<int64_t> effectivePadding(padding.asArrayRef());
+      if (mlir::stablehlo::PadOp padOp =
               getFusablePadOp(srcOp.getInputs()[i], spatialDimIndices)) {
-        // Combine padding from PadOp with ReduceWindowOp padding.
-        effectivePaddingVec = combinePaddingFromPadOp(
-            padOp, padding.asArrayRef(), spatialDimIndices);
-        // Use PadOp's input instead of PadOp's output.
+        effectivePadding = combinePaddingFromPadOp(padOp, padding.asArrayRef(),
+                                                   spatialDimIndices);
+
+        // Use PadOp's input instead of PadOp's output as input for pooling.
         input = rewriter.getRemappedValue(padOp.getOperand());
       }
 
-      // Compute padding for TTIR ops for this specific input.
-      DenseI32ArrayAttr paddingForThisInput = extract4xI32PaddingAttr(
-          rewriter.getDenseI64ArrayAttr(effectivePaddingVec), spatialDimIndices,
+      DenseI32ArrayAttr paddingForTTIROps = extract4xI32PaddingAttr(
+          rewriter.getDenseI64ArrayAttr(effectivePadding), spatialDimIndices,
           rewriter);
 
       RankedTensorType inputType =
@@ -2718,7 +2719,7 @@ public:
                      .create<ttir::MaxPool2dOp>(
                          srcOp.getLoc(), resultType, input, kernelForTTIROps,
                          strideForTTIROps, dilationForTTIROps,
-                         paddingForThisInput, ceilMode)
+                         paddingForTTIROps, ceilMode)
                      .getResult();
       } else if (isa<mlir::stablehlo::AddOp>(reductionOp) && initVal == ZERO) {
         // Special case of sum pooling followed by a convenient div op.
@@ -2729,8 +2730,8 @@ public:
           // Create AvgPool2dOp directly.
           ttir::AvgPool2dOp avgPool2dOp = rewriter.create<ttir::AvgPool2dOp>(
               srcOp.getLoc(), resultType, input, kernelForTTIROps,
-              strideForTTIROps, dilationForTTIROps, paddingForThisInput,
-              ceilMode, countIncludesPad);
+              strideForTTIROps, dilationForTTIROps, paddingForTTIROps, ceilMode,
+              countIncludesPad);
           result = restoreOriginalLayout(avgPool2dOp.getResult());
           resultVals.push_back(result);
           (*divOp)->getResult(0).replaceAllUsesWith(result);
@@ -2741,7 +2742,7 @@ public:
         // Sum pooling imitated as average pooling followed by multiplication.
         ttir::AvgPool2dOp avgPool2dOp = rewriter.create<ttir::AvgPool2dOp>(
             srcOp.getLoc(), resultType, input, kernelForTTIROps,
-            strideForTTIROps, dilationForTTIROps, paddingForThisInput, ceilMode,
+            strideForTTIROps, dilationForTTIROps, paddingForTTIROps, ceilMode,
             countIncludesPad);
         int32_t kernelSize = kernelForTTIROps[0] * kernelForTTIROps[1];
         DenseElementsAttr splatAttr = DenseElementsAttr::get(
@@ -3051,7 +3052,7 @@ private:
       return nullptr;
     }
 
-    // Interior padding is not supported for pooling fusion.
+    // Interior padding is not supported for this fusion.
     for (int64_t interiorPad : padOp.getInteriorPadding()) {
       if (interiorPad != 0) {
         return nullptr;
@@ -3081,18 +3082,12 @@ private:
   combinePaddingFromPadOp(mlir::stablehlo::PadOp padOp,
                           ArrayRef<int64_t> basePadding,
                           ArrayRef<size_t> spatialDimIndices) {
+
     SmallVector<int64_t> combinedPadding(basePadding);
-
-    ArrayRef<int64_t> padOpLow = padOp.getEdgePaddingLow();
-    ArrayRef<int64_t> padOpHigh = padOp.getEdgePaddingHigh();
-
-    // Add PadOp's spatial padding to the base padding.
-    // Format: [dim_i_low, dim_i_high] for each dimension i
-    for (size_t spatialIdx : spatialDimIndices) {
-      combinedPadding[spatialIdx * 2] += padOpLow[spatialIdx];      // low
-      combinedPadding[spatialIdx * 2 + 1] += padOpHigh[spatialIdx]; // high
+    for (size_t i : spatialDimIndices) {
+      combinedPadding[i * 2] += padOp.getEdgePaddingLow()[i];
+      combinedPadding[i * 2 + 1] += padOp.getEdgePaddingHigh()[i];
     }
-
     return combinedPadding;
   }
 
