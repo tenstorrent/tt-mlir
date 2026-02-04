@@ -179,3 +179,15 @@ enum Topology: ushort {
   Mesh,
   Torus,
 }
+
+enum NocIndex : ushort {
+  Noc0,
+  Noc1,
+}
+
+table FabricConnectionConfig {
+  noc_index: NocIndex;
+  topology: Topology;
+  cluster_axis: uint32;
+  num_links: uint32;
+}

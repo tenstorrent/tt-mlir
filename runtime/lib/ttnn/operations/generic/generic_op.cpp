@@ -3,13 +3,19 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "operations/generic/generic_op.h"
-#include "tt-metalium/program_descriptors.hpp"
 #include "tt/runtime/detail/common/common.h"
+#include "tt/runtime/detail/common/fabric_config.h"
 #include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/ttnn/types/program_desc_cache.h"
-
 #include "tt/runtime/detail/ttnn/utils.h"
 #include "ttmlir/Target/TTNN/operations/generic_op_generated.h"
+
+#include <tt-metalium/experimental/fabric/fabric.hpp>
+#include <tt-metalium/experimental/mesh_program_descriptor.hpp>
+#include <tt-metalium/mesh_coord.hpp>
+#include <tt-metalium/program_descriptors.hpp>
+
+#include <unordered_map>
 
 namespace tt::runtime::ttnn::operations::generic_op {
 
@@ -244,6 +250,96 @@ createProgramDescriptor(
   return programDescriptor;
 }
 
+static std::shared_ptr<::tt::tt_metal::experimental::MeshProgramDescriptor>
+createMeshProgramDescriptor(
+    const ::tt::target::ttnn::MeshProgramDescriptor *meshProgramDesc,
+    const std::vector<::ttnn::Tensor> &ioTensors) {
+  ::ttnn::MeshDevice *meshDevice = ioTensors[0].device();
+  LOG_ASSERT(meshDevice, "Tensor must be on a mesh device");
+
+  // Extract fabric connection config from flatbuffer
+  const ::tt::target::FabricConnectionConfig *fabricConfig =
+      meshProgramDesc->fabric_connection_config();
+  LOG_ASSERT(
+      fabricConfig != nullptr,
+      "fabric_connection_config must be present in MeshProgramDescriptor");
+  LOG_DEBUG("createMeshProgramDescriptor: fabric_connection_config: topology=",
+            static_cast<uint16_t>(fabricConfig->topology()),
+            ", cluster_axis=", fabricConfig->cluster_axis(),
+            ", num_links=", fabricConfig->num_links());
+
+  auto meshProgramDescriptor =
+      std::make_shared<::tt::tt_metal::experimental::MeshProgramDescriptor>();
+  for (const auto *meshProgram : *meshProgramDesc->mesh_programs()) {
+    const tt::target::ttnn::MeshCoordRange *deviceRange =
+        meshProgram->device_range();
+    tt::tt_metal::distributed::MeshCoordinateRange meshCoordinateRange =
+        tt::runtime::ttnn::utils::toTTNNMeshCoordinateRange(*deviceRange);
+
+    // Iterate over all devices in the range and create a separate
+    // ProgramDescriptor for each with device-specific fabric connection args
+    for (const auto &deviceCoord : meshCoordinateRange) {
+      // Create a fresh copy of the program descriptor for this device
+      auto programDescriptor =
+          createProgramDescriptor(meshProgram->program(), ioTensors);
+
+      // Append fabric connection args for all kernels using the common helper
+      for (size_t kernelIdx = 0; kernelIdx < programDescriptor->kernels.size();
+           ++kernelIdx) {
+        auto &kernel = programDescriptor->kernels[kernelIdx];
+        tt::tt_metal::KernelHandle kernelHandle =
+            static_cast<tt::tt_metal::KernelHandle>(kernelIdx);
+        std::vector<tt::tt_metal::CoreCoord> cores =
+            tt::tt_metal::corerange_to_cores(kernel.core_ranges);
+
+        // Build lookup map for existing runtime args
+        std::unordered_map<tt::tt_metal::CoreCoord, size_t> rtArgsIndexMap;
+        for (size_t i = 0; i < kernel.runtime_args.size(); ++i) {
+          rtArgsIndexMap[kernel.runtime_args[i].first] = i;
+        }
+
+        // TODO(vtangTT): Only append fabric config args to kernels on the right
+        // Noc. Need to add check for fabricConfig->noc_index() == kernel's
+        // assigned Noc. Blocked by
+        // https://github.com/tenstorrent/tt-mlir/issues/6790.
+        // For now, we just append fabric config args to all kernels.
+        auto fabricConfigArgs = tt::runtime::common::appendFabricConfigArgs(
+            fabricConfig, nullptr, *programDescriptor, kernelHandle,
+            deviceCoord, meshDevice, {}, kernel.core_ranges);
+        LOG_INFO("fabricConfigArgs size: ", fabricConfigArgs.size());
+
+        // Merge fabric args with each core's base runtime args
+        for (const auto &core : cores) {
+          std::vector<uint32_t> mergedRtArgs;
+          auto it = rtArgsIndexMap.find(core);
+          if (it != rtArgsIndexMap.end()) {
+            mergedRtArgs = kernel.runtime_args[it->second].second;
+          }
+
+          // Append fabric args to the base runtime args
+          auto &fabricArgs = fabricConfigArgs[core];
+          mergedRtArgs.insert(mergedRtArgs.end(), fabricArgs.begin(),
+                              fabricArgs.end());
+
+          // Update or create runtime args entry
+          if (it != rtArgsIndexMap.end()) {
+            kernel.runtime_args[it->second].second = std::move(mergedRtArgs);
+          } else {
+            kernel.runtime_args.emplace_back(core, std::move(mergedRtArgs));
+          }
+        }
+      }
+
+      // Create a single-device range for this device
+      tt::tt_metal::distributed::MeshCoordinateRange singleDeviceRange(
+          deviceCoord);
+      meshProgramDescriptor->mesh_programs.emplace_back(
+          singleDeviceRange, std::move(*programDescriptor));
+    }
+  }
+  return meshProgramDescriptor;
+}
+
 void overrideArgs(
     const ::tt::target::ttnn::ProgramDescriptor *programDesc,
     const std::vector<::ttnn::Tensor> &ioTensors,
@@ -279,29 +375,54 @@ void run(const ::tt::target::ttnn::GenericOp *op, ProgramContext &context) {
   std::shared_ptr<::tt::runtime::ProgramDescCache> programDescCache =
       context.getExecutableHandle().getProgramDescCache();
 
-  auto *programDesc = op->program();
+  switch (op->program_type()) {
+  case ::tt::target::ttnn::ProgramType::ProgramDescriptor: {
+    const tt::target::ttnn::ProgramDescriptor *programDesc =
+        op->program_as_ProgramDescriptor();
 
-  std::size_t hash = ttsl::hash::hash_objects_with_default_seed(
-      programDesc, programDescCache, ioTensors);
-  std::shared_ptr<void> cachedPtr = programDescCache->get(hash);
+    std::size_t hash = ttsl::hash::hash_objects_with_default_seed(
+        programDesc, programDescCache, ioTensors);
+    std::shared_ptr<void> cachedPtr = programDescCache->get(hash);
 
-  std::shared_ptr<::tt::tt_metal::ProgramDescriptor> programDescriptor;
-  if (cachedPtr) {
-    programDescriptor =
-        std::static_pointer_cast<::tt::tt_metal::ProgramDescriptor>(cachedPtr);
-    overrideArgs(programDesc, ioTensors, programDescriptor);
-  } else {
-    programDescriptor = createProgramDescriptor(programDesc, ioTensors);
-    programDescriptor->custom_program_hash =
-        reinterpret_cast<ttsl::hash::hash_t>(hash);
-    programDescCache->insert(hash,
-                             std::static_pointer_cast<void>(programDescriptor));
+    std::shared_ptr<::tt::tt_metal::ProgramDescriptor> programDescriptor;
+    if (cachedPtr) {
+      programDescriptor =
+          std::static_pointer_cast<::tt::tt_metal::ProgramDescriptor>(
+              cachedPtr);
+      overrideArgs(programDesc, ioTensors, programDescriptor);
+    } else {
+      programDescriptor = createProgramDescriptor(programDesc, ioTensors);
+      programDescriptor->custom_program_hash =
+          reinterpret_cast<ttsl::hash::hash_t>(hash);
+      programDescCache->insert(
+          hash, std::static_pointer_cast<void>(programDescriptor));
+    }
+
+    ::ttnn::Tensor outputTensor =
+        ::ttnn::generic_op(ioTensors, *programDescriptor);
+    tensorPool.insertTTNNTensorAndValidate(op->io_tensors()->Get(size - 1),
+                                           outputTensor);
+    break;
   }
+  case ::tt::target::ttnn::ProgramType::MeshProgramDescriptor: {
+    // TODO(vtangTT): Add caching support for MeshProgramDescriptor.
+    // https://github.com/tenstorrent/tt-mlir/issues/6793
+    const tt::target::ttnn::MeshProgramDescriptor *meshProgramDesc =
+        op->program_as_MeshProgramDescriptor();
+    std::shared_ptr<::tt::tt_metal::experimental::MeshProgramDescriptor>
+        meshProgramDescriptor =
+            createMeshProgramDescriptor(meshProgramDesc, ioTensors);
 
-  ::ttnn::Tensor outputTensor =
-      ::ttnn::generic_op(ioTensors, *programDescriptor);
-  tensorPool.insertTTNNTensorAndValidate(op->io_tensors()->Get(size - 1),
-                                         outputTensor);
+    ::ttnn::Tensor outputTensor =
+        ::ttnn::generic_op(ioTensors, *meshProgramDescriptor);
+    tensorPool.insertTTNNTensorAndValidate(op->io_tensors()->Get(size - 1),
+                                           outputTensor);
+    break;
+  }
+  default: {
+    LOG_FATAL("Unknown program type in generic_op");
+  }
+  }
 }
 
 } // namespace tt::runtime::ttnn::operations::generic_op

@@ -4042,10 +4042,10 @@ mlir::tt::ttnn::SplitQueryKeyValueAndSplitHeadsOp::verify() {
 // GenericOp
 //===----------------------------------------------------------------------===//
 
-// GenericOp verification
-::mlir::LogicalResult mlir::tt::ttnn::GenericOp::verify() {
-  ProgramAttr program = getProgram();
-  size_t numberOfInputsAndOutputs = getInputsAndOutputs().size();
+// Helper to verify a single ProgramAttr.
+static ::mlir::LogicalResult
+verifyProgramAttr(mlir::tt::ttnn::GenericOp op, ProgramAttr program,
+                  size_t numberOfInputsAndOutputs) {
   size_t numberOfSemaphores = program.getSemaphores().size();
 
   if (numberOfInputsAndOutputs == 0) {
@@ -4059,13 +4059,14 @@ mlir::tt::ttnn::SplitQueryKeyValueAndSplitHeadsOp::verify() {
       if (auto addressOfTensor =
               llvm::dyn_cast_or_null<KernelArgAddressOfTensorAttr>(arg)) {
         if (addressOfTensor.getTensorIndex() >= numberOfInputsAndOutputs) {
-          return emitError() << "Address of tensor at index is out of bounds";
+          return op.emitOpError()
+                 << "Address of tensor at index is out of bounds";
         }
       }
       if (auto semaphoreAt =
               llvm::dyn_cast_or_null<KernelArgSemaphoreAtAttr>(arg)) {
         if (semaphoreAt.getSemaphoreIndex() >= numberOfSemaphores) {
-          return emitError() << "Semaphore at index is out of bounds";
+          return op.emitOpError() << "Semaphore at index is out of bounds";
         }
       }
     }
@@ -4074,13 +4075,34 @@ mlir::tt::ttnn::SplitQueryKeyValueAndSplitHeadsOp::verify() {
       if (auto semaphoreAt =
               llvm::dyn_cast_or_null<KernelArgSemaphoreAtAttr>(arg)) {
         if (semaphoreAt.getSemaphoreIndex() >= numberOfSemaphores) {
-          return emitError() << "Semaphore at index is out of bounds";
+          return op.emitOpError() << "Semaphore at index is out of bounds";
         }
       }
     }
   }
 
   return mlir::success();
+}
+
+::mlir::LogicalResult mlir::tt::ttnn::GenericOp::verify() {
+  mlir::Attribute programAttr = getProgram();
+  size_t numberOfInputsAndOutputs = getInputsAndOutputs().size();
+
+  // Handle MeshProgramDescriptorAttr case.
+  if (auto meshProgramDescAttr =
+          llvm::dyn_cast<MeshProgramDescriptorAttr>(programAttr)) {
+    for (auto meshProgram : meshProgramDescAttr.getMeshPrograms()) {
+      if (failed(verifyProgramAttr(*this, meshProgram.getProgram(),
+                                   numberOfInputsAndOutputs))) {
+        return mlir::failure();
+      }
+    }
+    return mlir::success();
+  }
+
+  // Handle ProgramAttr case.
+  auto program = llvm::cast<ProgramAttr>(programAttr);
+  return verifyProgramAttr(*this, program, numberOfInputsAndOutputs);
 }
 
 //===----------------------------------------------------------------------===//
