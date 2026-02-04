@@ -9,7 +9,7 @@
 #include "tt/runtime/detail/ttnn/utils.h"
 
 #if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
-#include "/code/jan-2/tt-mlir/runtime/profiler/profiler_impl.h"
+#include "profiler_impl.h"
 #endif
 
 #include <Python.h>

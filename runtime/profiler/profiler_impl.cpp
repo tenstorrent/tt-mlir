@@ -119,7 +119,6 @@ void ProcessManager::start(const std::string& command) {
 
   if (pid == 0) {
     setsid();
-    ProcessManager::instance().setEnvFlags(ProfilerManager::instance().getProfilerEnvVars());
     execl("/bin/sh", "sh", "-c", command.c_str(), nullptr);
     perror("execl failed");
     _exit(1);
