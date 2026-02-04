@@ -86,8 +86,6 @@ func.func @test_avgpool2d_with_division(%arg0: tensor<1x14x14x112xbf16>) -> tens
 
 // -----
 
-// Test that stablehlo.pad is fused into avg_pool2d when padding only spatial
-// dimensions (NHWC layout).
 func.func @test_avgpool2d_with_pad_fusion(%arg0: tensor<1x112x112x64xbf16>) -> tensor<1x58x58x64xbf16> {
   %cst = stablehlo.constant dense<0.000000e+00> : tensor<bf16>
   %pad_value = stablehlo.constant dense<0.000000e+00> : tensor<bf16>
@@ -114,8 +112,6 @@ func.func @test_avgpool2d_with_pad_fusion(%arg0: tensor<1x112x112x64xbf16>) -> t
 
 // -----
 
-// Test that stablehlo.pad is fused into avg_pool2d when padding only spatial
-// dimensions (NCHW layout - requires permute).
 func.func @test_avgpool2d_nchw_with_pad_fusion(%arg0: tensor<1x64x112x112xbf16>) -> tensor<1x64x58x58xbf16> {
   %cst = stablehlo.constant dense<0.000000e+00> : tensor<bf16>
   %pad_value = stablehlo.constant dense<0.000000e+00> : tensor<bf16>
