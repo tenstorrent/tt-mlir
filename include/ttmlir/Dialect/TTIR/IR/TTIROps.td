@@ -2079,6 +2079,42 @@ def TTIR_RMSNormOp : TTIR_NamedOp<"rms_norm", [AttrSizedOperandSegments]> {
   let hasVerifier = 1;
 }
 
+def TTIR_DistributedRMSNormOp : TTIR_NamedOp<"distributed_rms_norm", [AttrSizedOperandSegments]> {
+  let summary = "Distributed RMS normalization with all-gather operation";
+  let description = [{
+    Performs a fused distributed RMS normalization followed by an all-gather
+    collective operation across mesh devices. This operation combines:
+    1. Optional residual addition (input + residual)
+    2. RMS normalization: output = input * rsqrt(mean(input^2) + epsilon) * weight
+    3. All-gather to collect results across cluster_axis
+
+    This is a multi-device operation that requires the tensor to be sharded
+    across a device mesh.
+
+    Inputs:
+    - `input` (Tensor): The input tensor to be normalized (must be width-sharded).
+    - `weight` (Optional Tensor): The scale parameter (gamma).
+    - `residual` (Optional Tensor): Optional residual tensor for fused add.
+
+    Attributes:
+    - `cluster_axis` specifies which mesh dimension to all-gather across (0 or 1).
+    - `epsilon` is a small constant added for numerical stability (default: 1e-05).
+
+    Output:
+    - `result` (Tensor): The normalized and gathered output tensor.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       Optional<AnyRankedTensor>:$weight,
+                       Optional<AnyRankedTensor>:$residual,
+                       UI32Attr:$cluster_axis,
+                       DefaultValuedAttr<F32Attr, "1e-05">:$epsilon);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+}
+
 def TTIR_LayerNormOp : TTIR_NamedOp<"layer_norm", [AttrSizedOperandSegments]> {
   let summary = "Layer normalization operation";
   let description = [{
