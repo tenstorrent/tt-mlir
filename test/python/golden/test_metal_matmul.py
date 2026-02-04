@@ -26,7 +26,7 @@ pytestmark = pytest.mark.frontend("ttir")
 #    output, which is too slow.
 # Solution: constraint the input range to within (0.001, 0.999) to avoid large
 # differences of magnitudes in the calculation.
-def create_matmul_constrained_inputs(lhs_shape, rhs_shape, dtype =torch.float32):
+def create_matmul_constrained_inputs(lhs_shape, rhs_shape, dtype=torch.float32):
     def module(builder: TTIRBuilder):
         @builder.func([lhs_shape, rhs_shape], [dtype, dtype])
         def matmul_constrained_inputs(
@@ -137,7 +137,7 @@ def test_matmul_ttnn_shapes_single_buffered(
         (1024, 2048, 2048),
     ):
         pytest.xfail(reason="bf16 PCC below threshold for these shapes")
-    
+
     lhs = (
         shape[0],
         shape[1],
