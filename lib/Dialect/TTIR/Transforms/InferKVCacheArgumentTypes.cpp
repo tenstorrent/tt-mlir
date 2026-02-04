@@ -29,9 +29,7 @@ Value getCacheOperand(Operation *op) {
 }
 
 // Traces the cache operand back through cache operations to find the original
-// function argument. This handles chained cache operations like:
-//   %1 = fill_cache(%arg0, %input1)
-//   %2 = update_cache(%1, %input2)  // need to trace %1 back to %arg0
+// function argument.
 BlockArgument traceCacheToBlockArg(Value cacheOperand) {
   Value current = cacheOperand;
 
@@ -93,9 +91,5 @@ public:
     });
   }
 };
-
-std::unique_ptr<Pass> createTTIRInferKVCacheArgumentTypes() {
-  return std::make_unique<TTIRInferKVCacheArgumentTypes>();
-}
 
 } // namespace mlir::tt::ttir
