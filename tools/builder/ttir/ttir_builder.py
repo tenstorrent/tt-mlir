@@ -11844,40 +11844,6 @@ class TTIRBuilder(Builder):
 
         return global_avg_pool_module, global_avg_pool_builder
 
-    def global_avg_pool2d(
-        self,
-        in0: Operand,
-        unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
-        """
-        Creates ``ttir.global_avg_pool2d``.
-
-        *Global average pooling operation.*
-
-        Applies global average pooling over the spatial dimensions (height and width)
-        of a 4D input tensor. It reduces spatial dimensions to 1x1 by computing the
-        average across all spatial locations for each channel independently.
-
-        Parameters
-        ----------
-        in0 : Operand
-            Input tensor with shape [N, H, W, C] where N is batch size, H is height,
-            W is width, and C is channels
-        unit_attrs : *Optional[List[str]]*
-            Optional list of unit attributes
-
-        Returns
-        -------
-        (*OpView*)
-            Output tensor with shape [N, 1, 1, C] containing the global average pooled values
-        """
-        return self._op_proxy(
-            ttir.GlobalAvgPool2dOp,
-            [in0],
-            ttir_kwargs={},
-            unit_attrs=unit_attrs,
-        )
-
     def select(
         self,
         in0: Operand,
