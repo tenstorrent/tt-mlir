@@ -275,8 +275,8 @@ def TTIRInferKVCacheArgumentTypes: Pass<"ttir-infer-kv-cache-argument-types", ":
     UpdateCacheOp, PagedFillCacheOp, or PagedUpdateCacheOp and marks them with
     the ttcore.argument_type = #ttcore.argument_type<kv_cache> attribute.
 
-    This provides 100% certain KV cache detection by analyzing actual cache
-    operations in TTIR, rather than relying on frontend heuristics.
+    This is used to distinct KV Cache from Input arguments and avoid e.g. forcing
+    to Row Major layout.
   }];
 
   let constructor = "mlir::tt::ttir::createTTIRInferKVCacheArgumentTypes()";
