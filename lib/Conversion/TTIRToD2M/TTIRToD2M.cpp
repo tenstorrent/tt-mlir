@@ -1151,11 +1151,21 @@ private:
   static d2m::ReduceDim dimArgAsReduceDim(ConcreteOp op, std::size_t rank) {
     // TODO(#2613) This implements a very simple case; more work is required
     // to decompose more than 2 right-most dims being reduced over.
-    assert(rank <= 64 && "rank value too large for a 64-bit set");
+    assert(rank >= 1 && "rank must be at least 1");
+
+    // Map reduction dimensions to tile dimensions (R and C).
+    // C = last dimension (rank - 1), R = second-to-last dimension (rank - 2).
+    // bits: bit 0 = C reduced, bit 1 = R reduced.
     std::uint64_t bits = 0;
     forAllDims(rank, getDimArg(op), [&](std::size_t index, bool dropped) {
       if (dropped) {
-        bits |= (1L << index);
+        if (index == rank - 1) {
+          bits |= 1; // C dimension (last)
+        } else if (rank >= 2 && index == rank - 2) {
+          bits |= 2; // R dimension (second-to-last)
+        }
+        // Dimensions beyond the last 2 are not tile dimensions and require
+        // decomposition (see TODO above).
       }
     });
 
