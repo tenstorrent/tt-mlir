@@ -576,20 +576,20 @@ public:
     ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::PowScalarOp> emitter(
         srcOp, adaptor, rewriter);
 
-    mlir::Attribute exponentAttr;
-    if (auto attr = mlir::dyn_cast<FloatAttr>(srcOp.getRhs())) {
-      auto exponent = attr.getValue().convertToFloat();
-      exponentAttr = emitter.template emit<float>(exponent);
-    } else if (auto attr = mlir::dyn_cast<IntegerAttr>(srcOp.getRhs())) {
-      auto exponent = static_cast<int32_t>(attr.getValue().getSExtValue());
-      exponentAttr = emitter.template emit<int32_t>(exponent);
+    mlir::Attribute scalarAttr;
+    if (auto attr = mlir::dyn_cast<FloatAttr>(srcOp.getScalar())) {
+      auto scalar = attr.getValue().convertToFloat();
+      scalarAttr = emitter.template emit<float>(scalar);
+    } else if (auto attr = mlir::dyn_cast<IntegerAttr>(srcOp.getScalar())) {
+      auto scalar = static_cast<int32_t>(attr.getValue().getSExtValue());
+      scalarAttr = emitter.template emit<int32_t>(scalar);
     } else {
       return failure();
     }
 
     llvm::SmallVector<mlir::Attribute> args{
-        emitter.emit(srcOp.getLhs()),
-        exponentAttr,
+        emitter.emit(srcOp.getInput()),
+        scalarAttr,
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
     };
 

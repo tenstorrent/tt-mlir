@@ -1050,6 +1050,10 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_EltwiseBinaryCompositeScalarOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::EltwiseBinaryScalarOp: {
+    tensorRef = opContext.type_as_EltwiseBinaryScalarOp()->out();
+    break;
+  }
   case ::tt::target::ttnn::OpType::ExperimentalEltwiseBinaryBackwardOp: {
     tensorRef = opContext.type_as_ExperimentalEltwiseBinaryBackwardOp()->out();
     break;
@@ -1417,6 +1421,10 @@ getOpInputRefs(OpContext opContextHandle,
   }
   case ::tt::target::ttnn::OpType::EltwiseBinaryCompositeScalarOp: {
     tensorRefs = {opContext.type_as_EltwiseBinaryCompositeScalarOp()->lhs()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::EltwiseBinaryScalarOp: {
+    tensorRefs = {opContext.type_as_EltwiseBinaryScalarOp()->lhs()};
     break;
   }
   case ::tt::target::ttnn::OpType::ExperimentalEltwiseBinaryBackwardOp: {

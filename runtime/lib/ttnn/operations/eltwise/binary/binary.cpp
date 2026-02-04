@@ -108,4 +108,44 @@ void run(const ::tt::target::ttnn::EltwiseBinaryOp *op,
   }
 }
 
+static void
+runEqualScalarOp(const ::tt::target::ttnn::EltwiseBinaryScalarOp *op,
+                 float scalar, ProgramContext &context) {
+  ProgramTensorPool &tensorPool = context.getTensorPool();
+  ::ttnn::Tensor *input = &(tensorPool.getTTNNTensorAndValidate(op->lhs()));
+
+  std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
+      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
+          op->memory_config());
+  LOG_ASSERT(::tt::runtime::ttnn::utils::inSystemMemory(op->out()) ||
+                 outputMemoryConfig.has_value(),
+             "Memory config must exist for device tensors");
+
+  ::ttnn::Tensor out =
+      ::ttnn::eq(*input, scalar, std::nullopt, outputMemoryConfig);
+
+  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
+}
+
+// Handles the binary scalar ops with LHS=tensor and RHS=scalar.
+void run(const ::tt::target::ttnn::EltwiseBinaryScalarOp *op,
+         ProgramContext &context) {
+  switch (op->type()) {
+  case ::tt::target::ttnn::EltwiseBinaryScalarOpType::EqualScalar: {
+    switch (op->rhs_type()) {
+    case ::tt::target::ttnn::RhsParams::FP:
+      runEqualScalarOp(op, op->rhs_as_FP()->value(), context);
+      break;
+    case ::tt::target::ttnn::RhsParams::I32:
+      runEqualScalarOp(op, static_cast<float>(op->rhs_as_I32()->value()),
+                       context);
+      break;
+    default:
+      LOG_FATAL("unknown scalar type");
+    }
+    break;
+  }
+  }
+}
+
 } // namespace tt::runtime::ttnn::operations::eltwise::binary

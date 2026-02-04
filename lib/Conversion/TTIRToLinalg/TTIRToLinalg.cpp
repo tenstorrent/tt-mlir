@@ -658,6 +658,108 @@ public:
     return success();
   }
 };
+
+// Scalar comparison operations (where TTIR op compares tensor with scalar)
+template <typename TTIROpTy, typename TosaOpTy>
+class ScalarComparisonOpConversionPattern
+    : public OpConversionPattern<TTIROpTy> {
+public:
+  using OpConversionPattern<TTIROpTy>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(TTIROpTy op, typename TTIROpTy::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    Value input = adaptor.getInput();
+    Attribute scalarAttr = adaptor.getScalar();
+
+    auto inputType = dyn_cast<RankedTensorType>(input.getType());
+    auto resultType = dyn_cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getResult().getType()));
+    assert(resultType && "Result type must be a ranked tensor type.");
+
+    // Create a scalar constant from the attribute
+    TypedAttr typedScalarAttr;
+    if (auto floatAttr = dyn_cast<FloatAttr>(scalarAttr)) {
+      typedScalarAttr = floatAttr;
+    } else if (auto intAttr = dyn_cast<IntegerAttr>(scalarAttr)) {
+      typedScalarAttr = intAttr;
+    } else {
+      return failure();
+    }
+
+    auto scalarValue =
+        rewriter.create<arith::ConstantOp>(op.getLoc(), typedScalarAttr);
+
+    // Create a splat tensor with the scalar value
+    auto scalarSplat = rewriter.create<tensor::SplatOp>(
+        op.getLoc(), inputType, scalarValue.getResult());
+
+    // Create the TOSA comparison operation
+    auto boolType = RankedTensorType::get(resultType.getShape(),
+                                          rewriter.getIntegerType(1));
+    auto boolResult = rewriter.create<TosaOpTy>(op.getLoc(), boolType, input,
+                                                scalarSplat.getResult());
+
+    // Create true and false constants for the select operation
+    auto [trueValueSplat, falseValueSplat] =
+        createTrueAndFalseSplatConstants(resultType, op.getLoc(), rewriter);
+
+    // Convert boolean result to original type using select
+    auto result = rewriter.create<tosa::SelectOp>(
+        op.getLoc(), resultType, boolResult, trueValueSplat, falseValueSplat);
+
+    rewriter.replaceOp(op, result);
+    return success();
+  }
+};
+
+// Scalar binary operations (where TTIR op has tensor and scalar operands)
+// Converts to Linalg by splatting the scalar to a tensor.
+template <typename TTIROpTy, typename LinalgOpTy>
+class ScalarBinaryOpConversionPattern : public OpConversionPattern<TTIROpTy> {
+public:
+  using OpConversionPattern<TTIROpTy>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(TTIROpTy op, typename TTIROpTy::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    Value input = adaptor.getInput();
+    Attribute scalarAttr = adaptor.getScalar();
+
+    auto inputType = dyn_cast<RankedTensorType>(input.getType());
+    auto resultType = dyn_cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getResult().getType()));
+    assert(resultType && "Result type must be a ranked tensor type.");
+
+    // Create a scalar constant from the attribute
+    TypedAttr typedScalarAttr;
+    if (auto floatAttr = dyn_cast<FloatAttr>(scalarAttr)) {
+      typedScalarAttr = floatAttr;
+    } else if (auto intAttr = dyn_cast<IntegerAttr>(scalarAttr)) {
+      typedScalarAttr = intAttr;
+    } else {
+      return failure();
+    }
+
+    auto scalarValue =
+        rewriter.create<arith::ConstantOp>(op.getLoc(), typedScalarAttr);
+
+    // Create a splat tensor with the scalar value
+    auto scalarSplat = rewriter.create<tensor::SplatOp>(
+        op.getLoc(), inputType, scalarValue.getResult());
+
+    // Create the Linalg binary operation with input as LHS and scalar as RHS
+    auto emptyTensor = rewriter.create<tensor::EmptyOp>(
+        op.getLoc(), resultType.getShape(), resultType.getElementType());
+
+    auto result = rewriter.create<LinalgOpTy>(
+        op.getLoc(), resultType, ValueRange{input, scalarSplat.getResult()},
+        emptyTensor.getResult());
+
+    rewriter.replaceOp(op, result.getResults());
+    return success();
+  }
+};
 } // namespace
 
 namespace {
@@ -3147,6 +3249,16 @@ void populateTTIRToTosaPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                                            tosa::GreaterEqualOp>,
       NegatedComparisonOpConversionPattern<ttir::NotEqualOp, tosa::EqualOp>>(
       typeConverter, ctx);
+
+  // Scalar comparison operations
+  patterns.add<
+      ScalarComparisonOpConversionPattern<ttir::EqualScalarOp, tosa::EqualOp>>(
+      typeConverter, ctx);
+
+  // Scalar binary operations
+  patterns
+      .add<ScalarBinaryOpConversionPattern<ttir::PowScalarOp, linalg::PowFOp>>(
+          typeConverter, ctx);
 
   // Logical binary operations
   patterns.add<

@@ -425,7 +425,7 @@ private:
         srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
 
     llvm::SmallVector<mlir::Attribute> args{
-        emitter.emit(srcOp.getLhs()),
+        emitter.emit(srcOp.getInput()),
         emitter.template emit<ExponentT>(exponent),
         emitter.emit(std::nullopt | emitter.getMemoryConfig(srcOp.getResult()),
                      "memory_config"),
@@ -443,13 +443,13 @@ public:
   matchAndRewrite(mlir::tt::ttnn::PowScalarOp srcOp,
                   mlir::tt::ttnn::PowScalarOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    if (auto exponentAttr = mlir::dyn_cast<FloatAttr>(srcOp.getRhs())) {
-      auto exponent = exponentAttr.getValue().convertToFloat();
+    if (auto scalarAttr = mlir::dyn_cast<FloatAttr>(srcOp.getScalar())) {
+      auto exponent = scalarAttr.getValue().convertToFloat();
       return matchAndRewriteImpl(srcOp, exponent, adaptor, rewriter);
     }
-    if (auto exponentAttr = mlir::dyn_cast<IntegerAttr>(srcOp.getRhs())) {
+    if (auto scalarAttr = mlir::dyn_cast<IntegerAttr>(srcOp.getScalar())) {
       auto exponent =
-          static_cast<uint32_t>(exponentAttr.getValue().getSExtValue());
+          static_cast<uint32_t>(scalarAttr.getValue().getSExtValue());
       return matchAndRewriteImpl(srcOp, exponent, adaptor, rewriter);
     }
     return failure();

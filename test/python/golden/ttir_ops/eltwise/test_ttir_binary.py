@@ -373,6 +373,18 @@ def pow_scalar(
     return builder.pow(in0, scalar, unit_attrs=unit_attrs)
 
 
+def eq_scalar(
+    in0: Operand,
+    scalar_value: float,
+    builder: TTIRBuilder,
+    unit_attrs: Optional[List[str]] = None,
+):
+    """Compare tensor elements with a scalar for equality"""
+    shape = builder.get_shape(in0)
+    scalar = builder.constant(torch.full(shape, scalar_value))
+    return builder.eq(in0, scalar, unit_attrs=unit_attrs)
+
+
 scalar_binary_ops = [
     (add_scalar, 2.5),
     (multiply_scalar, 3.0),
@@ -419,6 +431,58 @@ def test_scalar_binary_ops(
             builder: TTIRBuilder,
             unit_attrs: Optional[List[str]] = None,
         ):
+            return test_fn(in0, scalar_value, builder, unit_attrs=unit_attrs)
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+    )
+
+
+# Comparison scalar ops
+comparison_scalar_ops = [
+    (eq_scalar, 2.0),
+]
+
+
+@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
+@pytest.mark.parametrize(
+    "test_fn,scalar_value",
+    comparison_scalar_ops,
+    ids=[
+        "eq_scalar",
+    ],
+)
+def test_comparison_scalar_ops(
+    test_fn: Callable,
+    scalar_value: float,
+    shape: Shape,
+    dtype: torch.dtype,
+    target: str,
+    request,
+    device,
+):
+    """Test comparison operations with scalar operands"""
+
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [dtype])
+        def scalar_comparison_wrapper(
+            in0: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            # Set up golden tensors with some values equal to scalar
+            randn_tensor = torch.randn(shape, dtype=dtype)
+            # Make some elements equal to the scalar value
+            num_elements = torch.numel(randn_tensor)
+            num_equal_indices = num_elements // 4
+            equal_indices = torch.randperm(num_elements)[:num_equal_indices]
+            randn_tensor.view(-1)[equal_indices] = scalar_value
+            builder.set_goldens(inputs={in0: randn_tensor})
             return test_fn(in0, scalar_value, builder, unit_attrs=unit_attrs)
 
     compile_and_execute_ttir(

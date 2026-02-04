@@ -13,6 +13,10 @@ namespace tt::runtime::ttnn::operations::eltwise::binary {
 void run(const ::tt::target::ttnn::EltwiseBinaryOp *op,
          ProgramContext &context);
 
+// Handles the binary scalar ops with LHS=tensor and RHS=scalar.
+void run(const ::tt::target::ttnn::EltwiseBinaryScalarOp *op,
+         ProgramContext &context);
+
 } // namespace tt::runtime::ttnn::operations::eltwise::binary
 
 #endif

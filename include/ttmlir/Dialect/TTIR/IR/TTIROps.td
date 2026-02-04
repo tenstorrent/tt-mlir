@@ -1171,8 +1171,21 @@ class TTIR_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
     let results = (outs AnyRankedTensor:$result);
 }
 
+class TTIR_ElementwiseBinaryScalarOp<string mnemonic, list<Trait> traits = []> :
+    TTIR_NamedOp<mnemonic, [TTIR_ElementwiseBinaryScalar] # traits> {
+    let summary = "Base class for elementwise operations with tensor + scalar.";
+    let description = [{
+      Elementwise binary op where one input is a tensor and the other is a scalar.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyAttrOf<[F32Attr, I32Attr]>:$scalar);
+    let results = (outs AnyRankedTensor:$result);
+}
+
 // TODO (azecevic): NaN != NaN, otherwise eq(x, x) == 1.
-def TTIR_EqualOp : TTIR_ElementwiseBinaryOp<"eq"> {
+def TTIR_EqualOp : TTIR_ElementwiseBinaryOp<"eq",
+    [DeclareOpInterfaceMethods<TTIR_BinaryTensorToScalarOpConversionInterface, ["createScalarOp"]>]> {
     let summary = "Elementwise equality comparison operation.";
     let description = [{
       The `eq` operation performs an elementwise equality comparison between two tensors.
@@ -1205,6 +1218,10 @@ def TTIR_EqualOp : TTIR_ElementwiseBinaryOp<"eq"> {
 
       Mathematical definition: equal(x, y) = x == y
     }];
+}
+
+def TTIR_EqualScalarOp : TTIR_ElementwiseBinaryScalarOp<"equal_scalar"> {
+    let summary = "Elementwise equality comparison with a scalar.";
 }
 
 // TODO (azecevic): NaN != NaN, otherwise ne(x, x) == 0.
@@ -1695,7 +1712,8 @@ def TTIR_RemainderOp : TTIR_ElementwiseBinaryOp<"remainder"> {
 
 // TODO We need to add a broadcastable trait to this op.
 // See issue https://github.com/tenstorrent/tt-mlir/issues/2015
-def TTIR_PowOp : TTIR_ElementwiseBinaryOp<"pow"> {
+def TTIR_PowOp : TTIR_ElementwiseBinaryOp<"pow",
+    [DeclareOpInterfaceMethods<TTIR_BinaryTensorToScalarOpConversionInterface, ["createScalarOp"]>]> {
     let summary = "Elementwise power operation.";
     let description = [{
       The `pow` operation performs an elementwise exponentiation between two tensors.
@@ -1730,6 +1748,10 @@ def TTIR_PowOp : TTIR_ElementwiseBinaryOp<"pow"> {
 
       Mathematical definition: pow(x, y) = x^y
     }];
+}
+
+def TTIR_PowScalarOp : TTIR_ElementwiseBinaryScalarOp<"pow_scalar"> {
+    let summary = "Elementwise power with a scalar exponent.";
 }
 
 def TTIR_Atan2Op :  TTIR_ElementwiseBinaryOp<"atan2"> {

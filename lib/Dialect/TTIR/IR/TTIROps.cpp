@@ -125,6 +125,35 @@ mlir::Operation *mlir::tt::ttir::AddOp::rewriteWithQuantizedInputs(
 }
 
 //===----------------------------------------------------------------------===//
+// EqualOp
+//===----------------------------------------------------------------------===//
+
+mlir::Operation *
+mlir::tt::ttir::EqualOp::createScalarOp(PatternRewriter &rewriter, Value tensor,
+                                        Attribute scalar, bool scalarOnLhs) {
+  // EQ is commutative, so scalarOnLhs doesn't matter
+  (void)scalarOnLhs;
+  return rewriter.create<ttir::EqualScalarOp>(getLoc(), getResult().getType(),
+                                              tensor, scalar);
+}
+
+//===----------------------------------------------------------------------===//
+// PowOp
+//===----------------------------------------------------------------------===//
+
+mlir::Operation *
+mlir::tt::ttir::PowOp::createScalarOp(PatternRewriter &rewriter, Value tensor,
+                                      Attribute scalar, bool scalarOnLhs) {
+  // Only support scalar exponent (RHS), not scalar base (LHS)
+  // pow(tensor, scalar) is supported, but pow(scalar, tensor) is not
+  if (scalarOnLhs) {
+    return nullptr;
+  }
+  return rewriter.create<ttir::PowScalarOp>(getLoc(), getResult().getType(),
+                                            tensor, scalar);
+}
+
+//===----------------------------------------------------------------------===//
 // BitwiseXorOp
 //===----------------------------------------------------------------------===//
 

@@ -280,6 +280,26 @@ public:
 } // namespace
 
 namespace {
+// Conversion pattern for elementwise binary scalar operations (tensor + scalar)
+template <typename TTIROpTy, typename TTNNOpTy,
+          typename OpAdaptor = typename TTIROpTy::Adaptor>
+class ElementwiseBinaryScalarOpConversionPattern
+    : public OpConversionPattern<TTIROpTy> {
+public:
+  using OpConversionPattern<TTIROpTy>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(TTIROpTy op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<TTNNOpTy>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(), adaptor.getScalar());
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 template <typename TTIROpTy, typename TTNNOpTy,
           typename OpAdaptor = typename TTIROpTy::Adaptor>
 class ReductionOpConversionPattern : public OpConversionPattern<TTIROpTy> {
@@ -583,112 +603,6 @@ public:
     rewriter.replaceOpWithNewOp<TTNNOpTy>(
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getInput(), adaptor.getMin(), adaptor.getMax());
-    return success();
-  }
-};
-} // namespace
-
-namespace {
-class PowOpConversionPattern : public OpConversionPattern<ttir::PowOp> {
-private:
-  // Helper function to extract a constant fill value from a FullOp.
-  template <typename FullOpTy>
-  static mlir::Attribute getConstantAttrFromFullOp(mlir::Operation *op) {
-    if (auto fullOp = mlir::dyn_cast_if_present<FullOpTy>(op)) {
-      mlir::Attribute fillValueAttr = fullOp.getFillValueAttr();
-      if (isa<FloatAttr, IntegerAttr>(fillValueAttr)) {
-        return fillValueAttr;
-      }
-    }
-    return {};
-  }
-
-  // Helper function to skip TTNN and TTIR reshape and typecast ops.
-  static mlir::Value skipReshapeTypecastLayoutOps(mlir::Value value) {
-    mlir::Operation *op = value.getDefiningOp();
-    while (mlir::isa_and_present<
-           mlir::tt::ttnn::ReshapeOp, mlir::tt::ttnn::TypecastOp,
-           mlir::tt::ttnn::ToLayoutOp, mlir::tt::ttir::ReshapeOp,
-           mlir::tt::ttir::TypecastOp, mlir::tt::ttir::ToLayoutOp>(op)) {
-      value = op->getOperand(0);
-      op = value.getDefiningOp();
-    }
-
-    return value;
-  }
-
-  // Helper function to trace back through const-eval function.
-  static mlir::Value getDefiningOpThroughConstEval(mlir::Value value) {
-    auto loadCachedOp =
-        mlir::dyn_cast_if_present<ttcore::LoadCachedOp>(value.getDefiningOp());
-
-    if (!loadCachedOp) {
-      return value;
-    }
-
-    size_t valueIndex =
-        std::distance(loadCachedOp.getResults().begin(),
-                      llvm::find(loadCachedOp.getResults(), value));
-
-    if (valueIndex >= loadCachedOp.getNumResults()) {
-      return value;
-    }
-
-    auto callee = loadCachedOp.getCallee();
-    auto calleeFunc = mlir::dyn_cast<func::FuncOp>(
-        loadCachedOp->getParentOfType<mlir::ModuleOp>().lookupSymbol(callee));
-    if (!calleeFunc) {
-      return value;
-    }
-
-    auto *terminatorOp = calleeFunc.getBody().back().getTerminator();
-    auto returnOp = mlir::dyn_cast<func::ReturnOp>(terminatorOp);
-    assert(returnOp && "Expected function to have a return op");
-
-    auto returnValue = returnOp.getOperand(valueIndex);
-
-    // Skip layout ops that may be present between the ReturnOp and the FullOp.
-    returnValue = skipReshapeTypecastLayoutOps(returnValue);
-
-    return returnValue;
-  }
-
-  // Helper function to extract constant value.
-  static mlir::Attribute getConstantAttr(mlir::Value value) {
-    // Skip layout ops that may be present between the PowOp and the FullOp.
-    value = skipReshapeTypecastLayoutOps(value);
-
-    // If the value is received through const-eval, we need to trace it back.
-    value = getDefiningOpThroughConstEval(value);
-
-    mlir::Operation *op = value.getDefiningOp();
-    if (auto attr = getConstantAttrFromFullOp<mlir::tt::ttir::FullOp>(op)) {
-      return attr;
-    }
-    if (auto attr = getConstantAttrFromFullOp<mlir::tt::ttnn::FullOp>(op)) {
-      return attr;
-    }
-
-    return {};
-  }
-
-public:
-  using OpConversionPattern<ttir::PowOp>::OpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(ttir::PowOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    mlir::Attribute exponent = getConstantAttr(adaptor.getRhs());
-    if (exponent) {
-      rewriter.replaceOpWithNewOp<ttnn::PowScalarOp>(
-          op, this->getTypeConverter()->convertType(op.getType()),
-          adaptor.getLhs(), exponent);
-      return success();
-    }
-
-    rewriter.replaceOpWithNewOp<ttnn::PowTensorOp>(
-        op, this->getTypeConverter()->convertType(op.getResult().getType()),
-        adaptor.getLhs(), adaptor.getRhs());
     return success();
   }
 };
@@ -2958,6 +2872,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ElementwiseBinaryOpConversionPattern<ttir::MultiplyOp, ttnn::MultiplyOp>,
            ElementwiseBinaryOpConversionPattern<ttir::DivOp, ttnn::DivideOp>,
            ElementwiseBinaryOpConversionPattern<ttir::EqualOp, ttnn::EqualOp>,
+           ElementwiseBinaryScalarOpConversionPattern<ttir::EqualScalarOp, ttnn::EqualScalarOp>,
            ElementwiseBinaryOpConversionPattern<ttir::NotEqualOp, ttnn::NotEqualOp>,
            ElementwiseBinaryOpConversionPattern<ttir::GreaterEqualOp, ttnn::GreaterEqualOp>,
            ElementwiseBinaryOpConversionPattern<ttir::GreaterThanOp, ttnn::GreaterThanOp>,
@@ -3018,7 +2933,8 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ElementwiseUnaryWithFloatParameterOpConversionPattern<ttir::LeakyReluOp, ttnn::LeakyReluOp>,
            BroadcastOpConversionPattern,
            PadOpConversionPattern,
-           PowOpConversionPattern,
+           ElementwiseBinaryOpConversionPattern<ttir::PowOp, ttnn::PowTensorOp>,
+           ElementwiseBinaryScalarOpConversionPattern<ttir::PowScalarOp, ttnn::PowScalarOp>,
            EmbeddingOpConversionPattern,
            EmbeddingBackwardOpConversionPattern,
            RepeatOpConversionPattern,

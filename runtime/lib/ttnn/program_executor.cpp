@@ -227,6 +227,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
     return operations::eltwise::binary::run(
         op->type_as_EltwiseBinaryCompositeScalarOp(), getContext());
   }
+  case ::tt::target::ttnn::OpType::EltwiseBinaryScalarOp: {
+    return operations::eltwise::binary::run(op->type_as_EltwiseBinaryScalarOp(),
+                                            getContext());
+  }
   case ::tt::target::ttnn::OpType::EltwiseTernaryWhereOp: {
     return operations::eltwise::ternary::run(
         op->type_as_EltwiseTernaryWhereOp(), getContext());

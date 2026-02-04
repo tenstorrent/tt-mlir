@@ -62,6 +62,10 @@ def TTIR_ElementwiseBinary : OpInterface<"ElementwiseBinary"> {
   let cppNamespace = "::mlir::tt::ttir";
 }
 
+def TTIR_ElementwiseBinaryScalar : OpInterface<"ElementwiseBinaryScalar"> {
+  let cppNamespace = "::mlir::tt::ttir";
+}
+
 def TTIR_ElementwiseTernary : OpInterface<"ElementwiseTernary"> {
   let cppNamespace = "::mlir::tt::ttir";
 }
@@ -95,6 +99,26 @@ def TTIR_QuantizableOpInterface : OpInterface<"QuantizableOpInterface"> {
       /*args=*/(ins "ArrayRef<mlir::Value>":$sourceOperands),
       /*methodBody=*/"",
       /*defaultImplementation=*/"return true;"
+    >,
+  ];
+}
+
+def TTIR_BinaryTensorToScalarOpConversionInterface : OpInterface<"BinaryTensorToScalarOpConversionInterface"> {
+  let cppNamespace = "::mlir::tt::ttir";
+  let description = [{
+    Interface for binary ops that can be converted to scalar form when one operand is a constant splat.
+  }];
+  let methods = [
+    InterfaceMethod<
+      /*desc=*/[{ Create the scalar version of this binary op. }],
+      /*retTy=*/"mlir::Operation *",
+      /*methodName=*/"createScalarOp",
+      /*args=*/(ins "PatternRewriter&":$rewriter,
+                    "Value":$tensor,
+                    "Attribute":$scalar,
+                    "bool":$scalarOnLhs),
+      /*methodBody=*/"",
+      /*defaultImplementation=*/"return nullptr;"
     >,
   ];
 }

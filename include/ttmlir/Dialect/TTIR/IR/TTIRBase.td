@@ -36,6 +36,7 @@ def TTIR_Dialect : Dialect {
     ];
 
     let hasConstantMaterializer = 1;
+    let hasCanonicalizer = 1;
 
     let extraClassDeclaration = [{
         void registerTypes();

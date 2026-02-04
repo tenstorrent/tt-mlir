@@ -1424,6 +1424,24 @@ llvm::Expected<size_t> OpModel<PowScalarOp>::getOpRuntime(
 }
 
 //===----------------------------------------------------------------------===//
+// EqualScalar
+//===----------------------------------------------------------------------===//
+llvm::Expected<OpConstraints> OpModel<EqualScalarOp>::getOpConstraints(
+    ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+    TTNNLayoutAttr inputLayout, mlir::Attribute scalar,
+    TTNNLayoutAttr outputLayout) {
+  // TTNN API does not have a scalar overload for ttnn::eq.
+  return OpConstraints{};
+}
+
+llvm::Expected<size_t> OpModel<EqualScalarOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    mlir::Attribute scalar, TTNNLayoutAttr outputLayout) {
+  // TTNN API does not have a scalar overload for ttnn::eq.
+  return llvm::createStringError("Not Implemented");
+}
+
+//===----------------------------------------------------------------------===//
 // Ternary Eltwise Ops
 //===----------------------------------------------------------------------===//
 

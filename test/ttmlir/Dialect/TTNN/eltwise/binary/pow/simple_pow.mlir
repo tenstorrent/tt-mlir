@@ -13,7 +13,7 @@ module attributes {} {
   func.func @power_scalar_float(%arg0: tensor<64x128xf32>) -> tensor<64x128xf32> {
     %0 = "ttir.constant"() <{value = dense<2.0> : tensor<64x128xf32>}> : () -> tensor<64x128xf32>
     // CHECK: "ttnn.pow_scalar"
-    // CHECK: <{rhs = 2.000000e+00 : f32}>
+    // CHECK: <{scalar = 2.000000e+00 : f32}>
     // CHECK-SAME: tensor<64x128xf32,
     // CHECK-SAME: -> tensor<64x128xf32,
     %1 = "ttir.pow"(%arg0, %0) : (tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
@@ -23,7 +23,7 @@ module attributes {} {
   func.func @power_scalar_integer(%arg0: tensor<64x128xf32>) -> tensor<64x128xf32> {
     %0 = "ttir.constant"() <{value = dense<2> : tensor<64x128xi32>}> : () -> tensor<64x128xi32>
     // CHECK: "ttnn.pow_scalar"
-    // CHECK: <{rhs = 2 : i32}>
+    // CHECK: <{scalar = 2 : i32}>
     // CHECK-SAME: tensor<64x128xf32,
     // CHECK-SAME: -> tensor<64x128xf32,
     %1 = "ttir.pow"(%arg0, %0) : (tensor<64x128xf32>, tensor<64x128xi32>) -> tensor<64x128xf32>

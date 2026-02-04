@@ -5,12 +5,14 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.h"
 
 #include "mlir/Dialect/ControlFlow/IR/ControlFlow.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/DialectImplementation.h"
+#include "mlir/IR/PatternMatch.h"
 #include "mlir/InitAllDialects.h"
 #include "mlir/Interfaces/FoldInterfaces.h"
 #include "mlir/Transforms/InliningUtils.h"
@@ -18,6 +20,97 @@
 #include "llvm/ADT/TypeSwitch.h"
 
 using namespace mlir;
+
+namespace {
+
+// Helper function to extract scalar attribute from constant-like ops
+// (FullOp, ZerosOp, OnesOp, ConstantOp with splat).
+std::optional<Attribute> getScalarFromConstantOp(Value value) {
+  Operation *op = value.getDefiningOp();
+  if (!op) {
+    return std::nullopt;
+  }
+
+  auto tensorType = mlir::cast<RankedTensorType>(value.getType());
+  Type elemType = tensorType.getElementType();
+
+  if (isa<mlir::tt::ttir::ZerosOp>(op)) {
+    if (elemType.isIntOrIndex()) {
+      return IntegerAttr::get(elemType, 0);
+    }
+    return FloatAttr::get(elemType, 0.0);
+  }
+
+  if (isa<mlir::tt::ttir::OnesOp>(op)) {
+    if (elemType.isIntOrIndex()) {
+      return IntegerAttr::get(elemType, 1);
+    }
+    return FloatAttr::get(elemType, 1.0);
+  }
+
+  if (auto fullOp = dyn_cast<mlir::tt::ttir::FullOp>(op)) {
+    return fullOp.getFillValue();
+  }
+
+  if (auto constantOp = dyn_cast<mlir::tt::ttir::ConstantOp>(op)) {
+    if (auto denseAttr = dyn_cast<DenseElementsAttr>(constantOp.getValue())) {
+      if (denseAttr.isSplat()) {
+        return denseAttr.getSplatValue<Attribute>();
+      }
+    }
+  }
+
+  return std::nullopt;
+}
+
+// Interface-based pattern for converting binary ops to scalar form when one
+// operand is a constant splat. Applies to any op implementing
+// BinaryTensorToScalarOpConversionInterface.
+class BinaryToScalarCanonicalizationPattern
+    : public mlir::OpInterfaceRewritePattern<
+          mlir::tt::ttir::BinaryTensorToScalarOpConversionInterface> {
+public:
+  using mlir::OpInterfaceRewritePattern<
+      mlir::tt::ttir::BinaryTensorToScalarOpConversionInterface>::
+      OpInterfaceRewritePattern;
+
+  mlir::LogicalResult
+  matchAndRewrite(mlir::tt::ttir::BinaryTensorToScalarOpConversionInterface op,
+                  mlir::PatternRewriter &rewriter) const override {
+    // Get operands from the underlying operation
+    Operation *operation = op.getOperation();
+    if (operation->getNumOperands() < 2) {
+      return mlir::failure();
+    }
+
+    Value lhs = operation->getOperand(0);
+    Value rhs = operation->getOperand(1);
+
+    // Try RHS as scalar first
+    if (auto scalar = getScalarFromConstantOp(rhs)) {
+      Operation *scalarOp =
+          op.createScalarOp(rewriter, lhs, *scalar, /*scalarOnLhs=*/false);
+      if (scalarOp) {
+        rewriter.replaceOp(operation, scalarOp->getResults());
+        return mlir::success();
+      }
+    }
+
+    // Try LHS as scalar
+    if (auto scalar = getScalarFromConstantOp(lhs)) {
+      Operation *scalarOp =
+          op.createScalarOp(rewriter, rhs, *scalar, /*scalarOnLhs=*/true);
+      if (scalarOp) {
+        rewriter.replaceOp(operation, scalarOp->getResults());
+        return mlir::success();
+      }
+    }
+
+    return mlir::failure();
+  }
+};
+
+} // namespace
 using namespace mlir::tt::ttir;
 
 namespace mlir::tt::ttir {
@@ -125,4 +218,15 @@ void TTIRDialect::initialize() {
     return builder.create<ttir::ConstantOp>(loc, type, elementsAttr);
   }
   return {};
+}
+
+//===----------------------------------------------------------------------===//
+// TTIR dialect canonicalization patterns.
+//===----------------------------------------------------------------------===//
+
+void TTIRDialect::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns) const {
+  // Register interface-based canonicalization pattern for binary ops that
+  // support conversion to scalar form.
+  patterns.add<BinaryToScalarCanonicalizationPattern>(getContext());
 }

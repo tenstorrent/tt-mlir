@@ -634,3 +634,49 @@ def test_ne(
         target=target,
         device=device,
     )
+
+
+# Comparison scalar ops
+@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
+@pytest.mark.parametrize(
+    "dtype", [torch.float32, torch.bfloat16, torch.int32], ids=["f32", "bf16", "i32"]
+)
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_eq_scalar(
+    shape: Shape,
+    dtype: torch.dtype,
+    target: str,
+    request,
+    device,
+):
+    """Test equality comparison with scalar operand"""
+    scalar_value = 2.0
+
+    def module(builder: TTNNBuilder):
+        @builder.func([shape], [dtype])
+        def eq_scalar(
+            in0: Operand,
+            builder: TTNNBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            # Set up golden tensors with some values equal to scalar
+            randn_tensor = torch.randn(shape, dtype=torch.float32)
+            # Make some elements equal to the scalar value
+            num_elements = torch.numel(randn_tensor)
+            num_equal_indices = num_elements // 4
+            equal_indices = torch.randperm(num_elements)[:num_equal_indices]
+            randn_tensor.view(-1)[equal_indices] = scalar_value
+            input_tensor = randn_tensor.to(dtype)
+
+            builder.set_goldens(inputs={in0: input_tensor})
+
+            # Create scalar constant and compare
+            scalar = builder.constant(torch.full(shape, scalar_value, dtype=dtype))
+            return builder.eq(in0, scalar, unit_attrs=unit_attrs)
+
+    compile_and_execute_ttnn(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+    )

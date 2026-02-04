@@ -254,14 +254,14 @@ foldConsecutiveDataCastOps(T op, ::mlir::PatternRewriter &rewriter) {
 //===----------------------------------------------------------------------===//
 
 ::mlir::LogicalResult mlir::tt::ttnn::PowScalarOp::verify() {
-  if (auto exponentAttr = mlir::dyn_cast<IntegerAttr>(getRhs())) {
+  if (auto exponentAttr = mlir::dyn_cast<IntegerAttr>(getScalar())) {
     if (exponentAttr.getInt() < 0) {
       return emitOpError() << "exponent must be non-negative; but got "
                            << exponentAttr.getInt();
     }
     return success();
   }
-  if (auto exponentAttr = mlir::dyn_cast<FloatAttr>(getRhs())) {
+  if (auto exponentAttr = mlir::dyn_cast<FloatAttr>(getScalar())) {
     if (exponentAttr.getValueAsDouble() < 0.0) {
       return emitOpError() << "exponent must be non-negative; but got "
                            << exponentAttr.getValueAsDouble();

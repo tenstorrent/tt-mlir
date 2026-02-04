@@ -70,6 +70,18 @@ table EltwiseBinaryCompositeScalarOp {
   out: tt.target.ttnn.TensorRef;
 }
 
+enum EltwiseBinaryScalarOpType: uint32 {
+  EqualScalar,
+}
+
+table EltwiseBinaryScalarOp {
+  type: EltwiseBinaryScalarOpType;
+  lhs: tt.target.ttnn.TensorRef;
+  rhs: RhsParams;
+  memory_config: tt.target.ttnn.MemoryConfig;
+  out: tt.target.ttnn.TensorRef;
+}
+
 enum EltwiseQuantizationOpType: uint32 {
   Quantize,
   Dequantize,

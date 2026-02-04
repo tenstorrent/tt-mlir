@@ -166,6 +166,39 @@ getBinaryOpRuntime(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
 
 template <typename OpT>
 llvm::Expected<op_model::OpConstraints>
+getBinaryScalarOpConstraints(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
+                             const OpConfig &opConfig) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape = op.getInput().getType().getShape();
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(op.getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(op.getOperation()).getWorkerGrid();
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<OpT>::getOpConstraints, op, deviceGrid, inputShape,
+      inputs[0], op.getScalar(), opConfig.outputLayout);
+}
+
+template <typename OpT>
+llvm::Expected<size_t>
+getBinaryScalarOpRuntime(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
+                         const OpConfig &opConfig) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape = op.getInput().getType().getShape();
+
+  return opRuntimeCache().getOrCompute(op_model::OpModel<OpT>::getOpRuntime, op,
+                                       inputShape, inputs[0], op.getScalar(),
+                                       opConfig.outputLayout);
+}
+
+template <typename OpT>
+llvm::Expected<op_model::OpConstraints>
 getTernaryOpConstraints(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
                         const OpConfig &opConfig) {
   assert(inputs.size() == 3);
@@ -1208,32 +1241,13 @@ PowTensorOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 llvm::Expected<op_model::OpConstraints>
 PowScalarOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                               const OpConfig &opConfig) {
-  assert(inputs.size() == 1);
-
-  const auto inputShape = getLhs().getType().getShape();
-
-  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
-  if (!check) {
-    return check.takeError();
-  }
-  ttcore::GridAttr deviceGrid =
-      ttcore::lookupDevice(getOperation()).getWorkerGrid();
-
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<PowScalarOp>::getOpConstraints, *this, deviceGrid,
-      inputShape, inputs[0], getRhs(), opConfig.outputLayout);
+  return detail::getBinaryScalarOpConstraints(*this, inputs, opConfig);
 }
 
 llvm::Expected<size_t>
 PowScalarOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
                           const OpConfig &opConfig) {
-  assert(inputs.size() == 1);
-
-  const auto inputShape = getLhs().getType().getShape();
-
-  return opRuntimeCache().getOrCompute(
-      op_model::OpModel<PowScalarOp>::getOpRuntime, *this, inputShape,
-      inputs[0], getRhs(), opConfig.outputLayout);
+  return detail::getBinaryScalarOpRuntime(*this, inputs, opConfig);
 }
 
 //===----------------------------------------------------------------------===//
@@ -1266,6 +1280,22 @@ llvm::Expected<size_t>
 EqualOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
                       const OpConfig &opConfig) {
   return detail::getBinaryOpRuntime(*this, inputs, opConfig);
+}
+
+//===----------------------------------------------------------------------===//
+// EqualScalarOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+EqualScalarOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                                const OpConfig &opConfig) {
+  return detail::getBinaryScalarOpConstraints(*this, inputs, opConfig);
+}
+
+llvm::Expected<size_t>
+EqualScalarOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                            const OpConfig &opConfig) {
+  return detail::getBinaryScalarOpRuntime(*this, inputs, opConfig);
 }
 
 //===----------------------------------------------------------------------===//

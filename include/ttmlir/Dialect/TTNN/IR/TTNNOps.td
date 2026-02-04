@@ -230,22 +230,36 @@ class TTNN_ElementwiseBinaryCompositeOp<string mnemonic, list<Trait> traits = []
 
 class TTNN_ElementwiseBinaryCompositeScalarOp<string mnemonic, list<Trait> traits = []> :
   TTNN_Op<mnemonic, [TTNN_MemoryConfigOpInterface] # traits> {
-  let summary = "Eltwise binary composite op.";
-  let description = [{
-    Eltwise binary composite op where the first input is a tensor and the second is a scalar.
-    It applies the op independently to each element of the tensor using the scalar.
-  }];
+  let summary = "Eltwise binary composite scalar op.";
 
-  let arguments = (ins AnyRankedTensor:$lhs,
-                        AnyAttrOf<[F32Attr, I32Attr]>:$rhs,
+  let arguments = (ins AnyRankedTensor:$input,
+                        AnyAttrOf<[F32Attr, I32Attr]>:$scalar,
                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
   let results = (outs AnyRankedTensor:$result);
 
   let builders =
   [
-    OpBuilder<(ins "Type": $resultType, "Value": $lhs, "::mlir::Attribute": $rhs),
+    OpBuilder<(ins "Type": $resultType, "Value": $input, "::mlir::Attribute": $scalar),
     [{
-      build($_builder, $_state, resultType, lhs, rhs, /*memory_config=*/nullptr);
+      build($_builder, $_state, resultType, input, scalar, /*memory_config=*/nullptr);
+    }]>
+  ];
+}
+
+class TTNN_ElementwiseBinaryScalarOp<string mnemonic, list<Trait> traits = []> :
+  TTNN_Op<mnemonic, [TTNN_MemoryConfigOpInterface] # traits> {
+  let summary = "Eltwise binary scalar op.";
+
+  let arguments = (ins AnyRankedTensor:$input,
+                        AnyAttrOf<[F32Attr, I32Attr]>:$scalar,
+                        OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+  let results = (outs AnyRankedTensor:$result);
+
+  let builders =
+  [
+    OpBuilder<(ins "Type": $resultType, "Value": $input, "::mlir::Attribute": $scalar),
+    [{
+      build($_builder, $_state, resultType, input, scalar, /*memory_config=*/nullptr);
     }]>
   ];
 }
@@ -798,24 +812,12 @@ def TTNN_PowTensorOp : TTNN_ElementwiseBinaryCompositeOp<"pow_tensor"> {
 }
 
 def TTNN_PowScalarOp : TTNN_ElementwiseBinaryCompositeScalarOp<"pow_scalar"> {
-  let summary = "Eltwise power OP.";
-  let description = [{
-    The `pow_scalar` operation performs an exponentiation of each element of an
-    input tensor with a scalar exponent and returns the result.
-
-    Example:
-    ```mlir
-    %result = ttnn.pow_scalar(%input) <{exponent = 2.0 : f32}> : tensor<4xf32>, tensor<4xf32> -> tensor<4xf32>
-    // Input tensors:
-    // %input: [2.0, 3.0, 4.0, 5.0]  // Bases
-    // %exponent: 2.0  // Power
-    // Output tensor: [4.0, 9.0, 16.0, 25.0]
-    ```
-
-    Restriction: TTNN API supports expoenent ≥ 0 only.
-  }];
-
+  let summary = "Elementwise power with a scalar exponent.";
   let hasVerifier = 1;
+}
+
+def TTNN_EqualScalarOp : TTNN_ElementwiseBinaryScalarOp<"equal_scalar"> {
+  let summary = "Elementwise equality comparison with a scalar.";
 }
 
 def TTNN_Atan2Op :  TTNN_ElementwiseBinaryCompositeOp<"atan2"> {
