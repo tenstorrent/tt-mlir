@@ -103,6 +103,13 @@ static ValidationResult
 validateConstraints(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
                     const OpConfig &config, uint64_t additionalL1Usage) {
 
+  // D2MSubgraphOp has no OpModel backend; treat any proposed output layout as
+  // valid (D2M handles layouts internally).
+  if (mlir::isa<D2MSubgraphOp>(op)) {
+    return ValidationResult::success(0, config.outputLayout,
+                                     /*outputL1Usage=*/0);
+  }
+
   // Get tensorL1UsageCap from module attribute
   const float tensorL1UsageCap = utils::getTensorL1UsageCap(op);
 

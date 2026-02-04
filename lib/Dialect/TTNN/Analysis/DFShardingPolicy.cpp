@@ -2301,6 +2301,31 @@ void DFShardingPolicy::run() {
                     ttnn::SliceStaticOp, ttnn::RotaryEmbeddingOp>(currentOp) &&
           legalConfigs.lookup(currentOp).size() > 0;
 
+      // Special handling for D2MSubgraphOp: treat as chain boundary and
+      // create a single-op chain so it gets a resolved layout from
+      // ShardSolver.
+      if (llvm::isa<ttnn::D2MSubgraphOp>(currentOp) &&
+          legalConfigs.lookup(currentOp).size() > 0) {
+        if (!l1ChainConfigs->back().isEmpty()) {
+          l1ChainConfigs->back().build();
+          l1ChainConfigs->push_back(L1ChainConfig());
+        }
+
+        OpL1MemSpec dispatchSpec;
+        dispatchSpec.op = currentOp;
+        dispatchSpec.tensorSplitFactor = 1;
+        l1ChainConfigs->back().addOpL1MemSpec(std::move(dispatchSpec));
+        l1ChainConfigs->back().build();
+
+        TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                     "Created isolated d2m_subgraph chain for op {}",
+                     ttmlir::opToString(currentOp));
+
+        l1ChainConfigs->push_back(L1ChainConfig());
+        currentOp = nullptr;
+        continue;
+      }
+
       // Special handling for ConcatOp: isolate it into its own single-op
       // chain. This allows us to handle concat specially by:
       // 1. Breaking any incoming chain at concat
@@ -2377,6 +2402,13 @@ void DFShardingPolicy::run() {
               TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
                            "Breaking L1 chain at op {} because next op {} is "
                            "ConcatOp",
+                           ttmlir::opToString(currentOp),
+                           ttmlir::opToString(nextOp));
+              currentOp = nullptr;
+            } else if (llvm::isa<ttnn::D2MSubgraphOp>(nextOp)) {
+              TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                           "Breaking L1 chain at op {} because next op {} is "
+                           "D2MSubgraphOp (chain boundary)",
                            ttmlir::opToString(currentOp),
                            ttmlir::opToString(nextOp));
               currentOp = nullptr;
