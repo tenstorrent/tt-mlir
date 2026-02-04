@@ -2069,13 +2069,14 @@ def D2M_ArangeBlockOp : D2M_GenericRegionComputeOp<"arange_block",
         This op operates at the block level (memref of tiles) and generates
         values for a 1D arange that has been reshaped to 2D for tiling efficiency.
 
-        The full_index_cb is a scratch CB containing an index tile where
+        The full_index_tensor is a scratch tensor containing an index tile where
         element[r][c] = r * 32 + c (values 0-1023). This is written by the
-        decomposition pass using ExperimentalWriteFullIndexTileOp.
+        decomposition pass using ExperimentalWriteFullIndexTileOp to the
+        associated CB.
 
         For each tile at position (tile_row, tile_col), the computation is:
         1. tile_offset = (tile_row * num_tile_cols + tile_col) * 1024
-        2. global_idx = tile_offset + local_idx  (where local_idx comes from full_index_cb)
+        2. global_idx = tile_offset + local_idx  (where local_idx comes from full_index_tensor)
         3. result = start + step * global_idx
 
         This is a high-level op that gets decomposed in the DecomposeArange pass into:
@@ -2084,19 +2085,33 @@ def D2M_ArangeBlockOp : D2M_GenericRegionComputeOp<"arange_block",
 
         Example:
         ```mlir
-        d2m.arange_block %output, %full_index_cb, %num_elements
-                         {start = 0 : i64, step = 1 : i64}
-            : (memref<1x1x!ttcore.tile<32x32, f32>>,
-               memref<1x1x!ttcore.tile<32x32, f32>>)
+        %result = d2m.arange_block %output, %full_index_tensor
+                         {num_elements = 64, start = 0, step = 1}
+            : (tensor<1x2x!ttcore.tile<32x32, f32>>,
+               tensor<1x1x!ttcore.tile<32x32, f32>>) -> tensor<1x2x!ttcore.tile<32x32, f32>>
         ```
     }];
 
     let arguments = (ins
-        AnyTypeOf<[AnyRankedTensorOrMemRef, D2M_CB]>:$output,
-        AnyTypeOf<[AnyRankedTensorOrMemRef, D2M_CB]>:$full_index_cb,
+        AnyRankedTensorOrMemRef:$output,
+        AnyRankedTensorOrMemRef:$full_index_tensor,
         I64Attr:$num_elements,
         I64Attr:$start,
         I64Attr:$step);
+
+    let results = (outs AnyRankedTensorOrMemRef:$result);
+
+    let builders = [
+      OpBuilder<(ins "Value":$output, "Value":$fullIndexTensor,
+                     "int64_t":$numElements, "int64_t":$start, "int64_t":$step), [{
+        // Result type is the same as the output type.
+        Type resultType = output.getType();
+        build($_builder, $_state, resultType, output, fullIndexTensor,
+              $_builder.getI64IntegerAttr(numElements),
+              $_builder.getI64IntegerAttr(start),
+              $_builder.getI64IntegerAttr(step));
+      }]>
+    ];
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }

@@ -1729,8 +1729,7 @@ class D2MFullOpRewriter : public OpConversionPattern<ttir::FullOp> {
 //   result[r,c] = (tile_idx * 1024 + r * 32 + c) * step + start
 // Uses ExperimentalWriteFullIndexTileOp to generate index pattern in L1 memory.
 //
-// For 1D arange [N], we unsqueeze to [1, N] for the computation, then use
-// ttir.reshape to squeeze back to [N]. The reshape conversion handles the rest.
+// Assuming 2D dimensions for arange for now with shape [1, N].
 // ----------------------------------------------------------------------------
 class D2MArangeOpRewriter : public OpConversionPattern<ttir::ArangeOp>,
                             D2MNamedRewriterCommon {
@@ -1761,125 +1760,126 @@ public:
 
     int64_t start = op.getStart();
     int64_t step = op.getStep();
-
-    // Number of elements is the last dimension (arange dimension).
     int64_t numElements = resultType.getShape().back();
 
-    // Create output tensor with D2M layout.
-    auto origOutputs = createDpsOutputs(loc, rewriter, {resultType});
-    auto output = createOptimalLayoutOp(
-        origOutputs[0], ttcore::MemorySpace::DeviceL1, false, false, rewriter);
+    // Create output tensor with D2M layout (tiled).
+    llvm::SmallVector<Value> origOutputs =
+        createDpsOutputs(loc, rewriter, {resultType});
+    SmallVector<Value> emptyInputs;
+    auto [inputs, outputs] = toLayoutOperandsAndResults(
+        rewriter, {emptyInputs, origOutputs}, /*tiled*/ true);
+    Value output = outputs[0];
+
     auto outputTensorType = mlir::cast<RankedTensorType>(output.getType());
     auto outputLayout =
         mlir::cast<ttcore::MetalLayoutAttr>(outputTensorType.getEncoding());
+    const std::size_t physicalRank =
+        ttcore::getDeviceLayout(output).getRank() / 2;
 
-    const std::size_t shardRank =
-        outputLayout.getShardShape(outputTensorType).size();
-
-    // Create scratch tensor for full index tile (single tile).
+    // Create scratch tensor for full index tile (single tile per core).
     // This tile contains linear indices 0-1023 (element[r][c] = r*32 + c).
-    // These are allocated as d2m::EmptyOp tensors, passed as inputs to
-    // GenericOp.
     Type f32Type = rewriter.getF32Type();
-    auto tileType = ttcore::TileType::get(f32Type);
+    llvm::ArrayRef<int64_t> gridShape =
+        outputLayout.getGridShape(outputTensorType);
+    SmallVector<int64_t> scratchShape(gridShape.begin(), gridShape.end());
+    scratchShape.append({32, 32}); // Single tile = 32x32 elements
 
-    // Scratch tensor shape follows the pattern from LowerToLayout.cpp:
-    // [grid_shape..., 1, 1] in tile coordinates (single tile on each core).
-    auto gridShape = outputLayout.getGridShape(outputTensorType);
-    SmallVector<int64_t> scratchShape;
-    for (auto dim : gridShape) {
-      scratchShape.push_back(dim);
-    }
-    scratchShape.push_back(1);
-    scratchShape.push_back(1);
-
-    // Create layout for scratch tensor.
-    auto scratchLogicalShape = outputLayout.getLogicalShape();
-    SmallVector<int64_t> scratchLogicalShapeVec(scratchLogicalShape.begin(),
-                                                scratchLogicalShape.end());
-    for (size_t i = 0; i < scratchLogicalShapeVec.size(); ++i) {
-      if (i < scratchLogicalShapeVec.size() - 2) {
-        scratchLogicalShapeVec[i] = 1;
-      } else {
-        scratchLogicalShapeVec[i] = 32;
-      }
-    }
+    // Create layout for scratch tensor with same grid structure.
+    SmallVector<int64_t> scratchLogicalShape = {32, 32};
     auto scratchLayout = ttcore::MetalLayoutAttr::get(
-        rewriter.getContext(), scratchLogicalShapeVec, ttcore::OOBVal::Undef,
+        rewriter.getContext(), scratchLogicalShape, ttcore::OOBVal::Undef,
         ttcore::MemorySpace::DeviceL1, ttcore::TensorMemoryLayout::Sharded);
 
     Value fullIndexTensor =
         rewriter.create<d2m::EmptyOp>(loc, scratchShape, f32Type, scratchLayout)
             .getResult();
 
-    // Build indexing maps: identity for output, constant (0s) for scratch
-    // input.
-    AffineMap identityMap = rewriter.getMultiDimIdentityMap(shardRank);
-    SmallVector<AffineExpr> zeroExprs(shardRank,
+    // Build indexing maps: constant (0s) for scratch, identity for output.
+    AffineMap identityMap = rewriter.getMultiDimIdentityMap(physicalRank);
+    SmallVector<AffineExpr> zeroExprs(physicalRank,
                                       rewriter.getAffineConstantExpr(0));
     AffineMap constantMap =
-        AffineMap::get(shardRank, 0, zeroExprs, rewriter.getContext());
+        AffineMap::get(physicalRank, 0, zeroExprs, rewriter.getContext());
 
-    SmallVector<AffineMap> indexingMaps = {
-        constantMap, // fullIndex: single tile, constant.
-        identityMap  // output: iterate over all tiles.
-    };
+    SmallVector<AffineMap> indexingMaps = {constantMap, identityMap};
+    auto parallel = ttcore::IteratorTypeAttr::get(
+        rewriter.getContext(), ttcore::IteratorType::Parallel);
+    SmallVector<Attribute> iteratorTypes(physicalRank, parallel);
 
-    Attribute parallel = rewriter.getAttr<ttcore::IteratorTypeAttr>(
-        ttcore::IteratorType::Parallel);
-    ArrayAttr indexingMapsAttr = rewriter.getAffineMapArrayAttr(indexingMaps);
-    ArrayAttr iteratorTypesAttr =
-        rewriter.getArrayAttr(SmallVector<Attribute>(shardRank, parallel));
-
-    // Create d2m.generic with scratch input and one output.
-    SmallVector<Value> inputs = {fullIndexTensor};
+    // Create d2m.generic (following elementwise pattern).
+    SmallVector<Value> genericInputs = {fullIndexTensor};
     auto generic = rewriter.create<d2m::GenericOp>(
-        loc, ValueRange(inputs), output, indexingMapsAttr, iteratorTypesAttr);
+        loc, genericInputs, outputs,
+        rewriter.getAffineMapArrayAttr(indexingMaps),
+        rewriter.getArrayAttr(iteratorTypes));
 
-    // Mark scratch input (index 0).
+    // Mark full index tile (index 0) as scratch - it doesn't need streaming.
     generic.setScratchInputsAttr(rewriter.getDenseI64ArrayAttr({0}));
 
-    // Create the region for the generic op.
+    // Create one bb in the generic op's region and set its arguments.
     auto insertPoint = rewriter.saveInsertionPoint();
     rewriter.startOpModification(generic);
     {
-      Region &region = generic->getRegions().front();
-      Block *block = rewriter.createBlock(&region);
+      mlir::Region &region = generic->getRegions().front();
+      mlir::Block *block = rewriter.createBlock(&region);
 
-      // Create block arguments: [fullIndexCB, outputCB].
-      auto scratchCBType =
-          d2m::CBType::get(RankedTensorType::get({1, 1}, tileType));
-      block->addArgument(scratchCBType, loc); // full index tile CB
+      // Populate 'block'.
+      auto blockArgsVec = createBlockArguments(
+          rewriter, block, loc, TypeRange(genericInputs), TypeRange(outputs),
+          generic, enableMulticastInference);
+      ArrayRef<Value> blockArgs(blockArgsVec);
 
-      auto shardShape = outputLayout.getShardShape(outputTensorType);
-      auto outputCBType = d2m::CBType::get(
-          RankedTensorType::get(shardShape, outputTensorType.getElementType()));
-      block->addArgument(outputCBType, loc);
+      // blockArgs[0] = scratch index CB, blockArgs[1] = output CB.
+      Value scratchCB = blockArgs[0];
+      Value outputCB = blockArgs[1];
 
-      Value fullIndexCB = block->getArgument(0);
-      Value outputCB = block->getArgument(1);
+      // Get shard types from CB block args.
+      auto scratchCBType = mlir::cast<d2m::CBType>(scratchCB.getType());
+      auto outputCBType = mlir::cast<d2m::CBType>(outputCB.getType());
+      Type scratchShardType = scratchCBType.getUnderlying();
+      Type outputShardType = outputCBType.getUnderlying();
 
-      // Reserve output CB for writing.
-      Value outputMemref =
-          rewriter.create<d2m::ReserveOp>(loc, outputCB).getResult();
+      // Create local tensors for the computation.
+      auto scratchTensorType = mlir::cast<RankedTensorType>(scratchShardType);
+      Value scratchLocal =
+          rewriter
+              .create<tensor::EmptyOp>(loc, scratchTensorType.getShape(),
+                                       scratchTensorType.getElementType())
+              .getResult();
 
-      // Create the high-level arange_block op.
-      // DecomposeArange pass will:
-      // 1. Write index tile to scratch CB using
-      // ExperimentalWriteFullIndexTileOp
-      // 2. Decompose into tile arithmetic
-      rewriter.create<d2m::ArangeBlockOp>(loc, outputMemref, fullIndexCB,
-                                          numElements, start, step);
+      auto outputTensorTypeLocal =
+          mlir::cast<RankedTensorType>(outputShardType);
+      Value outputLocal =
+          rewriter
+              .create<tensor::EmptyOp>(loc, outputTensorTypeLocal.getShape(),
+                                       outputTensorTypeLocal.getElementType())
+              .getResult();
 
-      rewriter.create<d2m::YieldOp>(loc, ValueRange{outputMemref});
+      // Create ArangeBlockOp with local tensors.
+      Value arangeResult =
+          rewriter
+              .create<d2m::ArangeBlockOp>(loc, outputLocal, scratchLocal,
+                                          numElements, start, step)
+              .getResult();
+
+      // Insert RemoteStore to write output.
+      AffineMap outputIndexingMap = generic.getIndexingMap(1);
+      SmallVector<Value> indices =
+          d2m::utils::buildGridIndices(rewriter, loc, outputIndexingMap);
+      Value storeResult =
+          rewriter
+              .create<d2m::RemoteStoreOp>(loc, output.getType(), output,
+                                          indices, arangeResult)
+              .getResult();
+
+      rewriter.create<d2m::YieldOp>(loc, storeResult);
     }
     rewriter.finalizeOpModification(generic);
     rewriter.restoreInsertionPoint(insertPoint);
 
-    // Get the result and unLayout it.
-    Value result = generic->getResult(0);
-    Operation *unLayoutOp = unLayoutResult(rewriter, result, resultType);
-    rewriter.replaceOp(op, unLayoutOp->getResult(0));
+    // Un-layout the result.
+    rewriter.replaceOp(op, unLayoutResult(rewriter, generic->getResult(0),
+                                          op->getResult(0).getType()));
     return success();
   }
 };

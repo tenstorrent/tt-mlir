@@ -855,7 +855,18 @@ void ExperimentalWriteFullIndexTileOp::getEffects(
 //===----------------------------------------------------------------------===//
 
 mlir::LogicalResult ArangeBlockOp::verify() {
-  // Basic verification - can be extended as needed.
+  // Output and full_index_tensor must have the same element type category
+  // (both tensor or both memref).
+  Type outputType = getOutput().getType();
+  Type indexType = getFullIndexTensor().getType();
+
+  bool outputIsTensor = mlir::isa<mlir::RankedTensorType>(outputType);
+  bool indexIsTensor = mlir::isa<mlir::RankedTensorType>(indexType);
+
+  if (outputIsTensor != indexIsTensor) {
+    return emitOpError(
+        "output and full_index_tensor must both be tensors or both be memrefs");
+  }
   return mlir::success();
 }
 
@@ -863,100 +874,86 @@ void ArangeBlockOp::getEffects(
     mlir::SmallVectorImpl<
         mlir::SideEffects::EffectInstance<mlir::MemoryEffects::Effect>>
         &effects) {
-  // Read from the full index CB.
+  // Read from the full index tensor.
   effects.emplace_back(mlir::MemoryEffects::Read::get(),
-                       &getFullIndexCbMutable(), 0, true,
+                       &getFullIndexTensorMutable(), 0, true,
                        mlir::SideEffects::DefaultResource::get());
-  // Write to the output.
+  // Write to the output tensor.
   effects.emplace_back(mlir::MemoryEffects::Write::get(), &getOutputMutable(),
                        0, true, mlir::SideEffects::DefaultResource::get());
 }
 
-// Helper to check if an operand has tensor semantics that needs bufferization.
-static bool operandNeedsBufferization(mlir::Value operand) {
-  // Direct tensor type.
-  if (mlir::isa<mlir::RankedTensorType>(operand.getType())) {
-    return true;
-  }
-  // CB wrapping a tensor type.
-  if (auto cbType = mlir::dyn_cast<mlir::tt::d2m::CBType>(operand.getType())) {
-    return mlir::isa<mlir::RankedTensorType>(cbType.getElementType());
-  }
-  return false;
-}
-
 bool ArangeBlockOp::bufferizesToMemoryRead(
     mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
-  // Only full_index_cb is read.
-  if (operand.get() != getFullIndexCb()) {
-    return false;
-  }
-  return operandNeedsBufferization(operand.get());
+  // full_index_tensor is read.
+  return operand.get() == getFullIndexTensor();
 }
 
 bool ArangeBlockOp::bufferizesToMemoryWrite(
     mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
-  // Only output is written.
-  if (operand.get() != getOutput()) {
-    return false;
-  }
-  return operandNeedsBufferization(operand.get());
+  // output is written.
+  return operand.get() == getOutput();
 }
 
 mlir::bufferization::AliasingValueList
-ArangeBlockOp::getAliasingValues(mlir::OpOperand &,
+ArangeBlockOp::getAliasingValues(mlir::OpOperand &operand,
                                  const mlir::bufferization::AnalysisState &) {
+  // The result aliases the output operand (DPS style).
+  if (operand.get() == getOutput()) {
+    return {{getResult(), mlir::bufferization::BufferRelation::Equivalent,
+             /*isDefinite=*/true}};
+  }
   return {};
 }
 
 mlir::FailureOr<mlir::bufferization::BufferLikeType>
-ArangeBlockOp::getBufferType(mlir::Value,
+ArangeBlockOp::getBufferType(mlir::Value value,
                              const mlir::bufferization::BufferizationOptions &,
                              const mlir::bufferization::BufferizationState &,
                              ::llvm::SmallVector<mlir::Value> &) {
-  assert(false && "ArangeBlockOp has no results");
-  return mlir::failure();
+  // The result type is derived from the output tensor's type.
+  auto tensorType =
+      mlir::dyn_cast<mlir::RankedTensorType>(getOutput().getType());
+  if (!tensorType) {
+    // Already a memref.
+    return mlir::bufferization::BufferLikeType(
+        mlir::cast<mlir::MemRefType>(getOutput().getType()));
+  }
+  auto memrefType =
+      mlir::bufferization::getMemRefTypeWithStaticIdentityLayout(tensorType);
+  return mlir::bufferization::BufferLikeType(memrefType);
 }
 
 mlir::LogicalResult ArangeBlockOp::bufferize(
     mlir::RewriterBase &rewriter,
     const mlir::bufferization::BufferizationOptions &options,
     mlir::bufferization::BufferizationState &state) {
-  mlir::Value out = getOutput();
-  mlir::Value fullIndexCb = getFullIndexCb();
-
-  // Check if anything needs bufferization.
-  bool outNeedsBufferization = operandNeedsBufferization(out);
-  bool cbNeedsBufferization = operandNeedsBufferization(fullIndexCb);
-
-  if (!outNeedsBufferization && !cbNeedsBufferization) {
-    // Already fully bufferized.
-    return mlir::success();
+  // Skip if already bufferized.
+  if (!mlir::isa<mlir::RankedTensorType>(getOutput().getType())) {
+    return mlir::failure();
   }
 
-  // Get memref for output if it's a tensor.
-  if (outNeedsBufferization) {
-    auto maybeBuffer =
-        mlir::bufferization::getBuffer(rewriter, out, options, state);
-    if (mlir::failed(maybeBuffer)) {
-      return mlir::failure();
-    }
-    out = *maybeBuffer;
+  // Get bufferized versions of the operands.
+  auto maybeOutputBuffer =
+      mlir::bufferization::getBuffer(rewriter, getOutput(), options, state);
+  if (failed(maybeOutputBuffer)) {
+    return maybeOutputBuffer;
   }
 
-  // For CB operand, look through bufferization.to_tensor to get memref-based
-  // CB.
-  if (cbNeedsBufferization) {
-    if (auto toTensorOp =
-            fullIndexCb.getDefiningOp<mlir::bufferization::ToTensorOp>()) {
-      fullIndexCb = toTensorOp.getOperand();
-    }
+  auto maybeIndexBuffer = mlir::bufferization::getBuffer(
+      rewriter, getFullIndexTensor(), options, state);
+  if (failed(maybeIndexBuffer)) {
+    return maybeIndexBuffer;
   }
 
   // Create new op with memref operands.
-  rewriter.create<ArangeBlockOp>(getLoc(), out, fullIndexCb, getNumElements(),
-                                 getStart(), getStep());
-  rewriter.eraseOp(*this);
+  auto newOp = rewriter.create<ArangeBlockOp>(
+      getLoc(), *maybeOutputBuffer, *maybeIndexBuffer, getNumElements(),
+      getStart(), getStep());
+
+  // Replace uses and erase (DPS pattern - result aliases output buffer).
+  mlir::bufferization::replaceOpWithBufferizedValues(rewriter, getOperation(),
+                                                     newOp.getResult());
   return mlir::success();
 }
 
