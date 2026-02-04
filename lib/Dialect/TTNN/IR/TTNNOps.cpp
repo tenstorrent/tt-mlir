@@ -1088,6 +1088,7 @@ static ::mlir::LogicalResult verifyQuantizeOpCommon(
 ::llvm::LogicalResult
 mlir::tt::ttnn::TypecastOp::canonicalize(TypecastOp typecastOp,
                                          ::mlir::PatternRewriter &rewriter) {
+  // NOLINTNEXTLINE
   return foldConsecutiveDataCastOps(typecastOp, rewriter);
 }
 
