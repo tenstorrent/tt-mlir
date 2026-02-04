@@ -267,6 +267,22 @@ def TTIRFoldConstantReshapeBroadcast: Pass<"ttir-fold-constant-reshape-broadcast
   let dependentDialects = ["mlir::tt::ttcore::TTCoreDialect", "mlir::tt::ttir::TTIRDialect"];
 }
 
+def TTIRInferKVCacheArgumentTypes: Pass<"ttir-infer-kv-cache-argument-types", "::mlir::ModuleOp">
+{
+  let summary = "Infer KV cache argument types from cache operations.";
+  let description = [{
+    This pass identifies function arguments used as cache inputs to FillCacheOp,
+    UpdateCacheOp, PagedFillCacheOp, or PagedUpdateCacheOp and marks them with
+    the ttcore.argument_type = #ttcore.argument_type<kv_cache> attribute.
+
+    This provides 100% certain KV cache detection by analyzing actual cache
+    operations in TTIR, rather than relying on frontend heuristics.
+  }];
+
+  let constructor = "mlir::tt::ttir::createTTIRInferKVCacheArgumentTypes()";
+  let dependentDialects = ["mlir::tt::ttcore::TTCoreDialect", "mlir::tt::ttir::TTIRDialect"];
+}
+
 def TTIRMultiDeviceTensorAnnotation: Pass<"ttir-multi-device-tensor-annotation", "::mlir::ModuleOp">
 {
   let summary = "TTIR multi-device tensor annotation pass.";
