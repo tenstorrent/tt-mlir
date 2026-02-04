@@ -21,6 +21,10 @@
 #include "runtime/utils.h"
 #endif
 
+#if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
+#include "profiler/profiler.h"
+#endif
+
 #include "tt/runtime/detail/python/nanobind_headers.h"
 
 namespace nb = nanobind;
@@ -37,6 +41,9 @@ NB_MODULE(_ttmlir_runtime, m) {
   auto m_runtime_test =
       m_runtime.def_submodule("test", "Runtime test API bindings");
 #endif
+#if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
+  auto m_profiler = m.def_submodule("profiler", "Profiler API bindings");
+#endif
 
   tt::runtime::python::registerRuntimeBindings(m_runtime);
   tt::runtime::python::registerBinaryBindings(m_binary);
@@ -45,6 +52,9 @@ NB_MODULE(_ttmlir_runtime, m) {
 #endif
 #if defined(RUNTIME_TEST_ENABLED)
   tt::runtime::python::registerRuntimeTestBindings(m_runtime_test);
+#endif
+#if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
+  tt::runtime::python::registerProfilerBindings(m_profiler);
 #endif
 
 #undef RUNTIME_TEST_ENABLED
