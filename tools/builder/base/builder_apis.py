@@ -1306,6 +1306,7 @@ def load_mlir_file(
     mlir_text: str,
     golden_inputs: Dict[str, List[torch.tensor]] = None,
     target: Literal["ttir", "ttnn", "d2m", "stablehlo"] = "ttir",
+    memory_save_mode: bool = False,
 ) -> (Module, Builder):
     """
     Load an MLIR module text into a `Module` and reconstruct the corresponding builder.
@@ -1327,7 +1328,9 @@ def load_mlir_file(
     ctx = Context()
 
     if target == "ttir":
-        module, builder = TTIRBuilder.from_module(ctx, mlir_text, golden_inputs)
+        module, builder = TTIRBuilder.from_module(
+            ctx, mlir_text, golden_inputs, memory_save_mode
+        )
     elif target == "stablehlo":
         module, builder = StableHLOBuilder.from_module(ctx, mlir_text, golden_inputs)
     elif target == "ttnn":

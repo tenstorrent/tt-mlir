@@ -9,6 +9,8 @@ import torch
 from enum import Enum, auto
 import re
 from collections import OrderedDict
+import os
+import shutil
 
 from ttmlir.ir import *
 from ttmlir.dialects import tensor, quant, func, ttir, ttcore, stablehlo, ttnn, debug
@@ -49,10 +51,12 @@ class Builder(metaclass=BuilderMeta):
             List[OrderedDict[str, int]], OrderedDict[str, int]
         ] = OrderedDict([("x", 1), ("y", 1)]),
         disable_golden_check: bool = False,
+        memory_save_mode: bool = False,
     ):
         self._ctx = ctx
         self._loc = location
         self._global_id = -1
+        self._memory_save_mode = memory_save_mode
         self._disable_golden_check = disable_golden_check
         self._force_graph_level_check = False
 
@@ -66,6 +70,11 @@ class Builder(metaclass=BuilderMeta):
 
         # Map from operand to its golden tensor.
         self._goldens: Dict[Operand, GoldenMapTensor] = {}
+        self._memory_save_dir = "./builder_memory_save_goldens"
+        if os.path.exists(self._memory_save_dir):
+            shutil.rmtree(self._memory_save_dir)
+        os.makedirs(self._memory_save_dir, exist_ok=True)
+        self._memory_save_goldens: Dict[Operand, str] = {}
 
         # Map from operand to its location string.
         self._operand_to_loc: Dict[Operand, str] = {}
@@ -612,7 +621,41 @@ class Builder(metaclass=BuilderMeta):
         operand: Operand,
         goldens: List[GoldenMapTensor],
     ):
-        self._goldens[operand] = goldens
+        print("Setting golden for operand at location:", operand.location)
+        if self._memory_save_mode:
+            if not isinstance(goldens, GoldenMapTensor):
+                for golden in goldens:
+                    file_path = os.path.join(
+                        self._memory_save_dir,
+                        f"golden_{len(self._memory_save_goldens)}.pt",
+                    )
+                    self._memory_save_goldens[operand] = file_path
+                    torch.save(golden.shard_map[0], file_path)
+            else:
+                file_path = os.path.join(
+                    self._memory_save_dir, f"golden_{len(self._memory_save_goldens)}.pt"
+                )
+                torch.save(goldens.shard_map[0], file_path)
+                self._memory_save_goldens[operand] = file_path
+            """
+            golden_map_tensor = goldens
+            loc_str = str(operand.location)
+            device_golden_info = self._generate_golden_device_tensor(
+                loc_str, golden_map_tensor
+            )
+            file_path = os.path.join(
+                self._memory_save_dir, f"golden_{len(self._memory_save_goldens)}.pt"
+            )
+            with open(file_path, "wb") as f:
+                for device_id in sorted(device_golden_info.keys()):
+                    golden_tensor = device_golden_info[device_id]
+                    f.write(
+                        golden_tensor.to_bytes()
+                    )  # Assuming GoldenTensor has a method to_bytes()
+            self._memory_save_goldens[operand] = file_path
+            """
+        else:
+            self._goldens[operand] = goldens
         self._operand_to_loc[operand] = str(operand.location)
 
     def _set_goldens(
@@ -626,6 +669,10 @@ class Builder(metaclass=BuilderMeta):
         self,
         operand: Operand,
     ) -> GoldenMapTensor:
+        print("Getting golden for operand at location:", operand.location)
+        if self._memory_save_mode:
+            file_path = self._memory_save_goldens[operand]
+            return GoldenMapTensor({0: torch.load(file_path)}, self._mesh_shape)
         return self._goldens[operand]
 
     def _get_golden_tensors(
