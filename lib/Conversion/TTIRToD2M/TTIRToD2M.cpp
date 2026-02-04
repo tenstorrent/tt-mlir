@@ -11,8 +11,11 @@
 #include "ttmlir/Dialect/D2M/Utils/VirtualGrid.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/Utils/AffineMapUtils.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+
+#include "ttmlir/AffineMapUtils.h"
 
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
@@ -1761,8 +1764,6 @@ public:
                   typename TensorManipulationOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     TensorManipulationInfo info = LogicalInfoFn(op);
-    AffineMap deviceMap =
-        projectLogicalMapToUnitDeviceSpace(rewriter, info.map);
 
     auto origInputs = adaptor.getOperands();
     auto origOutputs =
@@ -1773,12 +1774,31 @@ public:
                                    /*tiled*/ info.canBeTilized);
     assert(outputs.size() == 1);
 
+    // Get the actual layouts from the converted tensor types. These reflect
+    // any collapse (e.g., collapse-to-2D) that was applied, so the device
+    // ranks match what downstream passes expect.
+    auto inputTy = mlir::cast<RankedTensorType>(inputs[0].getType());
+    auto inputLayout =
+        mlir::cast<ttcore::MetalLayoutAttr>(inputTy.getEncoding());
+
     auto outTy = mlir::cast<RankedTensorType>(outputs[0].getType());
-    auto layout = mlir::cast<ttcore::MetalLayoutAttr>(outTy.getEncoding());
+    auto outputLayout =
+        mlir::cast<ttcore::MetalLayoutAttr>(outTy.getEncoding());
+
+    // Build the device-space index map using actual layouts. This correctly
+    // handles rank-changing reshapes (e.g., 3D -> 2D) even when the tensors
+    // are collapsed, by composing through the full chain:
+    //   output device -> output physical -> output logical
+    //     -> [reshape logical map] -> input logical
+    //     -> input physical -> input device
+    AffineMap deviceMap = buildDeviceSpaceMap(rewriter, info.map, inputLayout,
+                                              inputTy, outputLayout, outTy);
+
     auto newLayout = ttcore::MetalLayoutAttr::get(
-        layout.getContext(), layout.getLogicalShape(), layout.getOobVal(),
-        layout.getMemorySpace(), layout.getMemoryLayout(),
-        layout.getCollapsedIntervals(), layout.getDimAlignments(), deviceMap);
+        outputLayout.getContext(), outputLayout.getLogicalShape(),
+        outputLayout.getOobVal(), outputLayout.getMemorySpace(),
+        outputLayout.getMemoryLayout(), outputLayout.getCollapsedIntervals(),
+        outputLayout.getDimAlignments(), deviceMap);
     auto newOutTy = RankedTensorType::get(outTy.getShape(),
                                           outTy.getElementType(), newLayout);
 
@@ -1793,51 +1813,72 @@ public:
     return success();
   }
 
-  static AffineMap projectLogicalMapToUnitDeviceSpace(Builder &builder,
-                                                      AffineMap logicalMap) {
-    unsigned outputLogicalRank = logicalMap.getNumDims();
-    unsigned inputLogicalRank = logicalMap.getNumResults();
-    unsigned outputDeviceRank = outputLogicalRank * 2;
+  // Build a device-space affine map for a tensor manipulation op (reshape,
+  // rearrange, slice, etc.) by composing the logical-space map through the
+  // actual physical/device coordinate systems of both input and output tensors.
+  //
+  // This replaces the old projectLogicalMapToUnitDeviceSpace which assumed
+  // device rank = 2 * logical rank, breaking when tensors are collapsed
+  // (e.g., collapse-to-2D makes a 3D tensor have 2D physical shape).
+  //
+  // The composition chain is:
+  //   output device coords -> output physical coords (unshuffle grid/shard)
+  //   -> output logical coords (inverse collapse)
+  //   -> input logical coords (the op's logical map)
+  //   -> input physical coords (collapse)
+  //   -> input device coords (shuffle into grid/shard)
+  static AffineMap buildDeviceSpaceMap(Builder &builder, AffineMap logicalMap,
+                                       ttcore::MetalLayoutAttr inputLayout,
+                                       RankedTensorType inputType,
+                                       ttcore::MetalLayoutAttr outputLayout,
+                                       RankedTensorType outputType) {
+    MLIRContext *ctx = builder.getContext();
 
-    // Shift the logical map's dim references to shard dimensions.
-    // Logical dims d0, d1, d2... become device shard dims
-    // d(outputLogicalRank), d(outputLogicalRank+1), d(outputLogicalRank+2)...
-    SmallVector<AffineExpr> shardExprs;
-    for (auto expr : logicalMap.getResults()) {
-      shardExprs.push_back(
-          expr.shiftDims(outputLogicalRank, outputLogicalRank));
-    }
+    // Work entirely in SCALAR units (not tile units) to avoid tile-alignment
+    // issues. This follows the same approach as buildLayoutTransformMap.
 
-    SmallVector<AffineExpr> deviceExprs;
+    // --- Output: device -> physical -> logical ---
+    auto outputPhysicalShapeVec = outputLayout.getPhysicalShape({}); // Scalars
+    ArrayRef<int64_t> outputPhysicalShape = outputPhysicalShapeVec;
+    ArrayRef<int64_t> outputGridShape = outputLayout.getGridShape(outputType);
 
-    // Grid coordinate mapping (first inputLogicalRank results).
-    for (unsigned i = 0; i < inputLogicalRank; ++i) {
-      if (inputLogicalRank == outputLogicalRank) {
-        // Same rank: identity mapping for grid (matches original behavior)
-        deviceExprs.push_back(builder.getAffineDimExpr(i));
-      } else if (inputLogicalRank < outputLogicalRank) {
-        // Expanding (e.g., 2D -> 3D): map input grid dims to output's last
-        // inputLogicalRank grid dims.
-        unsigned outputGridIdx = outputLogicalRank - inputLogicalRank + i;
-        deviceExprs.push_back(builder.getAffineDimExpr(outputGridIdx));
-      } else {
-        // Contracting (e.g., 3D -> 2D): map last outputLogicalRank input grid
-        // dims to output grid, pad the rest with 0.
-        if (i < inputLogicalRank - outputLogicalRank) {
-          deviceExprs.push_back(builder.getAffineConstantExpr(0));
-        } else {
-          unsigned outputGridIdx = i - (inputLogicalRank - outputLogicalRank);
-          deviceExprs.push_back(builder.getAffineDimExpr(outputGridIdx));
-        }
-      }
-    }
+    auto outputDeviceToPhysical = ttmlir::utils::buildDeviceToPhysicalMap(
+        outputPhysicalShape, outputGridShape, ctx);
 
-    for (auto expr : shardExprs) {
-      deviceExprs.push_back(expr);
-    }
+    ArrayRef<int64_t> outputLogicalShape = outputLayout.getLogicalShape();
+    auto outputPhysicalToLogical = ttcore::utils::buildPhysicalToLogicalMap(
+        outputLogicalShape, outputPhysicalShape,
+        outputLayout.getDimAlignments(), outputLayout.getCollapsedIntervals(),
+        ctx);
 
-    return AffineMap::get(outputDeviceRank, 0, deviceExprs,
-                          builder.getContext());
+    auto outputDeviceToLogical =
+        outputPhysicalToLogical.compose(outputDeviceToPhysical);
+
+    // --- Apply the op's logical map: output logical -> input logical ---
+    // logicalMap has numDims = output logical rank, numResults = input logical
+    // rank. Compose: output device -> output logical -> input logical.
+    auto outputDeviceToInputLogical = logicalMap.compose(outputDeviceToLogical);
+
+    // --- Input: logical -> physical -> device ---
+    ArrayRef<int64_t> inputLogicalShape = inputLayout.getLogicalShape();
+    auto inputPhysicalShapeVec = inputLayout.getPhysicalShape({}); // Scalars
+    ArrayRef<int64_t> inputPhysicalShape = inputPhysicalShapeVec;
+    ArrayRef<int64_t> inputGridShape = inputLayout.getGridShape(inputType);
+
+    auto inputLogicalToPhysical = ttcore::utils::buildLogicalToPhysicalMap(
+        inputLogicalShape, inputPhysicalShape, inputLayout.getDimAlignments(),
+        inputLayout.getCollapsedIntervals(), ctx);
+
+    auto inputPhysicalToDevice = ttmlir::utils::buildPhysicalToDeviceMap(
+        inputPhysicalShape, inputGridShape, ctx);
+
+    auto inputLogicalToDevice =
+        inputPhysicalToDevice.compose(inputLogicalToPhysical);
+    inputLogicalToDevice = mlir::simplifyAffineMap(inputLogicalToDevice);
+
+    // --- Compose full chain: output device -> input device ---
+    auto result = inputLogicalToDevice.compose(outputDeviceToInputLogical);
+    return mlir::simplifyAffineMap(result);
   }
 };
 } // namespace

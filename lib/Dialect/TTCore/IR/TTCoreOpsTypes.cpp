@@ -1616,7 +1616,54 @@ mlir::AffineMap DeviceAttr::getMemoryMap(MemRefType memrefType, size_t pageSize,
       affineMap = affineMap.compose(coreVirtMap);
     }
     if (view) {
+      // If the affine map has more dimensions than the view has results,
+      // we need to project the map to match. This handles cases where the
+      // underlying memref has higher rank than the view's output space.
+      if (affineMap.getNumDims() > view->getNumResults()) {
+        auto dimsToRemove = affineMap.getNumDims() - view->getNumResults();
+        llvm::SmallBitVector projectedDims(affineMap.getNumDims());
+        projectedDims.set(0, dimsToRemove);
+
+        affineMap = getProjectedMap(affineMap, projectedDims);
+        affineMap = affineMap.dropResults(projectedDims);
+      }
       affineMap = affineMap.compose(*view);
+    }
+
+    // The L1/DRAM memory maps expect exactly 3 input dimensions:
+    // (core_y, core_x, offset). Ensure affineMap has exactly 3 results.
+    // This is consistent with extendMappingForHigherDimGrid convention.
+    unsigned numResults = affineMap.getNumResults();
+    if (numResults != 3) {
+      auto *context = affineMap.getContext();
+      SmallVector<AffineExpr> projectedResults;
+
+      if (numResults > 3) {
+        // More than 3 results: take last 2 grid dims + offset
+        unsigned numGridDims = numResults - 1;
+        projectedResults.push_back(affineMap.getResult(numGridDims - 2));
+        projectedResults.push_back(affineMap.getResult(numGridDims - 1));
+        projectedResults.push_back(affineMap.getResult(numGridDims));
+      } else if (numResults == 2) {
+        // Only 2 results: assume (grid_dim, offset), add constant 0 for core_y
+        projectedResults.push_back(getAffineConstantExpr(0, context));
+        projectedResults.push_back(affineMap.getResult(0));
+        projectedResults.push_back(affineMap.getResult(1));
+      } else if (numResults == 1) {
+        // Only offset: add constant 0s for both core dims
+        projectedResults.push_back(getAffineConstantExpr(0, context));
+        projectedResults.push_back(getAffineConstantExpr(0, context));
+        projectedResults.push_back(affineMap.getResult(0));
+      } else {
+        // No results: add all constants
+        projectedResults.push_back(getAffineConstantExpr(0, context));
+        projectedResults.push_back(getAffineConstantExpr(0, context));
+        projectedResults.push_back(getAffineConstantExpr(0, context));
+      }
+
+      affineMap =
+          AffineMap::get(affineMap.getNumDims(), affineMap.getNumSymbols(),
+                         projectedResults, context);
     }
 
     switch (memorySpace) {
