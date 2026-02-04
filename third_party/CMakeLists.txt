@@ -1,6 +1,6 @@
 include(ExternalProject)
 
-set(TT_METAL_VERSION "27c514cddefb8fafabce7a77f614a68c12c504da")
+set(TT_METAL_VERSION "sshon/temp-260204-gpt-oss-20b")
 
 # Suppress install logs to avoid cluttering the build output
 set(CMAKE_INSTALL_MESSAGE NEVER)
