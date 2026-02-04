@@ -8435,4 +8435,3 @@ class StableHLOBuilder(Builder):
                                 sub_modules_and_builders.append(sub_op_module_builder)
 
         return sub_modules_and_builders
-

@@ -5635,14 +5635,13 @@ def ttnn_mish_golden(
     return torch.nn.functional.mish(input_tensor).to(output_dtype)
 
 
-    return torch.subtract(input_tensor, other_tensor).to(output_dtype)
-
-
 def stablehlo_shift_left_golden(
     input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
 ) -> GoldenMapTensor:
     output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
     return torch.bitwise_left_shift(input_tensor, other_tensor).to(output_dtype)
+
+
 ################ Debug Op Golden Functions ###############
 
 
@@ -5990,4 +5989,3 @@ def get_golden_function(ttir_op_class: type, **kwargs) -> Optional[Callable]:
         return GOLDEN_MAPPINGS[ttir_op_class]
 
     assert False, f"No golden function found for TTIR operation: {ttir_op_class}"
-

@@ -301,9 +301,6 @@ def module_xor_bool(builder: StableHLOBuilder):
         return builder.xor(in0, in1, unit_attrs=unit_attrs)
 
 
-
-
-
 def module_atan2(builder: StableHLOBuilder):
     @builder.func([(128, 128), (128, 128)], [torch.float32, torch.float32])
     def atan2(
@@ -338,9 +335,6 @@ def module_add(builder: StableHLOBuilder):
     ):
         builder.set_graph_level_check(True)
         return builder.add(in0, in1)
-
-
-
 
 
 def module_div(builder: StableHLOBuilder):
@@ -413,9 +407,6 @@ def module_pow(builder: StableHLOBuilder):
         )
         builder.set_graph_level_check(True)
         return builder.pow(in0, in1, unit_attrs=unit_attrs)
-
-
-
 
 
 def module_remainder(builder: StableHLOBuilder):
@@ -884,7 +875,6 @@ def test_logical_binary_ops(
         **get_request_kwargs(request),
         target=target,
         device=device,
-        pcc=-1.0,
         pcc=-1.0,
     )
 
