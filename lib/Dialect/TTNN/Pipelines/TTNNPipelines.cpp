@@ -58,12 +58,12 @@ void createTTNNPipelineTTIRPasses(
   }
   pm.addPass(mlir::createCanonicalizerPass());
 
-  // Infer kv_cache argument types from cache operations.
-  pm.addPass(mlir::tt::ttir::createTTIRInferKVCacheArgumentTypes());
-
   // Inlines all private functions. I.e flattens the program into the main
   // function. Removes all private functions.
   pm.addPass(mlir::createInlinerPass());
+
+  // Infer kv_cache argument types from cache operations.
+  pm.addPass(mlir::tt::ttir::createTTIRInferKVCacheArgumentTypes());
 
   // Flattening sliding window ops for compatibility with conversion to TTNN
   pm.addPass(mlir::tt::ttir::createTTIRFlattenSlidingWindow());
