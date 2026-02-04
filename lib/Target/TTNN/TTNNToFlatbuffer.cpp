@@ -3270,6 +3270,25 @@ createOp(FlatbufferObjectCache &cache, debug::MemorySnapshotOp op) {
                                                     filePath);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::ProfilerStartOp>
+createOp(FlatbufferObjectCache &cache, debug::ProfilerStartOp op) {
+  auto operand = cache.at<::tt::target::ttnn::TensorRef>(getOperandThroughDPSOps(op.getOperand()));
+  auto result = cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer, /*local_shape*/ std::nullopt);
+  auto outputDirectory = toFlatbuffer(cache, op.getOutputDirectory());
+  auto address = toFlatbuffer(cache, op.getAddress());
+  auto port = toFlatbuffer(cache, op.getPort());
+
+  return ::tt::target::ttnn::CreateProfilerStartOp(*cache.fbb, operand, result, outputDirectory, address, port);
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::ProfilerEndOp>
+createOp(FlatbufferObjectCache &cache, debug::ProfilerEndOp op) {
+  auto operand = cache.at<::tt::target::ttnn::TensorRef>(getOperandThroughDPSOps(op.getOperand()));
+  auto result = cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer, /*local_shape*/ std::nullopt);
+
+  return ::tt::target::ttnn::CreateProfilerEndOp(*cache.fbb, operand, result);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::Operation>
 emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
                   const llvm::StringMap<uint32_t> &programIndexMap,
@@ -3953,6 +3972,16 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
       memorySnapshotOp) {
     return createOperation(cache, createOp(cache, memorySnapshotOp),
                            debugString, locInfo);
+  }
+  if (auto profilerStartOp = dyn_cast<debug::ProfilerStartOp>(op);
+      profilerStartOp) {
+    return createOperation(cache, createOp(cache, profilerStartOp),
+                           debugString, locInfo);
+  }
+  if (auto profilerEndOp = dyn_cast<debug::ProfilerEndOp>(op);
+      profilerEndOp) {
+    return createOperation(cache, createOp(cache, profilerEndOp), debugString,
+                           locInfo);
   }
 
   llvm_unreachable("unhandled op in emitTTNNOperation");

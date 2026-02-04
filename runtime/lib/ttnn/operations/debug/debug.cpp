@@ -8,6 +8,10 @@
 #include "tt/runtime/detail/ttnn/ttnn.h"
 #include "tt/runtime/detail/ttnn/utils.h"
 
+#if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
+#include "/code/jan-2/tt-mlir/runtime/profiler/profiler_impl.h"
+#endif
+
 #include <Python.h>
 
 namespace tt::runtime::ttnn::operations::debug {
@@ -56,6 +60,39 @@ void run(const ::tt::target::ttnn::MemorySnapshotOp *op,
   const ::ttnn::Tensor &operand =
       tensorPool.getTTNNTensorAndValidate(op->operand());
   tensorPool.insertTTNNTensorAndValidate(op->result(), operand);
+}
+
+void run(const ::tt::target::ttnn::ProfilerStartOp *op, ProgramContext &context) {
+  ProgramTensorPool &tensorPool = context.getTensorPool();
+  const ::ttnn::Tensor &operand =
+      tensorPool.getTTNNTensorAndValidate(op->operand());
+  tensorPool.insertTTNNTensorAndValidate(op->result(), operand);
+
+  std::string outputDirectory = op->output_directory()->str();
+  std::string address = op->address()->str();
+  uint32_t port = op->port();
+
+#if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
+  tt::tt_metal::detail::SetDeviceProfilerDir(outputDirectory);
+  tt::tt_metal::detail::FreshProfilerDeviceLog();
+  tt::runtime::profiler::start_profiler(outputDirectory, address, port);
+#else
+  LOG_WARNING("Profiler support is not enabled in this build. Please re-build with TT_RUNTIME_ENABLE_PERF_TRACE=1.");
+#endif
+}
+
+void run(const ::tt::target::ttnn::ProfilerEndOp *op, ProgramContext &context) {
+  ProgramTensorPool &tensorPool = context.getTensorPool();
+  const ::ttnn::Tensor &operand =
+      tensorPool.getTTNNTensorAndValidate(op->operand());
+  tensorPool.insertTTNNTensorAndValidate(op->result(), operand);
+
+#if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
+  tt::tt_metal::ReadMeshDeviceProfilerResults(context.getMeshDevice());
+  tt::runtime::profiler::stop_profiler();
+#else
+  LOG_WARNING("Profiler support is not enabled in this build. Please re-build with TT_RUNTIME_ENABLE_PERF_TRACE=1.");
+#endif
 }
 
 } // namespace tt::runtime::ttnn::operations::debug

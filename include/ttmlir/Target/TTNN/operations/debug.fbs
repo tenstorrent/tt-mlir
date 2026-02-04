@@ -19,3 +19,16 @@ table MemorySnapshotOp {
   result: tt.target.ttnn.TensorRef;
   file_path: string;
 }
+
+table ProfilerStartOp {
+  operand: tt.target.ttnn.TensorRef;
+  result: tt.target.ttnn.TensorRef;
+  output_directory: string;
+  address: string;
+  port: uint32;
+}
+
+table ProfilerEndOp {
+  operand: tt.target.ttnn.TensorRef;
+  result: tt.target.ttnn.TensorRef;
+}

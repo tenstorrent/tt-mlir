@@ -51,6 +51,10 @@ target_link_libraries(TTMLIRRuntime
     flatbuffers
 )
 
+if (TT_RUNTIME_ENABLE_PERF_TRACE)
+  target_link_libraries(TTMLIRRuntime PRIVATE TTMLIRProfiler)
+endif()
+
 target_link_libraries(TTMLIRRuntime PUBLIC coverage_config)
 if (TTMLIR_ENABLE_TTNN_JIT)
   # ttnn-jit wheel requires custom rpaths when installed into a tt-metal dev venv

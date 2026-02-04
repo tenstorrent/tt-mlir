@@ -126,6 +126,8 @@ union OpType {
   AnnotateOp,
   BreakpointOp,
   MemorySnapshotOp,
+  ProfilerStartOp,
+  ProfilerEndOp
 }
 
 table Operation {

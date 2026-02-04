@@ -12,8 +12,9 @@ namespace tt::runtime::ttnn::operations::debug {
 
 void run(const ::tt::target::ttnn::AnnotateOp *op, ProgramContext &context);
 void run(const ::tt::target::ttnn::BreakpointOp *op, ProgramContext &context);
-void run(const ::tt::target::ttnn::MemorySnapshotOp *op,
-         ProgramContext &context);
+void run(const ::tt::target::ttnn::MemorySnapshotOp *op, ProgramContext &context);
+void run(const ::tt::target::ttnn::ProfilerStartOp *op, ProgramContext &context);
+void run(const ::tt::target::ttnn::ProfilerEndOp *op, ProgramContext &context);
 
 } // namespace tt::runtime::ttnn::operations::debug
 

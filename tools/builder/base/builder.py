@@ -1315,3 +1315,66 @@ class Builder(metaclass=BuilderMeta):
             self._set_golden_tensor(op_result, golden_output)
 
         return op_result
+
+    @tag(debug.ProfilerStartOp)
+    def profiler_start(
+        self,
+        operand: Operand,
+        output_directory: str,
+        address: str = "localhost",
+        port: int = 8086,
+        loc: Optional[str] = None,
+    ) -> OpResult:
+        debug_op = self.get_opview_from_method(Builder.profiler_start)
+        output_directory_attr = StringAttr.get(output_directory)
+        address_attr = StringAttr.get(address)
+        port_attr = IntegerAttr.get(IntegerType.get_unsigned(32, self._ctx), port)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = debug_op(
+            operand,
+            output_directory=output_directory_attr,
+            address=address_attr,
+            port=port_attr,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(operand)
+            op_golden_function = get_golden_function(debug_op)
+            golden_output = op_golden_function(input0, output_directory_attr, address_attr, port_attr)
+            self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @tag(debug.ProfilerEndOp)
+    def profiler_end(
+        self,
+        operand: Operand,
+        loc: Optional[str] = None,
+    ) -> OpResult:
+        debug_op = self.get_opview_from_method(Builder.profiler_end)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = debug_op(
+            operand,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(operand)
+            op_golden_function = get_golden_function(debug_op)
+            golden_output = op_golden_function(input0)
+            self._set_golden_tensor(op_result, golden_output)
+
+        return op_result

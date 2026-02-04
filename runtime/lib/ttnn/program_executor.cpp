@@ -508,6 +508,12 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::MemorySnapshotOp: {
     return operations::debug::run(op->type_as_MemorySnapshotOp(), getContext());
   }
+  case ::tt::target::ttnn::OpType::ProfilerStartOp: {
+    return operations::debug::run(op->type_as_ProfilerStartOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::ProfilerEndOp: {
+    return operations::debug::run(op->type_as_ProfilerEndOp(), getContext());
+  }
   case ::tt::target::ttnn::OpType::NONE: {
     LOG_FATAL("Unsupported operation type: ",
               ::tt::target::ttnn::EnumNameOpType(op->type_type()));

@@ -16,6 +16,8 @@
 
 #include "profiler_impl.h"
 
+namespace tt::runtime::profiler {
+
 ProfilerManager& ProfilerManager::instance() {
   static ProfilerManager instance;
   return instance;
@@ -53,11 +55,24 @@ std::string ProfilerManager::getCSVExportDataCommand() {
   return "/code/jan-2/tt-mlir/build/runtime/profiler/csvexport-release -m -s \";\" " + tracyFilePath;
 }
 
+std::vector<std::string> ProfilerManager::getProfilerEnvVars() {
+  std::vector<std::string> profilerEnvVars = {
+    "TT_METAL_CLEAR_L1=1",
+    "TT_METAL_DEVICE_PROFILER=1",
+    "TTNN_OP_PROFILER=1",
+    "TT_METAL_DEVICE_PROFILER_DISPATCH=0",
+    "TT_METAL_PROFILER_CPP_POST_PROCESS=1",
+    "TT_METAL_PROFILER_MID_RUN_DUMP=1",
+    "TT_METAL_PROFILER_DIR=" + m_outputDirectory,
+  };
+
+  return profilerEnvVars;
+}
+
 std::string ProfilerManager::setOutputDirectory(const std::string& outputDirectory) {
   m_outputDirectory = outputDirectory;
   return m_outputDirectory;
 }
-
 
 std::string ProfilerManager::setAddress(const std::string& address) {
   m_address = address;
@@ -74,6 +89,22 @@ ProcessManager& ProcessManager::instance() {
   return instance;
 }
 
+void ProcessManager::setEnvFlags(const std::vector<std::string>& envVars) {
+  for (const auto &envVar : envVars) {
+    auto pos = envVar.find('=');
+    if (pos == std::string::npos) {
+        throw std::runtime_error("Invalid env var: " + envVar);
+    }
+
+    std::string key = envVar.substr(0, pos);
+    std::string value = envVar.substr(pos + 1);
+
+    if (setenv(key.c_str(), value.c_str(), 1) != 0) {
+        throw std::runtime_error("Failed to set environment variable: " + envVar);
+    }
+  }
+}
+
 void ProcessManager::start(const std::string& command) {
   if (m_pid > 0) {
     throw std::runtime_error("Process already running with PID: " + std::to_string(m_pid));
@@ -88,6 +119,7 @@ void ProcessManager::start(const std::string& command) {
 
   if (pid == 0) {
     setsid();
+    ProcessManager::instance().setEnvFlags(ProfilerManager::instance().getProfilerEnvVars());
     execl("/bin/sh", "sh", "-c", command.c_str(), nullptr);
     perror("execl failed");
     _exit(1);
@@ -149,36 +181,13 @@ void post_process_op_data() {
 }
 
 void start_profiler(std::string outputDirectory, std::string address, int port) {
-  std::vector<std::string> profilerEnvVars = {
-    "TT_METAL_CLEAR_L1=1",
-    "TT_METAL_DEVICE_PROFILER=1",
-    "TTNN_OP_PROFILER=1",
-    "TT_METAL_DEVICE_PROFILER_DISPATCH=0",
-    "TT_METAL_PROFILER_CPP_POST_PROCESS=1",
-    "TT_METAL_PROFILER_MID_RUN_DUMP=1",
-    "TT_METAL_PROFILER_DIR=" + outputDirectory,
-  };
-
-  for (const auto &envVar : profilerEnvVars) {
-    auto pos = envVar.find('=');
-    if (pos == std::string::npos) {
-        throw std::runtime_error("Invalid env var: " + envVar);
-    }
-
-    std::string key = envVar.substr(0, pos);
-    std::string value = envVar.substr(pos + 1);
-
-    if (setenv(key.c_str(), value.c_str(), 1) != 0) {
-        throw std::runtime_error("Failed to set environment variable: " + envVar);
-    }
-  }
-
   ProfilerManager::instance().setOutputDirectory(outputDirectory);
   ProfilerManager::instance().setAddress(address);
   ProfilerManager::instance().setPort(port);
   std::string command = ProfilerManager::instance().getCaptureCommand();
 
   try {
+    ProcessManager::instance().setEnvFlags(ProfilerManager::instance().getProfilerEnvVars());
     ProcessManager::instance().start(command);
   } catch (const std::runtime_error& e) {
     throw std::runtime_error("Failed to start profiler with command: " + command + ". Error: " + e.what());
@@ -194,3 +203,5 @@ void stop_profiler() {
   post_process_op_times();
   post_process_op_data();
 }
+
+} // namespace tt::runtime::profiler

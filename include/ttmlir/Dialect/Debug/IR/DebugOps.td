@@ -272,7 +272,9 @@ def Debug_ProfilerStartOp : Debug_Op<"profiler_start",
 
   let arguments = (ins
     AnyRankedTensor:$operand,
-    StrAttr:$scope_id
+    StrAttr:$output_directory,
+    StrAttr:$address,
+    UI32Attr:$port
   );
 
   let results = (outs
@@ -288,13 +290,12 @@ def Debug_ProfilerEndOp : Debug_Op<"profiler_end",
 
     Example:
     ```mlir
-    %1 = debug.profiler_end %0 <{scope_id = "scope0"}> : tensor<32x32xf32>, tensor<32x32xf32>
+    %1 = debug.profiler_end %0 : tensor<32x32xf32>, tensor<32x32xf32>
     ```
   }];
 
   let arguments = (ins
-    AnyRankedTensor:$operand,
-    StrAttr:$scope_id
+    AnyRankedTensor:$operand
   );
 
   let results = (outs

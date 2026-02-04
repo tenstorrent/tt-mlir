@@ -13,6 +13,9 @@
 #include "tt-metalium/memory_reporter.hpp"
 #include "tt-metalium/mesh_device.hpp"
 #include "tt-metalium/program_cache.hpp"
+#if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
+#include "tt-metalium/tt_metal_profiler.hpp"
+#endif
 #include "ttnn/device.hpp"
 #include "ttnn/events.hpp"
 #include "ttnn/operations/conv/conv2d/conv2d.hpp"

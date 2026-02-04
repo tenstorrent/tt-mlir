@@ -13,23 +13,17 @@
 #include "tt/runtime/detail/python/nanobind_headers.h"
 #include "profiler_impl.h"
 
-#include <iostream>
-
 namespace nb = nanobind;
 
 namespace tt::runtime::python {
 void registerProfilerBindings(nb::module_ &m) {
-  m.def("check", []() {
-    std::cout << "Profiler started" << std::endl;
-  });
-
-  m.def("start_profiler", &start_profiler,
+  m.def("start_profiler", &tt::runtime::profiler::start_profiler,
         nb::arg("outputDirectory"),
         nb::arg("address") = "localhost",
         nb::arg("port") = 8086,
         "Start the profiler with given parameters");
 
-  m.def("stop_profiler", &stop_profiler,
+  m.def("stop_profiler", &tt::runtime::profiler::stop_profiler,
         "Stop the profiler");
 }
 } // namespace tt::runtime::python

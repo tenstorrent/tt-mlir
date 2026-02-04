@@ -5636,6 +5636,19 @@ def debug_memory_snapshot_golden(
 ) -> GoldenMapTensor:
     return input_tensor.clone()
 
+def debug_profiler_start_golden(
+    input_tensor: GoldenMapTensor,
+    output_directory_attr: StringAttr,
+    address_attr: StringAttr,
+    port_attr: IntegerAttr,
+) -> GoldenMapTensor:
+    return input_tensor.clone()
+
+def debug_profiler_end_golden(
+    input_tensor: GoldenMapTensor,
+) -> GoldenMapTensor:
+    return input_tensor.clone()
+
 
 GOLDEN_MAPPINGS: Dict[type, Callable] = {
     # ----- TTIR OPS -----
@@ -5924,6 +5937,8 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     debug.AnnotateOp: debug_annotate_golden,
     debug.BreakpointOp: debug_breakpoint_golden,
     debug.MemorySnapshotOp: debug_memory_snapshot_golden,
+    debug.ProfilerStartOp: debug_profiler_start_golden,
+    debug.ProfilerEndOp: debug_profiler_end_golden,
 }
 
 
