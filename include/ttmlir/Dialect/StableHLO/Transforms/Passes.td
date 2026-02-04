@@ -351,6 +351,18 @@ def InsertExplicitReshardsPass : Pass<"insert-explicit-reshards", "::mlir::Modul
   ];
 }
 
+def ShardyCCLCanonicalizationPass : Pass<"shardy-ccl-canonicalization", "::mlir::ModuleOp">
+{
+  let summary = "Canonicalize Shardy CCL operations.";
+  let description = [{
+    This pass canonicalizes Shardy collective communication operations by fusing / rewriting
+    patterns that can be represented more efficiently.
+  }];
+  let dependentDialects = [
+    "::mlir::sdy::SdyDialect"
+  ];
+}
+
 def ReoutlineCompositePass : Pass<"reoutline-composite", "::mlir::ModuleOp"> {
   let summary = "Reconstruct composite ops from flattened groups marked by reoutline.* attributes.";
   let description = [{

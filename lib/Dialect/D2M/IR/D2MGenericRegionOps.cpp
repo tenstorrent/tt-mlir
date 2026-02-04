@@ -375,6 +375,22 @@ void DMAWriteOp::getEffects(
   return mlir::success();
 }
 
+void WriteRowMaskTileOp::getEffects(
+    mlir::SmallVectorImpl<
+        mlir::SideEffects::EffectInstance<mlir::MemoryEffects::Effect>>
+        &effects) {
+  effects.emplace_back(mlir::MemoryEffects::Write::get(), &getOutputMutable(),
+                       0, true, mlir::SideEffects::DefaultResource::get());
+}
+
+void WriteColMaskTileOp::getEffects(
+    mlir::SmallVectorImpl<
+        mlir::SideEffects::EffectInstance<mlir::MemoryEffects::Effect>>
+        &effects) {
+  effects.emplace_back(mlir::MemoryEffects::Write::get(), &getOutputMutable(),
+                       0, true, mlir::SideEffects::DefaultResource::get());
+}
+
 ::mlir::LogicalResult RemoteStoreOp::verify() {
   auto shapedType = getShapedType();
   bool hasCbOperand = static_cast<bool>(getCb());
@@ -1374,6 +1390,7 @@ BlockMaskOp::bufferize(mlir::RewriterBase &rewriter,
 
   mlir::Value in = getInput();
   mlir::Value out = getOutput();
+
   if (mlir::isa<mlir::RankedTensorType>(in.getType())) {
     auto maybe = mlir::bufferization::getBuffer(rewriter, in, options, state);
     if (failed(maybe)) {
@@ -1389,12 +1406,30 @@ BlockMaskOp::bufferize(mlir::RewriterBase &rewriter,
     out = *maybe;
   }
 
-  rewriter.create<mlir::tt::d2m::BlockMaskOp>(getLoc(), out.getType(), in, out,
-                                              getLogicalRows(),
-                                              getLogicalCols(), getFillValue());
-  // DPS-style op: replace uses of result with the output buffer, not the new
-  // op's result. This ensures downstream ops correctly use the original buffer
-  // allocation.
+  // Bufferize mask tensors if present.
+  mlir::Value rowMaskCb = getRowMaskCb();
+  if (rowMaskCb && mlir::isa<mlir::RankedTensorType>(rowMaskCb.getType())) {
+    auto maybe =
+        mlir::bufferization::getBuffer(rewriter, rowMaskCb, options, state);
+    if (failed(maybe)) {
+      return maybe;
+    }
+    rowMaskCb = *maybe;
+  }
+
+  mlir::Value colMaskCb = getColMaskCb();
+  if (colMaskCb && mlir::isa<mlir::RankedTensorType>(colMaskCb.getType())) {
+    auto maybe =
+        mlir::bufferization::getBuffer(rewriter, colMaskCb, options, state);
+    if (failed(maybe)) {
+      return maybe;
+    }
+    colMaskCb = *maybe;
+  }
+
+  rewriter.create<mlir::tt::d2m::BlockMaskOp>(
+      getLoc(), out.getType(), in, out, rowMaskCb, colMaskCb, getLogicalRows(),
+      getLogicalCols(), getFillValue());
   rewriter.replaceAllUsesWith(getResult(), out);
   rewriter.eraseOp(*this);
   return mlir::success();
@@ -1403,12 +1438,16 @@ BlockMaskOp::bufferize(mlir::RewriterBase &rewriter,
 
 bool BlockMaskOp::bufferizesToMemoryRead(
     mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
-  return operand.get() == getInput();
+  // Input and mask CBs (if present) are read.
+  return operand.get() == getInput() || operand.get() == getRowMaskCb() ||
+         operand.get() == getColMaskCb();
 }
 
 bool BlockMaskOp::bufferizesToMemoryWrite(
     mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
-  return operand.get() == getOutput();
+  // We technically write to the scratch CBs as well as output.
+  return operand.get() == getOutput() || operand.get() == getRowMaskCb() ||
+         operand.get() == getColMaskCb();
 }
 
 mlir::bufferization::AliasingValueList
@@ -1454,6 +1493,14 @@ mlir::LogicalResult BlockMaskOp::verify() {
     return emitOpError("input and output must have the same element type");
   }
 
+  // Mask CBs must be either both provided or both absent.
+  bool hasRowMask = getRowMaskCb() != nullptr;
+  bool hasColMask = getColMaskCb() != nullptr;
+  if (hasRowMask != hasColMask) {
+    return emitOpError("row_mask_cb and col_mask_cb must both be provided or "
+                       "both be absent");
+  }
+
   return success();
 }
 
@@ -1465,6 +1512,9 @@ void BlockMaskOp::getEffects(
                        true, mlir::SideEffects::DefaultResource::get());
   effects.emplace_back(mlir::MemoryEffects::Write::get(), &getOutputMutable(),
                        0, true, mlir::SideEffects::DefaultResource::get());
+  // Mask CBs are read-only inputs. Since they're optional and tracked via
+  // AttrSizedOperandSegments, we handle them via bufferizesToMemoryRead()
+  // rather than effects, which is sufficient for bufferization analysis.
 }
 
 //===----------------------------------------------------------------------===//

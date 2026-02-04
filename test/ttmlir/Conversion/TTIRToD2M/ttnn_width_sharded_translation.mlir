@@ -4,17 +4,17 @@
 #l1 = #ttnn.buffer_type<l1>
 
 // CHECK: #layout = #ttcore.metal_layout<logical_shape = 32x384, dim_alignments = 32x32, collapsed_intervals
-// CHECK-SAME: l1, sharded, index_map = (d0, d1, d2, d3) -> (d1 floordiv 2, d1 mod 2, d2, d3)
+// CHECK-SAME: l1, sharded, index_map = (d0, d1, d2, d3) -> ((d1 floordiv 2) mod 6, d1 mod 2, d2, d3)
 // CHECK: #layout1 = #ttcore.metal_layout<logical_shape = 32x384, dim_alignments = 32x32, collapsed_intervals
-// CHECK-SAME: l1, sharded, index_map = (d0, d1, d2, d3) -> (d1 floordiv 6, d1 mod 6, d2, d3)
+// CHECK-SAME: l1, sharded, index_map = (d0, d1, d2, d3) -> ((d1 floordiv 6) mod 2, d1 mod 6, d2, d3)
 // CHECK: #layout2 = #ttcore.metal_layout<logical_shape = 64x384, dim_alignments = 32x32, collapsed_intervals
-// CHECK-SAME: l1, sharded, index_map = (d0, d1, d2, d3) -> (d1 floordiv 2, d1 mod 2, d2, d3)
+// CHECK-SAME: l1, sharded, index_map = (d0, d1, d2, d3) -> ((d1 floordiv 2) mod 6, d1 mod 2, d2, d3)
 // CHECK: #layout3 = #ttcore.metal_layout<logical_shape = 64x384, dim_alignments = 32x32, collapsed_intervals
-// CHECK-SAME: l1, sharded, index_map = (d0, d1, d2, d3) -> (d1 floordiv 6, d1 mod 6, d2, d3)
+// CHECK-SAME: l1, sharded, index_map = (d0, d1, d2, d3) -> ((d1 floordiv 6) mod 2, d1 mod 6, d2, d3)
 // CHECK: #layout4 = #ttcore.metal_layout<logical_shape = 2x32x384, dim_alignments = 1x32x32, collapsed_intervals
-// CHECK-SAME: l1, sharded, index_map = (d0, d1, d2, d3) -> (d1 floordiv 2, d1 mod 2, d2, d3)
+// CHECK-SAME: l1, sharded, index_map = (d0, d1, d2, d3) -> ((d1 floordiv 2) mod 6, d1 mod 2, d2, d3)
 // CHECK: #layout5 = #ttcore.metal_layout<logical_shape = 2x2x32x384, dim_alignments = 1x1x32x32, collapsed_intervals
-// CHECK-SAME: l1, sharded, index_map = (d0, d1, d2, d3) -> (d1 floordiv 2, d1 mod 2, d2, d3)
+// CHECK-SAME: l1, sharded, index_map = (d0, d1, d2, d3) -> ((d1 floordiv 2) mod 6, d1 mod 2, d2, d3)
 
 
 // Width Sharded - Rank 2 layouts
@@ -45,7 +45,7 @@ func.func @test_lower_width_sharded_l1(
   // CHECK: %[[CAST0:.*]] = ttir.ttnn_metal_layout_cast %arg0 : tensor<32x384xbf16, #ttnn_layout> -> tensor<1x12x1x1x!ttcore.tile<32x32, bf16>, #layout>
   // CHECK: %[[CAST1:.*]] = ttir.ttnn_metal_layout_cast %0 : tensor<32x384xbf16, #ttnn_layout> -> tensor<1x12x1x1x!ttcore.tile<32x32, bf16>, #layout>
   // CHECK: %[[RESULT:.*]] = d2m.generic
-  // CHECK-SAME: grid = #ttcore.grid<1x12, (d0, d1) -> (0, 0, d0 * 2 + d1)>
+  // CHECK-SAME: grid = #ttcore.grid<1x12, (d0, d1) -> (0, 0, (d1 + d0 * 2) mod 12)>
   // CHECK: ins(%[[CAST0]] : tensor<1x12x1x1x!ttcore.tile<32x32, bf16>, #layout>)
   // CHECK: outs(%[[CAST1]] : tensor<1x12x1x1x!ttcore.tile<32x32, bf16>, #layout>)
   // CHECK-DAG: d2m.tile_abs
@@ -63,7 +63,7 @@ func.func @test_lower_width_sharded_l1_1(
   // CHECK: %[[CAST0:.*]] = ttir.ttnn_metal_layout_cast %arg0 : tensor<32x384xbf16, #ttnn_layout1> -> tensor<1x12x1x1x!ttcore.tile<32x32, bf16>, #layout1>
   // CHECK: %[[CAST1:.*]] = ttir.ttnn_metal_layout_cast %0 : tensor<32x384xbf16, #ttnn_layout1> -> tensor<1x12x1x1x!ttcore.tile<32x32, bf16>, #layout1>
   // CHECK: %[[RESULT:.*]] = d2m.generic
-  // CHECK-SAME: grid = #ttcore.grid<1x12, (d0, d1) -> (0, 0, d0 * 6 + d1)>
+  // CHECK-SAME: grid = #ttcore.grid<1x12, (d0, d1) -> (0, 0, (d1 + d0 * 6) mod 12)>
   // CHECK: ins(%[[CAST0]] : tensor<1x12x1x1x!ttcore.tile<32x32, bf16>, #layout1>)
   // CHECK: outs(%[[CAST1]] : tensor<1x12x1x1x!ttcore.tile<32x32, bf16>, #layout1>)
   // CHECK-DAG: d2m.tile_abs
@@ -80,7 +80,7 @@ func.func @test_lower_width_sharded_l1_2(
   // CHECK: %[[CAST0:.*]] = ttir.ttnn_metal_layout_cast %arg0 : tensor<64x384xbf16, #ttnn_layout2> -> tensor<1x12x2x1x!ttcore.tile<32x32, bf16>, #layout2>
   // CHECK: %[[CAST1:.*]] = ttir.ttnn_metal_layout_cast %0 : tensor<64x384xbf16, #ttnn_layout2> -> tensor<1x12x2x1x!ttcore.tile<32x32, bf16>, #layout2>
   // CHECK: %[[RESULT:.*]] = d2m.generic
-  // CHECK-SAME: grid = #ttcore.grid<1x12, (d0, d1) -> (0, 0, d0 * 2 + d1)>
+  // CHECK-SAME: grid = #ttcore.grid<1x12, (d0, d1) -> (0, 0, (d1 + d0 * 2) mod 12)>
   // CHECK: ins(%[[CAST0]] : tensor<1x12x2x1x!ttcore.tile<32x32, bf16>, #layout2>)
   // CHECK: outs(%[[CAST1]] : tensor<1x12x2x1x!ttcore.tile<32x32, bf16>, #layout2>)
   // CHECK-DAG: d2m.tile_abs
@@ -98,7 +98,7 @@ func.func @test_lower_width_sharded_l1_3(
   // CHECK: %[[CAST0:.*]] = ttir.ttnn_metal_layout_cast %arg0 : tensor<64x384xbf16, #ttnn_layout3> -> tensor<1x12x2x1x!ttcore.tile<32x32, bf16>, #layout3>
   // CHECK: %[[CAST1:.*]] = ttir.ttnn_metal_layout_cast %0 : tensor<64x384xbf16, #ttnn_layout3> -> tensor<1x12x2x1x!ttcore.tile<32x32, bf16>, #layout3>
   // CHECK: %[[RESULT:.*]] = d2m.generic
-  // CHECK-SAME: grid = #ttcore.grid<1x12, (d0, d1) -> (0, 0, d0 * 6 + d1)>
+  // CHECK-SAME: grid = #ttcore.grid<1x12, (d0, d1) -> (0, 0, (d1 + d0 * 6) mod 12)>
   // CHECK: ins(%[[CAST0]] : tensor<1x12x2x1x!ttcore.tile<32x32, bf16>, #layout3>)
   // CHECK: outs(%[[CAST1]] : tensor<1x12x2x1x!ttcore.tile<32x32, bf16>, #layout3>)
   // CHECK-DAG: d2m.tile_abs
@@ -116,7 +116,7 @@ func.func @test_lower_width_sharded_l1_4(
   // CHECK: %[[CAST0:.*]] = ttir.ttnn_metal_layout_cast %arg0 : tensor<2x32x384xbf16, #ttnn_layout4> -> tensor<1x12x2x1x!ttcore.tile<32x32, bf16>, #layout4>
   // CHECK: %[[CAST1:.*]] = ttir.ttnn_metal_layout_cast %0 : tensor<2x32x384xbf16, #ttnn_layout4> -> tensor<1x12x2x1x!ttcore.tile<32x32, bf16>, #layout4
   // CHECK: %[[RESULT:.*]] = d2m.generic
-  // CHECK-SAME: grid = #ttcore.grid<1x12, (d0, d1) -> (0, 0, d0 * 2 + d1)>
+  // CHECK-SAME: grid = #ttcore.grid<1x12, (d0, d1) -> (0, 0, (d1 + d0 * 2) mod 12)>
   // CHECK: ins(%[[CAST0]] : tensor<1x12x2x1x!ttcore.tile<32x32, bf16>, #layout4>)
   // CHECK: outs(%[[CAST1]] : tensor<1x12x2x1x!ttcore.tile<32x32, bf16>, #layout4>)
   // CHECK-DAG: d2m.tile_abs
@@ -133,7 +133,7 @@ func.func @test_lower_width_sharded_l1_5(
   // CHECK: %[[CAST0:.*]] = ttir.ttnn_metal_layout_cast %arg0 : tensor<2x2x32x384xbf16, #ttnn_layout5> -> tensor<1x12x4x1x!ttcore.tile<32x32, bf16>, #layout5>
   // CHECK: %[[CAST1:.*]] = ttir.ttnn_metal_layout_cast %0 : tensor<2x2x32x384xbf16, #ttnn_layout5> -> tensor<1x12x4x1x!ttcore.tile<32x32, bf16>, #layout5>
   // CHECK: %[[RESULT:.*]] = d2m.generic
-  // CHECK-SAME: grid = #ttcore.grid<1x12, (d0, d1) -> (0, 0, d0 * 2 + d1)>
+  // CHECK-SAME: grid = #ttcore.grid<1x12, (d0, d1) -> (0, 0, (d1 + d0 * 2) mod 12)>
   // CHECK: ins(%[[CAST0]] : tensor<1x12x4x1x!ttcore.tile<32x32, bf16>, #layout5>)
   // CHECK: outs(%[[CAST1]] : tensor<1x12x4x1x!ttcore.tile<32x32, bf16>, #layout5>)
   // CHECK-DAG: d2m.tile_abs

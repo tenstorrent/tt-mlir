@@ -1,6 +1,6 @@
 include(ExternalProject)
 
-set(TT_METAL_VERSION "27c514cddefb8fafabce7a77f614a68c12c504da")
+set(TT_METAL_VERSION "845e68e669d8d9406b9c60fa0bd678de37c68bf1")
 
 # Suppress install logs to avoid cluttering the build output
 set(CMAKE_INSTALL_MESSAGE NEVER)
@@ -120,6 +120,7 @@ ExternalProject_Add(
     -DENABLE_TRACY=${TT_RUNTIME_ENABLE_PERF_TRACE}
     -DENABLE_LIBCXX=OFF
     -DENABLE_DISTRIBUTED=${ENABLE_DISTRIBUTED}
+    -DTT_USE_SYSTEM_SFPI=${TT_USE_SYSTEM_SFPI}
   GIT_REPOSITORY https://github.com/tenstorrent/tt-metal.git
   GIT_TAG ${TT_METAL_VERSION}
   GIT_PROGRESS OFF
