@@ -375,43 +375,71 @@ static mlir::Attribute getConstantValue(mlir::Value value) {
 // ClampTensorOp canonicalization
 void mlir::tt::ttir::ClampTensorOp::getCanonicalizationPatterns(
     mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
-  patterns.add(
-      +[](mlir::tt::ttir::ClampTensorOp op, mlir::PatternRewriter &rewriter) {
-        RankedTensorType outputType = op.getResult().getType();
+  patterns.add(+[](mlir::tt::ttir::ClampTensorOp op,
+                   mlir::PatternRewriter &rewriter) {
+    RankedTensorType outputType = op.getResult().getType();
 
-        Attribute minValue = getConstantValue(op.getMin());
-        Attribute maxValue = getConstantValue(op.getMax());
-        if (minValue && maxValue) {
-          rewriter.replaceOpWithNewOp<ttir::ClampScalarOp>(
-              op, outputType, op.getInput(), minValue, maxValue);
+    Attribute minValue = getConstantValue(op.getMin());
+    Attribute maxValue = getConstantValue(op.getMax());
+    if (minValue && maxValue) {
+      // Cast min and max attributes to match the output element type
+      Type elementType = outputType.getElementType();
 
-          return success();
-        }
+      Attribute castedMin, castedMax;
+      if (auto floatType = mlir::dyn_cast<mlir::FloatType>(elementType)) {
+        // For float types, convert to double then create attribute
+        // This ensures proper conversion regardless of source type
+        double minVal = ttmlir::utils::attributeToDouble(minValue);
+        double maxVal = ttmlir::utils::attributeToDouble(maxValue);
+        castedMin = rewriter.getFloatAttr(
+            mlir::Float32Type::get(rewriter.getContext()), minVal);
+        castedMax = rewriter.getFloatAttr(
+            mlir::Float32Type::get(rewriter.getContext()), maxVal);
+      } else {
+        // For integer types, convert via APFloat for proper rounding
+        llvm::APFloat minAPFloat = ttmlir::utils::attributeToAPFloat(minValue);
+        llvm::APFloat maxAPFloat = ttmlir::utils::attributeToAPFloat(maxValue);
+        bool ignored;
+        llvm::APSInt minInt(32, false);
+        llvm::APSInt maxInt(32, false);
+        minAPFloat.convertToInteger(minInt, llvm::APFloat::rmTowardZero,
+                                    &ignored);
+        maxAPFloat.convertToInteger(maxInt, llvm::APFloat::rmTowardZero,
+                                    &ignored);
+        castedMin = rewriter.getI32IntegerAttr(minInt.getExtValue());
+        castedMax = rewriter.getI32IntegerAttr(maxInt.getExtValue());
+      }
 
-        if (outputType.getShape() == op.getMin().getType().getShape() &&
-            outputType.getShape() == op.getMax().getType().getShape()) {
-          return failure();
-        }
+      rewriter.replaceOpWithNewOp<ttir::ClampScalarOp>(
+          op, outputType, op.getInput(), castedMin, castedMax);
 
-        Location loc = op->getLoc();
-        mlir::Value minTensor;
-        LogicalResult legalityResult = ttir::utils::broadcastValue(
-            rewriter, op.getMin(), outputType, minTensor, loc,
-            /*frontUnsqueeze=*/false);
-        assert(legalityResult.succeeded() &&
-               "Min attribute cannot be broadcasted to provided dimensions.");
+      return success();
+    }
 
-        mlir::Value maxTensor;
-        legalityResult = ttir::utils::broadcastValue(rewriter, op.getMax(),
-                                                     outputType, maxTensor, loc,
-                                                     /*frontUnsqueeze=*/false);
-        assert(legalityResult.succeeded() &&
-               "Max attribute cannot be broadcasted to provided dimensions.");
+    if (outputType.getShape() == op.getMin().getType().getShape() &&
+        outputType.getShape() == op.getMax().getType().getShape()) {
+      return failure();
+    }
 
-        rewriter.replaceOpWithNewOp<ttir::ClampTensorOp>(
-            op, outputType, op.getInput(), minTensor, maxTensor);
-        return success();
-      });
+    Location loc = op->getLoc();
+    mlir::Value minTensor;
+    LogicalResult legalityResult = ttir::utils::broadcastValue(
+        rewriter, op.getMin(), outputType, minTensor, loc,
+        /*frontUnsqueeze=*/false);
+    assert(legalityResult.succeeded() &&
+           "Min attribute cannot be broadcasted to provided dimensions.");
+
+    mlir::Value maxTensor;
+    legalityResult = ttir::utils::broadcastValue(rewriter, op.getMax(),
+                                                 outputType, maxTensor, loc,
+                                                 /*frontUnsqueeze=*/false);
+    assert(legalityResult.succeeded() &&
+           "Max attribute cannot be broadcasted to provided dimensions.");
+
+    rewriter.replaceOpWithNewOp<ttir::ClampTensorOp>(
+        op, outputType, op.getInput(), minTensor, maxTensor);
+    return success();
+  });
 }
 
 //===----------------------------------------------------------------------===//

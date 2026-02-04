@@ -501,7 +501,8 @@ inline llvm::APFloat attributeToAPFloat(mlir::Attribute attr) {
     return floatAttr.getValue();
   }
   if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(attr)) {
-    return llvm::APFloat(static_cast<float>(intAttr.getValue().getSExtValue()));
+    return llvm::APFloat(
+        static_cast<double>(intAttr.getValue().getSExtValue()));
   }
   llvm_unreachable("Unsupported attribute type: expected FloatAttr or "
                    "IntegerAttr");
