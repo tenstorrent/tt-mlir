@@ -415,50 +415,25 @@ public:
       // Fast path: pure grid reblocking on tilized tensors.
       // Use calculateReblockMap which works directly on device shapes without
       // going through logical space (avoids tile alignment issues).
-      AffineMap reblockMap = ttmlir::utils::calculateReblockMap(
-          inputInfo.type.getShape(), outputInfo.type.getShape(),
-          rewriter.getContext());
-
-      // Compose with input's existing index_map if present. This preserves
-      // view transformations (e.g., from reshape ops) when reblocking.
-      AffineMap inputIndexMap = inputLayout.getIndexAffineMap();
-      if (inputIndexMap && !inputIndexMap.isEmpty() &&
-          !inputIndexMap.isIdentity()) {
-        // The reblock map transforms output coordinates to input coordinates.
-        // The input's index_map transforms input coordinates to source
-        // coordinates. Composing: output -> input -> source.
-        viewMap = inputIndexMap.compose(reblockMap);
-      } else {
-        viewMap = reblockMap;
-      }
+      viewMap = ttmlir::utils::calculateReblockMap(inputInfo.type.getShape(),
+                                                   outputInfo.type.getShape(),
+                                                   rewriter.getContext());
     } else {
       // Complex mapping: layout properties differ (padding, collapse, etc).
-      // Use buildLayoutTransformMap which goes through logical space.
-      // For tilized tensors, this should only be called from the untilized
-      // decomposition path in step 5.
-
-      // Build an affine map that transforms input device coordinates to output
-      // device coordinates via the shared logical space. This map handles grid
-      // redistribution, collapse changes, padding changes, and virtual grid
-      // index_maps.
-      AffineMap transformMap = ttcore::utils::buildLayoutTransformMap(
+      // Use buildLayoutTransformMap which goes through logical space to handle
+      // grid redistribution, collapse changes, padding changes, and virtual
+      // grid index_maps.
+      viewMap = ttcore::utils::buildLayoutTransformMap(
           inputLayout, inputInfo.type, outputLayout, outputInfo.type);
+    }
 
-      // Compose with input's existing index_map if present. The
-      // buildLayoutTransformMap function intentionally does NOT compose the
-      // input's index_map (see comment in that function). However, for view
-      // transformations like reshape, we need to preserve the index_map here
-      // because it represents a data transformation, not just core
-      // virtualization.
-      AffineMap inputIndexMap = inputLayout.getIndexAffineMap();
-      if (inputIndexMap && !inputIndexMap.isEmpty() &&
-          !inputIndexMap.isIdentity()) {
-        // Compose: output coords -> input coords (transformMap) -> source
-        // coords (inputIndexMap).
-        viewMap = inputIndexMap.compose(transformMap);
-      } else {
-        viewMap = transformMap;
-      }
+    // Compose with input's existing index_map if present, to preserve view
+    // transformations (e.g., from reshape ops). The composition chains:
+    // output coords -> input coords (viewMap) -> source coords (inputIndexMap).
+    AffineMap inputIndexMap = inputLayout.getIndexAffineMap();
+    if (inputIndexMap && !inputIndexMap.isEmpty() &&
+        !inputIndexMap.isIdentity()) {
+      viewMap = inputIndexMap.compose(viewMap);
     }
 
     // Embed the transformation map in the output layout.

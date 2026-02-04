@@ -560,8 +560,9 @@ def test_reshape_compute(
             builder: TTIRBuilder,
             unit_attrs: Optional[List[str]] = None,
         ):
-            reshaped = builder.reshape(in0, (2, 1, 128, 128))
+            reshaped = builder.reshape(in0, (1, 2, 1, 128, 128))
             return neg(reshaped, builder, unit_attrs=unit_attrs)
+            # return neg(in0, builder, unit_attrs=unit_attrs)
 
     compile_and_execute_ttir(
         module,

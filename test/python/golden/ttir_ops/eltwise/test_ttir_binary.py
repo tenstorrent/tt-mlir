@@ -1019,3 +1019,60 @@ def test_1d(shape: Shape, dtype: torch.dtype, target: str, request, device):
         target=target,
         device=device,
     )
+
+
+@pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_reshape_add(dtype: torch.dtype, target: str, request, device):
+    shape0 = (1, 128, 16, 64)
+    shape1 = (128, 1024)
+
+    def module(builder: TTIRBuilder):
+        @builder.func([shape0, shape1], [dtype, dtype])
+        def reshape_add(
+            in0: Operand,
+            in1: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            reshaped = builder.reshape(in0, (128, 1024))
+            return add(reshaped, in1, builder, unit_attrs=unit_attrs)
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+    )
+
+
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_reshape_dot_general(dtype: torch.dtype, target: str, request, device):
+    shape0 = (1, 32)
+    shape1 = (1, 1, 128)
+
+    def module(builder: TTIRBuilder):
+        @builder.func([shape0, shape1], [dtype, dtype])
+        def reshape_dot_general(
+            in0: Operand,
+            in1: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            reshaped = builder.reshape(in0, (1, 32, 1))
+            return builder.dot_general(
+                reshaped,
+                in1,
+                batch_dims_lhs=[0],
+                contract_dims_lhs=[2],
+                batch_dims_rhs=[0],
+                contract_dims_rhs=[1],
+            )
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+    )
