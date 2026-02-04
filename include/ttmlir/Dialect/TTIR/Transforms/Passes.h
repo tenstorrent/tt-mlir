@@ -24,6 +24,9 @@ namespace mlir::tt::ttir {
 // with ttir.should_hoist attribute.
 std::unique_ptr<Pass> createCPUHoistManuallyTaggedOpsTransform();
 
+// Creates a pass that infers KV cache argument types from cache operations.
+std::unique_ptr<Pass> createTTIRInferKVCacheArgumentTypes();
+
 #define GEN_PASS_REGISTRATION
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
 

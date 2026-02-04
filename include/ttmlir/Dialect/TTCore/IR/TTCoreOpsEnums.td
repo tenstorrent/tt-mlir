@@ -186,6 +186,7 @@ def TTCore_ArgumentType_Input : I32EnumAttrCase<"Input", 0, "input">;
 def TTCore_ArgumentType_Parameter: I32EnumAttrCase<"Parameter", 1, "parameter">;
 def TTCore_ArgumentType_Constant : I32EnumAttrCase<"Constant", 2, "constant">;
 def TTCore_ArgumentType_Default : I32EnumAttrCase<"Default", 3, "default">;
+def TTCore_ArgumentType_KVCache : I32EnumAttrCase<"KVCache", 4, "kv_cache">;
 
 def TTCore_ArgumentType : I32EnumAttr<"ArgumentType", "Argument Type",
                             [
@@ -193,6 +194,7 @@ def TTCore_ArgumentType : I32EnumAttr<"ArgumentType", "Argument Type",
                               TTCore_ArgumentType_Parameter,
                               TTCore_ArgumentType_Constant,
                               TTCore_ArgumentType_Default,
+                              TTCore_ArgumentType_KVCache,
                             ]> {
   let genSpecializedAttr = 0;
   let cppNamespace = "::mlir::tt::ttcore";

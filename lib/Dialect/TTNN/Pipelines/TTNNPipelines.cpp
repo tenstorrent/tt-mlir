@@ -58,6 +58,10 @@ void createTTNNPipelineTTIRPasses(
   }
   pm.addPass(mlir::createCanonicalizerPass());
 
+  // Infer kv_cache argument types from cache operations. This must run after
+  // TTIRToTTIRDecompositionPass which converts scatter ops to cache ops.
+  pm.addPass(mlir::tt::ttir::createTTIRInferKVCacheArgumentTypes());
+
   // Inlines all private functions. I.e flattens the program into the main
   // function. Removes all private functions.
   pm.addPass(mlir::createInlinerPass());
