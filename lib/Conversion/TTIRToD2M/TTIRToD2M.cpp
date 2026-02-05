@@ -1588,28 +1588,29 @@ public:
                                false),
         OpConversionPattern<ttir::ToLayoutOp>(typeConverter, context) {}
 
-  using D2MNamedRewriterCommon::assertTTNNLayoutSupported;
   using D2MNamedRewriterCommon::getMetalTensorFromTTNNTensor;
 
+private:
   LogicalResult
-  matchAndRewrite(ttir::ToLayoutOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
+  rewriteIfTTNNModeEnabled(ttir::ToLayoutOp op, OpAdaptor adaptor,
+                           ConversionPatternRewriter &rewriter) const {
+    /* Lowers ttir.to_layout with TTNN tensor operands when ttnnMode is enabled,
+       to d2m.to_layout with Metal tensor operands. This is done by
+       auto-inserting casts to/from tensors with MetalLayoutAttr, which
+       downstream passes support. The conversion flow is:
+       1. Cast TTNN input to Metal layout
+       2. Create d2m.empty with TTNN output layout
+       3. Cast the d2m.empty from TTNN to Metal layout
+       4. Create d2m.to_layout with Metal input cast and d2m.empty cast
+       5. Cast result back to TTNN layout
+    */
     auto outType = mlir::cast<RankedTensorType>(op.getOutput().getType());
-
-    if (!ttnnMode) {
-      // use simple conversion
-      Value empty = rewriter.create<d2m::EmptyOp>(
-          op.getLoc(), outType.getShape(), outType.getElementType(),
-          outType.getEncoding());
-      auto newOp = rewriter.create<d2m::ToLayoutOp>(op.getLoc(),
-                                                    adaptor.getInput(), empty);
-      rewriter.replaceOp(op, newOp.getResult(0));
-      return success();
-    }
 
     bool outputIsTTNN =
         mlir::isa_and_nonnull<ttnn::TTNNLayoutAttr>(outType.getEncoding());
-    assert(outputIsTTNN);
+    TT_assertv(
+        outputIsTTNN,
+        "expected output type to have TTNN layout when ttnnMode is enabled");
 
     // TTNN output handling.
     // Convert input to Metal layout if needed.
@@ -1647,6 +1648,27 @@ public:
     rewriter.replaceOp(op, ttnnResult.getResult());
     return success();
   }
+
+public:
+  LogicalResult
+  matchAndRewrite(ttir::ToLayoutOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto outType = mlir::cast<RankedTensorType>(op.getOutput().getType());
+
+    if (!ttnnMode) {
+      // When ttnnMode is disabled, we can simply convert ttir.to_layout
+      // directly to d2m.to_layout.
+      Value empty = rewriter.create<d2m::EmptyOp>(
+          op.getLoc(), outType.getShape(), outType.getElementType(),
+          outType.getEncoding());
+      auto newOp = rewriter.create<d2m::ToLayoutOp>(op.getLoc(),
+                                                    adaptor.getInput(), empty);
+      rewriter.replaceOp(op, newOp.getResult(0));
+      return success();
+    }
+
+    return rewriteIfTTNNModeEnabled(op, adaptor, rewriter);
+  }
 };
 
 // Simple conversion for ttir.empty -> d2m.empty.
@@ -1660,8 +1682,12 @@ class D2MEmptyOpRewriter : public OpConversionPattern<ttir::EmptyOp> {
     auto tensorType = cast<RankedTensorType>(resultType);
     bool outputIsTTNN =
         mlir::isa_and_nonnull<ttnn::TTNNLayoutAttr>(resultType.getEncoding());
+
     if (outputIsTTNN) {
-      // if empty is used by a to_layout
+      // If a user of a ttir.empty is a ttir.to_layout, erase the ttir.empty
+      // instead of converting to d2m.empty. The D2MToLayoutOpRewriter creates a
+      // d2m.empty with the d2m.to_layout as a user, so this empty op is not
+      // needed.
       for (Operation *user : op->getUsers()) {
         if (auto toLayoutOp = dyn_cast<ttir::ToLayoutOp>(user)) {
           if (toLayoutOp.getOutput() == op.getResult()) {

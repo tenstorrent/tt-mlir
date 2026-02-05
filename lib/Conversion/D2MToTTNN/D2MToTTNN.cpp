@@ -23,11 +23,16 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
 
-#include <tuple>
-
 namespace mlir::tt {
 
 namespace {
+
+// Helper struct to extract and return both IO and CB from a ttnn.generic
+// operand.
+struct IOAndCB {
+  Value io;
+  Value cb;
+};
 
 static ttnn::ComputeKernelMathFidelity
 convertMathFidelity(ttmetal::MathFidelity fidelity) {
@@ -226,7 +231,7 @@ public:
     return cbDescriptors;
   }
 
-  static std::tuple<Value, Value> extractIOAndCB(Value operand) {
+  static IOAndCB extractIOAndCBFromGenericOperand(Value operand) {
     if (auto streamLayoutOp = mlir::dyn_cast_if_present<d2m::StreamLayoutOp>(
             operand.getDefiningOp())) {
       auto castOp = mlir::dyn_cast_if_present<ttir::TTNNMetalLayoutCastOp>(
@@ -303,7 +308,7 @@ public:
     llvm::SmallVector<Value> ios(size);
     llvm::SmallVector<Value> cbs(size);
     for (auto [i, operand] : llvm::enumerate(op->getOperands())) {
-      auto [io, cb] = extractIOAndCB(operand);
+      auto [io, cb] = extractIOAndCBFromGenericOperand(operand);
       ios[i] = io;
       cbs[i] = cb;
     }
