@@ -4600,6 +4600,53 @@ def stablehlo_subtract_golden(
     return torch.subtract(input_tensor, other_tensor).to(output_dtype)
 
 
+def stablehlo_compare_golden(
+    input_tensor: GoldenMapTensor,
+    other_tensor: GoldenMapTensor,
+    comparison_direction: str,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    """
+    Golden function for stablehlo.CompareOp.
+
+    Performs element-wise comparison between two tensors based on the comparison direction.
+
+    Parameters
+    ----------
+    input_tensor : GoldenMapTensor
+        Left-hand side tensor.
+    other_tensor : GoldenMapTensor
+        Right-hand side tensor.
+    comparison_direction : str
+        The comparison operation to perform. One of: "EQ", "NE", "GE", "GT", "LE", "LT".
+    output_type_mlir : Type
+        The MLIR output type.
+
+    Returns
+    -------
+    GoldenMapTensor
+        Tensor containing the comparison results.
+    """
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+
+    # Map comparison direction to PyTorch function
+    compare_funcs = {
+        "EQ": torch.eq,
+        "NE": torch.ne,
+        "GE": torch.ge,
+        "GT": torch.gt,
+        "LE": torch.le,
+        "LT": torch.lt,
+    }
+
+    if comparison_direction not in compare_funcs:
+        raise ValueError(f"Unknown comparison direction: {comparison_direction}")
+
+    compare_func = compare_funcs[comparison_direction]
+    result_bool = compare_func(input_tensor, other_tensor)
+    return result_bool.to(output_dtype)
+
+
 def stablehlo_shift_right_logical_golden(
     input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
 ) -> GoldenMapTensor:
@@ -5823,6 +5870,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     # bitcast conversion operation
     stablehlo.BroadcastInDimOp: torch.broadcast_to,
     stablehlo.SubtractOp: stablehlo_subtract_golden,
+    stablehlo.CompareOp: stablehlo_compare_golden,
     stablehlo.PowOp: stablehlo_pow_golden,
     stablehlo.ShiftRightLogicalOp: stablehlo_shift_right_logical_golden,
     stablehlo.ReverseOp: stablehlo_reverse_golden,
