@@ -227,7 +227,7 @@ struct TTIRToTTNNDevicePipelineOptions
       *this, OptionNames::tensorL1UsageCap,
       llvm::cl::desc("Override tensor L1 usage cap in L1 Interleaved Fallback "
                      "Analysis and Memory Layout Analysis. [0.0-1.0]"),
-      llvm::cl::init(0.95f)};
+      llvm::cl::init(0.96f)};
 
   // Option to enable/disable the workaround pass.
   //
