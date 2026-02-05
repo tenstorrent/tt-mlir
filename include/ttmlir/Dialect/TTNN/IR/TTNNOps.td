@@ -2920,7 +2920,7 @@ def TTNN_CaptureOrExecuteTraceOp : TTNN_MemoryEffectOp<"capture_or_execute_trace
   let hasVerifier = 1;
 }
 
-def TTNN_GenericOp : TTNN_Op<"generic", [TTNN_MemoryConfigOpInterface, MemoryEffects<[MemRead, MemWrite]>]> {
+def TTNN_GenericOp : TTNN_Op<"generic", [TTNN_MemoryConfigOpInterface, MemoryEffects<[MemRead, MemWrite]>, TTCore_NonCacheableTrait]> {
     let summary = "Generic operation.";
     let description = [{
       Generic operation capable of running a program with custom kernels. Each kernel is described with a
@@ -2933,10 +2933,71 @@ def TTNN_GenericOp : TTNN_Op<"generic", [TTNN_MemoryConfigOpInterface, MemoryEff
     }];
 
     let arguments = (ins Variadic<AnyRankedTensor>:$inputs_and_outputs,
-                         TTNN_ProgramAttr:$program,
+                         TTNN_GenericProgramAttr:$program,
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
     let hasVerifier = 1;
+}
+
+def TTNN_D2MSubgraphOp : TTNN_MemoryEffectOp<"d2m_subgraph",
+  [AttrSizedOperandSegments]> {
+  let summary = "Dispatch D2M compiled subgraph.";
+  let description = [{
+    References a D2M-compiled subgraph function containing ttnn.generic ops.
+    The function is a private function in the same module.
+
+    Before TTNNMaterializeD2M runs, the referenced function contains a TTNN subgraph
+    to be compiled via D2M.
+
+    After TTNNMaterializeD2M runs, the referenced function contains:
+    - ttnn.generic ops (the compiled subgraph)
+    - Kernel functions are generated at module scope
+
+    TTNNCollaspeD2M will inline the D2M function body at the call site.
+
+    Example:
+    ```mlir
+    // Before D2M compilation
+    %result = ttnn.d2m_subgraph @d2m_subgraph
+        ins(%a : tensor<...>)
+        outs(%out : tensor<...>) : tensor<...>
+
+    func.func private @d2m_subgraph(...) -> tensor<...> {
+      // ttnn subgraph
+    }
+
+    // After D2M compilation
+    %result = ttnn.d2m_subgraph @d2m_subgraph
+        ins(%a : tensor<...>)
+        outs(%out : tensor<...>) : tensor<...>
+
+    func.func private @d2m_subgraph(...) -> tensor<...> {
+      ttnn.generic ...
+      // more generic ops if subgraph didn't fully fuse
+    }
+    func.func private @kernel0() { ... }
+    ... other kernel functions at module scope
+    ```
+  }];
+
+  let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
+                       Variadic<AnyRankedTensor>:$outputs,
+                       SymbolRefAttr:$d2m_func);
+
+  let results = (outs Variadic<AnyRankedTensor>:$results);
+
+  let hasVerifier = 1;
+
+  let assemblyFormat = [{
+    $d2m_func attr-dict `\n`
+    `ins` `(` $inputs `:` type($inputs) `)` `\n`
+    `outs` `(` $outputs `:` type($outputs) `)` (`:` type($results)^)?
+  }];
+
+  let extraClassDeclaration = [{
+    // Returns the D2M function referenced by this op (looks up in parent module).
+    func::FuncOp getD2MMainFunc();
+  }];
 }
 
 def TTNN_RotaryEmbeddingLlamaOp : TTNN_Op<"rotary_embedding_llama", [TTNN_MemoryConfigOpInterface, TTNN_ComputeKernelConfigOpInterface]> {

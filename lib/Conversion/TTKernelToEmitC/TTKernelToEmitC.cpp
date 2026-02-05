@@ -41,11 +41,8 @@ namespace mlir::tt::ttkernel {
 
 // ............................................................................
 
-emitc::OpaqueAttr
-datatypeToDataformatEnumValue(Builder &builder,
-                              ::mlir::tt::ttcore::DataType dtype) {
-  std::string expression =
-      "static_cast<std::underlying_type_t<DataFormat>>(DataFormat::";
+static std::string datatypeToDataformatStr(ttcore::DataType dtype) {
+  std::string expression = "DataFormat::";
   switch (dtype) {
   case ::mlir::tt::ttcore::DataType::Float32:
     expression += "Float32";
@@ -90,6 +87,21 @@ datatypeToDataformatEnumValue(Builder &builder,
     llvm_unreachable("Bool DataType is not supported in TTKernel DataFormat");
     break;
   }
+  return expression;
+}
+
+static emitc::OpaqueAttr
+datatypeToDataformatEnumNameOpaqueAttr(Builder &builder,
+                                       ttcore::DataType dtype) {
+  std::string expression = datatypeToDataformatStr(dtype);
+  return builder.getType<emitc::OpaqueAttr>(expression.c_str());
+}
+
+static emitc::OpaqueAttr
+datatypeToDataformatEnumValueOpaqueAttr(Builder &builder,
+                                        ttcore::DataType dtype) {
+  std::string expression = "static_cast<std::underlying_type_t<DataFormat>>(";
+  expression += datatypeToDataformatStr(dtype);
   expression += ")";
   return builder.getType<emitc::OpaqueAttr>(expression.c_str());
 }
@@ -272,9 +284,9 @@ public:
                                         ttkernel::TypecastTileInitOp>) {
       SmallVector<Attribute, 2> template_args;
       template_args.push_back(
-          datatypeToDataformatEnumValue(builder, op.getInDtype()));
+          datatypeToDataformatEnumValueOpaqueAttr(builder, op.getInDtype()));
       template_args.push_back(
-          datatypeToDataformatEnumValue(builder, op.getOutDtype()));
+          datatypeToDataformatEnumValueOpaqueAttr(builder, op.getOutDtype()));
       return ArrayAttr::get(op.getContext(), template_args);
     } else if constexpr (std::is_same_v<SourceOp,
                                         ttkernel::BinaryDestReuseTilesInitOp> ||
@@ -301,6 +313,17 @@ public:
               : "EltwiseBinaryReuseDestType::DEST_TO_SRCB";
       template_args.push_back(
           emitc::OpaqueAttr::get(op.getContext(), reuseType));
+      return ArrayAttr::get(op.getContext(), template_args);
+    } else if constexpr (std::is_same_v<SourceOp, ttkernel::WhereTileOp> ||
+                         std::is_same_v<SourceOp,
+                                        ttkernel::BitwiseAndBinaryTilesOp> ||
+                         std::is_same_v<SourceOp,
+                                        ttkernel::BitwiseOrBinaryTilesOp> ||
+                         std::is_same_v<SourceOp,
+                                        ttkernel::BitwiseXorBinaryTilesOp>) {
+      SmallVector<Attribute, 1> template_args;
+      template_args.push_back(
+          datatypeToDataformatEnumNameOpaqueAttr(builder, op.getDtype()));
       return ArrayAttr::get(op.getContext(), template_args);
     }
     return ArrayAttr();
@@ -859,6 +882,51 @@ public:
     return success();
   }
 };
+
+// Arith MaxUIOp doesn't have an emitc lowering. We can lower it to a call to
+// std::max.
+class ArithMaxUIRewriter : public OpConversionPattern<arith::MaxUIOp> {
+public:
+  using OpConversionPattern<arith::MaxUIOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(arith::MaxUIOp op, arith::MaxUIOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    Type resultType = getTypeConverter()->convertType(op.getResult().getType());
+    if (!resultType) {
+      return failure();
+    }
+
+    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
+        op, resultType, "std::max<size_t>", adaptor.getOperands());
+
+    return success();
+  }
+};
+
+// Arith MinUIOp doesn't have an emitc lowering. We can lower it to a call to
+// std::min.
+class ArithMinUIRewriter : public OpConversionPattern<arith::MinUIOp> {
+public:
+  using OpConversionPattern<arith::MinUIOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(arith::MinUIOp op, arith::MinUIOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    Type resultType = getTypeConverter()->convertType(op.getResult().getType());
+    if (!resultType) {
+      return failure();
+    }
+
+    // Explicit type template needed for some edge cases where emitc might lower
+    // an int literal into the call with a size_t arg, creating sfpi compiler
+    // error.
+    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
+        op, resultType, "std::min<size_t>", adaptor.getOperands());
+
+    return success();
+  }
+};
 } // namespace
 
 namespace {
@@ -1071,11 +1139,13 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::TanhTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::TypecastTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::TypecastTileOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::ExperimentalTileFillOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::ExperimentalWriteRowMaskTileOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::ExperimentalWriteColMaskTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::UnaryBcastInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::UnaryBcastTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::WhereTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::WhereTileOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::WhereTileF32Op>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ClampScalarTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ClampScalarTileOp>,
 
@@ -1165,8 +1235,9 @@ public:
             ttkernel::InterleavedAddrGenFastGetNocAddrOp>>(typeConverter,
                                                            funcOp.getContext());
 
-    patterns.add<ArithFloorDivRewriter, ArithBitcastRewriter>(
-        typeConverter, funcOp.getContext());
+    patterns.add<ArithFloorDivRewriter, ArithBitcastRewriter,
+                 ArithMaxUIRewriter, ArithMinUIRewriter>(typeConverter,
+                                                         funcOp.getContext());
 
     return applyFullConversion(funcOp, target, std::move(patterns));
   }

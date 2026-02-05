@@ -6950,9 +6950,12 @@ OpModel<mlir::tt::ttnn::ArangeOp>::getOpConstraints(
     dataType = conversion::getDataType(dtype.value());
   }
   ::ttnn::MemoryConfig memoryConfig = defaultMemoryConfigInMetal;
+  ::ttnn::Layout layout = defaultLayoutInMetal;
   // Prefer the output layout if possible:
   if (outputLayout) {
     memoryConfig = conversion::getMemoryConfig(outputLayout);
+    layout =
+        outputLayout.isTiled() ? ::ttnn::TILE_LAYOUT : ::ttnn::ROW_MAJOR_LAYOUT;
   } else if (memConfig.has_value()) {
     memoryConfig = conversion::getMemoryConfig(memConfig.value());
   }
@@ -6962,7 +6965,7 @@ OpModel<mlir::tt::ttnn::ArangeOp>::getOpConstraints(
   auto arangeOpQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
         ::ttnn::arange, device, start.getInt(), end.getInt(), step.getInt(),
-        dataType, deviceRef, memoryConfig, defaultLayoutInMetal);
+        dataType, deviceRef, memoryConfig, layout);
   };
 
   return operation::getOpConstraints(start.getContext(), deviceGrid,

@@ -547,20 +547,6 @@ ChipDescAttr::getDstLogicalSizeTiles(Type type, bool fullSyncEn,
   return nDstTiles;
 }
 
-static llvm::SmallVector<int64_t>
-getPhysicalGridShapeFromShapeAndMap(ArrayRef<int64_t> overallDeviceShape,
-                                    ArrayRef<int64_t> virtualGridShape,
-                                    AffineMap map) {
-  // If the map is empty, the virtual and physical grid shapes are the same.
-  if (map.isEmpty()) {
-    return llvm::SmallVector<int64_t>(virtualGridShape);
-  }
-  TT_assert(map.getNumResults() >= 2u);
-  auto gridResultMap = ttmlir::utils::affineMapTakeFrontResults(map, 2);
-  TT_assert(overallDeviceShape.size() == gridResultMap.getNumDims());
-  return ttmlir::utils::evalShape(gridResultMap, overallDeviceShape);
-}
-
 ShardLayoutAttr ShardLayoutAttr::get(mlir::MLIRContext *context,
                                      ArrayRef<int64_t> shape,
                                      uint64_t elementSize, uint32_t buffers) {
@@ -595,13 +581,6 @@ ShardLayoutAttr ShardLayoutAttr::get(mlir::MLIRContext *context,
 mlir::AffineMap ShardLayoutAttr::getAffineMap() const {
   return ttmlir::utils::generateAffineMapFromShardStrides(getStride(),
                                                           getContext());
-}
-
-llvm::SmallVector<int64_t>
-ShardLayoutAttr::getPhysicalGridShape(ShapedType tensorType) const {
-  return getPhysicalGridShapeFromShapeAndMap(tensorType.getShape(),
-                                             getGridShape(tensorType),
-                                             getCoreVirtualizationMap());
 }
 
 InterleavedLayoutAttr InterleavedLayoutAttr::get(mlir::MLIRContext *context,
@@ -879,12 +858,6 @@ MetalLayoutAttr::getPhysicalShape(ArrayRef<int64_t> tileShape) const {
     physicalShape[physicalShape.size() - 1] /= tileShape[1];
   }
   return physicalShape;
-}
-
-llvm::SmallVector<int64_t>
-MetalLayoutAttr::getPhysicalGridShape(ShapedType tensorType) const {
-  return getPhysicalGridShapeFromShapeAndMap(
-      tensorType.getShape(), getGridShape(tensorType), getIndexAffineMap());
 }
 
 // Takes various shape fields and returns the expected physical shape, which
