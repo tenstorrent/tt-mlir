@@ -902,7 +902,8 @@ void memcpy(void *dst, ::tt::runtime::Tensor src,
     size_t size = srcTensor.physical_volume() * srcTensor.element_size();
     std::memcpy(dst, srcPtr, size);
   } else {
-    ::tt::tt_metal::memcpy(dst, srcTensor);
+    ::tt::tt_metal::copy_to_host(srcTensor.device()->mesh_command_queue(),
+                                 srcTensor, reinterpret_cast<std::byte *>(dst));
   }
 }
 
@@ -921,8 +922,13 @@ void memcpy(::tt::runtime::Tensor dst, ::tt::runtime::Tensor src) {
     const void *srcPtr = utils::getRawHostDataPtr(srcTensor);
     size_t size = srcTensor.physical_volume() * srcTensor.element_size();
     std::memcpy(dstPtr, srcPtr, size);
+  } else if (utils::isOnHost(srcTensor.storage_type())) {
+    ::tt::tt_metal::copy_to_device(srcTensor, dstTensor);
   } else {
-    ::tt::tt_metal::memcpy(dstTensor, srcTensor);
+    void *dstPtr = utils::getRawHostDataPtr(dstTensor);
+    ::tt::tt_metal::copy_to_host(dstTensor.device()->mesh_command_queue(),
+                                 srcTensor,
+                                 reinterpret_cast<std::byte *>(dstPtr));
   }
 }
 
