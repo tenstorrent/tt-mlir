@@ -16,11 +16,8 @@ module attributes {ttcore.meshes = #ttcore.meshes<[<"mesh" = 2x4>]>} {
 }
 
 // CHECK-LABEL: @test_sdy_all_slice_composite_row_major
-// CHECK: %1 = "ttnn.to_layout"(%arg0)
-// CHECK-SAME: <{layout = #ttnn.layout<row_major>}>
-// CHECK: "ttnn.mesh_partition"(%1)
+// CHECK-NOT: "ttnn.to_layout"
+// CHECK: "ttnn.mesh_partition"(%arg0)
 // CHECK-SAME: <{cluster_axis = 1 : ui32, dim = 0 : si32}>
-// CHECK: "ttnn.mesh_partition"(%2)
+// CHECK: "ttnn.mesh_partition"(%1)
 // CHECK-SAME: <{cluster_axis = 0 : ui32, dim = 1 : si32}>
-// CHECK: %4 = "ttnn.to_layout"(%3)
-// CHECK-SAME: <{layout = #ttnn.layout<tile>}>

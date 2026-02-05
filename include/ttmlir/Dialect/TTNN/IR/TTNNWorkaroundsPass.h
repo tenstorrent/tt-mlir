@@ -248,10 +248,6 @@ public:
   static TTNNOperandsWorkarounds
   createMeshShardOpOperandsWorkarounds(ttcore::MeshShardType shardType);
 
-  // Create workarounds for mesh partition op operands. The input tensor is
-  // always in row-major layout.
-  static TTNNOperandsWorkarounds createMeshPartitionOpOperandsWorkarounds();
-
   // Create workarounds for scatter op operands.
   static TTNNOperandsWorkarounds
   createScatterOpOperandsWorkarounds(mlir::Operation *op);
