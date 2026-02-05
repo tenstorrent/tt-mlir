@@ -1750,8 +1750,6 @@ public:
     Location loc = op->getLoc();
     RankedTensorType resultType = op.getResult().getType();
 
-    // D2M requires 2D tensors with arange on the last dimension.
-    // TTIRToTTIRDecomposition handles cases that don't fit this pattern.
     if (resultType.getRank() != 2) {
       return rewriter.notifyMatchFailure(
           op, "D2M arange requires 2D tensor; decomposition pass should "
@@ -1777,16 +1775,11 @@ public:
         ttcore::getDeviceLayout(output).getRank() / 2;
 
     // Create scratch tensor for index tile (single tile per core).
-    // ExperimentalWriteFullIndexTileOp writes linear indices 0-1023 directly
-    // in tile format (element[r][c] = r * 32 + c).
     Type f32Type = rewriter.getF32Type();
     llvm::ArrayRef<int64_t> gridShape =
         outputLayout.getGridShape(outputTensorType);
-
-    // Tilized scratch tensor: gridShape x 1 x 1 (one tile per core)
     SmallVector<int64_t> scratchShape(gridShape.begin(), gridShape.end());
     scratchShape.append({1, 1}); // One tile
-
     auto tileType = ttcore::TileType::get(f32Type);
     SmallVector<int64_t> scratchLogicalShape = {1, 1};
     auto scratchLayout = ttcore::MetalLayoutAttr::get(
@@ -1798,7 +1791,6 @@ public:
             .create<d2m::EmptyOp>(loc, scratchShape, tileType, scratchLayout)
             .getResult();
 
-    // Build indexing maps: constant (0s) for scratch, identity for output.
     AffineMap identityMap = rewriter.getMultiDimIdentityMap(physicalRank);
     SmallVector<AffineExpr> zeroExprs(physicalRank,
                                       rewriter.getAffineConstantExpr(0));
@@ -1837,7 +1829,7 @@ public:
       Value indexTileTensor = blockArgs[0];
       Value outputTensor = blockArgs[1];
 
-      // Create ArangeBlockOp with the index tile scratch tensor.
+      // Create ArangeBlockOp with the scratch tile tensor.
       Value arangeResult =
           rewriter
               .create<d2m::ArangeBlockOp>(loc, outputTensor, indexTileTensor,
@@ -1858,8 +1850,6 @@ public:
     }
     rewriter.finalizeOpModification(generic);
     rewriter.restoreInsertionPoint(insertPoint);
-
-    // Un-layout the result.
     rewriter.replaceOp(op, unLayoutResult(rewriter, generic->getResult(0),
                                           op->getResult(0).getType()));
     return success();
