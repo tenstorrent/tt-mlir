@@ -2,6 +2,53 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+"""
+TTIR Operations Golden Tests
+============================
+
+This module contains golden tests for TTIR (Tenstorrent IR) operations using
+the TTIRBuilder framework. Each test verifies correct operation behavior by
+comparing computed outputs against expected "golden" values.
+
+Test Structure
+--------------
+Tests follow a consistent pattern:
+
+1. **Helper Function**: Defines the operation logic and golden value computation
+   - Creates input tensors with appropriate values
+   - Computes expected output using PyTorch operations
+   - Calls the corresponding TTIRBuilder method
+   - Registers golden values for verification
+
+2. **Test Function**: Parametrized pytest function that:
+   - Defines a module using the TTIRBuilder
+   - Compiles and executes via compile_and_execute_ttir
+   - Verifies outputs match golden values
+
+Operation Categories
+--------------------
+- **Elementwise**: relu, sigmoid, exp, log, sqrt, abs, neg, logical_not, etc.
+- **Reduction**: sum, mean, max, prod with dimension parameters
+- **Matrix**: matmul, dot_general, linear operations
+- **Shape**: reshape, transpose, concat, slice, broadcast
+- **Comparison**: eq, ne, lt, le, gt, ge
+
+Usage
+-----
+Run tests using pytest:
+
+    pytest test/python/golden/test_ttir_ops.py -v
+
+Run specific operation tests:
+
+    pytest test/python/golden/test_ttir_ops.py -k "matmul" -v
+
+See Also
+--------
+- builder.ttir.ttir_builder.TTIRBuilder: The builder class for constructing operations
+- builder.base.builder_apis: Compilation and execution utilities
+"""
+
 import pytest
 import torch
 from typing import Callable, List, Optional, Tuple, Union
