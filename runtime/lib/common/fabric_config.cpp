@@ -104,9 +104,12 @@ appendFabricConfigArgs(
 
     tt::tt_fabric::FabricNodeId src_fabric_node_id(
         meshDevice->get_fabric_node_id(deviceCoord));
-    auto all_routing_directions = {
-        tt_fabric::RoutingDirection::E, tt_fabric::RoutingDirection::W,
-        tt_fabric::RoutingDirection::N, tt_fabric::RoutingDirection::S};
+
+    std::vector<tt::tt_fabric::eth_chan_directions> all_routing_directions = {
+        tt::tt_fabric::eth_chan_directions::EAST,
+        tt::tt_fabric::eth_chan_directions::WEST,
+        tt::tt_fabric::eth_chan_directions::NORTH,
+        tt::tt_fabric::eth_chan_directions::SOUTH};
     // push arg placeholder to store number of connections
     rtArgsVecPerCore.push_back(0);
     uint32_t num_connections =
