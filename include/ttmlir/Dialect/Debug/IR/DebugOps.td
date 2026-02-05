@@ -31,7 +31,7 @@ include "mlir/IR/CommonTypeConstraints.td"
 //===----------------------------------------------------------------------===//
 
 class Debug_BaseOp<string mnemonic, list<Trait> traits = []> :
-    Debug_Op<mnemonic, [Pure, SameOperandsAndResultType]> {
+    Debug_Op<mnemonic, [Pure, SameOperandsAndResultType] # traits> {
 
     let summary = "Base class for debug op.";
     let description = [{
