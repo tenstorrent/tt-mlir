@@ -1605,7 +1605,7 @@ TEST_F(OpModelTest, MaxPool2dWithIndices) {
           CreateWorkerGrid(), inputShape, layoutDRAM, batchSize, inputHeight,
           inputWidth, inputChannels, kernelSize, stride, padding, dilation,
           ceilMode, reallocateHaloOutput, deallocateInput, returnIndices,
-          layoutDRAM);
+          std::nullopt, layoutDRAM);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   OpConstraints &opCstr = constraintsExp.get();
   EXPECT_GT(opCstr.cbL1PeakSize, 0);
@@ -1617,7 +1617,7 @@ TEST_F(OpModelTest, MaxPool2dWithIndices) {
       CreateWorkerGrid(), inputShape, layoutDRAM, batchSize, inputHeight,
       inputWidth, inputChannels, kernelSize, stride, padding, dilation,
       ceilMode, reallocateHaloOutput, deallocateInput, returnIndices,
-      layoutDRAM);
+      std::nullopt, layoutDRAM);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   opCstr = constraintsExp.get();
   EXPECT_GT(opCstr.cbL1PeakSize, 0);
@@ -1629,7 +1629,7 @@ TEST_F(OpModelTest, MaxPool2dWithIndices) {
       CreateWorkerGrid(), inputShape, layoutL1Interleaved, batchSize,
       inputHeight, inputWidth, inputChannels, kernelSize, stride, padding,
       dilation, ceilMode, reallocateHaloOutput, deallocateInput, returnIndices,
-      layoutL1WSharded);
+      std::nullopt, layoutL1WSharded);
   EXPECT_FALSE(static_cast<bool>(constraintsExp));
   llvm::consumeError(constraintsExp.takeError());
 }
@@ -3071,7 +3071,7 @@ protected:
     auto constraintsExp = OpModel<OpTy>::getOpConstraints(
         this->CreateWorkerGrid(), inputShape, inputLayout, batchSize,
         inputHeight, inputWidth, inputChannels, kernelSize, stride, padding,
-        dilation, ceilMode, reallocateHaloOutput, outputLayout);
+        dilation, ceilMode, reallocateHaloOutput, std::nullopt, outputLayout);
     EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
 
     if (constraintsExp) {
@@ -3088,7 +3088,7 @@ protected:
     auto runtimeExp = OpModel<OpTy>::getOpRuntime(
         inputShape, inputLayout, batchSize, inputHeight, inputWidth,
         inputChannels, kernelSize, stride, padding, dilation, ceilMode,
-        reallocateHaloOutput, outputLayout);
+        reallocateHaloOutput, std::nullopt, outputLayout);
     EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
     if (runtimeExp) {
       EXPECT_TRUE(runtimeExp.get() > 0);

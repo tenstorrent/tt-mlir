@@ -823,6 +823,8 @@ public:
         emitter.emit(
             /*reallocate_halo_output=*/srcOp.getReallocateHaloOutput()),
         /*return_indices=*/emitter.emit(false),
+        emitter.emit(/*dtype=*/ttcore::DataType::BFloat16),
+        emitter.emit(/*output_layout=*/mlir::tt::ttnn::Layout::RowMajor),
         /*config_tensors_in_dram=*/emitter.emit(srcOp.getConfigTensorsInDram()),
     };
 
