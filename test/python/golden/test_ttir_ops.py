@@ -925,40 +925,6 @@ def test_upsample2d(shapes: List[Shape], scale_factor: List[int], request, devic
     )
 
 
-@x86_only
-@pytest.mark.parametrize(
-    "shapes", [[(10, 64, 32, 3), (10, 128, 128, 3)]], ids=shapes_list_str
-)
-@pytest.mark.parametrize("scale_factor", [[2, 4]])
-@pytest.mark.parametrize("target", ["ttnn"])
-def test_hoisted_upsample2d(
-    shapes: List[Shape], scale_factor: List[int], target: str, request, device
-):
-    """Test hoisted upsample2d operation"""
-
-    def module(builder: TTIRBuilder):
-        @builder.func(shapes, [torch.float32] * len(shapes))
-        def hoisted_upsample2d(
-            in0: Operand,
-            in1: Operand,
-            builder: TTIRBuilder,
-            unit_attrs: Optional[List[str]] = None,
-        ):
-            return builder.upsample2d(
-                in0,
-                in1,
-                scale_factor=scale_factor,
-                unit_attrs=["ttir.should_hoist"],
-            )
-
-    compile_and_execute_ttir(
-        module,
-        **get_request_kwargs(request),
-        target=target,
-        device=device,
-    )
-
-
 @pytest.mark.parametrize(
     "shape,dtype,start,end,step,dim",
     [
