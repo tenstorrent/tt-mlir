@@ -733,14 +733,8 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
           asOperand(operandCtx.root), memrefType, operandCtx.hasStream);
 
       Value operandValue = operandCtx.operand->get();
-      // Non-trivial views always need a stream to represent the implied data
-      // movement.
-      const bool isIgnoredOutput =
-          isNonTrivialView(operandCtx)
-              ? false
-              : (operandCtx.isOutput && !allowL1OutputSpilling);
 
-      if (isIgnoredOutput) {
+      if (isOperandExemptFromStreaming(operandCtx)) {
         // For now, disabled `allow-l1-output-spilling` also means
         // "don't insert streams but allow them in the incoming IR".
       } else {
@@ -984,12 +978,8 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
                   // The goal is to have streams for all operands (other than
                   // exempt outputs) that don't have them already.
 
-                  if (operandCtx.isOutput && !allowL1OutputSpilling) {
-                    // Operands with non-trivial views always need a stream to
-                    // represent the implied data movement.
-                    if (!isNonTrivialView(operandCtx)) {
-                      continue;
-                    }
+                  if (isOperandExemptFromStreaming(operandCtx)) {
+                    continue;
                   }
 
                   if (operandCtx.hasStream) {
@@ -1192,12 +1182,8 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
               });
         }
 
-        if (operandCtx.isOutput && !allowL1OutputSpilling) {
-          // Operands with non-trivial views always need a stream to represent
-          // the implied data movement.
-          if (!isNonTrivialView(operandCtx)) {
-            continue;
-          }
+        if (isOperandExemptFromStreaming(operandCtx)) {
+          continue;
         }
 
         // After filtering for special forms of generics ("DMA only", etc)
@@ -1278,7 +1264,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         if (!operandCtx.hasStream &&
             (useAlwaysStreamPolicy() ||
              inferStreamRequirement(genericOp, operandCtx))) {
-          if (!(operandCtx.isOutput && !allowL1OutputSpilling)) {
+          if (!isOperandExemptFromStreaming(operandCtx)) {
             // Use the pre-stream operand value as the key, since that's what
             // remote_load/store ops reference.
             auto preStreamIt =
@@ -1477,6 +1463,16 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       }
     }
     return false;
+  }
+
+  /// @return `true` if `operandCtx` is an output that is exempt from stream
+  /// insertion. Currently, this is true for outputs when L1 output spilling is
+  /// disabled and the output is not a non-trivial view.
+  bool isOperandExemptFromStreaming(const OperandContext &operandCtx) {
+    if (isNonTrivialView(operandCtx)) {
+      return false;
+    }
+    return operandCtx.isOutput && !allowL1OutputSpilling;
   }
 
   /// @return `true` if `genericOp` requires a stream
