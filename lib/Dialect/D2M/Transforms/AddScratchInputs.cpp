@@ -55,7 +55,7 @@ static bool isFusedGeneric(GenericOp genericOp) {
   unsigned linalgGenericCount = 0;
   genericOp.getRegion(0).walk([&](linalg::GenericOp) { ++linalgGenericCount; });
 
-  return linalgGenericCount > 0; // tmp test
+  return linalgGenericCount > 1;
 }
 
 /// Pattern to add a scratch input to fused d2m.generic ops.
