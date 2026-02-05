@@ -1461,34 +1461,31 @@ public:
     bool hasPadding = paddingTop > 0 || paddingBottom > 0 || paddingLeft > 0 ||
                       paddingRight > 0;
 
+    // Create zero constant (reused for padding and fill operations).
+    Value zeroVal;
+    if (isa<FloatType>(elementType)) {
+      zeroVal = rewriter.create<arith::ConstantOp>(
+          loc, rewriter.getFloatAttr(elementType, 0.0));
+    } else {
+      zeroVal = rewriter.create<arith::ConstantOp>(
+          loc, rewriter.getIntegerAttr(elementType, 0));
+    }
+
+    // Precompute padding vectors (reused for input and mask padding).
+    int64_t paddedH = inputH + paddingTop + paddingBottom;
+    int64_t paddedW = inputW + paddingLeft + paddingRight;
+    SmallVector<OpFoldResult> lowPad = {
+        rewriter.getIndexAttr(0), rewriter.getIndexAttr(paddingTop),
+        rewriter.getIndexAttr(paddingLeft), rewriter.getIndexAttr(0)};
+    SmallVector<OpFoldResult> highPad = {
+        rewriter.getIndexAttr(0), rewriter.getIndexAttr(paddingBottom),
+        rewriter.getIndexAttr(paddingRight), rewriter.getIndexAttr(0)};
+
     // Pad the input tensor if needed.
     Value paddedInput = input;
-
     if (hasPadding) {
-      // Create zero constant for padding.
-      Value zeroVal;
-      if (isa<FloatType>(elementType)) {
-        zeroVal = rewriter.create<arith::ConstantOp>(
-            loc, rewriter.getFloatAttr(elementType, 0.0));
-      } else {
-        zeroVal = rewriter.create<arith::ConstantOp>(
-            loc, rewriter.getIntegerAttr(elementType, 0));
-      }
-
-      int64_t paddedH = inputH + paddingTop + paddingBottom;
-      int64_t paddedW = inputW + paddingLeft + paddingRight;
       auto paddedInputType = RankedTensorType::get(
           {batch, paddedH, paddedW, channels}, elementType);
-
-      // Pad the input: low = [0, paddingTop, paddingLeft, 0],
-      //                high = [0, paddingBottom, paddingRight, 0].
-      SmallVector<OpFoldResult> lowPad = {
-          rewriter.getIndexAttr(0), rewriter.getIndexAttr(paddingTop),
-          rewriter.getIndexAttr(paddingLeft), rewriter.getIndexAttr(0)};
-      SmallVector<OpFoldResult> highPad = {
-          rewriter.getIndexAttr(0), rewriter.getIndexAttr(paddingBottom),
-          rewriter.getIndexAttr(paddingRight), rewriter.getIndexAttr(0)};
-
       paddedInput = rewriter.create<tensor::PadOp>(loc, paddedInputType, input,
                                                    lowPad, highPad, zeroVal);
     }
@@ -1504,17 +1501,8 @@ public:
         RankedTensorType::get({batch, outputH, outputW, channels}, elementType);
     Value sumOutputInit = rewriter.create<tensor::EmptyOp>(
         loc, sumOutputType.getShape(), elementType);
-
-    Value zeroFill;
-    if (isa<FloatType>(elementType)) {
-      zeroFill = rewriter.create<arith::ConstantOp>(
-          loc, rewriter.getFloatAttr(elementType, 0.0));
-    } else {
-      zeroFill = rewriter.create<arith::ConstantOp>(
-          loc, rewriter.getIntegerAttr(elementType, 0));
-    }
     Value sumOutput =
-        rewriter.create<linalg::FillOp>(loc, zeroFill, sumOutputInit)
+        rewriter.create<linalg::FillOp>(loc, zeroVal, sumOutputInit)
             .getResult(0);
 
     // Create strides and dilations attributes for linalg.pooling_nhwc_sum.
@@ -1567,25 +1555,9 @@ public:
       Value onesTensor =
           rewriter.create<linalg::FillOp>(loc, oneVal, onesInit).getResult(0);
 
-      // Pad the ones tensor with zeros.
-      Value zeroVal;
-      if (isa<FloatType>(elementType)) {
-        zeroVal = rewriter.create<arith::ConstantOp>(
-            loc, rewriter.getFloatAttr(elementType, 0.0));
-      } else {
-        zeroVal = rewriter.create<arith::ConstantOp>(
-            loc, rewriter.getIntegerAttr(elementType, 0));
-      }
-      int64_t paddedH = inputH + paddingTop + paddingBottom;
-      int64_t paddedW = inputW + paddingLeft + paddingRight;
+      // Pad the ones tensor with zeros (reusing lowPad/highPad/zeroVal).
       auto paddedOnesType = RankedTensorType::get(
           {batch, paddedH, paddedW, channels}, elementType);
-      SmallVector<OpFoldResult> lowPad = {
-          rewriter.getIndexAttr(0), rewriter.getIndexAttr(paddingTop),
-          rewriter.getIndexAttr(paddingLeft), rewriter.getIndexAttr(0)};
-      SmallVector<OpFoldResult> highPad = {
-          rewriter.getIndexAttr(0), rewriter.getIndexAttr(paddingBottom),
-          rewriter.getIndexAttr(paddingRight), rewriter.getIndexAttr(0)};
       Value paddedOnes = rewriter.create<tensor::PadOp>(
           loc, paddedOnesType, onesTensor, lowPad, highPad, zeroVal);
 
@@ -1593,7 +1565,7 @@ public:
       Value countOutputInit = rewriter.create<tensor::EmptyOp>(
           loc, sumOutputType.getShape(), elementType);
       Value countOutput =
-          rewriter.create<linalg::FillOp>(loc, zeroFill, countOutputInit)
+          rewriter.create<linalg::FillOp>(loc, zeroVal, countOutputInit)
               .getResult(0);
 
       auto countPoolOp = rewriter.create<linalg::PoolingNhwcSumOp>(
@@ -1602,31 +1574,13 @@ public:
       divisorTensor = countPoolOp.getResult(0);
     }
 
-    // Divide sum by divisor to get average using linalg.generic.
+    // Divide sum by divisor to get average.
     Value avgOutputInit = rewriter.create<tensor::EmptyOp>(
         loc, sumOutputType.getShape(), elementType);
-
-    SmallVector<AffineMap> indexingMaps(
-        3, rewriter.getMultiDimIdentityMap(sumOutputType.getRank()));
-    SmallVector<utils::IteratorType> iteratorTypes(
-        sumOutputType.getRank(), utils::IteratorType::parallel);
-
-    auto avgOp = rewriter.create<linalg::GenericOp>(
-        loc, TypeRange{sumOutputType}, ValueRange{sumResult, divisorTensor},
-        ValueRange{avgOutputInit}, indexingMaps, iteratorTypes,
-        [&](OpBuilder &b, Location nestedLoc, ValueRange args) {
-          Value sum = args[0];
-          Value divisor = args[1];
-          Value avg;
-          if (isa<FloatType>(elementType)) {
-            avg = b.create<arith::DivFOp>(nestedLoc, sum, divisor);
-          } else {
-            avg = b.create<arith::DivSIOp>(nestedLoc, sum, divisor);
-          }
-          b.create<linalg::YieldOp>(nestedLoc, avg);
-        });
-
-    Value result = avgOp.getResult(0);
+    auto divOp = rewriter.create<linalg::DivOp>(
+        loc, sumOutputType, ValueRange{sumResult, divisorTensor},
+        avgOutputInit);
+    Value result = divOp.getResult(0);
 
     // Slice the result back to the original expected shape if needed.
     if (outputH != resultType.getShape()[1] ||
@@ -2617,7 +2571,7 @@ public:
 } // namespace
 
 namespace {
-// Conversion pattern for ttir.pad operation
+// Conversion pattern for ttir.pad operation.
 class PadOpConversionPattern : public OpConversionPattern<ttir::PadOp> {
 public:
   using OpConversionPattern<ttir::PadOp>::OpConversionPattern;

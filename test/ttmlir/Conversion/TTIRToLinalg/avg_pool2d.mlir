@@ -1,7 +1,7 @@
 // RUN: ttmlir-opt --convert-ttir-to-linalg -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
-// Test 1: AvgPool2dOp with 2x2 kernel and stride 1
+// Test 1: AvgPool2dOp with 2x2 kernel and stride 1.
 module {
   func.func @avg_pool2d_basic(%arg0: tensor<1x32x32x64xbf16>) -> tensor<1x31x31x64xbf16> {
     // CHECK: linalg.pooling_nhwc_sum
@@ -20,7 +20,7 @@ module {
   }
 }
 
-// Test 2: AvgPool2dOp with 3x3 kernel and stride 2
+// Test 2: AvgPool2dOp with 3x3 kernel and stride 2.
 module {
   func.func @avg_pool2d_stride2(%arg0: tensor<1x32x32x64xbf16>) -> tensor<1x15x15x64xbf16> {
     // CHECK: linalg.pooling_nhwc_sum
@@ -38,7 +38,7 @@ module {
   }
 }
 
-// Test 3: AvgPool2dOp with padding and count_include_pad=true
+// Test 3: AvgPool2dOp with padding and count_include_pad=true.
 module {
   func.func @avg_pool2d_padding(%arg0: tensor<1x32x32x64xbf16>) -> tensor<1x32x32x64xbf16> {
     // CHECK: tensor.pad
@@ -56,11 +56,11 @@ module {
   }
 }
 
-// Test 4: AvgPool2dOp with padding and count_include_pad=false
+// Test 4: AvgPool2dOp with padding and count_include_pad=false.
 module {
   func.func @avg_pool2d_count_exclude_pad(%arg0: tensor<1x32x32x64xbf16>) -> tensor<1x32x32x64xbf16> {
     // CHECK: tensor.pad
-    // With count_include_pad=false, we need two pooling ops: one for sum, one for count
+    // With count_include_pad=false, we need two pooling ops: one for sum, one for count.
     // CHECK: linalg.pooling_nhwc_sum
     // CHECK: linalg.pooling_nhwc_sum
     // CHECK: linalg.generic
