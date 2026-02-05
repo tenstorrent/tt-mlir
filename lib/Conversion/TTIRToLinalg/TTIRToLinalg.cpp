@@ -11,6 +11,7 @@
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
 #include "mlir/IR/Attributes.h"
@@ -1733,6 +1734,7 @@ public:
     Value input = adaptor.getInput();
     StringRef mode = adaptor.getMode();
 
+    auto inputType = cast<RankedTensorType>(input.getType());
     auto resultType = cast<RankedTensorType>(
         this->getTypeConverter()->convertType(op.getResult().getType()));
     assert(resultType && "Result type must be a ranked tensor type.");
@@ -1744,59 +1746,221 @@ public:
       return rewriter.notifyMatchFailure(
           op, "scale_factor must be an integer or array attribute");
     }
-    auto [scaleH, scaleW] = *scaleFactorResult;
-
-    // TOSA resize output formula:
-    // output_size = (input_size - 1) * scale_n / scale_d + 1 + border[0] +
-    // border[1] For exact N*scale upsampling, we need: output_size = input_size
-    // * scale So: input_size * scale = (input_size - 1) * scale_n / scale_d + 1
-    // + border[0] + border[1] With scale_n = scale, scale_d = 1: input_size *
-    // scale = (input_size - 1) * scale + 1 + border Solving for border:
-    // border = input_size * scale - (input_size - 1) * scale - 1
-    //        = scale * (input_size - input_size + 1) - 1
-    //        = scale - 1
-    int64_t borderY = scaleH - 1;
-    int64_t borderX = scaleW - 1;
-
-    // Create scale shape: [scale_y_n, scale_y_d, scale_x_n, scale_x_d].
-    SmallVector<int64_t> scaleValues = {scaleH, 1, scaleW, 1};
-    auto scaleShapeType = tosa::shapeType::get(rewriter.getContext(), 4);
-    auto scaleAttr = rewriter.getIndexTensorAttr(scaleValues);
-    Value scaleTensor =
-        rewriter.create<tosa::ConstShapeOp>(loc, scaleShapeType, scaleAttr);
-
-    // Create offset shape: [offset_y, offset_x] = [0, 0].
-    SmallVector<int64_t> offsetValues = {0, 0};
-    auto offsetShapeType = tosa::shapeType::get(rewriter.getContext(), 2);
-    auto offsetAttr = rewriter.getIndexTensorAttr(offsetValues);
-    Value offsetTensor =
-        rewriter.create<tosa::ConstShapeOp>(loc, offsetShapeType, offsetAttr);
-
-    // Create border shape: [border_y, border_x].
-    // Border adds extra output pixels at the end to achieve exact scaling.
-    SmallVector<int64_t> borderValues = {borderY, borderX};
-    auto borderShapeType = tosa::shapeType::get(rewriter.getContext(), 2);
-    auto borderAttr = rewriter.getIndexTensorAttr(borderValues);
-    Value borderTensor =
-        rewriter.create<tosa::ConstShapeOp>(loc, borderShapeType, borderAttr);
+    // Copy to local variables to avoid C++20 structured binding capture.
+    int32_t scaleH = scaleFactorResult->first;
+    int32_t scaleW = scaleFactorResult->second;
 
     if (mode == "nearest") {
-      auto resizeOp = rewriter.create<tosa::ResizeOp>(
-          loc, resultType, input, scaleTensor, offsetTensor, borderTensor,
-          tosa::ResizeModeAttr::get(rewriter.getContext(),
-                                    tosa::ResizeMode::NEAREST_NEIGHBOR));
+      // Implement nearest neighbor upsampling directly using linalg.generic.
+      // This uses floor semantics (matching PyTorch's F.interpolate behavior):
+      //   input_h = output_h / scale_h (integer division)
+      //   input_w = output_w / scale_w (integer division)
+      // This ensures output positions 0 to scale-1 all map to input position 0.
 
-      rewriter.replaceOp(op, resizeOp.getResult());
+      int64_t resultRank = resultType.getRank();
+
+      // Create output tensor.
+      Value initTensor = rewriter.create<tensor::EmptyOp>(
+          loc, resultType.getShape(), resultType.getElementType());
+
+      // Create identity indexing map for output.
+      AffineMap outputMap =
+          AffineMap::getMultiDimIdentityMap(resultRank, rewriter.getContext());
+      SmallVector<utils::IteratorType> iteratorTypes(
+          resultRank, utils::IteratorType::parallel);
+
+      auto genericOp = rewriter.create<linalg::GenericOp>(
+          loc, resultType, ValueRange{}, ValueRange{initTensor},
+          SmallVector<AffineMap>{outputMap}, iteratorTypes,
+          [&](OpBuilder &b, Location nestedLoc, ValueRange args) {
+            // Get output indices: n, h, w, c (NHWC format).
+            Value outN = b.create<linalg::IndexOp>(nestedLoc, 0);
+            Value outH = b.create<linalg::IndexOp>(nestedLoc, 1);
+            Value outW = b.create<linalg::IndexOp>(nestedLoc, 2);
+            Value outC = b.create<linalg::IndexOp>(nestedLoc, 3);
+
+            // Compute input indices using floor division.
+            // input_h = output_h / scale_h
+            // input_w = output_w / scale_w
+            Value scaleHVal =
+                b.create<arith::ConstantIndexOp>(nestedLoc, scaleH);
+            Value scaleWVal =
+                b.create<arith::ConstantIndexOp>(nestedLoc, scaleW);
+
+            Value inH = b.create<arith::DivUIOp>(nestedLoc, outH, scaleHVal);
+            Value inW = b.create<arith::DivUIOp>(nestedLoc, outW, scaleWVal);
+
+            // Extract from input at computed indices.
+            Value result = b.create<tensor::ExtractOp>(
+                nestedLoc, input, ValueRange{outN, inH, inW, outC});
+
+            b.create<linalg::YieldOp>(nestedLoc, result);
+          });
+
+      rewriter.replaceOp(op, genericOp.getResult(0));
       return success();
     }
 
     if (mode == "bilinear") {
-      auto resizeOp = rewriter.create<tosa::ResizeOp>(
-          loc, resultType, input, scaleTensor, offsetTensor, borderTensor,
-          tosa::ResizeModeAttr::get(rewriter.getContext(),
-                                    tosa::ResizeMode::BILINEAR));
+      // For bilinear interpolation, we need to compute weighted averages
+      // of the 4 nearest input pixels. This is more complex than nearest
+      // neighbor and requires proper interpolation weights.
 
-      rewriter.replaceOp(op, resizeOp.getResult());
+      int64_t resultRank = resultType.getRank();
+      Type elementType = resultType.getElementType();
+
+      // Create output tensor.
+      Value initTensor = rewriter.create<tensor::EmptyOp>(
+          loc, resultType.getShape(), resultType.getElementType());
+
+      // Create identity indexing map for output.
+      AffineMap outputMap =
+          AffineMap::getMultiDimIdentityMap(resultRank, rewriter.getContext());
+      SmallVector<utils::IteratorType> iteratorTypes(
+          resultRank, utils::IteratorType::parallel);
+
+      // Get input dimensions for clamping.
+      int64_t inputH = inputType.getShape()[1];
+      int64_t inputW = inputType.getShape()[2];
+
+      auto genericOp = rewriter.create<linalg::GenericOp>(
+          loc, resultType, ValueRange{}, ValueRange{initTensor},
+          SmallVector<AffineMap>{outputMap}, iteratorTypes,
+          [&](OpBuilder &b, Location nestedLoc, ValueRange args) {
+            // Get output indices: n, h, w, c (NHWC format).
+            Value outN = b.create<linalg::IndexOp>(nestedLoc, 0);
+            Value outH = b.create<linalg::IndexOp>(nestedLoc, 1);
+            Value outW = b.create<linalg::IndexOp>(nestedLoc, 2);
+            Value outC = b.create<linalg::IndexOp>(nestedLoc, 3);
+
+            // Convert output indices to floating point for interpolation.
+            Value outHF =
+                b.create<arith::IndexCastOp>(nestedLoc, b.getI64Type(), outH);
+            Value outWF =
+                b.create<arith::IndexCastOp>(nestedLoc, b.getI64Type(), outW);
+            Value outHFloat =
+                b.create<arith::SIToFPOp>(nestedLoc, elementType, outHF);
+            Value outWFloat =
+                b.create<arith::SIToFPOp>(nestedLoc, elementType, outWF);
+
+            // Scale factors as floats.
+            Value scaleHFloat = b.create<arith::ConstantOp>(
+                nestedLoc,
+                b.getFloatAttr(elementType, static_cast<double>(scaleH)));
+            Value scaleWFloat = b.create<arith::ConstantOp>(
+                nestedLoc,
+                b.getFloatAttr(elementType, static_cast<double>(scaleW)));
+
+            // Compute source coordinates (using PyTorch's align_corners=False
+            // style): src_h = (out_h + 0.5) / scale_h - 0.5 src_w = (out_w +
+            // 0.5) / scale_w - 0.5
+            Value half = b.create<arith::ConstantOp>(
+                nestedLoc, b.getFloatAttr(elementType, 0.5));
+
+            Value outHShifted =
+                b.create<arith::AddFOp>(nestedLoc, outHFloat, half);
+            Value outWShifted =
+                b.create<arith::AddFOp>(nestedLoc, outWFloat, half);
+
+            Value srcHScaled =
+                b.create<arith::DivFOp>(nestedLoc, outHShifted, scaleHFloat);
+            Value srcWScaled =
+                b.create<arith::DivFOp>(nestedLoc, outWShifted, scaleWFloat);
+
+            Value srcH = b.create<arith::SubFOp>(nestedLoc, srcHScaled, half);
+            Value srcW = b.create<arith::SubFOp>(nestedLoc, srcWScaled, half);
+
+            // Get floor indices.
+            Value srcHFloor = b.create<math::FloorOp>(nestedLoc, srcH);
+            Value srcWFloor = b.create<math::FloorOp>(nestedLoc, srcW);
+
+            // Compute fractional parts for interpolation weights.
+            Value fracH = b.create<arith::SubFOp>(nestedLoc, srcH, srcHFloor);
+            Value fracW = b.create<arith::SubFOp>(nestedLoc, srcW, srcWFloor);
+
+            // Convert floor indices to integers.
+            Value h0I64 =
+                b.create<arith::FPToSIOp>(nestedLoc, b.getI64Type(), srcHFloor);
+            Value w0I64 =
+                b.create<arith::FPToSIOp>(nestedLoc, b.getI64Type(), srcWFloor);
+
+            // Clamp indices to valid range.
+            Value zero64 = b.create<arith::ConstantOp>(
+                nestedLoc, b.getIntegerAttr(b.getI64Type(), 0));
+            Value maxH = b.create<arith::ConstantOp>(
+                nestedLoc, b.getIntegerAttr(b.getI64Type(), inputH - 1));
+            Value maxW = b.create<arith::ConstantOp>(
+                nestedLoc, b.getIntegerAttr(b.getI64Type(), inputW - 1));
+            Value one64 = b.create<arith::ConstantOp>(
+                nestedLoc, b.getIntegerAttr(b.getI64Type(), 1));
+
+            // h0, h1, w0, w1 clamped.
+            Value h0Clamped =
+                b.create<arith::MaxSIOp>(nestedLoc, h0I64, zero64);
+            h0Clamped = b.create<arith::MinSIOp>(nestedLoc, h0Clamped, maxH);
+            Value h1 = b.create<arith::AddIOp>(nestedLoc, h0I64, one64);
+            Value h1Clamped = b.create<arith::MaxSIOp>(nestedLoc, h1, zero64);
+            h1Clamped = b.create<arith::MinSIOp>(nestedLoc, h1Clamped, maxH);
+
+            Value w0Clamped =
+                b.create<arith::MaxSIOp>(nestedLoc, w0I64, zero64);
+            w0Clamped = b.create<arith::MinSIOp>(nestedLoc, w0Clamped, maxW);
+            Value w1 = b.create<arith::AddIOp>(nestedLoc, w0I64, one64);
+            Value w1Clamped = b.create<arith::MaxSIOp>(nestedLoc, w1, zero64);
+            w1Clamped = b.create<arith::MinSIOp>(nestedLoc, w1Clamped, maxW);
+
+            // Convert to index type for tensor.extract.
+            Value h0Idx = b.create<arith::IndexCastOp>(
+                nestedLoc, b.getIndexType(), h0Clamped);
+            Value h1Idx = b.create<arith::IndexCastOp>(
+                nestedLoc, b.getIndexType(), h1Clamped);
+            Value w0Idx = b.create<arith::IndexCastOp>(
+                nestedLoc, b.getIndexType(), w0Clamped);
+            Value w1Idx = b.create<arith::IndexCastOp>(
+                nestedLoc, b.getIndexType(), w1Clamped);
+
+            // Extract the 4 corner values.
+            Value v00 = b.create<tensor::ExtractOp>(
+                nestedLoc, input, ValueRange{outN, h0Idx, w0Idx, outC});
+            Value v01 = b.create<tensor::ExtractOp>(
+                nestedLoc, input, ValueRange{outN, h0Idx, w1Idx, outC});
+            Value v10 = b.create<tensor::ExtractOp>(
+                nestedLoc, input, ValueRange{outN, h1Idx, w0Idx, outC});
+            Value v11 = b.create<tensor::ExtractOp>(
+                nestedLoc, input, ValueRange{outN, h1Idx, w1Idx, outC});
+
+            // Compute interpolation weights.
+            Value one = b.create<arith::ConstantOp>(
+                nestedLoc, b.getFloatAttr(elementType, 1.0));
+            Value oneMinusFracH =
+                b.create<arith::SubFOp>(nestedLoc, one, fracH);
+            Value oneMinusFracW =
+                b.create<arith::SubFOp>(nestedLoc, one, fracW);
+
+            // Bilinear interpolation:
+            // result = v00 * (1-fracH) * (1-fracW) + v01 * (1-fracH) * fracW
+            //        + v10 * fracH * (1-fracW) + v11 * fracH * fracW
+            Value w00 = b.create<arith::MulFOp>(nestedLoc, oneMinusFracH,
+                                                oneMinusFracW);
+            Value w01 =
+                b.create<arith::MulFOp>(nestedLoc, oneMinusFracH, fracW);
+            Value w10 =
+                b.create<arith::MulFOp>(nestedLoc, fracH, oneMinusFracW);
+            Value w11 = b.create<arith::MulFOp>(nestedLoc, fracH, fracW);
+
+            Value term00 = b.create<arith::MulFOp>(nestedLoc, v00, w00);
+            Value term01 = b.create<arith::MulFOp>(nestedLoc, v01, w01);
+            Value term10 = b.create<arith::MulFOp>(nestedLoc, v10, w10);
+            Value term11 = b.create<arith::MulFOp>(nestedLoc, v11, w11);
+
+            Value sum01 = b.create<arith::AddFOp>(nestedLoc, term00, term01);
+            Value sum23 = b.create<arith::AddFOp>(nestedLoc, term10, term11);
+            Value result = b.create<arith::AddFOp>(nestedLoc, sum01, sum23);
+
+            b.create<linalg::YieldOp>(nestedLoc, result);
+          });
+
+      rewriter.replaceOp(op, genericOp.getResult(0));
       return success();
     }
 
