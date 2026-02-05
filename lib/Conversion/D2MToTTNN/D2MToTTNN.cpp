@@ -27,7 +27,7 @@ namespace mlir::tt {
 
 namespace {
 
-// Helper struct to extract and return both IO and CB from a ttnn.generic
+// Helper struct to extract and return both IO and CB from a d2m.generic
 // operand.
 struct IOAndCB {
   Value io;
