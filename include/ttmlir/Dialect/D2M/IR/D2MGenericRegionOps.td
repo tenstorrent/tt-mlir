@@ -1418,7 +1418,7 @@ def D2M_RemoteStoreOp : D2M_GenericRegionDatamovementOp<"remote_store",
         llvm_unreachable("getMemRefType() called on tensor operand, use getShapedType() instead");
       }
     }];
-  }
+}
 
 //===----------------------------------------------------------------------===//
 // D2M Generic Region Semaphore Ops (Used in TTMetal Lowering)
@@ -2069,23 +2069,22 @@ def D2M_ArangeBlockOp : D2M_GenericRegionComputeOp<"arange_block",
         This op operates at the block level (memref of tiles) and generates
         values for a 1D arange that has been reshaped to 2D for tiling efficiency.
 
-        The full_index_tensor is a scratch tensor containing an index tile where
-        element[r][c] = r * 32 + c (values 0-1023). This is written by the
-        decomposition pass using ExperimentalWriteFullIndexTileOp to the
-        associated CB.
+        The index_tile_tensor is a scratch tensor (1x1 tile) where
+        ExperimentalWriteFullIndexTileOp writes linear indices 0-1023
+        (element[r][c] = r * 32 + c) directly in tile format.
 
         For each tile at position (tile_row, tile_col), the computation is:
         1. tile_offset = (tile_row * num_tile_cols + tile_col) * 1024
-        2. global_idx = tile_offset + local_idx  (where local_idx comes from full_index_tensor)
+        2. global_idx = tile_offset + local_idx  (where local_idx comes from index_tile_tensor)
         3. result = start + step * global_idx
 
         This is a high-level op that gets decomposed in the DecomposeArange pass into:
-        1. Write index tile to scratch CB using ExperimentalWriteFullIndexTileOp
+        1. Write index tile using ExperimentalWriteFullIndexTileOp
         2. Loop over tiles computing: start + step * (tile_offset + local_idx)
 
         Example:
         ```mlir
-        %result = d2m.arange_block %output, %full_index_tensor
+        %result = d2m.arange_block %output, %index_tile
                          {num_elements = 64, start = 0, step = 1}
             : (tensor<1x2x!ttcore.tile<32x32, f32>>,
                tensor<1x1x!ttcore.tile<32x32, f32>>) -> tensor<1x2x!ttcore.tile<32x32, f32>>
@@ -2094,7 +2093,7 @@ def D2M_ArangeBlockOp : D2M_GenericRegionComputeOp<"arange_block",
 
     let arguments = (ins
         AnyRankedTensorOrMemRef:$output,
-        AnyRankedTensorOrMemRef:$full_index_tensor,
+        AnyRankedTensorOrMemRef:$index_tile_tensor,
         I64Attr:$num_elements,
         I64Attr:$start,
         I64Attr:$step);
@@ -2102,11 +2101,11 @@ def D2M_ArangeBlockOp : D2M_GenericRegionComputeOp<"arange_block",
     let results = (outs AnyRankedTensorOrMemRef:$result);
 
     let builders = [
-      OpBuilder<(ins "Value":$output, "Value":$fullIndexTensor,
+      OpBuilder<(ins "Value":$output, "Value":$indexTileTensor,
                      "int64_t":$numElements, "int64_t":$start, "int64_t":$step), [{
         // Result type is the same as the output type.
         Type resultType = output.getType();
-        build($_builder, $_state, resultType, output, fullIndexTensor,
+        build($_builder, $_state, resultType, output, indexTileTensor,
               $_builder.getI64IntegerAttr(numElements),
               $_builder.getI64IntegerAttr(start),
               $_builder.getI64IntegerAttr(step));

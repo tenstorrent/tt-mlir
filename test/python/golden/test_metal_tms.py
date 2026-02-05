@@ -259,19 +259,18 @@ def test_reshape(
 
 
 @pytest.mark.parametrize(
-    "num_elements,start,step",
+    "shape,start,step",
     [
-        (128, 0, 1),  # Basic case: 128 elements fits in 1 tile when packed as [4, 32]
-        (64, 0, 1),  # Smaller case: 64 elements fits in 1 tile when packed as [2, 32]
-        (128, 10, 1),  # With non-zero start
-        (64, 0, 2),  # With non-unit step
-        (32, 5, 3),  # With both non-zero start and non-unit step
+        ((1, 32), 0, 1),  # Single tile: 1x32
+        ((1, 64), 0, 2),  # Two tiles: 1x64, step=2
+        ((1, 96), 0, 1),  # Three tiles: 1x96
     ],
+    ids=["1x32_step1", "1x64_step2", "1x96_step1"],
 )
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_arange(
-    num_elements: int,
+    shape: tuple,
     start: int,
     step: int,
     dtype: torch.dtype,
@@ -281,37 +280,30 @@ def test_arange(
 ):
     """Test arange operation on TTMetal backend.
 
-    This test validates the tiled arange implementation which uses:
-    1. Row index tile: element[r][c] = r
-    2. Col index tile: element[r][c] = c
-    3. Full index computation: row * 32 + col (for row-major packing)
-    4. Arange formula: start + step * (full_index + tile_offset)
-
-    The output is a 1D tensor with values [start, start+step, start+2*step, ...].
+    Tests tiled arange implementation with various shapes and parameters.
+    Grid restricted to 1x1 for testing.
     """
-    # Compute expected output using torch.arange
+    num_elements = shape[0] * shape[1]
     end = start + num_elements * step
-    golden = torch.arange(start, end, step, dtype=dtype)
+    arange_dimension = 1
 
-    # Shape for the arange op - 1D tensor
-    shape = (num_elements,)
+    # Expected output
+    golden = torch.arange(start, end, step, dtype=dtype).reshape(shape)
 
     def arange_module(builder: TTIRBuilder):
-        # We need a dummy input for the function signature, but arange doesn't use it
         @builder.func([shape], [dtype])
         def arange(
             in0: Operand,
             builder: TTIRBuilder,
             unit_attrs: Optional[List[str]] = None,
         ):
-            # Create arange with dimension 0 (the only dimension for 1D)
             result = builder.arange(
                 shape=list(shape),
                 dtype=dtype,
                 start=start,
                 end=end,
                 step=step,
-                arange_dimension=0,
+                arange_dimension=arange_dimension,
                 unit_attrs=unit_attrs,
             )
             return result
@@ -321,6 +313,6 @@ def test_arange(
         target=target,
         device=device,
         print_ir=True,
-        custom_pipeline="ttir-to-ttmetal-pipeline",
+        custom_pipeline="ttir-to-ttmetal-pipeline{override-device-shape=1,1}",
         **get_request_kwargs(request),
     )

@@ -855,17 +855,17 @@ void ExperimentalWriteFullIndexTileOp::getEffects(
 //===----------------------------------------------------------------------===//
 
 mlir::LogicalResult ArangeBlockOp::verify() {
-  // Output and full_index_tensor must have the same element type category
+  // Output and index_tile_tensor must have the same element type category
   // (both tensor or both memref).
   Type outputType = getOutput().getType();
-  Type indexType = getFullIndexTensor().getType();
+  Type indexType = getIndexTileTensor().getType();
 
   bool outputIsTensor = mlir::isa<mlir::RankedTensorType>(outputType);
   bool indexIsTensor = mlir::isa<mlir::RankedTensorType>(indexType);
 
   if (outputIsTensor != indexIsTensor) {
     return emitOpError(
-        "output and full_index_tensor must both be tensors or both be memrefs");
+        "output and index_tile_tensor must both be tensors or both be memrefs");
   }
   return mlir::success();
 }
@@ -874,9 +874,13 @@ void ArangeBlockOp::getEffects(
     mlir::SmallVectorImpl<
         mlir::SideEffects::EffectInstance<mlir::MemoryEffects::Effect>>
         &effects) {
-  // Read from the full index tensor.
+  // Read and write index tile tensor (written by
+  // ExperimentalWriteFullIndexTileOp, then read for tile arithmetic).
   effects.emplace_back(mlir::MemoryEffects::Read::get(),
-                       &getFullIndexTensorMutable(), 0, true,
+                       &getIndexTileTensorMutable(), 0, true,
+                       mlir::SideEffects::DefaultResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Write::get(),
+                       &getIndexTileTensorMutable(), 0, true,
                        mlir::SideEffects::DefaultResource::get());
   // Write to the output tensor.
   effects.emplace_back(mlir::MemoryEffects::Write::get(), &getOutputMutable(),
@@ -885,14 +889,15 @@ void ArangeBlockOp::getEffects(
 
 bool ArangeBlockOp::bufferizesToMemoryRead(
     mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
-  // full_index_tensor is read.
-  return operand.get() == getFullIndexTensor();
+  // index_tile_tensor is read (after being written by
+  // ExperimentalWriteFullIndexTileOp).
+  return operand.get() == getIndexTileTensor();
 }
 
 bool ArangeBlockOp::bufferizesToMemoryWrite(
     mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
-  // output is written.
-  return operand.get() == getOutput();
+  // output and index_tile_tensor are written.
+  return operand.get() == getOutput() || operand.get() == getIndexTileTensor();
 }
 
 mlir::bufferization::AliasingValueList
@@ -940,15 +945,15 @@ mlir::LogicalResult ArangeBlockOp::bufferize(
     return maybeOutputBuffer;
   }
 
-  auto maybeIndexBuffer = mlir::bufferization::getBuffer(
-      rewriter, getFullIndexTensor(), options, state);
-  if (failed(maybeIndexBuffer)) {
-    return maybeIndexBuffer;
+  auto maybeIndexTileBuffer = mlir::bufferization::getBuffer(
+      rewriter, getIndexTileTensor(), options, state);
+  if (failed(maybeIndexTileBuffer)) {
+    return maybeIndexTileBuffer;
   }
 
   // Create new op with memref operands.
   auto newOp = rewriter.create<ArangeBlockOp>(
-      getLoc(), *maybeOutputBuffer, *maybeIndexBuffer, getNumElements(),
+      getLoc(), *maybeOutputBuffer, *maybeIndexTileBuffer, getNumElements(),
       getStart(), getStep());
 
   // Replace uses and erase (DPS pattern - result aliases output buffer).

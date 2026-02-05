@@ -1776,22 +1776,26 @@ public:
     const std::size_t physicalRank =
         ttcore::getDeviceLayout(output).getRank() / 2;
 
-    // Create scratch tensor for full index tile (single tile per core).
-    // This tile contains linear indices 0-1023 (element[r][c] = r*32 + c).
+    // Create scratch tensor for index tile (single tile per core).
+    // ExperimentalWriteFullIndexTileOp writes linear indices 0-1023 directly
+    // in tile format (element[r][c] = r * 32 + c).
     Type f32Type = rewriter.getF32Type();
     llvm::ArrayRef<int64_t> gridShape =
         outputLayout.getGridShape(outputTensorType);
-    SmallVector<int64_t> scratchShape(gridShape.begin(), gridShape.end());
-    scratchShape.append({32, 32}); // Single tile = 32x32 elements
 
-    // Create layout for scratch tensor with same grid structure.
-    SmallVector<int64_t> scratchLogicalShape = {32, 32};
+    // Tilized scratch tensor: gridShape x 1 x 1 (one tile per core)
+    SmallVector<int64_t> scratchShape(gridShape.begin(), gridShape.end());
+    scratchShape.append({1, 1}); // One tile
+
+    auto tileType = ttcore::TileType::get(f32Type);
+    SmallVector<int64_t> scratchLogicalShape = {1, 1};
     auto scratchLayout = ttcore::MetalLayoutAttr::get(
         rewriter.getContext(), scratchLogicalShape, ttcore::OOBVal::Undef,
         ttcore::MemorySpace::DeviceL1, ttcore::TensorMemoryLayout::Sharded);
 
-    Value fullIndexTensor =
-        rewriter.create<d2m::EmptyOp>(loc, scratchShape, f32Type, scratchLayout)
+    Value indexTileTensor =
+        rewriter
+            .create<d2m::EmptyOp>(loc, scratchShape, tileType, scratchLayout)
             .getResult();
 
     // Build indexing maps: constant (0s) for scratch, identity for output.
@@ -1807,13 +1811,13 @@ public:
     SmallVector<Attribute> iteratorTypes(physicalRank, parallel);
 
     // Create d2m.generic (following elementwise pattern).
-    SmallVector<Value> genericInputs = {fullIndexTensor};
+    SmallVector<Value> genericInputs = {indexTileTensor};
     auto generic = rewriter.create<d2m::GenericOp>(
         loc, genericInputs, outputs,
         rewriter.getAffineMapArrayAttr(indexingMaps),
         rewriter.getArrayAttr(iteratorTypes));
 
-    // Mark full index tile (index 0) as scratch - it doesn't need streaming.
+    // Mark index tile (index 0) as scratch - it doesn't need streaming.
     generic.setScratchInputsAttr(rewriter.getDenseI64ArrayAttr({0}));
 
     // Create one bb in the generic op's region and set its arguments.
@@ -1829,40 +1833,18 @@ public:
           generic, enableMulticastInference);
       ArrayRef<Value> blockArgs(blockArgsVec);
 
-      // blockArgs[0] = scratch index CB, blockArgs[1] = output CB.
-      Value scratchCB = blockArgs[0];
-      Value outputCB = blockArgs[1];
+      // blockArgs[0] = index tile scratch, blockArgs[1] = output.
+      Value indexTileTensor = blockArgs[0];
+      Value outputTensor = blockArgs[1];
 
-      // Get shard types from CB block args.
-      auto scratchCBType = mlir::cast<d2m::CBType>(scratchCB.getType());
-      auto outputCBType = mlir::cast<d2m::CBType>(outputCB.getType());
-      Type scratchShardType = scratchCBType.getUnderlying();
-      Type outputShardType = outputCBType.getUnderlying();
-
-      // Create local tensors for the computation.
-      auto scratchTensorType = mlir::cast<RankedTensorType>(scratchShardType);
-      Value scratchLocal =
-          rewriter
-              .create<tensor::EmptyOp>(loc, scratchTensorType.getShape(),
-                                       scratchTensorType.getElementType())
-              .getResult();
-
-      auto outputTensorTypeLocal =
-          mlir::cast<RankedTensorType>(outputShardType);
-      Value outputLocal =
-          rewriter
-              .create<tensor::EmptyOp>(loc, outputTensorTypeLocal.getShape(),
-                                       outputTensorTypeLocal.getElementType())
-              .getResult();
-
-      // Create ArangeBlockOp with local tensors.
+      // Create ArangeBlockOp with the index tile scratch tensor.
       Value arangeResult =
           rewriter
-              .create<d2m::ArangeBlockOp>(loc, outputLocal, scratchLocal,
+              .create<d2m::ArangeBlockOp>(loc, outputTensor, indexTileTensor,
                                           numElements, start, step)
               .getResult();
 
-      // Insert RemoteStore to write output.
+      // Insert remote_store operation for output before yield.
       AffineMap outputIndexingMap = generic.getIndexingMap(1);
       SmallVector<Value> indices =
           d2m::utils::buildGridIndices(rewriter, loc, outputIndexingMap);

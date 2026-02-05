@@ -132,7 +132,9 @@ ALWI void write_col_mask_tile(uint32_t validCols, uint32_t cb_id) {
 // Helper to convert uint32_t to F32 bit pattern
 inline uint32_t _uint_to_f32_bits_(uint32_t val) {
   float f = static_cast<float>(val);
-  return *reinterpret_cast<uint32_t *>(&f);
+  uint32_t result;
+  __builtin_memcpy(&result, &f, sizeof(result));
+  return result;
 }
 
 // Write a FULL INDEX tile to L1 in F32 format.

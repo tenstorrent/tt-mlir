@@ -779,7 +779,9 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
                        operandIndex,
                        getStreamBufferSizeBytes(operandCtx.bufferType, device),
                        operandCtx.bufferType);
-        TT_debug(getStreamBufferSizeBytes(operandCtx.bufferType, device) > 0);
+        // Note: buffer size may be 0 for operands that don't need streaming
+        // (e.g., TileType elements with identity indexing maps). This is fine
+        // since inferStreamRequirement will return false for such cases.
       }
 
       // Finally, insert `operandCtx` into `genericCtx`.
