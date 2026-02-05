@@ -143,7 +143,7 @@ jobs:
           committer: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>
           author: ${{ github.actor }} <${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com>
           base: main
-          draft: ${{ inputs.create_draft_pr }}
+          draft: ${{ inputs.create_draft_pr || false }}
           commit-message: "Uplift ${{ env.TT_METAL_SUBMODULE_PATH }} to ${{ env.UPLIFTED_TT_METAL_VERSION }} ${{ env.TODAY }}"
           title: "Uplift ${{ env.TT_METAL_SUBMODULE_PATH }} to ${{ env.UPLIFTED_TT_METAL_VERSION }} ${{ env.TODAY }}"
           body: |
