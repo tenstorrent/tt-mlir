@@ -4049,7 +4049,7 @@ verifyProgramAttr(mlir::tt::ttnn::GenericOp op, ProgramAttr program,
   size_t numberOfSemaphores = program.getSemaphores().size();
 
   if (numberOfInputsAndOutputs == 0) {
-    return emitError() << "GenericOp must have at least one operand";
+    return op.emitError() << "GenericOp must have at least one operand";
   }
 
   for (auto kernel : program.getKernels()) {
