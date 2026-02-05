@@ -1277,7 +1277,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         // Check if a stream was inserted for this operand during this pass
         if (!operandCtx.hasStream &&
             (useAlwaysStreamPolicy() ||
-             inferStreamRequirement(genericOp, operandCtx.operandIndex()))) {
+             inferStreamRequirement(genericOp, operandCtx))) {
           if (!(operandCtx.isOutput && !allowL1OutputSpilling)) {
             // Use the pre-stream operand value as the key, since that's what
             // remote_load/store ops reference.
@@ -1485,14 +1485,14 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
   static bool inferStreamRequirement(d2m::GenericOp genericOp,
                                      const OperandContext &operandCtx) {
     TT_debug(!genericOp.isExplicitDatamovementForm());
-  
+
+    const uint32_t operandIndex = operandCtx.operandIndex();
+
     // Scratch inputs (e.g., mask tiles) don't need streaming - they're
     // allocated locally and written to within the generic op.
     if (genericOp.isScratchInput(operandIndex)) {
       return false;
     }
-
-    const uint32_t operandIndex = operandCtx.operandIndex();
     const AffineMap indexingMap = genericOp.getIndexingMap(operandIndex);
 
     const auto broadcastDims = indexingMap.getBroadcastDims();
