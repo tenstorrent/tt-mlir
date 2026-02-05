@@ -5,39 +5,39 @@
 
 
 // CHECK: #layout = #ttcore.metal_layout<logical_shape = 384x32, dim_alignments = 32x32, collapsed_intervals
-// CHECK-SAME: index_map = (d0, d1, d2, d3) -> (d0 floordiv 2, d0 mod 2, d2, d3)>
+// CHECK-SAME: index_map = (d0, d1, d2, d3) -> (((d0 + d1) floordiv 2) mod 6, (d0 + d1) mod 2, d2, d3)>
 // CHECK: #layout1 = #ttcore.metal_layout<logical_shape = 384x32, dim_alignments = 32x32, collapsed_intervals
 // CHECK-SAME: index_map = map(0)>
 // CHECK: #layout2 = #ttcore.metal_layout<logical_shape = 384x32, dim_alignments = 32x32, collapsed_intervals
-// CHECK-SAME: index_map = (d0, d1, d2, d3) ->
+// CHECK-SAME: index_map = (d0, d1, d2, d3) -> (d0 * 2 + d2, 0, 0, 0)>
 // CHECK: #layout3 = #ttcore.metal_layout<logical_shape = 384x32, dim_alignments = 32x32, collapsed_intervals
-// CHECK-SAME: index_map = (d0, d1, d2, d3) -> (d0 floordiv 6, d0 mod 6, d2, d3)>
+// CHECK-SAME: index_map = (d0, d1, d2, d3) -> (((d0 + d1) floordiv 6) mod 2, (d0 + d1) mod 6, d2, d3)>
 // CHECK: #layout4 = #ttcore.metal_layout<logical_shape = 384x64, dim_alignments = 32x32, collapsed_intervals
-// CHECK-SAME: index_map = (d0, d1, d2, d3) -> (d0 floordiv 2, d0 mod 2, d2, d3)>
+// CHECK-SAME: index_map = (d0, d1, d2, d3) -> (((d0 + d1) floordiv 2) mod 6, (d0 + d1) mod 2, d2, d3)>
 // CHECK: #layout5 = #ttcore.metal_layout<logical_shape = 384x64, dim_alignments = 32x32, collapsed_intervals
 // CHECK-SAME: index_map = map(0)>
 // CHECK: #layout6 = #ttcore.metal_layout<logical_shape = 384x64, dim_alignments = 32x32, collapsed_intervals
-// CHECK-SAME: index_map = (d0, d1, d2, d3) ->
+// CHECK-SAME: index_map = (d0, d1, d2, d3) -> (d0 * 2 + d2 + d1 floordiv 2, 0, 0, d1 mod 2)>
 // CHECK: #layout7 = #ttcore.metal_layout<logical_shape = 384x64, dim_alignments = 32x32, collapsed_intervals
-// CHECK-SAME: index_map = (d0, d1, d2, d3) -> (d0 floordiv 6, d0 mod 6, d2, d3)>
+// CHECK-SAME: index_map = (d0, d1, d2, d3) -> (((d0 + d1) floordiv 6) mod 2, (d0 + d1) mod 6, d2, d3)>
 // CHECK: #layout8 = #ttcore.metal_layout<logical_shape = 2x384x32, dim_alignments = 1x32x32, collapsed_intervals
-// CHECK-SAME: index_map = (d0, d1, d2, d3) -> (d0 floordiv 2, d0 mod 2, d2, d3)>
+// CHECK-SAME: index_map = (d0, d1, d2, d3) -> (((d0 + d1) floordiv 2) mod 6, (d0 + d1) mod 2, d2, d3)>
 // CHECK: #layout9 = #ttcore.metal_layout<logical_shape = 2x384x32, dim_alignments = 1x32x32, collapsed_intervals
 // CHECK-SAME: index_map = map(0)>
 // CHECK: #layout10 = #ttcore.metal_layout<logical_shape = 2x384x32, dim_alignments = 1x32x32, collapsed_intervals
-// CHECK-SAME: index_map = (d0, d1, d2, d3) ->
+// CHECK-SAME: index_map = (d0, d1, d2, d3) -> ((d0 * 3 + d2) floordiv 2, 0, (d0 * 3 + d2) mod 2, 0)>
 // CHECK: #layout11 = #ttcore.metal_layout<logical_shape = 2x2x384x32, dim_alignments = 1x1x32x32, collapsed_intervals
-// CHECK-SAME: index_map = (d0, d1, d2, d3) -> (d0 floordiv 2, d0 mod 2, d2, d3)>
+// CHECK-SAME: index_map = (d0, d1, d2, d3) -> (((d0 + d1) floordiv 2) mod 6, (d0 + d1) mod 2, d2, d3)>
 // CHECK: #layout12 = #ttcore.metal_layout<logical_shape = 2x2x384x32, dim_alignments = 1x1x32x32, collapsed_intervals
 // CHECK-SAME: index_map = map(0)>
 // CHECK: #layout13 = #ttcore.metal_layout<logical_shape = 2x2x384x32, dim_alignments = 1x1x32x32, collapsed_intervals
-// CHECK-SAME: index_map = (d0, d1, d2, d3) ->
+// CHECK-SAME: index_map = (d0, d1, d2, d3) -> ((d0 * 6 + d2) floordiv 4, 0, (d0 * 6 + d2) mod 4, 0)>
 // CHECK: #layout14 = #ttcore.metal_layout<logical_shape = 4096x32, dim_alignments = 32x32, collapsed_intervals
-// CHECK-SAME: index_map = (d0, d1, d2, d3) ->
+// CHECK-SAME: index_map = (d0, d1, d2, d3) -> ((d0 + d1) mod 8, 0, d2, d3)>
 // CHECK: #layout15 = #ttcore.metal_layout<logical_shape = 4096x32, dim_alignments = 32x32, collapsed_intervals
 // CHECK-SAME: index_map = map(0)>
 // CHECK: #layout16 = #ttcore.metal_layout<logical_shape = 4096x32, dim_alignments = 32x32, collapsed_intervals
-// CHECK-SAME: index_map = (d0, d1, d2, d3) ->
+// CHECK-SAME: index_map = (d0, d1, d2, d3) -> ((d0 * 2 + d2) floordiv 16, 0, (d0 * 2 + d2) mod 16, 0)>
 
 
 // Height Sharded - Rank 2 layouts
@@ -194,7 +194,6 @@ func.func @test_lower_height_sharded_l1_5(
     // CHECK-DAG: %[[VIEW1:.*]] = d2m.view_layout %[[CAST1]] : tensor<8x1x16x1x!ttcore.tile<32x32, bf16>, #layout14> -> tensor<64x1x2x1x!ttcore.tile<32x32, bf16>, #layout16>
     // CHECK-DAG: %[[VIEW2:.*]] = d2m.view_layout %[[VIEW0]] : tensor<8x1x16x1x!ttcore.tile<32x32, bf16>, #layout15> -> tensor<64x1x2x1x!ttcore.tile<32x32, bf16>, #layout16>
     // CHECK: %[[RESULT:.*]] = d2m.generic
-    // The follwoing grid is not correctly inferred! The map is implicitly dropped in recreateGenericOp
     // CHECK-SAME: grid = #ttcore.grid<64x1, (d0, d1) ->
     // CHECK: ins(%[[VIEW2]] : tensor<64x1x2x1x!ttcore.tile<32x32, bf16>, #layout16>)
     // CHECK: outs(%[[VIEW1]] : tensor<64x1x2x1x!ttcore.tile<32x32, bf16>, #layout16>)
