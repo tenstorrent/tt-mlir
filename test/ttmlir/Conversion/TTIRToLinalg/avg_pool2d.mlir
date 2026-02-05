@@ -5,8 +5,7 @@
 module {
   func.func @avg_pool2d_basic(%arg0: tensor<1x32x32x64xbf16>) -> tensor<1x31x31x64xbf16> {
     // CHECK: linalg.pooling_nhwc_sum
-    // CHECK: linalg.generic
-    // CHECK: arith.divf
+    // CHECK: linalg.div
     // CHECK-NOT: ttir.avg_pool2d
     %1 = "ttir.avg_pool2d"(%arg0) <{
       kernel = array<i32: 2, 2>,
@@ -23,8 +22,9 @@ module {
 // Test 2: AvgPool2dOp with 3x3 kernel and stride 2.
 module {
   func.func @avg_pool2d_stride2(%arg0: tensor<1x32x32x64xbf16>) -> tensor<1x15x15x64xbf16> {
+    // CHECK: tensor.pad
     // CHECK: linalg.pooling_nhwc_sum
-    // CHECK: linalg.generic
+    // CHECK: linalg.div
     // CHECK: tensor.extract_slice
     %1 = "ttir.avg_pool2d"(%arg0) <{
       kernel = array<i32: 3, 3>,
@@ -43,7 +43,7 @@ module {
   func.func @avg_pool2d_padding(%arg0: tensor<1x32x32x64xbf16>) -> tensor<1x32x32x64xbf16> {
     // CHECK: tensor.pad
     // CHECK: linalg.pooling_nhwc_sum
-    // CHECK: linalg.generic
+    // CHECK: linalg.div
     %1 = "ttir.avg_pool2d"(%arg0) <{
       kernel = array<i32: 3, 3>,
       stride = array<i32: 1, 1>,
@@ -63,7 +63,7 @@ module {
     // With count_include_pad=false, we need two pooling ops: one for sum, one for count.
     // CHECK: linalg.pooling_nhwc_sum
     // CHECK: linalg.pooling_nhwc_sum
-    // CHECK: linalg.generic
+    // CHECK: linalg.div
     %1 = "ttir.avg_pool2d"(%arg0) <{
       kernel = array<i32: 3, 3>,
       stride = array<i32: 1, 1>,
