@@ -821,24 +821,35 @@ TTNNOperandsWorkaroundsFactory::createReduceProdOpOperandsWorkarounds() {
 // tt-metal generates indices of type UInt16. Any mismatch between generated and
 // expected data type will cause runtime to assert.
 // Issue page: https://github.com/tenstorrent/tt-mlir/issues/4405
+// tt-metal also only supports BFloat16 or UInt16 for input tensors, not
+// Float32. Issue page: https://github.com/tenstorrent/tt-mlir/issues/6926
 TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createSortOpOperandsWorkarounds(
     ttnn::SortOp op) {
-  auto indicesElementType = op.getIndices().getType().getElementType();
-
-  TTNNOperandWorkarounds datatypeWorkaround;
-  if (!(indicesElementType.isInteger(16) &&
-        indicesElementType.isUnsignedInteger())) {
-    datatypeWorkaround.tensorDataTypeWorkaround = ttcore::DataType::UInt16;
+  // Check input tensor type - tt-metal only supports BFloat16 or UInt16
+  auto inputElementType = op.getInput().getType().getElementType();
+  TTNNOperandWorkarounds inputWorkaround;
+  TTNNOperandWorkarounds valuesWorkaround;
+  if (inputElementType.isF32()) {
+    // Convert input from f32 to bf16
+    inputWorkaround.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
+    // Convert output values to match (must be same type as input after
+    // conversion)
+    valuesWorkaround.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
   }
 
-  // Empty workaround object for operands which do not require any changes.
-  TTNNOperandWorkarounds operandWorkaround;
+  // Check output indices type - tt-metal generates UInt16 indices
+  auto indicesElementType = op.getIndices().getType().getElementType();
+  TTNNOperandWorkarounds indicesWorkaround;
+  if (!(indicesElementType.isInteger(16) &&
+        indicesElementType.isUnsignedInteger())) {
+    indicesWorkaround.tensorDataTypeWorkaround = ttcore::DataType::UInt16;
+  }
 
   return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
-      .addInputOperandWorkaround(operandWorkaround)
-      .addOutputOperandWorkaround(operandWorkaround)
-      .addOutputOperandWorkaround(datatypeWorkaround);
+      .addInputOperandWorkaround(inputWorkaround)
+      .addOutputOperandWorkaround(valuesWorkaround)
+      .addOutputOperandWorkaround(indicesWorkaround);
 }
 
 TTNNOperandsWorkarounds TTNNOperandsWorkaroundsFactory::
