@@ -34,15 +34,16 @@ func.func @dram_to_l1_block_sharded(
     %arg0: tensor<1024x1024xbf16, #ttnn_layout>
 ) -> tensor<1024x1024xbf16, #ttnn_layout1> {
 
-    //CHECK-NOT: ttir.empty()
-    //CHECK-NOT: ttir.to_layout
+    // CHECK-NOT: ttir.empty()
+    // CHECK-NOT: ttir.to_layout
+    // CHECK: %[[GENERIC:.*]] = d2m.generic
     %0 = "ttir.abs"(%arg0) : (tensor<1024x1024xbf16, #ttnn_layout>) -> tensor<1024x1024xbf16, #ttnn_layout>
 
     // CHECK: %[[EMPTY:.*]] = d2m.empty() : tensor<1024x1024xbf16, #ttnn_layout1>
     // CHECK: %[[CAST1:.*]] = ttir.ttnn_metal_layout_cast %[[EMPTY]] : tensor<1024x1024xbf16, #ttnn_layout1> -> tensor<8x8x4x4x!ttcore.tile<32x32, bf16>, #layout1>
     %1 = ttir.empty() : tensor<1024x1024xbf16, #ttnn_layout1>
 
-    // CHECK: %[[TOLAYOUT:.*]] = d2m.to_layout %3, %[[CAST1]] : tensor<8x8x4x4x!ttcore.tile<32x32, bf16>, #layout2> into tensor<8x8x4x4x!ttcore.tile<32x32, bf16>, #layout1> -> tensor<8x8x4x4x!ttcore.tile<32x32, bf16>, #layout1>
+    // CHECK: %[[TOLAYOUT:.*]] = d2m.to_layout %[[GENERIC]], %[[CAST1]] : tensor<8x8x4x4x!ttcore.tile<32x32, bf16>, #layout2> into tensor<8x8x4x4x!ttcore.tile<32x32, bf16>, #layout1> -> tensor<8x8x4x4x!ttcore.tile<32x32, bf16>, #layout1>
     // CHECK: %[[CAST2:.*]] = ttir.ttnn_metal_layout_cast %[[TOLAYOUT]] : tensor<8x8x4x4x!ttcore.tile<32x32, bf16>, #layout1> -> tensor<1024x1024xbf16, #ttnn_layout1>
     %2 = ttir.to_layout %0, %1 : tensor<1024x1024xbf16, #ttnn_layout> into tensor<1024x1024xbf16, #ttnn_layout1> -> tensor<1024x1024xbf16, #ttnn_layout1>
 
@@ -55,15 +56,17 @@ func.func @l1_block_sharded_reshard(
     %arg0: tensor<2048x2048xbf16, #ttnn_layout2>
 ) -> tensor<2048x2048xbf16, #ttnn_layout3> {
 
-    //CHECK-NOT: ttir.empty()
-    //CHECK-NOT: ttir.to_layout
+    // CHECK-NOT: ttir.empty()
+    // CHECK-NOT: ttir.to_layout
+    // CHECK: %[[GENERIC:.*]] = d2m.generic
+    // CHECK-DAG: d2m.tile_abs
     %0 = "ttir.abs"(%arg0) : (tensor<2048x2048xbf16, #ttnn_layout2>) -> tensor<2048x2048xbf16, #ttnn_layout2>
 
     // CHECK: %[[EMPTY:.*]] = d2m.empty() : tensor<2048x2048xbf16, #ttnn_layout3>
     // CHECK: %[[CAST1:.*]] = ttir.ttnn_metal_layout_cast %[[EMPTY]] : tensor<2048x2048xbf16, #ttnn_layout3> -> tensor<4x4x16x16x!ttcore.tile<32x32, bf16>, #layout3>
     %1 = ttir.empty() : tensor<2048x2048xbf16, #ttnn_layout3>
 
-    // CHECK: %[[TOLAYOUT:.*]] = d2m.to_layout %1, %[[CAST1]] : tensor<8x8x8x8x!ttcore.tile<32x32, bf16>, #layout3> into tensor<4x4x16x16x!ttcore.tile<32x32, bf16>, #layout3> -> tensor<4x4x16x16x!ttcore.tile<32x32, bf16>, #layout3>
+    // CHECK: %[[TOLAYOUT:.*]] = d2m.to_layout %[[GENERIC]], %[[CAST1]] : tensor<8x8x8x8x!ttcore.tile<32x32, bf16>, #layout3> into tensor<4x4x16x16x!ttcore.tile<32x32, bf16>, #layout3> -> tensor<4x4x16x16x!ttcore.tile<32x32, bf16>, #layout3>
     // CHECK: %[[CAST2:.*]] = ttir.ttnn_metal_layout_cast %[[TOLAYOUT]] : tensor<4x4x16x16x!ttcore.tile<32x32, bf16>, #layout3> -> tensor<2048x2048xbf16, #ttnn_layout3>
     %2 = ttir.to_layout %0, %1 : tensor<2048x2048xbf16, #ttnn_layout2> into tensor<2048x2048xbf16, #ttnn_layout3> -> tensor<2048x2048xbf16, #ttnn_layout3>
 
@@ -76,15 +79,17 @@ func.func @l1_block_sharded_to_height_sharded(
     %arg0: tensor<512x256xbf16, #ttnn_layout4>
 ) -> tensor<512x256xbf16, #ttnn_layout5> {
 
-    //CHECK-NOT: ttir.empty()
-    //CHECK-NOT: ttir.to_layout
+    // CHECK-NOT: ttir.empty()
+    // CHECK-NOT: ttir.to_layout
+    // CHECK: %[[GENERIC:.*]] = d2m.generic
+    // CHECK-DAG: d2m.tile_abs
     %0 = "ttir.abs"(%arg0) : (tensor<512x256xbf16, #ttnn_layout4>) -> tensor<512x256xbf16, #ttnn_layout4>
 
     // CHECK: %[[EMPTY:.*]] = d2m.empty() : tensor<512x256xbf16, #ttnn_layout5>
     // CHECK: %[[CAST1:.*]] = ttir.ttnn_metal_layout_cast %[[EMPTY]] : tensor<512x256xbf16, #ttnn_layout5> -> tensor<8x1x2x8x!ttcore.tile<32x32, bf16>, #layout5>
     %1 = ttir.empty() : tensor<512x256xbf16, #ttnn_layout5>
 
-    // CHECK: %[[TOLAYOUT:.*]] = d2m.to_layout %1, %[[CAST1]] : tensor<8x8x2x1x!ttcore.tile<32x32, bf16>, #layout4> into tensor<8x1x2x8x!ttcore.tile<32x32, bf16>, #layout5> -> tensor<8x1x2x8x!ttcore.tile<32x32, bf16>, #layout5>
+    // CHECK: %[[TOLAYOUT:.*]] = d2m.to_layout %[[GENERIC]], %[[CAST1]] : tensor<8x8x2x1x!ttcore.tile<32x32, bf16>, #layout4> into tensor<8x1x2x8x!ttcore.tile<32x32, bf16>, #layout5> -> tensor<8x1x2x8x!ttcore.tile<32x32, bf16>, #layout5>
     // CHECK: %[[CAST2:.*]] = ttir.ttnn_metal_layout_cast %[[TOLAYOUT]] : tensor<8x1x2x8x!ttcore.tile<32x32, bf16>, #layout5> -> tensor<512x256xbf16, #ttnn_layout5>
     %2 = ttir.to_layout %0, %1 : tensor<512x256xbf16, #ttnn_layout4> into tensor<512x256xbf16, #ttnn_layout5> -> tensor<512x256xbf16, #ttnn_layout5>
 
