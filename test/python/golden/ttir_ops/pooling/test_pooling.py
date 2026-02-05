@@ -336,3 +336,36 @@ def test_global_avg_pool2d(
         device=device,
         target=target,
     )
+
+
+@x86_only
+@pytest.mark.parametrize("shape", [(1, 32, 32, 64), (1, 7, 7, 128)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_hoisted_global_avg_pool2d(
+    shape: Shape,
+    dtype: torch.dtype,
+    target: str,
+    request,
+    device,
+):
+    """Test hoisted global_avg_pool2d operation"""
+
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [dtype])
+        def hoisted_global_avg_pool2d(
+            in0: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.global_avg_pool2d(
+                in0,
+                unit_attrs=["ttir.should_hoist"],
+            )
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+    )
