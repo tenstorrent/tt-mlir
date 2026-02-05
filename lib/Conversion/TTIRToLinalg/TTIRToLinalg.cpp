@@ -1453,13 +1453,6 @@ public:
     int64_t outputW =
         (inputW + paddingLeft + paddingRight - kernelW) / strideW + 1;
 
-    // Use TOSA padding order: (top, bottom, left, right).
-    auto expandedPaddingAttr = rewriter.getDenseI64ArrayAttr(
-        {paddingTop, paddingBottom, paddingLeft, paddingRight});
-    auto expandedKernelAttr = rewriter.getDenseI64ArrayAttr({kernelH, kernelW});
-    auto expandedStridesAttr =
-        rewriter.getDenseI64ArrayAttr({strideH, strideW});
-
     // Compute actual result shape (may differ from expected due to extra
     // padding).
     SmallVector<int64_t> actualResultShape(resultType.getShape());
@@ -1468,101 +1461,77 @@ public:
     auto actualResultType =
         RankedTensorType::get(actualResultShape, elementType);
 
-    Value result;
+    // Use sum pooling + division for both count_include_pad cases.
+    // The difference is only in how the divisor is computed:
+    // - count_include_pad=true: constant divisor (kernel_h * kernel_w)
+    // - count_include_pad=false: sum-pool a ones tensor to get per-position
+    // counts
+    int64_t batch = inputType.getShape()[0];
+    int64_t channels = inputType.getShape()[3];
+    int64_t paddedH = inputH + paddingTop + paddingBottom;
+    int64_t paddedW = inputW + paddingLeft + paddingRight;
 
-    if (!countIncludePad) {
-      // For count_include_pad=false: use tosa::AvgPool2dOp directly.
-      // TOSA avg_pool2d always excludes padding from the count.
+    bool hasPadding = paddingTop > 0 || paddingBottom > 0 || paddingLeft > 0 ||
+                      paddingRight > 0;
 
-      // Determine accumulator type based on element type.
-      TypeAttr accType;
-      if (isa<FloatType>(elementType)) {
-        accType = TypeAttr::get(rewriter.getF32Type());
-      } else {
-        accType = TypeAttr::get(rewriter.getI32Type());
-      }
-
-      // Create zero point tensors (0 for non-quantized operations).
-      auto zpType = RankedTensorType::get({1}, elementType);
-      DenseElementsAttr zpAttr;
-      if (isa<FloatType>(elementType)) {
-        zpAttr = DenseElementsAttr::get(
-            zpType, rewriter.getFloatAttr(elementType, 0.0));
-      } else {
-        zpAttr = DenseElementsAttr::get(
-            zpType, rewriter.getIntegerAttr(elementType, 0));
-      }
-      Value inputZp = rewriter.create<tosa::ConstOp>(loc, zpType, zpAttr);
-      Value outputZp = rewriter.create<tosa::ConstOp>(loc, zpType, zpAttr);
-
-      auto avgPoolOp = rewriter.create<tosa::AvgPool2dOp>(
-          loc, actualResultType, input, inputZp, outputZp, expandedKernelAttr,
-          expandedStridesAttr, expandedPaddingAttr, accType);
-      result = avgPoolOp.getResult();
+    // Create zero constant for padding and fill operations.
+    Value zeroVal;
+    if (isa<FloatType>(elementType)) {
+      zeroVal = rewriter.create<arith::ConstantOp>(
+          loc, rewriter.getFloatAttr(elementType, 0.0));
     } else {
-      // For count_include_pad=true: use sum pooling + constant division.
-      int64_t batch = inputType.getShape()[0];
-      int64_t channels = inputType.getShape()[3];
-      int64_t paddedH = inputH + paddingTop + paddingBottom;
-      int64_t paddedW = inputW + paddingLeft + paddingRight;
+      zeroVal = rewriter.create<arith::ConstantOp>(
+          loc, rewriter.getIntegerAttr(elementType, 0));
+    }
 
-      bool hasPadding = paddingTop > 0 || paddingBottom > 0 ||
-                        paddingLeft > 0 || paddingRight > 0;
+    // Create padding attributes.
+    SmallVector<OpFoldResult> lowPad = {
+        rewriter.getIndexAttr(0), rewriter.getIndexAttr(paddingTop),
+        rewriter.getIndexAttr(paddingLeft), rewriter.getIndexAttr(0)};
+    SmallVector<OpFoldResult> highPad = {
+        rewriter.getIndexAttr(0), rewriter.getIndexAttr(paddingBottom),
+        rewriter.getIndexAttr(paddingRight), rewriter.getIndexAttr(0)};
+    auto paddedType =
+        RankedTensorType::get({batch, paddedH, paddedW, channels}, elementType);
 
-      // Create zero constant for padding and fill operations.
-      Value zeroVal;
-      if (isa<FloatType>(elementType)) {
-        zeroVal = rewriter.create<arith::ConstantOp>(
-            loc, rewriter.getFloatAttr(elementType, 0.0));
-      } else {
-        zeroVal = rewriter.create<arith::ConstantOp>(
-            loc, rewriter.getIntegerAttr(elementType, 0));
-      }
+    // Pad the input tensor if needed.
+    Value paddedInput = input;
+    if (hasPadding) {
+      paddedInput = rewriter.create<tensor::PadOp>(loc, paddedType, input,
+                                                   lowPad, highPad, zeroVal);
+    }
 
-      // Pad the input tensor if needed.
-      Value paddedInput = input;
-      if (hasPadding) {
-        SmallVector<OpFoldResult> lowPad = {
-            rewriter.getIndexAttr(0), rewriter.getIndexAttr(paddingTop),
-            rewriter.getIndexAttr(paddingLeft), rewriter.getIndexAttr(0)};
-        SmallVector<OpFoldResult> highPad = {
-            rewriter.getIndexAttr(0), rewriter.getIndexAttr(paddingBottom),
-            rewriter.getIndexAttr(paddingRight), rewriter.getIndexAttr(0)};
-        auto paddedInputType = RankedTensorType::get(
-            {batch, paddedH, paddedW, channels}, elementType);
-        paddedInput = rewriter.create<tensor::PadOp>(
-            loc, paddedInputType, input, lowPad, highPad, zeroVal);
-      }
+    // Create the kernel tensor (shape only, values don't matter for pooling).
+    auto linalgKernelType =
+        RankedTensorType::get({kernelH, kernelW}, rewriter.getF32Type());
+    Value kernelTensor = rewriter.create<tensor::EmptyOp>(
+        loc, linalgKernelType.getShape(), linalgKernelType.getElementType());
 
-      // Create the kernel tensor (shape only, values don't matter for pooling).
-      auto linalgKernelType =
-          RankedTensorType::get({kernelH, kernelW}, rewriter.getF32Type());
-      Value kernelTensor = rewriter.create<tensor::EmptyOp>(
-          loc, linalgKernelType.getShape(), linalgKernelType.getElementType());
+    // Create strides and dilations attributes for linalg.pooling_nhwc_sum.
+    auto linalgStridesAttr = DenseIntElementsAttr::get(
+        RankedTensorType::get({2}, rewriter.getI64Type()),
+        ArrayRef<int64_t>{strideH, strideW});
+    auto dilationsAttr = DenseIntElementsAttr::get(
+        RankedTensorType::get({2}, rewriter.getI64Type()),
+        ArrayRef<int64_t>{1, 1});
 
-      // Create output tensor initialized to zero for sum accumulation.
-      Value sumOutputInit = rewriter.create<tensor::EmptyOp>(
-          loc, actualResultType.getShape(), elementType);
-      Value sumOutput =
-          rewriter.create<linalg::FillOp>(loc, zeroVal, sumOutputInit)
-              .getResult(0);
+    // Create output tensor initialized to zero for sum accumulation.
+    Value sumOutputInit = rewriter.create<tensor::EmptyOp>(
+        loc, actualResultType.getShape(), elementType);
+    Value sumOutput =
+        rewriter.create<linalg::FillOp>(loc, zeroVal, sumOutputInit)
+            .getResult(0);
 
-      // Create strides and dilations attributes for linalg.pooling_nhwc_sum.
-      auto linalgStridesAttr = DenseIntElementsAttr::get(
-          RankedTensorType::get({2}, rewriter.getI64Type()),
-          ArrayRef<int64_t>{strideH, strideW});
-      auto dilationsAttr = DenseIntElementsAttr::get(
-          RankedTensorType::get({2}, rewriter.getI64Type()),
-          ArrayRef<int64_t>{1, 1});
+    // Perform sum pooling on input.
+    auto sumPoolOp = rewriter.create<linalg::PoolingNhwcSumOp>(
+        loc, TypeRange{actualResultType}, ValueRange{paddedInput, kernelTensor},
+        ValueRange{sumOutput}, linalgStridesAttr, dilationsAttr);
+    Value sumResult = sumPoolOp.getResult(0);
 
-      // Perform sum pooling.
-      auto sumPoolOp = rewriter.create<linalg::PoolingNhwcSumOp>(
-          loc, TypeRange{actualResultType},
-          ValueRange{paddedInput, kernelTensor}, ValueRange{sumOutput},
-          linalgStridesAttr, dilationsAttr);
-      Value sumResult = sumPoolOp.getResult(0);
-
-      // Divide by constant (kernelH * kernelW).
+    // Compute divisor tensor.
+    Value divisorTensor;
+    if (countIncludePad) {
+      // Constant divisor: kernel_h * kernel_w.
       double divisorVal = static_cast<double>(kernelH * kernelW);
       Value divisorScalar;
       if (isa<FloatType>(elementType)) {
@@ -1573,17 +1542,51 @@ public:
             loc, rewriter.getIntegerAttr(elementType,
                                          static_cast<int64_t>(divisorVal)));
       }
-      Value divisorTensor = rewriter.create<tensor::SplatOp>(
-          loc, actualResultType, divisorScalar);
+      divisorTensor = rewriter.create<tensor::SplatOp>(loc, actualResultType,
+                                                       divisorScalar);
+    } else {
+      // Dynamic divisor: sum-pool a ones tensor to count non-padded elements.
+      Value oneVal;
+      if (isa<FloatType>(elementType)) {
+        oneVal = rewriter.create<arith::ConstantOp>(
+            loc, rewriter.getFloatAttr(elementType, 1.0));
+      } else {
+        oneVal = rewriter.create<arith::ConstantOp>(
+            loc, rewriter.getIntegerAttr(elementType, 1));
+      }
 
-      // Divide sum by divisor to get average.
-      Value avgOutputInit = rewriter.create<tensor::EmptyOp>(
+      // Create ones tensor with same shape as input.
+      Value onesInit = rewriter.create<tensor::EmptyOp>(
+          loc, inputType.getShape(), elementType);
+      Value onesTensor =
+          rewriter.create<linalg::FillOp>(loc, oneVal, onesInit).getResult(0);
+
+      // Pad ones tensor with zeros.
+      Value paddedOnes = rewriter.create<tensor::PadOp>(
+          loc, paddedType, onesTensor, lowPad, highPad, zeroVal);
+
+      // Create output tensor for count accumulation.
+      Value countOutputInit = rewriter.create<tensor::EmptyOp>(
           loc, actualResultType.getShape(), elementType);
-      auto divOp = rewriter.create<linalg::DivOp>(
-          loc, actualResultType, ValueRange{sumResult, divisorTensor},
-          avgOutputInit);
-      result = divOp.getResult(0);
+      Value countOutput =
+          rewriter.create<linalg::FillOp>(loc, zeroVal, countOutputInit)
+              .getResult(0);
+
+      // Perform sum pooling on ones tensor to get counts.
+      auto countPoolOp = rewriter.create<linalg::PoolingNhwcSumOp>(
+          loc, TypeRange{actualResultType},
+          ValueRange{paddedOnes, kernelTensor}, ValueRange{countOutput},
+          linalgStridesAttr, dilationsAttr);
+      divisorTensor = countPoolOp.getResult(0);
     }
+
+    // Divide sum by divisor to get average.
+    Value avgOutputInit = rewriter.create<tensor::EmptyOp>(
+        loc, actualResultType.getShape(), elementType);
+    auto divOp = rewriter.create<linalg::DivOp>(
+        loc, actualResultType, ValueRange{sumResult, divisorTensor},
+        avgOutputInit);
+    Value result = divOp.getResult(0);
 
     // Slice the result back to the original expected shape if needed.
     if (outputH != resultType.getShape()[1] ||
