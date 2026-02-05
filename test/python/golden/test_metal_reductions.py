@@ -46,7 +46,7 @@ def create_reductions_constrained_inputs(input_shape, reduce_type, dim_arg, keep
 @pytest.mark.parametrize("n", [256])
 # @pytest.mark.parametrize("dim_arg", [[0], [1], [0, 1]])
 # @pytest.mark.parametrize("dim_arg", [[0], [1], [2]])
-@pytest.mark.parametrize("dim_arg", [[2]])
+@pytest.mark.parametrize("dim_arg", [[1]])
 @pytest.mark.parametrize("keep_dim", [True])
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_sum(
@@ -63,7 +63,8 @@ def test_sum(
         m * tile_size,
         n * tile_size,
     )
-    shape = (32, 1, 6144)
+    shape = (4, 1, 16, 180)
+    dim_arg = [0]
 
     compile_and_execute_ttir(
         create_reductions_constrained_inputs(shape, "sum", dim_arg, keep_dim),

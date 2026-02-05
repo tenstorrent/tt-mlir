@@ -27,6 +27,7 @@ add_mlir_dialect_library(MLIRD2MTransforms
         ScheduleDMA.cpp
         LowerLoadStoreOpsToExplicitCBForm.cpp
         ConvertLocalLoadStoreOpsToAliasedCBs.cpp
+        DecomposeNonRightmostReductions.cpp
 
         ADDITIONAL_HEADER_DIRS
         ${PROJECT_SOURCE_DIR}/include/ttmlir

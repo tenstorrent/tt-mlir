@@ -930,4 +930,42 @@ def D2MConvertLocalLoadStoreOpsToAliasedCBs : Pass<"d2m-convert-local-load-store
   }];
   let dependentDialects = ["::mlir::tt::d2m::D2MDialect"];
 }
+
+def D2MDecomposeNonRightmostReductions : Pass<"d2m-decompose-non-rightmost-reductions", "::mlir::ModuleOp"> {
+  let summary = "Decompose reductions on non-rightmost dimensions for TTMetal/D2M.";
+  let description = [{
+    TTMetal/D2M only supports reducing the rightmost 1-2 dimensions (tile row/column
+    dimensions). This pass decomposes reductions on non-rightmost dimensions by:
+
+    1. Permuting to move the reduction dimension to the last position
+    2. Reducing on the last dimension with keep_dim=true
+    3. Permuting back to the original dimension order
+    4. Reshaping if the original keep_dim=false
+
+    Example:
+      Before:
+        %result = "ttir.sum"(%input) <{dim_arg = [0 : i32], keep_dim = false}>
+            : (tensor<32x1x128x360xbf16>) -> tensor<1x128x360xbf16>
+
+      After:
+        // Step 1: Permute to move dim 0 to last position [1, 2, 3, 0]
+        %permuted = "ttir.permute"(%input) <{permutation = array<i64: 1, 2, 3, 0>}>
+            : (tensor<32x1x128x360xbf16>) -> tensor<1x128x360x32xbf16>
+
+        // Step 2: Reduce on last dimension with keep_dim=true
+        %reduced = "ttir.sum"(%permuted) <{dim_arg = [3 : i32], keep_dim = true}>
+            : (tensor<1x128x360x32xbf16>) -> tensor<1x128x360x1xbf16>
+
+        // Step 3: Permute back [3, 0, 1, 2]
+        %permuted_back = "ttir.permute"(%reduced) <{permutation = array<i64: 3, 0, 1, 2>}>
+            : (tensor<1x128x360x1xbf16>) -> tensor<1x1x128x360xbf16>
+
+        // Step 4: Reshape to remove reduced dimension
+        %result = "ttir.reshape"(%permuted_back) <{shape = [1 : i32, 128 : i32, 360 : i32]}>
+            : (tensor<1x1x128x360xbf16>) -> tensor<1x128x360xbf16>
+
+    This pass should run early in the D2M pipeline, before TTIRToD2M conversion.
+  }];
+  let dependentDialects = ["::mlir::tt::ttir::TTIRDialect"];
+}
 #endif

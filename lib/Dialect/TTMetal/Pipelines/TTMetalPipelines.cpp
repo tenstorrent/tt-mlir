@@ -93,6 +93,7 @@ void createTTIRToTTMetalFrontendPipeline(
     pm.addPass(d2m::createD2MGlobalDataFormatConversion(globalFormatOptions));
   }
   pm.addPass(d2m::createD2MDecomposeComplexPermute());
+  pm.addPass(d2m::createD2MDecomposeNonRightmostReductions());
   tt::TTIRToD2MOptions toD2MOptions;
   {
     toD2MOptions.defaultInputMemSpace = options.defaultInputMemSpace;
