@@ -1735,5 +1735,16 @@ struct OpModel<mlir::tt::ttnn::AssignOp> {
                std::optional<mlir::tt::ttcore::DataType> outputDtype);
 };
 
+//===----------------------------------------------------------------------===//
+// AllGatherOp
+//===----------------------------------------------------------------------===//
+template <>
+struct OpModel<mlir::tt::ttnn::AllGatherOp> {
+  static llvm::Expected<OpConstraints>
+  getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
+                   TTNNLayoutAttr inputLayout, int32_t allGatherDim, ,
+                   int32_t clusterAxis,
+                   mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
+
 } // namespace mlir::tt::ttnn::op_model
 #endif // TTMLIR_OPMODEL_TTNN_TTNNOPMODEL_H
