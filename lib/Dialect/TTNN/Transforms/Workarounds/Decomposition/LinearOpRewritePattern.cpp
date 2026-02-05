@@ -157,13 +157,27 @@ LinearOpRewritePattern::matchAndRewrite(ttnn::LinearOp srcOp,
       /*activation=*/nullptr);
 
   // Step 2: Create Add operation with bias.
+  llvm::SmallVector<int64_t> addShape;
+  mlir::OpTrait::util::getBroadcastedShape(matmulOp.getType().getShape(),
+                                           srcOp.getBias().getType().getShape(),
+                                           addShape);
+  auto addOutputType =
+      utils::RankedTensorTypeFactory::create(outputType, addShape);
   AddOp addOp = rewriter.create<ttnn::AddOp>(
       ttmlir::utils::appendLocationSuffix(srcOp.getLoc(), "_decomp_add"),
-      outputType, matmulOp.getResult(), srcOp.getBias(),
+      addOutputType, matmulOp.getResult(), srcOp.getBias(),
       /*dtype=*/dataTypeAttr,
       /*memory_config=*/ttnn::MemoryConfigAttr());
 
-  // Step 3: If original linear op had activation, apply it to the add result.
+  // Step 3: Reshape the add result back to original output shape.
+  // Reshape op will be no-op if addOp output shape is same as original LinearOp
+  // output shape.
+  ReshapeOp finalReshape = ttir_to_ttnn::utils::generateReshape(
+      addOp.getResult(), srcOp.getType().getShape(), rewriter,
+      ttmlir::utils::appendLocationSuffix(srcOp->getLoc(), "_decomp_reshape"));
+
+  // Step 4: If original linear op had activation, apply it to the reshape op
+  // result.
   if (srcOp.getActivation()) {
     std::string activationStr = srcOp.getActivation()->str();
 
@@ -191,12 +205,12 @@ LinearOpRewritePattern::matchAndRewrite(ttnn::LinearOp srcOp,
         rewriter.create(ttmlir::utils::appendLocationSuffix(
                             srcOp.getLoc(), "_decomp_" + activationStr),
                         opName,
-                        /*operands=*/ValueRange{addOp.getResult()},
+                        /*operands=*/ValueRange{finalReshape.getResult()},
                         /*types=*/TypeRange{outputType});
 
     rewriter.replaceOp(srcOp, activationOp->getResult(0));
   } else {
-    rewriter.replaceOp(srcOp, addOp.getResult());
+    rewriter.replaceOp(srcOp, finalReshape.getResult());
   }
 
   return success();
