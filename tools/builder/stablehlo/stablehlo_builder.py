@@ -4822,6 +4822,248 @@ class StableHLOBuilder(Builder):
 
         return sel_module, sel_builder
 
+    ############### stablehlo.CompareOp ###############
+
+    @tag(stablehlo.CompareOp)
+    def compare(
+        self,
+        lhs: Operand,
+        rhs: Operand,
+        comparison_direction: str,
+        compare_type: str = "FLOAT",
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpResult:
+        """
+        Create a stablehlo.compare operation.
+
+        Parameters
+        ----------
+        lhs : Operand
+            Left-hand side tensor.
+        rhs : Operand
+            Right-hand side tensor.
+        comparison_direction : str
+            Comparison direction: EQ, NE, GE, GT, LE, LT.
+        compare_type : str
+            Comparison type: FLOAT, SIGNED, UNSIGNED, TOTALORDER.
+        loc : Optional[str]
+            Location string.
+        unit_attrs : Optional[List[str]]
+            Unit attributes.
+        sharding_attr : Optional[sdy.TensorShardingPerValueAttr]
+            Sharding attribute.
+
+        Returns
+        -------
+        OpResult
+            The result of the compare operation (boolean tensor).
+        """
+        stablehlo_op = self.get_opview_from_method(StableHLOBuilder.compare)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        # Create the comparison direction and type attributes
+        comparison_direction_attr = stablehlo.ComparisonDirectionAttr.get(
+            comparison_direction
+        )
+        compare_type_attr = stablehlo.ComparisonTypeAttr.get(compare_type)
+
+        op = stablehlo_op(
+            lhs,
+            rhs,
+            comparison_direction=comparison_direction_attr,
+            compare_type=compare_type_attr,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if sharding_attr is not None:
+            op.operation.attributes["sdy.sharding"] = sharding_attr
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            lhs_g = self._get_golden_tensor(lhs)
+            rhs_g = self._get_golden_tensor(rhs)
+            op_golden_function = get_golden_function(stablehlo_op)
+            golden_output = op_golden_function(
+                lhs_g, rhs_g, comparison_direction, op.result.type.element_type
+            )
+            self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(stablehlo.CompareOp)
+    def compare_parser(
+        self,
+        old_op: stablehlo.CompareOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        stablehlo_op = self.get_opview_from_parser(StableHLOBuilder.compare_parser)
+
+        lhs = global_dict[old_op.lhs]
+        rhs = global_dict[old_op.rhs]
+        comparison_direction_attr = old_op.comparison_direction
+        compare_type_attr = old_op.compare_type
+
+        new_op = stablehlo_op(
+            lhs,
+            rhs,
+            comparison_direction=comparison_direction_attr,
+            compare_type=compare_type_attr,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        if not self._disable_golden_check:
+            lhs_g = self._get_golden_tensor(lhs)
+            rhs_g = self._get_golden_tensor(rhs)
+            # Extract comparison direction string from attribute
+            direction_str = str(comparison_direction_attr).split(".")[-1].rstrip(">")
+            op_golden_function = get_golden_function(stablehlo_op)
+            golden_output = op_golden_function(
+                lhs_g, rhs_g, direction_str, new_op_result.type.element_type
+            )
+            self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(stablehlo.CompareOp)
+    def compare_split(
+        self,
+        old_op: stablehlo.CompareOp,
+    ) -> Tuple[Module, StableHLOBuilder]:
+        stablehlo_op = self.get_opview_from_split(StableHLOBuilder.compare_split)
+
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
+            compare_module = Module.create()
+            compare_builder = StableHLOBuilder(old_ctx, old_loc)
+            op_input_types = [
+                old_op.lhs.type,
+                old_op.rhs.type,
+            ]
+
+            with InsertionPoint(compare_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="compare_module")
+                def decorated_func(*inputs):
+                    lhs, rhs = inputs[0], inputs[1]
+
+                    new_op = stablehlo_op(
+                        lhs,
+                        rhs,
+                        comparison_direction=old_op.comparison_direction,
+                        compare_type=old_op.compare_type,
+                        loc=old_op.location,
+                    )
+                    new_op_result = new_op.result
+
+                    if not self._disable_golden_check:
+                        lhs_g = self._get_golden_tensor(old_op.lhs)
+                        rhs_g = self._get_golden_tensor(old_op.rhs)
+                        direction_str = str(old_op.comparison_direction).split(".")[-1].rstrip(">")
+                        op_golden_function = get_golden_function(stablehlo_op)
+                        golden_output = op_golden_function(
+                            lhs_g, rhs_g, direction_str, old_op.result.type.element_type
+                        )
+                        compare_builder._set_golden_tensor(new_op_result, golden_output)
+                        compare_builder._set_golden_tensor(lhs, lhs_g)
+                        compare_builder._set_golden_tensor(rhs, rhs_g)
+                        ordered_inputs.extend([lhs, rhs])
+                        ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                compare_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return compare_module, compare_builder
+
+    # Convenience methods for specific comparison operations
+
+    def equal(
+        self,
+        lhs: Operand,
+        rhs: Operand,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpResult:
+        """Elementwise equality comparison (EQ)."""
+        return self.compare(lhs, rhs, "EQ", "FLOAT", loc, unit_attrs, sharding_attr)
+
+    def not_equal(
+        self,
+        lhs: Operand,
+        rhs: Operand,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpResult:
+        """Elementwise inequality comparison (NE)."""
+        return self.compare(lhs, rhs, "NE", "FLOAT", loc, unit_attrs, sharding_attr)
+
+    def greater_equal(
+        self,
+        lhs: Operand,
+        rhs: Operand,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpResult:
+        """Elementwise greater-than-or-equal comparison (GE)."""
+        return self.compare(lhs, rhs, "GE", "FLOAT", loc, unit_attrs, sharding_attr)
+
+    def greater_than(
+        self,
+        lhs: Operand,
+        rhs: Operand,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpResult:
+        """Elementwise greater-than comparison (GT)."""
+        return self.compare(lhs, rhs, "GT", "FLOAT", loc, unit_attrs, sharding_attr)
+
+    def less_equal(
+        self,
+        lhs: Operand,
+        rhs: Operand,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpResult:
+        """Elementwise less-than-or-equal comparison (LE)."""
+        return self.compare(lhs, rhs, "LE", "FLOAT", loc, unit_attrs, sharding_attr)
+
+    def less_than(
+        self,
+        lhs: Operand,
+        rhs: Operand,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpResult:
+        """Elementwise less-than comparison (LT)."""
+        return self.compare(lhs, rhs, "LT", "FLOAT", loc, unit_attrs, sharding_attr)
+
     ################ stablehlo.ClampOp ###############
 
     @tag(stablehlo.ClampOp)

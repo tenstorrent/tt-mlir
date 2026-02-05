@@ -4608,6 +4608,52 @@ def stablehlo_shift_right_logical_golden(
     return shifted.to(output_dtype)
 
 
+def stablehlo_compare_golden(
+    lhs_tensor: GoldenMapTensor,
+    rhs_tensor: GoldenMapTensor,
+    comparison_direction: str,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    """
+    Golden function for stablehlo.compare operation.
+
+    Performs elementwise comparison based on the specified direction.
+
+    Parameters
+    ----------
+    lhs_tensor : GoldenMapTensor
+        Left-hand side tensor.
+    rhs_tensor : GoldenMapTensor
+        Right-hand side tensor.
+    comparison_direction : str
+        The comparison direction: EQ, NE, GE, GT, LE, LT.
+    output_type_mlir : Type
+        MLIR output type.
+
+    Returns
+    -------
+    GoldenMapTensor
+        Boolean tensor containing the comparison results.
+    """
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+
+    comparison_ops = {
+        "EQ": torch.eq,
+        "NE": torch.ne,
+        "GE": torch.ge,
+        "GT": torch.gt,
+        "LE": torch.le,
+        "LT": torch.lt,
+    }
+
+    if comparison_direction not in comparison_ops:
+        raise ValueError(f"Unsupported comparison direction: {comparison_direction}")
+
+    compare_fn = comparison_ops[comparison_direction]
+    result = compare_fn(lhs_tensor, rhs_tensor)
+    return result.to(output_dtype)
+
+
 # The following golden implementation is taken from the op spec: https://openxla.org/stablehlo/spec#dynamic_update_slice
 def stablehlo_dynamic_update_slice_golden(
     input_tensor: GoldenMapTensor,
@@ -5834,6 +5880,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     stablehlo.TransposeOp: stablehlo_transpose_golden,
     stablehlo.SelectOp: stablehlo_select_golden,
     stablehlo.PadOp: stablehlo_pad_golden,
+    stablehlo.CompareOp: stablehlo_compare_golden,
     # CCL (Collective Communication Library) operations
     stablehlo.AllGatherOp: stablehlo_all_gather_golden,
     stablehlo.AllReduceOp: stablehlo_all_reduce_golden,
