@@ -2867,6 +2867,58 @@ public:
 } // namespace
 
 namespace {
+// Conversion pattern for ttir.pad operation
+class PadOpConversionPattern : public OpConversionPattern<ttir::PadOp> {
+public:
+  using OpConversionPattern<ttir::PadOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::PadOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    Value input = adaptor.getInput();
+    auto inputType = dyn_cast<RankedTensorType>(input.getType());
+    assert(inputType && "Input must be a ranked tensor type.");
+
+    auto resultType = dyn_cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getResult().getType()));
+    assert(resultType && "Result type must be a ranked tensor type.");
+
+    // Get padding attribute: format is [dim0_low, dim0_high, dim1_low,
+    // dim1_high, ...]
+    ArrayRef<int32_t> paddingArray = op.getPadding();
+    int64_t rank = inputType.getRank();
+    assert(static_cast<int64_t>(paddingArray.size()) == 2 * rank &&
+           "Padding size must be 2 * rank.");
+
+    // Extract low and high padding for each dimension.
+    SmallVector<OpFoldResult> lowPad, highPad;
+    for (int64_t i = 0; i < rank; ++i) {
+      lowPad.push_back(rewriter.getIndexAttr(paddingArray[2 * i]));
+      highPad.push_back(rewriter.getIndexAttr(paddingArray[2 * i + 1]));
+    }
+
+    // Get the padding value and create a constant.
+    float padValue = op.getValue().convertToFloat();
+    Type elementType = inputType.getElementType();
+    Value padConstant;
+    if (isa<FloatType>(elementType)) {
+      padConstant = rewriter.create<arith::ConstantOp>(
+          op.getLoc(), rewriter.getFloatAttr(elementType, padValue));
+    } else {
+      padConstant = rewriter.create<arith::ConstantOp>(
+          op.getLoc(),
+          rewriter.getIntegerAttr(elementType, static_cast<int64_t>(padValue)));
+    }
+
+    // Create tensor::PadOp and replace.
+    rewriter.replaceOpWithNewOp<tensor::PadOp>(op, resultType, input, lowPad,
+                                               highPad, padConstant);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 // Conversion pattern for ttir.constant operation
 class ConstantOpConversionPattern
     : public OpConversionPattern<ttir::ConstantOp> {
@@ -3702,8 +3754,8 @@ void populateTTIRToLinalgPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
       ElementwiseOpConversionPattern<ttir::SqrtOp, linalg::SqrtOp>,
       SoftmaxOpConversionPattern, EmptyOpConversionPattern,
       PermuteOpConversionPattern, SliceStaticOpConversionPattern,
-      ConstantOpConversionPattern, ReluOpConversionPattern,
-      NamedFillOpConversionPattern<ttir::ZerosOp, 0>,
+      PadOpConversionPattern, ConstantOpConversionPattern,
+      ReluOpConversionPattern, NamedFillOpConversionPattern<ttir::ZerosOp, 0>,
       NamedFillOpConversionPattern<ttir::OnesOp, 1>, FullOpConversionPattern,
       ArangeOpConversionPattern, MeshShardOpConversionPattern,
       CumSumOpConversionPattern, ConcatenateHeadsOpConversionPattern>(
