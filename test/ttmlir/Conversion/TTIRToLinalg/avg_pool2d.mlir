@@ -59,11 +59,8 @@ module {
 // Test 4: AvgPool2dOp with padding and count_include_pad=false.
 module {
   func.func @avg_pool2d_count_exclude_pad(%arg0: tensor<1x32x32x64xbf16>) -> tensor<1x32x32x64xbf16> {
-    // CHECK: tensor.pad
-    // With count_include_pad=false, we need two pooling ops: one for sum, one for count.
-    // CHECK: linalg.pooling_nhwc_sum
-    // CHECK: linalg.pooling_nhwc_sum
-    // CHECK: linalg.div
+    // CHECK: tosa.avg_pool2d
+    // CHECK-NOT: ttir.avg_pool2d
     %1 = "ttir.avg_pool2d"(%arg0) <{
       kernel = array<i32: 3, 3>,
       stride = array<i32: 1, 1>,
