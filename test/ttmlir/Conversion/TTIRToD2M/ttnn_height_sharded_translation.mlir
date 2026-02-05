@@ -184,26 +184,25 @@ func.func @test_lower_height_sharded_l1_5(
   // CHECK: return %[[CAST2]] : tensor<2x2x384x32xbf16, #ttnn_layout5>
   return %1 : tensor<2x2x384x32xbf16, #ttnn_layout5>
   }
+
+  // CHECK-LABEL: func.func @test_lower_height_sharded_l1_6
+  func.func @test_lower_height_sharded_l1_6(
+    %arg0: tensor<4096x32xbf16, #ttnn_layout6>) -> tensor<4096x32xbf16, #ttnn_layout6> {
+    // CHECK: %[[CAST0:.*]] = ttir.ttnn_metal_layout_cast %arg0 : tensor<4096x32xbf16, #ttnn_layout6> -> tensor<8x1x16x1x!ttcore.tile<32x32, bf16>, #layout14>
+    // CHECK-DAG: %[[VIEW0:.*]] = d2m.view_layout %[[CAST0]] : tensor<8x1x16x1x!ttcore.tile<32x32, bf16>, #layout14> -> tensor<8x1x16x1x!ttcore.tile<32x32, bf16>, #layout15>
+    // CHECK: %[[CAST1:.*]] = ttir.ttnn_metal_layout_cast %0 : tensor<4096x32xbf16, #ttnn_layout6> -> tensor<8x1x16x1x!ttcore.tile<32x32, bf16>, #layout14>
+    // CHECK-DAG: %[[VIEW1:.*]] = d2m.view_layout %[[CAST1]] : tensor<8x1x16x1x!ttcore.tile<32x32, bf16>, #layout14> -> tensor<64x1x2x1x!ttcore.tile<32x32, bf16>, #layout16>
+    // CHECK-DAG: %[[VIEW2:.*]] = d2m.view_layout %[[VIEW0]] : tensor<8x1x16x1x!ttcore.tile<32x32, bf16>, #layout15> -> tensor<64x1x2x1x!ttcore.tile<32x32, bf16>, #layout16>
+    // CHECK: %[[RESULT:.*]] = d2m.generic
+    // The follwoing grid is not correctly inferred! The map is implicitly dropped in recreateGenericOp
+    // CHECK-SAME: grid = #ttcore.grid<64x1, (d0, d1) ->
+    // CHECK: ins(%[[VIEW2]] : tensor<64x1x2x1x!ttcore.tile<32x32, bf16>, #layout16>)
+    // CHECK: outs(%[[VIEW1]] : tensor<64x1x2x1x!ttcore.tile<32x32, bf16>, #layout16>)
+    // CHECK-DAG: d2m.tile_abs
+    // CHECK: %[[CAST2:.*]] = ttir.ttnn_metal_layout_cast %[[RESULT]] : tensor<64x1x2x1x!ttcore.tile<32x32, bf16>, #layout16> -> tensor<4096x32xbf16, #ttnn_layout6>
+
+    %1 = "ttir.abs"(%arg0)  : (tensor<4096x32xbf16, #ttnn_layout6>) -> (tensor<4096x32xbf16, #ttnn_layout6>)
+    // CHECK: return %[[CAST2]] : tensor<4096x32xbf16, #ttnn_layout6>
+    return %1 : tensor<4096x32xbf16, #ttnn_layout6>
+  }
 }
-
-// CHECK-LABEL: func.func @test_lower_height_sharded_l1_6
-func.func @test_lower_height_sharded_l1_6(
-  %arg0: tensor<4096x32xbf16, #ttnn_layout6>) -> tensor<4096x32xbf16, #ttnn_layout6> {
-  // CHECK: %[[CAST0:.*]] = ttir.ttnn_metal_layout_cast %arg0 : tensor<4096x32xbf16, #ttnn_layout6> -> tensor<8x1x16x1x!ttcore.tile<32x32, bf16>, #layout14>
-  // CHECK-DAG: %[[VIEW0:.*]] = d2m.view_layout %[[CAST0]] : tensor<8x1x16x1x!ttcore.tile<32x32, bf16>, #layout14> -> tensor<8x1x16x1x!ttcore.tile<32x32, bf16>, #layout15>
-  // CHECK: %[[CAST1:.*]] = ttir.ttnn_metal_layout_cast %0 : tensor<4096x32xbf16, #ttnn_layout6> -> tensor<8x1x16x1x!ttcore.tile<32x32, bf16>, #layout14>
-  // CHECK-DAG: %[[VIEW1:.*]] = d2m.view_layout %[[CAST1]] : tensor<8x1x16x1x!ttcore.tile<32x32, bf16>, #layout14> -> tensor<64x1x2x1x!ttcore.tile<32x32, bf16>, #layout16>
-  // CHECK-DAG: %[[VIEW2:.*]] = d2m.view_layout %[[VIEW0]] : tensor<8x1x16x1x!ttcore.tile<32x32, bf16>, #layout15> -> tensor<64x1x2x1x!ttcore.tile<32x32, bf16>, #layout16>
-  // CHECK: %[[RESULT:.*]] = d2m.generic
-  // The follwoing grid is not correctly inferred! The map is implicitly dropped in recreateGenericOp
-  // CHECK-SAME: grid = #ttcore.grid<64x1, (d0, d1) -> 
-  // CHECK: ins(%[[VIEW2]] : tensor<64x1x2x1x!ttcore.tile<32x32, bf16>, #layout16>)
-  // CHECK: outs(%[[VIEW1]] : tensor<64x1x2x1x!ttcore.tile<32x32, bf16>, #layout16>)
-  // CHECK-DAG: d2m.tile_abs
-  // CHECK: %[[CAST2:.*]] = ttir.ttnn_metal_layout_cast %[[RESULT]] : tensor<64x1x2x1x!ttcore.tile<32x32, bf16>, #layout16> -> tensor<4096x32xbf16, #ttnn_layout6>
-
-  %1 = "ttir.abs"(%arg0)  : (tensor<4096x32xbf16, #ttnn_layout6>) -> (tensor<4096x32xbf16, #ttnn_layout6>)
-  // CHECK: return %[[CAST2]] : tensor<4096x32xbf16, #ttnn_layout6>
-  return %1 : tensor<4096x32xbf16, #ttnn_layout6>
-}
-
