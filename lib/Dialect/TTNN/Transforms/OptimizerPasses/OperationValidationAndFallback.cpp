@@ -519,6 +519,8 @@ double calculateDataTypeDistance(ttcore::DataType from, ttcore::DataType to) {
       return {TypeInfo::Category::FLOATING, TypeInfo::Precision::LOW};
     case ttcore::DataType::Float32:
       return {TypeInfo::Category::FLOATING, TypeInfo::Precision::HIGH};
+    case ttcore::DataType::BFP_BFloat8:
+      return {TypeInfo::Category::FLOATING, TypeInfo::Precision::LOW};
     default:
       // For unknown types, assume high precision floating point
       return {TypeInfo::Category::FLOATING, TypeInfo::Precision::HIGH};
