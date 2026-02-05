@@ -4556,6 +4556,465 @@ class StableHLOBuilder(Builder):
 
         return srl_module, srl_builder
 
+    ############### stablehlo.ShiftLeftOp ###############
+
+    @tag(stablehlo.ShiftLeftOp)
+    def shift_left(
+        self,
+        in0: Operand,
+        in1: Operand,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpResult:
+        """
+        Create a stablehlo.ShiftLeftOp for element-wise left bit shift.
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor to be shifted.
+        in1 : Operand
+            Number of bits to shift.
+        output_type : Optional[torch.dtype]
+            Optional output data type.
+        loc : Optional[str]
+            Optional location for debugging.
+        unit_attrs : Optional[List[str]]
+            Optional unit attributes.
+        sharding_attr : Optional[sdy.TensorShardingPerValueAttr]
+            Optional sharding attribute.
+
+        Returns
+        -------
+        OpResult
+            The result of the shift left operation.
+        """
+        stablehlo_op = self.get_opview_from_method(StableHLOBuilder.shift_left)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = stablehlo_op(
+            in0,
+            in1,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if sharding_attr is not None:
+            op.operation.attributes["sdy.sharding"] = sharding_attr
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            input1 = self._get_golden_tensor(in1)
+            op_golden_function = get_golden_function(stablehlo_op)
+            golden_output = op_golden_function(input0, input1, mlir_output_type)
+            self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(stablehlo.ShiftLeftOp)
+    def shift_left_parser(
+        self,
+        old_op: stablehlo.ShiftLeftOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        stablehlo_op = self.get_opview_from_parser(StableHLOBuilder.shift_left_parser)
+        lhs = global_dict[old_op.lhs]
+        rhs = global_dict[old_op.rhs]
+
+        new_op = stablehlo_op(
+            lhs,
+            rhs,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(lhs)
+            input1 = self._get_golden_tensor(rhs)
+            op_golden_function = get_golden_function(stablehlo_op)
+            golden_output = op_golden_function(
+                input0, input1, new_op_result.type.element_type
+            )
+            self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(stablehlo.ShiftLeftOp)
+    def shift_left_split(
+        self,
+        old_op: stablehlo.ShiftLeftOp,
+    ) -> Tuple[Module, StableHLOBuilder]:
+        stablehlo_op = self.get_opview_from_split(StableHLOBuilder.shift_left_split)
+
+        old_context = old_op.context
+        old_loc = Location.unknown(old_context)
+        with old_context, old_loc:
+            sll_module = Module.create()
+            sll_builder = StableHLOBuilder(old_context, old_loc)
+            op_input_types = [
+                old_op.lhs.type,
+                old_op.rhs.type,
+            ]
+
+            with InsertionPoint(sll_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="shift_left_module")
+                def decorated_func(*inputs):
+                    lhs = inputs[0]
+                    rhs = inputs[1]
+
+                    new_op = stablehlo_op(lhs, rhs, loc=old_op.location)
+                    new_op_result = new_op.result
+
+                    if not self._disable_golden_check:
+                        op_golden_function = get_golden_function(stablehlo_op)
+                        input0 = self._get_golden_tensor(old_op.lhs)
+                        input1 = self._get_golden_tensor(old_op.rhs)
+                        golden_output = op_golden_function(
+                            input0, input1, new_op_result.type.element_type
+                        )
+                        sll_builder._set_golden_tensor(new_op_result, golden_output)
+                        sll_builder._set_golden_tensor(lhs, input0)
+                        sll_builder._set_golden_tensor(rhs, input1)
+                        ordered_inputs.extend([lhs, rhs])
+                        ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                sll_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return sll_module, sll_builder
+
+    ############### stablehlo.RemOp ###############
+
+    @tag(stablehlo.RemOp)
+    def remainder(
+        self,
+        in0: Operand,
+        in1: Operand,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpResult:
+        """
+        Create a stablehlo.RemOp for element-wise remainder operation.
+
+        Parameters
+        ----------
+        in0 : Operand
+            Dividend tensor.
+        in1 : Operand
+            Divisor tensor.
+        output_type : Optional[torch.dtype]
+            Optional output data type.
+        loc : Optional[str]
+            Optional location for debugging.
+        unit_attrs : Optional[List[str]]
+            Optional unit attributes.
+        sharding_attr : Optional[sdy.TensorShardingPerValueAttr]
+            Optional sharding attribute.
+
+        Returns
+        -------
+        OpResult
+            The result of the remainder operation.
+        """
+        stablehlo_op = self.get_opview_from_method(StableHLOBuilder.remainder)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = stablehlo_op(
+            in0,
+            in1,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if sharding_attr is not None:
+            op.operation.attributes["sdy.sharding"] = sharding_attr
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            input1 = self._get_golden_tensor(in1)
+            op_golden_function = get_golden_function(stablehlo_op)
+            golden_output = op_golden_function(input0, input1, mlir_output_type)
+            self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(stablehlo.RemOp)
+    def remainder_parser(
+        self,
+        old_op: stablehlo.RemOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        stablehlo_op = self.get_opview_from_parser(StableHLOBuilder.remainder_parser)
+        lhs = global_dict[old_op.lhs]
+        rhs = global_dict[old_op.rhs]
+
+        new_op = stablehlo_op(
+            lhs,
+            rhs,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(lhs)
+            input1 = self._get_golden_tensor(rhs)
+            op_golden_function = get_golden_function(stablehlo_op)
+            golden_output = op_golden_function(
+                input0, input1, new_op_result.type.element_type
+            )
+            self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(stablehlo.RemOp)
+    def remainder_split(
+        self,
+        old_op: stablehlo.RemOp,
+    ) -> Tuple[Module, StableHLOBuilder]:
+        stablehlo_op = self.get_opview_from_split(StableHLOBuilder.remainder_split)
+
+        old_context = old_op.context
+        old_loc = Location.unknown(old_context)
+        with old_context, old_loc:
+            rem_module = Module.create()
+            rem_builder = StableHLOBuilder(old_context, old_loc)
+            op_input_types = [
+                old_op.lhs.type,
+                old_op.rhs.type,
+            ]
+
+            with InsertionPoint(rem_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="remainder_module")
+                def decorated_func(*inputs):
+                    lhs = inputs[0]
+                    rhs = inputs[1]
+
+                    new_op = stablehlo_op(lhs, rhs, loc=old_op.location)
+                    new_op_result = new_op.result
+
+                    if not self._disable_golden_check:
+                        op_golden_function = get_golden_function(stablehlo_op)
+                        input0 = self._get_golden_tensor(old_op.lhs)
+                        input1 = self._get_golden_tensor(old_op.rhs)
+                        golden_output = op_golden_function(
+                            input0, input1, new_op_result.type.element_type
+                        )
+                        rem_builder._set_golden_tensor(new_op_result, golden_output)
+                        rem_builder._set_golden_tensor(lhs, input0)
+                        rem_builder._set_golden_tensor(rhs, input1)
+                        ordered_inputs.extend([lhs, rhs])
+                        ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                rem_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return rem_module, rem_builder
+
+    ############### stablehlo.Atan2Op ###############
+
+    @tag(stablehlo.Atan2Op)
+    def atan2(
+        self,
+        in0: Operand,
+        in1: Operand,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpResult:
+        """
+        Create a stablehlo.Atan2Op for element-wise arc tangent of y/x.
+
+        Parameters
+        ----------
+        in0 : Operand
+            Y-coordinate tensor.
+        in1 : Operand
+            X-coordinate tensor.
+        output_type : Optional[torch.dtype]
+            Optional output data type.
+        loc : Optional[str]
+            Optional location for debugging.
+        unit_attrs : Optional[List[str]]
+            Optional unit attributes.
+        sharding_attr : Optional[sdy.TensorShardingPerValueAttr]
+            Optional sharding attribute.
+
+        Returns
+        -------
+        OpResult
+            The result of the atan2 operation in radians.
+        """
+        stablehlo_op = self.get_opview_from_method(StableHLOBuilder.atan2)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = stablehlo_op(
+            in0,
+            in1,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if sharding_attr is not None:
+            op.operation.attributes["sdy.sharding"] = sharding_attr
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            input1 = self._get_golden_tensor(in1)
+            op_golden_function = get_golden_function(stablehlo_op)
+            golden_output = op_golden_function(input0, input1, mlir_output_type)
+            self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(stablehlo.Atan2Op)
+    def atan2_parser(
+        self,
+        old_op: stablehlo.Atan2Op,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        stablehlo_op = self.get_opview_from_parser(StableHLOBuilder.atan2_parser)
+        lhs = global_dict[old_op.lhs]
+        rhs = global_dict[old_op.rhs]
+
+        new_op = stablehlo_op(
+            lhs,
+            rhs,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(lhs)
+            input1 = self._get_golden_tensor(rhs)
+            op_golden_function = get_golden_function(stablehlo_op)
+            golden_output = op_golden_function(
+                input0, input1, new_op_result.type.element_type
+            )
+            self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(stablehlo.Atan2Op)
+    def atan2_split(
+        self,
+        old_op: stablehlo.Atan2Op,
+    ) -> Tuple[Module, StableHLOBuilder]:
+        stablehlo_op = self.get_opview_from_split(StableHLOBuilder.atan2_split)
+
+        old_context = old_op.context
+        old_loc = Location.unknown(old_context)
+        with old_context, old_loc:
+            atan2_module = Module.create()
+            atan2_builder = StableHLOBuilder(old_context, old_loc)
+            op_input_types = [
+                old_op.lhs.type,
+                old_op.rhs.type,
+            ]
+
+            with InsertionPoint(atan2_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="atan2_module")
+                def decorated_func(*inputs):
+                    lhs = inputs[0]
+                    rhs = inputs[1]
+
+                    new_op = stablehlo_op(lhs, rhs, loc=old_op.location)
+                    new_op_result = new_op.result
+
+                    if not self._disable_golden_check:
+                        op_golden_function = get_golden_function(stablehlo_op)
+                        input0 = self._get_golden_tensor(old_op.lhs)
+                        input1 = self._get_golden_tensor(old_op.rhs)
+                        golden_output = op_golden_function(
+                            input0, input1, new_op_result.type.element_type
+                        )
+                        atan2_builder._set_golden_tensor(new_op_result, golden_output)
+                        atan2_builder._set_golden_tensor(lhs, input0)
+                        atan2_builder._set_golden_tensor(rhs, input1)
+                        ordered_inputs.extend([lhs, rhs])
+                        ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                atan2_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return atan2_module, atan2_builder
+
     ############### stablehlo.ReverseOp ###############
 
     @tag(stablehlo.ReverseOp)

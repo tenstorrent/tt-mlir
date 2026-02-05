@@ -187,6 +187,42 @@ def module_shift_right_logical(builder: StableHLOBuilder):
         return builder.shift_right_logical(in0, in1, unit_attrs=unit_attrs)
 
 
+def module_shift_left(builder: StableHLOBuilder):
+    @builder.func([(128, 128), (128, 128)], [torch.int32, torch.int32])
+    def shift_left(
+        in0: Operand,
+        in1: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.shift_left(in0, in1, unit_attrs=unit_attrs)
+
+
+def module_remainder(builder: StableHLOBuilder):
+    @builder.func([(128, 128), (128, 128)], [torch.float32, torch.float32])
+    def remainder(
+        in0: Operand,
+        in1: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.remainder(in0, in1, unit_attrs=unit_attrs)
+
+
+def module_atan2(builder: StableHLOBuilder):
+    @builder.func([(128, 128), (128, 128)], [torch.float32, torch.float32])
+    def atan2(
+        in0: Operand,
+        in1: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.atan2(in0, in1, unit_attrs=unit_attrs)
+
+
 def module_clamp(builder: StableHLOBuilder):
     @builder.func(
         [(128, 128), (128, 128), (128, 128)],
@@ -423,6 +459,9 @@ def module_broadcast_in_dim(builder: StableHLOBuilder):
             )
         ),
         module_subtract,
+        module_shift_left,
+        module_remainder,
+        module_atan2,
     ],
 )
 def test_binary_ops(test_fn: Callable, target: str, request, device):

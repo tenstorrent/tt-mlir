@@ -4608,6 +4608,85 @@ def stablehlo_shift_right_logical_golden(
     return shifted.to(output_dtype)
 
 
+def stablehlo_shift_left_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    """
+    Golden function for stablehlo.ShiftLeftOp.
+
+    Performs element-wise left shift operation.
+
+    Parameters
+    ----------
+    input_tensor : GoldenMapTensor
+        Input tensor to be shifted.
+    other_tensor : GoldenMapTensor
+        Number of bits to shift by.
+    output_type_mlir : Type
+        The MLIR output type.
+
+    Returns
+    -------
+    GoldenMapTensor
+        Tensor with values shifted left by the specified number of bits.
+    """
+    shifted = logical_left_shift_golden(input_tensor, other_tensor)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return shifted.to(output_dtype)
+
+
+def stablehlo_remainder_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    """
+    Golden function for stablehlo.RemOp (remainder operation).
+
+    Performs element-wise remainder operation.
+
+    Parameters
+    ----------
+    input_tensor : GoldenMapTensor
+        Dividend tensor.
+    other_tensor : GoldenMapTensor
+        Divisor tensor.
+    output_type_mlir : Type
+        The MLIR output type.
+
+    Returns
+    -------
+    GoldenMapTensor
+        Tensor containing element-wise remainders.
+    """
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.remainder(input_tensor, other_tensor).to(output_dtype)
+
+
+def stablehlo_atan2_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    """
+    Golden function for stablehlo.Atan2Op.
+
+    Performs element-wise atan2 operation (arc tangent of y/x with quadrant handling).
+
+    Parameters
+    ----------
+    input_tensor : GoldenMapTensor
+        Y-coordinate tensor.
+    other_tensor : GoldenMapTensor
+        X-coordinate tensor.
+    output_type_mlir : Type
+        The MLIR output type.
+
+    Returns
+    -------
+    GoldenMapTensor
+        Tensor containing element-wise atan2 results in radians.
+    """
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.atan2(input_tensor, other_tensor).to(output_dtype)
+
+
 # The following golden implementation is taken from the op spec: https://openxla.org/stablehlo/spec#dynamic_update_slice
 def stablehlo_dynamic_update_slice_golden(
     input_tensor: GoldenMapTensor,
@@ -5825,6 +5904,9 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     stablehlo.SubtractOp: stablehlo_subtract_golden,
     stablehlo.PowOp: stablehlo_pow_golden,
     stablehlo.ShiftRightLogicalOp: stablehlo_shift_right_logical_golden,
+    stablehlo.ShiftLeftOp: stablehlo_shift_left_golden,
+    stablehlo.RemOp: stablehlo_remainder_golden,
+    stablehlo.Atan2Op: stablehlo_atan2_golden,
     stablehlo.ReverseOp: stablehlo_reverse_golden,
     stablehlo.DotGeneralOp: dot_general_golden,
     stablehlo.DynamicSliceOp: dynamic_slice_golden,
