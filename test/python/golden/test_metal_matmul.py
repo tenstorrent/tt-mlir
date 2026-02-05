@@ -202,14 +202,18 @@ def test_matmul_ttnn_shapes_double_buffered(
         # width sharded in0, block sharded in1
         pytest.param(
             (32, 4096, 2048),
-            marks=pytest.mark.skip(reason="Constraining output grids not supported"),
+            marks=pytest.mark.skip(
+                reason="Not enough L1 space after constraining grids"
+            ),
         ),
         (32768, 32, 32),  # height sharded in0, block sharded in1
         (32, 32, 32768),  # block sharded in0, width sharded in1
         # block sharded in0, height sharded in1
         pytest.param(
             (2048, 4096, 32),
-            marks=pytest.mark.skip(reason="Constraining output grids not supported"),
+            marks=pytest.mark.skip(
+                reason="Not enough L1 space after constraining grids"
+            ),
         ),
     ],
     ids=shape_str,

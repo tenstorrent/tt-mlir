@@ -474,18 +474,18 @@ normalizeOperandGridsForGeneric(
   // dimensions. For example, in a matmul, the two inputs share the reduction
   // dimension. If their independently chosen optimal grids differ along that
   // dimension, promote the grid factor for that *dimension only* to the
-  // maximum across all inputs that share it.
+  // maximum across all operands that share it.
   llvm::SmallVector<llvm::SmallVector<int64_t>> normalizedOperandGrids(
       optimalOperandGrids.begin(), optimalOperandGrids.end());
 
-  uint64_t numInputs = genericOp.getNumDpsInputs();
+  uint64_t numOperands = genericOp->getNumOperands();
   // Map: loopDim -> list of (operandIndex, operandDimIdx) pairs that reference
   // this loop dimension in their indexing maps.
   llvm::DenseMap<int64_t, llvm::SmallVector<std::pair<uint64_t, uint64_t>>>
-      dimToInputOperandDims;
+      dimToOperandDims;
 
   auto indexingMaps = genericOp.getIndexingMapsValue();
-  for (uint64_t operandIndex = 0; operandIndex < numInputs; ++operandIndex) {
+  for (uint64_t operandIndex = 0; operandIndex < numOperands; ++operandIndex) {
     AffineMap operandIndexingMap = indexingMaps[operandIndex];
     auto results = operandIndexingMap.getResults();
     for (auto [operandDimIdx, expr] : llvm::enumerate(results)) {
@@ -494,15 +494,15 @@ normalizeOperandGridsForGeneric(
         continue;
       }
       int64_t loopDim = dimExpr.getPosition();
-      dimToInputOperandDims[loopDim].push_back(
+      dimToOperandDims[loopDim].push_back(
           std::make_pair(operandIndex, static_cast<uint64_t>(operandDimIdx)));
     }
   }
 
-  // For each loop dimension that is used by multiple inputs, promote the grid
+  // For each loop dimension that is used by multiple operands, promote the grid
   // size associated with that loop dimension to the minimum across those
-  // inputs.
-  for (auto &it : dimToInputOperandDims) {
+  // operands.
+  for (auto &it : dimToOperandDims) {
     auto &entries = it.second;
     if (entries.size() < 2) {
       continue;
@@ -522,48 +522,6 @@ normalizeOperandGridsForGeneric(
       TT_assertv(operandDimIdx < normalizedOperandGrids[operandIndex].size(),
                  "operand dim index out of bounds on adjusted operand grids");
       normalizedOperandGrids[operandIndex][operandDimIdx] = minFactor;
-    }
-  }
-
-  // Compute grid dim constraints implied by the generic's outputs. These
-  // constraints describe which loop dimensions must agree across operands.
-  auto outputIndexingMap =
-      genericOp.getIndexingMapsValue()[genericOp.getOutputs()
-                                           .getBeginOperandIndex()];
-  auto outputShape =
-      optimalOperandGrids[genericOp.getOutputs().getBeginOperandIndex()];
-  std::optional<SmallVector<int64_t>> outputConstraints =
-      utils::computeDimConstraints(
-          llvm::ArrayRef<AffineMap>(outputIndexingMap),
-          llvm::ArrayRef<SmallVector<int64_t>>(outputShape));
-
-  // Ensure that input operand grid shapes respect any constraints implied by
-  // the outputs' grids. If multiple operands participate in the same loop
-  // dimension, the corresponding grid extents must agree.
-  if (outputConstraints) {
-    for (auto [operandIndex, operand] :
-         llvm::enumerate(genericOp->getOpOperands())) {
-      if (genericOp.isDpsInit(&operand)) {
-        continue;
-      }
-
-      AffineMap indexingMap = genericOp.getIndexingMap(operandIndex);
-      auto results = indexingMap.getResults();
-      TT_assertv(results.size() == normalizedOperandGrids[operandIndex].size(),
-                 "indexing map results size does not match normalized operand "
-                 "grids size");
-
-      for (auto [resultIdx, expr] : llvm::enumerate(results)) {
-        auto dimExpr = mlir::dyn_cast<AffineDimExpr>(expr);
-        if (!dimExpr) {
-          continue;
-        }
-        int64_t dimPos = dimExpr.getPosition();
-        int64_t constraint = (*outputConstraints)[dimPos];
-        if (constraint != 0) {
-          normalizedOperandGrids[operandIndex][resultIdx] = constraint;
-        }
-      }
     }
   }
 
