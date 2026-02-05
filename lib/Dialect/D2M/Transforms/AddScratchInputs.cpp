@@ -23,21 +23,11 @@ namespace mlir::tt::d2m {
 namespace {
 
 /// Fixed scratch buffer size in bytes.
-constexpr size_t kScratchSizeBytes = 32 * 1024; // 32KB
+constexpr size_t kScratchSizeBytes = 128 * 1024; // 128KB
 
 /// Get the tile type from a tensor type, if it has one.
 static ttcore::TileType getTileType(RankedTensorType tensorType) {
   return mlir::dyn_cast<ttcore::TileType>(tensorType.getElementType());
-}
-
-/// Calculate the size of a tile in bytes.
-static size_t getTileSizeBytes(ttcore::TileType tileType) {
-  unsigned height = tileType.getHeight();
-  unsigned width = tileType.getWidth();
-  Type elementType = tileType.getElementType();
-
-  unsigned elementBits = elementType.getIntOrFloatBitWidth();
-  return (height * width * elementBits) / 8;
 }
 
 /// Find a tiled input operand and return its tensor type.
@@ -65,11 +55,11 @@ static bool isFusedGeneric(GenericOp genericOp) {
   unsigned linalgGenericCount = 0;
   genericOp.getRegion(0).walk([&](linalg::GenericOp) { ++linalgGenericCount; });
 
-  return linalgGenericCount > 0; // Temp test, should be 1
+  return linalgGenericCount > 0; // tmp test
 }
 
 /// Pattern to add a scratch input to fused d2m.generic ops.
-/// Scratch is a fixed 32KB buffer for FPU fusion temporary storage.
+/// Scratch is a fixed 128KB buffer for FPU fusion temporary storage.
 struct AddScratchInputPattern : public OpRewritePattern<GenericOp> {
   explicit AddScratchInputPattern(MLIRContext *context)
       : OpRewritePattern<GenericOp>(context) {}
@@ -100,7 +90,6 @@ struct AddScratchInputPattern : public OpRewritePattern<GenericOp> {
     // Find a tiled input to get the tile type.
     RankedTensorType refTensorType = findTiledInputType(genericOp);
     if (!refTensorType) {
-      // No tiled inputs - can't determine tile type for scratch.
       return failure();
     }
 
@@ -115,45 +104,29 @@ struct AddScratchInputPattern : public OpRewritePattern<GenericOp> {
       return failure();
     }
 
-    // Calculate number of tiles for 32KB scratch.
-    size_t tileSizeBytes = getTileSizeBytes(tileType);
+    // Calculate number of tiles that fit in the scratch buffer.
+    size_t tileSizeBytes = tileType.getSizeBytes();
     size_t numTiles = kScratchSizeBytes / tileSizeBytes;
     if (numTiles == 0) {
       numTiles = 1; // At least one tile.
     }
 
-    // Build scratch tensor type.
-    // Use the reference layout's grid shape and memory properties.
-    // Shard shape is [numTiles] (1D) or [1, numTiles] (2D) for simplicity.
-    //
+    // Build scratch tensor shape: [grid_dims..., 1, numTiles].
     // The logical shape needs to match grid structure. We copy the grid
     // dimensions from the reference and set shard dimensions to accommodate
     // our tile count.
     auto gridShape = refLayout.getGridShape(refTensorType);
 
-    // Build tensor shape: [grid_dims..., shard_dims...]
-    // For scratch, shard is just [1, numTiles] to keep it simple.
     SmallVector<int64_t> scratchShape;
     for (auto dim : gridShape) {
       scratchShape.push_back(dim);
     }
-    // Add shard dimensions (2D: 1 x numTiles).
     scratchShape.push_back(1);
     scratchShape.push_back(static_cast<int64_t>(numTiles));
 
-    // Build logical shape for layout: same pattern.
-    // Logical shape in tile units: grid * shard.
-    SmallVector<int64_t> logicalShape;
-    for (auto dim : gridShape) {
-      logicalShape.push_back(dim);
-    }
-    logicalShape.push_back(1);
-    logicalShape.push_back(static_cast<int64_t>(numTiles));
-
     // Create MetalLayoutAttr for scratch.
-    // Use same memory space and sharding as reference.
     auto scratchLayout = ttcore::MetalLayoutAttr::get(
-        rewriter.getContext(), logicalShape, ttcore::OOBVal::Undef,
+        rewriter.getContext(), scratchShape, ttcore::OOBVal::Undef,
         ttcore::MemorySpace::DeviceL1, ttcore::TensorMemoryLayout::Sharded);
 
     RankedTensorType scratchTensorType =
@@ -223,8 +196,7 @@ struct AddScratchInputPattern : public OpRewritePattern<GenericOp> {
         newBlockArgLocs.push_back(oldBlock->getArgument(i).getLoc());
       }
 
-      // Add scratch block arg type.
-      // Shard shape for scratch CB: [1, numTiles].
+      // Add scratch block arg type with shard shape [1, numTiles].
       SmallVector<int64_t> scratchShardShape = {1,
                                                 static_cast<int64_t>(numTiles)};
       Type scratchBlockArgType =
@@ -281,11 +253,8 @@ class D2MAddScratchInputs
     MLIRContext *ctx = &getContext();
     RewritePatternSet patterns(ctx);
     patterns.add<AddScratchInputPattern>(ctx);
-    GreedyRewriteConfig cfg;
-    cfg.setMaxIterations(GreedyRewriteConfig::kNoLimit);
 
-    if (failed(
-            applyPatternsGreedily(getOperation(), std::move(patterns), cfg))) {
+    if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
       signalPassFailure();
     }
   }
