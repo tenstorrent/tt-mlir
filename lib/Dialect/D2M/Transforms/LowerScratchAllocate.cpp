@@ -162,12 +162,22 @@ private:
   void replaceScratchAllocate(ScratchAllocationInfo &info,
                               Value scratchMemRef) {
     ScratchAllocateOp allocOp = info.op;
-    auto resultType = mlir::cast<MemRefType>(allocOp.getResult().getType());
+    auto requestedType = mlir::cast<MemRefType>(allocOp.getResult().getType());
 
     OpBuilder builder(allocOp);
     Location loc = allocOp.getLoc();
 
-    // Rank-reducing subview: [1, N] -> [M].
+    SmallVector<int64_t> staticOffsets = {0, info.elementOffset};
+    SmallVector<int64_t> staticSizes = {1, info.numElements};
+    SmallVector<int64_t> staticStrides = {1, 1};
+
+    // Infer the correct rank-reduced result type. For non-zero offsets, the
+    // inferred type includes a strided layout (e.g. strided<[1], offset: N>).
+    auto sourceType = mlir::cast<MemRefType>(scratchMemRef.getType());
+    auto inferredType = memref::SubViewOp::inferRankReducedResultType(
+        requestedType.getShape(), sourceType, staticOffsets, staticSizes,
+        staticStrides);
+
     SmallVector<OpFoldResult> offsets = {
         builder.getIndexAttr(0), builder.getIndexAttr(info.elementOffset)};
     SmallVector<OpFoldResult> sizes = {builder.getIndexAttr(1),
@@ -176,7 +186,8 @@ private:
                                          builder.getIndexAttr(1)};
 
     auto subviewOp = builder.create<memref::SubViewOp>(
-        loc, resultType, scratchMemRef, offsets, sizes, strides);
+        loc, mlir::cast<MemRefType>(inferredType), scratchMemRef, offsets,
+        sizes, strides);
 
     allocOp.getResult().replaceAllUsesWith(subviewOp.getResult());
     allocOp.erase();
