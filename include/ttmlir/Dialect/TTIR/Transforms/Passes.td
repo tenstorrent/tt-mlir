@@ -267,6 +267,41 @@ def TTIRFoldConstantReshapeBroadcast: Pass<"ttir-fold-constant-reshape-broadcast
   let dependentDialects = ["mlir::tt::ttcore::TTCoreDialect", "mlir::tt::ttir::TTIRDialect"];
 }
 
+def TTIRAllReduceDecomposition: Pass<"ttir-all-reduce-decomposition", "::mlir::ModuleOp">
+{
+  let summary = "Decompose fusable all_reduce ops to reduce_scatter+all_gather and fuse.";
+  let description = [{
+    This pass identifies pairs of all_reduce operations that flow into a common
+    commutable join point (elementwise operation) and:
+
+    1. Decomposes each all_reduce into reduce_scatter + all_gather
+    2. Commutes the all_gather operations through unary ops (reshape, silu, etc.)
+       toward the join point
+    3. Fuses the all_gather operations at the elementwise join point
+
+
+    Example:
+      Before:
+        %0 = ttir.matmul(%input, %w0)
+        %1 = ttir.all_reduce(%0, cluster_axis=0)
+        %2 = ttir.silu(%1)
+        %3 = ttir.matmul(%input, %w1)
+        %4 = ttir.all_reduce(%3, cluster_axis=0)
+        %5 = ttir.multiply(%2, %4)
+
+      After:
+        %0 = ttir.matmul(%input, %w0)
+        %1 = ttir.reduce_scatter(%0, scatter_dim=1, cluster_axis=0)
+        %2 = ttir.silu(%1)
+        %3 = ttir.matmul(%input, %w1)
+        %4 = ttir.reduce_scatter(%3, scatter_dim=1, cluster_axis=0)
+        %5 = ttir.multiply(%2, %4)
+        %6 = ttir.all_gather(%5, all_gather_dim=1, cluster_axis=0)
+  }];
+
+  let dependentDialects = ["mlir::tt::ttir::TTIRDialect"];
+}
+
 def TTIRMultiDeviceTensorAnnotation: Pass<"ttir-multi-device-tensor-annotation", "::mlir::ModuleOp">
 {
   let summary = "TTIR multi-device tensor annotation pass.";
