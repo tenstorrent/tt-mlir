@@ -822,7 +822,7 @@ TTNNOperandsWorkaroundsFactory::createReduceProdOpOperandsWorkarounds() {
 // expected data type will cause runtime to assert.
 // Issue page: https://github.com/tenstorrent/tt-mlir/issues/4405
 // tt-metal also only supports BFloat16 or UInt16 for input tensors, not
-// Float32. Issue page: https://github.com/tenstorrent/tt-mlir/issues/6926
+// Float32. Issue page: https://github.com/tenstorrent/tt-metal/issues/37322
 TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createSortOpOperandsWorkarounds(
     ttnn::SortOp op) {
