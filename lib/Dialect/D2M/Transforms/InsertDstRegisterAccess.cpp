@@ -460,12 +460,18 @@ public:
 
     auto updateCanonicalType = [&](MemRefType memref, int idx,
                                    bool isScratch = false) {
-      // For scratch stores, drop the first dimension (scratch_space_loop dim)
-      // since DST only needs to hold one iteration's worth of data.
+      // For scratch accesses, drop all leading outer dimensions
+      // (scratch_space_loop + gap loops) to get to the 2D DST working shape.
+      // DST only needs to hold one iteration's worth of data.
       MemRefType effectiveType = memref;
       if (isScratch && memref.getRank() > 2) {
-        // Drop first dimension: [N, ...] -> [...]
-        auto shape = memref.getShape().drop_front(1);
+        // Drop leading dims to match canonical rank, or to rank 2 (the
+        // standard DST working shape from linalg_root tiling).
+        unsigned targetRank = canonicalType ? canonicalType.getRank() : 2;
+        auto shape = memref.getShape();
+        while (shape.size() > targetRank) {
+          shape = shape.drop_front(1);
+        }
         effectiveType = MemRefType::get(shape, memref.getElementType(),
                                         AffineMap(), memref.getMemorySpace());
       }
@@ -1242,21 +1248,22 @@ public:
           return irMapper.lookupOrDefault(index);
         }));
 
-    // For scratch stores, DST indices should exclude the first index
-    // (scratch_space_loop iterator) since DST is sized for one iteration only.
+    // For scratch accesses, DST indices should exclude all outer loop indices
+    // (scratch_space_loop + gap loops) since DST is sized for one iteration
+    // of the innermost 2D working set only.
     SmallVector<Value> dstAccessIndices;
     AffineMap dstAccessMap;
     if (isScratchStore && currentIndices.size() > 2) {
-      // Drop the first index for DST access
-      auto innerIndices = currentIndices.drop_front(1);
+      // Drop all leading outer indices, keeping only the last 2 (DST dims).
+      unsigned numOuterDims = currentIndices.size() - 2;
+      auto innerIndices = currentIndices.drop_front(numOuterDims);
       dstAccessIndices =
           llvm::to_vector(llvm::map_range(innerIndices, [&](Value index) {
             return irMapper.lookupOrDefault(index);
           }));
-      // Create a map for the inner dimensions only, then prepend dst slice
-      unsigned innerRank = map.getNumResults() - 1;
+      // Create a 2D identity map for the DST working dims, prepend dst slice.
       AffineMap innerMap =
-          AffineMap::getMultiDimIdentityMap(innerRank, rewriter.getContext());
+          AffineMap::getMultiDimIdentityMap(2, rewriter.getContext());
       dstAccessMap = innerMap.insertResult(
           getAffineConstantExpr(dstSlice, rewriter.getContext()), 0);
     } else {
