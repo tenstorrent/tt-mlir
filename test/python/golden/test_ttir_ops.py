@@ -2,6 +2,22 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+"""Golden-reference tests for TTIR builder ops.
+
+Each test in this module exercises a single TTIR operation through the full
+compile-and-execute pipeline:
+
+1. A ``TTIRBuilder`` emits the TTIR op inside a ``func.FuncOp``.
+2. ``compile_and_execute_ttir`` lowers the module to TTNN or TTMetal,
+   generates a flatbuffer, and runs it on-device.
+3. Runtime results are compared against golden (reference) tensors using
+   PCC and/or tolerance thresholds.
+
+Helper functions (e.g. ``logical_not``, ``gt``) encapsulate custom golden
+setup when the default random-tensor strategy is insufficient (for example
+when specific value ranges are required for numerical stability).
+"""
+
 import pytest
 import torch
 from typing import Callable, List, Optional, Tuple, Union
@@ -33,6 +49,13 @@ def logical_not(
     dtype: torch.dtype,
     unit_attrs: Optional[List[str]] = None,
 ):
+    """Emit a ``logical_not`` op with manually crafted golden tensors.
+
+    The input is generated so that roughly half the values are zero (false)
+    and half are non-zero (true).  The golden output is the torch
+    ``logical_not`` cast back to *dtype* (because ttnn lacks a native bool
+    type).
+    """
     randn_tensor = torch.randn(shape, dtype=torch.float32)
     input_tensor = randn_tensor.uniform_(-10.0, 10.0)
     input_tensor[torch.abs(input_tensor) < 4.0] = 0.0
@@ -51,6 +74,7 @@ def logical_not(
 def test_hoisted_logical_not(
     shape: Shape, dtype: torch.dtype, target: str, request, device
 ):
+    """Test ``logical_not`` with CPU hoisting (``ttir.should_hoist`` attribute)."""
     def module(builder: TTIRBuilder):
         @builder.func([shape], [dtype])
         def hoisted_logical_not_wrapper(
@@ -89,6 +113,7 @@ def test_dot_general(
     request,
     device,
 ):
+    """Test ``dot_general`` (generalised batched matrix multiply) with explicit dimension specs."""
     def module(builder: TTIRBuilder):
         @builder.func(shapes, [torch.float32, torch.float32])
         def dot_general(
@@ -119,6 +144,7 @@ def gt(
     builder: TTIRBuilder,
     unit_attrs: Optional[List[str]] = None,
 ):
+    """Emit a ``greater_than`` op using auto-generated golden tensors."""
     return builder.gt(in0, in1, unit_attrs=unit_attrs)
 
 
@@ -979,6 +1005,7 @@ def test_cumsum(shapes: List[Shape], dim: int, request, device):
 
 
 def prod(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
+    """Emit a ``prod`` reduction along dimension 1 without keeping dims."""
     return builder.prod(in0, [1], False, unit_attrs=unit_attrs)
 
 
