@@ -76,8 +76,13 @@ def _get_input_transform(
     return _INPUT_TRANSFORMS.get(op.__name__)
 
 
-def get_block_sharding_grid(shape):
-    """Infer a TTNN grid/end coord for block sharding the given logical tensor shape"""
+def get_core_grid_from_device(device):
+    """Get the core grid from the device"""
+    return (device.core_grid.x, device.core_grid.y)
+
+
+def get_block_sharding_grid(shape, core_grid):
+    """Infer a TTNN grid/end coord for block sharding the given logical tensor shape and device core grid"""
     # collapse dims [0, -1)
     if len(shape) > 2:
         collapsed_dim = 1
@@ -88,17 +93,17 @@ def get_block_sharding_grid(shape):
     tile_shape = [collapsed_dim // 32, shape[-1] // 32]
 
     grid = []
-    for dim in tile_shape:
-        for grid_dim in reversed(range(8)):
+    for dim, max_grid in zip(tile_shape, core_grid):
+        for grid_dim in reversed(range(max_grid)):
             if dim % (grid_dim + 1) == 0:
                 grid.append(grid_dim)
                 break
     return list(reversed(grid))
 
 
-def get_expected_memory_config(tensor_shape):
+def get_expected_memory_config(tensor_shape, core_grid):
     """Get expected block sharded memory config for a given tensor shape"""
-    grid = get_block_sharding_grid(tensor_shape)
+    grid = get_block_sharding_grid(tensor_shape, core_grid)
 
     return ttnn.create_sharded_memory_config(
         shape=tensor_shape,
@@ -274,7 +279,10 @@ def run_op_test(
         else:
             # ttnn-jit will by default set l1 block sharded output memory config
             # get expected memory config to check for
-            expected_memory_config = get_expected_memory_config(golden_tensor.shape)
+            max_core_grid = get_core_grid_from_device(device)
+            expected_memory_config = get_expected_memory_config(
+                golden_tensor.shape, max_core_grid
+            )
             assert memory_configs_equal(
                 output_tensor.memory_config(), expected_memory_config
             )
