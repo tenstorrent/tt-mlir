@@ -158,6 +158,12 @@ void reshapeMeshDevice(Device meshDevice,
 
 std::vector<uint32_t> getMeshShape(Device meshDevice);
 std::vector<int> getDeviceIds(Device meshDevice);
+
+// Returns device IDs mapped to the given mesh shape in row-major order.
+// This uses SystemMesh to get the logical-to-physical mapping without needing
+// an open MeshDevice. The returned vector has size rows*cols where
+// index = row * cols + col gives the device ID at that mesh position.
+std::vector<int> getMappedDeviceIds(const std::vector<uint32_t> &meshShape);
 size_t getNumHwCqs(Device meshDevice);
 bool isProgramCacheEnabled(Device meshDevice);
 void clearProgramCache(Device meshDevice);

@@ -685,6 +685,22 @@ std::vector<int> getDeviceIds(Device meshDevice) {
       });
 }
 
+std::vector<int> getMappedDeviceIds(const std::vector<uint32_t> &meshShape) {
+  using RetType = std::vector<int>;
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() -> RetType {
+        return ::tt::runtime::ttnn::getMappedDeviceIds(meshShape);
+      },
+      [&]() -> RetType {
+        return ::tt::runtime::ttmetal::getMappedDeviceIds(meshShape);
+      },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("getMappedDeviceIds",
+                                    HostRuntime::Distributed);
+      });
+}
+
 size_t getNumHwCqs(Device meshDevice) {
   using RetType = size_t;
   return DISPATCH_TO_CURRENT_RUNTIME(
