@@ -2,7 +2,7 @@
 // The `diff` command will return 0 if files are identical, otherwise it will return the diff, which will make `llvm-lit` treat the test as failed.
 //
 // RUN: ttmlir-opt --ttir-to-emitpy-pipeline="system-desc-path=%system_desc_path%" -o %t_direct.mlir %s
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path%" --ttnn-to-emitpy-device-pipeline --ttcore-unwrap-device-module -o %t_indirect.mlir %s
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path%" --ttnn-to-emitpy-device-pipeline --ttcore-unwrap-device-module --codegen-split-files -o %t_indirect.mlir %s
 // RUN: diff %t_direct.mlir %t_indirect.mlir
 // RUN: FileCheck %s --input-file=%t_direct.mlir
 

@@ -26,7 +26,8 @@ LogicalResult emitTTNNAsPython(ModuleOp origOp, llvm::raw_ostream &os) {
     return failure();
   }
 
-  if (emitpy::translateToPython(op, os).failed()) {
+  std::string fileId = "";
+  if (emitpy::translateToPython(op, os, fileId).failed()) {
     return failure();
   }
 

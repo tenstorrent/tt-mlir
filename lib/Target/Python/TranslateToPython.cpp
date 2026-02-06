@@ -102,7 +102,8 @@ private:
 
 /// Emitter that uses dialect specific emitters to emit Python code.
 struct PythonEmitter {
-  explicit PythonEmitter(raw_ostream &os) : os(os) {
+  explicit PythonEmitter(raw_ostream &os, std::string &fileId)
+      : os(os), fileId(fileId) {
     valueInScopeCount.push(0);
     usedNames.push(std::set<std::string>());
   }
@@ -142,11 +143,21 @@ struct PythonEmitter {
   /// Return the existing or a new name for a Value.
   StringRef getOrCreateName(Value value, std::string name);
 
-  // Return the textual representation of a subscript operation.
+  /// Return the textual representation of a subscript operation.
   std::string getSubscriptName(SubscriptOp op);
 
   /// Register a value with a name so it can be referenced later.
   void registerDeferredValue(Value value, StringRef str);
+
+  /// Decides whether the file should be emitted. If fileId is set, only
+  /// the ops of the file with the matching id are emitted.
+  bool shouldEmitFile(FileOp fileOp);
+
+  /// Returns true if we're emitting multiple files (fileId is empty).
+  bool isEmittingMultipleFiles() const { return fileId.empty(); }
+
+  /// Emits a comment label for the file to separate outputs.
+  void emitFileLabel(FileOp fileOp);
 
   /// RAII helper function to manage entering/exiting Python scopes.
   struct Scope {
@@ -208,6 +219,10 @@ private:
   std::stack<std::set<std::string>> usedNames;
 
   int classDepth = 0;
+
+  /// The id of the current file. Only files with this id are emitted. If empty,
+  /// all files are emitted as one.
+  std::string fileId;
 };
 } // namespace
 
@@ -342,6 +357,14 @@ void PythonEmitter::registerDeferredValue(Value value, StringRef str) {
   if (!valueMapper.count(value)) {
     valueMapper.insert(value, str.str());
   }
+}
+
+bool PythonEmitter::shouldEmitFile(FileOp fileOp) {
+  return fileId == fileOp.getId() || isEmittingMultipleFiles();
+}
+
+void PythonEmitter::emitFileLabel(FileOp fileOp) {
+  os << "# File: " << fileOp.getId() << "\n";
 }
 
 static LogicalResult printOperation(PythonEmitter &emitter,
@@ -860,6 +883,25 @@ static LogicalResult printOperation(PythonEmitter &emitter,
   return success();
 }
 
+static LogicalResult printOperation(PythonEmitter &emitter, FileOp fileOp) {
+  if (!emitter.shouldEmitFile(fileOp)) {
+    return success();
+  }
+
+  // Emit file label only when emitting multiple files together.
+  if (emitter.isEmittingMultipleFiles()) {
+    emitter.emitFileLabel(fileOp);
+  }
+
+  for (Operation &op : fileOp.getRegion().getOps()) {
+    if (failed(emitter.emitOperation(op))) {
+      return failure();
+    }
+  }
+
+  return success();
+}
+
 LogicalResult PythonEmitter::emitOperation(Operation &op) {
   LogicalResult status =
       llvm::TypeSwitch<Operation *, LogicalResult>(&op)
@@ -869,7 +911,7 @@ LogicalResult PythonEmitter::emitOperation(Operation &op) {
           .Case<CallOpaqueOp, ImportOp, AssignOp, GetAttrOp, SetAttrOp,
                 ConstantOp, SubscriptOp, ClassOp, GlobalOp, AssignGlobalOp,
                 GlobalStatementOp, CreateDictOp, SetValueForDictKeyOp,
-                GetValueForDictKeyOp, ExpressionOp, YieldOp>(
+                GetValueForDictKeyOp, ExpressionOp, YieldOp, FileOp>(
               [&](auto op) { return printOperation(*this, op); })
           .Case<LiteralOp>([&](auto op) {
             registerDeferredValue(op.getResult(), op.getValue());
@@ -1030,7 +1072,8 @@ LogicalResult PythonEmitter::emitVariableAssignment(OpResult result,
 }
 
 LogicalResult mlir::tt::emitpy::translateToPython(Operation *op,
-                                                  raw_ostream &os) {
-  PythonEmitter emitter(os);
+                                                  raw_ostream &os,
+                                                  std::string &fileId) {
+  PythonEmitter emitter(os, fileId);
   return emitter.emitOperation(*op);
 }

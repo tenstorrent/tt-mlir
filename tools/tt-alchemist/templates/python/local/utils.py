@@ -51,8 +51,12 @@ class DeviceGetter:
 
 # Wrapper to abstract const-eval logic out of runtime funcs to keep them
 # cleaner. Invokes constEvalFunc iff key is not in cacheDict.
-def constEvalFuncWrapper(constEvalFunc, inputs, cacheDict, key, device=None):
-    if key not in cacheDict:
+def constEvalFuncWrapper(
+    constEvalFunc, inputs, cacheDict, forwardFuncNameKey, key, device=None
+):
+    if forwardFuncNameKey not in cacheDict:
+        cacheDict[forwardFuncNameKey] = {}
+    if key not in cacheDict[forwardFuncNameKey]:
         # Support both calling conventions:
         # - Singleton-device path: constEvalFunc(inputs) and const-eval body
         #   opens device via DeviceGetter.
@@ -60,27 +64,31 @@ def constEvalFuncWrapper(constEvalFunc, inputs, cacheDict, key, device=None):
         #   is passed from the exported forward() entrypoint.
         #
         if device is not None:
-            cacheDict[key] = constEvalFunc(inputs, device)
+            cacheDict[forwardFuncNameKey][key] = constEvalFunc(inputs, device)
         else:
-            cacheDict[key] = constEvalFunc(inputs)
-    return cacheDict[key]
+            cacheDict[forwardFuncNameKey][key] = constEvalFunc(inputs)
+    return cacheDict[forwardFuncNameKey][key]
 
 
 # Wrapper to abstract const-eval logic out of runtime funcs to keep them
 # cleaner. Invokes constEvalFunc iff key is not in cacheDict.
 # This is an overload of constEvalFuncWrapper for const-eval functions that
 # take zero arguments.
-def constEvalFuncWrapperZeroArg(constEvalFunc, cacheDict, key, device=None):
-    if key not in cacheDict:
+def constEvalFuncWrapperZeroArg(
+    constEvalFunc, cacheDict, forwardFuncNameKey, key, device=None
+):
+    if forwardFuncNameKey not in cacheDict:
+        cacheDict[forwardFuncNameKey] = {}
+    if key not in cacheDict[forwardFuncNameKey]:
         # Support both calling conventions:
         # - Singleton-device path: constEvalFunc()
         # - Explicit-device-arg path: constEvalFunc(device)
         #
         if device is not None:
-            cacheDict[key] = constEvalFunc(device)
+            cacheDict[forwardFuncNameKey][key] = constEvalFunc(device)
         else:
-            cacheDict[key] = constEvalFunc()
-    return cacheDict[key]
+            cacheDict[forwardFuncNameKey][key] = constEvalFunc()
+    return cacheDict[forwardFuncNameKey][key]
 
 
 def get_scalar_from_tensor(tensor: ttnn.Tensor) -> int:

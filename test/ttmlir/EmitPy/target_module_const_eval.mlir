@@ -4,13 +4,19 @@
 
 // Verify that with target-module=true and const-eval enabled:
 // 1. The entry function has signature forward(input, device)
+// 2. Execute functions that call for const-eval logic receive device and do not call DeviceGetter
 // 2. Const-eval functions also receive device and do not call DeviceGetter
 // 3. Const-eval wrapper calls pass device when available
 //
+// CHECK-LABEL: # File: "main"
+// CHECK-LABEL: def forward(input, device):
+
+// CHECK-LABEL: # File: "consteval"
 // CHECK-LABEL: def forward_const_eval_0(
 // CHECK-SAME: device
 // CHECK-NOT: utils.DeviceGetter.get_device
-// CHECK-LABEL: def forward(input, device):
+// CHECK-LABEL: def consteval_forward(
+// CHECK-SAME: device
 // CHECK: utils.constEvalFuncWrapper(
 // CHECK-SAME: device
 // CHECK-NOT: utils.DeviceGetter.get_device

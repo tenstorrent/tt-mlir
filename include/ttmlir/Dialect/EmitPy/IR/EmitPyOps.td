@@ -548,4 +548,39 @@ def EmitPy_ExpressionOp : EmitPy_Op<"expression", [
   let hasCustomAssemblyFormat = 1;
 }
 
+def EmitPy_FileOp
+    : EmitPy_Op<"file", [IsolatedFromAbove, NoRegionArguments, SymbolTable,
+                        NoTerminator]> {
+  let summary = "A file container operation";
+  let description = [{
+    A `file` represents a single Python file.
+
+    If `-file-id=id` flag is used with `ttmlir-translate`, then only the ops of the `emitpy.file` with the matching id are emitted.
+
+    Example:
+
+    ```mlir
+    emitpy.file "main" {
+      emitpy.func @func_one() {
+        emitpy.return
+      }
+    }
+    ```
+  }];
+
+  let arguments = (ins Builtin_StringAttr:$id);
+  let regions = (region SizedRegion<1>:$bodyRegion);
+
+  let assemblyFormat = "$id attr-dict-with-keyword $bodyRegion";
+  let builders = [OpBuilder<(ins CArg<"StringRef">:$id)>];
+  let extraClassDeclaration = [{
+    /// Construct a file op from the given location with a name.
+    static FileOp create(Location loc, StringRef name);
+  }];
+
+  // We need to ensure that the body region has a block;
+  // the auto-generated builders do not guarantee that.
+  let skipDefaultBuilders = 1;
+}
+
 #endif // TTMLIR_TTMLIR_DIALECT_EMITPY_EMITPYOPS_TD

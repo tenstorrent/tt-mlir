@@ -551,14 +551,29 @@ void populatePassesModule(nb::module_ &m) {
       "translate_to_python",
       [](MlirModule module) {
         mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
-        // Translate to Python
+
         std::string output;
-        llvm::raw_string_ostream output_stream(output);
+        llvm::raw_string_ostream outputStream(output);
+
+        // Generate main.py
+        outputStream << "#=== main.py ===\n";
+        std::string mainFileId = "main";
         if (mlir::failed(mlir::tt::emitpy::translateToPython(
-                mlir::cast<ModuleOp>(moduleOp), output_stream))) {
-          throw std::runtime_error("Failed to generate py");
+                mlir::cast<ModuleOp>(moduleOp), outputStream, mainFileId))) {
+          throw std::runtime_error("Failed to generate main.py");
         }
-        output_stream.flush();
+        outputStream.flush();
+
+        // Generate consteval.py
+        outputStream << "\n#=== consteval.py ===\n";
+        std::string constevalFileId = "consteval";
+        if (mlir::failed(mlir::tt::emitpy::translateToPython(
+                mlir::cast<ModuleOp>(moduleOp), outputStream,
+                constevalFileId))) {
+          throw std::runtime_error("Failed to generate consteval.py");
+        }
+        outputStream.flush();
+
         return output;
       },
       nb::arg("module"));

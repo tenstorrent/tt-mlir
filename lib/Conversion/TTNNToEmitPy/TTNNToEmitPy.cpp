@@ -2607,8 +2607,10 @@ public:
     auto strType = emitpy::OpaqueType::get(rewriter.getContext(), "str");
     auto tensorListType =
         emitpy::OpaqueType::get(rewriter.getContext(), "[ttnn.Tensor]");
-    auto dictType =
+    auto innerDictType =
         emitpy::DictType::get(rewriter.getContext(), strType, tensorListType);
+    auto outerDictType =
+        emitpy::DictType::get(rewriter.getContext(), strType, innerDictType);
 
     auto funcOp = loadCachedOp->getParentOfType<func::FuncOp>();
     Block &entryBlock = funcOp.getBody().front();
@@ -2640,25 +2642,45 @@ public:
     }
 
     // Find or create a global statement for the global cache dictionary at the
-    // beginning of the function body.
-    //
+    // beginning of the function body. Find or create a constant op representing
+    // the outer dictionary key for the parent function.
     emitpy::GlobalStatementOp global = nullptr;
+    emitpy::ConstantOp funcNameKey = nullptr;
+    std::string funcName = funcOp.getSymName().str();
+    auto funcNameAttr =
+        emitpy::OpaqueAttr::get(rewriter.getContext(), "\"" + funcName + "\"");
     for (auto &op : entryBlock) {
       if (auto globalStmt = dyn_cast<emitpy::GlobalStatementOp>(op)) {
         if (globalStmt.getName() == globalDictName) {
           global = globalStmt;
+        }
+      }
+      if (auto constantOp = dyn_cast<emitpy::ConstantOp>(op)) {
+        if (constantOp.getValue() == funcNameAttr) {
+          funcNameKey = constantOp;
           break;
         }
       }
     }
+
     if (!global) {
       auto currentInsertionPoint = rewriter.saveInsertionPoint();
       rewriter.setInsertionPointToStart(&entryBlock);
       global = rewriter.create<emitpy::GlobalStatementOp>(
-          loadCachedOp.getLoc(), dictType, globalDictName);
+          loadCachedOp.getLoc(), outerDictType, globalDictName);
       rewriter.restoreInsertionPoint(currentInsertionPoint);
+      global->setAttr("emitpy.cache_consteval", rewriter.getUnitAttr());
     }
     auto globalDict = global.getResult();
+
+    if (!funcNameKey) {
+      auto currentInsertionPoint = rewriter.saveInsertionPoint();
+      rewriter.setInsertionPointAfterValue(global);
+      funcNameKey = rewriter.create<emitpy::ConstantOp>(loadCachedOp.getLoc(),
+                                                        strType, funcNameAttr);
+      rewriter.restoreInsertionPoint(currentInsertionPoint);
+      funcNameKey->setAttr("emitpy.cache_consteval", rewriter.getUnitAttr());
+    }
 
     llvm::StringRef calleeName = loadCachedOp.getCallee();
 
@@ -2671,12 +2693,12 @@ public:
                                       "() -> [ttnn.Tensor]")
             : emitpy::OpaqueType::get(rewriter.getContext(),
                                       "([ttnn.Tensor]) -> [ttnn.Tensor]");
-    mlir::Value callee =
-        rewriter
-            .create<emitpy::ConstantOp>(
-                loadCachedOp.getLoc(), calleeType,
-                emitpy::OpaqueAttr::get(rewriter.getContext(), calleeName))
-            ->getResult(0);
+
+    auto constantOp = rewriter.create<emitpy::ConstantOp>(
+        loadCachedOp.getLoc(), calleeType,
+        emitpy::OpaqueAttr::get(rewriter.getContext(), calleeName));
+    constantOp->setAttr("emitpy.cache_consteval", rewriter.getUnitAttr());
+    auto callee = constantOp->getResult(0);
 
     llvm::SmallVector<Value> operands;
     operands.push_back(callee);
@@ -2684,25 +2706,24 @@ public:
     // Create list of tensors.
     //
     if (loadCachedOp.getInputs().size() > 0) {
-      mlir::Value tensorsInList =
-          rewriter
-              .create<emitpy::CallOpaqueOp>(
-                  loadCachedOp.getLoc(), tensorListType,
-                  ttnn_to_emitpy::kCreateListFunctionName,
-                  adaptor.getOperands(), nullptr)
-              ->getResult(0);
+      auto tensorsInListOp = rewriter.create<emitpy::CallOpaqueOp>(
+          loadCachedOp.getLoc(), tensorListType,
+          ttnn_to_emitpy::kCreateListFunctionName, adaptor.getOperands());
+      tensorsInListOp->setAttr("emitpy.cache_consteval",
+                               rewriter.getUnitAttr());
+      auto tensorsInList = tensorsInListOp->getResult(0);
       operands.push_back(tensorsInList);
     }
 
     operands.push_back(globalDict);
+    operands.push_back(funcNameKey);
 
-    mlir::Value keyValue =
-        rewriter
-            .create<emitpy::ConstantOp>(
-                loadCachedOp.getLoc(), strType,
-                emitpy::OpaqueAttr::get(rewriter.getContext(),
-                                        "\"" + calleeName.str() + "\""))
-            ->getResult(0);
+    auto keyValueOp = rewriter.create<emitpy::ConstantOp>(
+        loadCachedOp.getLoc(), strType,
+        emitpy::OpaqueAttr::get(rewriter.getContext(),
+                                "\"" + calleeName.str() + "\""));
+    keyValueOp->setAttr("emitpy.cache_consteval", rewriter.getUnitAttr());
+    auto keyValue = keyValueOp->getResult(0);
     operands.push_back(keyValue);
 
     if (deviceArg) {
@@ -2720,7 +2741,8 @@ public:
 
     auto cacheOp = rewriter.create<emitpy::CallOpaqueOp>(
         loadCachedOp.getLoc(), tensorListType, wrapperFuncName, operands);
-    mlir::Value cacheResult = cacheOp->getResult(0);
+    cacheOp->setAttr("emitpy.cache_consteval", rewriter.getUnitAttr());
+    auto cacheResult = cacheOp->getResult(0);
 
     // Unpack the result list of tensors.
     //
