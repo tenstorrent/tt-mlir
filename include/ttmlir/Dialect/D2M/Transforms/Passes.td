@@ -636,32 +636,28 @@ def D2MDecomposeArange : Pass<"d2m-decompose-arange", "::mlir::ModuleOp"> {
 
     The decomposition:
     1. Write full index tile to scratch CB using ExperimentalWriteFullIndexTileOp
-       (element[r][c] = r * 32 + c, giving values 0-1023)
     2. Loop over output tiles:
-       a. Compute tile_offset = (tile_row * num_tile_cols + tile_col) * 1024
-       b. Load local index tile from scratch CB
-       c. Compute global_index = tile_offset + local_index
-       d. Compute result = start + step * global_index
+       a. Compute tile_offset = (tile_row * num_tile_cols * 32 + tile_col) * 32
+       b. Load scratch tile for local_index
+       c. Compute global_index = tile_add(tile_offset + local_index)
+       d. Compute result = start + step * global_index using tiled ops
        e. Store result tile to output
 
     Example transformation:
     ```mlir
     // Before:
-    d2m.arange_block %output, %full_index_cb, %num_elements {start = 0, step = 1}
+    d2m.arange_block (%full_index_cb, %output) {start = 32, step = 2}
         : (memref<1x1x!ttcore.tile<32x32, f32>>, memref<1x1x!ttcore.tile<32x32, f32>>)
 
     // After:
-    d2m.experimental::write_full_index_tile to %full_index_cb
+    d2m.experimental::write_full_index_tile to %full_index_alloc
     scf.for %i = 0 to %num_tile_rows {
       scf.for %j = 0 to %num_tile_cols {
         %tile_offset = ... // (i * num_tile_cols + j) * 1024
-        %offset_tile = d2m.experimental::tile_fill %tile_offset
-        %local_idx = memref.load %full_index_cb[0, 0]
+        %local_idx = memref.load %full_index_alloc[0, 0]
         %global_idx = d2m.tile_add %offset_tile, %local_idx
-        %step_tile = d2m.experimental::tile_fill %step
-        %start_tile = d2m.experimental::tile_fill %start
-        %scaled = d2m.tile_mul %global_idx, %step_tile
-        %result = d2m.tile_add %scaled, %start_tile
+        %scaled = d2m.tile_mul %global_idx, step_scalar (in this case 2)
+        %result = d2m.tile_add %scaled, start_scalar (in this case 32)
         memref.store %result, %output[%i, %j]
       }
     }

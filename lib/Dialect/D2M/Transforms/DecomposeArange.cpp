@@ -110,7 +110,7 @@ struct DecomposeArangeBlockPattern : OpRewritePattern<ArangeBlockOp> {
     Value tileRowIdx = outerLoop.getInductionVar();
     Value tileColIdx = innerLoop.getInductionVar();
 
-    // === STEP 4: Load scratch tile (inside the loop?) ===
+    // === STEP 4: Load scratch tile ===
     Value localIndexTile =
         rewriter
             .create<memref::LoadOp>(loc, indexTileMemref,

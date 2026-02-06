@@ -2027,7 +2027,8 @@ def D2M_WriteColMaskTileOp : D2M_GenericRegionOp<"write_col_mask_tile",
     let assemblyFormat = [{ `(` $validCols `)` `to` $output attr-dict `:` type($validCols) `,` type($output) }];
 }
 
-// D2M Experimental Index Tile Op (Used for arange operations)
+//===----------------------------------------------------------------------===//
+// D2M Arange Ops
 //===----------------------------------------------------------------------===//
 
 def D2M_ExperimentalWriteFullIndexTileOp : D2M_GenericRegionOp<"experimental::write_full_index_tile",
@@ -2046,8 +2047,6 @@ def D2M_ExperimentalWriteFullIndexTileOp : D2M_GenericRegionOp<"experimental::wr
          [ 64,  65,  66, ...,  95],
          ...
          [992, 993, 994, ..., 1023]]
-
-        The operation writes directly to L1 memory, avoiding DST register pressure.
     }];
 
     let arguments = (ins AnyTypeOf<[AnyRankedTensorOrMemRef, D2M_CB]>:$output);
@@ -2069,9 +2068,8 @@ def D2M_ArangeBlockOp : D2M_GenericRegionComputeOp<"arange_block",
 
         This op operates at the block level (memref of tiles).
 
-        The index_tile_tensor is a scratch tensor (1x1 tile) where
-        ExperimentalWriteFullIndexTileOp writes linear indices 0-1023
-        (element[r][c] = r * 32 + c) directly in tile format.
+        The index_tile_tensor is a scratch tensor (1x1 tile) handled by
+        ExperimentalWriteFullIndexTileOp.
 
         For each tile at position (tile_row, tile_col), the computation is:
         1. tile_offset = (tile_row * num_tile_cols * 32 + tile_col) * 32

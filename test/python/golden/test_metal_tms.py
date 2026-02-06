@@ -10,7 +10,7 @@ This test suite validates TM operations like permute, transpose, reshape, etc.
 
 import pytest
 import torch
-from typing import List, Optional, Tuple
+from typing import List, Tuple
 from conftest import get_request_kwargs
 
 from builder.base.builder_utils import Operand, Shape
@@ -262,11 +262,10 @@ def test_reshape(
     "shape,start,step",
     [
         ((1, 32), 0, 1),  # Single tile
-        ((1, 64), 0, 2),  # Two tiles
-        ((1, 96), 0, 1),  # Three tiles
-        ((1, 128), 0, 1),  # Four tiles
+        ((1, 64), 32, 2),  # Two tiles
+        ((1, 96), 64, 1),  # Three tiles
+        ((1, 128), 0, 1),  # Four tiles (from GPT model)
     ],
-    ids=["1x32_step1", "1x64_step2", "1x96_step1", "1x128_step1"],
 )
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttmetal"])
@@ -294,7 +293,7 @@ def test_arange(
         def arange(
             in0: Operand,
             builder: TTIRBuilder,
-            unit_attrs: Optional[List[str]] = None,
+            unit_attrs: List[str] = None,
         ):
             result = builder.arange(
                 shape=list(shape),

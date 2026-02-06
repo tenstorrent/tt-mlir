@@ -15,8 +15,6 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
-#include "mlir/Dialect/MemRef/IR/MemRef.h"
-#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Utils/StructuredOpsUtils.h"
 #include "mlir/IR/AffineExpr.h"
@@ -1722,15 +1720,6 @@ class D2MFullOpRewriter : public OpConversionPattern<ttir::FullOp> {
   }
 };
 
-// ----------------------------------------------------------------------------
-// Arange op conversion using tiled index generation.
-// Generates a tensor with evenly spaced values using tile-level index ops.
-// For a 1D arange, each tile contains:
-//   result[r,c] = (tile_idx * 1024 + r * 32 + c) * step + start
-// Uses ExperimentalWriteFullIndexTileOp to generate index pattern in L1 memory.
-//
-// Assuming 2D dimensions for arange for now with shape [1, N].
-// ----------------------------------------------------------------------------
 class D2MArangeOpRewriter : public OpConversionPattern<ttir::ArangeOp>,
                             D2MNamedRewriterCommon {
 public:
@@ -1802,7 +1791,6 @@ public:
         rewriter.getContext(), ttcore::IteratorType::Parallel);
     SmallVector<Attribute> iteratorTypes(physicalRank, parallel);
 
-    // Create d2m.generic (following elementwise pattern).
     SmallVector<Value> genericInputs = {indexTileTensor};
     auto generic = rewriter.create<d2m::GenericOp>(
         loc, genericInputs, outputs,
@@ -1812,31 +1800,26 @@ public:
     // Mark index tile (index 0) as scratch - it doesn't need streaming.
     generic.setScratchInputsAttr(rewriter.getDenseI64ArrayAttr({0}));
 
-    // Create one bb in the generic op's region and set its arguments.
     auto insertPoint = rewriter.saveInsertionPoint();
     rewriter.startOpModification(generic);
     {
       mlir::Region &region = generic->getRegions().front();
       mlir::Block *block = rewriter.createBlock(&region);
 
-      // Populate 'block'.
       auto blockArgsVec = createBlockArguments(
           rewriter, block, loc, TypeRange(genericInputs), TypeRange(outputs),
           generic, enableMulticastInference);
       ArrayRef<Value> blockArgs(blockArgsVec);
-
-      // blockArgs[0] = index tile scratch, blockArgs[1] = output.
       Value indexTileTensor = blockArgs[0];
       Value outputTensor = blockArgs[1];
 
-      // Create ArangeBlockOp with the scratch tile tensor.
+      // ArangeBlock operation will be decomposed in a later pass.
       Value arangeResult =
           rewriter
               .create<d2m::ArangeBlockOp>(loc, indexTileTensor, outputTensor,
                                           numElements, start, step)
               .getResult();
 
-      // Insert remote_store operation for output before yield.
       AffineMap outputIndexingMap = generic.getIndexingMap(1);
       SmallVector<Value> indices =
           d2m::utils::buildGridIndices(rewriter, loc, outputIndexingMap);
@@ -2124,10 +2107,6 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                                ttcore::MemorySpace defaultOutputMemSpace,
                                bool ttnnMode, bool collapseTensors,
                                bool enableMulticastInference) {
-  // Arange op conversion using tiled index generation.
-  patterns.add<D2MArangeOpRewriter>(typeConverter, ctx, defaultInputMemSpace,
-                                    defaultOutputMemSpace, ttnnMode,
-                                    collapseTensors, enableMulticastInference);
   // clang-format off
   patterns.add<
     // Elementwise.
@@ -2203,6 +2182,11 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
 
   // Matmul.
   patterns.add<D2MMatmulRewriter<d2m::TileMatmulOp>>(typeConverter, ctx, defaultInputMemSpace, defaultOutputMemSpace,  ttnnMode, collapseTensors, enableMulticastInference);
+
+  // Arange.
+  patterns.add<D2MArangeOpRewriter>(typeConverter, ctx, defaultInputMemSpace,
+    defaultOutputMemSpace, ttnnMode,
+    collapseTensors, enableMulticastInference);
 
   // clang-format on
 }
