@@ -775,6 +775,16 @@ def TTNN_MeshOffsetAttr : TTNN_Mesh2DCoordAttr<"MeshOffset", "mesh_offset"> {
   }];
 }
 
+def TTNN_MeshRangeAttr : TTNN_Attr<"MeshRange", "mesh_range"> {
+  let summary = "TTNN Mesh range";
+  let description = [{
+    TTNN mesh range representing a range of coordinates in a mesh. This attribute mirrors MeshCoordinateRange in ttnn proper.
+  }];
+
+  let parameters = (ins "MeshOffsetAttr":$start_coord, "MeshOffsetAttr":$end_coord);
+  let assemblyFormat = "`<` custom<CoordBracketStyle>($start_coord) `,` custom<CoordBracketStyle>($end_coord) `>`";
+}
+
 def TTNN_TTNNLayoutAttr: TTNN_Attr<"TTNNLayout", "ttnn_layout"> {
   let summary = "Tensor encoding attribute used for types in ttnn";
   let description = [{
@@ -1058,6 +1068,19 @@ def TTNN_WriteKernelAttr: TTNN_Attr<"WriteKernel", "write_kernel", [TTNN_KernelI
   let genVerifyDecl = 1;
 }
 
+def TTNN_FabricConnectionConfigAttr: TTNN_Attr<"FabricConnectionConfig", "fabric_connection_config"> {
+  let summary = "TTNN Fabric Connection Config attribute.";
+  let description = [{
+    Structure for configuring fabric connections for worker cores.
+  }];
+
+  let parameters = (ins "NocIndex":$noc_index,
+                        "mlir::tt::ttcore::Topology":$topology,
+                        "uint32_t":$cluster_axis,
+                        "uint32_t":$num_links);
+  let assemblyFormat = "`<` `noc_index` `=` $noc_index `,` `topology` `=` $topology `,` `cluster_axis` `=` $cluster_axis `,` `num_links` `=` $num_links `>`";
+}
+
 def TTNN_ProgramAttr: TTNN_Attr<"Program", "program"> {
   let summary = "Program";
   let description = [{
@@ -1071,6 +1094,32 @@ def TTNN_ProgramAttr: TTNN_Attr<"Program", "program"> {
 
   let genVerifyDecl = 1;
 }
+
+def TTNN_MeshProgramAttr : TTNN_Attr<"MeshProgram", "mesh_program"> {
+  let summary = "Mesh program";
+  let description = [{
+    Mesh program describing the program to be executed on a specified range of devices on a mesh.
+  }];
+
+  let parameters = (ins "MeshRangeAttr":$mesh_range, "ProgramAttr":$program);
+  let assemblyFormat = "`<` `range` `=` qualified($mesh_range) `,` `program` `=` qualified($program) `>`";
+
+  let genVerifyDecl = 1;
+}
+
+def TTNN_MeshProgramDescriptorAttr : TTNN_Attr<"MeshProgramDescriptor", "mesh_program_descriptor"> {
+  let summary = "Mesh program descriptor";
+  let description = [{
+    Mesh program descriptor for TTNN generic operation.
+  }];
+
+  let parameters = (ins ArrayRefParameter<"MeshProgramAttr">:$mesh_programs, "FabricConnectionConfigAttr":$fabric_connection_config);
+  let assemblyFormat = "`<` `[` qualified($mesh_programs) `]` `,` `fabric_connection_config` `=` qualified($fabric_connection_config) `>`";
+
+  let genVerifyDecl = 1;
+}
+
+def TTNN_GenericProgramAttr : AnyAttrOf<[TTNN_ProgramAttr, TTNN_MeshProgramDescriptorAttr]>;
 
 def TTNN_TraceIdAttr : TTNN_Attr<"TraceId", "trace_id"> {
   let summary = "TTNN Trace ID attribute";

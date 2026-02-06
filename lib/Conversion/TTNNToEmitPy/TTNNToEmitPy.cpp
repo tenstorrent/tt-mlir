@@ -657,6 +657,7 @@ public:
         emitter.emit(srcOp.getAppliedShardScheme(), "applied_shard_scheme"),
         emitter.emit(std::nullopt, "compute_kernel_config"),
         emitter.emit(srcOp.getReallocateHaloOutput(), "reallocate_halo_output"),
+        emitter.emit(srcOp.getConfigTensorsInDram(), "config_tensor_in_dram"),
     };
 
     emitter.replaceOp(*this, args);
@@ -716,6 +717,8 @@ public:
                      "applied_shard_scheme"),
         emitter.emit(maxPool2dOp.getReallocateHaloOutput(),
                      "reallocate_halo_output"),
+        emitter.emit(maxPool2dOp.getConfigTensorsInDram(),
+                     "config_tensor_in_dram"),
     };
 
     emitter.replaceOp(*this, args);
@@ -794,6 +797,8 @@ public:
                      "reallocate_halo_output"),
         // Add return_indices=True parameter to match the runtime implementation
         emitter.emit(true, "return_indices"),
+        emitter.emit(maxPool2dWithIndicesOp.getConfigTensorsInDram(),
+                     "config_tensor_in_dram"),
     };
 
     emitter.replaceOp(*this, args);

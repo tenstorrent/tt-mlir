@@ -80,5 +80,16 @@ module  {
     %result = "ttnn.linear"(%arg0, %arg1, %arg2) <{transpose_a = false, transpose_b = false}> : (tensor<2x33x1024xf32>, tensor<1024x1024xf32>, tensor<2x1x1xf32>) -> tensor<2x33x1024xf32>
     return %result : tensor<2x33x1024xf32>
   }
+  func.func @linear_with_reshaped_bias(%arg0: tensor<32x1024xf32>, %arg1: tensor<1024x1024xf32>, %arg2: tensor<1x32x1024xf32>) -> tensor<32x1024xf32>{
+    // CHECK-LABEL: func.func @linear_with_reshaped_bias
+    // CHECK: "ttnn.matmul"
+    // CHECK-SAME: -> tensor<32x1024xf32
+    // CHECK: "ttnn.add"
+    // CHECK-SAME: -> tensor<1x32x1024xf32
+    // CHECK: "ttnn.reshape"
+    // CHECK-SAME: -> tensor<32x1024xf32
+    %result = "ttnn.linear"(%arg0, %arg1, %arg2) <{transpose_a = false, transpose_b = false}> : (tensor<32x1024xf32>, tensor<1024x1024xf32>, tensor<1x32x1024xf32>) -> tensor<32x1024xf32>
+    return %result : tensor<32x1024xf32>
+  }
 
 }

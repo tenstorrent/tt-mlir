@@ -269,8 +269,12 @@ protected:
         forwardAndInputFuncOps;
     for (mlir::func::FuncOp forwardFuncOp : forwardFuncOps) {
       rewriter.setInsertionPointToEnd(block);
-      mlir::func::FuncOp inputFuncOp = createInputFunctionImpl(
-          rewriter, forwardFuncOp.getLoc(), forwardFuncOp, functionPrefix);
+      mlir::func::FuncOp inputFuncOp;
+      // Only create input function if the forward function has inputs
+      if (!forwardFuncOp.getFunctionType().getInputs().empty()) {
+        inputFuncOp = createInputFunctionImpl(rewriter, forwardFuncOp.getLoc(),
+                                              forwardFuncOp, functionPrefix);
+      }
       forwardAndInputFuncOps.emplace_back(forwardFuncOp, inputFuncOp);
     }
 
@@ -386,6 +390,7 @@ private:
 
       llvm::SmallVector<Value> operands;
       // Generate/load the input tensors for a forwardFuncOp if needed.
+      // inputFuncOp will be null if the forward function has no inputs.
       //
       if (inputFuncOp) {
         func::CallOp tensors = rewriter.create<mlir::func::CallOp>(

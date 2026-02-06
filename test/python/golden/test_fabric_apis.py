@@ -17,6 +17,7 @@ from ttmlir.passes import (
     ttmetal_to_flatbuffer_bin,
     ttnn_to_flatbuffer_bin,
 )
+from ttmlir.passmanager import PassManager
 
 
 @pytest.mark.frontend("ttir")
@@ -89,3 +90,92 @@ def test_fabric_p2p(target: str, request, mesh_shape, fabric_config, device):
         check_pcc=True,
         check_atol=True,
     )
+
+
+@pytest.mark.frontend("ttnn")
+@pytest.mark.parametrize(
+    "fabric_config",
+    [
+        tt_runtime.runtime.FabricConfig.FABRIC_1D,
+        tt_runtime.runtime.FabricConfig.FABRIC_1D_RING,
+        tt_runtime.runtime.FabricConfig.FABRIC_2D,
+    ],
+)
+@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.parametrize("mesh_shape", [(2, 4)])
+def test_ttnn_generic_p2p(target: str, request, mesh_shape, fabric_config, device):
+    with open(
+        os.path.join(
+            os.path.dirname(__file__), "fabric_api_snippets/test_generic_op_p2p.mlir"
+        ),
+        "r",
+        encoding="utf-8",
+    ) as f:
+        mlir_text = f.read()
+
+    ctx = Context()
+    loc = Location.unknown(ctx)
+
+    with ctx, loc:
+        module = Module.parse(mlir_text)
+        print("Module:", module)
+
+    full_shape = (64, 128)
+
+    # Input tensor (arg0): source data with distinct values per device.
+    input_tensor = torch.zeros(full_shape, dtype=torch.bfloat16)
+    input_tensor[0:32, 0:32] = 1.0  # device 0
+    input_tensor[0:32, 32:64] = 2.0  # device 1
+    input_tensor[0:32, 64:96] = 3.0  # device 2
+    input_tensor[0:32, 96:128] = 4.0  # device 3
+    input_tensor[32:64, 0:32] = 5.0  # device 4
+    input_tensor[32:64, 32:64] = 6.0  # device 5
+    input_tensor[32:64, 64:96] = 7.0  # device 6
+    input_tensor[32:64, 96:128] = 8.0  # device 7
+
+    output_preallocated = input_tensor.clone()
+
+    # Expected output: device 1's region gets device 0's value of 1.0.
+    # All other regions remain 0.
+    expected_output = output_preallocated.clone()
+    expected_output[0:32, 32:64] = 1.0  # device 1 now has device 0's data
+
+    golden_input_output_tensors = {}
+    golden_input_output_tensors[0] = {
+        "input_0": GoldenMapTensor({0: input_tensor}, (1, 1)),
+        "input_1": GoldenMapTensor({0: output_preallocated}, (1, 1)),
+        "output_0": GoldenMapTensor({0: expected_output}, (1, 1)),
+    }
+
+    # Register device (add system_desc) before flatbuffer conversion.
+    system_desc_path = request.config.getoption("--sys-desc")
+    mesh_shape_str = f"{mesh_shape[0]},{mesh_shape[1]}"
+    with module.context:
+        pm = PassManager.parse(
+            f"builtin.module(ttcore-register-device{{system-desc-path={system_desc_path} mesh-shape={mesh_shape_str}}})"
+        )
+        pm.run(module.operation)
+
+    print(f"module: {module}")
+
+    _, output_tensors = execute_fb(
+        ttnn_to_flatbuffer_bin(module),
+        golden_input_output_tensors,
+        {},
+        device=device,
+        check_pcc=True,
+        check_atol=True,
+        check_rtol=True,
+    )
+
+    # program_outputs = output_tensors["program_0"]
+    # actual_output = program_outputs["device_output_0"]
+
+    # print(f"Device 0 region [0:32, 0:32]: = \n{actual_output[0:32, 0:32]}")
+    # print(f"Device 1 region [0:32, 32:64]: = \n{actual_output[0:32, 32:64]}")
+    # print(f"Device 2 region [0:32, 64:96]: = \n{actual_output[0:32, 64:96]}")
+    # print(f"Device 3 region [0:32, 96:128]: = \n{actual_output[0:32, 96:128]}")
+    # print(f"Device 4 region [32:64, 0:32]: = \n{actual_output[32:64, 0:32]}")
+    # print(f"Device 5 region [32:64, 32:64]: = \n{actual_output[32:64, 32:64]}")
+    # print(f"Device 6 region [32:64, 64:96]: = \n{actual_output[32:64, 64:96]}")
+    # print(f"Device 7 region [32:64, 96:128]: = \n{actual_output[32:64, 96:128]}")

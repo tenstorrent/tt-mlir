@@ -1285,78 +1285,6 @@ private:
   }
 };
 
-// Fuses a PadOp into a Pool2dOp by combining their padding attributes.
-// This pattern matches when a Pool2dOp's input comes from a PadOp that only
-// pads spatial dimensions (H, W), and combines both paddings into a single
-// Pool2dOp with updated padding.
-template <typename Pool2dOp>
-class PadPool2dFusionPattern : public mlir::OpRewritePattern<Pool2dOp> {
-public:
-  using mlir::OpRewritePattern<Pool2dOp>::OpRewritePattern;
-
-  mlir::LogicalResult
-  matchAndRewrite(Pool2dOp op, mlir::PatternRewriter &rewriter) const final {
-    // Pool2dOp implicitly pads with zero. Fusing can be performed only if PadOp
-    // also pads with zero.
-    PadOp padOp = op.getInput().template getDefiningOp<PadOp>();
-    if (!padOp || !padOp.getValue().isZero()) {
-      return failure();
-    }
-
-    // PadOp padding is [N_low, N_high, H_low, H_high, W_low, W_high, C_low,
-    // C_high] for 4D NHWC tensors. Pool2dOp only operates on spatial dimensions
-    // (H, W), therefore fusing can be performed only if N and C paddings are 0.
-    ArrayRef<int32_t> padOpPadding = padOp.getPadding();
-    if (padOpPadding.size() != PAD_OP_NHWC_ARRAY_SIZE) {
-      return failure();
-    }
-    if (padOpPadding[PAD_OP_N_LOW] != 0 || padOpPadding[PAD_OP_N_HIGH] != 0 ||
-        padOpPadding[PAD_OP_C_LOW] != 0 || padOpPadding[PAD_OP_C_HIGH] != 0) {
-      return failure();
-    }
-
-    // Pool2dOp padding attribute can be:
-    // - i32: same padding for all sides.
-    // - array<2xi32>: same padding for H and W dimensions, respectively.
-    // - array<4xi32>: [top, left, bottom, right] format.
-    // All 3 cases are covered here.
-    auto poolOpPadding =
-        ttmlir::utils::getQuadrupleOfInteger<int32_t>(op.getPaddingAttr());
-    if (!poolOpPadding) {
-      TT_assertv(false, "Invalid 2D pooling op attribute type.");
-    }
-
-    SmallVector<int32_t> newPadding = {
-        padOpPadding[PAD_OP_H_LOW] + std::get<0>(*poolOpPadding),
-        padOpPadding[PAD_OP_W_LOW] + std::get<1>(*poolOpPadding),
-        padOpPadding[PAD_OP_H_HIGH] + std::get<2>(*poolOpPadding),
-        padOpPadding[PAD_OP_W_HIGH] + std::get<3>(*poolOpPadding),
-    };
-
-    rewriter.modifyOpInPlace(op, [&]() {
-      op.getInputMutable().assign(padOp.getInput());
-      op.setPaddingAttr(rewriter.getDenseI32ArrayAttr(newPadding));
-    });
-
-    return success();
-  }
-
-private:
-  // PadOp padding indices for 4D NHWC tensors:
-  // [N_low, N_high, H_low, H_high, W_low, W_high, C_low, C_high]
-  static constexpr size_t PAD_OP_N_LOW = 0;
-  static constexpr size_t PAD_OP_N_HIGH = 1;
-  static constexpr size_t PAD_OP_H_LOW = 2;
-  static constexpr size_t PAD_OP_H_HIGH = 3;
-  static constexpr size_t PAD_OP_W_LOW = 4;
-  static constexpr size_t PAD_OP_W_HIGH = 5;
-  static constexpr size_t PAD_OP_C_LOW = 6;
-  static constexpr size_t PAD_OP_C_HIGH = 7;
-
-  // Padding array size in PadOp for NHWC tensors.
-  static constexpr size_t PAD_OP_NHWC_ARRAY_SIZE = 8;
-};
-
 // Fuse MatmulOp followed by AddOp into a single LinearOp.
 // This pattern looks for an AddOp where one of its operands is the result of
 // a MatmulOp and the other operand is a bias term. It then replaces the
@@ -3544,8 +3472,6 @@ public:
           &getContext());
       patterns.add<SplitQueryKeyValueAndSplitHeadsUpdatePattern<LinearOp>>(
           &getContext());
-      patterns.add<PadPool2dFusionPattern<AvgPool2dOp>>(&getContext());
-      patterns.add<PadPool2dFusionPattern<MaxPool2dOp>>(&getContext());
       patterns.add<ScaledSumToMeanPattern>(&getContext());
       patterns.add<SpatialMeanOptimizationPattern>(&getContext());
       patterns.add<MatmulWithBiasFusionPattern>(&getContext());

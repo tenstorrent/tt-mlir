@@ -785,6 +785,7 @@ public:
     } else {
       rewriter.create<InitOp>(op->getLoc());
     }
+
     if constexpr (std::is_same_v<SFPUOp, ttkernel::AbsTileOp> ||
                   std::is_same_v<SFPUOp, ttkernel::LogicalNotUnaryTileOp> ||
                   std::is_same_v<SFPUOp, ttkernel::ReluTileOp>) {
@@ -917,9 +918,17 @@ public:
       setInsertionPointAfterOperands(
           rewriter, {adaptor.getLhs(), adaptor.getRhs(), dstIdx},
           /*allowHoisting*/ false);
-      rewriter.create<SFPUOp>(op->getLoc(), adaptor.getLhs(), adaptor.getRhs(),
-                              dstIdx);
-
+      if constexpr (std::is_same_v<SFPUOp, ttkernel::BitwiseAndBinaryTilesOp> ||
+                    std::is_same_v<SFPUOp, ttkernel::BitwiseOrBinaryTilesOp> ||
+                    std::is_same_v<SFPUOp, ttkernel::BitwiseXorBinaryTilesOp>) {
+        const auto dtype =
+            mlir::cast<ttcore::TileType>(op.getLhs().getType()).getDataType();
+        rewriter.create<SFPUOp>(op->getLoc(), adaptor.getLhs(),
+                                adaptor.getRhs(), dstIdx, dtype);
+      } else {
+        rewriter.create<SFPUOp>(op->getLoc(), adaptor.getLhs(),
+                                adaptor.getRhs(), dstIdx);
+      }
     } else {
       // Ternary tile operation (arity == 3)
       OpBuilder::InsertionGuard guard(rewriter);
@@ -929,20 +938,13 @@ public:
                                       adaptor.getTrueValue(),
                                       adaptor.getFalseValue(), dstIdx},
                                      /*allowHoisting*/ false);
-      const auto elemType =
-          mlir::cast<ttcore::TileType>(op.getTrueValue().getType())
-              .getElementType();
-      const bool isCBF32 = llvm::isa<Float32Type>(elemType);
-      if (isCBF32) {
-        if (std::is_same_v<ConcreteOp, d2m::TileWhereOp>) {
-          rewriter.create<ttkernel::WhereTileF32Op>(
-              op->getLoc(), adaptor.getCondition(), adaptor.getTrueValue(),
-              adaptor.getFalseValue(), dstIdx);
-        }
-      } else {
-        rewriter.create<SFPUOp>(op->getLoc(), adaptor.getCondition(),
-                                adaptor.getTrueValue(), adaptor.getFalseValue(),
-                                dstIdx);
+      if constexpr (std::is_same_v<ConcreteOp, d2m::TileWhereOp>) {
+        const auto dtype =
+            mlir::cast<ttcore::TileType>(op.getTrueValue().getType())
+                .getDataType();
+        rewriter.create<ttkernel::WhereTileOp>(
+            op->getLoc(), adaptor.getCondition(), adaptor.getTrueValue(),
+            adaptor.getFalseValue(), dstIdx, dtype);
       }
     }
 
