@@ -4641,22 +4641,29 @@ private:
     }
 
     // For the 5D index grid case, trace back through the use-def chain to find
-    // the underlying cache positions tensor (block argument or constant).
+    // the underlying cache positions tensor.
     auto useDefChain = ttmlir::utils::getUseDefChain(scatterIndices);
-    auto blockArgs =
-        ttmlir::utils::filterBlockArguments(useDefChain.getArrayRef());
-    for (auto blockArg : blockArgs) {
-      auto argTensorShape =
-          mlir::cast<RankedTensorType>(blockArg.getType()).getShape();
-      if (!isEffectively1D(argTensorShape)) {
+    std::optional<mlir::Value> fallback = std::nullopt;
+    for (auto value : useDefChain) {
+      auto tensorType = mlir::dyn_cast<RankedTensorType>(value.getType());
+      if (!tensorType) {
         continue;
       }
-      if (ttmlir::utils::volume(argTensorShape) == cacheUpdateSize) {
-        return blockArg;
+      auto shape = tensorType.getShape();
+      if (!isEffectively1D(shape) ||
+          ttmlir::utils::volume(shape) != cacheUpdateSize) {
+        continue;
+      }
+      // Prefer block arguments as they represent dynamic runtime inputs.
+      if (mlir::isa<mlir::BlockArgument>(value)) {
+        return value;
+      }
+      if (!fallback) {
+        fallback = value;
       }
     }
 
-    return std::nullopt;
+    return fallback;
   }
 
   static bool isEffectively1D(ArrayRef<int64_t> shape) {
