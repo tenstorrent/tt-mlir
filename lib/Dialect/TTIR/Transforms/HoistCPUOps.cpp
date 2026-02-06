@@ -47,11 +47,6 @@ using OpsVectorType = llvm::SmallVector<mlir::Operation *>;
 using ValuesVectorType = llvm::SmallVector<mlir::Value>;
 using TypesVectorType = llvm::SmallVector<mlir::Type>;
 
-// Pair of (Operation*, result_index) to track which result of an operation
-// produces each output of the CPU-hoisted op set.
-using OutputProducerType = std::pair<mlir::Operation *, unsigned>;
-using OutputProducersVectorType = llvm::SmallVector<OutputProducerType>;
-
 // Helper function to get ranks of tensor values.
 // Used to populate attrs needed for tensor packing/unpacking operations.
 static llvm::SmallVector<int64_t>
@@ -228,39 +223,6 @@ performResultConversions(const ValuesVectorType &outputValues) {
   return resultTypes;
 }
 
-// Helper function to collect the operations producing the output values of a
-// set of operations. Returns a vector of (Operation*, result_index) pairs,
-// one for each output value, enabling support for multi-result operations.
-static OutputProducersVectorType
-collectOutputProducers(const OpsVectorType &operations,
-                       const ValuesVectorType &outputValues) {
-  OutputProducersVectorType outputProducers;
-  for (auto outputValue : outputValues) {
-    auto *definingOp = outputValue.getDefiningOp();
-
-    TT_assertv(definingOp, "Output value does not have a defining operation.");
-
-    TT_assertv(llvm::is_contained(operations, definingOp),
-               "Output value's defining operation is not in the hoisted ops "
-               "set.");
-
-    TT_assertv(!mlir::isa<DestinationStyleOpInterface>(definingOp),
-               "DPS ops as output producers are not supported.");
-
-    // Find the result index for this output value.
-    unsigned resultIndex = 0;
-    for (auto result : definingOp->getResults()) {
-      if (result == outputValue) {
-        break;
-      }
-      ++resultIndex;
-    }
-
-    outputProducers.emplace_back(definingOp, resultIndex);
-  }
-  return outputProducers;
-}
-
 // Helper function to convert results of callOp back to original types,
 // inserting conversion ops as needed.
 static void
@@ -345,8 +307,7 @@ static func::FuncOp createCPUHoistedFunctionDefinition(
     mlir::MLIRContext *context, mlir::Location loc,
     CPUHoistedOpsDescriptor &descriptor,
     const ValuesVectorType &convertedInputArguments,
-    const TypesVectorType &resultTypes,
-    const OutputProducersVectorType &outputProducers) {
+    const TypesVectorType &resultTypes) {
   // Determine argument types from input arguments.
   const TypesVectorType argumentTypes =
       llvm::map_to_vector(convertedInputArguments, [](mlir::Value value) {
@@ -370,8 +331,6 @@ static func::FuncOp createCPUHoistedFunctionDefinition(
   builder.setInsertionPointToStart(block);
 
   mlir::IRMapping mapping;
-  // Map from original operation to cloned operation for output producer lookup.
-  llvm::DenseMap<mlir::Operation *, mlir::Operation *> opToClonedOp;
 
   // Clone each operation, replacing input operands with block arguments.
   // We iterate in the same order as collectInputArguments, so incrementing
@@ -413,18 +372,13 @@ static func::FuncOp createCPUHoistedFunctionDefinition(
 
     // Convert constant op value attributes to match the converted result type.
     convertConstantOpValue(clonedOp);
-
-    // Track the mapping from original op to cloned op.
-    opToClonedOp[opToHoist] = clonedOp;
   }
 
-  // Add return op to the function from the cloned output producers.
-  // Use the (op, result_index) pairs to get the corresponding result from each
-  // cloned operation.
+  // Build return values by looking up the cloned counterpart of each output
+  // value through the IRMapping populated during cloning.
   ValuesVectorType returnValues;
-  for (const auto &[originalOp, resultIndex] : outputProducers) {
-    auto *clonedOp = opToClonedOp[originalOp];
-    returnValues.push_back(clonedOp->getResult(resultIndex));
+  for (auto outputValue : descriptor.outputValues) {
+    returnValues.push_back(mapping.lookup(outputValue));
   }
 
   builder.create<mlir::func::ReturnOp>(loc, returnValues);
@@ -530,9 +484,6 @@ static void hoistOperationsToFunction(CPUHoistedOpsDescriptor &descriptor,
                                       mlir::ModuleOp cpuModule) {
   mlir::MLIRContext *context = deviceModule.getContext();
 
-  const OutputProducersVectorType outputProducers =
-      collectOutputProducers(descriptor.operations, descriptor.outputValues);
-
   const TypesVectorType resultTypes =
       performResultConversions(descriptor.outputValues);
 
@@ -546,7 +497,7 @@ static void hoistOperationsToFunction(CPUHoistedOpsDescriptor &descriptor,
   // Create the CPU-hoisted function definition.
   func::FuncOp funcDefinition = createCPUHoistedFunctionDefinition(
       cpuModule->getContext(), cpuModule->getLoc(), descriptor,
-      convertedInputArguments, resultTypes, outputProducers);
+      convertedInputArguments, resultTypes);
 
   auto funcHash =
       funcDefinition->getAttrOfType<mlir::StringAttr>("func_hash").getValue();
