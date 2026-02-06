@@ -4634,9 +4634,29 @@ private:
       return std::nullopt;
     }
 
-    // The cachePositions tensor is expected to be a 1D tensor
-    // with the same size as the cache update size.
-    return scatterIndices;
+    // For effectively 1D scatter indices (handles block args, constants, and
+    // intermediate ops like reshape), return directly.
+    if (effectively1D) {
+      return scatterIndices;
+    }
+
+    // For the 5D index grid case, trace back through the use-def chain to find
+    // the underlying cache positions tensor (block argument or constant).
+    auto useDefChain = ttmlir::utils::getUseDefChain(scatterIndices);
+    auto blockArgs =
+        ttmlir::utils::filterBlockArguments(useDefChain.getArrayRef());
+    for (auto blockArg : blockArgs) {
+      auto argTensorShape =
+          mlir::cast<RankedTensorType>(blockArg.getType()).getShape();
+      if (!isEffectively1D(argTensorShape)) {
+        continue;
+      }
+      if (ttmlir::utils::volume(argTensorShape) == cacheUpdateSize) {
+        return blockArg;
+      }
+    }
+
+    return std::nullopt;
   }
 
   static bool isEffectively1D(ArrayRef<int64_t> shape) {
