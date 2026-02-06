@@ -154,11 +154,15 @@ private:
     return success();
   }
 
-  /// Replace a scratch_allocate with a rank-reducing subview of the scratch CB.
+  /// Replace a scratch_allocate with a rank-reducing subview of the scratch CB,
+  /// followed by an expand_shape if the requested type is multi-dimensional.
   ///
   /// The scratch buffer has shape [1, N] from AddScratchInputs.
-  /// Each scratch_allocate requests a 1D memref<M x tile>.
-  /// We emit: subview [0, offset][1, M][1, 1] : memref<1xN> -> memref<M>
+  /// Each scratch_allocate requests a memref with numElements total tiles.
+  /// We emit:
+  ///   1. subview [0, offset][1, M][1, 1] : memref<1xN> -> memref<M>  (flat 1D)
+  ///   2. expand_shape memref<M> [[0,1,...,rank-1]] -> memref<requested shape>
+  ///      (only if the requested type has rank > 1)
   void replaceScratchAllocate(ScratchAllocationInfo &info,
                               Value scratchMemRef) {
     ScratchAllocateOp allocOp = info.op;
@@ -167,6 +171,8 @@ private:
     OpBuilder builder(allocOp);
     Location loc = allocOp.getLoc();
 
+    // Always extract a flat 1D slice from the 2D scratch CB.
+    SmallVector<int64_t> flatShape = {info.numElements};
     SmallVector<int64_t> staticOffsets = {0, info.elementOffset};
     SmallVector<int64_t> staticSizes = {1, info.numElements};
     SmallVector<int64_t> staticStrides = {1, 1};
@@ -175,8 +181,7 @@ private:
     // inferred type includes a strided layout (e.g. strided<[1], offset: N>).
     auto sourceType = mlir::cast<MemRefType>(scratchMemRef.getType());
     auto inferredType = memref::SubViewOp::inferRankReducedResultType(
-        requestedType.getShape(), sourceType, staticOffsets, staticSizes,
-        staticStrides);
+        flatShape, sourceType, staticOffsets, staticSizes, staticStrides);
 
     SmallVector<OpFoldResult> offsets = {
         builder.getIndexAttr(0), builder.getIndexAttr(info.elementOffset)};
@@ -189,7 +194,29 @@ private:
         loc, mlir::cast<MemRefType>(inferredType), scratchMemRef, offsets,
         sizes, strides);
 
-    allocOp.getResult().replaceAllUsesWith(subviewOp.getResult());
+    Value result = subviewOp.getResult();
+
+    // If the requested type is multi-dimensional, reshape the flat 1D slice.
+    // We must compute the correct expanded type (preserving any strided layout
+    // from the subview) rather than using requestedType directly.
+    if (requestedType.getRank() > 1) {
+      SmallVector<ReassociationIndices> reassociation;
+      ReassociationIndices allDims;
+      for (int64_t i = 0; i < requestedType.getRank(); ++i) {
+        allDims.push_back(i);
+      }
+      reassociation.push_back(allDims);
+
+      auto subviewType = mlir::cast<MemRefType>(result.getType());
+      auto expandedType = memref::ExpandShapeOp::computeExpandedType(
+          subviewType, requestedType.getShape(), reassociation);
+      assert(succeeded(expandedType) && "failed to compute expanded type");
+
+      result = builder.create<memref::ExpandShapeOp>(loc, *expandedType, result,
+                                                     reassociation);
+    }
+
+    allocOp.getResult().replaceAllUsesWith(result);
     allocOp.erase();
   }
 };

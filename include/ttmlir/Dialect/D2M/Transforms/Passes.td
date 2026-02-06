@@ -192,7 +192,8 @@ def D2MSpillAndScratch : Pass<"d2m-spill-and-scratch", "::mlir::ModuleOp"> {
     }
 
     // After (scratch buffer sized for loop structure):
-    %scratch = d2m.scratch_allocate {num_tiles = 16} : memref<2x1x8x!ttcore.tile<...>, #l1>
+    %scratch = d2m.scratch_allocate {slot = 0 : i64}
+               : memref<2x1x8x!ttcore.tile<...>, #l1>
     affine.for %i = 0 to 2 {d2m.scratch_space_loop} {  // Producer
       affine.for %j = 0 to 1 {
         affine.for %k = 0 to 8 {

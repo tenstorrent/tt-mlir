@@ -343,6 +343,7 @@ private:
     auto l1Attr = ttcore::MemorySpaceAttr::get(&getContext(),
                                                ttcore::MemorySpace::DeviceL1);
 
+    int64_t slotIndex = 0;
     for (auto &allocInfo : intermediates) {
       ScratchLoopInfo &producer = *allocInfo.producer;
 
@@ -355,18 +356,15 @@ private:
       auto scratchMemRefType = MemRefType::get(
           producer.scratchShape, elementType, AffineMap(), l1Attr);
 
-      int64_t totalTiles = 1;
-      for (int64_t dim : producer.scratchShape) {
-        totalTiles *= dim;
-      }
-
       // Insert scratch allocation at the same location as the original alloc.
       // This ensures proper dominance for both producer and consumer.
       rewriter.setInsertionPoint(allocInfo.allocOp);
       Location loc = allocInfo.allocOp.getLoc();
 
+      // Each intermediate gets a unique slot index. Sizes are inferred from
+      // the memref type.
       auto scratchOp = rewriter.create<ScratchAllocateOp>(
-          loc, scratchMemRefType, totalTiles);
+          loc, scratchMemRefType, slotIndex++);
       Value scratchBuf = scratchOp.getResult();
 
       // Step 5: Update stores in the producer loop.
