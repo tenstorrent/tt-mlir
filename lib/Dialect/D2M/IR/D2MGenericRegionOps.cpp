@@ -889,14 +889,11 @@ void ArangeBlockOp::getEffects(
 
 bool ArangeBlockOp::bufferizesToMemoryRead(
     mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
-  // index_tile_tensor is read (after being written by
-  // ExperimentalWriteFullIndexTileOp).
   return operand.get() == getIndexTileTensor();
 }
 
 bool ArangeBlockOp::bufferizesToMemoryWrite(
     mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
-  // output and index_tile_tensor are written.
   return operand.get() == getOutput() || operand.get() == getIndexTileTensor();
 }
 
@@ -953,7 +950,7 @@ mlir::LogicalResult ArangeBlockOp::bufferize(
 
   // Create new op with memref operands.
   auto newOp = rewriter.create<ArangeBlockOp>(
-      getLoc(), *maybeOutputBuffer, *maybeIndexTileBuffer, getNumElements(),
+      getLoc(), *maybeIndexTileBuffer, *maybeOutputBuffer, getNumElements(),
       getStart(), getStep());
 
   // Replace uses and erase (DPS pattern - result aliases output buffer).
