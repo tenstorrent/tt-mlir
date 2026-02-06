@@ -97,6 +97,18 @@ d2m::EmptyOp::getBufferType(mlir::Value value,
   return ttcore::getBufferType(value.getType(), /*isView=*/false);
 }
 
+void d2m::EmptyOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
+  // Remove unused empty ops.
+  patterns.add(+[](EmptyOp op, mlir::PatternRewriter &rewriter) {
+    if (!op.getResult().use_empty()) {
+      return failure();
+    }
+    rewriter.eraseOp(op);
+    return success();
+  });
+}
+
 //===----------------------------------------------------------------------===//
 // FullOp
 //===----------------------------------------------------------------------===//
