@@ -23,8 +23,6 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
 
-#include <tuple>
-
 namespace mlir::tt {
 
 namespace {
