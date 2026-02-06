@@ -3340,8 +3340,7 @@ mlir::OpFoldResult foldConsecutivePermutes(mlir::tt::ttnn::PermuteOp op) {
 
   mlir::Value newInput = permuteOperand.getInput();
   op->setOperand(0, newInput);
-  op.setPermutationAttr(
-      mlir::DenseI64ArrayAttr::get(op.getContext(), combinedPerm));
+  op.setPermutation(combinedPerm);
 
   return op.getResult();
 }
