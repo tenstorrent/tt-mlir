@@ -155,15 +155,13 @@ def test_ternary_eltwise_ops_implicit_broadcast(
 @pytest.mark.parametrize("shape", [(64, 128)], ids=shape_str)
 @pytest.mark.parametrize("max_arg,min_arg", [(0.8, -0.5)])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
-def test_clamp_scalar(
-    shape: Shape, max_arg, min_arg, dtype: torch.dtype, target: str, request, device
-):
+def test_clamp_scalar(shape: Shape, max_arg, min_arg, target: str, request, device):
     def module_clamp_scalar(builder: TTIRBuilder):
-        @builder.func([shape], [dtype])
+        @builder.func([shape], [torch.float32])
         def clamp_scalar(
             in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
         ):
-            input_tensor = torch.rand(shape, dtype=dtype) * 2 - 1
+            input_tensor = torch.rand(shape, dtype=torch.float32) * 2 - 1
             builder.set_goldens(inputs={in0: input_tensor})
             return builder.clamp_scalar(
                 in0, max_arg=max_arg, min_arg=min_arg, unit_attrs=unit_attrs
@@ -181,20 +179,18 @@ def test_clamp_scalar(
 
 @pytest.mark.parametrize("shape", [(64, 128)], ids=shape_str)
 @pytest.mark.parametrize(
-    "max_arg,min_arg,dtype",
-    [(3, 0, torch.int32)],
+    "max_arg,min_arg",
+    [(3, 0)],
     ids=["i32"],
 )
 @pytest.mark.parametrize("target", ["ttnn"])
-def test_clamp_scalar_i32(
-    shape: Shape, max_arg, min_arg, dtype: torch.dtype, target: str, request, device
-):
+def test_clamp_scalar_i32(shape: Shape, max_arg, min_arg, target: str, request, device):
     def module_clamp_scalar(builder: TTIRBuilder):
-        @builder.func([shape], [dtype])
+        @builder.func([shape], [torch.int32])
         def clamp_scalar(
             in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
         ):
-            input_tensor = torch.randint(-5, 10, shape, dtype=dtype)
+            input_tensor = torch.randint(-5, 10, shape, dtype=torch.int32)
             builder.set_goldens(inputs={in0: input_tensor})
             return builder.clamp_scalar(
                 in0, max_arg=max_arg, min_arg=min_arg, unit_attrs=unit_attrs
