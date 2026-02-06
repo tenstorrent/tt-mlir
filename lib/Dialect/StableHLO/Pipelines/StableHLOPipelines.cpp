@@ -66,6 +66,12 @@ void createStableHLOPipeline(OpPassManager &pm,
   pm.nest<mlir::func::FuncOp>().addPass(
       mlir::sdy::createShardingConstraintToReshardPass());
 
+  // Change sharding of non-splittable constants (non-splat, non-periodic) to
+  // replicated. This must run before InsertExplicitReshards so that Shardy
+  // inserts the necessary reshards between replicated constants and their
+  // sharded consumers.
+  pm.addPass(createReplicateNonSplittableConstantsPass());
+
   // Insert explicit reshards conditionally.
   pm.addPass(createInsertExplicitReshardsPass());
 

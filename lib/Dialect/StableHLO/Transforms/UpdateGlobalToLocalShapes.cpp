@@ -44,6 +44,14 @@ static FailureOr<mlir::OperationState> createNewOperationState(
                 mlir::cast<mlir::DenseElementsAttr>(
                     attrDict.get(valueAttrName));
 
+            llvm::errs() << "[UpdateGlobalToLocalShapes] ConstantOp:\n"
+                         << "  Original type: " << denseElementsAttr.getType()
+                         << "\n"
+                         << "  Target local type: " << newTypes[0] << "\n"
+                         << "  Is splat: " << denseElementsAttr.isSplat()
+                         << "\n"
+                         << "  Sharding: " << tensorShardings[0] << "\n";
+
             mlir::DenseElementsAttr newAttr;
 
             // Handle splat constants (Optimization for all-same values)
@@ -61,12 +69,50 @@ static FailureOr<mlir::OperationState> createNewOperationState(
               if (periodicAttr.has_value()) {
                 newAttr = periodicAttr.value();
               } else {
-                constantOp->emitError("Shardy automatic parallelization "
-                                      "currently does not support "
-                                      "non-splat constant tensors, and the "
-                                      "values are not periodic "
-                                      "across the sharding dimension.");
-                return mlir::failure();
+                // Non-splat, non-periodic constant cannot be meaningfully
+                // sharded in SPMD (each device runs the same program and a
+                // constant produces the same value on all devices). Replicate
+                // by keeping the original global shape and value.
+                constantOp->emitWarning(
+                    "Replicating non-splat, non-periodic constant tensor "
+                    "(keeping global shape). Original type: ")
+                    << denseElementsAttr.getType()
+                    << ", target local type was: " << newTypes[0];
+
+                newAttr = denseElementsAttr;
+
+                // Override result type to keep global shape.
+                state.types[0] = denseElementsAttr.getType();
+
+                // Update sharding annotation to replicated so that downstream
+                // ops (e.g. SliceOp, GatherOp) that call getOperandShardingAttr
+                // see this constant as replicated, not sharded.
+                auto originalType = mlir::cast<mlir::RankedTensorType>(
+                    denseElementsAttr.getType());
+                llvm::SmallVector<mlir::sdy::DimensionShardingAttr>
+                    replicatedDimShardings;
+                for (int64_t dim = 0; dim < originalType.getRank(); dim++) {
+                  replicatedDimShardings.push_back(
+                      mlir::sdy::DimensionShardingAttr::get(
+                          context, /*axes=*/{}, /*isClosed=*/true));
+                }
+                mlir::sdy::TensorShardingAttr replicatedSharding =
+                    mlir::sdy::TensorShardingAttr::get(
+                        context, globalMeshOp.getSymName(),
+                        replicatedDimShardings, /*replicatedAxes=*/{},
+                        /*unknownAxes=*/{});
+                mlir::sdy::TensorShardingPerValueAttr replicatedPerValue =
+                    mlir::sdy::TensorShardingPerValueAttr::get(
+                        context, {replicatedSharding});
+
+                auto shardingAttrIt = llvm::find_if(
+                    namedAttrs, [](const mlir::NamedAttribute &attr) {
+                      return attr.getName() ==
+                             mlir::sdy::TensorShardingAttr::name;
+                    });
+                if (shardingAttrIt != namedAttrs.end()) {
+                  shardingAttrIt->setValue(replicatedPerValue);
+                }
               }
             }
 
