@@ -950,17 +950,23 @@ recreateGenericOp(d2m::GenericOp genericOp,
             } else if (llvm::isa<DestinationStyleOpInterface>(clonedOp)) {
               auto numInputs = clonedOp->getAttrOfType<mlir::DenseI32ArrayAttr>(
                   "operandSegmentSizes");
-              if (numInputs && numInputs.size() >= 2) {
-                int32_t numIns = numInputs[0];
-                int32_t numOuts = numInputs[1];
 
-                for (uint32_t i = 0; static_cast<int32_t>(i) < numOuts &&
-                                     i < clonedOp->getNumResults();
-                     ++i) {
-                  auto outputOperandType =
-                      clonedOp->getOperand(numIns + i).getType();
-                  clonedOp->getResult(i).setType(outputOperandType);
-                }
+              int numIns, numOuts = 0;
+              if (numInputs && numInputs.size() >= 2) {
+                numIns = numInputs[0];
+                numOuts = numInputs[1];
+              } else if (!numInputs) {
+                llvm::errs() << "numInputs is null\n";
+                numIns = cast<DestinationStyleOpInterface>(clonedOp)
+                             .getNumDpsInputs();
+                numOuts = clonedOp->getNumResults();
+              }
+              for (uint32_t i = 0; static_cast<int32_t>(i) < numOuts &&
+                                   i < clonedOp->getNumResults();
+                   ++i) {
+                auto outputOperandType =
+                    clonedOp->getOperand(numIns + i).getType();
+                clonedOp->getResult(i).setType(outputOperandType);
               }
             } else if (auto tensorEmptyOp =
                            llvm::dyn_cast<mlir::tensor::EmptyOp>(clonedOp)) {

@@ -2056,7 +2056,8 @@ def D2M_ExperimentalWriteFullIndexTileOp : D2M_GenericRegionOp<"experimental::wr
 }
 
 def D2M_ArangeBlockOp : D2M_GenericRegionComputeOp<"arange_block",
-  [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
+  [DestinationStyleOpInterface,
+   DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
    DeclareOpInterfaceMethods<BufferizableOpInterface,
      ["bufferizesToMemoryRead", "bufferizesToMemoryWrite", "bufferize",
       "getAliasingValues", "getBufferType"]>,
