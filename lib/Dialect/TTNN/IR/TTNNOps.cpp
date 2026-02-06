@@ -3318,16 +3318,7 @@ mlir::tt::ttnn::ReduceScatterOp::fold(FoldAdaptor adaptor) {
 
 static mlir::OpFoldResult foldIdentityPermute(mlir::tt::ttnn::PermuteOp op) {
   llvm::ArrayRef<int64_t> perm = op.getPermutation();
-
-  bool isIdentity = true;
-  for (size_t i = 0; i < perm.size(); ++i) {
-    if (perm[i] != static_cast<int64_t>(i)) {
-      isIdentity = false;
-      break;
-    }
-  }
-
-  if (isIdentity) {
+  if (llvm::equal(perm, llvm::seq<int64_t>(0, perm.size()))) {
     return op.getInput();
   }
   return nullptr;
@@ -3344,34 +3335,13 @@ mlir::OpFoldResult foldConsecutivePermutes(mlir::tt::ttnn::PermuteOp op) {
     return nullptr;
   }
 
-  llvm::ArrayRef<int64_t> firstPerm = permuteOperand.getPermutation();
-  llvm::ArrayRef<int64_t> secondPerm = op.getPermutation();
-
-  llvm::SmallVector<int64_t> combinedPerm(firstPerm.size());
-  for (size_t i = 0; i < secondPerm.size(); ++i) {
-    combinedPerm[i] = firstPerm[secondPerm[i]];
-  }
+  llvm::SmallVector<int64_t> combinedPerm = ttmlir::utils::applyPermutation(
+      permuteOperand.getPermutation(), op.getPermutation());
 
   mlir::Value newInput = permuteOperand.getInput();
   op->setOperand(0, newInput);
-
   op.setPermutationAttr(
       mlir::DenseI64ArrayAttr::get(op.getContext(), combinedPerm));
-
-  auto originalType =
-      mlir::cast<mlir::RankedTensorType>(op.getResult().getType());
-  auto inputType = mlir::cast<mlir::RankedTensorType>(newInput.getType());
-
-  llvm::SmallVector<int64_t> newShape;
-  newShape.reserve(combinedPerm.size());
-  for (int64_t idx : combinedPerm) {
-    newShape.push_back(inputType.getDimSize(idx));
-  }
-
-  auto newResultType = mlir::RankedTensorType::get(
-      newShape, originalType.getElementType(), originalType.getEncoding());
-
-  op.getResult().setType(newResultType);
 
   return op.getResult();
 }
