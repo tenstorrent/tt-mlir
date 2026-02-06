@@ -5040,6 +5040,57 @@ mlir::tt::ttir::SplitQueryKeyValueAndSplitHeadsOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
+// GroupNormOp
+//===----------------------------------------------------------------------===//
+::mlir::LogicalResult mlir::tt::ttir::GroupNormOp::verify() {
+  RankedTensorType inputType = getInput().getType();
+  RankedTensorType outputType = getResult().getType();
+
+  if (inputType.getShape() != outputType.getShape()) {
+    return emitOpError("input and output must have the same shape");
+  }
+
+  // Input must be 4D.
+  if (inputType.getRank() != 4) {
+    return emitOpError("input must be a 4D tensor, got rank ")
+           << inputType.getRank();
+  }
+
+  int64_t numGroups = getNumGroups();
+  if (numGroups <= 0) {
+    return emitOpError("num_groups must be positive, got ") << numGroups;
+  }
+
+  // Channel dimension must be last.
+  int64_t channelDim = inputType.getShape()[3];
+  if (channelDim % numGroups != 0) {
+    return emitOpError("channel dimension (last dim) must be divisible by "
+                       "num_groups; got C=")
+           << channelDim << ", num_groups=" << numGroups;
+  }
+
+  if (getWeight()) {
+    RankedTensorType weightType = getWeight().getType();
+    if (weightType.getRank() != 1 || (weightType.getShape()[0] != channelDim)) {
+      return emitOpError(
+                 "weight must be 1D with size matching channel dimension C=")
+             << channelDim;
+    }
+  }
+
+  if (getBias()) {
+    RankedTensorType biasType = getBias().getType();
+    if (biasType.getRank() != 1 || (biasType.getShape()[0] != channelDim)) {
+      return emitOpError(
+                 "bias must be 1D with size matching channel dimension C=")
+             << channelDim;
+    }
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // ScaledDotProductAttentionDecodeOp
 //===----------------------------------------------------------------------===//
 

@@ -69,6 +69,7 @@ set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/mlir_native/func_call.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/moreh/moreh_cumsum.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/normalization/batch_norm.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/normalization/group_norm.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/normalization/layer_norm.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/normalization/rms_norm.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/normalization/softmax.cpp

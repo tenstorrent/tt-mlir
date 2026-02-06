@@ -1312,6 +1312,64 @@ public:
 };
 } // namespace
 
+namespace {
+class GroupNormOpConversionPattern
+    : public OpConversionPattern<ttir::GroupNormOp> {
+public:
+  using OpConversionPattern<ttir::GroupNormOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::GroupNormOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    RankedTensorType inputType =
+        mlir::cast<RankedTensorType>(adaptor.getInput().getType());
+    ArrayRef<int64_t> inputShape = inputType.getShape();
+    Location loc = op.getLoc();
+    Value input = adaptor.getInput();
+
+    assert(inputType.getRank() == 4 && "input must be a 4D tensor");
+
+    // TTNN group_norm requires [N, 1, H*W, C]. Reshape if needed.
+    bool needsReshape = inputShape[1] != 1;
+    llvm::SmallVector<int64_t> reshapedShape;
+
+    if (needsReshape) {
+      reshapedShape = {inputShape[0], 1, inputShape[1] * inputShape[2],
+                       inputShape[3]};
+      llvm::SmallVector<int32_t> reshapedShapeI32(reshapedShape.begin(),
+                                                  reshapedShape.end());
+      RankedTensorType reshapedType =
+          ttnn::utils::RankedTensorTypeFactory::create(inputType,
+                                                       reshapedShape);
+      input = rewriter.create<ttnn::ReshapeOp>(
+          loc, reshapedType, input, rewriter.getI32ArrayAttr(reshapedShapeI32),
+          /*memory_config=*/nullptr);
+    }
+    // Create the GroupNormOp.
+    RankedTensorType groupNormOutputType =
+        mlir::cast<RankedTensorType>(input.getType());
+    Value groupNormResult = rewriter.create<ttnn::GroupNormOp>(
+        loc, this->getTypeConverter()->convertType(groupNormOutputType), input,
+        adaptor.getInputMask(), adaptor.getWeight(), adaptor.getBias(),
+        adaptor.getNumGroups(), adaptor.getEpsilon(),
+        /*memoryConfig*/ nullptr);
+
+    // Reshape back to original shape if we reshaped the input.
+    if (needsReshape) {
+      llvm::SmallVector<int32_t> origShapeI32(inputShape.begin(),
+                                              inputShape.end());
+      groupNormResult = rewriter.create<ttnn::ReshapeOp>(
+          op.getLoc(), this->getTypeConverter()->convertType(op.getType()),
+          groupNormResult, rewriter.getI32ArrayAttr(origShapeI32),
+          /*memory_config=*/nullptr);
+    }
+
+    rewriter.replaceOp(op, groupNormResult);
+    return success();
+  }
+};
+} // namespace
+
 // ANCHOR: adding_an_op_matmul_op_rewriter
 namespace {
 class MatmulOpConversionPattern : public OpConversionPattern<ttir::MatmulOp> {
@@ -3041,6 +3099,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            BatchNormTrainingOpConversionPattern,
            RMSNormOpConversionPattern,
            LayerNormOpConversionPattern,
+           GroupNormOpConversionPattern,
            MatmulOpConversionPattern,
            Conv2dOpConversionPattern,
            Conv3dOpConversionPattern,

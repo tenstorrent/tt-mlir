@@ -2128,6 +2128,58 @@ def TTIR_LayerNormOp : TTIR_NamedOp<"layer_norm", [AttrSizedOperandSegments]> {
   let hasVerifier = 1;
 }
 
+def TTIR_GroupNormOp : TTIR_NamedOp<"group_norm", [AttrSizedOperandSegments]> {
+  let summary = "Group normalization operation";
+  let description = [{
+    Computes group normalization over the input tensor. The input tensor's channels
+    are split into groups, and mean and variance are computed per group. The result
+    is normalized by subtracting the mean and dividing by the standard deviation,
+    then optionally scaled and shifted by weight (gamma) and bias (beta).
+
+    Input tensor is expected to have shape [N, 1, H*W, C], where C is the dimension
+    along which groups are formed. Groups are formed using the tensor's last dimension.
+
+    Inputs:
+    - `input` (Tensor): The input tensor to be normalized (4D, shape [N, 1, H*W, C]).
+    - `input_mask` (Optional Tensor): When processing the inputs, the mask is used to
+      only look at the elements of the current group. Defaults to None.
+    - `weight` (Optional Tensor): The scale parameter (gamma). If provided, the
+      normalized result is element-wise multiplied by this weight.
+    - `bias` (Optional Tensor): The shift parameter (beta). If provided, this bias
+      is added to the scaled result.
+
+    Attributes:
+    - `num_groups` (int): Number of groups to split the tensor's channels into.
+      C must divide evenly into num_groups.
+    - `epsilon`: Small constant added for numerical stability (default: 1e-12).
+
+    Output:
+    - `result` (Tensor): The group normalized output tensor.
+
+    Example:
+    ```mlir
+      // Group norm with 8 groups, input shape [1, 1, 64, 480]
+      %result = ttir.group_norm(%input, %input_mask, %weight, %bias) : <{ num_groups = 8, epsilon = 1e-12 }> :
+            (tensor<1x1x64x480xf32>, tensor<1x8x32x32xf32>, tensor<1x1x15x32xf32>, tensor<1x1x15x32xf32>) -> tensor<1x1x64x480xf32>
+    ```
+
+    Mathematical definition: group_norm(x, gamma, beta, epsilon) =
+      ((x - mu) / sqrt(sigma^2 + epsilon)) * gamma + beta
+    where mu and sigma^2 are the mean and variance computed per group.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       Optional<AnyRankedTensor>:$input_mask,
+                       Optional<AnyRankedTensor>:$weight,
+                       Optional<AnyRankedTensor>:$bias,
+                       I64Attr:$num_groups,
+                       DefaultValuedAttr<F32Attr, "1e-12">:$epsilon);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+}
+
 class TTIR_ReductionOp<string mnemonic, list<Trait> traits = []> :
     TTIR_NamedOp<mnemonic, traits> {
 
