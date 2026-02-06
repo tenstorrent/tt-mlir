@@ -589,6 +589,12 @@ static void hoistOperationsToFunction(CPUHoistedOpsDescriptor &descriptor,
 }
 } // namespace
 
+/*
+====================================================================
+-------------------- CPU Hoisting Analyzers ------------------------
+====================================================================
+*/
+
 namespace {
 // Predicate type for determining sets of ops to hoist in the provided function.
 // Returns a vector of descriptors, one for each set of ops to hoist.
@@ -602,6 +608,12 @@ using CPUHoistAnalyzerType =
 // Predicate type for determining whether an op should be hoisted in an op-by-op
 // CPU hoisting analyzer.
 using ShouldHoistOpType = std::function<bool(mlir::Operation *)>;
+
+/*
+====================================================================
+------------------ Single op CPU-hoisting analyzer -----------------
+====================================================================
+*/
 
 // HoistAnalyzer which hoists single ops based on a provided predicate.
 CPUHoistAnalyzerType singleOpHoistAnalyzer(ShouldHoistOpType predicate) {
@@ -624,7 +636,49 @@ CPUHoistAnalyzerType singleOpHoistAnalyzer(ShouldHoistOpType predicate) {
   };
 }
 
-// HoistAnalyzer which hoists const-eval functions as a whole.
+/*
+====================================================================
+----------------- Const-eval CPU-hoisting analyzer -----------------
+====================================================================
+*/
+
+// Check if an op is "transparent" - it doesn't change semantic meaning,
+// just format/type.
+static bool isTransparentOp(mlir::Operation *op) {
+  return mlir::isa<ReshapeOp, TypecastOp>(op);
+}
+
+// Walk backward from a value through transparent ops in a single traversal.
+// If the chain terminates at a creation skippable op, return it.
+static llvm::SmallVector<mlir::Operation *> traceCreationOpChain(Value v) {
+  llvm::SmallVector<mlir::Operation *> chain;
+
+  while (Operation *defOp = v.getDefiningOp()) {
+    if (defOp->hasTrait<ttcore::Trait::TTCoreCreationOpTrait>()) {
+      chain.push_back(defOp);
+      return chain;
+    }
+
+    if (isTransparentOp(defOp)) {
+      chain.push_back(defOp);
+      v = defOp->getOperand(0);
+      continue;
+    }
+
+    // Non-transparent, non-creation: chain is not skippable.
+    break;
+  }
+
+  return {};
+}
+
+// CPUHoistAnalyzer which hoists operations from const-eval functions.
+// Motivation for CPU-hoisting const-eval ops:
+// - CPU-hoisted ops operate on 32-bit integers/floats, which should result in
+//   more precise calculations compared to device execution.
+// - Peak DRAM/L1 usage should be reduced, since intermediate tensors are stored
+//   in host memory. This is especially beneficial for tensors which would take
+//   up significantly more L1 if tilized (e.g. tensor<1024x1024x1x1).
 CPUHoistAnalyzerType constEvalHoistAnalyzer() {
   return [](func::FuncOp funcOp) {
     if (!ttmlir::utils::isConstEvalFunc(funcOp)) {
@@ -633,20 +687,8 @@ CPUHoistAnalyzerType constEvalHoistAnalyzer() {
 
     CPUHoistedOpsDescriptor descriptor({}, {}, llvm::StringRef("const_eval"));
 
+    // Check if it is possible to CPU-hoist this const-eval funciton.
     auto walkResult = funcOp.walk([&](mlir::Operation *nestedOp) {
-      // Skip the FuncOp itself.
-      if (llvm::isa<func::FuncOp>(nestedOp)) {
-        return WalkResult::advance();
-      }
-
-      // Skip the ReturnOp, but collect its operands as outputs.
-      if (llvm::isa<mlir::func::ReturnOp>(nestedOp)) {
-        for (auto retVal : nestedOp->getOperands()) {
-          descriptor.outputValues.push_back(retVal);
-        }
-        return WalkResult::advance();
-      }
-
       // If there is already a CPU-hoisted call inside the const-eval
       // subgraph, skip CPU hoisting altogether to avoid nested hoisting.
       if (nestedOp->hasAttr(ttir::CPUHoistedCallAttr::name)) {
@@ -661,9 +703,6 @@ CPUHoistAnalyzerType constEvalHoistAnalyzer() {
         if (meshShardOp.getShardType() != ttcore::MeshShardType::Identity) {
           return WalkResult::interrupt();
         }
-        // Otherwise, we should skip hoisting identity MeshShardOps, since these
-        // are no-ops.
-        return WalkResult::skip();
       }
 
       // If there is any CCL op, skip CPU hoisting altogether.
@@ -676,19 +715,56 @@ CPUHoistAnalyzerType constEvalHoistAnalyzer() {
         return WalkResult::interrupt();
       }
 
-      descriptor.operations.push_back(nestedOp);
       return WalkResult::advance();
     });
 
-    if (walkResult.wasInterrupted() || descriptor.operations.empty()) {
+    if (walkResult.wasInterrupted()) {
       return llvm::SmallVector<CPUHoistedOpsDescriptor>{};
     }
 
-    // If the const-eval consists only of creation ops, we skip it,
-    // since it does not add any meaningful value to hoist them.
-    if (llvm::all_of(descriptor.operations, [](mlir::Operation *op) {
-          return op->hasTrait<ttcore::Trait::TTCoreCreationOpTrait>();
-        })) {
+    auto returnOp =
+        llvm::cast<func::ReturnOp>(funcOp.getBody().front().getTerminator());
+
+    llvm::SmallPtrSet<mlir::Operation *, 8> opsToSkip;
+
+    // Skip chains of creation ops and transparent ops leading to
+    // them. This is done because:
+    // 1. Downstream passes might try to extract constant values from these ops,
+    //    which isn't possible if these are moved to the CPU-module.
+    // 2. CPU-hoisting creation ops which are results of const-eval doesn't
+    //    improve PCC nor peak DRAM/L1 usage.
+    for (Value retVal : returnOp.getOperands()) {
+      auto chain = traceCreationOpChain(retVal);
+      if (chain.empty()) {
+        descriptor.outputValues.push_back(retVal);
+      } else {
+        opsToSkip.insert(chain.begin(), chain.end());
+      }
+    }
+
+    // Skip identity MeshShard ops.
+    // These ops are just semantic decorators, and are no-ops
+    // from the runtime perspective.
+    for (auto nestedOp : funcOp.getOps<mlir::tt::ttir::MeshShardOp>()) {
+      if (nestedOp.getShardType() == ttcore::MeshShardType::Identity) {
+        opsToSkip.insert(nestedOp);
+      }
+    }
+
+    // Collect all ops that are not skipped.
+    funcOp.walk([&](mlir::Operation *nestedOp) {
+      if (llvm::isa<func::FuncOp, func::ReturnOp>(nestedOp)) {
+        return;
+      }
+
+      if (opsToSkip.contains(nestedOp)) {
+        return;
+      }
+
+      descriptor.operations.push_back(nestedOp);
+    });
+
+    if (descriptor.operations.empty()) {
       return llvm::SmallVector<CPUHoistedOpsDescriptor>{};
     }
 
