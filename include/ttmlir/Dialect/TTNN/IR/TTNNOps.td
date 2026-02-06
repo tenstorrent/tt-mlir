@@ -3475,7 +3475,7 @@ def TTNN_AggregateTensorOp : TTNN_Op<"aggregate_tensor"> {
   let results = (outs AnyRankedTensor:$result);
 }
 
-def TTNN_TopKOp : TTNN_Op<"top_k", [TTNN_MemoryConfigOpInterface]> {
+def TTNN_TopKOp : TTNN_Op<"topk", [TTNN_MemoryConfigOpInterface]> {
   let summary = "Top-K selection operation.";
   let description = [{
     Returns the `k` largest or `k` smallest elements of the `input_tensor` along a given dimension `dim`.
