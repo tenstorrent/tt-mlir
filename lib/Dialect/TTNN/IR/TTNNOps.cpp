@@ -2842,6 +2842,63 @@ static ::mlir::LogicalResult verifyTTNNBatchNormOp(OpType op) {
 }
 
 //===----------------------------------------------------------------------===//
+// GroupNormOp
+//===----------------------------------------------------------------------===//
+::mlir::LogicalResult mlir::tt::ttnn::GroupNormOp::verify() {
+  RankedTensorType inputType = getInput().getType();
+  RankedTensorType outputType = getResult().getType();
+
+  if (inputType.getShape() != outputType.getShape()) {
+    return emitOpError("input and output must have the same shape");
+  }
+
+  // Input must be 4D with shape [N, 1, H*W, C] (groups formed along last dim).
+  if (inputType.getRank() != 4) {
+    return emitOpError("input must be a 4D tensor [N, 1, H*W, C], got rank ")
+           << inputType.getRank();
+  }
+
+  ArrayRef<int64_t> inputShape = inputType.getShape();
+  if (inputShape[1] != 1) {
+    return emitOpError("input second dimension must be 1 for shape [N, 1, H*W, "
+                       "C], got ")
+           << inputShape[1];
+  }
+
+  int64_t numGroups = getNumGroups();
+  if (numGroups <= 0) {
+    return emitOpError("num_groups must be positive, got ") << numGroups;
+  }
+
+  int64_t channelDim = inputShape[3];
+  if (channelDim % numGroups != 0) {
+    return emitOpError("channel dimension (last dim) must be divisible by "
+                       "num_groups; got C=")
+           << channelDim << ", num_groups=" << numGroups;
+  }
+
+  if (getWeight()) {
+    RankedTensorType weightType = getWeight().getType();
+    if (weightType.getRank() != 1 || weightType.getShape()[0] != channelDim) {
+      return emitOpError(
+                 "weight must be 1D with size matching channel dimension C=")
+             << channelDim;
+    }
+  }
+
+  if (getBias()) {
+    RankedTensorType biasType = getBias().getType();
+    if (biasType.getRank() != 1 || biasType.getShape()[0] != channelDim) {
+      return emitOpError(
+                 "bias must be 1D with size matching channel dimension C=")
+             << channelDim;
+    }
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // AllGatherOp
 //===----------------------------------------------------------------------===//
 

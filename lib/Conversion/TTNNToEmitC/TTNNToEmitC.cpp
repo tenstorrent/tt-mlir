@@ -3447,6 +3447,40 @@ public:
 };
 } // namespace
 
+// GroupNormOp conversion pattern
+//
+namespace {
+class GroupNormOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::GroupNormOp> {
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::GroupNormOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::GroupNormOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::GroupNormOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getNumGroups()),
+        emitter.emit(srcOp.getEpsilon()),
+        emitter.emit(srcOp.getInputMask()),
+        emitter.emit(srcOp.getWeight()),
+        emitter.emit(srcOp.getBias()),
+        emitter.emit(/* reciprocals= */ std::nullopt),
+        emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // PermuteOp conversion pattern
 //
 namespace {
@@ -4651,7 +4685,8 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
                MorehCumSumOpConversionPattern,
                BatchNormInferenceOpConversionPattern,
                BatchNormTrainingOpConversionPattern, RMSNormOpConversionPattern,
-               LayerNormOpConversionPattern>(typeConverter, ctx);
+               LayerNormOpConversionPattern, GroupNormOpConversionPattern>(
+      typeConverter, ctx);
 
   // CCL ops
   //

@@ -3940,6 +3940,88 @@ LayerNormOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// GroupNormOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+struct GroupNormOptionalArgs {
+  std::optional<llvm::ArrayRef<int64_t>> inputMaskShape = std::nullopt;
+  std::optional<TTNNLayoutAttr> inputMaskLayout = std::nullopt;
+  std::optional<llvm::ArrayRef<int64_t>> weightShape = std::nullopt;
+  std::optional<TTNNLayoutAttr> weightLayout = std::nullopt;
+  std::optional<llvm::ArrayRef<int64_t>> biasShape = std::nullopt;
+  std::optional<TTNNLayoutAttr> biasLayout = std::nullopt;
+};
+
+static GroupNormOptionalArgs
+unpackGroupNormOptionalArgs(const std::vector<TTNNLayoutAttr> &inputs,
+                            GroupNormOp op) {
+  GroupNormOptionalArgs ret;
+  // inputs[0] = input layout; optional operands follow in operand order.
+  size_t idx = 1;
+  if (op.getInputMask()) {
+    ret.inputMaskShape = op.getInputMask().getType().getShape();
+    if (idx < inputs.size()) {
+      ret.inputMaskLayout = inputs[idx++];
+    }
+  }
+  if (op.getWeight()) {
+    ret.weightShape = op.getWeight().getType().getShape();
+    if (idx < inputs.size()) {
+      ret.weightLayout = inputs[idx++];
+    }
+  }
+  if (op.getBias()) {
+    ret.biasShape = op.getBias().getType().getShape();
+    if (idx < inputs.size()) {
+      ret.biasLayout = inputs[idx++];
+    }
+  }
+  return ret;
+}
+
+llvm::Expected<op_model::OpConstraints>
+GroupNormOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                              const OpConfig &opConfig) {
+  assert(!inputs.empty() && "GroupNormOp requires at least input layout");
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(getOperation()).getWorkerGrid();
+
+  const auto inputShape = getInput().getType().getShape();
+
+  GroupNormOptionalArgs optionalArgs =
+      unpackGroupNormOptionalArgs(inputs, *this);
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<GroupNormOp>::getOpConstraints, *this, deviceGrid,
+      inputShape, inputs[0], optionalArgs.inputMaskShape,
+      optionalArgs.inputMaskLayout, optionalArgs.weightShape,
+      optionalArgs.weightLayout, optionalArgs.biasShape,
+      optionalArgs.biasLayout, getNumGroups(), getEpsilon(),
+      opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+GroupNormOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                          const OpConfig &opConfig) {
+  assert(!inputs.empty() && "GroupNormOp requires at least input layout");
+  const auto inputShape = getInput().getType().getShape();
+
+  GroupNormOptionalArgs optionalArgs =
+      unpackGroupNormOptionalArgs(inputs, *this);
+
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<GroupNormOp>::getOpRuntime, *this, inputShape,
+      inputs[0], optionalArgs.inputMaskShape, optionalArgs.inputMaskLayout,
+      optionalArgs.weightShape, optionalArgs.weightLayout,
+      optionalArgs.biasShape, optionalArgs.biasLayout, getNumGroups(),
+      getEpsilon(), opConfig.outputLayout);
+}
+
+//===----------------------------------------------------------------------===//
 // ClampScalarOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 

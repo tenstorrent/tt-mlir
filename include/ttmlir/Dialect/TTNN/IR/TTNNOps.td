@@ -2185,6 +2185,28 @@ def TTNN_LayerNormOp : TTNN_Op<"layer_norm", [AttrSizedOperandSegments, TTNN_Mem
     let hasVerifier = 1;
 }
 
+def TTNN_GroupNormOp : TTNN_Op<"group_norm", [AttrSizedOperandSegments, TTNN_MemoryConfigOpInterface]> {
+    let summary = "Group normalization op.";
+    let description = [{
+      Computes group normalization over the input tensor. The input tensor's channels
+      are split into groups, and mean and variance are computed per group. The result
+      is normalized by subtracting the mean and dividing by the standard deviation,
+      then optionally scaled and shifted by weight (gamma) and bias (beta).
+    }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       Optional<AnyRankedTensor>:$input_mask,
+                       Optional<AnyRankedTensor>:$weight,
+                       Optional<AnyRankedTensor>:$bias,
+                       I64Attr:$num_groups,
+                       DefaultValuedAttr<F32Attr, "1e-12">:$epsilon,
+                       OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
 def TTNN_ClampScalarOp : TTNN_Op<"clamp_scalar", [TTNN_MemoryConfigOpInterface]> {
     let summary = "Clamp op.";
     let description = [{
