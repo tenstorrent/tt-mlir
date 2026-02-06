@@ -4463,8 +4463,8 @@ public:
         mlir::cast<RankedTensorType>((*CachePositions).getType());
     SmallVector<int64_t> cacheUpdateInputShape(cacheUpdateInputType.getShape());
 
-    // Reshape to 1D if needed
-    if (!isEffectively1D(cacheUpdateInputShape)) {
+    // Flatten to 1D if needed
+    if (cacheUpdateInputShape.size() != 1) {
       int64_t volume = ttmlir::utils::product(cacheUpdateInputShape.begin(),
                                               cacheUpdateInputShape.end());
       CachePositions = ttir::utils::createReshapeOp(
