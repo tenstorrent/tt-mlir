@@ -25,6 +25,8 @@
   { "runs-on": "n150",   "image": "speedy",  "script": "op_model_ttrt.sh", "args": "run" },
   { "runs-on": "n150",   "image": "speedy", "script": "op_model.sh" },
 
+  { "runs-on": "llmbox", "image": "speedy",  "script": "op_model_ttrt_llmbox.sh", "args": "run" },
+
   { "runs-on": "n150",   "image": "speedy", "script": "builder.sh", "args": [ "test/python/golden/optimizer", "", "require-opmodel" ] },
   { "runs-on": "n150",   "image": "tracy",  "script": "ttnn_runtime.sh", "args": "runtime/test/ttnn/python/n150" },
   { "runs-on": "n150",   "image": "tracy",  "script": "ttnn_runtime.sh", "args": "runtime/test/ttnn/python/distributed/n150" },
