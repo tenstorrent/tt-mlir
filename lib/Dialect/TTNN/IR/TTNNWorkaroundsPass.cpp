@@ -828,14 +828,15 @@ TTNNOperandsWorkaroundsFactory::createSortOpOperandsWorkarounds(
     ttnn::SortOp op) {
   // Check input tensor type - tt-metal only supports BFloat16 or UInt16
   auto inputElementType = op.getInput().getType().getElementType();
-  TTNNOperandWorkarounds inputWorkaround;
-  TTNNOperandWorkarounds valuesWorkaround;
-  if (inputElementType.isF32()) {
-    // Convert input from f32 to bf16
-    inputWorkaround.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
-    // Convert output values to match (must be same type as input after
-    // conversion)
-    valuesWorkaround.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
+  TTNNOperandWorkarounds inputOutputWorkaround;
+  if (isa<IntegerType>(inputElementType) &&
+      !(inputElementType.isInteger(16) &&
+        inputElementType.isUnsignedInteger())) {
+    // Convert integer input to ui16
+    inputOutputWorkaround.tensorDataTypeWorkaround = ttcore::DataType::UInt16;
+  } else if (inputElementType.isF32()) {
+    // Convert f32 input to bf16
+    inputOutputWorkaround.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
   }
 
   // Check output indices type - tt-metal generates UInt16 indices
@@ -847,8 +848,8 @@ TTNNOperandsWorkaroundsFactory::createSortOpOperandsWorkarounds(
   }
 
   return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
-      .addInputOperandWorkaround(inputWorkaround)
-      .addOutputOperandWorkaround(valuesWorkaround)
+      .addInputOperandWorkaround(inputOutputWorkaround)
+      .addOutputOperandWorkaround(inputOutputWorkaround)
       .addOutputOperandWorkaround(indicesWorkaround);
 }
 
