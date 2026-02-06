@@ -1384,12 +1384,14 @@ class TTIRBuilder(Builder):
 
         if not self._disable_golden_check:
             op_golden_function = get_golden_function(ttir_op)
+            mesh_shape_attr = DenseI32ArrayAttr.get(self._mesh_shape)
             golden_output = op_golden_function(
                 shape_attr,
                 start_attr,
                 end_attr,
                 step_attr,
                 arange_dimension_attr,
+                mesh_shape_attr,
                 mlir_output_type,
             )
             self._set_golden_tensor(new_op_result, golden_output)
@@ -1421,12 +1423,14 @@ class TTIRBuilder(Builder):
 
         if not self._disable_golden_check:
             op_golden_function = get_golden_function(ttir_op)
+            mesh_shape_attr = DenseI32ArrayAttr.get(self._mesh_shape)
             golden_output = op_golden_function(
                 old_op.result.type.shape,
                 start_attr,
                 end_attr,
                 step_attr,
                 arange_dimension_attr,
+                mesh_shape_attr,
                 old_op.result.type.element_type,
             )
             self._set_golden_tensor(new_op_result, golden_output)
@@ -1474,12 +1478,14 @@ class TTIRBuilder(Builder):
 
                     if not self._disable_golden_check:
                         op_golden_function = get_golden_function(ttir_op)
+                        mesh_shape_attr = DenseI32ArrayAttr.get(self._mesh_shape)
                         golden_output = op_golden_function(
                             old_op.result.type.shape,
                             start_attr,
                             end_attr,
                             step_attr,
                             arange_dimension_attr,
+                            mesh_shape_attr,
                             old_op.result.type.element_type,
                         )
                         arange_builder._set_golden_tensor(new_op_result, golden_output)
@@ -1863,7 +1869,10 @@ class TTIRBuilder(Builder):
 
         if not self._disable_golden_check:
             op_golden_function = get_golden_function(ttir_op)
-            golden_output = op_golden_function(shape_attr, mlir_output_type)
+            mesh_shape_attr = DenseI32ArrayAttr.get(self._mesh_shape)
+            golden_output = op_golden_function(
+                shape_attr, mesh_shape_attr, mlir_output_type
+            )
             self._set_golden_tensor(op_result, golden_output)
 
         return op_result
@@ -1887,7 +1896,10 @@ class TTIRBuilder(Builder):
 
         if not self._disable_golden_check:
             op_golden_function = get_golden_function(ttir_op)
-            golden_output = op_golden_function(shape_attr, result.element_type)
+            mesh_shape_attr = DenseI32ArrayAttr.get(self._mesh_shape)
+            golden_output = op_golden_function(
+                shape_attr, mesh_shape_attr, result.element_type
+            )
             self._set_golden_tensor(new_op_result, golden_output)
 
         op_map_dictionary = {}
@@ -1922,8 +1934,9 @@ class TTIRBuilder(Builder):
 
                     if not self._disable_golden_check:
                         op_golden_function = get_golden_function(ttir_op)
+                        mesh_shape_attr = DenseI32ArrayAttr.get(self._mesh_shape)
                         golden_output = op_golden_function(
-                            old_op.shape, result.element_type
+                            old_op.shape, mesh_shape_attr, result.element_type
                         )
                         ones_builder._set_golden_tensor(new_op_result, golden_output)
                         ordered_outputs.append(new_op_result)
@@ -1971,7 +1984,10 @@ class TTIRBuilder(Builder):
 
         if not self._disable_golden_check:
             op_golden_function = get_golden_function(ttir_op)
-            golden_output = op_golden_function(shape_attr, result.element_type)
+            mesh_shape_attr = DenseI32ArrayAttr.get(self._mesh_shape)
+            golden_output = op_golden_function(
+                shape_attr, mesh_shape_attr, result.element_type
+            )
             self._set_golden_tensor(op_result, golden_output)
 
         return op_result
@@ -1995,7 +2011,10 @@ class TTIRBuilder(Builder):
 
         if not self._disable_golden_check:
             op_golden_function = get_golden_function(ttir_op)
-            golden_output = op_golden_function(shape_attr, result.element_type)
+            mesh_shape_attr = DenseI32ArrayAttr.get(self._mesh_shape)
+            golden_output = op_golden_function(
+                shape_attr, mesh_shape_attr, result.element_type
+            )
             self._set_golden_tensor(new_op_result, golden_output)
 
         op_map_dictionary = {}
@@ -2034,8 +2053,9 @@ class TTIRBuilder(Builder):
 
                     if not self._disable_golden_check:
                         op_golden_function = get_golden_function(ttir_op)
+                        mesh_shape_attr = DenseI32ArrayAttr.get(self._mesh_shape)
                         golden_output = op_golden_function(
-                            old_op.shape, result.element_type
+                            old_op.shape, mesh_shape_attr, result.element_type
                         )
                         zeros_builder._set_golden_tensor(new_op_result, golden_output)
                         ordered_outputs.append(new_op_result)
@@ -2095,8 +2115,14 @@ class TTIRBuilder(Builder):
 
         if not self._disable_golden_check:
             op_golden_function = get_golden_function(ttir_op)
+            mesh_shape_attr = DenseI32ArrayAttr.get(self._mesh_shape)
             golden_output = op_golden_function(
-                size_attr, low_attr, high_attr, seed_attr, mlir_output_type
+                size_attr,
+                low_attr,
+                high_attr,
+                seed_attr,
+                mesh_shape_attr,
+                mlir_output_type,
             )
             self._set_golden_tensor(op_result, golden_output)
 
@@ -2131,11 +2157,13 @@ class TTIRBuilder(Builder):
 
         if not self._disable_golden_check:
             op_golden_function = get_golden_function(ttir_op)
+            mesh_shape_attr = DenseI32ArrayAttr.get(self._mesh_shape)
             golden_output = op_golden_function(
                 size_attr,
                 low_attr,
                 high_attr,
                 seed_attr,
+                mesh_shape_attr,
                 dtype_attr,
             )
             self._set_golden_tensor(new_op_result, golden_output)
@@ -2186,11 +2214,13 @@ class TTIRBuilder(Builder):
 
                     if not self._disable_golden_check:
                         op_golden_function = get_golden_function(ttir_op)
+                        mesh_shape_attr = DenseI32ArrayAttr.get(self._mesh_shape)
                         golden_output = op_golden_function(
                             size_attr,
                             low_attr,
                             high_attr,
                             seed_attr,
+                            mesh_shape_attr,
                             dtype_attr,
                         )
                         rand_builder._set_golden_tensor(new_op_result, golden_output)
@@ -4756,8 +4786,9 @@ class TTIRBuilder(Builder):
 
         if not self._disable_golden_check:
             op_golden_function = get_golden_function(ttir_op)
+            mesh_shape_attr = DenseI32ArrayAttr.get(self._mesh_shape)
             golden_output = op_golden_function(
-                output_shape_attr, fill_value_attr, mlir_output_type
+                output_shape_attr, fill_value_attr, mesh_shape_attr, mlir_output_type
             )
             self._set_golden_tensor(op_result, golden_output)
 
@@ -4785,8 +4816,9 @@ class TTIRBuilder(Builder):
 
         if not self._disable_golden_check:
             op_golden_function = get_golden_function(ttir_op)
+            mesh_shape_attr = DenseI32ArrayAttr.get(self._mesh_shape)
             golden_output = op_golden_function(
-                output_shape_attr, fill_value_attr, result.element_type
+                output_shape_attr, fill_value_attr, mesh_shape_attr, result.element_type
             )
             self._set_golden_tensor(new_op_result, golden_output)
 
@@ -4829,8 +4861,12 @@ class TTIRBuilder(Builder):
 
                     if not self._disable_golden_check:
                         op_golden_function = get_golden_function(ttir_op)
+                        mesh_shape_attr = DenseI32ArrayAttr.get(self._mesh_shape)
                         golden_output = op_golden_function(
-                            shape_attr, fill_value_attr, result.element_type
+                            shape_attr,
+                            fill_value_attr,
+                            mesh_shape_attr,
+                            result.element_type,
                         )
                         full_builder._set_golden_tensor(new_op_result, golden_output)
                         ordered_outputs.append(new_op_result)
@@ -6171,7 +6207,8 @@ class TTIRBuilder(Builder):
 
         if not self._disable_golden_check:
             op_golden_function = get_golden_function(ttir_op)
-            golden_output = op_golden_function(value_attr)
+            mesh_shape_attr = DenseI32ArrayAttr.get(self._mesh_shape)
+            golden_output = op_golden_function(value_attr, mesh_shape_attr)
             self._set_golden_tensor(op_result, golden_output)
 
         return op_result
@@ -6197,7 +6234,8 @@ class TTIRBuilder(Builder):
 
             if not self._disable_golden_check:
                 op_golden_function = get_golden_function(ttir_op)
-                golden_output = op_golden_function(value_attr)
+                mesh_shape_attr = DenseI32ArrayAttr.get(self._mesh_shape)
+                golden_output = op_golden_function(value_attr, mesh_shape_attr)
                 self._set_golden_tensor(new_op_result, golden_output)
 
         op_map_dictionary = {}
