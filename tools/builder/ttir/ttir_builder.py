@@ -11855,11 +11855,18 @@ class TTIRBuilder(Builder):
         max_arg: Optional[float] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpView:
-        kwargs = {"min": min_arg, "max": max_arg}
+        def _to_attr(value):
+            if isinstance(value, int):
+                return IntegerAttr.get(IntegerType.get_signless(32), value)
+            return FloatAttr.get_f32(value)
+
+        golden_kwargs = {"min": min_arg, "max": max_arg}
+        ttir_kwargs = {"min": _to_attr(min_arg), "max": _to_attr(max_arg)}
         return self._op_proxy(
             ttir.ClampScalarOp,
             [in0],
-            ttir_kwargs=kwargs,
+            ttir_kwargs=ttir_kwargs,
+            golden_kwargs=golden_kwargs,
             unit_attrs=unit_attrs,
         )
 
