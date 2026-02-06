@@ -5,7 +5,6 @@
 #include "Constants.h"
 
 #include "tt-metalium/experimental/fabric/fabric.hpp"
-#include "tt-metalium/system_mesh.hpp"
 #include "tt/runtime/debug.h"
 #include "tt/runtime/detail/common/common.h"
 #include "tt/runtime/detail/common/dylib.h"
@@ -590,25 +589,6 @@ std::vector<int> getDeviceIds(Device meshDevice) {
   ::ttnn::MeshDevice &ttnnMeshDevice =
       meshDevice.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
   return ttnnMeshDevice.get_device_ids();
-}
-
-std::vector<int> getMappedDeviceIds(const std::vector<uint32_t> &meshShape) {
-  using namespace ::tt::tt_metal::distributed;
-
-  MeshShape shape(meshShape);
-  auto mapped = SystemMesh::instance().get_mapped_devices(shape);
-
-  std::vector<int> deviceIds;
-  deviceIds.reserve(mapped.device_ids.size());
-  for (const auto &maybeId : mapped.device_ids) {
-    if (maybeId.is_local()) {
-      deviceIds.push_back(maybeId.value());
-    } else {
-      deviceIds.push_back(-1);
-    }
-  }
-
-  return deviceIds;
 }
 
 size_t getNumHwCqs(Device meshDevice) {
