@@ -16,7 +16,11 @@ from ttmlir.ir import (
     TypeAttr,
 )
 
-from ttnn_jit._src.utils import cleanup_source_code, get_maximal_block_sharding_grid
+from ttnn_jit._src.utils import (
+    cleanup_source_code,
+    get_maximal_block_sharding_grid,
+    get_core_grid_from_tensor_arg,
+)
 from ttnn_jit._src.tensor_translator import create_tensor_layout
 from ttnn_jit._src.conversions import (
     mlir_dtype_from_ttnn_dtype,
@@ -116,8 +120,12 @@ class TracingCompiler:
             if self.memory_config is None:
                 # If no memory_config is provided, set output layout to block-sharded
                 output_tensor_shape = [int(dim) for dim in return_type.shape]
+                # Get the device core grid from the first tensor arg
+                core_grid = get_core_grid_from_tensor_arg(
+                    next(iter(self.tensor_args.values()))
+                )
                 block_sharded_grid = get_maximal_block_sharding_grid(
-                    output_tensor_shape
+                    output_tensor_shape, core_grid
                 )
 
                 block_sharded_memory_config = ttnn.create_sharded_memory_config(
