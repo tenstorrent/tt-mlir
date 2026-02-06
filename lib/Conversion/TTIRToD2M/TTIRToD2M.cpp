@@ -1671,18 +1671,6 @@ private:
 // Conversion for ttir.to_layout -> d2m.to_layout.
 class D2MToLayoutOpRewriter : public D2MNamedRewriterCommon,
                               public OpConversionPattern<ttir::ToLayoutOp> {
-public:
-  D2MToLayoutOpRewriter(const TypeConverter &typeConverter,
-                        MLIRContext *context, bool ttnnMode)
-      // default values for memory spaces, collapseTensors,
-      // enableMulticastInference. Only ttnnMode is used.
-      : D2MNamedRewriterCommon(ttcore::MemorySpace::DeviceDRAM,
-                               ttcore::MemorySpace::DeviceDRAM, ttnnMode, false,
-                               false),
-        OpConversionPattern<ttir::ToLayoutOp>(typeConverter, context) {}
-
-  using D2MNamedRewriterCommon::assertTTNNLayoutSupported;
-  using D2MNamedRewriterCommon::getMetalTensorFromTTNNTensor;
 
 private:
   LogicalResult
@@ -1757,7 +1745,6 @@ public:
   LogicalResult
   matchAndRewrite(ttir::ToLayoutOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    // Access ttnnMode from base class
     auto outType = mlir::cast<RankedTensorType>(op.getOutput().getType());
 
     if (!ttnnMode) {
@@ -1784,20 +1771,6 @@ class D2MEmptyOpRewriter : public OpConversionPattern<ttir::EmptyOp> {
   matchAndRewrite(ttir::EmptyOp op, ttir::EmptyOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     auto resultType = op.getResult().getType();
-    auto tensorType = cast<RankedTensorType>(resultType);
-    bool outputIsTTNN =
-        mlir::isa_and_nonnull<ttnn::TTNNLayoutAttr>(resultType.getEncoding());
-    if (outputIsTTNN) {
-      // if empty is used by a to_layout
-      for (Operation *user : op->getUsers()) {
-        if (auto toLayoutOp = dyn_cast<ttir::ToLayoutOp>(user)) {
-          if (toLayoutOp.getOutput() == op.getResult()) {
-            rewriter.eraseOp(op);
-            return success();
-          }
-        }
-      }
-    }
     auto tensorType = cast<RankedTensorType>(resultType);
     bool outputIsTTNN =
         mlir::isa_and_nonnull<ttnn::TTNNLayoutAttr>(resultType.getEncoding());
