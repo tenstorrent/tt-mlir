@@ -926,7 +926,7 @@ void memcpy(::tt::runtime::Tensor dst, ::tt::runtime::Tensor src) {
     ::tt::tt_metal::copy_to_device(srcTensor, dstTensor);
   } else {
     void *dstPtr = utils::getRawHostDataPtr(dstTensor);
-    ::tt::tt_metal::copy_to_host(dstTensor.device()->mesh_command_queue(),
+    ::tt::tt_metal::copy_to_host(srcTensor.device()->mesh_command_queue(),
                                  srcTensor,
                                  reinterpret_cast<std::byte *>(dstPtr));
   }
