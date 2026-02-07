@@ -377,8 +377,6 @@ void createRecoverStructureXLATorchPipeline(
 //
 void createTTNNToEmitCDevicePipeline(
     OpPassManager &pm, const TTNNToEmitCDevicePipelineOptions &options) {
-  pm.addPass(createTTNNAdjustDeallocs());
-
   // Unwrapping the device module.
   //
   // TODO(dmilinkovic): Should be removed after support for generating
@@ -386,6 +384,15 @@ void createTTNNToEmitCDevicePipeline(
   // pipeline - issue #6100.
   //
   pm.addPass(ttcore::createTTCoreUnwrapDeviceModulePass());
+
+  // These passes operate on TTNN IR inside the (now unwrapped) top-level
+  // module.
+  //
+  pm.addPass(createTTNNAdjustDeallocs());
+  if (options.tryRecoverStructure) {
+    createRecoverStructureXLATorchPipeline(
+        pm, RecoverStructureXLATorchPipelineOptions());
+  }
 
   if (options.targetDylib) {
     // In dylib path, only run tuplification with forced settings.
