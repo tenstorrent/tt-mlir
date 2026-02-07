@@ -247,6 +247,60 @@ def matmul(input0, input1):
     return ttnn.matmul(input0, input1)
 
 
+# ------------------------------------------------------------
+# Data movement ops
+# ------------------------------------------------------------
+def concat_dim0(a, b):
+    return ttnn.concat([a, b], dim=0)
+
+
+def concat_dim1(a, b):
+    return ttnn.concat([a, b], dim=1)
+
+
+def concat_three(a, b, c):
+    return ttnn.concat([a, b, c], dim=0)
+
+
+# ------------------------------------------------------------
+# Repeat operations
+# ------------------------------------------------------------
+def repeat_2x1(a):
+    """Repeat tensor [2, 1] - double first dimension."""
+    return ttnn.repeat(a, [2, 1])
+
+
+def repeat_1x3(a):
+    """Repeat tensor [1, 3] - triple second dimension."""
+    return ttnn.repeat(a, [1, 3])
+
+
+def repeat_2x2(a):
+    """Repeat tensor [2, 2] - double both dimensions."""
+    return ttnn.repeat(a, [2, 2])
+
+
 # Function that uses ttnn.identity, which should be rejected by return_modifier.
 def identity_op(input_tensor):
     return ttnn.identity(input_tensor)
+
+
+# ------------------------------------------------------------
+# Embedding operations
+# ------------------------------------------------------------
+def embedding(input_tensor, weight):
+    """Embedding lookup: input_tensor contains indices into weight table."""
+    return ttnn.embedding(input_tensor, weight)
+
+
+# ------------------------------------------------------------
+# Gather operations
+# ------------------------------------------------------------
+def gather_dim0(input_tensor, index):
+    """Gather along dimension 0."""
+    return ttnn.gather(input_tensor, 0, index=index)
+
+
+def gather_dim1(input_tensor, index):
+    """Gather along dimension 1."""
+    return ttnn.gather(input_tensor, 1, index=index)
