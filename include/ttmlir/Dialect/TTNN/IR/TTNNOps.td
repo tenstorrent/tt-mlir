@@ -7,6 +7,7 @@
 
 include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.td"
 include "ttmlir/Dialect/TTNN/Interfaces/TTNNDeviceOperandInterface.td"
+include "ttmlir/Dialect/TTNN/Interfaces/TTNNEltwiseOpInterface.td"
 include "ttmlir/Dialect/TTNN/Interfaces/TTNNTensorSpecInterface.td"
 include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.td"
 include "ttmlir/Dialect/TTNN/IR/TTNNBase.td"
@@ -141,7 +142,7 @@ def TTNN_FromDeviceOp : TTNN_Op<"from_device"> {
 }
 
 class TTNN_ElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
-    TTNN_Op<mnemonic, [TTNN_MemoryConfigOpInterface] # traits> {
+    TTNN_Op<mnemonic, [TTNN_MemoryConfigOpInterface, TTNN_EltwiseUnaryOpInterface] # traits> {
     let summary = "Eltwise unary op.";
     let description = [{
       Eltwise unary op.
@@ -165,7 +166,7 @@ class TTNN_ElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
 }
 
 class TTNN_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
-    TTNN_Op<mnemonic, [TTNN_MemoryConfigOpInterface, TTNN_DtypeOpInterface] # traits> {
+    TTNN_Op<mnemonic, [TTNN_MemoryConfigOpInterface, TTNN_DtypeOpInterface, TTNN_EltwiseBinaryOpInterface] # traits> {
     let summary = "Eltwise binary op.";
     let description = [{
       Eltwise binary op.
@@ -201,7 +202,7 @@ class TTNN_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
 }
 
 class TTNN_ElementwiseBinaryCompositeOp<string mnemonic, list<Trait> traits = []> :
-    TTNN_Op<mnemonic, [TTNN_MemoryConfigOpInterface] # traits> {
+    TTNN_Op<mnemonic, [TTNN_MemoryConfigOpInterface, TTNN_EltwiseBinaryOpInterface] # traits> {
     let summary = "Eltwise binary composite op.";
     let description = [{
       Eltwise binary composite op.
@@ -229,7 +230,7 @@ class TTNN_ElementwiseBinaryCompositeOp<string mnemonic, list<Trait> traits = []
 }
 
 class TTNN_ElementwiseBinaryCompositeScalarOp<string mnemonic, list<Trait> traits = []> :
-  TTNN_Op<mnemonic, [TTNN_MemoryConfigOpInterface] # traits> {
+  TTNN_Op<mnemonic, [TTNN_MemoryConfigOpInterface, TTNN_EltwiseBinaryOpInterface] # traits> {
   let summary = "Eltwise binary composite op.";
   let description = [{
     Eltwise binary composite op where the first input is a tensor and the second is a scalar.
@@ -251,7 +252,7 @@ class TTNN_ElementwiseBinaryCompositeScalarOp<string mnemonic, list<Trait> trait
 }
 
 class TTNN_ElementwiseTernaryOp<string mnemonic, list<Trait> traits = []> :
-    TTNN_Op<mnemonic, [TTNN_MemoryConfigOpInterface] # traits> {
+    TTNN_Op<mnemonic, [TTNN_MemoryConfigOpInterface, TTNN_EltwiseTernaryOpInterface] # traits> {
     let summary = "Eltwise ternary op.";
     let description = [{
       Eltwise ternary op.
