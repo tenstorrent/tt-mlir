@@ -84,7 +84,7 @@ appendFabricConfigArgs(
     } else {
       auto forwardCoord = deviceCoord;
       forwardCoord[dim] = (forwardCoord[dim] + 1) % meshDevice->shape()[dim];
-      auto forward_directions = get_neighbour_eth_directions(
+      auto forward_directions = tt_fabric::get_neighbor_eth_directions(
           meshDevice->get_fabric_node_id(deviceCoord),
           meshDevice->get_fabric_node_id(forwardCoord));
 
@@ -138,7 +138,7 @@ appendFabricConfigArgs(
       auto backwardCoord = deviceCoord;
       backwardCoord[dim] = (backwardCoord[dim] + meshDevice->shape()[dim] - 1) %
                            meshDevice->shape()[dim];
-      auto backward_directions = get_neighbour_eth_directions(
+      auto backward_directions = tt_fabric::get_neighbor_eth_directions(
           meshDevice->get_fabric_node_id(deviceCoord),
           meshDevice->get_fabric_node_id(backwardCoord));
       ;
@@ -217,9 +217,9 @@ appendFabricConfigArgs(
     rtArgsVecPerCore.push_back(0);
     std::vector<tt_fabric::eth_chan_directions> connection_directions;
     for (uint32_t dim = 0; dim < meshDevice->shape().dims(); dim++) {
-      if (routing_mode != target::metal::RoutingMode::UnidirRingTorus ||
-          topology_type == target::Topology::Linear ||
-          topology_type == target::Topology::Mesh) {
+      if (routing_mode != tt::target::RoutingMode::UnidirRingTorus ||
+          topology_type == tt::target::Topology::Linear ||
+          topology_type == tt::target::Topology::Mesh) {
         if (routing_directions[dim].first !=
             tt_fabric::eth_chan_directions::COUNT) {
           connection_directions.push_back(routing_directions[dim].first);

@@ -1184,17 +1184,6 @@ inline ::tt::target::Topology toFlatbuffer(FlatbufferObjectCache &cache,
   return fbTopology;
 }
 
-static ::tt::target::RoutingMode
-toFlatbuffer(ttmetal::RoutingMode routingMode) {
-  switch (routingMode) {
-  case ttmetal::RoutingMode::BidirLineMesh:
-    return ::tt::target::RoutingMode::BidirLineMesh;
-  case ttmetal::RoutingMode::UnidirRingTorus:
-    return ::tt::target::RoutingMode::UnidirRingTorus;
-  }
-  assert(false && "Unsupported RoutingMode");
-}
-
 inline ::tt::target::NocIndex toFlatbuffer(FlatbufferObjectCache &cache,
                                            ttmetal::NocIndex nocIndex) {
   switch (nocIndex) {
