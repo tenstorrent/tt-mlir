@@ -23,6 +23,19 @@ from golden import *
 
 
 class TTIRBuilder(Builder):
+    """
+    Builder subclass for TTIR (Tensor Transport Intermediate Representation) operations.
+    
+    TTIRBuilder extends the base Builder class to provide specialized support for creating
+    and managing TTIR operations. It handles operation proxying, golden tensor computation,
+    and MLIR IR generation for tensor operations on Tenstorrent devices.
+    
+    The TTIRBuilder manages:
+    - Operation creation with automatic shape and type inference from golden functions
+    - Golden tensor computation for validation and testing
+    - Operand organization and transformation
+    - Complex operation decomposition when needed
+    """
 
     # ----- Methods -----
 
@@ -50,8 +63,42 @@ class TTIRBuilder(Builder):
         return (output_type, *inputs)
 
     def _op_proxy(
+    def _op_proxy(
         self,
         op_ttir_function: Callable,
+        """
+        Create an MLIR operation with automatic shape/type inference from golden function.
+        
+        This is the core proxy method that bridges golden tensor computation with MLIR
+        operation creation. It automatically determines output shapes and types by executing
+        the golden (torch-based) function on input values.
+        
+        Args:
+            op_ttir_function (Callable): The TTIR operation function to wrap.
+            inputs (List[Operand]): Input operands to the operation.
+            unit_attrs (Optional[List[str]]): Unit attributes for the operation.
+            organize_ttir_args (Optional[Callable]): Function to organize arguments for TTIR.
+                Defaults to _organize_eltwise_ttir if not provided.
+            organize_golden_args (Optional[Callable]): Function to organize arguments for golden.
+                Defaults to _organize_eltwise_golden if not provided.
+            output_shape (Optional[Shape]): Expected output shape. If not provided,
+                inferred from golden function.
+            output_type (Optional[Type]): Expected output MLIR type. If not provided,
+                inferred from golden function.
+            output_create_fn (Optional[Callable]): Custom function to create output tensors.
+            golden_kwargs (dict): Keyword arguments for golden function execution.
+            ttir_kwargs (dict): Keyword arguments for TTIR operation. Used for golden if
+                golden_kwargs is not explicitly provided.
+            loc (Optional[Union[str, Location]]): MLIR location for debugging. Defaults to
+                current builder location.
+            skip_golden (bool): Whether to skip golden tensor validation. Default: False.
+        
+        Returns:
+            Any: The result of the operation, typically an Operand or list of Operands.
+        
+        Raises:
+            AssertionError: If required output shape or type cannot be determined.
+        """
         inputs: List[Operand],
         unit_attrs: Optional[List[str]] = None,
         organize_ttir_args: Optional[Callable] = None,
