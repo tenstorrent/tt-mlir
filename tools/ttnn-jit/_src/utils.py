@@ -101,3 +101,34 @@ def get_dispatch_core_type():
         case _:
             raise ValueError(f"Unsupported cluster type: {cluster_type}")
     return dispatch_core_type
+
+
+def get_maximal_block_sharding_grid(shape, core_grid):
+    """Infer a TTNN grid/end coord for block sharding the given logical tensor shape and device core grid"""
+
+    # Collapse dims [0, -1)
+    if len(shape) > 2:
+        collapsed_dim = 1
+        for i in range(len(shape) - 1):
+            collapsed_dim *= shape[i]
+    else:
+        collapsed_dim = shape[0]
+    tile_shape = [collapsed_dim // 32, shape[-1] // 32]
+
+    grid = []
+    for dim, max_grid in zip(tile_shape, core_grid):
+        for grid_dim in reversed(range(max_grid)):
+            if dim % (grid_dim + 1) == 0:
+                grid.append(grid_dim)
+                break
+    return list(reversed(grid))
+
+
+def get_core_grid_from_tensor_args(tensor_args):
+    """Get the core grid from the device of the first tensor argument"""
+
+    if not tensor_args:
+        raise ValueError("No tensor arguments provided")
+    tensor_arg = next(iter(tensor_args.values()))
+    device = tensor_arg.device
+    return (device.core_grid.x, device.core_grid.y)
