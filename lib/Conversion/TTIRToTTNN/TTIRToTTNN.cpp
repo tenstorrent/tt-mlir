@@ -1383,6 +1383,50 @@ public:
 } // namespace
 
 namespace {
+class AllToAllDispatchOpConversionPattern
+    : public OpConversionPattern<ttir::AllToAllDispatchOp> {
+public:
+  using OpConversionPattern<ttir::AllToAllDispatchOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::AllToAllDispatchOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto dispatchedType = cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getDispatched().getType()));
+    auto metadataType = cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getMetadata().getType()));
+
+    rewriter.replaceOpWithNewOp<ttnn::AllToAllDispatchOp>(
+        op, dispatchedType, metadataType, adaptor.getInputTensor(),
+        adaptor.getExpertIndices(), adaptor.getExpertMapping(),
+        op.getNumDevicesAttr(), op.getClusterAxisAttr(),
+        /*memory_config=*/nullptr);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class AllToAllCombineOpConversionPattern
+    : public OpConversionPattern<ttir::AllToAllCombineOp> {
+public:
+  using OpConversionPattern<ttir::AllToAllCombineOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::AllToAllCombineOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<ttnn::AllToAllCombineOp>(
+        op, this->getTypeConverter()->convertType(op.getResult().getType()),
+        adaptor.getInputTensor(), adaptor.getExpertMetadata(),
+        adaptor.getExpertMapping(), op.getNumDevicesAttr(),
+        op.getClusterAxisAttr(), op.getNumExpertsPerTokAttr(),
+        /*memory_config=*/nullptr);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class Conv2dOpConversionPattern : public OpConversionPattern<ttir::Conv2dOp> {
 public:
   using OpConversionPattern<ttir::Conv2dOp>::OpConversionPattern;
@@ -3213,6 +3257,8 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            LayerNormOpConversionPattern,
            MatmulOpConversionPattern,
            SparseMatmulOpConversionPattern,
+           AllToAllDispatchOpConversionPattern,
+           AllToAllCombineOpConversionPattern,
            Conv2dOpConversionPattern,
            Conv3dOpConversionPattern,
            ConvTranspose2dOpConversionPattern,
