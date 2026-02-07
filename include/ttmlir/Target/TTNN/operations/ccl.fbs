@@ -69,3 +69,25 @@ table AggregateTensorOp {
   composer_config: tt.target.ttnn.MeshComposerConfig;
   device: tt.target.DeviceRef;
 }
+
+table AllToAllDispatchOp {
+  input_tensor: tt.target.ttnn.TensorRef;
+  expert_indices: tt.target.ttnn.TensorRef;
+  expert_mapping: tt.target.ttnn.TensorRef;
+  dispatched: tt.target.ttnn.TensorRef;
+  metadata: tt.target.ttnn.TensorRef;
+  num_devices: uint32;
+  cluster_axis: uint32;
+  memory_config: tt.target.ttnn.MemoryConfig;
+}
+
+table AllToAllCombineOp {
+  input_tensor: tt.target.ttnn.TensorRef;
+  expert_metadata: tt.target.ttnn.TensorRef;
+  expert_mapping: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
+  num_devices: uint32;
+  cluster_axis: uint32;
+  num_experts_per_tok: uint32;
+  memory_config: tt.target.ttnn.MemoryConfig;
+}
