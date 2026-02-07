@@ -4,7 +4,7 @@
 
 module attributes {} {
   ttcore.device @default_device = <workerGrid = #ttcore.grid<8x8, (d0, d1) -> (0, d0, d1)>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1, s2, s3, s4, s5, s6] -> (0, 0, (((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) floordiv s4) mod 12, ((((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) floordiv s4) floordiv 12) * s4 + ((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) mod s4 + s5), meshShape = insert_mesh_shape_0xinsert_mesh_shape_1, chipIds = insert_chip_ids>
-  func.func @test_fabric_mcast(%arg0: !full_tensor_layout) -> !full_tensor_layout {
+  func.func @test_fabric_unicast(%arg0: !full_tensor_layout) -> !full_tensor_layout {
     %0 = "ttmetal.mesh_shard"(%arg0) <{shard_dims = array<i64: 0, 1>, shard_direction = #ttcore.shard_direction<full_to_shard>, shard_shape = array<i64: insert_mesh_shape_0, insert_mesh_shape_1>, shard_type = #ttcore.shard_type<devices>}> : (!full_tensor_layout) -> !mesh_shard_layout
     %1 = "ttmetal.create_buffer"() <{address = 104128 : i64}> : () -> !l1_shard_layout
     "ttmetal.enqueue_write_buffer"(%0, %1) : (!mesh_shard_layout, !l1_shard_layout) -> ()
@@ -26,8 +26,7 @@ module attributes {} {
     %len_bytes = arith.constant 2048 : i32
     %src_dev_id = arith.constant insert_src_dev_id : i16
     %dst_mesh_id = arith.constant 0 : i16
-    %dst_dev_id_start = arith.constant insert_dst_dev_id_start : i16
-    %dst_dev_id_end = arith.constant insert_dst_dev_id_end : i16
+    %dst_dev_id = arith.constant insert_dst_dev_id : i16
 
     // Get logical coordinates of current core and convert logical coords to translated coords
     %logical_x = ttkernel.my_logical_x_ : () -> index
@@ -49,7 +48,7 @@ module attributes {} {
     %is_device_0 = arith.cmpi eq, %my_device_id, %src_dev_id : i16
     scf.if %is_device_0 {
       // Device 0 sends to device 1
-      "ttkernel.experimental::fabric_mcast_fast_write_any_len"(%fabric_connection_manager, %dst_mesh_id, %dst_dev_id_start, %dst_dev_id_end, %noc_addr, %write_ptr, %len_bytes) : (!ttkernel.fabric_connection_manager, i16, i16, i16, !ttkernel.noc_addr, i32, i32) -> ()
+      "ttkernel.experimental::fabric_fast_write_any_len"(%fabric_connection_manager, %dst_mesh_id, %dst_dev_id, %noc_addr, %write_ptr, %len_bytes) : (!ttkernel.fabric_connection_manager, i16, i16, !ttkernel.noc_addr, i32, i32) -> ()
     }
 
     // Close fabric connections

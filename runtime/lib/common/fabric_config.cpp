@@ -183,8 +183,10 @@ appendFabricConfigArgs(
       }
     }
 
-    LOG_INFO("Forward direction: ", rtArgsVec[rtArgsVec.size() - 2]);
-    LOG_INFO("Backward direction: ", rtArgsVec[rtArgsVec.size() - 1]);
+    LOG_DEBUG("Device ", deviceCoord, " dimension ", dim,
+              " Forward direction: ", routing_directions[dim].first);
+    LOG_DEBUG("Device ", deviceCoord, " dimension ", dim,
+              " Backward direction: ", routing_directions[dim].second);
   }
 
   // Add mesh coordinate to device id mapping (in flattened mesh coordinate
