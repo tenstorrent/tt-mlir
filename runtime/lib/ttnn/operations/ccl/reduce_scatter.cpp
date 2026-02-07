@@ -12,6 +12,7 @@
 #include "tt/runtime/detail/ttnn/utils.h"
 #include "ttnn/operations/ccl/ccl_host_types.hpp"
 #include "ttnn/operations/ccl/reduce_scatter/reduce_scatter.hpp"
+#include "ttnn/operations/core/compute_kernel/compute_kernel_config.hpp"
 
 namespace tt::runtime::ttnn::operations::ccl {
 void run(const ::tt::target::ttnn::ReduceScatterOp *op,
@@ -50,10 +51,19 @@ void run(const ::tt::target::ttnn::ReduceScatterOp *op,
         ::tt::runtime::common::toMetalTopology(op->topology().value()));
   }
 
+  std::optional<::ttnn::DeviceComputeKernelConfig> computeConfig;
+  if (op->compute_config()) {
+    computeConfig = utils::createDeviceComputeKernelConfig(op->compute_config());
+  }
+
   ::ttnn::Tensor out = ::ttnn::reduce_scatter(
       input, scatterDimension, clusterAxis, subDeviceId, outputMemoryConfig,
       /*intermediate_memory_config=*/std::nullopt, optionalOutputTensor,
-      numLinks, topology);
+      numLinks, topology,
+      /*chunks_per_sync=*/std::nullopt,
+      /*num_workers_per_link=*/std::nullopt,
+      /*num_buffers_per_channel=*/std::nullopt,
+      /*compute_kernel_config=*/computeConfig);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
