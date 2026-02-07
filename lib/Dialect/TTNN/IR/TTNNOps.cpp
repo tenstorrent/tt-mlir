@@ -3316,6 +3316,46 @@ mlir::tt::ttnn::ReduceScatterOp::fold(FoldAdaptor adaptor) {
   return success();
 }
 
+static mlir::OpFoldResult foldIdentityPermute(mlir::tt::ttnn::PermuteOp op) {
+  llvm::ArrayRef<int64_t> perm = op.getPermutation();
+  if (llvm::equal(perm, llvm::seq<int64_t>(0, perm.size()))) {
+    return op.getInput();
+  }
+  return nullptr;
+}
+
+mlir::OpFoldResult foldConsecutivePermutes(mlir::tt::ttnn::PermuteOp op) {
+  auto permuteOperand =
+      op.getInput().getDefiningOp<mlir::tt::ttnn::PermuteOp>();
+  if (!permuteOperand) {
+    return nullptr;
+  }
+
+  if (!permuteOperand->hasOneUse()) {
+    return nullptr;
+  }
+
+  llvm::SmallVector<int64_t> combinedPerm = ttmlir::utils::applyPermutation(
+      permuteOperand.getPermutation(), op.getPermutation());
+
+  mlir::Value newInput = permuteOperand.getInput();
+  op->setOperand(0, newInput);
+  op.setPermutation(combinedPerm);
+
+  return op.getResult();
+}
+
+// Permute folder
+mlir::OpFoldResult mlir::tt::ttnn::PermuteOp::fold(FoldAdaptor adaptor) {
+  if (auto result = foldIdentityPermute(*this)) {
+    return result;
+  }
+  if (auto result = foldConsecutivePermutes(*this)) {
+    return result;
+  }
+  return nullptr;
+}
+
 //===----------------------------------------------------------------------===//
 // UpsampleOp
 //===----------------------------------------------------------------------===//
