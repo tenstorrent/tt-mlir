@@ -240,7 +240,37 @@ if(APPLE)
 endif()
 
 # PyWheel Component to create install directives for the packaged TTMLIR bindings wheel:
-install(DIRECTORY ${CMAKE_BINARY_DIR}/python_packages/ DESTINATION . COMPONENT TTMLIRPythonWheel EXCLUDE_FROM_ALL)
+install(DIRECTORY ${CMAKE_BINARY_DIR}/python_packages/ttmlir DESTINATION . COMPONENT TTMLIRPythonWheel EXCLUDE_FROM_ALL)
 
 install(DIRECTORY ${CMAKE_BINARY_DIR}/python/dialects/ DESTINATION python/dialects COMPONENT Test EXCLUDE_FROM_ALL)
 install(DIRECTORY ${CMAKE_BINARY_DIR}/python_packages/ DESTINATION python_packages COMPONENT Test EXCLUDE_FROM_ALL)
+
+add_custom_command(
+  COMMAND rm -rf build dist *.egg-info
+  COMMAND python -m pip install build
+  COMMAND TTMLIR_DEV_BUILD=ON python -m build --wheel
+  COMMAND ${CMAKE_COMMAND} -E touch ${CMAKE_CURRENT_BINARY_DIR}/.ttmlir-wheel-built
+  WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+  DEPENDS
+    TTMLIRPythonModules
+    TTMLIRPythonCAPI
+    TTMLIRCAPI
+    TTMLIRPythonExtensions
+    ${CMAKE_CURRENT_SOURCE_DIR}/TTMLIRModule.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/TTModule.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/TTIRModule.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/D2MModule.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/TTKernelModule.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/TTNNModule.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/DebugModule.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/OptimizerOverrides.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Passes.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Util.cpp
+  OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/.ttmlir-wheel-built
+  COMMENT "Building ttmlir wheel"
+)
+
+add_custom_target(ttmlir-wheel
+  COMMENT "ttmlir wheel"
+  DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/.ttmlir-wheel-built
+)

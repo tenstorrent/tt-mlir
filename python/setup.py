@@ -38,6 +38,10 @@ class CMakeBuild(build_ext):
     def in_ci(self) -> bool:
         return os.environ.get("IN_CIBW_ENV") == "ON"
 
+    def is_dev_build(self) -> bool:
+        """Check if this is a dev build (CMake already configured/built externally)"""
+        return os.environ.get("TTMLIR_DEV_BUILD", "OFF") == "ON"
+
     def build_(self, ext):
         build_lib = self.build_lib
         if not os.path.exists(build_lib):
@@ -57,48 +61,69 @@ class CMakeBuild(build_ext):
         if self.in_ci():
             install_dir = cwd / "build" / install_dir.name
 
-        cmake_args = [
-            "-G",
-            "Ninja",
-            "-B",
-            str(build_dir),
-            "-DCMAKE_BUILD_TYPE=Release",
-            "-DCMAKE_INSTALL_PREFIX=" + str(install_dir),
-            "-DCMAKE_C_COMPILER=clang",
-            "-DCMAKE_CXX_COMPILER=clang++",
-            "-DTTMLIR_ENABLE_TESTS=OFF",
-            "-DTTMLIR_ENABLE_TOOLS=OFF",
-        ]
-
-        if not self.in_ci():
-            cmake_args.extend(["-S", str(cwd.parent)])
-
-        # Run source env/activate if in ci, otherwise onus is on dev
-        if self.in_ci():
-            subprocess.run(
-                " ".join(
-                    [
-                        "cd",
-                        str(cwd.parent),
-                        "&&",
-                        "source",
-                        "env/activate",
-                        "&&",
-                        "cmake",
-                        *cmake_args,
-                    ]
-                ),
-                shell=True,
-                check=True,
-            )
+        # If dev build, skip CMake configure/build and just install from existing build
+        if self.is_dev_build():
+            if not build_dir.exists():
+                raise RuntimeError(
+                    f"Build directory not found: {build_dir}\n"
+                    "TTMLIR_DEV_BUILD=ON requires an existing CMake build directory."
+                )
+            print(f"Using existing build directory: {build_dir}")
         else:
-            self.spawn(["cmake", *cmake_args])
+            # Full CMake configure and build
+            cmake_args = [
+                "-G",
+                "Ninja",
+                "-B",
+                str(build_dir),
+                "-DCMAKE_BUILD_TYPE=Release",
+                "-DCMAKE_INSTALL_PREFIX=" + str(install_dir),
+                "-DCMAKE_C_COMPILER=clang",
+                "-DCMAKE_CXX_COMPILER=clang++",
+                "-DTTMLIR_ENABLE_TESTS=OFF",
+                "-DTTMLIR_ENABLE_TOOLS=OFF",
+                "-DTTMLIR_ENABLE_TTNN_JIT=OFF",  # Disable ttnn-jit to avoid circular dependency
+            ]
 
-        self.spawn(["cmake", "--build", str(build_dir), "--", "TTMLIRPythonModules"])
+            if not self.in_ci():
+                cmake_args.extend(["-S", str(cwd.parent)])
+
+            # Run source env/activate if in ci, otherwise onus is on dev
+            if self.in_ci():
+                subprocess.run(
+                    " ".join(
+                        [
+                            "cd",
+                            str(cwd.parent),
+                            "&&",
+                            "source",
+                            "env/activate",
+                            "&&",
+                            "cmake",
+                            *cmake_args,
+                        ]
+                    ),
+                    shell=True,
+                    check=True,
+                )
+            else:
+                self.spawn(["cmake", *cmake_args])
+
+            self.spawn(
+                ["cmake", "--build", str(build_dir), "--", "TTMLIRPythonModules"]
+            )
 
         # Install the PythonWheel Component
         self.spawn(
-            ["cmake", "--install", str(build_dir), "--component", "TTMLIRPythonWheel"]
+            [
+                "cmake",
+                "--install",
+                str(build_dir),
+                "--component",
+                "TTMLIRPythonWheel",
+                "--prefix",
+                str(install_dir),
+            ]
         )
 
         # Remove empty pykernel dir
