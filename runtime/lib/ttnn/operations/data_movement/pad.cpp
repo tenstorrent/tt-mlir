@@ -10,6 +10,8 @@
 #include "tt/runtime/workarounds.h"
 #include "tt_stl/span.hpp"
 
+#include "ttnn/operations/experimental/reshape/view.hpp"
+
 #include <optional>
 
 namespace tt::runtime::ttnn::operations::data_movement {
@@ -32,6 +34,13 @@ void run(const ::tt::target::ttnn::PadOp *op, ProgramContext &context) {
 
   out = ::ttnn::pad(in, padding, padValue, op->use_multicore(),
                     outputMemoryConfig);
+
+  // ttnn::pad may not update the logical shape to match the padded shape. Fix
+  // by using a zero-cost view to synchronize them.
+  if (out.logical_shape() != out.padded_shape()) {
+    out =
+        ::ttnn::experimental::view(out, out.padded_shape(), out.padded_shape());
+  }
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
