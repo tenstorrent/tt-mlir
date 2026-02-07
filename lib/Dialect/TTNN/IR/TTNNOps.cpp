@@ -2624,6 +2624,90 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
 }
 
 //===----------------------------------------------------------------------===//
+// AllToAllDispatchOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult AllToAllDispatchOp::verify() {
+  ::mlir::RankedTensorType inputType = getInputTensor().getType();
+  ::mlir::RankedTensorType indicesType = getExpertIndices().getType();
+  ::mlir::RankedTensorType mappingType = getExpertMapping().getType();
+  ::mlir::RankedTensorType dispatchedType = getDispatched().getType();
+  ::mlir::RankedTensorType metadataType = getMetadata().getType();
+
+  // All tensors must be 4D
+  if (inputType.getRank() != 4) {
+    return emitOpError("input_tensor must be a 4D tensor [B, S, 1, H]");
+  }
+  if (indicesType.getRank() != 4) {
+    return emitOpError("expert_indices must be a 4D tensor [B, S, 1, K]");
+  }
+  if (mappingType.getRank() != 4) {
+    return emitOpError("expert_mapping must be a 4D tensor [1, 1, E, D]");
+  }
+  if (dispatchedType.getRank() != 4) {
+    return emitOpError("dispatched output must be a 4D tensor [1, B*D, S, H]");
+  }
+  if (metadataType.getRank() != 4) {
+    return emitOpError("metadata output must be a 4D tensor [1, B*D, S, K]");
+  }
+
+  // Verify num_devices > 0
+  if (getNumDevices() <= 0) {
+    return emitOpError("num_devices must be positive");
+  }
+
+  // Verify cluster_axis is 0 or 1
+  if (getClusterAxis() > 1) {
+    return emitOpError("cluster_axis must be 0 or 1");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// AllToAllCombineOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult AllToAllCombineOp::verify() {
+  ::mlir::RankedTensorType inputType = getInputTensor().getType();
+  ::mlir::RankedTensorType metadataType = getExpertMetadata().getType();
+  ::mlir::RankedTensorType mappingType = getExpertMapping().getType();
+  ::mlir::RankedTensorType resultType = getResult().getType();
+
+  // All tensors must be 4D
+  if (inputType.getRank() != 4) {
+    return emitOpError(
+        "input_tensor must be a 4D tensor [E_local, B*D, S, H]");
+  }
+  if (metadataType.getRank() != 4) {
+    return emitOpError("expert_metadata must be a 4D tensor [1, B*D, S, K]");
+  }
+  if (mappingType.getRank() != 4) {
+    return emitOpError("expert_mapping must be a 4D tensor [1, 1, E, D]");
+  }
+  if (resultType.getRank() != 4) {
+    return emitOpError("result must be a 4D tensor [K, B, S, H]");
+  }
+
+  // Verify num_devices > 0
+  if (getNumDevices() <= 0) {
+    return emitOpError("num_devices must be positive");
+  }
+
+  // Verify cluster_axis is 0 or 1
+  if (getClusterAxis() > 1) {
+    return emitOpError("cluster_axis must be 0 or 1");
+  }
+
+  // Verify num_experts_per_tok > 0
+  if (getNumExpertsPerTok() <= 0) {
+    return emitOpError("num_experts_per_tok must be positive");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // AllocOp
 //===----------------------------------------------------------------------===//
 
