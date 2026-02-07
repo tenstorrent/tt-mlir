@@ -4032,6 +4032,171 @@ class StableHLOBuilder(Builder):
 
         return min_module, min_builder
 
+    ############### stablehlo.CompareOp ###############
+
+    @tag(stablehlo.CompareOp)
+    def compare(
+        self,
+        in0: Operand,
+        in1: Operand,
+        comparison_direction: str,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpResult:
+        """
+        Create a stablehlo.CompareOp for element-wise comparison.
+
+        Parameters
+        ----------
+        in0 : Operand
+            Left-hand side tensor.
+        in1 : Operand
+            Right-hand side tensor.
+        comparison_direction : str
+            The comparison operation: "EQ", "NE", "GE", "GT", "LE", "LT".
+        loc : Optional[str]
+            Optional location for debugging.
+        unit_attrs : Optional[List[str]]
+            Optional unit attributes.
+        sharding_attr : Optional[sdy.TensorShardingPerValueAttr]
+            Optional sharding attribute.
+
+        Returns
+        -------
+        OpResult
+            The result of the comparison operation.
+        """
+        stablehlo_op = self.get_opview_from_method(StableHLOBuilder.compare)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        # Create the comparison direction attribute
+        direction_attr = stablehlo.ComparisonDirectionAttr.get(comparison_direction)
+
+        op = stablehlo_op(
+            in0,
+            in1,
+            comparison_direction=direction_attr,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if sharding_attr is not None:
+            op.operation.attributes["sdy.sharding"] = sharding_attr
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            input1 = self._get_golden_tensor(in1)
+            op_golden_function = get_golden_function(stablehlo_op)
+            golden_output = op_golden_function(
+                input0, input1, comparison_direction, op.result.type.element_type
+            )
+            self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(stablehlo.CompareOp)
+    def compare_parser(
+        self,
+        old_op: stablehlo.CompareOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        stablehlo_op = self.get_opview_from_parser(StableHLOBuilder.compare_parser)
+        lhs = global_dict[old_op.lhs]
+        rhs = global_dict[old_op.rhs]
+        comparison_direction = old_op.comparison_direction
+
+        new_op = stablehlo_op(
+            lhs,
+            rhs,
+            comparison_direction=comparison_direction,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(lhs)
+            input1 = self._get_golden_tensor(rhs)
+            op_golden_function = get_golden_function(stablehlo_op)
+            # Get the direction string from the attribute
+            direction_str = str(comparison_direction).split(".")[-1]
+            golden_output = op_golden_function(
+                input0, input1, direction_str, new_op_result.type.element_type
+            )
+            self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(stablehlo.CompareOp)
+    def compare_split(
+        self,
+        old_op: stablehlo.CompareOp,
+    ) -> Tuple[Module, StableHLOBuilder]:
+        stablehlo_op = self.get_opview_from_split(StableHLOBuilder.compare_split)
+
+        old_context = old_op.context
+        old_loc = Location.unknown(old_context)
+        with old_context, old_loc:
+            compare_module = Module.create()
+            compare_builder = StableHLOBuilder(old_context, old_loc)
+            op_input_types = [
+                old_op.lhs.type,
+                old_op.rhs.type,
+            ]
+
+            with InsertionPoint(compare_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="compare_module")
+                def decorated_func(*inputs):
+                    lhs = inputs[0]
+                    rhs = inputs[1]
+                    comparison_direction = old_op.comparison_direction
+
+                    new_op = stablehlo_op(
+                        lhs,
+                        rhs,
+                        comparison_direction=comparison_direction,
+                        loc=old_op.location,
+                    )
+                    new_op_result = new_op.result
+
+                    if not self._disable_golden_check:
+                        op_golden_function = get_golden_function(stablehlo_op)
+                        input0 = self._get_golden_tensor(old_op.lhs)
+                        input1 = self._get_golden_tensor(old_op.rhs)
+                        direction_str = str(comparison_direction).split(".")[-1]
+                        golden_output = op_golden_function(
+                            input0, input1, direction_str, new_op_result.type.element_type
+                        )
+                        compare_builder._set_golden_tensor(new_op_result, golden_output)
+                        compare_builder._set_golden_tensor(lhs, input0)
+                        compare_builder._set_golden_tensor(rhs, input1)
+                        ordered_inputs.extend([lhs, rhs])
+                        ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                compare_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return compare_module, compare_builder
+
     ############### stablehlo.MulOp ###############
 
     @tag(stablehlo.MulOp)
