@@ -27,6 +27,7 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/PagedUpdateCacheOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/PointToPointOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/RMSNormConfigRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ReduceScatterConfigRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ReduceScatterOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/RotaryEmbeddingOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ScaledDotProductAttentionPadTileDimsRewritePattern.h"
@@ -426,7 +427,7 @@ public:
         rewriter.create<ttnn::ReduceScatterOp>(
             ttmlir::utils::appendLocationSuffix(loc, "_reduceScatter"),
             scatteredInputType, op.getInput(), op.getReduceType(), dimension,
-            clusterAxis, nullptr, nullptr, nullptr, nullptr);
+            clusterAxis, nullptr, nullptr, nullptr, nullptr, nullptr);
 
     // Replace all_reduce op with all_gather op.
     rewriter.replaceOpWithNewOp<ttnn::AllGatherOp>(
@@ -593,7 +594,8 @@ public:
           workarounds::decomposition::
               ScaledDotProductAttentionPadTileDimsRewritePattern,
           workarounds::decomposition::PointToPointOpRewritePattern,
-          workarounds::decomposition::RMSNormConfigRewritePattern>(
+          workarounds::decomposition::RMSNormConfigRewritePattern,
+          workarounds::decomposition::ReduceScatterConfigRewritePattern>(
           &getContext());
 
       runRewritePatterns(std::move(patterns),

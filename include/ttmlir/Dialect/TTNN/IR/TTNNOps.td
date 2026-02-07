@@ -2546,7 +2546,9 @@ def TTNN_AllGatherOp: TTNN_Op<"all_gather", [TTNN_MemoryConfigOpInterface]> {
     let hasFolder = 1;
 }
 
-def TTNN_ReduceScatterOp: TTNN_Op<"reduce_scatter", [TTNN_MemoryConfigOpInterface]> {
+def TTNN_ReduceScatterOp: TTNN_Op<"reduce_scatter",
+    [TTNN_MemoryConfigOpInterface,
+     TTNN_ComputeKernelConfigOpInterface]> {
     let summary = "Reduce scatter op.";
     let description = [{
         Tensor Reduce Scatter operation
@@ -2559,7 +2561,8 @@ def TTNN_ReduceScatterOp: TTNN_Op<"reduce_scatter", [TTNN_MemoryConfigOpInterfac
                          OptionalAttr<UI32Attr>:$sub_device_id,
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
                          OptionalAttr<UI32Attr>:$num_links,
-                         OptionalAttr<TTCore_TopologyAttr>:$topology);
+                         OptionalAttr<TTCore_TopologyAttr>:$topology,
+                         OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config);
 
     let results = (outs AnyRankedTensor:$result);
 

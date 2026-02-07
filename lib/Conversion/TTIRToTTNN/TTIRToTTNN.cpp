@@ -2031,7 +2031,8 @@ public:
         /*sub_device_id=*/nullptr,
         /*memory_config=*/nullptr,
         /*num_links=*/nullptr,
-        /*topology=*/nullptr);
+        /*topology=*/nullptr,
+        /*compute_config=*/nullptr);
 
     return success();
   }
