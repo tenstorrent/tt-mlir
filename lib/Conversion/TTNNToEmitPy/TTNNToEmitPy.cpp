@@ -3855,6 +3855,38 @@ public:
 };
 } // namespace
 
+// TopK op conversion pattern
+//
+namespace {
+class TopKOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<tt::ttnn::TopKOp> {
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      tt::ttnn::TopKOp>::TTNNToEmitPyBaseOpConversionPattern;
+  LogicalResult
+  matchAndRewrite(tt::ttnn::TopKOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<tt::ttnn::TopKOp> emitter(
+        srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInputTensor()),
+        emitter.emit(srcOp.getK()),
+        emitter.emit(srcOp.getDim()),
+        emitter.emit(srcOp.getLargest()),
+        emitter.emit(srcOp.getSorted()),
+        emitter.emit(std::nullopt | emitter.getMemoryConfig(srcOp.getValues()),
+                     "memory_config"),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 namespace mlir::tt {
 
 void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
@@ -4073,7 +4105,8 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                PointToPointOpConversionPattern,
                MeshShardOpConversionPattern,
                DistributeTensorOpConversionPattern,
-               AggregateTensorOpConversionPattern
+               AggregateTensorOpConversionPattern,
+               TopKOpConversionPattern
               >(typeConverter, ctx, enableGoldenMode);
   // clang-format on
 
