@@ -23,6 +23,35 @@ from golden import *
 
 
 class TTIRBuilder(Builder):
+    """Builder for TTIR (Tenstorrent Intermediate Representation) dialect ops.
+
+    ``TTIRBuilder`` extends :class:`Builder` with methods that emit
+    ``ttir.*`` operations.  Each public method corresponds to one TTIR op and
+    follows a consistent pattern:
+
+    1. Resolve the output shape and element type (either user-supplied or
+       inferred via the golden function).
+    2. Create an empty output tensor (``ttir.EmptyOp``).
+    3. Emit the TTIR op with the organised arguments.
+    4. Run the golden function and store the reference result.
+
+    The builder also provides ``@parse`` and ``@split`` counterparts for every
+    op so that existing MLIR modules can be round-tripped (re-emitted with
+    goldens) or split into per-op modules for isolated testing.
+
+    Parameters
+    ----------
+    ctx : Context
+        MLIR context.
+    location : Location
+        Default location for newly created ops.
+    mesh_name : Union[List[str], str]
+        Device mesh name(s).
+    mesh_dict : Union[List[OrderedDict[str, int]], OrderedDict[str, int]]
+        Mesh shape per axis.
+    disable_golden_check : bool
+        Skip golden generation / comparison when ``True``.
+    """
 
     # ----- Methods -----
 
@@ -41,12 +70,23 @@ class TTIRBuilder(Builder):
     # ----- Private methods ----
 
     def _get_empty_op(self, tensor_type: RankedTensorType) -> OpResult:
-        """Get TTIR-specific empty operation."""
+        """Create a ``ttir.EmptyOp`` and return its result.
+
+        This is the TTIR-specific implementation of the base class hook.
+        Every TTIR op that produces a tensor uses this to materialise its
+        output operand.
+        """
         return ttir.EmptyOp(tensor_type).result
 
     def _organize_eltwise_ttir(
         self, inputs: List[Operand], output_type: RankedTensorType
     ):
+        """Arrange TTIR elementwise op arguments as ``(output_type, *inputs)``.
+
+        TTIR elementwise ops follow the DPS (destination-passing style)
+        convention where the output type is the first positional argument
+        followed by the inputs.
+        """
         return (output_type, *inputs)
 
     def _op_proxy(
@@ -64,6 +104,60 @@ class TTIRBuilder(Builder):
         loc: Optional[Union[str, Location]] = None,
         skip_golden: bool = False,
     ) -> Any:
+        """Central helper that emits a TTIR op and its golden tensor in one step.
+
+        Most public op methods delegate to ``_op_proxy`` rather than
+        duplicating the boilerplate of shape inference, empty-tensor creation,
+        location handling, golden computation, and attribute attachment.
+
+        The execution flow is:
+
+        1. Infer the output shape and dtype from the golden function (or use
+           the explicitly provided *output_shape* / *output_type*).
+        2. Create the output ``RankedTensorType`` (via *output_create_fn* or
+           the default path).
+        3. Generate a unique MLIR location.
+        4. Emit the TTIR op with organised arguments.
+        5. Attach any ``UnitAttr`` attributes listed in *unit_attrs*.
+        6. Run the golden function and store the result.
+
+        Parameters
+        ----------
+        op_ttir_function : Callable
+            The TTIR op constructor (e.g. ``ttir.AddOp``).
+        inputs : List[Operand]
+            Input operands to the op.
+        unit_attrs : List[str], optional
+            Attribute names to set as ``UnitAttr`` on the created operation
+            (e.g. ``["ttir.should_hoist"]``).
+        organize_ttir_args : Callable, optional
+            ``(inputs, output_type) -> tuple`` that arranges positional
+            arguments for the TTIR op constructor.  Defaults to
+            :meth:`_organize_eltwise_ttir`.
+        organize_golden_args : Callable, optional
+            ``(inputs) -> list`` that arranges golden tensors for the golden
+            function.  Defaults to :meth:`_organize_eltwise_golden`.
+        output_shape : Shape, optional
+            Explicit output shape (skips golden-based inference).
+        output_type : Type, optional
+            Explicit MLIR element type for the output.
+        output_create_fn : Callable, optional
+            ``(shape, element_type) -> RankedTensorType`` factory for
+            custom output types (e.g. with layout encoding).
+        golden_kwargs : dict
+            Extra keyword arguments forwarded to the golden function.
+        ttir_kwargs : dict
+            Extra keyword arguments forwarded to the TTIR op constructor.
+        loc : Union[str, Location], optional
+            Custom location.  ``None`` means auto-detect from call stack.
+        skip_golden : bool
+            When ``True``, skip golden computation entirely.
+
+        Returns
+        -------
+        OpResult
+            The result of the newly created TTIR operation.
+        """
         if not golden_kwargs:
             golden_kwargs = ttir_kwargs
 
@@ -148,6 +242,12 @@ class TTIRBuilder(Builder):
             return op.result
 
     def _get_location(self) -> Location:
+        """Create an MLIR location pointing at the grandparent call-site.
+
+        Overrides the base implementation to keep the same two-frames-up
+        convention, ensuring locations reference user/test code rather than
+        builder internals.
+        """
         stack = inspect.stack()
         caller_frame = stack[2]
         filename = caller_frame.filename
@@ -157,6 +257,7 @@ class TTIRBuilder(Builder):
     def create_tensor_encoding(
         self, shape: Shape, element_type: Union[torch.dtype, TypeInfo]
     ) -> ttnn.ir.TTNNLayoutAttr:
+        """Return ``None`` because TTIR tensors carry no layout encoding."""
         return None
 
     # ----- Public Op Generators ----
@@ -175,6 +276,36 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Create a ``ttir.all_to_all`` collective communication operation.
+
+        Splits the input tensor along *split_dim* into *split_count* chunks,
+        then redistributes the chunks across replicas and concatenates along
+        *concat_dim*.
+
+        Parameters
+        ----------
+        input : Operand
+            Input tensor to redistribute.
+        split_dim : int
+            Dimension along which to split the input.
+        concat_dim : int
+            Dimension along which to concatenate after redistribution.
+        split_count : int
+            Number of chunks to split into (must equal the replica-group size).
+        replica_groups : List[List[int]]
+            Groups of device replicas that participate in the collective.
+        output_type : torch.dtype, optional
+            Element type of the output.  Defaults to the input's element type.
+        loc : str, optional
+            Custom MLIR location string.
+        unit_attrs : List[str], optional
+            Unit attributes to attach to the operation.
+
+        Returns
+        -------
+        OpResult
+            The redistributed tensor.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.all_to_all)
 
         if output_type is None:
@@ -277,6 +408,28 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Create a ``ttir.collective_broadcast`` operation.
+
+        Broadcasts the input tensor to all devices within each replica group.
+
+        Parameters
+        ----------
+        input : Operand
+            Tensor to broadcast.
+        replica_groups : List[Tuple[int, int]]
+            Groups of device replicas participating in the broadcast.
+        output_type : torch.dtype, optional
+            Output element type.  Defaults to input's element type.
+        loc : str, optional
+            Custom MLIR location string.
+        unit_attrs : List[str], optional
+            Unit attributes to attach.
+
+        Returns
+        -------
+        OpResult
+            The broadcast tensor.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.collective_broadcast)
 
         if output_type is None:
@@ -357,6 +510,30 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Create a ``ttir.collective_permute`` operation.
+
+        Permutes the input tensor across devices according to
+        *source_target_pairs*, where each pair ``(src, dst)`` indicates that
+        the tensor from device *src* is sent to device *dst*.
+
+        Parameters
+        ----------
+        input : Operand
+            Tensor to permute.
+        source_target_pairs : List[Tuple[int, int]]
+            List of ``(source_device, target_device)`` routing pairs.
+        output_type : torch.dtype, optional
+            Output element type.  Defaults to input's element type.
+        loc : str, optional
+            Custom MLIR location string.
+        unit_attrs : List[str], optional
+            Unit attributes to attach.
+
+        Returns
+        -------
+        OpResult
+            The permuted tensor on the target device.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.collective_permute)
 
         if output_type is None:
@@ -438,6 +615,33 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Create a ``ttir.reduce_scatter`` collective operation.
+
+        Reduces the input tensor across the cluster using *reduce_type*
+        (e.g. sum, mean) and scatters the result along *scatter_dim*.
+
+        Parameters
+        ----------
+        input : Operand
+            Tensor to reduce and scatter.
+        reduce_type : ReduceType
+            Reduction operation (Sum, Mean, Max, etc.).
+        scatter_dim : int
+            Dimension along which the reduced result is scattered.
+        cluster_axis : int
+            Cluster axis across which to perform the collective.
+        output_type : torch.dtype, optional
+            Output element type.  Defaults to input's element type.
+        loc : str, optional
+            Custom MLIR location string.
+        unit_attrs : List[str], optional
+            Unit attributes to attach.
+
+        Returns
+        -------
+        OpResult
+            The reduced-and-scattered tensor.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.reduce_scatter)
 
         if output_type is None:
@@ -535,6 +739,31 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Create a ``ttir.all_reduce`` collective operation.
+
+        Reduces the input tensor across all devices on *cluster_axis* using
+        *reduce_type*, then broadcasts the result back to every device.
+
+        Parameters
+        ----------
+        input : Operand
+            Tensor to reduce.
+        cluster_axis : int
+            Cluster axis across which to reduce.
+        reduce_type : ReduceType
+            Reduction operation (Sum, Mean, Max, etc.).
+        output_type : torch.dtype, optional
+            Output element type.  Defaults to input's element type.
+        loc : str, optional
+            Custom MLIR location string.
+        unit_attrs : List[str], optional
+            Unit attributes to attach.
+
+        Returns
+        -------
+        OpResult
+            The all-reduced tensor (identical on every device in the group).
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.all_reduce)
 
         if output_type is None:
@@ -625,6 +854,37 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Create a ``ttir.mesh_shard`` operation.
+
+        Shards or replicates the input tensor across the device mesh.
+        The *shard_direction* determines whether the tensor is split from full
+        to shards (``FullToShard``) or gathered from shards back to full
+        (``ShardToFull``).
+
+        Parameters
+        ----------
+        input : Operand
+            Tensor to shard or gather.
+        shard_type : MeshShardType
+            Sharding strategy (Identity, Replicate, Maximal, Devices).
+        shard_direction : MeshShardDirection
+            Direction of the sharding (FullToShard or ShardToFull).
+        shard_shape : List[int]
+            Target shard shape per device.
+        shard_dims : List[int]
+            Dimensions along which to shard.
+        output_type : torch.dtype, optional
+            Output element type.  Defaults to input's element type.
+        loc : str, optional
+            Custom MLIR location string.
+        unit_attrs : List[str], optional
+            Unit attributes to attach.
+
+        Returns
+        -------
+        OpResult
+            The sharded (or gathered) tensor.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.mesh_shard)
 
         if output_type is None:
@@ -729,6 +989,32 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Create a ``ttir.all_gather`` collective operation.
+
+        Gathers the input tensor shards from all devices along
+        *all_gather_dim* on the given *cluster_axis*, producing a tensor
+        whose gathered dimension is the sum of all shard sizes.
+
+        Parameters
+        ----------
+        input : Operand
+            Per-device tensor shard.
+        all_gather_dim : int
+            Dimension along which to concatenate gathered shards.
+        cluster_axis : int
+            Cluster axis across which to gather.
+        output_type : torch.dtype, optional
+            Output element type.  Defaults to input's element type.
+        loc : str, optional
+            Custom MLIR location string.
+        unit_attrs : List[str], optional
+            Unit attributes to attach.
+
+        Returns
+        -------
+        OpResult
+            The gathered tensor.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.all_gather)
 
         if output_type is None:
@@ -817,6 +1103,28 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Create a ``ttir.to_layout`` operation.
+
+        Converts the input tensor to a different layout (e.g. from row-major
+        to tiled, or from one memory space to another) as specified by
+        *output_type*.
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor.
+        output_type : RankedTensorType
+            Target tensor type including the desired layout encoding.
+        loc : str, optional
+            Custom MLIR location string.
+        unit_attrs : List[str], optional
+            Unit attributes to attach.
+
+        Returns
+        -------
+        OpResult
+            The tensor with the new layout.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.to_layout)
 
         output = self._get_empty_op(output_type)
@@ -941,6 +1249,29 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Create a ``ttir.rearrange`` operation.
+
+        Rearranges the dimensions of the input tensor according to a
+        string *pattern* (similar to einops notation).
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor.
+        pattern : str
+            Rearrangement pattern string.
+        output_type : torch.dtype, optional
+            Output element type.  Defaults to input's element type.
+        loc : str, optional
+            Custom MLIR location string.
+        unit_attrs : List[str], optional
+            Unit attributes to attach.
+
+        Returns
+        -------
+        OpResult
+            The rearranged tensor.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.rearrange)
 
         if output_type is None:
@@ -1075,6 +1406,30 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Create a ``ttir.reduce_and`` operation.
+
+        Performs a logical AND reduction along the specified dimensions.
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor.
+        keep_dim : bool
+            Whether to retain the reduced dimensions as size-1 dims.
+        dim_arg : List[int], optional
+            Dimensions to reduce.  Defaults to all dimensions.
+        output_type : torch.dtype, optional
+            Output element type.  Defaults to input's element type.
+        loc : str, optional
+            Custom MLIR location string.
+        unit_attrs : List[str], optional
+            Unit attributes to attach.
+
+        Returns
+        -------
+        OpResult
+            The reduced tensor.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.reduce_and)
 
         if output_type is None:
@@ -1217,6 +1572,29 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Create a ``ttir.repeat`` operation.
+
+        Repeats the input tensor along each dimension by the factors given
+        in *repeat_dimensions*.
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor.
+        repeat_dimensions : List[int]
+            Number of repetitions per dimension.
+        output_type : torch.dtype, optional
+            Output element type.  Defaults to input's element type.
+        loc : str, optional
+            Custom MLIR location string.
+        unit_attrs : List[str], optional
+            Unit attributes to attach.
+
+        Returns
+        -------
+        OpResult
+            The repeated tensor.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.repeat)
 
         if output_type is None:
@@ -1352,6 +1730,36 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Create a ``ttir.arange`` operation.
+
+        Produces a tensor filled with evenly spaced values from *start* to
+        *end* (exclusive) with the given *step*, broadcast along
+        *arange_dimension*.
+
+        Parameters
+        ----------
+        shape : List[int]
+            Output tensor shape.
+        dtype : torch.dtype
+            Element type of the output tensor.
+        start : int
+            Start of the range (inclusive).
+        end : int
+            End of the range (exclusive).
+        step : int
+            Step size between consecutive values.
+        arange_dimension : int
+            The dimension along which the range values are placed.
+        loc : str, optional
+            Custom MLIR location string.
+        unit_attrs : List[str], optional
+            Unit attributes to attach.
+
+        Returns
+        -------
+        OpResult
+            The arange tensor.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.arange)
         shape_attr = DenseI64ArrayAttr.get(shape)
         start_attr = IntegerAttr.get(IntegerType.get_signed(64), start)
@@ -1506,6 +1914,28 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Create a ``ttir.cumsum`` operation.
+
+        Computes the cumulative sum of the input tensor along *dim*.
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor.
+        dim : int
+            Dimension along which to compute the cumulative sum.
+        output_type : torch.dtype, optional
+            Output element type.  Defaults to input's element type.
+        loc : str, optional
+            Custom MLIR location string.
+        unit_attrs : List[str], optional
+            Unit attributes to attach.
+
+        Returns
+        -------
+        OpResult
+            Tensor containing the cumulative sum.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.cumsum)
 
         if output_type is None:
@@ -1634,6 +2064,45 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Create a ``ttir.gather`` operation.
+
+        Gathers slices from *input* using multi-dimensional indices from
+        *start_indices*.  This follows the StableHLO / XLA gather semantics.
+
+        Parameters
+        ----------
+        input : Operand
+            Source tensor to gather from.
+        start_indices : Operand
+            Index tensor specifying where to start each slice.
+        offset_dims : List[int]
+            Dimensions in the output that correspond to the gathered slices.
+        collapsed_slice_dims : List[int]
+            Slice dimensions that are collapsed (removed) from the output.
+        operand_batching_dims : List[int]
+            Batch dimensions of the operand.
+        start_indices_batching_dims : List[int]
+            Batch dimensions of the start-indices tensor.
+        start_index_map : List[int]
+            Mapping from index vector elements to operand dimensions.
+        index_vector_dim : int
+            Dimension of *start_indices* that contains the index vector.
+        slice_sizes : List[int]
+            Size of each slice to gather.
+        indices_are_sorted : bool
+            Hint that indices are sorted (may enable optimisations).
+        output_type : torch.dtype, optional
+            Output element type.  Defaults to input's element type.
+        loc : str, optional
+            Custom MLIR location string.
+        unit_attrs : List[str], optional
+            Unit attributes to attach.
+
+        Returns
+        -------
+        OpResult
+            The gathered tensor.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.gather)
 
         if output_type is None:
@@ -1840,6 +2309,24 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Create a ``ttir.ones`` operation that produces a tensor filled with ones.
+
+        Parameters
+        ----------
+        shape : List[int]
+            Output tensor shape.
+        dtype : torch.dtype
+            Element type of the output tensor.
+        loc : str, optional
+            Custom MLIR location string.
+        unit_attrs : List[str], optional
+            Unit attributes to attach.
+
+        Returns
+        -------
+        OpResult
+            A constant tensor of ones.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.ones)
         mlir_output_type = self._get_type_from_torch_dtype(dtype)
         shape_attr = DenseI32ArrayAttr.get(shape)
@@ -1948,6 +2435,24 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Create a ``ttir.zeros`` operation that produces a tensor filled with zeros.
+
+        Parameters
+        ----------
+        shape : List[int]
+            Output tensor shape.
+        dtype : torch.dtype
+            Element type of the output tensor.
+        loc : str, optional
+            Custom MLIR location string.
+        unit_attrs : List[str], optional
+            Unit attributes to attach.
+
+        Returns
+        -------
+        OpResult
+            A constant tensor of zeros.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.zeros)
         mlir_output_type = self._get_type_from_torch_dtype(dtype)
         shape_attr = DenseI32ArrayAttr.get(shape)
@@ -2063,6 +2568,10 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpView:
+        """Create a ``ttir.rand`` operation.
+
+        Generates a tensor of random values with the specified shape and dtype.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.rand)
         mlir_output_type = self._get_type_from_torch_dtype(dtype)
         size_attr = ArrayAttr.get(
@@ -2220,6 +2729,10 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpView:
+        """Create a ``ttir.dropout`` operation.
+
+        Randomly zeros elements of the input tensor with probability *p* during training.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.dropout)
 
         # Dropout preserves input type
@@ -2378,6 +2891,10 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Create a ``ttir.cos`` elementwise operation.
+
+        Computes the cosine of each element in the input tensor.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.cos)
         input0 = self._get_golden_tensor(in0)
         if output_type is None:
@@ -2488,6 +3005,10 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Create a ``ttir.sin`` elementwise operation.
+
+        Computes the sine of each element in the input tensor.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.sin)
         input0 = self._get_golden_tensor(in0)
         if output_type is None:
@@ -2598,6 +3119,10 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Create a ``ttir.sqrt`` elementwise operation.
+
+        Computes the square root of each element in the input tensor.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.sqrt)
         input0 = self._get_golden_tensor(in0)
         if output_type is None:
@@ -2709,6 +3234,7 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Create a ``ttir.greater_equal`` comparison (alias: ``ge``)."""
         ttir_op = self.get_opview_from_method(TTIRBuilder.ge)
         lhs = self._get_golden_tensor(in0)
         rhs = self._get_golden_tensor(in1)
@@ -2829,6 +3355,7 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Create a ``ttir.less_than`` comparison (alias: ``lt``)."""
         ttir_op = self.get_opview_from_method(TTIRBuilder.lt)
         lhs = self._get_golden_tensor(in0)
         rhs = self._get_golden_tensor(in1)
@@ -2949,6 +3476,7 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Create a ``ttir.less_equal`` comparison (alias: ``le``)."""
         ttir_op = self.get_opview_from_method(TTIRBuilder.le)
         lhs = self._get_golden_tensor(in0)
         rhs = self._get_golden_tensor(in1)
@@ -3069,6 +3597,10 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Create a ``ttir.bitwise_and`` operation.
+
+        Computes the elementwise bitwise AND of two integer tensors.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.bitwise_and)
         lhs = self._get_golden_tensor(in0)
         rhs = self._get_golden_tensor(in1)
@@ -3191,6 +3723,10 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Create a ``ttir.pow`` elementwise operation.
+
+        Raises each element of the first tensor to the power of the corresponding element in the second tensor.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.pow)
         lhs = self._get_golden_tensor(in0)
         rhs = self._get_golden_tensor(in1)
@@ -3311,6 +3847,10 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Create a ``ttir.minimum`` elementwise operation.
+
+        Computes the elementwise minimum of two tensors.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.minimum)
         lhs = self._get_golden_tensor(in0)
         rhs = self._get_golden_tensor(in1)
@@ -3431,6 +3971,10 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Create a ``ttir.logical_right_shift`` operation.
+
+        Performs elementwise logical right shift of the first tensor by the number of bits specified in the second tensor.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.logical_right_shift)
         lhs = self._get_golden_tensor(in0)
         rhs = self._get_golden_tensor(in1)
@@ -3551,6 +4095,10 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Create a ``ttir.logical_and`` operation.
+
+        Computes the elementwise logical AND of two tensors.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.logical_and)
         lhs = self._get_golden_tensor(in0)
         rhs = self._get_golden_tensor(in1)
@@ -3675,6 +4223,10 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> Tuple[OpResult, OpResult]:
+        """Create a ``ttir.sort`` operation.
+
+        Sorts the input tensor along a specified dimension.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.sort)
 
         if output_type is None:
@@ -3734,6 +4286,10 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Create a ``ttir.reverse`` operation.
+
+        Reverses the elements of the input tensor along specified dimensions.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.reverse)
 
         if output_type is None:
@@ -3869,6 +4425,10 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Create a ``ttir.scatter`` operation.
+
+        Scatters values from *update* into *input* at the positions specified by *scatter_indices*, following StableHLO / XLA scatter semantics.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.scatter)
 
         if output_type is None:
@@ -4048,6 +4608,10 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Create a ``ttir.max_pool2d`` operation.
+
+        Applies 2D max pooling over the input tensor with the specified kernel size, stride, padding, and dilation.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.max_pool2d)
 
         if output_type is None:
@@ -4246,6 +4810,10 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> Tuple[OpResult, OpResult]:
+        """Create a ``ttir.max_pool2d_with_indices`` operation.
+
+        Applies 2D max pooling and also returns the indices of the maximum values, which are needed for the backward pass.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.max_pool2d_with_indices)
 
         if output_type is None:
@@ -4473,6 +5041,10 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Create a ``ttir.log1p`` elementwise operation.
+
+        Computes the natural logarithm of (1 + x) for each element, which is more numerically stable than computing log(1+x) directly for small x values.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.log1p)
 
         if output_type is None:
@@ -4594,6 +5166,10 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Create a ``ttir.concat`` operation.
+
+        Concatenates a list of input tensors along the specified dimension.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.concat)
         dim_attr = IntegerAttr.get(IntegerType.get_signed(32), dim)
 
@@ -4726,6 +5302,10 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Create a ``ttir.full`` operation.
+
+        Produces a tensor filled with a scalar *fill_value*.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.full)
         mlir_output_type = self._get_type_from_torch_dtype(output_type)
 
@@ -4857,6 +5437,10 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Create a ``ttir.clamp_tensor`` operation.
+
+        Clamps each element of the input tensor between corresponding elements of *min_tensor* and *max_tensor*.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.clamp_tensor)
 
         if output_type is None:
@@ -5012,6 +5596,10 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Create a ``ttir.reduce_or`` operation.
+
+        Performs a logical OR reduction along the specified dimensions.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.reduce_or)
 
         if dim_arg is None:
@@ -5157,6 +5745,10 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Create a ``ttir.max`` reduction operation.
+
+        Reduces the input tensor by taking the maximum along the specified dimensions.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.max)
 
         if dim_arg is None:
@@ -5299,6 +5891,10 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Create a ``ttir.logical_not`` elementwise operation.
+
+        Computes the elementwise logical NOT of the input tensor.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.logical_not)
 
         if output_type is None:
@@ -5417,6 +6013,10 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Create a ``ttir.log`` elementwise operation.
+
+        Computes the natural logarithm of each element in the input tensor.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.log)
 
         if output_type is None:
@@ -5534,6 +6134,7 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Create a ``ttir.greater_than`` comparison (alias: ``gt``)."""
         ttir_op = self.get_opview_from_method(TTIRBuilder.gt)
 
         if output_type is None:
@@ -5666,6 +6267,10 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Create a ``ttir.batch_norm_inference`` operation.
+
+        Applies batch normalisation during inference using pre-computed running statistics (mean and variance).
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.batch_norm_inference)
         epsilon_attr = FloatAttr.get_f32(epsilon)
         dimension_attr = IntegerAttr.get(IntegerType.get_signless(32), dimension)
@@ -5877,6 +6482,10 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> Tuple[OpResult, OpResult, OpResult]:
+        """Create a ``ttir.batch_norm_training`` operation.
+
+        Applies batch normalisation during training, computing batch statistics from the input and returning updated running statistics.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.batch_norm_training)
         epsilon_attr = FloatAttr.get_f32(epsilon)
         dimension_attr = IntegerAttr.get(IntegerType.get_signless(32), dimension)
@@ -6147,6 +6756,10 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Create a ``ttir.constant`` operation.
+
+        Produces a tensor from a constant attribute value.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.constant)
         value_attr = DenseElementsAttr.get(tensor.numpy())
         result = self._create_ranked_tensor_type(
@@ -6262,6 +6875,10 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Create a ``ttir.pad`` operation.
+
+        Pads the input tensor with a *padding_value* according to the specified *padding* configuration.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.pad)
         padding_attr = DenseI32ArrayAttr.get(padding)
         value_attr = FloatAttr.get(F32Type.get(), value)
@@ -6411,6 +7028,10 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Create a ``ttir.dot_general`` operation.
+
+        Computes a generalised dot product (matrix multiply with batch and contraction dimensions), following StableHLO / XLA semantics.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.dot_general)
 
         if output_type is None:
@@ -6592,6 +7213,10 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Create a ``ttir.permute`` operation.
+
+        Permutes the dimensions of the input tensor according to the given permutation order.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.permute)
         permutation_attr = DenseI64ArrayAttr.get(permutation)
 
@@ -6725,6 +7350,10 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Create a ``ttir.broadcast`` operation.
+
+        Broadcasts the input tensor to a larger shape by replicating along specified dimensions.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.broadcast)
         broadcast_dimensions_attr = DenseI64ArrayAttr.get(broadcast_dimensions)
 
@@ -6868,6 +7497,10 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Create a ``ttir.reshape`` operation.
+
+        Reshapes the input tensor to the specified target shape without changing the underlying data.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.reshape)
         shape_attr = ArrayAttr.get(
             [IntegerAttr.get(IntegerType.get_signless(32), s) for s in shape]
@@ -6994,6 +7627,10 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Create a ``ttir.maximum`` elementwise operation.
+
+        Computes the elementwise maximum of two tensors.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.maximum)
 
         if output_type is None:
@@ -7121,6 +7758,10 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Create a ``ttir.multiply`` elementwise operation.
+
+        Computes the elementwise product of two tensors.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.multiply)
 
         if output_type is None:
@@ -7252,6 +7893,7 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Create a ``ttir.equal`` comparison (alias: ``eq``)."""
         ttir_op = self.get_opview_from_method(TTIRBuilder.eq)
 
         if output_type is None:
@@ -7384,6 +8026,10 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Create a ``ttir.sum`` reduction operation.
+
+        Reduces the input tensor by summing along the specified dimensions.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.sum)
 
         if dim_arg is None:
@@ -7534,6 +8180,10 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Create a ``ttir.add`` elementwise operation.
+
+        Computes the elementwise sum of two tensors.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.add)
 
         if output_type is None:
@@ -7663,6 +8313,10 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Create a ``ttir.sigmoid`` elementwise operation.
+
+        Computes the sigmoid activation function for each element.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.sigmoid)
 
         if output_type is None:
@@ -7779,6 +8433,10 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Create a ``ttir.hardsigmoid`` elementwise operation.
+
+        Computes the hard-sigmoid activation function for each element: clamp(x/6 + 0.5, 0, 1).
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.hardsigmoid)
 
         if output_type is None:
@@ -7898,6 +8556,10 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Create a ``ttir.subtract`` elementwise operation.
+
+        Computes the elementwise difference of two tensors.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.subtract)
 
         if output_type is None:
@@ -8029,6 +8691,10 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Create a ``ttir.tanh`` elementwise operation.
+
+        Computes the hyperbolic tangent of each element in the input tensor.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.tanh)
 
         if output_type is None:
@@ -8146,6 +8812,10 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Create a ``ttir.rsqrt`` elementwise operation.
+
+        Computes the reciprocal square root (1/sqrt(x)) of each element.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.rsqrt)
 
         if output_type is None:
@@ -8263,6 +8933,10 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Create a ``ttir.neg`` elementwise operation.
+
+        Negates each element in the input tensor.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.neg)
 
         if output_type is None:
@@ -8381,6 +9055,7 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Create a ``ttir.not_equal`` comparison (alias: ``ne``)."""
         ttir_op = self.get_opview_from_method(TTIRBuilder.ne)
 
         if output_type is None:
@@ -8513,6 +9188,10 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Create a ``ttir.where`` operation.
+
+        Selects elements from *in1* or *in2* based on the boolean *condition* tensor.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.where)
 
         if output_type is None:
@@ -8676,6 +9355,10 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Create a ``ttir.abs`` elementwise operation.
+
+        Computes the absolute value of each element in the input tensor.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.abs)
 
         if output_type is None:
@@ -8793,6 +9476,10 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Create a ``ttir.erf`` elementwise operation.
+
+        Computes the error function of each element in the input tensor.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.erf)
 
         if output_type is None:
@@ -8910,6 +9597,10 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Create a ``ttir.floor`` elementwise operation.
+
+        Rounds each element down to the nearest integer.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.floor)
 
         if output_type is None:
@@ -9027,6 +9718,10 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Create a ``ttir.typecast`` operation.
+
+        Casts the input tensor to a different element type.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.typecast)
         output_mlir_type = self._get_type_from_torch_dtype(output_type)
 
@@ -9145,6 +9840,10 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Create a ``ttir.exp`` elementwise operation.
+
+        Computes the exponential (e^x) of each element in the input tensor.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.exp)
 
         if output_type is None:
@@ -9263,6 +9962,10 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Create a ``ttir.div`` elementwise operation.
+
+        Computes the elementwise division of two tensors.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.div)
 
         if output_type is None:
@@ -9396,6 +10099,34 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: List[str] = None,
     ) -> OpResult:
+        """Create a ``ttir.slice_static`` operation.
+
+        Extracts a contiguous slice from the input tensor. Each dimension is
+        sliced from ``begins[i]`` to ``ends[i]`` (exclusive) with stride
+        ``step[i]``.
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor.
+        begins : List[int]
+            Start index per dimension.
+        ends : List[int]
+            End index per dimension (exclusive).
+        step : List[int], optional
+            Stride per dimension.  Defaults to all ones.
+        output_type : torch.dtype, optional
+            Output element type.  Defaults to input's element type.
+        loc : str, optional
+            Custom MLIR location string.
+        unit_attrs : List[str], optional
+            Unit attributes to attach.
+
+        Returns
+        -------
+        OpResult
+            The sliced tensor.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.slice)
 
         if step is None:
@@ -9568,6 +10299,10 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Create a ``ttir.embedding_backward`` operation.
+
+        Computes the gradient of the embedding lookup during backpropagation.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.embedding_backward)
 
         if output_type is None:
@@ -9913,6 +10648,10 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Create a ``ttir.is_finite`` elementwise operation.
+
+        Tests whether each element in the input tensor is finite (not NaN and not infinite).
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.is_finite)
 
         if output_type is None:
@@ -12451,6 +13190,10 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Create a ``ttir.rms_norm`` operation.
+
+        Applies Root Mean Square Layer Normalisation to the input tensor.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.rms_norm)
         normalized_shape_attr = DenseI64ArrayAttr.get(normalized_shape)
         epsilon_attr = FloatAttr.get_f32(epsilon)
@@ -12648,6 +13391,10 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Create a ``ttir.layer_norm`` operation.
+
+        Applies Layer Normalisation to the input tensor over the last *normalized_dims* dimensions.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.layer_norm)
         normalized_shape_attr = DenseI64ArrayAttr.get(normalized_shape)
         epsilon_attr = FloatAttr.get_f32(epsilon)

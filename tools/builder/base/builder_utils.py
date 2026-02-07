@@ -34,11 +34,29 @@ from ttmlir.passes import (
 # ----- Typedefs -----
 
 Operand = Union[BlockArgument, OpResult]
+"""An MLIR value that can serve as an input to an operation (block argument or op result)."""
+
 Shape = Union[List[int], Tuple[int, ...]]
+"""Tensor shape expressed as a list or tuple of dimension sizes."""
 
 
 @dataclass
 class TypeInfo:
+    """Extended dtype descriptor carrying optional quantisation parameters.
+
+    When ``scale`` and ``zero_point`` are provided, the builder creates a
+    ``quant.UniformQuantizedType`` instead of a plain integer/float type.
+
+    Parameters
+    ----------
+    dtype : torch.dtype
+        Base PyTorch dtype (e.g. ``torch.qint32``).
+    scale : float, optional
+        Quantisation scale factor.
+    zero_point : int, optional
+        Quantisation zero point.
+    """
+
     dtype: torch.dtype
     scale: Optional[float] = None
     zero_point: Optional[int] = None
@@ -48,6 +66,12 @@ class TypeInfo:
 
 
 def tag(name):
+    """Decorator that registers a builder method as the constructor for a given ``OpView``.
+
+    The decorated method is later discovered by :meth:`BuilderMeta.__new__`
+    and stored in :attr:`Builder.opview_to_builder_map`.
+    """
+
     def decorator(func):
         func._tag = name
         return func
@@ -56,6 +80,8 @@ def tag(name):
 
 
 def parse(name):
+    """Decorator that registers a method as the parser (round-trip re-emitter) for an ``OpView``."""
+
     def decorator(func):
         func._parse = name
         return func
@@ -64,6 +90,8 @@ def parse(name):
 
 
 def split(name):
+    """Decorator that registers a method as the split handler for an ``OpView``."""
+
     def decorator(func):
         func._split = name
         return func
@@ -72,6 +100,24 @@ def split(name):
 
 
 def get_target_path(output_path, builder_dir, filename, target):
+    """Build the output path for a target artefact, creating directories as needed.
+
+    Parameters
+    ----------
+    output_path : str
+        Root output directory.
+    builder_dir : str
+        Subdirectory for the builder type.
+    filename : str
+        Name of the artefact file.
+    target : str
+        Backend target name (e.g. ``"ttnn"``).
+
+    Returns
+    -------
+    str
+        Full filesystem path to the artefact.
+    """
     target_dir = os.path.join(output_path, builder_dir, target)
     if not os.path.exists(target_dir):
         os.makedirs(target_dir)
@@ -79,6 +125,24 @@ def get_target_path(output_path, builder_dir, filename, target):
 
 
 def get_artifact_dir(output_root, builder_type, test_base, make_dir=True):
+    """Compute the artefact directory for a test and optionally create it.
+
+    Parameters
+    ----------
+    output_root : str
+        Root directory for all builder artefacts.
+    builder_type : str
+        Builder name (e.g. ``"TTIRBuilder"``).
+    test_base : str
+        Base name of the test (used as the leaf directory).
+    make_dir : bool
+        If ``True``, create the directory when it does not exist.
+
+    Returns
+    -------
+    str
+        Path to the artefact directory.
+    """
     artifact_path = os.path.join(
         output_root, "builder-artifacts", builder_type, test_base
     )
@@ -88,14 +152,21 @@ def get_artifact_dir(output_root, builder_type, test_base, make_dir=True):
 
 
 def emitc_to_executable(module):
+    """Translate an MLIR module to a C++ source string via the EmitC backend."""
     return translate_to_cpp(module)
 
 
 def emitpy_to_executable(module):
+    """Translate an MLIR module to a Python source string via the EmitPy backend."""
     return translate_to_python(module)
 
 
 def _convert_to_mlir_value(obj):
+    """Normalise an object to its MLIR ``Value`` representation.
+
+    Handles ``OpView`` (extracts ``operation.results``), raw ``Value`` objects,
+    and passes through anything else unchanged.
+    """
     if hasattr(obj, "operation") and hasattr(obj.operation, "results"):
         results = obj.operation.results
         if len(results) == 1:
@@ -109,6 +180,12 @@ def _convert_to_mlir_value(obj):
 
 
 def process_multi_return_result(result):
+    """Flatten a multi-return result into a tuple of MLIR values.
+
+    Builder functions may return a single ``OpView``, a single value, or an
+    iterable of mixed types.  This function normalises all of these to either
+    a single MLIR value (for one-result ops) or a flat tuple of values.
+    """
     if hasattr(result, "__iter__") and not isinstance(result, str):
         converted_results = []
         for item in result:
@@ -125,6 +202,24 @@ def process_multi_return_result(result):
 def create_custom_ttir_pipeline_fn(
     pipeline: str, verify: bool = True, print_ir: Union[bool, str] = False
 ) -> Callable:
+    """Create a callable that runs a custom MLIR pass pipeline string.
+
+    Parameters
+    ----------
+    pipeline : str
+        Comma-separated pass names (e.g. ``"ttir-lower-to-layout,ttir-bufferization-pipeline"``).
+    verify : bool
+        Enable the MLIR verifier after each pass.
+    print_ir : Union[bool, str]
+        ``True`` to print IR to stdout after each pass, or a directory path
+        for per-pass file dumps.
+
+    Returns
+    -------
+    Callable
+        ``(module, device_register_options) -> None`` that runs the pipeline
+        in-place on *module*.
+    """
     def wrapper(module, device_register_options):
         register_device = "ttcore-register-device"
         if device_register_options:
@@ -153,6 +248,37 @@ def run_ttir_pipeline(
     mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
     argument_types_string: Optional[str] = None,
 ):
+    """Run a compilation pipeline on an MLIR module in-place.
+
+    Configures system-descriptor path, mesh shape, and optional constant-eval
+    settings, then delegates to *pipeline_fn*.  The modified module is
+    optionally saved to disk.
+
+    Parameters
+    ----------
+    module : Module
+        The MLIR module to compile (modified in place).
+    pipeline_fn : Callable
+        ``(module, options_str) -> None`` that runs the pass pipeline.
+    pipeline_options : List[str], optional
+        Additional ``key=value`` options forwarded to the pipeline.
+    save_artifacts : bool
+        When ``True``, write the final module to *output_file_name*.
+    output_file_name : str
+        File path for the saved module.
+    system_desc_path : str, optional
+        Path to the system descriptor.  Falls back to the
+        ``SYSTEM_DESC_PATH`` environment variable.
+    mesh_dict : OrderedDict[str, int]
+        Device mesh shape.
+    argument_types_string : str, optional
+        Type string for constant evaluation (if constant-eval is enabled).
+
+    Returns
+    -------
+    Module
+        The (mutated) input module.
+    """
     if pipeline_options is None:
         pipeline_options = []
 
