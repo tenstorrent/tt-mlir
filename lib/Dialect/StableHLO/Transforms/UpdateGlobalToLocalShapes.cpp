@@ -86,9 +86,10 @@ static FailureOr<mlir::OperationState> createNewOperationState(
                         sliceOp.getOperation()->getOpOperand(0), globalMeshOp)
                         .getDimShardings();
 
-            // 2. Copy the current start_indices and limit_indices attributes.
+            // 2. Copy the current start_indices, limit_indices, and strides.
             llvm::SmallVector<int64_t> startIndices(sliceOp.getStartIndices());
             llvm::SmallVector<int64_t> limitIndices(sliceOp.getLimitIndices());
+            llvm::SmallVector<int64_t> strides(sliceOp.getStrides());
 
             // 3. Iterate through start and limit indices and update them based
             // on the sharding annotation for that dimension.
@@ -104,34 +105,74 @@ static FailureOr<mlir::OperationState> createNewOperationState(
                 return mlir::failure();
               }
 
-              FailureOr<int64_t> updatedLimitDim =
-                  shardy_utils::calculateUpdatedDim(
-                      globalMeshOp.getMesh(), shardings[0], limitIndices[i]);
+              int64_t stride = strides[i];
 
-              if (failed(updatedLimitDim)) {
-                sliceOp->emitError(
-                    "Could not apply propagated tensor shardings for limit "
-                    "indices of attribute dictionary for slice op");
-                return mlir::failure();
+              // Handle strided slices (e.g., [::2], [1::2] for interleaved
+              // data): When we have a strided slice with start < stride, the
+              // start_index should remain the same in local coordinates because
+              // each shard still needs to extract the same pattern from its
+              // local data.
+              //
+              // Example: tensor[::2] with TP=2 sharding on that dimension
+              // - Global: [g0,u0,g1,u1,g2,u2,g3,u3], shape=8
+              // - Shard 0: [g0,u0,g1,u1], Shard 1: [g2,u2,g3,u3]
+              // - Local [::2]: Shard 0 gets [g0,g1], Shard 1 gets [g2,g3]
+              //
+              // Example: tensor[1::2] with TP=2 sharding
+              // - Local [1::2]: Shard 0 gets [u0,u1], Shard 1 gets [u2,u3]
+              //
+              // Key insight: start_index stays the same, only limit changes!
+              if (stride > 1 && startIndices[i] < stride) {
+                // Strided slice with start < stride (handles [::2], [1::2],
+                // etc.) Keep start_index as-is, only update limit based on
+                // sharding.
+
+                // Update limit: local_limit = global_limit / shard_factor
+                FailureOr<int64_t> updatedLimitDim =
+                    shardy_utils::calculateUpdatedDim(
+                        globalMeshOp.getMesh(), shardings[0], limitIndices[i]);
+
+                if (failed(updatedLimitDim)) {
+                  sliceOp->emitError(
+                      "Could not apply propagated tensor shardings for limit "
+                      "indices of attribute dictionary for slice op");
+                  return mlir::failure();
+                }
+
+                limitIndices[i] = *updatedLimitDim;
+                // start_index and stride stay the same!
+              } else {
+                // Original logic for non-strided or non-aligned cases.
+                FailureOr<int64_t> updatedLimitDim =
+                    shardy_utils::calculateUpdatedDim(
+                        globalMeshOp.getMesh(), shardings[0], limitIndices[i]);
+
+                if (failed(updatedLimitDim)) {
+                  sliceOp->emitError(
+                      "Could not apply propagated tensor shardings for limit "
+                      "indices of attribute dictionary for slice op");
+                  return mlir::failure();
+                }
+
+                limitIndices[i] = *updatedLimitDim;
+
+                FailureOr<int64_t> updatedStartDim =
+                    shardy_utils::calculateUpdatedDim(
+                        globalMeshOp.getMesh(), shardings[0], startIndices[i]);
+                if (failed(updatedStartDim)) {
+                  sliceOp->emitError(
+                      "Could not apply propagated tensor shardings for start "
+                      "indices of attribute dictionary for slice op");
+                  return mlir::failure();
+                }
+                startIndices[i] = *updatedStartDim;
               }
-
-              limitIndices[i] = *updatedLimitDim;
-
-              FailureOr<int64_t> updatedStartDim =
-                  shardy_utils::calculateUpdatedDim(
-                      globalMeshOp.getMesh(), shardings[0], startIndices[i]);
-              if (failed(updatedStartDim)) {
-                sliceOp->emitError(
-                    "Could not apply propagated tensor shardings for start "
-                    "indices of attribute dictionary for slice op");
-                return mlir::failure();
-              }
-              startIndices[i] = *updatedStartDim;
             }
 
-            // 4. Update start and limit indices in op named attributes.
+            // 4. Update start, limit indices, and strides in op named attrs.
             llvm::StringRef startIndicesAttrName = "start_indices";
             llvm::StringRef limitIndicesAttrName = "limit_indices";
+            llvm::StringRef stridesAttrName = "strides";
 
             assert(attrDict.contains(startIndicesAttrName) &&
                    "Slice operation does not have start indices attribute. "
@@ -148,10 +189,18 @@ static FailureOr<mlir::OperationState> createNewOperationState(
                 namedAttrs, [&](const mlir::NamedAttribute &attr) {
                   return attr.getName() == limitIndicesAttrName;
                 });
+            auto namedAttrStridesIt = llvm::find_if(
+                namedAttrs, [&](const mlir::NamedAttribute &attr) {
+                  return attr.getName() == stridesAttrName;
+                });
             namedAttrStartIt->setValue(
                 mlir::DenseI64ArrayAttr::get(context, startIndices));
             namedAttrLimitIt->setValue(
                 mlir::DenseI64ArrayAttr::get(context, limitIndices));
+            if (namedAttrStridesIt != namedAttrs.end()) {
+              namedAttrStridesIt->setValue(
+                  mlir::DenseI64ArrayAttr::get(context, strides));
+            }
 
             return mlir::success();
           })
