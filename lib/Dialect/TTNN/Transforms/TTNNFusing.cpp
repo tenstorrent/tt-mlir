@@ -1398,21 +1398,14 @@ private:
 //   matmul -> reshape[B,S,total] -> SplitQueryKeyValueAndSplitHeadsOp -> Q, K,
 //   V
 //
-// Role Identification Challenge:
-// -----------------------------
+// Role Identification:
+// --------------------
 // The slices can appear in any order in the concat (e.g., K,V,Q instead of
 // Q,K,V), so we need to identify which slice/reshape chain corresponds to
-// Query, Key, or Value. We use two approaches:
-//
-// 1. Name-based identification (fast path):
-//    Check weight tensor names from the concat inputs for patterns like
-//    "q_proj", "k_proj", "v_proj". This works when weights have standard
-//    naming conventions.
-//
-// 2. Role-based identification (fallback):
-//    Trace forward from each reshape output through the IR (including RoPE,
-//    permutes, cache updates) to find SDPA ops. The chain's role is determined
-//    by which SDPA operand (query, key, or value) it eventually feeds into.
+// Query, Key, or Value. We trace forward from each reshape output through
+// the IR (including RoPE, permutes, cache updates) to find SDPA ops. The
+// chain's role is determined by which SDPA operand (query, key, or value)
+// it eventually feeds into.
 //
 // Once roles are identified, we reorder the concat inputs to Q,K,V order
 // so the fused SplitQueryKeyValueAndSplitHeadsOp produces outputs correctly.
@@ -1452,16 +1445,6 @@ class SplitQKVFromSlicesPattern : public mlir::OpRewritePattern<MatMulOpType> {
     }
   };
 
-  // Holds information about the concat feeding the matmul RHS,
-  // regardless of whether it's direct or via load_cached.
-  struct ConcatInfo {
-    ConcatOp concatOp;
-    // The weight values used for name-based identification.
-    // For direct concat: same as concat inputs.
-    // For load_cached: the load_cached operands (which map to block args).
-    llvm::SmallVector<Value> weightInputs;
-  };
-
 public:
   mlir::LogicalResult
   matchAndRewrite(MatMulOpType matmulOp,
@@ -1479,14 +1462,14 @@ public:
       return mlir::failure();
     }
 
-    // Get concat info from matmul RHS (direct or via load_cached).
-    std::optional<ConcatInfo> concatInfo = getConcatInfo(matmulOp.getB());
-    if (!concatInfo) {
+    // Get concat op from matmul RHS (direct or via load_cached).
+    ConcatOp concatOp = getConcatOp(matmulOp.getB());
+    if (!concatOp) {
       return mlir::failure();
     }
 
-    // Identify Q, K, V roles by weight names or by tracing to SDPA ops.
-    if (!identifyQKVRoles(chains, *concatInfo)) {
+    // Identify Q, K, V roles by tracing forward to SDPA ops.
+    if (!identifyQKVByRoles(chains)) {
       return mlir::failure();
     }
 
@@ -1500,7 +1483,7 @@ public:
     }
 
     // Reorder concat inputs to Q, K, V order and create fused op.
-    reorderConcatInputs(rewriter, concatInfo->concatOp, chains);
+    reorderConcatInputs(rewriter, concatOp, chains);
 
     return createFusedOp(rewriter, matmulOp, *qChain, *kChain, *vChain);
   }
@@ -1550,33 +1533,6 @@ private:
       }
     }
     return result;
-  }
-
-  // Trace a value back through permutes to find the block argument.
-  std::optional<BlockArgument> traceToBlockArg(Value v) const {
-    while (Operation *defOp = v.getDefiningOp()) {
-      if (auto permuteOp = mlir::dyn_cast<PermuteOp>(defOp)) {
-        v = permuteOp.getInput();
-      } else {
-        break;
-      }
-    }
-    if (auto blockArg = mlir::dyn_cast<BlockArgument>(v)) {
-      return blockArg;
-    }
-    return std::nullopt;
-  }
-
-  // Get ttir.name attribute from a block argument.
-  std::optional<StringRef> getBlockArgName(BlockArgument blockArg) const {
-    if (auto funcOp =
-            mlir::dyn_cast<func::FuncOp>(blockArg.getOwner()->getParentOp())) {
-      if (auto nameAttr = funcOp.getArgAttrOfType<StringAttr>(
-              blockArg.getArgNumber(), "ttir.name")) {
-        return nameAttr.getValue();
-      }
-    }
-    return std::nullopt;
   }
 
   // Trace forward from a value to find which QKV role it plays in attention.
@@ -1699,58 +1655,12 @@ private:
     return true;
   }
 
-  // Sets the role field on each chain by matching weight names.
-  // rhsInputs are concat inputs corresponding to chains (same order after
-  // sorting). Returns true if all chains have a unique Q/K/V role assigned.
-  bool identifyQKVByNames(llvm::SmallVector<SliceReshapeChain> &chains,
-                          ArrayRef<Value> rhsInputs) const {
-    if (chains.size() != rhsInputs.size()) {
-      return false;
-    }
-
-    bool hasQ = false, hasK = false, hasV = false;
-    for (size_t i = 0; i < rhsInputs.size(); ++i) {
-      auto blockArg = traceToBlockArg(rhsInputs[i]);
-      if (!blockArg) {
-        return false;
-      }
-
-      auto name = getBlockArgName(*blockArg);
-      if (!name) {
-        return false;
-      }
-
-      if (name->contains("q_proj")) {
-        if (hasQ) {
-          return false;
-        }
-        chains[i].role = QKVRole::Query;
-        hasQ = true;
-      } else if (name->contains("k_proj")) {
-        if (hasK) {
-          return false;
-        }
-        chains[i].role = QKVRole::Key;
-        hasK = true;
-      } else if (name->contains("v_proj")) {
-        if (hasV) {
-          return false;
-        }
-        chains[i].role = QKVRole::Value;
-        hasV = true;
-      }
-    }
-
-    return hasQ && hasK && hasV;
-  }
-
-  // Returns concat info from matmul RHS, handling both direct concat
+  // Returns the ConcatOp feeding the matmul RHS, handling both direct concat
   // and load_cached wrapping a const_eval function containing concat.
-  std::optional<ConcatInfo> getConcatInfo(Value matmulRHS) const {
+  ConcatOp getConcatOp(Value matmulRHS) const {
     // Case 1: Direct concat
     if (auto concatOp = matmulRHS.getDefiningOp<ConcatOp>()) {
-      return ConcatInfo{concatOp,
-                        llvm::SmallVector<Value>(concatOp.getInputs())};
+      return concatOp;
     }
 
     // Case 2: load_cached wrapping concat in const_eval function
@@ -1758,21 +1668,20 @@ private:
       // Ensure load_cached has only one user so we can safely modify the
       // const_eval function's concat.
       if (!loadCached->hasOneUse()) {
-        return std::nullopt;
+        return nullptr;
       }
 
       auto moduleOp = loadCached->getParentOfType<ModuleOp>();
       if (!moduleOp) {
-        return std::nullopt;
+        return nullptr;
       }
 
       auto funcOp = moduleOp.lookupSymbol<func::FuncOp>(loadCached.getCallee());
       if (!funcOp) {
-        return std::nullopt;
+        return nullptr;
       }
 
       // Find concat inside the const_eval function that feeds the return.
-      // We expect the concat to be the last operation before return.
       ConcatOp foundConcat = nullptr;
       funcOp.walk([&](func::ReturnOp returnOp) {
         if (returnOp.getNumOperands() == 1) {
@@ -1783,62 +1692,10 @@ private:
         return WalkResult::interrupt();
       });
 
-      if (!foundConcat) {
-        return std::nullopt;
-      }
-
-      // Build weightInputs by mapping concat inputs to loadCached inputs.
-      // Each concat input traces back to a block arg, whose index corresponds
-      // to the loadCached input at that position.
-      llvm::SmallVector<Value> weightInputs;
-      auto loadCachedInputs = loadCached.getInputs();
-      for (Value concatInput : foundConcat.getInputs()) {
-        // Trace concat input back through permutes to find block arg.
-        Value v = concatInput;
-        while (Operation *defOp = v.getDefiningOp()) {
-          if (auto permuteOp = mlir::dyn_cast<PermuteOp>(defOp)) {
-            v = permuteOp.getInput();
-          } else {
-            break;
-          }
-        }
-
-        auto blockArg = mlir::dyn_cast<BlockArgument>(v);
-        if (!blockArg) {
-          return std::nullopt;
-        }
-
-        unsigned argIndex = blockArg.getArgNumber();
-        if (argIndex >= loadCachedInputs.size()) {
-          return std::nullopt;
-        }
-
-        weightInputs.push_back(loadCachedInputs[argIndex]);
-      }
-
-      return ConcatInfo{foundConcat, std::move(weightInputs)};
+      return foundConcat;
     }
 
-    return std::nullopt;
-  }
-
-  // Identify which chains are Q, K, V and set their role field.
-  // Also sets outConcatInfo with the concat and weight inputs.
-  bool identifyQKVRoles(llvm::SmallVector<SliceReshapeChain> &chains,
-                        ConcatInfo &concatInfo) const {
-    if (concatInfo.weightInputs.size() != 3) {
-      return false;
-    }
-
-    // Try name-based identification first (faster - simple string check on
-    // weight names). Fall back to role-based identification if names don't
-    // match expected patterns (traces outputs to SDPA ops).
-    if (!identifyQKVByNames(chains, concatInfo.weightInputs) &&
-        !identifyQKVByRoles(chains)) {
-      return false;
-    }
-
-    return true;
+    return nullptr;
   }
 
   // Reorder concat inputs to match Q, K, V order based on chain roles.
