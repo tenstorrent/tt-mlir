@@ -817,19 +817,54 @@ TTNNOperandsWorkaroundsFactory::createReduceProdOpOperandsWorkarounds() {
       .addOutputOperandWorkaround(bf16Workaround);
 }
 
+// Helper function to calculate next power of two (for bitonic sort padding)
+static int64_t nextPowerOfTwo(int64_t n) {
+  if (n <= 1) {
+    return 1;
+  }
+  // If n is already a power of two, return it
+  if ((n & (n - 1)) == 0) {
+    return n;
+  }
+  // Otherwise, compute the next power of two
+  int64_t power = 1;
+  while (power < n) {
+    power <<= 1;
+  }
+  return power;
+}
+
 // Factory method to create a set of workaround for SortOp operands.
-// tt-metal generates indices of type UInt16. Any mismatch between generated and
-// expected data type will cause runtime to assert.
-// Issue page: https://github.com/tenstorrent/tt-mlir/issues/4405
+// tt-metal generates indices of type UInt16 or UInt32 depending on padded size.
+// Any mismatch between generated and expected data type will cause runtime to
+// assert. Issue page: https://github.com/tenstorrent/tt-mlir/issues/4405
 TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createSortOpOperandsWorkarounds(
     ttnn::SortOp op) {
+
+  // Check output indices type - tt-metal generates UInt16 or UInt32 based on
+  // padded size Bitonic sort pads to next power of 2, and uses UInt32 if padded
+  // size >= 65535
   auto indicesElementType = op.getIndices().getType().getElementType();
 
   TTNNOperandWorkarounds datatypeWorkaround;
   if (!(indicesElementType.isInteger(16) &&
+        indicesElementType.isUnsignedInteger()) &&
+      !(indicesElementType.isInteger(32) &&
         indicesElementType.isUnsignedInteger())) {
-    datatypeWorkaround.tensorDataTypeWorkaround = ttcore::DataType::UInt16;
+    // Calculate padded size to determine UInt16 vs UInt32
+    auto inputType = mlir::cast<RankedTensorType>(op.getInput().getType());
+    auto inputShape = inputType.getShape();
+    int64_t lastDim = inputShape[inputShape.size() - 1];
+    int64_t paddedLastDim = nextPowerOfTwo(lastDim);
+
+    // Match tt-metal's logic: use UInt32 if padded size >= uint16_t::max
+    // (65535)
+    if (paddedLastDim >= 65535) {
+      datatypeWorkaround.tensorDataTypeWorkaround = ttcore::DataType::UInt32;
+    } else {
+      datatypeWorkaround.tensorDataTypeWorkaround = ttcore::DataType::UInt16;
+    }
   }
 
   // Empty workaround object for operands which do not require any changes.
