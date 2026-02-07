@@ -65,6 +65,12 @@ void createTTNNPipelineTTIRPasses(
   // Flattening sliding window ops for compatibility with conversion to TTNN
   pm.addPass(mlir::tt::ttir::createTTIRFlattenSlidingWindow());
 
+  // Decompose all_reduce to reduce_scatter+all_gather if all_gathers are
+  // fusable.
+  if (options.allReduceDecompositionEnabled) {
+    pm.addPass(mlir::tt::ttir::createTTIRAllReduceDecomposition());
+  }
+
   // Add pass to erase inverse ops. We will explicate TMs so that
   // erase inverse ops can commute TMs through otherwise implicit
   // broadcasts, and handle rank-changing reshape ops which are

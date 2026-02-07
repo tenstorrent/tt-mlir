@@ -1,5 +1,6 @@
 add_subdirectory(EraseInverseOps)
 add_mlir_dialect_library(MLIRTTIRTransforms
+        AllReduceDecomposition.cpp
         Broadcast.cpp
         ExplicateTMs.cpp
         FlattenSlidingWindow.cpp
