@@ -3077,6 +3077,31 @@ public:
   mlir::LogicalResult
   matchAndRewrite(MultiplyOp outerMul,
                   mlir::PatternRewriter &rewriter) const final {
+    // TTNN RMS norm only supports normalization over the last dimension.
+    // The normalized_shape parameter of RMSNormOp is the size of the last dim.
+    auto outputType = mlir::cast<RankedTensorType>(outerMul.getType());
+    if (outputType.getRank() == 0) {
+      return mlir::failure();
+    }
+    int64_t normalizedDimSize = outputType.getShape().back();
+
+    // Traces through ops that preserve or set the last dim to
+    // normalizedDimSize.
+    auto lookThroughSafeOps = [normalizedDimSize](mlir::Value value) {
+      return utils::lookThroughLayoutOpsIf(
+          value, [normalizedDimSize](mlir::Operation *op) {
+            if (utils::preservesDim(op, -1)) {
+              return true;
+            }
+            // Allow broadcasts that expand to normalized size.
+            if (auto broadcast = mlir::dyn_cast<BroadcastOp>(op)) {
+              auto outType = mlir::cast<RankedTensorType>(broadcast.getType());
+              return outType.getShape().back() == normalizedDimSize;
+            }
+            return false;
+          });
+    };
+
     MultiplyOp innerMul =
         utils::findOpThrough<MultiplyOp, TypecastOp>(outerMul.getLhs());
     mlir::Value gammaRaw = outerMul.getRhs();
@@ -3089,20 +3114,22 @@ public:
       return mlir::failure();
     }
 
-    RsqrtOp rsqrtOp = utils::findOpThroughLayoutOps<RsqrtOp>(innerMul.getLhs());
+    RsqrtOp rsqrtOp =
+        lookThroughSafeOps(innerMul.getLhs()).getDefiningOp<RsqrtOp>();
     mlir::Value xRaw = innerMul.getRhs();
     if (!rsqrtOp) {
-      rsqrtOp = utils::findOpThroughLayoutOps<RsqrtOp>(innerMul.getRhs());
+      rsqrtOp = lookThroughSafeOps(innerMul.getRhs()).getDefiningOp<RsqrtOp>();
       xRaw = innerMul.getLhs();
     }
     if (!rsqrtOp) {
       return mlir::failure();
     }
 
-    auto addOp = utils::findOpThroughLayoutOps<AddOp>(rsqrtOp.getInput());
+    auto addOp = lookThroughSafeOps(rsqrtOp.getInput()).getDefiningOp<AddOp>();
     if (!addOp) {
       return mlir::failure();
     }
+
     MeanOp meanOp = addOp.getLhs().getDefiningOp<MeanOp>();
     mlir::Value epsilon = addOp.getRhs();
     if (!meanOp) {
@@ -3113,7 +3140,6 @@ public:
       return mlir::failure();
     }
 
-    // TTNN RMS norm only supports normalization over the last dimension.
     auto dimArg = meanOp.getDimArg();
     if (!dimArg || dimArg->size() != 1) {
       return mlir::failure();
@@ -3127,18 +3153,17 @@ public:
     }
 
     // Match x^2 as mul(x,x) or pow(x,2).
-    // Look through layout ops to find the original input.
     mlir::Value meanInput = meanOp.getInput();
     mlir::Value squareInput = nullptr;
-    mlir::Value x = utils::lookThroughLayoutOps(xRaw);
+    mlir::Value x = lookThroughSafeOps(xRaw);
 
     if (auto sq = meanInput.getDefiningOp<MultiplyOp>()) {
       if (sq.getLhs() == sq.getRhs()) {
-        squareInput = utils::lookThroughLayoutOps(sq.getLhs());
+        squareInput = lookThroughSafeOps(sq.getLhs());
       }
     } else if (auto pw = meanInput.getDefiningOp<PowOp>()) {
       if (isFullOpWithValue(pw.getRhs(), 2.0f)) {
-        squareInput = utils::lookThroughLayoutOps(pw.getLhs());
+        squareInput = lookThroughSafeOps(pw.getLhs());
       }
     }
 
@@ -3147,7 +3172,7 @@ public:
     }
 
     // Look through layout ops to find the epsilon FullOp
-    auto epsFull = utils::findOpThroughLayoutOps<FullOp>(epsilon);
+    auto epsFull = lookThroughSafeOps(epsilon).getDefiningOp<FullOp>();
     if (!epsFull) {
       return mlir::failure();
     }
@@ -3156,11 +3181,8 @@ public:
       return mlir::failure();
     }
 
-    mlir::Value gamma = utils::lookThroughLayoutOps(gammaRaw);
-    auto inputType = mlir::cast<RankedTensorType>(x.getType());
-    auto outputType = mlir::cast<RankedTensorType>(outerMul.getType());
-
-    llvm::SmallVector<int64_t> normalizedShape{inputType.getShape().back()};
+    mlir::Value gamma = lookThroughSafeOps(gammaRaw);
+    llvm::SmallVector<int64_t> normalizedShape{normalizedDimSize};
 
     // Reshape gamma to match normalized_shape if needed.
     // Gamma may have extra dimensions (e.g., [1, 1, 2048] instead of [2048]).
@@ -3187,7 +3209,8 @@ public:
                                          rewriter.getI32ArrayAttr(targetShape));
     }
 
-    // Create RMSNormOp with output shape and dtype matching input
+    // Create RMSNormOp with output shape and dtype matching input.
+    auto inputType = mlir::cast<RankedTensorType>(x.getType());
     auto rmsNormOutputType =
         RankedTensorType::get(inputType.getShape(), inputType.getElementType(),
                               inputType.getEncoding());
@@ -3198,22 +3221,9 @@ public:
 
     mlir::Value result = rmsNorm;
 
-    // If output shape differs from input shape, add a reshape
-    if (inputType.getShape() != outputType.getShape()) {
-      llvm::SmallVector<int32_t> targetShape(outputType.getShape());
-      auto reshapeOutputType = RankedTensorType::get(outputType.getShape(),
-                                                     inputType.getElementType(),
-                                                     inputType.getEncoding());
-      result = rewriter.create<ReshapeOp>(
-          outerMul.getLoc(), reshapeOutputType, result,
-          rewriter.getI32ArrayAttr(targetShape));
-    }
-
-    // If output dtype differs from input dtype, add a typecast
-    if (inputType.getElementType() != outputType.getElementType()) {
-      result =
-          rewriter.create<TypecastOp>(outerMul.getLoc(), outputType, result);
-    }
+    // Transform result to match output type (reshape and/or typecast as needed)
+    result = utils::reshapeAndCastToType(rewriter, outerMul.getLoc(), result,
+                                         outputType);
 
     rewriter.replaceOp(outerMul, result);
     return mlir::success();
