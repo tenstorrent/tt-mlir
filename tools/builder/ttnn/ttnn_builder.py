@@ -4750,7 +4750,7 @@ class TTNNBuilder(Builder):
     def from_module(
         ctx: Context,
         mlir_text: str,
-        golden_inputs: Dict[str, List[torch.tensor]] = None,
+        golden_inputs: Dict[str, List[Dict[int, torch.tensor]]] = None,
     ) -> Tuple(Module, TTNNBuilder):
         if golden_inputs is None:
             golden_inputs = {}

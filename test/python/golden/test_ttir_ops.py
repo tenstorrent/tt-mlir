@@ -2865,3 +2865,36 @@ def test_hoisted_concat(
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
+
+
+@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.parametrize("mesh_shape", [(1, 2)], ids=shape_str)
+def test_presharded_arg(target, mesh_shape, request, device):
+    def module(builder: TTIRBuilder):
+        @builder.func([(1, 1, 256, 512)], [torch.float32])
+        def model(in0: Operand, builder: TTIRBuilder):
+            builder.preshard_arg(in0, shard_dims=(-1, 3))
+            in_shard = builder.mesh_shard(
+                in0,
+                shard_direction=MeshShardDirection.FullToShard.value,
+                shard_type=MeshShardType.Identity.value,
+                shard_shape=(1, 1, 1, 2),
+                shard_dims=(-1, 3),
+            )
+            exp = builder.exp(in_shard)
+            out_shard = builder.mesh_shard(
+                exp,
+                shard_direction=MeshShardDirection.ShardToFull.value,
+                shard_type=MeshShardType.Devices.value,
+                shard_shape=(1, 1, 1, 2),
+                shard_dims=(-1, 3),
+            )
+            return out_shard
+
+    compile_and_execute_ttir(
+        module,
+        mesh_name="mesh",
+        device=device,
+        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
+        **get_request_kwargs(request),
+    )

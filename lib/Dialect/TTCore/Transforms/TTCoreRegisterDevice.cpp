@@ -13,6 +13,8 @@ namespace mlir::tt::ttcore {
 #define GEN_PASS_DEF_TTIRDEPRECATEDLOADSYSTEMDESC
 #include "ttmlir/Dialect/TTCore/Transforms/Passes.h.inc"
 
+#include <iostream>
+
 //===----------------------------------------------------------------------===//
 // Register device pass
 //===----------------------------------------------------------------------===//
