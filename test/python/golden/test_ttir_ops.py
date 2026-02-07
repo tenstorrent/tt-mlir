@@ -2,6 +2,25 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+"""
+TTIR Operations Golden Tests.
+
+This module contains pytest test cases for verifying TTIR (Tenstorrent IR)
+operations using golden tensor verification. Each test builds an MLIR module
+using TTIRBuilder, compiles it, executes it, and compares the results against
+pre-computed golden (reference) values computed using PyTorch.
+
+The tests cover a wide range of operations including:
+- Element-wise operations (logical_not, clamp, div, etc.)
+- Reduction operations (sum, mean, max, etc.)
+- Matrix operations (matmul, conv2d, etc.)
+- Data movement operations (reshape, transpose, concat, etc.)
+- Collective operations (all_reduce, all_gather, etc.)
+
+Tests are parameterized by shape, dtype, and target backend (ttnn, ttmetal)
+to provide comprehensive coverage across different configurations.
+"""
+
 import pytest
 import torch
 from typing import Callable, List, Optional, Tuple, Union
@@ -33,6 +52,31 @@ def logical_not(
     dtype: torch.dtype,
     unit_attrs: Optional[List[str]] = None,
 ):
+    """
+    Build a logical NOT operation with custom golden tensor setup.
+
+    This helper function creates a logical NOT operation and sets up
+    custom golden tensors for verification. The input tensor is generated
+    with values that include zeros and non-zeros to test both cases.
+
+    Parameters
+    ----------
+    in0 : Operand
+        Input operand from the function signature.
+    builder : TTIRBuilder
+        The TTIR builder instance.
+    shape : Shape
+        Shape of the input tensor.
+    dtype : torch.dtype
+        Data type of the input tensor.
+    unit_attrs : List[str], optional
+        Unit attributes to set on the operation.
+
+    Returns
+    -------
+    OpResult
+        The result of the logical NOT operation.
+    """
     randn_tensor = torch.randn(shape, dtype=torch.float32)
     input_tensor = randn_tensor.uniform_(-10.0, 10.0)
     input_tensor[torch.abs(input_tensor) < 4.0] = 0.0
@@ -51,6 +95,14 @@ def logical_not(
 def test_hoisted_logical_not(
     shape: Shape, dtype: torch.dtype, target: str, request, device
 ):
+    """
+    Test logical NOT operation with CPU hoisting enabled.
+
+    This test verifies that logical NOT operations marked with the
+    'ttir.should_hoist' attribute are correctly hoisted to CPU execution
+    while maintaining correct golden tensor verification.
+    """
+
     def module(builder: TTIRBuilder):
         @builder.func([shape], [dtype])
         def hoisted_logical_not_wrapper(
