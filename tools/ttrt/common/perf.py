@@ -961,6 +961,20 @@ class Perf:
             else:
                 self.logging.error(f"ERROR: test case={bin.file_path}")
 
+        if len(self.results.get_results()) == 0:
+            test_result = {
+                "file_path": self["binary"],
+                "result": "error",
+                "exception": f"no binaries found or executed at path: {self['binary']}",
+                "log_file": self.logger.file_name,
+                "artifacts": self.artifacts.artifacts_folder_path,
+                "program_index": self["--program-index"],
+            }
+            self.logging.error(
+                f"ERROR: no binaries found or executed at path: {self['binary']}"
+            )
+            self.results.add_result(test_result)
+
         self.results.save_results(self["--result-file"])
 
         self.logging.debug(f"------finished postprocessing perf API")
