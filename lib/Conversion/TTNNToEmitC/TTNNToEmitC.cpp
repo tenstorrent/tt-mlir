@@ -8,6 +8,7 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
+#include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/EmitC/IR/EmitC.h"
@@ -378,12 +379,37 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
 
     ttnn_to_emitc::EmitCTTNNEmitter<SourceOp> emitter(srcOp, adaptor, rewriter);
-    llvm::SmallVector<mlir::Attribute> args{
-        emitter.emit(srcOp.getInput()),
-        emitter.emit(srcOp.getMin()),
-        emitter.emit(srcOp.getMax()),
-        emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
-    };
+
+    llvm::SmallVector<mlir::Attribute> args;
+    args.push_back(emitter.emit(srcOp.getInput()));
+
+    if constexpr (std::is_same_v<SourceOp, mlir::tt::ttnn::ClampScalarOp>) {
+      // Emit int or float attribute based on output element type
+      auto outputType =
+          mlir::cast<mlir::RankedTensorType>(srcOp.getResult().getType());
+      auto elementType = outputType.getElementType();
+
+      if (mlir::isa<mlir::IntegerType>(elementType)) {
+        args.push_back(emitter.emit(
+            mlir::cast<mlir::IntegerAttr>(srcOp.getMin()).getInt()));
+        args.push_back(emitter.emit(
+            mlir::cast<mlir::IntegerAttr>(srcOp.getMax()).getInt()));
+      } else {
+        args.push_back(emitter.emit(mlir::cast<mlir::FloatAttr>(srcOp.getMin())
+                                        .getValue()
+                                        .convertToFloat()));
+        args.push_back(emitter.emit(mlir::cast<mlir::FloatAttr>(srcOp.getMax())
+                                        .getValue()
+                                        .convertToFloat()));
+      }
+    } else {
+      // ClampTensorOp uses tensor values
+      args.push_back(emitter.emit(srcOp.getMin()));
+      args.push_back(emitter.emit(srcOp.getMax()));
+    }
+
+    args.push_back(emitter.emit(std::nullopt) |
+                   emitter.getMemoryConfig(srcOp.getResult()));
 
     emitter.replaceOp(*this, args);
 

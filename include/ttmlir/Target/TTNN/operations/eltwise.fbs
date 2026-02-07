@@ -53,11 +53,6 @@ table EltwiseBinaryCompositeOp {
   out: tt.target.ttnn.TensorRef;
 }
 
-union RhsParams {
-  FP: FloatingPointType,
-  I32: IntegralType,
-}
-
 enum EltwiseBinaryCompositeScalarOpType: uint32 {
   PowScalar,
 }
@@ -65,7 +60,7 @@ enum EltwiseBinaryCompositeScalarOpType: uint32 {
 table EltwiseBinaryCompositeScalarOp {
   type: EltwiseBinaryCompositeScalarOpType;
   lhs: tt.target.ttnn.TensorRef;
-  rhs: RhsParams;
+  rhs: NumberType;
   memory_config: tt.target.ttnn.MemoryConfig;
   out: tt.target.ttnn.TensorRef;
 }
@@ -189,8 +184,8 @@ enum EltwiseUnaryCompositeOpType: uint32 {
 }
 
 table ClampScalarOpParams {
-  min: float;
-  max: float;
+  min: NumberType;
+  max: NumberType;
 }
 
 table ClampTensorOpParams {

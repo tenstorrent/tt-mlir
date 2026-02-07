@@ -128,10 +128,10 @@ void run(const ::tt::target::ttnn::EltwiseBinaryCompositeScalarOp *op,
   switch (op->type()) {
   case ::tt::target::ttnn::EltwiseBinaryCompositeScalarOpType::PowScalar: {
     switch (op->rhs_type()) {
-    case ::tt::target::ttnn::RhsParams::FP:
+    case ::tt::target::ttnn::NumberType::FP:
       runPowScalarOp(op, op->rhs_as_FP()->value(), context);
       break;
-    case ::tt::target::ttnn::RhsParams::I32:
+    case ::tt::target::ttnn::NumberType::I32:
       runPowScalarOp(op, op->rhs_as_I32()->value(), context);
       break;
     default:
