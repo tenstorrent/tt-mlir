@@ -2,6 +2,46 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+"""TTIR Builder module for constructing TTIR dialect operations.
+
+This module provides the TTIRBuilder class, which extends the base Builder to
+support construction of operations in the TTIR (Tenstorrent Tensor IR) dialect.
+TTIR is a high-level intermediate representation used in the Tenstorrent compiler
+pipeline.
+
+The TTIRBuilder provides methods for:
+
+- **Tensor Operations**: Element-wise operations (add, multiply, etc.),
+  reduction operations, and shape manipulation.
+- **Memory Operations**: Tensor creation, data layout transformations.
+- **Control Flow**: Conditionals, loops, and function calls.
+- **Quantization**: Quantized tensor operations for efficient inference.
+
+Each operation method automatically:
+1. Infers output shapes and types using golden (reference) computation.
+2. Creates the MLIR operation with proper attributes.
+3. Computes and stores golden tensors for test verification.
+
+Example:
+    >>> with Context() as ctx:
+    ...     builder = TTIRBuilder(ctx, Location.unknown())
+    ...     with builder.func([input_shape], [input_type]) as (func_op, inputs):
+    ...         x = inputs[0]
+    ...         y = builder.relu(x)
+    ...         z = builder.add(x, y)
+    ...         builder.return_(z)
+
+Operation Naming Convention:
+    - Methods are named after the TTIR operation (e.g., ``add``, ``matmul``).
+    - Methods decorated with ``@tag(ttir.SomeOp)`` are registered as builders.
+    - The ``_op_proxy`` method provides common operation construction logic.
+
+See Also:
+    - :mod:`builder.base.builder` for the base Builder class.
+    - :mod:`builder.ttnn.ttnn_builder` for TTNN dialect operations.
+    - TTIR dialect documentation for operation semantics.
+"""
+
 from __future__ import annotations
 import inspect
 from dataclasses import dataclass
@@ -23,6 +63,44 @@ from golden import *
 
 
 class TTIRBuilder(Builder):
+    """Builder for constructing TTIR (Tenstorrent Tensor IR) dialect operations.
+
+    TTIRBuilder extends the base Builder class with methods for creating
+    operations in the TTIR dialect. TTIR is a high-level intermediate
+    representation that captures tensor computations before lowering to
+    device-specific dialects like TTNN.
+
+    The builder provides a Pythonic API for constructing MLIR operations,
+    with automatic golden tensor computation for test verification. Each
+    operation method handles:
+
+    - Output shape and type inference from inputs.
+    - MLIR operation creation with proper attributes.
+    - Golden tensor computation for runtime verification.
+
+    Operations are organized into categories:
+
+    - **Elementwise**: add, sub, mul, div, relu, sigmoid, etc.
+    - **Reduction**: sum, max, mean, etc.
+    - **Shape Manipulation**: reshape, transpose, concat, slice, etc.
+    - **Linear Algebra**: matmul, conv2d, etc.
+    - **Memory**: fill, empty, etc.
+
+    Attributes:
+        Inherits all attributes from Builder, including context, location,
+        mesh configuration, and golden tensor tracking.
+
+    Example:
+        >>> builder = TTIRBuilder(ctx, Location.unknown())
+        >>> # Create a simple computation graph
+        >>> x = builder.empty([2, 3], torch.float32)
+        >>> y = builder.relu(x)
+        >>> z = builder.softmax(y, dim=-1)
+
+    Note:
+        Most users should use the ``@builder.func`` decorator to create
+        functions, which handles input/output registration automatically.
+    """
 
     # ----- Methods -----
 
@@ -36,6 +114,18 @@ class TTIRBuilder(Builder):
         ] = OrderedDict([("x", 1), ("y", 1)]),
         disable_golden_check: bool = False,
     ):
+        """Initialize a TTIRBuilder instance.
+
+        Args:
+            ctx: The MLIR Context for operation creation.
+            location: Default Location for operations.
+            mesh_name: Device mesh name(s) for distributed execution.
+            mesh_dict: Device mesh topology as dimension name to size mapping.
+            disable_golden_check: If True, skip golden tensor computation.
+
+        See Also:
+            :meth:`Builder.__init__` for detailed parameter documentation.
+        """
         super().__init__(ctx, location, mesh_name, mesh_dict, disable_golden_check)
 
     # ----- Private methods ----
@@ -64,6 +154,39 @@ class TTIRBuilder(Builder):
         loc: Optional[Union[str, Location]] = None,
         skip_golden: bool = False,
     ) -> Any:
+        """Core method for constructing TTIR operations with golden tracking.
+
+        This method provides the common logic for creating TTIR operations:
+        1. Infers output shape and type if not explicitly provided.
+        2. Creates the output tensor using the empty op.
+        3. Constructs the TTIR operation with proper arguments.
+        4. Computes and stores golden tensors for verification.
+
+        Args:
+            op_ttir_function: The TTIR operation class/constructor (e.g., ttir.AddOp).
+            inputs: List of input Operands for the operation.
+            unit_attrs: Optional list of attribute names that should be UnitAttr.
+            organize_ttir_args: Optional callable to organize args for TTIR op.
+                Defaults to elementwise organization (output, *inputs).
+            organize_golden_args: Optional callable to organize args for golden
+                computation. Defaults to elementwise golden organization.
+            output_shape: Explicit output shape. If None, inferred from golden.
+            output_type: Explicit output element type. If None, inferred from golden.
+            output_create_fn: Optional callable to create output tensor. If None,
+                uses the standard empty tensor.
+            golden_kwargs: Keyword arguments passed to golden function.
+            ttir_kwargs: Keyword arguments passed to TTIR operation constructor.
+            loc: Optional location for the operation. Can be string or Location.
+            skip_golden: If True, skip golden tensor computation for this op.
+
+        Returns:
+            The OpResult(s) of the created operation. Returns a single OpResult
+            for operations with one output, or a tuple for multi-output ops.
+
+        Note:
+            This is an internal method. Users should call specific operation
+            methods (e.g., ``add``, ``relu``) which delegate to this method.
+        """
         if not golden_kwargs:
             golden_kwargs = ttir_kwargs
 

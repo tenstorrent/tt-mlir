@@ -2,6 +2,33 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+"""Base builder module for constructing MLIR operations in tt-mlir.
+
+This module provides the foundational Builder class and BuilderMeta metaclass
+that enable programmatic construction of MLIR operations for the Tenstorrent
+compiler infrastructure. The Builder class manages:
+
+- Operation construction and golden tensor tracking for test verification.
+- Mesh configuration for distributed execution.
+- Module and function creation with proper MLIR context management.
+- Automatic mapping between MLIR OpViews and builder methods.
+
+The metaclass BuilderMeta automatically discovers and registers builder methods
+decorated with @tag, @parse, and @split decorators, enabling a clean separation
+between operation definitions and their implementations.
+
+Example:
+    >>> with Context() as ctx:
+    ...     builder = Builder(ctx, Location.unknown())
+    ...     with builder.create_module() as module:
+    ...         with builder.create_func("main", inputs, outputs) as func:
+    ...             result = builder.some_op(operands)
+
+See Also:
+    - :mod:`builder.ttir.ttir_builder` for TTIR-specific operations.
+    - :mod:`builder.ttnn.ttnn_builder` for TTNN-specific operations.
+"""
+
 from __future__ import annotations
 import inspect
 from typing import List, Optional, Union, Tuple, Callable, Dict, Any
@@ -25,6 +52,26 @@ from builder.base.builder_utils import (
 
 
 class BuilderMeta(type):
+    """Metaclass for Builder that auto-registers decorated builder methods.
+
+    This metaclass intercepts class creation to automatically build mappings
+    between MLIR OpView types and their corresponding builder, parser, and
+    split methods. Methods are discovered through special decorators:
+
+    - ``@tag(OpViewClass)``: Registers a method as the builder for an OpView.
+    - ``@parse(OpViewClass)``: Registers a method as the parser for an OpView.
+    - ``@split(OpViewClass)``: Registers a method as the splitter for an OpView.
+
+    The automatic registration eliminates boilerplate code and ensures that
+    new operations are immediately available when their builder methods are
+    defined with appropriate decorators.
+
+    Attributes:
+        opview_to_builder_map: Maps OpView types to their builder methods.
+        opview_to_parser_map: Maps OpView types to their parser methods.
+        opview_to_split_map: Maps OpView types to their split methods.
+    """
+
     def __new__(mcls, name, bases, namespace):
         cls = super().__new__(mcls, name, bases, namespace)
         cls.build_opview_to_builder_map()
@@ -34,6 +81,40 @@ class BuilderMeta(type):
 
 
 class Builder(metaclass=BuilderMeta):
+    """Base class for constructing MLIR operations with golden tensor tracking.
+
+    The Builder class provides the core infrastructure for programmatically
+    building MLIR modules, functions, and operations. It manages golden tensor
+    storage for test verification and handles mesh configuration for distributed
+    execution scenarios.
+
+    Key responsibilities:
+
+    - **Operation Construction**: Provides methods for creating MLIR operations
+      with automatic type inference and golden tensor computation.
+    - **Golden Tensor Management**: Tracks golden (reference) tensors for each
+      operation to enable runtime verification during testing.
+    - **Mesh Configuration**: Manages device mesh topology for distributed
+      operations across multiple Tenstorrent devices.
+    - **Module/Function Creation**: Provides context managers for creating
+      properly structured MLIR modules and functions.
+
+    Class Attributes:
+        opview_to_builder_map: Registry mapping OpView types to builder methods.
+        opview_to_parser_map: Registry mapping OpView types to parser methods.
+        opview_to_split_map: Registry mapping OpView types to split methods.
+
+    Note:
+        This is a base class. Use dialect-specific builders like
+        :class:`TTIRBuilder` or :class:`TTNNBuilder` for actual operation
+        construction.
+
+    Example:
+        >>> with Context() as ctx:
+        ...     builder = Builder(ctx, Location.unknown())
+        ...     # Use builder methods to construct operations
+    """
+
     opview_to_builder_map: Dict[OpView, Callable] = {}
     opview_to_parser_map: Dict[OpView, Callable] = {}
     opview_to_split_map: Dict[OpView, Callable] = {}
@@ -50,6 +131,28 @@ class Builder(metaclass=BuilderMeta):
         ] = OrderedDict([("x", 1), ("y", 1)]),
         disable_golden_check: bool = False,
     ):
+        """Initialize a new Builder instance.
+
+        Args:
+            ctx: The MLIR Context in which operations will be created.
+            location: The default Location for operations without explicit locations.
+            mesh_name: Name(s) for the device mesh(es). Can be a single string or
+                a list of strings for multiple meshes.
+            mesh_dict: Device mesh topology as an OrderedDict mapping dimension
+                names to sizes. For example, ``OrderedDict([("x", 2), ("y", 4)])``
+                defines an 8-device mesh (2x4). Can be a list for multiple meshes.
+            disable_golden_check: If True, disables golden tensor comparison during
+                test execution. Useful for performance testing or when golden
+                values are not available.
+
+        Raises:
+            ValueError: If mesh_name and mesh_dict have different lengths when
+                provided as lists.
+
+        Note:
+            The torch random seed is set to 0 for reproducibility of golden
+            tensor generation.
+        """
         self._ctx = ctx
         self._loc = location
         self._global_id = -1
@@ -105,6 +208,16 @@ class Builder(metaclass=BuilderMeta):
 
     @classmethod
     def build_opview_to_builder_map(cls):
+        """Build the mapping from OpView types to builder methods.
+
+        Scans all class attributes for methods decorated with ``@tag`` and
+        registers them in the ``opview_to_builder_map`` dictionary. This
+        enables automatic dispatch from MLIR operations to their builder
+        implementations.
+
+        Note:
+            Called automatically by BuilderMeta during class creation.
+        """
         for attr_name in dir(cls):
             attr = getattr(cls, attr_name)
             func = attr
@@ -114,6 +227,15 @@ class Builder(metaclass=BuilderMeta):
 
     @classmethod
     def build_opview_to_parser_map(cls):
+        """Build the mapping from OpView types to parser methods.
+
+        Scans all class attributes for methods decorated with ``@parse`` and
+        registers them in the ``opview_to_parser_map`` dictionary. Parsers
+        are used to extract information from existing MLIR operations.
+
+        Note:
+            Called automatically by BuilderMeta during class creation.
+        """
         for attr_name in dir(cls):
             attr = getattr(cls, attr_name)
             func = attr
@@ -123,6 +245,15 @@ class Builder(metaclass=BuilderMeta):
 
     @classmethod
     def build_opview_to_split(cls, map):
+        """Build the mapping from OpView types to split methods.
+
+        Scans all class attributes for methods decorated with ``@split`` and
+        registers them in the ``opview_to_split_map`` dictionary. Split methods
+        are used to decompose operations for distributed execution.
+
+        Note:
+            Called automatically by BuilderMeta during class creation.
+        """
         for attr_name in dir(cls):
             attr = getattr(cls, attr_name)
             func = attr
@@ -131,25 +262,82 @@ class Builder(metaclass=BuilderMeta):
                 cls.opview_to_split_map[func._split] = attr
 
     def get_opview_from_method(self, method: func) -> OpView:
+        """Retrieve the OpView type associated with a builder method.
+
+        Args:
+            method: A builder method decorated with ``@tag``.
+
+        Returns:
+            The OpView type the method builds, or None if not decorated.
+        """
         return getattr(method, "_tag", None)
 
     def get_opview_from_parser(self, parser: func) -> OpView:
+        """Retrieve the OpView type associated with a parser method.
+
+        Args:
+            parser: A parser method decorated with ``@parse``.
+
+        Returns:
+            The OpView type the method parses, or None if not decorated.
+        """
         return getattr(parser, "_parse", None)
 
     def get_opview_from_split(self, split: func) -> OpView:
+        """Retrieve the OpView type associated with a split method.
+
+        Args:
+            split: A split method decorated with ``@split``.
+
+        Returns:
+            The OpView type the method splits, or None if not decorated.
+        """
         return getattr(split, "_split", None)
 
     def get_builder_from_opview(self, opview: OpView) -> Callable:
+        """Get the builder method for a given OpView type.
+
+        Args:
+            opview: The MLIR OpView type to look up.
+
+        Returns:
+            The builder method registered for the OpView.
+
+        Raises:
+            AssertionError: If no builder is registered for the OpView.
+        """
         if opview not in self.opview_to_builder_map:
             assert False, f"No builder found for opview {opview}"
         return self.opview_to_builder_map.get(opview)
 
     def get_parser_from_opview(self, opview: OpView) -> Callable:
+        """Get the parser method for a given OpView type.
+
+        Args:
+            opview: The MLIR OpView type to look up.
+
+        Returns:
+            The parser method registered for the OpView.
+
+        Raises:
+            AssertionError: If no parser is registered for the OpView.
+        """
         if opview not in self.opview_to_parser_map:
             assert False, f"No parser found for opview {opview}"
         return self.opview_to_parser_map.get(opview)
 
     def get_split_from_opview(self, opview: OpView) -> Callable:
+        """Get the split method for a given OpView type.
+
+        Args:
+            opview: The MLIR OpView type to look up.
+
+        Returns:
+            The split method registered for the OpView.
+
+        Raises:
+            AssertionError: If no split method is registered for the OpView.
+        """
         if opview not in self.opview_to_split_map:
             assert False, f"No split function found for opview {opview}"
         return self.opview_to_split_map.get(opview)
@@ -158,14 +346,29 @@ class Builder(metaclass=BuilderMeta):
 
     @property
     def context(self) -> Context:
+        """The MLIR Context associated with this builder.
+
+        Returns:
+            The Context in which all operations are created.
+        """
         return self._ctx
 
     @property
     def location(self) -> Location:
+        """The default MLIR Location for operations.
+
+        Returns:
+            The Location used for operations without explicit locations.
+        """
         return self._loc
 
     @property
     def mesh_shape(self) -> Tuple[int, int]:
+        """The shape of the primary device mesh.
+
+        Returns:
+            A tuple of integers representing the mesh dimensions.
+        """
         return self._mesh_shape
 
     @property
@@ -175,6 +378,24 @@ class Builder(metaclass=BuilderMeta):
         Dict[int, Dict[str, Dict[int, GoldenMapTensor]]],
         Dict[str, Dict[int, GoldenMapTensor]],
     ]:
+        """Generate the golden tensor maps for test verification.
+
+        Collects all golden tensors associated with function inputs, outputs,
+        and intermediate values, organized for runtime comparison during
+        testing.
+
+        Returns:
+            A tuple containing:
+            - input_output_golden_info: Nested dict mapping program_index ->
+              location_string -> device_id -> GoldenMapTensor for function
+              inputs and outputs.
+            - intermediate_golden_info: Dict mapping location_string ->
+              device_id -> GoldenMapTensor for intermediate operation results.
+
+        Note:
+            If ``disable_golden_check`` was set to True during initialization,
+            returns empty dictionaries.
+        """
         # { program_index: {loc: {device_id: GoldenMapTensor} } }
         input_output_golden_info: Dict[int, Dict[str, Dict[int, GoldenMapTensor]]] = {}
         intermediate_golden_info: Dict[str, Dict[int, GoldenMapTensor]] = {}
@@ -236,9 +457,25 @@ class Builder(metaclass=BuilderMeta):
         return input_output_golden_info, intermediate_golden_info
 
     def get_shape(self, input: Operand) -> Shape:
+        """Get the shape of an operand's tensor type.
+
+        Args:
+            input: The MLIR Operand to inspect.
+
+        Returns:
+            The Shape (list of dimensions) of the operand's tensor type.
+        """
         return self._get_type(input).shape
 
     def get_type(self, input: Operand) -> Type:
+        """Get the element type of an operand's tensor type.
+
+        Args:
+            input: The MLIR Operand to inspect.
+
+        Returns:
+            The element Type (e.g., f32, i32) of the operand's tensor.
+        """
         return self._get_type(input).element_type
 
     def set_goldens(
@@ -247,6 +484,20 @@ class Builder(metaclass=BuilderMeta):
         outputs: Dict[Operand, Union[torch.tensor, Dict[int : torch.tensor]]] = None,
         set_all_outputs: bool = True,
     ):
+        """Set golden (reference) tensors for test verification.
+
+        Manually assigns golden tensors to operands for cases where automatic
+        golden computation is not suitable. This allows explicit specification
+        of expected values.
+
+        Args:
+            inputs: Dictionary mapping Operands to their golden values. Values
+                can be torch.Tensor, a callable that generates the tensor, or
+                a dict mapping device_id to tensors for sharded data.
+            outputs: Optional dictionary for output operand goldens. If None,
+                only input goldens are set.
+            set_all_outputs: If True, marks all outputs for golden storage.
+        """
         self._set_goldens(self._create_builder_golden_from_torch_tensor(inputs))
 
         if outputs != None:
@@ -259,6 +510,16 @@ class Builder(metaclass=BuilderMeta):
         inputs: Dict[Operand, GoldenMapTensor],
         outputs: Dict[Operand, GoldenMapTensor] = None,
     ):
+        """Set golden tensors from pre-constructed GoldenMapTensor objects.
+
+        Similar to ``set_goldens`` but accepts GoldenMapTensor objects directly
+        instead of torch tensors. Useful when golden data is already in the
+        builder's internal format.
+
+        Args:
+            inputs: Dictionary mapping Operands to GoldenMapTensor objects.
+            outputs: Optional dictionary for output operand goldens.
+        """
         self._set_goldens(inputs)
 
         if outputs != None:
@@ -268,19 +529,59 @@ class Builder(metaclass=BuilderMeta):
     def set_operand_goldens(
         self, operands: Dict[Operand, Union[torch.tensor, Dict[int : torch.tensor]]]
     ):
+        """Set golden tensors and mark operands for verification.
+
+        Convenience method that combines setting golden values and marking
+        the operands for inclusion in the golden map during testing.
+
+        Args:
+            operands: Dictionary mapping Operands to their golden tensor values.
+        """
         self._set_goldens(self._create_builder_golden_from_torch_tensor(operands))
         self.set_goldens_to_check(operands.keys())
 
     def set_goldens_to_check(self, operands: List[Operand], override: bool = False):
+        """Mark operands for inclusion in golden tensor verification.
+
+        By default, all operands are checked. This method allows selective
+        verification of specific operands only.
+
+        Args:
+            operands: List of Operands to include in golden verification.
+            override: If True, replaces the existing list; if False, extends it.
+        """
         if override:
             self._goldens_to_store = operands
         else:
             self._goldens_to_store.extend(operands)
 
     def set_graph_level_check(self, check: bool):
+        """Enable or disable graph-level only golden checking.
+
+        When enabled, only function inputs and outputs are verified, skipping
+        intermediate operation results. This can speed up testing when only
+        final results matter.
+
+        Args:
+            check: True to enable graph-level check only, False for full check.
+        """
         self._force_graph_level_check = check
 
     def bypass(self, operand: Operand):
+        """Exclude an operation from golden tensor comparison.
+
+        Marks the operation producing the given operand to be skipped during
+        golden verification. Useful for operations with non-deterministic
+        outputs or when golden values are not available.
+
+        Args:
+            operand: An OpResult operand whose defining operation should be
+                bypassed.
+
+        Raises:
+            TypeError: If operand is a BlockArgument (function inputs cannot
+                be bypassed).
+        """
         if isinstance(operand, BlockArgument):
             raise TypeError("Cannot bypass BlockArgument")
 
@@ -1194,6 +1495,24 @@ class Builder(metaclass=BuilderMeta):
         return wrapper
 
     def device_module(self, root_func: Callable):
+        """Create a device module containing Tenstorrent device operations.
+
+        Wraps operations that should execute on Tenstorrent hardware within
+        a DeviceModuleOp. The provided function is called to populate the
+        module with device-specific operations.
+
+        Args:
+            root_func: A callable that takes the builder as an argument and
+                creates the device operations within the module context.
+
+        Returns:
+            A DeviceModuleOp containing the operations created by root_func.
+
+        Example:
+            >>> @builder.device_module
+            ... def device_ops(b):
+            ...     return b.some_device_op(inputs)
+        """
         def wrapper(self):
             device_module_op = ttcore.DeviceModuleOp()
             region = device_module_op.regions[0]
@@ -1211,6 +1530,24 @@ class Builder(metaclass=BuilderMeta):
         return wrapper(self)
 
     def cpu_module(self, root_func: Callable):
+        """Create a CPU module containing host-side operations.
+
+        Wraps operations that should execute on the host CPU within a
+        CPUModuleOp. Used for data preprocessing, postprocessing, or
+        operations not supported on Tenstorrent devices.
+
+        Args:
+            root_func: A callable that takes the builder as an argument and
+                creates the CPU operations within the module context.
+
+        Returns:
+            A CPUModuleOp containing the operations created by root_func.
+
+        Example:
+            >>> @builder.cpu_module
+            ... def cpu_ops(b):
+            ...     return b.some_cpu_op(inputs)
+        """
         def wrapper(self):
             cpu_module_op = ttcore.CPUModuleOp()
             region = cpu_module_op.regions[0]
