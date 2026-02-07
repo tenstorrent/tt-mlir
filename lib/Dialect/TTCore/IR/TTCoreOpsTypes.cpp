@@ -1009,7 +1009,7 @@ MetalLayoutAttr::computeTileAlignments(ArrayRef<int64_t> logicalShape,
 // more predictable NoC traffic patterns.
 llvm::SmallVector<int64_t> MetalLayoutAttr::computeGridAwareDimAlignments(
     ArrayRef<int64_t> logicalShape, ArrayRef<int64_t> deviceGridShape,
-    ArrayRef<int64_t> normalizedIntervals) {
+    ArrayRef<int64_t> normalizedIntervals, bool forceGridAlignment) {
   constexpr std::array<int64_t, 2> tileShape =
       ttcore::TileType::getDefaultShape();
 
@@ -1018,7 +1018,7 @@ llvm::SmallVector<int64_t> MetalLayoutAttr::computeGridAwareDimAlignments(
   const int64_t tensorGridRank = normalizedIntervals.size() / 2;
 
   assert(logicalRank >= 2);
-  assert(deviceGridRank == 2);
+  assert(deviceGridRank >= 2);
   assert(normalizedIntervals.size() % 2 == 0);
   assert(deviceGridRank <= tensorGridRank);
 
@@ -1055,7 +1055,8 @@ llvm::SmallVector<int64_t> MetalLayoutAttr::computeGridAwareDimAlignments(
     // If the collapsed size exceeds the grid threshold, align to the grid
     // boundary to distribute work evenly across cores; otherwise just align
     // to tile boundaries.
-    const bool alignToGrid = collapsedSize > gridAlignmentThreshold;
+    const bool alignToGrid =
+        (collapsedSize > gridAlignmentThreshold) || forceGridAlignment;
     const int64_t alignment = alignToGrid ? gridAlignmentThreshold : tileDim;
 
     // Apply the alignment to the appropriate dimension(s) in the interval.

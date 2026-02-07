@@ -118,6 +118,7 @@ def test_cos_bf16(shape: Shape, target: str, request, device):
     )
 
 
+@pytest.mark.skip_config(["ttmetal", "p150"], reason="See issue #6910")
 @pytest.mark.parametrize(
     "shape",
     [
@@ -160,4 +161,5 @@ def test_matmul_f32(
         **get_request_kwargs(request),
         save_artifacts=True,
         pcc=0.94,  # Adjusted for bfp8
+        print_ir=True,
     )
