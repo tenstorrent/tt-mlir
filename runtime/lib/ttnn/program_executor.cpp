@@ -8,9 +8,12 @@
 #include "operations/ccl/aggregate_tensor.h"
 #include "operations/ccl/all_gather.h"
 #include "operations/ccl/all_reduce.h"
+#include "operations/ccl/all_to_all_combine.h"
+#include "operations/ccl/all_to_all_dispatch.h"
 #include "operations/ccl/distribute_tensor.h"
 #include "operations/ccl/mesh_partition.h"
 #include "operations/ccl/mesh_shard.h"
+#include "operations/ccl/moe_expert_token_remap.h"
 #include "operations/ccl/point_to_point.h"
 #include "operations/ccl/reduce_scatter.h"
 #include "operations/context/get_device.h"
@@ -419,6 +422,16 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::MeshPartitionOp: {
     return operations::ccl::run(op->type_as_MeshPartitionOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::AllToAllDispatchOp: {
+    return operations::ccl::run(op->type_as_AllToAllDispatchOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::AllToAllCombineOp: {
+    return operations::ccl::run(op->type_as_AllToAllCombineOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::MoeExpertTokenRemapOp: {
+    return operations::ccl::run(op->type_as_MoeExpertTokenRemapOp(),
+                                getContext());
   }
   case ::tt::target::ttnn::OpType::MeshShardOp: {
     return operations::ccl::run(op->type_as_MeshShardOp(), getContext());

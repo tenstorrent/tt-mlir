@@ -1232,6 +1232,10 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_MeshPartitionOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::AllToAllCombineOp: {
+    tensorRef = opContext.type_as_AllToAllCombineOp()->out();
+    break;
+  }
   case ::tt::target::ttnn::OpType::ArangeOp: {
     tensorRef = opContext.type_as_ArangeOp()->out();
     break;
@@ -1319,6 +1323,8 @@ getOpOutputRef(OpContext opContextHandle,
   case ::tt::target::ttnn::OpType::CaptureOrExecuteTraceOp:
   case ::tt::target::ttnn::OpType::NLPCreateQKVHeadsDecodeOp:
   case ::tt::target::ttnn::OpType::SplitQueryKeyValueAndSplitHeadsOp:
+  case ::tt::target::ttnn::OpType::AllToAllDispatchOp:
+  case ::tt::target::ttnn::OpType::MoeExpertTokenRemapOp:
   case ::tt::target::ttnn::OpType::DumpTensorOp:
   case ::tt::target::ttnn::OpType::BreakpointOp:
   case ::tt::target::ttnn::OpType::PrintOp:
@@ -1652,6 +1658,24 @@ getOpInputRefs(OpContext opContextHandle,
   }
   case ::tt::target::ttnn::OpType::MeshPartitionOp: {
     tensorRefs = {opContext.type_as_MeshPartitionOp()->out()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::AllToAllDispatchOp: {
+    tensorRefs = {opContext.type_as_AllToAllDispatchOp()->input_tensor(),
+                  opContext.type_as_AllToAllDispatchOp()->expert_indices(),
+                  opContext.type_as_AllToAllDispatchOp()->expert_mapping()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::AllToAllCombineOp: {
+    tensorRefs = {opContext.type_as_AllToAllCombineOp()->input_tensor(),
+                  opContext.type_as_AllToAllCombineOp()->expert_metadata(),
+                  opContext.type_as_AllToAllCombineOp()->expert_mapping()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::MoeExpertTokenRemapOp: {
+    tensorRefs = {opContext.type_as_MoeExpertTokenRemapOp()->topk_tensor(),
+                  opContext.type_as_MoeExpertTokenRemapOp()->expert_mapping(),
+                  opContext.type_as_MoeExpertTokenRemapOp()->expert_metadata()};
     break;
   }
   case ::tt::target::ttnn::OpType::UpsampleOp: {

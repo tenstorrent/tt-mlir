@@ -337,6 +337,21 @@ public:
   // Create workarounds for sparse_matmul op operands.
   // Sparsity tensor must be in ROW_MAJOR layout.
   static TTNNOperandsWorkarounds createSparseMatmulOpOperandsWorkarounds();
+
+  // Create workarounds for all_to_all_dispatch op operands.
+  // All inputs must be in ROW_MAJOR layout.
+  static TTNNOperandsWorkarounds createAllToAllDispatchOpOperandsWorkarounds();
+
+  // Create workarounds for all_to_all_combine op operands.
+  // All inputs must be in ROW_MAJOR layout.
+  static TTNNOperandsWorkarounds createAllToAllCombineOpOperandsWorkarounds();
+
+  // Create workarounds for moe_expert_token_remap op operands.
+  // topk -> ROW_MAJOR BF16, expert_mapping -> ROW_MAJOR UINT16,
+  // expert_metadata -> ROW_MAJOR UINT16, mapping out -> ROW_MAJOR BF16,
+  // reduced out -> ROW_MAJOR UINT16
+  static TTNNOperandsWorkarounds
+  createMoeExpertTokenRemapOpOperandsWorkarounds();
 };
 
 } // namespace mlir::tt::ttnn::wa

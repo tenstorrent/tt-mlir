@@ -3017,6 +3017,59 @@ SparseMatmulOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// AllToAllDispatchOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+AllToAllDispatchOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                                     const OpConfig &opConfig) {
+  return issueErrorForGetOpConstraints(
+      getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
+}
+
+llvm::Expected<size_t>
+AllToAllDispatchOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                                 const OpConfig &opConfig) {
+  return issueErrorForGetOpRuntime(
+      getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
+}
+
+//===----------------------------------------------------------------------===//
+// AllToAllCombineOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+AllToAllCombineOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                                    const OpConfig &opConfig) {
+  return issueErrorForGetOpConstraints(
+      getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
+}
+
+llvm::Expected<size_t>
+AllToAllCombineOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                                const OpConfig &opConfig) {
+  return issueErrorForGetOpRuntime(
+      getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
+}
+
+//===----------------------------------------------------------------------===//
+// MoeExpertTokenRemapOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints> MoeExpertTokenRemapOp::getOpConstraints(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+  return issueErrorForGetOpConstraints(
+      getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
+}
+
+llvm::Expected<size_t>
+MoeExpertTokenRemapOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                                    const OpConfig &opConfig) {
+  return issueErrorForGetOpRuntime(
+      getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
+}
+
+//===----------------------------------------------------------------------===//
 // DeallocateOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
