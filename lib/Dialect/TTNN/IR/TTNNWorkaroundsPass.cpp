@@ -911,6 +911,54 @@ TTNNOperandsWorkaroundsFactory::createSparseMatmulOpOperandsWorkarounds() {
       .addOutputOperandWorkaround(emptyWorkaround);        // output
 }
 
+// Factory method to create workarounds for all_to_all_dispatch op operands.
+// tt-metal CCL requirements:
+//   input_tensor:    ROW_MAJOR, BFLOAT16
+//   expert_indices:  ROW_MAJOR, UINT16
+//   expert_mapping:  ROW_MAJOR, UINT16
+//   dispatched out:  ROW_MAJOR, BFLOAT16
+//   metadata out:    ROW_MAJOR, UINT16
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createAllToAllDispatchOpOperandsWorkarounds() {
+  TTNNOperandWorkarounds rowMajorBf16Workaround;
+  rowMajorBf16Workaround.tensorLayoutWorkaround = Layout::RowMajor;
+  rowMajorBf16Workaround.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
+
+  TTNNOperandWorkarounds rowMajorUint16Workaround;
+  rowMajorUint16Workaround.tensorLayoutWorkaround = Layout::RowMajor;
+  rowMajorUint16Workaround.tensorDataTypeWorkaround = ttcore::DataType::UInt16;
+
+  return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addInputOperandWorkaround(rowMajorBf16Workaround)     // input_tensor
+      .addInputOperandWorkaround(rowMajorUint16Workaround)   // expert_indices
+      .addInputOperandWorkaround(rowMajorUint16Workaround)   // expert_mapping
+      .addOutputOperandWorkaround(rowMajorBf16Workaround)    // dispatched
+      .addOutputOperandWorkaround(rowMajorUint16Workaround); // metadata
+}
+
+// Factory method to create workarounds for all_to_all_combine op operands.
+// tt-metal CCL requirements:
+//   input_tensor:      ROW_MAJOR, BFLOAT16
+//   expert_metadata:   ROW_MAJOR, UINT16
+//   expert_mapping:    ROW_MAJOR, UINT16
+//   result out:        ROW_MAJOR, BFLOAT16
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createAllToAllCombineOpOperandsWorkarounds() {
+  TTNNOperandWorkarounds rowMajorBf16Workaround;
+  rowMajorBf16Workaround.tensorLayoutWorkaround = Layout::RowMajor;
+  rowMajorBf16Workaround.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
+
+  TTNNOperandWorkarounds rowMajorUint16Workaround;
+  rowMajorUint16Workaround.tensorLayoutWorkaround = Layout::RowMajor;
+  rowMajorUint16Workaround.tensorDataTypeWorkaround = ttcore::DataType::UInt16;
+
+  return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addInputOperandWorkaround(rowMajorBf16Workaround)   // input_tensor
+      .addInputOperandWorkaround(rowMajorUint16Workaround) // expert_metadata
+      .addInputOperandWorkaround(rowMajorUint16Workaround) // expert_mapping
+      .addOutputOperandWorkaround(rowMajorBf16Workaround); // result
+}
+
 template TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createConvOpOperandsWorkarounds(
     ttnn::Conv2dOp op);

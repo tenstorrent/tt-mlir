@@ -1228,6 +1228,10 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_MeshShardOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::AllToAllCombineOp: {
+    tensorRef = opContext.type_as_AllToAllCombineOp()->out();
+    break;
+  }
   case ::tt::target::ttnn::OpType::ArangeOp: {
     tensorRef = opContext.type_as_ArangeOp()->out();
     break;
@@ -1315,6 +1319,7 @@ getOpOutputRef(OpContext opContextHandle,
   case ::tt::target::ttnn::OpType::CaptureOrExecuteTraceOp:
   case ::tt::target::ttnn::OpType::NLPCreateQKVHeadsDecodeOp:
   case ::tt::target::ttnn::OpType::SplitQueryKeyValueAndSplitHeadsOp:
+  case ::tt::target::ttnn::OpType::AllToAllDispatchOp:
   case ::tt::target::ttnn::OpType::DumpTensorOp: {
     LOG_WARNING("getting output tensor is not supported for ",
                 ::tt::target::ttnn::EnumNamesOpType()[static_cast<size_t>(
@@ -1634,6 +1639,18 @@ getOpInputRefs(OpContext opContextHandle,
   }
   case ::tt::target::ttnn::OpType::MeshShardOp: {
     tensorRefs = {opContext.type_as_MeshShardOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::AllToAllDispatchOp: {
+    tensorRefs = {opContext.type_as_AllToAllDispatchOp()->input_tensor(),
+                  opContext.type_as_AllToAllDispatchOp()->expert_indices(),
+                  opContext.type_as_AllToAllDispatchOp()->expert_mapping()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::AllToAllCombineOp: {
+    tensorRefs = {opContext.type_as_AllToAllCombineOp()->input_tensor(),
+                  opContext.type_as_AllToAllCombineOp()->expert_metadata(),
+                  opContext.type_as_AllToAllCombineOp()->expert_mapping()};
     break;
   }
   case ::tt::target::ttnn::OpType::UpsampleOp: {

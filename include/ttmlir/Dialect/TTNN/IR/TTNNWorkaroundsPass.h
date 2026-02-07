@@ -331,6 +331,14 @@ public:
   // Create workarounds for sparse_matmul op operands.
   // Sparsity tensor must be in ROW_MAJOR layout.
   static TTNNOperandsWorkarounds createSparseMatmulOpOperandsWorkarounds();
+
+  // Create workarounds for all_to_all_dispatch op operands.
+  // All inputs must be in ROW_MAJOR layout.
+  static TTNNOperandsWorkarounds createAllToAllDispatchOpOperandsWorkarounds();
+
+  // Create workarounds for all_to_all_combine op operands.
+  // All inputs must be in ROW_MAJOR layout.
+  static TTNNOperandsWorkarounds createAllToAllCombineOpOperandsWorkarounds();
 };
 
 } // namespace mlir::tt::ttnn::wa
