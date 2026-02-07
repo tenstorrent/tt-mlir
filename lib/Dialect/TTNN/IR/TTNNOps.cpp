@@ -1090,46 +1090,8 @@ static ::mlir::LogicalResult verifyQuantizeOpCommon(
 ::llvm::LogicalResult
 mlir::tt::ttnn::TypecastOp::canonicalize(TypecastOp typecastOp,
                                          ::mlir::PatternRewriter &rewriter) {
-  return foldConsecutiveDataCastOps(typecastOp, rewriter);
-}
-
-//===----------------------------------------------------------------------===//
-// ToDTypeOp
-//===----------------------------------------------------------------------===//
-
-// ToDTypeOp verification
-::mlir::LogicalResult mlir::tt::ttnn::ToDTypeOp::verify() {
-  ::mlir::RankedTensorType outputType = getResult().getType();
-  TTNNLayoutAttr outputLayout =
-      mlir::cast<TTNNLayoutAttr>(outputType.getEncoding());
-
-  if (getDtype() != outputLayout.getDataType()) {
-    return emitOpError() << "Output tensor data type "
-                         << DataTypeEnumToString(outputLayout.getDataType())
-                         << " must match the data type of dtype attribute "
-                         << DataTypeEnumToString(getDtype()) << ".";
-  }
-
-  return success();
-}
-
-// ToDTypeOp folder
-::mlir::OpFoldResult mlir::tt::ttnn::ToDTypeOp::fold(FoldAdaptor adaptor) {
-
-  // If the input and output are same, fold to the input.
-  if (getType() == getInput().getType()) {
-    return getInput();
-  }
-
-  return nullptr;
-}
-
-// ToDTypeOp canonicalizer method
-::llvm::LogicalResult
-mlir::tt::ttnn::ToDTypeOp::canonicalize(ToDTypeOp op,
-                                        ::mlir::PatternRewriter &rewriter) {
   // NOLINTNEXTLINE
-  return foldConsecutiveDataCastOps(op, rewriter);
+  return foldConsecutiveDataCastOps(typecastOp, rewriter);
 }
 
 //===----------------------------------------------------------------------===//
