@@ -377,4 +377,16 @@ def TTNN_NocIndex : I32EnumAttr<"NocIndex", "TT NocIndex",
   let cppNamespace = "::mlir::tt::ttnn";
 }
 
+def TTNN_RoutingModeBidirLineMesh : I32EnumAttrCase<"BidirLineMesh", 0, "bidir_line_mesh">;
+def TTNN_RoutingModeUnidirRingTorus : I32EnumAttrCase<"UnidirRingTorus", 1, "unidir_ring_torus">;
+
+def TTNN_RoutingMode : I32EnumAttr<"RoutingMode", "TT RoutingMode",
+                           [
+                            TTNN_RoutingModeBidirLineMesh,
+                            TTNN_RoutingModeUnidirRingTorus,
+                           ]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::mlir::tt::ttnn";
+}
+
 #endif

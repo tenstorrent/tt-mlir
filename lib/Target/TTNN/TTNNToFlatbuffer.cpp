@@ -3000,6 +3000,17 @@ createProgramDescriptor(FlatbufferObjectCache &cache, ProgramAttr programAttr,
                                                            &semaphores, &cbs);
 }
 
+static ::tt::target::RoutingMode
+toFlatbuffer(tt::ttnn::RoutingMode routingMode) {
+  switch (routingMode) {
+  case ttnn::RoutingMode::BidirLineMesh:
+    return ::tt::target::RoutingMode::BidirLineMesh;
+  case ttnn::RoutingMode::UnidirRingTorus:
+    return ::tt::target::RoutingMode::UnidirRingTorus;
+  }
+  assert(false && "Unsupported RoutingMode");
+}
+
 static ::flatbuffers::Offset<::tt::target::ttnn::MeshProgramDescriptor>
 createMeshProgramDescriptor(FlatbufferObjectCache &cache,
                             MeshProgramDescriptorAttr meshProgramDescAttr,
@@ -3029,6 +3040,7 @@ createMeshProgramDescriptor(FlatbufferObjectCache &cache,
       *cache.fbb, toFlatbuffer(cache, fabricConnectionConfigAttr.getNocIndex()),
       toFlatbuffer(cache, fabricConnectionConfigAttr.getTopology()),
       fabricConnectionConfigAttr.getClusterAxis(),
+      toFlatbuffer(fabricConnectionConfigAttr.getRoutingMode()),
       fabricConnectionConfigAttr.getNumLinks());
 
   return ::tt::target::ttnn::CreateMeshProgramDescriptorDirect(

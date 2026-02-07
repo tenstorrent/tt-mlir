@@ -401,6 +401,8 @@ def get_board_id(system_desc) -> str:
             return "n300"
         case "Wormhole_b0", 8:
             return "llmbox"
+        case "Wormhole_b0", 32:
+            return "tg"
         case _:
             raise ValueError(f"Unknown architecture/chip# combo: {arch}, {num_chips}")
 

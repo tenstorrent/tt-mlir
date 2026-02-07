@@ -184,9 +184,15 @@ enum NocIndex : ushort {
   Noc1,
 }
 
+enum RoutingMode : ushort {
+  BidirLineMesh,
+  UnidirRingTorus,
+}
+
 table FabricConnectionConfig {
   noc_index: NocIndex;
   topology: Topology;
   cluster_axis: uint32;
+  routing_mode: RoutingMode;
   num_links: uint32;
 }

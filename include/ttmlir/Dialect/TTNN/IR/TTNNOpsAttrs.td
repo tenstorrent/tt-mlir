@@ -1077,8 +1077,9 @@ def TTNN_FabricConnectionConfigAttr: TTNN_Attr<"FabricConnectionConfig", "fabric
   let parameters = (ins "NocIndex":$noc_index,
                         "mlir::tt::ttcore::Topology":$topology,
                         "uint32_t":$cluster_axis,
+                        "RoutingMode":$routing_mode,
                         "uint32_t":$num_links);
-  let assemblyFormat = "`<` `noc_index` `=` $noc_index `,` `topology` `=` $topology `,` `cluster_axis` `=` $cluster_axis `,` `num_links` `=` $num_links `>`";
+  let assemblyFormat = "`<` `noc_index` `=` $noc_index `,` `topology` `=` $topology `,` `cluster_axis` `=` $cluster_axis `,` `routing_mode` `=` $routing_mode `,` `num_links` `=` $num_links `>`";
 }
 
 def TTNN_ProgramAttr: TTNN_Attr<"Program", "program"> {
