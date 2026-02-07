@@ -2385,7 +2385,7 @@ TEST_F(OpModelBase, maxPool2dWithIndicesOp) {
       mlir::TypeRange{pooledValues.getType(), indices.getType()}, input,
       batchSize, inputHeight, inputWidth, numChannels, kernelSize, stride,
       padding, dilation, memoryConfigAttr, appliedShardScheme, ceilMode,
-      reallocateHaloOutput);
+      reallocateHaloOutput, /*config_tensors_in_dram=*/nullptr);
   maxPool2dWithIndices->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
 
   auto constraintsExp = getOpConstraints(maxPool2dWithIndices.getOperation());
@@ -3211,7 +3211,8 @@ TEST_F(OpModelBase, maxPool2DOp) {
   auto maxPool2DOp = builder.create<MaxPool2dOp>(
       builder.getUnknownLoc(), output.getType(), input, batchSize, inputHeight,
       inputWidth, numChannels, kernelSize, stride, padding, dilation,
-      memoryConfigAttr, appliedShardScheme, ceilMode, reallocateHaloOutput);
+      memoryConfigAttr, appliedShardScheme, ceilMode, reallocateHaloOutput,
+      /*config_tensors_in_dram=*/nullptr);
   maxPool2DOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
 
   constexpr int32_t numRuns = 10;
@@ -3281,7 +3282,8 @@ TEST_F(OpModelBase, avgPool2DOp) {
   auto avgPool2DOp = builder.create<AvgPool2dOp>(
       builder.getUnknownLoc(), output.getType(), input, batchSize, inputHeight,
       inputWidth, numChannels, kernelSize, stride, padding, dilation,
-      memoryConfigAttr, appliedShardScheme, ceilMode, reallocateHaloOutput);
+      memoryConfigAttr, appliedShardScheme, ceilMode, reallocateHaloOutput,
+      /*count_include_pad=*/true, /*config_tensors_in_dram=*/nullptr);
   avgPool2DOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
 
   auto backend = dyn_cast<OpModel>(avgPool2DOp.getOperation());

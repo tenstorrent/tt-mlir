@@ -2635,8 +2635,7 @@ public:
     DenseI32ArrayAttr dilationForTTIROps = extract2xI32For2DPoolOpAttr(
         windowDilations, spatialDimIndices, rewriter);
 
-    DenseI32ArrayAttr paddingForTTIROps =
-        extract4xI32PaddingAttr(padding, spatialDimIndices, rewriter);
+    // Padding is constructed later, and per-input.
 
     // Build per-input pooling ops.
     SmallVector<Value> resultVals;
@@ -2645,6 +2644,23 @@ public:
       Value result;
       TypicalInitReductionValue initVal = (*initValues)[i];
       mlir::Operation *reductionOp = reductionOps[i];
+
+      // Check if this input comes from a fusable PadOp and compute per-input
+      // effective padding.
+      SmallVector<int64_t> effectivePadding(padding.asArrayRef());
+      if (mlir::stablehlo::PadOp padOp =
+              getFusablePadOp(srcOp.getInputs()[i], spatialDimIndices)) {
+        effectivePadding = combinePaddingFromPadOp(padOp, padding.asArrayRef(),
+                                                   spatialDimIndices);
+
+        // Use PadOp's input instead of PadOp's output as input for pooling.
+        input = rewriter.getRemappedValue(padOp.getOperand());
+      }
+
+      DenseI32ArrayAttr paddingForTTIROps = extract4xI32PaddingAttr(
+          rewriter.getDenseI64ArrayAttr(effectivePadding), spatialDimIndices,
+          rewriter);
+
       RankedTensorType inputType =
           mlir::cast<RankedTensorType>(input.getType());
       RankedTensorType resultType = cast<RankedTensorType>(
@@ -3027,6 +3043,55 @@ private:
     return rewriter.getDenseI32ArrayAttr(
         {static_cast<int32_t>(attr[spatialDimIndices[0]]),   // H
          static_cast<int32_t>(attr[spatialDimIndices[1]])}); // W
+  }
+
+  // Check if the given Value comes from a stablehlo::PadOp that can be fused
+  // into the pooling operation. Returns the PadOp if fusable, nullptr
+  // otherwise.
+  mlir::stablehlo::PadOp
+  getFusablePadOp(Value input, ArrayRef<size_t> spatialDimIndices) const {
+    auto padOp = input.getDefiningOp<mlir::stablehlo::PadOp>();
+    if (!padOp) {
+      return nullptr;
+    }
+
+    // Interior padding is not supported for this fusion.
+    for (int64_t interiorPad : padOp.getInteriorPadding()) {
+      if (interiorPad != 0) {
+        return nullptr;
+      }
+    }
+
+    // Padding must only be on spatial dimensions (H, W).
+    // For non-spatial dimensions, both low and high padding must be 0.
+    ArrayRef<int64_t> edgePaddingLow = padOp.getEdgePaddingLow();
+    ArrayRef<int64_t> edgePaddingHigh = padOp.getEdgePaddingHigh();
+
+    for (size_t i = 0; i < edgePaddingLow.size(); ++i) {
+      bool isSpatialDim =
+          (i == spatialDimIndices[0] || i == spatialDimIndices[1]);
+      if (!isSpatialDim &&
+          (edgePaddingLow[i] != 0 || edgePaddingHigh[i] != 0)) {
+        return nullptr;
+      }
+    }
+
+    return padOp;
+  }
+
+  // Combine padding from PadOp with the base padding array.
+  // Returns updated padding array with PadOp's spatial padding added.
+  static SmallVector<int64_t>
+  combinePaddingFromPadOp(mlir::stablehlo::PadOp padOp,
+                          ArrayRef<int64_t> basePadding,
+                          ArrayRef<size_t> spatialDimIndices) {
+
+    SmallVector<int64_t> combinedPadding(basePadding);
+    for (size_t i : spatialDimIndices) {
+      combinedPadding[i * 2] += padOp.getEdgePaddingLow()[i];
+      combinedPadding[i * 2 + 1] += padOp.getEdgePaddingHigh()[i];
+    }
+    return combinedPadding;
   }
 
   // Extract attribute values for padding from an attribute of

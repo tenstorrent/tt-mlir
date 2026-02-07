@@ -1090,14 +1090,14 @@ void d2m::GenericOp::build(mlir::OpBuilder &builder,
   TT_assertv(outputs.size() == 1u, "expected single output");
 
   if (!grid) {
-    auto gridShape = ttcore::getGridShape(outputs[0]);
+    auto output = outputs[0];
+    auto gridShape = ttcore::getGridShape(output);
 
     // Check if output operand has a virtual grid and IS NOT a view. If so,
     // infer a physical grid shape and inverse map for the grid attr such that
     // invMap(physGrid) = virtGrid
-    bool outputIsView = mlir::isa<ViewOpInterface>(outputs[0].getDefiningOp());
-    auto layout = ttcore::getDeviceLayout(
-        mlir::dyn_cast<ShapedType>(outputs[0].getType()));
+    auto layout =
+        ttcore::getDeviceLayout(mlir::dyn_cast<ShapedType>(output.getType()));
     auto metalLayout = mlir::dyn_cast<ttcore::MetalLayoutAttr>(layout);
 
     // Only consider non-identity index maps for virtualization. Identity maps
@@ -1108,27 +1108,37 @@ void d2m::GenericOp::build(mlir::OpBuilder &builder,
       hasNonIdentityIndexMap = !indexMap.isEmpty() && !indexMap.isIdentity();
     }
 
-    if (!outputIsView && metalLayout && hasNonIdentityIndexMap) {
-      auto shapedType = mlir::cast<ShapedType>(outputs[0].getType());
-      auto physicalGridShape = metalLayout.getPhysicalGridShape(shapedType);
+    if (metalLayout && hasNonIdentityIndexMap) {
 
-      // Check if the grid actually exceeds the physical grid (needs
-      // virtualization)
-      bool needsVirtualization = !llvm::equal(gridShape, physicalGridShape);
+      // 2D->2D permutation index maps are special case that isn't a standard
+      // reblocking (i.e. reshape), but a _transpose_ of the grid indices.
+      auto indexMap = metalLayout.getIndexAffineMap();
+      constexpr size_t kExpectedDimsFor2DDeviceShape = 2 * 2;
+      bool indexMapIs2DPermutation =
+          indexMap.isPermutation() &&
+          indexMap.getNumResults() == kExpectedDimsFor2DDeviceShape &&
+          indexMap.getNumInputs() == kExpectedDimsFor2DDeviceShape;
 
-      if (needsVirtualization) {
-        // True virtualization: map virtual grid to physical hardware
-        auto [_, invMap] = ttmlir::d2m::utils::grids::createCoreVirtMaps(
-            builder.getContext(), gridShape, physicalGridShape);
-        grid = builder.getAttr<ttcore::GridAttr>(gridShape, invMap);
-      } else {
-        // If the operand has index_map but doesn't exceed physical grid (e.g.,
-        // reblocking, transpose), derive the grid inverse map from the
-        // output's index_map to ensure roundtrip consistency.
-        auto indexMap = metalLayout.getIndexAffineMap();
-        auto invMap = ttmlir::utils::createGridInverseMapFromIndexMap(
+      // If the underlying physical grid shape differs from the virtual grid,
+      // assume it is a standard reblocking operation and generate both
+      // forward and inverse maps accordingly using createCoreVirtMaps.
+      SmallVector<int64_t> physGridShape =
+          d2m::utils::getPhysicalGridShape(output);
+      bool virtualReblock = !llvm::equal(gridShape, physGridShape);
+
+      if (indexMapIs2DPermutation) {
+        auto invMap = ttmlir::utils::createGridInverseMapFor2DPermutation(
             indexMap, gridShape.size(), builder.getContext());
         grid = builder.getAttr<ttcore::GridAttr>(gridShape, invMap);
+      } else if (virtualReblock) {
+        // True virtualization: map virtual grid to physical hardware
+        auto [_, invMap] = ttmlir::d2m::utils::grids::createCoreVirtMaps(
+            builder.getContext(), gridShape, physGridShape);
+        grid = builder.getAttr<ttcore::GridAttr>(gridShape, invMap);
+      } else {
+        // output aligns with its underlying physical grid shape and has no
+        // permuted indices; no need to have a virtualization mapping.
+        grid = builder.getAttr<ttcore::GridAttr>(gridShape);
       }
     } else {
       grid = builder.getAttr<ttcore::GridAttr>(gridShape);
@@ -1175,7 +1185,8 @@ void d2m::GenericOp::build(mlir::OpBuilder &builder,
       builder.getArrayAttr(builder.getAttr<ThreadAttr>(singleThreadType));
 
   build(builder, state, TypeRange(outputs), inputs, outputs, grid,
-        blockFactorsAttr, indexingMaps, iteratorTypes, threads, 1);
+        blockFactorsAttr, indexingMaps, iteratorTypes, threads,
+        /*scratch_inputs=*/nullptr, 1);
 }
 
 void d2m::GenericOp::build(
@@ -1437,6 +1448,11 @@ static mlir::LogicalResult verifyAffineBlocking(
     }
   }
 
+  // Determine if any outputs are views or streams.
+  bool outputIsViewOrStream = llvm::any_of(getOutputs(), [](Value output) {
+    return output.getDefiningOp<ViewOpInterface>() != nullptr;
+  });
+
   if (!getGrid().getMapping().isEmpty()) {
 
     if (getGrid().getMapping().getNumInputs() != 2ul) {
@@ -1447,50 +1463,78 @@ static mlir::LogicalResult verifyAffineBlocking(
     // Generic op with defined physical->virtual mapping in its grid attr should
     // have output operand(s) with a virtual->physical mapping defined in the
     // layout attr.
-    for (auto output : getOutputs()) {
+    for (Value output : getOutputs()) {
       mlir::ShapedType outputType =
           mlir::cast<mlir::ShapedType>(output.getType());
 
-      std::optional<AffineMap> maybeFwdMap =
-          ttcore::getDeviceLayout(outputType).getVirtualizationMapIfExists();
-      if (!maybeFwdMap) {
-        return emitOpError(
-            "GenericOp with virtual grid attribute must have an output operand "
-            "with a non-empty virtual grid mapping.");
-      }
-      AffineMap fwdMap = *maybeFwdMap;
-
-      fwdMap = ttmlir::utils::affineMapDropBackResults(
-          fwdMap, fwdMap.getNumResults() - 2);
-      // first result is deviceID, so drop it
-      auto invMap = getGrid().getMapping().dropResult(0);
-
-      if (invMap.getNumInputs() != fwdMap.getNumResults()) {
-        return emitOpError(
-            "GenericOp grid and output operand mapping functions do not "
-            "compose (mismatched number of inputs and results).");
-      }
-
-      // Check roundtrip consistency between physical->virtual and
-      // virtual->physical mappings; inv(fwd(shape)) == shape.
-      auto roundtripMap = invMap.compose(fwdMap);
-
-      bool success = true;
-      auto virtGridShape = getGrid().getShape();
-      ttmlir::utils::sample(virtGridShape, [&](ArrayRef<int64_t> point) {
-        // Pad point with dummy shard dims to align with expected fwdMap args.
-        SmallVector<int64_t> dummyShardDims(point.size(), 0);
-        SmallVector<int64_t> pointWithDummyShardDims = llvm::to_vector(
-            llvm::concat<int64_t>(SmallVector<int64_t>(point), dummyShardDims));
-
-        auto roundtripPoint = roundtripMap.compose(pointWithDummyShardDims);
-        if (roundtripPoint != point) {
-          success = false;
+      // Only do roundtrip consistency check if the output is physical.
+      // Streaming relaxes the requirement of aligning each compute worker with
+      // the actual physical grid.
+      if (!outputIsViewOrStream) {
+        std::optional<AffineMap> maybeFwdMap =
+            ttcore::getDeviceLayout(outputType).getVirtualizationMapIfExists();
+        if (!maybeFwdMap) {
+          return emitOpError("GenericOp with virtual grid attribute must have "
+                             "an output operand "
+                             "with a non-empty virtual grid mapping.");
         }
-      });
-      if (!success) {
-        return emitOpError(
-            "roundtrip virtual grid mapping consistency check failed");
+        AffineMap fwdMap = *maybeFwdMap;
+
+        fwdMap = ttmlir::utils::affineMapDropBackResults(
+            fwdMap, fwdMap.getNumResults() - 2);
+
+        // first result is deviceID, so drop it.
+        AffineMap invMap = getGrid().getMapping().dropResult(0);
+
+        if (invMap.getNumInputs() != fwdMap.getNumResults()) {
+          return emitOpError(
+              "GenericOp grid and output operand mapping functions do not "
+              "compose (mismatched number of inputs and results).");
+        }
+
+        // Check roundtrip consistency between physical->virtual and
+        // virtual->physical mappings; inv(fwd(shape)) == shape.
+        AffineMap roundtripMap = invMap.compose(fwdMap);
+
+        bool success = true;
+        ArrayRef<int64_t> virtGridShape = getGrid().getShape();
+        ttmlir::utils::sample(virtGridShape, [&](ArrayRef<int64_t> point) {
+          // Pad point with dummy shard dims to align with expected fwdMap args.
+          SmallVector<int64_t> dummyShardDims(point.size(), 0);
+          SmallVector<int64_t> pointWithDummyShardDims =
+              llvm::to_vector(llvm::concat<int64_t>(SmallVector<int64_t>(point),
+                                                    dummyShardDims));
+
+          SmallVector<int64_t, 4> roundtripPoint =
+              roundtripMap.compose(pointWithDummyShardDims);
+          if (roundtripPoint != point) {
+            success = false;
+          }
+        });
+        if (!success) {
+          return emitOpError(
+              "roundtrip virtual grid mapping consistency check failed");
+        }
+      } else {
+        // For view outputs, verify that the inverse map applied to the physical
+        // grid shape produces a virtual grid shape matching the output's grid
+        // shape.
+        SmallVector<int64_t> physicalGridShape =
+            d2m::utils::getPhysicalGridShape(output);
+
+        // Drop the deviceID result (first result) from the inverse map.
+        AffineMap invMap = getGrid().getMapping().dropResult(0);
+
+        SmallVector<int64_t> impliedVirtShape =
+            ttmlir::utils::evalShape(invMap, physicalGridShape);
+
+        ArrayRef<int64_t> outputGridShape = ttcore::getGridShape(output);
+
+        if (SmallVector<int64_t>(outputGridShape) != impliedVirtShape) {
+          return emitOpError(
+              "view output grid shape does not match implied virtual "
+              "grid shape from physical grid and inverse mapping");
+        }
       }
     }
   }
@@ -1502,8 +1546,8 @@ static mlir::LogicalResult verifyAffineBlocking(
         "all indexing maps must have the same number of dimensions");
   }
 
-  auto numIterators = getIteratorTypes().size();
-  auto blockFactors = getBlockFactorsValue();
+  size_t numIterators = getIteratorTypes().size();
+  SmallVector<int64_t> blockFactors = getBlockFactorsValue();
   if (numIterators > 0) {
     if (blockFactors.size() != numIterators) {
       return emitOpError("number of block factors[")
@@ -1940,10 +1984,8 @@ d2m::GenericOp::getOperandShardShapes(bool convertTileToScalar) {
 }
 
 mlir::SmallVector<int64_t> d2m::GenericOp::getPhysicalGridShape() {
-  auto outputType = mlir::cast<ShapedType>(getOutputs().front().getType());
-  ttcore::DeviceLayoutInterface deviceLayout =
-      ttcore::getDeviceLayout(outputType);
-  return deviceLayout.getPhysicalGridShape(outputType);
+  TT_assert(getOutputs().size() == 1u);
+  return d2m::utils::getPhysicalGridShape(getOutputs().front());
 }
 
 mlir::SmallVector<int64_t> d2m::GenericOp::getLoopBounds() {
@@ -2076,7 +2118,7 @@ mlir::LogicalResult d2m::GenericOp::bufferize(
   auto bufferGeneric = rewriter.create<d2m::GenericOp>(
       getLoc(), ValueRange(), bufferInputs, bufferOutputs, getGrid(),
       getBlockFactors(), getIndexingMaps(), getIteratorTypes(), getThreads(),
-      getNumRegions());
+      getScratchInputsAttr(), getNumRegions());
   for (mlir::Region &region : bufferGeneric.getRegions()) {
     region.takeBody(getRegion(region.getRegionNumber()));
   }
@@ -2111,10 +2153,15 @@ mlir::LogicalResult d2m::GenericOp::bufferize(
 }
 
 mlir::FailureOr<mlir::bufferization::BufferLikeType>
-d2m::GenericOp::getBufferType(mlir::Value value,
-                              const mlir::bufferization::BufferizationOptions &,
-                              const mlir::bufferization::BufferizationState &,
-                              ::llvm::SmallVector<mlir::Value> &) {
+d2m::GenericOp::getBufferType(
+    mlir::Value value, const mlir::bufferization::BufferizationOptions &options,
+    const mlir::bufferization::BufferizationState &,
+    ::llvm::SmallVector<mlir::Value> &) {
+  // Handle CB types - delegate to CBType::getBufferType.
+  if (auto cbType = mlir::dyn_cast<d2m::CBType>(value.getType())) {
+    return cbType.getBufferType(options, [&]() { return this->emitError(); });
+  }
+
   auto tensorType = mlir::cast<RankedTensorType>(value.getType());
   if (mlir::isa<mlir::BlockArgument>(value)) {
     assert(!tensorType.getEncoding());

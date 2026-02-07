@@ -266,6 +266,10 @@ struct TTIRToTTNNDevicePipelineOptions
                             llvm::cl::desc("Enable fusing pass."),
                             llvm::cl::init(true)};
 
+  Option<bool> enableD2MFusing{*this, "enable-d2m-fusing-pass",
+                               llvm::cl::desc("Enable D2M fusing pass."),
+                               llvm::cl::init(false)};
+
   // Enable fusing of conv2d + multiply pattern.
   // If not explicitly set, determined by optimization_level.
   mutable Option<bool> enableFusingConv2dWithMultiplyPattern{
@@ -315,7 +319,7 @@ struct TTIRToTTNNDevicePipelineOptions
   Option<bool> enableCPUHoistedConstEval{
       *this, "enable-cpu-hoisted-const-eval",
       llvm::cl::desc("Enable hoisting const-eval ops to CPU module."),
-      llvm::cl::init(true)};
+      llvm::cl::init(false)};
 
   // Force const-eval function inputs to system memory.
   Option<bool> enableConstEvalInputsToSystemMemory{
@@ -547,6 +551,8 @@ void createTTNNToEmitPyPipeline(
 
 void createRecoverStructureXLATorchPipeline(
     OpPassManager &pm, const RecoverStructureXLATorchPipelineOptions &options);
+
+void createTTNNPipelineD2MPass(OpPassManager &pm);
 
 void registerTTNNPipelines();
 } // namespace mlir::tt::ttnn

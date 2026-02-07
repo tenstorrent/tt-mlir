@@ -83,6 +83,7 @@ def test_batch_norm(
     [
         ((32, 128), [128]),
         ((2, 4, 64), [64]),
+        ((1, 136, 2048), [2048]),
     ],
 )
 @pytest.mark.parametrize("has_weight", [True, False])

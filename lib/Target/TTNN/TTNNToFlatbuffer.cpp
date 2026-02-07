@@ -30,6 +30,7 @@
 #include "ttmlir/Target/TTNN/binary_generated.h"
 #include "ttmlir/Target/TTNN/operations/conv_generated.h"
 #include "ttmlir/Target/TTNN/operations/eltwise_generated.h"
+#include "ttmlir/Target/TTNN/operations/generic_op_generated.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
 #include "ttmlir/Target/Utils/FlatbufferObjectCache.h"
 #include "ttmlir/Target/Utils/FuncOpToProgram.h"
@@ -2408,12 +2409,14 @@ createPool2dOp(FlatbufferObjectCache &cache, Pool2dOp op) {
     llvm_unreachable("unhandled Pool2dOp");
   }
 
+  bool configTensorsInDram = op.getConfigTensorsInDram().value_or(false);
+
   return ::tt::target::ttnn::CreatePool2dOp(
       *cache.fbb, type, in, out, op.getBatchSize(), op.getInputHeight(),
       op.getInputWidth(), op.getChannels(), kernelSize, stride, padding,
       dilation, extraParamsType, extraParams, memoryConfig,
       toFlatbuffer(cache, op.getAppliedShardScheme()), op.getCeilMode(),
-      op.getReallocateHaloOutput());
+      op.getReallocateHaloOutput(), configTensorsInDram);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::MaxPool2dWithIndicesOp>
@@ -2441,11 +2444,13 @@ createMaxPool2dWithIndicesOp(FlatbufferObjectCache &cache,
   // Get memory config from operation result
   auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
 
+  bool configTensorsInDram = op.getConfigTensorsInDram().value_or(false);
+
   return ::tt::target::ttnn::CreateMaxPool2dWithIndicesOp(
       *cache.fbb, in, out, outIndices, op.getBatchSize(), op.getInputHeight(),
       op.getInputWidth(), op.getChannels(), kernelSize, stride, padding,
       dilation, memoryConfig, toFlatbuffer(cache, op.getAppliedShardScheme()),
-      op.getCeilMode(), op.getReallocateHaloOutput());
+      op.getCeilMode(), op.getReallocateHaloOutput(), configTensorsInDram);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::GlobalAvgPool2dOp>
@@ -2872,20 +2877,11 @@ createKernelArgs(FlatbufferObjectCache &cache,
   return args;
 }
 
-::flatbuffers::Offset<::tt::target::ttnn::GenericOp>
-createOp(FlatbufferObjectCache &cache, GenericOp op) {
-  std::vector<::flatbuffers::Offset<::tt::target::ttnn::TensorRef>> ios;
-  for (auto operand : op.getInputsAndOutputs()) {
-    ios.push_back(cache.at<::tt::target::ttnn::TensorRef>(
-        getOperandThroughDPSOps(operand)));
-  }
-
-  ::mlir::tt::ttnn::ProgramAttr programAttr = op.getProgramAttr();
-
+static ::flatbuffers::Offset<::tt::target::ttnn::ProgramDescriptor>
+createProgramDescriptor(FlatbufferObjectCache &cache, ProgramAttr programAttr,
+                        ModuleOp moduleOp) {
   std::vector<::flatbuffers::Offset<::tt::target::ttnn::KernelDescriptor>>
       kernels;
-
-  ModuleOp moduleOp = dyn_cast<ModuleOp>(op->getParentOp()->getParentOp());
 
   for (auto kernelAttr : programAttr.getKernels()) {
     auto kernelInterface = llvm::cast<KernelInterface>(kernelAttr);
@@ -3000,10 +2996,74 @@ createOp(FlatbufferObjectCache &cache, GenericOp op) {
         &formats, buffer));
   }
 
-  auto program = ::tt::target::ttnn::CreateProgramDescriptorDirect(
-      *cache.fbb, &kernels, &semaphores, &cbs);
+  return ::tt::target::ttnn::CreateProgramDescriptorDirect(*cache.fbb, &kernels,
+                                                           &semaphores, &cbs);
+}
 
-  return ::tt::target::ttnn::CreateGenericOpDirect(*cache.fbb, &ios, program);
+static ::flatbuffers::Offset<::tt::target::ttnn::MeshProgramDescriptor>
+createMeshProgramDescriptor(FlatbufferObjectCache &cache,
+                            MeshProgramDescriptorAttr meshProgramDescAttr,
+                            ModuleOp moduleOp) {
+  std::vector<::flatbuffers::Offset<::tt::target::ttnn::MeshProgram>>
+      meshPrograms;
+  for (auto meshProgramAttr : meshProgramDescAttr.getMeshPrograms()) {
+    MeshRangeAttr meshRangeAttr = meshProgramAttr.getMeshRange();
+    std::vector<uint32_t> startCoords = {
+        static_cast<uint32_t>(meshRangeAttr.getStartCoord().getY()),
+        static_cast<uint32_t>(meshRangeAttr.getStartCoord().getX())};
+    std::vector<uint32_t> endCoords = {
+        static_cast<uint32_t>(meshRangeAttr.getEndCoord().getY()),
+        static_cast<uint32_t>(meshRangeAttr.getEndCoord().getX())};
+    auto deviceRange = ::tt::target::ttnn::CreateMeshCoordRange(
+        *cache.fbb,
+        ::tt::target::ttnn::CreateMeshCoordDirect(*cache.fbb, &startCoords),
+        ::tt::target::ttnn::CreateMeshCoordDirect(*cache.fbb, &endCoords));
+    auto programDescriptor =
+        createProgramDescriptor(cache, meshProgramAttr.getProgram(), moduleOp);
+    meshPrograms.push_back(::tt::target::ttnn::CreateMeshProgram(
+        *cache.fbb, deviceRange, programDescriptor));
+  }
+  FabricConnectionConfigAttr fabricConnectionConfigAttr =
+      meshProgramDescAttr.getFabricConnectionConfig();
+  auto fabricConnectionConfig = ::tt::target::CreateFabricConnectionConfig(
+      *cache.fbb, toFlatbuffer(cache, fabricConnectionConfigAttr.getNocIndex()),
+      toFlatbuffer(cache, fabricConnectionConfigAttr.getTopology()),
+      fabricConnectionConfigAttr.getClusterAxis(),
+      fabricConnectionConfigAttr.getNumLinks());
+
+  return ::tt::target::ttnn::CreateMeshProgramDescriptorDirect(
+      *cache.fbb, &meshPrograms, fabricConnectionConfig);
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::GenericOp>
+createOp(FlatbufferObjectCache &cache, GenericOp op) {
+  std::vector<::flatbuffers::Offset<::tt::target::ttnn::TensorRef>> ios;
+  for (auto operand : op.getInputsAndOutputs()) {
+    ios.push_back(cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(operand)));
+  }
+
+  ModuleOp moduleOp = dyn_cast<ModuleOp>(op->getParentOp()->getParentOp());
+  mlir::Attribute programAttrGeneric = op.getProgramAttr();
+
+  // Handle MeshProgramDescriptorAttr case.
+  if (auto meshProgramDescAttr =
+          llvm::dyn_cast<MeshProgramDescriptorAttr>(programAttrGeneric)) {
+    auto meshProgramDesc =
+        createMeshProgramDescriptor(cache, meshProgramDescAttr, moduleOp);
+    return ::tt::target::ttnn::CreateGenericOpDirect(
+        *cache.fbb, &ios,
+        ::tt::target::ttnn::ProgramType::MeshProgramDescriptor,
+        meshProgramDesc.Union());
+  }
+
+  // Handle ProgramAttr case.
+  auto programAttr = llvm::cast<ProgramAttr>(programAttrGeneric);
+  auto program = createProgramDescriptor(cache, programAttr, moduleOp);
+
+  return ::tt::target::ttnn::CreateGenericOpDirect(
+      *cache.fbb, &ios, ::tt::target::ttnn::ProgramType::ProgramDescriptor,
+      program.Union());
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::RotaryEmbeddingLlamaOp>

@@ -79,6 +79,10 @@ def create_tileid_debug_tensor(shape: Shape, dtype: torch.dtype):
         (32, 4096),
         (4096, 32),
         (2048, 32),
+        (32, 1280),  # uses 1x40 grid
+        (1536, 64),  # uses 48x1 grid
+        (1120, 32),  # uses 35x1 grid
+        (32, 768),  # uses 1x24 grid
         (1, 1, 1, 1, 128, 128),
         (1, 1, 1, 1, 2, 32, 512),
         (1, 1, 1, 1, 32, 32),

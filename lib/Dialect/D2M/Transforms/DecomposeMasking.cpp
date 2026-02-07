@@ -10,8 +10,12 @@
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+
+#include <cmath>
+#include <limits>
 
 namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MDECOMPOSEMASKING
@@ -19,9 +23,18 @@ namespace mlir::tt::d2m {
 
 namespace {
 
-// Get float value for OOBVal enum.
-static double getOOBValAsFloat(ttcore::OOBVal oobVal) {
+constexpr int64_t kTileHeight = 32;
+constexpr int64_t kTileWidth = 32;
+
+struct BoundsInterval {
+  Value start;
+  Value end;
+};
+
+static double getFillValueAsDouble(ttcore::OOBVal oobVal) {
   switch (oobVal) {
+  case ttcore::OOBVal::Undef:
+    return 0.0;
   case ttcore::OOBVal::Zero:
     return 0.0;
   case ttcore::OOBVal::One:
@@ -30,222 +43,369 @@ static double getOOBValAsFloat(ttcore::OOBVal oobVal) {
     return std::numeric_limits<double>::infinity();
   case ttcore::OOBVal::NegInf:
     return -std::numeric_limits<double>::infinity();
-  case ttcore::OOBVal::Undef:
-    llvm_unreachable("Undef OOBVal should not reach masking decomposition");
   }
-  llvm_unreachable("Unknown OOBVal");
+  return 0.0;
 }
 
-// Create a constant scalar value for use with tile ops.
-static Value createScalarConstant(OpBuilder &builder, Location loc, double val,
-                                  Type elementType) {
-  if (auto floatType = dyn_cast<FloatType>(elementType)) {
-    return builder.create<arith::ConstantOp>(
-        loc, builder.getFloatAttr(floatType, val));
-  }
-  if (auto intType = dyn_cast<IntegerType>(elementType)) {
-    return builder.create<arith::ConstantOp>(
-        loc, builder.getIntegerAttr(intType, static_cast<int64_t>(val)));
-  }
-  llvm_unreachable("Unsupported element type for constant creation");
-}
-
-// Get the scalar element type from a tile type.
-static Type getScalarElementType(Type type) {
-  if (auto tile = dyn_cast<ttcore::TileType>(type)) {
-    return tile.getElementType();
-  }
-  if (auto memref = dyn_cast<MemRefType>(type)) {
-    return getScalarElementType(memref.getElementType());
-  }
-  if (auto tensor = dyn_cast<RankedTensorType>(type)) {
-    return getScalarElementType(tensor.getElementType());
-  }
-  return type;
-}
-
-/// Decompose BlockMaskOp into linalg.generic with per-tile masking.
+/// Decompose BlockMaskOp with multi-core support.
 ///
-/// This pattern handles complete tile out-of-bounds masking. When a tile's
-/// starting position is entirely beyond the logical bounds, the entire tile
-/// is replaced with the fill value.
+/// The key change from single-core: loop bounds become dynamic based on
+/// which portion of the global tile space this core is responsible for.
 ///
-/// For multicore execution, each core processes a shard of tiles. We use
-/// CoreIndexOp to get the grid position and compute global tile indices as:
-///   globalTileRow = coreRowIdx * shardRows + localTileRow
-///   globalTileCol = coreColIdx * shardCols + localTileCol
+/// For each loop:
+///   start = stride * coreIndex.
+///   end = min(regionEnd, stride * (coreIndex + 1)).
+///   localIdx = globalIdx - (stride * coreIndex).
 ///
-/// TODO (#6311): Partial tile masking (when a tile straddles the boundary)
-/// requires per-element index tiles and will be implemented in a follow-up.
-class DecomposeBlockMaskPattern : public OpRewritePattern<BlockMaskOp> {
-public:
+/// If start >= end, the loop doesn't run--we only pad rightmost + downmost
+/// regions, so this should be correct w/o modifying start with max().
+struct DecomposeBlockMaskPattern : OpRewritePattern<BlockMaskOp> {
   using OpRewritePattern<BlockMaskOp>::OpRewritePattern;
+
+  // Compute local loop bounds for a core given a global region
+  // [globalRegionStart, globalRegionEnd). Returns (localStart, localEnd) such
+  // that iterating [localStart, localEnd) in local coordinates covers exactly
+  // the tiles that fall within both the global region and this core's shard.
+  static std::pair<Value, Value>
+  computeLocalBounds(PatternRewriter &rewriter, Location loc,
+                     int64_t globalRegionStart, int64_t globalRegionEnd,
+                     Value coreIdx, int64_t shardSize) {
+
+    Value shardSizeVal =
+        rewriter.create<arith::ConstantIndexOp>(loc, shardSize);
+    Value globalCoreStart =
+        rewriter.create<arith::MulIOp>(loc, coreIdx, shardSizeVal);
+
+    Value globalRegionStartVal =
+        rewriter.create<arith::ConstantIndexOp>(loc, globalRegionStart);
+    Value globalRegionEndVal =
+        rewriter.create<arith::ConstantIndexOp>(loc, globalRegionEnd);
+
+    // We define localStart = max(globalRegionStart - globalCoreStart, 0); in
+    // turn this can be rewritten as localStart = globalRegionStart -
+    // min(globalRegionStart, globalCoreStart).
+    Value clampedStart = rewriter.create<arith::MinUIOp>(
+        loc, globalRegionStartVal, globalCoreStart);
+    Value localStart =
+        rewriter.create<arith::SubIOp>(loc, globalRegionStartVal, clampedStart);
+
+    // Similarly, we define localEnd = min(globalRegionEnd - globalCoreStart,
+    // shardSize). However, to avoid underflow on unsigned, we re-express it as
+    // clampedEnd = max(min(globalRegionEnd, globalCoreEnd), globalCoreStart),
+    // and localEnd = clampedEnd - globalCoreStart, which is equivalent.
+    Value globalCoreEnd =
+        rewriter.create<arith::AddIOp>(loc, globalCoreStart, shardSizeVal);
+    Value clampedEnd =
+        rewriter.create<arith::MinUIOp>(loc, globalRegionEndVal, globalCoreEnd);
+    clampedEnd =
+        rewriter.create<arith::MaxUIOp>(loc, clampedEnd, globalCoreStart);
+    Value localEnd =
+        rewriter.create<arith::SubIOp>(loc, clampedEnd, globalCoreStart);
+
+    return {localStart, localEnd};
+  }
 
   LogicalResult matchAndRewrite(BlockMaskOp op,
                                 PatternRewriter &rewriter) const override {
     Location loc = op.getLoc();
     Value input = op.getInput();
     Value output = op.getOutput();
-    Value logicalRows = op.getLogicalRows();
-    Value logicalCols = op.getLogicalCols();
-    ttcore::OOBVal fillValue = op.getFillValue();
+    Value rowMaskCB = op.getRowMaskCb();
+    Value colMaskCB = op.getColMaskCb();
+    Value logicalRowsVal = op.getLogicalRows();
+    Value logicalColsVal = op.getLogicalCols();
+    ttcore::OOBVal fillOOBVal = op.getFillValue();
 
-    auto inputType = dyn_cast<ShapedType>(input.getType());
-    if (!inputType) {
-      return rewriter.notifyMatchFailure(op, "input must be a shaped type");
-    }
-
-    // Get the element type (should be a tile type).
-    Type elementType = inputType.getElementType();
-    auto tileType = dyn_cast<ttcore::TileType>(elementType);
-    if (!tileType) {
-      return rewriter.notifyMatchFailure(op,
-                                         "element type must be a tile type");
-    }
-
-    Type scalarType = getScalarElementType(elementType);
-    ArrayRef<int64_t> blockShape = inputType.getShape();
-    size_t blockRank = blockShape.size();
-
-    if (blockRank < 2) {
-      return rewriter.notifyMatchFailure(
-          op, "block shape must have at least 2 dimensions for tile masking");
-    }
-
-    // Get shard shape (tiles per core) from the last two dimensions.
-    // This assumes the standard D2M layout where tile row/col are the trailing
-    // dimensions (i.e., default collapse dims). Any batch or other dimensions
-    // are collapsed into leading dimensions.
-    int64_t shardRows = blockShape[blockRank - 2];
-    int64_t shardCols = blockShape[blockRank - 1];
-
-    // Build identity indexing maps for linalg.generic (input and output).
-    SmallVector<AffineMap> linalgIndexingMaps(
-        2, rewriter.getMultiDimIdentityMap(blockRank));
-    SmallVector<mlir::utils::IteratorType> linalgIteratorTypes(
-        blockRank, mlir::utils::IteratorType::parallel);
-
-    // Tile dimensions (assume 32x32).
-    constexpr int64_t tileH = 32;
-    constexpr int64_t tileW = 32;
-
-    // BlockMaskOp decomposition only supports memref semantics.
-    // For tensor semantics, let the op survive through bufferization first.
     if (isa<RankedTensorType>(input.getType())) {
-      return rewriter.notifyMatchFailure(
-          op, "decomposition requires memref types; run after bufferization");
+      return rewriter.notifyMatchFailure(op, "tensor semantics not supported");
     }
 
-    // Create linalg.generic that iterates over tiles in the block.
-    // For memref semantics, linalg.generic has no results (side-effecting).
-    rewriter.create<mlir::linalg::GenericOp>(
-        loc,
-        /* result types */ TypeRange{},
-        /* inputs */ input,
-        /* outputs */ output, linalgIndexingMaps, linalgIteratorTypes,
-        [&](mlir::OpBuilder &bbBuilder, mlir::Location bbLoc,
-            mlir::ValueRange bbArgs) {
-          // bbArgs[0] is the input tile, bbArgs[1] is the output tile.
-          Value inputTile = bbArgs[0];
-          Type resultType = bbArgs[1].getType();
+    auto inputType = cast<MemRefType>(input.getType());
+    ArrayRef<int64_t> inputShape = inputType.getShape();
+    if (inputShape.size() < 2) {
+      return rewriter.notifyMatchFailure(op, "input must have at least 2 dims");
+    }
 
-          // Get core indices from the surrounding d2m.generic grid.
-          // CoreIndexOp(0) = row, CoreIndexOp(1) = col in the grid.
-          Value coreRowIdx = bbBuilder.create<CoreIndexOp>(bbLoc, int64_t{0});
-          Value coreColIdx = bbBuilder.create<CoreIndexOp>(bbLoc, int64_t{1});
+    auto genericOp = op->getParentOfType<GenericOp>();
+    if (!genericOp) {
+      return rewriter.notifyMatchFailure(
+          op, "BlockMaskOp must be inside a GenericOp");
+    }
 
-          // Get local tile indices within the shard using linalg.index.
-          // For a 1x1 shard this is always (0, 0), but for larger shards
-          // we iterate over multiple tiles per core. Use the last two dims.
-          Value localTileRowIdx =
-              bbBuilder.create<linalg::IndexOp>(bbLoc, blockRank - 2);
-          Value localTileColIdx =
-              bbBuilder.create<linalg::IndexOp>(bbLoc, blockRank - 1);
+    ttcore::GridAttr gridAttr = genericOp.getGrid();
+    ArrayRef<int64_t> gridShape = gridAttr.getShape();
+    if (gridShape.size() < 2) {
+      return rewriter.notifyMatchFailure(
+          op, "grid must have at least 2 dimensions");
+    }
 
-          // Compute global tile indices:
-          // globalTileRow = coreRowIdx * shardRows + localTileRow
-          Value shardRowsConst =
-              bbBuilder.create<arith::ConstantIndexOp>(bbLoc, shardRows);
-          Value shardColsConst =
-              bbBuilder.create<arith::ConstantIndexOp>(bbLoc, shardCols);
-          Value coreRowOffset = bbBuilder.create<arith::MulIOp>(
-              bbLoc, coreRowIdx, shardRowsConst);
-          Value coreColOffset = bbBuilder.create<arith::MulIOp>(
-              bbLoc, coreColIdx, shardColsConst);
-          Value globalTileRowIdx = bbBuilder.create<arith::AddIOp>(
-              bbLoc, coreRowOffset, localTileRowIdx);
-          Value globalTileColIdx = bbBuilder.create<arith::AddIOp>(
-              bbLoc, coreColOffset, localTileColIdx);
+    auto tileType = cast<ttcore::TileType>(inputType.getElementType());
+    Type elemType = tileType.getElementType();
 
-          // Compute global element offsets for this tile.
-          Value tileHConst =
-              bbBuilder.create<arith::ConstantIndexOp>(bbLoc, tileH);
-          Value tileWConst =
-              bbBuilder.create<arith::ConstantIndexOp>(bbLoc, tileW);
-          Value globalRowStart = bbBuilder.create<arith::MulIOp>(
-              bbLoc, globalTileRowIdx, tileHConst);
-          Value globalColStart = bbBuilder.create<arith::MulIOp>(
-              bbLoc, globalTileColIdx, tileWConst);
+    int64_t shardTileRows = inputShape[inputShape.size() - 2];
+    int64_t shardTileCols = inputShape[inputShape.size() - 1];
 
-          // Check if tile is completely out of bounds.
-          Value rowOOB = bbBuilder.create<arith::CmpIOp>(
-              bbLoc, arith::CmpIPredicate::sge, globalRowStart, logicalRows);
-          Value colOOB = bbBuilder.create<arith::CmpIOp>(
-              bbLoc, arith::CmpIPredicate::sge, globalColStart, logicalCols);
-          Value entireTileOOB =
-              bbBuilder.create<arith::OrIOp>(bbLoc, rowOOB, colOOB);
+    // Extract the logical shape constants.
+    auto getConstantIndex = [](Value v) -> std::optional<int64_t> {
+      if (auto constOp = v.getDefiningOp<arith::ConstantIndexOp>()) {
+        return constOp.value();
+      }
+      return std::nullopt;
+    };
 
-          // Create constants for blending.
-          double fillVal = getOOBValAsFloat(fillValue);
-          Value fillConst =
-              createScalarConstant(bbBuilder, bbLoc, fillVal, scalarType);
-          Value zero = createScalarConstant(bbBuilder, bbLoc, 0.0, scalarType);
-          Value one = createScalarConstant(bbBuilder, bbLoc, 1.0, scalarType);
+    std::optional<int64_t> logicalRowsOpt = getConstantIndex(logicalRowsVal);
+    std::optional<int64_t> logicalColsOpt = getConstantIndex(logicalColsVal);
 
-          // Blend using: result = input * mulFactor + addend
-          // Where mulFactor = select(oob, 0, 1) and addend = select(oob, fill,
-          // 0).
-          //
-          // When NOT OOB: result = input * 1 + 0 = input.
-          // When OOB:     result = input * 0 + fill = fill.
-          Value mulFactor = bbBuilder.create<arith::SelectOp>(
-              bbLoc, entireTileOOB, zero, one);
-          Value addend = bbBuilder.create<arith::SelectOp>(bbLoc, entireTileOOB,
-                                                           fillConst, zero);
+    if (!logicalRowsOpt || !logicalColsOpt) {
+      return rewriter.notifyMatchFailure(op, "logical shape must be constant");
+    }
 
-          // Multiply output by select result, should be zero if OOB.
-          Value zeroPadded = bbBuilder.create<TileMulOp>(bbLoc, resultType,
-                                                         inputTile, mulFactor);
-          // Add fill value if OOB.
-          Value filled = bbBuilder.create<TileAddOp>(bbLoc, resultType,
-                                                     zeroPadded, addend);
+    int64_t logicalRows = *logicalRowsOpt;
+    int64_t logicalCols = *logicalColsOpt;
 
-          bbBuilder.create<mlir::linalg::YieldOp>(bbLoc, filled);
-        });
+    // Compute tile-level boundaries (compile-time constants).
+    // lastValidRow: the last tile row that contains any valid data (may be
+    // partial).
+    // lastValidCol: the last tile col that contains any valid data
+    // (may be partial).
+    int64_t lastValidRow = (logicalRows - 1) / kTileHeight;
+    int64_t lastValidCol = (logicalCols - 1) / kTileWidth;
+
+    // Computehow many elements are valid in the last partial tile to generate
+    // bitmask.
+    int64_t validRowsInLastTile = logicalRows % kTileHeight;
+    if (validRowsInLastTile == 0) {
+      validRowsInLastTile = kTileHeight;
+    }
+    int64_t validColsInLastTile = logicalCols % kTileWidth;
+    if (validColsInLastTile == 0) {
+      validColsInLastTile = kTileWidth;
+    }
+
+    // Total tiles in the padded shape.
+    int64_t totalTileRows = shardTileRows * gridShape[gridShape.size() - 2];
+    int64_t totalTileCols = shardTileCols * gridShape[gridShape.size() - 1];
+
+    Value zeroIdx = rewriter.create<arith::ConstantIndexOp>(loc, 0);
+    Value oneIdx = rewriter.create<arith::ConstantIndexOp>(loc, 1);
+
+    double fillValueDouble = getFillValueAsDouble(fillOOBVal);
+    Value fillScalar = rewriter.create<arith::ConstantOp>(
+        loc, elemType, rewriter.getFloatAttr(elemType, fillValueDouble));
+
+    // Get this core's coordinates.
+    Value coreY = rewriter.create<CoreIndexOp>(
+        loc, rewriter.getIndexType(), rewriter.getI64IntegerAttr(0), nullptr);
+    Value coreX = rewriter.create<CoreIndexOp>(
+        loc, rewriter.getIndexType(), rewriter.getI64IntegerAttr(1), nullptr);
+
+    // Write the mask tiles.
+    Value validRowsVal =
+        rewriter.create<arith::ConstantIndexOp>(loc, validRowsInLastTile);
+    Value validColsVal =
+        rewriter.create<arith::ConstantIndexOp>(loc, validColsInLastTile);
+
+    TT_assert(rowMaskCB);
+    rewriter.create<WriteRowMaskTileOp>(loc, validRowsVal, rowMaskCB);
+    TT_assert(colMaskCB);
+    rewriter.create<WriteColMaskTileOp>(loc, validColsVal, colMaskCB);
+
+    // === Tile operation helpers ===
+    auto createFillTile = [&]() {
+      return rewriter.create<TileFillOp>(loc, tileType, fillScalar).getResult();
+    };
+
+    auto emitPassthrough = [&](Value localRowIdx, Value localColIdx) {
+      auto inputTile = rewriter.create<memref::LoadOp>(
+          loc, input, ValueRange{localRowIdx, localColIdx});
+      rewriter.create<memref::StoreOp>(loc, inputTile.getResult(), output,
+                                       ValueRange{localRowIdx, localColIdx});
+    };
+
+    auto emitRowMasked = [&](Value localRowIdx, Value localColIdx) {
+      auto inputTile = rewriter.create<memref::LoadOp>(
+          loc, input, ValueRange{localRowIdx, localColIdx});
+      auto fillTile = createFillTile();
+      auto rowMaskTile = rewriter.create<memref::LoadOp>(
+          loc, rowMaskCB, ValueRange{zeroIdx, zeroIdx});
+      auto result =
+          rewriter.create<TileWhereOp>(loc, tileType, rowMaskTile.getResult(),
+                                       inputTile.getResult(), fillTile);
+      rewriter.create<memref::StoreOp>(loc, result.getResult(), output,
+                                       ValueRange{localRowIdx, localColIdx});
+    };
+
+    auto emitColMasked = [&](Value localRowIdx, Value localColIdx) {
+      auto inputTile = rewriter.create<memref::LoadOp>(
+          loc, input, ValueRange{localRowIdx, localColIdx});
+      auto fillTile = createFillTile();
+      auto colMaskTile = rewriter.create<memref::LoadOp>(
+          loc, colMaskCB, ValueRange{zeroIdx, zeroIdx});
+      auto result =
+          rewriter.create<TileWhereOp>(loc, tileType, colMaskTile.getResult(),
+                                       inputTile.getResult(), fillTile);
+      rewriter.create<memref::StoreOp>(loc, result.getResult(), output,
+                                       ValueRange{localRowIdx, localColIdx});
+    };
+
+    auto emitCornerMasked = [&](Value localRowIdx, Value localColIdx) {
+      auto inputTile = rewriter.create<memref::LoadOp>(
+          loc, input, ValueRange{localRowIdx, localColIdx});
+      auto fillTile1 = createFillTile();
+      auto rowMaskTile = rewriter.create<memref::LoadOp>(
+          loc, rowMaskCB, ValueRange{zeroIdx, zeroIdx});
+      auto rowMaskedResult =
+          rewriter.create<TileWhereOp>(loc, tileType, rowMaskTile.getResult(),
+                                       inputTile.getResult(), fillTile1);
+      auto fillTile2 = createFillTile();
+      auto colMaskTile = rewriter.create<memref::LoadOp>(
+          loc, colMaskCB, ValueRange{zeroIdx, zeroIdx});
+      auto finalResult =
+          rewriter.create<TileWhereOp>(loc, tileType, colMaskTile.getResult(),
+                                       rowMaskedResult.getResult(), fillTile2);
+      rewriter.create<memref::StoreOp>(loc, finalResult.getResult(), output,
+                                       ValueRange{localRowIdx, localColIdx});
+    };
+
+    auto emitFill = [&](Value localRowIdx, Value localColIdx) {
+      auto fillTile = createFillTile();
+      rewriter.create<memref::StoreOp>(loc, fillTile, output,
+                                       ValueRange{localRowIdx, localColIdx});
+    };
+
+    // Helper to create a nested loop over local coordinates.
+    auto createLocalLoop = [&](Value rowStart, Value rowEnd, Value colStart,
+                               Value colEnd,
+                               std::function<void(Value, Value)> emitBody) {
+      auto outerLoop =
+          rewriter.create<scf::ForOp>(loc, rowStart, rowEnd, oneIdx);
+      rewriter.setInsertionPointToStart(outerLoop.getBody());
+
+      auto innerLoop =
+          rewriter.create<scf::ForOp>(loc, colStart, colEnd, oneIdx);
+      // Mark the INNER loop as the compute root, since that's where
+      // the actual compute operations are emitted. This ensures DST
+      // syncs are placed inside the inner loop body, not the outer.
+      // Since we emit an scf.for directly, we must tag this here
+      // since linalg-to-affine and d2m-op-scheduler won't process this.
+      innerLoop->setAttr("d2m.linalg_root", rewriter.getUnitAttr());
+      innerLoop->setAttr("d2m.scheduled", rewriter.getUnitAttr());
+      rewriter.setInsertionPointToStart(innerLoop.getBody());
+
+      emitBody(outerLoop.getInductionVar(), innerLoop.getInductionVar());
+
+      return outerLoop;
+    };
+
+    OpBuilder::InsertionGuard guard(rewriter);
+    Operation *insertionPoint = op;
+
+    // =========================================================================
+    // LOOP 0: Interior tiles - fully valid.
+    // Global region: [0, lastValidRow) x [0, lastValidCol).
+    // =========================================================================
+    {
+      rewriter.setInsertionPointAfter(insertionPoint);
+      auto [rowStart, rowEnd] = computeLocalBounds(
+          rewriter, loc, 0, lastValidRow, coreY, shardTileRows);
+      auto [colStart, colEnd] = computeLocalBounds(
+          rewriter, loc, 0, lastValidCol, coreX, shardTileCols);
+      auto loop =
+          createLocalLoop(rowStart, rowEnd, colStart, colEnd, emitPassthrough);
+      insertionPoint = loop;
+    }
+
+    // =========================================================================
+    // LOOP 1: Last valid row - needs row masking.
+    // Global region: [lastValidRow, lastValidRow+1) x [0, lastValidCol).
+    // =========================================================================
+    {
+      rewriter.setInsertionPointAfter(insertionPoint);
+      auto [rowStart, rowEnd] = computeLocalBounds(
+          rewriter, loc, lastValidRow, lastValidRow + 1, coreY, shardTileRows);
+      auto [colStart, colEnd] = computeLocalBounds(
+          rewriter, loc, 0, lastValidCol, coreX, shardTileCols);
+      auto loop =
+          createLocalLoop(rowStart, rowEnd, colStart, colEnd, emitRowMasked);
+      insertionPoint = loop;
+    }
+
+    // =========================================================================
+    // LOOP 2: Last valid col - needs col masking.
+    // Global region: [0, lastValidRow) x [lastValidCol, lastValidCol+1).
+    // =========================================================================
+    {
+      rewriter.setInsertionPointAfter(insertionPoint);
+      auto [rowStart, rowEnd] = computeLocalBounds(
+          rewriter, loc, 0, lastValidRow, coreY, shardTileRows);
+      auto [colStart, colEnd] = computeLocalBounds(
+          rewriter, loc, lastValidCol, lastValidCol + 1, coreX, shardTileCols);
+      auto loop =
+          createLocalLoop(rowStart, rowEnd, colStart, colEnd, emitColMasked);
+      insertionPoint = loop;
+    }
+
+    // =========================================================================
+    // LOOP 3: Corner tile - needs both row and col masking.
+    // Global region: [lastValidRow, lastValidRow+1) x [lastValidCol,
+    // lastValidCol+1).
+    // =========================================================================
+    if (rowMaskCB && colMaskCB) {
+      rewriter.setInsertionPointAfter(insertionPoint);
+      auto [rowStart, rowEnd] = computeLocalBounds(
+          rewriter, loc, lastValidRow, lastValidRow + 1, coreY, shardTileRows);
+      auto [colStart, colEnd] = computeLocalBounds(
+          rewriter, loc, lastValidCol, lastValidCol + 1, coreX, shardTileCols);
+      auto loop =
+          createLocalLoop(rowStart, rowEnd, colStart, colEnd, emitCornerMasked);
+      insertionPoint = loop;
+    }
+
+    // =========================================================================
+    // LOOP 4: OOB rows - fill entire rows beyond valid region.
+    // Global region: [lastValidRow+1, totalTileRows) x [0, totalTileCols).
+    // =========================================================================
+    {
+      rewriter.setInsertionPointAfter(insertionPoint);
+      auto [rowStart, rowEnd] = computeLocalBounds(
+          rewriter, loc, lastValidRow + 1, totalTileRows, coreY, shardTileRows);
+      auto [colStart, colEnd] = computeLocalBounds(
+          rewriter, loc, 0, totalTileCols, coreX, shardTileCols);
+      auto loop = createLocalLoop(rowStart, rowEnd, colStart, colEnd, emitFill);
+      insertionPoint = loop;
+    }
+
+    // =========================================================================
+    // LOOP 5: OOB cols - fill columns beyond valid region (for valid rows
+    // only). Global region: [0, lastValidRow+1) x [lastValidCol+1,
+    // totalTileCols).
+    // =========================================================================
+    {
+      rewriter.setInsertionPointAfter(insertionPoint);
+      auto [rowStart, rowEnd] = computeLocalBounds(
+          rewriter, loc, 0, lastValidRow + 1, coreY, shardTileRows);
+      auto [colStart, colEnd] = computeLocalBounds(
+          rewriter, loc, lastValidCol + 1, totalTileCols, coreX, shardTileCols);
+      createLocalLoop(rowStart, rowEnd, colStart, colEnd, emitFill);
+    }
 
     rewriter.replaceOp(op, op.getOutput());
     return success();
   }
 };
 
-class D2MDecomposeMasking
+struct D2MDecomposeMasking
     : public impl::D2MDecomposeMaskingBase<D2MDecomposeMasking> {
-public:
-  using D2MDecomposeMaskingBase::D2MDecomposeMaskingBase;
-
   void runOnOperation() override {
     MLIRContext *ctx = &getContext();
     RewritePatternSet patterns(ctx);
     patterns.add<DecomposeBlockMaskPattern>(ctx);
 
-    GreedyRewriteConfig config;
-    if (failed(applyPatternsGreedily(getOperation(), std::move(patterns),
-                                     config))) {
+    if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
       signalPassFailure();
     }
   }
 };
 
 } // namespace
-
 } // namespace mlir::tt::d2m
