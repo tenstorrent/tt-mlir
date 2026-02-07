@@ -28,6 +28,15 @@ static constexpr llvm::StringLiteral pagedFillCacheTargetName =
 static constexpr llvm::StringLiteral sparseMatmulTargetName =
     "tt.sparse_matmul";
 
+static constexpr llvm::StringLiteral allToAllDispatchTargetName =
+    "tt.all_to_all_dispatch";
+
+static constexpr llvm::StringLiteral allToAllCombineTargetName =
+    "tt.all_to_all_combine";
+
+static constexpr llvm::StringLiteral moeExpertTokenRemapTargetName =
+    "tt.moe_expert_token_remap";
+
 static mlir::sdy::OpShardingRuleAttr
 getScatterShardingRule(mlir::stablehlo::ScatterOp scatterOp) {
   mlir::Operation::operand_range inputs = scatterOp.getInputs();
@@ -437,6 +446,21 @@ getSparseMatmulShardingRule(mlir::stablehlo::CustomCallOp op) {
                     {outputExpertDim}, numExperts,
                     mlir::sdy::FactorType::kPassThrough);
 
+  // ===== Sparsity non-E dimensions: force replication =====
+  // The sparsity tensor is a binary 0/1 mask from moe_expert_token_remap.
+  // Its non-E dimensions (batch/dispatch metadata) must stay replicated;
+  // otherwise Shardy inserts all_reduce(sum) which corrupts the mask
+  // (e.g. turning {0,1} values into {0,N_devices}).
+  for (int64_t i = 0; i < sparsityType.getRank() - 1; ++i) {
+    int64_t dimSize = sparsityType.getShape()[i];
+    if (dimSize > 1) {
+      builder.addFactor({mlir::sdy::kNullDim, mlir::sdy::kNullDim, i},
+                        {mlir::sdy::kNullDim}, dimSize,
+                        mlir::sdy::FactorType::kNeedReplication,
+                        /*isBlocked=*/true);
+    }
+  }
+
   // ===== Factor 2: Tensor Parallelism (TP) =====
   // TP strategy depends on projection type:
   // - Gate/Up (is_input_b_sparse): Column parallel on N dimension
@@ -498,6 +522,234 @@ getSparseMatmulShardingRule(mlir::stablehlo::CustomCallOp op) {
   return builder.build();
 }
 
+// =====================================================================
+// all_to_all_dispatch sharding rule
+// =====================================================================
+// Dispatch is an opaque CCL operation that handles EP communication
+// along ONE mesh axis only (cluster_axis; -1 = flatten 2D mesh to 1D).
+// Experts are compound-sharded across both mesh dims; input is replicated
+// on one dim and all-to-all'ed on the other.
+//
+// All factors use kNeedReplication with isBlocked=true to prevent
+// Shardy from propagating any sharding through the op. Without isBlocked,
+// Shardy would insert unnecessary all_gather/AllSlice pairs.
+//
+// Operands: [0] input [B,S,1,H], [1] indices [B,S,1,K], [2] mapping [1,1,E,D]
+// Results:  [0] dispatched [1,B*D,S,H], [1] metadata [1,B*D,S,K]
+//
+// Note: torch-xla may emit the custom_call with either:
+//   - Variadic results: 2 separate tensor results (modern StableHLO)
+//   - Tuple result: 1 result of type tuple<tensor, tensor> (legacy HLO style)
+// The builder must handle both forms since OpShardingRuleBuilder(op)
+// crashes on TupleType (it calls cast<ShapedType> on each result type).
+static mlir::sdy::OpShardingRuleAttr
+getAllToAllDispatchShardingRule(mlir::stablehlo::CustomCallOp op) {
+  if (op.getNumOperands() != 3) {
+    op.getOperation()->emitWarning()
+        << "all_to_all_dispatch expects 3 operands, got "
+        << op.getNumOperands();
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  auto inputType = llvm::dyn_cast<RankedTensorType>(op.getOperand(0).getType());
+  auto indicesType =
+      llvm::dyn_cast<RankedTensorType>(op.getOperand(1).getType());
+  auto mappingType =
+      llvm::dyn_cast<RankedTensorType>(op.getOperand(2).getType());
+
+  if (!inputType || inputType.getRank() != 4 || !indicesType ||
+      indicesType.getRank() != 4 || !mappingType ||
+      mappingType.getRank() != 4) {
+    op.getOperation()->emitWarning()
+        << "all_to_all_dispatch: all operands must be 4D";
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  // Extract dimension sizes
+  int64_t bDim = inputType.getShape()[0];   // B
+  int64_t sDim = inputType.getShape()[1];   // S
+  int64_t hDim = inputType.getShape()[3];   // H
+  int64_t kDim = indicesType.getShape()[3]; // K
+  int64_t eDim = mappingType.getShape()[2]; // E
+  int64_t dDim = mappingType.getShape()[3]; // D
+
+  // Resolve result types: handle both variadic (2 results) and tuple (1 result)
+  SmallVector<Type> resultTypes;
+  if (op.getNumResults() == 2) {
+    // Variadic results: each result is a tensor
+    for (auto type : op.getResultTypes()) {
+      resultTypes.push_back(type);
+    }
+  } else if (op.getNumResults() == 1) {
+    // Possibly a tuple result
+    auto tupleType = llvm::dyn_cast<mlir::TupleType>(op.getResult(0).getType());
+    if (tupleType && tupleType.size() == 2) {
+      for (auto elemType : tupleType.getTypes()) {
+        resultTypes.push_back(elemType);
+      }
+    } else {
+      op.getOperation()->emitWarning()
+          << "all_to_all_dispatch: expected 2-element tuple or 2 results";
+      return mlir::sdy::OpShardingRuleAttr();
+    }
+  } else {
+    op.getOperation()->emitWarning()
+        << "all_to_all_dispatch: unexpected number of results: "
+        << op.getNumResults();
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  // Use explicit type-range constructor to bypass TupleType cast issue
+  // Result 0: dispatched [1, B*D, S, H]
+  // Result 1: metadata [1, B*D, S, K]
+  mlir::sdy::OpShardingRuleBuilder builder(op.getOperandTypes(),
+                                           TypeRange(resultTypes),
+                                           op.getContext(), std::nullopt);
+
+  // B factor: input[0]=dim0, input[1]=dim0, input[2]=kNull,
+  //           result[0]=kNull (B is absorbed into B*D), result[1]=kNull
+  builder.addFactor({0, 0, mlir::sdy::kNullDim},
+                    {mlir::sdy::kNullDim, mlir::sdy::kNullDim}, bDim,
+                    mlir::sdy::FactorType::kNeedReplication,
+                    /*isBlocked=*/true);
+
+  // S factor: input[0]=dim1, input[1]=dim1, input[2]=kNull,
+  //           result[0]=dim2, result[1]=dim2
+  builder.addFactor({1, 1, mlir::sdy::kNullDim}, {2, 2}, sDim,
+                    mlir::sdy::FactorType::kNeedReplication,
+                    /*isBlocked=*/true);
+
+  // H factor: input[0]=dim3, input[1]=kNull, input[2]=kNull,
+  //           result[0]=dim3, result[1]=kNull
+  builder.addFactor({3, mlir::sdy::kNullDim, mlir::sdy::kNullDim},
+                    {3, mlir::sdy::kNullDim}, hDim,
+                    mlir::sdy::FactorType::kNeedReplication,
+                    /*isBlocked=*/true);
+
+  // K factor: input[0]=kNull, input[1]=dim3, input[2]=kNull,
+  //           result[0]=kNull, result[1]=dim3
+  builder.addFactor({mlir::sdy::kNullDim, 3, mlir::sdy::kNullDim},
+                    {mlir::sdy::kNullDim, 3}, kDim,
+                    mlir::sdy::FactorType::kNeedReplication,
+                    /*isBlocked=*/true);
+
+  // E factor: input[0]=kNull, input[1]=kNull, input[2]=dim2,
+  //           result[0]=kNull, result[1]=kNull
+  builder.addFactor({mlir::sdy::kNullDim, mlir::sdy::kNullDim, 2},
+                    {mlir::sdy::kNullDim, mlir::sdy::kNullDim}, eDim,
+                    mlir::sdy::FactorType::kNeedReplication,
+                    /*isBlocked=*/true);
+
+  // D factor: input[0]=kNull, input[1]=kNull, input[2]=dim3,
+  //           result[0]=kNull, result[1]=kNull
+  builder.addFactor({mlir::sdy::kNullDim, mlir::sdy::kNullDim, 3},
+                    {mlir::sdy::kNullDim, mlir::sdy::kNullDim}, dDim,
+                    mlir::sdy::FactorType::kNeedReplication,
+                    /*isBlocked=*/true);
+
+  return builder.build();
+}
+
+// =====================================================================
+// all_to_all_combine sharding rule
+// =====================================================================
+// Combine restores tokens along cluster_axis. E uses a single kPassThrough
+// factor so Shardy does NOT insert any all_reduce for the expert dimension.
+// For 2D mesh with compound-sharded experts, the needed cross-column
+// all_reduce(sum) is inserted explicitly in the StableHLOToTTIR conversion.
+//
+// H, BD, S, K: kNeedReplication with isBlocked (no sharding propagation).
+//
+// Operands: [0] expert_out [E,B*D,S,H], [1] metadata [1,B*D,S,K],
+//           [2] mapping [1,1,E_total,D]
+// Results:  [0] combined [K,B,S,H]
+static mlir::sdy::OpShardingRuleAttr
+getAllToAllCombineShardingRule(mlir::stablehlo::CustomCallOp op) {
+  if (op.getNumOperands() != 3) {
+    op.getOperation()->emitWarning()
+        << "all_to_all_combine expects 3 operands, got " << op.getNumOperands();
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  auto expertOutType =
+      llvm::dyn_cast<RankedTensorType>(op.getOperand(0).getType());
+  auto metadataType =
+      llvm::dyn_cast<RankedTensorType>(op.getOperand(1).getType());
+  auto mappingType =
+      llvm::dyn_cast<RankedTensorType>(op.getOperand(2).getType());
+
+  if (!expertOutType || expertOutType.getRank() != 4 || !metadataType ||
+      metadataType.getRank() != 4 || !mappingType ||
+      mappingType.getRank() != 4) {
+    op.getOperation()->emitWarning()
+        << "all_to_all_combine: all operands must be 4D";
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  auto resultType = llvm::dyn_cast<RankedTensorType>(op.getResult(0).getType());
+  if (!resultType || resultType.getRank() != 4) {
+    op.getOperation()->emitWarning() << "all_to_all_combine: result must be 4D";
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  // Extract dimension sizes
+  int64_t eDim = expertOutType.getShape()[0];  // E (global expert count)
+  int64_t bdDim = expertOutType.getShape()[1]; // B*D
+  int64_t sDim = expertOutType.getShape()[2];  // S
+  int64_t hDim = expertOutType.getShape()[3];  // H
+  int64_t kDim = metadataType.getShape()[3];   // K
+  int64_t dDim = mappingType.getShape()[3];    // D (num dispatch devices)
+
+  mlir::sdy::OpShardingRuleBuilder builder(op);
+
+  // E factor: single kPassThrough — combine handles dispatch-axis
+  // communication internally. Cross-column reduction (for 2D compound
+  // sharding) is inserted explicitly in the StableHLOToTTIR conversion pass.
+  // Using kReduction here causes Shardy to insert all_reduce on BOTH axes
+  // (kPassThrough with kNullDim in the result also triggers reduce), which
+  // corrupts the combine output by summing unrelated batches.
+  builder.addFactor({0, mlir::sdy::kNullDim, mlir::sdy::kNullDim},
+                    {mlir::sdy::kNullDim}, eDim,
+                    mlir::sdy::FactorType::kPassThrough);
+
+  // E factor (mapping): mapping dim 2 is the global expert count and must
+  // stay replicated — combine reads it to determine expert-to-device routing.
+  int64_t eTotalDim = mappingType.getShape()[2];
+  builder.addFactor({mlir::sdy::kNullDim, mlir::sdy::kNullDim, 2},
+                    {mlir::sdy::kNullDim}, eTotalDim,
+                    mlir::sdy::FactorType::kNeedReplication,
+                    /*isBlocked=*/true);
+
+  // H factor: kNeedReplication with isBlocked.
+  // H is replicated through combine (not sharded on any axis).
+  builder.addFactor({3, mlir::sdy::kNullDim, mlir::sdy::kNullDim}, {3}, hDim,
+                    mlir::sdy::FactorType::kNeedReplication,
+                    /*isBlocked=*/true);
+
+  // K factor: expertOut=kNull, metadata[1]=dim3, mapping=kNull, result=dim0
+  builder.addFactor({mlir::sdy::kNullDim, 3, mlir::sdy::kNullDim}, {0}, kDim,
+                    mlir::sdy::FactorType::kNeedReplication,
+                    /*isBlocked=*/true);
+
+  // S factor: expertOut[0]=dim2, metadata[1]=dim2, mapping=kNull, result=dim2
+  builder.addFactor({2, 2, mlir::sdy::kNullDim}, {2}, sDim,
+                    mlir::sdy::FactorType::kNeedReplication,
+                    /*isBlocked=*/true);
+
+  // BD factor: expertOut[0]=dim1, metadata[1]=dim1, mapping=kNull, result=dim1
+  builder.addFactor({1, 1, mlir::sdy::kNullDim}, {1}, bdDim,
+                    mlir::sdy::FactorType::kNeedReplication,
+                    /*isBlocked=*/true);
+
+  // D factor: expertOut=kNull, metadata=kNull, mapping[2]=dim3, result=kNull
+  builder.addFactor({mlir::sdy::kNullDim, mlir::sdy::kNullDim, 3},
+                    {mlir::sdy::kNullDim}, dDim,
+                    mlir::sdy::FactorType::kNeedReplication,
+                    /*isBlocked=*/true);
+
+  return builder.build();
+}
+
 template <typename OpTy>
 struct StablehloShardingModel
     : public mlir::sdy::ShardingRuleOpInterface::ExternalModel<
@@ -514,6 +766,108 @@ struct StablehloShardingModel
     return true;
   }
 };
+
+// =====================================================================
+// moe_expert_token_remap sharding rule
+// =====================================================================
+// Device-local data movement op that remaps global expert indices to local
+// per-device experts. D/B/S/K factors are opaque (kNeedReplication + blocked).
+// The E factor uses kPassThrough so compound sharding propagates through:
+// outputs use global E shape, and UpdateGlobalToLocalShapes divides E by
+// the compound mesh factor to produce E_local on each device.
+//
+// Operands: [0] topk [D,B,S,E], [1] mapping [1,1,E,D], [2] metadata [D,B,S,K]
+// Results:  [0] mapping_out [1,B,S,E], [1] reduced [1,1,ceil(BS/R),E]
+static mlir::sdy::OpShardingRuleAttr
+getMoeExpertTokenRemapShardingRule(mlir::stablehlo::CustomCallOp op) {
+  if (op.getNumOperands() != 3) {
+    op.getOperation()->emitWarning()
+        << "moe_expert_token_remap expects 3 operands, got "
+        << op.getNumOperands();
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  auto topkType = llvm::dyn_cast<RankedTensorType>(op.getOperand(0).getType());
+  auto mappingInputType =
+      llvm::dyn_cast<RankedTensorType>(op.getOperand(1).getType());
+  auto metadataType =
+      llvm::dyn_cast<RankedTensorType>(op.getOperand(2).getType());
+
+  if (!topkType || topkType.getRank() != 4 || !mappingInputType ||
+      mappingInputType.getRank() != 4 || !metadataType ||
+      metadataType.getRank() != 4) {
+    op.getOperation()->emitWarning()
+        << "moe_expert_token_remap: all operands must be 4D";
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  // Resolve result types (handle tuple and variadic)
+  SmallVector<Type> resultTypes;
+  if (op.getNumResults() == 2) {
+    for (auto type : op.getResultTypes()) {
+      resultTypes.push_back(type);
+    }
+  } else if (op.getNumResults() == 1) {
+    auto tupleType = llvm::dyn_cast<mlir::TupleType>(op.getResult(0).getType());
+    if (tupleType && tupleType.size() == 2) {
+      for (auto elemType : tupleType.getTypes()) {
+        resultTypes.push_back(elemType);
+      }
+    } else {
+      return mlir::sdy::OpShardingRuleAttr();
+    }
+  } else {
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  int64_t dDim = topkType.getShape()[0];
+  int64_t bDim = topkType.getShape()[1];
+  int64_t sDim = topkType.getShape()[2];
+  int64_t eDim = topkType.getShape()[3];
+  int64_t kDim = metadataType.getShape()[3];
+
+  mlir::sdy::OpShardingRuleBuilder builder(op.getOperandTypes(),
+                                           TypeRange(resultTypes),
+                                           op.getContext(), std::nullopt);
+
+  // D factor: topk[0], mapping_in=kNull, metadata[0],
+  //           mapping_out=kNull, reduced=kNull
+  builder.addFactor({0, mlir::sdy::kNullDim, 0},
+                    {mlir::sdy::kNullDim, mlir::sdy::kNullDim}, dDim,
+                    mlir::sdy::FactorType::kNeedReplication,
+                    /*isBlocked=*/true);
+  // B factor: topk[1], mapping_in=kNull, metadata[1],
+  //           mapping_out[1], reduced=kNull
+  builder.addFactor({1, mlir::sdy::kNullDim, 1}, {1, mlir::sdy::kNullDim}, bDim,
+                    mlir::sdy::FactorType::kNeedReplication,
+                    /*isBlocked=*/true);
+  // S factor: topk[2], mapping_in=kNull, metadata[2],
+  //           mapping_out[2], reduced=kNull
+  builder.addFactor({2, mlir::sdy::kNullDim, 2}, {2, mlir::sdy::kNullDim}, sDim,
+                    mlir::sdy::FactorType::kNeedReplication,
+                    /*isBlocked=*/true);
+  // E factor (replicated inputs): topk[3] and mapping_in[2] must keep E_global.
+  // The kernel needs the full expert-to-device table and all expert routing
+  // weights to perform global-to-local remapping internally.
+  builder.addFactor({3, 2, mlir::sdy::kNullDim},
+                    {mlir::sdy::kNullDim, mlir::sdy::kNullDim}, eDim,
+                    mlir::sdy::FactorType::kNeedReplication,
+                    /*isBlocked=*/true);
+  // E factor (passthrough outputs): mapping_out[3] and reduced[3] use global E
+  // shape but receive compound sharding from downstream sparse_matmul.
+  // UpdateGlobalToLocalShapes divides E by the mesh factor to produce E_local.
+  builder.addFactor(
+      {mlir::sdy::kNullDim, mlir::sdy::kNullDim, mlir::sdy::kNullDim}, {3, 3},
+      eDim, mlir::sdy::FactorType::kPassThrough);
+  // K factor: topk=kNull, mapping_in=kNull, metadata[3],
+  //           mapping_out=kNull, reduced=kNull
+  builder.addFactor({mlir::sdy::kNullDim, mlir::sdy::kNullDim, 3},
+                    {mlir::sdy::kNullDim, mlir::sdy::kNullDim}, kDim,
+                    mlir::sdy::FactorType::kNeedReplication,
+                    /*isBlocked=*/true);
+
+  return builder.build();
+}
 
 struct StablehloCustomCallShardingModel
     : public mlir::sdy::ShardingRuleOpInterface::ExternalModel<
@@ -556,6 +910,9 @@ private:
           {pagedUpdateCacheTargetName, getPagedAttentionShardingRule},
           {pagedFillCacheTargetName, getPagedAttentionShardingRule},
           {sparseMatmulTargetName, getSparseMatmulShardingRule},
+          {allToAllDispatchTargetName, getAllToAllDispatchShardingRule},
+          {allToAllCombineTargetName, getAllToAllCombineShardingRule},
+          {moeExpertTokenRemapTargetName, getMoeExpertTokenRemapShardingRule},
       };
 };
 

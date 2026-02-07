@@ -1587,6 +1587,81 @@ def TTNN_SparseMatmulOp : TTNN_Op<"sparse_matmul"> {
     let hasVerifier = 1;
 }
 
+def TTNN_AllToAllDispatchOp : TTNN_Op<"all_to_all_dispatch"> {
+    let summary = "Dispatch tokens to expert devices for MoE computation.";
+    let description = [{
+      Routes tokens to devices holding their selected experts via all-to-all
+      communication. Used before sparse_matmul in the MoE dispatch/combine flow.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input_tensor,
+                         AnyRankedTensor:$expert_indices,
+                         AnyRankedTensor:$expert_mapping,
+                         I64Attr:$num_devices,
+                         I64Attr:$cluster_axis,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+    let results = (outs AnyRankedTensor:$dispatched, AnyRankedTensor:$metadata);
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::createAllToAllDispatchOpOperandsWorkarounds();
+      }
+    }];
+
+    let hasVerifier = 1;
+}
+
+def TTNN_AllToAllCombineOp : TTNN_Op<"all_to_all_combine"> {
+    let summary = "Combine expert outputs back to original token positions.";
+    let description = [{
+      Inverse of dispatch: gathers expert computation results from expert devices
+      and restores tokens to their original device and order.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input_tensor,
+                         AnyRankedTensor:$expert_metadata,
+                         AnyRankedTensor:$expert_mapping,
+                         I64Attr:$num_devices,
+                         I64Attr:$cluster_axis,
+                         I64Attr:$num_experts_per_tok,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::createAllToAllCombineOpOperandsWorkarounds();
+      }
+    }];
+
+    let hasVerifier = 1;
+}
+
+def TTNN_MoeExpertTokenRemapOp : TTNN_Op<"moe_expert_token_remap"> {
+    let summary = "Remap global expert routing to local device experts with sparsity.";
+    let description = [{
+      Converts global expert routing scores to local per-device expert mapping
+      and creates a sparsity pattern for efficient sparse_matmul.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$topk_tensor,
+                         AnyRankedTensor:$expert_mapping,
+                         AnyRankedTensor:$expert_metadata,
+                         I64Attr:$reduction_size,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+    let results = (outs AnyRankedTensor:$mapping, AnyRankedTensor:$reduced);
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::createMoeExpertTokenRemapOpOperandsWorkarounds();
+      }
+    }];
+
+    let hasVerifier = 1;
+}
+
 def TTNN_PrepareConv2dWeightsOp : TTNN_Op<"prepare_conv2d_weights", [TTNN_ComputeKernelConfigOpInterface]> {
     let summary = "Prepares conv2d weights so that they can be consumed by the conv2d op.";
 

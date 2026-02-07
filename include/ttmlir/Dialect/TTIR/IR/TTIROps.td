@@ -5862,4 +5862,85 @@ def TTIR_SparseMatmulOp : TTIR_NamedOp<"sparse_matmul"> {
     let hasVerifier = 1;
 }
 
+def TTIR_AllToAllDispatchOp : TTIR_NamedOp<"all_to_all_dispatch"> {
+    let summary = "Dispatch tokens to expert devices for MoE computation.";
+    let description = [{
+      Routes tokens to devices holding their selected experts via all-to-all
+      communication. Used before sparse_matmul in the MoE dispatch/combine flow.
+
+      Input shapes:
+      - input_tensor: [B, S, 1, H]
+      - expert_indices: [B, S, 1, K]
+      - expert_mapping: [1, 1, E, D]
+
+      Output shapes:
+      - dispatched: [1, B*D, S, H]
+      - metadata: [1, B*D, S, K]
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input_tensor,
+                         AnyRankedTensor:$expert_indices,
+                         AnyRankedTensor:$expert_mapping,
+                         I64Attr:$num_devices,
+                         I64Attr:$cluster_axis);
+
+    let results = (outs AnyRankedTensor:$dispatched, AnyRankedTensor:$metadata);
+
+    let hasVerifier = 1;
+}
+
+def TTIR_AllToAllCombineOp : TTIR_NamedOp<"all_to_all_combine"> {
+    let summary = "Combine expert outputs back to original token positions.";
+    let description = [{
+      Inverse of dispatch: gathers expert computation results from expert devices
+      and restores tokens to their original device and order.
+
+      Input shapes:
+      - input_tensor: [E_local, B*D, S, H]
+      - expert_metadata: [1, B*D, S, K]
+      - expert_mapping: [1, 1, E, D]
+
+      Output shape:
+      - result: [K, B, S, H]
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input_tensor,
+                         AnyRankedTensor:$expert_metadata,
+                         AnyRankedTensor:$expert_mapping,
+                         I64Attr:$num_devices,
+                         I64Attr:$cluster_axis,
+                         I64Attr:$num_experts_per_tok);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
+def TTIR_MoeExpertTokenRemapOp : TTIR_NamedOp<"moe_expert_token_remap"> {
+    let summary = "Remap global expert routing to local device experts with sparsity.";
+    let description = [{
+      Converts global expert routing scores to local per-device expert mapping
+      and creates a sparsity pattern for efficient sparse_matmul. Used after
+      all_to_all_dispatch in the MoE dispatch/compute/combine flow.
+
+      Input shapes:
+      - topk_tensor: [D, B, S, E] (bf16 routing scores)
+      - expert_mapping: [1, 1, E, D] (uint16 one-hot mapping)
+      - expert_metadata: [D, B, S, K] (uint16 expert indices)
+
+      Output shapes:
+      - mapping: [1, B, S, E_local] (bf16 local routing weights)
+      - reduced: [1, 1, ceil(B*S/reduction_size), E_local] (uint16 sparsity)
+    }];
+
+    let arguments = (ins AnyRankedTensor:$topk_tensor,
+                         AnyRankedTensor:$expert_mapping,
+                         AnyRankedTensor:$expert_metadata,
+                         I64Attr:$reduction_size);
+
+    let results = (outs AnyRankedTensor:$mapping, AnyRankedTensor:$reduced);
+
+    let hasVerifier = 1;
+}
+
 #endif

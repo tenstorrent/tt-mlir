@@ -167,33 +167,28 @@ public:
         continue;
       }
 
-      // Currently we don't support multi-sharding on a single tensor dimension
-      // across different mesh axes.
-      if (axisRefList.size() > 1) {
-        return rewriter.notifyMatchFailure(
-            srcOp, "AllGatherOp does not support multi-sharding on a single "
-                   "tensor dimension across different mesh axes.");
+      // Handle compound sharding (multiple mesh axes on a single tensor
+      // dimension) by chaining an all_gather for each axis sequentially.
+      // For example, with mesh (2, 4) and sharding ("model", "batch") on
+      // dim 0: first gather along "model" (2-way), then along "batch" (4-way).
+      for (auto axisRef : axisRefList) {
+        mlir::StringRef meshAxis = axisRef.getName();
+        mlir::RankedTensorType prevOutputType =
+            mlir::cast<mlir::RankedTensorType>(result.getType());
+        llvm::SmallVector<int64_t> newShape =
+            llvm::SmallVector<int64_t>(prevOutputType.getShape());
+        newShape[allGatherDim] *= meshMap[meshAxis.str()];
+        mlir::RankedTensorType newOutputType = mlir::RankedTensorType::get(
+            newShape, prevOutputType.getElementType());
+
+        mlir::stablehlo::AllGatherOp allGatherOp =
+            rewriter.create<mlir::stablehlo::AllGatherOp>(
+                srcOp.getLoc(), newOutputType, result, allGatherDim,
+                createDenseAttrFromReplicaGroups(
+                    context, populateReplicaGroups(meshMap, meshAxis)),
+                channelHandleAttr);
+        result = allGatherOp.getResult(0);
       }
-
-      // Determine the output type based on the previous operand input and the
-      // all gather dimension.
-      mlir::StringRef meshAxis = axisRefList[0].getName();
-      mlir::RankedTensorType prevOutputType =
-          mlir::cast<mlir::RankedTensorType>(result.getType());
-      llvm::SmallVector<int64_t> newShape =
-          llvm::SmallVector<int64_t>(prevOutputType.getShape());
-      newShape[allGatherDim] *= meshMap[meshAxis.str()];
-      mlir::RankedTensorType newOutputType = mlir::RankedTensorType::get(
-          newShape, prevOutputType.getElementType());
-
-      // Create new chained all gather ops depending on the number of shardings.
-      mlir::stablehlo::AllGatherOp allGatherOp =
-          rewriter.create<mlir::stablehlo::AllGatherOp>(
-              srcOp.getLoc(), newOutputType, result, allGatherDim,
-              createDenseAttrFromReplicaGroups(
-                  context, populateReplicaGroups(meshMap, meshAxis)),
-              channelHandleAttr);
-      result = allGatherOp.getResult(0);
     }
 
     rewriter.replaceAllUsesWith(srcOp, result);
@@ -234,42 +229,32 @@ public:
         continue;
       }
 
-      // Currently we don't support multi-sharding on a single tensor dimension
-      // across different mesh axes.
-      if (axisRefList.size() > 1) {
-        return rewriter.notifyMatchFailure(
-            srcOp,
-            "ReduceScatterOp does not support multi-sharding on a single "
-            "tensor dimension across different mesh axes.");
+      // Handle compound sharding by chaining a reduce_scatter for each axis.
+      for (auto axisRef : axisRefList) {
+        mlir::StringRef meshAxis = axisRef.getName();
+        mlir::RankedTensorType prevOutputType =
+            mlir::cast<mlir::RankedTensorType>(result.getType());
+        llvm::SmallVector<int64_t> newShape =
+            llvm::SmallVector<int64_t>(prevOutputType.getShape());
+        newShape[reduceScatterDim] /= meshMap[meshAxis.str()];
+        mlir::RankedTensorType newOutputType = mlir::RankedTensorType::get(
+            newShape, prevOutputType.getElementType());
+
+        mlir::stablehlo::ReduceScatterOp reduceScatterOp =
+            rewriter.create<mlir::stablehlo::ReduceScatterOp>(
+                srcOp.getLoc(), newOutputType, result, reduceScatterDim,
+                createDenseAttrFromReplicaGroups(
+                    context, populateReplicaGroups(meshMap, meshAxis)),
+                channelHandleAttr);
+        result = reduceScatterOp.getResult();
+
+        addReductionBlock<mlir::stablehlo::ReduceScatterOp,
+                          mlir::stablehlo::AddOp>(rewriter, reduceScatterOp,
+                                                  newOutputType);
+        // Restore insertion point after addReductionBlock, which leaves
+        // the rewriter inside the reduction region.
+        rewriter.setInsertionPointAfter(reduceScatterOp);
       }
-
-      // Determine the output type based on the previous operand input and the
-      // reduce scatter dimension.
-      mlir::StringRef meshAxis = axisRefList[0].getName();
-      mlir::RankedTensorType prevOutputType =
-          mlir::cast<mlir::RankedTensorType>(result.getType());
-      llvm::SmallVector<int64_t> newShape =
-          llvm::SmallVector<int64_t>(prevOutputType.getShape());
-      newShape[reduceScatterDim] /= meshMap[meshAxis.str()];
-      mlir::RankedTensorType newOutputType = mlir::RankedTensorType::get(
-          newShape, prevOutputType.getElementType());
-
-      // Create new chained reduce scatter ops depending on the number of
-      // shardings.
-      mlir::stablehlo::ReduceScatterOp reduceScatterOp =
-          rewriter.create<mlir::stablehlo::ReduceScatterOp>(
-              srcOp.getLoc(), newOutputType, result, reduceScatterDim,
-              createDenseAttrFromReplicaGroups(
-                  context, populateReplicaGroups(meshMap, meshAxis)),
-              channelHandleAttr);
-      result = reduceScatterOp.getResult();
-
-      // Create a single block because stablehlo.reduce_scatter op is a region
-      // based op. Default the reduction type to sum since shardy does not have
-      // support for custom reduction types.
-      addReductionBlock<mlir::stablehlo::ReduceScatterOp,
-                        mlir::stablehlo::AddOp>(rewriter, reduceScatterOp,
-                                                newOutputType);
     }
 
     rewriter.replaceAllUsesWith(srcOp, result);
@@ -319,6 +304,9 @@ public:
       // support for custom reduction types.
       addReductionBlock<mlir::stablehlo::AllReduceOp, mlir::stablehlo::AddOp>(
           rewriter, allReduceOp, newOutputType);
+      // Restore insertion point after addReductionBlock, which leaves
+      // the rewriter inside the reduction region.
+      rewriter.setInsertionPointAfter(allReduceOp);
     }
 
     rewriter.replaceAllUsesWith(srcOp, result);
@@ -360,33 +348,26 @@ public:
         continue;
       }
 
-      // Currently we don't support multi-sharding on a single tensor dimension
-      // across different mesh axes.
-      if (axisRefList.size() > 1) {
-        return rewriter.notifyMatchFailure(
-            srcOp, "AllToAllOp does not support multi-sharding on a single "
-                   "tensor dimension across different mesh axes.");
+      // Handle compound sharding by chaining an all_to_all for each axis.
+      for (auto axisRef : axisRefList) {
+        mlir::StringRef meshAxis = axisRef.getName();
+        mlir::RankedTensorType prevOutputType =
+            mlir::cast<mlir::RankedTensorType>(result.getType());
+        llvm::SmallVector<int64_t> newShape =
+            llvm::SmallVector<int64_t>(prevOutputType.getShape());
+        newShape[sliceDim] /= meshMap[meshAxis.str()];
+        newShape[concatDim] *= meshMap[meshAxis.str()];
+        mlir::RankedTensorType newOutputType = mlir::RankedTensorType::get(
+            newShape, prevOutputType.getElementType());
+        mlir::stablehlo::AllToAllOp allToAllOp =
+            rewriter.create<mlir::stablehlo::AllToAllOp>(
+                srcOp.getLoc(), newOutputType, result, sliceDim, concatDim,
+                meshMap[meshAxis.str()],
+                createDenseAttrFromReplicaGroups(
+                    context, populateReplicaGroups(meshMap, meshAxis)),
+                channelHandleAttr);
+        result = allToAllOp.getResult(0);
       }
-
-      // Create new chained all to all ops depending on the number of shardings.
-      // Calculate new output type based on split and concat dims.
-      mlir::StringRef meshAxis = axisRefList[0].getName();
-      mlir::RankedTensorType prevOutputType =
-          mlir::cast<mlir::RankedTensorType>(result.getType());
-      llvm::SmallVector<int64_t> newShape =
-          llvm::SmallVector<int64_t>(prevOutputType.getShape());
-      newShape[sliceDim] /= meshMap[meshAxis.str()];
-      newShape[concatDim] *= meshMap[meshAxis.str()];
-      mlir::RankedTensorType newOutputType = mlir::RankedTensorType::get(
-          newShape, prevOutputType.getElementType());
-      mlir::stablehlo::AllToAllOp allToAllOp =
-          rewriter.create<mlir::stablehlo::AllToAllOp>(
-              srcOp.getLoc(), newOutputType, result, sliceDim, concatDim,
-              meshMap[meshAxis.str()],
-              createDenseAttrFromReplicaGroups(
-                  context, populateReplicaGroups(meshMap, meshAxis)),
-              channelHandleAttr);
-      result = allToAllOp.getResult(0);
     }
 
     rewriter.replaceAllUsesWith(srcOp, result);
@@ -429,8 +410,8 @@ public:
 
     auto prevType = mlir::cast<mlir::RankedTensorType>(result.getType());
 
-    // Per-dimension slicing axes (we support at most one mesh axis per tensor
-    // dim).
+    // Per-dimension slicing axes (supports compound sharding with multiple
+    // mesh axes per tensor dimension via sequential processing).
     auto axesPerDim = srcOp.getSlicingAxes();
 
     // Operations to be outlined in the composite op (if input is fully
@@ -447,103 +428,101 @@ public:
         continue;
       }
 
-      // We don't support multiple mesh axes mapped to a single tensor
-      // dimension.
-      if (axisRefs.size() > 1) {
-        return rewriter.notifyMatchFailure(
-            srcOp, "all_slice with multi-axis on a single tensor dimension is "
-                   "not supported.");
-      }
-
-      // Resolve parts for the target mesh axis.
-      mlir::StringRef meshAxis = axisRefs.front().getName();
-      auto found = meshMap.find(meshAxis.str());
-      if (found == meshMap.end()) {
-        return rewriter.notifyMatchFailure(srcOp,
-                                           "mesh axis not found in mesh map.");
-      }
-      int64_t parts = found->second;
-
-      // Validate shape divisibility by parts and compute chunk length.
-      llvm::SmallVector<int64_t> shape(prevType.getShape().begin(),
-                                       prevType.getShape().end());
-      if (shape[sliceDim] < 0 || shape[sliceDim] % parts != 0) {
-        return rewriter.notifyMatchFailure(
-            srcOp, "dimension size must be static and divisible by mesh axis "
-                   "size (parts).");
-      }
-      int64_t fullLen = shape[sliceDim];
-      int64_t chunkLen = fullLen / parts;
-
-      // 1) Reshape: [..., N, ...] → [..., parts, chunkLen, ...]
-      llvm::SmallVector<int64_t> reshapeShape;
-      reshapeShape.reserve(shape.size() + 1);
-      for (int64_t i = 0; i < static_cast<int64_t>(shape.size()); ++i) {
-        if (i == sliceDim) {
-          reshapeShape.push_back(parts);    // inserted "parts" axis
-          reshapeShape.push_back(chunkLen); // following "chunk" axis
-        } else {
-          reshapeShape.push_back(shape[i]);
+      // Handle compound sharding: process each mesh axis sequentially.
+      // Each axis reduces the dimension by its size. For example, with
+      // mesh (2, 4) and sharding ("model", "batch") on dim 0 of shape 32:
+      //   "model" (parts=2): 32 → 16,  "batch" (parts=4): 16 → 4.
+      for (auto axisRef : axisRefs) {
+        mlir::StringRef meshAxis = axisRef.getName();
+        auto found = meshMap.find(meshAxis.str());
+        if (found == meshMap.end()) {
+          return rewriter.notifyMatchFailure(
+              srcOp, "mesh axis not found in mesh map.");
         }
+        int64_t parts = found->second;
+
+        // Validate shape divisibility by parts and compute chunk length.
+        llvm::SmallVector<int64_t> shape(prevType.getShape().begin(),
+                                         prevType.getShape().end());
+        if (shape[sliceDim] < 0 || shape[sliceDim] % parts != 0) {
+          return rewriter.notifyMatchFailure(
+              srcOp, "dimension size must be static and divisible by mesh axis "
+                     "size (parts).");
+        }
+        int64_t fullLen = shape[sliceDim];
+        int64_t chunkLen = fullLen / parts;
+
+        // 1) Reshape: [..., N, ...] → [..., parts, chunkLen, ...]
+        llvm::SmallVector<int64_t> reshapeShape;
+        reshapeShape.reserve(shape.size() + 1);
+        for (int64_t i = 0; i < static_cast<int64_t>(shape.size()); ++i) {
+          if (i == sliceDim) {
+            reshapeShape.push_back(parts);    // inserted "parts" axis
+            reshapeShape.push_back(chunkLen); // following "chunk" axis
+          } else {
+            reshapeShape.push_back(shape[i]);
+          }
+        }
+        auto reshapedType = mlir::RankedTensorType::get(
+            reshapeShape, prevType.getElementType());
+        auto reshaped = rewriter.create<mlir::stablehlo::ReshapeOp>(
+            srcOp.getLoc(), reshapedType, result);
+        ops_to_outline.push_back(reshaped);
+
+        // 2) Replica groups for the target mesh axis.
+        auto groups = createDenseAttrFromReplicaGroups(
+            context, populateReplicaGroups(meshMap, meshAxis));
+
+        // 3) AllToAll along the inserted "parts" axis (split and concat on same
+        // axis).
+        int64_t partsDim = sliceDim; // "parts" axis is inserted at sliceDim
+        auto allToAll = rewriter.create<mlir::stablehlo::AllToAllOp>(
+            srcOp.getLoc(),
+            reshapedType, // result type is identical to input
+            reshaped.getResult(),
+            /*split_dimension=*/partsDim,
+            /*concat_dimension=*/partsDim,
+            /*split_count=*/parts,
+            /*replica_groups=*/groups,
+            /*channel_handle=*/ch);
+        ops_to_outline.push_back(allToAll);
+
+        // 4) Static slice the "parts" axis to take index 0 only.
+        llvm::SmallVector<int64_t> startIdx(reshapeShape.size(), 0);
+        llvm::SmallVector<int64_t> limitIdx(reshapeShape.begin(),
+                                            reshapeShape.end());
+        llvm::SmallVector<int64_t> strides(reshapeShape.size(), 1);
+        limitIdx[partsDim] =
+            1; // take only the first entry along the "parts" axis
+
+        auto startAttr = rewriter.getDenseI64ArrayAttr(startIdx);
+        auto limitAttr = rewriter.getDenseI64ArrayAttr(limitIdx);
+        auto stridesAttr = rewriter.getDenseI64ArrayAttr(strides);
+
+        auto slicedShape = reshapeShape;
+        slicedShape[partsDim] = 1;
+        auto slicedType =
+            mlir::RankedTensorType::get(slicedShape, prevType.getElementType());
+
+        mlir::Value allToAllOut = allToAll.getResult(0);
+        auto slice = rewriter.create<mlir::stablehlo::SliceOp>(
+            srcOp.getLoc(), slicedType, allToAllOut, startAttr, limitAttr,
+            stridesAttr);
+        ops_to_outline.push_back(slice);
+
+        // 5) Remove the singleton "parts" axis → final shape with chunkLen at
+        // sliceDim.
+        shape[sliceDim] = chunkLen;
+        auto finalType =
+            mlir::RankedTensorType::get(shape, prevType.getElementType());
+        auto squeezed = rewriter.create<mlir::stablehlo::ReshapeOp>(
+            srcOp.getLoc(), finalType, slice.getResult());
+        ops_to_outline.push_back(squeezed);
+
+        // Thread through for the next axis (if compound) or next dimension.
+        result = squeezed.getResult();
+        prevType = finalType;
       }
-      auto reshapedType =
-          mlir::RankedTensorType::get(reshapeShape, prevType.getElementType());
-      auto reshaped = rewriter.create<mlir::stablehlo::ReshapeOp>(
-          srcOp.getLoc(), reshapedType, result);
-      ops_to_outline.push_back(reshaped.getOperation());
-
-      // 2) Replica groups for the target mesh axis.
-      auto groups = createDenseAttrFromReplicaGroups(
-          context, populateReplicaGroups(meshMap, meshAxis));
-
-      // 3) AllToAll along the inserted "parts" axis (split and concat on same
-      // axis).
-      int64_t partsDim = sliceDim; // "parts" axis is inserted at sliceDim
-      auto allToAll = rewriter.create<mlir::stablehlo::AllToAllOp>(
-          srcOp.getLoc(),
-          reshapedType, // result type is identical to input
-          reshaped.getResult(),
-          /*split_dimension=*/partsDim,
-          /*concat_dimension=*/partsDim,
-          /*split_count=*/parts,
-          /*replica_groups=*/groups,
-          /*channel_handle=*/ch);
-      ops_to_outline.push_back(allToAll.getOperation());
-
-      // 4) Static slice the "parts" axis to take index 0 only.
-      llvm::SmallVector<int64_t> startIdx(reshapeShape.size(), 0);
-      llvm::SmallVector<int64_t> limitIdx(reshapeShape.begin(),
-                                          reshapeShape.end());
-      llvm::SmallVector<int64_t> strides(reshapeShape.size(), 1);
-      limitIdx[partsDim] =
-          1; // take only the first entry along the "parts" axis
-
-      auto startAttr = rewriter.getDenseI64ArrayAttr(startIdx);
-      auto limitAttr = rewriter.getDenseI64ArrayAttr(limitIdx);
-      auto stridesAttr = rewriter.getDenseI64ArrayAttr(strides);
-
-      auto slicedShape = reshapeShape;
-      slicedShape[partsDim] = 1;
-      auto slicedType =
-          mlir::RankedTensorType::get(slicedShape, prevType.getElementType());
-
-      mlir::Value allToAllOut = allToAll.getResult(0);
-      auto slice = rewriter.create<mlir::stablehlo::SliceOp>(
-          srcOp.getLoc(), slicedType, allToAllOut, startAttr, limitAttr,
-          stridesAttr);
-      ops_to_outline.push_back(slice.getOperation());
-
-      // 5) Remove the singleton "parts" axis → final shape with chunkLen at
-      // sliceDim.
-      shape[sliceDim] = chunkLen;
-      auto finalType =
-          mlir::RankedTensorType::get(shape, prevType.getElementType());
-      auto squeezed = rewriter.create<mlir::stablehlo::ReshapeOp>(
-          srcOp.getLoc(), finalType, slice.getResult());
-      ops_to_outline.push_back(squeezed.getOperation());
-      // Thread through for the next dimension (if any).
-      result = squeezed.getResult();
-      prevType = finalType;
     }
 
     // Wrap the result in a stablehlo.composite op. During the SHLO->TTIR

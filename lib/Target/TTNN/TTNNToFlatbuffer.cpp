@@ -1128,6 +1128,76 @@ createOp(FlatbufferObjectCache &cache, ReduceScatterOp op) {
       subDeviceId, memoryConfig, numLinks, topology);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::AllToAllDispatchOp>
+createOp(FlatbufferObjectCache &cache, AllToAllDispatchOp op) {
+  auto inputTensor = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInputTensor()));
+  auto expertIndices = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getExpertIndices()));
+  auto expertMapping = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getExpertMapping()));
+  auto dispatched = cache.getOrCreateNoSharding(
+      op.getDispatched(), tensorValueToFlatbuffer, std::nullopt);
+  auto metadata = cache.getOrCreateNoSharding(
+      op.getMetadata(), tensorValueToFlatbuffer, std::nullopt);
+
+  ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig> memoryConfig = 0;
+  if (auto memConfig = op.getMemoryConfig()) {
+    memoryConfig = toFlatbuffer(cache, memConfig.value());
+  }
+
+  return ::tt::target::ttnn::CreateAllToAllDispatchOp(
+      *cache.fbb, inputTensor, expertIndices, expertMapping, dispatched,
+      metadata, static_cast<uint32_t>(op.getNumDevices()),
+      static_cast<uint32_t>(op.getClusterAxis()), memoryConfig);
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::AllToAllCombineOp>
+createOp(FlatbufferObjectCache &cache, AllToAllCombineOp op) {
+  auto inputTensor = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInputTensor()));
+  auto expertMetadata = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getExpertMetadata()));
+  auto expertMapping = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getExpertMapping()));
+  auto output = cache.getOrCreateNoSharding(
+      op.getResult(), tensorValueToFlatbuffer, std::nullopt);
+
+  ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig> memoryConfig = 0;
+  if (auto memConfig = op.getMemoryConfig()) {
+    memoryConfig = toFlatbuffer(cache, memConfig.value());
+  }
+
+  return ::tt::target::ttnn::CreateAllToAllCombineOp(
+      *cache.fbb, inputTensor, expertMetadata, expertMapping, output,
+      static_cast<uint32_t>(op.getNumDevices()),
+      static_cast<uint32_t>(op.getClusterAxis()),
+      static_cast<uint32_t>(op.getNumExpertsPerTok()), memoryConfig);
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::MoeExpertTokenRemapOp>
+createOp(FlatbufferObjectCache &cache, MoeExpertTokenRemapOp op) {
+  auto topkTensor = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getTopkTensor()));
+  auto expertMapping = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getExpertMapping()));
+  auto expertMetadata = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getExpertMetadata()));
+  auto mapping = cache.getOrCreateNoSharding(
+      op.getMapping(), tensorValueToFlatbuffer, std::nullopt);
+  auto reduced = cache.getOrCreateNoSharding(
+      op.getReduced(), tensorValueToFlatbuffer, std::nullopt);
+
+  ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig> memoryConfig = 0;
+  if (auto memConfig = op.getMemoryConfig()) {
+    memoryConfig = toFlatbuffer(cache, memConfig.value());
+  }
+
+  return ::tt::target::ttnn::CreateMoeExpertTokenRemapOp(
+      *cache.fbb, topkTensor, expertMapping, expertMetadata, mapping, reduced,
+      static_cast<uint32_t>(op.getReductionSize()), memoryConfig);
+}
+
 // Convert ttcore::ReduceType to tt::target::ttnn::ScatterReduceType
 // Sum, Max, Min, Prod - applied reduction type to source tensor
 // Invalid - copy source to output tensor
@@ -3914,6 +3984,21 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto reduceScatterOp = dyn_cast<ReduceScatterOp>(op); reduceScatterOp) {
     return createOperation(cache, createOp(cache, reduceScatterOp), debugString,
                            locInfo);
+  }
+  if (auto allToAllDispatchOp = dyn_cast<AllToAllDispatchOp>(op);
+      allToAllDispatchOp) {
+    return createOperation(cache, createOp(cache, allToAllDispatchOp),
+                           debugString, locInfo);
+  }
+  if (auto allToAllCombineOp = dyn_cast<AllToAllCombineOp>(op);
+      allToAllCombineOp) {
+    return createOperation(cache, createOp(cache, allToAllCombineOp),
+                           debugString, locInfo);
+  }
+  if (auto moeExpertTokenRemapOp = dyn_cast<MoeExpertTokenRemapOp>(op);
+      moeExpertTokenRemapOp) {
+    return createOperation(cache, createOp(cache, moeExpertTokenRemapOp),
+                           debugString, locInfo);
   }
   if (auto scatterOp = dyn_cast<ScatterOp>(op); scatterOp) {
     return createOperation(cache, createOp(cache, scatterOp), debugString,
