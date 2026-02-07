@@ -259,17 +259,6 @@ mlir::ValueRange getDpsOutputsFromAdaptor(AdaptorT adaptor,
   return operands.take_back(numDpsInits);
 }
 
-/// Add the "ttir.should_hoist" attribute to an operation.
-inline void addShouldHoistAttr(mlir::Operation *op,
-                               mlir::PatternRewriter &rewriter) {
-  op->setAttr("ttir.should_hoist", rewriter.getUnitAttr());
-}
-
-/// Check if the "ttir.should_hoist" attribute is present on an operation.
-inline bool hasShouldHoistAttr(mlir::Operation *op) {
-  return op->hasAttr("ttir.should_hoist");
-}
-
 // Helper function to create a reshape operation.
 inline ttir::ReshapeOp createReshapeOp(PatternRewriter &rewriter, Location loc,
                                        Value input,

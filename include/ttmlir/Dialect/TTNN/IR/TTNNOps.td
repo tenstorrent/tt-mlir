@@ -82,8 +82,17 @@ def TTNN_TypecastOp : TTNN_Op<"typecast"> {
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         TTCore_DataTypeAttr:$dtype);
+                         TTCore_DataTypeAttr:$dtype,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
     let results = (outs AnyRankedTensor:$result);
+
+    let builders =
+    [
+      OpBuilder<(ins "Type": $resultType, "Value": $input, "ttcore::DataTypeAttr": $dtype),
+      [{
+        build($_builder, $_state, resultType, input, dtype, /*memory_config=*/nullptr);
+      }]>
+    ];
 
     let hasFolder = 1;
     let hasCanonicalizeMethod = 1;
@@ -1366,7 +1375,7 @@ def TTNN_ReshapeOp : TTNN_Op<"reshape", [TTNN_MemoryConfigOpInterface]> {
     }];
 }
 
-def TTNN_RepeatOp : TTNN_Op<"repeat"> {
+def TTNN_RepeatOp : TTNN_Op<"repeat", [TTNN_MemoryConfigOpInterface]> {
     let summary = "Repeat op.";
     let description = [{
       Returns a new tensor filled with repetition of input tensor according to number of times specified in repeat_dims.
@@ -1377,9 +1386,18 @@ def TTNN_RepeatOp : TTNN_Op<"repeat"> {
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         TTNN_ShapeAttr:$repeat_dims);
+                         TTNN_ShapeAttr:$repeat_dims,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
     let results = (outs AnyRankedTensor:$result);
+
+    let builders =
+    [
+      OpBuilder<(ins "Type": $resultType, "Value": $input, "ttnn::ShapeAttr": $repeat_dims),
+      [{
+        build($_builder, $_state, resultType, input, repeat_dims, /*memory_config=*/nullptr);
+      }]>
+    ];
 
     let hasVerifier = 1;
 }
@@ -1624,6 +1642,7 @@ def TTNN_PrepareConvTranspose2dWeightsOp : TTNN_Op<"prepare_conv_transpose2d_wei
                          OptionalAttr<TTCore_DataTypeAttr>:$output_dtype,
                          OptionalAttr<TTNN_Conv2dConfigAttr>:$conv2d_config,
                          OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config,
+                         OptionalAttr<TTNN_Conv2dSliceConfigAttr>:$conv2d_slice_config,
                          DefaultValuedAttr<BoolAttr, "true">:$mirror_kernel);
 
     let results = (outs AnyRankedTensor:$result);
@@ -1651,7 +1670,8 @@ def TTNN_PrepareConvTranspose2dBiasOp : TTNN_Op<"prepare_conv_transpose2d_bias",
                          TTCore_DataTypeAttr:$input_dtype,
                          OptionalAttr<TTCore_DataTypeAttr>:$output_dtype,
                          OptionalAttr<TTNN_Conv2dConfigAttr>:$conv2d_config,
-                         OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config);
+                         OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config,
+                         OptionalAttr<TTNN_Conv2dSliceConfigAttr>:$conv2d_slice_config);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -1913,7 +1933,8 @@ def TTNN_ConvTranspose2dOp : TTNN_Op<"conv_transpose2d", [TTNN_DtypeOpInterface,
                          OptionalAttr<TTCore_DataTypeAttr>:$dtype,
                          OptionalAttr<TTNN_Conv2dConfigAttr>:$conv2d_config,
                          OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config,
-                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
+                         OptionalAttr<TTNN_Conv2dSliceConfigAttr>:$conv2d_slice_config);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -1959,7 +1980,8 @@ def TTNN_AvgPool2dOp : TTNN_Op<"avg_pool2d", [TTNN_MemoryConfigOpInterface]> {
                          OptionalAttr<TTNN_TensorMemoryLayoutAttr>:$applied_shard_scheme,
                          BoolAttr:$ceil_mode,
                          DefaultValuedAttr<BoolAttr, "true">:$reallocate_halo_output,
-                         DefaultValuedAttr<BoolAttr, "true">:$count_include_pad);
+                         DefaultValuedAttr<BoolAttr, "true">:$count_include_pad,
+                         OptionalAttr<BoolAttr>:$config_tensors_in_dram);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -1990,7 +2012,8 @@ def TTNN_MaxPool2dOp : TTNN_Op<"max_pool2d", [TTNN_MemoryConfigOpInterface]> {
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
                          OptionalAttr<TTNN_TensorMemoryLayoutAttr>:$applied_shard_scheme,
                          BoolAttr:$ceil_mode,
-                         DefaultValuedAttr<BoolAttr, "true">:$reallocate_halo_output);
+                         DefaultValuedAttr<BoolAttr, "true">:$reallocate_halo_output,
+                         OptionalAttr<BoolAttr>:$config_tensors_in_dram);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -2023,7 +2046,8 @@ def TTNN_MaxPool2dWithIndicesOp : TTNN_Op<"max_pool2d_with_indices", [TTNN_Memor
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
                          OptionalAttr<TTNN_TensorMemoryLayoutAttr>:$applied_shard_scheme,
                          BoolAttr:$ceil_mode,
-                         DefaultValuedAttr<BoolAttr, "true">:$reallocate_halo_output);
+                         DefaultValuedAttr<BoolAttr, "true">:$reallocate_halo_output,
+                         OptionalAttr<BoolAttr>:$config_tensors_in_dram);
 
     let results = (outs AnyRankedTensor:$result,
                         AnyRankedTensor:$result_indices);
@@ -2303,6 +2327,46 @@ def TTNN_RandOp : TTNN_CreationOp<"rand", [TTCore_NonCacheableTrait]> {
                        TTNN_MemoryConfigAttr:$memory_config);
 
   let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+}
+
+def TTNN_DropoutOp : TTNN_Op<"dropout", [TTNN_MemoryConfigOpInterface, TTCore_NonCacheableTrait]> {
+  let summary = "Dropout operation.";
+  let description = [{
+    Applies dropout to the input tensor element-wise.
+
+    Example:
+      %result = "ttnn.dropout"(%input) <{prob = 0.2 : f32, scale = 1.25 : f32, seed = 42 : ui32}> : (tensor<64x128xbf16>) -> tensor<64x128xbf16>
+
+    Attributes:
+      - `prob` (Float): Dropout probability. Elements are zeroed with this probability [Default: 0.0].
+      - `scale` (Float): Scale factor applied to non-zeroed elements. Typically 1/(1-prob) [Default: 1.0].
+      - `seed` (Integer): Seed for the random number generator [Default: 0].
+      - `use_per_device_seed` (Bool): Whether to use a different seed per device [Default: true].
+      - `memory_config` (MemoryConfig): Memory configuration for the output tensor.
+
+    Inputs:
+      - `input` (Tensor): The input tensor.
+
+    Output:
+      - `result` (Tensor): The output tensor with dropout applied.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       DefaultValuedAttr<F32Attr, "0.0">:$prob,
+                       DefaultValuedAttr<F32Attr, "1.0">:$scale,
+                       DefaultValuedAttr<UI32Attr, "0">:$seed,
+                       DefaultValuedAttr<BoolAttr, "true">:$use_per_device_seed,
+                       OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let extraClassDeclaration = [{
+    wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+      return wa::TTNNOperandsWorkaroundsFactory::createDropoutOpOperandsWorkarounds();
+    }
+  }];
 
   let hasVerifier = 1;
 }
@@ -2859,7 +2923,7 @@ def TTNN_CaptureOrExecuteTraceOp : TTNN_MemoryEffectOp<"capture_or_execute_trace
   let hasVerifier = 1;
 }
 
-def TTNN_GenericOp : TTNN_Op<"generic", [TTNN_MemoryConfigOpInterface, MemoryEffects<[MemRead, MemWrite]>]> {
+def TTNN_GenericOp : TTNN_Op<"generic", [TTNN_MemoryConfigOpInterface, MemoryEffects<[MemRead, MemWrite]>, TTCore_NonCacheableTrait]> {
     let summary = "Generic operation.";
     let description = [{
       Generic operation capable of running a program with custom kernels. Each kernel is described with a
@@ -2872,10 +2936,71 @@ def TTNN_GenericOp : TTNN_Op<"generic", [TTNN_MemoryConfigOpInterface, MemoryEff
     }];
 
     let arguments = (ins Variadic<AnyRankedTensor>:$inputs_and_outputs,
-                         TTNN_ProgramAttr:$program,
+                         TTNN_GenericProgramAttr:$program,
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
     let hasVerifier = 1;
+}
+
+def TTNN_D2MSubgraphOp : TTNN_MemoryEffectOp<"d2m_subgraph",
+  [AttrSizedOperandSegments]> {
+  let summary = "Dispatch D2M compiled subgraph.";
+  let description = [{
+    References a D2M-compiled subgraph function containing ttnn.generic ops.
+    The function is a private function in the same module.
+
+    Before TTNNMaterializeD2M runs, the referenced function contains a TTNN subgraph
+    to be compiled via D2M.
+
+    After TTNNMaterializeD2M runs, the referenced function contains:
+    - ttnn.generic ops (the compiled subgraph)
+    - Kernel functions are generated at module scope
+
+    TTNNCollaspeD2M will inline the D2M function body at the call site.
+
+    Example:
+    ```mlir
+    // Before D2M compilation
+    %result = ttnn.d2m_subgraph @d2m_subgraph
+        ins(%a : tensor<...>)
+        outs(%out : tensor<...>) : tensor<...>
+
+    func.func private @d2m_subgraph(...) -> tensor<...> {
+      // ttnn subgraph
+    }
+
+    // After D2M compilation
+    %result = ttnn.d2m_subgraph @d2m_subgraph
+        ins(%a : tensor<...>)
+        outs(%out : tensor<...>) : tensor<...>
+
+    func.func private @d2m_subgraph(...) -> tensor<...> {
+      ttnn.generic ...
+      // more generic ops if subgraph didn't fully fuse
+    }
+    func.func private @kernel0() { ... }
+    ... other kernel functions at module scope
+    ```
+  }];
+
+  let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
+                       Variadic<AnyRankedTensor>:$outputs,
+                       SymbolRefAttr:$d2m_func);
+
+  let results = (outs Variadic<AnyRankedTensor>:$results);
+
+  let hasVerifier = 1;
+
+  let assemblyFormat = [{
+    $d2m_func attr-dict `\n`
+    `ins` `(` $inputs `:` type($inputs) `)` `\n`
+    `outs` `(` $outputs `:` type($outputs) `)` (`:` type($results)^)?
+  }];
+
+  let extraClassDeclaration = [{
+    // Returns the D2M function referenced by this op (looks up in parent module).
+    func::FuncOp getD2MMainFunc();
+  }];
 }
 
 def TTNN_RotaryEmbeddingLlamaOp : TTNN_Op<"rotary_embedding_llama", [TTNN_MemoryConfigOpInterface, TTNN_ComputeKernelConfigOpInterface]> {

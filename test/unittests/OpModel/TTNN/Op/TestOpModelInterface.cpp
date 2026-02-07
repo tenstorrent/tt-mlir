@@ -2385,7 +2385,7 @@ TEST_F(OpModelBase, maxPool2dWithIndicesOp) {
       mlir::TypeRange{pooledValues.getType(), indices.getType()}, input,
       batchSize, inputHeight, inputWidth, numChannels, kernelSize, stride,
       padding, dilation, memoryConfigAttr, appliedShardScheme, ceilMode,
-      reallocateHaloOutput);
+      reallocateHaloOutput, /*config_tensors_in_dram=*/nullptr);
   maxPool2dWithIndices->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
 
   auto constraintsExp = getOpConstraints(maxPool2dWithIndices.getOperation());
@@ -2418,9 +2418,9 @@ TEST_F(OpModelBase, typecastOp) {
   RankedTensorType rankedTensorTypeF32 =
       RankedTensorType::get(tensorShape, builder.getF32Type());
 
-  auto typecast =
-      builder.create<TypecastOp>(builder.getUnknownLoc(), rankedTensorTypeF32,
-                                 input, ttcore::DataType::Float32);
+  auto typecast = builder.create<TypecastOp>(
+      builder.getUnknownLoc(), rankedTensorTypeF32, input,
+      ttcore::DataTypeAttr::get(&context, ttcore::DataType::Float32));
 
   auto constraintsExp = getOpConstraints(typecast.getOperation());
   if (constraintsExp) {
@@ -2905,7 +2905,7 @@ TEST_F(OpModelBase, ConvTranspose2dInterfaceConfigs) {
       64, 1, 224, 224, llvm::ArrayRef<int32_t>({7, 7}),
       llvm::ArrayRef<int32_t>({2, 2}), llvm::ArrayRef<int32_t>({3, 3}),
       llvm::ArrayRef<int32_t>({0, 0}), llvm::ArrayRef<int32_t>({1, 1}), 1,
-      outputDtype, nullptr, nullptr, nullptr);
+      outputDtype, nullptr, nullptr, nullptr, nullptr);
 
   auto goodConvConfig = Conv2dConfigAttr::get(
       &context,
@@ -3211,7 +3211,8 @@ TEST_F(OpModelBase, maxPool2DOp) {
   auto maxPool2DOp = builder.create<MaxPool2dOp>(
       builder.getUnknownLoc(), output.getType(), input, batchSize, inputHeight,
       inputWidth, numChannels, kernelSize, stride, padding, dilation,
-      memoryConfigAttr, appliedShardScheme, ceilMode, reallocateHaloOutput);
+      memoryConfigAttr, appliedShardScheme, ceilMode, reallocateHaloOutput,
+      /*config_tensors_in_dram=*/nullptr);
   maxPool2DOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
 
   constexpr int32_t numRuns = 10;
@@ -3281,7 +3282,8 @@ TEST_F(OpModelBase, avgPool2DOp) {
   auto avgPool2DOp = builder.create<AvgPool2dOp>(
       builder.getUnknownLoc(), output.getType(), input, batchSize, inputHeight,
       inputWidth, numChannels, kernelSize, stride, padding, dilation,
-      memoryConfigAttr, appliedShardScheme, ceilMode, reallocateHaloOutput);
+      memoryConfigAttr, appliedShardScheme, ceilMode, reallocateHaloOutput,
+      /*count_include_pad=*/true, /*config_tensors_in_dram=*/nullptr);
   avgPool2DOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
 
   auto backend = dyn_cast<OpModel>(avgPool2DOp.getOperation());
@@ -5459,6 +5461,65 @@ TEST_F(OpModelBase, AssignOpInterfaceWithOutputDtype) {
     EXPECT_TRUE(runtimeExp.get() > 0);
   } else {
     FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, DropoutOpInterface) {
+  // Test DropoutOp with default parameters
+  llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
+  auto input = createEmptyTensor(tensorShape);
+  auto outputType = createRankedTensorType(tensorShape);
+
+  auto dropoutOp = builder.create<DropoutOp>(
+      builder.getUnknownLoc(), outputType, input,
+      /*prob=*/nullptr, /*scale=*/nullptr, /*seed=*/nullptr,
+      /*use_per_device_seed=*/nullptr, /*memory_config=*/nullptr);
+  dropoutOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
+
+  auto backend = dyn_cast<OpModel>(dropoutOp.getOperation());
+  auto constraintsExp =
+      backend.getOpConstraints(getInputLayouts(dropoutOp), OpConfig(nullptr));
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
+    EXPECT_GE(cbSize, 0);
+    EXPECT_GE(l1PeakSize, 0);
+    EXPECT_GE(outputSize, 0);
+  } else {
+    FAIL() << "Missing L1 constraints for DropoutOp (default params); Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  // Test DropoutOp with custom parameters
+  auto dropoutOpCustom = builder.create<DropoutOp>(
+      builder.getUnknownLoc(), outputType, input, builder.getF32FloatAttr(0.2),
+      builder.getF32FloatAttr(1.25), builder.getUI32IntegerAttr(21),
+      builder.getBoolAttr(true),
+      /*memory_config=*/nullptr);
+  dropoutOpCustom->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
+
+  auto backendCustom = dyn_cast<OpModel>(dropoutOpCustom.getOperation());
+  auto constraintsExpCustom = backendCustom.getOpConstraints(
+      getInputLayouts(dropoutOpCustom), OpConfig(nullptr));
+  if (constraintsExpCustom) {
+    auto l1 = constraintsExpCustom.get();
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
+    EXPECT_GE(cbSize, 0);
+    EXPECT_GE(l1PeakSize, 0);
+    EXPECT_GE(outputSize, 0);
+  } else {
+    FAIL() << "Missing L1 constraints for DropoutOp (custom params); Error="
+           << llvm::toString(constraintsExpCustom.takeError()) << std::endl;
+  }
+
+  auto runtimeExp = getOpRuntime(dropoutOpCustom.getOperation());
+  if (runtimeExp) {
+    EXPECT_GE(runtimeExp.get(), 0);
+  } else {
+    FAIL() << "Missing runtime for DropoutOp; Error="
+           << llvm::toString(runtimeExp.takeError()) << std::endl;
   }
 }
 

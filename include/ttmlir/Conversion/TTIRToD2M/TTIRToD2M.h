@@ -23,7 +23,7 @@ void populateTTIRToD2MPatterns(
     MLIRContext *ctx, RewritePatternSet &patterns, TypeConverter &typeConverter,
     mlir::tt::ttcore::MemorySpace defaultInputMemSpace,
     mlir::tt::ttcore::MemorySpace defaultOutputMemSpace, bool ttnnMode,
-    bool collapseTensors);
+    bool collapseTensors, bool enableMulticastInference);
 
 std::unique_ptr<OperationPass<ModuleOp>> createTTIRToD2MPass();
 

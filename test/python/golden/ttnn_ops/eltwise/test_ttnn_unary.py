@@ -382,6 +382,7 @@ hoisted_unary_ops = [
     sin,
     cos,
     relu,
+    relu6,
 ]
 
 

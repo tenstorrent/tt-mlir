@@ -219,6 +219,38 @@ logical_ops = [
 ]
 
 
+def create_logical_op_goldens(
+    shape: Shape, dtype: torch.dtype, op_name: str
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Create golden tensors with a mix of 0s and non-0s for logical op testing.
+
+    Returns:
+        Tuple of (golden0, golden1, output_golden) tensors.
+    """
+    # Pattern: alternating rows of zeros and non-zeros for variety.
+    golden0 = torch.zeros(shape, dtype=dtype)
+    golden1 = torch.zeros(shape, dtype=dtype)
+
+    # in0: first half rows are non-zero, second half are zero
+    golden0[: shape[0] // 2, :] = torch.randn(shape[0] // 2, shape[1])
+    # in1: alternating columns of zero and non-zero
+    golden1[:, ::2] = torch.randn(shape[0], shape[1] // 2)
+
+    # Compute expected output based on logical operation.
+    bool0 = golden0 != 0
+    bool1 = golden1 != 0
+    if op_name == "logical_and":
+        output_golden = (bool0 & bool1).to(dtype)
+    elif op_name == "logical_or":
+        output_golden = (bool0 | bool1).to(dtype)
+    elif op_name == "logical_xor":
+        output_golden = (bool0 ^ bool1).to(dtype)
+    else:
+        raise ValueError(f"Unknown logical op: {op_name}")
+
+    return golden0, golden1, output_golden
+
+
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
@@ -229,28 +261,9 @@ def test_logical_ops(
     def module(builder: TTIRBuilder):
         @builder.func([shape, shape], [dtype, dtype])
         def logical_op_fn(in0: Operand, in1: Operand, builder: TTIRBuilder) -> Operand:
-            # Create golden tensors with a mix of 0s and non-0s to test edge cases.
-            # Pattern: alternating rows of zeros and non-zeros for variety.
-            golden0 = torch.zeros(shape, dtype=dtype)
-            golden1 = torch.zeros(shape, dtype=dtype)
-
-            # in0: first half rows are non-zero, second half are zero
-            golden0[: shape[0] // 2, :] = torch.randn(shape[0] // 2, shape[1])
-            # in1: alternating columns of zero and non-zero
-            golden1[:, ::2] = torch.randn(shape[0], shape[1] // 2)
-
-            # Compute expected output based on logical operation.
-            bool0 = golden0 != 0
-            bool1 = golden1 != 0
-            if test_fn.__name__ == "logical_and":
-                output_golden = (bool0 & bool1).to(dtype)
-            elif test_fn.__name__ == "logical_or":
-                output_golden = (bool0 | bool1).to(dtype)
-            elif test_fn.__name__ == "logical_xor":
-                output_golden = (bool0 ^ bool1).to(dtype)
-            else:
-                raise ValueError(f"Unknown logical op: {test_fn.__name__}")
-
+            golden0, golden1, output_golden = create_logical_op_goldens(
+                shape, dtype, test_fn.__name__
+            )
             result = test_fn(in0, in1, builder)
             builder.set_goldens(
                 inputs={in0: golden0, in1: golden1}, outputs={result: output_golden}
@@ -266,6 +279,36 @@ def test_logical_ops(
         target=target,
         device=device,
         pipeline_options=pipeline_options,
+    )
+
+
+@x86_only
+@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("test_fn", logical_ops)
+def test_hoisted_logical_ops(
+    test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request, device
+):
+    def module(builder: TTIRBuilder):
+        @builder.func([shape, shape], [dtype, dtype])
+        def hoisted_logical_op_fn(
+            in0: Operand, in1: Operand, builder: TTIRBuilder
+        ) -> Operand:
+            golden0, golden1, output_golden = create_logical_op_goldens(
+                shape, dtype, test_fn.__name__
+            )
+            result = test_fn(in0, in1, builder, unit_attrs=["ttir.should_hoist"])
+            builder.set_goldens(
+                inputs={in0: golden0, in1: golden1}, outputs={result: output_golden}
+            )
+            return result
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
     )
 
 
@@ -721,6 +764,8 @@ hoisted_binary_ops = [
     ge,
     lt,
     le,
+    minimum,
+    maximum,
 ]
 
 
@@ -944,6 +989,29 @@ def test_hoisted_pow(shape: Shape, dtype: torch.dtype, target: str, request, dev
             unit_attrs: Optional[List[str]] = None,
         ):
             return pow(in0, in1, builder, unit_attrs=["ttir.should_hoist"])
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+    )
+
+
+# 1D tensor test for ttmetal
+@pytest.mark.parametrize("shape", [(128,)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_1d(shape: Shape, dtype: torch.dtype, target: str, request, device):
+    def module(builder: TTIRBuilder):
+        @builder.func([shape, shape], [dtype, dtype])
+        def binary_1d(
+            in0: Operand,
+            in1: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return add(in0, in1, builder, unit_attrs=unit_attrs)
 
     compile_and_execute_ttir(
         module,

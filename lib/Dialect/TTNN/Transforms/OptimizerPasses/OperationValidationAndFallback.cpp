@@ -10,6 +10,7 @@
 #include "ttmlir/Dialect/TTNN/Utils/Conv2dConfigParams.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Dialect/TTNN/Validation/OpConstraintValidation.h"
+#include "ttmlir/FunctionTypes.h"
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
 #include "ttmlir/Support/Logger.h"
 
@@ -23,7 +24,7 @@
 #include <cassert>
 #include <cstddef>
 #include <optional>
-#include <unordered_set>
+#include <set>
 #include <vector>
 
 namespace mlir::tt::ttnn {
@@ -363,9 +364,36 @@ bool tryFallbacks(Operation *operation,
                           /*currentDistance*/ 0.0, allCombinations);
 
   // Sort combinations by total distance (ascending)
+  // Comparator includes full tiebreaker for deterministic ordering
   std::sort(allCombinations.begin(), allCombinations.end(),
             [](const CombinationCandidate &a, const CombinationCandidate &b) {
-              return a.totalDistance < b.totalDistance;
+              if (a.totalDistance != b.totalDistance) {
+                return a.totalDistance < b.totalDistance;
+              }
+              // Tiebreaker: content-based lexicographic comparison for full
+              // determinism across runs when distances are equal
+              for (size_t i = 0; i < a.layouts.size() && i < b.layouts.size();
+                   ++i) {
+                const auto &aLayout = a.layouts[i];
+                const auto &bLayout = b.layouts[i];
+
+                // Compare layout type first (RowMajor before Tile based on enum
+                // order)
+                if (aLayout.getLayout() != bLayout.getLayout()) {
+                  return static_cast<int>(aLayout.getLayout()) <
+                         static_cast<int>(bLayout.getLayout());
+                }
+                if (aLayout.getDataType() != bLayout.getDataType()) {
+                  return static_cast<int>(aLayout.getDataType()) <
+                         static_cast<int>(bLayout.getDataType());
+                }
+                if (aLayout.getBufferType() != bLayout.getBufferType()) {
+                  return static_cast<int>(aLayout.getBufferType()) <
+                         static_cast<int>(bLayout.getBufferType());
+                }
+              }
+              // All layouts match - combinations are equivalent
+              return false;
             });
 
   TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
@@ -420,21 +448,31 @@ createFallbackTransforms(TTNNLayoutAttr originalLayout,
   // TODO(rpavlovicTT): Expand to more combinations if needed in the future.
   //                    E.g. Bfp8. At the moment we don't create new
   //                    MemoryLayouts as Interleaved should always work.
-  // Use unordered_set to automatically deduplicate during generation, for case
+  // Use set to automatically deduplicate during generation, for case
   // a target configuration isn't viable e.g. bfp8 and row-major combination
-  // isn't possible
-  struct TTNNLayoutAttrHash {
-    size_t operator()(const TTNNLayoutAttr &attr) const {
-      return std::hash<const void *>()(attr.getAsOpaquePointer());
-    }
-  };
-  struct TTNNLayoutAttrEqual {
+  // isn't possible. Using std::set instead of std::unordered_set provides
+  // deterministic iteration order for consistent fallback selection.
+  struct TTNNLayoutAttrCompare {
     bool operator()(const TTNNLayoutAttr &a, const TTNNLayoutAttr &b) const {
-      return a == b;
+      // Content-based comparison for deterministic ordering across runs
+      // Compare by: Layout -> DataType -> BufferType
+      if (a.getLayout() != b.getLayout()) {
+        return static_cast<int>(a.getLayout()) <
+               static_cast<int>(b.getLayout());
+      }
+      if (a.getDataType() != b.getDataType()) {
+        return static_cast<int>(a.getDataType()) <
+               static_cast<int>(b.getDataType());
+      }
+      if (a.getBufferType() != b.getBufferType()) {
+        return static_cast<int>(a.getBufferType()) <
+               static_cast<int>(b.getBufferType());
+      }
+      // Layouts match - fallbacks are equivalent
+      return false;
     }
   };
-  std::unordered_set<TTNNLayoutAttr, TTNNLayoutAttrHash, TTNNLayoutAttrEqual>
-      fallbackLayoutsSet;
+  std::set<TTNNLayoutAttr, TTNNLayoutAttrCompare> fallbackLayoutsSet;
 
   // Define the 4 target data types for fallbacks
   std::vector<ttcore::DataType> targetDataTypes = {
@@ -678,6 +716,14 @@ void applyFallbackTransformations(
                               result.actualOutputLayout.getScalarElementType(),
                               result.actualOutputLayout);
     operation->getResult(0).setType(newResultType);
+
+    // Update the layout attribute for ops that have one (e.g., creation ops).
+    // The layout attribute must match the result type's layout.
+    if (TTNNLayoutOpInterface opWithLayoutIF =
+            mlir::dyn_cast<TTNNLayoutOpInterface>(operation)) {
+      opWithLayoutIF.setLayoutAttr(LayoutAttr::get(
+          operation->getContext(), result.actualOutputLayout.getLayout()));
+    }
 
     // Step 2: Add revert ToLayoutOp to convert back to expected layout for
     // consumers

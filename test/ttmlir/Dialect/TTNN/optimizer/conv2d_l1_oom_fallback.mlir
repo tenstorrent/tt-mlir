@@ -1,5 +1,5 @@
 // REQUIRES: opmodel
-// RUN: ttmlir-opt --ttcore-register-device --ttnn-operation-validation-and-fallback -o %t %s
+// RUN: ttmlir-opt --ttcore-register-device --ttcore-mark-functions-as-forward --ttnn-operation-validation-and-fallback -o %t %s
 // RUN: FileCheck %s --input-file=%t
 //
 // This test verifies that when a Conv2d operation with conv2d_slice_config=<l1_full>

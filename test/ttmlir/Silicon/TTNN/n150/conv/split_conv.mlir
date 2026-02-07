@@ -1,5 +1,11 @@
 // RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path%" -o %t.mlir %s
 // RUN: ttmlir-translate --ttnn-to-flatbuffer -o %t.ttnn %t.mlir
+// UNSUPPORTED: true
+
+// TODO(jserbedzija): Failing with tt-metal error:
+// "CB page size 64 should be greater than the config tensor page size 132"
+// Disabled until fixed in tt-metal
+// https://github.com/tenstorrent/tt-metal/issues/35207
 
 module {
   func.func @test_conv_sliced_batch_group_count() -> tensor<1x768x768xbf16> {

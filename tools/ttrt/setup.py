@@ -42,8 +42,10 @@ dylibs = []
 runlibs = []
 perflibs = []
 metallibs = []
-install_requires = ["torch==2.7.0"]
-install_requires += ["nanobind"]
+install_requires = [
+  'torch==2.7.0',
+  'nanobind==2.10.2',
+]
 
 if enable_ttnn:
     runlibs += ["_ttnncpp.so"]

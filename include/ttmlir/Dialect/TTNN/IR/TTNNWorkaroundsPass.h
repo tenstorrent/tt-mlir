@@ -276,6 +276,8 @@ public:
   static TTNNOperandsWorkarounds
   createReshapeOpOperandsWorkarounds(RankedTensorType inputType);
 
+  static TTNNOperandsWorkarounds createDropoutOpOperandsWorkarounds();
+
   static TTNNOperandsWorkarounds
   createUpdateCacheOpOperandsWorkarounds(RankedTensorType updateIndex);
 

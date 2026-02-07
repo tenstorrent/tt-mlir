@@ -342,6 +342,10 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
 
     FuncAnalysisData analysis;
 
+    if (failed(remapGenericRegionAllocs(funcOp))) {
+      return failure();
+    }
+
     if (failed(analyzeLiveness(funcOp, analysis))) {
       return failure();
     }
@@ -369,6 +373,69 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     if (failed(insertDeallocs(funcOp, analysis))) {
       return failure();
     }
+
+    return success();
+  }
+
+  /// Walk all GenericOp operations and remap any memref.alloc operations
+  /// inside their regions to L1 memory space. Also trace the uses of each
+  /// alloc to find compute operations and update their result types to match
+  /// the alloc's memref type.
+  ///
+  LogicalResult remapGenericRegionAllocs(func::FuncOp funcOp) {
+    IRRewriter rewriter(funcOp->getContext());
+    Block &funcBody = funcOp.getBody().front();
+
+    funcBody.walk([&](d2m::GenericOp genericOp) {
+      for (Region &region : genericOp->getRegions()) {
+        region.walk([&](memref::AllocOp allocOp) {
+          // First remap the alloc to L1
+          remap(rewriter, allocOp, MemorySpace::DeviceL1);
+
+          // Get the result type of the alloc
+          Value allocResult = allocOp.getResult();
+          MemRefType allocType = mlir::cast<MemRefType>(allocResult.getType());
+
+          // Trace uses of the alloc result to find compute ops
+          llvm::SmallVector<Operation *> worklist;
+          llvm::DenseSet<Operation *> visited;
+
+          // Initialize worklist with direct users
+          for (Operation *user : allocResult.getUsers()) {
+            worklist.push_back(user);
+          }
+
+          // Process the worklist to trace through all uses
+          while (!worklist.empty()) {
+            Operation *op = worklist.pop_back_val();
+
+            if (!visited.insert(op).second) {
+              continue; // Already visited
+            }
+
+            // Check if this is a compute operation with results
+            if (op->getNumResults() > 0) {
+              // Update result types for operations that produce values
+              rewriter.modifyOpInPlace(op, [&]() {
+                for (OpResult result : op->getResults()) {
+                  // Only update if the result is a memref type
+                  if (mlir::isa<MemRefType>(result.getType())) {
+                    result.setType(allocType);
+                  }
+                }
+              });
+
+              // Continue tracing through this operation's results
+              for (OpResult result : op->getResults()) {
+                for (Operation *userOp : result.getUsers()) {
+                  worklist.push_back(userOp);
+                }
+              }
+            }
+          }
+        });
+      }
+    });
 
     return success();
   }
@@ -416,6 +483,12 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
 
       if (llvm::isa<memref::AllocOp, d2m::ViewLayoutOp, d2m::StreamLayoutOp>(
               op)) {
+        // Skip memref.alloc operations that have a genericOp as parent
+        if (llvm::isa<memref::AllocOp>(op) &&
+            op->getParentOfType<d2m::GenericOp>()) {
+          return;
+        }
+
         TT_assert(op->getNumResults() == 1u);
         Value result = op->getResult(0);
 
@@ -1060,6 +1133,10 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         continue;
       }
 
+      // Map from operand index to pre-stream-insertion operand value.
+      // Used to update remote_load/store ops after stream insertion.
+      llvm::DenseMap<int32_t, Value> preStreamOperandValues;
+
       for (const OperandContext &operandCtx : genericCtx.operands) {
         const auto *memrefIt = analysis.memrefs.find(operandCtx.root);
         TT_debug(memrefIt != analysis.memrefs.end());
@@ -1092,6 +1169,11 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         if (!operandCtx.hasStream &&
             (useAlwaysStreamPolicy() ||
              inferStreamRequirement(genericOp, operandCtx.operandIndex()))) {
+
+          // Save the old operand value before stream insertion so we can map
+          // from it to the new stream value for updating remote_load/store ops.
+          preStreamOperandValues[operandCtx.operandIndex()] =
+              operandCtx.operand->get();
 
           // The above IR modifications may have changed memspace attributes
           // of ops in the operand's def chain; inserting a matching
@@ -1130,6 +1212,105 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
               .Case([&](d2m::WaitOp op) {
                 op->getResult(0).setType(
                     op.getCbType().getUnderlyingAs<MemRefType>());
+              });
+        });
+      }
+
+      // Post stream insertion and reblocking, remote_load
+      // and remote_store ops must be updated to reference
+      // updated operands and CB result types. First build
+      // mappings from old to new operand values and CB
+      // result types.
+      llvm::DenseMap<Value, Value> operandReplaceMap;
+      llvm::DenseMap<Value, Type> operandCBTypeMap;
+
+      for (const OperandContext &operandCtx : genericCtx.operands) {
+        const auto operandIndex = operandCtx.operand->getOperandNumber();
+
+        // Get the CB argument type for this operand
+        TT_assert(!genericOp->getRegions().empty());
+        Region &region = genericOp->getRegions().front();
+        TT_assert(region.hasOneBlock());
+        Block &block = region.getBlocks().front();
+        Type cbArgType = block.getArgument(operandIndex).getType();
+        auto cbType = mlir::dyn_cast<d2m::CBType>(cbArgType);
+        TT_assert(cbType != nullptr);
+        Type cbUnderlyingType = cbType.getUnderlying();
+
+        // Check if a stream was inserted for this operand during this pass
+        if (!operandCtx.hasStream &&
+            (useAlwaysStreamPolicy() ||
+             inferStreamRequirement(genericOp, operandCtx.operandIndex()))) {
+          if (!(operandCtx.isOutput && !allowL1OutputSpilling)) {
+            // Use the pre-stream operand value as the key, since that's what
+            // remote_load/store ops reference.
+            auto preStreamIt =
+                preStreamOperandValues.find(operandCtx.operandIndex());
+            TT_assert(preStreamIt != preStreamOperandValues.end());
+            Value oldOperandValue = preStreamIt->second;
+            operandReplaceMap[oldOperandValue] = operandCtx.operand->get();
+            operandCBTypeMap[oldOperandValue] = cbUnderlyingType;
+          }
+        } else if (operandCtx.hasStream) {
+          // Stream already existed, but may have been
+          // reblocked necessitating an update to the load/store result type
+          operandCBTypeMap[operandCtx.operand->get()] = cbUnderlyingType;
+        }
+      }
+
+      // Helper to update localBuffer's defining op type.
+      auto updateLocalBufferType = [](d2m::RemoteLoadOp op, Type newType) {
+        if (Value localBuffer = op.getLocalBuffer()) {
+          if (Operation *defOp = localBuffer.getDefiningOp()) {
+            if (defOp->getNumResults() == 1) {
+              defOp->getResult(0).setType(newType);
+            }
+          }
+        }
+      };
+
+      // Rewrite remote load/store ops result types and remote memrefs
+      for (Region &region : genericOp->getRegions()) {
+        TT_assert(region.hasOneBlock());
+        Block &block = region.getBlocks().front();
+
+        block.walk([&](Operation *blockOp) {
+          llvm::TypeSwitch<Operation *, void>(blockOp)
+              .Case([&](d2m::RemoteLoadOp op) {
+                Value oldMemref = op.getMemref();
+
+                auto replaceIt = operandReplaceMap.find(oldMemref);
+                if (replaceIt != operandReplaceMap.end()) {
+                  op.setMemRef(replaceIt->second);
+                }
+
+                auto typeIt = operandCBTypeMap.find(oldMemref);
+                if (typeIt != operandCBTypeMap.end()) {
+                  Type newShardType = typeIt->second;
+                  op.getResult().setType(newShardType);
+                  updateLocalBufferType(op, newShardType);
+                } else if (op.isImplicitForm()) {
+                  // Fallback: compute shard shape from device layout when not
+                  // in the CB type map.
+                  Value memref = op.getMemref();
+                  auto deviceLayout = ttcore::getDeviceLayout(memref);
+                  if (deviceLayout) {
+                    auto shapedType = mlir::cast<ShapedType>(memref.getType());
+                    auto shardShape = deviceLayout.getShardShape(shapedType);
+                    MemRefType newShardType = MemRefType::get(
+                        shardShape, shapedType.getElementType(), nullptr,
+                        rewriter.getAttr<ttcore::MemorySpaceAttr>(
+                            ttcore::MemorySpace::DeviceL1));
+                    op.getResult().setType(newShardType);
+                    updateLocalBufferType(op, newShardType);
+                  }
+                }
+              })
+              .Case([&](d2m::RemoteStoreOp op) {
+                auto it = operandReplaceMap.find(op.getMemref());
+                if (it != operandReplaceMap.end()) {
+                  op.setMemRef(it->second);
+                }
               });
         });
       }
@@ -1254,7 +1435,14 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
                                      uint32_t operandIndex) {
     TT_debug(!genericOp.isExplicitDatamovementForm());
 
+    // Scratch inputs (e.g., mask tiles) don't need streaming - they're
+    // allocated locally and written to within the generic op.
+    if (genericOp.isScratchInput(operandIndex)) {
+      return false;
+    }
+
     const AffineMap indexingMap = genericOp.getIndexingMap(operandIndex);
+
     const auto broadcastDims = indexingMap.getBroadcastDims();
     const auto iteratorTypes = genericOp.getIteratorTypesValue();
 

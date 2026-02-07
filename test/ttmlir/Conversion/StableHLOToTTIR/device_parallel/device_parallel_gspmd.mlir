@@ -1,8 +1,6 @@
 // REQUIRES: stablehlo
-// RUN: ttmlir-opt -split-input-file --stablehlo-to-ttir-pipeline -o %t %s
+// RUN: ttmlir-opt -split-input-file --stablehlo-pipeline --stablehlo-to-ttir-pipeline -o %t %s
 // RUN: FileCheck %s --input-file=%t
-
-// -----
 
 module @jit_data_parallel_n300 attributes {mhlo.num_partitions = 2 : i32, mhlo.num_replicas = 1 : i32} {
   func.func public @main(%arg0: tensor<64x1x1024x2048xf32>, %arg1: tensor<1x1x2048x512xf32>) -> (tensor<64x1x1024x512xf32> {jax.result_info = ""}) {
@@ -38,7 +36,6 @@ module @jit_data_parallel_n300 attributes {mhlo.num_partitions = 2 : i32, mhlo.n
     return %3 : tensor<32x1x1024x512xf32>
   }
 }
-
 
 // -----
 

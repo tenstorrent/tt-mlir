@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 
+#include "ttmlir/AffineMapAnalysis.h"
 #include "ttmlir/AffineMapUtils.h"
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
@@ -12,7 +13,9 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
+#include "ttmlir/Utils.h"
 
+#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/IRMapping.h"
@@ -50,42 +53,6 @@ findMaxDimAndAspectRatio(ArrayRef<int64_t> physicalShape) {
   return {maxDimIndex, aspectRatio};
 }
 
-/// Finds a 2D grid (y, x) such that y * x = grid volume.
-/// The returned grid aims to be as square as possible while respecting the
-/// provided target grid shape bounds.
-static llvm::SmallVector<int64_t>
-findLegalPhysicalGridForVolume(int64_t gridVolume,
-                               ArrayRef<int64_t> targetGridShape) {
-  TT_assertv(gridVolume > 0, "Grid volume must be positive");
-  TT_assertv(targetGridShape.size() >= 2u,
-             "Target grid shape must provide at least two dimensions");
-  TT_assertv((targetGridShape[0] > 0 && targetGridShape[1] > 0),
-             "Target grid dimensions must be positive");
-
-  auto fitsTarget = [&](int64_t dimY, int64_t dimX) {
-    return dimY <= targetGridShape[0] && dimX <= targetGridShape[1];
-  };
-
-  int64_t y = 1;
-  // Find the largest factor of grid volume that is <= sqrt(gridVolume)
-  for (int64_t i = static_cast<int64_t>(std::sqrt(gridVolume)); i > 0; --i) {
-    if (gridVolume % i == 0) {
-      int64_t candidateY = i;
-      int64_t candidateX = gridVolume / i;
-      if (fitsTarget(candidateY, candidateX)) {
-        return {candidateY, candidateX};
-      }
-      if (fitsTarget(candidateX, candidateY)) {
-        return {candidateX, candidateY};
-      }
-      if (y == 1) {
-        y = candidateY;
-      }
-    }
-  }
-  return {};
-}
-
 static llvm::SmallVector<int64_t>
 computeOptimalBlockShardedGrid(ArrayRef<int64_t> physicalShape,
                                ArrayRef<int64_t> targetSquareGridShape);
@@ -113,8 +80,8 @@ computeOptimalVirtualGrid(ArrayRef<int64_t> physicalShape,
     for (const auto &grid : factorCombinations) {
       int64_t gridVolume = ttmlir::utils::volume<int64_t>(grid);
       if (gridVolume <= targetGridVolume && gridVolume > bestGridVolume) {
-        auto physGrid =
-            findLegalPhysicalGridForVolume(gridVolume, targetSquareGridShape);
+        auto physGrid = utils::findLegalPhysicalGridForVolume(
+            gridVolume, targetSquareGridShape);
         if (!physGrid.empty()) {
 
           bestGrid = grid;
@@ -128,24 +95,36 @@ computeOptimalVirtualGrid(ArrayRef<int64_t> physicalShape,
   // If not ND sharded, compute grid for 2D height or width sharding (Nx1, 1xN).
   auto [shardedDimIndex, aspectRatio] = findMaxDimAndAspectRatio(physicalShape);
 
-  // for now, can only support if largest dim is divisible by grid volume
-  TT_assertv((physicalShape[shardedDimIndex] % targetGridVolume == 0),
-             "Sharded dimension {} in virtual gridPhysical shape dimension is "
-             "not divisible by grid volume {}",
-             shardedDimIndex, targetGridVolume);
+  // Find the largest factor of the sharded dimension that fits within the
+  // target grid volume.
+  int64_t bestFactor = 0;
+  for (int64_t factor : llvm::reverse(
+           ttmlir::utils::getFactors(physicalShape[shardedDimIndex]))) {
+    if (factor <= targetGridVolume) {
+      auto physGrid =
+          utils::findLegalPhysicalGridForVolume(factor, targetSquareGridShape);
+      if (!physGrid.empty()) {
+        bestFactor = factor;
+        break;
+      }
+    }
+  }
+
+  // If packing utilization is too low (<=25%), signal infeasibility by
+  // returning an empty grid so the caller can fall back to block sharding.
+  if (bestFactor == 0 ||
+      bestFactor <= static_cast<int64_t>(0.25 * targetGridVolume)) {
+    return {};
+  }
 
   llvm::SmallVector<int64_t> grid;
   for (size_t i = 0; i < physicalShape.size(); ++i) {
     if (i == shardedDimIndex) {
-      grid.push_back(targetGridVolume);
+      grid.push_back(bestFactor);
     } else {
       grid.push_back(1);
     }
   }
-  int64_t virtualGridVolume =
-      std::accumulate(grid.begin(), grid.end(), 1, std::multiplies<int64_t>());
-  TT_assertv((virtualGridVolume % targetGridVolume == 0),
-             "Virtual grid volume should be divisible by target grid volume");
   return grid;
 }
 
@@ -239,15 +218,12 @@ shouldImplementAsVirtualGrid(RankedTensorType tensorType,
     return true;
   }
 
-  auto [maxRatioIndex, aspectRatio] = findMaxDimAndAspectRatio(physicalShape);
   auto regularShardedGridVolume = ttmlir::utils::volume<int64_t>(
       computeOptimalBlockShardedGrid(physicalShape, targetSquareGridShape));
   int64_t targetGridVolume =
       ttmlir::utils::volume<int64_t>(targetSquareGridShape);
   bool lowGridUtilization = regularShardedGridVolume < 0.5 * targetGridVolume;
-  bool dimIsDivisibleByGridVolume =
-      physicalShape[maxRatioIndex] % targetGridVolume == 0;
-  return lowGridUtilization && dimIsDivisibleByGridVolume;
+  return lowGridUtilization;
 }
 
 static std::pair<llvm::SmallVector<int64_t>, bool>
@@ -256,8 +232,11 @@ computeOptimalGrid(mlir::RankedTensorType tensorType,
                    ArrayRef<int64_t> targetSquareGridShape) {
   if (shouldImplementAsVirtualGrid(tensorType, physicalShape,
                                    targetSquareGridShape)) {
-    return {computeOptimalVirtualGrid(physicalShape, targetSquareGridShape),
-            true};
+    auto virtualGrid =
+        computeOptimalVirtualGrid(physicalShape, targetSquareGridShape);
+    if (!virtualGrid.empty()) {
+      return {virtualGrid, true};
+    }
   }
   return {computeOptimalBlockShardedGrid(physicalShape, targetSquareGridShape),
           false};
@@ -277,7 +256,7 @@ static ttcore::MetalLayoutAttr layoutWithOptimalGrid(
   // If using a virtual grid, compute required forward index affine map.
   AffineMap indexAffineMap = oldLayout.getIndexAffineMap();
   if (isVirtualGrid) {
-    auto physicalGridShape = findLegalPhysicalGridForVolume(
+    auto physicalGridShape = utils::findLegalPhysicalGridForVolume(
         ttmlir::utils::volume(optimalGrid), targetSquareGridShape);
     // At this point, it should be guaranteed that we can find a legal physical
     // grid
@@ -322,6 +301,35 @@ static RankedTensorType tensorWithOptimalGrid(
           ? elementType
           : ttcore::TileType::get(elementType, llvm::ArrayRef(tileShape));
   return RankedTensorType::get(deviceShape, newElementType, newLayout);
+}
+
+// Verify that a StreamLayoutOp result is used by a single GenericOp only.
+// Returns the GenericOp if valid, nullptr otherwise.
+static d2m::GenericOp
+verifyStreamLayoutUsedBySingleGeneric(d2m::StreamLayoutOp streamLayoutOp) {
+  d2m::GenericOp parentGeneric = nullptr;
+
+  for (auto &streamUse : streamLayoutOp.getResult().getUses()) {
+    mlir::Operation *streamUser = streamUse.getOwner();
+
+    d2m::GenericOp streamUseGeneric =
+        mlir::dyn_cast<d2m::GenericOp>(streamUser);
+    if (!streamUseGeneric) {
+      streamUseGeneric = streamUser->getParentOfType<d2m::GenericOp>();
+    }
+
+    TT_assertv(streamUseGeneric,
+               "StreamLayout (fed by ToLayout) must be used by a GenericOp");
+
+    if (!parentGeneric) {
+      parentGeneric = streamUseGeneric;
+    } else if (parentGeneric != streamUseGeneric) {
+      TT_assertv(false, "StreamLayout (fed by ToLayout) should only be "
+                        "used within one GenericOp");
+    }
+  }
+
+  return parentGeneric;
 }
 
 // Update a ToLayoutOp and its associated EmptyOp to use a specified grid by
@@ -379,10 +387,52 @@ static void optimizeToLayoutGrid(d2m::ToLayoutOp toLayoutOp,
   auto view = builder.create<d2m::ViewLayoutOp>(
       toLayoutOp.getLoc(), viewOutputType, newToLayoutOp.getResult(0));
 
-  // We expect the ToLayout to be used only by the GenericOp we're optimizing.
-  // Assert this assumption to catch unexpected sharing.
-  assert(toLayoutOp.getResult(0).hasOneUse() &&
-         "ToLayout should only be used by the GenericOp being optimized");
+  // We expect the ToLayout to be used in one of two ways:
+  // 1. Directly by a single GenericOp (or operations within its region)
+  // 2. By a stream_layout operation, where the stream_layout result is then
+  //    used by a single GenericOp
+  d2m::GenericOp parentGeneric = nullptr;
+
+  for (auto &use : toLayoutOp.getResult(0).getUses()) {
+    mlir::Operation *user = use.getOwner();
+
+    // Check if this use is by a stream_layout operation
+    if (auto streamLayoutOp = mlir::dyn_cast<d2m::StreamLayoutOp>(user)) {
+      // Verify that the stream_layout result is used by a single GenericOp
+      d2m::GenericOp streamParentGeneric =
+          verifyStreamLayoutUsedBySingleGeneric(streamLayoutOp);
+
+      // Track the GenericOp that uses the stream_layout
+      if (streamParentGeneric) {
+        if (!parentGeneric) {
+          parentGeneric = streamParentGeneric;
+        } else if (parentGeneric != streamParentGeneric) {
+          TT_assertv(false,
+                     "ToLayout should only be used within one GenericOp");
+        }
+      }
+      continue;
+    }
+
+    // Find the parent GenericOp for this use.
+    // The user might be the GenericOp itself (if it's an operand), or
+    // it might be an operation nested within the GenericOp's regions.
+    d2m::GenericOp useGeneric = mlir::dyn_cast<d2m::GenericOp>(user);
+    if (!useGeneric) {
+      useGeneric = user->getParentOfType<d2m::GenericOp>();
+    }
+
+    TT_assertv(useGeneric,
+               "ToLayout result must be used by a single GenericOp or a single "
+               "StreamLayout that is an input to a single GenericOp");
+
+    if (!parentGeneric) {
+      parentGeneric = useGeneric;
+    } else if (parentGeneric != useGeneric) {
+      // Use is within a different GenericOp
+      TT_assertv(false, "ToLayout should only be used within one GenericOp");
+    }
+  }
   toLayoutOp.getResult(0).replaceAllUsesWith(view.getResult());
 
   toLayoutOp.erase();
@@ -653,7 +703,7 @@ updateStreamLayoutOps(ArrayRef<StreamLayoutUpdateInfo> streamLayoutsToUpdate,
     // If using a virtual grid, compute required forward index affine map.
     AffineMap storageIndexMap = storageLayout.getIndexAffineMap();
     if (info.isVirtualGrid) {
-      auto physicalGridShape = findLegalPhysicalGridForVolume(
+      auto physicalGridShape = utils::findLegalPhysicalGridForVolume(
           ttmlir::utils::volume<int64_t>(optimalGrid), targetSquareGridShape);
       TT_assertv(!physicalGridShape.empty(),
                  "Unable to find 2D rect that can fit virtual grid {} within "
@@ -853,7 +903,51 @@ recreateGenericOp(d2m::GenericOp genericOp,
             // For nested linalg.generic ops, update result types to match the
             // new output operand types (which have changed due to grid
             // updates).
-            if (llvm::isa<DestinationStyleOpInterface>(clonedOp)) {
+            if (auto remoteLoadOp =
+                    llvm::dyn_cast<d2m::RemoteLoadOp>(clonedOp)) {
+              // RemoteLoadOp must be in implicit form at this point in the
+              // pipeline. GridSelection runs before conversion to explicit CB
+              // form.
+              TT_assertv(
+                  remoteLoadOp.isImplicitForm(),
+                  "RemoteLoadOp must be in implicit form during GridSelection");
+
+              // Result exists - get shard shape from the remote tensor.
+              // GridSelection operates in tensor space (before bufferization).
+              auto tensorType = mlir::cast<RankedTensorType>(
+                  remoteLoadOp.getMemref().getType());
+              auto deviceLayout =
+                  ttcore::getDeviceLayout(remoteLoadOp.getMemref());
+              if (deviceLayout) {
+                auto shardShape = deviceLayout.getShardShape(tensorType);
+                auto elementType = tensorType.getElementType();
+                auto shardType = RankedTensorType::get(shardShape, elementType);
+                remoteLoadOp.getResult().setType(shardType);
+
+                // Also update the localBuffer's defining operation's result
+                // type to match the shard shape.
+                Value localBuffer = remoteLoadOp.getLocalBuffer();
+                if (localBuffer) {
+                  if (auto *defOp = localBuffer.getDefiningOp()) {
+                    if (defOp->getNumResults() == 1) {
+                      defOp->getResult(0).setType(shardType);
+                    }
+                  }
+                }
+              }
+            } else if (auto remoteStoreOp =
+                           llvm::dyn_cast<d2m::RemoteStoreOp>(clonedOp)) {
+              // RemoteStoreOp must have result form at this point in the
+              // pipeline. GridSelection runs before conversion to explicit CB
+              // form.
+              TT_assertv(
+                  remoteStoreOp.hasResultForm(),
+                  "RemoteStoreOp must have result form during GridSelection");
+
+              auto tensorType = mlir::cast<RankedTensorType>(
+                  remoteStoreOp.getMemref().getType());
+              remoteStoreOp.getResult().setType(tensorType);
+            } else if (llvm::isa<DestinationStyleOpInterface>(clonedOp)) {
               auto numInputs = clonedOp->getAttrOfType<mlir::DenseI32ArrayAttr>(
                   "operandSegmentSizes");
               if (numInputs && numInputs.size() >= 2) {
@@ -868,12 +962,46 @@ recreateGenericOp(d2m::GenericOp genericOp,
                   clonedOp->getResult(i).setType(outputOperandType);
                 }
               }
-            } else if (llvm::isa<d2m::WaitOp, d2m::ReserveOp>(clonedOp)) {
-              assert(clonedOp->getNumOperands() == 1);
-              assert(clonedOp->getNumResults() == 1);
-              clonedOp->getResult(0).setType(
-                  mlir::cast<d2m::CBType>(clonedOp->getOperand(0).getType())
-                      .getUnderlying());
+            } else if (auto tensorEmptyOp =
+                           llvm::dyn_cast<mlir::tensor::EmptyOp>(clonedOp)) {
+              // Update tensor.empty result type to match the associated operand
+              // CB Use the original operation (&op) to find the associated
+              // operand and CB from the old generic op.
+              if (auto originalEmptyOp =
+                      mlir::dyn_cast<mlir::tensor::EmptyOp>(&op)) {
+                Value associatedOperand =
+                    d2m::GenericOp::findAssocOperand(originalEmptyOp);
+                if (associatedOperand) {
+                  // Find the CB block argument associated with this operand in
+                  // the old generic.
+                  Value oldCB = d2m::GenericOp::findAssocCBByOperand(
+                      &op, associatedOperand);
+                  if (oldCB) {
+                    // Find the index of the old CB in the old block arguments
+                    auto oldBlockArgs = oldBlock.getArguments();
+                    unsigned cbIndex = UINT_MAX;
+                    for (unsigned i = 0; i < oldBlockArgs.size(); ++i) {
+                      if (oldBlockArgs[i] == oldCB) {
+                        cbIndex = i;
+                        break;
+                      }
+                    }
+                    // Use the index to get the new CB from blockArgs
+                    if (cbIndex != UINT_MAX && cbIndex < blockArgs.size()) {
+                      Value newCB = blockArgs[cbIndex];
+                      // Extract the tensor type from the CB type
+                      if (auto cbType =
+                              mlir::dyn_cast<d2m::CBType>(newCB.getType())) {
+                        auto underlyingType = cbType.getUnderlying();
+                        if (auto tensorType = mlir::dyn_cast<RankedTensorType>(
+                                underlyingType)) {
+                          tensorEmptyOp.getResult().setType(tensorType);
+                        }
+                      }
+                    }
+                  }
+                }
+              }
             }
           }
         },

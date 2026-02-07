@@ -112,8 +112,8 @@ table FloatingPointType {
   value: float;
 }
 
-table UIntegralType {
-  value: uint32;
+table IntegralType {
+  value: int32;
 }
 
 enum PlacementType: ushort {
@@ -134,4 +134,13 @@ table MeshMapperConfig {
 table MeshComposerConfig {
   dims: [int32];
   mesh_shape_override: [uint32];
+}
+
+table MeshCoord {
+  coords: [uint32];
+}
+
+table MeshCoordRange {
+  start: MeshCoord;
+  end: MeshCoord;
 }

@@ -16,6 +16,7 @@
 #include "mlir/IR/Location.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/PatternMatch.h"
+#include "mlir/IR/Types.h"
 #include "mlir/IR/Value.h"
 #include "mlir/IR/ValueRange.h"
 #include "mlir/Transforms/DialectConversion.h"
@@ -81,21 +82,31 @@ static ValuesVectorType collectInputArguments(const OpsVectorType &operations) {
   return inputArguments;
 }
 
-// Helper function to convert tensor types to CPU-compatible types.
+// Returns the CPU-compatible element type for the given element type.
+// Both integer and float types are converted to 32-bit equivalents.
+static mlir::Type getCPUCompatibleElementType(mlir::MLIRContext *context,
+                                              mlir::Type elementType) {
+  if (elementType.isSignedInteger()) {
+    return mlir::IntegerType::get(context, 32, mlir::IntegerType::Signed);
+  }
+  if (elementType.isUnsignedInteger()) {
+    return mlir::IntegerType::get(context, 32, mlir::IntegerType::Unsigned);
+  }
+  if (elementType.isSignlessInteger()) {
+    return mlir::IntegerType::get(context, 32, mlir::IntegerType::Signless);
+  }
+  if (elementType.isFloat()) {
+    return mlir::Float32Type::get(context);
+  }
+  return elementType;
+}
+
+// Converts a tensor type to its CPU-compatible equivalent.
 static mlir::RankedTensorType
 convertTensorType(mlir::RankedTensorType tensorType) {
-  const auto f32Type = mlir::Float32Type::get(tensorType.getContext());
-  const auto i32Type = mlir::IntegerType::get(tensorType.getContext(), 32,
-                                              mlir::IntegerType::Signless);
-
-  const auto elementType = tensorType.getElementType();
-  auto convertedElementType = tensorType.getElementType();
-
-  if (elementType.isInteger()) {
-    convertedElementType = i32Type;
-  } else if (elementType.isFloat()) {
-    convertedElementType = f32Type;
-  }
+  auto elementType = tensorType.getElementType();
+  auto convertedElementType =
+      getCPUCompatibleElementType(tensorType.getContext(), elementType);
 
   if (elementType != convertedElementType) {
     return mlir::RankedTensorType::get(tensorType.getShape(),
@@ -103,6 +114,65 @@ convertTensorType(mlir::RankedTensorType tensorType) {
   }
 
   return tensorType;
+}
+
+// Converts DenseElementsAttr to a target tensor type.
+// Returns std::nullopt if conversion is not supported.
+static std::optional<mlir::DenseElementsAttr>
+convertDenseElementsAttr(mlir::DenseElementsAttr denseAttr,
+                         mlir::RankedTensorType targetType) {
+  if (auto floatType =
+          mlir::dyn_cast<mlir::FloatType>(targetType.getElementType())) {
+    auto values = llvm::map_to_vector(
+        denseAttr.getValues<mlir::APFloat>(), [&](mlir::APFloat value) {
+          bool losesInfo;
+          value.convert(floatType.getFloatSemantics(),
+                        mlir::APFloat::rmNearestTiesToEven, &losesInfo);
+          return value;
+        });
+    return mlir::DenseElementsAttr::get(targetType, values);
+  }
+
+  if (auto intType =
+          mlir::dyn_cast<mlir::IntegerType>(targetType.getElementType())) {
+    auto values = llvm::map_to_vector(
+        denseAttr.getValues<mlir::APInt>(), [&](const mlir::APInt &value) {
+          return value.sextOrTrunc(intType.getWidth());
+        });
+    return mlir::DenseElementsAttr::get(targetType, values);
+  }
+
+  return std::nullopt;
+}
+
+// Helper function to convert constant op value attributes to CPU-compatible
+// types. This is needed because when we convert the result type of a constant
+// op, we also need to convert the underlying data in the value attribute.
+static void convertConstantOpValue(mlir::Operation *op) {
+  auto constantOp = mlir::dyn_cast<ttir::ConstantOp>(op);
+  if (!constantOp) {
+    return;
+  }
+
+  auto denseAttr =
+      mlir::dyn_cast<mlir::DenseElementsAttr>(constantOp.getValue());
+  if (!denseAttr) {
+    return;
+  }
+
+  auto sourceType = mlir::dyn_cast<mlir::RankedTensorType>(denseAttr.getType());
+  if (!sourceType) {
+    return;
+  }
+
+  auto targetType = convertTensorType(sourceType);
+  if (sourceType == targetType) {
+    return;
+  }
+
+  if (auto convertedAttr = convertDenseElementsAttr(denseAttr, targetType)) {
+    constantOp.setValueAttr(*convertedAttr);
+  }
 }
 
 // Helper function to convert input arguments to CPU-compatible types,
@@ -215,7 +285,8 @@ struct CPUHoistedOpsDescriptor {
   OpsVectorType operations;
   // Values representing the outputs of the hoisted operations.
   ValuesVectorType outputValues;
-  // Suffix for the hoisted function name (appears after "cpu_hoisted_").
+  // Suffix for the hoisted function name (appears after "cpu_hoisted_",
+  // and before the implementation hash).
   llvm::SmallString<64> funcNameSuffix;
 
   CPUHoistedOpsDescriptor(const OpsVectorType &ops,
@@ -225,20 +296,56 @@ struct CPUHoistedOpsDescriptor {
         funcNameSuffix(std::move(suffix)) {}
 };
 
+// Helper function to drop sign information from integer tensor types,
+// used inside CPU-hoisted function definitions. The sign information is NOT
+// dropped from CPU-hoisted function declarations.
+//
+// TODO(dmilinkovic): this workaround is needed because:
+// - TOSA and Linalg ops, to which CPU-hoisted ops are getting lowered to,
+//   do not support signed/unsigned integer types.
+// - Rest of the graph might depend on signed/unsigned integer types,
+//   so we cannot change the types in the function declaration.
+// This approach should be revisited in the future - issue #6797.
+static mlir::Type dropSignInformation(mlir::Type type) {
+  auto tensorType = mlir::dyn_cast<mlir::RankedTensorType>(type);
+  if (!tensorType) {
+    return type;
+  }
+
+  auto elementType = tensorType.getElementType();
+
+  if (!elementType.isInteger() || elementType.isSignlessInteger()) {
+    return type;
+  }
+
+  auto signlessElementType = mlir::IntegerType::get(
+      elementType.getContext(), elementType.getIntOrFloatBitWidth(),
+      mlir::IntegerType::Signless);
+
+  auto signlessTensorType =
+      mlir::RankedTensorType::get(tensorType.getShape(), signlessElementType);
+
+  return mlir::Type(signlessTensorType);
+}
+
 // Helper function to generate a CPU-hoisted function definition.
 static func::FuncOp createCPUHoistedFunctionDefinition(
     mlir::MLIRContext *context, mlir::Location loc,
-    CPUHoistedOpsDescriptor &descriptor, const ValuesVectorType &inputArguments,
+    CPUHoistedOpsDescriptor &descriptor,
     const ValuesVectorType &convertedInputArguments,
     const TypesVectorType &resultTypes, const OpsVectorType &outputProducers) {
   // Determine argument types from input arguments.
   const TypesVectorType argumentTypes =
-      llvm::map_to_vector(convertedInputArguments,
-                          [](mlir::Value value) { return value.getType(); });
+      llvm::map_to_vector(convertedInputArguments, [](mlir::Value value) {
+        return dropSignInformation(value.getType());
+      });
+
+  const TypesVectorType convertedResultTypes = llvm::map_to_vector(
+      resultTypes, [](mlir::Type type) { return dropSignInformation(type); });
 
   // Create the function type.
   mlir::FunctionType funcType =
-      mlir::FunctionType::get(context, argumentTypes, resultTypes);
+      mlir::FunctionType::get(context, argumentTypes, convertedResultTypes);
 
   // Create the function.
   auto funcDefinition =
@@ -277,7 +384,7 @@ static func::FuncOp createCPUHoistedFunctionDefinition(
       if (auto tensorType =
               mlir::dyn_cast<mlir::RankedTensorType>(operand.getType())) {
         auto convertedTensorType = convertTensorType(tensorType);
-        operand.setType(convertedTensorType);
+        operand.setType(dropSignInformation(convertedTensorType));
       }
     }
 
@@ -286,9 +393,12 @@ static func::FuncOp createCPUHoistedFunctionDefinition(
       if (auto tensorType =
               mlir::dyn_cast<mlir::RankedTensorType>(result.getType())) {
         auto convertedTensorType = convertTensorType(tensorType);
-        result.setType(convertedTensorType);
+        result.setType(dropSignInformation(convertedTensorType));
       }
     }
+
+    // Convert constant op value attributes to match the converted result type.
+    convertConstantOpValue(clonedOp);
 
     // Check if this is the output producing op. If it is, keep track of it
     // for later.
@@ -316,8 +426,8 @@ static func::FuncOp createCPUHoistedFunctionDefinition(
   }
 
   // Set tensor rank attributes for wrapper function generation.
-  funcDefinition->setAttr(
-      "arg_ranks", builder.getI64ArrayAttr(getTensorRanks(inputArguments)));
+  funcDefinition->setAttr("arg_ranks", builder.getI64ArrayAttr(getTensorRanks(
+                                           convertedInputArguments)));
 
   funcDefinition->setAttr(
       "result_ranks",
@@ -421,7 +531,7 @@ static void hoistOperationsToFunction(CPUHoistedOpsDescriptor &descriptor,
 
   // Create the CPU-hoisted function definition.
   func::FuncOp funcDefinition = createCPUHoistedFunctionDefinition(
-      cpuModule->getContext(), cpuModule->getLoc(), descriptor, inputArguments,
+      cpuModule->getContext(), cpuModule->getLoc(), descriptor,
       convertedInputArguments, resultTypes, outputProducers);
 
   auto funcHash =
@@ -479,6 +589,12 @@ static void hoistOperationsToFunction(CPUHoistedOpsDescriptor &descriptor,
 }
 } // namespace
 
+/*
+====================================================================
+-------------------- CPU Hoisting Analyzers ------------------------
+====================================================================
+*/
+
 namespace {
 // Predicate type for determining sets of ops to hoist in the provided function.
 // Returns a vector of descriptors, one for each set of ops to hoist.
@@ -492,6 +608,12 @@ using CPUHoistAnalyzerType =
 // Predicate type for determining whether an op should be hoisted in an op-by-op
 // CPU hoisting analyzer.
 using ShouldHoistOpType = std::function<bool(mlir::Operation *)>;
+
+/*
+====================================================================
+------------------ Single op CPU-hoisting analyzer -----------------
+====================================================================
+*/
 
 // HoistAnalyzer which hoists single ops based on a provided predicate.
 CPUHoistAnalyzerType singleOpHoistAnalyzer(ShouldHoistOpType predicate) {
@@ -514,47 +636,139 @@ CPUHoistAnalyzerType singleOpHoistAnalyzer(ShouldHoistOpType predicate) {
   };
 }
 
-// HoistAnalyzer which hoists const-eval functions as a whole.
-CPUHoistAnalyzerType constEvalHoistAnalyzer() {
-  return [](func::FuncOp funcOp) {
-    llvm::SmallVector<CPUHoistedOpsDescriptor> hoistedOpsDescriptors;
+/*
+====================================================================
+----------------- Const-eval CPU-hoisting analyzer -----------------
+====================================================================
+*/
 
-    if (!ttmlir::utils::isConstEvalFunc(funcOp)) {
-      return hoistedOpsDescriptors;
+// Check if an op is "transparent" - it doesn't change semantic meaning,
+// just format/type.
+static bool isTransparentOp(mlir::Operation *op) {
+  return mlir::isa<ReshapeOp, TypecastOp>(op);
+}
+
+// Walk backward from a value through transparent ops in a single traversal.
+// If the chain terminates at a creation skippable op, return it.
+static llvm::SmallVector<mlir::Operation *> traceCreationOpChain(Value v) {
+  llvm::SmallVector<mlir::Operation *> chain;
+
+  while (Operation *defOp = v.getDefiningOp()) {
+    if (defOp->hasTrait<ttcore::Trait::TTCoreCreationOpTrait>()) {
+      chain.push_back(defOp);
+      return chain;
     }
 
-    // Using the containing function name as the CPU-hoisted function's suffix.
-    CPUHoistedOpsDescriptor descriptor({}, {}, funcOp.getName());
+    if (isTransparentOp(defOp)) {
+      chain.push_back(defOp);
+      v = defOp->getOperand(0);
+      continue;
+    }
 
+    // Non-transparent, non-creation: chain is not skippable.
+    break;
+  }
+
+  return {};
+}
+
+// CPUHoistAnalyzer which hoists operations from const-eval functions.
+// Motivation for CPU-hoisting const-eval ops:
+// - CPU-hoisted ops operate on 32-bit integers/floats, which should result in
+//   more precise calculations compared to device execution.
+// - Peak DRAM/L1 usage should be reduced, since intermediate tensors are stored
+//   in host memory. This is especially beneficial for tensors which would take
+//   up significantly more L1 if tilized (e.g. tensor<1024x1024x1x1).
+CPUHoistAnalyzerType constEvalHoistAnalyzer() {
+  return [](func::FuncOp funcOp) {
+    if (!ttmlir::utils::isConstEvalFunc(funcOp)) {
+      return llvm::SmallVector<CPUHoistedOpsDescriptor>{};
+    }
+
+    CPUHoistedOpsDescriptor descriptor({}, {}, llvm::StringRef("const_eval"));
+
+    // Check if it is possible to CPU-hoist this const-eval funciton.
     auto walkResult = funcOp.walk([&](mlir::Operation *nestedOp) {
-      // Skip the FuncOp itself.
-      if (llvm::isa<func::FuncOp>(nestedOp)) {
-        return WalkResult::advance();
-      }
-
-      // Skip the ReturnOp, but collect its operands as outputs.
-      if (llvm::isa<mlir::func::ReturnOp>(nestedOp)) {
-        for (auto retVal : nestedOp->getOperands()) {
-          descriptor.outputValues.push_back(retVal);
-        }
-        return WalkResult::advance();
-      }
-
       // If there is already a CPU-hoisted call inside the const-eval
       // subgraph, skip CPU hoisting altogether to avoid nested hoisting.
       if (nestedOp->hasAttr(ttir::CPUHoistedCallAttr::name)) {
         return WalkResult::interrupt();
       }
 
-      descriptor.operations.push_back(nestedOp);
+      if (auto meshShardOp =
+              mlir::dyn_cast<mlir::tt::ttir::MeshShardOp>(nestedOp)) {
+        // If there is a non-identity TTIR MeshShardOp, skip CPU hoisting
+        // altogether.
+        // TODO(dmilinkovic) - issue #6709,
+        if (meshShardOp.getShardType() != ttcore::MeshShardType::Identity) {
+          return WalkResult::interrupt();
+        }
+      }
+
+      // If there is any CCL op, skip CPU hoisting altogether.
+      // TODO(dmilinkovic) - issue #6709
+      if (mlir::isa<mlir::tt::ttir::AllGatherOp, mlir::tt::ttir::AllReduceOp,
+                    mlir::tt::ttir::ReduceScatterOp,
+                    mlir::tt::ttir::CollectivePermuteOp,
+                    mlir::tt::ttir::AllToAllOp,
+                    mlir::tt::ttir::CollectiveBroadcastOp>(nestedOp)) {
+        return WalkResult::interrupt();
+      }
+
       return WalkResult::advance();
     });
 
-    if (!walkResult.wasInterrupted() && !descriptor.operations.empty()) {
-      hoistedOpsDescriptors.push_back(std::move(descriptor));
+    if (walkResult.wasInterrupted()) {
+      return llvm::SmallVector<CPUHoistedOpsDescriptor>{};
     }
 
-    return hoistedOpsDescriptors;
+    auto returnOp =
+        llvm::cast<func::ReturnOp>(funcOp.getBody().front().getTerminator());
+
+    llvm::SmallPtrSet<mlir::Operation *, 8> opsToSkip;
+
+    // Skip chains of creation ops and transparent ops leading to
+    // them. This is done because:
+    // 1. Downstream passes might try to extract constant values from these ops,
+    //    which isn't possible if these are moved to the CPU-module.
+    // 2. CPU-hoisting creation ops which are results of const-eval doesn't
+    //    improve PCC nor peak DRAM/L1 usage.
+    for (Value retVal : returnOp.getOperands()) {
+      auto chain = traceCreationOpChain(retVal);
+      if (chain.empty()) {
+        descriptor.outputValues.push_back(retVal);
+      } else {
+        opsToSkip.insert(chain.begin(), chain.end());
+      }
+    }
+
+    // Skip identity MeshShard ops.
+    // These ops are just semantic decorators, and are no-ops
+    // from the runtime perspective.
+    for (auto nestedOp : funcOp.getOps<mlir::tt::ttir::MeshShardOp>()) {
+      if (nestedOp.getShardType() == ttcore::MeshShardType::Identity) {
+        opsToSkip.insert(nestedOp);
+      }
+    }
+
+    // Collect all ops that are not skipped.
+    funcOp.walk([&](mlir::Operation *nestedOp) {
+      if (llvm::isa<func::FuncOp, func::ReturnOp>(nestedOp)) {
+        return;
+      }
+
+      if (opsToSkip.contains(nestedOp)) {
+        return;
+      }
+
+      descriptor.operations.push_back(nestedOp);
+    });
+
+    if (descriptor.operations.empty()) {
+      return llvm::SmallVector<CPUHoistedOpsDescriptor>{};
+    }
+
+    return llvm::SmallVector<CPUHoistedOpsDescriptor>{descriptor};
   };
 }
 
