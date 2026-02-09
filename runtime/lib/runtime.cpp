@@ -687,7 +687,10 @@ std::vector<int> getDeviceIds(Device meshDevice) {
 }
 
 std::vector<int> getMappedDeviceIds(const std::vector<uint32_t> &meshShape) {
+#if defined(DEVICE_RUNTIME_ENABLED)
   return ::tt::runtime::common::getMappedDeviceIds(meshShape);
+#endif
+  LOG_FATAL("Runtime is not enabled");
 }
 
 size_t getNumHwCqs(Device meshDevice) {
