@@ -760,7 +760,7 @@ class StableHLOBuilder(Builder):
             low_tensor,
             high_tensor,
             shape_tensor,
-            rng_distribution=stablehlo.RngDistributionAttr.get("UNIFORM"),
+            stablehlo.RngDistributionAttr.get("UNIFORM"),
             loc=loc,
         )
 
@@ -799,7 +799,7 @@ class StableHLOBuilder(Builder):
             a,
             b,
             shape,
-            rng_distribution=rng_distribution,
+            rng_distribution,
             loc=old_op.location,
         )
         new_op_result = new_op.result
@@ -854,7 +854,7 @@ class StableHLOBuilder(Builder):
                         a,
                         b,
                         shape,
-                        rng_distribution=rng_distribution,
+                        rng_distribution,
                         loc=old_op.location,
                     )
                     new_op_result = new_op.result
