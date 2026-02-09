@@ -27,14 +27,9 @@ static bool isLocalOperand(Value operand, Operation *op) {
     return false;
   }
 
-  // Check if the operation is inside a DMA-only generic op or an
-  // affine-fused generic op
+  // Check if the operation is inside a DMA-only generic op
   GenericOp generic = op->getParentOfType<GenericOp>();
   if (generic && generic.isDMAOnlyForm()) {
-    return false;
-  }
-
-  if (generic && generic->hasAttr("d2m.affine_fused")) {
     return false;
   }
 
