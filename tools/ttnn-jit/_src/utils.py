@@ -130,5 +130,5 @@ def get_core_grid_from_tensor_args(tensor_args):
     if not tensor_args:
         raise ValueError("No tensor arguments provided")
     tensor_arg = next(iter(tensor_args.values()))
-    device = tensor_arg.device
+    device = tensor_arg.device()
     return (device.core_grid.x, device.core_grid.y)
