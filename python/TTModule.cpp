@@ -371,6 +371,12 @@ void populateTTModule(nb::module_ &m) {
         return self.getChipChannels().vec();
       });
 
+  nb::enum_<tt::ttcore::Topology>(m, "Topology")
+      .value("Ring", tt::ttcore::Topology::Ring)
+      .value("Linear", tt::ttcore::Topology::Linear)
+      .value("Mesh", tt::ttcore::Topology::Mesh)
+      .value("Torus", tt::ttcore::Topology::Torus);
+
   tt_attribute_class<tt::ttcore::TopologyAttr>(m, "TopologyAttr")
       .def_static(
           "get",
@@ -425,19 +431,23 @@ void populateTTModule(nb::module_ &m) {
                 mlir::cast<tt::ttcore::SystemDescAttr>(unwrap(systemDesc)),
                 meshShape));
           })
-      .def_static("get",
-                  [](MlirContext ctx, std::vector<int64_t> gridShape,
-                     MlirAffineMap workerGridMapping, MlirAffineMap l1Map,
-                     MlirAffineMap dramMap, std::vector<int64_t> meshShape,
-                     std::vector<unsigned> chipIds,
-                     std::vector<tt::ttcore::Topology> meshTopology) {
-                    return wrap(tt::ttcore::DeviceAttr::get(
-                        unwrap(ctx),
-                        tt::ttcore::GridAttr::get(unwrap(ctx), gridShape,
-                                                  unwrap(workerGridMapping)),
-                        unwrap(l1Map), unwrap(dramMap), meshShape, chipIds,
-                        meshTopology));
-                  })
+      .def_static(
+          "get",
+          [](MlirContext ctx, std::vector<int64_t> gridShape,
+             MlirAffineMap workerGridMapping, MlirAffineMap l1Map,
+             MlirAffineMap dramMap, std::vector<int64_t> meshShape,
+             std::vector<unsigned> chipIds,
+             std::vector<tt::ttcore::Topology> meshTopology) {
+            return wrap(tt::ttcore::DeviceAttr::get(
+                unwrap(ctx),
+                tt::ttcore::GridAttr::get(unwrap(ctx), gridShape,
+                                          unwrap(workerGridMapping)),
+                unwrap(l1Map), unwrap(dramMap), meshShape, chipIds,
+                meshTopology));
+          },
+          nb::arg(), nb::arg(), nb::arg(), nb::arg(), nb::arg(), nb::arg(),
+          nb::arg(),
+          nb::arg("mesh_topology") = std::vector<tt::ttcore::Topology>{})
       .def("unwrap",
            [](const MlirAttribute &self) {
              return mlir::cast<tt::ttcore::DeviceAttr>(unwrap(self));
