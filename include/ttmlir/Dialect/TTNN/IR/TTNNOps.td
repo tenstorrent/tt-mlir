@@ -2546,7 +2546,8 @@ def TTNN_AllGatherOp: TTNN_Op<"all_gather", [TTNN_MemoryConfigOpInterface]> {
     let hasFolder = 1;
 }
 
-def TTNN_ReduceScatterOp: TTNN_Op<"reduce_scatter", [TTNN_MemoryConfigOpInterface]> {
+def TTNN_ReduceScatterOp: TTNN_Op<"reduce_scatter", [TTNN_MemoryConfigOpInterface,
+                                                     DeclareOpInterfaceMethods<TTNN_WorkaroundInterface>]> {
     let summary = "Reduce scatter op.";
     let description = [{
         Tensor Reduce Scatter operation
@@ -2563,12 +2564,19 @@ def TTNN_ReduceScatterOp: TTNN_Op<"reduce_scatter", [TTNN_MemoryConfigOpInterfac
 
     let results = (outs AnyRankedTensor:$result);
 
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::createReduceScatterOpOperandsWorkarounds(getOperation());
+      }
+    }];
+
     let hasVerifier = 1;
 
     let hasFolder = 1;
 }
 
-def TTNN_AllReduceOp: TTNN_Op<"all_reduce", [TTNN_MemoryConfigOpInterface]> {
+def TTNN_AllReduceOp: TTNN_Op<"all_reduce", [TTNN_MemoryConfigOpInterface,
+                                             DeclareOpInterfaceMethods<TTNN_WorkaroundInterface>]> {
     let summary = "All reduce op.";
     let description = [{
         Tensor All Reduce operation
@@ -2583,6 +2591,12 @@ def TTNN_AllReduceOp: TTNN_Op<"all_reduce", [TTNN_MemoryConfigOpInterface]> {
                          OptionalAttr<TTCore_TopologyAttr>:$topology);
 
     let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::createAllReduceOpOperandsWorkarounds(getOperation());
+      }
+    }];
 
     let hasVerifier = 1;
 

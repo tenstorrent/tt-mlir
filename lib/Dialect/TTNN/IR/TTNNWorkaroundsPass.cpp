@@ -902,4 +902,54 @@ template TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createConvOpOperandsWorkarounds(
     ttnn::ConvTranspose2dOp op);
 
+// Factory method to create workarounds for reduce_scatter op operands.
+// Upcasts bf16/f16 to f32 for better precision during reduce operations.
+// This addresses precision issues observed with cluster_axis=0 communication.
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createReduceScatterOpOperandsWorkarounds(
+    mlir::Operation *op) {
+  auto inputType = mlir::cast<RankedTensorType>(op->getOperand(0).getType());
+  ttcore::DataType inputDtype =
+      ttcore::elementTypeToDataType(inputType.getElementType());
+
+  TTNNOperandWorkarounds inputWorkaround;
+  TTNNOperandWorkarounds outputWorkaround;
+
+  // Upcast bf16/f16 to f32 for better precision during reduce
+  if (inputDtype == ttcore::DataType::BFloat16 ||
+      inputDtype == ttcore::DataType::Float16) {
+    inputWorkaround.tensorDataTypeWorkaround = ttcore::DataType::Float32;
+    outputWorkaround.tensorDataTypeWorkaround = ttcore::DataType::Float32;
+  }
+
+  return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addInputOperandWorkaround(inputWorkaround)
+      .addOutputOperandWorkaround(outputWorkaround);
+}
+
+// Factory method to create workarounds for all_reduce op operands.
+// Upcasts bf16/f16 to f32 for better precision during reduce operations.
+// This addresses precision issues observed with cluster_axis=0 communication.
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createAllReduceOpOperandsWorkarounds(
+    mlir::Operation *op) {
+  auto inputType = mlir::cast<RankedTensorType>(op->getOperand(0).getType());
+  ttcore::DataType inputDtype =
+      ttcore::elementTypeToDataType(inputType.getElementType());
+
+  TTNNOperandWorkarounds inputWorkaround;
+  TTNNOperandWorkarounds outputWorkaround;
+
+  // Upcast bf16/f16 to f32 for better precision during reduce
+  if (inputDtype == ttcore::DataType::BFloat16 ||
+      inputDtype == ttcore::DataType::Float16) {
+    inputWorkaround.tensorDataTypeWorkaround = ttcore::DataType::Float32;
+    outputWorkaround.tensorDataTypeWorkaround = ttcore::DataType::Float32;
+  }
+
+  return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addInputOperandWorkaround(inputWorkaround)
+      .addOutputOperandWorkaround(outputWorkaround);
+}
+
 } // namespace mlir::tt::ttnn::wa

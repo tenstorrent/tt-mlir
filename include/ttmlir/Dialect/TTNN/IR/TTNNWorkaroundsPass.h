@@ -327,6 +327,16 @@ public:
   static TTNNOperandsWorkarounds
   createPagedScaledDotProductAttentionDecodeOpOperandsWorkarounds(
       Operation *op);
+
+  // Create workarounds for reduce_scatter op operands.
+  // Upcasts bf16/f16 to f32 for better precision during reduce operations.
+  static TTNNOperandsWorkarounds
+  createReduceScatterOpOperandsWorkarounds(mlir::Operation *op);
+
+  // Create workarounds for all_reduce op operands.
+  // Upcasts bf16/f16 to f32 for better precision during reduce operations.
+  static TTNNOperandsWorkarounds
+  createAllReduceOpOperandsWorkarounds(mlir::Operation *op);
 };
 
 } // namespace mlir::tt::ttnn::wa
