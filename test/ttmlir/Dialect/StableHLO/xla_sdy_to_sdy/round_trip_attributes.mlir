@@ -24,6 +24,19 @@ module @ShardingConstraint attributes {mhlo.cross_program_prefetches = [], mhlo.
   }
 }
 
+// -----
+
+// CHECK-LABEL: module @ScalarShardingConstraint
+// Test scalar tensor (rank 0) with empty dimension shardings
+module @ScalarShardingConstraint attributes {mhlo.cross_program_prefetches = [], mhlo.frontend_attributes = {xla.sdy.meshes = "{mesh = #sdy.mesh<[\22_axis_0\22=2]>}"}, mhlo.input_output_alias = [], mhlo.is_dynamic = false, mhlo.use_auto_spmd_partitioning = false} {
+  // CHECK: sdy.mesh @mesh = <["_axis_0_updated"=1, "_axis_0"=2]>
+  func.func @main(%arg0: tensor<i1> {mhlo.frontend_attributes = {xla.sdy.sharding = "#sdy.sharding<@mesh, []>"}, mhlo.sharding = "{replicated}"}) -> tensor<i1> {
+    // CHECK: sdy.manual_computation(%{{.*}}) in_shardings=[<@mesh, []>] out_shardings=[<@mesh, []>] manual_axes={"_axis_0_updated", "_axis_0"}
+    %0 = stablehlo.custom_call @Sharding(%arg0) {mhlo.frontend_attributes = {xla.sdy.sharding = "#sdy.sharding_per_value<[<@mesh, []>]>"}, mhlo.sharding = "{replicated}"} : (tensor<i1>) -> tensor<i1>
+    return %0 : tensor<i1>
+  }
+}
+
 
 // -----
 

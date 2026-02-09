@@ -50,7 +50,6 @@ struct TTIRToTTIRDecompositionPass
       // All other ops are legal (won't be decomposed).
       target.addLegalOp<ttir::IndexOp>();
       target.addLegalOp<ttir::GetDimensionSizeOp>();
-      target.addLegalOp<ttir::PoolingOp>();
       target.addLegalOp<ttir::GatherOp>();
       target.addLegalOp<ttir::IndexSelectOp>();
       target.addLegalOp<ttir::QuantizeOp>();
@@ -69,7 +68,6 @@ struct TTIRToTTIRDecompositionPass
       // TTNN and TTMetal decompose all ops
       target.addIllegalOp<ttir::IndexOp>();
       target.addIllegalOp<ttir::GetDimensionSizeOp>();
-      target.addIllegalOp<ttir::PoolingOp>();
       target.addIllegalOp<ttir::GatherOp>();
       target.addIllegalOp<ttir::DotGeneralOp>();
       target.addIllegalOp<ttir::IndexSelectOp>();
@@ -123,6 +121,16 @@ struct TTIRToTTIRDecompositionPass
       }
       uint64_t rank = op.getInput().getType().getRank();
       return (dimArg->size() == 1 || dimArg->size() == rank);
+    });
+
+    target.addDynamicallyLegalOp<ttir::MaxPool2dOp>([&](ttir::MaxPool2dOp op) {
+      // Illegal if input is a FullOp (will be decomposed to FullOp).
+      return !isa_and_nonnull<ttir::FullOp>(op.getInput().getDefiningOp());
+    });
+
+    target.addDynamicallyLegalOp<ttir::AvgPool2dOp>([&](ttir::AvgPool2dOp op) {
+      // Illegal if input is a FullOp (will be decomposed to FullOp).
+      return !isa_and_nonnull<ttir::FullOp>(op.getInput().getDefiningOp());
     });
 
     target.addDynamicallyLegalOp<ttir::ArgMaxOp>([&](ttir::ArgMaxOp op) {

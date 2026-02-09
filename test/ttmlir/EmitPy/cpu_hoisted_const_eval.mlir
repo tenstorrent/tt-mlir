@@ -6,21 +6,19 @@
 // RUN: ttmlir-translate --mlir-to-python -o %t.py %t.mlir
 // RUN: FileCheck %s --input-file=%t.py
 
-// Verify that CPU-hoisted functions are generated with golden_function calls.
-// CHECK-LABEL: def cpu_hoisted_forward_const_eval_0_{{.*}}
+// Verify that 4 CPU-hoisted functions are generated with golden_function calls.
+// CHECK-LABEL: def cpu_hoisted_const_eval_{{.*}}
 // CHECK: golden_function
-// CHECK-LABEL: def cpu_hoisted_forward_split_const_eval_0_{{.*}}
+// CHECK-LABEL: def cpu_hoisted_const_eval_{{.*}}
 // CHECK: golden_function
-// CHECK-LABEL: def cpu_hoisted_forward_merge_const_eval_0_{{.*}}
+// CHECK-LABEL: def cpu_hoisted_const_eval_{{.*}}
 // CHECK: golden_function
-// CHECK-LABEL: def cpu_hoisted_forward_zeros_const_eval_0_{{.*}}
-// CHECK: golden_function
-// CHECK-LABEL: def cpu_hoisted_forward_all_const_const_eval_0_{{.*}}
+// CHECK-LABEL: def cpu_hoisted_const_eval_{{.*}}
 // CHECK: golden_function
 
 // Basic const-eval: operation on parameters/constants should be hoisted.
 // CHECK-LABEL: def forward_const_eval_0(
-// CHECK: cpu_hoisted_forward_const_eval_{{.*}}
+// CHECK: cpu_hoisted_const_eval_{{.*}}
 // CHECK-LABEL: def forward(
 // CHECK: forward_const_eval_0
 func.func @forward(%arg0: tensor<32x32xf32> {ttcore.argument_type = #ttcore.argument_type<input>},
@@ -35,8 +33,9 @@ func.func @forward(%arg0: tensor<32x32xf32> {ttcore.argument_type = #ttcore.argu
 
 // Test split const-eval: multiple independent const-eval subgraphs.
 // CHECK-LABEL: def forward_split_const_eval_0(
-// CHECK: cpu_hoisted_forward_split_const_eval_{{.*}}
-// CHECK: cpu_hoisted_forward_split_const_eval_{{.*}}
+// CHECK: cpu_hoisted_const_eval_{{.*}}
+// CHECK-LABEL: def forward_split_const_eval_1(
+// CHECK: cpu_hoisted_const_eval_{{.*}}
 // CHECK-LABEL: def forward_split(
 // CHECK: forward_split_const_eval_0
 // CHECK: forward_split_const_eval_1
@@ -54,7 +53,7 @@ func.func @forward_split(%arg0: tensor<32x32xf32> {ttcore.argument_type = #ttcor
 
 // Test merged const-eval: connected const-eval ops should be merged.
 // CHECK-LABEL: def forward_merge_const_eval_0(
-// CHECK: cpu_hoisted_forward_merge_const_eval_{{.*}}
+// CHECK: cpu_hoisted_const_eval_{{.*}}
 // CHECK-LABEL: def forward_merge(
 // CHECK: forward_merge_const_eval_0
 func.func @forward_merge(%arg0: tensor<32x32xf32> {ttcore.argument_type = #ttcore.argument_type<input>},
@@ -71,7 +70,7 @@ func.func @forward_merge(%arg0: tensor<32x32xf32> {ttcore.argument_type = #ttcor
 
 // Test const-eval with creation ops (zeros).
 // CHECK-LABEL: def forward_zeros_const_eval_0(
-// CHECK: cpu_hoisted_forward_zeros_const_eval_{{.*}}
+// CHECK: cpu_hoisted_const_eval_{{.*}}
 // CHECK-LABEL: def forward_zeros(
 // CHECK: forward_zeros_const_eval_0
 func.func @forward_zeros(%arg0: tensor<32x32xf32> {ttcore.argument_type = #ttcore.argument_type<input>},
@@ -85,7 +84,7 @@ func.func @forward_zeros(%arg0: tensor<32x32xf32> {ttcore.argument_type = #ttcor
 
 // Test all-constant function.
 // CHECK-LABEL: def forward_all_const_const_eval_0(
-// CHECK: cpu_hoisted_forward_all_const_const_eval_{{.*}}
+// CHECK: cpu_hoisted_const_eval_{{.*}}
 // CHECK-LABEL: def forward_all_const(
 // CHECK: forward_all_const_const_eval_0
 func.func @forward_all_const(%arg0: tensor<32x16xf32> {ttcore.argument_type = #ttcore.argument_type<constant>},

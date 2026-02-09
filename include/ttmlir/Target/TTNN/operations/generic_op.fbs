@@ -130,7 +130,22 @@ table ProgramDescriptor {
   cbs: [KernelCBDescriptor];
 }
 
+table MeshProgram {
+  device_range: MeshCoordRange;
+  program: ProgramDescriptor;
+}
+
+table MeshProgramDescriptor {
+  mesh_programs: [MeshProgram];
+  fabric_connection_config: tt.target.FabricConnectionConfig;
+}
+
+union ProgramType {
+  ProgramDescriptor,
+  MeshProgramDescriptor,
+}
+
 table GenericOp {
   io_tensors: [tt.target.ttnn.TensorRef];
-  program: ProgramDescriptor;
+  program: ProgramType;
 }
