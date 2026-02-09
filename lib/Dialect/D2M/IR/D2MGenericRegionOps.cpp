@@ -926,6 +926,7 @@ ArangeBlockOp::getBufferType(mlir::Value value,
   return mlir::bufferization::BufferLikeType(memrefType);
 }
 
+// NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
 mlir::LogicalResult ArangeBlockOp::bufferize(
     mlir::RewriterBase &rewriter,
     const mlir::bufferization::BufferizationOptions &options,
@@ -958,6 +959,7 @@ mlir::LogicalResult ArangeBlockOp::bufferize(
                                                      newOp.getResult());
   return mlir::success();
 }
+// NOLINTEND(clang-analyzer-core.StackAddressEscape)
 
 bool RemoteLoadOp::bufferizesToMemoryWrite(
     mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
