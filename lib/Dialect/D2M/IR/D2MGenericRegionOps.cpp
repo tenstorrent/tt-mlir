@@ -1243,7 +1243,9 @@ void IterIndexOp::inferResultRanges(
 }
 
 mlir::OpFoldResult IterIndexOp::fold(FoldAdaptor adaptor) {
-  return adaptor.getDimAttr();
+  // Cannot fold: runtime value depends on loop iteration, not the dimension
+  // index itself.
+  return {};
 }
 
 //===----------------------------------------------------------------------===//

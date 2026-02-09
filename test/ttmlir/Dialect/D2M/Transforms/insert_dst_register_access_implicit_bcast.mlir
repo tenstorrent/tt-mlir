@@ -28,10 +28,7 @@ module {
           %subview = memref.subview %0[%arg2, %arg3] [1, 1] [1, 1] : memref<1x1x!ttcore.tile<32x32, f32>, #l1_> to memref<1x1x!ttcore.tile<32x32, f32>, strided<[1, 1], offset: ?>, #l1_>
           %subview_1 = memref.subview %1[%arg2, 0] [1, 1] [1, 1] : memref<1x1x!ttcore.tile<32x32, f32>, #l1_> to memref<1x1x!ttcore.tile<32x32, f32>, strided<[1, 1], offset: ?>, #l1_>
           %subview_2 = memref.subview %2[%arg2, %arg3] [1, 1] [1, 1] : memref<1x1x!ttcore.tile<32x32, f32>, #l1_> to memref<1x1x!ttcore.tile<32x32, f32>, strided<[1, 1], offset: ?>, #l1_>
-          // CHECK: %[[DIM1:.*]] = d2m.iter_index(1) : index
-          // CHECK-NEXT: %[[GUARD:.*]] = arith.cmpi eq, %[[DIM1]], %{{.*}} : index
-          // CHECK-NEXT: scf.if %[[GUARD]]
-          // CHECK-NEXT: affine.for
+          // CHECK: affine.for
           // CHECK-NEXT: affine.for
           // CHECK-NEXT: %[[L1_TILE:.*]] = affine.load
           // CHECK-NEXT: %[[DST_TILE:.*]] = "d2m.tile_bcast"(%[[L1_TILE]]) <{bcast_type = #d2m<tile_bcast_type col>}>
@@ -78,10 +75,7 @@ module {
           %subview = memref.subview %0[%arg2, %arg3] [1, 1] [1, 1] : memref<1x1x!ttcore.tile<32x32, f32>, #l1_> to memref<1x1x!ttcore.tile<32x32, f32>, strided<[1, 1], offset: ?>, #l1_>
           %subview_1 = memref.subview %1[0, %arg3] [1, 1] [1, 1] : memref<1x1x!ttcore.tile<32x32, f32>, #l1_> to memref<1x1x!ttcore.tile<32x32, f32>, strided<[1, 1], offset: ?>, #l1_>
           %subview_2 = memref.subview %2[%arg2, %arg3] [1, 1] [1, 1] : memref<1x1x!ttcore.tile<32x32, f32>, #l1_> to memref<1x1x!ttcore.tile<32x32, f32>, strided<[1, 1], offset: ?>, #l1_>
-          // CHECK: %[[DIM0:.*]] = d2m.iter_index(0) : index
-          // CHECK-NEXT: %[[GUARD:.*]] = arith.cmpi eq, %[[DIM0]], %{{.*}} : index
-          // CHECK-NEXT: scf.if %[[GUARD]]
-          // CHECK-NEXT: affine.for
+          // CHECK: affine.for
           // CHECK-NEXT: affine.for
           // CHECK-NEXT: %[[L1_TILE:.*]] = affine.load
           // CHECK-NEXT: %[[DST_TILE:.*]] = "d2m.tile_bcast"(%[[L1_TILE]]) <{bcast_type = #d2m<tile_bcast_type row>}>
@@ -127,13 +121,7 @@ module {
         scf.for %arg3 = %c0_11 to %c1_12 step %c1_13 {
           %subview = memref.subview %0[%arg2, %arg3] [1, 1] [1, 1] : memref<1x1x!ttcore.tile<32x32, f32>, #l1_> to memref<1x1x!ttcore.tile<32x32, f32>, strided<[1, 1], offset: ?>, #l1_>
           %subview_1 = memref.subview %2[%arg2, %arg3] [1, 1] [1, 1] : memref<1x1x!ttcore.tile<32x32, f32>, #l1_> to memref<1x1x!ttcore.tile<32x32, f32>, strided<[1, 1], offset: ?>, #l1_>
-          // CHECK: %[[DIM0:.*]] = d2m.iter_index(0) : index
-          // CHECK-NEXT: %[[GUARD0:.*]] = arith.cmpi eq, %[[DIM0]], %{{.*}} : index
-          // CHECK: %[[DIM1:.*]] = d2m.iter_index(1) : index
-          // CHECK-NEXT: %[[GUARD1:.*]] = arith.cmpi eq, %[[DIM1]], %{{.*}} : index
-          // CHECK-NEXT: %[[GUARD:.*]] = arith.andi %[[GUARD0]], %[[GUARD1]] : i1
-          // CHECK-NEXT: scf.if %[[GUARD]]
-          // CHECK-NEXT: affine.for
+          // CHECK: affine.for
           // CHECK-NEXT: affine.for
           // CHECK-NEXT: %[[L1_TILE:.*]] = affine.load
           // CHECK-NEXT: %[[DST_TILE:.*]] = "d2m.tile_bcast"(%[[L1_TILE]]) <{bcast_type = #d2m<tile_bcast_type scalar>}>
@@ -182,19 +170,13 @@ module {
           %subview = memref.subview %0[%arg2, 0] [1, 1] [1, 1] : memref<1x1x!ttcore.tile<32x32, f32>, #l1_> to memref<1x1x!ttcore.tile<32x32, f32>, strided<[1, 1], offset: ?>, #l1_>
           %subview_1 = memref.subview %1[0, %arg3] [1, 1] [1, 1] : memref<1x1x!ttcore.tile<32x32, f32>, #l1_> to memref<1x1x!ttcore.tile<32x32, f32>, strided<[1, 1], offset: ?>, #l1_>
           %subview_2 = memref.subview %2[%arg2, %arg3] [1, 1] [1, 1] : memref<1x1x!ttcore.tile<32x32, f32>, #l1_> to memref<1x1x!ttcore.tile<32x32, f32>, strided<[1, 1], offset: ?>, #l1_>
-          // CHECK: %[[DIM1:.*]] = d2m.iter_index(1) : index
-          // CHECK-NEXT: %[[GUARD1:.*]] = arith.cmpi eq, %[[DIM1]], %{{.*}} : index
-          // CHECK-NEXT: scf.if %[[GUARD1]]
-          // CHECK-NEXT: affine.for
+          // CHECK: affine.for
           // CHECK-NEXT: affine.for
           // CHECK-NEXT: %[[L1_TILE1:.*]] = affine.load
           // CHECK-NEXT: %[[DST_TILE1:.*]] = "d2m.tile_bcast"(%[[L1_TILE1]]) <{bcast_type = #d2m<tile_bcast_type col>}>
           // CHECK-NEXT: affine.store %[[DST_TILE1]], %dst
 
-          // CHECK: %[[DIM0:.*]] = d2m.iter_index(0) : index
-          // CHECK-NEXT: %[[GUARD0:.*]] = arith.cmpi eq, %[[DIM0]], %{{.*}} : index
-          // CHECK-NEXT: scf.if %[[GUARD0]]
-          // CHECK-NEXT: affine.for
+          // CHECK: affine.for
           // CHECK-NEXT: affine.for
           // CHECK-NEXT: %[[L1_TILE0:.*]] = affine.load
           // CHECK-NEXT: %[[DST_TILE0:.*]] = "d2m.tile_bcast"(%[[L1_TILE0]]) <{bcast_type = #d2m<tile_bcast_type row>}>

@@ -20,12 +20,8 @@ module {
       linalg.generic {indexing_maps = [affine_map<(d0, d1, d2) -> (d0, d2)>, affine_map<(d0, d1, d2) -> (d2, d1)>, affine_map<(d0, d1, d2) -> (d0, d1)>], iterator_types = ["parallel", "parallel", "reduction"]} ins(%subview, %subview_1 : memref<1x1x!ttcore.tile<32x32, f32>, strided<[1, 1], offset: ?>, #l1_>, memref<1x1x!ttcore.tile<32x32, f32>, strided<[1, 1], offset: ?>, #l1_>) outs(%subview_2 : memref<1x1x!ttcore.tile<32x32, f32>, strided<[1, 1], offset: ?>, #l1_>) {
       ^bb0(%arg0: !ttcore.tile<32x32, f32>, %arg1: !ttcore.tile<32x32, f32>, %arg2: !ttcore.tile<32x32, f32>):
         // CHECK: %[[DST:.*]] = d2m.acquire_dst() : memref<8x!ttcore.tile<32x32, f32>, #dst>
-        // CHECK: %[[GUARD_IDX:.*]] = d2m.iter_index
-        // CHECK: %[[NOT_FIRST:.*]] = arith.cmpi ne, %[[GUARD_IDX]]
-        // CHECK: scf.if %[[NOT_FIRST]]
-        // CHECK: %[[ARG2_VAL:.*]] = affine.load %[[ARG2:.*]]
-        // Check that the third operand (accumulator) is stored to dst memory space
-        // CHECK: affine.store %[[ARG2_VAL]], %[[DST]]
+        // CHECK-NOT: d2m.iter_index
+        // CHECK-NOT: scf.if
         // Check that the accumulator is loaded back from dst memory space for the matmul
         // CHECK: %[[ARG0_VAL:.*]] = affine.load %[[ARG0:.*]]
         // CHECK: %[[ARG1_VAL:.*]] = affine.load %[[ARG1:.*]]
@@ -35,7 +31,7 @@ module {
         // Check that result is loaded from dst memory space
         // CHECK: %[[FINAL_VAL:.*]] = affine.load %[[DST]]
         // Check that final result is stored back to original #l1 memory space
-        // CHECK: affine.store %[[FINAL_VAL]], %[[ARG2]]
+        // CHECK: affine.store %[[FINAL_VAL]], %[[ARG2:.*]]
         linalg.yield %0 : !ttcore.tile<32x32, f32>
       }
     }
@@ -54,22 +50,10 @@ module {
       %cb0 = d2m.wait %arg0_cb : !d2m.cb<memref<3x3x!ttcore.tile<32x32, f32>, #l1_>> -> memref<3x3x!ttcore.tile<32x32, f32>, #l1_>
       %cb1 = d2m.wait %arg1_cb : !d2m.cb<memref<3x2x!ttcore.tile<32x32, f32>, #l1_>> -> memref<3x2x!ttcore.tile<32x32, f32>, #l1_>
       %cb2 = d2m.reserve %arg2_cb : !d2m.cb<memref<3x2x!ttcore.tile<32x32, f32>, #l1_>> -> memref<3x2x!ttcore.tile<32x32, f32>, #l1_>
-      // Check that constants and destination buffer are created
-      // CHECK: %[[C0:.*]] = arith.constant 0 : index
+      // Check that destination buffer is created
       // CHECK: %[[DST:.*]] = d2m.acquire_dst() : memref<8x!ttcore.tile<32x32, f32>, #dst>
-
-      // Check for iteration index and conditional initialization
-      // CHECK: %[[ITER2:.*]] = d2m.iter_index(2) : index
-      // CHECK: %[[CMP:.*]] = arith.cmpi ne, %[[ITER2]], %[[C0]] : index
-      // CHECK: scf.if %[[CMP]] {
-
-      // Check conditional initialization loop structure (2D loop for initialization)
-      // CHECK: affine.for %[[INIT_I:.*]] = 0 to 3 {
-      // CHECK-NEXT: affine.for %[[INIT_J:.*]] = 0 to 2 {
-
-      // Check initialization: load from l1, store to dst with linearized index
-      // CHECK: %[[INIT_VAL:.*]] = affine.load {{%.*}}[%[[INIT_I]], %[[INIT_J]]] : memref<3x2x!ttcore.tile<32x32, f32>, #l1>
-      // CHECK: affine.store %[[INIT_VAL]], %[[DST]][%[[INIT_I]] * 2 + %[[INIT_J]]] : memref<8x!ttcore.tile<32x32, f32>, #dst>
+      // CHECK-NOT: d2m.iter_index
+      // CHECK-NOT: scf.if
 
       // Check main computation loop structure (3D loop nest)
       // CHECK: affine.for %[[I:.*]] = 0 to 3 {

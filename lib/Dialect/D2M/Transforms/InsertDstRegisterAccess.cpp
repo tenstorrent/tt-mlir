@@ -35,6 +35,28 @@ struct OperationTypes {
   bool hasMarkedAffineLoops = false;
 };
 
+// Look up the induction variable of the blocking loop for a given dimension.
+// Walks parent ops to find a scf.for with d2m.blocking_loop = dim.
+// If no blocking loop is found, the dimension is assumed to be a unit loop
+// (bound == 1) that was optimized away, and a constant 0 is returned (always
+// at iteration 0).
+static Value getBlockingLoopIV(Operation *op, int64_t dim, OpBuilder &rewriter,
+                               Location loc) {
+  Operation *current = op->getParentOp();
+  while (current) {
+    if (auto scfFor = mlir::dyn_cast<scf::ForOp>(current)) {
+      if (auto attr = scfFor->getAttrOfType<IntegerAttr>("d2m.blocking_loop")) {
+        if (attr.getInt() == dim) {
+          return scfFor.getInductionVar();
+        }
+      }
+    }
+    current = current->getParentOp();
+  }
+  // No blocking loop found: unit loop (bound == 1) optimized away.
+  return rewriter.create<arith::ConstantIndexOp>(loc, 0).getResult();
+}
+
 static bool hasTileMatmul(linalg::GenericOp linalgGenericOp) {
   bool hasTileMatmul = false;
   linalgGenericOp->walk([&](d2m::TileMatmulOp) {
@@ -887,7 +909,8 @@ public:
   //   at the 1st iter. So the accumulation starts with an all-zeros DST tile.
   static scf::IfOp createLoadLoopGuard(PatternRewriter &rewriter, Location loc,
                                        const std::set<int64_t> &guardDims,
-                                       const bool isBcastGuard) {
+                                       const bool isBcastGuard,
+                                       Operation *contextOp) {
     if (guardDims.empty()) {
       return nullptr;
     }
@@ -912,7 +935,7 @@ public:
         rewriter.getIntegerAttr(rewriter.getIndexType(), 0));
 
     for (int64_t idx : guardDims) {
-      Value iterIdx = rewriter.create<d2m::IterIndexOp>(loc, idx);
+      Value iterIdx = getBlockingLoopIV(contextOp, idx, rewriter, loc);
       Value cmp =
           rewriter.create<arith::CmpIOp>(loc, cmpPredicate, iterIdx, zero);
       // Aggregation:
@@ -974,8 +997,9 @@ public:
           rewriter.setInsertionPoint(copyLoop);
         }
         // Guarded loads live in their own loop nest under that guard.
-        auto guard = createLoadLoopGuard(rewriter, record.loadStore.getLoc(),
-                                         record.guardDims, isBcastGuard);
+        auto guard =
+            createLoadLoopGuard(rewriter, record.loadStore.getLoc(),
+                                record.guardDims, isBcastGuard, loopNestOrOp);
         rewriter.setInsertionPointToStart(&guard.getThenRegion().front());
         auto [_, guardedMapper] = cloneLoopSkeleton(rewriter, loopNestOrOp);
         irMapper = guardedMapper;
