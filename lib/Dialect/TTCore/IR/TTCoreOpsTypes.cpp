@@ -1575,7 +1575,8 @@ static mlir::AffineMap createDramMap(::mlir::MLIRContext *context,
 DeviceAttr DeviceAttr::get(::mlir::MLIRContext *context,
                            SystemDescAttr systemDesc,
                            ArrayRef<int64_t> meshShape,
-                           ArrayRef<unsigned> chipIds) {
+                           ArrayRef<unsigned> chipIds,
+                           ArrayRef<Topology> meshTopology) {
   assert(not chipIds.empty() && "expected at least one chip");
   ChipDescAttr chipDesc = systemDesc.getChipDesc(chipIds.front());
   SmallVector<int64_t> chipGrid(chipDesc.getGrid());
@@ -1598,19 +1599,21 @@ DeviceAttr DeviceAttr::get(::mlir::MLIRContext *context,
   auto workerGrid = createWorkerGrid(context, chipGrid, {1, 1});
   auto l1Map = createL1Map(context, workerGrid);
   auto dramMap = createDramMap(context, workerGrid, systemDesc, chipIds);
-  return get(context, workerGrid, l1Map, dramMap, meshShape, chipIds);
+  return get(context, workerGrid, l1Map, dramMap, meshShape, chipIds,
+             meshTopology);
 }
 
 DeviceAttr DeviceAttr::get(::mlir::MLIRContext *context,
                            SystemDescAttr systemDesc,
-                           ArrayRef<int64_t> meshShape) {
+                           ArrayRef<int64_t> meshShape,
+                           ArrayRef<Topology> meshTopology) {
   int64_t numChips = ttmlir::utils::volume(meshShape);
   assert(systemDesc.getChipDescIndices().size() >=
              static_cast<size_t>(numChips) &&
          "expected at least one chip");
   SmallVector<unsigned> chipIds(numChips);
   std::iota(chipIds.begin(), chipIds.end(), 0);
-  return get(context, systemDesc, meshShape, chipIds);
+  return get(context, systemDesc, meshShape, chipIds, meshTopology);
 }
 
 inline mlir::AffineMap prependResult(mlir::AffineMap map,
@@ -1787,7 +1790,8 @@ size_t DeviceAttr::getMemrefCBNumPages(MemRefType memrefType) const {
 ::mlir::LogicalResult DeviceAttr::verify(
     ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
     GridAttr workerGrid, ::mlir::AffineMap l1Map, ::mlir::AffineMap dramMap,
-    ::llvm::ArrayRef<int64_t> meshShape, ::llvm::ArrayRef<unsigned> chipIds) {
+    ::llvm::ArrayRef<int64_t> meshShape, ::llvm::ArrayRef<unsigned> chipIds,
+    ::llvm::ArrayRef<Topology> meshTopology) {
   if (chipIds.empty()) {
     emitError() << "expected at least one chip";
     return ::mlir::failure();

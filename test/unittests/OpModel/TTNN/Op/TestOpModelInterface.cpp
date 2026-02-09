@@ -83,7 +83,8 @@ public:
         &context);
     auto workerGrid = ttcore::GridAttr::get(&context, gridShapeHwN300, map3);
 
-    return ttcore::DeviceAttr::get(&context, workerGrid, map4, map4, {1}, {0});
+    return ttcore::DeviceAttr::get(&context, workerGrid, map4, map4, {1}, {0},
+                                   {});
   }
 
   mlir::RankedTensorType
