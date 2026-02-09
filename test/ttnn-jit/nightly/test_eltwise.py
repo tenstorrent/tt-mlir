@@ -13,6 +13,8 @@ from utils import (
     all_close_check,
     memory_configs_equal,
     get_expected_memory_config,
+    get_core_grid_from_device,
+    get_block_sharding_grid,
     create_dram_tensor,
     create_sharded_tile_tensor,
     run_op_test,
@@ -355,7 +357,7 @@ def test_binary_ops_mixed1(device, shape, max_grid, shard_strategy, dtype, op):
     )(op)
     output_tensor = op_jit(input0, input1)
 
-    expected_memory_config = get_expected_memory_config(output_tensor.shape)
+    expected_memory_config = get_expected_memory_config(output_tensor.shape, max_grid)
     assert memory_configs_equal(output_tensor.memory_config(), expected_memory_config)
     golden_output = op(input0, input1)
     pcc = ttnn.pearson_correlation_coefficient(
@@ -577,7 +579,7 @@ def test_interop_jit_to_ttnn_unary_l1(
     golden_jit_output = golden_jit_op(input_tensor)
     golden_result = ttnn_unary_op(golden_jit_output)
 
-    expected_memory_config = get_expected_memory_config(golden_result.shape)
+    expected_memory_config = get_expected_memory_config(golden_result.shape, max_grid)
     assert memory_configs_equal(interop_result.memory_config(), expected_memory_config)
     assert all_close_check(interop_result, golden_result)
 
@@ -627,7 +629,7 @@ def test_interop_two_jit_to_ttnn_binary_l1(
     golden_output2 = golden_jit_op2(input2)
     golden_result = ttnn_binary_op(golden_output1, golden_output2)
 
-    expected_memory_config = get_expected_memory_config(golden_result.shape)
+    expected_memory_config = get_expected_memory_config(golden_result.shape, max_grid)
     assert memory_configs_equal(interop_result.memory_config(), expected_memory_config)
     assert all_close_check(interop_result, golden_result)
 
@@ -670,7 +672,7 @@ def test_interop_jit_and_ttnn_to_binary_l1(
     golden_jit_output = golden_jit_op(input_tensor)
     golden_result = ttnn_binary_op(golden_jit_output, ttnn_tensor)
 
-    expected_memory_config = get_expected_memory_config(golden_result.shape)
+    expected_memory_config = get_expected_memory_config(golden_result.shape, max_grid)
     assert memory_configs_equal(interop_result.memory_config(), expected_memory_config)
     assert all_close_check(interop_result, golden_result)
 
@@ -692,7 +694,6 @@ def test_interop_jit_and_ttnn_to_binary_l1(
     ids=[f"{shape}" for shape in DRAM_INTERLEAVED_SHAPES],
 )
 def test_interop_jit_to_ttnn_unary_dram(device, shape, dtype, jit_op, ttnn_unary_op):
-    max_grid = (0, 0)
     input_tensor = create_dram_tensor(device, shape, dtype)
 
     # Interop path
@@ -705,7 +706,9 @@ def test_interop_jit_to_ttnn_unary_dram(device, shape, dtype, jit_op, ttnn_unary
     golden_jit_output = golden_jit_op(input_tensor)
     golden_result = ttnn_unary_op(golden_jit_output)
 
-    expected_memory_config = get_expected_memory_config(golden_result.shape)
+    max_grid = get_core_grid_from_device(device)
+    core_grid = get_block_sharding_grid(shape, max_grid)
+    expected_memory_config = get_expected_memory_config(golden_result.shape, core_grid)
     assert memory_configs_equal(interop_result.memory_config(), expected_memory_config)
     assert all_close_check(interop_result, golden_result)
 
@@ -731,7 +734,6 @@ def test_interop_two_jit_to_ttnn_binary_dram(
     if jit_op2 == log and dtype == torch.float32:
         pytest.xfail("Failing all_close, getting nan values mismatching with golden")
 
-    max_grid = (0, 0)
     input1 = create_dram_tensor(device, shape, dtype)
     input2 = create_dram_tensor(device, shape, dtype)
 
@@ -749,7 +751,9 @@ def test_interop_two_jit_to_ttnn_binary_dram(
     golden_output2 = golden_jit_op2(input2)
     golden_result = ttnn_binary_op(golden_output1, golden_output2)
 
-    expected_memory_config = get_expected_memory_config(golden_result.shape)
+    max_grid = get_core_grid_from_device(device)
+    core_grid = get_block_sharding_grid(shape, max_grid)
+    expected_memory_config = get_expected_memory_config(golden_result.shape, core_grid)
     assert memory_configs_equal(interop_result.memory_config(), expected_memory_config)
     assert all_close_check(interop_result, golden_result)
 
@@ -772,7 +776,6 @@ def test_interop_two_jit_to_ttnn_binary_dram(
 def test_interop_jit_and_ttnn_to_binary_dram(
     device, shape, dtype, jit_op, ttnn_binary_op
 ):
-    max_grid = (0, 0)
     input_tensor = create_dram_tensor(device, shape, dtype)
     ttnn_tensor = create_dram_tensor(device, shape, dtype)
 
@@ -786,7 +789,9 @@ def test_interop_jit_and_ttnn_to_binary_dram(
     golden_jit_output = golden_jit_op(input_tensor)
     golden_result = ttnn_binary_op(golden_jit_output, ttnn_tensor)
 
-    expected_memory_config = get_expected_memory_config(golden_result.shape)
+    max_grid = get_core_grid_from_device(device)
+    core_grid = get_block_sharding_grid(shape, max_grid)
+    expected_memory_config = get_expected_memory_config(golden_result.shape, core_grid)
     assert memory_configs_equal(interop_result.memory_config(), expected_memory_config)
     assert all_close_check(interop_result, golden_result)
 
