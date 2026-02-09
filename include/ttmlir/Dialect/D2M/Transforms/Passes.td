@@ -543,6 +543,8 @@ def D2MGridSelection: Pass<"d2m-grid-selection", "::mlir::ModuleOp"> {
   let options = [
     ListOption<"overrideDeviceShape", "override-device-shape", "int64_t",
         "Override the device shape for grid optimization.">,
+    Option<"ttnnMode", "ttnn-mode", "bool", /*default=*/"false",
+        "Enable TTNN mode which hardcodes collapsed intervals and dim alignments.">,
   ];
 }
 

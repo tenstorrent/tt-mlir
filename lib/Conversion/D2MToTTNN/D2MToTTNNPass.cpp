@@ -57,8 +57,8 @@ struct ConvertD2MToTTNNPass final
     target.addIllegalDialect<math::MathDialect>();
     target.addIllegalDialect<d2m::D2MDialect>();
 
-    target.addLegalOp<memref::AllocOp>();
-    target.addLegalOp<memref::DeallocOp>();
+    target.addIllegalOp<memref::AllocOp>();
+    target.addIllegalOp<memref::DeallocOp>();
 
     TypeConverter typeConverter;
     typeConverter.addConversion([](Type type) { return type; });
