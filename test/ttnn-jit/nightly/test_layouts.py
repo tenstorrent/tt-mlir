@@ -157,8 +157,8 @@ SKIPPED_HEIGHT_SHARDED_CASES = [
 )
 @pytest.mark.parametrize("op", [abs])
 def test_l1_height_sharded_shapes(device, shape, max_grid, op):
-    if (shape, max_grid) in SKIPPED_HEIGHT_SHARDED_CASES:
-        pytest.skip("Allocator failures due to insufficient L1 for some reason.")
+    # if (shape, max_grid) in SKIPPED_HEIGHT_SHARDED_CASES:
+    #     pytest.skip("Allocator failures due to insufficient L1 for some reason.")
     output_memory_config = ttnn.create_sharded_memory_config(
         shape=shape,
         core_grid=ttnn.CoreGrid(x=max_grid[0] + 1, y=max_grid[1] + 1),
