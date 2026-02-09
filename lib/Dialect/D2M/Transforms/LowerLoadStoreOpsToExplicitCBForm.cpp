@@ -242,11 +242,6 @@ static PushPopInfo convertToExplicitCBForm(ModuleOp moduleOp,
   // Transform RemoteLoadOp (implicit form -> explicit CB form)
   SmallVector<RemoteLoadOp> remoteLoadsToConvert;
   moduleOp->walk([&](RemoteLoadOp remoteLoad) {
-    Value memref = remoteLoad.getMemref();
-    // Only handle remote operands (from stream_layout ops)
-    if (!isRemoteOperand(memref, remoteLoad.getOperation())) {
-      return;
-    }
     remoteLoadsToConvert.push_back(remoteLoad);
   });
 
@@ -353,11 +348,6 @@ static PushPopInfo convertToExplicitCBForm(ModuleOp moduleOp,
       return;
     }
 
-    // Check if the associated operand is remote
-    if (!isRemoteOperand(assocOperand, allocOp.getOperation())) {
-      return;
-    }
-
     allocsToConvert.push_back(allocOp);
   });
 
@@ -401,11 +391,6 @@ static PushPopInfo convertToExplicitCBForm(ModuleOp moduleOp,
   // Transform RemoteStoreOp (implicit form -> explicit CB form)
   SmallVector<RemoteStoreOp> remoteStoresToConvert;
   moduleOp->walk([&](RemoteStoreOp remoteStore) {
-    Value memref = remoteStore.getMemref();
-    // Only handle remote operands (from stream_layout ops)
-    if (!isRemoteOperand(memref, remoteStore.getOperation())) {
-      return;
-    }
     remoteStoresToConvert.push_back(remoteStore);
   });
 
