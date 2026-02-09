@@ -69,7 +69,7 @@ except ModuleNotFoundError:
         load_binary_from_path,
         load_binary_from_capsule,
     )
-    from ttrt.runtime._ttmlir_runtime.utils import (
+    from _ttmlir_runtime.utils import (
         create_runtime_device_from_ttnn,
         create_runtime_tensor_from_ttnn,
         get_ttnn_tensor_from_runtime_tensor,
