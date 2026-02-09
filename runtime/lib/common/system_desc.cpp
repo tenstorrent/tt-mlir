@@ -64,12 +64,28 @@ getAllDeviceConnections(const std::vector<::tt::tt_metal::IDevice *> &devices) {
     connectionSet.emplace(deviceId0, ethCoreCoord0, deviceId1, ethCoreCoord1);
   };
 
+  std::unordered_set<ChipId> deviceIds;
+  for (const ::tt::tt_metal::IDevice *device : devices) {
+    deviceIds.insert(device->id());
+  }
+
   for (const ::tt::tt_metal::IDevice *device : devices) {
     std::unordered_set<tt::tt_metal::CoreCoord> activeEthernetCores =
         device->get_active_ethernet_cores(true);
     for (const tt::tt_metal::CoreCoord &ethernetCore : activeEthernetCores) {
-      std::tuple<ChipId, tt::tt_metal::CoreCoord> connectedDevice =
-          device->get_connected_ethernet_core(ethernetCore);
+      // get_connected_ethernet_core throws for cores that connect to remote
+      // MMIO devices outside the local cluster. Skip those cores.
+      std::tuple<ChipId, tt::tt_metal::CoreCoord> connectedDevice;
+      try {
+        connectedDevice = device->get_connected_ethernet_core(ethernetCore);
+      } catch (const std::runtime_error &e) {
+        LOG_WARNING("Skipping ethernet core (", ethernetCore.str(),
+                    ") on chip ", device->id(), ": ", e.what());
+        continue;
+      }
+      if (!deviceIds.count(std::get<0>(connectedDevice))) {
+        continue;
+      }
       addConnection(device->id(), ethernetCore, std::get<0>(connectedDevice),
                     std::get<1>(connectedDevice));
     }
