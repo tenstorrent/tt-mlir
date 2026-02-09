@@ -533,7 +533,7 @@ public:
         if (consumer->hasAttr("d2m.affine_fused")) {
           continue;
         }
-        if (consumer.getNumRegions() != 1) {
+        if (!consumer.isUnifiedForm()) {
           continue;
         }
         if (consumer.hasSkipOpAffineLoopFusionTrait()) {
@@ -550,7 +550,7 @@ public:
           if (!producer || producer->hasAttr("d2m.affine_fused")) {
             continue;
           }
-          if (producer.getNumRegions() != 1) {
+          if (!producer.isUnifiedForm()) {
             continue;
           }
           if (producer.hasSkipOpAffineLoopFusionTrait()) {
