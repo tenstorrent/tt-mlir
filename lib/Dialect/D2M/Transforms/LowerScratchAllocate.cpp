@@ -18,7 +18,7 @@ namespace mlir::tt::d2m {
 
 namespace {
 
-/// Calculate total number of elements in a statically-shaped memref.
+// Calculate total number of elements in a statically-shaped memref.
 static int64_t getNumElements(MemRefType memrefType) {
   int64_t numElements = 1;
   for (int64_t dim : memrefType.getShape()) {
@@ -28,7 +28,7 @@ static int64_t getNumElements(MemRefType memrefType) {
   return numElements;
 }
 
-/// Information about a single scratch allocation.
+// Information about a single scratch allocation.
 struct ScratchAllocationInfo {
   ScratchAllocateOp op;
   int64_t slotId;
@@ -57,8 +57,8 @@ public:
   }
 
 private:
-  /// Process a single d2m.generic, lowering all scratch_allocate ops to
-  /// rank-reducing subviews of the scratch CB.
+  // Process a single d2m.generic, lowering all scratch_allocate ops to
+  // rank-reducing subviews of the scratch CB.
   LogicalResult processGeneric(GenericOp genericOp) {
     auto scratchInputsAttr = genericOp.getScratchInputsAttr();
     if (!scratchInputsAttr || scratchInputsAttr.empty()) {
@@ -128,8 +128,6 @@ private:
            "global shape must have at least as many dims as shard shape");
 
     // Create memref.alloc + remote_load at the top of the compute region.
-    // D2MConvertLocalLoadStoreOpsToAliasedCBs will later convert this pattern
-    // to CB-based access (reserve/push/wait/pop).
     OpBuilder builder(&block, block.begin());
     Location loc = genericOp.getLoc();
 
@@ -154,11 +152,10 @@ private:
     return success();
   }
 
-  /// Replace a scratch_allocate with a rank-reducing subview of the scratch CB.
-  ///
-  /// The scratch buffer has shape [1, N] from AddScratchInputs.
-  /// Each scratch_allocate requests a 1D memref<M x tile>.
-  /// We emit: subview [0, offset][1, M][1, 1] : memref<1xN> -> memref<M>
+  // Replace a scratch_allocate with a rank-reducing subview of the scratch CB.
+  // The scratch buffer has shape [1, N] from AddScratchInputs.
+  // Each scratch_allocate requests a 1D memref<M x tile>.
+  // We emit: subview [0, offset][1, M][1, 1] : memref<1xN> -> memref<M>
   void replaceScratchAllocate(ScratchAllocationInfo &info,
                               Value scratchMemRef) {
     ScratchAllocateOp allocOp = info.op;

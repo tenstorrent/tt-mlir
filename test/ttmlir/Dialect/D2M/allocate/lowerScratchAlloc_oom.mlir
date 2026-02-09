@@ -1,7 +1,3 @@
-// SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
-//
-// SPDX-License-Identifier: Apache-2.0
-
 // RUN: not ttmlir-opt --ttcore-register-device --d2m-lower-scratch-allocate %s 2>&1 | FileCheck %s
 
 // Test that exceeding scratch buffer capacity produces a diagnostic.

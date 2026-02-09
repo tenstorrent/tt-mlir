@@ -2,12 +2,12 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 
-#include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/IRMapping.h"
@@ -22,16 +22,16 @@ namespace mlir::tt::d2m {
 
 namespace {
 
-/// Fixed scratch buffer size in bytes.
+// Fixed scratch buffer size in bytes.
 constexpr size_t kScratchSizeBytes = 128 * 1024; // 128KB
 
-/// Get the tile type from a tensor type, if it has one.
+// Get the tile type from a tensor type, if it has one.
 static ttcore::TileType getTileType(RankedTensorType tensorType) {
   return mlir::dyn_cast<ttcore::TileType>(tensorType.getElementType());
 }
 
-/// Find a tiled input operand and return its tensor type.
-/// Returns nullptr if no tiled input is found.
+// Find a tiled input operand and return its tensor type.
+// Returns nullptr if no tiled input is found.
 static RankedTensorType findTiledInputType(GenericOp genericOp) {
   for (Value input : genericOp.getInputs()) {
     auto tensorType = mlir::dyn_cast<RankedTensorType>(input.getType());
@@ -45,21 +45,26 @@ static RankedTensorType findTiledInputType(GenericOp genericOp) {
   return nullptr;
 }
 
-/// Check if a d2m.generic is a fused kernel by counting linalg.generic ops
-/// inside its compute region. A fused kernel has more than one linalg.generic.
-static bool isFusedGeneric(GenericOp genericOp) {
+// Check if a d2m.generic needs a scratch buffer. Scratch is added when the
+// compute region contains more than one binary FPU op (add/sub/mul), which
+// indicates a fused kernel that may need to spill intermediate results.
+// TODO(ckaravasilisTT): Use a more precise method to determine if a generic
+// needs a scratch buffer and of what size.
+static bool needsScratch(GenericOp genericOp) {
   if (genericOp.getNumRegions() == 0) {
     return false;
   }
 
-  unsigned linalgGenericCount = 0;
-  genericOp.getRegion(0).walk([&](linalg::GenericOp) { ++linalgGenericCount; });
+  unsigned binaryFPUCount = 0;
+  genericOp.getRegion(0).walk([&](Operation *op) {
+    if (isa<TileAddOp, TileSubOp, TileMulOp>(op)) {
+      ++binaryFPUCount;
+    }
+  });
 
-  return linalgGenericCount > 1;
+  return binaryFPUCount > 1;
 }
 
-/// Pattern to add a scratch input to fused d2m.generic ops.
-/// Scratch is a fixed 128KB buffer for FPU fusion temporary storage.
 struct AddScratchInputPattern : public OpRewritePattern<GenericOp> {
   explicit AddScratchInputPattern(MLIRContext *context)
       : OpRewritePattern<GenericOp>(context) {}
@@ -81,9 +86,9 @@ struct AddScratchInputPattern : public OpRewritePattern<GenericOp> {
       return failure();
     }
 
-    // Only add scratch to FUSED generics (those with multiple linalg.generic
-    // ops from elementwise fusion). Non-fused ops don't need scratch.
-    if (!isFusedGeneric(genericOp)) {
+    // Only add scratch to fused generics with multiple binary FPU ops
+    // (add/sub/mul) that may need to spill intermediate results.
+    if (!needsScratch(genericOp)) {
       return failure();
     }
 
@@ -112,9 +117,6 @@ struct AddScratchInputPattern : public OpRewritePattern<GenericOp> {
     }
 
     // Build scratch tensor shape: [grid_dims..., 1, numTiles].
-    // The logical shape needs to match grid structure. We copy the grid
-    // dimensions from the reference and set shard dimensions to accommodate
-    // our tile count.
     auto gridShape = refLayout.getGridShape(refTensorType);
 
     SmallVector<int64_t> scratchShape;
@@ -145,7 +147,7 @@ struct AddScratchInputPattern : public OpRewritePattern<GenericOp> {
     newInputs.push_back(scratchEmpty.getResult());
 
     // Update indexing maps: insert scratch's map before output maps.
-    // Scratch uses a CONSTANT map (all zeros) - it broadcasts to all tiles.
+    // Scratch uses a CONSTANT map (all zeros).
     SmallVector<Attribute> newIndexingMaps;
     auto oldMaps = genericOp.getIndexingMaps();
     for (unsigned i = 0; i < numOldInputs; ++i) {
