@@ -4764,9 +4764,6 @@ class StableHLOBuilder(Builder):
 
         return pow_module, pow_builder
 
-    ############### stablehlo.ShiftRightLogicalOp ###############
-
-    @tag(stablehlo.ShiftRightLogicalOp)
     ############### stablehlo.ShiftLeftOp ###############
 
     @tag(stablehlo.ShiftLeftOp)
@@ -4881,6 +4878,9 @@ class StableHLOBuilder(Builder):
 
         return shift_module, shift_builder
 
+    ############### stablehlo.ShiftRightLogicalOp ###############
+
+    @tag(stablehlo.ShiftRightLogicalOp)
     def shift_right_logical(
         self,
         in0: Operand,

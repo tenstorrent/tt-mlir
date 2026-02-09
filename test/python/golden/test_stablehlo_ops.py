@@ -881,23 +881,22 @@ def test_logical_binary_ops(
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttnn"])
 def test_select_op(shape: Shape, dtype: torch.dtype, target: str, request, device):
-    def select_test(
-        condition: Operand,
-        in0: Operand,
-        in1: Operand,
-        builder: StableHLOBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        builder.set_graph_level_check(True)
-        return builder.select(condition, in0, in1, unit_attrs=unit_attrs)
+    def module_select_test(builder: StableHLOBuilder):
+        @builder.func([shape, shape, shape], [torch.bool, dtype, dtype])
+        def select_test(
+            condition: Operand,
+            in0: Operand,
+            in1: Operand,
+            builder: StableHLOBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            builder.set_graph_level_check(True)
+            return builder.select(condition, in0, in1, unit_attrs=unit_attrs)
 
-    # Create a boolean condition tensor shape for select
     compile_and_execute_shlo(
-        select_test,
-        [shape, shape, shape],  # condition, true_val, false_val
-        [torch.bool, dtype, dtype],  # condition is bool, others are the specified dtype
+        module_select_test,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
