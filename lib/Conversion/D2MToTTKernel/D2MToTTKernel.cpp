@@ -1202,10 +1202,10 @@ public:
     }
     rewriter.create<ttkernel::ExperimentalWriteColMaskTileOp>(
         loc, validCols, adaptor.getOutput());
-        rewriter.eraseOp(op);
-        return success();
-      }
-    };
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
 class D2MExperimentalWriteFullIndexTileRewriter
     : public OpConversionPattern<d2m::ExperimentalWriteFullIndexTileOp> {
 public:
