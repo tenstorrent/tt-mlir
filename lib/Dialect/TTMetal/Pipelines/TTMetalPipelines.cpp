@@ -135,6 +135,7 @@ void createTTIRToTTMetalMiddleendPipeline(
         llvm::to_vector(options.matmulInterchange);
   }
   pm.addPass(d2m::createD2MGenericApplyInterchange(applyInterchangeOptions));
+  pm.addPass(d2m::createD2MGenerateOuterLoops());
   d2m::D2MAllocateOptions allocateOptions;
   {
     allocateOptions.numStreamBuffers = options.numStreamBuffers;
@@ -186,7 +187,6 @@ void createTTIRToTTMetalMiddleendPipeline(
       d2m::createD2MInsertDstRegisterAccess(insertDstRegisterAccessOptions));
 
   pm.addPass(d2m::createD2MLowerMulticastLoads());
-  pm.addPass(d2m::createD2MGenerateOuterLoops());
 
   pm.addPass(d2m::createD2MSFPUTileLoopFission());
   pm.addPass(mlir::createCanonicalizerPass());
