@@ -152,6 +152,7 @@ void createTTIRToTTMetalMiddleendPipeline(
     allocateOptions.testBufferSizePolicy = options.testBufferSizePolicy;
   }
   pm.addPass(d2m::createD2MAllocate(allocateOptions));
+  pm.addPass(d2m::createD2MLowerToExplicitForm());
   pm.addPass(createCanonicalizerPassWithOptions(options));
   pm.addPass(d2m::createD2MDecomposeMasking());
   pm.addPass(d2m::createD2MDecomposeArange());

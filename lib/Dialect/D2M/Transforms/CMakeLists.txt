@@ -23,6 +23,8 @@ add_mlir_dialect_library(MLIRD2MTransforms
         RankNormalization.cpp
         ScalarizeConstTensors.cpp
         GenerateOuterLoops.cpp
+        GenericAffineLoopFusion.cpp
+        LowerToExplicitForm.cpp
         LowerMulticastLoads.cpp
         SplitUnifiedThread.cpp
         PreallocateMcastSemaphores.cpp

@@ -869,6 +869,32 @@ def D2MGenerateOuterLoops : Pass<"d2m-generate-outer-loops", "::mlir::ModuleOp">
                            "::mlir::affine::AffineDialect"];
 }
 
+def D2MGenericAffineLoopFusion : Pass<"d2m-generic-affine-loop-fusion", "::mlir::ModuleOp"> {
+  let summary = "Fuse producer-consumer d2m.generic ops via affine loop fusion.";
+  let description = [{
+    Identifies pairs of d2m.generic ops connected by a producer-consumer memref
+    relationship and fuses them into a single generic with merged affine loop nests.
+    Runs after d2m-generate-outer-loops, before allocation.
+  }];
+  let dependentDialects = ["::mlir::tt::d2m::D2MDialect",
+                           "::mlir::affine::AffineDialect"];
+}
+
+def D2MLowerToExplicitForm : Pass<"d2m-lower-to-explicit-form", "::mlir::ModuleOp"> {
+  let summary = "Lower outer loop bounds to explicit constants.";
+  let description = [{
+    This pass replaces affine.for loops marked with the d2m.outer_loop attribute
+    that have bounds defined by d2m.get_block_factor ops with scf.for loops that
+    have arith.constant bounds taken from the GenericOp's block_factors attribute.
+
+    All d2m.get_block_factor ops within generic regions are also replaced with
+    their corresponding arith.constant values.
+  }];
+  let dependentDialects = ["::mlir::tt::d2m::D2MDialect",
+                           "::mlir::scf::SCFDialect",
+                           "::mlir::arith::ArithDialect"];
+}
+
 def D2MLowerMulticastLoads : Pass<"d2m-lower-multicast-loads", "::mlir::ModuleOp"> {
   let summary = "Lower high-level multicast remote loads to low-level form.";
   let description = [{
