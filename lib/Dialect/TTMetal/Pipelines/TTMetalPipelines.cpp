@@ -136,6 +136,10 @@ void createTTIRToTTMetalMiddleendPipeline(
   }
   pm.addPass(d2m::createD2MGenericApplyInterchange(applyInterchangeOptions));
   pm.addPass(d2m::createD2MGenerateOuterLoops());
+  {
+    OpPassManager &funcPm = pm.nest<func::FuncOp>();
+    funcPm.addPass(affine::createAffineScalarReplacementPass());
+  }
   d2m::D2MAllocateOptions allocateOptions;
   {
     allocateOptions.numStreamBuffers = options.numStreamBuffers;
