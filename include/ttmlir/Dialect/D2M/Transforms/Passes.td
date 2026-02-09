@@ -974,37 +974,46 @@ def D2MConvertLocalLoadStoreOpsToAliasedCBs : Pass<"d2m-convert-local-load-store
 }
 
 def D2MLowerScratchAllocate : Pass<"d2m-lower-scratch-allocate", "::mlir::ModuleOp"> {
-  let summary = "Lower d2m.scratch_allocate ops to memref.view into scratch buffer.";
+  let summary = "Lower d2m.scratch_allocate ops to memref.subview of the scratch CB.";
   let description = [{
-    This pass lowers `d2m.scratch_allocate` operations to `memref.view`
-    operations into the scratch buffer provided by `d2m.scratch_init`.
+    This pass lowers `d2m.scratch_allocate` operations inside `d2m.generic` ops
+    into rank-reducing `memref.subview` operations of the scratch circular buffer.
 
-    The pass performs the following steps:
-    1. Find `d2m.scratch_init` to get the pre-allocated scratch byte buffer
-    2. Collect all `d2m.scratch_allocate` ops in the function
-    3. Compute byte offsets for each allocation (sequential, no overlap)
-    4. Validate total size fits within the scratch buffer
-    5. Replace each `d2m.scratch_allocate` with `memref.view` at computed offset
-    6. Erase the `d2m.scratch_init` op
+    For each `d2m.generic` that has a `scratch_inputs` attribute, the pass:
+    1. Collects all `d2m.scratch_allocate` ops in the compute region and sorts
+       them by `slot` ID for deterministic layout.
+    2. Computes sequential element offsets for each allocation.
+    3. Validates that total allocations fit within the scratch buffer capacity.
+    4. Inserts a `memref.alloc` and `d2m.remote_load` at the top of the compute
+       region to materialize the scratch CB as a local memref.
+    5. Replaces each `d2m.scratch_allocate` with a rank-reducing
+       `memref.subview` of the scratch memref at the computed offset.
+
+    The scratch buffer has shape `[1, N]` (set by AddScratchInputs). Each
+    `d2m.scratch_allocate` requests a 1D `memref<M x tile>`, which is lowered to
+    `memref.subview [0, offset][1, M][1, 1] : memref<1xN> -> memref<M>`.
 
     Example transformation:
     ```mlir
     // Before:
-    func.func @kernel(...) {
-      %buf = memref.alloc() : memref<65536xi8, #l1>
-      d2m.scratch_init %buf : memref<65536xi8, #l1>
-      %s0 = d2m.scratch_allocate {slot = 0} : memref<8x!tile_bf16, #l1>
-      %s1 = d2m.scratch_allocate {slot = 1} : memref<8x!tile_bf16, #l1>
+    d2m.generic { scratch_inputs = array<i64: 1>, ... }
+    ins(%in, %scratch_buf : ...) outs(%out : ...) {
+    ^bb0(%cb0: ..., %cb1: ..., %cb2: ...):
+      %s0 = d2m.scratch_allocate {slot = 0} : memref<1x!tile_f32, #l1>
+      %s1 = d2m.scratch_allocate {slot = 1} : memref<2x!tile_f32, #l1>
+      memref.store %val, %s0[%c0] : memref<1x!tile_f32, #l1>
       // ...
     }
 
     // After:
-    func.func @kernel(...) {
-      %buf = memref.alloc() : memref<65536xi8, #l1>
-      %c0 = arith.constant 0 : index
-      %s0 = memref.view %buf[%c0][] : memref<65536xi8, #l1> to memref<8x!tile_bf16, #l1>
-      %c16384 = arith.constant 16384 : index
-      %s1 = memref.view %buf[%c16384][] : memref<65536xi8, #l1> to memref<8x!tile_bf16, #l1>
+    d2m.generic { scratch_inputs = array<i64: 1>, ... }
+    ins(%in, %scratch_buf : ...) outs(%out : ...) {
+    ^bb0(%cb0: ..., %cb1: ..., %cb2: ...):
+      %alloc = memref.alloc() {alignment = 64} : memref<1x32x!tile_f32, #l1>
+      %rl = d2m.remote_load %alloc %scratch_buf[...] : ...
+      %sv0 = memref.subview %rl[0, 0][1, 1][1, 1] : memref<1x32x!tile_f32, #l1> to memref<1x!tile_f32, #l1>
+      %sv1 = memref.subview %rl[0, 1][1, 2][1, 1] : memref<1x32x!tile_f32, #l1> to memref<2x!tile_f32, strided<[1], offset: 1>, #l1>
+      memref.store %val, %sv0[%c0] : memref<1x!tile_f32, #l1>
       // ...
     }
     ```
@@ -1012,17 +1021,7 @@ def D2MLowerScratchAllocate : Pass<"d2m-lower-scratch-allocate", "::mlir::Module
   let dependentDialects = [
     "::mlir::tt::d2m::D2MDialect",
     "::mlir::tt::ttcore::TTCoreDialect",
-    "::mlir::memref::MemRefDialect",
-    "::mlir::arith::ArithDialect"
-  ];
-  let options = [
-    Option<"testInsertDummyScratch",
-          "test-insert-dummy-scratch",
-          "bool", /*default=*/"true",
-          "For testing: insert a dummy d2m.scratch_allocate if scratch_init "
-          "is present but no scratch_allocate ops exist. Note: the dummy scratch "
-          "is in the main function, not a kernel, so it won't exercise the full "
-          "D2MToTTKernel lowering path.">,
+    "::mlir::memref::MemRefDialect"
   ];
 }
 
