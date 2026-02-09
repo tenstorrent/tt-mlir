@@ -2670,13 +2670,17 @@ def stablehlo_not_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTe
 
 
 def apply_sharding(
-    tensor: GoldenMapTensor,
+    tensor: Union[GoldenMapTensor, torch.Tensor],
     mesh_shape: Tuple[int],
     shard_dims: Tuple[Union[int, None]] = None,
 ) -> GoldenMapTensor:
-    shards = [tensor.shard_at(0).clone()]
+    if isinstance(tensor, GoldenMapTensor):
+        shards = [tensor.shard_at(0).clone()]
+    else:
+        shards = [tensor.clone()]
     if shard_dims is None:
         shard_dims = [None] * len(mesh_shape)
+
     for dim_size, shard_dim in zip(mesh_shape, shard_dims):
         temp_shards = []
         if shard_dim is None or shard_dim == -1:
@@ -2960,8 +2964,7 @@ def ttir_ones_golden(
     size = unpack_mlir_attr(shape)
     mesh_shape = unpack_mlir_attr(mesh_shape_attr)
     output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
-    base = GoldenMapTensor({0: torch.ones(size, dtype=output_dtype)}, (1, 1))
-    return apply_sharding(base, mesh_shape)
+    return apply_sharding(torch.ones(size, dtype=output_dtype), mesh_shape)
 
 
 def ttir_zeros_golden(
@@ -2970,8 +2973,7 @@ def ttir_zeros_golden(
     size = unpack_mlir_attr(shape)
     mesh_shape = unpack_mlir_attr(mesh_shape_attr)
     output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
-    base = GoldenMapTensor({0: torch.zeros(size, dtype=output_dtype)}, (1, 1))
-    return apply_sharding(base, mesh_shape)
+    return apply_sharding(torch.zeros(size, dtype=output_dtype), mesh_shape)
 
 
 def ttir_rand_golden(
@@ -2993,8 +2995,7 @@ def ttir_rand_golden(
     gen.manual_seed(seed)
     base = torch.rand(size, generator=gen, dtype=torch.bfloat16)
     rand_tensor = (base * (high - low) + low).to(output_dtype)
-    base = GoldenMapTensor({0: rand_tensor}, (1, 1))
-    return apply_sharding(base, mesh_shape)
+    return apply_sharding(rand_tensor, mesh_shape)
 
 
 def ttir_dropout_golden(
@@ -3269,8 +3270,7 @@ def ttir_constant_golden(
         flat_values = [elem for elem in value]
         torch_tensor = torch.tensor(flat_values, dtype=dtype).reshape(shape)
 
-    base = GoldenMapTensor({0: torch_tensor.reshape(shape)}, (1, 1))
-    return apply_sharding(base, mesh_shape)
+    return apply_sharding(torch_tensor.reshape(shape), mesh_shape)
 
 
 def ttir_convolution_golden(
@@ -3617,10 +3617,9 @@ def ttir_full_golden(
     shape = unpack_mlir_attr(shape_attr)
     fill_value = unpack_mlir_attr(fill_value_attr)
     mesh_shape = unpack_mlir_attr(mesh_shape_attr)
-    tensor = torch.full(shape, fill_value)
     output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
-    base = GoldenMapTensor({0: tensor}, (1, 1)).to(output_dtype)
-    return apply_sharding(base, mesh_shape)
+    tensor = torch.full(shape, fill_value).to(output_dtype)
+    return apply_sharding(tensor, mesh_shape)
 
 
 def ttir_concat_golden(
