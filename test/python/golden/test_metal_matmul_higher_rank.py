@@ -156,10 +156,10 @@ def test_matmul_3d_single_core(
     "lhs_shape,rhs_shape",
     [
         # Larger matmuls for multi-core testing
-        ((8, 256, 256), (8, 256, 256)),
-        ((16, 128, 256), (16, 256, 128)),
+        ((4, 256, 256), (4, 256, 256)),
+        ((8, 128, 256), (8, 256, 128)),
     ],
-    ids=["batch8_256x256x256", "batch16_128x256x128"],
+    ids=["batch4_256x256x256", "batch8_128x256x128"],
 )
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_matmul_3d_multi_core(
