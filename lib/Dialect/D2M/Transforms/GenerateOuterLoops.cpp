@@ -19,25 +19,25 @@ public:
   using OpRewritePattern<GenericOp>::OpRewritePattern;
 
   static std::tuple<SmallVector<Value>, SmallVector<Value>, SmallVector<Value>>
-  buildLoopBounds(OpBuilder &builder, Location loc,
-                  ArrayRef<int64_t> loopBounds) {
+  buildLoopBounds(OpBuilder &builder, Location loc, unsigned numDims) {
     Value zero = builder.create<arith::ConstantOp>(loc, builder.getIndexType(),
                                                    builder.getIndexAttr(0));
     Value one = builder.create<arith::ConstantOp>(loc, builder.getIndexType(),
                                                   builder.getIndexAttr(1));
-    SmallVector<Value> lbs(loopBounds.size(), zero);
-    SmallVector<Value> ubs(llvm::map_range(loopBounds, [&](int64_t dim) {
-      return builder.create<arith::ConstantOp>(loc, builder.getIndexType(),
-                                               builder.getIndexAttr(dim));
-    }));
-    SmallVector<Value> step(loopBounds.size(), one);
+    SmallVector<Value> lbs(numDims, zero);
+    SmallVector<Value> ubs;
+    for (unsigned i = 0; i < numDims; ++i) {
+      ubs.push_back(
+          builder.create<GetBlockFactorOp>(loc, static_cast<int64_t>(i)));
+    }
+    SmallVector<Value> step(numDims, one);
     return std::make_tuple(lbs, ubs, step);
   }
 
   static scf::LoopNest buildLoopNest(PatternRewriter &rewriter, Location loc,
-                                     ArrayRef<int64_t> loopBounds,
-                                     Block *regionBlock, Block *loopedBlock) {
-    auto [lbs, ubs, steps] = buildLoopBounds(rewriter, loc, loopBounds);
+                                     unsigned numDims, Block *regionBlock,
+                                     Block *loopedBlock) {
+    auto [lbs, ubs, steps] = buildLoopBounds(rewriter, loc, numDims);
 
     return scf::buildLoopNest(
         rewriter, loc, lbs, ubs, steps,
@@ -63,8 +63,6 @@ public:
     // a leading device index result, so we use the full mapping and let
     // CoreIndexOp handle dimension selection via (dim + 1).
     AffineMap gridMapping = generic.getGrid().getMapping();
-
-    SmallVector<int64_t> blockFactors = generic.getBlockFactorsValue();
 
     // The number of grid dimensions (typically 2 for a 2D grid, but could be
     // more with virtualization)
@@ -126,14 +124,12 @@ public:
         // This dimension participates in the grid. Compute:
         // gridIndex * blockFactor + iterIndex
         const unsigned gridDim = gridResult.value();
-        assert(dim < blockFactors.size() && "Block factor index out of bounds");
         assert(gridDim < virtualGridIndices.size() &&
                "Grid dimension index out of bounds");
 
         Value gridIndex = virtualGridIndices[gridDim];
-        Value blockFactor = rewriter.create<arith::ConstantOp>(
-            loc, rewriter.getIndexType(),
-            rewriter.getIndexAttr(blockFactors[dim]));
+        Value blockFactor =
+            rewriter.create<GetBlockFactorOp>(loc, static_cast<int64_t>(dim));
 
         Value gridScaled = rewriter.create<arith::MulIOp>(
             loc, rewriter.getIndexType(), gridIndex, blockFactor);
@@ -173,8 +169,9 @@ public:
       return failure();
     }
 
-    SmallVector<int64_t> loopBounds = generic.getLoopBounds();
-    if (loopBounds.empty()) {
+    unsigned numDims =
+        static_cast<unsigned>(generic.getBlockFactorsValue().size());
+    if (numDims == 0) {
       // No loops to generate
       return failure();
     }
@@ -213,8 +210,8 @@ public:
         SmallVector<mlir::Location>(region.getArgumentTypes().size(),
                                     generic.getLoc()));
     rewriter.setInsertionPointToStart(loopedBlock);
-    scf::LoopNest loopNest = buildLoopNest(
-        rewriter, generic.getLoc(), loopBounds, regionBlock, loopedBlock);
+    scf::LoopNest loopNest = buildLoopNest(rewriter, generic.getLoc(), numDims,
+                                           regionBlock, loopedBlock);
 
     // Mark all loops in the nest with an attribute to prevent re-processing.
     // These are called "outer loops" because they wrap the generic operation,
