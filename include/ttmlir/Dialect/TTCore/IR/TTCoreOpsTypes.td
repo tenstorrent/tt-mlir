@@ -543,12 +543,13 @@ def TTCore_DeviceAttr : TTCore_Attr<"Device", "device", []> {
                         "AffineMap":$l1Map,
                         "AffineMap":$dramMap,
                         ArrayRefParameter<"int64_t">:$meshShape,
-                        ArrayRefParameter<"unsigned">:$chipIds);
-  let assemblyFormat = "`<` `workerGrid` `=` qualified($workerGrid) `,` `l1Map` `=` qualified($l1Map) `,` `dramMap` `=` qualified($dramMap) `,` `meshShape` `=` custom<DimensionList>($meshShape) `,` `chipIds` `=` `[` $chipIds `]` `>`";
+                        ArrayRefParameter<"unsigned">:$chipIds,
+                        OptionalArrayRefParameter<"Topology">:$meshTopology);
+  let assemblyFormat = "`<` `workerGrid` `=` qualified($workerGrid) `,` `l1Map` `=` qualified($l1Map) `,` `dramMap` `=` qualified($dramMap) `,` `meshShape` `=` custom<DimensionList>($meshShape) `,` `chipIds` `=` `[` $chipIds `]` (`,` `meshTopology` `=` `[` $meshTopology^ `]`)? `>`";
 
   let extraClassDeclaration = [{
-      static DeviceAttr get(::mlir::MLIRContext *context, SystemDescAttr systemDesc, ArrayRef<int64_t> meshShape, ArrayRef<unsigned> chipIds);
-      static DeviceAttr get(::mlir::MLIRContext *context, SystemDescAttr systemDesc, ArrayRef<int64_t> meshShape = {});
+      static DeviceAttr get(::mlir::MLIRContext *context, SystemDescAttr systemDesc, ArrayRef<int64_t> meshShape, ArrayRef<unsigned> chipIds, ArrayRef<Topology> meshTopology = {});
+      static DeviceAttr get(::mlir::MLIRContext *context, SystemDescAttr systemDesc, ArrayRef<int64_t> meshShape = {}, ArrayRef<Topology> meshTopology = {});
       AffineMap getMemoryMap(MemRefType memrefType,
                              size_t pageSize,
                              std::optional<AffineMap> view = std::nullopt,
@@ -667,6 +668,17 @@ def TTCore_MeshAttr : TTCore_Attr<"Mesh", "mesh", []> {
   let parameters = (ins "StringAttr":$name,
                         ArrayRefParameter<"int64_t">:$shape);
   let assemblyFormat = "`<` $name `=` custom<DimensionList>($shape) `>`";
+}
+
+def TTCore_MeshTopologyAttr : TTCore_Attr<"MeshTopology", "mesh_topology", []> {
+  let summary = "Per-axis topology for a mesh.";
+  let description = [{
+    Describes a topology for each axis of a mesh.
+
+    Example: `#ttcore.mesh_topology<[ring, linear]>`
+  }];
+  let parameters = (ins ArrayRefParameter<"Topology">:$topologies);
+  let assemblyFormat = "`<` `[` $topologies `]` `>`";
 }
 
 def TTCore_MeshesAttr : TTCore_Attr<"Meshes", "meshes"> {
