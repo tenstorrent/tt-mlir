@@ -186,6 +186,13 @@ bool isFullyReplicatedTensor(mlir::sdy::TensorShardingAttr tsh);
 // not fully replicated.
 bool isShardedModule(mlir::ModuleOp &module);
 
+// Attempts to slice a global constant tensor into a local shard if the data is
+// periodic (broadcasted) along the sharding axis.
+// Returns std::nullopt if the data is not periodic or sharding info is invalid.
+std::optional<mlir::DenseElementsAttr> tryGetPeriodicShardSlice(
+    mlir::DenseElementsAttr globalAttr, mlir::RankedTensorType localType,
+    mlir::sdy::TensorShardingAttr sharding, mlir::sdy::MeshOp meshOp);
+
 #endif // #ifdef TTMLIR_ENABLE_STABLEHLO
 
 } // namespace mlir::tt::shardy_utils

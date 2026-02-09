@@ -252,7 +252,7 @@ getPoolingOpConstraints(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
       inputs[0], op.getBatchSize(), op.getInputHeight(), op.getInputWidth(),
       op.getChannels(), op.getKernelSize(), op.getStride(), op.getPadding(),
       op.getDilation(), op.getCeilMode(), op.getReallocateHaloOutput(),
-      opConfig.outputLayout);
+      op.getConfigTensorsInDram(), opConfig.outputLayout);
 }
 
 template <typename OpT>
@@ -268,7 +268,7 @@ getPoolingOpRuntime(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
       op.getBatchSize(), op.getInputHeight(), op.getInputWidth(),
       op.getChannels(), op.getKernelSize(), op.getStride(), op.getPadding(),
       op.getDilation(), op.getCeilMode(), op.getReallocateHaloOutput(),
-      opConfig.outputLayout);
+      op.getConfigTensorsInDram(), opConfig.outputLayout);
 }
 
 template <typename OpT>
@@ -293,7 +293,7 @@ getMaxPool2dWithIndicesOpConstraints(OpT op,
       op.getChannels(), op.getKernelSize(), op.getStride(), op.getPadding(),
       op.getDilation(), op.getCeilMode(), op.getReallocateHaloOutput(),
       /*deallocate_input*/ false, /*return_indices*/ true,
-      opConfig.outputLayout);
+      op.getConfigTensorsInDram(), opConfig.outputLayout);
 }
 
 template <typename OpT>
@@ -311,7 +311,7 @@ getMaxPool2dWithIndicesOpRuntime(OpT op,
       op.getChannels(), op.getKernelSize(), op.getStride(), op.getPadding(),
       op.getDilation(), op.getCeilMode(), op.getReallocateHaloOutput(),
       /*deallocate_input*/ false, /*return_indices*/ true,
-      opConfig.outputLayout);
+      op.getConfigTensorsInDram(), opConfig.outputLayout);
 }
 
 template <typename OpT>
