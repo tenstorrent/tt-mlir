@@ -1,6 +1,6 @@
 // RUN: ttmlir-opt --d2m-linalg-to-affine --d2m-insert-dst-register-access %s | FileCheck %s
 
-#layout = #ttcore.metal_layout<logical_shape = 1x32x32x32, dim_alignments = 1x1x32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded, index_map = map(0)>
+#layout = #ttcore.metal_layout<logical_shape = 1x32x32x32, dim_alignments = 1x1x32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded>
 #map = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 #parallel = #ttcore.iterator_type<parallel>
 module {

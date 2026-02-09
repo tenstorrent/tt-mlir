@@ -247,24 +247,29 @@ createShardedBufferConfigForDRAMMemref(FlatbufferObjectCache &cache,
 }
 
 // Returns a physical grid corresponding to the physical extent of the virtual
-// grid by sampling all points in the memref and finding the bounds of where
-// the virtualization map places them.
+// grid.  ND grids (> 2D) are inherently virtual because the hardware grid is
+// always 2D, so they are collapsed to 2D.  For 2D grids with an explicit
+// virtualization map on the layout attribute, the map is sampled to find the
+// physical extents.
 static SmallVector<int64_t>
 getPhysicalGridShapeForVirtualGrid(ttcore::ShardLayoutAttr shardLayout,
                                    ttcore::DeviceAttr device,
                                    MemRefType memref) {
-  auto virtMap = shardLayout.getCoreVirtualizationMap();
-  if (virtMap.isEmpty()) {
-    // No virtualization, just return the original grid shape
-    return llvm::to_vector(shardLayout.getGridShape(memref));
+  SmallVector<int64_t> gridShape =
+      llvm::to_vector(shardLayout.getGridShape(memref));
+
+  // Collapse ND grids to 2D and handle 2D grids that exceed the physical
+  // device bounds.  collapseToPhysicalGrid2D first tries the natural
+  // leading-dim collapse, then falls back to findLegalPhysicalGridForVolume
+  // if the result exceeds the device grid.
+  auto workerGridShape = device.getWorkerGrid().getShape();
+  if (gridShape.size() > 2 || gridShape[0] > workerGridShape[0] ||
+      gridShape[1] > workerGridShape[1]) {
+    return llvm::to_vector<2>(
+        ttcore::collapseToPhysicalGrid2D(gridShape, workerGridShape));
   }
 
-  // Use applyMapToGrid to compute physical shape by sampling all memref points.
-  // The virtMap may return more than 2 dimensions (grid + shard coords), but
-  // we only need the first 2 (physical grid dimensions).
-  auto fullPhysicalShape =
-      ttmlir::utils::applyMapToGrid(memref.getShape(), virtMap);
-  return {fullPhysicalShape[0], fullPhysicalShape[1]};
+  return gridShape;
 }
 
 static flatbuffers::Offset<target::metal::ShardedBufferConfig>
@@ -284,13 +289,11 @@ createShardedBufferConfigForL1Memref(FlatbufferObjectCache &cache,
 
   ArrayRef<int64_t> stride = shardLayout.getStride();
   int64_t elementSize = stride[stride.size() - 1];
+  // After refactoring, virtualization maps live on ops rather than on the
+  // layout attribute.  ND grids (> 2D) are inherently virtual and must be
+  // collapsed to the 2D physical grid for the flatbuffer descriptor.
   SmallVector<int64_t> memrefGridShape =
-      llvm::to_vector(shardLayout.getGridShape(memref));
-
-  if (!shardLayout.getCoreVirtualizationMap().isEmpty()) {
-    memrefGridShape =
-        getPhysicalGridShapeForVirtualGrid(shardLayout, device, memref);
-  }
+      getPhysicalGridShapeForVirtualGrid(shardLayout, device, memref);
 
   auto memrefShardShape = shardLayout.getShardShape(memref);
   auto extendedMapping = extendMappingForHigherDimGrid(
@@ -419,13 +422,11 @@ memrefTypeToCircularBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
   assert(shardLayout &&
          "expected shard layout for circular buffer config generation");
 
+  // After refactoring, virtualization maps live on ops rather than on the
+  // layout attribute.  ND grids (> 2D) are inherently virtual and must be
+  // collapsed to the 2D physical grid for the circular buffer config.
   SmallVector<int64_t> memrefGridShape =
-      llvm::to_vector(shardLayout.getGridShape(memref));
-
-  if (!shardLayout.getCoreVirtualizationMap().isEmpty()) {
-    memrefGridShape =
-        getPhysicalGridShapeForVirtualGrid(shardLayout, device, memref);
-  }
+      getPhysicalGridShapeForVirtualGrid(shardLayout, device, memref);
 
   auto extendedMapping = extendMappingForHigherDimGrid(
       device.getWorkerGrid().getMapping(), memrefGridShape.size());

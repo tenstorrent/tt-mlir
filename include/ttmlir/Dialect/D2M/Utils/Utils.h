@@ -48,12 +48,11 @@ SmallVector<Value> buildGridIndices(OpBuilder &builder, Location loc,
 // grid shape used if the tensor/memref was the output of a GenericOp.
 SmallVector<int64_t> getPhysicalGridShape(Value tensorOrMemref);
 
-// Finds a 2D grid (y, x) such that y * x = gridVolume. The returned grid aims
-// to be as square as possible while respecting the provided target grid shape
-// bounds. If either MxN or NxM grids are feasible where M > N, MxN is chosen.
-SmallVector<int64_t>
-findLegalPhysicalGridForVolume(int64_t gridVolume,
-                               ArrayRef<int64_t> targetGridShape);
+// Returns the remapping associated with a value, if any.
+// Traces back through the defining op to find a ViewLayoutOp or StreamLayoutOp
+// and returns its remapping attribute. Returns std::nullopt if the value has
+// no associated remapping.
+std::optional<AffineMap> getAssociatedRemapping(Value val);
 
 } // namespace mlir::tt::d2m::utils
 

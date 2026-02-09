@@ -126,10 +126,11 @@ static AffineMap getMemoryMap(ttcore::DeviceAttr device, Value input,
                              memrefType.getRank(), memrefType.getContext())),
           0 /* use default page size*/);
     }
-    std::pair<MemRefType, AffineMap> underlyingMemrefAndView =
-        mlir::tt::d2m::applyViews(definingOp);
-    return device.getMemoryMap(underlyingMemrefAndView,
-                               0 /* use default page size*/);
+    // View remapping is now stored on the defining op. Pass it through to the
+    // device map so it is composed in the same order as before (before the
+    // device address map is applied).
+    auto [baseMemref, viewMap] = mlir::tt::d2m::applyViews(definingOp);
+    return device.getMemoryMap(baseMemref, /*pageSize=*/0, viewMap);
   }
 
   // For local memrefs (including CB values), get the underlying memref type
@@ -139,9 +140,25 @@ static AffineMap getMemoryMap(ttcore::DeviceAttr device, Value input,
   } else {
     inputType = mlir::cast<MemRefType>(input.getType());
   }
+  AffineMap layoutMap;
+  if (auto layout =
+          mlir::dyn_cast<MemRefLayoutAttrInterface>(inputType.getLayout())) {
+    if (mlir::isa<ttcore::ViewLayoutAttr>(layout)) {
+      if (auto *definingOp = input.getDefiningOp()) {
+        layoutMap = mlir::tt::d2m::applyViews(definingOp).second;
+      } else {
+        layoutMap = AffineMap::getMultiDimIdentityMap(inputType.getRank(),
+                                                      inputType.getContext());
+      }
+    } else {
+      layoutMap = layout.getAffineMap();
+    }
+  } else {
+    layoutMap = AffineMap::getMultiDimIdentityMap(inputType.getRank(),
+                                                  inputType.getContext());
+  }
   return canonicalStridedMap(device.getContext(), inputType.getShape(),
-                             inputType.getElementType(),
-                             inputType.getLayout().getAffineMap());
+                             inputType.getElementType(), layoutMap);
 }
 
 template <typename Builder>

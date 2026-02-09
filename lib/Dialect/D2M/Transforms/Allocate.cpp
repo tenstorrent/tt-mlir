@@ -1385,16 +1385,17 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
 
     auto streamOp = rewriter.create<d2m::StreamLayoutOp>(
         op.getLoc(), /* result */ streamType, /* input */ operand.get(),
-        /* storage */ bufferAllocOp);
+        AffineMapAttr::get(reblockingMap), /* storage */ bufferAllocOp);
 
     rewriter.startOpModification(op);
     {
       operand.assign(streamOp.getResult());
 
+      auto streamShape = streamType.getShape();
+      TT_assert((streamShape.size() % 2) == 0ul);
+      auto shardShape = streamShape.drop_front(streamShape.size() / 2);
       const MemRefType newArgMemRefType = MemRefType::get(
-          mlir::cast<ttcore::DeviceLayoutInterface>(streamType.getLayout())
-              .getShardShape(streamType),
-          streamType.getElementType(), nullptr, L1Attr);
+          shardShape, streamType.getElementType(), nullptr, L1Attr);
       const CBType newCBArgType = d2m::CBType::get(newArgMemRefType);
 
       for (Region &region : op->getRegions()) {
@@ -1505,7 +1506,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
                                   Type elementType,
                                   ttcore::MemorySpaceAttr memSpaceAttr) {
     const auto streamLayout =
-        ttcore::ViewLayoutAttr::get(map.getContext(), map);
+        ttcore::ViewLayoutAttr::get(map.getContext(), fullShape.size());
 
     return MemRefType::get(fullShape, elementType, streamLayout, memSpaceAttr);
   }

@@ -6,6 +6,7 @@
 #include "ttmlir/AffineMapUtils.h"
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
+#include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOpsInterfaces.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 
@@ -93,11 +94,11 @@ RankedTensorType reblockTensor(RankedTensorType oldTensor,
     return oldTensor;
   }
 
-  auto [newShape, reblockMap] = ttmlir::utils::calculateReblockMapForGrid(
+  auto [newShape, unusedMap] = ttmlir::utils::calculateReblockMapForGrid(
       oldTensor.getShape(), newGridShape, oldTensor.getContext());
+  (void)unusedMap;
 
-  ttcore::MetalLayoutAttr newLayout = oldLayout.withIndexAffineMap(reblockMap);
-  return RankedTensorType::get(newShape, oldTensor.getElementType(), newLayout);
+  return RankedTensorType::get(newShape, oldTensor.getElementType(), oldLayout);
 }
 
 std::optional<SmallVector<int64_t>>
@@ -165,77 +166,78 @@ SmallVector<int64_t> getPhysicalGridShape(Value tensorOrMemref) {
   if (auto viewOp = tensorOrMemref.getDefiningOp<d2m::ViewOpInterface>()) {
     ttcore::DeviceAttr device = ttcore::lookupDevice(viewOp);
     auto deviceGridShape = device.getWorkerGrid().getShape();
-    auto outputGridShape = ttcore::getGridShape(tensorOrMemref);
+    SmallVector<int64_t> outputGridShape;
+    if (ttcore::hasDeviceLayout(tensorOrMemref)) {
+      outputGridShape = llvm::to_vector(ttcore::getGridShape(tensorOrMemref));
+    } else {
+      auto shapedType = mlir::cast<mlir::ShapedType>(tensorOrMemref.getType());
+      auto shape = shapedType.getShape();
+      TT_assert(shape.size() % 2 == 0u);
+      outputGridShape.assign(shape.begin(), shape.begin() + shape.size() / 2);
+    }
 
     bool rankMismatch = outputGridShape.size() != deviceGridShape.size();
     bool outOfDeviceGridBounds = (outputGridShape[0] > deviceGridShape[0]) &&
                                  (outputGridShape[1] > deviceGridShape[1]);
 
     // For views, assume that if direct 1:1 mapping to device grid shape is
-    // impossible, the physical grid shape is given by
-    // findLegalPhysicalGridForVolume(). This is checked against actual gridAttr
-    // inverse map and output virtual grid shape in GenericOp::verify().
+    // impossible, the physical grid shape is given by collapsing the ND grid
+    // to a 2D physical grid that fits within the device.  This is checked
+    // against actual gridAttr inverse map and output virtual grid shape in
+    // GenericOp::verify().
     if (rankMismatch || outOfDeviceGridBounds) {
-      auto physicalGridShape = findLegalPhysicalGridForVolume(
-          ttmlir::utils::volume<int64_t>(outputGridShape), deviceGridShape);
-      return physicalGridShape;
+      return llvm::to_vector<2>(
+          ttcore::collapseToPhysicalGrid2D(outputGridShape, deviceGridShape));
     }
     // View virtual and physical grid shapes are equivalent if directly mappable
     // to device grid.
     return SmallVector<int64_t>(outputGridShape);
   }
 
-  // If not a view, extract DeviceLayoutInterface and get physical grid shape
-  // by applying virtualization map to device shape.
+  // Virtualization maps now live on ViewLayoutOp/StreamLayoutOp rather than
+  // on the layout attribute.  Query the defining op for a remapping.
   auto shapeType = tensorOrMemref.getType();
-  ttcore::DeviceLayoutInterface layout;
-  SmallVector<int64_t> deviceShape;
-  layout = ttcore::getDeviceLayout(tensorOrMemref);
-  TT_assert(layout);
-  deviceShape = llvm::to_vector(
-      dyn_cast<ShapedType>(tensorOrMemref.getType()).getShape());
+  SmallVector<int64_t> deviceShape =
+      llvm::to_vector(dyn_cast<ShapedType>(shapeType).getShape());
 
-  if (auto vmap = layout.getVirtualizationMapIfExists()) {
-    TT_assert(!vmap->isEmpty());
-    return getPhysicalGridShapeFromShapeAndMap(deviceShape, *vmap);
+  if (auto remapping = utils::getAssociatedRemapping(tensorOrMemref)) {
+    if (!remapping->isEmpty()) {
+      return getPhysicalGridShapeFromShapeAndMap(deviceShape, *remapping);
+    }
   }
-  // If no virtualization map, physical grid shape == virtual grid shape.
+
+  // No remapping on the defining op.  Derive the grid shape from the layout
+  // and, for grids that exceed the physical device bounds or are ND (> 2D),
+  // collapse to a valid 2D physical grid.
+  ttcore::DeviceLayoutInterface layout =
+      ttcore::getDeviceLayout(tensorOrMemref);
+  TT_assert(layout);
   SmallVector<int64_t> gridShape =
       to_vector(layout.getGridShape(dyn_cast<ShapedType>(shapeType)));
+
+  auto *definingOp = tensorOrMemref.getDefiningOp();
+  TT_assert(definingOp);
+  ttcore::DeviceAttr device = ttcore::lookupDevice(definingOp);
+  auto deviceGridShape = device.getWorkerGrid().getShape();
+
+  if (gridShape.size() > 2 || gridShape[0] > deviceGridShape[0] ||
+      gridShape[1] > deviceGridShape[1]) {
+    return llvm::to_vector<2>(
+        ttcore::collapseToPhysicalGrid2D(gridShape, deviceGridShape));
+  }
   return gridShape;
 }
 
-SmallVector<int64_t>
-findLegalPhysicalGridForVolume(int64_t gridVolume,
-                               ArrayRef<int64_t> targetGridShape) {
-  assert(gridVolume > 0 && "Grid volume must be positive");
-  assert(targetGridShape.size() >= 2u &&
-         "Target grid shape must provide at least two dimensions");
-  assert((targetGridShape[0] > 0 && targetGridShape[1] > 0) &&
-         "Target grid dimensions must be positive");
-
-  auto fitsTarget = [&](int64_t dimY, int64_t dimX) {
-    return dimY <= targetGridShape[0] && dimX <= targetGridShape[1];
-  };
-
-  int64_t y = 1;
-  // Find the largest factor of grid volume that is <= sqrt(gridVolume).
-  for (int64_t i = static_cast<int64_t>(std::sqrt(gridVolume)); i > 0; --i) {
-    if (gridVolume % i == 0) {
-      int64_t candidateY = i;
-      int64_t candidateX = gridVolume / i;
-      if (fitsTarget(candidateY, candidateX)) {
-        return {candidateY, candidateX};
-      }
-      if (fitsTarget(candidateX, candidateY)) {
-        return {candidateX, candidateY};
-      }
-      if (y == 1) {
-        y = candidateY;
-      }
-    }
+std::optional<AffineMap> getAssociatedRemapping(Value val) {
+  if (auto viewOp = val.getDefiningOp<ViewLayoutOp>()) {
+    AffineMap map = viewOp.getRemapping();
+    return map;
   }
-  return {};
+  if (auto streamOp = val.getDefiningOp<StreamLayoutOp>()) {
+    AffineMap map = streamOp.getRemapping();
+    return map;
+  }
+  return std::nullopt;
 }
 
 } // namespace mlir::tt::d2m::utils

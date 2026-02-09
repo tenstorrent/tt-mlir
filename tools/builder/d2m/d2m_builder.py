@@ -161,12 +161,13 @@ class D2MBuilder(Builder):
         self,
         input: Operand,
         output_type: Type,
+        remapping: Optional[Union[AffineMap, AffineMapAttr]] = None,
         reinterpret_layout: bool = False,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpView:
         """Create a D2M view_layout operation."""
 
-        return self._op_proxy(
+        result = self._op_proxy(
             d2m.ViewLayoutOp,
             [input],
             d2m_kwargs={"reinterpretLayout": reinterpret_layout},
@@ -177,16 +178,36 @@ class D2MBuilder(Builder):
             unit_attrs=unit_attrs,
         )
 
+        if remapping is None:
+            remapping = AffineMap.get_identity(len(output_type.shape), self._ctx)
+        remapping_attr = (
+            remapping
+            if isinstance(remapping, AffineMapAttr)
+            else AffineMapAttr.get(remapping)
+        )
+        result.owner.attributes["remapping"] = remapping_attr
+        return result
+
     def stream_layout(
         self,
         input: Operand,
         storage: Operand,
+        remapping: Optional[Union[AffineMap, AffineMapAttr]] = None,
     ) -> OpView:
         """Create a D2M stream_layout operation."""
         with self._ctx, self._loc:
             # Determine result type based on input type
             result_type = input.type
-            return d2m.StreamLayoutOp(input, storage, result_type)
+            op = d2m.StreamLayoutOp(result_type, input, storage)
+            if remapping is None:
+                remapping = AffineMap.get_identity(len(result_type.shape), self._ctx)
+            remapping_attr = (
+                remapping
+                if isinstance(remapping, AffineMapAttr)
+                else AffineMapAttr.get(remapping)
+            )
+            op.operation.attributes["remapping"] = remapping_attr
+            return op.result
 
     # ----- D2M Layout Convenience Methods -----
 
