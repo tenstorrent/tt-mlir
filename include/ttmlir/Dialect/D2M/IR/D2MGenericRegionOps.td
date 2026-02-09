@@ -11,6 +11,7 @@ include "ttmlir/Dialect/D2M/IR/D2MBase.td"
 include "ttmlir/Dialect/D2M/IR/D2MOpsAttrs.td"
 include "ttmlir/Dialect/D2M/IR/D2MOpsInterfaces.td"
 
+include "mlir/Dialect/Affine/IR/AffineMemoryOpInterfaces.td"
 include "mlir/Dialect/Bufferization/IR/BufferizableOpInterface.td"
 include "mlir/Interfaces/DestinationStyleOpInterface.td"
 include "mlir/IR/OpAsmInterface.td"
@@ -1056,6 +1057,8 @@ def D2M_RemoteLoadOp : D2M_GenericRegionDatamovementOp<"remote_load",
   [ AttrSizedOperandSegments
   , MemoryEffects<[MemRead, MemWrite]>
   , DestinationStyleOpInterface
+  , DeclareOpInterfaceMethods<AffineReadOpInterface>
+  , DeclareOpInterfaceMethods<AffineMapAccessInterface>
   , DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>
   , DeclareOpInterfaceMethods<BufferizableOpInterface, [
       "bufferizesToMemoryRead",
@@ -1237,12 +1240,17 @@ def D2M_RemoteLoadOp : D2M_GenericRegionDatamovementOp<"remote_load",
 
       void setMemRef(Value value) { setOperand(getMemRefOperandIndex(), value); }
 
-      /// Returns the identity affine map used to index the memref/tensor for this operation.
-      /// The map always has N/2 results where N is the memref/tensor rank (grid dimensions).
+      /// Returns the affine map that describes how the indices of this operation
+      /// map to the grid dimensions of the memref operand. Looks up the indexing
+      /// map from the parent GenericOp for the associated operand; returns an
+      /// empty affine map when the parent GenericOp is not in affine map form.
       AffineMap getAffineMap() {
-        auto shapedType = getShapedType();
-        int64_t gridRank = shapedType.getRank() / 2;
-        return AffineMap::getMultiDimIdentityMap(gridRank, getContext());
+        auto genericOp = (*this)->template getParentOfType<GenericOp>();
+        assert(genericOp && "RemoteLoad/StoreOp must be inside a GenericOp");
+        if (!genericOp.isAffineMapForm()) {
+          return AffineMap();
+        }
+        return genericOp.getIndexingMapForOperand(getMemref());
       }
 
       /// Returns the CB type, or null CBType if CB is not present.
@@ -1281,6 +1289,30 @@ def D2M_RemoteLoadOp : D2M_GenericRegionDatamovementOp<"remote_load",
 
       /// Returns true if using low-level mcast form (mcore/mshape).
       bool isLowLevelMcast() { return !getMcastShape().empty(); }
+
+      // --- AffineReadOpInterface / AffineMapAccessInterface support ---
+
+      /// Returns the affine map operands (the grid indices).
+      Operation::operand_range getMapOperands() { return getIndices(); }
+
+      /// Returns the value read by this operation.
+      Value getValue() { return getResult(); }
+
+      /// Returns an AffineMapAttr wrapping the affine map for this operation.
+      AffineMapAttr getAffineMapAttr() {
+        return AffineMapAttr::get(getAffineMap());
+      }
+
+      /// Returns the name of the map attribute.
+      static StringRef getMapAttrStrName() { return "map"; }
+
+      /// Returns the AffineMapAttr associated with the given memref value.
+      NamedAttribute getAffineMapAttrForMemRef(Value memref) {
+        assert(memref == getMemref() &&
+               "Expected memref argument to match memref operand");
+        return {StringAttr::get(getContext(), getMapAttrStrName()),
+                getAffineMapAttr()};
+      }
     }];
 }
 
@@ -1288,6 +1320,8 @@ def D2M_RemoteStoreOp : D2M_GenericRegionDatamovementOp<"remote_store",
   [ AttrSizedOperandSegments
   , MemoryEffects<[MemRead, MemWrite]>
   , DestinationStyleOpInterface
+  , DeclareOpInterfaceMethods<AffineWriteOpInterface>
+  , DeclareOpInterfaceMethods<AffineMapAccessInterface>
   , DeclareOpInterfaceMethods<BufferizableOpInterface, [
       "bufferizesToMemoryRead",
       "bufferizesToMemoryWrite",
@@ -1379,12 +1413,17 @@ def D2M_RemoteStoreOp : D2M_GenericRegionDatamovementOp<"remote_store",
 
       void setMemRef(Value value) { setOperand(getMemRefOperandIndex(), value); }
 
-      /// Returns the identity affine map used to index the memref/tensor for this operation.
-      /// The map always has N/2 results where N is the memref/tensor rank (grid dimensions).
+      /// Returns the affine map that describes how the indices of this operation
+      /// map to the grid dimensions of the memref operand. Looks up the indexing
+      /// map from the parent GenericOp for the associated operand; returns an
+      /// empty affine map when the parent GenericOp is not in affine map form.
       AffineMap getAffineMap() {
-        auto shapedType = getShapedType();
-        int64_t gridRank = shapedType.getRank() / 2;
-        return AffineMap::getMultiDimIdentityMap(gridRank, getContext());
+        auto genericOp = (*this)->template getParentOfType<GenericOp>();
+        assert(genericOp && "RemoteLoad/StoreOp must be inside a GenericOp");
+        if (!genericOp.isAffineMapForm()) {
+          return AffineMap();
+        }
+        return genericOp.getIndexingMapForOperand(getMemref());
       }
 
       /// Returns the CB type, or null CBType if CB is not present.
@@ -1413,6 +1452,39 @@ def D2M_RemoteStoreOp : D2M_GenericRegionDatamovementOp<"remote_store",
           return memrefType;
         }
         llvm_unreachable("getMemRefType() called on tensor operand, use getShapedType() instead");
+      }
+
+      // --- AffineWriteOpInterface / AffineMapAccessInterface support ---
+
+      /// Returns the affine map operands (the grid indices).
+      Operation::operand_range getMapOperands() { return getIndices(); }
+
+      /// Returns the value to store (the local buffer).
+      Value getValueToStore() { return getLocalBuffer(); }
+
+      /// Returns the operand index of the value to store.
+      unsigned getStoredValOperandIndex() {
+        // localBuffer follows memref and indices in the operand list.
+        // Use the ODS segment info to find the correct index.
+        return getLocalBuffer()
+          ? static_cast<unsigned>(getODSOperandIndexAndLength(2).first)
+          : UINT_MAX;
+      }
+
+      /// Returns an AffineMapAttr wrapping the affine map for this operation.
+      AffineMapAttr getAffineMapAttr() {
+        return AffineMapAttr::get(getAffineMap());
+      }
+
+      /// Returns the name of the map attribute.
+      static StringRef getMapAttrStrName() { return "map"; }
+
+      /// Returns the AffineMapAttr associated with the given memref value.
+      NamedAttribute getAffineMapAttrForMemRef(Value memref) {
+        assert(memref == getMemref() &&
+               "Expected memref argument to match memref operand");
+        return {StringAttr::get(getContext(), getMapAttrStrName()),
+                getAffineMapAttr()};
       }
     }];
 }
