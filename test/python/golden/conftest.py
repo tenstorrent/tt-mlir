@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 import pytest
-import _ttmlir_runtime as tt_runtime
+import ttrt.runtime._ttmlir_runtime as tt_runtime
 import json
 import re
 import platform

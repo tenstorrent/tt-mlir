@@ -6,7 +6,7 @@ import pytest
 import torch
 from collections import OrderedDict
 import os
-import _ttmlir_runtime as tt_runtime
+import ttrt.runtime._ttmlir_runtime as tt_runtime
 from ttmlir.dialects import ttcore
 from ttmlir.ir import *
 from builder.base.builder_runtime import execute_fb
