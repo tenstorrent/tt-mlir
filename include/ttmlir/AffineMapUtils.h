@@ -374,6 +374,48 @@ buildPhysicalToDeviceMap(mlir::ArrayRef<int64_t> physicalShape,
   return mlir::AffineMap::get(rank, 0, deviceExprs, context);
 }
 
+/// Creates an affine map that collapses an ND grid (> 2D) to a 2D grid while
+/// preserving shard dimensions as identity pass-throughs.
+///
+/// The map linearizes ND grid coordinates to a 1D row-major index, then
+/// re-expands to the target 2D physical grid. Shard dimensions are appended
+/// as identity.
+///
+/// Example: gridShape=[7,1,1], physGrid=[7,1], shardRank=3:
+///   (d0,d1,d2,d3,d4,d5) -> ((d0+d1+d2)%7, 0, d3, d4, d5)
+inline mlir::AffineMap
+createNDGridCollapseMap(mlir::ArrayRef<int64_t> gridShape,
+                        mlir::ArrayRef<int64_t> physGrid, unsigned shardRank,
+                        mlir::MLIRContext *context) {
+  assert(physGrid.size() == 2 && "Physical grid must be 2D");
+  unsigned gridRank = gridShape.size();
+
+  // Linearize ND grid → 1D (row-major).
+  mlir::AffineExpr linearExpr = mlir::getAffineConstantExpr(0, context);
+  mlir::AffineExpr stride = mlir::getAffineConstantExpr(1, context);
+  for (int64_t i = static_cast<int64_t>(gridRank) - 1; i >= 0; --i) {
+    linearExpr = linearExpr + mlir::getAffineDimExpr(i, context) * stride;
+    stride = stride * mlir::getAffineConstantExpr(gridShape[i], context);
+  }
+
+  // Expand 1D → 2D physical grid.
+  mlir::SmallVector<mlir::AffineExpr> results;
+  mlir::AffineExpr divisor = mlir::getAffineConstantExpr(1, context);
+  for (int64_t dim = 1; dim >= 0; --dim) {
+    mlir::AffineExpr sizeExpr =
+        mlir::getAffineConstantExpr(physGrid[dim], context);
+    results.insert(results.begin(), linearExpr.floorDiv(divisor) % sizeExpr);
+    divisor = divisor * sizeExpr;
+  }
+
+  // Append identity pass-throughs for shard dims.
+  for (unsigned i = 0; i < shardRank; ++i) {
+    results.push_back(mlir::getAffineDimExpr(gridRank + i, context));
+  }
+
+  return mlir::AffineMap::get(gridRank + shardRank, 0, results, context);
+}
+
 /// Calculates the coalescing factor for an affine map by sampling over the
 /// given input shape. The coalescing factor is the greatest common divisor of
 /// all contiguous run lengths, representing the maximum number of elements that

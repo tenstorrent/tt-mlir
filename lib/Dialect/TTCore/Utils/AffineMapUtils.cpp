@@ -255,15 +255,6 @@ mlir::AffineMap buildDeviceToLogicalMap(MetalLayoutAttr layout,
   // Compose: device → physical → logical.
   auto deviceToLogical = physicalToLogical.compose(deviceToPhysical);
 
-  // If the layout has an existing index map (view), compose through it.
-  // The index map transforms device coordinates before the standard
-  // device→physical→logical transformation.
-  auto existingIndexMap = layout.getIndexAffineMap();
-  if (existingIndexMap && !existingIndexMap.isEmpty()) {
-    // Compose: modified_device → device → physical → logical.
-    deviceToLogical = deviceToLogical.compose(existingIndexMap);
-  }
-
   return deviceToLogical;
 }
 

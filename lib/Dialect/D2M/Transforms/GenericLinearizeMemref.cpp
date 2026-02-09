@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/AffineMapUtils.h"
+#include "ttmlir/Dialect/D2M/IR/D2MOpsInterfaces.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 #include "ttmlir/Utils.h"
 
@@ -55,8 +56,25 @@ public:
     }
 
     auto shape = memref.getShape();
-    auto linearMap = linearizeAffineMap(
-        rewriter.getContext(), memref.getLayout().getAffineMap(), shape);
+    AffineMap layoutMap;
+    if (auto layout =
+            mlir::dyn_cast<MemRefLayoutAttrInterface>(memref.getLayout())) {
+      if (mlir::isa<ttcore::ViewLayoutAttr>(layout)) {
+        if (auto *definingOp = val.getDefiningOp()) {
+          layoutMap = mlir::tt::d2m::applyViews(definingOp).second;
+        } else {
+          layoutMap = AffineMap::getMultiDimIdentityMap(memref.getRank(),
+                                                        memref.getContext());
+        }
+      } else {
+        layoutMap = layout.getAffineMap();
+      }
+    } else {
+      layoutMap = AffineMap::getMultiDimIdentityMap(memref.getRank(),
+                                                    memref.getContext());
+    }
+    auto linearMap =
+        linearizeAffineMap(rewriter.getContext(), layoutMap, shape);
 
     // Create or get collapsed memref
     memref::CollapseShapeOp linearizedArg = collapseOps->lookup(val);

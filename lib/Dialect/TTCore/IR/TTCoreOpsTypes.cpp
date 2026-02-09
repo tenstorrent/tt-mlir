@@ -7,6 +7,7 @@
 #include "ttmlir/AffineMapUtils.h"
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Target/Common/Target.h"
 #include "ttmlir/Target/Common/system_desc_bfbs_hash_generated.h"
 #include "ttmlir/Utils.h"
@@ -604,10 +605,6 @@ mlir::AffineMap InterleavedLayoutAttr::getAffineMap() const {
                                                           getContext());
 }
 
-ViewLayoutAttr ViewLayoutAttr::compose(ViewLayoutAttr g) const {
-  return get(getContext(), getAffineMap().compose(g.getAffineMap()));
-}
-
 mlir::AffineMap HostLayoutAttr::getAffineMap() const {
   auto *context = getContext();
   const int64_t rank = getLogicalShape().size();
@@ -819,24 +816,6 @@ static llvm::SmallVector<int64_t> applyCollapsedIntervalsAndAlignments(
   return resultShape;
 }
 
-MetalLayoutAttr MetalLayoutAttr::compose(AffineMap affineMap) const {
-  if (getIndexAffineMap().isEmpty()) {
-    return withIndexAffineMap(affineMap);
-  }
-
-  return ttcore::MetalLayoutAttr::get(
-      getContext(), getLogicalShape(), getDimAlignments(),
-      getCollapsedIntervals(), getOobVal(), getMemorySpace(), getMemoryLayout(),
-      getIndexAffineMap().compose(affineMap));
-}
-
-MetalLayoutAttr MetalLayoutAttr::withIndexAffineMap(AffineMap affineMap) const {
-  return ttcore::MetalLayoutAttr::get(
-      getContext(), getLogicalShape(), getDimAlignments(),
-      getCollapsedIntervals(), getOobVal(), getMemorySpace(), getMemoryLayout(),
-      affineMap.isIdentity() ? AffineMap::get(getContext()) : affineMap);
-}
-
 llvm::SmallVector<int64_t>
 MetalLayoutAttr::getPhysicalShape(ArrayRef<int64_t> tileShape) const {
   llvm::SmallVector<int64_t> normalizedIntervals = getNormalizedIntervals();
@@ -928,15 +907,6 @@ llvm::SmallVector<int64_t> MetalLayoutAttr::normalizeAndFlattenIntervals(
 llvm::SmallVector<int64_t> MetalLayoutAttr::getNormalizedIntervals() const {
   return normalizeAndFlattenIntervals(getCollapsedIntervals(),
                                       getLogicalShape().size());
-}
-
-mlir::AffineMap
-MetalLayoutAttr::getIndexAffineMapOrIdentity(unsigned rank) const {
-  mlir::AffineMap map = getIndexAffineMap();
-  if (!map || map.getNumResults() == 0) {
-    return mlir::AffineMap::getMultiDimIdentityMap(rank, getContext());
-  }
-  return map;
 }
 
 // Compute basic tile-based dimension alignments for the last two dimensions of
@@ -1132,25 +1102,14 @@ createDefaultCollapsedIntervalsAndAlignments(::mlir::MLIRContext *context,
   return {collapsedIntervals, dimAlignmentsVec};
 }
 
-// Getter with no intervals or alignments, we calculate them both.
-MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
-                                     ArrayRef<int64_t> logicalShape,
-                                     OOBVal oobVal, MemorySpace memorySpace,
-                                     TensorMemoryLayout memoryLayout,
-                                     mlir::AffineMap indexAffineMap) {
-
-  auto [collapsedIntervals, dimAlignmentsVec] =
-      createDefaultCollapsedIntervalsAndAlignments(context, logicalShape);
-  return get(context, logicalShape, dimAlignmentsVec, collapsedIntervals,
-             oobVal, memorySpace, memoryLayout, indexAffineMap);
-}
-
 MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
                                      ArrayRef<int64_t> logicalShape,
                                      OOBVal oobVal, MemorySpace memorySpace,
                                      TensorMemoryLayout memoryLayout) {
-  return get(context, logicalShape, oobVal, memorySpace, memoryLayout,
-             mlir::AffineMap::get(context));
+  auto [collapsedIntervals, dimAlignmentsVec] =
+      createDefaultCollapsedIntervalsAndAlignments(context, logicalShape);
+  return get(context, logicalShape, dimAlignmentsVec, collapsedIntervals,
+             oobVal, memorySpace, memoryLayout);
 }
 
 // Getter with explicit collapsedIntervals, we calculate the alignments.
@@ -1159,24 +1118,12 @@ MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
                                      OOBVal oobVal, MemorySpace memorySpace,
                                      TensorMemoryLayout memoryLayout,
                                      DenseIntElementsAttr collapsedIntervals) {
-  return get(context, logicalShape, oobVal, memorySpace, memoryLayout,
-             collapsedIntervals, mlir::AffineMap::get(context));
-}
-
-// Getter with explicit collapsedIntervals, we calculate the alignments.
-MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
-                                     ArrayRef<int64_t> logicalShape,
-                                     OOBVal oobVal, MemorySpace memorySpace,
-                                     TensorMemoryLayout memoryLayout,
-                                     DenseIntElementsAttr collapsedIntervals,
-                                     mlir::AffineMap indexAffineMap) {
   llvm::SmallVector<int64_t> normalizedIntervals =
       normalizeAndFlattenIntervals(collapsedIntervals, logicalShape.size());
   llvm::SmallVector<int64_t> dimAlignmentsVec =
       computeTileAlignments(logicalShape, normalizedIntervals);
-
   return get(context, logicalShape, dimAlignmentsVec, collapsedIntervals,
-             oobVal, memorySpace, memoryLayout, indexAffineMap);
+             oobVal, memorySpace, memoryLayout);
 }
 
 // Getter with explicit collapsedIntervals and dimAlignments.
@@ -1187,7 +1134,7 @@ MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
                                      DenseIntElementsAttr collapsedIntervals,
                                      ArrayRef<int64_t> dimAlignments) {
   return get(context, logicalShape, dimAlignments, collapsedIntervals, oobVal,
-             memorySpace, memoryLayout, mlir::AffineMap::get(context));
+             memorySpace, memoryLayout);
 }
 
 mlir::MemRefType
@@ -1206,24 +1153,12 @@ MetalLayoutAttr::getMemRefType(mlir::RankedTensorType tensorType) {
       MemorySpaceAttr::get(tensorType.getContext(), layout.getMemorySpace()));
 }
 
-MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
-                                     ArrayRef<int64_t> logicalShape,
-                                     OOBVal oobVal, MemorySpace memorySpace,
-                                     TensorMemoryLayout memoryLayout,
-                                     DenseIntElementsAttr collapsedIntervals,
-                                     ArrayRef<int64_t> dimAlignments,
-                                     mlir::AffineMap indexAffineMap) {
-  return get(context, logicalShape, dimAlignments, collapsedIntervals, oobVal,
-             memorySpace, memoryLayout, indexAffineMap);
-}
-
 ::mlir::LogicalResult MetalLayoutAttr::verify(
     ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
     ::llvm::ArrayRef<int64_t> logicalShape,
     ::llvm::ArrayRef<int64_t> dimAlignments,
     DenseIntElementsAttr collapsedIntervals, OOBVal oobVal,
-    MemorySpace memorySpace, TensorMemoryLayout memoryLayout,
-    ::mlir::AffineMap indexAffineMap) {
+    MemorySpace memorySpace, TensorMemoryLayout memoryLayout) {
 
   int64_t logicalRank = logicalShape.size();
 
@@ -1597,18 +1532,35 @@ mlir::AffineMap DeviceAttr::getMemoryMap(MemRefType memrefType, size_t pageSize,
                                          size_t baseOffset) const {
   MemorySpace memorySpace =
       mlir::cast<MemorySpaceAttr>(memrefType.getMemorySpace()).getValue();
-  AffineMap affineMap = memrefType.getLayout().getAffineMap();
+  AffineMap affineMap;
+  if (auto layout =
+          mlir::dyn_cast<MemRefLayoutAttrInterface>(memrefType.getLayout())) {
+    affineMap = layout.getAffineMap();
+  } else {
+    affineMap = AffineMap::getMultiDimIdentityMap(memrefType.getRank(),
+                                                  memrefType.getContext());
+  }
 
   if (auto shardLayout =
           mlir::dyn_cast<ShardLayoutAttr>(memrefType.getLayout())) {
 
-    // Core virtualization map must be composed before other maps.
-    if (auto coreVirtMap = shardLayout.getCoreVirtualizationMap();
-        !coreVirtMap.isEmpty()) {
+    // The device L1/DRAM maps operate on a 2D grid (gridY, gridX) plus a
+    // linear shard offset.  ND grids (> 2D) must be collapsed to 2D before
+    // composition with the device maps.  This collapse is computed dynamically
+    // from the memref shape rather than stored on the layout attribute.
+    unsigned shardRank = shardLayout.getRank();
+    unsigned gridRank = memrefType.getRank() - shardRank;
 
-      if (affineMap.getNumDims() > coreVirtMap.getNumResults()) {
+    if (gridRank > 2) {
+      auto gridShape = memrefType.getShape().take_front(gridRank);
+      auto physGrid =
+          collapseToPhysicalGrid2D(gridShape, getWorkerGrid().getShape());
+      AffineMap gridCollapseMap = ttmlir::utils::createNDGridCollapseMap(
+          gridShape, physGrid, shardRank, memrefType.getContext());
+
+      if (affineMap.getNumDims() > gridCollapseMap.getNumResults()) {
         auto dimsToRemove =
-            affineMap.getNumDims() - coreVirtMap.getNumResults();
+            affineMap.getNumDims() - gridCollapseMap.getNumResults();
         llvm::SmallBitVector projectedDims(affineMap.getNumDims());
         projectedDims.set(0, dimsToRemove);
 
@@ -1616,8 +1568,9 @@ mlir::AffineMap DeviceAttr::getMemoryMap(MemRefType memrefType, size_t pageSize,
         affineMap = affineMap.dropResults(projectedDims);
       }
 
-      affineMap = affineMap.compose(coreVirtMap);
+      affineMap = affineMap.compose(gridCollapseMap);
     }
+
     if (view) {
       affineMap = affineMap.compose(*view);
     }

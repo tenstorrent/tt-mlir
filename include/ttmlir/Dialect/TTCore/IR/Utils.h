@@ -118,6 +118,22 @@ ArrayRef<int64_t> getTensorTileShapeOrEmpty(RankedTensorType tensorType);
 
 llvm::SmallVector<int64_t, 2> collapseGridTo2D(ArrayRef<int64_t> gridShape);
 
+// Finds a 2D grid (y, x) such that y * x = gridVolume. The returned grid aims
+// to be as square as possible while respecting the provided target grid shape
+// bounds. If either MxN or NxM grids are feasible where M > N, MxN is chosen.
+// Returns an empty vector if no valid grid is found.
+llvm::SmallVector<int64_t>
+findLegalPhysicalGridForVolume(int64_t gridVolume,
+                               ArrayRef<int64_t> targetGridShape);
+
+// Collapse an ND (or 2D) grid to a physical 2D grid that fits within
+// deviceGridShape.  First tries collapseGridTo2D (which preserves the natural
+// leading-dim collapse order).  If the result exceeds the device grid bounds,
+// falls back to findLegalPhysicalGridForVolume to find a valid factorization.
+llvm::SmallVector<int64_t, 2>
+collapseToPhysicalGrid2D(ArrayRef<int64_t> gridShape,
+                         ArrayRef<int64_t> deviceGridShape);
+
 // Retrieve the layout from the shaped type (ie. getEncoding for tensors and
 // getLayout for memrefs).
 inline DeviceLayoutInterface getDeviceLayout(ShapedType shapedType) {

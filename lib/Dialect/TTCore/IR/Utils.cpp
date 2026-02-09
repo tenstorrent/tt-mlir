@@ -10,6 +10,8 @@
 
 #include "mlir/IR/BuiltinOps.h"
 
+#include <cmath>
+
 namespace mlir::tt::ttcore {
 
 SystemDescAttr getCurrentScopeSystemDesc(mlir::Operation *op) {
@@ -171,6 +173,59 @@ llvm::SmallVector<int64_t, 2> collapseGridTo2D(ArrayRef<int64_t> gridShape) {
   return {collapsedHeight, width};
 }
 
+llvm::SmallVector<int64_t>
+findLegalPhysicalGridForVolume(int64_t gridVolume,
+                               ArrayRef<int64_t> targetGridShape) {
+  assert(gridVolume > 0 && "Grid volume must be positive");
+  assert(targetGridShape.size() >= 2u &&
+         "Target grid shape must provide at least two dimensions");
+  assert((targetGridShape[0] > 0 && targetGridShape[1] > 0) &&
+         "Target grid dimensions must be positive");
+
+  auto fitsTarget = [&](int64_t dimY, int64_t dimX) {
+    return dimY <= targetGridShape[0] && dimX <= targetGridShape[1];
+  };
+
+  int64_t y = 1;
+  // Find the largest factor of grid volume that is <= sqrt(gridVolume).
+  for (int64_t i = static_cast<int64_t>(std::sqrt(gridVolume)); i > 0; --i) {
+    if (gridVolume % i == 0) {
+      int64_t candidateY = i;
+      int64_t candidateX = gridVolume / i;
+      if (fitsTarget(candidateY, candidateX)) {
+        return {candidateY, candidateX};
+      }
+      if (fitsTarget(candidateX, candidateY)) {
+        return {candidateX, candidateY};
+      }
+      if (y == 1) {
+        y = candidateY;
+      }
+    }
+  }
+  return {};
+}
+
+llvm::SmallVector<int64_t, 2>
+collapseToPhysicalGrid2D(ArrayRef<int64_t> gridShape,
+                         ArrayRef<int64_t> deviceGridShape) {
+  auto physGrid = collapseGridTo2D(gridShape);
+  assert(physGrid.size() == 2 && "Expected 2D grid after collapse");
+
+  // If the collapsed grid fits within the device grid, use it directly.
+  if (physGrid[0] <= deviceGridShape[0] && physGrid[1] <= deviceGridShape[1]) {
+    return physGrid;
+  }
+
+  // The natural collapse exceeds the device grid bounds.  Fall back to
+  // findLegalPhysicalGridForVolume which finds a valid factorization that
+  // fits — consistent with how grid selection validates candidate grids.
+  auto fallback = findLegalPhysicalGridForVolume(physGrid[0] * physGrid[1],
+                                                 deviceGridShape);
+  assert(!fallback.empty() && "Grid volume must fit within device grid");
+  return {fallback[0], fallback[1]};
+}
+
 static MemRefType getMemRefType(Type type, bool isView,
                                 std::optional<MetalLayoutAttr> hostInfo) {
   auto tensorType = mlir::cast<mlir::RankedTensorType>(type);
@@ -210,24 +265,13 @@ static MemRefType getMemRefType(Type type, bool isView,
   // tensor's memory layout strategy.
   MemRefLayoutAttrInterface layoutAttr;
   if (isView) {
-    const unsigned rank = static_cast<unsigned>(fullMemrefShape.size());
-    mlir::AffineMap map = layout.getIndexAffineMapOrIdentity(rank);
-    assert(map &&
-           "expected tensor encoding to provide a concrete index_map for view");
-    layoutAttr = ViewLayoutAttr::get(ctx, map);
+    layoutAttr = ViewLayoutAttr::get(ctx, tensorType.getRank());
   } else {
     SmallVector<int64_t> shardStride = layout.getShardStride(tensorType);
     if (layout.getMemoryLayout() == TensorMemoryLayout::Sharded) {
       SmallVector<int64_t> shardStride = layout.getShardStride(tensorType);
-
-      auto indexMap = layout.getIndexAffineMap();
-      if (!indexMap || indexMap.isIdentity() || indexMap.getNumResults() == 0) {
-        layoutAttr = ttcore::ShardLayoutAttr::get(ctx, shardStride,
-                                                  /*buffered=*/1);
-      } else {
-        layoutAttr = ttcore::ShardLayoutAttr::get(ctx, shardStride,
-                                                  /*buffered=*/1, indexMap);
-      }
+      layoutAttr = ttcore::ShardLayoutAttr::get(ctx, shardStride,
+                                                /*buffered=*/1);
 
     } else if (layout.getMemoryLayout() == TensorMemoryLayout::Interleaved) {
       layoutAttr = InterleavedLayoutAttr::get(ctx, shardStride);

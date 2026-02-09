@@ -12,6 +12,7 @@
 #include "ttmlir/Dialect/D2M/Utils/VirtualGrid.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Utils.h"
 
@@ -80,7 +81,7 @@ computeOptimalVirtualGrid(ArrayRef<int64_t> physicalShape,
     for (const auto &grid : factorCombinations) {
       int64_t gridVolume = ttmlir::utils::volume<int64_t>(grid);
       if (gridVolume <= targetGridVolume && gridVolume > bestGridVolume) {
-        auto physGrid = utils::findLegalPhysicalGridForVolume(
+        auto physGrid = ttcore::findLegalPhysicalGridForVolume(
             gridVolume, targetSquareGridShape);
         if (!physGrid.empty()) {
 
@@ -103,7 +104,7 @@ computeOptimalVirtualGrid(ArrayRef<int64_t> physicalShape,
   for (int64_t factor : llvm::reverse(factors)) {
     if (factor <= targetGridVolume) {
       auto physGrid =
-          utils::findLegalPhysicalGridForVolume(factor, targetSquareGridShape);
+          ttcore::findLegalPhysicalGridForVolume(factor, targetSquareGridShape);
       if (!physGrid.empty()) {
         bestFactor = factor;
         break;
@@ -247,6 +248,7 @@ static ttcore::MetalLayoutAttr layoutWithOptimalGrid(
     ttcore::MetalLayoutAttr oldLayout, ArrayRef<int64_t> targetGridShape,
     ArrayRef<int64_t> targetSquareGridShape, ArrayRef<int64_t> optimalGrid,
     bool isVirtualGrid, OpBuilder &builder) {
+  (void)isVirtualGrid;
   auto collapsedIntervals = oldLayout.getCollapsedIntervals();
 
   llvm::SmallVector<int64_t> newDimAlignments =
@@ -254,27 +256,10 @@ static ttcore::MetalLayoutAttr layoutWithOptimalGrid(
           oldLayout.getLogicalShape(), targetSquareGridShape,
           oldLayout.getNormalizedIntervals());
 
-  // If using a virtual grid, compute required forward index affine map.
-  AffineMap indexAffineMap = oldLayout.getIndexAffineMap();
-  if (isVirtualGrid) {
-    auto physicalGridShape = utils::findLegalPhysicalGridForVolume(
-        ttmlir::utils::volume(optimalGrid), targetSquareGridShape);
-    // At this point, it should be guaranteed that we can find a legal physical
-    // grid
-    TT_assertv(!physicalGridShape.empty(),
-               "Unable to find 2D rect that can fit virtual grid {} within "
-               "device grid {}",
-               ttmlir::utils::formatIterable(optimalGrid, "x"),
-               ttmlir::utils::formatIterable(targetSquareGridShape, "x"));
-    auto [fwdMap, _] = ttmlir::d2m::utils::grids::createCoreVirtMaps(
-        builder.getContext(), optimalGrid, physicalGridShape);
-    indexAffineMap = fwdMap;
-  }
-
   return ttcore::MetalLayoutAttr::get(
       builder.getContext(), oldLayout.getLogicalShape(), oldLayout.getOobVal(),
       oldLayout.getMemorySpace(), oldLayout.getMemoryLayout(),
-      collapsedIntervals, newDimAlignments, indexAffineMap);
+      collapsedIntervals, newDimAlignments);
 }
 
 static RankedTensorType tensorWithOptimalGrid(
@@ -383,10 +368,17 @@ static void optimizeToLayoutGrid(d2m::ToLayoutOp toLayoutOp,
       toLayoutOp.getLoc(), toLayoutOp.getInput(), newEmptyOp);
 
   // Reblock it back to original shape to preserve IR correctness.
+  // The view chain that applyViews composes through depends on this
+  // ViewLayoutOp existing between the optimal-grid ToLayout and downstream
+  // StreamLayoutOps / GenericOps.
   auto viewOutputType =
       utils::reblockTensor(newTensorType, oldLayout.getGridShape(outputType));
+  auto reblockMap = ttmlir::utils::calculateReblockMap(
+      newTensorType.getShape(), viewOutputType.getShape(),
+      builder.getContext());
   auto view = builder.create<d2m::ViewLayoutOp>(
-      toLayoutOp.getLoc(), viewOutputType, newToLayoutOp.getResult(0));
+      toLayoutOp.getLoc(), viewOutputType, newToLayoutOp.getResult(0),
+      reblockMap, /*reinterpretLayout=*/false);
 
   // We expect the ToLayout to be used in one of two ways:
   // 1. Directly by a single GenericOp (or operations within its region)
@@ -701,26 +693,11 @@ updateStreamLayoutOps(ArrayRef<StreamLayoutUpdateInfo> streamLayoutsToUpdate,
             storageLayout.getLogicalShape(), targetSquareGridShape,
             storageLayout.getNormalizedIntervals());
 
-    // If using a virtual grid, compute required forward index affine map.
-    AffineMap storageIndexMap = storageLayout.getIndexAffineMap();
-    if (info.isVirtualGrid) {
-      auto physicalGridShape = utils::findLegalPhysicalGridForVolume(
-          ttmlir::utils::volume<int64_t>(optimalGrid), targetSquareGridShape);
-      TT_assertv(!physicalGridShape.empty(),
-                 "Unable to find 2D rect that can fit virtual grid {} within "
-                 "device grid {}",
-                 ttmlir::utils::formatIterable(optimalGrid, "x"),
-                 ttmlir::utils::formatIterable(targetSquareGridShape, "x"));
-      auto [fwdMap, _] = ttmlir::d2m::utils::grids::createCoreVirtMaps(
-          builder.getContext(), optimalGrid, physicalGridShape);
-      storageIndexMap = fwdMap;
-    }
-
     auto newStorageLayout = ttcore::MetalLayoutAttr::get(
         builder.getContext(), storageLayout.getLogicalShape(),
         storageDimAlignments, storageLayout.getCollapsedIntervals(),
         storageLayout.getOobVal(), storageLayout.getMemorySpace(),
-        storageLayout.getMemoryLayout(), storageIndexMap);
+        storageLayout.getMemoryLayout());
 
     llvm::SmallVector<int64_t> tileShape;
     if (auto tileType =
@@ -762,15 +739,13 @@ updateStreamLayoutOps(ArrayRef<StreamLayoutUpdateInfo> streamLayoutsToUpdate,
         mlir::cast<ttcore::MetalLayoutAttr>(outputStreamType.getEncoding());
     mlir::AffineMap reblockMap = ttmlir::utils::calculateReblockMap(
         oldStorageShape, newStorageShape, builder.getContext());
-    auto newOutputIndexMap =
-        outputLayout.getIndexAffineMapOrIdentity(outputStreamType.getRank())
-            .compose(reblockMap);
+    auto newOutputMap = streamLayout.getRemapping().compose(reblockMap);
 
     auto newOutputLayout = ttcore::MetalLayoutAttr::get(
         builder.getContext(), outputLayout.getLogicalShape(),
         storageDimAlignments, outputLayout.getCollapsedIntervals(),
         outputLayout.getOobVal(), outputLayout.getMemorySpace(),
-        outputLayout.getMemoryLayout(), newOutputIndexMap);
+        outputLayout.getMemoryLayout());
 
     auto newStreamOutputType = RankedTensorType::get(
         newStorageShape, outputStreamType.getElementType(), newOutputLayout);
@@ -778,7 +753,7 @@ updateStreamLayoutOps(ArrayRef<StreamLayoutUpdateInfo> streamLayoutsToUpdate,
     builder.setInsertionPoint(streamLayout);
     auto newStreamLayout = builder.create<d2m::StreamLayoutOp>(
         streamLayout.getLoc(), newStreamOutputType, streamLayout.getInput(),
-        newStorageEmpty);
+        AffineMapAttr::get(newOutputMap), newStorageEmpty);
 
     // We expect the StreamLayout to be used only by the GenericOp we're
     // optimizing. Check that all uses are either the GenericOp itself or
@@ -864,8 +839,11 @@ recreateGenericOp(d2m::GenericOp genericOp,
     auto tensorType =
         mlir::cast<mlir::RankedTensorType>(operand.get().getType());
     auto viewTensorType = utils::reblockTensor(tensorType, optimalGrid);
+    auto reblockMap = ttmlir::utils::calculateReblockMap(
+        tensorType.getShape(), viewTensorType.getShape(), builder.getContext());
     auto view = builder.create<d2m::ViewLayoutOp>(
-        genericOp.getLoc(), viewTensorType, operand.get());
+        genericOp.getLoc(), viewTensorType, operand.get(), reblockMap,
+        /*reinterpretLayout=*/false);
     newOperands.push_back(view.getResult());
   }
 
@@ -1185,14 +1163,14 @@ insertTTNNDRAMStreams(d2m::GenericOp genericOp,
         baseMetalLayout.getDeviceShape(optimalOperandGrids[operandIdx],
                                        ttcore::TileType::getDefaultShape());
 
+    auto reblockMap = ttmlir::utils::calculateReblockMap(
+        unShardedShapeWithGrid, fakeShardedShape, builder.getContext());
     auto streamOutputLayout = ttcore::MetalLayoutAttr::get(
         builder.getContext(), baseMetalLayout.getLogicalShape(),
         baseMetalLayout.getOobVal(), ttcore::MemorySpace::DeviceDRAM,
         ttcore::TensorMemoryLayout::Interleaved,
         baseMetalLayout.getCollapsedIntervals(),
-        baseMetalLayout.getDimAlignments(),
-        ttmlir::utils::calculateReblockMap(
-            unShardedShapeWithGrid, fakeShardedShape, builder.getContext()));
+        baseMetalLayout.getDimAlignments());
 
     auto streamOutputTensor = mlir::RankedTensorType::get(
         fakeShardedShape, metalTensor.getElementType(), streamOutputLayout);
@@ -1211,7 +1189,8 @@ insertTTNNDRAMStreams(d2m::GenericOp genericOp,
     auto storageOp =
         builder.create<d2m::EmptyOp>(castOp.getLoc(), storageTensor);
     auto streamOp = builder.create<d2m::StreamLayoutOp>(
-        castOp.getLoc(), streamOutputTensor, castOp.getResult(), storageOp);
+        castOp.getLoc(), streamOutputTensor, castOp.getResult(),
+        AffineMapAttr::get(reblockMap), storageOp);
     castOp.getResult().replaceAllUsesExcept(streamOp.getResult(), streamOp);
   }
 
