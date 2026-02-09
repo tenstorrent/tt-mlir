@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
+#include "ttmlir/Dialect/D2M/IR/D2MTraits.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
@@ -535,6 +536,9 @@ public:
         if (consumer.getNumRegions() != 1) {
           continue;
         }
+        if (consumer.hasSkipOpAffineLoopFusionTrait()) {
+          continue;
+        }
         affine::AffineForOp consumerLoop = getOutermostLoop(consumer);
         if (!consumerLoop) {
           continue;
@@ -547,6 +551,9 @@ public:
             continue;
           }
           if (producer.getNumRegions() != 1) {
+            continue;
+          }
+          if (producer.hasSkipOpAffineLoopFusionTrait()) {
             continue;
           }
           if (!isSoleReader(rawMemref, consumer)) {
