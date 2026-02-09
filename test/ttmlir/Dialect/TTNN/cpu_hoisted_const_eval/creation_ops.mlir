@@ -14,7 +14,7 @@ module {
 
   // Const-eval function with zeros op.
   // Zeros op shouldn't be CPU-hoisted, as it is returned from the const-eval function.
-  // CHECK-LABEL: func.func private @forward_with_zeros_const_eval_0{{.*}} -> (tensor<32x32xbf16{{.*}}>, tensor<32x32xbf16{{.*}}>)
+  // CHECK-LABEL: func.func private @forward_with_zeros_const_eval_0{{.*}} -> (tensor<1x1xbf16{{.*}}>, tensor<32x32xbf16{{.*}}>)
   // CHECK: ttnn.zeros
   // CHECK: call @cpu_hoisted_const_eval_{{.*}}
 

@@ -79,6 +79,7 @@ void createTTNNPipelineTTIRPasses(
   if (options.enableFusing) {
     pm.addPass(mlir::tt::ttir::createTTIRFusing(fusingOptions));
   }
+  pm.addPass(mlir::tt::ttir::createTTIRFoldFullToScalar());
 }
 
 void createTTNNPipelineAnalysisPasses(
