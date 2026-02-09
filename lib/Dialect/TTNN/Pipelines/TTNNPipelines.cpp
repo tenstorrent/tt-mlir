@@ -111,8 +111,8 @@ void createTTNNPipelineAnalysisPasses(
           innerPm.addPass(
               mlir::tt::ttnn::createTTNNOperationValidationAndFallback(
                   validationOptions));
-          innerPm.addPass(
-              mlir::tt::ttnn::createTTNNPrepareConv2dWeightsAndBias());
+          // innerPm.addPass(
+          //     mlir::tt::ttnn::createTTNNPrepareConv2dWeightsAndBias());
         },
         wrapperOptions));
 #else
