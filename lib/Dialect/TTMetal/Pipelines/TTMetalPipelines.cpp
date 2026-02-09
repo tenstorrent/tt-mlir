@@ -133,15 +133,11 @@ void createTTIRToTTMetalMiddleendPipeline(
     applyInterchangeOptions.matmulInterchange =
         llvm::to_vector(options.matmulInterchange);
   }
+
   pm.addPass(d2m::createD2MGenericApplyInterchange(applyInterchangeOptions));
   pm.addPass(d2m::createD2MGenerateOuterLoops());
   pm.addPass(d2m::createD2MGenericAffineLoopFusion());
-  // NOTE: Run the scalrep pass on all funcs in the top level module (doesn't
-  // work at module level).
-  {
-    OpPassManager &funcPm = pm.nest<func::FuncOp>();
-    funcPm.addPass(affine::createAffineScalarReplacementPass());
-  }
+
   d2m::D2MAllocateOptions allocateOptions;
   {
     allocateOptions.numStreamBuffers = options.numStreamBuffers;
