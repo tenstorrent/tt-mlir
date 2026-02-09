@@ -484,16 +484,18 @@ static GenericOp tryFusePair(GenericOp producer, GenericOp consumer,
   }
 
   // Clone subset's non-loop ops at each loop level into the corresponding dst
-  // loop body. For non-innermost levels, insert before the next nested loop.
-  // For the innermost level, insert before the terminator.
+  // loop body. When the subset is the producer, its ops must appear before the
+  // superset (consumer) ops to preserve data-flow order. When the subset is
+  // the consumer, its ops appear after the superset (producer) ops.
   for (unsigned d = 0; d < srcLoopChain.size(); ++d) {
     Block *srcBody = srcLoopChain[d].getBody();
     Block *dstBody = dstLoopChain[d].getBody();
     bool isInnermost = (d == srcLoopChain.size() - 1);
 
-    // Find insertion point: before the next nested blocking loop, or before
-    // the terminator for the innermost level.
-    if (isInnermost) {
+    if (subsetGeneric == producer) {
+      // Producer ops must precede consumer ops at each loop level.
+      builder.setInsertionPointToStart(dstBody);
+    } else if (isInnermost) {
       builder.setInsertionPoint(dstBody->getTerminator());
     } else {
       builder.setInsertionPoint(dstLoopChain[d + 1]);

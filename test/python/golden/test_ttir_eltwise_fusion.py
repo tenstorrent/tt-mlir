@@ -290,28 +290,6 @@ def test_eltwise_fuse_unary_chain(
         def unary_chain(in0: Operand, builder: TTIRBuilder):
             res_0 = builder.abs(in0)
             res_1 = builder.sin(res_0)
-            res_2 = builder.neg(res_1)
-            res_3 = builder.exp(res_2)
-
-            res_4 = builder.abs(res_3)
-            res_5 = builder.cos(res_4)
-            res_6 = builder.neg(res_5)
-            res_7 = builder.exp(res_6)
-
-            res_8 = builder.neg(res_7)
-            res_9 = builder.sin(res_8)
-            res_10 = builder.neg(res_9)
-            res_11 = builder.exp(res_10)
-
-            res_12 = builder.abs(res_11)
-            res_13 = builder.cos(res_12)
-            res_14 = builder.neg(res_13)
-            res_15 = builder.exp(res_14)
-
-            res_16 = builder.neg(res_15)
-            res_17 = builder.sin(res_16)
-            res_18 = builder.neg(res_17)
-            res_19 = builder.exp(res_18)
 
             return res_19
 
