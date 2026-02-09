@@ -1240,17 +1240,18 @@ def D2M_RemoteLoadOp : D2M_GenericRegionDatamovementOp<"remote_load",
 
       void setMemRef(Value value) { setOperand(getMemRefOperandIndex(), value); }
 
-      /// Returns the affine map that describes how the indices of this operation
-      /// map to the grid dimensions of the memref operand. Looks up the indexing
-      /// map from the parent GenericOp for the associated operand; returns an
-      /// empty affine map when the parent GenericOp is not in affine map form.
+      /// Returns the affine map for AffineReadOpInterface. Returns an identity
+      /// map over the actual index operands, since the indices on this op are
+      /// already the final computed grid indices (not raw iteration variables).
+      /// The parent GenericOp's indexing maps describe the iteration-space-to-
+      /// operand relationship and may have a different dimensionality (e.g.
+      /// after loop fusion), so they cannot be used here.
       AffineMap getAffineMap() {
-        auto genericOp = (*this)->template getParentOfType<GenericOp>();
-        assert(genericOp && "RemoteLoad/StoreOp must be inside a GenericOp");
-        if (!genericOp.isAffineMapForm()) {
+        unsigned numIndices = getIndices().size();
+        if (numIndices == 0) {
           return AffineMap();
         }
-        return genericOp.getIndexingMapForOperand(getMemref());
+        return AffineMap::getMultiDimIdentityMap(numIndices, getContext());
       }
 
       /// Returns the CB type, or null CBType if CB is not present.
@@ -1413,17 +1414,18 @@ def D2M_RemoteStoreOp : D2M_GenericRegionDatamovementOp<"remote_store",
 
       void setMemRef(Value value) { setOperand(getMemRefOperandIndex(), value); }
 
-      /// Returns the affine map that describes how the indices of this operation
-      /// map to the grid dimensions of the memref operand. Looks up the indexing
-      /// map from the parent GenericOp for the associated operand; returns an
-      /// empty affine map when the parent GenericOp is not in affine map form.
+      /// Returns the affine map for AffineWriteOpInterface. Returns an identity
+      /// map over the actual index operands, since the indices on this op are
+      /// already the final computed grid indices (not raw iteration variables).
+      /// The parent GenericOp's indexing maps describe the iteration-space-to-
+      /// operand relationship and may have a different dimensionality (e.g.
+      /// after loop fusion), so they cannot be used here.
       AffineMap getAffineMap() {
-        auto genericOp = (*this)->template getParentOfType<GenericOp>();
-        assert(genericOp && "RemoteLoad/StoreOp must be inside a GenericOp");
-        if (!genericOp.isAffineMapForm()) {
+        unsigned numIndices = getIndices().size();
+        if (numIndices == 0) {
           return AffineMap();
         }
-        return genericOp.getIndexingMapForOperand(getMemref());
+        return AffineMap::getMultiDimIdentityMap(numIndices, getContext());
       }
 
       /// Returns the CB type, or null CBType if CB is not present.
