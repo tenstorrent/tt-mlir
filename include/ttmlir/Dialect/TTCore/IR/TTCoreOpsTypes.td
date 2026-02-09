@@ -289,13 +289,11 @@ def TTCore_ShardLayoutAttr : TTCore_Attr<"ShardLayout", "shard", [TTCore_DeviceL
     AffineMap getAffineMap() const;
 
     std::optional<mlir::AffineMap> getVirtualizationMapIfExists() {
-      return getCoreVirtualizationMap();
+      auto vmap = getCoreVirtualizationMap();
+      return (vmap.isEmpty()) ? std::nullopt : std::make_optional(vmap);
     }
 
     unsigned getRank() const { return getStride().size(); }
-
-    // Computes the implied physical grid shape using the grid shape and index map (if present)
-    llvm::SmallVector<int64_t> getPhysicalGridShape(ShapedType tensorType) const;
   }];
 }
 
@@ -510,11 +508,9 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_
     // Returns the full rank (including grid dimensions).
     unsigned getRank() const { return getNormalizedIntervals().size(); }
 
-    // Computes the implied physical grid shape using the grid shape and index map (if present)
-    llvm::SmallVector<int64_t> getPhysicalGridShape(ShapedType tensorType) const;
-
     std::optional<mlir::AffineMap> getVirtualizationMapIfExists() {
-      return getIndexAffineMap();
+      auto vmap = getIndexAffineMap();
+      return (vmap.isEmpty()) ? std::nullopt : std::make_optional(vmap);
     }
 
     // Returns true if this layout has two or more dims collapsed into a single dim

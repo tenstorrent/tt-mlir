@@ -308,7 +308,6 @@ void registerRuntimeBindings(nb::module_ &m) {
       .value("CUSTOM", ::tt::runtime::FabricConfig::CUSTOM);
 
   nb::enum_<::tt::target::Arch>(m, "Arch")
-      .value("GRAYSKULL", ::tt::target::Arch::Grayskull)
       .value("WORMHOLE_B0", ::tt::target::Arch::Wormhole_b0)
       .value("BLACKHOLE", ::tt::target::Arch::Blackhole);
 

@@ -85,6 +85,7 @@ void createTTIRToTTMetalFrontendPipeline(
   pm.addPass(tt::createTTIRToTTIRDecompositionPass());
   pm.addPass(ttir::createTTIRMoveReshapeToConstant());
   pm.addPass(ttir::createTTIRFoldConstantReshapeBroadcast());
+  pm.addPass(d2m::createD2MRankNormalization());
   pm.addPass(createCanonicalizerPassWithOptions(options));
   if (!options.globalDataFormatTarget.empty()) {
     d2m::D2MGlobalDataFormatConversionOptions globalFormatOptions;
@@ -137,11 +138,9 @@ void createTTIRToTTMetalMiddleendPipeline(
     allocateOptions.testBufferSizePolicy = options.testBufferSizePolicy;
   }
   pm.addPass(d2m::createD2MAllocate(allocateOptions));
-
-  // Decompose block_mask ops now that we're in memref space.
+  pm.addPass(createCanonicalizerPassWithOptions(options));
   pm.addPass(d2m::createD2MDecomposeMasking());
 
-  pm.addPass(createCanonicalizerPassWithOptions(options));
   d2m::D2MGenericApplyInterchangeOptions applyInterchangeOptions;
   {
     applyInterchangeOptions.matmulInterchange =

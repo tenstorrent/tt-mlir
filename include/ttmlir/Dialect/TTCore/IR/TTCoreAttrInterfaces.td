@@ -53,12 +53,6 @@ def TTCore_DeviceLayoutInterface : AttrInterface<"DeviceLayoutInterface"> {
       }]
     >,
     InterfaceMethod<
-      "Returns the physical grid shape of the associated tensor",
-      "llvm::SmallVector<int64_t>", "getPhysicalGridShape", (ins "ShapedType":$shapedType),
-      /*methodBody=*/"",
-      /*defaultImplementation=*/[{ return ::llvm::to_vector(getGridShape(shapedType)); }]
-    >,
-    InterfaceMethod<
       "Returns the virtualization affine map associated with the layout if defined, otherwise returns an empty map.",
       "std::optional<mlir::AffineMap>", "getVirtualizationMapIfExists", (ins),
       /*methodBody=*/"",

@@ -34,8 +34,6 @@ toFlatbuffer(const tt::tt_metal::CoreCoord &coreCoord) {
 
 static ::tt::target::Arch toFlatbuffer(::tt::ARCH arch) {
   switch (arch) {
-  case ::tt::ARCH::GRAYSKULL:
-    return ::tt::target::Arch::Grayskull;
   case ::tt::ARCH::WORMHOLE_B0:
     return ::tt::target::Arch::Wormhole_b0;
   case ::tt::ARCH::BLACKHOLE:

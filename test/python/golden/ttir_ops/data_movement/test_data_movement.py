@@ -317,6 +317,12 @@ def test_cpu_hoistable_reshape_op(
 @pytest.mark.parametrize(
     "shape,begins,ends,step",
     [
+        # Tilized: inner dims preserved
+        ((4, 32, 64), [1, 0, 0], [3, 32, 64], [1, 1, 1]),
+        ((6, 32, 64), [0, 0, 0], [4, 32, 64], [2, 1, 1]),
+        ((4, 5, 32, 64), [1, 2, 0, 0], [3, 4, 32, 64], [1, 1, 1, 1]),
+        ((8, 6, 64, 32), [2, 1, 0, 0], [6, 5, 64, 32], [1, 1, 1, 1]),
+        ((2, 4, 3, 32, 64), [0, 1, 1, 0, 0], [2, 3, 2, 32, 64], [1, 1, 1, 1, 1]),
         # Simple 2D
         ((64, 64), [0, 0], [32, 32], None),
         # Crop 2D
@@ -390,7 +396,11 @@ def test_slice(
 
 # Sort tests
 @pytest.mark.parametrize("shape", [(1, 64, 64)], ids=shape_str)
-@pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
+@pytest.mark.parametrize(
+    "dtype",
+    [torch.bfloat16, torch.float32],
+    ids=["bf16", "f32"],
+)
 @pytest.mark.parametrize("dim", [0, 1, 2])
 @pytest.mark.parametrize("descending", [True, False])
 @pytest.mark.parametrize("stable", [True, False])

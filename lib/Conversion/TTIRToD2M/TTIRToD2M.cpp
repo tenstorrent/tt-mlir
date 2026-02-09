@@ -1575,20 +1575,99 @@ private:
 };
 } // namespace
 
-// Simple conversion for ttir.to_layout -> d2m.to_layout.
-class D2MToLayoutOpRewriter : public OpConversionPattern<ttir::ToLayoutOp> {
-  using OpConversionPattern<ttir::ToLayoutOp>::OpConversionPattern;
+// Conversion for ttir.to_layout -> d2m.to_layout.
+class D2MToLayoutOpRewriter : public D2MNamedRewriterCommon,
+                              public OpConversionPattern<ttir::ToLayoutOp> {
+public:
+  D2MToLayoutOpRewriter(const TypeConverter &typeConverter,
+                        MLIRContext *context, bool ttnnMode)
+      // default values for memory spaces, collapseTensors,
+      // enableMulticastInference. Only ttnnMode is used.
+      : D2MNamedRewriterCommon(ttcore::MemorySpace::DeviceDRAM,
+                               ttcore::MemorySpace::DeviceDRAM, ttnnMode, false,
+                               false),
+        OpConversionPattern<ttir::ToLayoutOp>(typeConverter, context) {}
+
+  using D2MNamedRewriterCommon::getMetalTensorFromTTNNTensor;
+
+private:
+  LogicalResult
+  rewriteIfTTNNModeEnabled(ttir::ToLayoutOp op, OpAdaptor adaptor,
+                           ConversionPatternRewriter &rewriter) const {
+    /* Lowers ttir.to_layout with TTNN tensor operands when ttnnMode is enabled,
+       to d2m.to_layout with Metal tensor operands. This is done by
+       auto-inserting casts to/from tensors with MetalLayoutAttr, which
+       downstream passes support. The conversion flow is:
+       1. Cast TTNN input to Metal layout
+       2. Create d2m.empty with TTNN output layout
+       3. Cast the d2m.empty from TTNN to Metal layout
+       4. Create d2m.to_layout with Metal input cast and d2m.empty cast
+       5. Cast result back to TTNN layout
+    */
+    auto outType = mlir::cast<RankedTensorType>(op.getOutput().getType());
+
+    bool outputIsTTNN =
+        mlir::isa_and_nonnull<ttnn::TTNNLayoutAttr>(outType.getEncoding());
+    TT_assertv(
+        outputIsTTNN,
+        "expected output type to have TTNN layout when ttnnMode is enabled");
+
+    // TTNN output handling.
+    // Convert input to Metal layout if needed.
+    Value metalInput = adaptor.getInput();
+    auto inputType = mlir::cast<RankedTensorType>(adaptor.getInput().getType());
+    if (mlir::isa_and_nonnull<ttnn::TTNNLayoutAttr>(inputType.getEncoding())) {
+      auto inputMetalType =
+          getMetalTensorFromTTNNTensor(rewriter, adaptor.getInput());
+      metalInput = rewriter
+                       .create<ttir::TTNNMetalLayoutCastOp>(
+                           op.getLoc(), inputMetalType, adaptor.getInput())
+                       .getResult();
+    }
+
+    auto outputMetalType =
+        getMetalTensorFromTTNNTensor(rewriter, op.getOutput());
+
+    // Create d2m.empty for TTNN layout.
+    Value metalEmpty = rewriter.create<d2m::EmptyOp>(
+        op.getLoc(), outType.getShape(), outType.getElementType(),
+        outType.getEncoding());
+
+    // Cast TTNN empty to Metal layout.
+    auto metalCast = rewriter.create<ttir::TTNNMetalLayoutCastOp>(
+        op.getLoc(), outputMetalType, metalEmpty);
+
+    // Create d2m.to_layout with Metal types.
+    auto metalToLayout =
+        rewriter.create<d2m::ToLayoutOp>(op.getLoc(), metalInput, metalCast);
+
+    // Cast back to TTNN.
+    auto ttnnResult = rewriter.create<ttir::TTNNMetalLayoutCastOp>(
+        op.getLoc(), outType, metalToLayout.getResult(0));
+
+    rewriter.replaceOp(op, ttnnResult.getResult());
+    return success();
+  }
+
+public:
   LogicalResult
   matchAndRewrite(ttir::ToLayoutOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     auto outType = mlir::cast<RankedTensorType>(op.getOutput().getType());
-    Value empty = rewriter.create<d2m::EmptyOp>(op.getLoc(), outType.getShape(),
-                                                outType.getElementType(),
-                                                outType.getEncoding());
-    auto newOp = rewriter.create<d2m::ToLayoutOp>(op.getLoc(),
-                                                  adaptor.getInput(), empty);
-    rewriter.replaceOp(op, newOp.getResult(0));
-    return success();
+
+    if (!ttnnMode) {
+      // When ttnnMode is disabled, we can simply convert ttir.to_layout
+      // directly to d2m.to_layout.
+      Value empty = rewriter.create<d2m::EmptyOp>(
+          op.getLoc(), outType.getShape(), outType.getElementType(),
+          outType.getEncoding());
+      auto newOp = rewriter.create<d2m::ToLayoutOp>(op.getLoc(),
+                                                    adaptor.getInput(), empty);
+      rewriter.replaceOp(op, newOp.getResult(0));
+      return success();
+    }
+
+    return rewriteIfTTNNModeEnabled(op, adaptor, rewriter);
   }
 };
 
@@ -1601,6 +1680,23 @@ class D2MEmptyOpRewriter : public OpConversionPattern<ttir::EmptyOp> {
                   ConversionPatternRewriter &rewriter) const override {
     auto resultType = op.getResult().getType();
     auto tensorType = cast<RankedTensorType>(resultType);
+    bool outputIsTTNN =
+        mlir::isa_and_nonnull<ttnn::TTNNLayoutAttr>(resultType.getEncoding());
+
+    if (outputIsTTNN) {
+      // If a user of a ttir.empty is a ttir.to_layout, erase the ttir.empty
+      // instead of converting to d2m.empty. The D2MToLayoutOpRewriter creates a
+      // d2m.empty with the d2m.to_layout as a user, so this empty op is not
+      // needed.
+      for (Operation *user : op->getUsers()) {
+        if (auto toLayoutOp = dyn_cast<ttir::ToLayoutOp>(user)) {
+          if (toLayoutOp.getOutput() == op.getResult()) {
+            rewriter.eraseOp(op);
+            return success();
+          }
+        }
+      }
+    }
 
     // Create d2m.empty with same shape and element type.
     auto d2mEmpty = rewriter.create<d2m::EmptyOp>(
@@ -1637,9 +1733,14 @@ class D2MMeshShardOpRewriter : public OpConversionPattern<ttir::MeshShardOp> {
   }
 };
 
+struct TensorManipulationInfo {
+  AffineMap map;
+  bool canBeTilized;
+};
+
 namespace {
 template <typename TensorManipulationOp,
-          AffineMap (*LogicalAffineMapFn)(TensorManipulationOp)>
+          TensorManipulationInfo (*LogicalInfoFn)(TensorManipulationOp)>
 class D2MTensorManipulationOpRewriter
     : public OpConversionPattern<TensorManipulationOp>,
       D2MNamedRewriterCommon {
@@ -1659,8 +1760,9 @@ public:
   matchAndRewrite(TensorManipulationOp op,
                   typename TensorManipulationOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    TensorManipulationInfo info = LogicalInfoFn(op);
     AffineMap deviceMap =
-        projectLogicalMapToUnitDeviceSpace(rewriter, LogicalAffineMapFn(op));
+        projectLogicalMapToUnitDeviceSpace(rewriter, info.map);
 
     auto origInputs = adaptor.getOperands();
     auto origOutputs =
@@ -1668,7 +1770,7 @@ public:
 
     auto [inputs, outputs] =
         toLayoutOperandsAndResults(rewriter, {origInputs, origOutputs},
-                                   /*tiled*/ false);
+                                   /*tiled*/ info.canBeTilized);
     assert(outputs.size() == 1);
 
     auto outTy = mlir::cast<RankedTensorType>(outputs[0].getType());
@@ -1740,13 +1842,25 @@ public:
 };
 } // namespace
 
-static AffineMap rearrangeLogicalMap(ttir::RearrangeOp op) {
+static TensorManipulationInfo rearrangeLogicalInfo(ttir::RearrangeOp op) {
   mlir::FailureOr<AffineMap> maybeMap = op.getInvPatternMap();
   assert(succeeded(maybeMap));
-  return *maybeMap;
+  AffineMap invMap = *maybeMap;
+  bool canBeTilized = false;
+  unsigned inputRank = invMap.getNumResults();
+  unsigned outputRank = invMap.getNumDims();
+  if (inputRank >= 2 && outputRank >= 2) {
+    AffineExpr expectedInner2 =
+        getAffineDimExpr(outputRank - 2, op.getContext());
+    AffineExpr expectedInner1 =
+        getAffineDimExpr(outputRank - 1, op.getContext());
+    canBeTilized = invMap.getResult(inputRank - 2) == expectedInner2 &&
+                   invMap.getResult(inputRank - 1) == expectedInner1;
+  }
+  return {invMap, canBeTilized};
 }
 
-static AffineMap sliceLogicalMap(ttir::SliceStaticOp op) {
+static TensorManipulationInfo sliceLogicalInfo(ttir::SliceStaticOp op) {
   MLIRContext *ctx = op.getContext();
   SmallVector<int32_t> begins =
       extractFromIntegerArrayAttr<int32_t>(op.getBegins());
@@ -1765,10 +1879,22 @@ static AffineMap sliceLogicalMap(ttir::SliceStaticOp op) {
   for (size_t d = 0; d < begins.size(); d++) {
     exprs.push_back(getAffineDimExpr(d, ctx) * step[d] + begins[d]);
   }
-  return AffineMap::get(exprs.size(), 0, exprs, ctx);
+  AffineMap map = AffineMap::get(exprs.size(), 0, exprs, ctx);
+  bool canBeTilized = false;
+  size_t rank = begins.size();
+  if (rank >= 2) {
+    ArrayRef<int64_t> inputShape = op.getInput().getType().getShape();
+    canBeTilized =
+        begins[rank - 2] == 0 &&
+        ends[rank - 2] == static_cast<int32_t>(inputShape[rank - 2]) &&
+        step[rank - 2] == 1 && begins[rank - 1] == 0 &&
+        ends[rank - 1] == static_cast<int32_t>(inputShape[rank - 1]) &&
+        step[rank - 1] == 1;
+  }
+  return {map, canBeTilized};
 }
 
-static AffineMap permuteLogicalMap(ttir::PermuteOp op) {
+static TensorManipulationInfo permuteLogicalInfo(ttir::PermuteOp op) {
   auto *ctx = op.getContext();
   ArrayRef<int64_t> permutation = op.getPermutation();
   unsigned logicalRank = permutation.size();
@@ -1779,17 +1905,22 @@ static AffineMap permuteLogicalMap(ttir::PermuteOp op) {
         permutation[logicalRank - 1] == static_cast<int64_t>(logicalRank - 2));
   assert(noInnerPermute && "Complex permutes (both inner and outer "
                            "permutations) are not supported.");
+  // Check if innermost two dimensions are identity-mapped (preserved).
+  bool canBeTilized =
+      permutation[logicalRank - 2] == static_cast<int64_t>(logicalRank - 2) &&
+      permutation[logicalRank - 1] == static_cast<int64_t>(logicalRank - 1);
   SmallVector<AffineExpr> results(logicalRank);
   for (auto [dstIdx, srcIdx] : llvm::enumerate(permutation)) {
     results[dstIdx] = mlir::getAffineDimExpr(srcIdx, ctx);
   }
-  return AffineMap::get(logicalRank, /*numSymbols=*/0, results, ctx);
+  AffineMap map = AffineMap::get(logicalRank, /*numSymbols=*/0, results, ctx);
+  return {map, canBeTilized};
 }
 
 // Compute logical map for ReshapeOp: linearize output coords, delinearize to
 // input coords. This handles rank changes (e.g., 2D -> 3D).
 // Returns a map from output logical coords to input logical coords.
-static AffineMap reshapeLogicalMap(ttir::ReshapeOp op) {
+static TensorManipulationInfo reshapeLogicalInfo(ttir::ReshapeOp op) {
   auto inputTensorType = mlir::cast<RankedTensorType>(op.getInput().getType());
   auto outputTensorType =
       mlir::cast<RankedTensorType>(op.getResult().getType());
@@ -1799,6 +1930,14 @@ static AffineMap reshapeLogicalMap(ttir::ReshapeOp op) {
 
   int32_t inputLogicalRank = static_cast<int32_t>(inputShape.size());
   int32_t outputLogicalRank = static_cast<int32_t>(outputShape.size());
+
+  bool canBeTilized = false;
+  if (inputLogicalRank >= 2 && outputLogicalRank >= 2) {
+    canBeTilized =
+        inputShape[inputLogicalRank - 2] ==
+            outputShape[outputLogicalRank - 2] &&
+        inputShape[inputLogicalRank - 1] == outputShape[outputLogicalRank - 1];
+  }
 
   MLIRContext *ctx = op.getContext();
   Builder builder(ctx);
@@ -1836,7 +1975,8 @@ static AffineMap reshapeLogicalMap(ttir::ReshapeOp op) {
     }
   }
 
-  return AffineMap::get(outputLogicalRank, 0, reshapeExprs, ctx);
+  AffineMap map = AffineMap::get(outputLogicalRank, 0, reshapeExprs, ctx);
+  return {map, canBeTilized};
 }
 
 } // namespace mlir::tt
@@ -1903,17 +2043,17 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
     // Data movement.
     D2MNamedElementwiseRewriter<ttir::TypecastOp,        d2m::TileTypecastOp>,
     // Tensor manipulation/View ops.
-    D2MTensorManipulationOpRewriter<ttir::RearrangeOp,   rearrangeLogicalMap>,
-    D2MTensorManipulationOpRewriter<ttir::ReshapeOp,     reshapeLogicalMap>,
-    D2MTensorManipulationOpRewriter<ttir::SliceStaticOp, sliceLogicalMap>,
+    D2MTensorManipulationOpRewriter<ttir::RearrangeOp,   rearrangeLogicalInfo>,
+    D2MTensorManipulationOpRewriter<ttir::ReshapeOp,     reshapeLogicalInfo>,
+    D2MTensorManipulationOpRewriter<ttir::SliceStaticOp, sliceLogicalInfo>,
     // Permute (handles transpose ops, since they're canonicalized into permutes).
     D2MPermuteRewriter,
-    D2MTensorManipulationOpRewriter<ttir::PermuteOp, permuteLogicalMap>
+    D2MTensorManipulationOpRewriter<ttir::PermuteOp, permuteLogicalInfo>
   >(typeConverter, ctx, defaultInputMemSpace, defaultOutputMemSpace, ttnnMode, collapseTensors, enableMulticastInference);
 
 
   // ToLayout 1:1 conversion.
-  patterns.add<D2MToLayoutOpRewriter>(typeConverter, ctx);
+  patterns.add<D2MToLayoutOpRewriter>(typeConverter, ctx, ttnnMode);
 
   // Creation ops 1:1 conversion.
   patterns.add<D2MEmptyOpRewriter, D2MFullOpRewriter>(typeConverter, ctx);

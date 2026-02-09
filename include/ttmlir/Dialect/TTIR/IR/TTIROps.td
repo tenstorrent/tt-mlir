@@ -3439,7 +3439,33 @@ def TTIR_Conv3dOp : TTIR_NamedOp<"conv3d"> {
                          AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$stride,
                          AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$padding,
                          I32Attr:$groups,
+                         DefaultValuedAttr<I64Attr, "0">:$batch_dim,
+                         DefaultValuedAttr<I64Attr, "1">:$depth_dim,
+                         DefaultValuedAttr<I64Attr, "2">:$height_dim,
+                         DefaultValuedAttr<I64Attr, "3">:$width_dim,
+                         DefaultValuedAttr<I64Attr, "4">:$channel_dim,
                          DefaultValuedAttr<StrAttr, "\"zeros\"">:$padding_mode);
+
+    let builders = [
+      OpBuilder<(ins "Type":$result, "Value":$input, "Value":$weight,
+                     "Value":$bias, "::mlir::Attribute":$stride,
+                     "::mlir::Attribute":$padding, "uint32_t":$groups,
+                     "::mlir::StringAttr":$padding_mode), [{
+        build($_builder, $_state, result, input, weight, bias, stride, padding,
+              $_builder.getI32IntegerAttr(groups),
+              $_builder.getI64IntegerAttr(0), $_builder.getI64IntegerAttr(1),
+              $_builder.getI64IntegerAttr(2), $_builder.getI64IntegerAttr(3),
+              $_builder.getI64IntegerAttr(4), padding_mode);
+      }]>
+    ];
+
+    let extraClassDeclaration = [{
+      bool isNDHWC() {
+        return getBatchDim() == 0 && getDepthDim() == 1 &&
+               getHeightDim() == 2 && getWidthDim() == 3 &&
+               getChannelDim() == 4;
+      }
+    }];
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -3615,73 +3641,7 @@ def TTIR_GatherOp: TTIR_NamedOp<"gather"> {
     let results = (outs AnyRankedTensor:$result);
 }
 
-def TTIR_PoolingOp : TTIR_NamedOp<"pooling", [DeclareOpInterfaceMethods<TTIR_QuantizableOpInterface, ["rewriteWithQuantizedInputs"]>]> {
-  let summary = "General pooling operation.";
-  let description = [{
-    The `pooling` operation is a generalized pooling operation that can implement various pooling methods
-    such as max pooling, average pooling, and sum pooling.
-
-    Pooling operations are commonly used in neural networks to reduce the spatial dimensions of feature maps
-    by applying a specific function (like maximum or average) over local regions of the input tensor.
-
-    Example:
-    ```mlir
-    // Max pooling with 2x2 window and stride 2
-    %input = ... : tensor<1x32x32x16xf32>    // Batch size 1, 32x32 feature map, 16 channels
-    %result = ttir.pooling(%input) {
-        pooling_method = "MAX",
-        window_dimensions = [1, 2, 2, 1],
-        window_strides = [1, 2, 2, 1],
-        base_dilations = [1, 1, 1, 1],
-        window_dilations = [1, 1, 1, 1],
-        padding = [0, 0, 0, 0, 0, 0, 0, 0]
-    } : (tensor<1x32x32x16xf32>) -> tensor<1x16x16x16xf32>
-
-    // Average pooling with 3x3 window and stride 2
-    %input = ... : tensor<1x32x32x16xf32>    // Batch size 1, 32x32 feature map, 16 channels
-    %result = ttir.pooling(%input) {
-        pooling_method = "AVG",
-        window_dimensions = [1, 3, 3, 1],
-        window_strides = [1, 2, 2, 1],
-        base_dilations = [1, 1, 1, 1],
-        window_dilations = [1, 1, 1, 1],
-        padding = [0, 0, 0, 0, 0, 0, 0, 0]
-    } : (tensor<1x32x32x16xf32>) -> tensor<1x15x15x16xf32>
-    ```
-
-    Inputs:
-    - `inputs` (Variadic Tensor): Input tensors to be pooled.
-
-    Attributes:
-    - `pooling_method` (Enum): The pooling method to use (MAX, AVG, SUM).
-    - `window_dimensions` (Array of Integer): Dimensions of the pooling window. The rank of this array is the same as the rank of the input tensors.
-    - `window_strides` (Array of Integer): Stride of the pooling window. The rank of this array is the same as the rank of the input tensors.
-    - `base_dilations` (Array of Integer): Dilation factors for the input. The rank of this array is the same as the rank of the input tensors.
-    - `window_dilations` (Array of Integer): Dilation factors for the pooling window. The rank of this array is the same as the rank of the input tensors.
-    - `padding` (Array of Integer): Padding to apply to the input. The rank of this array is twice the rank of the input tensors, representing padding for each dimension.
-
-    Outputs:
-    - `results` (Variadic Tensor): Output tensors after pooling.
-  }];
-
-  let arguments = (ins
-    Variadic<AnyRankedTensor>:$inputs,
-    TTIR_PoolingMethodAttr:$pooling_method,
-    DenseI64ArrayAttr:$window_dimensions,
-    DenseI64ArrayAttr:$window_strides,
-    DenseI64ArrayAttr:$base_dilations,
-    DenseI64ArrayAttr:$window_dilations,
-    DenseI64ArrayAttr:$padding
-  );
-
-  let results = (outs Variadic<AnyRankedTensor>:$results);
-
-  let hasVerifier = 1;
-
-  let hasFolder = 1;
-}
-
-def TTIR_AvgPool2dOp : TTIR_NamedOp<"avg_pool2d"> {
+def TTIR_AvgPool2dOp : TTIR_NamedOp<"avg_pool2d", [DeclareOpInterfaceMethods<TTIR_QuantizableOpInterface, ["rewriteWithQuantizedInputs"]>]> {
   let summary = "2D average pooling operation.";
   let description = [{
     The `avg_pool2d` operation applies a 2D average pooling over an input tensor composed of several input planes.
@@ -3745,10 +3705,11 @@ def TTIR_AvgPool2dOp : TTIR_NamedOp<"avg_pool2d"> {
   let results = (outs AnyRankedTensor:$result);
 
   let hasVerifier = 1;
+
   let hasFolder = 1;
 }
 
-def TTIR_MaxPool2dOp : TTIR_NamedOp<"max_pool2d"> {
+def TTIR_MaxPool2dOp : TTIR_NamedOp<"max_pool2d", [DeclareOpInterfaceMethods<TTIR_QuantizableOpInterface, ["rewriteWithQuantizedInputs"]>]> {
     let summary = "2D maximum pooling operation.";
     let description = [{
       The `max_pool2d` operation applies a 2D maximum pooling over an input tensor composed of several input planes.

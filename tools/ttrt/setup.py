@@ -43,7 +43,7 @@ runlibs = []
 perflibs = []
 metallibs = []
 install_requires = []
-install_requires += ["nanobind"]
+install_requires += ["nanobind==2.10.2"]
 
 if enable_ttnn:
     runlibs += ["_ttnncpp.so"]
