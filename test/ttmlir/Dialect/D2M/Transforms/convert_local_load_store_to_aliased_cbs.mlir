@@ -59,8 +59,8 @@ module attributes {ttcore.system_desc = #system_desc} {
           }
 
           %result = d2m.remote_store %alloc_1[%0, %1] %buffer : memref<4x3x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>, memref<1x1x!ttcore.tile<32x32, f32>> -> memref<4x3x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>
-        } {d2m.outer_loop}
-      } {d2m.outer_loop}
+        } {d2m.blocking_loop = 1}
+      } {d2m.blocking_loop = 0}
     }
     return
   }

@@ -192,7 +192,7 @@ public:
       Block &checkBlock = checkRegion.front();
       for (Operation &op : checkBlock.getOperations()) {
         if (auto forOp = dyn_cast<affine::AffineForOp>(&op)) {
-          if (forOp->hasAttr("d2m.outer_loop")) {
+          if (forOp->hasAttr("d2m.blocking_loop")) {
             return failure();
           }
         }
@@ -226,8 +226,9 @@ public:
     // These are called "outer loops" because they wrap the generic operation,
     // iterating over its block factors. The generic operation's regions contain
     // the "inner" computation that executes within each loop iteration.
-    for (affine::AffineForOp loop : loops) {
-      loop->setAttr("d2m.outer_loop", rewriter.getUnitAttr());
+    for (auto [i, loop] : llvm::enumerate(loops)) {
+      loop->setAttr("d2m.blocking_loop",
+                    rewriter.getI64IntegerAttr(static_cast<int64_t>(i)));
     }
 
     // Replace IterIndexOp uses. We need to do this after the loops are created

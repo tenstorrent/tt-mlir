@@ -38,8 +38,8 @@ module {
     // CHECK-NEXT:     %{{.*}} = d2m.remote_load %{{.*}} %{{.*}}[%{{.*}}, %{{.*}}] : memref<{{.*}}>, memref<{{.*}}> -> memref<{{.*}}>
     // CHECK-NEXT:     %{{.*}} = memref.alloc
     // CHECK-NEXT:     %{{.*}} = d2m.remote_store %{{.*}}[%{{.*}}, %{{.*}}] %{{.*}} : memref<{{.*}}>, memref<{{.*}}> -> memref<{{.*}}>
-    // CHECK-NEXT:   } {d2m.outer_loop}
-    // CHECK-NEXT: } {d2m.outer_loop}
+    // CHECK-NEXT:   } {d2m.blocking_loop = 1}
+    // CHECK-NEXT: } {d2m.blocking_loop = 0}
     d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<2x4>, indexing_maps = [#map, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<unified>]}
         ins(%stream : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #ttcore.view<map(4)>, #dram>)
         outs(%alloc : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>) {
@@ -89,9 +89,9 @@ module {
     // CHECK-NEXT:       %{{.*}} = d2m.remote_load %{{.*}} %{{.*}}[%{{.*}}, %{{.*}}] : memref<{{.*}}>, memref<{{.*}}> -> memref<{{.*}}>
     // CHECK-NEXT:       "d2m.tile_matmul_block"
     // CHECK-NEXT:       %{{.*}} = d2m.remote_store %{{.*}}[%{{.*}}, %{{.*}}] %{{.*}} : memref<{{.*}}>, memref<{{.*}}> -> memref<{{.*}}>
-    // CHECK-NEXT:     } {d2m.outer_loop}
-    // CHECK-NEXT:   } {d2m.outer_loop}
-    // CHECK-NEXT: } {d2m.outer_loop}
+    // CHECK-NEXT:     } {d2m.blocking_loop = 2}
+    // CHECK-NEXT:   } {d2m.blocking_loop = 1}
+    // CHECK-NEXT: } {d2m.blocking_loop = 0}
     d2m.generic {block_factors = [1, 1, 2], grid = #ttcore.grid<1x1>, indexing_maps = [#mapL, #mapR, #mapO], iterator_types = [#parallel, #parallel, #reduction], threads = [#d2m.thread<unified>]}
         ins(%stream0, %stream1 : memref<1x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #ttcore.view<map(4)>, #dram>, memref<2x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #ttcore.view<map(4)>, #dram>)
         outs(%alloc : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_>) {
@@ -133,8 +133,8 @@ module {
     // CHECK-NEXT:     %{{.*}} = arith.addi %{{.*}}, %{{.*}} : index
     // CHECK-NEXT:     %{{.*}} = memref.alloc
     // CHECK-NEXT:     %{{.*}} = d2m.remote_load %{{.*}} %{{.*}}[%{{.*}}, %{{.*}}] : memref<{{.*}}>, memref<{{.*}}> -> memref<{{.*}}>
-    // CHECK-NEXT:   } {d2m.outer_loop}
-    // CHECK-NEXT: } {d2m.outer_loop}
+    // CHECK-NEXT:   } {d2m.blocking_loop = 1}
+    // CHECK-NEXT: } {d2m.blocking_loop = 0}
     d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<2x4>, indexing_maps = [#map, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<unified>]}
         ins(%stream : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #ttcore.view<map(4)>, #dram>)
         outs(%alloc : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>) {

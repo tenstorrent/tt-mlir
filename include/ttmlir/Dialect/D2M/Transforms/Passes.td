@@ -883,7 +883,7 @@ def D2MGenericAffineLoopFusion : Pass<"d2m-generic-affine-loop-fusion", "::mlir:
 def D2MLowerToExplicitForm : Pass<"d2m-lower-to-explicit-form", "::mlir::ModuleOp"> {
   let summary = "Lower outer loop bounds to explicit constants.";
   let description = [{
-    This pass replaces affine.for loops marked with the d2m.outer_loop attribute
+    This pass replaces affine.for loops marked with the d2m.blocking_loop attribute
     that have bounds defined by d2m.get_block_factor ops with scf.for loops that
     have arith.constant bounds taken from the GenericOp's block_factors attribute.
 

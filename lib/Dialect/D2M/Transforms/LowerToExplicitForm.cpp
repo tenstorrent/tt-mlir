@@ -15,7 +15,7 @@ namespace mlir::tt::d2m {
 
 namespace {
 
-/// Lower a single affine.for with d2m.outer_loop attribute to scf.for.
+/// Lower a single affine.for with d2m.blocking_loop attribute to scf.for.
 /// The upper bound operand must already be an arith.constant (i.e.,
 /// GetBlockFactorOps should be replaced before calling this).
 static void lowerAffineForToSCF(IRRewriter &rewriter,
@@ -38,8 +38,9 @@ static void lowerAffineForToSCF(IRRewriter &rewriter,
   // Create the scf.for replacement.
   auto scfForOp = scf::ForOp::create(rewriter, loc, lb, ub, step);
 
-  // Preserve the d2m.outer_loop marker attribute.
-  scfForOp->setAttr("d2m.outer_loop", rewriter.getUnitAttr());
+  // Preserve the d2m.blocking_loop marker attribute (carries block factor
+  // index).
+  scfForOp->setAttr("d2m.blocking_loop", forOp->getAttr("d2m.blocking_loop"));
 
   Block *affineBody = forOp.getBody();
   Block *scfBody = scfForOp.getBody();
@@ -99,13 +100,13 @@ public:
         rewriter.replaceOp(op, constant);
       }
 
-      // Step 2: Collect affine.for loops marked with d2m.outer_loop and
+      // Step 2: Collect affine.for loops marked with d2m.blocking_loop and
       // replace them with scf.for loops. The default walk order is
       // post-order (innermost first), which is the correct processing
       // order.
       SmallVector<affine::AffineForOp> outerLoops;
       generic.walk([&](affine::AffineForOp forOp) {
-        if (forOp->hasAttr("d2m.outer_loop")) {
+        if (forOp->hasAttr("d2m.blocking_loop")) {
           outerLoops.push_back(forOp);
         }
       });

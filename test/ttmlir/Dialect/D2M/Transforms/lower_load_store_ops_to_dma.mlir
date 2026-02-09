@@ -30,8 +30,8 @@ module attributes {} {
           // CHECK-NEXT: d2m.dma_wait %[[TX]]
           // CHECK-NEXT: d2m.push %cb0
           d2m.remote_load %stream[%0, %1] into %cb0 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #dram> into !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
-        } {d2m.outer_loop}
-      } {d2m.outer_loop}
+        } {d2m.blocking_loop = 1}
+      } {d2m.blocking_loop = 0}
     }, {
     ^compute0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %cb1: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>):
       %c0 = arith.constant 0 : index
@@ -45,8 +45,8 @@ module attributes {} {
             linalg.yield %1 : !ttcore.tile<32x32, f32>
           }
           d2m.pop %cb0 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
-        } {d2m.outer_loop}
-      } {d2m.outer_loop}
+        } {d2m.blocking_loop = 1}
+      } {d2m.blocking_loop = 0}
     }
     return
   }
@@ -74,8 +74,8 @@ module attributes {} {
           // CHECK-NEXT: d2m.dma_wait %[[TX]]
           // CHECK-NEXT: d2m.pop %cb1
           d2m.remote_store %stream[%0, %1] from %cb1 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #dram> from !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
-        } {d2m.outer_loop}
-      } {d2m.outer_loop}
+        } {d2m.blocking_loop = 1}
+      } {d2m.blocking_loop = 0}
     }, {
     ^compute0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %cb1: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>):
       %c0 = arith.constant 0 : index
@@ -91,8 +91,8 @@ module attributes {} {
             }
           }
           d2m.push %cb1 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
-        } {d2m.outer_loop}
-      } {d2m.outer_loop}
+        } {d2m.blocking_loop = 1}
+      } {d2m.blocking_loop = 0}
     }
     return
   }
@@ -128,8 +128,8 @@ module attributes {} {
           // CHECK-NEXT: d2m.dma_wait %[[STORE_TX]]
           // CHECK-NEXT: d2m.pop %cb1
           d2m.remote_store %stream_1[%0, %1] from %cb1 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #dram> from !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
-        } {d2m.outer_loop}
-      } {d2m.outer_loop}
+        } {d2m.blocking_loop = 1}
+      } {d2m.blocking_loop = 0}
     }, {
     ^compute0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %cb1: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>):
       %c0 = arith.constant 0 : index
@@ -145,8 +145,8 @@ module attributes {} {
           }
           d2m.push %cb1 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
           d2m.pop %cb0 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
-        } {d2m.outer_loop}
-      } {d2m.outer_loop}
+        } {d2m.blocking_loop = 1}
+      } {d2m.blocking_loop = 0}
     }
     return
   }
@@ -174,8 +174,8 @@ module attributes {} {
             linalg.yield %2 : !ttcore.tile<32x32, f32>
           }
           d2m.pop %cb0 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
-        } {d2m.outer_loop}
-      } {d2m.outer_loop}
+        } {d2m.blocking_loop = 1}
+      } {d2m.blocking_loop = 0}
     }
     return
   }
@@ -193,8 +193,8 @@ module attributes {} {
       scf.for %arg1 = %c0 to %c1 step %c1 {
         scf.for %arg2 = %c0 to %c1 step %c1 {
           %0 = d2m.wait %cb0 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1>
-        } {d2m.outer_loop}
-      } {d2m.outer_loop}
+        } {d2m.blocking_loop = 1}
+      } {d2m.blocking_loop = 0}
     }
     return
   }
