@@ -136,6 +136,8 @@ void createTTIRToTTMetalMiddleendPipeline(
   }
   pm.addPass(d2m::createD2MGenericApplyInterchange(applyInterchangeOptions));
   pm.addPass(d2m::createD2MGenerateOuterLoops());
+  // NOTE: Run the scalrep pass on all funcs in the top level module (doesn't
+  // work at module level).
   {
     OpPassManager &funcPm = pm.nest<func::FuncOp>();
     funcPm.addPass(affine::createAffineScalarReplacementPass());
