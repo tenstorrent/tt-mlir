@@ -22,14 +22,12 @@ module {
     // CHECK: d2m.generic
     // CHECK-SAME: block_factors = [1, 1]
     // CHECK: ^{{.*}}(%{{.*}}: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %{{.*}}: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>):
-    // CHECK-NEXT: %{{.*}} = arith.constant 0 : index
-    // CHECK-NEXT: %{{.*}} = arith.constant 1 : index
     // CHECK-NEXT: %{{.*}} = d2m.get_block_factor(0) : index
     // CHECK-NEXT: %{{.*}} = d2m.get_block_factor(1) : index
-    // CHECK-NEXT: scf.for %{{.*}} = %{{.*}} to %{{.*}} step %{{.*}} {
+    // CHECK-NEXT: affine.for %{{.*}} = 0 to %{{.*}} {
     // CHECK-NEXT:   %{{.*}} = d2m.core_index(0)
     // CHECK-NEXT:   %{{.*}} = d2m.core_index(1)
-    // CHECK-NEXT:   scf.for %{{.*}} = %{{.*}} to %{{.*}} step %{{.*}} {
+    // CHECK-NEXT:   affine.for %{{.*}} = 0 to %{{.*}} {
     // CHECK-NEXT:     %{{.*}} = d2m.get_block_factor(0) : index
     // CHECK-NEXT:     %{{.*}} = arith.muli %{{.*}}, %{{.*}} : index
     // CHECK-NEXT:     %{{.*}} = arith.addi %{{.*}}, %{{.*}} : index
@@ -70,16 +68,14 @@ module {
     // CHECK: d2m.generic
     // CHECK-SAME: block_factors = [1, 1, 2]
     // CHECK: ^{{.*}}(%{{.*}}: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1>>, %{{.*}}: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1>>, %{{.*}}: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1>>):
-    // CHECK-NEXT: %{{.*}} = arith.constant 0 : index
-    // CHECK-NEXT: %{{.*}} = arith.constant 1 : index
     // CHECK-NEXT: %{{.*}} = d2m.get_block_factor(0) : index
     // CHECK-NEXT: %{{.*}} = d2m.get_block_factor(1) : index
     // CHECK-NEXT: %{{.*}} = d2m.get_block_factor(2) : index
-    // CHECK-NEXT: scf.for %{{.*}} = %{{.*}} to %{{.*}} step %{{.*}} {
+    // CHECK-NEXT: affine.for %{{.*}} = 0 to %{{.*}} {
     // CHECK-NEXT:   %{{.*}} = d2m.core_index(0)
     // CHECK-NEXT:   %{{.*}} = d2m.core_index(1)
-    // CHECK-NEXT:   scf.for %{{.*}} = %{{.*}} to %{{.*}} step %{{.*}} {
-    // CHECK-NEXT:     scf.for %{{.*}} = %{{.*}} to %{{.*}} step %{{.*}} {
+    // CHECK-NEXT:   affine.for %{{.*}} = 0 to %{{.*}} {
+    // CHECK-NEXT:     affine.for %{{.*}} = 0 to %{{.*}} {
     // CHECK-NEXT:       %{{.*}} = d2m.get_block_factor(0) : index
     // CHECK-NEXT:       %{{.*}} = arith.muli %{{.*}}, %{{.*}} : index
     // CHECK-NEXT:       %{{.*}} = arith.addi %{{.*}}, %{{.*}} : index
@@ -123,14 +119,12 @@ module {
     // CHECK: d2m.generic
     // CHECK-SAME: block_factors = [1, 1]
     // CHECK: ^{{.*}}(%{{.*}}: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %{{.*}}: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>):
-    // CHECK-NEXT: %{{.*}} = arith.constant 0 : index
-    // CHECK-NEXT: %{{.*}} = arith.constant 1 : index
     // CHECK-NEXT: %{{.*}} = d2m.get_block_factor(0) : index
     // CHECK-NEXT: %{{.*}} = d2m.get_block_factor(1) : index
-    // CHECK-NEXT: scf.for %{{.*}} = %{{.*}} to %{{.*}} step %{{.*}} {
+    // CHECK-NEXT: affine.for %{{.*}} = 0 to %{{.*}} {
     // CHECK-NEXT:   %{{.*}} = d2m.core_index(0)
     // CHECK-NEXT:   %{{.*}} = d2m.core_index(1)
-    // CHECK-NEXT:   scf.for %{{.*}} = %{{.*}} to %{{.*}} step %{{.*}} {
+    // CHECK-NEXT:   affine.for %{{.*}} = 0 to %{{.*}} {
     // CHECK-NEXT:     %{{.*}} = d2m.get_block_factor(0) : index
     // CHECK-NEXT:     %{{.*}} = arith.muli %{{.*}}, %{{.*}} : index
     // CHECK-NEXT:     %{{.*}} = arith.addi %{{.*}}, %{{.*}} : index

@@ -865,7 +865,8 @@ def D2MGenerateOuterLoops : Pass<"d2m-generate-outer-loops", "::mlir::ModuleOp">
   let description = [{
     This pass generates outer loops for generic operations.
   }];
-  let dependentDialects = ["::mlir::tt::d2m::D2MDialect"];
+  let dependentDialects = ["::mlir::tt::d2m::D2MDialect",
+                           "::mlir::affine::AffineDialect"];
 }
 
 def D2MLowerMulticastLoads : Pass<"d2m-lower-multicast-loads", "::mlir::ModuleOp"> {

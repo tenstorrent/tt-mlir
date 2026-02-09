@@ -4,8 +4,8 @@
 
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 
+#include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
-#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/AffineExpr.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
@@ -18,39 +18,48 @@ class D2MGenerateOuterLoopsRewriter : public OpRewritePattern<GenericOp> {
 public:
   using OpRewritePattern<GenericOp>::OpRewritePattern;
 
-  static std::tuple<SmallVector<Value>, SmallVector<Value>, SmallVector<Value>>
-  buildLoopBounds(OpBuilder &builder, Location loc, unsigned numDims) {
-    Value zero = builder.create<arith::ConstantOp>(loc, builder.getIndexType(),
-                                                   builder.getIndexAttr(0));
-    Value one = builder.create<arith::ConstantOp>(loc, builder.getIndexType(),
-                                                  builder.getIndexAttr(1));
-    SmallVector<Value> lbs(numDims, zero);
+  static SmallVector<affine::AffineForOp>
+  buildLoopNest(PatternRewriter &rewriter, Location loc, unsigned numDims,
+                Block *regionBlock, Block *loopedBlock) {
+    SmallVector<affine::AffineForOp> loops;
+
+    // Create upper bound values using GetBlockFactorOp
     SmallVector<Value> ubs;
     for (unsigned i = 0; i < numDims; ++i) {
       ubs.push_back(
-          builder.create<GetBlockFactorOp>(loc, static_cast<int64_t>(i)));
+          rewriter.create<GetBlockFactorOp>(loc, static_cast<int64_t>(i)));
     }
-    SmallVector<Value> step(numDims, one);
-    return std::make_tuple(lbs, ubs, step);
-  }
 
-  static scf::LoopNest buildLoopNest(PatternRewriter &rewriter, Location loc,
-                                     unsigned numDims, Block *regionBlock,
-                                     Block *loopedBlock) {
-    auto [lbs, ubs, steps] = buildLoopBounds(rewriter, loc, numDims);
+    // Upper bound map: ()[s0] -> (s0)
+    AffineMap ubMap = AffineMap::get(0, 1, rewriter.getAffineSymbolExpr(0),
+                                     rewriter.getContext());
 
-    return scf::buildLoopNest(
-        rewriter, loc, lbs, ubs, steps,
-        [&](OpBuilder &bodyBuilder, Location loc, ValueRange iters) {
-          rewriter.setInsertionPointToStart(bodyBuilder.getInsertionBlock());
-          Block *innerLoopBlock = bodyBuilder.getInsertionBlock();
-          rewriter.mergeBlocks(regionBlock, innerLoopBlock,
-                               loopedBlock->getArguments());
-        });
+    // Build nested affine.for loops from outermost to innermost
+    for (unsigned i = 0; i < numDims; ++i) {
+      auto forOp = affine::AffineForOp::create(
+          rewriter, loc,
+          /*lbOperands=*/{}, /*lbMap=*/rewriter.getConstantAffineMap(0),
+          /*ubOperands=*/ValueRange{ubs[i]}, /*ubMap=*/ubMap,
+          /*step=*/1);
+      loops.push_back(forOp);
+      rewriter.setInsertionPointToStart(forOp.getBody());
+    }
+
+    // Merge the original region block into the innermost loop body.
+    // Remove the auto-generated affine.yield terminator first, then merge
+    // (which splices to end of block), then re-add the yield.
+    Block *innerBody = loops.back().getBody();
+    rewriter.eraseOp(innerBody->getTerminator());
+    rewriter.mergeBlocks(regionBlock, innerBody, loopedBlock->getArguments());
+    rewriter.setInsertionPointToEnd(innerBody);
+    rewriter.create<affine::AffineYieldOp>(loc);
+
+    return loops;
   }
 
   static void replaceIndexOpUses(PatternRewriter &rewriter, Location loc,
-                                 scf::LoopNest &loopNest, GenericOp generic) {
+                                 SmallVector<affine::AffineForOp> &loops,
+                                 GenericOp generic) {
     // Get the output operand indexing map to determine which dimensions
     // participate in the grid
     unsigned outputOperandsIndex = generic.getOutputs().getBeginOperandIndex();
@@ -77,10 +86,10 @@ public:
     bool virtualGridIndicesCreated = false;
 
     // Handle BlockIndexOp: apply full grid/block calculation
-    loopNest.loops.back().walk([&](BlockIndexOp index) {
+    loops.back().walk([&](BlockIndexOp index) {
       uint64_t dim = index.getDim();
-      assert(dim < loopNest.loops.size());
-      scf::ForOp loop = loopNest.loops[dim];
+      assert(dim < loops.size());
+      affine::AffineForOp loop = loops[dim];
       Value iterIndex = loop.getInductionVar();
 
       // Set insertion point to before the BlockIndexOp so we can create
@@ -90,9 +99,9 @@ public:
       // Create CoreIndexOp operations lazily at the start of the outermost loop
       // body if we haven't created them yet. Use CoreIndexOp with the grid
       // mapping directly - the lowering will handle applying the affine map.
-      if (!virtualGridIndicesCreated && !loopNest.loops.empty()) {
+      if (!virtualGridIndicesCreated && !loops.empty()) {
         // Set insertion point to the start of the outermost loop body
-        rewriter.setInsertionPointToStart(loopNest.loops.front().getBody());
+        rewriter.setInsertionPointToStart(loops.front().getBody());
         virtualGridIndices.resize(numGridDims);
         for (unsigned gridDim = 0; gridDim < numGridDims; gridDim++) {
           virtualGridIndices[gridDim] = rewriter.create<CoreIndexOp>(
@@ -145,10 +154,10 @@ public:
     });
 
     // Handle IterIndexOp: simple replacement with loop induction variable
-    loopNest.loops.back().walk([&](IterIndexOp index) {
+    loops.back().walk([&](IterIndexOp index) {
       uint64_t dim = index.getDim();
-      assert(dim < loopNest.loops.size());
-      scf::ForOp loop = loopNest.loops[dim];
+      assert(dim < loops.size());
+      affine::AffineForOp loop = loops[dim];
       Value iterIndex = loop.getInductionVar();
 
       rewriter.setInsertionPoint(index);
@@ -182,7 +191,7 @@ public:
     if (!checkRegion.empty()) {
       Block &checkBlock = checkRegion.front();
       for (Operation &op : checkBlock.getOperations()) {
-        if (auto forOp = dyn_cast<scf::ForOp>(&op)) {
+        if (auto forOp = dyn_cast<affine::AffineForOp>(&op)) {
           if (forOp->hasAttr("d2m.outer_loop")) {
             return failure();
           }
@@ -210,14 +219,14 @@ public:
         SmallVector<mlir::Location>(region.getArgumentTypes().size(),
                                     generic.getLoc()));
     rewriter.setInsertionPointToStart(loopedBlock);
-    scf::LoopNest loopNest = buildLoopNest(rewriter, generic.getLoc(), numDims,
-                                           regionBlock, loopedBlock);
+    SmallVector<affine::AffineForOp> loops = buildLoopNest(
+        rewriter, generic.getLoc(), numDims, regionBlock, loopedBlock);
 
     // Mark all loops in the nest with an attribute to prevent re-processing.
     // These are called "outer loops" because they wrap the generic operation,
     // iterating over its block factors. The generic operation's regions contain
     // the "inner" computation that executes within each loop iteration.
-    for (scf::ForOp loop : loopNest.loops) {
+    for (affine::AffineForOp loop : loops) {
       loop->setAttr("d2m.outer_loop", rewriter.getUnitAttr());
     }
 
@@ -226,7 +235,7 @@ public:
     // the right place. Set insertion point back to the start of loopedBlock
     // so CoreIndexOp operations are created in the right place.
     rewriter.setInsertionPointToStart(loopedBlock);
-    replaceIndexOpUses(rewriter, generic.getLoc(), loopNest, loopedGeneric);
+    replaceIndexOpUses(rewriter, generic.getLoc(), loops, loopedGeneric);
 
     rewriter.replaceOp(generic, loopedGeneric.getResults());
 
