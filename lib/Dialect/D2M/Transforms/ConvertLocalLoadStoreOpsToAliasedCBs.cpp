@@ -219,6 +219,119 @@ static memref::AllocOp findAllocOp(Value value) {
   return nullptr;
 }
 
+// Pre-processing sub-pass that detects local store→load forwarding pairs
+// and converts them to CB operations. This handles the pattern where a
+// remote_store and remote_load share the same local memref operand and the
+// same local buffer (memref.alloc), meaning data is written to a local memref
+// and immediately read back from it. The pair is replaced with:
+//   alloc → reserve, store → push, load → wait, pop at last use.
+static void forwardLocalStoreLoadPairs(ModuleOp moduleOp,
+                                       IRRewriter &rewriter) {
+  // Collect store→load pairs to convert.
+  struct StoreLoadPair {
+    RemoteStoreOp store;
+    RemoteLoadOp load;
+  };
+  SmallVector<StoreLoadPair> pairsToConvert;
+
+  moduleOp->walk([&](RemoteStoreOp remoteStore) {
+    // Only consider implicit form stores with local memref operand.
+    if (!remoteStore.isImplicitForm()) {
+      return;
+    }
+
+    Value memref = remoteStore.getMemref();
+    if (!isLocalOperand(memref, remoteStore.getOperation())) {
+      return;
+    }
+
+    if (!remoteStore.getLocalBuffer()) {
+      return;
+    }
+
+    // Search forward in the same block for a matching remote_load.
+    Block *block = remoteStore->getBlock();
+    for (auto it = std::next(remoteStore->getIterator()); it != block->end();
+         ++it) {
+      auto remoteLoad = mlir::dyn_cast<RemoteLoadOp>(&*it);
+      if (!remoteLoad) {
+        continue;
+      }
+
+      // Must be implicit form, same memref, no mcast.
+      if (!remoteLoad.isImplicitForm()) {
+        continue;
+      }
+      if (remoteLoad.getMemref() != memref) {
+        continue;
+      }
+      if (remoteLoad.isMcast()) {
+        continue;
+      }
+      if (!remoteLoad.getLocalBuffer()) {
+        continue;
+      }
+
+      // Found a matching pair.
+      pairsToConvert.push_back({remoteStore, remoteLoad});
+      break;
+    }
+  });
+
+  // Transform each pair.
+  for (auto &[remoteStore, remoteLoad] : pairsToConvert) {
+    Location loc = remoteStore.getLoc();
+    Value memref = remoteStore.getMemref();
+
+    Value assocCb = findAssociatedCB(remoteStore.getOperation(), memref);
+    if (!assocCb) {
+      remoteStore.emitWarning(
+          "could not find associated CB for store-load forwarding pair, "
+          "skipping");
+      continue;
+    }
+
+    memref::AllocOp storeAllocOp = findAllocOp(remoteStore.getLocalBuffer());
+    memref::AllocOp loadAllocOp = findAllocOp(remoteLoad.getLocalBuffer());
+    assert(storeAllocOp &&
+           "store alloc op should have been validated during collection");
+    assert(loadAllocOp &&
+           "load alloc op should have been validated during collection");
+    assert(remoteStore.getResult().use_empty() &&
+           "store result must have no uses in store-load forwarding pattern");
+
+    // Record the block the load lives in before modifying IR, so we can
+    // insert the pop at its end.
+    Block *loadBlock = remoteLoad->getBlock();
+
+    // At store's alloc location: insert reserve, replace alloc uses.
+    rewriter.setInsertionPoint(storeAllocOp);
+    auto reserveOp = rewriter.create<ReserveOp>(loc, assocCb);
+    rewriter.replaceAllUsesWith(storeAllocOp.getResult(),
+                                reserveOp.getResult());
+    rewriter.eraseOp(storeAllocOp);
+
+    // At store location: insert push, erase store.
+    rewriter.setInsertionPoint(remoteStore);
+    rewriter.create<PushOp>(loc, assocCb);
+    rewriter.eraseOp(remoteStore);
+
+    // At load's alloc location: insert wait so it dominates all uses of the
+    // alloc (e.g., collapse_shape views defined between the alloc and the
+    // load). Replace both alloc and load result uses with wait result.
+    rewriter.setInsertionPoint(loadAllocOp);
+    auto waitOp = rewriter.create<WaitOp>(remoteLoad.getLoc(), assocCb);
+    rewriter.replaceAllUsesWith(loadAllocOp.getResult(), waitOp.getResult());
+    rewriter.replaceAllUsesWith(remoteLoad.getResult(), waitOp.getResult());
+    rewriter.eraseOp(loadAllocOp);
+    rewriter.eraseOp(remoteLoad);
+
+    // Insert pop at the end of the scope the original remote_load was in.
+    rewriter.setInsertionPointToEnd(loadBlock);
+    rewriter.create<PopOp>(loc, assocCb);
+  }
+}
+
 class D2MConvertLocalLoadStoreOpsToAliasedCBs
     : public impl::D2MConvertLocalLoadStoreOpsToAliasedCBsBase<
           D2MConvertLocalLoadStoreOpsToAliasedCBs> {
@@ -230,6 +343,10 @@ public:
   void runOnOperation() final {
     ModuleOp moduleOp = getOperation();
     IRRewriter rewriter(&getContext());
+
+    // Pre-processing: forward local store→load pairs before handling
+    // individual operations.
+    forwardLocalStoreLoadPairs(moduleOp, rewriter);
 
     // Collect remote_load operations to convert
     SmallVector<RemoteLoadOp> remoteLoadsToConvert;
