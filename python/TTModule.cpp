@@ -372,12 +372,12 @@ void populateTTModule(nb::module_ &m) {
       });
 
   tt_attribute_class<tt::ttcore::TopologyAttr>(m, "TopologyAttr")
-      .def_static("get",
-                  [](MlirContext ctx, uint32_t topology) {
-                    return wrap(tt::ttcore::TopologyAttr::get(
-                        unwrap(ctx),
-                        static_cast<tt::ttcore::Topology>(topology)));
-                  })
+      .def_static(
+          "get",
+          [](MlirContext ctx, uint32_t topology) {
+            return wrap(tt::ttcore::TopologyAttr::get(
+                unwrap(ctx), static_cast<tt::ttcore::Topology>(topology)));
+          })
       .def_prop_ro("topology_as_int", [](tt::ttcore::TopologyAttr self) {
         return static_cast<uint32_t>(self.getValue());
       });
@@ -453,9 +453,10 @@ void populateTTModule(nb::module_ &m) {
                    [](const tt::ttcore::DeviceAttr &self) {
                      return self.getMeshShape().vec();
                    })
-      .def_prop_ro("chip_ids", [](const tt::ttcore::DeviceAttr &self) {
-        return self.getChipIds().vec();
-      })
+      .def_prop_ro("chip_ids",
+                   [](const tt::ttcore::DeviceAttr &self) {
+                     return self.getChipIds().vec();
+                   })
       .def_prop_ro("mesh_topology", [](const tt::ttcore::DeviceAttr &self) {
         auto topologies = self.getMeshTopology();
         std::vector<uint32_t> result;
