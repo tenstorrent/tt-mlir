@@ -271,8 +271,6 @@ SystemDescAttr::getDefault(MLIRContext *context, Arch arch,
     return createDefaultWormholeSystemDesc(context, meshShape);
   case Arch::Blackhole:
     return createDefaultBlackholeSystemDesc(context, meshShape);
-  default:
-    llvm_unreachable("Unsupported arch");
   }
 }
 
@@ -338,9 +336,6 @@ mlir::FailureOr<SystemDescAttr> SystemDescAttr::getFromBuffer(
   for (const auto *element : *binaryChipDesc) {
     Arch arch;
     switch (element->arch()) {
-    case ::tt::target::Arch::Grayskull:
-      arch = Arch::Grayskull;
-      break;
     case ::tt::target::Arch::Wormhole_b0:
       arch = Arch::WormholeB0;
       break;
