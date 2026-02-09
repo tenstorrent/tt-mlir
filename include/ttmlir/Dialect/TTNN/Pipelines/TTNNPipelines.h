@@ -439,6 +439,14 @@ struct TTNNToEmitCDevicePipelineOptions
                            llvm::cl::desc("Tailor passes for dylib target."),
                            llvm::cl::init(false)};
 
+  Option<bool> tryRecoverStructure{
+      *this, "try-recover-structure",
+      llvm::cl::desc(
+          "Enable pipelines and passes that try to recover structure of the "
+          "original IR/code. Highly experimental; please file issues at "
+          "https://github.com/tenstorrent/tt-mlir/issues"),
+      llvm::cl::init(false)};
+
   Option<bool> tuplifyInputIfEmpty{
       *this, "tuplify-input-if-empty",
       llvm::cl::desc("Whether to create an empty tuple if no inputs to forward "
@@ -490,8 +498,10 @@ struct TTNNToEmitPyDevicePipelineOptions
 
   Option<bool> tryRecoverStructure{
       *this, "try-recover-structure",
-      llvm::cl::desc("Enable pipelines and passes that try to recover "
-                     "structure of the original IR/code."),
+      llvm::cl::desc(
+          "Enable pipelines and passes that try to recover structure of the "
+          "original IR/code. Highly experimental; please file issues at "
+          "https://github.com/tenstorrent/tt-mlir/issues"),
       llvm::cl::init(false)};
 };
 
