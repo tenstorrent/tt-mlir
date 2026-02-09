@@ -57,7 +57,7 @@ public:
         "TTNNRowMajorLayoutPropagation pass requires OpModel support to be"
         "enabled.");
 #else
-    op_model::ScopedSingletonDeviceGuard deviceGuard;
+    op_model::ScopedSingletonDeviceGuard deviceGuard(getOperation());
 
     ModuleOp moduleOp = getOperation();
     IRRewriter rewriter(&getContext());

@@ -141,6 +141,11 @@ llvm::Expected<OpConstraints> getOpConstraints(MLIRContext *context,
 
 template <class Callable>
 llvm::Expected<size_t> getOpRuntime(Callable &callable) {
+  if (SingletonDeviceContext::getInstance().isMockDevice()) {
+    return llvm::createStringError(
+        "getOpRuntime is not supported in mock device mode");
+  }
+
   ::ttnn::graph::RuntimeQueryResponse query;
   try {
     query = callable();
