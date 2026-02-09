@@ -1979,6 +1979,14 @@ def D2M_BlockIndexOp : D2M_IndexOp<"block_index"> {
     }];
 }
 
+def D2M_GetBlockFactorOp : D2M_IndexOp<"get_block_factor"> {
+    let summary = "Get block factor op.";
+    let description = [{
+      Retrieve the block factor from the block factor array attribute in
+      the parent generic op at the provided dimension index.
+    }];
+}
+
 def D2M_CoreIndexOp : D2M_GenericRegionOp<"core_index",
   [ Pure
   , DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>
