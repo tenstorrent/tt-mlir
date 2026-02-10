@@ -145,7 +145,7 @@ module {
    func.func @test_simplified_reblock_map(%arg0: tensor<64x64xbf16>) -> tensor<40x40xbf16> {
      // CHECK-AFTER-LABEL: func.func @test_simplified_reblock_map
      %device_storage = d2m.empty() : tensor<1x1x64x64xbf16, #layout_in>
-    // CHECK-AFTER: %[[STREAM:.*]] = "d2m.stream_layout"{{.*}} : (tensor<2x2x32x32xbf16, #layout>, tensor<2x2x32x32xbf16, #layout1>) -> tensor<2x2x32x32xbf16, #layout1>
+    // CHECK-AFTER: %[[STREAM:.*]] = "d2m.stream_layout"{{.*}} -> tensor<2x2x32x32xbf16, #layout1>
      %device_input = d2m.to_layout %arg0, %device_storage : tensor<64x64xbf16> into tensor<1x1x64x64xbf16, #layout_in> -> tensor<1x1x64x64xbf16, #layout_in>
      %stream_storage = d2m.empty() : tensor<1x1x64x64xbf16, #layout_out>
     %stream = "d2m.stream_layout"(%device_input, %stream_storage) <{remapping = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2 + 10, d3 + 20)>}> : (tensor<1x1x64x64xbf16, #layout_in>, tensor<1x1x64x64xbf16, #layout_out>) -> tensor<1x1x64x64xbf16, #layout_op>

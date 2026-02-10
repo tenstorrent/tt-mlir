@@ -5,7 +5,7 @@ module attributes {ttcore.device = #any_device} {
   func.func @test_grid_selection_row_major(%arg0: tensor<1x64x64x32xf32>) -> tensor<1x64x64x32xf32> {
     %0 = d2m.empty() : tensor<1x64x64x32xf32>
     // Verify D2MGridSelection optimizes to 1x1x2x1 grids (not 1x1x8x8)
-    // CHECK: d2m.generic {{.*}} grid = #ttcore.grid<1x32x2x1>
+    // CHECK: d2m.generic {{.*}}grid = #ttcore.grid<1x32x2x1,
     %1 = d2m.empty() : tensor<1x1x1x1x1x64x64x32xf32, #ttcore.metal_layout<logical_shape = 1x64x64x32, dim_alignments = 1x1x32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded>>
     %2 = d2m.to_layout %arg0, %1 : tensor<1x64x64x32xf32> into tensor<1x1x1x1x1x64x64x32xf32, #ttcore.metal_layout<logical_shape = 1x64x64x32, dim_alignments = 1x1x32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded>> -> tensor<1x1x1x1x1x64x64x32xf32, #ttcore.metal_layout<logical_shape = 1x64x64x32, dim_alignments = 1x1x32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded>>
     %3 = d2m.empty() : tensor<1x1x1x1x1x64x64x32xf32, #ttcore.metal_layout<logical_shape = 1x64x64x32, dim_alignments = 1x1x32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded>>

@@ -6,8 +6,8 @@ module attributes {ttcore.device = #any_device} {
   func.func @test_height_sharded_virtual_grid(%arg0: tensor<2048x32xf32>) -> tensor<2048x32xf32> {
     // CHECK-LABEL: func.func @test_height_sharded_virtual_grid
     // CHECK: d2m.empty() : tensor<64x1x1x1x!ttcore.tile<32x32, f32>
-    // CHECK: d2m.generic {{{.*}}grid = #ttcore.grid<64x1>
-    %0 = "ttir.exp"(%arg0) : (tensor<2048x32xf32>) -> tensor<2048x32xf32>
+    // CHECK: d2m.generic {{{.*}}grid = #ttcore.grid<64x1,
+     %0 = "ttir.exp"(%arg0) : (tensor<2048x32xf32>) -> tensor<2048x32xf32>
     return %0 : tensor<2048x32xf32>
   }
 }
@@ -20,8 +20,8 @@ module attributes {ttcore.device = #any_device_2} {
   func.func @test_width_sharded_virtual_grid(%arg0: tensor<32x2048xf32>) -> tensor<32x2048xf32> {
     // CHECK-LABEL: func.func @test_width_sharded_virtual_grid
     // CHECK: d2m.empty() : tensor<1x64x1x1x!ttcore.tile<32x32, f32>
-    // CHECK: d2m.generic {{{.*}}grid = #ttcore.grid<1x64>
-    %0 = "ttir.exp"(%arg0) : (tensor<32x2048xf32>) -> tensor<32x2048xf32>
+    // CHECK: d2m.generic {{{.*}}grid = #ttcore.grid<1x64,
+     %0 = "ttir.exp"(%arg0) : (tensor<32x2048xf32>) -> tensor<32x2048xf32>
     return %0 : tensor<32x2048xf32>
   }
 }
@@ -36,8 +36,8 @@ module attributes {ttcore.device = #any_device_3} {
     // Virtual grid should select 1x40, packed into 5x8 physical grid.
     // CHECK-LABEL: func.func @test_width_sharded_sub64
     // CHECK: d2m.empty() : tensor<1x40x1x1x!ttcore.tile<32x32, f32>
-    // CHECK: d2m.generic {{{.*}}grid = #ttcore.grid<1x40>
-    %0 = "ttir.exp"(%arg0) : (tensor<32x1280xf32>) -> tensor<32x1280xf32>
+    // CHECK: d2m.generic {{{.*}}grid = #ttcore.grid<1x40,
+     %0 = "ttir.exp"(%arg0) : (tensor<32x1280xf32>) -> tensor<32x1280xf32>
     return %0 : tensor<32x1280xf32>
   }
 }
@@ -52,8 +52,8 @@ module attributes {ttcore.device = #any_device_2} {
     // Virtual grid should select 48x1, packed into 6x8 physical grid.
     // CHECK-LABEL: func.func @test_height_sharded_sub64
     // CHECK: d2m.empty() : tensor<48x1x1x1x!ttcore.tile<32x32, f32>
-    // CHECK: d2m.generic {{{.*}}grid = #ttcore.grid<48x1>
-    %0 = "ttir.exp"(%arg0) : (tensor<1536x32xf32>) -> tensor<1536x32xf32>
+    // CHECK: d2m.generic {{{.*}}grid = #ttcore.grid<48x1,
+     %0 = "ttir.exp"(%arg0) : (tensor<1536x32xf32>) -> tensor<1536x32xf32>
     return %0 : tensor<1536x32xf32>
   }
 }
