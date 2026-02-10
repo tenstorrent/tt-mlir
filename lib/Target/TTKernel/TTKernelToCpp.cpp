@@ -8,7 +8,10 @@
 
 #include "ttmlir/Target/TTKernel/LLKs/experimental_coord_translation_generated.h"
 #include "ttmlir/Target/TTKernel/LLKs/experimental_dataflow_api_generated.h"
+#include "ttmlir/Target/TTKernel/LLKs/experimental_fabric_1d_routing_generated.h"
+#include "ttmlir/Target/TTKernel/LLKs/experimental_fabric_2d_routing_generated.h"
 #include "ttmlir/Target/TTKernel/LLKs/experimental_fabric_api_generated.h"
+#include "ttmlir/Target/TTKernel/LLKs/experimental_fabric_topology_info_generated.h"
 #include "ttmlir/Target/TTKernel/LLKs/experimental_invoke_sfpi_llks_generated.h"
 #include "ttmlir/Target/TTKernel/LLKs/experimental_matmul_llks_generated.h"
 #include "ttmlir/Target/TTKernel/LLKs/experimental_padding_llks_generated.h"
@@ -265,8 +268,29 @@ void dprint(Arg &&arg, ArgV&&... argv) {
         hasCall("experimental::setup_fabric_connections") ||
         hasCall("experimental::get_my_device_id") ||
         hasCall("experimental::fabric_fast_write_any_len") ||
+        hasCall("experimental::fabric_mcast_fast_write_any_len") ||
         hasCall("experimental::get_logical_mesh_position") ||
         hasCall("experimental::get_device_id_from_logical_mesh_position")) {
+      // Emit in order: topology_info → routing → api
+      // 1. Topology info
+      auto experimentalFabricTopologyInfoLLKs =
+          StringRef(experimental_fabric_topology_info_generated,
+                    experimental_fabric_topology_info_generated_len);
+      builder->create<emitc::VerbatimOp>(loc,
+                                         experimentalFabricTopologyInfoLLKs);
+
+      // 2. Routing functions
+      auto experimentalFabric1DRoutingLLKs =
+          StringRef(experimental_fabric_1d_routing_generated,
+                    experimental_fabric_1d_routing_generated_len);
+      builder->create<emitc::VerbatimOp>(loc, experimentalFabric1DRoutingLLKs);
+
+      auto experimentalFabric2DRoutingLLKs =
+          StringRef(experimental_fabric_2d_routing_generated,
+                    experimental_fabric_2d_routing_generated_len);
+      builder->create<emitc::VerbatimOp>(loc, experimentalFabric2DRoutingLLKs);
+
+      // 3. Fabric APIs
       auto experimentalFabricAPILLKs =
           StringRef(experimental_fabric_api_generated,
                     experimental_fabric_api_generated_len);
