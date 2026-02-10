@@ -4351,7 +4351,7 @@ TEST_F(OpModelBase, groupNormOp) {
   GroupNormOp groupNormOp = builder.create<GroupNormOp>(
       builder.getUnknownLoc(), outputType, input,
       /*input_mask=*/nullptr, weight, bias, numGroups, epsilon,
-      /*memoryConfig=*/nullptr);
+      /*memoryConfig=*/nullptr, /*core_grid=*/nullptr);
   groupNormOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
 
   auto constraintsExp = getOpConstraints(groupNormOp.getOperation());
@@ -4387,7 +4387,7 @@ TEST_F(OpModelBase, groupNormOpMinimal) {
   GroupNormOp groupNormOp = builder.create<GroupNormOp>(
       builder.getUnknownLoc(), outputType, input,
       /*input_mask=*/nullptr, /*weight=*/nullptr, /*bias=*/nullptr, numGroups,
-      epsilon, /*memoryConfig=*/nullptr);
+      epsilon, /*memoryConfig=*/nullptr, /*core_grid=*/nullptr);
   groupNormOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
 
   auto constraintsExp = getOpConstraints(groupNormOp.getOperation());
@@ -4435,7 +4435,7 @@ TEST_F(OpModelBase, groupNormOpL1Memory) {
   GroupNormOp groupNormOp = builder.create<GroupNormOp>(
       builder.getUnknownLoc(), outputType, input,
       /*input_mask=*/nullptr, weight, bias, numGroups, epsilon,
-      /*memoryConfig=*/nullptr);
+      /*memoryConfig=*/nullptr, /*core_grid=*/nullptr);
   groupNormOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
 
   auto constraintsExp = getOpConstraints(groupNormOp.getOperation());

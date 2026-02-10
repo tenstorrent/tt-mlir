@@ -3472,6 +3472,8 @@ public:
         emitter.emit(srcOp.getBias()),
         emitter.emit(/* reciprocals= */ std::nullopt),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
+        emitter.emit(/* dtype= */ std::nullopt),
+        emitter.emit<::ttnn::CoreGrid>(srcOp.getCoreGrid()),
     };
 
     emitter.replaceOp(*this, args);

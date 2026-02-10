@@ -51,6 +51,7 @@ struct ShardSpec;
 struct CoreRangeSet;
 struct CoreRange;
 struct CoreCoord;
+struct CoreGrid;
 
 struct DataType;
 struct TensorMemoryLayout;
@@ -266,6 +267,11 @@ struct TypeName<::ttnn::operations::conv::conv2d::Conv2dSliceConfig> {
 template <>
 struct TypeName<::ttnn::CoreCoord> {
   inline static const std::string value = "::ttnn::CoreCoord";
+};
+
+template <>
+struct TypeName<::ttnn::CoreGrid> {
+  inline static const std::string value = "::ttnn::CoreGrid";
 };
 
 template <>
@@ -489,6 +495,34 @@ struct EmitCTypeConverter<::ttnn::CoreCoord> {
     llvm::raw_string_ostream rso(buf);
 
     rso << TypeNameV<::ttnn::CoreCoord>;
+    rso << "{";
+    rso << EmitCTypeConverter<size_t>::convert(attr.getX()) << ", ";
+    rso << EmitCTypeConverter<size_t>::convert(attr.getY());
+    rso << "}";
+
+    return buf;
+  }
+};
+
+template <>
+struct EmitCTypeConverter<::ttnn::CoreGrid> {
+  static std::optional<std::string> convert(mlir::Attribute attr) {
+    if (auto coreCoordAttr =
+            mlir::dyn_cast_if_present<ttnn::CoreCoordAttr>(attr)) {
+      return convert(coreCoordAttr);
+    }
+    return {};
+  }
+
+  static std::string convert(ttnn::CoreCoordAttr attr) {
+    if (!attr) {
+      return TypeNameV<std::nullopt_t>;
+    }
+
+    std::string buf;
+    llvm::raw_string_ostream rso(buf);
+
+    rso << TypeNameV<::ttnn::CoreGrid>;
     rso << "{";
     rso << EmitCTypeConverter<size_t>::convert(attr.getX()) << ", ";
     rso << EmitCTypeConverter<size_t>::convert(attr.getY());

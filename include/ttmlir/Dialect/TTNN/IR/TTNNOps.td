@@ -2200,7 +2200,8 @@ def TTNN_GroupNormOp : TTNN_Op<"group_norm", [AttrSizedOperandSegments, TTNN_Mem
                        Optional<AnyRankedTensor>:$bias,
                        I64Attr:$num_groups,
                        DefaultValuedAttr<F32Attr, "1e-12">:$epsilon,
-                       OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+                       OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
+                       OptionalAttr<TTNN_CoreCoordAttr>:$core_grid);
 
     let results = (outs AnyRankedTensor:$result);
 

@@ -1392,7 +1392,7 @@ public:
         loc, this->getTypeConverter()->convertType(groupNormOutputType), input,
         adaptor.getInputMask(), adaptor.getWeight(), adaptor.getBias(),
         adaptor.getNumGroups(), adaptor.getEpsilon(),
-        /*memoryConfig*/ nullptr);
+        /*memoryConfig*/ nullptr, /*core_grid=*/nullptr);
 
     // Reshape back to original shape if reshaped.
     if (needsReshape) {
