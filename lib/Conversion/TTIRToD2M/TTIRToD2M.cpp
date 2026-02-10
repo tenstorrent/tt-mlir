@@ -1176,13 +1176,23 @@ private:
     auto origOutputs =
         createDpsOutputs(loc, rewriter, {op.getResult().getType()});
     auto origInputs = adaptor.getOperands();
+
+    // For higher-rank matmuls (rank > 2), don't collapse batch dimensions.
+    // This preserves the ND structure for proper batch dimension handling.
+    // Note: checkPreconditions() guarantees both inputs have the same rank.
+    auto inputTensorType =
+        mlir::cast<RankedTensorType>(origInputs[0].getType());
+    bool noCollapse = (inputTensorType.getRank() > 2);
+
     auto [inputs, outputs] = toLayoutOperandsAndResults(
-        rewriter, {origInputs, origOutputs}, /*tiled*/ true);
+        rewriter, {origInputs, origOutputs}, /*tiled*/ true, noCollapse);
 
     const std::size_t numInputs = inputs.size();
     const std::size_t numOutputs = outputs.size();
     const std::size_t numOperands = (numInputs + numOutputs);
 
+    // Device layout doubles the rank (logical dimensions + device grid
+    // dimensions).
     const std::size_t physicalRank =
         ttcore::getDeviceLayout(outputs[0]).getRank() / 2;
 
@@ -1299,29 +1309,105 @@ private:
   static void checkPreconditions(ConcreteOp op) {
     assert((!op.getTransposeA() && !op.getTransposeB()) &&
            "TODO(#2591) expected no transpose attributes");
+
+    auto aType = mlir::cast<RankedTensorType>(op.getA().getType());
+    auto bType = mlir::cast<RankedTensorType>(op.getB().getType());
+    int64_t aRank = aType.getRank();
+    int64_t bRank = bType.getRank();
+
+    assert(aRank >= 2 && bRank >= 2 && "matmul operands must have rank >= 2");
+    assert(aRank == bRank &&
+           "matmul operands must have same rank for batched operations");
   }
 
+  /// Creates affine maps for matmul operation.
+  ///
+  /// For 2D matmuls:
+  ///   LHS: (M, K), RHS: (K, N), OUT: (M, N)
+  ///   Iteration space: (M, N, K) where K is the contraction dimension
+  ///
+  /// For ND matmuls (N > 2):
+  ///   LHS: (batch..., M, K), RHS: (batch..., K, N), OUT: (batch..., M, N)
+  ///   Iteration space: (batch..., M, N, K)
+  ///   - Batch dimensions are identity-mapped across all operands
+  ///   - Last two logical dimensions follow standard matmul pattern
+  ///
+  /// \param builder OpBuilder for creating affine expressions
+  /// \param arity Number of operands (must be 3: LHS, RHS, OUT)
+  /// \param rank Physical rank of the matmul operation (logical tensor rank)
+  /// \return Vector of affine maps for [LHS, RHS, OUT]
   static SmallVector<mlir::AffineMap>
   getAffineMapsArray(mlir::OpBuilder &builder, std::size_t arity,
                      std::size_t rank) {
     assert(arity == 3 && "expected 3 operands");
-    // TODO(#2592) handle higher ranks, if needed in this pass.
-    assert(rank == 2 && "expected a rank 2 operation");
+    assert(rank >= 2 && "matmul operation must have rank >= 2");
     mlir::MLIRContext *ctx = builder.getContext();
 
-    return SmallVector<mlir::AffineMap>{makeAffineMap(ctx, {0, 2}),
-                                        makeAffineMap(ctx, {2, 1}),
-                                        makeAffineMap(ctx, {0, 1})};
+    // For higher ranks: batch dims are identity, last 2 dims follow matmul
+    // pattern Matmul semantics: [...batch..., M, K] x [...batch..., K, N] ->
+    // [...batch..., M, N]
+    SmallVector<mlir::AffineExpr> lhsExprs, rhsExprs, outExprs;
+
+    // Iteration space has rank+1 dimensions: (batch..., M, N, K)
+    // where batch dimensions are [0, rank-2), M is rank-2, N is rank-1, K is
+    // rank
+
+    // Batch dimensions: identity mapping for all three operands
+    for (unsigned i = 0; i < rank - 2; ++i) {
+      lhsExprs.push_back(builder.getAffineDimExpr(i));
+      rhsExprs.push_back(builder.getAffineDimExpr(i));
+      outExprs.push_back(builder.getAffineDimExpr(i));
+    }
+
+    // LHS last two dimensions: [..., M, K]
+    lhsExprs.push_back(builder.getAffineDimExpr(rank - 2)); // M (rows)
+    lhsExprs.push_back(builder.getAffineDimExpr(rank));     // K (contraction)
+
+    // RHS last two dimensions: [..., K, N]
+    rhsExprs.push_back(builder.getAffineDimExpr(rank));     // K (contraction)
+    rhsExprs.push_back(builder.getAffineDimExpr(rank - 1)); // N (columns)
+
+    // OUT last two dimensions: [..., M, N]
+    outExprs.push_back(builder.getAffineDimExpr(rank - 2)); // M (rows)
+    outExprs.push_back(builder.getAffineDimExpr(rank - 1)); // N (columns)
+
+    // Return affine maps with rank+1 total dimensions (batch + M + N + K)
+    return SmallVector<mlir::AffineMap>{
+        AffineMap::get(rank + 1, 0, lhsExprs, ctx),
+        AffineMap::get(rank + 1, 0, rhsExprs, ctx),
+        AffineMap::get(rank + 1, 0, outExprs, ctx)};
   }
 
+  /// Creates iterator type attributes for matmul operation.
+  ///
+  /// The iteration space for an N-dimensional matmul has N+1 dimensions:
+  ///   - Batch dimensions [0, N-2): parallel
+  ///   - M dimension (N-2): parallel (result rows)
+  ///   - N dimension (N-1): parallel (result columns)
+  ///   - K dimension (N): reduction (contraction)
+  ///
+  /// \param builder OpBuilder for creating attributes
+  /// \param rank Physical rank of the matmul operation (logical tensor rank)
+  /// \return Vector of iterator type attributes
   static SmallVector<mlir::Attribute>
   getIteratorTypesArray(mlir::OpBuilder &builder, std::size_t rank) {
-    assert(rank == 2 && "expected a rank 2 operation");
+    assert(rank >= 2 && "matmul operation must have rank >= 2");
     auto parallel = ttcore::IteratorTypeAttr::get(
         builder.getContext(), ttcore::IteratorType::Parallel);
     auto reduction = ttcore::IteratorTypeAttr::get(
         builder.getContext(), ttcore::IteratorType::Reduction);
-    return SmallVector<mlir::Attribute>{parallel, parallel, reduction};
+
+    SmallVector<mlir::Attribute> result;
+
+    // All batch dimensions and result dimensions (M, N) are parallel
+    for (unsigned i = 0; i < rank; ++i) {
+      result.push_back(parallel);
+    }
+
+    // K (contraction dimension) is reduction
+    result.push_back(reduction);
+
+    return result;
   }
 
   static mlir::AffineMap makeAffineMap(mlir::MLIRContext *ctx,

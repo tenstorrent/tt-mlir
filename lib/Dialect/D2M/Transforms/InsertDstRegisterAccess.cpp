@@ -44,6 +44,35 @@ static bool hasTileMatmul(linalg::GenericOp linalgGenericOp) {
   return hasTileMatmul;
 }
 
+static bool canReplaceWithMatmulBlock(linalg::GenericOp linalgGenericOp) {
+  Value outputMemref = linalgGenericOp.getOutputs()[0];
+  ShapedType shapedType = mlir::cast<ShapedType>(outputMemref.getType());
+  // Output of matmul must be at least rank 2.
+  if (shapedType.getRank() < 2) {
+    return false;
+  }
+
+  // Technically the special case below seems feasible, but the indexing math
+  // for matmul block gets tripped up during ttkernel lowering. Filed follow
+  // on issue to support special case below:
+  //   https://github.com/tenstorrent/tt-mlir/issues/6955
+  // Once linked issue is fixed, this early out can be removed.
+  if (shapedType.getRank() > 2) {
+    return false;
+  }
+
+  // Higher rank matmuls are incompatible with tile matmul block, but there
+  // is a special case if all outer ranks are 1's.
+  // e.g.
+  //   2x1x2x4 -> Not compatible
+  //   1x2x2x4 -> Not Compatible
+  //   1x1x2x4 -> Compatible (special case)
+  auto outerShape = shapedType.getShape().drop_back(2);
+  int64_t outerVolume = std::accumulate(outerShape.begin(), outerShape.end(), 1,
+                                        std::multiplies<int64_t>());
+  return outerVolume == 1;
+}
+
 struct D2MInsertDstRegisterAccessRewriter final
     : public OpRewritePattern<GenericOp> {
 public:
@@ -711,6 +740,8 @@ public:
     Value inputAMemref = linalgGenericOp.getInputs()[0];
     Value inputBMemref = linalgGenericOp.getInputs()[1];
     Value outputCMemref = linalgGenericOp.getOutputs()[0];
+    const bool replaceWithMatmulBlock =
+        canReplaceWithMatmulBlock(linalgGenericOp);
 
     rewriter.setInsertionPoint(linalgGenericOp);
 
@@ -723,16 +754,19 @@ public:
         rewriter, gOp, region, dstCapacity,
         !linalgLoops.value().empty() ? linalgLoops.value().front() : nullptr);
 
-    Operation *outerLoop = linalgLoops.value()[0];
-    Block *parentBlk = outerLoop->getBlock();
-    auto insertPos = std::next(Block::iterator(outerLoop));
+    if (replaceWithMatmulBlock) {
+      Operation *outerLoop = linalgLoops.value()[0];
+      Block *parentBlk = outerLoop->getBlock();
+      auto insertPos = std::next(Block::iterator(outerLoop));
 
-    rewriter.setInsertionPoint(parentBlk, insertPos);
-    for (Operation *loopOp : llvm::reverse(linalgLoops.value())) {
-      rewriter.eraseOp(loopOp);
+      rewriter.setInsertionPoint(parentBlk, insertPos);
+      for (Operation *loopOp : llvm::reverse(linalgLoops.value())) {
+        rewriter.eraseOp(loopOp);
+      }
+      rewriter.create<d2m::TileMatmulBlockOp>(gOp.getLoc(), inputAMemref,
+                                              inputBMemref, outputCMemref);
     }
-    rewriter.create<d2m::TileMatmulBlockOp>(gOp.getLoc(), inputAMemref,
-                                            inputBMemref, outputCMemref);
+
     return true;
   }
 
