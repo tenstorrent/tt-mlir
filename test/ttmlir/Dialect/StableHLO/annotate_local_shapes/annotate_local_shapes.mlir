@@ -1,6 +1,6 @@
 // REQUIRES: stablehlo
 // RUN: rm -rf %t.mlir
-// RUN: ttmlir-opt --stablehlo-pipeline -o %t.mlir %s
+// RUN: ttmlir-opt --stablehlo-pipeline="result-presharded=1" -o %t.mlir %s
 // RUN: FileCheck %s --input-file=%t.mlir
 
 // -----
@@ -13,5 +13,5 @@ module {
   }
 }
 
-// CHECK: ttcore<runtime_tensor_sharding shard_status = <presharded>, local_shape = tensor<128x2x32x32xf32>>
-// CHECK: ttcore<runtime_tensor_sharding shard_status = <unsharded>, local_shape = tensor<2048x1024xf32>>
+// CHECK: ttcore.local_shape = #ttcore<local_shape local_shape = tensor<128x2x32x32xf32>>, ttcore.shard_status = #ttcore.shard_status<presharded>
+// CHECK: ttcore.local_shape = #ttcore<local_shape local_shape = tensor<256x1024xf32>>, ttcore.shard_status = #ttcore.shard_status<presharded>

@@ -80,13 +80,20 @@ funcOpToProgram(FlatbufferObjectCache &cache, func::FuncOp entry, FnT fn,
         mlir::cast<mlir::RankedTensorType>(input.getType());
 
     if (argAttrDict) {
-      auto runtimeTensorShardingAttr =
-          argAttrDict.get(mlir::tt::ttcore::RuntimeTensorShardingAttr::name);
-      if (runtimeTensorShardingAttr) {
-        auto rtsAttr = mlir::cast<mlir::tt::ttcore::RuntimeTensorShardingAttr>(
-            runtimeTensorShardingAttr);
-        shardStatus = rtsAttr.getShardStatus().getValue();
-        localShape = rtsAttr.getLocalShape();
+      auto shardStatusAttr =
+          argAttrDict.get(mlir::tt::ttcore::ShardStatusAttr::name);
+      if (shardStatusAttr) {
+        auto ssAttr =
+            mlir::cast<mlir::tt::ttcore::ShardStatusAttr>(shardStatusAttr);
+        shardStatus = ssAttr.getValue();
+      }
+
+      auto localShapeAttr =
+          argAttrDict.get(mlir::tt::ttcore::LocalShapeAttr::name);
+      if (localShapeAttr) {
+        auto lsAttr =
+            mlir::cast<mlir::tt::ttcore::LocalShapeAttr>(localShapeAttr);
+        localShape = mlir::cast<mlir::RankedTensorType>(lsAttr.getLocalShape());
       }
     }
 
@@ -105,14 +112,21 @@ funcOpToProgram(FlatbufferObjectCache &cache, func::FuncOp entry, FnT fn,
         auto resultAttrs = mlir::DictionaryAttr::get(op->getContext(),
                                                      entry.getResultAttrs(i));
         if (resultAttrs) {
-          auto runtimeTensorShardingAttr = resultAttrs.get(
-              mlir::tt::ttcore::RuntimeTensorShardingAttr::name);
-          if (runtimeTensorShardingAttr) {
-            auto rtsAttr =
-                mlir::cast<mlir::tt::ttcore::RuntimeTensorShardingAttr>(
-                    runtimeTensorShardingAttr);
-            shardStatus = rtsAttr.getShardStatus().getValue();
-            localShape = rtsAttr.getLocalShape();
+          auto shardStatusAttr =
+              resultAttrs.get(mlir::tt::ttcore::ShardStatusAttr::name);
+          if (shardStatusAttr) {
+            auto ssAttr =
+                mlir::cast<mlir::tt::ttcore::ShardStatusAttr>(shardStatusAttr);
+            shardStatus = ssAttr.getValue();
+          }
+
+          auto localShapeAttr =
+              resultAttrs.get(mlir::tt::ttcore::LocalShapeAttr::name);
+          if (localShapeAttr) {
+            auto lsAttr =
+                mlir::cast<mlir::tt::ttcore::LocalShapeAttr>(localShapeAttr);
+            localShape =
+                mlir::cast<mlir::RankedTensorType>(lsAttr.getLocalShape());
           }
         }
 

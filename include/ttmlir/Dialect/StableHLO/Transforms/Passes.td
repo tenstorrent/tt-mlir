@@ -42,14 +42,15 @@ def ApplyArgumentShardStatusPass : Pass<"apply-argument-shard-status", "::mlir::
 {
   let summary = "Annotate arguments with their shard status.";
   let description = [{
-    This pass will analyze the module arguments and annotate arguments with whether they are pre-sharded or not. It will determine this based on analyzing shardy or mhlo annotations.
-    If shardy or mhlo annotations exist, the argument/results is presharded. If not, it is unsharded.
+    This pass will analyze the module arguments and annotate arguments with whether they are pre-sharded or not.
+    For argument, if a sdy.sharding or mhlo.sharding exists, it is presharded.
+    For results, the user must pass that as a compiler option.
 
     Example, this pass will convert the following code:
     ```mlir
     module {
       sdy.mesh @mesh = <["x"=1, "batch"=8]>
-      func.func @main(%arg0: tensor<1024x2x32x32xf32> {sdy.sharding = #sdy.sharding<@mesh, \[{"batch"}, {}, {}, {}\]>}) -> (tensor<2048x1024xf32>) {
+      func.func public @main(%arg0: tensor<1024x2x32x32xf32> {sdy.sharding = #sdy.sharding<@mesh, \[{"batch"}, {}, {}, {}\]>}) -> (tensor<2048x1024xf32>) {
         %0 = stablehlo.reshape %arg0 : (tensor<1024x2x32x32xf32>) -> tensor<2048x1024xf32>
         return %0 : tensor<2048x1024xf32>
       }
@@ -60,7 +61,7 @@ def ApplyArgumentShardStatusPass : Pass<"apply-argument-shard-status", "::mlir::
     ```mlir
     module {
       sdy.mesh @mesh = <["x"=1, "batch"=8]>
-      func.func @main(%arg0: tensor<1024x2x32x32xf32> {sdy.sharding = #sdy.sharding<@mesh, \[{"batch"}, {}, {}, {}\]>, ttcore.shard_status = #ttcore.shard_status<presharded>}) -> (tensor<2048x1024xf32> {ttcore.shard_status = #ttcore.shard_status<unsharded>}) {
+      func.func public @main(%arg0: tensor<1024x2x32x32xf32> {sdy.sharding = #sdy.sharding<@mesh, \[{"batch"}, {}, {}, {}\]>, ttcore.shard_status = #ttcore.shard_status<presharded>}) -> (tensor<2048x1024xf32> {ttcore.shard_status = #ttcore.shard_status<unsharded>}) {
         %0 = stablehlo.reshape %arg0 : (tensor<1024x2x32x32xf32>) -> tensor<2048x1024xf32>
         return %0 : tensor<2048x1024xf32>
       }
@@ -71,6 +72,10 @@ def ApplyArgumentShardStatusPass : Pass<"apply-argument-shard-status", "::mlir::
   let dependentDialects = [
     "::mlir::sdy::SdyDialect",
     "::mlir::tt::ttir::TTIRDialect"
+  ];
+
+  let options = [
+    ListOption<"resultPresharded", "result-presharded", "int64_t", "Set whether each result is presharded or not">,
   ];
 }
 
@@ -318,6 +323,46 @@ def WrapUnderManualComputationPass : Pass<"wrap-under-manual-computation", "::ml
           sdy.return %1 : tensor<32x48x24x32xf32>
         } : (tensor<32x48x24x32xf32>, tensor<32x48x24x32xf32>) -> tensor<32x48x24x32xf32>
         return %0 : tensor<32x48x24x32xf32>
+      }
+    }
+    ```
+  }];
+
+  let dependentDialects = [
+    "::mlir::sdy::SdyDialect"
+  ];
+}
+
+def AnnotateLocalShapesPass : Pass<"annotate-local-shapes", "::mlir::ModuleOp">
+{
+  let summary = "Annotate all arguments and results with their local shape.";
+  let description = [{
+    This pass will iterate through all arguments and results and annotate the local shape of that argument/result.
+    For single device graphs, the local shape is the original shape.
+    For multi-device graphs, the local shape can be sharded or replicated depending on the sharding config set in the graph.
+    This information is required by any tool calling ttmlir runtime to tell it how the inputs should be preprocessed.
+
+    Example, this pass will convert the following code:
+    ```mlir
+    module {
+      sdy.mesh @mesh = <["x"=1, "batch"=8]>
+      func.func public @main(%arg0: tensor<1024x2x32x32xf32> {sdy.sharding = #sdy.sharding<@mesh, \[{"batch"}, {}, {}, {}\]>}) -> (tensor<2048x1024xf32>) {
+        %0 = stablehlo.reshape %arg0 : (tensor<1024x2x32x32xf32>) -> tensor<2048x1024xf32>
+        return %0 : tensor<2048x1024xf32>
+      }
+    }
+    ```
+
+    Into:
+    ```mlir
+    module {
+      sdy.mesh @mesh = <["x"=1, "batch"=8]>
+      func.func public @main(%arg0: tensor<1024x2x32x32xf32> {sdy.sharding = #sdy.sharding<@mesh, \[{"batch"}, {}, {}, {}\]>, ttcore.local_shape = #ttcore<local_shape local_shape = tensor<128x2x32x32xf32>>, ttcore.shard_status = #ttcore.shard_status<presharded>}) -> (tensor<2048x1024xf32> {sdy.sharding = #sdy.sharding<@mesh, \[{"batch", ?}, {?}\]>, ttcore.local_shape = #ttcore<local_shape local_shape = tensor<2048x1024xf32>>, ttcore.shard_status = #ttcore.shard_status<unsharded>}) {
+        %0 = sdy.manual_computation(%arg0) in_shardings=\[<@mesh, \[{"batch"}, {}, {}, {}\]>\] out_shardings=\[<@mesh, \[{"batch", ?}, {?}\]>\] manual_axes={} (%arg1: tensor<1024x2x32x32xf32>) {
+          %1 = stablehlo.reshape %arg1 {sdy.sharding = #sdy.sharding_per_value<\[<@mesh, \[{"batch", ?}, {?}\]>\]>} : (tensor<1024x2x32x32xf32>) -> tensor<2048x1024xf32>
+          sdy.return %1 : tensor<2048x1024xf32>
+        } : (tensor<1024x2x32x32xf32>) -> tensor<2048x1024xf32>
+        return %0 : tensor<2048x1024xf32>
       }
     }
     ```
