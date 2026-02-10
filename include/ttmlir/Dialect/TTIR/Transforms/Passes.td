@@ -269,14 +269,14 @@ def TTIRFoldConstantReshapeBroadcast: Pass<"ttir-fold-constant-reshape-broadcast
 
 def TTIRInferKVCacheArgumentTypes: Pass<"ttir-infer-kv-cache-argument-types", "::mlir::ModuleOp">
 {
-  let summary = "Infer KV cache argument types from cache operations.";
+  let summary = "Infer KV cache arguments from cache operations.";
   let description = [{
     This pass identifies function arguments used as cache inputs to FillCacheOp,
     UpdateCacheOp, PagedFillCacheOp, or PagedUpdateCacheOp and marks them with
-    the ttcore.argument_type = #ttcore.argument_type<kv_cache> attribute.
+    the ttcore.kv_cache unit attribute.
 
-    This is used to distinct KV Cache from Input arguments and avoid e.g. forcing
-    to Row Major layout.
+    This is used to distinguish KV cache arguments from regular input arguments
+    and avoid e.g. forcing to Row Major layout.
   }];
 
   let dependentDialects = ["mlir::tt::ttcore::TTCoreDialect", "mlir::tt::ttir::TTIRDialect"];

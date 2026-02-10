@@ -7,7 +7,7 @@
 // Test: update_cache marks cache argument with kv_cache type
 module {
   // CHECK-LABEL: func.func @update_cache_marks_kv_cache
-  // CHECK-SAME: tensor<1x32x64x512xbf16> {ttcore.argument_type = #ttcore.argument_type<kv_cache>}
+  // CHECK-SAME: tensor<1x32x64x512xbf16> {ttcore.kv_cache}
   // CHECK-SAME: tensor<1x32x1x512xbf16>)
   func.func @update_cache_marks_kv_cache(
       %cache: tensor<1x32x64x512xbf16>,
@@ -22,7 +22,7 @@ module {
 // Test: fill_cache marks cache argument with kv_cache type
 module {
   // CHECK-LABEL: func.func @fill_cache_marks_kv_cache
-  // CHECK-SAME: tensor<1x32x64x512xbf16> {ttcore.argument_type = #ttcore.argument_type<kv_cache>}
+  // CHECK-SAME: tensor<1x32x64x512xbf16> {ttcore.kv_cache}
   // CHECK-SAME: tensor<1x32x64x512xbf16>)
   func.func @fill_cache_marks_kv_cache(
       %cache: tensor<1x32x64x512xbf16>,
@@ -36,7 +36,7 @@ module {
 // Test: chained cache ops trace back to original argument
 module {
   // CHECK-LABEL: func.func @chained_cache_ops
-  // CHECK-SAME: tensor<1x32x64x512xbf16> {ttcore.argument_type = #ttcore.argument_type<kv_cache>}
+  // CHECK-SAME: tensor<1x32x64x512xbf16> {ttcore.kv_cache}
   func.func @chained_cache_ops(
       %cache: tensor<1x32x64x512xbf16>,
       %input1: tensor<1x32x64x512xbf16>,
@@ -52,8 +52,8 @@ module {
 // Test: multiple caches in same function - both get marked
 module {
   // CHECK-LABEL: func.func @multiple_caches
-  // CHECK-SAME: {ttcore.argument_type = #ttcore.argument_type<kv_cache>}
-  // CHECK-SAME: {ttcore.argument_type = #ttcore.argument_type<kv_cache>}
+  // CHECK-SAME: {ttcore.kv_cache}
+  // CHECK-SAME: {ttcore.kv_cache}
   func.func @multiple_caches(
       %key_cache: tensor<1x32x64x512xbf16>,
       %value_cache: tensor<1x32x64x512xbf16>,
@@ -70,7 +70,7 @@ module {
 // Test: non-cache arguments are not marked
 module {
   // CHECK-LABEL: func.func @non_cache_not_marked
-  // CHECK-NOT: ttcore.argument_type
+  // CHECK-NOT: ttcore.kv_cache
   func.func @non_cache_not_marked(
       %input: tensor<1x32x64x512xbf16>
   ) -> tensor<1x32x64x512xbf16> {

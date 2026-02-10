@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
@@ -83,10 +84,8 @@ public:
       });
 
       for (auto blockArg : cacheArgs) {
-        funcOp.setArgAttr(blockArg.getArgNumber(),
-                          ttcore::ArgumentTypeAttr::name,
-                          ttcore::ArgumentTypeAttr::get(
-                              context, ttcore::ArgumentType::KVCache));
+        funcOp.setArgAttr(blockArg.getArgNumber(), ttcore::g_kvCacheAttrName,
+                          mlir::UnitAttr::get(context));
       }
     });
   }
