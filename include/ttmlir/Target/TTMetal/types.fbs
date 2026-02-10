@@ -67,6 +67,10 @@ table BufferRef {
   desc: BufferDesc;
 }
 
+table GlobalSemaphoreRef {
+  global_id: uint32;
+}
+
 table CBRef {
   port: uint32;
   buffer_ref: BufferRef;

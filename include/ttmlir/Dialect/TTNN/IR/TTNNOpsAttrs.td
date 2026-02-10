@@ -950,6 +950,16 @@ def TTNN_KernelArgSemaphoreAtAttr : TTNN_Attr<"KernelArgSemaphoreAt", "kernel_ar
   let assemblyFormat = "`<` $semaphore_index `>`";
 }
 
+def TTNN_KernelArgGlobalSemaphoreAttr : TTNN_Attr<"KernelArgGlobalSemaphore", "kernel_arg_global_semaphore"> {
+  let summary = "Global Semaphore argument";
+  let description = [{
+    TTNN generic kernel argument for semaphore at position in global semaphores array in program.
+  }];
+
+  let parameters = (ins "size_t":$global_semaphore_index);
+  let assemblyFormat = "`<` $global_semaphore_index `>`";
+}
+
 def TTNN_CoreRuntimeArgsAttr : TTNN_Attr<"CoreRuntimeArgs", "core_runtime_args"> {
   let summary = "Per-core runtime arguments";
   let description = [{

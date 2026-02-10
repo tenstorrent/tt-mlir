@@ -28,6 +28,7 @@ def TTMetal_EnqueueProgramOp : TTMetal_Op<"enqueue_program", [MemoryEffects<[Mem
 
     let arguments = (ins Variadic<AnyNon0RankedMemRef>:$buffers,
                          Variadic<AnyNon0RankedMemRef>:$cbs,
+                         Variadic<AnyNon0RankedMemRef>:$global_semaphores,
                          DenseI64ArrayAttr:$cb_ports,
                          TTMetal_KernelConfigArrayAttr:$kernelConfigs,
                          OptionalAttr<TTMetal_FabricConnectionConfigAttr>:$fabricConnectionConfig);
@@ -63,6 +64,18 @@ def TTMetal_CreateBufferOp : TTMetal_Op<"create_buffer", [MemoryEffects<[MemAllo
 
     let arguments = (ins I64Attr:$address);
     let results = (outs AnyNon0RankedMemRef:$result);
+}
+
+// to do: mem effects?
+// core range arg?
+def TTMetal_CreateGlobalSemaphoreOp : TTMetal_Op<"create_global_semaphore"> {
+    let summary = "Create global semaphore op.";
+    let description = [{
+      Create global semaphore operation
+    }];
+
+    let arguments = (ins I32Attr:$initial_value);
+    let results = (outs TTKernel_GlobalSemaphore:$result);
 }
 
 def TTMetal_DeallocateBufferOp : TTMetal_Op<"deallocate_buffer", [MemoryEffects<[MemFree]>]> {

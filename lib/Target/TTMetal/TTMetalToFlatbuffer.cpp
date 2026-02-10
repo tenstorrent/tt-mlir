@@ -595,6 +595,12 @@ tensorValueToFlatbuffer(FlatbufferObjectCache &cache, Value value) {
   return target::metal::CreateTensorRef(*cache.fbb, size, tensorDesc);
 }
 
+static flatbuffers::Offset<target::metal::BufferRef>
+globalSemaphoreValueToFlatbuffer(FlatbufferObjectCache &cache, Value value) {
+  return target::metal::CreateGlobalSemaphoreRef(*cache.fbb,
+                                                 cache.nextGlobalId());
+}
+
 static flatbuffers::Offset<target::metal::KernelArg>
 toFlatbuffer(FlatbufferObjectCache &cache, KernelArgAttr kernelArg) {
   target::metal::KernelArgType argType;
@@ -617,6 +623,13 @@ toFlatbuffer(FlatbufferObjectCache &cache, KernelArgAttr kernelArg) {
   case ttkernel::ArgType::Semaphore: {
     argType = target::metal::KernelArgType::KernelArgSemaphore;
     arg = target::metal::CreateKernelArgSemaphore(*cache.fbb).Union();
+    break;
+  }
+  case ttkernel::ArgType::GlobalSemaphore: {
+    argType = target::metal::KernelArgType::KernelArgGlobalSemaphore;
+    arg = target::metal::CreateKernelArgGlobalSemaphore(
+              *cache.fbb, kernelArg.getOperandIndex())
+              .Union();
     break;
   }
   }
@@ -856,6 +869,15 @@ std::shared_ptr<void> translateTTMetalToFlatbuffer(
           cbs.push_back(target::metal::CreateCBRef(*cache.fbb, port, buffer));
         }
 
+        std::vector<flatbuffers::Offset<target::metal::GlobalSemaphoreRef>>
+            global_semaphores;
+        global_semaphores.reserve(
+            enqueueProgramOp.getGlobalSemaphores().size());
+        for (auto global_semaphore : enqueueProgramOp.getGlobalSemaphores()) {
+          global_semaphores.push_back(
+              cache.at<target::metal::GlobalSemaphoreRef>(global_semaphore));
+        }
+
         std::vector<flatbuffers::Offset<target::metal::KernelConfig>>
             kernelConfigs;
         kernelConfigs.reserve(enqueueProgramOp.getKernelConfigs().size());
@@ -874,7 +896,7 @@ std::shared_ptr<void> translateTTMetalToFlatbuffer(
 
         cqBuilder.appendCommand(
             target::metal::CreateEnqueueProgramCommandDirect(
-                fbb, &buffers, &cbs,
+                fbb, &buffers, &cbs, global_semaphores,
                 target::metal::CreateProgramDescDirect(fbb, &kernelConfigs),
                 fabricConnectionConfig),
             op);
@@ -1009,6 +1031,15 @@ std::shared_ptr<void> translateTTMetalToFlatbuffer(
                 meshShardType, meshShardDirection,
                 cache.fbb->CreateVector<int64_t>(meshShardOp.getShardShape()),
                 cache.fbb->CreateVector<int64_t>(meshShardOp.getShardDims())),
+            op);
+      } else if (auto createGlobalSemaphoreOp =
+                     dyn_cast_if_present<tt::ttmetal::CreateGlobalSemaphoreOp>(
+                         op);
+                 createGlobalSemaphoreOp) {
+        cqBuilder.appendCommand(
+            target::metal::CreateGlobalSemaphoreCommand(
+                fbb, cache.getOrCreate(createGlobalSemaphoreOp.getResult(),
+                                       globalSemaphoreValueToFlatbuffer)),
             op);
       } else if (auto funcOp = dyn_cast_if_present<func::FuncOp>(op); funcOp) {
         // Unqualified walk will visit the root op itself last, we should

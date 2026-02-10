@@ -74,6 +74,8 @@ private:
   std::vector<std::shared_ptr<distributed::MeshEvent>> initMeshEvents;
   std::unordered_map<std::uint32_t, std::shared_ptr<distributed::MeshBuffer>>
       meshBuffers;
+  std::unordered_map<std::uint32_t, std::shared_ptr<tt_metal::GlobalSemaphore>>
+      global_semaphores;
   std::unordered_map<std::uint32_t, Tensor> hostBuffers;
   std::unordered_map<std::uint32_t, std::shared_ptr<distributed::MeshEvent>>
       meshEvents;
@@ -286,6 +288,20 @@ void MCQExecutor::execute(const target::metal::ReturnCommand *command) {
   }
 }
 
+void MCQExecutor::execute(
+    const target::metal::CreateGlobalSemaphoreCommand *command) {
+  ZoneScopedN("CreateGlobalSemaphoreCommand");
+  LOG_ASSERT(global_semaphores.find(command->dst()->global_id()) ==
+                 global_semaphores.end(),
+             "Global sempahore with id ", command->dst()->global_id(),
+             " already exists.");
+  // todo: fix core range
+  auto core_range_set = tt::tt_metal::CoreRangeSet(tt::tt_metal::CoreRange{
+      tt::tt_metal::CoreCoord{0, 0}, tt::tt_metal::CoreCoord{1, 1}});
+  global_semaphores[command->ref()->global_id()] =
+      CreateGlobalSemaphore(meshDevice, core_range_set, command->initial_value);
+}
+
 void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
                           const char *loc, const char *debugInfo) {
   ZoneScopedN("EnqueueProgramCommand");
@@ -323,7 +339,8 @@ void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
 
       std::vector<uint32_t> rtArgsVec = processRuntimeArgs(
           kernelConfig->args()->rt_args(), command->buffers(), meshBuffers,
-          command->cbs(), deviceAddressValidator, createSemaphore);
+          command->global_semaphores(), global_semaphores, command->cbs(),
+          deviceAddressValidator, createSemaphore);
 
       if (command->fabric_connection_config() &&
           kernelConfig->type_type() ==

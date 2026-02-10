@@ -109,6 +109,7 @@ public:
     llvm::SmallVector<Value> remappedBuffers;
     llvm::SmallVector<Value> cbs;
     llvm::SmallVector<int64_t> cbPorts;
+    llvm::SmallVector<Value> global_semaphores;
     int64_t cbPort = 0;
     for (auto operand : adaptor.getOperands()) {
       if (auto stream = mlir::dyn_cast_if_present<d2m::StreamLayoutOp>(
@@ -138,7 +139,7 @@ public:
         rewriter, adaptor.getOperands(), threads, physicalGridShape,
         symbolTable, mathFidelity_);
     rewriter.replaceOpWithNewOp<ttmetal::EnqueueProgramOp>(
-        op, buffers, cbs, cbPorts, kernelConfigs, nullptr);
+        op, buffers, cbs, global_semaphores, cbPorts, kernelConfigs, nullptr);
     return success();
   };
 
