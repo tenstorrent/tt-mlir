@@ -62,6 +62,100 @@ static mlir::ConstantIntRanges getIndexRange(uint64_t umin, uint64_t umax) {
 }
 
 //===----------------------------------------------------------------------===//
+// LoadOp
+//===----------------------------------------------------------------------===//
+
+void LoadOp::build(OpBuilder &builder, OperationState &result, AffineMap map,
+                   ValueRange operands) {
+  assert(operands.size() == 1 + map.getNumInputs() && "inconsistent operands");
+  result.addOperands(operands);
+  if (map) {
+    result.addAttribute(getMapAttrStrName(), AffineMapAttr::get(map));
+  }
+  auto memrefType = llvm::cast<MemRefType>(operands[0].getType());
+  result.types.push_back(memrefType.getElementType());
+}
+
+void LoadOp::build(OpBuilder &builder, OperationState &result, Value memref,
+                   AffineMap map, ValueRange mapOperands) {
+  assert(map.getNumInputs() == mapOperands.size() && "inconsistent index info");
+  result.addOperands(memref);
+  result.addOperands(mapOperands);
+  auto memrefType = llvm::cast<MemRefType>(memref.getType());
+  result.addAttribute(getMapAttrStrName(), AffineMapAttr::get(map));
+  result.types.push_back(memrefType.getElementType());
+}
+
+void LoadOp::build(OpBuilder &builder, OperationState &result, Value memref,
+                   ValueRange indices) {
+  auto memrefType = llvm::cast<MemRefType>(memref.getType());
+  int64_t rank = memrefType.getRank();
+  auto map =
+      rank ? builder.getMultiDimIdentityMap(rank) : builder.getEmptyAffineMap();
+  build(builder, result, memref, map, indices);
+}
+
+ParseResult LoadOp::parse(OpAsmParser &parser, OperationState &result) {
+  auto &builder = parser.getBuilder();
+  auto indexTy = builder.getIndexType();
+
+  MemRefType type;
+  OpAsmParser::UnresolvedOperand memrefInfo;
+  AffineMapAttr mapAttr;
+  SmallVector<OpAsmParser::UnresolvedOperand, 1> mapOperands;
+  return failure(
+      parser.parseOperand(memrefInfo) ||
+      parser.parseAffineMapOfSSAIds(mapOperands, mapAttr,
+                                    LoadOp::getMapAttrStrName(),
+                                    result.attributes) ||
+      parser.parseOptionalAttrDict(result.attributes) ||
+      parser.parseColonType(type) ||
+      parser.resolveOperand(memrefInfo, type, result.operands) ||
+      parser.resolveOperands(mapOperands, indexTy, result.operands) ||
+      parser.addTypeToList(type.getElementType(), result.types));
+}
+
+void LoadOp::print(OpAsmPrinter &p) {
+  p << " " << getMemRef() << '[';
+  if (AffineMapAttr mapAttr =
+          (*this)->getAttrOfType<AffineMapAttr>(getMapAttrStrName())) {
+    p.printAffineMapOfSSAIds(mapAttr, getMapOperands());
+  }
+  p << ']';
+  p.printOptionalAttrDict((*this)->getAttrs(),
+                          /*elidedAttrs=*/{getMapAttrStrName()});
+  p << " : " << getMemRefType();
+}
+
+LogicalResult LoadOp::verify() {
+  auto memrefType = getMemRefType();
+  if (getType() != memrefType.getElementType()) {
+    return emitOpError("result type must match element type of memref");
+  }
+
+  auto mapAttr = (*this)->getAttrOfType<AffineMapAttr>(getMapAttrStrName());
+  if (!mapAttr) {
+    return emitOpError("requires a map attribute");
+  }
+
+  AffineMap map = mapAttr.getValue();
+  if (map.getNumResults() != memrefType.getRank()) {
+    return emitOpError("affine map num results must equal memref rank");
+  }
+  if (map.getNumInputs() != static_cast<unsigned>(getNumOperands() - 1)) {
+    return emitOpError("expects as many subscripts as affine map inputs");
+  }
+
+  for (auto idx : getMapOperands()) {
+    if (!idx.getType().isIndex()) {
+      return emitOpError("index to load must have 'index' type");
+    }
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // DMA Operations
 //===----------------------------------------------------------------------===//
 

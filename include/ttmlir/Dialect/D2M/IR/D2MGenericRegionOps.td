@@ -1503,6 +1503,77 @@ def D2M_RemoteStoreOp : D2M_GenericRegionDatamovementOp<"remote_store",
 }
 
 //===----------------------------------------------------------------------===//
+// D2M Generic Region Local Load/Store Ops
+//===----------------------------------------------------------------------===//
+
+def D2M_LoadOp : D2M_GenericRegionOp<"load",
+  [ DeclareOpInterfaceMethods<AffineReadOpInterface>
+  , DeclareOpInterfaceMethods<AffineMapAccessInterface>
+  , MemRefsNormalizable
+  ]> {
+    let summary = "D2M load operation";
+    let description = [{
+      Syntax:
+
+      ```
+      operation ::= ssa-id `=` `d2m.load` ssa-use `[` multi-dim-affine-map-of-ssa-ids `]` `:` memref-type
+      ```
+
+      The `d2m.load` op reads an element from a memref, where the index
+      for each memref dimension is an affine expression of loop induction
+      variables and symbols. The output of `d2m.load` is a new value with the
+      same type as the elements of the memref. An affine expression of loop IVs
+      and symbols must be specified for each dimension of the memref. The keyword
+      `symbol` can be used to indicate SSA identifiers which are symbolic.
+
+      This op is equivalent to `affine.load` but lives in the D2M dialect,
+      allowing D2M-specific canonicalization and lowering without interfering
+      with upstream affine passes.
+
+      Example:
+
+      ```mlir
+      %1 = d2m.load %0[%i0 + 3, %i1 + 7] : memref<100x100xf32>
+      ```
+    }];
+
+    let arguments = (ins Arg<AnyMemRef, "the reference to load from",
+        [MemRead]>:$memref,
+        Variadic<Index>:$indices,
+        AffineMapAttr:$map);
+
+    let results = (outs AnyType:$result);
+
+    let builders = [
+      /// Builds a d2m load op with the specified map and operands.
+      OpBuilder<(ins "AffineMap":$map, "ValueRange":$operands)>,
+      /// Builds a d2m load op with an identity map and operands.
+      OpBuilder<(ins "Value":$memref, CArg<"ValueRange", "{}">:$indices)>,
+      /// Builds a d2m load op with the specified map and its operands.
+      OpBuilder<(ins "Value":$memref, "AffineMap":$map,
+        "ValueRange":$mapOperands)>
+    ];
+
+    let extraClassDeclaration = [{
+      /// Returns the operand index of the memref.
+      unsigned getMemRefOperandIndex() { return 0; }
+
+      void setMemRef(Value value) { setOperand(getMemRefOperandIndex(), value); }
+
+      /// Returns the affine map used to index the memref for this operation.
+      AffineMapAttr getAffineMapAttr() {
+        return getProperties().map;
+      }
+
+      static StringRef getMapAttrStrName() { return "map"; }
+    }];
+
+    let hasCustomAssemblyFormat = 1;
+    let hasVerifier = 1;
+
+}
+
+//===----------------------------------------------------------------------===//
 // D2M Generic Region Semaphore Ops (Used in TTMetal Lowering)
 //===----------------------------------------------------------------------===//
 
