@@ -214,15 +214,17 @@ SmallVector<int64_t> getPhysicalGridShape(Value tensorOrMemref) {
   SmallVector<int64_t> gridShape =
       to_vector(layout.getGridShape(dyn_cast<ShapedType>(shapeType)));
 
-  auto *definingOp = tensorOrMemref.getDefiningOp();
-  TT_assert(definingOp);
-  ttcore::DeviceAttr device = ttcore::lookupDevice(definingOp);
-  auto deviceGridShape = device.getWorkerGrid().getShape();
+  // If we can look up the device (requires a defining op), check whether the
+  // grid needs to be collapsed to fit the physical device bounds.
+  if (auto *definingOp = tensorOrMemref.getDefiningOp()) {
+    ttcore::DeviceAttr device = ttcore::lookupDevice(definingOp);
+    auto deviceGridShape = device.getWorkerGrid().getShape();
 
-  if (gridShape.size() > 2 || gridShape[0] > deviceGridShape[0] ||
-      gridShape[1] > deviceGridShape[1]) {
-    return llvm::to_vector<2>(
-        ttcore::collapseToPhysicalGrid2D(gridShape, deviceGridShape));
+    if (gridShape.size() > 2 || gridShape[0] > deviceGridShape[0] ||
+        gridShape[1] > deviceGridShape[1]) {
+      return llvm::to_vector<2>(
+          ttcore::collapseToPhysicalGrid2D(gridShape, deviceGridShape));
+    }
   }
   return gridShape;
 }

@@ -203,8 +203,8 @@ func.func @chained_view(%arg0: tensor<2x4x32x32xf32, #layout_base_view>) -> tens
 
 func.func @test_virtual_dram_bounce_aligned(%arg0: tensor<4x32x32xf32>) -> tensor<4x1x1x1x32x32xf32, #layout_virtual_dram_aligned> {
   // CHECK-LABEL: @test_virtual_dram_bounce_aligned
-// CHECK: %{{.*}} = d2m.empty() : tensor<4x1x1x1x32x32xf32, #layout[[DRAM_LAYOUT_ALIGNED:[0-9]*]]
-// CHECK: d2m.to_device {{.*}} layout = #layout[[DRAM_LAYOUT_ALIGNED]]
+  // CHECK: %{{.*}} = d2m.empty() : tensor<1x1x128x32xf32, #layout[[DRAM_LAYOUT_ALIGNED:[0-9]*]]
+  // CHECK: d2m.to_device {{.*}} layout = #layout[[DRAM_LAYOUT_ALIGNED]]
   %0 = d2m.empty() : tensor<4x1x1x1x32x32xf32, #layout_virtual_dram_aligned>
   %1 = d2m.to_layout %arg0, %0 : tensor<4x32x32xf32> into tensor<4x1x1x1x32x32xf32, #layout_virtual_dram_aligned> -> tensor<4x1x1x1x32x32xf32, #layout_virtual_dram_aligned>
   return %1 : tensor<4x1x1x1x32x32xf32, #layout_virtual_dram_aligned>
@@ -214,8 +214,8 @@ func.func @test_virtual_dram_bounce_aligned(%arg0: tensor<4x32x32xf32>) -> tenso
 
 func.func @test_virtual_dram_bounce_unaligned(%arg0: tensor<4x128x32xf32>) -> tensor<4x4x1x1x32x32xf32, #layout_virtual_dram_unaligned> {
   // CHECK-LABEL: @test_virtual_dram_bounce_unaligned
-// CHECK: %{{.*}} = d2m.empty() : tensor<4x4x1x1x32x32xf32, #layout[[DRAM_LAYOUT_UNALIGNED:[0-9]*]]
-// CHECK: d2m.to_device {{.*}} layout = #layout[[DRAM_LAYOUT_UNALIGNED]]
+  // CHECK: %{{.*}} = d2m.empty() : tensor<1x1x512x32xf32, #layout[[DRAM_LAYOUT_UNALIGNED:[0-9]*]]
+  // CHECK: d2m.to_device {{.*}} layout = #layout[[DRAM_LAYOUT_UNALIGNED]]
   %0 = d2m.empty() : tensor<4x4x1x1x32x32xf32, #layout_virtual_dram_unaligned>
   %1 = d2m.to_layout %arg0, %0 : tensor<4x128x32xf32> into tensor<4x4x1x1x32x32xf32, #layout_virtual_dram_unaligned> -> tensor<4x4x1x1x32x32xf32, #layout_virtual_dram_unaligned>
   return %1 : tensor<4x4x1x1x32x32xf32, #layout_virtual_dram_unaligned>
