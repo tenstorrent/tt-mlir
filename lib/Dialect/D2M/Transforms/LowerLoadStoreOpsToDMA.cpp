@@ -9,6 +9,7 @@
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOpsInterfaces.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
+#include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Support/Logger.h"
 #include "ttmlir/Utils.h"
@@ -140,23 +141,7 @@ static AffineMap getMemoryMap(ttcore::DeviceAttr device, Value input,
   } else {
     inputType = mlir::cast<MemRefType>(input.getType());
   }
-  AffineMap layoutMap;
-  if (auto layout =
-          mlir::dyn_cast<MemRefLayoutAttrInterface>(inputType.getLayout())) {
-    if (mlir::isa<ttcore::ViewLayoutAttr>(layout)) {
-      if (auto *definingOp = input.getDefiningOp()) {
-        layoutMap = mlir::tt::d2m::applyViews(definingOp).second;
-      } else {
-        layoutMap = AffineMap::getMultiDimIdentityMap(inputType.getRank(),
-                                                      inputType.getContext());
-      }
-    } else {
-      layoutMap = layout.getAffineMap();
-    }
-  } else {
-    layoutMap = AffineMap::getMultiDimIdentityMap(inputType.getRank(),
-                                                  inputType.getContext());
-  }
+  auto layoutMap = d2m::utils::resolveEffectiveAffineMap(input, inputType);
   return canonicalStridedMap(device.getContext(), inputType.getShape(),
                              inputType.getElementType(), layoutMap);
 }

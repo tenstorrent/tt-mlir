@@ -1877,30 +1877,6 @@ mlir::SmallVector<int64_t> d2m::GenericOp::getFullBlockFactors() {
   auto flatInverseMap =
       ttmlir::utils::concatInversePermutationMap(maps, /*reverse=*/false);
 
-  auto getGridAndShardFromValue =
-      [&](Value v) -> std::pair<SmallVector<int64_t>, SmallVector<int64_t>> {
-    auto shapedType = mlir::cast<ShapedType>(v.getType());
-    if (auto memrefType = mlir::dyn_cast<MemRefType>(shapedType)) {
-      if (auto layout = mlir::dyn_cast<ttcore::DeviceLayoutInterface>(
-              memrefType.getLayout())) {
-        return {llvm::to_vector(layout.getGridShape(memrefType)),
-                llvm::to_vector(layout.getShardShape(memrefType))};
-      }
-      auto shape = memrefType.getShape();
-      TT_assert(shape.size() % 2 == 0u);
-      SmallVector<int64_t> gridShape(shape.begin(),
-                                     shape.begin() + shape.size() / 2);
-      SmallVector<int64_t> shardShape(shape.begin() + shape.size() / 2,
-                                      shape.end());
-      return {gridShape, shardShape};
-    }
-
-    auto tensorType = mlir::cast<RankedTensorType>(shapedType);
-    auto layout = mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
-    return {llvm::to_vector(layout.getGridShape(tensorType)),
-            llvm::to_vector(layout.getShardShape(tensorType))};
-  };
-
   SmallVector<int64_t> flattenedOperandShardShapes;
   for (Value v : getOperands()) {
     auto [_, shardShape] = getGridAndShardFromValue(v);
