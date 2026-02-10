@@ -15,7 +15,7 @@ LICENSE @nsmithtt
 # Docs
 *.md @nsmithtt @sdjordjevicTT
 /docs/ @nsmithtt @sdjordjevicTT
-/docs/src/specs/ttnn-optimizer.md @rpavlovicTT
+/docs/src/specs/ttnn-optimizer.md @rpavlovicTT @odjuricicTT
 
 # tt-mlir Bindings
 /include/ttmlir/Bindings/ @tapspatel

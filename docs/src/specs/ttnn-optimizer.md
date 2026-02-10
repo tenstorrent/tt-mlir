@@ -36,6 +36,8 @@ Key limitation: Only tracks first operand; single edge failure breaks entire cha
    - 5.4 [Problems with Current Approach](#54-problems-with-current-approach)
    - 5.5 [Empirical Findings](#55-empirical-findings)
    - 5.6 [Proposed Architecture](#56-proposed-architecture)
+      - 5.6.1 [Pass 1: Layout Propagation](#561-pass-1-layout-propagation)
+      - 5.6.2 [Pass 2: L1 Spill Management](#562-pass-2-l1-spill-management)
    - 5.7 [Simplicity Benefits](#57-simplicity-benefits)
    - 5.8 [Optimization Strategies](#58-optimization-strategies)
 
@@ -796,15 +798,19 @@ When any edge in an L1 chain fails validation, the entire chain spills to DRAM. 
 
 The ShardSolver's bitset-based constraint propagation assumes linear chain structure. Complex graph topologies like forks, joins, and diamonds require special-case handling outside the solver, adding to the overall complexity.
 
-#### 5.4.4 Backtracking Provides Little Practical Benefit
+#### 5.4.4 Solving a Problem That Rarely Exists
 
-In theory, the constraint satisfaction approach allows the solver to backtrack and find valid configurations. In practice, operations typically either keep their input layout or require a reshard—there's rarely a meaningful choice to optimize over.
+The ShardSolver is designed to solve the case where an operation has multiple valid output layouts for a given sharded input, and the choice matters because it affects downstream compatibility. The constraint propagation and backtracking machinery exists to navigate this combinatorial space. In practice, however, most operations produce a single valid output layout for a given input—there is rarely a meaningful choice to optimize over. The solver's complexity addresses a theoretical problem that empirically almost never arises.
+
+#### 5.4.5 Precomputed Layout Pool Discards Valid Results
+
+The current pipeline precomputes a fixed pool of candidate layouts (via LegalTensorLayoutAnalysis) before any per-op validation. When the backend's op constraints API is queried, it may return a valid sharded output layout that was not in this precomputed pool—and the optimizer silently discards it. This means the solver operates over an incomplete search space: valid, potentially optimal configurations are rejected simply because they were not anticipated during layout enumeration. The proposed architecture avoids this by accepting whatever layout the backend returns rather than filtering against a precomputed set.
 
 ### 5.5 Empirical Findings
 
 We analyzed the compiled IR for 50+ models including Segformer, ResNet50, and 45 LLM variants (Llama, Falcon, Gemma, Phi, Qwen). Key findings:
 
-**Memory pressure is rare.** All tested models show 40-94% L1 headroom. The L1 budget of ~1364 KB per core is rarely stressed.
+**Memory pressure is rare at current batch sizes.** All tested models show 40-94% L1 headroom. The L1 budget of ~1364 KB per core is rarely stressed. This could change for CNN models at larger batch sizes, where activation tensors grow significantly. LLM decode paths should remain comfortable since activations stay relatively small regardless of batch size.
 
 **Spills are constraint-driven, not memory-driven.** The vast majority of spills occur because specific operations require DRAM inputs (reduce ops, permute, reshape), not because L1 is full.
 
@@ -818,35 +824,46 @@ We analyzed the compiled IR for 50+ models including Segformer, ResNet50, and 45
 
 We propose two independent passes with clear responsibilities:
 
-#### 5.6.1 Pass 1: L1 Sharding Propagation
+#### 5.6.1 Pass 1: Layout Propagation
 
-A simple edge-based sharding picker. For each operation in schedule order:
+An edge-based layout picker that processes each operation in schedule order and selects the best valid layout through backend validation. For each operation:
 
-1. Look at input edges and their layouts
-2. Enumerate valid (config, layout) pairs for the op
-3. Pick the first pair that works with the inputs
-4. If no L1 layout works, fall back to DRAM
+1. Look at input edges and their current layouts
+2. Enumerate candidate (config, layout) pairs for the op
+3. Validate each candidate against the backend (OpModel) given the actual input layouts
+4. Pick the best valid candidate using a scoring heuristic (e.g., maximize core usage)
+5. If no valid L1 sharded layout exists, fall back to L1 Interleaved
+6. If L1 Interleaved is also not valid, fall back to DRAM Interleaved
 
-This pass considers all operands (fixing the operand 0 limitation) but has no notion of chains or memory pressure. It simply propagates layouts edge by edge, inserting reshards where layouts are incompatible.
+This pass considers all operands (fixing the operand 0 limitation) but has no notion of memory pressure across multiple live tensors—it only validates that each individual op-to-op transition is valid. It propagates layouts edge by edge, inserting reshards where adjacent ops have incompatible layouts.
 
-**Note on op configs:** This pass also selects op-specific configs (conv2d, matmul, compute configs). For layouts, we already delegate to the backend—the query op constraints API returns the output layout given inputs. The same should apply to op configs: the backend should auto-select optimal configs given input layouts. Today this isn't possible because the allocator is a dummy when query APIs are invoked. Once the allocator is integrated into the query path, both layouts and configs become fully backend-driven.
+**Reshard exploration:** Even when a reshard-free path exists between two operations, a reshard may enable a better downstream layout (e.g., more cores). This pass can explore reshard paths alongside direct paths and use its scoring heuristic to decide which is better. This is where beam search (Section 5.8.1) becomes valuable—it preserves multiple candidates to avoid committing to a locally convenient but globally suboptimal choice.
+
+**Inline reshard validation:** Instead of precomputing all possible layouts upfront (as the current LegalTensorLayoutAnalysis does), reshard candidates can be generated and validated inline in two steps:
+1. Given the producer's output tensor shape, use `create_sharded_memory_config` (from tt-metal) with different core grids and shard strategies (height, width, block) to generate candidate memory configs for the reshard target.
+2. For each candidate, validate the consumer op via `query_op_constraints` with the resharded tensor as input.
+
+This eliminates the precomputed layout pool entirely (fixing the problem described in Section 5.4.5) and generates reshard targets on demand based on the actual tensor shape at each point in the graph.
+
+**Note:** Because this pass does not track global L1 pressure, it may leave the graph in a state where OOM is expected at runtime—multiple simultaneously live tensors may each be assigned L1 layouts that are individually valid but collectively exceed the L1 budget. This is by design; Pass 2 (L1 Spill Management) is responsible for resolving these conflicts.
+
+**Op-specific configs:** This pass also selects op-specific configs (conv2d, matmul, compute configs). Today, we generate these configs ourselves because the backend's query APIs use a dummy allocator that cannot auto-select optimal configs. Once the allocator is integrated into the query path, both layouts and op configs will become fully backend-driven, and this pass will simply ask the backend "given these inputs, what is the best config?" instead of enumerating candidates.
 
 #### 5.6.2 Pass 2: L1 Spill Management
 
-Decides when to spill tensors out of L1. Uses a greedy strategy that keeps L1 as saturated as possible while respecting the memory budget.
+Pass 1 validates each op-to-op edge in isolation—it confirms that a single producer-consumer pair can both fit in L1, but does not account for *other* tensors that are simultaneously live. Pass 2 takes the L1 layout assignments from Pass 1 and adjusts them based on global memory pressure.
 
 **Core strategy:**
-- Track live tensors and their sizes
-- Keep tensors in L1 as long as possible
-- When budget is exceeded, spill the tensor with longest remaining lifetime
+- Walk the schedule and track all live tensors and their L1 sizes at each point
+- When total L1 usage at any point exceeds the memory budget, spill tensors to free space
+- Spill the tensor with the longest remaining lifetime first (furthest next use)
+- Spilled tensors move to DRAM Interleaved (or L1 Interleaved where possible)
 
 **Fork handling (borrowed from DF sharding 2.0):**
 - Allow fork tensors to stay in L1 for their full lifetime when space permits
 - Modify op configs as needed (e.g., conv2d `deallocate_activation=false` for fork inputs)
 
-**Memory hierarchy:**
-- Use L1 Interleaved when sharding is not feasible
-- Fall back to DRAM only when necessary
+**Key distinction from Pass 1:** Pass 1 only falls back to DRAM when no valid L1 layout exists for an operation. Pass 2 may *undo* an L1 decision that Pass 1 made, because the cumulative L1 pressure from multiple simultaneously live tensors exceeds the budget—even though each individual op-to-op edge was valid in isolation.
 
 ### 5.7 Simplicity Benefits
 
@@ -864,7 +881,7 @@ This simplicity translates to faster development, easier debugging, and more pre
 
 While greedy allocation provides a functional baseline, the pass-based architecture enables more sophisticated strategies to reach parity with the current optimizer.
 
-#### 5.8.1 Beam Search for Layout Propagation
+#### 5.8.1 Beam Search for Layout Propagation (Pass 1 Enhancement)
 
 Pure greedy (K=1) can lock in suboptimal choices early. For example, an early op might choose 32-core sharding because it avoids a reshard, but this propagates forward and forces downstream matmuls to also use 32 cores—losing significant compute throughput.
 
@@ -906,7 +923,7 @@ At each fork during trace-back:
 
 This is a local decision—no tree traversal needed. Beam search reduces the global problem to local decisions by preserving K candidates at each op.
 
-#### 5.8.2 Dynamic Programming for Optimal Spill Selection
+#### 5.8.2 Dynamic Programming for Optimal Spill Selection (Pass 2 Enhancement)
 
 When L1 pressure exists and multiple tensors compete for limited space, the spill decision becomes a classic register allocation problem. A DP-based approach can find the globally optimal set of tensors to keep in L1:
 
@@ -920,10 +937,12 @@ This approach guarantees optimal allocation but has exponential complexity in th
 
 #### 5.8.3 Progression Path
 
-**Phase 1 - Greedy (MVP):** Start with pure greedy (K=1). This fixes the operand 0 limitation and fork handling issues. Validates the pass-based architecture with minimal complexity. Sufficient for models where early layout choices don't constrain downstream ops.
+Each phase delivers a complete optimizer (both Pass 1 and Pass 2). The phases represent increasing sophistication in the strategies used within each pass.
 
-**Phase 2 - Beam Search with Heuristics (Parity):** Add beam search (K=4 or K=8) with heuristic scoring: maximize cores, break ties by reshard count. Explores reshard paths even when reshard-free paths exist. No device access needed, fast. Expected to match or exceed current optimizer quality.
+**Phase 1 - Greedy (MVP):** Pass 1 uses pure greedy layout propagation (K=1). Pass 2 uses greedy spill management with liveness tracking. Together, this already fixes the operand 0 limitation (Pass 1 considers all operands) and fork handling (Pass 2 tracks tensor lifetimes). Validates the pass-based architecture with minimal complexity. Sufficient for models where early layout choices don't constrain downstream ops.
 
-**Phase 3 - Beam Search with Cost Mode (Opt Level 3):** Enable `getOpRuntime()` for actual runtime estimates. Precise cost-based tradeoffs between reshards and compute. Requires device access, slower, but more accurate for complex models.
+**Phase 2 - Beam Search with Heuristics (Parity):** Upgrade Pass 1 to beam search (K=4 or K=8) with heuristic scoring: maximize cores, break ties by reshard count. Explores reshard paths even when reshard-free paths exist. No device access needed, fast. Pass 2 remains greedy. Expected to match or exceed current optimizer quality.
 
-**Phase 4 - DP Extensions (Edge Cases):** For models with genuine memory pressure, add DP-based spill selection. Our empirical data (40-94% headroom) suggests this is rarely needed, but the architecture supports it.
+**Phase 3 - Beam Search with Cost Mode (Opt Level 3):** Upgrade Pass 1's scoring to use `getOpRuntime()` for actual runtime estimates. Precise cost-based tradeoffs between reshards and compute. Requires device access, slower, but more accurate for complex models.
+
+**Phase 4 - DP Extensions (Edge Cases):** Upgrade Pass 2 to use DP-based spill selection for models with genuine memory pressure. Our empirical data (40-94% headroom) suggests this is rarely needed, but the architecture supports it.
