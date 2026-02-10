@@ -858,14 +858,16 @@ TTNNOperandsWorkaroundsFactory::createSortOpOperandsWorkarounds(
   int64_t paddedLastDim = llvm::PowerOf2Ceil(lastDim);
   constexpr int64_t uint16Max = std::numeric_limits<uint16_t>::max();
 
-  // Strengthen logic to handle edge cases where indices type might be
-  // UInt16 but padded shape exceeds valid range
-  if (!isUInt16 && paddedLastDim < uint16Max) {
-    // Convert to UInt16 if padded size fits in uint16 range
-    indicesWorkaround.tensorDataTypeWorkaround = ttcore::DataType::UInt16;
-  } else if (!isUInt32) {
-    // Convert to UInt32 for larger sizes or if already UInt16 but out of range
-    indicesWorkaround.tensorDataTypeWorkaround = ttcore::DataType::UInt32;
+  // Determine the correct indices type based on padded size, then only
+  // apply a workaround if the current type doesn't already match.
+  if (paddedLastDim < uint16Max) {
+    if (!isUInt16) {
+      indicesWorkaround.tensorDataTypeWorkaround = ttcore::DataType::UInt16;
+    }
+  } else {
+    if (!isUInt32) {
+      indicesWorkaround.tensorDataTypeWorkaround = ttcore::DataType::UInt32;
+    }
   }
 
   return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
