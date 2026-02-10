@@ -12634,6 +12634,268 @@ class TTIRBuilder(Builder):
 
         return rms_norm_module, rms_norm_builder
 
+    ############### ttir.SplitQueryKeyValueAndSplitHeadsOp ###############
+
+    @tag(ttir.SplitQueryKeyValueAndSplitHeadsOp)
+    def split_query_key_value_and_split_heads(
+        self,
+        input_tensor: Operand,
+        num_heads: int,
+        transpose_key: bool = False,
+        kv_input_tensor: Optional[Operand] = None,
+        num_kv_heads: Optional[int] = None,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> Tuple[OpResult, OpResult, OpResult]:
+        ttir_op = self.get_opview_from_method(
+            TTIRBuilder.split_query_key_value_and_split_heads
+        )
+        num_heads_attr = IntegerAttr.get(IntegerType.get_unsigned(32), num_heads)
+        num_kv_heads_attr = (
+            IntegerAttr.get(IntegerType.get_unsigned(32), num_kv_heads)
+            if num_kv_heads is not None
+            else None
+        )
+        transpose_key_attr = BoolAttr.get(transpose_key)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(input_tensor)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        input0 = self._get_golden_tensor(input_tensor)
+        kv_input0 = (
+            self._get_golden_tensor(kv_input_tensor)
+            if kv_input_tensor is not None
+            else None
+        )
+        op_golden_function = get_golden_function(ttir_op)
+        golden_query, golden_key, golden_value = op_golden_function(
+            input0,
+            kv_input0,
+            num_heads_attr,
+            num_kv_heads_attr,
+            transpose_key_attr,
+            mlir_output_type,
+            mlir_output_type,
+            mlir_output_type,
+        )
+
+        query_type = self._create_ranked_tensor_type(
+            golden_query.shape, mlir_output_type
+        )
+        key_type = self._create_ranked_tensor_type(golden_key.shape, mlir_output_type)
+        value_type = self._create_ranked_tensor_type(
+            golden_value.shape, mlir_output_type
+        )
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        # Build kwargs dict for the op
+        # Note: kv_input_tensor must be passed as keyword argument per the MLIR binding signature
+        op_kwargs = {
+            "num_heads": num_heads_attr,
+            "transpose_key": transpose_key_attr,
+            "loc": loc,
+        }
+        if num_kv_heads_attr is not None:
+            op_kwargs["num_kv_heads"] = num_kv_heads_attr
+        if kv_input_tensor is not None:
+            op_kwargs["kv_input_tensor"] = kv_input_tensor
+
+        op = ttir_op(
+            query_type,
+            key_type,
+            value_type,
+            input_tensor,
+            **op_kwargs,
+        )
+
+        op_query = op.query
+        op_key = op.key
+        op_value = op.value
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            self._set_golden_tensor(op_query, golden_query)
+            self._set_golden_tensor(op_key, golden_key)
+            self._set_golden_tensor(op_value, golden_value)
+
+        return op_query, op_key, op_value
+
+    @parse(ttir.SplitQueryKeyValueAndSplitHeadsOp)
+    def split_query_key_value_and_split_heads_parser(
+        self,
+        old_op: ttir.SplitQueryKeyValueAndSplitHeadsOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttir_op = self.get_opview_from_parser(
+            TTIRBuilder.split_query_key_value_and_split_heads_parser
+        )
+
+        input_tensor = global_dict[old_op.input_tensor]
+        kv_input_tensor = (
+            global_dict[old_op.kv_input_tensor]
+            if old_op.kv_input_tensor is not None
+            else None
+        )
+        num_heads_attr = old_op.num_heads
+        num_kv_heads_attr = old_op.num_kv_heads if old_op.num_kv_heads else None
+        transpose_key_attr = old_op.transpose_key
+        query_type = old_op.query.type
+        key_type = old_op.key.type
+        value_type = old_op.value.type
+
+        op_kwargs = {
+            "num_heads": num_heads_attr,
+            "transpose_key": transpose_key_attr,
+            "loc": old_op.location,
+        }
+        if num_kv_heads_attr is not None:
+            op_kwargs["num_kv_heads"] = num_kv_heads_attr
+        if kv_input_tensor is not None:
+            op_kwargs["kv_input_tensor"] = kv_input_tensor
+
+        new_op = ttir_op(
+            query_type,
+            key_type,
+            value_type,
+            input_tensor,
+            **op_kwargs,
+        )
+
+        new_op_query = new_op.query
+        new_op_key = new_op.key
+        new_op_value = new_op.value
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(input_tensor)
+            kv_input0 = (
+                self._get_golden_tensor(kv_input_tensor)
+                if kv_input_tensor is not None
+                else None
+            )
+            op_golden_function = get_golden_function(ttir_op)
+            golden_query, golden_key, golden_value = op_golden_function(
+                input0,
+                kv_input0,
+                num_heads_attr,
+                num_kv_heads_attr,
+                transpose_key_attr,
+                query_type.element_type,
+                key_type.element_type,
+                value_type.element_type,
+            )
+            self._set_golden_tensor(new_op_query, golden_query)
+            self._set_golden_tensor(new_op_key, golden_key)
+            self._set_golden_tensor(new_op_value, golden_value)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.query] = new_op_query
+        op_map_dictionary[old_op.key] = new_op_key
+        op_map_dictionary[old_op.value] = new_op_value
+        return new_op, op_map_dictionary
+
+    @split(ttir.SplitQueryKeyValueAndSplitHeadsOp)
+    def split_query_key_value_and_split_heads_split(
+        self,
+        old_op: ttir.SplitQueryKeyValueAndSplitHeadsOp,
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(
+            TTIRBuilder.split_query_key_value_and_split_heads_split
+        )
+
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
+            split_qkv_module = Module.create()
+            split_qkv_builder = TTIRBuilder(old_ctx, old_loc)
+            op_input_types = [old_op.input_tensor.type]
+            if old_op.kv_input_tensor is not None:
+                op_input_types.append(old_op.kv_input_tensor.type)
+
+            with InsertionPoint(split_qkv_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="split_qkv_module")
+                def decorated_func(*inputs):
+                    input_tensor = inputs[0]
+                    kv_input_tensor = inputs[1] if len(inputs) > 1 else None
+                    query_type = old_op.query.type
+                    key_type = old_op.key.type
+                    value_type = old_op.value.type
+
+                    op_kwargs = {
+                        "num_heads": old_op.num_heads,
+                        "transpose_key": old_op.transpose_key,
+                        "loc": old_op.location,
+                    }
+                    if old_op.num_kv_heads:
+                        op_kwargs["num_kv_heads"] = old_op.num_kv_heads
+                    if kv_input_tensor is not None:
+                        op_kwargs["kv_input_tensor"] = kv_input_tensor
+
+                    new_op = ttir_op(
+                        query_type,
+                        key_type,
+                        value_type,
+                        input_tensor,
+                        **op_kwargs,
+                    )
+
+                    new_op_query = new_op.query
+                    new_op_key = new_op.key
+                    new_op_value = new_op.value
+
+                    if not self._disable_golden_check:
+                        input0 = self._get_golden_tensor(old_op.input_tensor)
+                        kv_input0 = (
+                            self._get_golden_tensor(old_op.kv_input_tensor)
+                            if old_op.kv_input_tensor is not None
+                            else None
+                        )
+                        op_golden_function = get_golden_function(ttir_op)
+                        golden_query, golden_key, golden_value = op_golden_function(
+                            input0,
+                            kv_input0,
+                            old_op.num_heads,
+                            old_op.num_kv_heads if old_op.num_kv_heads else None,
+                            old_op.transpose_key,
+                            query_type.element_type,
+                            key_type.element_type,
+                            value_type.element_type,
+                        )
+                        split_qkv_builder._set_golden_tensor(new_op_query, golden_query)
+                        split_qkv_builder._set_golden_tensor(new_op_key, golden_key)
+                        split_qkv_builder._set_golden_tensor(new_op_value, golden_value)
+                        split_qkv_builder._set_golden_tensor(input_tensor, input0)
+                        ordered_inputs.append(input_tensor)
+                        if kv_input_tensor is not None:
+                            split_qkv_builder._set_golden_tensor(
+                                kv_input_tensor, kv_input0
+                            )
+                            ordered_inputs.append(kv_input_tensor)
+                        ordered_outputs.extend([new_op_query, new_op_key, new_op_value])
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                split_qkv_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return split_qkv_module, split_qkv_builder
+
     ############### ttir.LayerNormOp ###############
 
     @tag(ttir.LayerNormOp)
