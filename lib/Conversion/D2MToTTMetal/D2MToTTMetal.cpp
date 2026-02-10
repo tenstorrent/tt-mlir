@@ -8,6 +8,7 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
+#include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOps.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -72,7 +73,18 @@ public:
         }
         // This must stay in-sync with ChipDescAttr::getDstLogicalSizeTiles().
         constexpr bool dstFullSyncEn = false;
-        std::vector<UnpackToDestMode> unpackModes{UnpackToDestMode::Default};
+        // Use Fp32 unpack mode for typecast operating on fp32 data.
+        auto kernelFunc = symbolTable.lookup<func::FuncOp>(
+            thread.getKernelSymbol().getRootReference());
+        bool isTypecast = kernelFunc
+                              .walk([](ttkernel::TypecastTileOp) {
+                                return WalkResult::interrupt();
+                              })
+                              .wasInterrupted();
+        UnpackToDestMode mode = (fp32DestAccum && isTypecast)
+                                    ? UnpackToDestMode::Fp32
+                                    : UnpackToDestMode::Default;
+        std::vector<UnpackToDestMode> unpackModes{mode};
         kernelConfig = builder.getAttr<ttmetal::ComputeConfigAttr>(
             thread.getKernelSymbol(), coreRange, kernelArgs, mathFidelity,
             fp32DestAccum, dstFullSyncEn, unpackModes);
