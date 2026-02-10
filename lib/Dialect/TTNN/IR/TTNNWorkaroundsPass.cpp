@@ -12,6 +12,8 @@
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/Support/MathExtras.h"
+#include <limits>
 
 namespace mlir::tt::ttnn::wa {
 
@@ -818,9 +820,9 @@ TTNNOperandsWorkaroundsFactory::createReduceProdOpOperandsWorkarounds() {
 }
 
 // Factory method to create a set of workaround for SortOp operands.
-// tt-metal generates indices of type UInt16. Any mismatch between generated and
-// expected data type will cause runtime to assert.
-// Issue page: https://github.com/tenstorrent/tt-mlir/issues/4405
+// tt-metal generates indices of type UInt16 or UInt32 depending on padded size.
+// Any mismatch between generated and expected data type will cause runtime to
+// assert. Issue page: https://github.com/tenstorrent/tt-mlir/issues/4405
 // tt-metal also only supports BFloat16 or UInt16 for input tensors, not
 // Float32. Issue page: https://github.com/tenstorrent/tt-metal/issues/37322
 TTNNOperandsWorkarounds
@@ -839,12 +841,33 @@ TTNNOperandsWorkaroundsFactory::createSortOpOperandsWorkarounds(
     inputOutputWorkaround.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
   }
 
-  // Check output indices type - tt-metal generates UInt16 indices
+  // Check output indices type - tt-metal generates UInt16 or UInt32 based on
+  // padded size. Bitonic sort pads to next power of 2, and uses UInt32 if
+  // padded size >= uint16_t::max
   auto indicesElementType = op.getIndices().getType().getElementType();
   TTNNOperandWorkarounds indicesWorkaround;
-  if (!(indicesElementType.isInteger(16) &&
-        indicesElementType.isUnsignedInteger())) {
-    indicesWorkaround.tensorDataTypeWorkaround = ttcore::DataType::UInt16;
+  bool isUInt16 = indicesElementType.isInteger(16) &&
+                  indicesElementType.isUnsignedInteger();
+  bool isUInt32 = indicesElementType.isInteger(32) &&
+                  indicesElementType.isUnsignedInteger();
+
+  // Calculate padded size to determine UInt16 vs UInt32
+  auto inputType = mlir::cast<RankedTensorType>(op.getInput().getType());
+  auto inputShape = inputType.getShape();
+  int64_t lastDim = inputShape[inputShape.size() - 1];
+  int64_t paddedLastDim = llvm::PowerOf2Ceil(lastDim);
+  constexpr int64_t uint16Max = std::numeric_limits<uint16_t>::max();
+
+  // Determine the correct indices type based on padded size, then only
+  // apply a workaround if the current type doesn't already match.
+  if (paddedLastDim < uint16Max) {
+    if (!isUInt16) {
+      indicesWorkaround.tensorDataTypeWorkaround = ttcore::DataType::UInt16;
+    }
+  } else {
+    if (!isUInt32) {
+      indicesWorkaround.tensorDataTypeWorkaround = ttcore::DataType::UInt32;
+    }
   }
 
   return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
