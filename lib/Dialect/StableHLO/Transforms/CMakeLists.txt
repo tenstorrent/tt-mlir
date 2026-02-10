@@ -1,5 +1,6 @@
 add_mlir_dialect_library(MLIRStableHLOTransforms
   AnalyzeMesh.cpp
+  AnnotateLocalShapes.cpp
   ApplyArgumentShardStatus.cpp
   ConvertXlaSdyToSdy.cpp
   DecoupleConstFanout.cpp
