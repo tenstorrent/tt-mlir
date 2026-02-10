@@ -2205,6 +2205,13 @@ def TTNN_GroupNormOp : TTNN_Op<"group_norm", [AttrSizedOperandSegments, TTNN_Mem
 
     let results = (outs AnyRankedTensor:$result);
 
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::
+            createGroupNormOpOperandsWorkarounds(this->getOperation());
+      }
+    }];
+
     let hasVerifier = 1;
 }
 

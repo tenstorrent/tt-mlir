@@ -667,6 +667,41 @@ TTNNOperandsWorkaroundsFactory::createTanhOpOperandsWorkarounds() {
       .addOutputOperandWorkaround(operandWorkaround);
 }
 
+// Factory method to create a set of workarounds for GroupNorm op operands.
+// TTNN group_norm requires:
+//   - input: BFloat16 data type
+//   - weight (gamma): ROW_MAJOR layout, BFloat16 data type
+//   - bias (beta): ROW_MAJOR layout, BFloat16 data type
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createGroupNormOpOperandsWorkarounds(
+    Operation *op) {
+  auto groupNormOp = cast<ttnn::GroupNormOp>(op);
+
+  TTNNOperandWorkarounds inputWorkaround;
+  inputWorkaround.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
+
+  TTNNOperandWorkarounds weightBiasWorkaround;
+  weightBiasWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
+  weightBiasWorkaround.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
+
+  auto workarounds =
+      TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+          .addInputOperandWorkaround(inputWorkaround)
+          .addOutputOperandWorkaround(TTNNOperandWorkarounds());
+
+  if (groupNormOp.getInputMask()) {
+    workarounds.addInputOperandWorkaround(TTNNOperandWorkarounds());
+  }
+  if (groupNormOp.getWeight()) {
+    workarounds.addInputOperandWorkaround(weightBiasWorkaround);
+  }
+  if (groupNormOp.getBias()) {
+    workarounds.addInputOperandWorkaround(weightBiasWorkaround);
+  }
+
+  return workarounds;
+}
+
 // Factory method to create a set of workarounds for ArgMax op operands.
 // Input tensor must have ROW_MAJOR layout.
 // No need for data type workaround for output tensor; only layout workaround is

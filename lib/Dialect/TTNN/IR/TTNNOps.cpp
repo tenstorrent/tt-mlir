@@ -2852,7 +2852,6 @@ static ::mlir::LogicalResult verifyTTNNBatchNormOp(OpType op) {
     return emitOpError("input and output must have the same shape");
   }
 
-  // Input must be 4D with shape [N, 1, H*W, C] (groups formed along last dim).
   if (inputType.getRank() != 4) {
     return emitOpError("input must be a 4D tensor [N, 1, H*W, C], got rank ")
            << inputType.getRank();
@@ -2865,12 +2864,25 @@ static ::mlir::LogicalResult verifyTTNNBatchNormOp(OpType op) {
            << inputShape[1];
   }
 
+  if (inputShape[0] * inputShape[2] % 32 != 0) {
+    return emitOpError("flattened height must be tile-aligned, "
+                       "got ")
+           << inputShape[0] * inputShape[2];
+  }
+
   int64_t numGroups = getNumGroups();
   if (numGroups <= 0) {
     return emitOpError("num_groups must be positive, got ") << numGroups;
   }
 
   int64_t channelDim = inputShape[3];
+
+  if (channelDim % 32 != 0) {
+    return emitOpError("channel dimension (last dim) must be divisible by 32, "
+                       "got C=")
+           << channelDim;
+  }
+
   if (channelDim % numGroups != 0) {
     return emitOpError("channel dimension (last dim) must be divisible by "
                        "num_groups; got C=")
