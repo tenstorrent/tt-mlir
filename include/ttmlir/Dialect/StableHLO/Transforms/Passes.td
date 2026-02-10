@@ -72,6 +72,10 @@ def ApplyArgumentShardStatusPass : Pass<"apply-argument-shard-status", "::mlir::
     "::mlir::sdy::SdyDialect",
     "::mlir::tt::ttir::TTIRDialect"
   ];
+
+  let options = [
+    ListOption<"resultPresharded", "result-presharded", "int64_t", "Set whether each result is presharded or not">,
+  ];
 }
 
 def ConvertXlaSdyToSdyPass : Pass<"convert-xla-sdy-to-sdy", "::mlir::ModuleOp">
@@ -320,6 +324,31 @@ def WrapUnderManualComputationPass : Pass<"wrap-under-manual-computation", "::ml
         return %0 : tensor<32x48x24x32xf32>
       }
     }
+    ```
+  }];
+
+  let dependentDialects = [
+    "::mlir::sdy::SdyDialect"
+  ];
+}
+
+def AnnotateLocalShapesPass : Pass<"annotate-local-shapes", "::mlir::ModuleOp">
+{
+  let summary = "Annotate all arguments and results with their local shape.";
+  let description = [{
+    This pass will iterate through all arguments and results and annotate the local shape of that argument/result.
+    For single device graphs, the local shape is the original shape.
+    For multi-device graphs, the local shape can be sharded or replicated depending on the sharding config set in the graph.
+    This information is required by any tool calling ttmlir runtime to tell it how the inputs should be preprocessed.
+
+    Example, this pass will convert the following code:
+    ```mlir
+
+    ```
+
+    Into:
+    ```mlir
+
     ```
   }];
 

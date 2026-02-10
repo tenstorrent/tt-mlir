@@ -188,13 +188,10 @@ tensorTypeToFlatbuffer(FlatbufferObjectCache &cache, Type type,
                    return static_cast<int32_t>(val);
                  });
 
-  auto runtimeTensorShardingDesc =
-      ::tt::target::ttnn::CreateRuntimeTensorShardingDescDirect(
-          *cache.fbb, shardStatus, &localShape);
   return ::tt::target::ttnn::CreateTensorDescDirect(
       *cache.fbb, &shape, &meshShape,
       cache.getOrCreate(layoutAttr, ttnnLayoutAttrToFlatbuffer, deviceAttr),
-      runtimeTensorShardingDesc);
+      shardStatus, &localShape);
 }
 
 flatbuffers::Offset<::tt::target::ttnn::TensorRef>

@@ -575,5 +575,33 @@ void populateTTModule(nb::module_ &m) {
       .def_prop_ro("meshes", [](const tt::ttcore::MeshesAttr &meshes) {
         return meshes.getMeshes().vec();
       });
+
+  nb::enum_<mlir::tt::ttcore::ShardStatus>(m, "ShardStatus")
+      .value("Presharded", mlir::tt::ttcore::ShardStatus::Presharded)
+      .value("Unsharded", mlir::tt::ttcore::ShardStatus::Unsharded);
+
+  tt_attribute_class<tt::ttcore::ShardStatusAttr>(m, "ShardStatusAttr")
+      .def_static(
+          "get",
+          [](MlirContext ctx, mlir::tt::ttcore::ShardStatus shardStatus) {
+            return wrap(
+                tt::ttcore::ShardStatusAttr::get(unwrap(ctx), shardStatus));
+          })
+      .def_prop_ro("value", [](tt::ttcore::ShardStatusAttr self) {
+        return self.getValue();
+      });
+
+  tt_attribute_class<tt::ttcore::LocalShapeAttr>(m, "LocalShapeAttr")
+      .def_static("get",
+                  [](MlirContext ctx, std::vector<int64_t> localShape) {
+                    return wrap(tt::ttcore::LocalShapeAttr::get(
+                        unwrap(ctx),
+                        RankedTensorType::get(
+                            localShape, IntegerType::get(unwrap(ctx), 64))));
+                  })
+      .def_prop_ro("local_shape", [](const tt::ttcore::LocalShapeAttr &attr) {
+        return std::vector<int64_t>(attr.getLocalShape().getShape().begin(),
+                                    attr.getLocalShape().getShape().end());
+      });
 }
 } // namespace mlir::ttmlir::python

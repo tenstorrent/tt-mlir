@@ -696,20 +696,18 @@ def TTCore_MeshesAttr : TTCore_Attr<"Meshes", "meshes"> {
   }];
 }
 
-def TTCore_RuntimeTensorShardingAttr : TTCore_Attr<"RuntimeTensorSharding", "runtime_tensor_sharding"> {
-  let summary = "Runtime tensor sharding information";
+def TTCore_LocalShapeAttr : TTCore_Attr<"LocalShape", "local_shape"> {
+  let summary = "Local shape of an argument/result in multi-device context";
   let description = [{
-    Holds the runtime sharding information for this tensor.
-    This includes whether the tensor is presharded/unsharded and its per device shape.
-    This attribute is required for graphs coming from torch-xla/jax where the inputs/outputs to the graph can be presharded.
+    This attribute can be applied to arguments + results to signify their local shape in multi-device context.
     Any tool built ontop of mlir runtime needs to know how to generate the inputs (unsharded or presharded) and this attribute encapsulate that information.
+    There is a strict contract between local shape and shard status. The shard status influences the compiler and the runtime needs to be given the correct tensors (single deviec or multi-device).
   }];
+
   let parameters = (ins
-    "ShardStatusAttr":$shardStatus,
     "RankedTensorType":$localShape);
 
   let assemblyFormat = [{
-        `shard_status` `=` $shardStatus `,`
         `local_shape` `=` $localShape
   }];
 }

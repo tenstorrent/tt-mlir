@@ -32,7 +32,11 @@ void createStableHLOPipeline(OpPassManager &pm,
   pm.addPass(createPartiallyConvertSdyToStableHLOPass());
 
   // Annotate arguments with whether they are already pre-sharded or not.
-  pm.addPass(createApplyArgumentShardStatusPass());
+  ApplyArgumentShardStatusPassOptions applyArgumentShardStatusOptions;
+  applyArgumentShardStatusOptions.resultPresharded =
+      llvm::to_vector(options.resultPresharded);
+  pm.addPass(
+      createApplyArgumentShardStatusPass(applyArgumentShardStatusOptions));
 
   // Analyze the mesh of the graph and update shardings or annotations to match
   // the target device.
@@ -86,6 +90,9 @@ void createStableHLOPipeline(OpPassManager &pm,
 
   // Canonicalize shardy CCL ops
   pm.addPass(createShardyCCLCanonicalizationPass());
+
+  // Annotate arguments and results with their local shape
+  pm.addPass(createAnnotateLocalShapesPass());
 
   // Split tensor dimensions according to tensor sharding annotations.
   pm.addPass(createUpdateGlobalToLocalShapesPass());
