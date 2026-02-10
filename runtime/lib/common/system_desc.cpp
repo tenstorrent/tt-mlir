@@ -66,8 +66,9 @@ getAllDeviceConnections(const std::vector<::tt::tt_metal::IDevice *> &devices) {
     std::unordered_set<tt::tt_metal::CoreCoord> activeEthernetCores =
         device->get_active_ethernet_cores(true);
     for (const tt::tt_metal::CoreCoord &ethernetCore : activeEthernetCores) {
-      // get_connected_ethernet_core throws for cores that connect to remote
-      // MMIO devices outside the local cluster. Skip those cores.
+      // TODO(pglusac): get_connected_ethernet_core throws for cores that
+      // connect to remote MMIO devices outside the local cluster. Skip those
+      // cores. https://github.com/tenstorrent/tt-metal/issues/37514
       std::tuple<ChipId, tt::tt_metal::CoreCoord> connectedDevice;
       try {
         connectedDevice = device->get_connected_ethernet_core(ethernetCore);
