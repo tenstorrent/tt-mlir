@@ -373,9 +373,7 @@ void populateTTModule(nb::module_ &m) {
 
   nb::enum_<tt::ttcore::Topology>(m, "Topology")
       .value("Ring", tt::ttcore::Topology::Ring)
-      .value("Linear", tt::ttcore::Topology::Linear)
-      .value("Mesh", tt::ttcore::Topology::Mesh)
-      .value("Torus", tt::ttcore::Topology::Torus);
+      .value("Linear", tt::ttcore::Topology::Linear);
 
   tt_attribute_class<tt::ttcore::TopologyAttr>(m, "TopologyAttr")
       .def_static(
@@ -469,12 +467,8 @@ void populateTTModule(nb::module_ &m) {
                    })
       .def_prop_ro("mesh_topology", [](const tt::ttcore::DeviceAttr &self) {
         auto topologies = self.getMeshTopology();
-        std::vector<uint32_t> result;
-        result.reserve(topologies.size());
-        for (auto t : topologies) {
-          result.push_back(static_cast<uint32_t>(t));
-        }
-        return result;
+        return std::vector<tt::ttcore::Topology>(topologies.begin(),
+                                                 topologies.end());
       });
 
   nb::enum_<mlir::tt::ttcore::TensorMemoryLayout>(m, "TensorMemoryLayout")
