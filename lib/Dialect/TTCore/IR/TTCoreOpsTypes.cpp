@@ -1798,10 +1798,8 @@ size_t DeviceAttr::getMemrefCBNumPages(MemRefType memrefType) const {
     return ::mlir::failure();
   }
 
-  if (!meshTopology.empty() &&
-      (meshShape.empty() || meshTopology.size() != meshShape.size())) {
-    emitError() << "expected meshTopology size to match meshShape rank";
-    return ::mlir::failure();
+  if (!meshTopology.empty() && meshTopology.size() != meshShape.size()) {
+    return emitError() << "expected meshTopology size to match meshShape rank";
   }
 
   return ::mlir::success();
