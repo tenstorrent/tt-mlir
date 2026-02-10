@@ -172,17 +172,21 @@ def test_matmul_ttnn_shapes_single_buffered(
         (512, 1024, 2048),
         (1024, 1024, 1024),
         (1024, 1024, 2048),
+        (1024, 2048, 2048),
+        (2048, 2048, 2048),
     ],
     ids=shape_str,
 )
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
 @pytest.mark.parametrize("use_tile_matmul", [True, False])
+@pytest.mark.parametrize("enable_packer_l1_acc", [True, False])
 @pytest.mark.parametrize("target", ["ttmetal"])
 # Large matmuls, based on ttnn's matmul benchmarks
 def test_matmul_ttnn_shapes_double_buffered(
     shape: tuple[int, ...],
     dtype: torch.dtype,
     use_tile_matmul: bool,
+    enable_packer_l1_acc: bool,
     target: str,
     request,
     device,
@@ -200,6 +204,8 @@ def test_matmul_ttnn_shapes_double_buffered(
     options = [
         f"matmul-interchange=2,0,1",
         f"use-tile-matmul={use_tile_matmul}",
+        f"enable-packer-l1-acc={enable_packer_l1_acc}",
+        f"set-math-fidelity=HiFi2",
     ]
     compile_and_execute_ttir(
         create_matmul_constrained_inputs(lhs, rhs, dtype),

@@ -311,6 +311,23 @@ public:
 };
 } // namespace
 
+namespace {
+class PackReconfigL1AccRewriter
+    : public OpConversionPattern<d2m::PackReconfigL1AccOp> {
+public:
+  using OpConversionPattern<d2m::PackReconfigL1AccOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::PackReconfigL1AccOp op,
+                  d2m::PackReconfigL1AccOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    rewriter.replaceOpWithNewOp<ttkernel::PackReconfigL1AccOp>(
+        op, adaptor.getEnable());
+    return success();
+  };
+};
+} // namespace
+
 // Helper to compute linear index from multi-dimensional indices.
 // For shape <d0, d1, d2, ...> and indices [i0, i1, i2, ...]:
 // linear = i0 * (d1*d2*...) + i1 * (d2*d3*...) + ... + i_last.
@@ -2052,6 +2069,7 @@ void populateD2MToTTKernelPatterns(
                ttkernel::D2MTileTransposeRewriter,
                ttkernel::D2MDstReinterpretCastRewriter,
                ttkernel::AcquireDstRewriter,
+               ttkernel::PackReconfigL1AccRewriter,
                ttkernel::MemrefLoadRewriter,
                ttkernel::MemrefStoreRewriter,
                ttkernel::D2MCBOpRewriter<d2m::WaitOp, ttkernel::CBWaitFrontOp, ttkernel::CBPopFrontOp>,

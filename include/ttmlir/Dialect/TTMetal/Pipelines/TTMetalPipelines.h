@@ -186,6 +186,11 @@ struct TTIRToTTMetalPipelineOptions
                      "analytical and sampling-based coalescing checks and "
                      "prints debug output comparing them."),
       llvm::cl::init(false)};
+
+  Option<bool> enablePackerL1Acc{
+      *this, "enable-packer-l1-acc",
+      llvm::cl::desc("Enable accumulating partials in L1."),
+      llvm::cl::init(false)};
 };
 
 void createTTIRBufferizationPipeline(

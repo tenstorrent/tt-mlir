@@ -889,6 +889,29 @@ def D2M_AcquireDstOp : D2M_GenericRegionComputeOp<"acquire_dst",
     let assemblyFormat = [{ `(` `)` attr-dict `:` type($result) }];
 }
 
+def D2M_PackReconfigL1AccOp : D2M_GenericRegionOp<"pack_reconfig_l1_acc"> {
+    let summary = "Reconfigure packer L1 accumulation mode.";
+    let description = [{
+      Configures the packer to accumulate the values it takes from DST with
+      the ones that are already in L1 at a given CB ID and tile index.
+
+      When `enable` is 1, the packer will add the DST contents to the existing
+      L1 values instead of overwriting them. When `enable` is 0, the packer
+      reverts to normal (overwrite) mode.
+
+      This op lowers to `pack_reconfig_l1_acc(enable)` in the compute kernel.
+
+      Example IR:
+      ```mlir
+      d2m.pack_reconfig_l1_acc(%enable) : (i32) -> ()
+      ```
+    }];
+
+    let arguments = (ins I32:$enable);
+
+    let assemblyFormat = [{ `(` $enable `)` attr-dict }];
+}
+
 def D2M_TileTransposeOp : D2M_GenericRegionComputeOp<"tile_transpose", D2M_TileComputeOpTraitBundle> {
     let summary = "D2M Tile Transpose Op";
     let description = [{
