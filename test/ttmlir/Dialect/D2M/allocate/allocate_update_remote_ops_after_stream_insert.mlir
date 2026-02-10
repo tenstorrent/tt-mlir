@@ -21,14 +21,14 @@ module attributes {ttcore.system_desc = #system_desc} {
   ttcore.device @default_device = <workerGrid = #ttcore.grid<8x8, (d0, d1) -> (0, d0, d1)>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1, s2, s3, s4, s5, s6] -> (0, 0, (((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) floordiv s4) mod 12, ((((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) floordiv s4) floordiv 12) * s4 + ((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) mod s4 + s5), meshShape = 1x1, chipIds = [0]>
 
   // CHECK-LABEL: func.func @test_view_to_stream_remote_load_update
-  func.func @test_view_to_stream_remote_load_update() -> memref<1x64x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1, (d0, d1, d2, d3) -> (d1 floordiv 8, d1 mod 8, d2, d3)>, #l1> {
+  func.func @test_view_to_stream_remote_load_update() -> memref<1x64x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1> {
     // Allocations for LHS (A matrix) and RHS (B matrix) for matmul
-    %alloc = memref.alloc() : memref<1x64x1x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1, (d0, d1, d2, d3) -> (d1 floordiv 8, d1 mod 8, d2, d3)>, #l1>
+    %alloc = memref.alloc() : memref<1x64x1x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1>
     %alloc_2 = memref.alloc() : memref<8x8x16x8x!ttcore.tile<32x32, f32>, #ttcore.shard<32768x4096, 1>, #l1>
-    %alloc_4 = memref.alloc() : memref<1x64x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1, (d0, d1, d2, d3) -> (d1 floordiv 8, d1 mod 8, d2, d3)>, #l1>
+    %alloc_4 = memref.alloc() : memref<1x64x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>
 
     // Create views of the allocations - these will be replaced with streams
-    %view_5 = d2m.view_layout %alloc remapping = #remap4 : memref<1x64x1x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1, (d0, d1, d2, d3) -> (d1 floordiv 8, d1 mod 8, d2, d3)>, #l1> -> memref<1x64x1x2x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1>
+    %view_5 = d2m.view_layout %alloc remapping = #remap4 : memref<1x64x1x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1> -> memref<1x64x1x2x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1>
     %view_6 = d2m.view_layout %alloc_2 remapping = #remap_rhs : memref<8x8x16x8x!ttcore.tile<32x32, f32>, #ttcore.shard<32768x4096, 1>, #l1> -> memref<64x64x2x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1>
 
     // Matmul generic with reduction dimension - triggers stream insertion
@@ -41,7 +41,7 @@ module attributes {ttcore.system_desc = #system_desc} {
     // CHECK: %[[RHS_STREAM:.*]] = "d2m.stream_layout"
     // CHECK: d2m.generic
     // CHECK: ins(%[[LHS_STREAM]], %[[RHS_STREAM]] :
-    %view_out = d2m.view_layout %alloc_4 remapping = #remap4 : memref<1x64x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1, (d0, d1, d2, d3) -> (d1 floordiv 8, d1 mod 8, d2, d3)>, #l1> -> memref<1x64x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1>
+    %view_out = d2m.view_layout %alloc_4 remapping = #remap4 : memref<1x64x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1> -> memref<1x64x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1>
     d2m.generic {block_factors = [1, 1, 64], grid = #ttcore.grid<1x64, (d0, d1) -> (0, 0, d0 * 8 + d1)>, indexing_maps = [affine_map<(d0, d1, d2) -> (d0, d2)>, affine_map<(d0, d1, d2) -> (d2, d1)>, affine_map<(d0, d1, d2) -> (d0, d1)>], iterator_types = [#ttcore.iterator_type<parallel>, #ttcore.iterator_type<parallel>, #ttcore.iterator_type<reduction>], threads = [#d2m.thread<unified>]}
         ins(%view_5, %view_6 : memref<1x64x1x2x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1>, memref<64x64x2x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1>)
         outs(%view_out : memref<1x64x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1>) {
@@ -74,8 +74,8 @@ module attributes {ttcore.system_desc = #system_desc} {
       } {d2m.blocking_loop = 0}
     }
 
-    memref.dealloc %alloc : memref<1x64x1x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1, (d0, d1, d2, d3) -> (d1 floordiv 8, d1 mod 8, d2, d3)>, #l1>
+    memref.dealloc %alloc : memref<1x64x1x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1>
     memref.dealloc %alloc_2 : memref<8x8x16x8x!ttcore.tile<32x32, f32>, #ttcore.shard<32768x4096, 1>, #l1>
-    return %alloc_4 : memref<1x64x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1, (d0, d1, d2, d3) -> (d1 floordiv 8, d1 mod 8, d2, d3)>, #l1>
+    return %alloc_4 : memref<1x64x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>
   }
 }

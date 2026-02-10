@@ -251,12 +251,11 @@ inline mlir::AffineMap calculateReblockMap(mlir::ArrayRef<int64_t> inputShape,
   return flatToInput.compose(outputToFlat);
 }
 
-/// Calculate a reblock affine map given a shape and new grid shape.
-/// Returns the new tensor shape and the reblock affine map.
-inline std::pair<mlir::SmallVector<int64_t>, mlir::AffineMap>
-calculateReblockMapForGrid(mlir::ArrayRef<int64_t> tensorShape,
-                           mlir::ArrayRef<int64_t> newGridShape,
-                           mlir::MLIRContext *context) {
+/// Calculate the new tensor shape when reblocking to a new grid shape.
+/// This is the shape-only variant of calculateReblockMapForGrid.
+inline mlir::SmallVector<int64_t>
+calculateReblockShapeForGrid(mlir::ArrayRef<int64_t> tensorShape,
+                             mlir::ArrayRef<int64_t> newGridShape) {
   assert(tensorShape.size() % 2 == 0 &&
          "Expected even rank for grid + shard dimensions");
   assert(newGridShape.size() == tensorShape.size() / 2 &&
@@ -269,6 +268,16 @@ calculateReblockMapForGrid(mlir::ArrayRef<int64_t> tensorShape,
     newTensorShape[j] = tensorShape[i] * tensorShape[j] / newGridShape[i];
     newTensorShape[i] = newGridShape[i];
   }
+  return newTensorShape;
+}
+
+/// Calculate a reblock affine map given a shape and new grid shape.
+/// Returns the new tensor shape and the reblock affine map.
+inline std::pair<mlir::SmallVector<int64_t>, mlir::AffineMap>
+calculateReblockMapForGrid(mlir::ArrayRef<int64_t> tensorShape,
+                           mlir::ArrayRef<int64_t> newGridShape,
+                           mlir::MLIRContext *context) {
+  auto newTensorShape = calculateReblockShapeForGrid(tensorShape, newGridShape);
   return {newTensorShape,
           calculateReblockMap(tensorShape, newTensorShape, context)};
 }

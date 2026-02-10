@@ -53,10 +53,9 @@ mlir::tt::d2m::applyViews(mlir::Operation *op) {
     }
   }
 
-  auto devLayout = mlir::dyn_cast_or_null<ttcore::DeviceLayoutInterface>(
-      inputMemref.getLayout());
-  assert(devLayout && devLayout.isPhysical() &&
-         "Expected physical layout attr");
+  assert((mlir::isa<ttcore::ShardLayoutAttr, ttcore::InterleavedLayoutAttr>(
+             inputMemref.getLayout())) &&
+         "Expected physical layout attr (shard or interleaved)");
 
   return std::make_pair(inputMemref, map);
 }

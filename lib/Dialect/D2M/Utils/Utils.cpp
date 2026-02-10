@@ -94,9 +94,8 @@ RankedTensorType reblockTensor(RankedTensorType oldTensor,
     return oldTensor;
   }
 
-  auto [newShape, unusedMap] = ttmlir::utils::calculateReblockMapForGrid(
-      oldTensor.getShape(), newGridShape, oldTensor.getContext());
-  (void)unusedMap;
+  auto newShape = ttmlir::utils::calculateReblockShapeForGrid(
+      oldTensor.getShape(), newGridShape);
 
   return RankedTensorType::get(newShape, oldTensor.getElementType(), oldLayout);
 }
@@ -238,6 +237,22 @@ std::optional<AffineMap> getAssociatedRemapping(Value val) {
     return map;
   }
   return std::nullopt;
+}
+
+AffineMap resolveEffectiveAffineMap(Value val, MemRefType memrefType) {
+  if (auto layout =
+          mlir::dyn_cast<MemRefLayoutAttrInterface>(memrefType.getLayout())) {
+    if (mlir::isa<ttcore::ViewLayoutAttr>(layout)) {
+      if (auto *definingOp = val.getDefiningOp()) {
+        return applyViews(definingOp).second;
+      }
+      return AffineMap::getMultiDimIdentityMap(memrefType.getRank(),
+                                               memrefType.getContext());
+    }
+    return layout.getAffineMap();
+  }
+  return AffineMap::getMultiDimIdentityMap(memrefType.getRank(),
+                                           memrefType.getContext());
 }
 
 } // namespace mlir::tt::d2m::utils

@@ -234,7 +234,7 @@ def TTCore_SystemDescAttr : TTCore_Attr<"SystemDesc", "system_desc"> {
 def TTCore_ViewLayoutAttr : TTCore_Attr<"ViewLayout", "view", [TTCore_DeviceLayoutInterface, MemRefLayoutAttrInterface]> {
   let summary = "View layout attribute in TT dialect";
   let description = [{
-    Placeholder attr to inidicate a view layout of a memref buffer.  Actual affine map
+    Placeholder attr to indicate a view layout of a memref buffer.  Actual affine map
     is encoded on the view_layout/stream_layout op itself.
 
     Only the view_layout or stream_layout ops should return memref's with this attribute.
@@ -269,26 +269,16 @@ def TTCore_ShardLayoutAttr : TTCore_Attr<"ShardLayout", "shard", [TTCore_DeviceL
     a grid of cores.
   }];
   let parameters = (ins ArrayRefParameter<"int64_t">:$stride,
-                        "uint32_t":$buffers,
-                        DefaultValuedParameter<"AffineMap", "$_builder.getEmptyAffineMap()">:$coreVirtualizationMap
-                        );
+                        "uint32_t":$buffers);
 
-  let assemblyFormat = "`<` custom<DimensionList>($stride) `,` $buffers (`,` $coreVirtualizationMap^)? `>`";
+  let assemblyFormat = "`<` custom<DimensionList>($stride) `,` $buffers `>`";
 
   let extraClassDeclaration = [{
     static ShardLayoutAttr get(::mlir::MLIRContext *context, ArrayRef<int64_t> shape, uint64_t elementSize, uint32_t buffers);
     static ShardLayoutAttr get(ArrayRef<int64_t> shape, Type elementType, uint32_t buffers);
     static ShardLayoutAttr get(MemRefType memrefType, uint32_t buffers);
-    static ShardLayoutAttr get(::mlir::MLIRContext *context, ArrayRef<int64_t> strides, uint32_t buffers);
-
-    bool isView() { return false; }
 
     AffineMap getAffineMap() const;
-
-    std::optional<mlir::AffineMap> getVirtualizationMapIfExists() {
-      auto vmap = getCoreVirtualizationMap();
-      return (vmap.isEmpty()) ? std::nullopt : std::make_optional(vmap);
-    }
 
     unsigned getRank() const { return getStride().size(); }
   }];
@@ -308,8 +298,6 @@ def TTCore_InterleavedLayoutAttr : TTCore_Attr<"InterleavedLayout", "interleaved
     static InterleavedLayoutAttr get(::mlir::MLIRContext *context, ArrayRef<int64_t> shape, uint64_t elementSize);
     static InterleavedLayoutAttr get(ArrayRef<int64_t> shape, Type elementType);
     static InterleavedLayoutAttr get(MemRefType memrefType);
-
-    bool isView() { return false; }
 
     AffineMap getAffineMap() const;
 
@@ -472,16 +460,8 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_
     // Returns the full rank (including grid dimensions).
     unsigned getRank() const { return getNormalizedIntervals().size(); }
 
-    // Virtualization maps are now stored on ViewLayoutOp/StreamLayoutOp,
-    // not on the layout attribute.
-    std::optional<mlir::AffineMap> getVirtualizationMapIfExists() {
-      return std::nullopt;
-    }
-
     // Returns true if this layout has two or more dims collapsed into a single dim
     bool hasNonTrivialCollapsedDims(ArrayRef<int64_t> deviceShape);
-
-    bool isView() { return false; }
   }];
 
   let genVerifyDecl = 1;

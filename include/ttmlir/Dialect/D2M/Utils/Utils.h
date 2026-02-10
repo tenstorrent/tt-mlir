@@ -54,6 +54,11 @@ SmallVector<int64_t> getPhysicalGridShape(Value tensorOrMemref);
 // no associated remapping.
 std::optional<AffineMap> getAssociatedRemapping(Value val);
 
+// Returns the effective affine map for a memref-typed value by resolving
+// ViewLayoutAttr remappings (via applyViews) and falling back to the layout's
+// getAffineMap() or an identity map.
+AffineMap resolveEffectiveAffineMap(Value val, MemRefType memrefType);
+
 } // namespace mlir::tt::d2m::utils
 
 #endif
