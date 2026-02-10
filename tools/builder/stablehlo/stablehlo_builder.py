@@ -8183,7 +8183,7 @@ class StableHLOBuilder(Builder):
     def from_module(
         ctx: Context,
         mlir_text: str,
-        golden_inputs: Dict[str, List[torch.tensor]] = None,
+        golden_inputs: Dict[str, List[Dict[int, torch.tensor]]] = None,
     ) -> Tuple(Module, StableHLOBuilder):
         if golden_inputs is None:
             golden_inputs = {}

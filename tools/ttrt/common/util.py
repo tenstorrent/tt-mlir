@@ -1018,7 +1018,7 @@ class Binary(Flatbuffer):
                 for i in self.inputs:
                     tensor_shards = []
 
-                    if "runtime_tensor_sharding" not in i["desc"]:
+                    if "shard_status" not in i["desc"]:
                         torch_tensor = init_fn(
                             i["desc"]["shape"],
                             dtype=Binary.Program.from_data_type(
@@ -1029,11 +1029,9 @@ class Binary(Flatbuffer):
                         self.input_tensors.append(tensor_shards)
                         continue
 
-                    shard_status = i["desc"]["runtime_tensor_sharding"]["shard_status"]
+                    shard_status = i["desc"]["shard_status"]
                     if shard_status == "Presharded":
-                        local_shape = i["desc"]["runtime_tensor_sharding"][
-                            "local_shape"
-                        ]
+                        local_shape = i["desc"]["local_shape"]
                         mesh_shape = i["desc"]["mesh_shape"]
                         num_devices = 1
                         for dim in mesh_shape:
@@ -1062,7 +1060,7 @@ class Binary(Flatbuffer):
             for i in self.outputs:
                 tensor_shards = []
 
-                if "runtime_tensor_sharding" not in i["desc"]:
+                if "shard_status" not in i["desc"]:
                     torch_tensor = init_fn(
                         i["desc"]["shape"],
                         dtype=Binary.Program.from_data_type(
@@ -1073,9 +1071,9 @@ class Binary(Flatbuffer):
                     self.output_tensors.append(tensor_shards)
                     continue
 
-                shard_status = i["desc"]["runtime_tensor_sharding"]["shard_status"]
+                shard_status = i["desc"]["shard_status"]
                 if shard_status == "Presharded":
-                    local_shape = i["desc"]["runtime_tensor_sharding"]["local_shape"]
+                    local_shape = i["desc"]["local_shape"]
                     mesh_shape = i["desc"]["mesh_shape"]
                     num_devices = 1
                     for dim in mesh_shape:

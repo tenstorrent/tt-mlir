@@ -2546,7 +2546,7 @@ module @jit_jax_wrapper attributes {mhlo.num_partitions = 8 : i32, mhlo.num_repl
     // CHECK-SAME: shard_dims = array<i64: -1, 0>
     // CHECK-SAME: shard_direction = #ttcore.shard_direction<shard_to_full>
     // CHECK-SAME: shard_shape = array<i64: 8, 1>
-    // CHECK-SAME: shard_type = #ttcore.shard_type<identity>
+    // CHECK-SAME: shard_type = #ttcore.shard_type<devices>
     return %4 : tensor<1024x1024xf32>
   }
   func.func private @shmap_body(%arg0: tensor<128x1024xf32>) -> (tensor<128x1024xf32> {jax.result_info = "[('torch_dist',), None]"}) {
@@ -2613,7 +2613,7 @@ module @jit_negative_basic attributes {mhlo.num_partitions = 2 : i32, mhlo.num_r
     // CHECK-SAME: shard_dims = array<i64: -1>
     // CHECK-SAME: shard_direction = #ttcore.shard_direction<shard_to_full>
     // CHECK-SAME: shard_shape = array<i64: 1>
-    // CHECK-SAME: shard_type = #ttcore.shard_type<identity>
+    // CHECK-SAME: shard_type = #ttcore.shard_type<replicate>
     return %4 : tensor<256x128xf32>
   }
   func.func private @shmap_body(%arg0: tensor<256x128xf32>) -> (tensor<256x128xf32> {jax.result_info = "[None, None]"}) {

@@ -5,7 +5,7 @@
 // is non-splat and non-periodic: pass must change its sharding to replicated.
 module @SyncTensorsGraph.18 attributes {mhlo.cross_program_prefetches = [], mhlo.input_output_alias = [], mhlo.is_dynamic = false, mhlo.use_auto_spmd_partitioning = false} {
   sdy.mesh @mesh = <["_axis_0"=2, "_axis_1"=4]>
-  func.func @main(%arg0: tensor<64x64xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"_axis_0"}, {}]>, ttcore.argument_type = #ttcore.argument_type<input>, ttcore.runtime_tensor_sharding = #ttcore<runtime_tensor_sharding shard_status = <presharded>, local_shape = tensor<32x64xf32>>}) -> (tensor<f32> {ttcore.runtime_tensor_sharding = #ttcore<runtime_tensor_sharding shard_status = <unsharded>, local_shape = tensor<f32>>}) {
+  func.func @main(%arg0: tensor<64x64xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"_axis_0"}, {}]>, ttcore.argument_type = #ttcore.argument_type<input>, ttcore.shard_status = #ttcore.shard_status<presharded>, ttcore.local_shape = #ttcore<local_shape local_shape = tensor<32x64xf32>>}) -> (tensor<f32> {ttcore.shard_status = #ttcore.shard_status<unsharded>, ttcore.local_shape = #ttcore<local_shape local_shape = tensor<f32>>}) {
     // Scalar splat with no sharding annotation: unchanged.
     // CHECK: stablehlo.constant dense<0.000000e+00> : tensor<f32>
     // CHECK-NOT: sdy.sharding

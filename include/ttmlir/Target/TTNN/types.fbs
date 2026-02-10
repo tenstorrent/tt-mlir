@@ -91,16 +91,12 @@ table LayoutDesc {
   memory_desc: MemoryDesc;
 }
 
-table RuntimeTensorShardingDesc {
-  shard_status: ShardStatus;
-  local_shape: [int];
-}
-
 table TensorDesc {
   shape: [int];
   mesh_shape: [int32];
   layout: LayoutDesc;
-  runtime_tensor_sharding: RuntimeTensorShardingDesc;
+  shard_status: ShardStatus;
+  local_shape: [int];
 }
 
 table TensorRef {

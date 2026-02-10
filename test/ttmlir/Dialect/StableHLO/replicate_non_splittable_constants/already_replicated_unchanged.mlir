@@ -5,7 +5,7 @@
 // The pass must leave it unchanged.
 module @AlreadyReplicatedUnchanged attributes {mhlo.cross_program_prefetches = [], mhlo.input_output_alias = [], mhlo.is_dynamic = false, mhlo.use_auto_spmd_partitioning = false} {
   sdy.mesh @mesh = <["_axis_0"=2, "_axis_1"=4]>
-  func.func @main(%arg0: tensor<64x64xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"_axis_0"}, {}]>, ttcore.argument_type = #ttcore.argument_type<input>, ttcore.runtime_tensor_sharding = #ttcore<runtime_tensor_sharding shard_status = <presharded>, local_shape = tensor<32x64xf32>>}) -> (tensor<f32> {ttcore.runtime_tensor_sharding = #ttcore<runtime_tensor_sharding shard_status = <unsharded>, local_shape = tensor<f32>>}) {
+  func.func @main(%arg0: tensor<64x64xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"_axis_0"}, {}]>, ttcore.argument_type = #ttcore.argument_type<input>, ttcore.shard_status = #ttcore.shard_status<presharded>, ttcore.local_shape = #ttcore<local_shape local_shape = tensor<32x64xf32>>}) -> (tensor<f32> {ttcore.shard_status = #ttcore.shard_status<unsharded>, ttcore.local_shape = #ttcore<local_shape local_shape = tensor<f32>>}) {
     %cst = stablehlo.constant dense<0.000000e+00> : tensor<f32>
     // Already replicated: sharding has no axes, all dims closed. Unchanged.
     // CHECK: sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{}]>]>

@@ -4183,10 +4183,9 @@ public:
     }
 
     // We also extract the shard status from the @Sharding op.
-    auto runtimeTensorShardingAttr =
-        definingOp->getAttrOfType<mlir::tt::ttcore::RuntimeTensorShardingAttr>(
-            mlir::tt::ttcore::RuntimeTensorShardingAttr::name);
-    auto shardStatusAttr = runtimeTensorShardingAttr.getShardStatus();
+    auto shardStatusAttr =
+        definingOp->getAttrOfType<mlir::tt::ttcore::ShardStatusAttr>(
+            mlir::tt::ttcore::ShardStatusAttr::name);
 
     // Insert default sharding status if not present.
     if (!shardStatusAttr) {

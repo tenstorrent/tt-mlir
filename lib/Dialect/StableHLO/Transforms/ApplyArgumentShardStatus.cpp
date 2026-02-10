@@ -17,9 +17,14 @@ namespace mlir::tt::stablehlo {
 #include "ttmlir/Dialect/StableHLO/Transforms/Passes.h.inc"
 
 static mlir::LogicalResult
-updateShardStatus(MLIRContext *context, mlir::ModuleOp &module,
-                  mlir::OpBuilder &builder, func::FuncOp &funcOp,
-                  bool gspmdAnnotationsExist, bool shardyAnnotationsExist) {
+updateArgumentShardStatus(MLIRContext *context, mlir::ModuleOp &module,
+                          mlir::OpBuilder &builder, func::FuncOp &funcOp,
+                          bool gspmdAnnotationsExist,
+                          bool shardyAnnotationsExist) {
+  llvm::StringRef annotationsKeyWord =
+      shardyAnnotationsExist ? mlir::sdy::TensorShardingAttr::name
+                             : mlir::tt::gspmd_utils::kXlaShardingAttr;
+
   // Iterate through all the arguments and determine whether they are
   // pre-sharded or not.
   for (auto arg : funcOp.getArguments()) {
@@ -28,8 +33,6 @@ updateShardStatus(MLIRContext *context, mlir::ModuleOp &module,
     llvm::SmallVector<mlir::NamedAttribute> newArgAttrs;
     mlir::tt::ttcore::ShardStatus shardStatus =
         mlir::tt::ttcore::ShardStatus::Unsharded;
-    FailureOr<mlir::RankedTensorType> newType =
-        mlir::cast<mlir::RankedTensorType>(arg.getType());
 
     // If the argument contains a gspmd.sharding or sdy.sharding annotation, it
     // is already pre-sharded.
@@ -37,82 +40,15 @@ updateShardStatus(MLIRContext *context, mlir::ModuleOp &module,
       newArgAttrs =
           llvm::SmallVector<mlir::NamedAttribute>(argAttrDict.getValue());
 
-      // We want to find the @Sharding custom call followed by the
-      // @SPMDFullToShardShape custom call to determine the sharded type. The
-      // pattern looks like: %0 = stablehlo.custom_call @Sharding(%arg0)
-      // {mhlo.sharding = "{devices=[8,1]<=[8]}"} : (tensor<1024x1024xf32>) ->
-      // tensor<1024x1024xf32> %1 = stablehlo.custom_call
-      // @SPMDFullToShardShape(%0) {mhlo.sharding = "{manual}"} :
-      // (tensor<1024x1024xf32>) -> tensor<128x1024xf32>
-      if (argAttrDict.contains(mlir::tt::gspmd_utils::kXlaShardingAttr)) {
+      if (argAttrDict.contains(annotationsKeyWord)) {
         shardStatus = mlir::tt::ttcore::ShardStatus::Presharded;
-
-        // Check if its replicated, mhlo.sharding = "{replicated}"}
-        auto shardingStrAttr = mlir::cast<mlir::StringAttr>(
-            argAttrDict.get(mlir::tt::gspmd_utils::kXlaShardingAttr));
-        if (shardingStrAttr &&
-            shardingStrAttr.getValue().contains("replicated")) {
-          newType = mlir::cast<mlir::RankedTensorType>(arg.getType());
-        } else {
-          mlir::stablehlo::CustomCallOp shardingOp;
-          for (auto *user : arg.getUsers()) {
-            if (!mlir::isa<mlir::stablehlo::CustomCallOp>(user)) {
-              continue;
-            }
-            mlir::stablehlo::CustomCallOp customCallOp =
-                mlir::cast<mlir::stablehlo::CustomCallOp>(user);
-            if (customCallOp.getCallTargetName() ==
-                mlir::tt::gspmd_utils::kShardingCustomCallTargetName) {
-              shardingOp = customCallOp;
-              break;
-            }
-          }
-
-          if (!shardingOp) {
-            return module.emitError(
-                "GSPMD presharded argument missing @Sharding custom call.");
-          }
-
-          mlir::stablehlo::CustomCallOp fullToShardOp;
-          for (auto *user : shardingOp.getResult(0).getUsers()) {
-            if (!mlir::isa<mlir::stablehlo::CustomCallOp>(user)) {
-              continue;
-            }
-            mlir::stablehlo::CustomCallOp customCallOp =
-                mlir::cast<mlir::stablehlo::CustomCallOp>(user);
-            if (customCallOp.getCallTargetName() ==
-                mlir::tt::gspmd_utils::kSPMDFullToShardShapeCallTargetName) {
-              fullToShardOp = customCallOp;
-              break;
-            }
-          }
-
-          if (!fullToShardOp) {
-            return module.emitError("GSPMD presharded argument missing "
-                                    "@SPMDFullToShardShape custom call.");
-          }
-          newType = mlir::cast<mlir::RankedTensorType>(
-              fullToShardOp.getResult(0).getType());
-        }
-      } else if (argAttrDict.contains(mlir::sdy::TensorShardingAttr::name)) {
-        shardStatus = mlir::tt::ttcore::ShardStatus::Presharded;
-        auto meshOp = shardy_utils::getMeshOps(module)[0];
-        auto global_shape = mlir::cast<mlir::RankedTensorType>(arg.getType());
-        mlir::sdy::TensorShardingAttr tensorShardingAttr =
-            mlir::cast<mlir::sdy::TensorShardingAttr>(
-                argAttrDict.get(mlir::sdy::TensorShardingAttr::name));
-        newType = mlir::tt::shardy_utils::populateShardedOutputType(
-            meshOp.getMesh(), global_shape, tensorShardingAttr);
       }
     }
 
-    mlir::NamedAttribute runtimeTensorShardingNamedAttr = {
-        mlir::tt::ttcore::RuntimeTensorShardingAttr::name,
-        mlir::tt::ttcore::RuntimeTensorShardingAttr::get(
-            context,
-            mlir::tt::ttcore::ShardStatusAttr::get(context, shardStatus),
-            newType.value())};
-    newArgAttrs.push_back(runtimeTensorShardingNamedAttr);
+    mlir::NamedAttribute shardStatusNamedAttr = {
+        mlir::tt::ttcore::ShardStatusAttr::name,
+        mlir::tt::ttcore::ShardStatusAttr::get(context, shardStatus)};
+    newArgAttrs.push_back(shardStatusNamedAttr);
     funcOp.setArgAttrs(arg.getArgNumber(),
                        mlir::DictionaryAttr::get(context, newArgAttrs));
 
@@ -120,91 +56,92 @@ updateShardStatus(MLIRContext *context, mlir::ModuleOp &module,
     // this arg.
     if (!shardyAnnotationsExist) {
       gspmd_utils::updateShardStatusForArgument(context, arg,
-                                                runtimeTensorShardingNamedAttr);
+                                                shardStatusNamedAttr);
     }
   }
 
-  // Iterate through all the results and determine whether they are
-  // pre-sharded or not.
+  return mlir::success();
+}
+
+static mlir::LogicalResult
+updateResultShardStatus(MLIRContext *context, mlir::ModuleOp &module,
+                        mlir::OpBuilder &builder, func::FuncOp &funcOp,
+                        llvm::SmallVector<int64_t> resultPreshardedRef) {
+  // If user did not provide result shard status, we will assume all results are
+  // unsharded.
+  if (resultPreshardedRef.empty() && funcOp.getNumResults() > 0) {
+    module.emitWarning("User did not provide result shard status, assuming all "
+                       "results are unsharded.");
+    resultPreshardedRef =
+        llvm::SmallVector<int64_t>(funcOp.getNumResults(), false);
+  }
+
+  // Check if the size of the result shard status matches the number of results
+  // in the function.
+  if (resultPreshardedRef.size() != funcOp.getNumResults()) {
+    return module.emitError("The size of the result shard status does not "
+                            "match the number of results in the function.");
+  }
+
+  // Iterate through all the results and set the shard status based on the user
+  // provided pipeline option.
   mlir::FunctionType funcType = funcOp.getFunctionType();
   for (uint32_t i = 0; i < funcType.getNumResults(); i++) {
     mlir::DictionaryAttr resultAttrDict =
         mlir::DictionaryAttr::get(context, funcOp.getResultAttrs(i));
     llvm::SmallVector<mlir::NamedAttribute> newResultAttrs;
     mlir::tt::ttcore::ShardStatus shardStatus =
-        mlir::tt::ttcore::ShardStatus::Unsharded;
-    FailureOr<mlir::RankedTensorType> newType =
-        mlir::cast<mlir::RankedTensorType>(funcType.getResult(i));
+        resultPreshardedRef[i] == 0 ? mlir::tt::ttcore::ShardStatus::Unsharded
+                                    : mlir::tt::ttcore::ShardStatus::Presharded;
 
-    // If the result contains a gspmd.sharding or sdy.sharding annotation, it is
-    // already pre-sharded.
     if (resultAttrDict) {
       newResultAttrs =
           llvm::SmallVector<mlir::NamedAttribute>(resultAttrDict.getValue());
-
-      if (resultAttrDict.contains(mlir::tt::gspmd_utils::kXlaShardingAttr)) {
-        shardStatus = mlir::tt::ttcore::ShardStatus::Presharded;
-
-        // Check if its replicated, mhlo.sharding = "{replicated}"}
-        auto shardingStrAttr = mlir::cast<mlir::StringAttr>(
-            resultAttrDict.get(mlir::tt::gspmd_utils::kXlaShardingAttr));
-        if (shardingStrAttr &&
-            shardingStrAttr.getValue().contains("replicated")) {
-          newType = mlir::cast<mlir::RankedTensorType>(funcType.getResult(i));
-        } else {
-          // We want to backtrack from the function return to find the
-          // @SPMDShardToFullShape custom call and extract its input type. This
-          // input shape is its local device shape. The pattern looks like: %3 =
-          // stablehlo.custom_call @SPMDShardToFullShape(%2) {mhlo.sharding =
-          // "{devices=[8,1]<=[8]}"} : (tensor<128x1024xf32>) ->
-          // tensor<1024x1024xf32> return %3 : tensor<1024x1024xf32>
-          Value retVal = funcOp.getBody().back().getTerminator()->getOperand(i);
-
-          auto shardToFullOp =
-              retVal.getDefiningOp<mlir::stablehlo::CustomCallOp>();
-          if (!shardToFullOp ||
-              shardToFullOp.getCallTargetName() !=
-                  mlir::tt::gspmd_utils::kSPMDShardToFullShapeCallTargetName) {
-            return module.emitError("GSPMD presharded result missing "
-                                    "@SPMDShardToFullShape custom call.");
-          }
-
-          newType = mlir::cast<mlir::RankedTensorType>(
-              shardToFullOp.getOperand(0).getType());
-        }
-      } else if (resultAttrDict.contains(mlir::sdy::TensorShardingAttr::name)) {
-        shardStatus = mlir::tt::ttcore::ShardStatus::Presharded;
-        auto meshOp = shardy_utils::getMeshOps(module)[0];
-        auto global_shape =
-            mlir::cast<mlir::RankedTensorType>(funcType.getResult(i));
-        mlir::sdy::TensorShardingAttr tensorShardingAttr =
-            mlir::cast<mlir::sdy::TensorShardingAttr>(
-                resultAttrDict.get(mlir::sdy::TensorShardingAttr::name));
-        newType = mlir::tt::shardy_utils::populateShardedOutputType(
-            meshOp.getMesh(), global_shape, tensorShardingAttr);
-      }
     }
 
-    mlir::NamedAttribute runtimeTensorShardingNamedAttr = {
-        mlir::tt::ttcore::RuntimeTensorShardingAttr::name,
-        mlir::tt::ttcore::RuntimeTensorShardingAttr::get(
-            context,
-            mlir::tt::ttcore::ShardStatusAttr::get(context, shardStatus),
-            newType.value())};
-    newResultAttrs.push_back(runtimeTensorShardingNamedAttr);
+    mlir::NamedAttribute shardStatusNamedAttr = {
+        mlir::tt::ttcore::ShardStatusAttr::name,
+        mlir::tt::ttcore::ShardStatusAttr::get(context, shardStatus)};
+    newResultAttrs.push_back(shardStatusNamedAttr);
     funcOp.setResultAttrs(i,
                           mlir::DictionaryAttr::get(context, newResultAttrs));
-
-    // Update the shard status for the @Sharding custom call if it exists for
-    // this result.
-    if (!shardyAnnotationsExist) {
-      gspmd_utils::updateShardStatusForResult(context, funcOp, i,
-                                              runtimeTensorShardingNamedAttr);
-    }
   }
 
   return mlir::success();
 }
+
+/*
+In multi-device graphs jax/torch-xla will annotate arguments/results with a
+sharding attribute. For arguments, the framework will either provide a list of
+tensors or a single tensor for each argument and give it to ttmlir runtime. For
+results, the framework will either expect a list of tensors or a single tensor
+from ttmlir runtime.
+
+The situations are as follows:
+* jax
+arguments
+- if there is a sdy.sharding annotation, the framework will provide a list of
+tensors, otherwise framework will provide a single tensor results
+- if there is a sdy.sharding annotation, framework expects a list of tensors,
+otherwise framework expects a single tensor
+
+* torchxla
+arguments
+- will always have a sdy.sharding annotation
+- framework will always provide a list of tensors for each result
+results
+- framework will always expect a list of tensors for each result (regardless if
+it has a sdy.sharding annotation or not)
+
+Therefore, we can conclude the following for arguments:
+- ttmlir compiler can infer the shard status of the arguments. If the argument
+has a sdy.sharding annotation, the framework will provide a list of tensors. If
+not, the framework provides only a single tensor For results:
+- ttmlir compiler will not be able to infer the shard status of results based
+solely on the shlo graph itself. The set of rules that govern torch_xla are
+different from jax. Therefore, we need support from frontend teams to provide
+this as a pipeline option.
+*/
 
 class ApplyArgumentShardStatusPass
     : public impl::ApplyArgumentShardStatusPassBase<
@@ -223,13 +160,23 @@ public:
     bool gspmdAnnotationsExist = gspmd_utils::gspmdAnnotationsExist(rootModule);
     bool sdyAnnotationsExist = shardy_utils::sdyAnnotationsExist(rootModule);
 
-    // Loop through each argument. For each argument, check if it has a sdy
-    // sharding annotations. If it does, it is pre-sharded. If it does not, it
-    // is unsharded.
+    // Loop through all arguments and annotate it with its shard status.
     rootModule.walk([&](func::FuncOp funcOp) {
-      if (failed(mlir::tt::stablehlo::updateShardStatus(
+      if (failed(mlir::tt::stablehlo::updateArgumentShardStatus(
               context, rootModule, builder, funcOp, gspmdAnnotationsExist,
               sdyAnnotationsExist))) {
+        rootModule.emitError("Failed to update shard status");
+        signalPassFailure();
+        return;
+      }
+    });
+
+    // Loop through all results and annotate it with its shard status.
+    llvm::SmallVector<int64_t> resultPreshardedRef = llvm::to_vector(
+        llvm::map_range(resultPresharded, [](int64_t val) { return val; }));
+    rootModule.walk([&](func::FuncOp funcOp) {
+      if (failed(mlir::tt::stablehlo::updateResultShardStatus(
+              context, rootModule, builder, funcOp, resultPreshardedRef))) {
         rootModule.emitError("Failed to update shard status");
         signalPassFailure();
         return;
