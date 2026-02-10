@@ -86,7 +86,7 @@ def createDeviceAttr(
         dramMap,
         mesh_shape,
         list(range(deviceStartIdx, deviceStartIdx + totalDevices)),
-        mesh_topology=mesh_topology,
+        mesh_topology,
     )
 
 
