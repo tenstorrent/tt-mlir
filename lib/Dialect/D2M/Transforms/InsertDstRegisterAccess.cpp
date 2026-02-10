@@ -77,9 +77,11 @@ struct D2MInsertDstRegisterAccessRewriter final
     : public OpRewritePattern<GenericOp> {
 public:
   D2MInsertDstRegisterAccessRewriter(mlir::MLIRContext *ctx, bool useTileMatmul,
-                                     unsigned maxDstPhysicalSizeTiles)
+                                     unsigned maxDstPhysicalSizeTiles,
+                                     bool enablePackerL1Acc)
       : OpRewritePattern<GenericOp>(ctx), useTileMatmul(useTileMatmul),
-        maxDstPhysicalSizeTiles(maxDstPhysicalSizeTiles) {};
+        maxDstPhysicalSizeTiles(maxDstPhysicalSizeTiles),
+        enablePackerL1Acc(enablePackerL1Acc) {};
 
   // Records a CB<->DST affine.load/store op, which DST slice it accesses, and
   // some special considerations for looping over the tensor shard while doing
@@ -314,7 +316,7 @@ public:
               if (!gOp.isExplicitDatamovementForm()) {
                 if (rewriteTileMatmulAsTileMatmulBlock(
                         rewriter, gOp, *genericRegion, linalgGenericOp,
-                        dstCapacity, modified)) {
+                        dstCapacity, modified, enablePackerL1Acc)) {
                   return WalkResult::interrupt();
                 }
                 return WalkResult::advance();
@@ -366,7 +368,8 @@ public:
   static bool
   insertDstRegisterAccess(PatternRewriter &rewriter, GenericOp gOp,
                           Region &region, unsigned dstCapacity,
-                          Operation *outermostInnerComputeLoop = nullptr) {
+                          Operation *outermostInnerComputeLoop = nullptr,
+                          bool enablePackerL1Acc = false) {
     assert(region.getBlocks().size() == 1);
     if (hasAcquireDstOp(region)) {
       return false;
@@ -395,6 +398,15 @@ public:
       return false;
     }
 
+    // When L1 accumulation mode is enabled, skip generating CB->DST reload
+    // copy loops. The packer hardware will accumulate partials directly in L1,
+    // so there is no need to reload from L1 to DST on subsequent iterations.
+    if (enablePackerL1Acc && !isScheduled) {
+      for (auto &[op, info] : copyInfos) {
+        info.loads.clear();
+      }
+    }
+
     // 2. Insert acquire dst.
     // For scf.for loops: insert inside the loop body for per-iteration DST.
     // For affine.for loops (including scheduled ones): insert before the loop
@@ -414,7 +426,29 @@ public:
       dataCopyGenerate(rewriter, loc, dst, copyInfos);
     }
 
-    // 4. Fix the passing of intermediate results through the DST.
+    // 4. When L1 accumulation is enabled, insert a guarded
+    //    pack_reconfig_l1_acc(1) to enable L1 accumulation starting from the
+    //    second iteration of the reduction loop.
+    if (enablePackerL1Acc && !isScheduled) {
+      rewriter.setInsertionPointAfter(acquireDst);
+      // Guard: enable L1 accum on the second iteration (iter_index(0) == 1).
+      // On the first iteration, pack writes DST to L1 normally. From the
+      // second iteration onward, pack accumulates DST into L1.
+      Value iterIdx =
+          rewriter.create<IterIndexOp>(loc, static_cast<int64_t>(0));
+      Value one = rewriter.create<arith::ConstantOp>(
+          loc, rewriter.getIndexType(),
+          rewriter.getIntegerAttr(rewriter.getIndexType(), 1));
+      Value cond = rewriter.create<arith::CmpIOp>(loc, arith::CmpIPredicate::eq,
+                                                  iterIdx, one);
+      auto ifOp = rewriter.create<scf::IfOp>(loc, cond);
+      rewriter.setInsertionPointToStart(&ifOp.getThenRegion().front());
+      Value enableFlag = rewriter.create<arith::ConstantOp>(
+          loc, rewriter.getI32Type(), rewriter.getI32IntegerAttr(1));
+      rewriter.create<PackReconfigL1AccOp>(loc, enableFlag);
+    }
+
+    // 5. Fix the passing of intermediate results through the DST.
     fixDstIntermediateResults(rewriter, loc, dst, dstIntermediates);
 
     return true;
@@ -731,7 +765,8 @@ public:
   */
   static bool rewriteTileMatmulAsTileMatmulBlock(
       PatternRewriter &rewriter, GenericOp gOp, Region &region,
-      linalg::GenericOp linalgGenericOp, unsigned dstCapacity, bool &modified) {
+      linalg::GenericOp linalgGenericOp, unsigned dstCapacity, bool &modified,
+      bool enableL1AccumMode) {
     assert(linalgGenericOp.getInputs().size() == 2 &&
            "Expected exactly 2 input for tile matmul");
     assert(linalgGenericOp.getOutputs().size() == 1 &&
@@ -752,7 +787,8 @@ public:
     rewriter.eraseOp(linalgGenericOp);
     modified |= insertDstRegisterAccess(
         rewriter, gOp, region, dstCapacity,
-        !linalgLoops.value().empty() ? linalgLoops.value().front() : nullptr);
+        !linalgLoops.value().empty() ? linalgLoops.value().front() : nullptr,
+        enableL1AccumMode);
 
     if (replaceWithMatmulBlock) {
       Operation *outerLoop = linalgLoops.value()[0];
@@ -1622,6 +1658,7 @@ public:
 
   bool useTileMatmul = false;
   unsigned maxDstPhysicalSizeTiles = 0;
+  bool enablePackerL1Acc = false;
 };
 } // namespace
 
@@ -1659,7 +1696,8 @@ public:
     RewritePatternSet patterns(ctx);
 
     patterns.add<D2MInsertDstRegisterAccessRewriter>(
-        ctx, useTileMatmul, maxDstPhysicalSizeTiles.getValue());
+        ctx, useTileMatmul, maxDstPhysicalSizeTiles.getValue(),
+        enablePackerL1Acc);
 
     if (failed(applyPatternsGreedily(moduleOp, std::move(patterns)))) {
       signalPassFailure();
