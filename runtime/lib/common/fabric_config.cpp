@@ -80,7 +80,7 @@ appendFabricConfigArgs(
     if ((topology_type == tt::target::Topology::Linear ||
          topology_type == tt::target::Topology::Mesh) &&
         deviceCoord[dim] == meshDevice->shape()[dim] - 1) {
-      rtArgsVec.push_back(-1);
+      rtArgsVec.push_back(tt_fabric::eth_chan_directions::COUNT);
     } else {
       auto forwardCoord = deviceCoord;
       forwardCoord[dim] = (forwardCoord[dim] + 1) % meshDevice->shape()[dim];
@@ -90,7 +90,7 @@ appendFabricConfigArgs(
 
       // edge case: if dim size is 1, then neither forward nor backward exist
       if (meshDevice->shape()[dim] == 1) {
-        rtArgsVec.push_back(-1);
+        rtArgsVec.push_back(tt_fabric::eth_chan_directions::COUNT);
       }
       // edge case: if dim size is 2, then check direction is not the same
       // (opposites)
@@ -132,8 +132,7 @@ appendFabricConfigArgs(
     if ((topology_type == tt::target::Topology::Linear ||
          topology_type == tt::target::Topology::Mesh) &&
         deviceCoord[dim] == 0) {
-      rtArgsVec.push_back(
-          -1); // TODO: fix this is technically wrong since its unsigned!!!!
+      rtArgsVec.push_back(tt_fabric::eth_chan_directions::COUNT);
     } else {
       auto backwardCoord = deviceCoord;
       backwardCoord[dim] = (backwardCoord[dim] + meshDevice->shape()[dim] - 1) %
@@ -145,7 +144,7 @@ appendFabricConfigArgs(
 
       // edge case: if dim size is 1, then neither forward nor backward exist
       if (meshDevice->shape()[dim] == 1) {
-        rtArgsVec.push_back(-1);
+        rtArgsVec.push_back(tt_fabric::eth_chan_directions::COUNT);
       }
       // edge case: if dim size is 2, then check direction is not the same
       // (opposites)

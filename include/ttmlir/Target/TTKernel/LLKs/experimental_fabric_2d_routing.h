@@ -91,8 +91,7 @@ FORCE_INLINE UnicastRoutingParams get_unicast_params_unidir_ring(
                       : static_cast<uint8_t>((my_idx - dest_idx + size) % size);
 
   UnicastRoutingParams result;
-  // result.dst_dev_id = dst_device_id;
-  // result.dst_mesh_id = 0; // fix???
+  // TODO (sohaibnadeemTT) #6971: generlize setting params for any dir
   if (outgoing_direction == eth_chan_directions::EAST ||
       outgoing_direction == eth_chan_directions::WEST) {
     result.outgoing_direction = outgoing_direction;
@@ -127,12 +126,17 @@ FORCE_INLINE UnicastRoutingParams get_unicast_params_unidir_torus(
   UnicastRoutingParams result;
   bool is_forward =
       (topology.routing_direction == TopologyInfo::RoutingDirection::Forward);
+  // TODO (sohaibnadeemTT) #6971: generlize setting params for any dir
   result.ns_dir =
       is_forward ? static_cast<uint32_t>(topology.routing_directions[0].first)
                  : static_cast<uint32_t>(topology.routing_directions[0].second);
   result.ns_hops =
       is_forward ? static_cast<uint8_t>((dest_y - my_y + size_y) % size_y)
                  : static_cast<uint8_t>((my_y - dest_y + size_y) % size_y);
+  WAYPOINT("DA41");
+  ASSERT(result.ns_dir == eth_chan_directions::NORTH ||
+         result.ns_dir == eth_chan_directions::SOUTH);
+
   result.ew_dir =
       is_forward ? static_cast<uint32_t>(topology.routing_directions[1].first)
                  : static_cast<uint32_t>(topology.routing_directions[1].second);
@@ -141,8 +145,11 @@ FORCE_INLINE UnicastRoutingParams get_unicast_params_unidir_torus(
                  : static_cast<uint8_t>((my_x - dest_x + size_x) % size_x);
   result.outgoing_direction =
       result.ns_hops > 0 ? result.ns_dir : result.ew_dir;
+  WAYPOINT("DA42");
+  ASSERT(result.ew_dir == eth_chan_directions::EAST ||
+         result.ew_dir == eth_chan_directions::WEST);
 
-  WAYPOINT("DA41");
+  WAYPOINT("DA43");
   ASSERT(result.ns_hops != 0 || result.ew_hops != 0);
 
   return result;
@@ -154,25 +161,25 @@ FORCE_INLINE McastRoutingParams get_mcast_params(TopologyInfo &topology,
                                                  uint16_t dst_end_device_id) {
   if (topology.topology_type == TopologyInfo::TopologyType::Ring) {
     // Assert: Only UnidirRingTorus routing mode supported for ring topology.
-    WAYPOINT("DA42");
+    WAYPOINT("DA44");
     ASSERT(topology.routing_mode == TopologyInfo::RoutingMode::UnidirRingTorus);
     return get_mcast_params_unidir_ring(topology, my_device_id,
                                         dst_start_device_id, dst_end_device_id);
   } else if (topology.topology_type == TopologyInfo::TopologyType::Torus) {
     // Assert: Only UnidirRingTorus routing mode supported for torus topology.
-    WAYPOINT("DA43");
+    WAYPOINT("DA45");
     ASSERT(topology.routing_mode == TopologyInfo::RoutingMode::UnidirRingTorus);
     return get_mcast_params_unidir_torus(
         topology, my_device_id, dst_start_device_id, dst_end_device_id);
   } else if (topology.topology_type == TopologyInfo::TopologyType::Line) {
     // Assert: Only BidirLineMesh routing mode supported for line topology.
-    WAYPOINT("DA44");
+    WAYPOINT("DA46");
     ASSERT(topology.routing_mode == TopologyInfo::RoutingMode::BidirLineMesh);
     return get_mcast_params_line(topology, my_device_id, dst_start_device_id,
                                  dst_end_device_id);
   } else {
     // Assert: Unsupported topology type.
-    WAYPOINT("DA45");
+    WAYPOINT("DA47");
     ASSERT(false);
     return McastRoutingParams(); // unreachable, satisfies compiler
   }
@@ -193,7 +200,7 @@ FORCE_INLINE McastRoutingParams get_mcast_params_line(
   int32_t size = topology.mesh_shape[topology.axis];
 
   // Assert: at least one destination (not including sender)
-  WAYPOINT("DA46");
+  WAYPOINT("DA48");
   ASSERT(!(my_idx == start_idx && start_idx == end_idx));
 
   auto [start_fwd, range_fwd, start_bwd, range_bwd] =
@@ -205,9 +212,10 @@ FORCE_INLINE McastRoutingParams get_mcast_params_line(
   uint32_t bwd_dir =
       static_cast<uint32_t>(topology.routing_directions[topology.axis].second);
 
+  // TODO (sohaibnadeemTT) #6971: generlize setting params for any dir
   if (range_fwd != 0) {
     // sender must be inside or adjacent to mcast region
-    WAYPOINT("DA47");
+    WAYPOINT("DA49");
     ASSERT(start_fwd == 1);
     result.params_per_direction[fwd_dir].active = true;
     if (fwd_dir == eth_chan_directions::EAST) {
@@ -219,13 +227,13 @@ FORCE_INLINE McastRoutingParams get_mcast_params_line(
     } else if (fwd_dir == eth_chan_directions::SOUTH) {
       result.params_per_direction[fwd_dir].s_num_hops = range_fwd;
     } else {
-      WAYPOINT("DA48");
+      WAYPOINT("DA50");
       ASSERT(false);
     }
   }
   if (range_bwd != 0) {
     // sender must be inside or adjacent to mcast region
-    WAYPOINT("DA49");
+    WAYPOINT("DA51");
     ASSERT(start_bwd == 1);
     result.params_per_direction[bwd_dir].active = true;
     if (bwd_dir == eth_chan_directions::EAST) {
@@ -237,7 +245,7 @@ FORCE_INLINE McastRoutingParams get_mcast_params_line(
     } else if (bwd_dir == eth_chan_directions::SOUTH) {
       result.params_per_direction[bwd_dir].s_num_hops = range_bwd;
     } else {
-      WAYPOINT("DA50");
+      WAYPOINT("DA52");
       ASSERT(false);
     }
   }
@@ -259,7 +267,7 @@ FORCE_INLINE McastRoutingParams get_mcast_params_unidir_ring(
   int32_t size = topology.mesh_shape[topology.axis];
 
   // Assert: at least one destination (not including sender)
-  WAYPOINT("DA51");
+  WAYPOINT("DA53");
   ASSERT(!(my_idx == start_idx && start_idx == end_idx));
 
   McastRoutingParams result;
@@ -274,15 +282,14 @@ FORCE_INLINE McastRoutingParams get_mcast_params_unidir_ring(
   auto [start_1, range_1, start_2_gap, range_2] =
       get_ring_regions(my_idx, start_idx, end_idx, size, is_forward);
   // sender must be inside or adjacent to mcast region
-  WAYPOINT("DA52");
+  WAYPOINT("DA54");
   ASSERT(start_1 == 1);
   // gap not supported
-  WAYPOINT("DA53");
+  WAYPOINT("DA55");
   ASSERT(start_2_gap == 1);
 
+  // TODO (sohaibnadeemTT) #6971: generlize setting params for any dir
   result.params_per_direction[dir].active = true;
-  // result.params_per_direction[dir].dst_dev_id = dst_start_device_id;
-  // result.params_per_direction[dir].dst_mesh_id = 0; // fix???
   if (dir == eth_chan_directions::EAST) {
     result.params_per_direction[dir].e_num_hops = range_1 + range_2;
   } else if (dir == eth_chan_directions::WEST) {
@@ -292,7 +299,7 @@ FORCE_INLINE McastRoutingParams get_mcast_params_unidir_ring(
   } else if (dir == eth_chan_directions::SOUTH) {
     result.params_per_direction[dir].s_num_hops = range_1 + range_2;
   } else {
-    WAYPOINT("DA54");
+    WAYPOINT("DA56");
     ASSERT(false);
   }
 
@@ -302,7 +309,7 @@ FORCE_INLINE McastRoutingParams get_mcast_params_unidir_ring(
 FORCE_INLINE McastRoutingParams get_mcast_params_unidir_torus(
     TopologyInfo &topology, uint16_t my_device_id, uint16_t dst_start_device_id,
     uint16_t dst_end_device_id) {
-  WAYPOINT("DA55");
+  WAYPOINT("DA57");
   ASSERT(NUM_DIMS == 2);
   int32_t my_y = topology.get_logical_mesh_position(my_device_id)[0];
   int32_t start_y = topology.get_logical_mesh_position(dst_start_device_id)[0];
@@ -314,7 +321,7 @@ FORCE_INLINE McastRoutingParams get_mcast_params_unidir_torus(
   int32_t size_x = topology.mesh_shape[1];
 
   // Assert: at least one destination (not including sender)
-  WAYPOINT("DA56");
+  WAYPOINT("DA58");
   ASSERT(!(my_device_id == dst_start_device_id &&
            dst_start_device_id == dst_end_device_id));
 
@@ -339,24 +346,23 @@ FORCE_INLINE McastRoutingParams get_mcast_params_unidir_torus(
     std::tie(ns_start_1, ns_range_1, ns_start_2_gap, ns_range_2) =
         get_ring_regions(my_y, start_y, end_y, size_y, is_forward);
     // sender must be inside or adjacent to mcast region
-    WAYPOINT("DA57");
+    WAYPOINT("DA59");
     ASSERT(ns_start_1 == 1);
     // gap not supported
-    WAYPOINT("DA58");
+    WAYPOINT("DA60");
     ASSERT(ns_start_2_gap == 1);
   }
   if (ew_region_exists) {
     std::tie(ew_start_1, ew_range_1, ew_start_2_gap, ew_range_2) =
         get_ring_regions(my_x, start_x, end_x, size_x, is_forward);
     // sender must be inside or adjacent to mcast region
-    WAYPOINT("DA59");
+    WAYPOINT("DA61");
     ASSERT(ew_start_1 == 1);
-    WAYPOINT("DA60");
+    WAYPOINT("DA62");
     ASSERT(ew_start_2_gap == 1);
   }
 
-  // TODO: have a function function to set correct hop field or abstract to
-  // array indexed by dir same issue with setting hops exists in other functions
+  // TODO (sohaibnadeemTT) #6971: generlize setting params for any dir
   if (ns_region_exists) {
     result.params_per_direction[ns_dir].active = true;
     if (ns_dir == eth_chan_directions::NORTH) {
@@ -364,7 +370,7 @@ FORCE_INLINE McastRoutingParams get_mcast_params_unidir_torus(
     } else if (ns_dir == eth_chan_directions::SOUTH) {
       result.params_per_direction[ns_dir].s_num_hops = ns_range_1 + ns_range_2;
     } else {
-      WAYPOINT("DA61");
+      WAYPOINT("DA63");
       ASSERT(false);
     }
 
@@ -376,7 +382,7 @@ FORCE_INLINE McastRoutingParams get_mcast_params_unidir_torus(
         result.params_per_direction[ns_dir].w_num_hops =
             ew_range_1 + ew_range_2;
       } else {
-        WAYPOINT("DA62");
+        WAYPOINT("DA64");
         ASSERT(false);
       }
     }
@@ -389,12 +395,12 @@ FORCE_INLINE McastRoutingParams get_mcast_params_unidir_torus(
     } else if (ew_dir == eth_chan_directions::WEST) {
       result.params_per_direction[ew_dir].w_num_hops = ew_range_1 + ew_range_2;
     } else {
-      WAYPOINT("DA63");
+      WAYPOINT("DA65");
       ASSERT(false);
     }
   }
 
-  WAYPOINT("DA64");
+  WAYPOINT("DA66");
   ASSERT(ns_region_exists || ew_region_exists);
 
   return result;
@@ -448,7 +454,7 @@ void fabric_set_unicast_route_custom(
           1; // West only: branch at hop 1
     }
   } else {
-    WAYPOINT("DA65");
+    WAYPOINT("DA67");
     ASSERT(false);
   }
 }

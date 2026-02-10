@@ -35,7 +35,6 @@ FORCE_INLINE uint16_t get_my_device_id() {
   return routing_table->my_device_id;
 }
 
-// TODO: remove this helper and use a array map
 FORCE_INLINE int
 get_connection_index_by_tag(RoutingPlaneConnectionManager &fabric_connections,
                             uint32_t tag) {
@@ -163,7 +162,7 @@ fabric_fast_write(WorkerToFabricEdmSender &connection,
   connection.send_payload_flush_non_blocking_from_address(
       reinterpret_cast<uint32_t>(packet_header), sizeof(PACKET_HEADER_TYPE));
 
-  noc_async_writes_flushed(); // TODO: remove this???
+  noc_async_writes_flushed();
 }
 
 FORCE_INLINE void
@@ -185,6 +184,8 @@ fabric_fast_write_any_len(FabricConnectionManager &fabric_connection_manager,
       fabric_connection_manager.get_connection_and_packet_header(
           unicast_params.outgoing_direction);
 #ifdef FABRIC_2D
+  // Note: inter-mesh routing not supported so device id and mesh id params
+  // below aren't used
   fabric_set_unicast_route_custom(
       static_cast<volatile tt_l1_ptr HybridMeshPacketHeader *>(packet_header),
       dst_dev_id, dst_mesh_id, unicast_params.ns_hops, unicast_params.ew_hops,
@@ -207,7 +208,7 @@ fabric_fast_write_any_len(FabricConnectionManager &fabric_connection_manager,
 
 // Conditions:
 // - dest_start_logical_index <= dest_end_logical_index in all dimensions
-// - there is at least one destination (not including sender);
+// - there is at least one destination (not including sender)
 FORCE_INLINE void fabric_mcast_fast_write_any_len(
     FabricConnectionManager &fabric_connection_manager, uint16_t dst_mesh_id,
     uint16_t dst_dev_id_start, uint16_t dst_dev_id_end, uint64_t dest_addr,
@@ -229,13 +230,12 @@ FORCE_INLINE void fabric_mcast_fast_write_any_len(
       auto [connection, packet_header] =
           fabric_connection_manager.get_connection_and_packet_header(i);
 #ifdef FABRIC_2D
+      // Note: inter-mesh routing not supported so device id and mesh id params
+      // below aren't used
       fabric_set_mcast_route(
           static_cast<volatile tt_l1_ptr HybridMeshPacketHeader *>(
               packet_header),
-          my_device_id, // TODO: what should this even be? (only relevant for
-                        // inter-mesh)
-          my_mesh_id,   // TODO: what should this even be? (only relevant for
-                        // inter-mesh)
+          my_device_id, my_mesh_id,
           mcast_params.params_per_direction[i].e_num_hops,
           mcast_params.params_per_direction[i].w_num_hops,
           mcast_params.params_per_direction[i].n_num_hops,
