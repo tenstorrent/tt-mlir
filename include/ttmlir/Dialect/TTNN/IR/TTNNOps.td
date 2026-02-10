@@ -1980,7 +1980,8 @@ def TTNN_AvgPool2dOp : TTNN_Op<"avg_pool2d", [TTNN_MemoryConfigOpInterface]> {
                          OptionalAttr<TTNN_TensorMemoryLayoutAttr>:$applied_shard_scheme,
                          BoolAttr:$ceil_mode,
                          DefaultValuedAttr<BoolAttr, "true">:$reallocate_halo_output,
-                         DefaultValuedAttr<BoolAttr, "true">:$count_include_pad);
+                         DefaultValuedAttr<BoolAttr, "true">:$count_include_pad,
+                         OptionalAttr<BoolAttr>:$config_tensors_in_dram);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -2011,7 +2012,8 @@ def TTNN_MaxPool2dOp : TTNN_Op<"max_pool2d", [TTNN_MemoryConfigOpInterface]> {
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
                          OptionalAttr<TTNN_TensorMemoryLayoutAttr>:$applied_shard_scheme,
                          BoolAttr:$ceil_mode,
-                         DefaultValuedAttr<BoolAttr, "true">:$reallocate_halo_output);
+                         DefaultValuedAttr<BoolAttr, "true">:$reallocate_halo_output,
+                         OptionalAttr<BoolAttr>:$config_tensors_in_dram);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -2044,7 +2046,8 @@ def TTNN_MaxPool2dWithIndicesOp : TTNN_Op<"max_pool2d_with_indices", [TTNN_Memor
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
                          OptionalAttr<TTNN_TensorMemoryLayoutAttr>:$applied_shard_scheme,
                          BoolAttr:$ceil_mode,
-                         DefaultValuedAttr<BoolAttr, "true">:$reallocate_halo_output);
+                         DefaultValuedAttr<BoolAttr, "true">:$reallocate_halo_output,
+                         OptionalAttr<BoolAttr>:$config_tensors_in_dram);
 
     let results = (outs AnyRankedTensor:$result,
                         AnyRankedTensor:$result_indices);
@@ -2640,6 +2643,8 @@ def TTNN_PermuteOp : TTNN_Op<"permute"> {
           );
       }
     }];
+
+    let hasFolder = 1;
 }
 
 def TTNN_UpsampleOp : TTNN_Op<"upsample"> {

@@ -11,7 +11,6 @@ struct Dim2dRange {
 }
 
 enum Arch: uint {
-  Grayskull,
   Wormhole_b0,
   Blackhole
 }

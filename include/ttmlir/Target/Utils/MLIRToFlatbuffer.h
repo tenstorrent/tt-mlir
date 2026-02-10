@@ -296,8 +296,6 @@ toFlatbuffer(FlatbufferObjectCache &,
 inline ::tt::target::Arch toFlatbuffer(FlatbufferObjectCache &,
                                        ttcore::ArchAttr arch) {
   switch (arch.getValue()) {
-  case ttcore::Arch::Grayskull:
-    return ::tt::target::Arch::Grayskull;
   case ttcore::Arch::WormholeB0:
     return ::tt::target::Arch::Wormhole_b0;
   case ttcore::Arch::Blackhole:

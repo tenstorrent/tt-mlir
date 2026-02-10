@@ -108,6 +108,38 @@ def ConvertXlaSdyToSdyPass : Pass<"convert-xla-sdy-to-sdy", "::mlir::ModuleOp">
   ];
 }
 
+def StableHLOFusingPass : Pass<"stablehlo-fusing", "::mlir::ModuleOp">
+{
+  let summary = "StableHLO fusing pass for shardy passes optimization.";
+  let description = [{
+    This pass tries to fuse stablehlo operations together with the goal of optimizing shardy passes.
+    If proposed fusion is not optimizing shardy passes, it should be implemented in lower level passes. i.e. in TTIR/ TTNN fusion passes.
+
+    For example, it implements `ConcatenateToBroadcastInDimFusionPattern` pattern which fuses stablehlo.concatenate
+    and stablehlo.reshape into stablehlo.broadcast_in_dim. This is due to the fact that
+    stablehlo.broadcast_in_dim propagates shardings better during UserPriorityPropagationPass and InsertExplicitReshardsPass.
+    See https://github.com/openxla/shardy/issues/945 for more details.
+
+    Example, this pass will convert the following code:
+    ```mlir
+      %0 = stablehlo.concatenate %arg0, %arg0, %arg0, dim = 0 :
+            (tensor<2x4xbf16>, tensor<2x4xbf16>, tensor<2x4xbf16>) ->
+            tensor<6x4xbf16>
+      %1 = stablehlo.reshape %0 : (tensor<6x4xbf16>) -> tensor<3x2x4xbf16>
+    ```
+
+    Into:
+    ```mlir
+      %0 = stablehlo.broadcast_in_dim %arg0, dims = [1, 2] :
+            (tensor<2x4xbf16>) -> tensor<3x2x4xbf16>
+    ```
+  }];
+
+  let dependentDialects = [
+    "::mlir::stablehlo::StablehloDialect"
+  ];
+}
+
 def PartiallyConvertSdyToStableHLOPass : Pass<"partially-convert-sdy-to-stablehlo", "::mlir::ModuleOp">
 {
   let summary = "Partially convert Shardy operations to StableHLO operations.";
@@ -140,7 +172,6 @@ def PartiallyConvertSdyToStableHLOPass : Pass<"partially-convert-sdy-to-stablehl
     "::mlir::sdy::SdyDialect"
   ];
 }
-
 
 def AnalyzeMeshPass : Pass<"analyze-mesh", "::mlir::ModuleOp">
 {

@@ -241,6 +241,22 @@ public:
                                             maxFallbackAttempts);
           }
 
+          // For non-OOM errors, try config fallbacks as a last resort.
+          // This can help with config-related failures like slice window
+          // misalignment.
+          if (!fixed && originalResult.status !=
+                            op_constraint_validation::ValidationStatus::
+                                OutOfMemoryError) {
+            TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
+                         "Trying config fallbacks for non-OOM error (status: "
+                         "{}) at operation {} at {}",
+                         op_constraint_validation::validationStatusToString(
+                             originalResult.status),
+                         operation->getName(), operation->getLoc());
+            fixed = fallbacks::tryConfigFallbacks(operation, inputLayouts,
+                                                  config, maxFallbackAttempts);
+          }
+
           if (fixed) {
             operationsFixed++;
             TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
