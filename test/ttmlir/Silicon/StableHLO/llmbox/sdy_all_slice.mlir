@@ -6,7 +6,6 @@ module {
   sdy.mesh @mesh = <["model"=1, "batch"=8]>
   func.func @all_slice_replicated_input(%arg0: tensor<1x32xbf16> {sdy.sharding = #sdy.sharding<@mesh, [{}, {}]>}) -> tensor<1x32xbf16> {
     %0 = sdy.all_slice [{}, {"batch"}] %arg0 out_sharding=<@mesh, [{}, {"batch"}]> : tensor<1x32xbf16>
-    %1 = sdy.all_gather [{}, {"batch"}] %0 out_sharding=<@mesh, [{}, {}]> : tensor<1x32xbf16>
-    return %1 : tensor<1x32xbf16>
+    return %0 : tensor<1x32xbf16>
   }
 }

@@ -1285,78 +1285,6 @@ private:
   }
 };
 
-// Fuses a PadOp into a Pool2dOp by combining their padding attributes.
-// This pattern matches when a Pool2dOp's input comes from a PadOp that only
-// pads spatial dimensions (H, W), and combines both paddings into a single
-// Pool2dOp with updated padding.
-template <typename Pool2dOp>
-class PadPool2dFusionPattern : public mlir::OpRewritePattern<Pool2dOp> {
-public:
-  using mlir::OpRewritePattern<Pool2dOp>::OpRewritePattern;
-
-  mlir::LogicalResult
-  matchAndRewrite(Pool2dOp op, mlir::PatternRewriter &rewriter) const final {
-    // Pool2dOp implicitly pads with zero. Fusing can be performed only if PadOp
-    // also pads with zero.
-    PadOp padOp = op.getInput().template getDefiningOp<PadOp>();
-    if (!padOp || !padOp.getValue().isZero()) {
-      return failure();
-    }
-
-    // PadOp padding is [N_low, N_high, H_low, H_high, W_low, W_high, C_low,
-    // C_high] for 4D NHWC tensors. Pool2dOp only operates on spatial dimensions
-    // (H, W), therefore fusing can be performed only if N and C paddings are 0.
-    ArrayRef<int32_t> padOpPadding = padOp.getPadding();
-    if (padOpPadding.size() != PAD_OP_NHWC_ARRAY_SIZE) {
-      return failure();
-    }
-    if (padOpPadding[PAD_OP_N_LOW] != 0 || padOpPadding[PAD_OP_N_HIGH] != 0 ||
-        padOpPadding[PAD_OP_C_LOW] != 0 || padOpPadding[PAD_OP_C_HIGH] != 0) {
-      return failure();
-    }
-
-    // Pool2dOp padding attribute can be:
-    // - i32: same padding for all sides.
-    // - array<2xi32>: same padding for H and W dimensions, respectively.
-    // - array<4xi32>: [top, left, bottom, right] format.
-    // All 3 cases are covered here.
-    auto poolOpPadding =
-        ttmlir::utils::getQuadrupleOfInteger<int32_t>(op.getPaddingAttr());
-    if (!poolOpPadding) {
-      TT_assertv(false, "Invalid 2D pooling op attribute type.");
-    }
-
-    SmallVector<int32_t> newPadding = {
-        padOpPadding[PAD_OP_H_LOW] + std::get<0>(*poolOpPadding),
-        padOpPadding[PAD_OP_W_LOW] + std::get<1>(*poolOpPadding),
-        padOpPadding[PAD_OP_H_HIGH] + std::get<2>(*poolOpPadding),
-        padOpPadding[PAD_OP_W_HIGH] + std::get<3>(*poolOpPadding),
-    };
-
-    rewriter.modifyOpInPlace(op, [&]() {
-      op.getInputMutable().assign(padOp.getInput());
-      op.setPaddingAttr(rewriter.getDenseI32ArrayAttr(newPadding));
-    });
-
-    return success();
-  }
-
-private:
-  // PadOp padding indices for 4D NHWC tensors:
-  // [N_low, N_high, H_low, H_high, W_low, W_high, C_low, C_high]
-  static constexpr size_t PAD_OP_N_LOW = 0;
-  static constexpr size_t PAD_OP_N_HIGH = 1;
-  static constexpr size_t PAD_OP_H_LOW = 2;
-  static constexpr size_t PAD_OP_H_HIGH = 3;
-  static constexpr size_t PAD_OP_W_LOW = 4;
-  static constexpr size_t PAD_OP_W_HIGH = 5;
-  static constexpr size_t PAD_OP_C_LOW = 6;
-  static constexpr size_t PAD_OP_C_HIGH = 7;
-
-  // Padding array size in PadOp for NHWC tensors.
-  static constexpr size_t PAD_OP_NHWC_ARRAY_SIZE = 8;
-};
-
 // Fuse MatmulOp followed by AddOp into a single LinearOp.
 // This pattern looks for an AddOp where one of its operands is the result of
 // a MatmulOp and the other operand is a bias term. It then replaces the
@@ -3149,6 +3077,31 @@ public:
   mlir::LogicalResult
   matchAndRewrite(MultiplyOp outerMul,
                   mlir::PatternRewriter &rewriter) const final {
+    // TTNN RMS norm only supports normalization over the last dimension.
+    // The normalized_shape parameter of RMSNormOp is the size of the last dim.
+    auto outputType = mlir::cast<RankedTensorType>(outerMul.getType());
+    if (outputType.getRank() == 0) {
+      return mlir::failure();
+    }
+    int64_t normalizedDimSize = outputType.getShape().back();
+
+    // Traces through ops that preserve or set the last dim to
+    // normalizedDimSize.
+    auto lookThroughSafeOps = [normalizedDimSize](mlir::Value value) {
+      return utils::lookThroughLayoutOpsIf(
+          value, [normalizedDimSize](mlir::Operation *op) {
+            if (utils::preservesDim(op, -1)) {
+              return true;
+            }
+            // Allow broadcasts that expand to normalized size.
+            if (auto broadcast = mlir::dyn_cast<BroadcastOp>(op)) {
+              auto outType = mlir::cast<RankedTensorType>(broadcast.getType());
+              return outType.getShape().back() == normalizedDimSize;
+            }
+            return false;
+          });
+    };
+
     MultiplyOp innerMul =
         utils::findOpThrough<MultiplyOp, TypecastOp>(outerMul.getLhs());
     mlir::Value gammaRaw = outerMul.getRhs();
@@ -3161,20 +3114,22 @@ public:
       return mlir::failure();
     }
 
-    RsqrtOp rsqrtOp = utils::findOpThroughLayoutOps<RsqrtOp>(innerMul.getLhs());
+    RsqrtOp rsqrtOp =
+        lookThroughSafeOps(innerMul.getLhs()).getDefiningOp<RsqrtOp>();
     mlir::Value xRaw = innerMul.getRhs();
     if (!rsqrtOp) {
-      rsqrtOp = utils::findOpThroughLayoutOps<RsqrtOp>(innerMul.getRhs());
+      rsqrtOp = lookThroughSafeOps(innerMul.getRhs()).getDefiningOp<RsqrtOp>();
       xRaw = innerMul.getLhs();
     }
     if (!rsqrtOp) {
       return mlir::failure();
     }
 
-    auto addOp = utils::findOpThroughLayoutOps<AddOp>(rsqrtOp.getInput());
+    auto addOp = lookThroughSafeOps(rsqrtOp.getInput()).getDefiningOp<AddOp>();
     if (!addOp) {
       return mlir::failure();
     }
+
     MeanOp meanOp = addOp.getLhs().getDefiningOp<MeanOp>();
     mlir::Value epsilon = addOp.getRhs();
     if (!meanOp) {
@@ -3185,7 +3140,6 @@ public:
       return mlir::failure();
     }
 
-    // TTNN RMS norm only supports normalization over the last dimension.
     auto dimArg = meanOp.getDimArg();
     if (!dimArg || dimArg->size() != 1) {
       return mlir::failure();
@@ -3199,18 +3153,17 @@ public:
     }
 
     // Match x^2 as mul(x,x) or pow(x,2).
-    // Look through layout ops to find the original input.
     mlir::Value meanInput = meanOp.getInput();
     mlir::Value squareInput = nullptr;
-    mlir::Value x = utils::lookThroughLayoutOps(xRaw);
+    mlir::Value x = lookThroughSafeOps(xRaw);
 
     if (auto sq = meanInput.getDefiningOp<MultiplyOp>()) {
       if (sq.getLhs() == sq.getRhs()) {
-        squareInput = utils::lookThroughLayoutOps(sq.getLhs());
+        squareInput = lookThroughSafeOps(sq.getLhs());
       }
     } else if (auto pw = meanInput.getDefiningOp<PowOp>()) {
       if (isFullOpWithValue(pw.getRhs(), 2.0f)) {
-        squareInput = utils::lookThroughLayoutOps(pw.getLhs());
+        squareInput = lookThroughSafeOps(pw.getLhs());
       }
     }
 
@@ -3219,7 +3172,7 @@ public:
     }
 
     // Look through layout ops to find the epsilon FullOp
-    auto epsFull = utils::findOpThroughLayoutOps<FullOp>(epsilon);
+    auto epsFull = lookThroughSafeOps(epsilon).getDefiningOp<FullOp>();
     if (!epsFull) {
       return mlir::failure();
     }
@@ -3228,11 +3181,8 @@ public:
       return mlir::failure();
     }
 
-    mlir::Value gamma = utils::lookThroughLayoutOps(gammaRaw);
-    auto inputType = mlir::cast<RankedTensorType>(x.getType());
-    auto outputType = mlir::cast<RankedTensorType>(outerMul.getType());
-
-    llvm::SmallVector<int64_t> normalizedShape{inputType.getShape().back()};
+    mlir::Value gamma = lookThroughSafeOps(gammaRaw);
+    llvm::SmallVector<int64_t> normalizedShape{normalizedDimSize};
 
     // Reshape gamma to match normalized_shape if needed.
     // Gamma may have extra dimensions (e.g., [1, 1, 2048] instead of [2048]).
@@ -3259,7 +3209,8 @@ public:
                                          rewriter.getI32ArrayAttr(targetShape));
     }
 
-    // Create RMSNormOp with output shape and dtype matching input
+    // Create RMSNormOp with output shape and dtype matching input.
+    auto inputType = mlir::cast<RankedTensorType>(x.getType());
     auto rmsNormOutputType =
         RankedTensorType::get(inputType.getShape(), inputType.getElementType(),
                               inputType.getEncoding());
@@ -3270,22 +3221,9 @@ public:
 
     mlir::Value result = rmsNorm;
 
-    // If output shape differs from input shape, add a reshape
-    if (inputType.getShape() != outputType.getShape()) {
-      llvm::SmallVector<int32_t> targetShape(outputType.getShape());
-      auto reshapeOutputType = RankedTensorType::get(outputType.getShape(),
-                                                     inputType.getElementType(),
-                                                     inputType.getEncoding());
-      result = rewriter.create<ReshapeOp>(
-          outerMul.getLoc(), reshapeOutputType, result,
-          rewriter.getI32ArrayAttr(targetShape));
-    }
-
-    // If output dtype differs from input dtype, add a typecast
-    if (inputType.getElementType() != outputType.getElementType()) {
-      result =
-          rewriter.create<TypecastOp>(outerMul.getLoc(), outputType, result);
-    }
+    // Transform result to match output type (reshape and/or typecast as needed)
+    result = utils::reshapeAndCastToType(rewriter, outerMul.getLoc(), result,
+                                         outputType);
 
     rewriter.replaceOp(outerMul, result);
     return mlir::success();
@@ -3544,8 +3482,6 @@ public:
           &getContext());
       patterns.add<SplitQueryKeyValueAndSplitHeadsUpdatePattern<LinearOp>>(
           &getContext());
-      patterns.add<PadPool2dFusionPattern<AvgPool2dOp>>(&getContext());
-      patterns.add<PadPool2dFusionPattern<MaxPool2dOp>>(&getContext());
       patterns.add<ScaledSumToMeanPattern>(&getContext());
       patterns.add<SpatialMeanOptimizationPattern>(&getContext());
       patterns.add<MatmulWithBiasFusionPattern>(&getContext());

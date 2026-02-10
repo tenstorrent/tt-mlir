@@ -154,10 +154,6 @@ public:
     bool validationFailed = false;
 
     moduleOp->walk([&](func::FuncOp func) {
-      if (!ttmlir::utils::isForwardDeviceFunc(func)) {
-        return;
-      }
-
       func.walk([&](Operation *operation) -> WalkResult {
         if (auto toLayoutOp = mlir::dyn_cast<ttnn::ToLayoutOp>(operation)) {
           // Skip ToLayout operations - they will be decomposed later, so there
@@ -243,6 +239,22 @@ public:
           if (!fixed) {
             fixed = fallbacks::tryFallbacks(operation, inputLayouts, config,
                                             maxFallbackAttempts);
+          }
+
+          // For non-OOM errors, try config fallbacks as a last resort.
+          // This can help with config-related failures like slice window
+          // misalignment.
+          if (!fixed && originalResult.status !=
+                            op_constraint_validation::ValidationStatus::
+                                OutOfMemoryError) {
+            TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
+                         "Trying config fallbacks for non-OOM error (status: "
+                         "{}) at operation {} at {}",
+                         op_constraint_validation::validationStatusToString(
+                             originalResult.status),
+                         operation->getName(), operation->getLoc());
+            fixed = fallbacks::tryConfigFallbacks(operation, inputLayouts,
+                                                  config, maxFallbackAttempts);
           }
 
           if (fixed) {
@@ -720,6 +732,14 @@ void applyFallbackTransformations(
                               result.actualOutputLayout.getScalarElementType(),
                               result.actualOutputLayout);
     operation->getResult(0).setType(newResultType);
+
+    // Update the layout attribute for ops that have one (e.g., creation ops).
+    // The layout attribute must match the result type's layout.
+    if (TTNNLayoutOpInterface opWithLayoutIF =
+            mlir::dyn_cast<TTNNLayoutOpInterface>(operation)) {
+      opWithLayoutIF.setLayoutAttr(LayoutAttr::get(
+          operation->getContext(), result.actualOutputLayout.getLayout()));
+    }
 
     // Step 2: Add revert ToLayoutOp to convert back to expected layout for
     // consumers

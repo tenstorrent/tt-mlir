@@ -1194,13 +1194,23 @@ private:
     auto origOutputs =
         createDpsOutputs(loc, rewriter, {op.getResult().getType()});
     auto origInputs = adaptor.getOperands();
+
+    // For higher-rank matmuls (rank > 2), don't collapse batch dimensions.
+    // This preserves the ND structure for proper batch dimension handling.
+    // Note: checkPreconditions() guarantees both inputs have the same rank.
+    auto inputTensorType =
+        mlir::cast<RankedTensorType>(origInputs[0].getType());
+    bool noCollapse = (inputTensorType.getRank() > 2);
+
     auto [inputs, outputs] = toLayoutOperandsAndResults(
-        rewriter, {origInputs, origOutputs}, /*tiled*/ true);
+        rewriter, {origInputs, origOutputs}, /*tiled*/ true, noCollapse);
 
     const std::size_t numInputs = inputs.size();
     const std::size_t numOutputs = outputs.size();
     const std::size_t numOperands = (numInputs + numOutputs);
 
+    // Device layout doubles the rank (logical dimensions + device grid
+    // dimensions).
     const std::size_t physicalRank =
         ttcore::getDeviceLayout(outputs[0]).getRank() / 2;
 
@@ -1317,29 +1327,105 @@ private:
   static void checkPreconditions(ConcreteOp op) {
     assert((!op.getTransposeA() && !op.getTransposeB()) &&
            "TODO(#2591) expected no transpose attributes");
+
+    auto aType = mlir::cast<RankedTensorType>(op.getA().getType());
+    auto bType = mlir::cast<RankedTensorType>(op.getB().getType());
+    int64_t aRank = aType.getRank();
+    int64_t bRank = bType.getRank();
+
+    assert(aRank >= 2 && bRank >= 2 && "matmul operands must have rank >= 2");
+    assert(aRank == bRank &&
+           "matmul operands must have same rank for batched operations");
   }
 
+  /// Creates affine maps for matmul operation.
+  ///
+  /// For 2D matmuls:
+  ///   LHS: (M, K), RHS: (K, N), OUT: (M, N)
+  ///   Iteration space: (M, N, K) where K is the contraction dimension
+  ///
+  /// For ND matmuls (N > 2):
+  ///   LHS: (batch..., M, K), RHS: (batch..., K, N), OUT: (batch..., M, N)
+  ///   Iteration space: (batch..., M, N, K)
+  ///   - Batch dimensions are identity-mapped across all operands
+  ///   - Last two logical dimensions follow standard matmul pattern
+  ///
+  /// \param builder OpBuilder for creating affine expressions
+  /// \param arity Number of operands (must be 3: LHS, RHS, OUT)
+  /// \param rank Physical rank of the matmul operation (logical tensor rank)
+  /// \return Vector of affine maps for [LHS, RHS, OUT]
   static SmallVector<mlir::AffineMap>
   getAffineMapsArray(mlir::OpBuilder &builder, std::size_t arity,
                      std::size_t rank) {
     assert(arity == 3 && "expected 3 operands");
-    // TODO(#2592) handle higher ranks, if needed in this pass.
-    assert(rank == 2 && "expected a rank 2 operation");
+    assert(rank >= 2 && "matmul operation must have rank >= 2");
     mlir::MLIRContext *ctx = builder.getContext();
 
-    return SmallVector<mlir::AffineMap>{makeAffineMap(ctx, {0, 2}),
-                                        makeAffineMap(ctx, {2, 1}),
-                                        makeAffineMap(ctx, {0, 1})};
+    // For higher ranks: batch dims are identity, last 2 dims follow matmul
+    // pattern Matmul semantics: [...batch..., M, K] x [...batch..., K, N] ->
+    // [...batch..., M, N]
+    SmallVector<mlir::AffineExpr> lhsExprs, rhsExprs, outExprs;
+
+    // Iteration space has rank+1 dimensions: (batch..., M, N, K)
+    // where batch dimensions are [0, rank-2), M is rank-2, N is rank-1, K is
+    // rank
+
+    // Batch dimensions: identity mapping for all three operands
+    for (unsigned i = 0; i < rank - 2; ++i) {
+      lhsExprs.push_back(builder.getAffineDimExpr(i));
+      rhsExprs.push_back(builder.getAffineDimExpr(i));
+      outExprs.push_back(builder.getAffineDimExpr(i));
+    }
+
+    // LHS last two dimensions: [..., M, K]
+    lhsExprs.push_back(builder.getAffineDimExpr(rank - 2)); // M (rows)
+    lhsExprs.push_back(builder.getAffineDimExpr(rank));     // K (contraction)
+
+    // RHS last two dimensions: [..., K, N]
+    rhsExprs.push_back(builder.getAffineDimExpr(rank));     // K (contraction)
+    rhsExprs.push_back(builder.getAffineDimExpr(rank - 1)); // N (columns)
+
+    // OUT last two dimensions: [..., M, N]
+    outExprs.push_back(builder.getAffineDimExpr(rank - 2)); // M (rows)
+    outExprs.push_back(builder.getAffineDimExpr(rank - 1)); // N (columns)
+
+    // Return affine maps with rank+1 total dimensions (batch + M + N + K)
+    return SmallVector<mlir::AffineMap>{
+        AffineMap::get(rank + 1, 0, lhsExprs, ctx),
+        AffineMap::get(rank + 1, 0, rhsExprs, ctx),
+        AffineMap::get(rank + 1, 0, outExprs, ctx)};
   }
 
+  /// Creates iterator type attributes for matmul operation.
+  ///
+  /// The iteration space for an N-dimensional matmul has N+1 dimensions:
+  ///   - Batch dimensions [0, N-2): parallel
+  ///   - M dimension (N-2): parallel (result rows)
+  ///   - N dimension (N-1): parallel (result columns)
+  ///   - K dimension (N): reduction (contraction)
+  ///
+  /// \param builder OpBuilder for creating attributes
+  /// \param rank Physical rank of the matmul operation (logical tensor rank)
+  /// \return Vector of iterator type attributes
   static SmallVector<mlir::Attribute>
   getIteratorTypesArray(mlir::OpBuilder &builder, std::size_t rank) {
-    assert(rank == 2 && "expected a rank 2 operation");
+    assert(rank >= 2 && "matmul operation must have rank >= 2");
     auto parallel = ttcore::IteratorTypeAttr::get(
         builder.getContext(), ttcore::IteratorType::Parallel);
     auto reduction = ttcore::IteratorTypeAttr::get(
         builder.getContext(), ttcore::IteratorType::Reduction);
-    return SmallVector<mlir::Attribute>{parallel, parallel, reduction};
+
+    SmallVector<mlir::Attribute> result;
+
+    // All batch dimensions and result dimensions (M, N) are parallel
+    for (unsigned i = 0; i < rank; ++i) {
+      result.push_back(parallel);
+    }
+
+    // K (contraction dimension) is reduction
+    result.push_back(reduction);
+
+    return result;
   }
 
   static mlir::AffineMap makeAffineMap(mlir::MLIRContext *ctx,
@@ -1575,20 +1661,99 @@ private:
 };
 } // namespace
 
-// Simple conversion for ttir.to_layout -> d2m.to_layout.
-class D2MToLayoutOpRewriter : public OpConversionPattern<ttir::ToLayoutOp> {
-  using OpConversionPattern<ttir::ToLayoutOp>::OpConversionPattern;
+// Conversion for ttir.to_layout -> d2m.to_layout.
+class D2MToLayoutOpRewriter : public D2MNamedRewriterCommon,
+                              public OpConversionPattern<ttir::ToLayoutOp> {
+public:
+  D2MToLayoutOpRewriter(const TypeConverter &typeConverter,
+                        MLIRContext *context, bool ttnnMode)
+      // default values for memory spaces, collapseTensors,
+      // enableMulticastInference. Only ttnnMode is used.
+      : D2MNamedRewriterCommon(ttcore::MemorySpace::DeviceDRAM,
+                               ttcore::MemorySpace::DeviceDRAM, ttnnMode, false,
+                               false),
+        OpConversionPattern<ttir::ToLayoutOp>(typeConverter, context) {}
+
+  using D2MNamedRewriterCommon::getMetalTensorFromTTNNTensor;
+
+private:
+  LogicalResult
+  rewriteIfTTNNModeEnabled(ttir::ToLayoutOp op, OpAdaptor adaptor,
+                           ConversionPatternRewriter &rewriter) const {
+    /* Lowers ttir.to_layout with TTNN tensor operands when ttnnMode is enabled,
+       to d2m.to_layout with Metal tensor operands. This is done by
+       auto-inserting casts to/from tensors with MetalLayoutAttr, which
+       downstream passes support. The conversion flow is:
+       1. Cast TTNN input to Metal layout
+       2. Create d2m.empty with TTNN output layout
+       3. Cast the d2m.empty from TTNN to Metal layout
+       4. Create d2m.to_layout with Metal input cast and d2m.empty cast
+       5. Cast result back to TTNN layout
+    */
+    auto outType = mlir::cast<RankedTensorType>(op.getOutput().getType());
+
+    bool outputIsTTNN =
+        mlir::isa_and_nonnull<ttnn::TTNNLayoutAttr>(outType.getEncoding());
+    TT_assertv(
+        outputIsTTNN,
+        "expected output type to have TTNN layout when ttnnMode is enabled");
+
+    // TTNN output handling.
+    // Convert input to Metal layout if needed.
+    Value metalInput = adaptor.getInput();
+    auto inputType = mlir::cast<RankedTensorType>(adaptor.getInput().getType());
+    if (mlir::isa_and_nonnull<ttnn::TTNNLayoutAttr>(inputType.getEncoding())) {
+      auto inputMetalType =
+          getMetalTensorFromTTNNTensor(rewriter, adaptor.getInput());
+      metalInput = rewriter
+                       .create<ttir::TTNNMetalLayoutCastOp>(
+                           op.getLoc(), inputMetalType, adaptor.getInput())
+                       .getResult();
+    }
+
+    auto outputMetalType =
+        getMetalTensorFromTTNNTensor(rewriter, op.getOutput());
+
+    // Create d2m.empty for TTNN layout.
+    Value metalEmpty = rewriter.create<d2m::EmptyOp>(
+        op.getLoc(), outType.getShape(), outType.getElementType(),
+        outType.getEncoding());
+
+    // Cast TTNN empty to Metal layout.
+    auto metalCast = rewriter.create<ttir::TTNNMetalLayoutCastOp>(
+        op.getLoc(), outputMetalType, metalEmpty);
+
+    // Create d2m.to_layout with Metal types.
+    auto metalToLayout =
+        rewriter.create<d2m::ToLayoutOp>(op.getLoc(), metalInput, metalCast);
+
+    // Cast back to TTNN.
+    auto ttnnResult = rewriter.create<ttir::TTNNMetalLayoutCastOp>(
+        op.getLoc(), outType, metalToLayout.getResult(0));
+
+    rewriter.replaceOp(op, ttnnResult.getResult());
+    return success();
+  }
+
+public:
   LogicalResult
   matchAndRewrite(ttir::ToLayoutOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     auto outType = mlir::cast<RankedTensorType>(op.getOutput().getType());
-    Value empty = rewriter.create<d2m::EmptyOp>(op.getLoc(), outType.getShape(),
-                                                outType.getElementType(),
-                                                outType.getEncoding());
-    auto newOp = rewriter.create<d2m::ToLayoutOp>(op.getLoc(),
-                                                  adaptor.getInput(), empty);
-    rewriter.replaceOp(op, newOp.getResult(0));
-    return success();
+
+    if (!ttnnMode) {
+      // When ttnnMode is disabled, we can simply convert ttir.to_layout
+      // directly to d2m.to_layout.
+      Value empty = rewriter.create<d2m::EmptyOp>(
+          op.getLoc(), outType.getShape(), outType.getElementType(),
+          outType.getEncoding());
+      auto newOp = rewriter.create<d2m::ToLayoutOp>(op.getLoc(),
+                                                    adaptor.getInput(), empty);
+      rewriter.replaceOp(op, newOp.getResult(0));
+      return success();
+    }
+
+    return rewriteIfTTNNModeEnabled(op, adaptor, rewriter);
   }
 };
 
@@ -1601,6 +1766,23 @@ class D2MEmptyOpRewriter : public OpConversionPattern<ttir::EmptyOp> {
                   ConversionPatternRewriter &rewriter) const override {
     auto resultType = op.getResult().getType();
     auto tensorType = cast<RankedTensorType>(resultType);
+    bool outputIsTTNN =
+        mlir::isa_and_nonnull<ttnn::TTNNLayoutAttr>(resultType.getEncoding());
+
+    if (outputIsTTNN) {
+      // If a user of a ttir.empty is a ttir.to_layout, erase the ttir.empty
+      // instead of converting to d2m.empty. The D2MToLayoutOpRewriter creates a
+      // d2m.empty with the d2m.to_layout as a user, so this empty op is not
+      // needed.
+      for (Operation *user : op->getUsers()) {
+        if (auto toLayoutOp = dyn_cast<ttir::ToLayoutOp>(user)) {
+          if (toLayoutOp.getOutput() == op.getResult()) {
+            rewriter.eraseOp(op);
+            return success();
+          }
+        }
+      }
+    }
 
     // Create d2m.empty with same shape and element type.
     auto d2mEmpty = rewriter.create<d2m::EmptyOp>(
@@ -1957,7 +2139,7 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
 
 
   // ToLayout 1:1 conversion.
-  patterns.add<D2MToLayoutOpRewriter>(typeConverter, ctx);
+  patterns.add<D2MToLayoutOpRewriter>(typeConverter, ctx, ttnnMode);
 
   // Creation ops 1:1 conversion.
   patterns.add<D2MEmptyOpRewriter, D2MFullOpRewriter>(typeConverter, ctx);

@@ -134,30 +134,6 @@ static target::metal::EthType toFlatbuffer(ttmetal::EthType ethType) {
   assert(false && "Unsupported EthType");
 }
 
-static target::Topology toFlatbuffer(ttcore::Topology topology) {
-  switch (topology) {
-  case ttcore::Topology::Linear:
-    return target::Topology::Linear;
-  case ttcore::Topology::Ring:
-    return target::Topology::Ring;
-  case ttcore::Topology::Mesh:
-    return target::Topology::Mesh;
-  case ttcore::Topology::Torus:
-    return target::Topology::Torus;
-  }
-  assert(false && "Unsupported Topology");
-}
-
-static target::metal::NocIndex toFlatbuffer(ttmetal::NocIndex nocIndex) {
-  switch (nocIndex) {
-  case ttmetal::NocIndex::Noc0:
-    return target::metal::NocIndex::Noc0;
-  case ttmetal::NocIndex::Noc1:
-    return target::metal::NocIndex::Noc1;
-  }
-  assert(false && "Unsupported NocIndex");
-}
-
 static target::Dim2dRange toFlatbuffer(CoreRangeAttr coreRange) {
   const auto offset = coreRange.getOffset();
   const auto size = coreRange.getSize();
@@ -649,7 +625,7 @@ static flatbuffers::Offset<target::metal::NocConfig>
 nocConfigToFlatbuffer(FlatbufferObjectCache &cache,
                       NocConfigAttr nocConfigAttr) {
   return target::metal::CreateNocConfig(
-      *cache.fbb, toFlatbuffer(nocConfigAttr.getNocIndex()));
+      *cache.fbb, toFlatbuffer(cache, nocConfigAttr.getNocIndex()));
 }
 
 static flatbuffers::Offset<target::metal::ComputeConfig>
@@ -669,16 +645,16 @@ ethernetConfigToFlatbuffer(FlatbufferObjectCache &cache,
                            EthernetConfigAttr ethernetConfigAttr) {
   return target::metal::CreateEthernetConfig(
       *cache.fbb, toFlatbuffer(ethernetConfigAttr.getEthType()),
-      toFlatbuffer(ethernetConfigAttr.getNocIndex()));
+      toFlatbuffer(cache, ethernetConfigAttr.getNocIndex()));
 }
 
-static flatbuffers::Offset<target::metal::FabricConnectionConfig>
+static flatbuffers::Offset<target::FabricConnectionConfig>
 fabricConnectionConfigToFlatbuffer(
     FlatbufferObjectCache &cache,
     FabricConnectionConfigAttr fabricConnectionConfig) {
-  return target::metal::CreateFabricConnectionConfig(
-      *cache.fbb, toFlatbuffer(fabricConnectionConfig.getNocIndex()),
-      toFlatbuffer(fabricConnectionConfig.getTopology()),
+  return target::CreateFabricConnectionConfig(
+      *cache.fbb, toFlatbuffer(cache, fabricConnectionConfig.getNocIndex()),
+      toFlatbuffer(cache, fabricConnectionConfig.getTopology()),
       fabricConnectionConfig.getClusterAxis(),
       fabricConnectionConfig.getNumLinks());
 }
@@ -877,7 +853,7 @@ std::shared_ptr<void> translateTTMetalToFlatbuffer(
               symbolTable));
         }
 
-        flatbuffers::Offset<target::metal::FabricConnectionConfig>
+        flatbuffers::Offset<target::FabricConnectionConfig>
             fabricConnectionConfig;
         if (enqueueProgramOp.getFabricConnectionConfigAttr()) {
           fabricConnectionConfig = fabricConnectionConfigToFlatbuffer(

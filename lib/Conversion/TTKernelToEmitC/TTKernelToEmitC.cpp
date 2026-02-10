@@ -41,11 +41,8 @@ namespace mlir::tt::ttkernel {
 
 // ............................................................................
 
-emitc::OpaqueAttr
-datatypeToDataformatEnumValue(Builder &builder,
-                              ::mlir::tt::ttcore::DataType dtype) {
-  std::string expression =
-      "static_cast<std::underlying_type_t<DataFormat>>(DataFormat::";
+static std::string datatypeToDataformatStr(ttcore::DataType dtype) {
+  std::string expression = "DataFormat::";
   switch (dtype) {
   case ::mlir::tt::ttcore::DataType::Float32:
     expression += "Float32";
@@ -90,6 +87,21 @@ datatypeToDataformatEnumValue(Builder &builder,
     llvm_unreachable("Bool DataType is not supported in TTKernel DataFormat");
     break;
   }
+  return expression;
+}
+
+static emitc::OpaqueAttr
+datatypeToDataformatEnumNameOpaqueAttr(Builder &builder,
+                                       ttcore::DataType dtype) {
+  std::string expression = datatypeToDataformatStr(dtype);
+  return builder.getType<emitc::OpaqueAttr>(expression.c_str());
+}
+
+static emitc::OpaqueAttr
+datatypeToDataformatEnumValueOpaqueAttr(Builder &builder,
+                                        ttcore::DataType dtype) {
+  std::string expression = "static_cast<std::underlying_type_t<DataFormat>>(";
+  expression += datatypeToDataformatStr(dtype);
   expression += ")";
   return builder.getType<emitc::OpaqueAttr>(expression.c_str());
 }
@@ -272,9 +284,9 @@ public:
                                         ttkernel::TypecastTileInitOp>) {
       SmallVector<Attribute, 2> template_args;
       template_args.push_back(
-          datatypeToDataformatEnumValue(builder, op.getInDtype()));
+          datatypeToDataformatEnumValueOpaqueAttr(builder, op.getInDtype()));
       template_args.push_back(
-          datatypeToDataformatEnumValue(builder, op.getOutDtype()));
+          datatypeToDataformatEnumValueOpaqueAttr(builder, op.getOutDtype()));
       return ArrayAttr::get(op.getContext(), template_args);
     } else if constexpr (std::is_same_v<SourceOp,
                                         ttkernel::BinaryDestReuseTilesInitOp> ||
@@ -301,6 +313,17 @@ public:
               : "EltwiseBinaryReuseDestType::DEST_TO_SRCB";
       template_args.push_back(
           emitc::OpaqueAttr::get(op.getContext(), reuseType));
+      return ArrayAttr::get(op.getContext(), template_args);
+    } else if constexpr (std::is_same_v<SourceOp, ttkernel::WhereTileOp> ||
+                         std::is_same_v<SourceOp,
+                                        ttkernel::BitwiseAndBinaryTilesOp> ||
+                         std::is_same_v<SourceOp,
+                                        ttkernel::BitwiseOrBinaryTilesOp> ||
+                         std::is_same_v<SourceOp,
+                                        ttkernel::BitwiseXorBinaryTilesOp>) {
+      SmallVector<Attribute, 1> template_args;
+      template_args.push_back(
+          datatypeToDataformatEnumNameOpaqueAttr(builder, op.getDtype()));
       return ArrayAttr::get(op.getContext(), template_args);
     }
     return ArrayAttr();
@@ -1123,7 +1146,6 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::UnaryBcastTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::WhereTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::WhereTileOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::WhereTileF32Op>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ClampScalarTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ClampScalarTileOp>,
 

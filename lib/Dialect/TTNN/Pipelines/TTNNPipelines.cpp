@@ -8,15 +8,18 @@
 #include "ttmlir/Conversion/TTIRToTTNN/TTIRToTTNN.h"
 #include "ttmlir/Conversion/TTNNToEmitC/TTNNToEmitC.h"
 #include "ttmlir/Conversion/TTNNToEmitPy/TTNNToEmitPy.h"
+#include "ttmlir/Conversion/TTNNToTTIR/TTNNToTTIR.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTCore/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTCore/Utils/PopulateArgumentTypes.h"
 #include "ttmlir/Dialect/TTIR/Pipelines/TTIRPipelines.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
+#include "ttmlir/Dialect/TTMetal/Pipelines/TTMetalPipelines.h"
 #include "ttmlir/Dialect/TTNN/Transforms/DevicePassesWrapper.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/Transforms/Passes.h"
 
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/Passes.h"
 
@@ -182,6 +185,7 @@ void createTTNNPipelineWorkaroundPass(
 
   pm.addPass(createTTNNWorkarounds(workaroundOptions));
   pm.addPass(mlir::createCanonicalizerPass());
+  pm.addPass(mlir::createCSEPass());
 }
 
 void createTTNNPipelineLayoutDecompositionPass(
@@ -226,6 +230,7 @@ void createTTIRToTTNNDevicePipeline(
   pm.addPass(ttcore::createTTCoreMarkFunctionsAsForwardPass());
 
   pm.addPass(mlir::createCanonicalizerPass());
+  pm.addPass(mlir::createCSEPass());
 
   // Create device module, if not already present.
   pm.addPass(ttcore::createTTCoreWrapDeviceModulePass());
@@ -291,7 +296,24 @@ void createTTIRToTTNNDevicePipeline(
       devicePm.addPass(createTTNNSetComputeKernelConfig(setConfigOptions));
     }
 
+    if (options.enableD2MFusing) {
+      if (!options.optimizerPassEnabled) {
+        llvm::errs()
+            << "WARNING: D2M fusing pass only supported with Optimizer "
+               "enabled. Automatically enabling Optimizer as a dependency.\n";
+      }
+      options.optimizerPassEnabled = true;
+      devicePm.addPass(tt::ttnn::createTTNND2MFusing());
+    }
+
     createTTNNPipelineAnalysisPasses(devicePm, options);
+
+    if (options.enableD2MFusing) {
+      createTTNNPipelineD2MPass(devicePm);
+      devicePm.addPass(createTTNNCollaspeD2M());
+      devicePm.addPass(createCanonicalizerPass());
+    }
+
     // We need to re-run const-eval to pick up const prepare conv2d weight ops
     // split during the analysis passes.
     if (options.enableConstEval) {
@@ -355,8 +377,6 @@ void createRecoverStructureXLATorchPipeline(
 //
 void createTTNNToEmitCDevicePipeline(
     OpPassManager &pm, const TTNNToEmitCDevicePipelineOptions &options) {
-  pm.addPass(createTTNNAdjustDeallocs());
-
   // Unwrapping the device module.
   //
   // TODO(dmilinkovic): Should be removed after support for generating
@@ -364,6 +384,15 @@ void createTTNNToEmitCDevicePipeline(
   // pipeline - issue #6100.
   //
   pm.addPass(ttcore::createTTCoreUnwrapDeviceModulePass());
+
+  // These passes operate on TTNN IR inside the (now unwrapped) top-level
+  // module.
+  //
+  pm.addPass(createTTNNAdjustDeallocs());
+  if (options.tryRecoverStructure) {
+    createRecoverStructureXLATorchPipeline(
+        pm, RecoverStructureXLATorchPipelineOptions());
+  }
 
   if (options.targetDylib) {
     // In dylib path, only run tuplification with forced settings.
@@ -465,6 +494,20 @@ void createTTIRToEmitPyCPUPipeline(OpPassManager &pm) {
   cpuPm.addPass(createConvertTTNNToEmitPyPass(options));
 
   cpuPm.addPass(createEmitPyNameVarsPass());
+}
+
+void createTTNNPipelineD2MPass(OpPassManager &pm) {
+  // TODO(vtang): pass to strip intermediate layouts.
+  pm.addPass(tt::createConvertTTNNToTTIRPass());
+  // pm.addPass(strip layouts pass)
+
+  // Can't use createTTIRToTTMetalPipeline because TTCoreWrapDeviceModulePass
+  // only works on top-level modules (doesn't run module has a parent op).
+  ttmetal::TTIRToTTMetalPipelineOptions ttmetalOptions;
+  ttmetalOptions.ttnnMode = true;
+  ttmetal::createTTIRToTTMetalFrontendPipeline(pm, ttmetalOptions);
+  ttmetal::createTTIRToTTMetalMiddleendPipeline(pm, ttmetalOptions);
+  ttmetal::createTTIRToTTMetalBackendPipeline(pm, ttmetalOptions);
 }
 
 //===----------------------------------------------------------------------===//
@@ -597,5 +640,16 @@ void registerTTNNPipelines() {
       "Pipeline to recover structure from TTNN IR for code generation from "
       "XLA/Torch. ",
       mlir::tt::ttnn::createRecoverStructureXLATorchPipeline);
+
+  // TTNN D2M pipeline - runs D2M compilation on TTNN d2m_subgraph ops.
+  //
+  mlir::PassPipelineRegistration<>(
+      "ttnn-through-d2m-pipeline",
+      "Pipeline to compile D2M subgraphs inside ttnn.d2m_subgraph ops.",
+      [](OpPassManager &pm) {
+        auto &devicePm =
+            pm.nest<ttcore::DeviceModuleOp>().nest<mlir::ModuleOp>();
+        mlir::tt::ttnn::createTTNNPipelineD2MPass(devicePm);
+      });
 }
 } // namespace mlir::tt::ttnn
