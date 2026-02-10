@@ -809,6 +809,7 @@ d2m::StreamLayoutOp::getBufferType(
 
 void d2m::StreamLayoutOp::getCanonicalizationPatterns(
     mlir::RewritePatternSet &patterns, mlir::MLIRContext *) {
+  // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
   patterns.add(+[](StreamLayoutOp op, mlir::PatternRewriter &rewriter) {
     ViewLayoutOp viewOp = op.getInput().getDefiningOp<ViewLayoutOp>();
     if (!viewOp) {
@@ -831,6 +832,7 @@ void d2m::StreamLayoutOp::getCanonicalizationPatterns(
         op.getStorage());
     return success();
   });
+  // NOLINTEND(clang-analyzer-core.StackAddressEscape)
 }
 
 mlir::LogicalResult StreamLayoutOp::verify() {
