@@ -3209,8 +3209,8 @@ public:
                                          rewriter.getI32ArrayAttr(targetShape));
     }
 
-    // Although the op can work with different dtypes, this is the indication
-    // that the matching is not correct.
+    // Although the op can work with different dtypes, this is
+    // the indication that the matching is not correct.
     auto inputType = mlir::cast<RankedTensorType>(x.getType());
     if (inputType.getElementType() != gammaType.getElementType()) {
       return mlir::failure();
