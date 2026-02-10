@@ -29,7 +29,6 @@ if (NOT DEVICE_RUNTIME_ENABLED)
   add_library(TTRuntimeTypes INTERFACE)
   add_library(TTRuntimeUtils INTERFACE)
   add_library(TTRuntimeSysDesc INTERFACE)
-  add_library(TTRuntimeSysMesh INTERFACE)
   add_library(TTRuntimeContext INTERFACE)
   add_library(TTRuntimeSocket INTERFACE)
   add_library(TTRuntimeDebug INTERFACE)
@@ -74,20 +73,6 @@ add_dependencies(TTRuntimeSysDesc RUNTIME_FBS_GENERATION)
 target_include_directories(TTRuntimeSysDesc SYSTEM PUBLIC "$<BUILD_INTERFACE:${TTMETAL_INCLUDE_DIRS}>")
 add_dependencies(TTRuntimeSysDesc tt-metal FBS_GENERATION)
 target_link_libraries(TTRuntimeSysDesc PUBLIC coverage_config)
-
-add_library(TTRuntimeSysMesh STATIC system_mesh.cpp)
-set_property(TARGET TTRuntimeSysMesh PROPERTY CXX_STANDARD 20)
-target_include_directories(TTRuntimeSysMesh
-  PUBLIC
-    ${PROJECT_SOURCE_DIR}/runtime/include
-    ${PROJECT_BINARY_DIR}/runtime/include
-    ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common
-)
-add_dependencies(TTRuntimeSysMesh RUNTIME_FBS_GENERATION)
-
-target_include_directories(TTRuntimeSysMesh SYSTEM PUBLIC "$<BUILD_INTERFACE:${TTMETAL_INCLUDE_DIRS}>")
-add_dependencies(TTRuntimeSysMesh tt-metal FBS_GENERATION)
-target_link_libraries(TTRuntimeSysMesh PUBLIC coverage_config)
 
 add_library(TTRuntimeContext STATIC runtime_context.cpp)
 set_property(TARGET TTRuntimeContext PROPERTY CXX_STANDARD 20)

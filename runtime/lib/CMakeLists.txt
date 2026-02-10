@@ -33,7 +33,6 @@ target_link_libraries(TTMLIRRuntime
     TTRuntimeTypes
     TTRuntimeUtils
     TTRuntimeSysDesc
-    TTRuntimeSysMesh
     TTRuntimeTTNN
     TTRuntimeTTMetal
     TTRuntimeDistributed
