@@ -1121,9 +1121,8 @@ private:
   static d2m::ReduceDim dimArgAsReduceDim(ConcreteOp op, std::size_t rank) {
     assert(rank >= 2 && "rank must be at least 2");
     SmallVector<bool> dims(rank, false);
-    forAllDims(rank, getDimArg(op), [&](std::size_t index, bool dropped) {
-      dims[index] = dropped;
-    });
+    forAllDims(rank, getDimArg(op),
+               [&](std::size_t index, bool dropped) { dims[index] = dropped; });
 
     bool reduceSecondToLast = dims[rank - 2]; // "C" in tile terminology
     bool reduceLast = dims[rank - 1];         // "R" in tile terminology
@@ -1137,7 +1136,8 @@ private:
     if (reduceLast) {
       return d2m::ReduceDim::R;
     }
-    llvm_unreachable("expected at least one of the last two dims to be reduced");
+    llvm_unreachable(
+        "expected at least one of the last two dims to be reduced");
   }
 
   static mlir::ArrayAttr getDimArg(ConcreteOp op) {
