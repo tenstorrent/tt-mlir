@@ -7,6 +7,7 @@ endif()
 
 set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/debug/debug.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/cache/global_tensor_cache.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/cache/load_cached.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/aggregate_tensor.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/all_gather.cpp
