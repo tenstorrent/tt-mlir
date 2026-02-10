@@ -1096,12 +1096,6 @@ bool d2m::ViewLayoutOp::isReblockOnly() {
       mlir::cast<mlir::ShapedType>(getInput().getType()).getShape(),
       mlir::cast<mlir::ShapedType>(getResult().getType()).getShape(),
       getContext());
-
-  if (auto resultType = mlir::dyn_cast<MemRefType>(getType())) {
-    return getRemapping() == reblockMap;
-  }
-
-  // For tensor types, the remapping is stored on this ViewLayoutOp.
   return getRemapping() == reblockMap;
 }
 
