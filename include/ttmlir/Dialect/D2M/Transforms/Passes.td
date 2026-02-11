@@ -869,6 +869,18 @@ def D2MGenerateOuterLoops : Pass<"d2m-generate-outer-loops", "::mlir::ModuleOp">
                            "::mlir::affine::AffineDialect"];
 }
 
+def D2MGenericAffineScalarReplacement : Pass<"d2m-generic-affine-scalrep", "::mlir::ModuleOp"> {
+  let summary = "Run affine scalar replacement on d2m.generic compute regions.";
+  let description = [{
+    Runs MLIR's affine scalar replacement (store-to-load forwarding, dead store
+    elimination, load CSE) on each func.func in the module. This is useful for
+    cleaning up redundant affine loads/stores after loop fusion.
+  }];
+  let dependentDialects = ["::mlir::tt::d2m::D2MDialect",
+                           "::mlir::affine::AffineDialect",
+                           "::mlir::func::FuncDialect"];
+}
+
 def D2MGenericAffineLoopFusion : Pass<"d2m-generic-affine-loop-fusion", "::mlir::ModuleOp"> {
   let summary = "Fuse producer-consumer d2m.generic ops via affine loop fusion.";
   let description = [{

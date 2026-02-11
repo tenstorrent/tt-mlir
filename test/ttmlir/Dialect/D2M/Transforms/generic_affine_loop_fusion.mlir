@@ -37,15 +37,9 @@ func.func @test_basic_fusion(
     %bf0 = d2m.get_block_factor(0) : index
     %bf1 = d2m.get_block_factor(1) : index
     affine.for %i = 0 to %bf0 {
-      %c0 = d2m.core_index(0) {phys_to_virt_map = #map1} : index
-      %c1 = d2m.core_index(1) {phys_to_virt_map = #map1} : index
       affine.for %j = 0 to %bf1 {
-        %gbf0 = d2m.get_block_factor(0) : index
-        %s0 = arith.muli %c0, %gbf0 : index
-        %idx0 = arith.addi %s0, %i : index
-        %gbf1 = d2m.get_block_factor(1) : index
-        %s1 = arith.muli %c1, %gbf1 : index
-        %idx1 = arith.addi %s1, %j : index
+        %idx0 = d2m.block_index(0) : index
+        %idx1 = d2m.block_index(1) : index
         %buf_in = memref.alloc() : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
         %loaded = d2m.remote_load %buf_in %stream_in[%idx0, %idx1] : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #dram> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
         %buf_out = memref.alloc() : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
@@ -62,15 +56,9 @@ func.func @test_basic_fusion(
     %bf0 = d2m.get_block_factor(0) : index
     %bf1 = d2m.get_block_factor(1) : index
     affine.for %i = 0 to %bf0 {
-      %c0 = d2m.core_index(0) {phys_to_virt_map = #map1} : index
-      %c1 = d2m.core_index(1) {phys_to_virt_map = #map1} : index
       affine.for %j = 0 to %bf1 {
-        %gbf0 = d2m.get_block_factor(0) : index
-        %s0 = arith.muli %c0, %gbf0 : index
-        %idx0 = arith.addi %s0, %i : index
-        %gbf1 = d2m.get_block_factor(1) : index
-        %s1 = arith.muli %c1, %gbf1 : index
-        %idx1 = arith.addi %s1, %j : index
+        %idx0 = d2m.block_index(0) : index
+        %idx1 = d2m.block_index(1) : index
         %buf_in = memref.alloc() : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
         %loaded = d2m.remote_load %buf_in %intermediate[%idx0, %idx1] : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
         %buf_out = memref.alloc() : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
@@ -103,15 +91,9 @@ func.func @test_no_fusion_multiple_readers(
     %bf0 = d2m.get_block_factor(0) : index
     %bf1 = d2m.get_block_factor(1) : index
     affine.for %i = 0 to %bf0 {
-      %c0 = d2m.core_index(0) {phys_to_virt_map = #map1} : index
-      %c1 = d2m.core_index(1) {phys_to_virt_map = #map1} : index
       affine.for %j = 0 to %bf1 {
-        %gbf0 = d2m.get_block_factor(0) : index
-        %s0 = arith.muli %c0, %gbf0 : index
-        %idx0 = arith.addi %s0, %i : index
-        %gbf1 = d2m.get_block_factor(1) : index
-        %s1 = arith.muli %c1, %gbf1 : index
-        %idx1 = arith.addi %s1, %j : index
+        %idx0 = d2m.block_index(0) : index
+        %idx1 = d2m.block_index(1) : index
         %buf_in = memref.alloc() : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
         %loaded = d2m.remote_load %buf_in %stream_in[%idx0, %idx1] : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #dram> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
         %buf_out = memref.alloc() : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
@@ -128,15 +110,9 @@ func.func @test_no_fusion_multiple_readers(
     %bf0 = d2m.get_block_factor(0) : index
     %bf1 = d2m.get_block_factor(1) : index
     affine.for %i = 0 to %bf0 {
-      %c0 = d2m.core_index(0) {phys_to_virt_map = #map1} : index
-      %c1 = d2m.core_index(1) {phys_to_virt_map = #map1} : index
       affine.for %j = 0 to %bf1 {
-        %gbf0 = d2m.get_block_factor(0) : index
-        %s0 = arith.muli %c0, %gbf0 : index
-        %idx0 = arith.addi %s0, %i : index
-        %gbf1 = d2m.get_block_factor(1) : index
-        %s1 = arith.muli %c1, %gbf1 : index
-        %idx1 = arith.addi %s1, %j : index
+        %idx0 = d2m.block_index(0) : index
+        %idx1 = d2m.block_index(1) : index
         %buf_in = memref.alloc() : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
         %loaded = d2m.remote_load %buf_in %intermediate[%idx0, %idx1] : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
         %buf_out = memref.alloc() : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
@@ -153,15 +129,9 @@ func.func @test_no_fusion_multiple_readers(
     %bf0 = d2m.get_block_factor(0) : index
     %bf1 = d2m.get_block_factor(1) : index
     affine.for %i = 0 to %bf0 {
-      %c0 = d2m.core_index(0) {phys_to_virt_map = #map1} : index
-      %c1 = d2m.core_index(1) {phys_to_virt_map = #map1} : index
       affine.for %j = 0 to %bf1 {
-        %gbf0 = d2m.get_block_factor(0) : index
-        %s0 = arith.muli %c0, %gbf0 : index
-        %idx0 = arith.addi %s0, %i : index
-        %gbf1 = d2m.get_block_factor(1) : index
-        %s1 = arith.muli %c1, %gbf1 : index
-        %idx1 = arith.addi %s1, %j : index
+        %idx0 = d2m.block_index(0) : index
+        %idx1 = d2m.block_index(1) : index
         %buf_in = memref.alloc() : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
         %loaded = d2m.remote_load %buf_in %intermediate[%idx0, %idx1] : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
         %buf_out = memref.alloc() : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
@@ -201,15 +171,9 @@ func.func @test_matmul_add_subset_fusion(
     %bf1 = d2m.get_block_factor(1) : index
     %bf2 = d2m.get_block_factor(2) : index
     affine.for %m = 0 to %bf0 {
-      %c0 = d2m.core_index(0) {phys_to_virt_map = #map1} : index
-      %c1 = d2m.core_index(1) {phys_to_virt_map = #map1} : index
       affine.for %n = 0 to %bf1 {
-        %gbf0 = d2m.get_block_factor(0) : index
-        %s0 = arith.muli %c0, %gbf0 : index
-        %idx0 = arith.addi %s0, %m : index
-        %gbf1 = d2m.get_block_factor(1) : index
-        %s1 = arith.muli %c1, %gbf1 : index
-        %idx1 = arith.addi %s1, %n : index
+        %idx0 = d2m.block_index(0) : index
+        %idx1 = d2m.block_index(1) : index
 
         %buf_out = memref.alloc() : memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
         %partial    = d2m.remote_load %buf_out %intermediate[%idx0, %idx1] :
@@ -218,10 +182,11 @@ func.func @test_matmul_add_subset_fusion(
           -> memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
 
         affine.for %k = 0 to %bf2 {
+          %idx2 = d2m.block_index(2) : index
           %buf_lhs = memref.alloc() : memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
           %buf_rhs = memref.alloc() : memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
-          %loaded_lhs = d2m.remote_load %buf_lhs %stream_lhs[%idx0, %k]      : memref<2x2x!ttcore.tile<32x32, f32>, #l1_>, memref<1x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #ttcore.view<map(4)>, #dram> -> memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
-          %loaded_rhs = d2m.remote_load %buf_rhs %stream_rhs[%k, %idx1]      : memref<2x2x!ttcore.tile<32x32, f32>, #l1_>, memref<2x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #ttcore.view<map(4)>, #dram> -> memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
+          %loaded_lhs = d2m.remote_load %buf_lhs %stream_lhs[%idx0, %idx2]      : memref<2x2x!ttcore.tile<32x32, f32>, #l1_>, memref<1x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #ttcore.view<map(4)>, #dram> -> memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
+          %loaded_rhs = d2m.remote_load %buf_rhs %stream_rhs[%idx2, %idx1]      : memref<2x2x!ttcore.tile<32x32, f32>, #l1_>, memref<2x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #ttcore.view<map(4)>, #dram> -> memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
           "d2m.tile_matmul_block"(%loaded_lhs, %loaded_rhs, %buf_out) : (memref<2x2x!ttcore.tile<32x32, f32>, #l1_>, memref<2x2x!ttcore.tile<32x32, f32>, #l1_>, memref<2x2x!ttcore.tile<32x32, f32>, #l1_>) -> ()
         } {d2m.blocking_loop = 2}
 
@@ -239,15 +204,9 @@ func.func @test_matmul_add_subset_fusion(
     %abf0 = d2m.get_block_factor(0) : index
     %abf1 = d2m.get_block_factor(1) : index
     affine.for %am = 0 to %abf0 {
-      %ac0 = d2m.core_index(0) {phys_to_virt_map = #map1} : index
-      %ac1 = d2m.core_index(1) {phys_to_virt_map = #map1} : index
       affine.for %an = 0 to %abf1 {
-        %agbf0 = d2m.get_block_factor(0) : index
-        %as0 = arith.muli %ac0, %agbf0 : index
-        %aidx0 = arith.addi %as0, %am : index
-        %agbf1 = d2m.get_block_factor(1) : index
-        %as1 = arith.muli %ac1, %agbf1 : index
-        %aidx1 = arith.addi %as1, %an : index
+        %aidx0 = d2m.block_index(0) : index
+        %aidx1 = d2m.block_index(1) : index
         %buf_inter = memref.alloc() : memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
         %loaded_inter = d2m.remote_load %buf_inter %intermediate[%aidx0, %aidx1] : memref<2x2x!ttcore.tile<32x32, f32>, #l1_>, memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_> -> memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
         %buf_bias = memref.alloc() : memref<2x2x!ttcore.tile<32x32, f32>, #l1_>

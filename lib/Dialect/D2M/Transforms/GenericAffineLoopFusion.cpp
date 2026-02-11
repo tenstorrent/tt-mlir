@@ -2,12 +2,17 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MTraits.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 
+#include "mlir/Dialect/Affine/Analysis/Utils.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
+#include "mlir/Dialect/Affine/LoopFusionUtils.h"
+#include "mlir/Dialect/Affine/LoopUtils.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/IRMapping.h"
 
@@ -225,50 +230,74 @@ static unsigned getOuterLoopDepth(affine::AffineForOp outerLoop) {
   return depth;
 }
 
-// Collect the chain of nested d2m.blocking_loop affine.for ops.
-static SmallVector<affine::AffineForOp>
-collectLoopChain(affine::AffineForOp outerLoop) {
-  SmallVector<affine::AffineForOp> chain;
-  auto cur = outerLoop;
-  while (cur) {
-    chain.push_back(cur);
-    affine::AffineForOp nested = nullptr;
-    for (Operation &op : cur.getBody()->getOperations()) {
-      if (auto forOp = dyn_cast<affine::AffineForOp>(&op)) {
-        if (forOp->hasAttr("d2m.blocking_loop")) {
-          nested = forOp;
-          break;
-        }
-      }
+// Replace tagged constants and affine.apply ops with the original D2M ops.
+static void convertFromTemporaryForm(GenericOp tempGeneric,
+                                     OpBuilder &builder) {
+  // Restore get_block_factor ops from tagged constants.
+  SmallVector<arith::ConstantIndexOp> taggedConstants;
+  tempGeneric.getRegion(0).walk([&](arith::ConstantIndexOp op) {
+    if (op->hasAttr("d2m.block_factor_constant")) {
+      taggedConstants.push_back(op);
     }
-    cur = nested;
+  });
+
+  for (arith::ConstantIndexOp constOp : taggedConstants) {
+    auto dimAttr =
+        constOp->getAttrOfType<IntegerAttr>("d2m.block_factor_constant");
+    int64_t dim = dimAttr.getInt();
+
+    OpBuilder::InsertionGuard guard(builder);
+    builder.setInsertionPoint(constOp);
+
+    auto getBlockFactorOp =
+        builder.create<GetBlockFactorOp>(constOp.getLoc(), dim);
+    constOp.replaceAllUsesWith(getBlockFactorOp.getResult());
+    constOp.erase();
   }
-  return chain;
+
+  // Restore block_index ops from tagged affine.apply identity maps.
+  SmallVector<affine::AffineApplyOp> taggedApplies;
+  tempGeneric.getRegion(0).walk([&](affine::AffineApplyOp op) {
+    if (op->hasAttr("d2m.orig_block_index")) {
+      taggedApplies.push_back(op);
+    }
+  });
+
+  for (affine::AffineApplyOp applyOp : taggedApplies) {
+    auto dimAttr = applyOp->getAttrOfType<IntegerAttr>("d2m.orig_block_index");
+    int64_t dim = dimAttr.getInt();
+
+    OpBuilder::InsertionGuard guard(builder);
+    builder.setInsertionPoint(applyOp);
+
+    auto blockIndexOp = builder.create<BlockIndexOp>(applyOp.getLoc(), dim);
+    applyOp.replaceAllUsesWith(blockIndexOp.getResult());
+    applyOp.erase();
+  }
 }
 
 // Try to fuse a producer-consumer pair. Returns the fused generic on success.
 static GenericOp tryFusePair(GenericOp producer, GenericOp consumer,
                              OpOperand *inputOperand, Value sharedMemref,
                              OpBuilder &builder) {
+  // Step 1: Get outermost loops to determine superset/subset
   affine::AffineForOp producerLoop = getOutermostLoop(producer);
   affine::AffineForOp consumerLoop = getOutermostLoop(consumer);
+
   if (!producerLoop || !consumerLoop) {
     return nullptr;
   }
 
+  // Step 2: Determine superset generic (one with deeper loop nesting)
   unsigned producerDepth = getOuterLoopDepth(producerLoop);
   unsigned consumerDepth = getOuterLoopDepth(consumerLoop);
 
   GenericOp supersetGeneric =
-      (producerDepth > consumerDepth) ? producer : consumer;
+      (producerDepth >= consumerDepth) ? producer : consumer;
   GenericOp subsetGeneric =
-      (producerDepth > consumerDepth) ? consumer : producer;
+      (producerDepth >= consumerDepth) ? consumer : producer;
 
-  // Build fused operands and indexing maps.
-  // Fused inputs: producer inputs + shared intermediate + other consumer
-  // inputs. Fused outputs: consumer inits only (verifier requires exactly one
-  // output). The shared intermediate is kept as a fused input so that cloned
-  // remote_store/remote_load ops referencing it satisfy the verifier.
+  // Step 4: Build fused generic operands and indexing maps
   SmallVector<Value> fusedInputs;
   SmallVector<Value> fusedOutputs;
   SmallVector<AffineMap> fusedMaps;
@@ -279,7 +308,7 @@ static GenericOp tryFusePair(GenericOp producer, GenericOp consumer,
       subsetGeneric.getDpsInitOperand(0)->getOperandNumber());
   AffineMap subsetOutputInv = inversePermutation(subsetOutputMap);
 
-  // Producer inputs.
+  // Producer inputs
   for (OpOperand *pi : producer.getDpsInputOperands()) {
     fusedInputs.push_back(pi->get());
     AffineMap argMap = producer.getIndexingMap(pi->getOperandNumber());
@@ -291,21 +320,19 @@ static GenericOp tryFusePair(GenericOp producer, GenericOp consumer,
     }
   }
 
-  // Shared intermediate as fused input.
+  // Shared intermediate as input
   unsigned fusedSharedInputIdx = fusedInputs.size();
-  {
-    fusedInputs.push_back(sharedMemref);
-    AffineMap sharedMap =
-        consumer.getIndexingMap(inputOperand->getOperandNumber());
-    if (consumer == subsetGeneric) {
-      fusedMaps.push_back(
-          sharedMap.compose(subsetOutputInv).compose(supersetSharedMap));
-    } else {
-      fusedMaps.push_back(sharedMap);
-    }
+  fusedInputs.push_back(sharedMemref);
+  AffineMap sharedMap =
+      consumer.getIndexingMap(inputOperand->getOperandNumber());
+  if (consumer == subsetGeneric) {
+    fusedMaps.push_back(
+        sharedMap.compose(subsetOutputInv).compose(supersetSharedMap));
+  } else {
+    fusedMaps.push_back(sharedMap);
   }
 
-  // Other consumer inputs (skip the shared intermediate).
+  // Other consumer inputs
   for (OpOperand *ci : consumer.getDpsInputOperands()) {
     if (ci == inputOperand) {
       continue;
@@ -320,7 +347,7 @@ static GenericOp tryFusePair(GenericOp producer, GenericOp consumer,
     }
   }
 
-  // Consumer inits only.
+  // Consumer outputs only
   for (OpOperand &co : consumer.getDpsInitsMutable()) {
     fusedOutputs.push_back(co.get());
     AffineMap argMap = consumer.getIndexingMap(co.getOperandNumber());
@@ -332,8 +359,7 @@ static GenericOp tryFusePair(GenericOp producer, GenericOp consumer,
     }
   }
 
-  // Create fused GenericOp using superset's attributes.
-  // In memref mode, GenericOp has no results.
+  // Step 5: Create fused GenericOp shell
   builder.setInsertionPoint(consumer);
   auto fusedOp = builder.create<GenericOp>(
       consumer.getLoc(), TypeRange{}, fusedInputs, fusedOutputs,
@@ -342,9 +368,9 @@ static GenericOp tryFusePair(GenericOp producer, GenericOp consumer,
       supersetGeneric.getIteratorTypes(), supersetGeneric.getThreads(),
       supersetGeneric.getScratchInputsAttr(), /*regions=*/1);
 
-  // Set up IRMapping and block arguments.
-  IRMapping irMap;
   Block &fusedBlock = fusedOp.getRegion(0).emplaceBlock();
+
+  // Step 3: Set up block arguments
   Block &prodBlock = producer.getRegion(0).front();
   Block &consBlock = consumer.getRegion(0).front();
 
@@ -363,7 +389,6 @@ static GenericOp tryFusePair(GenericOp producer, GenericOp consumer,
   for (OpOperand *pi : producer.getDpsInputOperands()) {
     appendSource(producer.getOperation(), pi->getOperandNumber());
   }
-  // Shared intermediate — use the consumer's block arg type for this slot.
   appendSource(consumer.getOperation(), inputOperand->getOperandNumber());
   for (OpOperand *ci : consumer.getDpsInputOperands()) {
     if (ci == inputOperand) {
@@ -382,22 +407,20 @@ static GenericOp tryFusePair(GenericOp producer, GenericOp consumer,
     sourceToFusedIdx[src] = static_cast<unsigned>(idx);
   }
 
-  // Map producer block args to fused block args.
+  IRMapping irMap;
+
+  // Map producer block args
   for (OpOperand *pi : producer.getDpsInputOperands()) {
     unsigned fusedIdx =
         sourceToFusedIdx[{producer.getOperation(), pi->getOperandNumber()}];
     irMap.map(prodBlock.getArgument(pi->getOperandNumber()),
               fusedBlock.getArgument(fusedIdx));
   }
-  // Map producer's init block arg to the fused shared intermediate block arg.
-  {
-    unsigned prodInitIdx = producer.getDpsInitOperand(0)->getOperandNumber();
-    irMap.map(prodBlock.getArgument(prodInitIdx),
-              fusedBlock.getArgument(fusedSharedInputIdx));
-  }
+  unsigned prodInitIdx = producer.getDpsInitOperand(0)->getOperandNumber();
+  irMap.map(prodBlock.getArgument(prodInitIdx),
+            fusedBlock.getArgument(fusedSharedInputIdx));
 
-  // Map consumer block args to fused block args.
-  // The shared input block arg maps to the fused shared intermediate.
+  // Map consumer block args
   irMap.map(consBlock.getArgument(inputOperand->getOperandNumber()),
             fusedBlock.getArgument(fusedSharedInputIdx));
   for (OpOperand *ci : consumer.getDpsInputOperands()) {
@@ -416,104 +439,178 @@ static GenericOp tryFusePair(GenericOp producer, GenericOp consumer,
               fusedBlock.getArgument(fusedIdx));
   }
 
-  // Clone superset body into fused block.
-  Block &subsetBlock = (subsetGeneric == producer) ? prodBlock : consBlock;
-  Block &supersetBlock = (supersetGeneric == producer) ? prodBlock : consBlock;
-
+  // Step 4: Clone producer loop into fused block as sibling
   builder.setInsertionPointToEnd(&fusedBlock);
-  for (Operation &op : supersetBlock.without_terminator()) {
-    Operation *cloned = builder.clone(op, irMap);
-    for (auto [oldRes, newRes] :
-         llvm::zip(op.getResults(), cloned->getResults())) {
-      irMap.map(oldRes, newRes);
-    }
+  affine::AffineForOp clonedProducerLoop =
+      cast<affine::AffineForOp>(builder.clone(*producerLoop, irMap));
+
+  // Update irMap with producer loop results
+  for (auto [oldRes, newRes] : llvm::zip(producerLoop->getResults(),
+                                         clonedProducerLoop->getResults())) {
+    irMap.map(oldRes, newRes);
   }
 
-  // Find the superset's outermost loop in the fused block.
-  affine::AffineForOp dstLoop = nullptr;
-  for (Operation &op : fusedBlock) {
-    if (auto forOp = dyn_cast<affine::AffineForOp>(&op)) {
-      if (forOp->hasAttr("d2m.blocking_loop")) {
-        dstLoop = forOp;
-        break;
-      }
-    }
+  // Step 5: Clone consumer loop into fused block as sibling
+  affine::AffineForOp clonedConsumerLoop =
+      cast<affine::AffineForOp>(builder.clone(*consumerLoop, irMap));
+
+  // Step 6: Convert fused generic to temporary form (replace get_block_factor
+  // with constants) IMPORTANT: Create ONE constant per dimension and share it
+  // across both loops to ensure both loops use the same SSA value (compatible
+  // affine spaces)
+  auto blockFactorsAttr = fusedOp.getBlockFactors();
+
+  // Use distinct non-unit prime sentinel values so affine analysis sees
+  // non-trivial loop trip counts regardless of the real block-factor values.
+  // Each dimension gets its own unique prime so the analysis can distinguish
+  // the loop bounds of different nesting levels.
+  static constexpr int64_t kSentinelPrimes[] = {5,  7,  11, 13, 17,
+                                                19, 23, 29, 31, 37};
+  TT_assertv(blockFactorsAttr.size() <= std::size(kSentinelPrimes),
+             "more block-factor dimensions ({}) than available sentinel "
+             "primes ({})",
+             blockFactorsAttr.size(), std::size(kSentinelPrimes));
+
+  // Create shared constants at the start of the fused block
+  builder.setInsertionPointToStart(&fusedBlock);
+  SmallVector<Value> sharedConstants;
+  for (size_t dim = 0; dim < blockFactorsAttr.size(); ++dim) {
+    int64_t sentinel = kSentinelPrimes[dim];
+    auto constOp =
+        builder.create<arith::ConstantIndexOp>(fusedOp.getLoc(), sentinel);
+    constOp->setAttr("d2m.block_factor_constant",
+                     builder.getI64IntegerAttr(dim));
+    sharedConstants.push_back(constOp.getResult());
   }
 
-  if (!dstLoop) {
-    fusedOp->erase();
-    return nullptr;
+  // Replace all get_block_factor ops with the shared constants
+  SmallVector<GetBlockFactorOp> blockFactorOps;
+  fusedOp.getRegion(0).walk(
+      [&](GetBlockFactorOp op) { blockFactorOps.push_back(op); });
+
+  for (GetBlockFactorOp op : blockFactorOps) {
+    int64_t dim = op.getDim();
+    op.replaceAllUsesWith(sharedConstants[dim]);
+    op.erase();
   }
 
-  // Collect loop chains.
-  SmallVector<affine::AffineForOp> dstLoopChain = collectLoopChain(dstLoop);
+  // CRITICAL: Update loop upper bounds to use shared constants
+  // The cloned loops may reference get_block_factor values from original
+  // contexts
+  SmallVector<affine::AffineForOp> allLoops;
+  fusedOp.getRegion(0).walk(
+      [&](affine::AffineForOp loop) { allLoops.push_back(loop); });
 
-  affine::AffineForOp srcOuter = nullptr;
-  for (Operation &op : subsetBlock) {
-    if (auto forOp = dyn_cast<affine::AffineForOp>(&op)) {
-      if (forOp->hasAttr("d2m.blocking_loop")) {
-        srcOuter = forOp;
-        break;
-      }
-    }
-  }
-  SmallVector<affine::AffineForOp> srcLoopChain = collectLoopChain(srcOuter);
-
-  if (srcLoopChain.empty() || dstLoopChain.size() < srcLoopChain.size()) {
-    fusedOp->erase();
-    return nullptr;
-  }
-
-  // Map subset induction variables to dst induction variables.
-  for (unsigned d = 0; d < srcLoopChain.size(); ++d) {
-    irMap.map(srcLoopChain[d].getInductionVar(),
-              dstLoopChain[d].getInductionVar());
-  }
-
-  // Clone subset's non-loop ops at the top level before the dst loop.
-  builder.setInsertionPoint(dstLoop);
-  for (Operation &op : subsetBlock.without_terminator()) {
-    if (isa<affine::AffineForOp>(&op)) {
+  for (affine::AffineForOp loop : allLoops) {
+    // Check if this is a blocking loop with symbolic upper bound
+    if (!loop->hasAttr("d2m.blocking_loop")) {
       continue;
     }
-    Operation *cloned = builder.clone(op, irMap);
-    for (auto [oldRes, newRes] :
-         llvm::zip(op.getResults(), cloned->getResults())) {
-      irMap.map(oldRes, newRes);
+
+    auto upperBoundMap = loop.getUpperBoundMap();
+    if (upperBoundMap.getNumResults() != 1 ||
+        upperBoundMap.getNumSymbols() != 1) {
+      continue;
     }
+
+    // The loop should have one upper bound operand (the symbol)
+    auto ubOperands = loop.getUpperBoundOperands();
+    if (ubOperands.size() != 1) {
+      continue;
+    }
+
+    // Determine which dimension based on the blocking_loop attribute
+    int64_t dim =
+        loop->getAttrOfType<IntegerAttr>("d2m.blocking_loop").getInt();
+
+    // Replace the upper bound operand with the shared constant
+    loop->setOperand(loop.getNumControlOperands() - ubOperands.size(),
+                     sharedConstants[dim]);
   }
 
-  // Clone subset's non-loop ops at each loop level into the corresponding dst
-  // loop body. When the subset is the producer, its ops must appear before the
-  // superset (consumer) ops to preserve data-flow order. When the subset is
-  // the consumer, its ops appear after the superset (producer) ops.
-  for (unsigned d = 0; d < srcLoopChain.size(); ++d) {
-    Block *srcBody = srcLoopChain[d].getBody();
-    Block *dstBody = dstLoopChain[d].getBody();
-    bool isInnermost = (d == srcLoopChain.size() - 1);
+  // Replace BlockIndexOp with affine.apply identity maps from the
+  // corresponding blocking-loop induction variable.  This exposes the index
+  // computation to the affine dependence analysis so that it can compute
+  // correct fusion slices.
+  //
+  // Each BlockIndexOp is matched to its own enclosing affine.for (walking
+  // upward), NOT a global dim → IV map, because producer and consumer loop
+  // nests coexist in the fused block and may have different depths.
 
-    if (subsetGeneric == producer) {
-      // Producer ops must precede consumer ops at each loop level.
-      builder.setInsertionPointToStart(dstBody);
-    } else if (isInnermost) {
-      builder.setInsertionPoint(dstBody->getTerminator());
-    } else {
-      builder.setInsertionPoint(dstLoopChain[d + 1]);
-    }
+  SmallVector<BlockIndexOp> blockIndexOps;
+  fusedOp.getRegion(0).walk(
+      [&](BlockIndexOp op) { blockIndexOps.push_back(op); });
 
-    for (Operation &op : srcBody->without_terminator()) {
-      if (isa<affine::AffineForOp>(&op)) {
+  AffineMap identityMap1D =
+      AffineMap::get(1, 0, builder.getAffineDimExpr(0), builder.getContext());
+  for (BlockIndexOp op : blockIndexOps) {
+    int64_t dim = op.getDim();
+
+    // Walk up from the BlockIndexOp to find the enclosing affine.for whose
+    // d2m.blocking_loop attribute matches this dimension.
+    Value iv;
+    for (Operation *parent = op->getParentOp(); parent;
+         parent = parent->getParentOp()) {
+      auto forOp = dyn_cast<affine::AffineForOp>(parent);
+      if (!forOp) {
         continue;
       }
-      Operation *cloned = builder.clone(op, irMap);
-      for (auto [oldRes, newRes] :
-           llvm::zip(op.getResults(), cloned->getResults())) {
-        irMap.map(oldRes, newRes);
+      auto loopDimAttr = forOp->getAttrOfType<IntegerAttr>("d2m.blocking_loop");
+      if (loopDimAttr && loopDimAttr.getInt() == dim) {
+        iv = forOp.getInductionVar();
+        break;
       }
     }
+    if (!iv) {
+      continue;
+    }
+
+    OpBuilder::InsertionGuard guard(builder);
+    builder.setInsertionPoint(op);
+    auto applyOp = builder.create<affine::AffineApplyOp>(
+        op.getLoc(), identityMap1D, ValueRange{iv});
+    applyOp->setAttr("d2m.orig_block_index", builder.getI64IntegerAttr(dim));
+    op.replaceAllUsesWith(applyOp.getResult());
+    op.erase();
   }
 
+  // Step 7: Use MLIR fusion utilities
+  // Determine which is source (to fuse into destination)
+  bool isProducerSrc = (producerDepth >= consumerDepth);
+  affine::AffineForOp srcLoop =
+      isProducerSrc ? clonedProducerLoop : clonedConsumerLoop;
+  affine::AffineForOp dstLoop =
+      isProducerSrc ? clonedConsumerLoop : clonedProducerLoop;
+
+  // Fuse at the full matching loop depth so all nested levels are merged.
+  unsigned dstLoopDepth = std::min(producerDepth, consumerDepth);
+
+  // Check if fusion is legal and compute slice
+  affine::ComputationSliceState srcSlice;
+  affine::FusionResult result = affine::canFuseLoops(
+      srcLoop, dstLoop, dstLoopDepth, &srcSlice,
+      affine::FusionStrategy(affine::FusionStrategy::ProducerConsumer));
+
+  if (result.value != affine::FusionResult::Success) {
+    // Fusion failed, cleanup
+    fusedOp->erase();
+    return nullptr;
+  }
+
+  // Perform the fusion
+  affine::fuseLoops(srcLoop, dstLoop, srcSlice,
+                    /*isInnermostSiblingInsertion=*/false);
+
+  // fuseLoops copies the source body into the destination but does not erase
+  // the original source loop.
+  srcLoop->erase();
+
+  // Step 8: Convert back from temporary form
+  convertFromTemporaryForm(fusedOp, builder);
+
+  // Mark as fused
   fusedOp->setAttr("d2m.affine_fused", builder.getUnitAttr());
+
   return fusedOp;
 }
 
