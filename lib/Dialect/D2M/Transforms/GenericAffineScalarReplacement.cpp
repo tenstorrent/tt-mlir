@@ -111,16 +111,17 @@ static void internalizeIntermediates(GenericOp genericOp, OpBuilder &builder) {
   }
 
   // Create local allocs for each intermediate and replace uses inside the
-  // generic region before any structural mutations.
-  // Use d2m.scratch_allocate instead of memref.alloc for intermediates.
+  // generic region before any structural mutations. Mark each alloc with
+  // d2m.scratch_slot so it can be replaced with d2m.scratch_allocate after
+  // scalar replacement runs.
   for (auto &[inputIdx, operandVal] : intermediates) {
     builder.setInsertionPointToStart(&body);
-    auto memrefType = cast<MemRefType>(operandVal.getType());
-    auto slotAttr = builder.getI64IntegerAttr(static_cast<int64_t>(inputIdx));
-    auto scratchOp = builder.create<ScratchAllocateOp>(genericOp.getLoc(),
-                                                       memrefType, slotAttr);
+    auto allocOp = builder.create<memref::AllocOp>(
+        genericOp.getLoc(), cast<MemRefType>(operandVal.getType()));
+    allocOp->setAttr("d2m.scratch_slot",
+                     builder.getI64IntegerAttr(static_cast<int64_t>(inputIdx)));
 
-    operandVal.replaceUsesWithIf(scratchOp.getResult(), [&](OpOperand &use) {
+    operandVal.replaceUsesWithIf(allocOp.getResult(), [&](OpOperand &use) {
       return genericOp->isAncestor(use.getOwner());
     });
   }
@@ -188,6 +189,28 @@ static void convertRemoteLoadToDPSStyle(func::FuncOp funcOp) {
   });
 }
 
+/// Replace memref.alloc ops marked with d2m.scratch_slot with
+/// d2m.scratch_allocate ops. These markers were placed by
+/// internalizeIntermediates before scalar replacement ran.
+static void replaceMarkedAllocsWithScratch(func::FuncOp funcOp,
+                                           OpBuilder &builder) {
+  SmallVector<memref::AllocOp> toReplace;
+  funcOp.walk([&](memref::AllocOp allocOp) {
+    if (allocOp->hasAttr("d2m.scratch_slot")) {
+      toReplace.push_back(allocOp);
+    }
+  });
+
+  for (memref::AllocOp allocOp : toReplace) {
+    auto slot = allocOp->getAttrOfType<IntegerAttr>("d2m.scratch_slot");
+    builder.setInsertionPoint(allocOp);
+    auto scratchOp = builder.create<ScratchAllocateOp>(allocOp.getLoc(),
+                                                       allocOp.getType(), slot);
+    allocOp.replaceAllUsesWith(scratchOp.getResult());
+    allocOp.erase();
+  }
+}
+
 class D2MGenericAffineScalarReplacement
     : public impl::D2MGenericAffineScalarReplacementBase<
           D2MGenericAffineScalarReplacement> {
@@ -238,6 +261,10 @@ public:
       for (GenericOp op : genericOps) {
         utils::convertFromAffineCompatibilityForm(op, builder);
       }
+
+      // Replace intermediate memref.alloc ops (marked with d2m.scratch_slot)
+      // with d2m.scratch_allocate now that scalar replacement is done.
+      replaceMarkedAllocsWithScratch(funcOp, builder);
     });
   }
 };

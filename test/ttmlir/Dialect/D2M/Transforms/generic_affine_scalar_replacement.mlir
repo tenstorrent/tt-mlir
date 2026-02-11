@@ -187,24 +187,18 @@ func.func @test_multiple_block_index_same_dimension(
 // Test 6: Intermediate operand internalization in a fused generic.
 // %intermediate is a memref.alloc only used by this generic op (no other
 // top-level users). It should be removed from the generic's inputs, its
-// CB block arg erased, and its internal uses replaced with a d2m.scratch_allocate.
-// After scalrep, the store-to-load through the intermediate is forwarded.
-//
-// Test 6: Intermediate operand internalization in a fused generic.
-// %intermediate is a memref.alloc only used by this generic op (no other
-// top-level users). It should be removed from the generic's inputs, its
-// CB block arg erased, and its internal uses replaced with a d2m.scratch_allocate.
-// After scalrep, the store-to-load through the intermediate is forwarded.
+// CB block arg erased, and its internal uses replaced with a local alloc.
+// After scalrep, the store-to-load through the intermediate is fully forwarded,
+// eliminating both the remote_store and remote_load to the intermediate.
+// Since the intermediate is fully eliminated, no scratch_allocate is needed.
 //
 // CHECK-LABEL: func.func @test_intermediate_internalization
 // The intermediate operand should be removed; only one input remains.
 // CHECK: d2m.generic
 // CHECK: ins(%{{.*}} : memref<{{.*}}>)
-// The internalized intermediate should use d2m.scratch_allocate with slot = 1
-// (slot 1 because intermediate is the second input, index 1)
-// CHECK: d2m.scratch_allocate {slot = 1 : i64}
 // The intermediate remote_store and remote_load should be eliminated by scalrep.
 // Only the input remote_load and output remote_store should remain.
+// CHECK-NOT: d2m.scratch_allocate
 // CHECK: d2m.remote_load
 // CHECK: test.use
 // CHECK: d2m.remote_store
@@ -246,21 +240,21 @@ func.func @test_intermediate_internalization(
 
 // Test 7: Complex matmul + add fusion with multiple block factors and indices.
 // Tests scalar replacement on nested affine loops with reduction dimension.
-// The intermediate (%alloc) is internalized to d2m.scratch_allocate and the
-// store-to-load through it is scalar replaced. Remote loads for matmul inputs,
-// compute (matmul, add), and final store should be preserved.
+// The intermediate (%alloc) is internalized and the store-to-load through it
+// is fully scalar replaced. Since all uses are eliminated, no scratch_allocate
+// is needed. Remote loads for matmul inputs, compute (matmul, add), and final
+// store should be preserved.
 //
 // CHECK-LABEL: func.func @test_matmul_add_subset_fusion
 // CHECK: d2m.generic
 // CHECK: d2m.get_block_factor
-// CHECK: d2m.scratch_allocate {slot = 2 : i64}
+// CHECK-NOT: d2m.scratch_allocate
 // CHECK: affine.for
 // CHECK: affine.for
 // CHECK: affine.for
 // CHECK: d2m.block_index
 // CHECK: d2m.remote_load
 // CHECK: d2m.tile_matmul_block
-// CHECK: d2m.remote_store
 // CHECK: linalg.generic
 // CHECK: d2m.tile_add
 // CHECK: d2m.remote_store
@@ -300,7 +294,9 @@ func.func @test_matmul_add_subset_fusion(
         %buf_bias = memref.alloc() : memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
         %loaded_bias = d2m.remote_load %buf_bias %alloc[%block0_out, %block1_out] : memref<2x2x!ttcore.tile<32x32, f32>, #l1_>, memref<2x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_> -> memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
         %buf_result = memref.alloc() : memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
-        linalg.generic {indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>], iterator_types = ["parallel", "parallel"]} ins(%loaded_bias, %accum_buf : memref<2x2x!ttcore.tile<32x32, f32>, #l1_>, memref<2x2x!ttcore.tile<32x32, f32>, #l1_>) outs(%buf_result : memref<2x2x!ttcore.tile<32x32, f32>, #l1_>) {
+        linalg.generic {indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>], iterator_types = ["parallel", "parallel"]}
+          ins(%loaded_bias, %loaded_bias : memref<2x2x!ttcore.tile<32x32, f32>, #l1_>, memref<2x2x!ttcore.tile<32x32, f32>, #l1_>)
+          outs(%buf_result : memref<2x2x!ttcore.tile<32x32, f32>, #l1_>) {
         ^bb0(%in0: !ttcore.tile<32x32, f32>, %in1: !ttcore.tile<32x32, f32>, %out: !ttcore.tile<32x32, f32>):
           %sum = "d2m.tile_add"(%in0, %in1) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
           linalg.yield %sum : !ttcore.tile<32x32, f32>
