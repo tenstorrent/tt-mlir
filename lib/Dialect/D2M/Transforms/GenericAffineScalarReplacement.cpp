@@ -112,12 +112,15 @@ static void internalizeIntermediates(GenericOp genericOp, OpBuilder &builder) {
 
   // Create local allocs for each intermediate and replace uses inside the
   // generic region before any structural mutations.
+  // Use d2m.scratch_allocate instead of memref.alloc for intermediates.
   for (auto &[inputIdx, operandVal] : intermediates) {
     builder.setInsertionPointToStart(&body);
-    auto allocOp = builder.create<memref::AllocOp>(
-        genericOp.getLoc(), cast<MemRefType>(operandVal.getType()));
+    auto memrefType = cast<MemRefType>(operandVal.getType());
+    auto slotAttr = builder.getI64IntegerAttr(static_cast<int64_t>(inputIdx));
+    auto scratchOp = builder.create<ScratchAllocateOp>(genericOp.getLoc(),
+                                                       memrefType, slotAttr);
 
-    operandVal.replaceUsesWithIf(allocOp.getResult(), [&](OpOperand &use) {
+    operandVal.replaceUsesWithIf(scratchOp.getResult(), [&](OpOperand &use) {
       return genericOp->isAncestor(use.getOwner());
     });
   }
@@ -209,7 +212,7 @@ public:
         });
       };
 
-      // Preprocess: internalize intermediate operands in each generic op.
+      // Internalize intermediate operands inside each generic op.
       collectFusedOps();
       for (GenericOp op : genericOps) {
         internalizeIntermediates(op, builder);
@@ -221,19 +224,16 @@ public:
         utils::convertToAffineCompatibilityForm(op, builder);
       }
 
-      // Convert RemoteLoadOps to direct style for store-to-load forwarding.
       convertRemoteLoadToDirectStyle(funcOp);
 
-      // Run affine scalar replacement on the function.
       auto &domInfo = getAnalysis<DominanceInfo>();
       auto &postDomInfo = getAnalysis<PostDominanceInfo>();
       auto &aliasAnalysis = getAnalysis<AliasAnalysis>();
       affine::affineScalarReplace(funcOp, domInfo, postDomInfo, aliasAnalysis);
 
-      // Convert surviving RemoteLoadOps back to DPS style.
+      // Undo affine compatibility transformations to normal Generic Op form
       convertRemoteLoadToDPSStyle(funcOp);
 
-      // Convert all fused d2m.generic ops back from affine-compatible form.
       collectFusedOps();
       for (GenericOp op : genericOps) {
         utils::convertFromAffineCompatibilityForm(op, builder);

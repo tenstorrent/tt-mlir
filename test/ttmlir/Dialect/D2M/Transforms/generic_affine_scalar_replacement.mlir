@@ -187,13 +187,22 @@ func.func @test_multiple_block_index_same_dimension(
 // Test 6: Intermediate operand internalization in a fused generic.
 // %intermediate is a memref.alloc only used by this generic op (no other
 // top-level users). It should be removed from the generic's inputs, its
-// CB block arg erased, and its internal uses replaced with a local alloc.
+// CB block arg erased, and its internal uses replaced with a d2m.scratch_allocate.
+// After scalrep, the store-to-load through the intermediate is forwarded.
+//
+// Test 6: Intermediate operand internalization in a fused generic.
+// %intermediate is a memref.alloc only used by this generic op (no other
+// top-level users). It should be removed from the generic's inputs, its
+// CB block arg erased, and its internal uses replaced with a d2m.scratch_allocate.
 // After scalrep, the store-to-load through the intermediate is forwarded.
 //
 // CHECK-LABEL: func.func @test_intermediate_internalization
 // The intermediate operand should be removed; only one input remains.
 // CHECK: d2m.generic
 // CHECK: ins(%{{.*}} : memref<{{.*}}>)
+// The internalized intermediate should use d2m.scratch_allocate with slot = 1
+// (slot 1 because intermediate is the second input, index 1)
+// CHECK: d2m.scratch_allocate {slot = 1 : i64}
 // The intermediate remote_store and remote_load should be eliminated by scalrep.
 // Only the input remote_load and output remote_store should remain.
 // CHECK: d2m.remote_load
@@ -231,6 +240,74 @@ func.func @test_intermediate_internalization(
         %stored_out = d2m.remote_store %output[%idx0, %idx1] %buf_out : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>, memref<2x4x!ttcore.tile<32x32, f32>, #l1_> -> memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>
       } {d2m.blocking_loop = 1}
     } {d2m.blocking_loop = 0}
+  }
+  return
+}
+
+// Test 7: Complex matmul + add fusion with multiple block factors and indices.
+// Tests scalar replacement on nested affine loops with reduction dimension.
+// The intermediate (%alloc) is internalized to d2m.scratch_allocate and the
+// store-to-load through it is scalar replaced. Remote loads for matmul inputs,
+// compute (matmul, add), and final store should be preserved.
+//
+// CHECK-LABEL: func.func @test_matmul_add_subset_fusion
+// CHECK: d2m.generic
+// CHECK: d2m.get_block_factor
+// CHECK: d2m.scratch_allocate {slot = 2 : i64}
+// CHECK: affine.for
+// CHECK: affine.for
+// CHECK: affine.for
+// CHECK: d2m.block_index
+// CHECK: d2m.remote_load
+// CHECK: d2m.tile_matmul_block
+// CHECK: d2m.remote_store
+// CHECK: linalg.generic
+// CHECK: d2m.tile_add
+// CHECK: d2m.remote_store
+func.func @test_matmul_add_subset_fusion(
+    %arg0: memref<2x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>,
+    %arg1: memref<2x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>,
+    %arg2: memref<2x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>) {
+  %alloc = memref.alloc() : memref<2x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>
+  %alloc_0 = memref.alloc() : memref<2x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>
+
+  d2m.generic {block_factors = [1, 1, 2], d2m.affine_fused, grid = #ttcore.grid<2x2>,
+    indexing_maps = [affine_map<(d0, d1, d2) -> (d0, d2)>, affine_map<(d0, d1, d2) -> (d2, d1)>, affine_map<(d0, d1, d2) -> (d0, d1)>, affine_map<(d0, d1, d2) -> (d0, d1)>],
+    iterator_types = [#ttcore.iterator_type<parallel>, #ttcore.iterator_type<parallel>, #ttcore.iterator_type<reduction>],
+    threads = [#d2m.thread<unified>]}
+      ins(%arg0, %arg1, %alloc : memref<2x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>, memref<2x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>, memref<2x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>)
+      outs(%alloc_0 : memref<2x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>) {
+  ^unified0(%cb0: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>>, %cb1: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>>, %cb2: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>>, %cb3: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>>):
+    %block_factor0 = d2m.get_block_factor(0) : index
+    %block_factor1 = d2m.get_block_factor(1) : index
+    %block_factor2 = d2m.get_block_factor(2) : index
+    affine.for %i0 = 0 to %block_factor0 {
+      affine.for %i1 = 0 to %block_factor1 {
+        %accum_buf = memref.alloc() : memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
+        affine.for %i2 = 0 to %block_factor2 {
+          %block0 = d2m.block_index(0) : index
+          %block1 = d2m.block_index(1) : index
+          %block2 = d2m.block_index(2) : index
+          %buf_a = memref.alloc() : memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
+          %buf_b = memref.alloc() : memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
+          %loaded_a = d2m.remote_load %buf_a %arg0[%block0, %block2] : memref<2x2x!ttcore.tile<32x32, f32>, #l1_>, memref<2x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_> -> memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
+          %loaded_b = d2m.remote_load %buf_b %arg1[%block2, %block1] : memref<2x2x!ttcore.tile<32x32, f32>, #l1_>, memref<2x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_> -> memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
+          "d2m.tile_matmul_block"(%loaded_a, %loaded_b, %accum_buf) : (memref<2x2x!ttcore.tile<32x32, f32>, #l1_>, memref<2x2x!ttcore.tile<32x32, f32>, #l1_>, memref<2x2x!ttcore.tile<32x32, f32>, #l1_>) -> ()
+        } {d2m.blocking_loop = 2 : i64}
+        %block0_out = d2m.block_index(0) : index
+        %block1_out = d2m.block_index(1) : index
+        %stored_inter = d2m.remote_store %alloc[%block0_out, %block1_out] %accum_buf : memref<2x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>, memref<2x2x!ttcore.tile<32x32, f32>, #l1_> -> memref<2x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>
+        %buf_bias = memref.alloc() : memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
+        %loaded_bias = d2m.remote_load %buf_bias %alloc[%block0_out, %block1_out] : memref<2x2x!ttcore.tile<32x32, f32>, #l1_>, memref<2x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_> -> memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
+        %buf_result = memref.alloc() : memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
+        linalg.generic {indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>], iterator_types = ["parallel", "parallel"]} ins(%loaded_bias, %accum_buf : memref<2x2x!ttcore.tile<32x32, f32>, #l1_>, memref<2x2x!ttcore.tile<32x32, f32>, #l1_>) outs(%buf_result : memref<2x2x!ttcore.tile<32x32, f32>, #l1_>) {
+        ^bb0(%in0: !ttcore.tile<32x32, f32>, %in1: !ttcore.tile<32x32, f32>, %out: !ttcore.tile<32x32, f32>):
+          %sum = "d2m.tile_add"(%in0, %in1) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
+          linalg.yield %sum : !ttcore.tile<32x32, f32>
+        }
+        %stored = d2m.remote_store %alloc_0[%block0_out, %block1_out] %buf_result : memref<2x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>, memref<2x2x!ttcore.tile<32x32, f32>, #l1_> -> memref<2x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>
+      } {d2m.blocking_loop = 1 : i64}
+    } {d2m.blocking_loop = 0 : i64}
   }
   return
 }

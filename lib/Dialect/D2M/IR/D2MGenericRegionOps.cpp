@@ -293,7 +293,8 @@ void DMAWriteOp::getEffects(
     mcastDimIndices.push_back(indexAttr.getInt());
   }
 
-  // Verify that memref references a generic op operand when inside a generic
+  // Verify that memref references a generic op operand or scratch allocation
+  // when inside a generic
   if (auto genericOp = getOperation()->getParentOfType<GenericOp>()) {
     Value memrefOperand = getMemref();
     std::optional<unsigned> operandIndex;
@@ -303,10 +304,12 @@ void DMAWriteOp::getEffects(
         break;
       }
     }
-    if (!operandIndex) {
+    // Also allow scratch allocations
+    if (!operandIndex &&
+        !isa_and_nonnull<ScratchAllocateOp>(memrefOperand.getDefiningOp())) {
       return emitOpError(
           "memref operand must reference one of the parent generic op's "
-          "operands directly");
+          "operands or a scratch allocation");
     }
 
     // Forbid high-level mcast form in explicit datamovement form
@@ -468,7 +471,8 @@ void WriteColMaskTileOp::getEffects(
            << getIndices().size() << " indices but expected " << gridRank;
   }
 
-  // Verify that memref references a generic op operand when inside a generic
+  // Verify that memref references a generic op operand or scratch allocation
+  // when inside a generic
   if (auto genericOp = getOperation()->getParentOfType<GenericOp>()) {
     Value memrefOperand = getMemref();
     bool foundInOperands = false;
@@ -478,10 +482,12 @@ void WriteColMaskTileOp::getEffects(
         break;
       }
     }
-    if (!foundInOperands) {
+    // Also allow scratch allocations
+    if (!foundInOperands &&
+        !isa_and_nonnull<ScratchAllocateOp>(memrefOperand.getDefiningOp())) {
       return emitOpError(
           "memref operand must reference one of the parent generic op's "
-          "operands directly");
+          "operands or a scratch allocation");
     }
   }
 
