@@ -272,7 +272,7 @@ class TTNN_ElementwiseTernaryOp<string mnemonic, list<Trait> traits = []> :
     ];
 }
 
-def TTNN_WhereOp : TTNN_ElementwiseTernaryOp<"where", [ExplicateOperandBroadcastsTrait]> {
+def TTNN_WhereOp : TTNN_ElementwiseTernaryOp<"where"> {
     let summary = "Eltwise where.";
     let description = [{
       Eltwise where operation.

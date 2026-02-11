@@ -47,7 +47,6 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         Workarounds/Decomposition/RMSNormConfigRewritePattern.cpp
         Workarounds/Decomposition/RotaryEmbeddingOpRewritePattern.cpp
         Workarounds/Decomposition/SubtractOpImplicitBroadcastRewritePattern.cpp
-        Workarounds/Decomposition/ExplicateOperandBroadcastsRewritePattern.cpp
         Workarounds/TTNNWorkaroundsPatterns.cpp
 
         ADDITIONAL_HEADER_DIRS
