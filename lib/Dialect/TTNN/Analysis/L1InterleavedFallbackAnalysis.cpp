@@ -361,7 +361,7 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
                                    validationResult.errorMessage.c_str());
   }
 
-  TTNNLayoutAttr outputLayout = validationResult.actualOutputLayout;
+  TTNNLayoutAttr outputLayout = validationResult.firstActualOutputLayout;
 
   if (outputLayout != consumerConfig.outputLayout) {
     TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
