@@ -1272,19 +1272,37 @@ class Builder(metaclass=BuilderMeta):
         else:
             loc = Location.name(loc)
 
-        op = debug_op(
+        debug_op(
             operand,
             loc=loc,
+            results=[]
         )
-        op_result = op.result
 
-        if not self._disable_golden_check:
-            input0 = self._get_golden_tensor(operand)
-            op_golden_function = get_golden_function(debug_op)
-            golden_output = op_golden_function(input0)
-            self._set_golden_tensor(op_result, golden_output)
+        return
 
-        return op_result
+    @tag(debug.PrintOp)
+    def print(
+        self,
+        operand: Operand,
+        message: str,
+        loc: Optional[str] = None,
+    ) -> OpResult:
+        debug_op = self.get_opview_from_method(Builder.print)
+        message_attr = StringAttr.get(message)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        debug_op(
+            operand,
+            message=message_attr,
+            loc=loc,
+            results=[]
+        )
+
+        return
 
     @tag(debug.MemorySnapshotOp)
     def memory_snapshot(
@@ -1301,9 +1319,57 @@ class Builder(metaclass=BuilderMeta):
         else:
             loc = Location.name(loc)
 
-        op = debug_op(
+        debug_op(
             operand,
             file_path=file_path_attr,
+            loc=loc,
+            results=[]
+        )
+
+        return
+
+    @tag(debug.DumpOp)
+    def dump(
+        self,
+        operand: Operand,
+        file_path: str,
+        loc: Optional[str] = None,
+    ) -> OpResult:
+        debug_op = self.get_opview_from_method(Builder.dump)
+        file_path_attr = StringAttr.get(file_path)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        debug_op(
+            operand,
+            file_path=file_path_attr,
+            loc=loc,
+            results=[]
+        )
+        
+        return
+
+    @tag(debug.RegionStartOp)
+    def region_start(
+        self,
+        operand: Operand,
+        region_id: str,
+        loc: Optional[str] = None,
+    ) -> OpResult:
+        debug_op = self.get_opview_from_method(Builder.region_start)
+        region_id_attr = StringAttr.get(region_id)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = debug_op(
+            operand,
+            region_id=region_id_attr,
             loc=loc,
         )
         op_result = op.result
@@ -1311,7 +1377,37 @@ class Builder(metaclass=BuilderMeta):
         if not self._disable_golden_check:
             input0 = self._get_golden_tensor(operand)
             op_golden_function = get_golden_function(debug_op)
-            golden_output = op_golden_function(input0, file_path_attr)
+            golden_output = op_golden_function(input0, region_id_attr)
+            self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @tag(debug.RegionEndOp)
+    def region_end(
+        self,
+        operand: Operand,
+        region_id: str,
+        loc: Optional[str] = None,
+    ) -> OpResult:
+        debug_op = self.get_opview_from_method(Builder.region_end)
+        region_id_attr = StringAttr.get(region_id)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = debug_op(
+            operand,
+            region_id=region_id_attr,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(operand)
+            op_golden_function = get_golden_function(debug_op)
+            golden_output = op_golden_function(input0, region_id_attr)
             self._set_golden_tensor(op_result, golden_output)
 
         return op_result

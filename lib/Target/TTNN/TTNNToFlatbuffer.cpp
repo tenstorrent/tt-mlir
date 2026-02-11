@@ -3320,26 +3320,52 @@ createOp(FlatbufferObjectCache &cache, debug::AnnotateOp op) {
 createOp(FlatbufferObjectCache &cache, debug::BreakpointOp op) {
   auto operand = cache.at<::tt::target::ttnn::TensorRef>(
       getOperandThroughDPSOps(op.getOperand()));
-  auto result =
-      cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
 
-                                  /*local_shape*/ std::nullopt);
+  return ::tt::target::ttnn::CreateBreakpointOp(*cache.fbb, operand);
+}
 
-  return ::tt::target::ttnn::CreateBreakpointOp(*cache.fbb, operand, result);
+::flatbuffers::Offset<::tt::target::ttnn::PrintOp>
+createOp(FlatbufferObjectCache &cache, debug::PrintOp op) {
+  auto operand = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getOperand()));
+  auto message = toFlatbuffer(cache, op.getMessage());
+
+  return ::tt::target::ttnn::CreatePrintOp(*cache.fbb, operand, message);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::MemorySnapshotOp>
 createOp(FlatbufferObjectCache &cache, debug::MemorySnapshotOp op) {
   auto operand = cache.at<::tt::target::ttnn::TensorRef>(
       getOperandThroughDPSOps(op.getOperand()));
+  auto filePath = toFlatbuffer(cache, op.getFilePath());
+
+  return ::tt::target::ttnn::CreateMemorySnapshotOp(*cache.fbb, operand, filePath);
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::RegionStartOp>
+createOp(FlatbufferObjectCache &cache, debug::RegionStartOp op) {
+  auto operand = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getOperand()));
   auto result =
       cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
 
                                   /*local_shape*/ std::nullopt);
-  auto filePath = toFlatbuffer(cache, op.getFilePath());
+  auto regionId = toFlatbuffer(cache, op.getRegionId());
 
-  return ::tt::target::ttnn::CreateMemorySnapshotOp(*cache.fbb, operand, result,
-                                                    filePath);
+  return ::tt::target::ttnn::CreateRegionStartOp(*cache.fbb, operand, result, regionId);
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::RegionEndOp>
+createOp(FlatbufferObjectCache &cache, debug::RegionEndOp op) {
+  auto operand = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getOperand()));
+  auto result =
+      cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
+
+                                  /*local_shape*/ std::nullopt);
+  auto regionId = toFlatbuffer(cache, op.getRegionId());
+
+  return ::tt::target::ttnn::CreateRegionEndOp(*cache.fbb, operand, result, regionId);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::Operation>
@@ -4021,10 +4047,21 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createOp(cache, breakpointOp), debugString,
                            locInfo);
   }
+  if (auto printOp = dyn_cast<debug::PrintOp>(op); printOp) {
+    return createOperation(cache, createOp(cache, printOp), debugString,
+                           locInfo);
+  }
   if (auto memorySnapshotOp = dyn_cast<debug::MemorySnapshotOp>(op);
       memorySnapshotOp) {
     return createOperation(cache, createOp(cache, memorySnapshotOp),
                            debugString, locInfo);
+  }
+  if (auto regionStartOp = dyn_cast<debug::RegionStartOp>(op); regionStartOp) {
+    return createOperation(cache, createOp(cache, regionStartOp), debugString,
+                           locInfo);
+  }
+  if (auto regionEndOp = dyn_cast<debug::RegionEndOp>(op); regionEndOp) {
+    return createOperation(cache, createOp(cache, regionEndOp), debugString, locInfo);
   }
 
   llvm_unreachable("unhandled op in emitTTNNOperation");
