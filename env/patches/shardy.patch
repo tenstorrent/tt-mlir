@@ -1431,3 +1431,145 @@ index da451fa..44c0ea2 100644
  }
 
  }  // namespace
+diff --git a/shardy/dialect/sdy/transforms/propagation/basic_propagation.cc b/shardy/dialect/sdy/transforms/propagation/basic_propagation.cc
+index 336748e..bd10191 100644
+--- a/shardy/dialect/sdy/transforms/propagation/basic_propagation.cc
++++ b/shardy/dialect/sdy/transforms/propagation/basic_propagation.cc
+@@ -146,6 +146,114 @@ struct PropagationTensorParams {
+         isFuncResult(isFuncResult) {}
+ };
+ 
++// Returns true if `denseAttr` is periodic along `shardingDim` with
++// `numShards` slices, i.e., every shard slice contains the same data as shard
++// 0. Periodic constants (e.g., a broadcast of a splat along the sharding dim)
++// are safe to shard because each device gets identical values.
++bool isPeriodicAlongDim(DenseElementsAttr denseAttr,
++                        ArrayRef<int64_t> globalShape, int64_t shardingDim,
++                        int64_t numShards) {
++  int64_t rank = static_cast<int64_t>(globalShape.size());
++  int64_t totalDimSize = globalShape[shardingDim];
++  int64_t shardDimSize = totalDimSize / numShards;
++
++  if (shardDimSize == 0 || totalDimSize % numShards != 0) {
++    return false;
++  }
++
++  int64_t innerBlockSize = 1;
++  for (int64_t i = shardingDim + 1; i < rank; ++i) {
++    innerBlockSize *= globalShape[i];
++  }
++
++  int64_t outerCount = 1;
++  for (int64_t i = 0; i < shardingDim; ++i) {
++    outerCount *= globalShape[i];
++  }
++
++  auto globalValues = denseAttr.getValues<Attribute>();
++  int64_t shardStep = shardDimSize * innerBlockSize;
++  int64_t rowSize = totalDimSize * innerBlockSize;
++
++  for (int64_t out = 0; out < outerCount; ++out) {
++    int64_t rowStart = out * rowSize;
++    for (int64_t k = 1; k < numShards; ++k) {
++      for (int64_t s = 0; s < shardDimSize; ++s) {
++        for (int64_t inner = 0; inner < innerBlockSize; ++inner) {
++          int64_t offset0 = rowStart + (s * innerBlockSize) + inner;
++          int64_t offsetK = offset0 + (k * shardStep);
++          if (globalValues[offset0] != globalValues[offsetK]) {
++            return false;
++          }
++        }
++      }
++    }
++  }
++  return true;
++}
++
++// Returns true if a constant with the given `denseAttr` can safely be sharded
++// according to `newSharding` on `mesh`. A constant is safe to shard if it is
++// either splat, or periodic (all shard slices identical) along every sharded
++// dimension. Non-splat, non-periodic constants (e.g., positional embeddings
++// [0, 1, ..., 63]) must remain replicated to avoid correctness issues.
++bool isConstantSafeToShard(DenseElementsAttr denseAttr,
++                           TensorShardingAttr newSharding, MeshAttr mesh) {
++  if (denseAttr.isSplat()) {
++    return true;
++  }
++
++  auto tensorType = cast<RankedTensorType>(denseAttr.getType());
++  ArrayRef<int64_t> globalShape = tensorType.getShape();
++
++  for (auto [dimIdx, dimSharding] :
++       llvm::enumerate(newSharding.getDimShardings())) {
++    ArrayRef<AxisRefAttr> axisRefs = dimSharding.getAxes();
++    if (axisRefs.empty()) {
++      continue;
++    }
++
++    // Compute total number of shards along this dimension from all axes.
++    int64_t numShards = 1;
++    for (AxisRefAttr axisRef : axisRefs) {
++      StringRef axisName = axisRef.getName();
++      for (MeshAxisAttr meshAxis : mesh.getAxes()) {
++        if (meshAxis.getName() == axisName) {
++          if (auto subAxisInfo = axisRef.getSubAxisInfo()) {
++            numShards *= subAxisInfo.getSize();
++          } else {
++            numShards *= meshAxis.getSize();
++          }
++          break;
++        }
++      }
++    }
++
++    if (numShards <= 1) {
++      continue;
++    }
++
++    if (!isPeriodicAlongDim(denseAttr, globalShape,
++                            static_cast<int64_t>(dimIdx), numShards)) {
++      return false;
++    }
++  }
++
++  return true;
++}
++
++// Retrieves the ElementsAttr from a constant-defining op, if any.
++// Handles both sdy::ConstantOp and ops with the ConstantLike trait.
++ElementsAttr getConstantValue(Operation* defOp) {
++  if (auto constantOp = dyn_cast<ConstantOp>(defOp)) {
++    return constantOp.getValue();
++  }
++  if (defOp->hasTrait<OpTrait::ConstantLike>()) {
++    return defOp->getAttrOfType<ElementsAttr>("value");
++  }
++  return nullptr;
++}
++
+ // Update the sharding of `value` to the sharding in `tensorFactorShardings`.
+ //
+ // Returns true if it's possible to update the sharding, i.e., if strided view
+@@ -175,6 +283,22 @@ bool updateTensorSharding(Value modifiedValue,
+     return false;
+   }
+ 
++  // Prevent propagation from sharding non-splittable constant tensors.
++  // A constant is "splittable" if it is splat (all elements identical) or
++  // periodic along every sharded dimension (each shard slice is identical to
++  // shard 0). Non-splittable constants like positional embeddings [0,1,..,63]
++  // must remain replicated — sharding them would give each device a different
++  // (incorrect) slice of the data.
++  if (Operation* defOp = modifiedValue.getDefiningOp()) {
++    if (ElementsAttr valueAttr = getConstantValue(defOp)) {
++      if (auto denseAttr = dyn_cast<DenseElementsAttr>(valueAttr)) {
++        if (!isConstantSafeToShard(denseAttr, newSharding, params.mesh)) {
++          return false;
++        }
++      }
++    }
++  }
++
+   setTensorShardingCallback(newSharding);
+ 
+   if (isFuncResult) {
