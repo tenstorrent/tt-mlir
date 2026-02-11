@@ -337,7 +337,7 @@ mlir::AffineMap buildLayoutTransformMap(MetalLayoutAttr fromLayout,
   logicalToFromDevice = mlir::simplifyAffineMap(logicalToFromDevice);
 
   // NOTE: Do NOT compose the INPUT index_map here. The index_map (core
-  // virtualization map) will be composed later in DeviceAttr::getMemoryMap
+  // virtualization map) will be composed later in d2m::utils::getMemoryMap
   // when generating the actual DMA. Composing it here would apply it twice,
   // causing incorrect virtual-to-physical coordinate translation.
 

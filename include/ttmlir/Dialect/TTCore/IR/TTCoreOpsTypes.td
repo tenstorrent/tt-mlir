@@ -491,13 +491,6 @@ def TTCore_DeviceAttr : TTCore_Attr<"Device", "device", []> {
   let extraClassDeclaration = [{
       static DeviceAttr get(::mlir::MLIRContext *context, SystemDescAttr systemDesc, ArrayRef<int64_t> meshShape, ArrayRef<unsigned> chipIds, ArrayRef<Topology> meshTopology = {});
       static DeviceAttr get(::mlir::MLIRContext *context, SystemDescAttr systemDesc, ArrayRef<int64_t> meshShape = {}, ArrayRef<Topology> meshTopology = {});
-      AffineMap getMemoryMap(MemRefType memrefType,
-                             size_t pageSize,
-                             std::optional<AffineMap> view = std::nullopt,
-                             size_t baseOffset = 0) const;
-      AffineMap getMemoryMap(std::pair<MemRefType, AffineMap> memrefAndView,
-                             size_t pageSize,
-                             size_t baseOffset = 0) const;
 
       // Returns the size in bytes of the given memref type. Supports memref's of multiple flavors:
       //   - Generic region memrefs, e.g. memref<64x128xf32, #l1_> this will return the size of the whole memref.

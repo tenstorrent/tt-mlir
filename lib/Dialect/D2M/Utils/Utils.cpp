@@ -8,7 +8,10 @@
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOpsInterfaces.h"
+#include "ttmlir/Dialect/D2M/Utils/VirtualGrid.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
+#include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Affine/Utils.h"
 #include "mlir/IR/AffineExpr.h"
@@ -255,6 +258,130 @@ AffineMap resolveEffectiveAffineMap(Value val, MemRefType memrefType) {
   }
   return AffineMap::getMultiDimIdentityMap(memrefType.getRank(),
                                            memrefType.getContext());
+}
+
+AffineMap getMemoryMap(ttcore::DeviceAttr device, MemRefType memrefType,
+                       size_t pageSize, std::optional<AffineMap> view,
+                       size_t baseOffset) {
+  ttcore::MemorySpace memorySpace =
+      mlir::cast<ttcore::MemorySpaceAttr>(memrefType.getMemorySpace())
+          .getValue();
+  AffineMap affineMap;
+  if (auto layout =
+          mlir::dyn_cast<MemRefLayoutAttrInterface>(memrefType.getLayout())) {
+    affineMap = layout.getAffineMap();
+  } else {
+    affineMap = AffineMap::getMultiDimIdentityMap(memrefType.getRank(),
+                                                  memrefType.getContext());
+  }
+
+  if (auto shardLayout =
+          mlir::dyn_cast<ttcore::ShardLayoutAttr>(memrefType.getLayout())) {
+
+    unsigned shardRank = shardLayout.getRank();
+    unsigned gridRank = memrefType.getRank() - shardRank;
+
+    auto gridShape = memrefType.getShape().take_front(gridRank);
+    auto deviceGridShape = device.getWorkerGrid().getShape();
+
+    bool needsCoreVirtualization =
+        (gridRank != 2) || (gridShape[0] > deviceGridShape[0] ||
+                            gridShape[1] > deviceGridShape[1]);
+
+    if (needsCoreVirtualization) {
+      auto physicalGrid = ttmlir::d2m::utils::grids::getPhysicalGridExtent(
+          llvm::SmallVector<int64_t>(gridShape.begin(), gridShape.end()),
+          llvm::SmallVector<int64_t>(deviceGridShape.begin(),
+                                     deviceGridShape.end()));
+
+      auto [forwardMap, inverseMap] =
+          ttmlir::d2m::utils::grids::createCoreVirtMaps(
+              memrefType.getContext(),
+              llvm::SmallVector<int64_t>(gridShape.begin(), gridShape.end()),
+              physicalGrid);
+
+      AffineMap coreVirtMap = forwardMap;
+
+      if (affineMap.getNumDims() > coreVirtMap.getNumResults()) {
+        auto dimsToRemove =
+            affineMap.getNumDims() - coreVirtMap.getNumResults();
+        llvm::SmallBitVector projectedDims(affineMap.getNumDims());
+        projectedDims.set(0, dimsToRemove);
+
+        affineMap = getProjectedMap(affineMap, projectedDims);
+        affineMap = affineMap.dropResults(projectedDims);
+      }
+
+      affineMap = affineMap.compose(coreVirtMap);
+    }
+
+    if (view) {
+      affineMap = affineMap.compose(*view);
+    }
+
+    switch (memorySpace) {
+    case ttcore::MemorySpace::DeviceL1: {
+      SmallVector<int64_t> symbols = {static_cast<int64_t>(baseOffset)};
+      auto resolvedL1Map =
+          ttmlir::utils::replaceAffineMapSymbols(device.getL1Map(), symbols);
+      return resolvedL1Map.compose(affineMap);
+    }
+    case ttcore::MemorySpace::DeviceDRAM: {
+      pageSize = device.getMemrefSizeBytes(memrefType);
+      assert(pageSize > 0 && "expected positive page size");
+      SmallVector<int64_t> symbols(memrefType.getShape());
+      symbols.push_back(static_cast<int64_t>(pageSize));
+      symbols.push_back(static_cast<int64_t>(baseOffset));
+      symbols.push_back(
+          ttcore::getElementSizeBytes(memrefType.getElementType()));
+      return ttmlir::utils::replaceAffineMapSymbols(device.getDramMap(),
+                                                    symbols)
+          .compose(affineMap);
+    }
+    default: {
+      llvm_unreachable("Unsupported memory space");
+    }
+    }
+  } else if (mlir::isa<ttcore::InterleavedLayoutAttr>(memrefType.getLayout())) {
+
+    if (view) {
+      affineMap = affineMap.compose(*view);
+    }
+
+    assert(memorySpace == ttcore::MemorySpace::DeviceDRAM &&
+           "interleavedLayoutAttr only supported for deviceDRAM memory space");
+
+    auto interleavedLayout =
+        mlir::cast<ttcore::InterleavedLayoutAttr>(memrefType.getLayout());
+
+    int64_t elementSizeBytes =
+        ttcore::getElementSizeBytes(memrefType.getElementType());
+    pageSize = mlir::isa<ttcore::TileType>(memrefType.getElementType())
+                   ? elementSizeBytes
+                   : interleavedLayout.getStride().front();
+
+    assert(ttmlir::utils::volume(interleavedLayout.getGridShape(memrefType)) ==
+               1 &&
+           "All dims in grid shape for DRAM interleaved memref must be 1 (i.e. "
+           "1x1x...x1) ");
+
+    SmallVector<int64_t> symbols(memrefType.getShape());
+    symbols.push_back(static_cast<int64_t>(pageSize));
+    symbols.push_back(static_cast<int64_t>(baseOffset));
+    symbols.push_back(elementSizeBytes);
+
+    return ttmlir::utils::replaceAffineMapSymbols(device.getDramMap(), symbols)
+        .compose(affineMap);
+  } else {
+    llvm_unreachable("Unsupported memory layout");
+  }
+}
+
+AffineMap getMemoryMap(ttcore::DeviceAttr device,
+                       std::pair<MemRefType, AffineMap> memrefAndView,
+                       size_t pageSize, size_t baseOffset) {
+  return getMemoryMap(device, memrefAndView.first, pageSize,
+                      memrefAndView.second, baseOffset);
 }
 
 } // namespace mlir::tt::d2m::utils

@@ -8,6 +8,7 @@ add_mlir_library(MLIRD2MUtils
   ${PROJECT_SOURCE_DIR}/include/ttmlir
 
   LINK_LIBS PUBLIC
+  MLIRTTCoreDialect
   MLIRIR
   MLIRAffineDialect
   MLIRAffineUtils
