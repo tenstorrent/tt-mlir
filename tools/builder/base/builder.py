@@ -931,7 +931,7 @@ class Builder(metaclass=BuilderMeta):
         Example:
             >>> location_str = "my_file.py:42"
             >>> location_obj = builder._get_loc_from_str(location_str)
-            >>> 
+            >>>
             >>> # Also works with existing Location objects
             >>> existing_loc = Location.name("other.py:100")
             >>> same_loc = builder._get_loc_from_str(existing_loc)
@@ -1791,6 +1791,7 @@ class Builder(metaclass=BuilderMeta):
             not PyTorch tensors. The builder instance is passed as the
             last argument to the decorated function.
         """
+
         def wrapper(fn):
             encoding_fn = self.create_tensor_encoding
             fn_input_types = [
@@ -1871,6 +1872,7 @@ class Builder(metaclass=BuilderMeta):
             different hardware. The module created by this method can
             contain operations that are only valid on specific devices.
         """
+
         def wrapper(self):
             device_module_op = ttcore.DeviceModuleOp()
             region = device_module_op.regions[0]
@@ -1908,6 +1910,7 @@ class Builder(metaclass=BuilderMeta):
             on specialized hardware. They work in conjunction with
             device modules in heterogeneous computing scenarios.
         """
+
         def wrapper(self):
             cpu_module_op = ttcore.CPUModuleOp()
             region = cpu_module_op.regions[0]
