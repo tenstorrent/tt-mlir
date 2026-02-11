@@ -94,3 +94,34 @@ module attributes {} {
     return %1 : tensor<1x38x128x515xf32>
   }
 }
+
+// -----
+
+// Verify default all_reduce dimensions lower to scatter/all_gather on the last
+// divisible dimension (dim 3 for this shape).
+module attributes {} {
+  // CHECK-LABEL: all_reduce_default_dims_last_divisible_dim3
+  func.func @all_reduce_default_dims_last_divisible_dim3(%arg0: tensor<32x256xbf16>) -> tensor<32x256xbf16> {
+    %1 = "ttir.all_reduce"(%arg0) <{cluster_axis = 1 : ui32, reduce_type = #ttcore.reduce_type<sum>}> : (tensor<32x256xbf16>) -> tensor<32x256xbf16>
+    // CHECK: "ttnn.reduce_scatter"
+    // CHECK-SAME: scatter_dim = 3 : si32
+    // CHECK: "ttnn.all_gather"
+    // CHECK-SAME: all_gather_dim = 3 : si32
+    return %1 : tensor<32x256xbf16>
+  }
+}
+
+// -----
+
+// Verify scatter/all_gather use the last divisible dimension (dim 2 here).
+module attributes {} {
+  // CHECK-LABEL: all_reduce_default_dims_last_divisible_dim2
+  func.func @all_reduce_default_dims_last_divisible_dim2(%arg0: tensor<1x1x32x255xbf16>) -> tensor<1x1x32x255xbf16> {
+    %1 = "ttir.all_reduce"(%arg0) <{cluster_axis = 1 : ui32, reduce_type = #ttcore.reduce_type<sum>}> : (tensor<1x1x32x255xbf16>) -> tensor<1x1x32x255xbf16>
+    // CHECK: "ttnn.reduce_scatter"
+    // CHECK-SAME: scatter_dim = 2 : si32
+    // CHECK: "ttnn.all_gather"
+    // CHECK-SAME: all_gather_dim = 2 : si32
+    return %1 : tensor<1x1x32x255xbf16>
+  }
+}
