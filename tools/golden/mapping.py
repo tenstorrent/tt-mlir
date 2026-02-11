@@ -1208,10 +1208,11 @@ def ttir_group_norm_golden(
     input: GoldenMapTensor,
     weight: Optional[GoldenMapTensor],
     bias: Optional[GoldenMapTensor],
-    num_groups: int,
+    num_groups,
     epsilon: FloatAttr,
     output_type_mlir: Type,
 ) -> GoldenMapTensor:
+    num_groups = unpack_mlir_attr(num_groups)
     epsilon = unpack_mlir_attr(epsilon)
     output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
     input_float = input.float()
@@ -6174,10 +6175,11 @@ def ttnn_group_norm_golden(
     input: GoldenMapTensor,
     weight: Optional[GoldenMapTensor],
     bias: Optional[GoldenMapTensor],
-    num_groups: int,
+    num_groups,
     epsilon: FloatAttr,
     output_type_mlir: Type,
 ) -> GoldenMapTensor:
+    num_groups = unpack_mlir_attr(num_groups)
     epsilon = unpack_mlir_attr(epsilon)
     output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
     input_float = input.float()
