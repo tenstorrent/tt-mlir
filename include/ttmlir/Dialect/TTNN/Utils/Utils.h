@@ -62,6 +62,9 @@ struct RankedTensorTypeFactory {
                                  ArrayRef<int64_t> tensorShape);
 };
 
+// Helper method to get the buffer type from the tensor layout encoding.
+BufferType getBufferTypeFromTensor(RankedTensorType tensorType);
+
 // Return the L1 memory usage of the output tensor of the given op.
 // Used within L1 interleaved policies and temporarily within L1 Interleaved
 // Fallback Analysis.

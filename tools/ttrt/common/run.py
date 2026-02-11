@@ -191,13 +191,6 @@ class Run:
             help="disable read update index for kv cache workaround",
         )
         Run.register_arg(
-            name="--disable-trace-implicit-from-device",
-            type=bool,
-            default=False,
-            choices=[True, False],
-            help="disable trace from implicitly bouncing tensors off of host",
-        )
-        Run.register_arg(
             name="--disable-blackhole-workarounds",
             type=bool,
             default=False,
@@ -543,7 +536,6 @@ class Run:
             workaround_env = ttrt.runtime.WorkaroundEnv.get(
                 not self["--disable-swap-binary-operands"],
                 not self["--disable-read-update-index-for-kv-cache"],
-                not self["--disable-trace-implicit-from-device"],
                 not self["--disable-blackhole-workarounds"],
             )
             self.logging.debug(f"setting tt runtime workaround env={workaround_env}")
