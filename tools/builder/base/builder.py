@@ -464,10 +464,43 @@ class Builder(metaclass=BuilderMeta):
     def set_operand_goldens(
         self, operands: Dict[Operand, Union[torch.tensor, Dict[int : torch.tensor]]]
     ):
+        """Set golden tensors for specific operands and mark them for validation.
+
+        This method sets golden values for a dictionary of operands and
+        automatically marks them for validation during golden checks.
+        It's useful when you want to validate specific operands rather than
+        all outputs of an operation.
+
+        Args:
+            operands: Dictionary mapping operands to their golden values.
+                     Values can be torch tensors or dictionaries mapping
+                     device IDs to tensors for distributed computation.
+
+        Note:
+            Unlike set_goldens, this method specifically marks the provided
+            operands for validation, giving finer control over which results
+            are checked during testing.
+        """
         self._set_goldens(self._create_builder_golden_from_torch_tensor(operands))
         self.set_goldens_to_check(operands.keys())
 
     def set_goldens_to_check(self, operands: List[Operand], override: bool = False):
+        """Specify which operands should be validated during golden checks.
+
+        This method controls which operation results are compared against
+        golden tensors during validation. By default, golden checks validate
+        all operation outputs, but this method allows selective validation.
+
+        Args:
+            operands: List of operands to validate during golden checks.
+            override: If True, replace the current list of operands to check.
+                     If False, append to the existing list.
+
+        Note:
+            Selective validation is useful for testing complex operations
+            where only specific outputs need verification, or when some
+            outputs are non-deterministic or hardware-dependent.
+        """
         if override:
             self._goldens_to_store = operands
         else:

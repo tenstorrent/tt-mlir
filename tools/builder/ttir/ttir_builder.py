@@ -775,6 +775,30 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Create a mesh shard operation for distributed tensor partitioning.
+
+        Mesh sharding partitions tensors across a mesh of devices for distributed
+        computation. This operation defines how tensors are split and distributed
+        across multiple accelerators in a mesh topology.
+
+        Args:
+            input: The input tensor operand to shard.
+            shard_type: Type of sharding (MeshShardType enum).
+            shard_direction: Direction of sharding (MeshShardDirection enum).
+            shard_shape: Shape of the shard on each device.
+            shard_dims: Dimensions along which to shard the tensor.
+            output_type: Optional explicit output data type. If None, uses input type.
+            loc: Optional location string for debugging.
+            unit_attrs: Optional list of unit attributes for the operation.
+
+        Returns:
+            The result of the mesh shard operation.
+
+        Note:
+            Mesh sharding is fundamental for model parallelism and distributed
+            training on Tenstorrent hardware, enabling efficient computation
+            across multiple accelerators with optimized data movement.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.mesh_shard)
 
         if output_type is None:
