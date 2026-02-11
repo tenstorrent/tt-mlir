@@ -1540,15 +1540,23 @@ mlir::AffineMap DeviceAttr::getMemoryMap(MemRefType memrefType, size_t pageSize,
 
     // The device L1/DRAM maps operate on a 2D grid (gridY, gridX) plus a
     // linear shard offset.  ND grids (> 2D) must be collapsed to 2D before
-    // composition with the device maps.  This collapse is computed dynamically
-    // from the memref shape rather than stored on the layout attribute.
+    // composition with the device maps.  2D grids that exceed device bounds
+    // also need to be collapsed/virtualized.  This collapse is computed
+    // dynamically from the memref shape rather than stored on the layout
+    // attribute.
     unsigned shardRank = shardLayout.getRank();
     unsigned gridRank = memrefType.getRank() - shardRank;
 
-    if (gridRank > 2) {
-      auto gridShape = memrefType.getShape().take_front(gridRank);
-      auto physGrid =
-          collapseToPhysicalGrid2D(gridShape, getWorkerGrid().getShape());
+    auto gridShape = memrefType.getShape().take_front(gridRank);
+    auto deviceGridShape = getWorkerGrid().getShape();
+
+    bool needsGridCollapse =
+        (gridRank > 2) ||
+        (gridRank == 2 && (gridShape[0] > deviceGridShape[0] ||
+                           gridShape[1] > deviceGridShape[1]));
+
+    if (needsGridCollapse) {
+      auto physGrid = collapseToPhysicalGrid2D(gridShape, deviceGridShape);
       AffineMap gridCollapseMap = ttmlir::utils::createNDGridCollapseMap(
           gridShape, physGrid, shardRank, memrefType.getContext());
 
