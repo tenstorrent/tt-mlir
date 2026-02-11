@@ -235,6 +235,24 @@ class Builder(metaclass=BuilderMeta):
         return getattr(split, "_split", None)
 
     def get_builder_from_opview(self, opview: OpView) -> Callable:
+        """Get the builder method for a specific operation view.
+
+        This method retrieves the builder function associated with a given
+        operation view from the opview_to_builder_map dictionary.
+
+        Args:
+            opview: The operation view to look up.
+
+        Returns:
+            The builder method (callable) for the specified operation view.
+
+        Raises:
+            AssertionError: If no builder method is found for the given opview.
+
+        Note:
+            Builder methods are responsible for constructing MLIR operations
+            from operation view representations.
+        """
         if opview not in self.opview_to_builder_map:
             assert False, f"No builder found for opview {opview}"
         return self.opview_to_builder_map.get(opview)
@@ -421,6 +439,22 @@ class Builder(metaclass=BuilderMeta):
         inputs: Dict[Operand, GoldenMapTensor],
         outputs: Dict[Operand, GoldenMapTensor] = None,
     ):
+        """Set golden tensors using pre-constructed GoldenMapTensor objects.
+
+        This method is similar to set_goldens but accepts pre-constructed
+        GoldenMapTensor objects instead of raw tensor data. GoldenMapTensor
+        objects contain additional metadata about tensor distribution and
+        device mapping.
+
+        Args:
+            inputs: Dictionary mapping input operands to GoldenMapTensor objects.
+            outputs: Optional dictionary mapping output operands to GoldenMapTensor objects.
+                    If provided, these outputs will be marked for validation.
+
+        Note:
+            Use this method when you need fine-grained control over golden tensor
+            metadata or when working with distributed computation scenarios.
+        """
         self._set_goldens(inputs)
 
         if outputs != None:

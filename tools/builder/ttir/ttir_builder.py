@@ -380,6 +380,30 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Create a collective broadcast operation for distributed tensor replication.
+
+        Collective broadcast replicates tensor data from a source device to all
+        devices in specified replica groups. This operation is essential for
+        distributing model parameters, gradients, or other shared data across
+        multiple devices in distributed training scenarios.
+
+        Args:
+            input: The input tensor operand to broadcast.
+            replica_groups: List of (source_device, target_device) pairs defining
+                          broadcast relationships. Each pair specifies which device
+                          broadcasts to which other device.
+            output_type: Optional explicit output data type. If None, uses input type.
+            loc: Optional location string for debugging.
+            unit_attrs: Optional list of unit attributes for the operation.
+
+        Returns:
+            The result of the collective broadcast operation.
+
+        Note:
+            Collective broadcast is a fundamental building block for distributed
+            deep learning, enabling efficient parameter synchronization across
+            multiple accelerators.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.collective_broadcast)
 
         if output_type is None:
@@ -638,6 +662,29 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Create an all-reduce operation for distributed tensor aggregation.
+
+        All-reduce performs a reduction operation (sum, max, min, etc.) across
+        all devices in a cluster and distributes the result back to all devices.
+        This operation is critical for gradient synchronization in distributed
+        training and other collective computation patterns.
+
+        Args:
+            input: The input tensor operand to reduce.
+            cluster_axis: The axis along which to perform the reduction across devices.
+            reduce_type: The type of reduction operation (ReduceType enum).
+            output_type: Optional explicit output data type. If None, uses input type.
+            loc: Optional location string for debugging.
+            unit_attrs: Optional list of unit attributes for the operation.
+
+        Returns:
+            The result of the all-reduce operation.
+
+        Note:
+            All-reduce is one of the most important collective operations for
+            distributed deep learning, enabling efficient gradient averaging
+            across multiple accelerators during training.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.all_reduce)
 
         if output_type is None:
