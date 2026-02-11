@@ -444,7 +444,7 @@ def module0(builder: TTIRBuilder):
       sigmoid0 = builder.sigmoid(in0)
       return sigmoid0
 
-builder, module_file_path, input_output_goldens, intermediate_goldens = compile_ttir_to_flatbuffer(module0)
+builder, compiled_bin, input_output_goldens, intermediate_goldens = compile_ttir_to_flatbuffer(module0)
 ```
 
 ## compile a module to ttmetal
@@ -457,7 +457,7 @@ def module0(builder: TTIRBuilder):
       sigmoid0 = builder.sigmoid(in0)
       return sigmoid0
 
-builder, module_file_path, input_output_goldens, intermediate_goldens = compile_ttir_to_flatbuffer(module0, target="ttmetal")
+builder, compiled_bin, input_output_goldens, intermediate_goldens = compile_ttir_to_flatbuffer(module0, target="ttmetal")
 ```
 
 ## compile a module to a emitc
@@ -483,7 +483,7 @@ def module0(builder: TTIRBuilder):
       sigmoid0 = builder.sigmoid(in0)
       return sigmoid0
 
-builder, module_file_path, input_output_goldens, intermediate_goldens = compile_ttir_to_flatbuffer(module0, target="emitpy")
+builder, compiled_bin, input_output_goldens, intermediate_goldens = compile_ttir_to_flatbuffer(module0, target="emitpy")
 ```
 
 ## interface with mlir runtime
@@ -577,10 +577,9 @@ def module0(builder: TTIRBuilder):
       sigmoid0 = builder.sigmoid(in0)
       return sigmoid0
 
-builder, module_file_path, input_output_goldens, intermediate_goldens = compile_ttir_to_flatbuffer(module0, target="emitpy")
-emitted_py_file =  "./ttir-builder-artifacts/emitpy/test_ttnn.mlir.py"
+builder, compiled_bin, input_output_goldens, intermediate_goldens = compile_ttir_to_flatbuffer(module0, target="emitpy")
 
-execute_py(emitted_py_file, input_output_goldens, pcc=0.98)
+execute_py(compiled_bin, input_output_goldens, pcc=0.98)
 ```
 
 ## execute flatbuffer manually
