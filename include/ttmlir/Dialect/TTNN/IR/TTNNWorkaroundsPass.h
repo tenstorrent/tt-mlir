@@ -248,8 +248,10 @@ public:
   static TTNNOperandsWorkarounds
   createMeshShardOpOperandsWorkarounds(ttcore::MeshShardType shardType);
 
-  // Create workarounds for mesh partition op operands. The input tensor is
-  // always in row-major layout.
+  // Create workarounds for mesh partition op operands. The input and output
+  // tensors are always in row-major layout.
+  // TODO (hshah): Remove once
+  // https://github.com/tenstorrent/tt-metal/issues/37676 is fixed.
   static TTNNOperandsWorkarounds createMeshPartitionOpOperandsWorkarounds();
 
   // Create workarounds for scatter op operands.

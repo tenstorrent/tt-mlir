@@ -16,7 +16,7 @@ void run(const ::tt::target::ttnn::MeshPartitionOp *op,
   const ::ttnn::Tensor &input = tensorPool.getTTNNTensorAndValidate(op->in());
   LOG_ASSERT(
       input.storage_type() == ::ttnn::StorageType::DEVICE,
-      "Input of mesh_partition must be DEVICE. id:", op->in()->global_id());
+      "Input of mesh_partition must be on DEVICE. id:", op->in()->global_id());
   int32_t dim = op->dim();
   std::optional<uint32_t> clusterAxis = op->cluster_axis();
   std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
