@@ -161,6 +161,12 @@ RankedTensorTypeFactory::create(RankedTensorType tensorType,
                                newEncoding);
 }
 
+// Helper method to get the buffer type from the tensor layout encoding.
+BufferType getBufferTypeFromTensor(RankedTensorType tensorType) {
+  TTNNLayoutAttr layoutAttr = getLayoutAttrFromTensor(tensorType);
+  return layoutAttr.getBufferType();
+}
+
 // Return the L1 memory usage of the output tensor of the given op.
 // Used within L1 interleaved policies and temporarily within L1 Interleaved
 // Fallback Analysis.

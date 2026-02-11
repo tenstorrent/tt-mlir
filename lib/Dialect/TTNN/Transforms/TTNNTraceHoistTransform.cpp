@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "mlir/IR/BuiltinTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
@@ -77,31 +78,16 @@ private:
     return executeTraceFuncName;
   }
 
-  bool isConstantOrParameter(func::FuncOp op, size_t argIndex) {
-    auto argAttrDict = op.getArgAttrDict(argIndex);
-    if (argAttrDict && argAttrDict.contains(ttcore::ArgumentTypeAttr::name)) {
-      Attribute attr = argAttrDict.get(ttcore::ArgumentTypeAttr::name);
-      auto argTypeAttr = mlir::cast<ttcore::ArgumentTypeAttr>(attr);
-      ttcore::ArgumentType argType = argTypeAttr.getValue();
-      if (argType == ttcore::ArgumentType::Constant ||
-          argType == ttcore::ArgumentType::Parameter) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  // KV cache tensors are device-native and updated in-place by cache
-  // operations. They should not get empty slots allocated or be round-tripped
-  // through host during trace capture.
-  bool isKVCache(func::FuncOp op, size_t argIndex) {
-    return op.getArgAttr(argIndex, ttcore::g_kvCacheAttrName) != nullptr;
-  }
-
-  // Returns true if the argument should be used directly without allocating an
-  // empty slot or transferring through host during trace capture.
-  bool shouldUseArgDirectly(func::FuncOp op, size_t argIndex) {
-    return isConstantOrParameter(op, argIndex) || isKVCache(op, argIndex);
+  // Returns true if the argument should remain on device during trace capture.
+  // These arguments (constants, parameters, and KV cache tensors) are persisted
+  // on device and used directly without creating temporary slots or
+  // transferring through system memory. This avoids unnecessary data movement
+  // for:
+  // - Constants/parameters: Already on device and immutable
+  // - KV cache tensors: Device-native and updated in-place by cache operations
+  bool shouldKeepArgOnDevice(func::FuncOp op, size_t argIndex) {
+    return ttcore::isConstantOrParameterArgumentType(op, argIndex) ||
+           ttcore::isKVCacheArgument(op, argIndex);
   }
 
   // Collect all inputs and outputs outside the operation set to hoist
@@ -296,6 +282,8 @@ private:
     return mlir::success();
   }
 
+  // Creates the run and capture function that wraps the trace function and
+  // manages trace capture.
   mlir::LogicalResult
   createRunAndCaptureTraceFunction(func::FuncOp funcOp,
                                    uint64_t traceFuncIndex) {
@@ -311,31 +299,80 @@ private:
                               traceFuncName);
     }
 
-    // Input types will match the trace function
+    // Build input types for the capture function and corresponding device slot
+    // types. The capture function accepts:
+    // - Regular inputs from host memory that need to be transferred to device
+    // - Constants/parameters that are already on device (persisted)
+    // - KV cache tensors that are device-native and updated in-place
+    // For each argument, we determine the appropriate input type and slot
+    // allocation strategy.
     llvm::SmallVector<mlir::Type> inputTypes;
-    for (mlir::Value input : traceFunc.getArguments()) {
-      inputTypes.push_back(input.getType());
+    llvm::SmallVector<mlir::Type> traceInputSlotTypes;
+    for (size_t i = 0; i < traceFunc.getNumArguments(); i++) {
+      mlir::Value traceFuncArg = traceFunc.getArgument(i);
+
+      RankedTensorType originalRankedTensorType =
+          mlir::cast<RankedTensorType>(traceFuncArg.getType());
+
+      // Device-resident arguments (constants, parameters, KV cache) bypass host
+      // transfer. These are already on device and will be used directly as
+      // trace input slots.
+      if (shouldKeepArgOnDevice(traceFunc, i)) {
+        assert(utils::getBufferTypeFromTensor(originalRankedTensorType) ==
+                   ttnn::BufferType::DRAM &&
+               "Device-resident arguments must already be in device memory.");
+        inputTypes.push_back(traceFuncArg.getType());
+        traceInputSlotTypes.push_back(traceFuncArg.getType());
+        continue;
+      }
+
+      // Regular input arguments require host-to-device transfer during trace
+      // capture. We create two types for each regular input:
+      // 1. Host-side type (system memory) for the function signature
+      // 2. Device-side slot type (DRAM) for persistent trace storage
+      RankedTensorType inputArgType = utils::RankedTensorTypeFactory::create(
+          originalRankedTensorType, BufferType::SystemMemory);
+
+      inputTypes.push_back(inputArgType);
+
+      // Create the new output result type with the updated buffer type for the
+      // trace input slot for this argument on host.
+      RankedTensorType dramTraceInputSlotType =
+          utils::RankedTensorTypeFactory::create(originalRankedTensorType,
+                                                 BufferType::DRAM);
+
+      traceInputSlotTypes.push_back(dramTraceInputSlotType);
     }
 
-    // output types are: traceId, actual outputs, trace input slots, trace
-    // output slots
+    // The capture function returns multiple values for trace management:
+    // 1. traceId - Identifier for the captured trace
+    // 2. actual outputs - Results from the first execution (non-traced)
+    // 3. trace input slots - Persistent device memory for input data
+    // 4. trace output slots - Persistent device memory for output data
     llvm::SmallVector<mlir::Type> outputTypes;
 
+    // Trace ID for the captured trace, used for correlation between capture and
+    // execution.
     outputTypes.push_back(utils::getTraceIdType(context));
 
+    // Actual outputs from the first execution of the trace function
+    // (non-traced).
     for (mlir::Type outputType : traceFunc.getFunctionType().getResults()) {
       outputTypes.push_back(outputType);
     }
 
-    for (mlir::Value input : traceFunc.getArguments()) {
-      outputTypes.push_back(input.getType());
+    // Trace input slots for all inputs (including constants/parameters and KV
+    // cache) that are persisted on device.
+    for (mlir::Type traceInputSlotType : traceInputSlotTypes) {
+      outputTypes.push_back(traceInputSlotType);
     }
 
+    // Trace output slots for all outputs that will be captured on device.
     for (mlir::Type outputType : traceFunc.getFunctionType().getResults()) {
       outputTypes.push_back(outputType);
     }
 
-    // Create and insert function
+    // Create and insert function.
     auto runAndCaptureTraceFuncType =
         builder.getFunctionType(inputTypes, outputTypes);
 
@@ -354,7 +391,7 @@ private:
     }
     runAndCaptureTraceFunc.setPrivate();
 
-    // Build the body of the function
+    // Build the body of the function.
     auto *runAndCaptureTraceFuncEntryBlock =
         runAndCaptureTraceFunc.addEntryBlock();
     builder.setInsertionPointToStart(runAndCaptureTraceFuncEntryBlock);
@@ -363,90 +400,97 @@ private:
         utils::getOrInsertDevice(rewriter, runAndCaptureTraceFuncEntryBlock);
     auto device = ttcore::lookupDevice(deviceOp);
 
-    // allocate input slots
-    llvm::SmallVector<mlir::Value> inputSlots;
+    // Create or reuse trace input slots on device.
+    // - Device-resident args (constants/parameters/KV cache): use directly
+    // - Regular inputs: allocate new empty tensors on device for data transfer
+    llvm::SmallVector<mlir::Value> traceInputSlots;
     for (size_t i = 0; i < runAndCaptureTraceFunc.getNumArguments(); i++) {
-      mlir::Type inputType = inputTypes[i];
-      if (!mlir::isa<RankedTensorType>(inputType)) {
-        return runAndCaptureTraceFunc.emitError(
-            "Input type must be a ranked tensor type");
-      }
-
-      // Don't create empty slots for constants/parameters/kv_cache.
-      // These are used directly without host round-trip.
-      if (shouldUseArgDirectly(runAndCaptureTraceFunc, i)) {
-        inputSlots.push_back(runAndCaptureTraceFunc.getArgument(i));
+      if (shouldKeepArgOnDevice(traceFunc, i)) {
+        traceInputSlots.push_back(runAndCaptureTraceFunc.getArgument(i));
         continue;
       }
 
-      RankedTensorType inputTensorType =
-          mlir::cast<RankedTensorType>(inputType);
+      // Regular inputs need device memory allocation for host-to-device
+      // transfer. Create empty tensors on device that will serve as persistent
+      // slots for trace input data during capture and replay.
+      mlir::Type traceInputSlotType = traceInputSlotTypes[i];
+
+      RankedTensorType deviceTensorType =
+          mlir::cast<RankedTensorType>(traceInputSlotType);
 
       ttnn::TTNNLayoutAttr ttnnLayoutAttr =
-          mlir::cast<ttnn::TTNNLayoutAttr>(inputTensorType.getEncoding());
+          utils::getLayoutAttrFromTensor(deviceTensorType);
       ttnn::MemoryConfigAttr memoryConfigAttr = ttnn::MemoryConfigAttr::get(
           context, ttnnLayoutAttr.getMemLayout(),
           ttnn::BufferTypeAttr::get(context, ttnnLayoutAttr.getBufferType()),
           utils::createShardSpecIfNeeded(ttnnLayoutAttr,
                                          device.getWorkerGrid()));
 
+      // Allocate an empty tensor on the device to serve as the trace input slot
+      // for this argument.
       auto emptyOp = builder.create<ttnn::EmptyOp>(
-          runAndCaptureTraceFunc.getLoc(), inputTensorType, deviceOp,
-          ttnn::ShapeAttr::get(context, inputTensorType.getShape()),
+          runAndCaptureTraceFunc.getLoc(), deviceTensorType, deviceOp,
+          ttnn::ShapeAttr::get(context, deviceTensorType.getShape()),
           ttcore::DataTypeAttr::get(context, ttnnLayoutAttr.getDataType()),
           ttnn::LayoutAttr::get(context, ttnnLayoutAttr.getLayout()),
           memoryConfigAttr);
 
-      inputSlots.push_back(emptyOp.getResult());
+      traceInputSlots.push_back(emptyOp.getResult());
     }
 
-    // move inputs to host and copy into input slots
-    for (size_t i = 0; i < inputSlots.size(); i++) {
-      // Skip inputs that are constants/parameters/kv_cache
-      if (shouldUseArgDirectly(runAndCaptureTraceFunc, i)) {
+    // Transfer host inputs to their corresponding device slots.
+    // Device-resident arguments are skipped as they're already in place.
+    for (size_t i = 0; i < traceInputSlots.size(); i++) {
+      if (shouldKeepArgOnDevice(traceFunc, i)) {
         continue;
       }
-      mlir::Value input = runAndCaptureTraceFunc.getArgument(i);
-      RankedTensorType currentInputType =
-          mlir::cast<RankedTensorType>(input.getType());
-      RankedTensorType newResultType = utils::RankedTensorTypeFactory::create(
-          currentInputType, ttnn::BufferType::SystemMemory);
 
-      auto fromDeviceOp = builder.create<ttnn::FromDeviceOp>(
-          runAndCaptureTraceFunc.getLoc(), newResultType, input);
+      // Copy the input argument from host to the allocated device slot for this
+      // input.
+      mlir::Value input = runAndCaptureTraceFunc.getArgument(i);
 
       builder.create<ttnn::WriteTensorOp>(runAndCaptureTraceFunc.getLoc(),
-                                          fromDeviceOp, inputSlots[i],
+                                          input, traceInputSlots[i],
                                           /*blocking=*/false, /*cq_id=*/0);
     }
 
-    // call the trace function on the input slots
+    // Execute the trace function once without capture to compile programs and
+    // populate program cache. The results are discarded since this execution is
+    // just for warming up.
     auto traceFuncCall = builder.create<func::CallOp>(
-        runAndCaptureTraceFunc.getLoc(), traceFunc, inputSlots);
+        runAndCaptureTraceFunc.getLoc(), traceFunc, traceInputSlots);
 
-    // now, we can capture the trace
+    // Start capturing the trace.
     auto beginTraceCaptureOp = builder.create<ttnn::BeginTraceCaptureOp>(
         runAndCaptureTraceFunc.getLoc(), utils::getTraceIdType(context),
         deviceOp,
         /*cq_id=*/0);
 
+    // Execute the trace on device and capture it.
     auto captureTraceCall = builder.create<func::CallOp>(
-        runAndCaptureTraceFunc.getLoc(), traceFunc, inputSlots);
+        runAndCaptureTraceFunc.getLoc(), traceFunc, traceInputSlots);
 
+    // Complete the trace capture.
     builder.create<ttnn::EndTraceCaptureOp>(runAndCaptureTraceFunc.getLoc(),
                                             deviceOp, beginTraceCaptureOp,
                                             /*cq_id=*/0);
 
-    // create the return op
+    // Assemble return values: trace ID, actual outputs, and persistent slots.
     llvm::SmallVector<mlir::Value> returnValues;
 
+    // Return the trace ID for correlation with execution.
     returnValues.push_back(beginTraceCaptureOp.getTraceId());
+    // Return the actual outputs from the first execution (non-traced).
     for (mlir::Value output : traceFuncCall.getResults()) {
       returnValues.push_back(output);
     }
-    for (mlir::Value inputSlot : inputSlots) {
+    // Return the trace input slots for all inputs (including
+    // constants/parameters and KV cache) that are persisted on device.
+    for (mlir::Value inputSlot : traceInputSlots) {
       returnValues.push_back(inputSlot);
     }
+    // Return the trace output slots for all outputs that will be captured on
+    // device.
     for (mlir::Value outputSlot : captureTraceCall.getResults()) {
       returnValues.push_back(outputSlot);
     }
@@ -505,6 +549,154 @@ private:
     return mlir::success();
   }
 
+  // Optimizes function signatures by merging ToLayoutOp operations into
+  // function arguments.
+  //
+  // Background: During trace hoisting, when we move operations into a separate
+  // trace function, the function arguments initially preserve their original
+  // types. However, these arguments are often immediately converted to
+  // different layouts (e.g., from system memory to device memory layouts) via
+  // ToLayoutOp operations that were inserted during earlier passes.
+  //
+  // This optimization identifies such patterns where:
+  // 1. A function argument is immediately converted via ToLayoutOp
+  // 2. A function argument goes through MeshShardOp then ToLayoutOp
+  //
+  // By updating the function signature to accept the target layout directly,
+  // we:
+  // - Eliminate redundant layout conversion operations inside the trace
+  // function
+  // - Move the layout conversion responsibility to the caller
+  // - Reduce the overhead during trace execution (traces should be as lean as
+  // possible)
+  mlir::LogicalResult mergeToLayoutOpsWithFuncArgs(func::FuncOp funcOp) {
+    // Only process forward device functions.
+    auto funcType = ttmlir::utils::getFunctionType(funcOp);
+    if (!funcType || *funcType != ttmlir::utils::FunctionType::ForwardDevice) {
+      return mlir::success();
+    }
+
+    mlir::OpBuilder builder(&this->getContext());
+    mlir::IRRewriter rewriter(builder);
+
+    bool hasChanges = false;
+    auto &entryBlock = funcOp.getBlocks().front();
+    llvm::SmallVector<mlir::Type> newInputTypes;
+    llvm::SmallVector<mlir::Operation *> opsToErase;
+
+    // Scan each function argument to find layout conversion patterns that can
+    // be optimized. We look for arguments that are immediately used by
+    // ToLayoutOp (directly or via MeshShardOp).
+    for (size_t argIdx = 0; argIdx < funcOp.getNumArguments(); argIdx++) {
+      BlockArgument arg = funcOp.getArgument(argIdx);
+      RankedTensorType currentTensorType =
+          mlir::cast<RankedTensorType>(arg.getType());
+
+      ttnn::ToLayoutOp layoutOp = nullptr;
+      ttnn::MeshShardOp meshShardOp = nullptr;
+
+      // Check if argument has only one use.
+      if (arg.hasOneUse()) {
+        auto *user = *arg.getUsers().begin();
+
+        // Check if it's a direct ToLayoutOp.
+        if (auto directLayoutOp = mlir::dyn_cast<ttnn::ToLayoutOp>(user)) {
+          layoutOp = directLayoutOp;
+        }
+        // Check if it's a MeshShardOp that leads to ToLayoutOp.
+        else if (auto meshShard = mlir::dyn_cast<ttnn::MeshShardOp>(user)) {
+          meshShardOp = meshShard;
+          // Check if mesh_shard has a single use and it's a ToLayoutOp.
+          if (meshShard.getResult().hasOneUse()) {
+            auto *meshUser = *meshShard.getResult().getUsers().begin();
+            if (auto toLayout = mlir::dyn_cast<ttnn::ToLayoutOp>(meshUser)) {
+              layoutOp = toLayout;
+            }
+          }
+        }
+      }
+
+      // If there's no ToLayoutOp pattern, keep the original type.
+      if (!layoutOp) {
+        newInputTypes.push_back(currentTensorType);
+        continue;
+      }
+
+      // Get the target type from the ToLayoutOp.
+      RankedTensorType targetTensorType = layoutOp.getResult().getType();
+
+      if (meshShardOp) {
+        // Case 1: Argument -> MeshShardOp -> ToLayoutOp
+        // We need to update the function argument type and the mesh_shard
+        // operation. The new input type should match the layout after
+        // ToLayoutOp.
+
+        // Create new type for function argument with the target layout
+        // but keeping the original shape (before mesh_shard).
+        TTNNLayoutAttr targetLayoutAttr =
+            utils::getLayoutAttrFromTensor(targetTensorType);
+        TTNNLayoutAttr currentLayoutAttr =
+            utils::getLayoutAttrFromTensor(currentTensorType);
+        assert(targetLayoutAttr.getDataType() ==
+                   currentLayoutAttr.getDataType() &&
+               "The data type should be the same since added ToLayoutOp only "
+               "changed buffer type.");
+        auto newArgType = utils::RankedTensorTypeFactory::create(
+            currentTensorType, targetLayoutAttr.getBufferType());
+        newArgType = utils::RankedTensorTypeFactory::create(
+            newArgType, targetLayoutAttr.getLayout());
+
+        newInputTypes.push_back(newArgType);
+
+        // Update mesh_shard's result type to match the target layout.
+        // This must be done before replacing uses to maintain type consistency.
+        meshShardOp.getResult().setType(targetTensorType);
+
+        // Now we can safely replace ToLayoutOp uses with mesh_shard output.
+        layoutOp.getResult().replaceAllUsesWith(meshShardOp.getResult());
+        opsToErase.push_back(layoutOp);
+      } else {
+        // Case 2: Argument -> ToLayoutOp
+        // We can directly update the function argument type to the target type.
+        TTNNLayoutAttr targetLayoutAttr =
+            utils::getLayoutAttrFromTensor(targetTensorType);
+        TTNNLayoutAttr currentLayoutAttr =
+            utils::getLayoutAttrFromTensor(currentTensorType);
+        assert(targetLayoutAttr.getDataType() ==
+                   currentLayoutAttr.getDataType() &&
+               "The data type should be the same since added ToLayoutOp only "
+               "changed buffer type.");
+        newInputTypes.push_back(targetTensorType);
+
+        // Replace all uses of ToLayoutOp with the function argument
+        layoutOp.getResult().replaceAllUsesWith(arg);
+        opsToErase.push_back(layoutOp);
+      }
+
+      hasChanges = true;
+    }
+
+    if (hasChanges) {
+      // Update function signature.
+      auto funcType = funcOp.getFunctionType();
+      auto newFuncType =
+          builder.getFunctionType(newInputTypes, funcType.getResults());
+      funcOp.setFunctionType(newFuncType);
+
+      // Update block argument types.
+      for (size_t i = 0; i < newInputTypes.size(); i++) {
+        entryBlock.getArgument(i).setType(newInputTypes[i]);
+      }
+
+      // Erase the ToLayoutOps.
+      for (auto *op : opsToErase) {
+        rewriter.eraseOp(op);
+      }
+    }
+
+    return mlir::success();
+  }
+
   mlir::LogicalResult
   insertCaptureOrExecuteTraceOp(func::FuncOp funcOp,
                                 llvm::ArrayRef<Operation *> opsToHoist,
@@ -555,9 +747,69 @@ private:
 
     auto device = utils::getOrInsertDevice(rewriter, firstOp);
 
+    // Convert inputs to match capture function signature
+    llvm::SmallVector<mlir::Value> captureOrExecuteTraceOpInputs;
+
+    for (size_t i = 0; i < inputs.size(); i++) {
+      mlir::Value input = inputs[i];
+      if (!mlir::isa<RankedTensorType>(input.getType())) {
+        captureOrExecuteTraceOpInputs.push_back(input);
+        continue;
+      }
+
+      // Check if this is a constant/parameter that should remain on device
+      bool isConstant = false;
+      if (mlir::isa<mlir::BlockArgument>(input)) {
+        auto arg = mlir::cast<mlir::BlockArgument>(input);
+        if (auto funcOp =
+                mlir::dyn_cast<func::FuncOp>(arg.getOwner()->getParentOp())) {
+          isConstant = shouldKeepArgOnDevice(funcOp, arg.getArgNumber());
+        }
+      } else if (auto result = mlir::dyn_cast<mlir::OpResult>(input)) {
+        // Check if it's from a load_cached op (constant evaluation result)
+        isConstant =
+            mlir::isa<mlir::tt::ttcore::LoadCachedOp>(result.getDefiningOp());
+      }
+
+      RankedTensorType tensorType =
+          mlir::cast<RankedTensorType>(input.getType());
+      auto layout = mlir::cast<ttnn::TTNNLayoutAttr>(tensorType.getEncoding());
+
+      // Constants must be on device, they can be captured directly without
+      // needing to move them to system memory.
+      if (isConstant) {
+        assert(layout.getBufferType() == ttnn::BufferType::DRAM &&
+               "Constant/parameter inputs must be on device.");
+        captureOrExecuteTraceOpInputs.push_back(input);
+      }
+      // For inputs, convert them to system memory/row major if needed
+      else if (layout.getBufferType() != ttnn::BufferType::SystemMemory) {
+        // Convert to system memory using ToLayoutOp
+        RankedTensorType systemMemoryTileType =
+            utils::RankedTensorTypeFactory::create(
+                tensorType, ttnn::BufferType::SystemMemory);
+
+        // Create memory config for system memory
+        auto memoryConfigAttr = ttnn::MemoryConfigAttr::get(
+            context, nullptr,
+            ttnn::BufferTypeAttr::get(context, ttnn::BufferType::SystemMemory),
+            /*shard_spec=*/nullptr);
+
+        auto toLayoutOp = builder.create<ttnn::ToLayoutOp>(
+            funcOp.getLoc(), systemMemoryTileType, input,
+            /*layout=*/LayoutAttr::get(context, layout.getLayout()),
+            /*dtype=*/ttcore::DataTypeAttr::get(context, layout.getDataType()),
+            /*memory_config=*/memoryConfigAttr);
+        captureOrExecuteTraceOpInputs.push_back(toLayoutOp.getResult());
+      } else {
+        // Already on system memory
+        captureOrExecuteTraceOpInputs.push_back(input);
+      }
+    }
+
     auto traceOp = builder.create<ttnn::CaptureOrExecuteTraceOp>(
         funcOp.getLoc(), outputTypes, device, captureTraceSymbolAttr,
-        executeTraceSymbolAttr, inputs);
+        executeTraceSymbolAttr, captureOrExecuteTraceOpInputs);
 
     // Replace uses of original outputs with the output of the trace op function
     for (size_t i = 0; i < outputs.size(); i++) {
@@ -664,7 +916,17 @@ private:
       return mlir::success();
     }
 
-    return performHoistTransform(funcOp, opsToHoist);
+    // Perform the hoist transform
+    mlir::LogicalResult result = performHoistTransform(funcOp, opsToHoist);
+    if (failed(result)) {
+      return result;
+    }
+
+    if (failed(mergeToLayoutOpsWithFuncArgs(funcOp))) {
+      return result;
+    }
+
+    return mlir::success();
   }
 };
 } // namespace mlir::tt::ttnn

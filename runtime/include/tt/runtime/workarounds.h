@@ -12,7 +12,6 @@ namespace tt::runtime::workaround {
 struct Env {
   static const Env &get(bool swapBinaryOperands = true,
                         bool readUpdateIndexFromDeviceForKVCache = true,
-                        bool traceImplicitFromDevice = true,
                         bool blackholeWorkarounds = true);
 
   // TODO(bug #1124): We're currently swapping the operands for binary ops
@@ -26,13 +25,6 @@ struct Env {
   // to be able to pluck this update index from a runtime tensor.
   bool readUpdateIndexFromDeviceForKVCache;
 
-  // TODO(bug #3695): Currently ttnn only supports writing to a pre-allocated
-  // device tensor from host. Therefore, the trace op implicitly reads any
-  // device input back to host, then writes it to the designated buffer. This
-  // should be updated in the future either when ttnn supports device to device
-  // memcpy or when we model this behaviour in the compiler.
-  bool traceImplicitFromDevice;
-
   // TODO(bug #3423): When link is down, get_connected_ethernet_core will throw
   // an exception.
   // TODO(bug #4023): untilize on device fails for blackhole. Falling back to
@@ -42,11 +34,10 @@ struct Env {
 private:
   constexpr Env(bool swapBinaryOperands,
                 bool readUpdateIndexFromDeviceForKVCache,
-                bool traceImplicitFromDevice, bool blackholeWorkarounds)
+                bool blackholeWorkarounds)
       : swapBinaryOperands(swapBinaryOperands),
         readUpdateIndexFromDeviceForKVCache(
             readUpdateIndexFromDeviceForKVCache),
-        traceImplicitFromDevice(traceImplicitFromDevice),
         blackholeWorkarounds(blackholeWorkarounds) {}
 };
 
@@ -57,8 +48,6 @@ inline std::ostream &operator<<(std::ostream &os, const Env &env) {
   os << "\t"
      << "readUpdateIndexFromDeviceForKVCache: "
      << env.readUpdateIndexFromDeviceForKVCache << "\n";
-  os << "\t"
-     << "traceImplicitFromDevice: " << env.traceImplicitFromDevice << "\n";
   os << "\t"
      << "blackholeWorkarounds: " << env.blackholeWorkarounds << "\n";
   os << "}";
