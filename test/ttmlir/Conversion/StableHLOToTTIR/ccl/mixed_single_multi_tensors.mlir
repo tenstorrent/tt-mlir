@@ -46,7 +46,7 @@ module @mixed_single_multi_tensors {
 // CHECK-SAME: shard_dims = array<i64: -1, 3>
 // CHECK-SAME: shard_direction = #ttcore.shard_direction<shard_to_full>
 // CHECK-SAME: shard_shape = array<i64: 1, 1, 1, 2>
-// CHECK-SAME: shard_type = #ttcore.shard_type<devices>
+// CHECK-SAME: shard_type = #ttcore.shard_type<identity>
 // CHECK: "ttir.reshape"
 // CHECK: "ttir.broadcast"
 // CHECK: "ttir.maximum"
