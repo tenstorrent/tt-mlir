@@ -1839,7 +1839,7 @@ def D2M_GetScratchFromCBOp : D2M_GenericRegionOp<"get_scratch_from_cb",
   }];
 
   let arguments = (ins D2M_CB:$cb);
-  let results = (outs AnyNon0RankedMemRef:$result);
+  let results = (outs DeviceL1MemRef:$result);
 
   let assemblyFormat = [{ $cb attr-dict `:` type($cb) `->` type($result) }];
 
