@@ -216,12 +216,13 @@ bool ShardSolver::resolveStep() {
               // that shrink the core count. Implicit resharding in these ops
               // causes hangs. See: github.com/tenstorrent/tt-metal/issues/34765
               if (inputLayout.hasShardedL1TensorMemoryLayout() &&
-                  result.actualOutputLayout.hasShardedL1TensorMemoryLayout() &&
+                  result.firstActualOutputLayout
+                      .hasShardedL1TensorMemoryLayout() &&
                   llvm::isa<ttnn::AddOp, ttnn::MultiplyOp, ttnn::MinimumOp>(
                       consumerOp)) {
                 int64_t inputCores = inputLayout.getGrid().getGridVolume();
                 int64_t outputCores =
-                    result.actualOutputLayout.getGrid().getGridVolume();
+                    result.firstActualOutputLayout.getGrid().getGridVolume();
                 if (outputCores < inputCores) {
                   TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
                                "Rejecting {} config: elementwise binary op "
@@ -234,7 +235,7 @@ bool ShardSolver::resolveStep() {
               TTMLIR_TRACE(
                   ttmlir::LogComponent::Optimizer,
                   "Backend chose valid consumer layout {}, consumerId {}",
-                  result.actualOutputLayout, result.configIndex);
+                  result.firstActualOutputLayout, result.configIndex);
               edgeProducerBitset.set(producerId);
               edgeConsumerBitset.set(result.configIndex);
               paths.push_back(Path(
@@ -395,13 +396,14 @@ ShardSolver::supportsInterleavedInputShardedOutput(Operation *op,
     return llvm::createStringError(validationResult.errorMessage);
   }
 
-  if (!validationResult.actualOutputLayout.hasShardedL1TensorMemoryLayout()) {
+  if (!validationResult.firstActualOutputLayout
+           .hasShardedL1TensorMemoryLayout()) {
     return llvm::createStringError(
         "Interleaved to sharded not supported - backend did not return sharded "
         "layout");
   }
 
-  return validationResult.actualOutputLayout;
+  return validationResult.firstActualOutputLayout;
 }
 
 // We need to check if first op requires sharded inputs and if so, insert
