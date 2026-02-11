@@ -23,6 +23,15 @@ from golden import *
 
 
 class TTIRBuilder(Builder):
+    """Builder class for TTIR (Tenstorrent Tensor IR) operations.
+
+    This class extends the base Builder to provide TTIR-specific operation
+    construction capabilities. TTIR is a dialect for representing tensor
+    operations optimized for Tenstorrent hardware accelerators.
+
+    The builder handles TTIR operation creation, golden tensor validation,
+    and provides utilities for common TTIR operation patterns.
+    """
 
     # ----- Methods -----
 
@@ -36,6 +45,15 @@ class TTIRBuilder(Builder):
         ] = OrderedDict([("x", 1), ("y", 1)]),
         disable_golden_check: bool = False,
     ):
+        """Initialize the TTIRBuilder with context and configuration.
+
+        Args:
+            ctx: MLIR context for TTIR operation creation.
+            location: Source location for debugging and error reporting.
+            mesh_name: Name or list of names for mesh configurations.
+            mesh_dict: Dictionary or list of dictionaries defining mesh dimensions.
+            disable_golden_check: If True, disables golden tensor validation.
+        """
         super().__init__(ctx, location, mesh_name, mesh_dict, disable_golden_check)
 
     # ----- Private methods ----
@@ -47,6 +65,20 @@ class TTIRBuilder(Builder):
     def _organize_eltwise_ttir(
         self, inputs: List[Operand], output_type: RankedTensorType
     ):
+        """Organize arguments for element-wise TTIR operations.
+
+        Element-wise operations perform computations independently on each element
+        of input tensors. This method organizes the arguments in the format
+        expected by TTIR element-wise operation constructors.
+
+        Args:
+            inputs: List of input operands for the element-wise operation.
+            output_type: The expected output tensor type.
+
+        Returns:
+            A tuple containing output type followed by all input operands,
+            formatted for TTIR element-wise operation construction.
+        """
         return (output_type, *inputs)
 
     def _op_proxy(
@@ -64,6 +96,37 @@ class TTIRBuilder(Builder):
         loc: Optional[Union[str, Location]] = None,
         skip_golden: bool = False,
     ) -> Any:
+        """Proxy method for creating TTIR operations with golden tensor validation.
+
+        This method serves as a generic proxy for creating TTIR operations. It handles
+        the common pattern of creating an operation, validating it against golden
+        tensors, and managing operation arguments organization.
+
+        Args:
+            op_ttir_function: The TTIR operation constructor function.
+            inputs: List of input operands for the operation.
+            unit_attrs: Optional list of unit attributes for the operation.
+            organize_ttir_args: Function to organize TTIR operation arguments.
+            organize_golden_args: Function to organize golden function arguments.
+            output_shape: Optional explicit output shape.
+            output_type: Optional explicit output type.
+            output_create_fn: Optional function to create output operation.
+            golden_kwargs: Keyword arguments for golden function.
+            ttir_kwargs: Keyword arguments for TTIR operation.
+            loc: Optional location string for debugging.
+            skip_golden: If True, skip golden tensor validation.
+
+        Returns:
+            The result of the TTIR operation.
+
+        Raises:
+            AssertionError: If output shape/type cannot be determined and are not provided.
+
+        Note:
+            TTIR operations often lack shape/type inference traits, so this method
+            uses golden functions to determine output characteristics when not explicitly
+            provided.
+        """
         if not golden_kwargs:
             golden_kwargs = ttir_kwargs
 
@@ -157,6 +220,21 @@ class TTIRBuilder(Builder):
     def create_tensor_encoding(
         self, shape: Shape, element_type: Union[torch.dtype, TypeInfo]
     ) -> ttnn.ir.TTNNLayoutAttr:
+        """Create tensor encoding attributes for TTIR operations.
+
+        Tensor encoding defines how tensor data is laid out in memory and
+        interpreted by Tenstorrent hardware. This method creates the appropriate
+        encoding attributes based on shape and element type.
+
+        Args:
+            shape: The shape of the tensor.
+            element_type: The data type of tensor elements, either as a torch dtype
+                         or TypeInfo object.
+
+        Returns:
+            TTNNLayoutAttr encoding attributes for the tensor, or None if
+            no special encoding is required.
+        """
         return None
 
     # ----- Public Op Generators ----
@@ -175,6 +253,31 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Create an AllToAll operation for distributed tensor communication.
+
+        AllToAll is a collective operation that redistributes tensor data across
+        multiple devices. Each device splits its input tensor along split_dim,
+        sends the splits to other devices, and concatenates received splits
+        along concat_dim.
+
+        Args:
+            input: The input tensor operand to redistribute.
+            split_dim: Dimension along which to split the input tensor.
+            concat_dim: Dimension along which to concatenate received splits.
+            split_count: Number of splits to create (typically equals number of devices).
+            replica_groups: List of device groups participating in the operation.
+                           Each group is a list of device IDs.
+            output_type: Optional explicit output data type. If None, uses input type.
+            loc: Optional location string for debugging.
+            unit_attrs: Optional list of unit attributes for the operation.
+
+        Returns:
+            The result of the AllToAll operation.
+
+        Note:
+            AllToAll is essential for distributed training and model parallelism,
+            enabling efficient data exchange between devices.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.all_to_all)
 
         if output_type is None:
@@ -277,6 +380,30 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Create a collective broadcast operation for distributed tensor replication.
+
+        Collective broadcast replicates tensor data from a source device to all
+        devices in specified replica groups. This operation is essential for
+        distributing model parameters, gradients, or other shared data across
+        multiple devices in distributed training scenarios.
+
+        Args:
+            input: The input tensor operand to broadcast.
+            replica_groups: List of (source_device, target_device) pairs defining
+                          broadcast relationships. Each pair specifies which device
+                          broadcasts to which other device.
+            output_type: Optional explicit output data type. If None, uses input type.
+            loc: Optional location string for debugging.
+            unit_attrs: Optional list of unit attributes for the operation.
+
+        Returns:
+            The result of the collective broadcast operation.
+
+        Note:
+            Collective broadcast is a fundamental building block for distributed
+            deep learning, enabling efficient parameter synchronization across
+            multiple accelerators.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.collective_broadcast)
 
         if output_type is None:
@@ -535,6 +662,29 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Create an all-reduce operation for distributed tensor aggregation.
+
+        All-reduce performs a reduction operation (sum, max, min, etc.) across
+        all devices in a cluster and distributes the result back to all devices.
+        This operation is critical for gradient synchronization in distributed
+        training and other collective computation patterns.
+
+        Args:
+            input: The input tensor operand to reduce.
+            cluster_axis: The axis along which to perform the reduction across devices.
+            reduce_type: The type of reduction operation (ReduceType enum).
+            output_type: Optional explicit output data type. If None, uses input type.
+            loc: Optional location string for debugging.
+            unit_attrs: Optional list of unit attributes for the operation.
+
+        Returns:
+            The result of the all-reduce operation.
+
+        Note:
+            All-reduce is one of the most important collective operations for
+            distributed deep learning, enabling efficient gradient averaging
+            across multiple accelerators during training.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.all_reduce)
 
         if output_type is None:
@@ -625,6 +775,30 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
+        """Create a mesh shard operation for distributed tensor partitioning.
+
+        Mesh sharding partitions tensors across a mesh of devices for distributed
+        computation. This operation defines how tensors are split and distributed
+        across multiple accelerators in a mesh topology.
+
+        Args:
+            input: The input tensor operand to shard.
+            shard_type: Type of sharding (MeshShardType enum).
+            shard_direction: Direction of sharding (MeshShardDirection enum).
+            shard_shape: Shape of the shard on each device.
+            shard_dims: Dimensions along which to shard the tensor.
+            output_type: Optional explicit output data type. If None, uses input type.
+            loc: Optional location string for debugging.
+            unit_attrs: Optional list of unit attributes for the operation.
+
+        Returns:
+            The result of the mesh shard operation.
+
+        Note:
+            Mesh sharding is fundamental for model parallelism and distributed
+            training on Tenstorrent hardware, enabling efficient computation
+            across multiple accelerators with optimized data movement.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.mesh_shard)
 
         if output_type is None:
