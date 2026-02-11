@@ -24,6 +24,7 @@ add_mlir_dialect_library(MLIRD2MTransforms
         ScalarizeConstTensors.cpp
         GenerateOuterLoops.cpp
         GenericAffineLoopFusion.cpp
+        GenericAffineScalarReplacement.cpp
         LowerToExplicitForm.cpp
         LowerMulticastLoads.cpp
         SplitUnifiedThread.cpp
@@ -42,6 +43,9 @@ add_mlir_dialect_library(MLIRD2MTransforms
         MLIRTTCoreOpsIncGen
 
         LINK_LIBS PUBLIC
+        MLIRAffineAnalysis
+        MLIRAffineUtils
+        MLIRArithDialect
         MLIRD2MAnalysis
         MLIRD2MUtils
         MLIRTTUtils
