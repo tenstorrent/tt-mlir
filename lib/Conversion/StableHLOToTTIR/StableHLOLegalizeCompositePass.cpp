@@ -365,7 +365,7 @@ public:
       // Compute new shape for the result tensor, with original dimension
       // divided by mesh axis size
       int64_t meshAxisSize = meshShape[clusterAxes[i]];
-      if (newShape[tensorDims[i]] < 0 ||
+      if (newShape[tensorDims[i]] == ShapedType::kDynamic ||
           newShape[tensorDims[i]] % meshAxisSize != 0) {
         return rewriter.notifyMatchFailure(
             srcOp,
