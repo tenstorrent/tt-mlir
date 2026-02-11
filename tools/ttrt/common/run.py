@@ -828,21 +828,22 @@ class Run:
                                 start_get_output = time.perf_counter_ns()
                                 output_host = ttrt.runtime.to_host(
                                     runtime_output_tensor, untilize=True
-                                )[0]
+                                )
                                 end_get_output = time.perf_counter_ns()
                                 e2e_duration_nanoseconds_output += (
                                     end_get_output - start_get_output
                                 )
 
-                                combined_output_tensor = output_host
-                                if bin.extension != ".ttm":
-                                    combined_output_tensor = ttrt.runtime.create_multi_device_host_tensor_from_shards(
-                                        [output_host], {}, (1, 1)
+                                # (todo: tapspatel) Temporary workaround for getting multi-device tensors back to host.
+                                # Currently, ttrt.runtime.to_host will return back a list of tensors, outputs[i] is a single multi-device tensor (with multiple device shards).
+                                if (
+                                    self["--print-input-output-tensors"]
+                                    or self["--enable-golden"]
+                                ):
+                                    ttrt.runtime.memcpy(
+                                        outputs[i],
+                                        output_host,
                                     )
-                                ttrt.runtime.memcpy(
-                                    outputs[i],
-                                    combined_output_tensor,
-                                )
                                 ttrt.runtime.deallocate_tensor(
                                     runtime_output_tensor, force=True
                                 )
@@ -1163,6 +1164,20 @@ class Run:
                 self.logging.info(f"PASS: test case={bin.file_path}")
             else:
                 self.logging.error(f"ERROR: test case={bin.file_path}")
+
+        if len(self.results.get_results()) == 0:
+            test_result = {
+                "file_path": self["binary"],
+                "result": "error",
+                "exception": f"no binaries found or executed at path: {self['binary']}",
+                "log_file": self.logger.file_name,
+                "artifacts": self.artifacts.artifacts_folder_path,
+                "program_index": self["--program-index"],
+            }
+            self.logging.error(
+                f"ERROR: no binaries found or executed at path: {self['binary']}"
+            )
+            self.results.add_result(test_result)
 
         self.results.save_results(self["--result-file"])
 
