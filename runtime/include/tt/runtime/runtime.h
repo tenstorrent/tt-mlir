@@ -188,6 +188,14 @@ This function gets the memory view per device
 std::unordered_map<tt::runtime::MemoryBufferType, tt::runtime::MemoryView>
 getMemoryView(Device device);
 
+struct MeshFabricConfig {
+  FabricConfig globalConfig;
+  std::vector<FabricConfig> perAxisConfig;
+};
+
+MeshFabricConfig computeFabricConfig(const SystemDesc &systemDesc,
+                                     const std::vector<uint32_t> &meshShape);
+
 void setFabricConfig(tt::runtime::FabricConfig config);
 
 void wait(Event event);
