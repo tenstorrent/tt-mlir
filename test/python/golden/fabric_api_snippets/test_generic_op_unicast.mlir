@@ -7,7 +7,7 @@
 #ttnn_layout_device_tile_interleaved = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, bf16>, #l1>, <interleaved>>
 module attributes {} {
   ttcore.device @default_device = <workerGrid = #ttcore.grid<8x8, (d0, d1) -> (0, d0, d1)>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1, s2, s3, s4, s5, s6] -> (0, 0, (((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) floordiv s4) mod 12, ((((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) floordiv s4) floordiv 12) * s4 + ((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) mod s4 + s5), meshShape = 2x4, chipIds = [0, 1, 2, 3, 4, 5, 6, 7]>
-  func.func @test_fabric_p2p(%arg0: tensor<64x128xbf16, #ttnn_layout_host_row_major>) -> tensor<64x128xbf16, #ttnn_layout_host_row_major> attributes {tt.function_type = "forward_device"} {
+  func.func @test_fabric_unicast(%arg0: tensor<64x128xbf16, #ttnn_layout_host_row_major>) -> tensor<64x128xbf16, #ttnn_layout_host_row_major> attributes {tt.function_type = "forward_device"} {
     %0 = "ttnn.get_device"() <{mesh_offset = #ttnn<mesh_offset 0x0>, mesh_shape = #ttnn<mesh_shape 2x4>}> : () -> !ttnn.device
 
     // distribute input tensor
@@ -45,7 +45,7 @@ module attributes {} {
             ],
             semaphores = []>
         >
-      ], fabric_connection_config = #ttnn.fabric_connection_config<noc_index = noc0, topology = ring, cluster_axis = 1, num_links = 1>>
+      ], fabric_connection_config = #ttnn.fabric_connection_config<noc_index = noc0, topology = insert_topology, cluster_axis = insert_cluster_axis, routing_mode = insert_routing_mode, num_links = 1>>
     }> : (tensor<32x32xbf16, #ttnn_layout_device_tile_sharded>, tensor<32x32xbf16, #ttnn_layout_device_tile_sharded>) -> ()
 
     // convert from block_sharded to interleaved before from_device or else aggregate_tensor will crash
@@ -63,9 +63,10 @@ module attributes {} {
     emitc.call_opaque "experimental::setup_fabric_connections"(%fabric_connection_manager) : (!emitc.opaque<"experimental::FabricConnectionManager">) -> ()
 
     // Constants
-    %len_bytes = "emitc.constant"() <{value = 49152 : i32}> : () -> i32
-    %device0 = "emitc.constant"() <{value = 0 : i16}> : () -> i16
-    %device1 = "emitc.constant"() <{value = 1 : i16}> : () -> i16
+    %len_bytes = "emitc.constant"() <{value = 2048 : i32}> : () -> i32
+    %src_dev_id = "emitc.constant"() <{value = insert_src_dev_id : i16}> : () -> i16
+    %dst_mesh_id = "emitc.constant"() <{value = 0 : i16}> : () -> i16
+    %dst_dev_id = "emitc.constant"() <{value = insert_dst_dev_id : i16}> : () -> i16
 
     // Get logical coordinates of current core and convert logical coords to translated coords
     %my_x = "emitc.constant"() <{value = #emitc.opaque<"get_absolute_logical_x()">}> : () -> !emitc.size_t
@@ -86,9 +87,9 @@ module attributes {} {
     %my_device_id = emitc.call_opaque "experimental::get_my_device_id"() : () -> i16
 
     // Check if device is 0 and send to device 1 if it is
-    %is_device0 = emitc.cmp eq, %my_device_id, %device0 : (i16, i16) -> i1
+    %is_device0 = emitc.cmp eq, %my_device_id, %src_dev_id : (i16, i16) -> i1
     emitc.if %is_device0 {
-      emitc.call_opaque "experimental::fabric_fast_write_any_len"(%fabric_connection_manager, %device0, %device1, %noc_addr, %src_ptr, %len_bytes) : (!emitc.opaque<"experimental::FabricConnectionManager">, i16, i16, i64, i32, i32) -> ()
+      emitc.call_opaque "experimental::fabric_fast_write_any_len"(%fabric_connection_manager, %dst_mesh_id, %dst_dev_id, %noc_addr, %src_ptr, %len_bytes) : (!emitc.opaque<"experimental::FabricConnectionManager">, i16, i16, i64, i32, i32) -> ()
     }
     emitc.call_opaque "experimental::close_fabric_connections"(%fabric_connection_manager) : (!emitc.opaque<"experimental::FabricConnectionManager">) -> ()
     return

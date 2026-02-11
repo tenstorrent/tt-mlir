@@ -2865,3 +2865,222 @@ def test_hoisted_concat(
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
+
+
+@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.parametrize("mesh_shape", [(1, 2)], ids=shape_str)
+def test_presharded_arg(target, mesh_shape, request, device):
+    def module(builder: TTIRBuilder):
+        @builder.func([(1, 1, 256, 512)], [torch.float32])
+        def model(in0: Operand, builder: TTIRBuilder):
+            builder.preshard_arg(in0, shard_dims=(-1, 3))
+            in_shard = builder.mesh_shard(
+                in0,
+                shard_direction=MeshShardDirection.FullToShard.value,
+                shard_type=MeshShardType.Identity.value,
+                shard_shape=(1, 1, 1, 2),
+                shard_dims=(-1, 3),
+            )
+            exp = builder.exp(in_shard)
+            out_shard = builder.mesh_shard(
+                exp,
+                shard_direction=MeshShardDirection.ShardToFull.value,
+                shard_type=MeshShardType.Devices.value,
+                shard_shape=(1, 1, 1, 2),
+                shard_dims=(-1, 3),
+            )
+            return out_shard
+
+    compile_and_execute_ttir(
+        module,
+        mesh_name="mesh",
+        device=device,
+        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
+        **get_request_kwargs(request),
+    )
+
+
+@pytest.mark.parametrize(
+    "input_shape,num_heads,transpose_key",
+    [
+        # MHA case: input [batch, seq, 3 * hidden_size]
+        # batch=2, seq=128, hidden=256, num_heads=8, head_size=32
+        ((2, 128, 768), 8, False),
+        # MHA case with transpose_key
+        ((2, 128, 768), 8, True),
+    ],
+    ids=["mha_no_transpose", "mha_transpose_key"],
+)
+def test_split_query_key_value_and_split_heads_mha(
+    input_shape: Shape,
+    num_heads: int,
+    transpose_key: bool,
+    request,
+    device,
+):
+    """Test split_query_key_value_and_split_heads operation (MHA case)."""
+
+    def module(builder: TTIRBuilder):
+        @builder.func([input_shape], [torch.float32])
+        def split_qkv(
+            input_tensor: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            query, key, value = builder.split_query_key_value_and_split_heads(
+                input_tensor,
+                num_heads=num_heads,
+                transpose_key=transpose_key,
+            )
+            return query, key, value
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        device=device,
+    )
+
+
+@pytest.mark.parametrize(
+    "q_shape,kv_shape,num_heads,num_kv_heads,transpose_key",
+    [
+        # GQA case: separate Q and KV tensors
+        # batch=2, seq=128, num_heads=8, num_kv_heads=2, head_size=32
+        # Q: [batch, seq, num_heads * head_size] = [2, 128, 256]
+        # KV: [batch, seq, 2 * num_kv_heads * head_size] = [2, 128, 128]
+        ((2, 128, 256), (2, 128, 128), 8, 2, False),
+        # GQA case with transpose_key
+        ((2, 128, 256), (2, 128, 128), 8, 2, True),
+    ],
+    ids=["gqa_no_transpose", "gqa_transpose_key"],
+)
+def test_split_query_key_value_and_split_heads_gqa(
+    q_shape: Shape,
+    kv_shape: Shape,
+    num_heads: int,
+    num_kv_heads: int,
+    transpose_key: bool,
+    request,
+    device,
+):
+    """Test split_query_key_value_and_split_heads operation (GQA case)."""
+
+    def module(builder: TTIRBuilder):
+        @builder.func([q_shape, kv_shape], [torch.float32, torch.float32])
+        def split_qkv_gqa(
+            q_tensor: Operand,
+            kv_tensor: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            query, key, value = builder.split_query_key_value_and_split_heads(
+                q_tensor,
+                num_heads=num_heads,
+                transpose_key=transpose_key,
+                kv_input_tensor=kv_tensor,
+                num_kv_heads=num_kv_heads,
+            )
+            return query, key, value
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        device=device,
+    )
+
+
+@x86_only
+@pytest.mark.parametrize(
+    "input_shape,num_heads,transpose_key",
+    [
+        # MHA case: input [batch, seq, 3 * hidden_size]
+        # batch=2, seq=128, hidden=256, num_heads=8, head_size=32
+        ((2, 128, 768), 8, False),
+        # MHA case with transpose_key
+        ((2, 128, 768), 8, True),
+    ],
+    ids=["mha_no_transpose", "mha_transpose_key"],
+)
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_hoisted_split_query_key_value_and_split_heads_mha(
+    input_shape: Shape,
+    num_heads: int,
+    transpose_key: bool,
+    target: str,
+    request,
+    device,
+):
+    """Test split_query_key_value_and_split_heads operation (MHA case) with CPU hoisting."""
+
+    def module(builder: TTIRBuilder):
+        @builder.func([input_shape], [torch.float32])
+        def split_qkv(
+            input_tensor: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            query, key, value = builder.split_query_key_value_and_split_heads(
+                input_tensor,
+                num_heads=num_heads,
+                transpose_key=transpose_key,
+                unit_attrs=["ttir.should_hoist"],
+            )
+            return query, key, value
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+    )
+
+
+@x86_only
+@pytest.mark.parametrize(
+    "q_shape,kv_shape,num_heads,num_kv_heads,transpose_key",
+    [
+        # GQA case: separate Q and KV tensors
+        # batch=2, seq=128, num_heads=8, num_kv_heads=2, head_size=32
+        ((2, 128, 256), (2, 128, 128), 8, 2, False),
+        # GQA case with transpose_key
+        ((2, 128, 256), (2, 128, 128), 8, 2, True),
+    ],
+    ids=["gqa_no_transpose", "gqa_transpose_key"],
+)
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_hoisted_split_query_key_value_and_split_heads_gqa(
+    q_shape: Shape,
+    kv_shape: Shape,
+    num_heads: int,
+    num_kv_heads: int,
+    transpose_key: bool,
+    target: str,
+    request,
+    device,
+):
+    """Test split_query_key_value_and_split_heads operation (GQA case) with CPU hoisting."""
+
+    def module(builder: TTIRBuilder):
+        @builder.func([q_shape, kv_shape], [torch.float32, torch.float32])
+        def split_qkv_gqa(
+            q_tensor: Operand,
+            kv_tensor: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            query, key, value = builder.split_query_key_value_and_split_heads(
+                q_tensor,
+                num_heads=num_heads,
+                transpose_key=transpose_key,
+                kv_input_tensor=kv_tensor,
+                num_kv_heads=num_kv_heads,
+                unit_attrs=["ttir.should_hoist"],
+            )
+            return query, key, value
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+    )

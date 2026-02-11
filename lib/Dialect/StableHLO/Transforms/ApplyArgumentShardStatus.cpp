@@ -37,6 +37,12 @@ updateShardStatus(MLIRContext *context, mlir::ModuleOp &module,
       newArgAttrs =
           llvm::SmallVector<mlir::NamedAttribute>(argAttrDict.getValue());
 
+      // If the argument already has a RuntimeTensorShardingAttr, we skip it.
+      if (argAttrDict.contains(
+              mlir::tt::ttcore::RuntimeTensorShardingAttr::name)) {
+        continue;
+      }
+
       // We want to find the @Sharding custom call followed by the
       // @SPMDFullToShardShape custom call to determine the sharded type. The
       // pattern looks like: %0 = stablehlo.custom_call @Sharding(%arg0)
@@ -44,6 +50,7 @@ updateShardStatus(MLIRContext *context, mlir::ModuleOp &module,
       // tensor<1024x1024xf32> %1 = stablehlo.custom_call
       // @SPMDFullToShardShape(%0) {mhlo.sharding = "{manual}"} :
       // (tensor<1024x1024xf32>) -> tensor<128x1024xf32>
+
       if (argAttrDict.contains(mlir::tt::gspmd_utils::kXlaShardingAttr)) {
         shardStatus = mlir::tt::ttcore::ShardStatus::Presharded;
 
@@ -141,6 +148,12 @@ updateShardStatus(MLIRContext *context, mlir::ModuleOp &module,
     if (resultAttrDict) {
       newResultAttrs =
           llvm::SmallVector<mlir::NamedAttribute>(resultAttrDict.getValue());
+
+      // If the result already has a RuntimeTensorShardingAttr, we skip it.
+      if (resultAttrDict.contains(
+              mlir::tt::ttcore::RuntimeTensorShardingAttr::name)) {
+        continue;
+      }
 
       if (resultAttrDict.contains(mlir::tt::gspmd_utils::kXlaShardingAttr)) {
         shardStatus = mlir::tt::ttcore::ShardStatus::Presharded;

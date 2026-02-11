@@ -7,7 +7,7 @@
 
 // Include CB API for pack-side functions (llk_wait_for_free_tiles,
 // llk_push_tiles) and get_local_cb_interface
-#include "compute_kernel_api/cb_api.h"
+#include "api/compute/cb_api.h"
 
 namespace experimental {
 using std::uint32_t;
@@ -91,7 +91,7 @@ inline void _write_col_mask_to_l1_(volatile uint32_t *ptr, uint32_t validCols) {
 }
 
 // Include fill.h for ckernel::fill_tile
-#include "compute_kernel_api/eltwise_unary/fill.h"
+#include "api/compute/eltwise_unary/fill.h"
 
 // Fill a tile in DST with a constant scalar value.
 // Uses the standard fill_tile API from compute_kernel_api.

@@ -61,6 +61,7 @@ struct TTIRToTTIRDecompositionPass
       target.addIllegalOp<ttir::ReduceAndOp>();
       target.addIllegalOp<ttir::ReduceOrOp>();
       target.addIllegalOp<ttir::EmbeddingOp>();
+      target.addIllegalOp<ttir::SplitQueryKeyValueAndSplitHeadsOp>();
       break;
 
     case DecompMode::TTNN:
