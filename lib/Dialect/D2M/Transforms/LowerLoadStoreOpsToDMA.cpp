@@ -121,7 +121,8 @@ static AffineMap getMemoryMap(ttcore::DeviceAttr device, Value input,
       // If there's no defining op (e.g., block argument), use the memref type
       // directly
       MemRefType memrefType = mlir::cast<MemRefType>(input.getType());
-      return device.getMemoryMap(
+      return d2m::utils::getMemoryMap(
+          device,
           std::make_pair(memrefType,
                          AffineMap::getMultiDimIdentityMap(
                              memrefType.getRank(), memrefType.getContext())),
@@ -131,7 +132,8 @@ static AffineMap getMemoryMap(ttcore::DeviceAttr device, Value input,
     // device map so it is composed in the same order as before (before the
     // device address map is applied).
     auto [baseMemref, viewMap] = mlir::tt::d2m::applyViews(definingOp);
-    return device.getMemoryMap(baseMemref, /*pageSize=*/0, viewMap);
+    return d2m::utils::getMemoryMap(device, baseMemref, /*pageSize=*/0,
+                                    viewMap);
   }
 
   // For local memrefs (including CB values), get the underlying memref type

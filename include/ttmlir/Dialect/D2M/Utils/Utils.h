@@ -9,6 +9,10 @@
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinTypes.h"
 
+namespace mlir::tt::ttcore {
+class DeviceAttr;
+} // namespace mlir::tt::ttcore
+
 namespace mlir::tt::d2m::utils {
 
 // Return a new RankedTensorType by reblocking its device shape to match a new
@@ -58,6 +62,19 @@ std::optional<AffineMap> getAssociatedRemapping(Value val);
 // ViewLayoutAttr remappings (via applyViews) and falling back to the layout's
 // getAffineMap() or an identity map.
 AffineMap resolveEffectiveAffineMap(Value val, MemRefType memrefType);
+
+// Compute the device memory map for a memref type. Returns an AffineMap
+// that maps logical indices to physical device addresses (L1 or DRAM),
+// handling core virtualization for ND or oversized grids.
+AffineMap getMemoryMap(ttcore::DeviceAttr device, MemRefType memrefType,
+                       size_t pageSize,
+                       std::optional<AffineMap> view = std::nullopt,
+                       size_t baseOffset = 0);
+
+// Convenience overload accepting a (MemRefType, AffineMap) pair.
+AffineMap getMemoryMap(ttcore::DeviceAttr device,
+                       std::pair<MemRefType, AffineMap> memrefAndView,
+                       size_t pageSize, size_t baseOffset = 0);
 
 } // namespace mlir::tt::d2m::utils
 
