@@ -39,6 +39,31 @@ static bool isIntermediateInput(GenericOp genericOp, Value operandVal) {
   return true;
 }
 
+/// Check that every remote_load from the intermediate inside the generic is
+/// dominated by a remote_store to it. This ensures scalrep can forward all
+/// loads. If any load appears before a store (e.g., accumulation patterns),
+/// internalization is unsafe.
+static bool allLoadsStoreDominated(GenericOp genericOp, Value operandVal) {
+  bool storeReached = false;
+  bool safe = true;
+  genericOp.getRegion(0).walk<WalkOrder::PreOrder>([&](Operation *op) {
+    if (!safe) {
+      return;
+    }
+    if (auto store = dyn_cast<RemoteStoreOp>(op)) {
+      if (store.getMemref() == operandVal) {
+        storeReached = true;
+      }
+    }
+    if (auto load = dyn_cast<RemoteLoadOp>(op)) {
+      if (load.getMemref() == operandVal && !storeReached) {
+        safe = false;
+      }
+    }
+  });
+  return safe;
+}
+
 /// Preprocess a GenericOp by internalizing intermediate operands.
 /// Intermediate inputs are replaced with local memref allocs inside the
 /// generic body, and their operands and block arg CBs are removed.
@@ -56,12 +81,19 @@ static void internalizeIntermediates(GenericOp genericOp, OpBuilder &builder) {
   for (unsigned i = 0; i < numInputs; ++i) {
     Value operandVal = genericOp.getInputs()[i];
 
-    // Block arguments (e.g., function parameters) are never intermediates.
-    if (!operandVal.getDefiningOp()) {
+    // Only locally-allocated memrefs can be intermediates.
+    if (!isa_and_nonnull<memref::AllocOp>(operandVal.getDefiningOp())) {
       continue;
     }
 
     if (!isIntermediateInput(genericOp, operandVal)) {
+      continue;
+    }
+
+    // Every remote_load from the intermediate must be preceded by a
+    // remote_store; otherwise scalrep cannot forward all loads (e.g.,
+    // accumulation patterns that load partial results before storing).
+    if (!allLoadsStoreDominated(genericOp, operandVal)) {
       continue;
     }
 
@@ -107,6 +139,52 @@ static void internalizeIntermediates(GenericOp genericOp, OpBuilder &builder) {
   }
 }
 
+/// Convert RemoteLoadOps from destination-passing style to direct style:
+/// replace post-load uses of localBuffer with the load result, so
+/// affineScalarReplace can properly forward stored values through the
+/// result SSA value.
+static void convertRemoteLoadToDirectStyle(func::FuncOp funcOp) {
+  funcOp.walk([&](RemoteLoadOp loadOp) {
+    Value localBuf = loadOp.getLocalBuffer();
+    Value result = loadOp.getResult();
+    if (!localBuf || !result) {
+      return;
+    }
+
+    localBuf.replaceUsesWithIf(result, [&](OpOperand &use) {
+      Operation *user = use.getOwner();
+      if (user == loadOp.getOperation()) {
+        return false;
+      }
+      // Only replace uses that come after the load in the same block.
+      return loadOp->getBlock() == user->getBlock() &&
+             loadOp->isBeforeInBlock(user);
+    });
+  });
+}
+
+/// Convert RemoteLoadOps from direct style back to destination-passing
+/// style: replace post-load uses of the result with the localBuffer
+/// operand.
+static void convertRemoteLoadToDPSStyle(func::FuncOp funcOp) {
+  funcOp.walk([&](RemoteLoadOp loadOp) {
+    Value localBuf = loadOp.getLocalBuffer();
+    Value result = loadOp.getResult();
+    if (!localBuf || !result) {
+      return;
+    }
+
+    result.replaceUsesWithIf(localBuf, [&](OpOperand &use) {
+      Operation *user = use.getOwner();
+      if (user == loadOp.getOperation()) {
+        return false;
+      }
+      return loadOp->getBlock() == user->getBlock() &&
+             loadOp->isBeforeInBlock(user);
+    });
+  });
+}
+
 class D2MGenericAffineScalarReplacement
     : public impl::D2MGenericAffineScalarReplacementBase<
           D2MGenericAffineScalarReplacement> {
@@ -118,29 +196,45 @@ public:
     getOperation()->walk([&](func::FuncOp funcOp) {
       OpBuilder builder(funcOp.getContext());
 
-      // Preprocess: internalize intermediate operands in each generic op.
+      // Collect only fused generic ops (those with d2m.affine_fused attr).
+      // This must be rerun after each micro-pass as generics are being
+      // rewritten multiple times.
       SmallVector<GenericOp> genericOps;
-      funcOp.walk([&](GenericOp op) { genericOps.push_back(op); });
+      auto collectFusedOps = [&]() {
+        genericOps.clear();
+        funcOp.walk([&](GenericOp op) {
+          if (op->hasAttr("d2m.affine_fused")) {
+            genericOps.push_back(op);
+          }
+        });
+      };
+
+      // Preprocess: internalize intermediate operands in each generic op.
+      collectFusedOps();
       for (GenericOp op : genericOps) {
         internalizeIntermediates(op, builder);
       }
 
-      // Convert all d2m.generic ops to affine-compatible form
-      genericOps.clear();
-      funcOp.walk([&](GenericOp op) { genericOps.push_back(op); });
+      // Convert all fused d2m.generic ops to affine-compatible form.
+      collectFusedOps();
       for (GenericOp op : genericOps) {
         utils::convertToAffineCompatibilityForm(op, builder);
       }
 
-      // Run affine scalar replacement on the function
+      // Convert RemoteLoadOps to direct style for store-to-load forwarding.
+      convertRemoteLoadToDirectStyle(funcOp);
+
+      // Run affine scalar replacement on the function.
       auto &domInfo = getAnalysis<DominanceInfo>();
       auto &postDomInfo = getAnalysis<PostDominanceInfo>();
       auto &aliasAnalysis = getAnalysis<AliasAnalysis>();
       affine::affineScalarReplace(funcOp, domInfo, postDomInfo, aliasAnalysis);
 
-      // Convert all d2m.generic ops back from affine-compatible form
-      genericOps.clear();
-      funcOp.walk([&](GenericOp op) { genericOps.push_back(op); });
+      // Convert surviving RemoteLoadOps back to DPS style.
+      convertRemoteLoadToDPSStyle(funcOp);
+
+      // Convert all fused d2m.generic ops back from affine-compatible form.
+      collectFusedOps();
       for (GenericOp op : genericOps) {
         utils::convertFromAffineCompatibilityForm(op, builder);
       }

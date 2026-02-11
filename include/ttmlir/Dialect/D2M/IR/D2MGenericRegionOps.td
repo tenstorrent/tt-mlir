@@ -1177,7 +1177,8 @@ def D2M_RemoteLoadOp : D2M_GenericRegionDatamovementOp<"remote_load",
       (mcore/mshape) or high-level (mcast dims), not both
     }];
 
-    let arguments = (ins Optional<AnyRankedTensorOrMemRef>:$localBuffer,
+    let arguments = (ins Arg<Optional<AnyRankedTensorOrMemRef>, "the local buffer to load into",
+        [MemWrite]>:$localBuffer,
         Arg<AnyRankedTensorOrMemRef, "the reference to load from",
         [MemRead]>:$memref,
         Variadic<Index>:$indices,
@@ -1330,7 +1331,7 @@ def D2M_RemoteLoadOp : D2M_GenericRegionDatamovementOp<"remote_load",
 
 def D2M_RemoteStoreOp : D2M_GenericRegionDatamovementOp<"remote_store",
   [ AttrSizedOperandSegments
-  , MemoryEffects<[MemWrite]>
+  , MemoryEffects<[MemRead, MemWrite]>
   , DestinationStyleOpInterface
   , DeclareOpInterfaceMethods<AffineWriteOpInterface>
   , DeclareOpInterfaceMethods<AffineMapAccessInterface>
@@ -1391,7 +1392,8 @@ def D2M_RemoteStoreOp : D2M_GenericRegionDatamovementOp<"remote_store",
     let arguments = (ins Arg<AnyRankedTensorOrMemRef, "the reference to store to",
         [MemWrite]>:$memref,
         Variadic<Index>:$indices,
-        Optional<AnyRankedTensorOrMemRef>:$localBuffer,
+        Arg<Optional<AnyRankedTensorOrMemRef>, "the local buffer to store from",
+        [MemRead]>:$localBuffer,
         Optional<D2M_CB>:$cb);
 
     let results = (outs Optional<AnyRankedTensorOrMemRef>:$result);

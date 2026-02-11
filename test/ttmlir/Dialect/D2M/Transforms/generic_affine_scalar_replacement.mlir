@@ -148,7 +148,7 @@ func.func @test_multiple_block_index_same_dimension(
     ) {
   %output = memref.alloc() : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>
 
-  d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<2x4>,
+  d2m.generic {block_factors = [1, 1], d2m.affine_fused, grid = #ttcore.grid<2x4>,
     indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>],
     iterator_types = [#ttcore.iterator_type<parallel>, #ttcore.iterator_type<parallel>], threads = [#d2m.thread<unified>]}
       ins(
