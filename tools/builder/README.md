@@ -608,14 +608,12 @@ def module0(builder: TTIRBuilder):
 
 module, builder = build_module(module0, "ttir")
 
-mlir_path, input_output_goldens, intermediate_goldens = compile_ttir_module_to_flatbuffer(
+compiled_bin, input_output_goldens, intermediate_goldens = compile_ttir_module_to_flatbuffer(
     module,
     builder,
-    test_base="sample_test",
 )
 
-flatbuffer_path = os.path.join("ttir-builder-artifacts", "ttnn", f"sample_test_ttnn.mlir.ttnn")
-execute_fb(flatbuffer_path, input_output_goldens, intermediate_goldens, device=device)
+execute_fb(compiled_bin, input_output_goldens, intermediate_goldens, device=device)
 
 tt_runtime.runtime.close_mesh_device(device)
 ```
@@ -690,14 +688,12 @@ with open(mlir_file_path, 'r') as f:
 
 module, builder = load_mlir_file(mlir_ir_string, target="ttir")
 
-mlir_path, input_output_goldens, intermediate_goldens = compile_ttir_module_to_flatbuffer(
+compiled_bin, input_output_goldens, intermediate_goldens = compile_ttir_module_to_flatbuffer(
     module,
     builder,
-    test_base="sample_test",
 )
 
-flatbuffer_path = os.path.join("ttir-builder-artifacts", "ttnn", f"sample_test_ttnn.mlir.ttnn")
-execute_fb(flatbuffer_path, input_output_goldens, intermediate_goldens, device=device)
+execute_fb(compiled_bin, input_output_goldens, intermediate_goldens, device=device)
 
 tt_runtime.runtime.close_mesh_device(device)
 ```
@@ -731,14 +727,12 @@ for split_module, split_builder in builder_module_list:
     mesh_options.mesh_shape = (1, 1)
     device = tt_runtime.runtime.open_mesh_device(mesh_options)
 
-    mlir_path, input_output_goldens, intermediate_goldens = compile_ttir_module_to_flatbuffer(
+    compiled_bin, input_output_goldens, intermediate_goldens = compile_ttir_module_to_flatbuffer(
         split_module,
         split_builder,
-        test_base="sample_test",
     )
 
-    flatbuffer_path = os.path.join("ttir-builder-artifacts", "ttnn", f"sample_test_ttnn.mlir.ttnn")
-    execute_fb(flatbuffer_path, input_output_goldens, intermediate_goldens, device=device)
+    execute_fb(compiled_bin, input_output_goldens, intermediate_goldens, device=device)
 
     tt_runtime.runtime.close_mesh_device(device)
 ```
@@ -770,14 +764,12 @@ with trace("/code/jan-2/tt-mlir/profiler", 8086):
     mesh_options.mesh_shape = (1, 1)
     device = tt_runtime.runtime.open_mesh_device(mesh_options)
 
-    mlir_path, input_output_goldens, intermediate_goldens = compile_ttir_module_to_flatbuffer(
+    compiled_bin, input_output_goldens, intermediate_goldens = compile_ttir_module_to_flatbuffer(
         new_module,
         builder,
-        test_base="taps_module2",
     )
 
-    flatbuffer_path = "ttir-builder-artifacts/ttnn/taps_module2_ttnn.mlir.ttnn"
-    golden_report = execute_fb(flatbuffer_path, input_output_goldens, intermediate_goldens, device=device)
+    golden_report = execute_fb(compiled_bin, input_output_goldens, intermediate_goldens, device=device)
 
     tt_runtime.runtime.close_mesh_device(device)
 ```
@@ -820,6 +812,45 @@ module {
     %0 = "ttir.mesh_shard"(%arg0) <{shard_dims = array<i64: 2, 3>, shard_direction = #ttcore.shard_direction<full_to_shard>, shard_shape = array<i64: 1, 1, 8, 4>, shard_type = #ttcore.shard_type<devices>}> : (tensor<1x1x256x512xf32>) -> tensor<1x1x32x128xf32>
     %1 = "ttir.all_gather"(%0) <{all_gather_dim = 3 : si32, cluster_axis = 1 : ui32}> : (tensor<1x1x32x128xf32>) -> tensor<1x1x32x512xf32>
     %2 = "ttir.mesh_shard"(%1) <{shard_dims = array<i64: 2, -1>, shard_direction = #ttcore.shard_direction<shard_to_full>, shard_shape = array<i64: 1, 1, 8, 1>, shard_type = #ttcore.shard_type<devices>}> : (tensor<1x1x32x512xf32>) -> tensor<1x1x256x512xf32>
+    return %2 : tensor<1x1x256x512xf32>
+  }
+}
+```
+
+## build multi-device graphs with presharded args
+
+```python
+def module(builder: TTIRBuilder):
+    @builder.func([(1, 1, 256, 512)], [torch.float32])
+    def model(in0: Operand, builder: TTIRBuilder):
+        builder.preshard_arg(in0, shard_dims=(-1, 3))
+        in_shard = builder.mesh_shard(
+            in0,
+            shard_direction=MeshShardDirection.FullToShard.value,
+            shard_type=MeshShardType.Identity.value,
+            shard_shape=(1, 1, 1, 2),
+            shard_dims=(-1, 3),
+        )
+        exp = builder.exp(in_shard)
+        out_shard = builder.mesh_shard(
+            exp,
+            shard_direction=MeshShardDirection.ShardToFull.value,
+            shard_type=MeshShardType.Devices.value,
+            shard_shape=(1, 1, 1, 2),
+            shard_dims=(-1, 3),
+        )
+        return out_shard
+
+module, builder = build_module(module, "ttir", mesh_dict=OrderedDict([("x", 1), ("y", 2)]))
+print(module)
+```
+
+```mlir
+module attributes {ttcore.meshes = #ttcore.meshes<[<"mesh" = 1x2>]>} {
+  func.func @model(%arg0: tensor<1x1x256x512xf32> {ttcore.runtime_tensor_sharding = #ttcore<runtime_tensor_sharding shard_status = <presharded>, local_shape = tensor<1x1x256x256xf32>>}) -> tensor<1x1x256x512xf32> {
+    %0 = "ttir.mesh_shard"(%arg0) <{shard_dims = array<i64: -1, 3>, shard_direction = #ttcore.shard_direction<full_to_shard>, shard_shape = array<i64: 1, 1, 1, 2>, shard_type = #ttcore.shard_type<identity>}> : (tensor<1x1x256x512xf32>) -> tensor<1x1x256x256xf32>
+    %1 = "ttir.exp"(%0) : (tensor<1x1x256x256xf32>) -> tensor<1x1x256x256xf32>
+    %2 = "ttir.mesh_shard"(%1) <{shard_dims = array<i64: -1, 3>, shard_direction = #ttcore.shard_direction<shard_to_full>, shard_shape = array<i64: 1, 1, 1, 2>, shard_type = #ttcore.shard_type<devices>}> : (tensor<1x1x256x256xf32>) -> tensor<1x1x256x512xf32>
     return %2 : tensor<1x1x256x512xf32>
   }
 }
