@@ -137,6 +137,7 @@ void createTTIRToTTMetalMiddleendPipeline(
   pm.addPass(d2m::createD2MGenericApplyInterchange(applyInterchangeOptions));
   pm.addPass(d2m::createD2MGenerateOuterLoops());
   pm.addPass(d2m::createD2MGenericAffineLoopFusion());
+  pm.addPass(d2m::createD2MGenericAffineScalarReplacement());
 
   d2m::D2MAllocateOptions allocateOptions;
   {
