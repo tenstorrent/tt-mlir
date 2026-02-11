@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/D2M/Utils/VirtualGrid.h"
 #include "ttmlir/Asserts.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 
 namespace ttmlir::d2m::utils::grids {
 
@@ -89,6 +90,37 @@ createCoreVirtMaps(mlir::MLIRContext *context,
                     getAffineConstantExpr(0, context));
 
   return {forwardMap, inverseMap};
+}
+
+llvm::SmallVector<int64_t, 2>
+getPhysicalGridExtent(llvm::ArrayRef<int64_t> virtualGrid,
+                      llvm::ArrayRef<int64_t> targetGrid) {
+  TT_assertv(targetGrid.size() == 2ul,
+             "Target grid must have 2 dimensions (device grid is 2D)");
+
+  // Compute volume of virtual grid
+  int64_t volume = 1;
+  for (int64_t dim : virtualGrid) {
+    volume *= dim;
+  }
+
+  // Use the same factorization logic as collapseToPhysicalGrid2D.
+  // Try to find an optimal factorization using findLegalPhysicalGridForVolume
+  // which balances Y and X dimensions by finding factors near sqrt.
+  auto result =
+      mlir::tt::ttcore::findLegalPhysicalGridForVolume(volume, targetGrid);
+  if (!result.empty()) {
+    return result;
+  }
+
+  // Fallback for time-multiplexing: use row-major flatten + reshape.
+  // X dimension fills first (up to targetGrid[1]),
+  // Y dimension extends as needed (up to targetGrid[0]).
+  int64_t physicalY =
+      std::min((volume + targetGrid[1] - 1) / targetGrid[1], targetGrid[0]);
+  int64_t physicalX = std::min(volume, targetGrid[1]);
+
+  return {physicalY, physicalX};
 }
 
 } // namespace ttmlir::d2m::utils::grids

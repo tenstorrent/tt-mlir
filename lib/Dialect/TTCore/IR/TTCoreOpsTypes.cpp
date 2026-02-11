@@ -6,6 +6,7 @@
 
 #include "ttmlir/AffineMapUtils.h"
 #include "ttmlir/Asserts.h"
+#include "ttmlir/Dialect/D2M/Utils/VirtualGrid.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Target/Common/Target.h"
@@ -1536,30 +1537,43 @@ mlir::AffineMap DeviceAttr::getMemoryMap(MemRefType memrefType, size_t pageSize,
           mlir::dyn_cast<ShardLayoutAttr>(memrefType.getLayout())) {
 
     // The device L1/DRAM maps operate on a 2D grid (gridY, gridX) plus a
-    // linear shard offset.  ND grids (> 2D) must be collapsed to 2D before
-    // composition with the device maps.  2D grids that exceed device bounds
-    // also need to be collapsed/virtualized.  This collapse is computed
-    // dynamically from the memref shape rather than stored on the layout
-    // attribute.
+    // linear shard offset.  ND grids (> 2D) OR 2D grids that exceed device
+    // bounds need core virtualization to map virtual grid coordinates to
+    // physical device coordinates. This is computed dynamically from the
+    // memref shape rather than stored on the layout attribute.
     unsigned shardRank = shardLayout.getRank();
     unsigned gridRank = memrefType.getRank() - shardRank;
 
     auto gridShape = memrefType.getShape().take_front(gridRank);
     auto deviceGridShape = getWorkerGrid().getShape();
 
-    bool needsGridCollapse =
-        (gridRank > 2) ||
-        (gridRank == 2 && (gridShape[0] > deviceGridShape[0] ||
-                           gridShape[1] > deviceGridShape[1]));
+    bool needsCoreVirtualization =
+        (gridRank != 2) || (gridShape[0] > deviceGridShape[0] ||
+                            gridShape[1] > deviceGridShape[1]);
 
-    if (needsGridCollapse) {
-      auto physGrid = collapseToPhysicalGrid2D(gridShape, deviceGridShape);
-      AffineMap gridCollapseMap = ttmlir::utils::createNDGridCollapseMap(
-          gridShape, physGrid, shardRank, memrefType.getContext());
+    if (needsCoreVirtualization) {
+      // Compute the physical grid extent (e.g. [4,6] for volume 24 on an 8x8
+      // device).  This must match the grid used by the flatbuffer buffer
+      // config so that kernel address math and buffer layout agree.
+      auto physicalGrid = ttmlir::d2m::utils::grids::getPhysicalGridExtent(
+          llvm::SmallVector<int64_t>(gridShape.begin(), gridShape.end()),
+          llvm::SmallVector<int64_t>(deviceGridShape.begin(),
+                                     deviceGridShape.end()));
 
-      if (affineMap.getNumDims() > gridCollapseMap.getNumResults()) {
+      auto [forwardMap, inverseMap] =
+          ttmlir::d2m::utils::grids::createCoreVirtMaps(
+              memrefType.getContext(),
+              llvm::SmallVector<int64_t>(gridShape.begin(), gridShape.end()),
+              physicalGrid);
+
+      // Use the forward map which maps virtual grid -> physical grid
+      // It already has the correct structure: (virtual_dims..., shard_dims...)
+      // -> (physical_y, physical_x, shard_dims...)
+      AffineMap coreVirtMap = forwardMap;
+
+      if (affineMap.getNumDims() > coreVirtMap.getNumResults()) {
         auto dimsToRemove =
-            affineMap.getNumDims() - gridCollapseMap.getNumResults();
+            affineMap.getNumDims() - coreVirtMap.getNumResults();
         llvm::SmallBitVector projectedDims(affineMap.getNumDims());
         projectedDims.set(0, dimsToRemove);
 
@@ -1567,7 +1581,7 @@ mlir::AffineMap DeviceAttr::getMemoryMap(MemRefType memrefType, size_t pageSize,
         affineMap = affineMap.dropResults(projectedDims);
       }
 
-      affineMap = affineMap.compose(gridCollapseMap);
+      affineMap = affineMap.compose(coreVirtMap);
     }
 
     if (view) {

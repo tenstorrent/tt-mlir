@@ -209,21 +209,24 @@ findLegalPhysicalGridForVolume(int64_t gridVolume,
 llvm::SmallVector<int64_t, 2>
 collapseToPhysicalGrid2D(ArrayRef<int64_t> gridShape,
                          ArrayRef<int64_t> deviceGridShape) {
-  auto physGrid = collapseGridTo2D(gridShape);
-  assert(physGrid.size() == 2 && "Expected 2D grid after collapse");
-
-  // If the collapsed grid fits within the device grid, use it directly.
-  if (physGrid[0] <= deviceGridShape[0] && physGrid[1] <= deviceGridShape[1]) {
-    return physGrid;
+  // Compute the volume of the virtual grid
+  int64_t volume = 1;
+  for (int64_t dim : gridShape) {
+    volume *= dim;
   }
 
-  // The natural collapse exceeds the device grid bounds.  Fall back to
-  // findLegalPhysicalGridForVolume which finds a valid factorization that
-  // fits — consistent with how grid selection validates candidate grids.
-  auto fallback = findLegalPhysicalGridForVolume(physGrid[0] * physGrid[1],
-                                                 deviceGridShape);
-  assert(!fallback.empty() && "Grid volume must fit within device grid");
-  return {fallback[0], fallback[1]};
+  // Try to find an optimal factorization (matches main's behavior).
+  // This finds factors near sqrt to balance Y and X dimensions.
+  auto result = findLegalPhysicalGridForVolume(volume, deviceGridShape);
+  if (!result.empty()) {
+    return result;
+  }
+
+  // Fallback: if no factorization fits (time-multiplexing needed),
+  // use leading-dimension collapse which may exceed device bounds.
+  auto physGrid = collapseGridTo2D(gridShape);
+  assert(physGrid.size() == 2 && "Expected 2D grid after collapse");
+  return physGrid;
 }
 
 static MemRefType getMemRefType(Type type, bool isView,
