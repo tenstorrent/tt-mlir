@@ -270,13 +270,9 @@ private:
     auto finalShape = reshapeUser.getResult().getType().getShape();
     auto broadcastDims = op.getBroadcastDimensions();
 
-    // There is a bug when broadcasting across more than 4 dimensions.
-    // Will remove this check once TTNN provides a permanent fix.
-    // https://github.com/tenstorrent/tt-metal/issues/21967
-    return finalShape.size() <= 4 &&
-           getNewReshapeAndBroadcastDims(originalShape, finalShape,
+    return getNewReshapeAndBroadcastDims(originalShape, finalShape,
                                          broadcastDims)
-               .has_value();
+        .has_value();
   }
 
   bool isCommuteUpwardsFavorable(ttir::BroadcastOp op,
