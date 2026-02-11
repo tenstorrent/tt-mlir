@@ -37,7 +37,10 @@ struct ValidationResult {
   size_t configIndex = 0;
 
   // What the backend actually returned (only valid if status == Success).
-  TTNNLayoutAttr actualOutputLayout;
+  llvm::SmallVector<TTNNLayoutAttr> actualOutputLayouts;
+  // For backward compatibility with existing code that expects a single output
+  // layout.
+  TTNNLayoutAttr firstActualOutputLayout;
 
   // L1 memory usage for the output tensor in bytes (only valid if status ==
   // Success). This is the per-core L1 footprint of the output tensor.
@@ -48,16 +51,19 @@ struct ValidationResult {
 
   ValidationResult() = default;
 
-  explicit ValidationResult(size_t configIndex,
-                            TTNNLayoutAttr actualOutputLayout,
-                            uint64_t outputL1Usage = 0)
-      : configIndex(configIndex), actualOutputLayout(actualOutputLayout),
+  explicit ValidationResult(
+      size_t configIndex, llvm::SmallVector<TTNNLayoutAttr> actualOutputLayouts,
+      uint64_t outputL1Usage = 0)
+      : configIndex(configIndex), actualOutputLayouts(actualOutputLayouts),
+        firstActualOutputLayout(
+            actualOutputLayouts.empty() ? nullptr : actualOutputLayouts[0]),
         outputL1Usage(outputL1Usage) {}
 
-  static ValidationResult success(size_t configIndex,
-                                  TTNNLayoutAttr actualOutputLayout,
-                                  uint64_t outputL1Usage = 0) {
-    return ValidationResult(configIndex, actualOutputLayout, outputL1Usage);
+  static ValidationResult
+  success(size_t configIndex,
+          llvm::SmallVector<TTNNLayoutAttr> actualOutputLayouts,
+          uint64_t outputL1Usage = 0) {
+    return ValidationResult(configIndex, actualOutputLayouts, outputL1Usage);
   }
 
   static ValidationResult error(ValidationStatus status, std::string message) {
