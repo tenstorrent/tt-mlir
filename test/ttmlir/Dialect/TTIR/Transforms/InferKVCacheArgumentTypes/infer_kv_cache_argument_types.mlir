@@ -33,22 +33,6 @@ module {
   }
 }
 
-// Test: chained cache ops trace back to original argument
-module {
-  // CHECK-LABEL: func.func @chained_cache_ops
-  // CHECK-SAME: tensor<1x32x64x512xbf16> {ttcore.kv_cache}
-  func.func @chained_cache_ops(
-      %cache: tensor<1x32x64x512xbf16>,
-      %input1: tensor<1x32x64x512xbf16>,
-      %input2: tensor<1x32x1x512xbf16>
-  ) -> tensor<1x32x64x512xbf16> {
-    %filled = "ttir.fill_cache"(%cache, %input1) <{batch_offset = 0: i32}> : (tensor<1x32x64x512xbf16>, tensor<1x32x64x512xbf16>) -> tensor<1x32x64x512xbf16>
-    %idx = "ttir.constant"() <{value = dense<63> : tensor<1xi32>}> : () -> tensor<1xi32>
-    %updated = "ttir.update_cache"(%filled, %input2, %idx) <{batch_offset = 0: i32}> : (tensor<1x32x64x512xbf16>, tensor<1x32x1x512xbf16>, tensor<1xi32>) -> tensor<1x32x64x512xbf16>
-    return %updated : tensor<1x32x64x512xbf16>
-  }
-}
-
 // Test: multiple caches in same function - both get marked
 module {
   // CHECK-LABEL: func.func @multiple_caches

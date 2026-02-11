@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
-#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 
@@ -13,35 +12,6 @@
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRINFERKVCACHEARGUMENTTYPES
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
-
-namespace {
-
-// Traces the cache operand back through cache operations to find the original
-// function argument.
-BlockArgument traceCacheToBlockArg(Value cacheOperand) {
-  Value current = cacheOperand;
-
-  while (current) {
-    if (auto blockArg = llvm::dyn_cast<BlockArgument>(current)) {
-      return blockArg;
-    }
-
-    Operation *defOp = current.getDefiningOp();
-    if (!defOp) {
-      return nullptr;
-    }
-
-    if (auto cacheOp = mlir::dyn_cast<CacheOpInterface>(defOp)) {
-      current = cacheOp.getCache();
-    } else {
-      return nullptr;
-    }
-  }
-
-  return nullptr;
-}
-
-} // namespace
 
 class TTIRInferKVCacheArgumentTypes
     : public impl::TTIRInferKVCacheArgumentTypesBase<
@@ -58,9 +28,10 @@ public:
       llvm::DenseSet<BlockArgument> cacheArgs;
 
       funcOp.walk([&](CacheOpInterface cacheOp) {
-        BlockArgument blockArg = traceCacheToBlockArg(cacheOp.getCache());
-        if (blockArg && blockArg.getOwner()->getParentOp() == funcOp) {
-          cacheArgs.insert(blockArg);
+        if (auto blockArg = llvm::dyn_cast<BlockArgument>(cacheOp.getCache())) {
+          if (blockArg.getOwner()->getParentOp() == funcOp) {
+            cacheArgs.insert(blockArg);
+          }
         }
       });
 
