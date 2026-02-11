@@ -1066,7 +1066,7 @@ def D2M_DMAWaitOp : D2M_GenericRegionDatamovementOp<"dma_wait", [MemoryEffects<[
 
 def D2M_RemoteLoadOp : D2M_GenericRegionDatamovementOp<"remote_load",
   [ AttrSizedOperandSegments
-  , MemoryEffects<[MemRead, MemWrite]>
+  , MemoryEffects<[MemRead]>
   , DestinationStyleOpInterface
   , DeclareOpInterfaceMethods<AffineReadOpInterface>
   , DeclareOpInterfaceMethods<AffineMapAccessInterface>
@@ -1330,7 +1330,7 @@ def D2M_RemoteLoadOp : D2M_GenericRegionDatamovementOp<"remote_load",
 
 def D2M_RemoteStoreOp : D2M_GenericRegionDatamovementOp<"remote_store",
   [ AttrSizedOperandSegments
-  , MemoryEffects<[MemRead, MemWrite]>
+  , MemoryEffects<[MemWrite]>
   , DestinationStyleOpInterface
   , DeclareOpInterfaceMethods<AffineWriteOpInterface>
   , DeclareOpInterfaceMethods<AffineMapAccessInterface>
