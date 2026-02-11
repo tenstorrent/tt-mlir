@@ -419,40 +419,6 @@ def D2M_FullOp
   let hasVerifier = 1;
 }
 
-//===----------------------------------------------------------------------===//
-// Scratch Memory Ops
-//===----------------------------------------------------------------------===//
-
-def D2M_ScratchAllocateOp : D2M_Op<"scratch_allocate", [
-    MemoryEffects<[MemAlloc]>
-  ]> {
-  let summary = "Allocate scratch memory for intermediate spilling.";
-  let description = [{
-    Allocate a scratch buffer from the L1 scratchpad region for storing
-    intermediate results.
-
-    The `slot` attribute is a unique identifier for this scratch allocation
-    within the enclosing scope, used for tracking and debugging.
-
-    This op is lowered by `LowerScratchAllocate` to a `memref.subview` into
-    the scratch CB buffer.
-
-    Example:
-    ```mlir
-    %scratch = d2m.scratch_allocate {slot = 0 : i64}
-               : memref<1x!ttcore.tile<32x32xbf16>, #ttcore.memory_space<l1>>
-    ```
-  }];
-
-  let arguments = (ins I64Attr:$slot);
-  let results = (outs AnyMemRef:$result);
-
-  let assemblyFormat = [{
-    attr-dict `:` type($result)
-  }];
-}
-
-
 def D2M_MeshShardOp
     : D2M_Op<"mesh_shard",
              [Pure, DeclareOpInterfaceMethods<

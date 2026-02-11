@@ -58,7 +58,8 @@ public:
 
 private:
   // Process a single d2m.generic, lowering all scratch_allocate ops to
-  // rank-reducing subviews of the scratch CB.
+  // rank-reducing subviews of the scratch memref obtained from
+  // get_scratch_from_cb.
   LogicalResult processGeneric(GenericOp genericOp) {
     auto scratchInputsAttr = genericOp.getScratchInputsAttr();
     if (!scratchInputsAttr || scratchInputsAttr.empty()) {
@@ -72,7 +73,6 @@ private:
     if (region.empty()) {
       return success();
     }
-    Block &block = region.front();
 
     // Collect all scratch_allocate ops in this region.
     SmallVector<ScratchAllocationInfo> allocations;
@@ -100,14 +100,17 @@ private:
       currentOffset += info.numElements;
     }
 
-    // Look up scratch CB block argument.
-    int64_t scratchIdx = scratchInputsAttr[0];
-    assert(scratchIdx < static_cast<int64_t>(block.getNumArguments()) &&
-           "scratch operand index out of bounds");
-    Value scratchCB = block.getArgument(scratchIdx);
+    // Get the scratch CB block argument and create get_scratch_from_cb.
+    int64_t scratchInputIdx = scratchInputsAttr[0];
+    Block &block = region.front();
+    Value scratchCBArg = block.getArgument(scratchInputIdx);
 
-    auto cbType = mlir::cast<CBType>(scratchCB.getType());
-    auto scratchMemRefType = mlir::cast<MemRefType>(cbType.getUnderlying());
+    OpBuilder builder(&block, block.begin());
+    auto scratchFromCBOp =
+        builder.create<GetScratchFromCBOp>(genericOp.getLoc(), scratchCBArg);
+
+    Value scratchMemRef = scratchFromCBOp.getResult();
+    auto scratchMemRefType = mlir::cast<MemRefType>(scratchMemRef.getType());
 
     // Verify allocations fit in the scratch buffer.
     int64_t scratchCapacity = getNumElements(scratchMemRefType);
@@ -118,32 +121,6 @@ private:
              << " elements)";
     }
 
-    // Determine number of grid dimensions from global vs shard rank.
-    Value scratchGlobalOperand = genericOp->getOperand(scratchIdx);
-    auto globalMemRefType =
-        mlir::cast<MemRefType>(scratchGlobalOperand.getType());
-    int64_t numGridDims =
-        globalMemRefType.getRank() - scratchMemRefType.getRank();
-    assert(numGridDims >= 0 &&
-           "global shape must have at least as many dims as shard shape");
-
-    // Create memref.alloc + remote_load at the top of the compute region.
-    OpBuilder builder(&block, block.begin());
-    Location loc = genericOp.getLoc();
-
-    auto scratchAlloc = builder.create<memref::AllocOp>(
-        loc, scratchMemRefType, builder.getI64IntegerAttr(64));
-
-    SmallVector<Value> blockIndices;
-    for (int64_t i = 0; i < numGridDims; ++i) {
-      blockIndices.push_back(builder.create<BlockIndexOp>(loc, i));
-    }
-
-    auto remoteLoadOp = builder.create<RemoteLoadOp>(
-        loc, scratchMemRefType, scratchAlloc.getResult(), scratchGlobalOperand,
-        blockIndices);
-    Value scratchMemRef = remoteLoadOp.getResult();
-
     // Replace each scratch_allocate with a rank-reducing subview.
     for (auto &info : allocations) {
       replaceScratchAllocate(info, scratchMemRef);
@@ -152,8 +129,8 @@ private:
     return success();
   }
 
-  // Replace a scratch_allocate with a rank-reducing subview of the scratch CB.
-  // The scratch buffer has shape [1, N] from AddScratchInputs.
+  // Replace a scratch_allocate with a rank-reducing subview of the scratch
+  // memref. The scratch buffer has shape [1, N] from AddScratchInputs.
   // Each scratch_allocate requests a 1D memref<M x tile>.
   // We emit: subview [0, offset][1, M][1, 1] : memref<1xN> -> memref<M>
   void replaceScratchAllocate(ScratchAllocationInfo &info,

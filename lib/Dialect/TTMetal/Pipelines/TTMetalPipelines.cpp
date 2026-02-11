@@ -124,13 +124,12 @@ void createTTIRToTTMetalMiddleendPipeline(
   }
   pm.addPass(d2m::createD2MElementwiseFusion(elementwiseFusionOptions));
 
-  // Add scratch input to each generic (for L1 scratchpad support).
-  // This must run before bufferization so scratch flows through allocation.
-  pm.addPass(d2m::createD2MAddScratchInputs());
-
   pm.addPass(createLinalgElementwiseOpFusionPass());
   pm.addPass(mlir::createCanonicalizerPass());
   createTTIRBufferizationPipeline(pm, options);
+
+  pm.addPass(d2m::createD2MAddScratchInputs());
+
   d2m::D2MAllocateOptions allocateOptions;
   {
     allocateOptions.numStreamBuffers = options.numStreamBuffers;
@@ -175,9 +174,6 @@ void createTTIRToTTMetalMiddleendPipeline(
   }
   pm.addPass(d2m::createD2MOpScheduler(opSchedulerOptions));
 
-  // Inject IR for testing
-  // pm.addPass(d2m::createD2MInjectIR());
-  //  Lower scratch allocations to subviews of input scratch buffer.
   pm.addPass(d2m::createD2MLowerScratchAllocate());
 
   d2m::D2MInsertDstRegisterAccessOptions insertDstRegisterAccessOptions;
