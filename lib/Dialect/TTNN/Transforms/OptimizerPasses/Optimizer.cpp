@@ -64,6 +64,8 @@ TTNNOptimizerOptions::TTNNOptimizerOptions(
 
 namespace {
 
+#ifdef TTMLIR_ENABLE_OPMODEL
+
 /// Applies the chosen layout to a D2MSubgraphOp: result type(s), output
 /// buffer(s) (Empty op), and the referenced D2M subgraph function.
 void applyChosenLayoutToD2MSubgraphOp(D2MSubgraphOp dispatchOp,
@@ -160,6 +162,8 @@ void syncD2MFuncTypesToDispatchInputs(D2MSubgraphOp dispatchOp) {
   mainFunc.setType(FunctionType::get(dispatchOp.getContext(), newInputTypes,
                                      newResultTypes));
 }
+
+#endif // TTMLIR_ENABLE_OPMODEL
 
 } // namespace
 
