@@ -618,6 +618,665 @@ execute_fb(compiled_bin, input_output_goldens, intermediate_goldens, device=devi
 tt_runtime.runtime.close_mesh_device(device)
 ```
 
+## set atol/rtol
+
+```python
+import _ttmlir_runtime as tt_runtime
+
+tt_runtime.runtime.set_current_device_runtime(tt_runtime.runtime.DeviceRuntime.TTNN)
+mesh_options = tt_runtime.runtime.MeshDeviceOptions()
+mesh_options.dispatch_core_type = tt_runtime.runtime.DispatchCoreType.ETH
+mesh_options.mesh_shape = (1, 1)
+device = tt_runtime.runtime.open_mesh_device(mesh_options)
+
+def module0(builder: TTIRBuilder):
+
+  @builder.func([(32, 32)], [torch.float32])
+  def modela(in0: Operand, builder: TTIRBuilder):
+      builder.set_goldens({in0: torch.full((32, 32), fill_value=0.0152, dtype=torch.float32)})
+      permute0 = builder.permute(in0)
+      return permute0
+
+compile_and_execute_ttir(
+    module0,
+    device=device,
+    atol=1e-5,
+    rtol=1e-5,
+)
+
+tt_runtime.runtime.close_mesh_device(device)
+```
+
+## check intermediates
+
+```python
+import _ttmlir_runtime as tt_runtime
+
+tt_runtime.runtime.set_current_device_runtime(tt_runtime.runtime.DeviceRuntime.TTNN)
+mesh_options = tt_runtime.runtime.MeshDeviceOptions()
+mesh_options.dispatch_core_type = tt_runtime.runtime.DispatchCoreType.ETH
+mesh_options.mesh_shape = (1, 1)
+device = tt_runtime.runtime.open_mesh_device(mesh_options)
+
+def module0(builder: TTIRBuilder):
+
+  @builder.func([(32, 32)], [torch.float32])
+  def modela(in0: Operand, builder: TTIRBuilder):
+      sigmoid0 = builder.sigmoid(in0)
+      add0 = builder.add(sigmoid0, in0)
+      return add0
+
+compile_and_execute_ttir(
+    module0,
+    device=device,
+    enable_intermediate_verification=True,
+    save_artifacts=True,
+)
+golden_report_path = "builder-artifacts/TTIRBuilder/test/program_0/golden_report.json"
+with open(golden_report_path, "r") as f:
+    golden_report = f.read()
+print(golden_report)
+
+tt_runtime.runtime.close_mesh_device(device)
+```
+
+<details>
+
+```json
+{
+    "output_0": {
+        "0": {
+            "result": "pass",
+            "expected_pcc": 0.99,
+            "actual_pcc": 0.9999999765092211,
+            "expected_atol": 1e-08,
+            "actual_atol": 0.00389862060546875,
+            "expected_rtol": 1e-05,
+            "actual_rtol": 0.8753184080123901,
+            "allclose": false,
+            "max": 0.00389862060546875,
+            "mean_absolute_error": 0.0003432363737374544,
+            "root_mean_square_error": 0.0005071352352388203,
+            "cosine_similarity": 0.9999998807907104
+        }
+    },
+    "loc(\"/home/jgrim/wh-01-src/tt-mlir/test.py:25\")": {
+        "0": {
+            "result": "pass",
+            "expected_pcc": 0.99,
+            "actual_pcc": 0.9999999854807174,
+            "expected_atol": 1e-08,
+            "actual_atol": 0.00019226223230361938,
+            "expected_rtol": 1e-05,
+            "actual_rtol": 0.0017278068698942661,
+            "allclose": false,
+            "max": 0.00019226223230361938,
+            "mean_absolute_error": 4.9171620048582554e-05,
+            "root_mean_square_error": 6.454887625295669e-05,
+            "cosine_similarity": 1.0,
+            "debug_info": "%0 = \"ttnn.sigmoid\"(%arg0) : (tensor<32x32xf32, #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, f32>, #ttnn.buffer_type<dram>>, <interleaved>>>) -> tensor<32x32xf32, #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, f32>, #ttnn.buffer_type<dram>>, <interleaved>>> loc(\"/home/jgrim/wh-01-src/tt-mlir/test.py:25\")"
+        }
+    },
+    "loc(\"/home/jgrim/wh-01-src/tt-mlir/test.py:26\")": {
+        "0": {
+            "result": "pass",
+            "expected_pcc": 0.99,
+            "actual_pcc": 0.9999999765092211,
+            "expected_atol": 1e-08,
+            "actual_atol": 0.00389862060546875,
+            "expected_rtol": 1e-05,
+            "actual_rtol": 0.8753184080123901,
+            "allclose": false,
+            "max": 0.00389862060546875,
+            "mean_absolute_error": 0.0003432363737374544,
+            "root_mean_square_error": 0.0005071352352388203,
+            "cosine_similarity": 0.9999998807907104,
+            "debug_info": "%1 = \"ttnn.add\"(%0, %arg0) <{dtype = #ttcore.supportedDataTypes<f32>}> : (tensor<32x32xf32, #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, f32>, #ttnn.buffer_type<dram>>, <interleaved>>>, tensor<32x32xf32, #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, f32>, #ttnn.buffer_type<dram>>, <interleaved>>>) -> tensor<32x32xf32, #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, f32>, #ttnn.buffer_type<dram>>, <interleaved>>> loc(\"/home/jgrim/wh-01-src/tt-mlir/test.py:26\")"
+        }
+    }
+}
+```
+
+</details>
+
+## dump memory
+
+```python
+import _ttmlir_runtime as tt_runtime
+
+tt_runtime.runtime.set_current_device_runtime(tt_runtime.runtime.DeviceRuntime.TTNN)
+mesh_options = tt_runtime.runtime.MeshDeviceOptions()
+mesh_options.dispatch_core_type = tt_runtime.runtime.DispatchCoreType.ETH
+mesh_options.mesh_shape = (1, 1)
+device = tt_runtime.runtime.open_mesh_device(mesh_options)
+
+def module0(builder: TTIRBuilder):
+
+  @builder.func([(32, 32)], [torch.float32])
+  def modela(in0: Operand, builder: TTIRBuilder):
+      sigmoid0 = builder.sigmoid(in0)
+      add0 = builder.add(sigmoid0, in0)
+      return add0
+
+compile_and_execute_ttir(
+    module0,
+    device=device,
+    dump_memory=True,
+    save_artifacts=True,
+)
+memory_report_path = "builder-artifacts/TTIRBuilder/test/program_0/memory_report.json"
+with open(memory_report_path, "r") as f:
+    memory_report = f.read()
+print(memory_report)
+
+tt_runtime.runtime.close_mesh_device(device)
+```
+
+<details>
+
+```json
+[
+    {
+        "loc": "loc(\"/home/jgrim/wh-01-src/tt-mlir/test.py:26\")",
+        "debug_str": "%0 = \"ttnn.sigmoid\"(%arg0) : (tensor<32x32xf32, #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, f32>, #ttnn.buffer_type<dram>>, <interleaved>>>) -> tensor<32x32xf32, #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, f32>, #ttnn.buffer_type<dram>>, <interleaved>>> loc(\"/home/jgrim/wh-01-src/tt-mlir/test.py:26\")",
+        "dram": {
+            "num_banks": 12,
+            "total_bytes_per_bank": 1071821792,
+            "total_bytes_allocated_per_bank": 12288,
+            "total_bytes_free_per_bank": 1071809504,
+            "largest_contiguous_bytes_free_per_bank": 1071809120,
+            "block_table": [
+                {
+                    "allocated": "no",
+                    "nextID": "1",
+                    "prevID": "-1",
+                    "size": "384",
+                    "address": "0",
+                    "blockID": "0"
+                },
+                {
+                    "allocated": "yes",
+                    "nextID": "3",
+                    "prevID": "0",
+                    "size": "4096",
+                    "address": "384",
+                    "blockID": "1"
+                },
+                {
+                    "allocated": "yes",
+                    "nextID": "-1",
+                    "prevID": "4",
+                    "size": "2048",
+                    "address": "1071819744",
+                    "blockID": "2"
+                },
+                {
+                    "allocated": "yes",
+                    "nextID": "5",
+                    "prevID": "1",
+                    "size": "4096",
+                    "address": "4480",
+                    "blockID": "3"
+                },
+                {
+                    "allocated": "yes",
+                    "nextID": "2",
+                    "prevID": "5",
+                    "size": "2048",
+                    "address": "1071817696",
+                    "blockID": "4"
+                },
+                {
+                    "allocated": "no",
+                    "nextID": "4",
+                    "prevID": "3",
+                    "size": "1071809120",
+                    "address": "8576",
+                    "blockID": "5"
+                }
+            ]
+        },
+        "l1": {
+            "num_banks": 64,
+            "total_bytes_per_bank": 1329888,
+            "total_bytes_allocated_per_bank": 0,
+            "total_bytes_free_per_bank": 1329888,
+            "largest_contiguous_bytes_free_per_bank": 1329888,
+            "block_table": [
+                {
+                    "allocated": "no",
+                    "nextID": "-1",
+                    "prevID": "-1",
+                    "size": "1329888",
+                    "address": "0",
+                    "blockID": "0"
+                }
+            ]
+        },
+        "l1_small": {
+            "num_banks": 64,
+            "total_bytes_per_bank": 65536,
+            "total_bytes_allocated_per_bank": 0,
+            "total_bytes_free_per_bank": 65536,
+            "largest_contiguous_bytes_free_per_bank": 65536,
+            "block_table": [
+                {
+                    "allocated": "no",
+                    "nextID": "-1",
+                    "prevID": "-1",
+                    "size": "65536",
+                    "address": "0",
+                    "blockID": "0"
+                }
+            ]
+        },
+        "trace": {
+            "num_banks": 12,
+            "total_bytes_per_bank": 0,
+            "total_bytes_allocated_per_bank": 0,
+            "total_bytes_free_per_bank": 0,
+            "largest_contiguous_bytes_free_per_bank": 0,
+            "block_table": [
+                {
+                    "allocated": "no",
+                    "nextID": "-1",
+                    "prevID": "-1",
+                    "size": "0",
+                    "address": "0",
+                    "blockID": "0"
+                }
+            ]
+        }
+    },
+    {
+        "loc": "loc(\"/home/jgrim/wh-01-src/tt-mlir/test.py:27\")",
+        "debug_str": "%1 = \"ttnn.add\"(%0, %arg0) <{dtype = #ttcore.supportedDataTypes<f32>}> : (tensor<32x32xf32, #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, f32>, #ttnn.buffer_type<dram>>, <interleaved>>>, tensor<32x32xf32, #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, f32>, #ttnn.buffer_type<dram>>, <interleaved>>>) -> tensor<32x32xf32, #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, f32>, #ttnn.buffer_type<dram>>, <interleaved>>> loc(\"/home/jgrim/wh-01-src/tt-mlir/test.py:27\")",
+        "dram": {
+            "num_banks": 12,
+            "total_bytes_per_bank": 1071821792,
+            "total_bytes_allocated_per_bank": 18432,
+            "total_bytes_free_per_bank": 1071803360,
+            "largest_contiguous_bytes_free_per_bank": 1071802976,
+            "block_table": [
+                {
+                    "allocated": "no",
+                    "nextID": "1",
+                    "prevID": "-1",
+                    "size": "384",
+                    "address": "0",
+                    "blockID": "0"
+                },
+                {
+                    "allocated": "yes",
+                    "nextID": "3",
+                    "prevID": "0",
+                    "size": "4096",
+                    "address": "384",
+                    "blockID": "1"
+                },
+                {
+                    "allocated": "yes",
+                    "nextID": "-1",
+                    "prevID": "4",
+                    "size": "2048",
+                    "address": "1071819744",
+                    "blockID": "2"
+                },
+                {
+                    "allocated": "yes",
+                    "nextID": "5",
+                    "prevID": "1",
+                    "size": "4096",
+                    "address": "4480",
+                    "blockID": "3"
+                },
+                {
+                    "allocated": "yes",
+                    "nextID": "2",
+                    "prevID": "6",
+                    "size": "2048",
+                    "address": "1071817696",
+                    "blockID": "4"
+                },
+                {
+                    "allocated": "yes",
+                    "nextID": "7",
+                    "prevID": "3",
+                    "size": "4096",
+                    "address": "8576",
+                    "blockID": "5"
+                },
+                {
+                    "allocated": "yes",
+                    "nextID": "4",
+                    "prevID": "7",
+                    "size": "2048",
+                    "address": "1071815648",
+                    "blockID": "6"
+                },
+                {
+                    "allocated": "no",
+                    "nextID": "6",
+                    "prevID": "5",
+                    "size": "1071802976",
+                    "address": "12672",
+                    "blockID": "7"
+                }
+            ]
+        },
+        "l1": {
+            "num_banks": 64,
+            "total_bytes_per_bank": 1329888,
+            "total_bytes_allocated_per_bank": 0,
+            "total_bytes_free_per_bank": 1329888,
+            "largest_contiguous_bytes_free_per_bank": 1329888,
+            "block_table": [
+                {
+                    "allocated": "no",
+                    "nextID": "-1",
+                    "prevID": "-1",
+                    "size": "1329888",
+                    "address": "0",
+                    "blockID": "0"
+                }
+            ]
+        },
+        "l1_small": {
+            "num_banks": 64,
+            "total_bytes_per_bank": 65536,
+            "total_bytes_allocated_per_bank": 0,
+            "total_bytes_free_per_bank": 65536,
+            "largest_contiguous_bytes_free_per_bank": 65536,
+            "block_table": [
+                {
+                    "allocated": "no",
+                    "nextID": "-1",
+                    "prevID": "-1",
+                    "size": "65536",
+                    "address": "0",
+                    "blockID": "0"
+                }
+            ]
+        },
+        "trace": {
+            "num_banks": 12,
+            "total_bytes_per_bank": 0,
+            "total_bytes_allocated_per_bank": 0,
+            "total_bytes_free_per_bank": 0,
+            "largest_contiguous_bytes_free_per_bank": 0,
+            "block_table": [
+                {
+                    "allocated": "no",
+                    "nextID": "-1",
+                    "prevID": "-1",
+                    "size": "0",
+                    "address": "0",
+                    "blockID": "0"
+                }
+            ]
+        }
+    },
+    {
+        "loc": "loc(\"/home/jgrim/wh-01-src/tt-mlir/test.py:27\")",
+        "debug_str": "\"ttnn.deallocate\"(%0) <{force = false}> : (tensor<32x32xf32, #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, f32>, #ttnn.buffer_type<dram>>, <interleaved>>>) -> () loc(\"/home/jgrim/wh-01-src/tt-mlir/test.py:27\")",
+        "dram": {
+            "num_banks": 12,
+            "total_bytes_per_bank": 1071821792,
+            "total_bytes_allocated_per_bank": 14336,
+            "total_bytes_free_per_bank": 1071807456,
+            "largest_contiguous_bytes_free_per_bank": 1071802976,
+            "block_table": [
+                {
+                    "allocated": "no",
+                    "nextID": "1",
+                    "prevID": "-1",
+                    "size": "384",
+                    "address": "0",
+                    "blockID": "0"
+                },
+                {
+                    "allocated": "yes",
+                    "nextID": "3",
+                    "prevID": "0",
+                    "size": "4096",
+                    "address": "384",
+                    "blockID": "1"
+                },
+                {
+                    "allocated": "yes",
+                    "nextID": "-1",
+                    "prevID": "4",
+                    "size": "2048",
+                    "address": "1071819744",
+                    "blockID": "2"
+                },
+                {
+                    "allocated": "no",
+                    "nextID": "5",
+                    "prevID": "1",
+                    "size": "4096",
+                    "address": "4480",
+                    "blockID": "3"
+                },
+                {
+                    "allocated": "yes",
+                    "nextID": "2",
+                    "prevID": "6",
+                    "size": "2048",
+                    "address": "1071817696",
+                    "blockID": "4"
+                },
+                {
+                    "allocated": "yes",
+                    "nextID": "7",
+                    "prevID": "3",
+                    "size": "4096",
+                    "address": "8576",
+                    "blockID": "5"
+                },
+                {
+                    "allocated": "yes",
+                    "nextID": "4",
+                    "prevID": "7",
+                    "size": "2048",
+                    "address": "1071815648",
+                    "blockID": "6"
+                },
+                {
+                    "allocated": "no",
+                    "nextID": "6",
+                    "prevID": "5",
+                    "size": "1071802976",
+                    "address": "12672",
+                    "blockID": "7"
+                }
+            ]
+        },
+        "l1": {
+            "num_banks": 64,
+            "total_bytes_per_bank": 1329888,
+            "total_bytes_allocated_per_bank": 0,
+            "total_bytes_free_per_bank": 1329888,
+            "largest_contiguous_bytes_free_per_bank": 1329888,
+            "block_table": [
+                {
+                    "allocated": "no",
+                    "nextID": "-1",
+                    "prevID": "-1",
+                    "size": "1329888",
+                    "address": "0",
+                    "blockID": "0"
+                }
+            ]
+        },
+        "l1_small": {
+            "num_banks": 64,
+            "total_bytes_per_bank": 65536,
+            "total_bytes_allocated_per_bank": 0,
+            "total_bytes_free_per_bank": 65536,
+            "largest_contiguous_bytes_free_per_bank": 65536,
+            "block_table": [
+                {
+                    "allocated": "no",
+                    "nextID": "-1",
+                    "prevID": "-1",
+                    "size": "65536",
+                    "address": "0",
+                    "blockID": "0"
+                }
+            ]
+        },
+        "trace": {
+            "num_banks": 12,
+            "total_bytes_per_bank": 0,
+            "total_bytes_allocated_per_bank": 0,
+            "total_bytes_free_per_bank": 0,
+            "largest_contiguous_bytes_free_per_bank": 0,
+            "block_table": [
+                {
+                    "allocated": "no",
+                    "nextID": "-1",
+                    "prevID": "-1",
+                    "size": "0",
+                    "address": "0",
+                    "blockID": "0"
+                }
+            ]
+        }
+    },
+    {
+        "loc": "loc(\"/home/jgrim/wh-01-src/tt-mlir/test.py:27\")",
+        "debug_str": "\"ttnn.deallocate\"(%arg0) <{force = false}> : (tensor<32x32xf32, #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, f32>, #ttnn.buffer_type<dram>>, <interleaved>>>) -> () loc(\"/home/jgrim/wh-01-src/tt-mlir/test.py:27\")",
+        "dram": {
+            "num_banks": 12,
+            "total_bytes_per_bank": 1071821792,
+            "total_bytes_allocated_per_bank": 14336,
+            "total_bytes_free_per_bank": 1071807456,
+            "largest_contiguous_bytes_free_per_bank": 1071802976,
+            "block_table": [
+                {
+                    "allocated": "no",
+                    "nextID": "1",
+                    "prevID": "-1",
+                    "size": "384",
+                    "address": "0",
+                    "blockID": "0"
+                },
+                {
+                    "allocated": "yes",
+                    "nextID": "3",
+                    "prevID": "0",
+                    "size": "4096",
+                    "address": "384",
+                    "blockID": "1"
+                },
+                {
+                    "allocated": "yes",
+                    "nextID": "-1",
+                    "prevID": "4",
+                    "size": "2048",
+                    "address": "1071819744",
+                    "blockID": "2"
+                },
+                {
+                    "allocated": "no",
+                    "nextID": "5",
+                    "prevID": "1",
+                    "size": "4096",
+                    "address": "4480",
+                    "blockID": "3"
+                },
+                {
+                    "allocated": "yes",
+                    "nextID": "2",
+                    "prevID": "6",
+                    "size": "2048",
+                    "address": "1071817696",
+                    "blockID": "4"
+                },
+                {
+                    "allocated": "yes",
+                    "nextID": "7",
+                    "prevID": "3",
+                    "size": "4096",
+                    "address": "8576",
+                    "blockID": "5"
+                },
+                {
+                    "allocated": "yes",
+                    "nextID": "4",
+                    "prevID": "7",
+                    "size": "2048",
+                    "address": "1071815648",
+                    "blockID": "6"
+                },
+                {
+                    "allocated": "no",
+                    "nextID": "6",
+                    "prevID": "5",
+                    "size": "1071802976",
+                    "address": "12672",
+                    "blockID": "7"
+                }
+            ]
+        },
+        "l1": {
+            "num_banks": 64,
+            "total_bytes_per_bank": 1329888,
+            "total_bytes_allocated_per_bank": 0,
+            "total_bytes_free_per_bank": 1329888,
+            "largest_contiguous_bytes_free_per_bank": 1329888,
+            "block_table": [
+                {
+                    "allocated": "no",
+                    "nextID": "-1",
+                    "prevID": "-1",
+                    "size": "1329888",
+                    "address": "0",
+                    "blockID": "0"
+                }
+            ]
+        },
+        "l1_small": {
+            "num_banks": 64,
+            "total_bytes_per_bank": 65536,
+            "total_bytes_allocated_per_bank": 0,
+            "total_bytes_free_per_bank": 65536,
+            "largest_contiguous_bytes_free_per_bank": 65536,
+            "block_table": [
+                {
+                    "allocated": "no",
+                    "nextID": "-1",
+                    "prevID": "-1",
+                    "size": "65536",
+                    "address": "0",
+                    "blockID": "0"
+                }
+            ]
+        },
+        "trace": {
+            "num_banks": 12,
+            "total_bytes_per_bank": 0,
+            "total_bytes_allocated_per_bank": 0,
+            "total_bytes_free_per_bank": 0,
+            "largest_contiguous_bytes_free_per_bank": 0,
+            "block_table": [
+                {
+                    "allocated": "no",
+                    "nextID": "-1",
+                    "prevID": "-1",
+                    "size": "0",
+                    "address": "0",
+                    "blockID": "0"
+                }
+            ]
+        }
+    }
+]
+```
+
+</details>
+
 ## bypass op
 
 ```python
