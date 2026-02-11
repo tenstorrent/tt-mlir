@@ -668,6 +668,7 @@ TTNNOperandsWorkaroundsFactory::createTanhOpOperandsWorkarounds() {
 }
 
 // Factory method to create a set of workarounds for GroupNorm op operands.
+// tt-metal issue: https://github.com/tenstorrent/tt-metal/issues/37551
 // TTNN group_norm requires:
 //   - input: BFloat16 data type
 //   - weight (gamma): ROW_MAJOR layout, BFloat16 data type
