@@ -1353,13 +1353,6 @@ public:
 
     int64_t arangeLength = (end - start) / step;
 
-    // Skip if already 2D with arange on the last dimension - D2M conversion
-    // will handle it directly. 1D reshapes are not supported.
-    if (outputType.getRank() == 2 &&
-        arangeDimension == outputType.getRank() - 1) {
-      return success();
-    }
-
     const llvm::SmallVector<int64_t, 1> requiredShape{arangeLength};
     ArrayRef<int64_t> ttnnShape(requiredShape);
     if (ttnnShape == outputType.getShape()) {
