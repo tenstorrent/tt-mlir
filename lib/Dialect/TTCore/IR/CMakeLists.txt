@@ -11,6 +11,7 @@ add_mlir_dialect_library(MLIRTTCoreDialect
         MLIRTTCoreOpsIncGen
 
         LINK_LIBS PUBLIC
+        MLIRD2MUtils
         MLIRMemRefDialect
         MLIRQuantDialect
         )
