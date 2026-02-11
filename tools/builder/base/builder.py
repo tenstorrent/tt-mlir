@@ -855,10 +855,48 @@ class Builder(metaclass=BuilderMeta):
             raise TypeError(f"Unsupported MLIR type: {mlir_type}")
 
     def _get_next_global_id(self) -> int:
+        """Get the next unique global identifier.
+
+        This method increments the internal global ID counter and returns
+        the new value. Global IDs are used to uniquely identify operations,
+        functions, and other entities within the builder context.
+
+        Returns:
+            int: The next unique global identifier.
+
+        Example:
+            >>> builder = Builder()
+            >>> id1 = builder._get_next_global_id()  # Returns 1
+            >>> id2 = builder._get_next_global_id()  # Returns 2
+        """
         self._global_id += 1
         return self._global_id
 
     def _get_loc_of_extra_file_callee(self, id: int = 0) -> Location:
+        """Get location information for a caller outside the current file.
+
+        This method traverses the call stack to find the first caller that
+        is not in the same file as the immediate caller. This is useful for
+        debugging and error reporting when builder functions are called
+        from external code.
+
+        Args:
+            id: Optional identifier to include in the location string.
+                Defaults to 0.
+
+        Returns:
+            Location: A location object containing filename and line number
+            of the external caller.
+
+        Raises:
+            RuntimeError: If no caller outside the current file is found
+                in the call stack.
+
+        Example:
+            >>> # Called from external_file.py line 42
+            >>> location = builder._get_loc_of_extra_file_callee()
+            >>> print(location)  # "external_file.py:42:id(0)"
+        """
         stack = inspect.stack()
         caller_filename = stack[1].filename
 
@@ -875,6 +913,29 @@ class Builder(metaclass=BuilderMeta):
         )
 
     def _get_loc_from_str(self, loc: Union[str, Location]) -> Location:
+        """Convert a string representation to a Location object.
+
+        This utility method handles both string and Location inputs,
+        converting strings to Location objects while leaving existing
+        Location objects unchanged.
+
+        Args:
+            loc: Either a string representation of a location (e.g.,
+                "filename.py:123") or an existing Location object.
+
+        Returns:
+            Location: A Location object. If the input was a string,
+            returns a new Location object; otherwise returns the
+            input unchanged.
+
+        Example:
+            >>> location_str = "my_file.py:42"
+            >>> location_obj = builder._get_loc_from_str(location_str)
+            >>> 
+            >>> # Also works with existing Location objects
+            >>> existing_loc = Location.name("other.py:100")
+            >>> same_loc = builder._get_loc_from_str(existing_loc)
+        """
         if isinstance(loc, str):
             return Location.name(loc)
         else:
@@ -1021,6 +1082,27 @@ class Builder(metaclass=BuilderMeta):
         return [self._goldens[operand] for operand in operands]
 
     def _get_location(self) -> Location:
+        """Get the current caller's location from the call stack.
+
+        This method inspects the call stack to determine the filename
+        and line number of the caller that invoked the current builder
+        method. This is used for debugging, error reporting, and
+        location tracking in generated MLIR code.
+
+        Returns:
+            Location: A location object containing the caller's
+            filename and line number.
+
+        Note:
+            The method looks two frames up the call stack (stack[2])
+            to skip the builder's internal methods and get to the
+            actual user code that called the builder.
+
+        Example:
+            >>> # In file my_script.py at line 100
+            >>> location = builder._get_location()
+            >>> print(location)  # "my_script.py:100"
+        """
         stack = inspect.stack()
         caller_frame = stack[2]
         filename = caller_frame.filename
@@ -1109,6 +1191,20 @@ class Builder(metaclass=BuilderMeta):
 
             @func.func(*fn_input_types, name=nested_func.__name__)
             def decorated_func(*inputs):
+                """Internal decorated function for nested function execution.
+
+                This function wraps a user-defined nested function within
+                an MLIR func.func operation. It handles golden tensor
+                management for inputs and outputs, and executes the
+                user function within the builder context.
+
+                Args:
+                    *inputs: MLIR operands passed to the nested function.
+
+                Returns:
+                    The result of the nested function, processed for
+                    multi-return compatibility.
+                """
                 input_goldens: Dict[Operand, GoldenMapTensor] = {}
                 for index, (new_operand, original_operand) in enumerate(
                     zip(inputs, original_inputs)
@@ -1396,6 +1492,19 @@ class Builder(metaclass=BuilderMeta):
 
         @func.func(*fn_input_types, name=parsed_func.name.value)
         def decorated_func(*inputs):
+            """Internal decorated function for parsing MLIR functions.
+
+            This function wraps a parsed MLIR FuncOp within a new
+            func.func operation. It converts torch golden tensors to
+            builder golden tensors and executes the parsed function
+            operations within the builder context.
+
+            Args:
+                *inputs: MLIR operands passed to the parsed function.
+
+            Returns:
+                The result of executing the parsed function.
+            """
             golden_dict = {}
             for operand, torch_golden_dictionary in zip(
                 inputs, parsed_func_golden_inputs
@@ -1465,6 +1574,18 @@ class Builder(metaclass=BuilderMeta):
 
         @func.func(*fn_input_types, name=parsed_func.name.value)
         def decorated_func(*inputs):
+            """Internal decorated function for parsing nested MLIR functions.
+
+            This function wraps a parsed nested MLIR FuncOp within a new
+            func.func operation. It sets up golden tensors for inputs
+            and executes the parsed function body within the builder context.
+
+            Args:
+                *inputs: MLIR operands passed to the nested function.
+
+            Returns:
+                The result of executing the nested function.
+            """
             input_goldens = {}
             for operand, golden_map_tensor in zip(inputs, golden_inputs):
                 input_goldens[operand] = golden_map_tensor
@@ -1686,6 +1807,20 @@ class Builder(metaclass=BuilderMeta):
 
             @func.func(*fn_input_types, name=fn.__name__)
             def decorated_func(*inputs):
+                """Internal decorated function for user-defined functions.
+
+                This function wraps a user-defined Python function within
+                an MLIR func.func operation. It handles golden tensor
+                generation and management (if enabled), executes the
+                user function, and manages the function's inputs and outputs.
+
+                Args:
+                    *inputs: MLIR operands passed to the user function.
+
+                Returns:
+                    The result of the user function, processed for
+                    multi-return compatibility.
+                """
                 if not self._disable_golden_check:
                     input_goldens: Dict[Operand, GoldenMapTensor] = {}
                     for index, (operand, dtype) in enumerate(zip(inputs, input_types)):
