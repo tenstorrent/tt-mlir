@@ -3931,8 +3931,8 @@ mlir::LogicalResult mlir::tt::ttir::MeshShardOp::verify() {
 // ScatterOp
 //===----------------------------------------------------------------------===//
 
-// ScatterOp folder: If the index, source, or input tensor is 0-volume, the
-// scatter is a no-op and we can just return the input tensor unchanged.
+// ScatterOp folder: If the index or source tensor has a volume of 0, then the
+// scatter operation is a no-op and can be folded to the input tensor.
 ::mlir::OpFoldResult mlir::tt::ttir::ScatterOp::fold(FoldAdaptor adaptor) {
   if (ttmlir::utils::volume(getIndex().getType().getShape()) == 0 ||
       ttmlir::utils::volume(getSource().getType().getShape()) == 0) {
