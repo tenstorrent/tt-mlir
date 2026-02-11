@@ -6,6 +6,7 @@
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Conversion/TTKernelToEmitC/TTKernelToEmitC.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
+#include "ttmlir/Dialect/D2M/Utils/VirtualGrid.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
@@ -259,28 +260,26 @@ createShardedBufferConfigForDRAMMemref(FlatbufferObjectCache &cache,
 
 // Returns a physical grid corresponding to the physical extent of the virtual
 // grid.  ND grids (> 2D) are inherently virtual because the hardware grid is
-// always 2D, so they are collapsed to 2D.  For 2D grids with an explicit
-// virtualization map on the layout attribute, the map is sampled to find the
-// physical extents.
+// always 2D. Uses the shared utility to ensure consistency with runtime
+// mapping.
 static SmallVector<int64_t>
 getPhysicalGridShapeForVirtualGrid(ttcore::ShardLayoutAttr shardLayout,
                                    ttcore::DeviceAttr device,
                                    MemRefType memref) {
   SmallVector<int64_t> gridShape =
       llvm::to_vector(shardLayout.getGridShape(memref));
-
-  // Collapse ND grids to 2D and handle 2D grids that exceed the physical
-  // device bounds.  collapseToPhysicalGrid2D first tries the natural
-  // leading-dim collapse, then falls back to findLegalPhysicalGridForVolume
-  // if the result exceeds the device grid.
   auto workerGridShape = device.getWorkerGrid().getShape();
-  if (gridShape.size() > 2 || gridShape[0] > workerGridShape[0] ||
-      gridShape[1] > workerGridShape[1]) {
-    return llvm::to_vector<2>(
-        ttcore::collapseToPhysicalGrid2D(gridShape, workerGridShape));
+
+  // For 2D grids that fit within device bounds, no virtualization needed
+  if (gridShape.size() == 2 && gridShape[0] <= workerGridShape[0] &&
+      gridShape[1] <= workerGridShape[1]) {
+    return gridShape;
   }
 
-  return gridShape;
+  // For ND grids or 2D grids exceeding device bounds, use shared utility
+  // to compute physical extent (same logic as createCoreVirtMaps)
+  return ttmlir::d2m::utils::grids::getPhysicalGridExtent(gridShape,
+                                                          workerGridShape);
 }
 
 static flatbuffers::Offset<target::metal::ShardedBufferConfig>

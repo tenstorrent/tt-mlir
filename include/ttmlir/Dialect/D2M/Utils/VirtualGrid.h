@@ -41,6 +41,16 @@ createCoreVirtMaps(mlir::MLIRContext *context,
                    llvm::ArrayRef<int64_t> virtualGrid,
                    llvm::ArrayRef<int64_t> targetGrid);
 
+/// Computes the physical grid extent (bounding box) for a virtual grid
+/// mapped onto a target device grid using row-major virtualization.
+/// This uses the same layout as createCoreVirtMaps:
+///   - Flatten virtual grid to 1D in row-major order
+///   - Reshape to 2D target grid, filling X dimension first
+///   - Returns [physical_Y, physical_X] extent
+llvm::SmallVector<int64_t, 2>
+getPhysicalGridExtent(llvm::ArrayRef<int64_t> virtualGrid,
+                      llvm::ArrayRef<int64_t> targetGrid);
+
 } // namespace ttmlir::d2m::utils::grids
 
 #endif // TTMLIR_DIALECT_D2M_UTILS_VIRTUALGRID_H
