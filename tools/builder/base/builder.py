@@ -25,7 +25,26 @@ from builder.base.builder_utils import (
 
 
 class BuilderMeta(type):
+    """Metaclass for the Builder class that automatically builds operation view maps.
+
+    This metaclass ensures that when a Builder subclass is created, the necessary
+    operation view mapping dictionaries are populated automatically. These maps
+    are used to translate between MLIR operation views and their corresponding
+    builder methods, parsers, and split operations.
+    """
+
     def __new__(mcls, name, bases, namespace):
+        """Create a new class instance and build the operation view maps.
+
+        Args:
+            mcls: The metaclass instance.
+            name: Name of the class being created.
+            bases: Base classes of the new class.
+            namespace: Namespace dictionary containing class attributes.
+
+        Returns:
+            The newly created class with populated operation view maps.
+        """
         cls = super().__new__(mcls, name, bases, namespace)
         cls.build_opview_to_builder_map()
         cls.build_opview_to_parser_map()
@@ -34,6 +53,18 @@ class BuilderMeta(type):
 
 
 class Builder(metaclass=BuilderMeta):
+    """Base builder class for constructing MLIR operations with golden testing support.
+
+    This class provides the foundation for building MLIR operations across different
+    dialects. It manages operation view mappings, golden tensor comparisons for
+    testing, and mesh-based distributed computation configurations.
+
+    Attributes:
+        opview_to_builder_map: Maps operation views to their builder methods.
+        opview_to_parser_map: Maps operation views to their parser methods.
+        opview_to_split_map: Maps operation views to their split operations.
+    """
+
     opview_to_builder_map: Dict[OpView, Callable] = {}
     opview_to_parser_map: Dict[OpView, Callable] = {}
     opview_to_split_map: Dict[OpView, Callable] = {}
@@ -50,6 +81,18 @@ class Builder(metaclass=BuilderMeta):
         ] = OrderedDict([("x", 1), ("y", 1)]),
         disable_golden_check: bool = False,
     ):
+        """Initialize the Builder with context, location, and configuration.
+
+        Args:
+            ctx: MLIR context for operation creation.
+            location: Source location for debugging and error reporting.
+            mesh_name: Name or list of names for mesh configurations.
+            mesh_dict: Dictionary or list of dictionaries defining mesh dimensions.
+            disable_golden_check: If True, disables golden tensor validation.
+
+        Raises:
+            ValueError: If mesh_name and mesh_dict lengths don't match.
+        """
         self._ctx = ctx
         self._loc = location
         self._global_id = -1
@@ -106,6 +149,13 @@ class Builder(metaclass=BuilderMeta):
 
     @classmethod
     def build_opview_to_builder_map(cls):
+        """Build the mapping from operation views to their builder methods.
+
+        This method scans all class attributes to find methods tagged with
+        operation view information and populates the opview_to_builder_map
+        dictionary. Tagged methods are identified by the presence of a '_tag'
+        attribute.
+        """
         for attr_name in dir(cls):
             attr = getattr(cls, attr_name)
             func = attr
@@ -115,6 +165,16 @@ class Builder(metaclass=BuilderMeta):
 
     @classmethod
     def build_opview_to_parser_map(cls):
+        """Build the mapping from operation views to their parser methods.
+
+        This method scans all class attributes to find methods tagged with
+        operation view information and populates the opview_to_parser_map
+        dictionary. Parser methods are used to parse operation representations
+        from various formats into MLIR operation views.
+
+        The method identifies tagged methods by checking for the '_parse' attribute
+        on class methods. Only methods with OpView tags are included in the parser map.
+        """
         for attr_name in dir(cls):
             attr = getattr(cls, attr_name)
             func = attr
@@ -124,6 +184,16 @@ class Builder(metaclass=BuilderMeta):
 
     @classmethod
     def build_opview_to_split(cls, map):
+        """Build the mapping from operation views to their split operation methods.
+
+        This method scans all class attributes to find methods tagged with
+        operation view information and populates the opview_to_split_map
+        dictionary. Split operation methods are used to decompose complex
+        operations into simpler sub-operations for optimization or execution.
+
+        The method identifies tagged methods by checking for the '_split' attribute
+        on class methods. Only methods with OpView tags are included in the split map.
+        """
         for attr_name in dir(cls):
             attr = getattr(cls, attr_name)
             func = attr
@@ -132,12 +202,36 @@ class Builder(metaclass=BuilderMeta):
                 cls.opview_to_split_map[func._split] = attr
 
     def get_opview_from_method(self, method: func) -> OpView:
+        """Get the operation view associated with a builder method.
+
+        Args:
+            method: The builder method to inspect.
+
+        Returns:
+            The OpView associated with the method, or None if not tagged.
+        """
         return getattr(method, "_tag", None)
 
     def get_opview_from_parser(self, parser: func) -> OpView:
+        """Get the operation view associated with a parser method.
+
+        Args:
+            parser: The parser method to inspect.
+
+        Returns:
+            The OpView associated with the parser, or None if not tagged.
+        """
         return getattr(parser, "_parse", None)
 
     def get_opview_from_split(self, split: func) -> OpView:
+        """Get the operation view associated with a split operation method.
+
+        Args:
+            split: The split operation method to inspect.
+
+        Returns:
+            The OpView associated with the split method, or None if not tagged.
+        """
         return getattr(split, "_split", None)
 
     def get_builder_from_opview(self, opview: OpView) -> Callable:
@@ -159,14 +253,29 @@ class Builder(metaclass=BuilderMeta):
 
     @property
     def context(self) -> Context:
+        """Get the MLIR context associated with this builder.
+
+        Returns:
+            The MLIR context used for operation creation.
+        """
         return self._ctx
 
     @property
     def location(self) -> Location:
+        """Get the source location associated with this builder.
+
+        Returns:
+            The source location used for debugging and error reporting.
+        """
         return self._loc
 
     @property
     def mesh_shape(self) -> Tuple[int, int]:
+        """Get the shape of the computation mesh.
+
+        Returns:
+            A tuple representing the dimensions of the computation mesh.
+        """
         return self._mesh_shape
 
     @property
@@ -176,6 +285,23 @@ class Builder(metaclass=BuilderMeta):
         Dict[int, Dict[str, Dict[int, GoldenMapTensor]]],
         Dict[str, Dict[int, GoldenMapTensor]],
     ]:
+        """Get the golden tensor map for validation and testing.
+
+        This property constructs a comprehensive map of golden tensors used for
+        validating computation results. It organizes tensors by program index,
+        location, and device ID to support distributed computation validation.
+
+        Returns:
+            A tuple containing two dictionaries:
+            1. input_output_golden_info: Maps program indices to location-based
+               device-specific golden tensors for inputs and outputs.
+            2. intermediate_golden_info: Maps location strings to device-specific
+               golden tensors for intermediate computation results.
+
+        Note:
+            Golden tensors are reference values used to validate that MLIR
+            operations produce correct results during testing.
+        """
         # { program_index: {loc: {device_id: GoldenMapTensor} } }
         input_output_golden_info: Dict[int, Dict[str, Dict[int, GoldenMapTensor]]] = {}
         intermediate_golden_info: Dict[str, Dict[int, GoldenMapTensor]] = {}
@@ -237,9 +363,25 @@ class Builder(metaclass=BuilderMeta):
         return input_output_golden_info, intermediate_golden_info
 
     def get_shape(self, input: Operand) -> Shape:
+        """Get the shape of an input operand.
+
+        Args:
+            input: The operand to inspect.
+
+        Returns:
+            The shape of the operand as a Shape object.
+        """
         return self._get_type(input).shape
 
     def get_type(self, input: Operand) -> Type:
+        """Get the element type of an input operand.
+
+        Args:
+            input: The operand to inspect.
+
+        Returns:
+            The element type of the operand as a Type object.
+        """
         return self._get_type(input).element_type
 
     def set_goldens(
@@ -248,6 +390,25 @@ class Builder(metaclass=BuilderMeta):
         outputs: Dict[Operand, Union[torch.tensor, Dict[int : torch.tensor]]] = None,
         set_all_outputs: bool = True,
     ):
+        """Set golden tensors for input and output validation.
+
+        Golden tensors are reference values used to validate that MLIR operations
+        produce correct results. This method sets golden tensors for both inputs
+        and outputs of operations.
+
+        Args:
+            inputs: Dictionary mapping input operands to their golden values.
+                   Values can be torch tensors, callables that generate tensors,
+                   or dictionaries mapping device IDs to tensors for distributed computation.
+            outputs: Optional dictionary mapping output operands to their golden values.
+                    If provided, these outputs will be validated during golden checks.
+            set_all_outputs: If True, all outputs in the outputs dictionary will be
+                           marked for validation during golden checks.
+
+        Note:
+            Golden tensor validation is essential for ensuring computational correctness
+            in MLIR operation testing and debugging.
+        """
         self._set_goldens(self._create_builder_golden_from_torch_tensor(inputs))
 
         if outputs != None:
@@ -991,9 +1152,9 @@ class Builder(metaclass=BuilderMeta):
             ):
                 golden_dict[operand] = torch_golden_dictionary
 
-            input_goldens: Dict[
-                Operand, GoldenMapTensor
-            ] = self._create_builder_golden_from_torch_tensor(golden_dict)
+            input_goldens: Dict[Operand, GoldenMapTensor] = (
+                self._create_builder_golden_from_torch_tensor(golden_dict)
+            )
             self._set_goldens(input_goldens)
             ordered_inputs.extend(inputs)
 
