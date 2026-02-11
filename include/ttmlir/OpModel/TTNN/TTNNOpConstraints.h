@@ -6,6 +6,8 @@
 #define TTMLIR_OPMODEL_TTNN_TTNNOPCONSTRAINTS_H
 
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/SmallVector.h"
 
 namespace mlir::tt::ttnn::op_model {
 
@@ -22,20 +24,22 @@ struct OpConstraints {
   size_t tensorL1PeakSize;   // Tensor L1 peak allocation in bytes
   size_t peakL1MemorySize;   // Peak memory (CB+L1) allocation in bytes
   size_t outputL1BufferSize; // Output L1 buffer allocation in bytes
-  tt::ttnn::TTNNLayoutAttr outputLayout; // Layout of the output tensor
+  llvm::SmallVector<tt::ttnn::TTNNLayoutAttr>
+      outputLayouts; // Layout of the output tensors
   // ---------------------------------------------------------------------------
   // Parameterized constructor, should be used in most cases
   OpConstraints(size_t cbPeak, size_t tensorPeak, size_t peakMemory,
-                size_t outputBuffer, tt::ttnn::TTNNLayoutAttr layout)
+                size_t outputBuffer,
+                llvm::SmallVector<tt::ttnn::TTNNLayoutAttr> layouts)
       : cbL1PeakSize(cbPeak), tensorL1PeakSize(tensorPeak),
         peakL1MemorySize(peakMemory), outputL1BufferSize(outputBuffer),
-        outputLayout(std::move(layout)) {}
+        outputLayouts(std::move(layouts)) {}
   // ---------------------------------------------------------------------------
   // Default constructor, should be used only when the default value is intended
   // to be used, eg. when TTMLIR_ENABLE_OPMODEL is not defined.
   OpConstraints()
       : cbL1PeakSize(0), tensorL1PeakSize(0), peakL1MemorySize(0),
-        outputL1BufferSize(0), outputLayout(nullptr) {}
+        outputL1BufferSize(0), outputLayouts({}) {}
 };
 
 } // namespace mlir::tt::ttnn::op_model
