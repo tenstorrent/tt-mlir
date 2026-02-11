@@ -62,6 +62,107 @@ TTNNOptimizerOptions::TTNNOptimizerOptions(
       maxLegalLayouts(pipelineOptions.maxLegalLayouts),
       rowMajorEnabled(pipelineOptions.rowMajorEnabled) {}
 
+namespace {
+
+/// Applies the chosen layout to a D2MSubgraphOp: result type(s), output
+/// buffer(s) (Empty op), and the referenced D2M subgraph function.
+void applyChosenLayoutToD2MSubgraphOp(D2MSubgraphOp dispatchOp,
+                                      RankedTensorType newTensorType,
+                                      TTNNLayoutAttr layoutAttr,
+                                      ttcore::GridAttr deviceGrid) {
+  assert(dispatchOp.getNumResults() <= 1 &&
+         "D2MSubgraphOp with multiple results not yet supported");
+
+  for (unsigned i = 0; i < dispatchOp.getNumResults(); ++i) {
+    dispatchOp.getResult(i).setType(newTensorType);
+  }
+
+  for (Value output : dispatchOp.getOutputs()) {
+    if (EmptyOp emptyOp = output.getDefiningOp<EmptyOp>()) {
+      emptyOp.getResult().setType(newTensorType);
+      BufferType bufferType = layoutAttr.getBufferType();
+      TensorMemoryLayoutAttr tensorMemoryLayoutAttr = layoutAttr.getMemLayout();
+      emptyOp.setDtype(layoutAttr.getDataType());
+      if (layoutAttr.isTiled()) {
+        emptyOp.setLayout(ttnn::Layout::Tile);
+      } else {
+        emptyOp.setLayout(ttnn::Layout::RowMajor);
+      }
+      emptyOp.setMemoryConfigAttr(ttnn::MemoryConfigAttr::get(
+          dispatchOp.getContext(), tensorMemoryLayoutAttr,
+          BufferTypeAttr::get(dispatchOp.getContext(), bufferType),
+          utils::createShardSpecIfNeeded(layoutAttr, deviceGrid)));
+    }
+  }
+
+  if (func::FuncOp mainFunc = dispatchOp.getD2MMainFunc()) {
+    Block &entryBlock = mainFunc.getBody().front();
+    unsigned argIdx = 0;
+    for (Value input : dispatchOp.getInputs()) {
+      if (argIdx < entryBlock.getNumArguments()) {
+        Type inputType = input.getType();
+        if (isa<RankedTensorType>(inputType)) {
+          entryBlock.getArgument(argIdx).setType(inputType);
+        }
+        ++argIdx;
+      }
+    }
+    for (Block &block : mainFunc.getBody()) {
+      for (Operation &bodyOp : block) {
+        if (bodyOp.getNumResults() > 0) {
+          for (Value result : bodyOp.getResults()) {
+            if (isa<RankedTensorType>(result.getType())) {
+              if (OpResult opResult = dyn_cast<OpResult>(result)) {
+                opResult.setType(newTensorType);
+              }
+            }
+          }
+        }
+      }
+    }
+    SmallVector<Type> newInputTypes;
+    for (Value input : dispatchOp.getInputs()) {
+      newInputTypes.push_back(input.getType());
+    }
+    SmallVector<Type> newResultTypes(dispatchOp.getNumResults(), newTensorType);
+    mainFunc.setType(FunctionType::get(dispatchOp.getContext(), newInputTypes,
+                                       newResultTypes));
+  }
+}
+
+/// Sync the D2M subgraph function's argument and function types to the
+/// dispatch op's current input types (e.g. after spill, first operand may be
+/// DRAM).
+void syncD2MFuncTypesToDispatchInputs(D2MSubgraphOp dispatchOp) {
+  func::FuncOp mainFunc = dispatchOp.getD2MMainFunc();
+  if (!mainFunc) {
+    return;
+  }
+  Block &entryBlock = mainFunc.getBody().front();
+  unsigned argIdx = 0;
+  for (Value input : dispatchOp.getInputs()) {
+    if (argIdx < entryBlock.getNumArguments()) {
+      Type inputType = input.getType();
+      if (isa<RankedTensorType>(inputType)) {
+        entryBlock.getArgument(argIdx).setType(inputType);
+      }
+      ++argIdx;
+    }
+  }
+  SmallVector<Type> newInputTypes;
+  for (Value input : dispatchOp.getInputs()) {
+    newInputTypes.push_back(input.getType());
+  }
+  SmallVector<Type> newResultTypes;
+  for (Value result : dispatchOp.getResults()) {
+    newResultTypes.push_back(result.getType());
+  }
+  mainFunc.setType(FunctionType::get(dispatchOp.getContext(), newInputTypes,
+                                     newResultTypes));
+}
+
+} // namespace
+
 namespace impl {
 
 std::unique_ptr<::mlir::Pass> createTTNNOptimizer();
@@ -380,6 +481,12 @@ public:
           //
           if (isa<mlir::DestinationStyleOpInterface>(nextOp)) {
             nextOp->getOperands().back().getDefiningOp()->moveBefore(nextOp);
+          } else if (auto dispatchOp = dyn_cast<D2MSubgraphOp>(nextOp)) {
+            for (Value output : dispatchOp.getOutputs()) {
+              if (Operation *defOp = output.getDefiningOp()) {
+                defOp->moveBefore(nextOp);
+              }
+            }
           }
         }
       }
@@ -434,6 +541,14 @@ public:
           //
           TTNNLayoutAttr layoutAttr =
               mlir::cast<TTNNLayoutAttr>(newTensorType.getEncoding());
+
+          // D2MSubgraphOp: apply chosen layout to result(s), output buffer(s),
+          // and D2M subgraph.
+          if (auto dispatchOp = dyn_cast<D2MSubgraphOp>(op)) {
+            applyChosenLayoutToD2MSubgraphOp(dispatchOp, newTensorType,
+                                             layoutAttr, deviceGrid);
+            return;
+          }
 
           // Update layout attribute for ops that have layout attribute.
           if (TTNNLayoutOpInterface opWithLayoutIF =
@@ -574,6 +689,12 @@ public:
 
       processSpillOps(spillToDramOps, deviceGrid, insertedMemoryReconfigOps);
       processSpillToL1InterleavedOps(spillToL1InterleavedOps, deviceGrid);
+
+      // Sync D2M subgraph function types to match dispatch op's current inputs
+      // (e.g. after spill, first operand may be DRAM).
+      func->walk([&](D2MSubgraphOp dispatchOp) {
+        syncD2MFuncTypesToDispatchInputs(dispatchOp);
+      });
 
       // Try finding ops that can be upgraded from DRAM to L1 interleaved
       // layout.
