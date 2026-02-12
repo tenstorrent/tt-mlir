@@ -1100,19 +1100,26 @@ bool d2m::ViewLayoutOp::isReblockOnly() {
 }
 
 mlir::OpFoldResult d2m::ViewLayoutOp::fold(FoldAdaptor adaptor) {
-  // Check nop.  On main, index_map was part of MetalLayoutAttr, so type
-  // equality implied the view was a no-op.  Now that remapping lives on ops
-  // rather than on the type, type equality alone is insufficient — we must
-  // also verify the input's associated remapping matches ours.
+  // Nop check.  On main, index_map was part of MetalLayoutAttr so type
+  // equality implied the view was a no-op.  Now that remapping lives on ops,
+  // type equality alone is insufficient — we must also account for the input's
+  // remapping context.
   if (getInput().getType() == getType()) {
     auto inputRemapping = utils::getAssociatedRemapping(getInput());
     if (inputRemapping.has_value() && *inputRemapping == getRemapping()) {
       return getInput();
     }
-    // If the input carries no remapping (e.g. alloc/empty), this view
+    // If input has no associated remapping, check what produced it.
+    // Buffer allocation ops (d2m.empty) carry no remapping — a view on top
     // establishes one for the first time and must not be folded away.
+    // On main, MetalLayoutAttr embedded the index map so alloc and view had
+    // different types and the fold never fired.  Now we guard explicitly.
     if (!inputRemapping.has_value()) {
-      return nullptr;
+      if (getInput().getDefiningOp<d2m::EmptyOp>()) {
+        return nullptr;
+      }
+      // For other ops (generics, block args, etc.), type equality means nop.
+      return getInput();
     }
   }
 
