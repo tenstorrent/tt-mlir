@@ -661,6 +661,9 @@ public:
   }
 
   static BlockArgument lookThroughSubView(Value memref) {
+    if (!memref) {
+      return nullptr;
+    }
     while (auto subView = mlir::dyn_cast_or_null<memref::SubViewOp>(
                memref.getDefiningOp())) {
       memref = subView.getSource();
@@ -677,10 +680,13 @@ public:
         }
         Value cb = GenericOp::findAssocCBByOperand(allocOp.getOperation(),
                                                    assocOperand);
-        return mlir::dyn_cast<BlockArgument>(cb);
+        if (!cb) {
+          return nullptr;
+        }
+        return mlir::dyn_cast_or_null<BlockArgument>(cb);
       }
     }
-    return mlir::dyn_cast<BlockArgument>(memref);
+    return mlir::dyn_cast_or_null<BlockArgument>(memref);
   }
 
   // Collect a single load or store and determine its loop guard.
