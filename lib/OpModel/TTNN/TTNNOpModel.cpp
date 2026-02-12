@@ -6313,7 +6313,8 @@ llvm::Expected<OpConstraints> OpModel<LayerNormOp>::getOpConstraints(
         weightSpec, biasSpec, residualInputSpec,
         detail::getNullableMemoryConfig(outputLayout),
         /*program_config=*/std::nullopt,
-        /*compute_kernel_config=*/std::nullopt);
+        /*compute_kernel_config=*/std::nullopt,
+        /*recip_tensor=*/std::nullopt);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
@@ -6355,7 +6356,8 @@ llvm::Expected<size_t> OpModel<LayerNormOp>::getOpRuntime(
         weightSpec, biasSpec, residualInputSpec,
         detail::getNullableMemoryConfig(outputLayout),
         /*program_config=*/std::nullopt,
-        /*compute_kernel_config=*/std::nullopt);
+        /*compute_kernel_config=*/std::nullopt,
+        /*recip_tensor=*/std::nullopt);
   };
 
   return operation::getOpRuntime(layerNormQuery);
