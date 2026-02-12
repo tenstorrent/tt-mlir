@@ -8,6 +8,7 @@
 #include "mlir/Dialect/Bufferization/Transforms/OneShotAnalysis.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
+#include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
 
 namespace mlir::tt::ttcore {
 
@@ -34,6 +35,13 @@ inline void setTTCoreBufferizationTypeConverter(
             rankedTensorType.getEncoding())) {
       // Function arguments are not views.
       return ttcore::getBufferType(rankedTensorType, /*isView=*/false);
+    }
+
+    // Check for global semaphore type.
+    if (mlir::isa<tt::ttkernel::GlobalSemaphoreType>(rankedTensorType)) {
+      // Global semaphore is a scalar, so we map it to memref<1xi32>.
+      return mlir::MemRefType::get(
+          {1}, IntegerType::get(funcOp.getContext(), 32), {}, memorySpace);
     }
 
     // For tensors without MetalLayoutAttr, use default identity layout.

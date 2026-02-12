@@ -1,10 +1,11 @@
-// SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
-//
-// SPDX-License-Identifier: Apache-2.0
+include "mlir/Pass/Pass.td"
 
-#ifndef TTMLIR_TTMLIR_DIALECT_TTMETAL_TTMETALPASSES_TD
-#define TTMLIR_TTMLIR_DIALECT_TTMETAL_TTMETALPASSES_TD
+define_pass_pipeline("ttmetal-bufferize", "TTMetal Bufferization Pass") {
+  pass("ttmetal-bufferize-pass", "TTMetal Bufferize Pass")
+}
 
-include "mlir/Pass/PassBase.td"
-
-#endif
+def TTMetalBufferizePass : Pass<TTMetalBufferizePass> {
+  let summary = "Bufferizes TTMetal global semaphore creation to memref allocation.";
+  let description = "Converts ttmetal.create_global_semaphore operations into memref.alloc and memref.store operations.";
+  let dependentDialects = ["mlir::memref::MemRefDialect", "mlir::arith::ArithDialect"];
+}

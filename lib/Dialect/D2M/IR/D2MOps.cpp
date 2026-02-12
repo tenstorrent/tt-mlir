@@ -80,6 +80,8 @@ mlir::LogicalResult d2m::EmptyOp::bufferize(
   return mlir::success();
 }
 
+// implement bufferiz interface, where we insert an alloc right above
+
 mlir::bufferization::AliasingValueList
 d2m::EmptyOp::getAliasingValues(mlir::OpOperand &,
                                 const mlir::bufferization::AnalysisState &) {

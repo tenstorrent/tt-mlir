@@ -2969,6 +2969,21 @@ def TTKernel_FabricMulticastWriteOp : TTKernel_Op<"experimental::fabric_mcast_fa
   }];
 }
 
+def TTKernel_FabricSemIncOp : TTKernel_Op<"experimental::fabric_sem_inc"> {
+
+  let summary = "FabricSemIncOp";
+  let description = [{
+    FabricSemIncOp. This operation increments a semaphore on a remote device.
+  }];
+
+  let arguments = (ins TTKernel_FabricConnectionManager:$fabric_connection_manager, I16:$dst_mesh_id, I16:$dst_dev_id, TTKernel_NocAddr:$semaphore_addr, IndexLike:$incr);
+  let results = (outs);
+
+  let assemblyFormat = [{
+    `(` $fabric_connection_manager `,` $dst_mesh_id `,` $dst_dev_id `,` $semaphore_addr `,` $incr `)` attr-dict `:` functional-type(operands, results)
+  }];
+}
+
 def TTKernel_CreateFabricConnectionManagerOp : TTKernel_Op<"experimental::create_fabric_connection_manager"> {
   let summary = "CreateFabricConnectionManager";
   let description = [{

@@ -392,6 +392,34 @@ def D2M_EmptyOp
   let assemblyFormat = "`(` `)` attr-dict `:` type($result)";
 }
 
+def D2M_CreateGlobalSemaphoreOp : D2M_Op<"create_global_semaphore", [MemoryEffects<[MemAlloc]>]> {
+  let summary = "Global semaphore allocation operation (D2M).";
+
+  let description = [{
+    Create an uninitialized global semaphore with the specified core range.
+  }];
+
+  //let builders = [OpBuilder<(ins "ArrayRef<int64_t>":$shape),
+  //                          [{build($_builder, $_state, RankedTensorType::get(shape, elementType, encoding));}]>,
+  //                OpBuilder<(ins "ArrayRef<int64_t>":$shape),
+  //                          [{build($_builder, $_state, shape, elementType, nullptr);}]>];
+}
+// input: core range, output: global semaphore type
+
+def D2M_InitializeGlobalSemaphoreOp : D2M_Op<"intialize_global_semaphore"> {
+  let summary = "Global semaphore intialization operation (D2M).";
+
+  let description = [{
+    Initialized global semaphore with a specific value. This operation blocks until the value has been set.
+  }];
+
+  //let builders = [OpBuilder<(ins "ArrayRef<int64_t>":$shape),
+  //                          [{build($_builder, $_state, RankedTensorType::get(shape, elementType, encoding));}]>,
+  //                OpBuilder<(ins "ArrayRef<int64_t>":$shape),
+  //                          [{build($_builder, $_state, shape, elementType, nullptr);}]>];
+}
+// input global semaphore type (with a core range), output: nothing
+
 def D2M_FullOp
     : D2M_Op<"full", [Pure, DeclareOpInterfaceMethods<
                                 BufferizableOpInterface,

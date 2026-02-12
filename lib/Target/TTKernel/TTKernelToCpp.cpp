@@ -278,6 +278,7 @@ void dprint(Arg &&arg, ArgV&&... argv) {
         hasCall("experimental::get_my_device_id") ||
         hasCall("experimental::fabric_fast_write_any_len") ||
         hasCall("experimental::fabric_mcast_fast_write_any_len") ||
+        hasCall("experimental::fabric_sem_inc") ||
         hasCall("experimental::get_logical_mesh_position") ||
         hasCall("experimental::get_device_id_from_logical_mesh_position")) {
       // Emit in order: topology_info → routing → api

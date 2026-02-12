@@ -70,6 +70,10 @@ public:
       return builder.getAttr<ttnn::KernelArgSemaphoreAtAttr>(
           arg.getOperandIndex());
     }
+    case ttkernel::ArgType::GlobalSemaphore: {
+      return builder.getAttr<ttnn::KernelArgGlobalSemaphoreAttr>(
+          arg.getOperandIndex());
+    }
     }
   }
 
