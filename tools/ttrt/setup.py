@@ -43,8 +43,8 @@ runlibs = []
 perflibs = []
 metallibs = []
 install_requires = [
-  'torch==2.7.0',
-  'nanobind==2.10.2',
+    "torch==2.7.0",
+    "nanobind==2.10.2",
 ]
 
 if enable_ttnn:
