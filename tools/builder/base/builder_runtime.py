@@ -109,36 +109,23 @@ def runtime_str_dtype_to_torch_dtype(dtype):
     raise ValueError(f"unsupported dtype: {dtype}")
 
 
-def create_tensor(tensor_shards, mesh_shape):
-    first_tensor = tensor_shards[0]
-    isEmptyTensor = not all(first_tensor.shape)
-
+def create_tensor(tensor):
+    isEmptyTensor = not all(tensor.shape)
     if isEmptyTensor:
         return tt_runtime.runtime.create_owned_host_tensor(
-            first_tensor.data_ptr(),
-            list(first_tensor.shape),
-            list(first_tensor.stride()),
-            first_tensor.element_size(),
-            torch_dtype_to_runtime_dtype(first_tensor.dtype),
-        )
-
-    if len(tensor_shards.keys()) > 1:
-        return tt_runtime.runtime.create_multi_device_borrowed_host_tensor(
-            [t.data_ptr() for t in tensor_shards.values()],
-            list(first_tensor.shape),
-            list(first_tensor.stride()),
-            first_tensor.element_size(),
-            torch_dtype_to_runtime_dtype(first_tensor.dtype),
-            {},  # strategy: not used
-            mesh_shape,
+            tensor.data_ptr(),
+            list(tensor.shape),
+            list(tensor.stride()),
+            tensor.element_size(),
+            torch_dtype_to_runtime_dtype(tensor.dtype),
         )
 
     return tt_runtime.runtime.create_borrowed_host_tensor(
-        first_tensor.data_ptr(),
-        list(first_tensor.shape),
-        list(first_tensor.stride()),
-        first_tensor.element_size(),
-        torch_dtype_to_runtime_dtype(first_tensor.dtype),
+        tensor.data_ptr(),
+        list(tensor.shape),
+        list(tensor.stride()),
+        tensor.element_size(),
+        torch_dtype_to_runtime_dtype(tensor.dtype),
     )
 
 
@@ -636,7 +623,7 @@ def execute_fb(
     rtol: float = 1e-05,
     disable_golden: bool = False,
     device=None,
-    check_pcc: bool = False,
+    check_pcc: bool = True,
     check_atol: bool = False,
     check_rtol: bool = False,
     enable_intermediate_verification: bool = False,
@@ -745,7 +732,7 @@ def execute_fb(
         for i, i_dict in enumerate(input_dict):
             if not disable_golden:
                 golden_inputs_torch.append(
-                    golden_input_output_tensors[program_index][f"input_{i}"]
+                    golden_input_output_tensors[program_index][f"input_{i}"][0]
                 )
             else:
                 torch_tensor = torch.randn(
@@ -761,7 +748,7 @@ def execute_fb(
         for i, o_dict in enumerate(output_dict):
             if not disable_golden:
                 golden_outputs_torch.append(
-                    golden_input_output_tensors[program_index][f"output_{i}"]
+                    golden_input_output_tensors[program_index][f"output_{i}"][0]
                 )
 
             torch_tensor = torch.zeros(
@@ -770,12 +757,12 @@ def execute_fb(
                     o_dict["desc"]["layout"]["memory_desc"]["data_type"]
                 ),
             )
-            outputs_torch.append({0: torch_tensor})
+            outputs_torch.append(torch_tensor)
 
         inputs = []
         outputs = []
         for i in golden_inputs_torch:
-            new_input = create_tensor(i, device.get_mesh_shape())
+            new_input = create_tensor(i)
             inputs.append(new_input)
         converted_inputs = convert_input_layouts(
             device,
@@ -785,7 +772,7 @@ def execute_fb(
         )
 
         for i in outputs_torch:
-            new_output = create_tensor(i, (1, 1))
+            new_output = create_tensor(i)
             outputs.append(new_output)
 
         start_submit = time.perf_counter_ns()
@@ -816,16 +803,9 @@ def execute_fb(
             if disable_golden:
                 continue
 
-            combined_output_tensor = output_host
-            if fbb.file_identifier != "TTM0":
-                combined_output_tensor = (
-                    tt_runtime.runtime.create_multi_device_host_tensor_from_shards(
-                        [output_host], {}, (1, 1)
-                    )
-                )
             tt_runtime.runtime.memcpy(
                 outputs[i],
-                combined_output_tensor,
+                output_host,
             )
             tt_runtime.runtime.deallocate_tensor(runtime_output_tensor, force=True)
 
@@ -842,7 +822,7 @@ def execute_fb(
                     dtype=runtime_dtype_to_torch_dtype(outputs[i].get_dtype()),
                 ).reshape(outputs[i].get_shape())
 
-            golden_tensor_torch = golden_outputs_torch[i][0]
+            golden_tensor_torch = golden_outputs_torch[i]
             results = check_outputs(
                 golden_tensor_torch,
                 output_tensor_torch,
@@ -900,7 +880,7 @@ def execute_py(
     atol: float = 1e-08,
     rtol: float = 1e-05,
     disable_golden: bool = False,
-    check_pcc: bool = False,
+    check_pcc: bool = True,
     check_atol: bool = False,
     check_rtol: bool = False,
     save_artifacts: bool = False,
@@ -1076,7 +1056,7 @@ def execute_cpp(
     rtol: float = 1e-05,
     disable_golden: bool = False,
     device=None,
-    check_pcc: bool = False,
+    check_pcc: bool = True,
     check_atol: bool = False,
     check_rtol: bool = False,
     save_artifacts: bool = False,
@@ -1180,8 +1160,8 @@ def execute_cpp(
 
                 for input_index, template_input in enumerate(inputs):
                     # Use the layout from the template_input to convert the golden input
-                    golden_input = golden_input_outputs[f"input_{input_index}"]
-                    new_input = create_tensor(golden_input, (1, 1))
+                    golden_input = golden_input_outputs[f"input_{input_index}"][0]
+                    new_input = create_tensor(golden_input)
                     corrected_inputs.append(new_input)
 
                 inputs = convert_input_layouts(

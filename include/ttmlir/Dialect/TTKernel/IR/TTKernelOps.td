@@ -2955,6 +2955,20 @@ def TTKernel_FabricWriteOp : TTKernel_Op<"experimental::fabric_fast_write_any_le
   }];
 }
 
+def TTKernel_FabricMulticastWriteOp : TTKernel_Op<"experimental::fabric_mcast_fast_write_any_len"> {
+  let summary = "FabricMulticastWriteOp";
+  let description = [{
+    FabricMulticastWriteOp
+  }];
+
+  let arguments = (ins TTKernel_FabricConnectionManager:$fabric_connection_manager, I16:$dst_mesh_id, I16:$dst_dev_id_start, I16:$dst_dev_id_end, TTKernel_NocAddr:$dst_addr, I32:$src_addr, I32:$len_bytes);
+  let results = (outs);
+
+  let assemblyFormat = [{
+    `(` $fabric_connection_manager `,` $dst_mesh_id `,` $dst_dev_id_start `,` $dst_dev_id_end `,` $dst_addr `,` $src_addr `,` $len_bytes `)` attr-dict `:` functional-type(operands, results)
+  }];
+}
+
 def TTKernel_CreateFabricConnectionManagerOp : TTKernel_Op<"experimental::create_fabric_connection_manager"> {
   let summary = "CreateFabricConnectionManager";
   let description = [{
