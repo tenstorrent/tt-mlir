@@ -737,7 +737,7 @@ void applyFallbackTransformations(
         // This may happen if GridAttr is different, which should not matter for
         // any memory layout other than Sharded. Since fallbacks do not go into
         // Sharded memory layout, we can avoid this case for now.
-        return;
+        continue;
       }
 
       // Step 1: Update operation's result type to what backend actually
