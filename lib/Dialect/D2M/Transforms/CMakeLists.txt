@@ -1,4 +1,5 @@
 add_mlir_dialect_library(MLIRD2MTransforms
+        AddScratchInputs.cpp
         Allocate.cpp
         DecomposeMasking.cpp
         DecomposeComplexPermute.cpp
@@ -11,7 +12,7 @@ add_mlir_dialect_library(MLIRD2MTransforms
         InsertDstRegisterAccess.cpp
         InsertStreams.cpp
         LinalgToAffine.cpp
-        LowerLoadStoreOpsToDMA.cpp
+        LowerScratchAllocate.cpp
         LowerToLayout.cpp
         MaterializeViewReturns.cpp
         ElementwiseFusion.cpp
@@ -25,6 +26,7 @@ add_mlir_dialect_library(MLIRD2MTransforms
         SplitUnifiedThread.cpp
         PreallocateMcastSemaphores.cpp
         ScheduleDMA.cpp
+        LowerLoadStoreOpsToDMA.cpp
         LowerLoadStoreOpsToExplicitCBForm.cpp
         ConvertLocalLoadStoreOpsToAliasedCBs.cpp
 
