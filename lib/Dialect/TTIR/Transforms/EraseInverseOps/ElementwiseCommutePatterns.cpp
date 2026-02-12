@@ -132,105 +132,23 @@ private:
     return true;
   }
 
-  // Walk up the def chain through single-operand ops to check for broadcast.
-  bool hasBroadcastInChain(Value operand) const {
-    Operation *defOp = operand.getDefiningOp();
-    while (defOp) {
-      if (isa<ttir::BroadcastOp>(defOp)) {
-        return true;
-      }
-      if (defOp->getNumOperands() == 1) {
-        defOp = defOp->getOperand(0).getDefiningOp();
-      } else {
-        break;
-      }
-    }
-    return false;
-  }
-
   bool isCommuteDownwardsFavorable(ElementwiseInterfaceType op,
                                    TMOpType tmOperand) const override {
-    // Cost model for commuting tmOperand below the elementwise op.
-    //
-    // Baseline delta is 0: removing tmOperand (-1) and adding a result
-    // TM after the new elementwise (+1) cancel out.
-    //
-    // Per other-operand costs:
-    //   Identical TM            : -1  (the existing TM gets erased)
-    //   Consteval                :  0  (inverse TM is const-folded away)
-    //   Consteval + broadcast
-    //     when TMOpType=Reshape  : +1  (see below)
-    //   Non-consteval            : +1  (inverse TM persists at runtime)
-    //
-    // Reshape through broadcast penalty:
-    //   When a consteval operand goes through a broadcast and the commuted
-    //   TM is a reshape, the inverse reshape is inserted after the
-    //   broadcast, creating a broadcast→reshape chain that materializes a
-    //   large constant in DRAM.
-    //
-    //   Example — before commute (original IR):
-    //     %a0 = ...                                    : (1,16,1,32,1,128)
-    //     %a1 = reshape %a0                            : (1,16,1,32,128)
-    //     %b0 = ...                                    : (32,128)
-    //     %b1 = reshape %b0                            : (1,1,1,32,128)
-    //     %b2 = broadcast %b1                          : (1,16,1,32,128)
-    //     %c  = add(%a1, %b2)                          : (1,16,1,32,128)
-    //
-    //   After commute (%a1's reshape is pushed below add):
-    //     %a0 = ...                                    : (1,16,1,32,1,128)
-    //     // reshape on %a0 removed — commuted below
-    //     %b0 = ...                                    : (32,128)
-    //     %b1 = reshape %b0                            : (1,32,128)
-    //     %b2 = broadcast %b1                          : (16,32,128)
-    //     %b3 = reshape %b2 (inverse reshape)          : (1,16,1,32,1,128)
-    //     %c0 = add(%a0, %b3)                          : (1,16,1,32,1,128)
-    //     %c1 = reshape %c0 (commuted from %a1)        : (1,16,1,32,128)
-    //
-    //   Net effect: %a1's reshape didn't disappear — it moved to %c1.
-    //   Meanwhile %b gained an extra inverse reshape (%b3), increasing
-    //   total op count by 1.  Although the entire %b chain is consteval,
-    //   the larger broadcast output (%b2) now materializes a bigger
-    //   constant in DRAM, increasing DRAM pressure.
-    //
-    //   Permute does not have this problem: broadcast→permute preserves
-    //   rank and dim structure, consistent with BroadcastCommutePatterns
-    //   which allows permute through broadcast unconditionally.
-    //
-    // Favorable when netDelta <= 0 (no worse after commute; neutral
-    // commutes may enable downstream inverse-pair cancellation).
+    // Commuting downwards is favorable if the all other operands a satisfy one
+    // of the following:
+    // - Are an identical TM
+    // - Are on a consteval-able path
 
     assert(!isa<DestinationStyleOpInterface>(op.getOperation()) &&
            "DPS ops are not supported");
-
-    int netDelta = 0;
-
     for (auto operand : op->getOperands()) {
-      if (operand.getDefiningOp() == tmOperand) {
+      if (checkIdenticalTms(operand.getDefiningOp(), tmOperand) ||
+          ttcore::valueTracesToConstantArgs(operand)) {
         continue;
       }
-
-      if (checkIdenticalTms(operand.getDefiningOp(), tmOperand)) {
-        netDelta -= 1; // Identical TM will be erased
-        continue;
-      }
-
-      if (ttcore::valueTracesToConstantArgs(operand)) {
-        // Penalize only reshape through broadcast: the inverse reshape
-        // after broadcast creates a broadcast→reshape chain that
-        // increases DRAM pressure.  Permute through broadcast is fine.
-        if constexpr (std::is_same_v<TMOpType, ReshapeOp>) {
-          if (hasBroadcastInChain(operand)) {
-            netDelta += 1;
-          }
-        }
-        continue;
-      }
-
-      // Non-consteval, non-identical: inverse TM stays at runtime
-      netDelta += 1;
+      return false;
     }
-
-    return netDelta <= 0;
+    return true;
   }
 };
 } // namespace
