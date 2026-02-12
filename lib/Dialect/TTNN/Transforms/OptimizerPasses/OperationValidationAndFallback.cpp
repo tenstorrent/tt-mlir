@@ -725,6 +725,10 @@ void applyFallbackTransformations(
       // This config doesn't have an expected output layout, skip it.
       continue;
     }
+
+    assert(
+        result.actualOutputLayouts.size() > i &&
+        "Validation result must contain actual output layout for each output.");
     // Handle output layout changes if backend produced different layout
     if (result.actualOutputLayouts[i] != configs[i].outputLayout) {
 
