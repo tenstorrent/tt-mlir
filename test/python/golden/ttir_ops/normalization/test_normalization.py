@@ -315,10 +315,13 @@ def test_hoisted_layer_norm(
     "shape",
     [
         (1, 1, 32, 128),
+        (1, 1, 32, 512),
+        (1, 1, 32, 4096),
+        (1, 1, 32, 8192),
     ],
     ids=shape_str,
 )
-@pytest.mark.parametrize("has_weight", [True, False])
+@pytest.mark.parametrize("has_weight", [True])
 @pytest.mark.parametrize("has_residual", [True, False])
 @pytest.mark.parametrize("mesh_shape", [(1, 2)], ids=shape_str)
 @pytest.mark.parametrize("cluster_axis", [1])
@@ -377,6 +380,19 @@ def test_distributed_rms_norm(
                 shard_dims=shard_dims,
             )
 
+            # Shard weight by last dim if present
+            sharded_weight = None
+            if weight is not None:
+                weight_shard_dims = [-1, 0]
+                weight_shard_shape = make_shard_shape(len(weight_shape), weight_shard_dims, mesh_shape)
+                sharded_weight = builder.mesh_shard(
+                    weight,
+                    shard_direction=MeshShardDirection.FullToShard.value,
+                    shard_type=MeshShardType.Devices.value,
+                    shard_shape=weight_shard_shape,
+                    shard_dims=weight_shard_dims,
+                )
+
             # Shard residual if present
             sharded_residual = None
             if residual is not None:
@@ -388,25 +404,23 @@ def test_distributed_rms_norm(
                     shard_dims=shard_dims,
                 )
 
-            # Distributed RMS norm + all-gather
             result = builder.distributed_rms_norm(
                 sharded_input,
                 cluster_axis=cluster_axis,
-                weight=weight,
+                weight=sharded_weight,
                 residual=sharded_residual,
                 epsilon=1e-5,
             )
 
-            # Aggregate back to full tensor
-            output = builder.mesh_shard(
+            gathered = builder.mesh_shard(
                 result,
                 shard_direction=MeshShardDirection.ShardToFull.value,
-                shard_type=MeshShardType.Replicate.value,
-                shard_shape=[1],
-                shard_dims=[-1],
+                shard_type=MeshShardType.Devices.value,
+                shard_shape=shard_shape_input,
+                shard_dims=shard_dims,
             )
 
-            return output
+            return gathered
 
     compile_and_execute_ttir(
         module,

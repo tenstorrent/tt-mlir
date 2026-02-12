@@ -11,6 +11,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNWorkaroundsPass.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/AllGatherOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ArgMaxOpRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/DistributedRMSNormWidthShardInputRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ConcatOpDecompositionRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ConcatOpReshapeRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ConcatenateHeadsOpRewritePattern.h"
@@ -593,7 +594,9 @@ public:
           workarounds::decomposition::
               ScaledDotProductAttentionPadTileDimsRewritePattern,
           workarounds::decomposition::PointToPointOpRewritePattern,
-          workarounds::decomposition::RMSNormConfigRewritePattern>(
+          workarounds::decomposition::RMSNormConfigRewritePattern,
+          workarounds::decomposition::
+              DistributedRMSNormWidthShardInputRewritePattern>(
           &getContext());
 
       runRewritePatterns(std::move(patterns),

@@ -13182,25 +13182,18 @@ class TTIRBuilder(Builder):
         cluster_axis_attr = IntegerAttr.get(IntegerType.get_unsigned(32), cluster_axis)
         epsilon_attr = FloatAttr.get_f32(epsilon)
 
-        # For golden computation, we simulate RMS norm (without the distributed aspect)
         input0 = self._get_golden_tensor(input)
         weight0 = self._get_golden_tensor(weight) if weight is not None else None
         residual0 = self._get_golden_tensor(residual) if residual is not None else None
-
-        # Compute golden output: RMS norm simulation
-        # Add residual if present
-        if residual0 is not None:
-            normalized_input = input0 + residual0
-        else:
-            normalized_input = input0
-
-        # RMS norm: x / sqrt(mean(x^2) + eps) * weight
-        rms = torch.sqrt(
-            torch.mean(normalized_input**2, dim=-1, keepdim=True) + epsilon
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(
+            input0,
+            weight=weight0,
+            residual=residual0,
+            cluster_axis_attr=cluster_axis_attr,
+            epsilon_attr=epsilon_attr,
+            output_type_mlir=mlir_output_type,
         )
-        golden_output = normalized_input / rms
-        if weight0 is not None:
-            golden_output = golden_output * weight0
 
         result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
 

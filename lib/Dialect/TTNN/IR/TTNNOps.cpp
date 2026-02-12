@@ -2761,9 +2761,8 @@ static ::mlir::LogicalResult verifyTTNNBatchNormOp(OpType op) {
   RankedTensorType inputType = getInput().getType();
   RankedTensorType outputType = getResult().getType();
 
-  // Input and output must have the same shape.
   if (inputType.getShape() != outputType.getShape()) {
-    return emitOpError("input and output must have the same shape");
+    return emitOpError("output shape must match input shape");
   }
 
   // Verify cluster_axis is valid (must be 0 or 1 for 2D mesh).
@@ -2786,18 +2785,20 @@ static ::mlir::LogicalResult verifyTTNNBatchNormOp(OpType op) {
     }
   }
 
-  // Verify weight tensor shape compatibility if present.
-  // Weight should be 1D with size matching input's last dimension.
+  // Verify weight tensor total elements match input's last dimension.
+  // The weight may be 1D (N,) or 2D (N/tile_w, tile_w) after reshaping for
+  // ROW_MAJOR layout.
   if (getWeight()) {
     RankedTensorType weightType = getWeight().getType();
-    ArrayRef<int64_t> inputShape = inputType.getShape();
-    int64_t lastDim = inputShape.back();
+    int64_t inputLastDim = inputType.getShape().back();
+    int64_t weightElements = 1;
+    for (int64_t dim : weightType.getShape()) {
+      weightElements *= dim;
+    }
 
-    if (weightType.getRank() == 1) {
-      if (weightType.getDimSize(0) != lastDim) {
-        return emitOpError(
-            "weight tensor size must match input's last dimension");
-      }
+    if (weightElements != inputLastDim) {
+      return emitOpError(
+          "weight tensor total elements must match input's last dimension");
     }
   }
 

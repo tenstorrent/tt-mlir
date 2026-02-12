@@ -998,6 +998,95 @@ def ttir_rms_norm_golden(
     return rms_norm.to(output_dtype)
 
 
+def ttir_distributed_rms_norm_golden(
+    input: GoldenMapTensor,
+    weight: Optional[GoldenMapTensor],
+    residual: Optional[GoldenMapTensor],
+    cluster_axis_attr: IntegerAttr,
+    epsilon_attr: FloatAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    """Distributed RMS normalization golden.
+
+    Simulates fused_rms_minimal: for each group of devices along
+    ``cluster_axis``, concatenate the per-device shards to compute
+    globally-correct RMS statistics, apply RMS norm + weight on the
+    full tensor, then chunk the result back so each device gets only
+    its local portion.  The per-device output shape equals the
+    per-device input shape (only the stats are all-gathered, not
+    the data).
+
+    Parameters
+    ----------
+    input : GoldenMapTensor
+        Per-device input tensor shards.
+    weight : Optional[GoldenMapTensor]
+        Per-device weight shards. If present, applied after normalization.
+    residual : Optional[GoldenMapTensor]
+        Per-device residual shards. If present, added to input before
+        normalization.
+    cluster_axis_attr : IntegerAttr
+        Mesh axis (0 or 1) along which devices exchange RMS statistics.
+    epsilon_attr : FloatAttr
+        Small constant added to the variance for numerical stability.
+    output_type_mlir : Type
+        MLIR element type used to determine the output torch dtype.
+
+    Returns
+    -------
+    GoldenMapTensor
+        Per-device normalized output shards, each with the same shape
+        as the corresponding input shard.
+    """
+    cluster_axis = unpack_mlir_attr(cluster_axis_attr)
+    epsilon = unpack_mlir_attr(epsilon_attr)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+
+    num_shards = len(input.shard_map)
+    output_shards = [None] * num_shards
+    grouped_shards = input.group_by_axis(cluster_axis)
+
+    for group in grouped_shards:
+        group_ids = list(group.keys())
+        group_tensors = [group[id] for id in group_ids]
+
+        # Add residual per-shard if present
+        if residual is not None:
+            group_tensors = [
+                inp + residual.shard_map[id]
+                for inp, id in zip(group_tensors, group_ids)
+            ]
+
+        # Concatenate shards along last dim to get full tensor for global RMS norm stats
+        full_tensor = torch.cat(group_tensors, dim=-1).float()
+
+        # Compute RMS norm on full tensor
+        normalized_shape = [full_tensor.shape[-1]]
+        weight_tensor = None
+        if weight is not None:
+            # Concatenate weight shards to get the full weight
+            weight_shards = [weight.shard_map[id] for id in group_ids]
+            weight_tensor = torch.cat(weight_shards, dim=-1)
+
+        rms_result = torch.nn.functional.rms_norm(
+            full_tensor,
+            normalized_shape=normalized_shape,
+            weight=weight_tensor,
+            eps=epsilon,
+        )
+
+        rms_result = rms_result.to(output_dtype)
+
+        # Split back into per-device chunks (output shape == input shape).
+        per_shard_chunks = torch.chunk(rms_result, len(group_ids), dim=-1)
+        for id, chunk in zip(group_ids, per_shard_chunks):
+            output_shards[id] = chunk.clone()
+
+    return GoldenMapTensor(
+        {i: t for i, t in enumerate(output_shards)}, input.mesh_shape
+    )
+
+
 def ttir_layer_norm_golden(
     input: GoldenMapTensor,
     weight: Optional[GoldenMapTensor],
@@ -5883,6 +5972,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.LayerNormOp: ttir_layer_norm_golden,
     ttir.SplitQueryKeyValueAndSplitHeadsOp: ttir_split_query_key_value_and_split_heads_golden,
     ttir.RMSNormOp: ttir_rms_norm_golden,
+    ttir.DistributedRMSNormOp: ttir_distributed_rms_norm_golden,
     # Type operations
     ttir.TypecastOp: ttir_typecast_golden,
     # Tensor creation
