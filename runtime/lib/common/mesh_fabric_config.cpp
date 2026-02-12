@@ -95,9 +95,8 @@ computeFabricConfig(const std::vector<::tt::target::ChipChannel> &chipChannels,
   return {globalConfig, perAxisConfig};
 }
 
-MeshFabricConfig
-computeFabricConfig(const ::tt::target::SystemDesc *systemDesc,
-                    const std::vector<uint32_t> &meshShape) {
+MeshFabricConfig computeFabricConfig(const ::tt::target::SystemDesc *systemDesc,
+                                     const std::vector<uint32_t> &meshShape) {
   LOG_ASSERT(systemDesc != nullptr, "SystemDesc must not be null");
 
   std::vector<::tt::target::ChipChannel> chipChannels;

@@ -41,8 +41,7 @@ TEST(ComputeFabricConfig, TwoDevices_1x2_NoWrap) {
 // --- Two devices, with wraparound: ring ---
 
 TEST(ComputeFabricConfig, TwoDevices_1x2_WithWrap) {
-  auto result =
-      computeFabricConfig({makeChannel(0, 1)}, {1, 2}, {0, 1});
+  auto result = computeFabricConfig({makeChannel(0, 1)}, {1, 2}, {0, 1});
 
   ASSERT_EQ(result.perAxisConfig.size(), 2u);
   EXPECT_EQ(result.perAxisConfig[0], FabricConfig::FABRIC_1D_RING);
@@ -53,8 +52,7 @@ TEST(ComputeFabricConfig, TwoDevices_1x2_WithWrap) {
 // --- 2x1 column, with col wraparound ---
 
 TEST(ComputeFabricConfig, TwoDevices_2x1_WithWrap) {
-  auto result =
-      computeFabricConfig({makeChannel(0, 1)}, {2, 1}, {0, 1});
+  auto result = computeFabricConfig({makeChannel(0, 1)}, {2, 1}, {0, 1});
 
   ASSERT_EQ(result.perAxisConfig.size(), 2u);
   EXPECT_EQ(result.perAxisConfig[0], FabricConfig::FABRIC_1D);
@@ -70,10 +68,9 @@ TEST(ComputeFabricConfig, FourDevices_2x2_AllRing) {
   //   2  3
   // Row wraparound: 0<->1, 2<->3
   // Col wraparound: 0<->2, 1<->3
-  auto result = computeFabricConfig(
-      {makeChannel(0, 1), makeChannel(2, 3), makeChannel(0, 2),
-       makeChannel(1, 3)},
-      {2, 2}, {0, 1, 2, 3});
+  auto result = computeFabricConfig({makeChannel(0, 1), makeChannel(2, 3),
+                                     makeChannel(0, 2), makeChannel(1, 3)},
+                                    {2, 2}, {0, 1, 2, 3});
 
   ASSERT_EQ(result.perAxisConfig.size(), 2u);
   EXPECT_EQ(result.perAxisConfig[0], FabricConfig::FABRIC_1D_RING);
@@ -84,8 +81,8 @@ TEST(ComputeFabricConfig, FourDevices_2x2_AllRing) {
 // --- 2x2, only rows ring ---
 
 TEST(ComputeFabricConfig, FourDevices_2x2_OnlyRowsRing) {
-  auto result = computeFabricConfig(
-      {makeChannel(0, 1), makeChannel(2, 3)}, {2, 2}, {0, 1, 2, 3});
+  auto result = computeFabricConfig({makeChannel(0, 1), makeChannel(2, 3)},
+                                    {2, 2}, {0, 1, 2, 3});
 
   ASSERT_EQ(result.perAxisConfig.size(), 2u);
   EXPECT_EQ(result.perAxisConfig[0], FabricConfig::FABRIC_1D_RING);
@@ -96,8 +93,8 @@ TEST(ComputeFabricConfig, FourDevices_2x2_OnlyRowsRing) {
 // --- 2x2, only cols ring ---
 
 TEST(ComputeFabricConfig, FourDevices_2x2_OnlyColsRing) {
-  auto result = computeFabricConfig(
-      {makeChannel(0, 2), makeChannel(1, 3)}, {2, 2}, {0, 1, 2, 3});
+  auto result = computeFabricConfig({makeChannel(0, 2), makeChannel(1, 3)},
+                                    {2, 2}, {0, 1, 2, 3});
 
   ASSERT_EQ(result.perAxisConfig.size(), 2u);
   EXPECT_EQ(result.perAxisConfig[0], FabricConfig::FABRIC_1D);
@@ -126,8 +123,8 @@ TEST(ComputeFabricConfig, NonIdentityMapping_2x2) {
   // Row wraparound needs: 3<->1, 2<->0
   // Col wraparound needs: 3<->2, 1<->0
   // Provide only row wraparound.
-  auto result = computeFabricConfig(
-      {makeChannel(1, 3), makeChannel(0, 2)}, {2, 2}, {3, 1, 2, 0});
+  auto result = computeFabricConfig({makeChannel(1, 3), makeChannel(0, 2)},
+                                    {2, 2}, {3, 1, 2, 0});
 
   ASSERT_EQ(result.perAxisConfig.size(), 2u);
   EXPECT_EQ(result.perAxisConfig[0], FabricConfig::FABRIC_1D_RING);
@@ -139,8 +136,7 @@ TEST(ComputeFabricConfig, NonIdentityMapping_2x2) {
 
 TEST(ComputeFabricConfig, FourDevices_2x2_PartialRowRing) {
   // Row 0: 0<->1 connected. Row 1: 2<->3 NOT connected.
-  auto result = computeFabricConfig(
-      {makeChannel(0, 1)}, {2, 2}, {0, 1, 2, 3});
+  auto result = computeFabricConfig({makeChannel(0, 1)}, {2, 2}, {0, 1, 2, 3});
 
   ASSERT_EQ(result.perAxisConfig.size(), 2u);
   EXPECT_EQ(result.perAxisConfig[0], FabricConfig::FABRIC_1D);
@@ -151,8 +147,7 @@ TEST(ComputeFabricConfig, FourDevices_2x2_PartialRowRing) {
 // --- Reversed channel order (id1 < id0 in ChipChannel) ---
 
 TEST(ComputeFabricConfig, ReversedChannelOrder) {
-  auto result =
-      computeFabricConfig({makeChannel(1, 0)}, {1, 2}, {0, 1});
+  auto result = computeFabricConfig({makeChannel(1, 0)}, {1, 2}, {0, 1});
 
   ASSERT_EQ(result.perAxisConfig.size(), 2u);
   EXPECT_EQ(result.perAxisConfig[0], FabricConfig::FABRIC_1D_RING);
@@ -161,8 +156,7 @@ TEST(ComputeFabricConfig, ReversedChannelOrder) {
 // --- 1x4 ring ---
 
 TEST(ComputeFabricConfig, FourDevices_1x4_Ring) {
-  auto result = computeFabricConfig(
-      {makeChannel(0, 3)}, {1, 4}, {0, 1, 2, 3});
+  auto result = computeFabricConfig({makeChannel(0, 3)}, {1, 4}, {0, 1, 2, 3});
 
   ASSERT_EQ(result.perAxisConfig.size(), 2u);
   EXPECT_EQ(result.perAxisConfig[0], FabricConfig::FABRIC_1D_RING);
@@ -174,8 +168,8 @@ TEST(ComputeFabricConfig, FourDevices_1x4_Ring) {
 
 TEST(ComputeFabricConfig, FourDevices_1x4_Linear) {
   auto result = computeFabricConfig(
-      {makeChannel(0, 1), makeChannel(1, 2), makeChannel(2, 3)},
-      {1, 4}, {0, 1, 2, 3});
+      {makeChannel(0, 1), makeChannel(1, 2), makeChannel(2, 3)}, {1, 4},
+      {0, 1, 2, 3});
 
   ASSERT_EQ(result.perAxisConfig.size(), 2u);
   EXPECT_EQ(result.perAxisConfig[0], FabricConfig::FABRIC_1D);
