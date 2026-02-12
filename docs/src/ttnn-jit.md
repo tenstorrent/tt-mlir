@@ -122,7 +122,7 @@ Note: Only tiled tensors with tile-aligned dimensions are currently supported. P
 | Reductions | `f32`, `bf16` |
 
 ### Notes
-- The `memory_config` arguments on JIT ops are ignored; only the `memory_config` passed to the `@ttnn_jit.jit()` decorator is used. Setting the output layout to DRAM interleaved is not supported.
+- The `memory_config` arguments on JIT ops are ignored; only the `memory_config` passed to the `@ttnn_jit.jit()` decorator is used. Setting the output layout to DRAM interleaved when the input layout is L1 sharded is not supported.
 - See the current [test suite](../../test/ttnn-jit/) for what is guaranteed to be working.
 
 ## How It Works

@@ -7,12 +7,10 @@ import torch
 
 import pytest
 
-from ttnn_jit._src.utils import get_maximal_block_sharding_grid
 from utils import (
     all_close_check,
     memory_configs_equal,
     get_expected_block_sharded_memory_config,
-    get_core_grid_from_device,
     create_dram_tensor,
     create_sharded_tile_tensor,
     run_op_test,

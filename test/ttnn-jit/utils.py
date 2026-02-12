@@ -79,7 +79,6 @@ def _get_input_transform(
 
 def get_core_grid_from_device(device):
     """Get the core grid from the device"""
-    print(f"Device core grid: {device.core_grid.x} x {device.core_grid.y}")
     return (device.core_grid.x - 1, device.core_grid.y - 1)
 
 
