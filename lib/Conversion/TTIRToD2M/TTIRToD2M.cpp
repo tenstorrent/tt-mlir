@@ -2101,10 +2101,11 @@ concatenateHeadsLogicalInfo(ttir::ConcatenateHeadsOp op) {
   Builder builder(ctx);
 
   SmallVector<AffineExpr> exprs;
-  exprs.push_back(builder.getAffineDimExpr(0));                     // batch
-  exprs.push_back(builder.getAffineDimExpr(2).floorDiv(headDimDivisor)); // num_heads
-  exprs.push_back(builder.getAffineDimExpr(1));                     // seq_len
-  exprs.push_back(builder.getAffineDimExpr(2) % headDimDivisor);    // head_dim
+  exprs.push_back(builder.getAffineDimExpr(0)); // batch
+  exprs.push_back(
+      builder.getAffineDimExpr(2).floorDiv(headDimDivisor));     // num_heads
+  exprs.push_back(builder.getAffineDimExpr(1));                  // seq_len
+  exprs.push_back(builder.getAffineDimExpr(2) % headDimDivisor); // head_dim
 
   AffineMap map = AffineMap::get(/*dimCount=*/3, /*symbolCount=*/0, exprs, ctx);
   return {map, canBeTilized};
