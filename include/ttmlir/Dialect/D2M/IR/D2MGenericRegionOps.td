@@ -889,17 +889,11 @@ def D2M_AcquireDstOp : D2M_GenericRegionComputeOp<"acquire_dst",
     let assemblyFormat = [{ `(` `)` attr-dict `:` type($result) }];
 }
 
-def D2M_PackReconfigL1AccOp : D2M_GenericRegionOp<"pack_reconfig_l1_acc"> {
-    let summary = "Reconfigure packer to L1 accumulation mode.";
+def D2M_SetL1AccumulateOp : D2M_GenericRegionOp<"set_l1_accumulate"> {
+    let summary = "Enable L1 accumulation mode.";
     let description = [{
-      Configures the packer to accumulate when packing from DST to L1.
-
-      This op lowers to `PACK(pack_reconfig_l1_acc(enable))` in the compute kernel.
-
-      Example IR:
-      ```mlir
-      d2m.pack_reconfig_l1_acc(%enable) : (i32) -> ()
-      ```
+      Configures HW state such that all subsequent stores to L1 memory space
+      will be accumulated to in place.
     }];
 
     let arguments = (ins I32:$enable);
