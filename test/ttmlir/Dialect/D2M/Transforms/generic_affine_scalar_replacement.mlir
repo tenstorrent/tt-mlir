@@ -94,8 +94,8 @@ func.func @test_no_forwarding_different_indices(
 
 // Test 4: Scalar replacement on fused generics with block_factor and block_index.
 // The block_factor values are loop-invariant and can be scalar replaced.
-// After conversion to compatibility form, scalar replacement, and conversion back,
-// the generic op should still be present with the block_index operations.
+// After scalar replacement, the generic op should still be present with the
+// block_index operations.
 // The test.use op mocks computation between load and store.
 //
 // CHECK-LABEL: func.func @test_scalar_replacement_fused_generic

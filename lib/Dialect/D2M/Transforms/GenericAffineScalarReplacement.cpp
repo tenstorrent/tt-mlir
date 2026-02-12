@@ -12,7 +12,6 @@
 #include "mlir/IR/Dominance.h"
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
-#include "ttmlir/Dialect/D2M/Utils/GenericAffineUtils.h"
 #include "llvm/ADT/DenseSet.h"
 
 #define DEBUG_TYPE "D2MGenericAffineScalarReplacement"
@@ -392,21 +391,6 @@ static void internalizeFusedGenericIntermediates(func::FuncOp funcOp,
   }
 }
 
-static void convertFusedGenericsToAffineCompatibilityForm(func::FuncOp funcOp,
-                                                          OpBuilder &builder) {
-  for (GenericOp op : collectFusedGenericOps(funcOp)) {
-    utils::convertToAffineCompatibilityForm(op, builder);
-  }
-}
-
-static void
-restoreFusedGenericsFromAffineCompatibilityForm(func::FuncOp funcOp,
-                                                OpBuilder &builder) {
-  for (GenericOp op : collectFusedGenericOps(funcOp)) {
-    utils::convertFromAffineCompatibilityForm(op, builder);
-  }
-}
-
 class D2MGenericAffineScalarReplacement
     : public impl::D2MGenericAffineScalarReplacementBase<
           D2MGenericAffineScalarReplacement> {
@@ -427,9 +411,7 @@ public:
       // local memref.alloc
       internalizeFusedGenericIntermediates(funcOp, domInfo, builder);
 
-      // Rewrite all fused generics into an affine-compatible form and move
-      // remote_load into direct style so scalrep can forward through SSA.
-      convertFusedGenericsToAffineCompatibilityForm(funcOp, builder);
+      // Move remote_load into direct style so scalrep can forward through SSA.
       convertRemoteLoadToDirectStyle(funcOp);
 
       // Run the core affine scalar replacement transform.
@@ -437,10 +419,8 @@ public:
       auto &aliasAnalysis = getAnalysis<AliasAnalysis>();
       affine::affineScalarReplace(funcOp, domInfo, postDomInfo, aliasAnalysis);
 
-      // Restore remote_load back to destination-passing style and then rewrite
-      // generics back into regular generic op form.
+      // Restore remote_load back to destination-passing style.
       convertRemoteLoadToDPSStyle(funcOp);
-      restoreFusedGenericsFromAffineCompatibilityForm(funcOp, builder);
 
       // Lower generic-local intermediate allocs to d2m.scratch_allocate.
       replaceGenericIntermediateAllocsWithScratch(funcOp, builder);
