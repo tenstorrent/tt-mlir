@@ -309,4 +309,29 @@ def TTIRMultiDeviceTensorAnnotation: Pass<"ttir-multi-device-tensor-annotation",
   let dependentDialects = ["mlir::tt::ttcore::TTCoreDialect", "mlir::tt::ttir::TTIRDialect"];
 }
 
+def TTIRFoldFullToScalar: Pass<"ttir-fold-full-to-scalar", "::mlir::ModuleOp"> {
+  let summary = "Fold creation ops into scalar when all users support implicit broadcasting.";
+  let description = [{
+    This pass finds ttir.full, ttir.zeros, and ttir.ones ops whose users all
+    have the Broadcastable trait and replaces them with a volume-1 (scalar)
+    equivalent. Broadcastable ops will implicitly broadcast the scalar to
+    the required shape, saving memory by materializing only a single element
+    instead of a full tensor.
+
+    When the creation op was the shape carrier for a consumer, the consumer's
+    result type is updated and an explicit broadcast is added on its output
+    to preserve the original shape.
+
+    Example:
+      Before:
+        %0 = "ttir.full"() <{shape = array<i32: 64, 32>, fill_value = 1.0 : f32}> : () -> tensor<64x32xf32>
+        %1 = "ttir.add"(%arg0, %0) : (tensor<64x32xf32>, tensor<64x32xf32>) -> tensor<64x32xf32>
+
+      After:
+        %0 = "ttir.full"() <{shape = array<i32: 1>, fill_value = 1.0 : f32}> : () -> tensor<1xf32>
+        %1 = "ttir.add"(%arg0, %0) : (tensor<64x32xf32>, tensor<1xf32>) -> tensor<64x32xf32>
+  }];
+  let dependentDialects = ["mlir::tt::ttir::TTIRDialect"];
+}
+
 #endif
