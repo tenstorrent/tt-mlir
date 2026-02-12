@@ -4,10 +4,9 @@
 
 #include "tt/runtime/detail/common/mesh_fabric_config.h"
 
-#include <numeric>
 #include <set>
-#include <utility>
 
+#include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/common/system_mesh.h"
 #include "ttmlir/Target/Common/types_generated.h"
 
@@ -15,8 +14,14 @@ namespace tt::runtime::common {
 
 MeshFabricConfig computeFabricConfig(const ::tt::target::SystemDesc *systemDesc,
                                      const std::vector<uint32_t> &meshShape) {
-  uint32_t totalDevices = std::accumulate(meshShape.begin(), meshShape.end(),
-                                          1u, std::multiplies<uint32_t>());
+  LOG_ASSERT(systemDesc != nullptr, "SystemDesc must not be null");
+  LOG_ASSERT(meshShape.size() == 2,
+             "meshShape must have exactly 2 dimensions, got ",
+             meshShape.size());
+
+  uint32_t numRows = meshShape[0];
+  uint32_t numCols = meshShape[1];
+  uint32_t totalDevices = numRows * numCols;
 
   if (totalDevices <= 1) {
     return {FabricConfig::DISABLED, {}};
@@ -36,10 +41,10 @@ MeshFabricConfig computeFabricConfig(const ::tt::target::SystemDesc *systemDesc,
     }
   }
 
-  uint32_t numRows = meshShape.size() >= 1 ? meshShape[0] : 1;
-  uint32_t numCols = meshShape.size() >= 2 ? meshShape[1] : totalDevices;
-
   std::vector<int> deviceIds = getMappedDeviceIds(meshShape);
+
+  LOG_ASSERT(deviceIds.size() == totalDevices, "Expected ", totalDevices,
+             " device IDs, got ", deviceIds.size());
 
   auto getDeviceAt = [&deviceIds, numCols](uint32_t row,
                                            uint32_t col) -> uint32_t {
@@ -55,29 +60,32 @@ MeshFabricConfig computeFabricConfig(const ::tt::target::SystemDesc *systemDesc,
   };
 
   // Check row wraparound: for each row, check if first and last device
-  // connect.
-  bool allRowsRing = true;
-  for (uint32_t row = 0; row < numRows && allRowsRing; ++row) {
-    if (numCols <= 1) {
-      continue;
-    }
-    uint32_t firstDevice = getDeviceAt(row, 0);
-    uint32_t lastDevice = getDeviceAt(row, numCols - 1);
-    if (!areConnected(firstDevice, lastDevice)) {
-      allRowsRing = false;
+  // connect. Default to linear (false) — only upgrade to ring if all rows have
+  // wraparound.
+  bool allRowsRing = false;
+  if (numCols > 1) {
+    allRowsRing = true;
+    for (uint32_t row = 0; row < numRows && allRowsRing; ++row) {
+      uint32_t firstDevice = getDeviceAt(row, 0);
+      uint32_t lastDevice = getDeviceAt(row, numCols - 1);
+      if (!areConnected(firstDevice, lastDevice)) {
+        allRowsRing = false;
+      }
     }
   }
 
   // Check column wraparound: for each column, check if first and last connect.
-  bool allColsRing = true;
-  for (uint32_t col = 0; col < numCols && allColsRing; ++col) {
-    if (numRows <= 1) {
-      continue;
-    }
-    uint32_t firstDevice = getDeviceAt(0, col);
-    uint32_t lastDevice = getDeviceAt(numRows - 1, col);
-    if (!areConnected(firstDevice, lastDevice)) {
-      allColsRing = false;
+  // Default to linear (false) — only upgrade to ring if all columns have
+  // wraparound.
+  bool allColsRing = false;
+  if (numRows > 1) {
+    allColsRing = true;
+    for (uint32_t col = 0; col < numCols && allColsRing; ++col) {
+      uint32_t firstDevice = getDeviceAt(0, col);
+      uint32_t lastDevice = getDeviceAt(numRows - 1, col);
+      if (!areConnected(firstDevice, lastDevice)) {
+        allColsRing = false;
+      }
     }
   }
 

@@ -10,10 +10,6 @@
 
 #include "tt/runtime/runtime.h"
 
-namespace tt::target {
-struct SystemDesc;
-} // namespace tt::target
-
 namespace tt::runtime::common {
 
 MeshFabricConfig computeFabricConfig(const ::tt::target::SystemDesc *systemDesc,

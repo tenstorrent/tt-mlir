@@ -165,6 +165,7 @@ target_include_directories(TTRuntimeMeshFabricConfig
   PUBLIC
     ${PROJECT_SOURCE_DIR}/runtime/include
     ${PROJECT_BINARY_DIR}/runtime/include
+    ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common
 )
 target_include_directories(TTRuntimeMeshFabricConfig SYSTEM PUBLIC "$<BUILD_INTERFACE:${TTMETAL_INCLUDE_DIRS}>")
 add_dependencies(TTRuntimeMeshFabricConfig tt-metal RUNTIME_FBS_GENERATION FBS_GENERATION)
