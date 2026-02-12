@@ -193,6 +193,9 @@ std::optional<mlir::DenseElementsAttr> tryGetPeriodicShardSlice(
     mlir::DenseElementsAttr globalAttr, mlir::RankedTensorType localType,
     mlir::sdy::TensorShardingAttr sharding, mlir::sdy::MeshOp meshOp);
 
+// Check if the operation has Shardy-sharded inputs or outputs.
+bool opHasShardySharding(mlir::Operation *op);
+
 #endif // #ifdef TTMLIR_ENABLE_STABLEHLO
 
 } // namespace mlir::tt::shardy_utils

@@ -61,13 +61,17 @@ git clone https://github.com/tenstorrent/tt-mlir.git
 
 ## Environment Setup
 
-There are two ways to set up the environment, either using a docker image or building the environment manually. The docker image is recommended since it is easier to set up and use.
+There are two ways to set up the environment, either using a docker image or building the environment manually. The docker image is recommended on ubuntu since it is easier to set up and use.
+
+> Note: Docker path is only supported on ubuntu. For macos please use [Setting up the Environment Manually](#setting-up-the-environment-manually).
 
 ### Using a Docker Image
 
 Please see [Docker Notes](docker-notes.md#using-the-docker-image) for details on how to set up and use the docker image.
 
 Once you have the docker image running and you are logged into the container, you should be ready to build.
+
+> Note: Docker path is only supported on ubuntu. For macos please use [Setting up the Environment Manually](#setting-up-the-environment-manually).
 
 ### Setting up the Environment Manually
 

@@ -36,6 +36,7 @@ void createTTNNPipelineTTIRPasses(
     registerDeviceOptions.systemDescPath = options.systemDescPath;
     registerDeviceOptions.mockSystemDescArch = options.mockSystemDescArch;
     registerDeviceOptions.meshShape = llvm::to_vector(options.meshShape);
+    registerDeviceOptions.meshTopology = llvm::to_vector(options.meshTopology);
   }
   pm.addPass(
       mlir::tt::ttcore::createTTCoreRegisterDevicePass(registerDeviceOptions));
@@ -62,6 +63,9 @@ void createTTNNPipelineTTIRPasses(
   // function. Removes all private functions.
   pm.addPass(mlir::createInlinerPass());
 
+  // Infer kv_cache argument types from cache operations.
+  pm.addPass(mlir::tt::ttir::createTTIRInferKVCacheArgumentTypes());
+
   // Flattening sliding window ops for compatibility with conversion to TTNN
   pm.addPass(mlir::tt::ttir::createTTIRFlattenSlidingWindow());
 
@@ -79,6 +83,7 @@ void createTTNNPipelineTTIRPasses(
   if (options.enableFusing) {
     pm.addPass(mlir::tt::ttir::createTTIRFusing(fusingOptions));
   }
+  pm.addPass(mlir::tt::ttir::createTTIRFoldFullToScalar());
 }
 
 void createTTNNPipelineAnalysisPasses(
@@ -377,8 +382,6 @@ void createRecoverStructureXLATorchPipeline(
 //
 void createTTNNToEmitCDevicePipeline(
     OpPassManager &pm, const TTNNToEmitCDevicePipelineOptions &options) {
-  pm.addPass(createTTNNAdjustDeallocs());
-
   // Unwrapping the device module.
   //
   // TODO(dmilinkovic): Should be removed after support for generating
@@ -386,6 +389,15 @@ void createTTNNToEmitCDevicePipeline(
   // pipeline - issue #6100.
   //
   pm.addPass(ttcore::createTTCoreUnwrapDeviceModulePass());
+
+  // These passes operate on TTNN IR inside the (now unwrapped) top-level
+  // module.
+  //
+  pm.addPass(createTTNNAdjustDeallocs());
+  if (options.tryRecoverStructure) {
+    createRecoverStructureXLATorchPipeline(
+        pm, RecoverStructureXLATorchPipelineOptions());
+  }
 
   if (options.targetDylib) {
     // In dylib path, only run tuplification with forced settings.
