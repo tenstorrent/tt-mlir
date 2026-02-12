@@ -679,21 +679,10 @@ public:
       return rewriter.notifyMatchFailure(op, "could not find device attribute");
     }
 
-    auto tensorType = detail::convertMemrefToTTNNTensor(rewriter.getContext(),
-                                                        op.getMemref());
-    auto ttnnLayoutAttr =
-        mlir::cast<ttnn::TTNNLayoutAttr>(tensorType.getEncoding());
-
-    auto device = ttnn::utils::getOrInsertDevice(rewriter, op);
-    auto memcfg =
-        ttnn::MemoryConfigAttr::get(ttnnLayoutAttr, deviceAttr.getWorkerGrid());
-
-    // Create the ttnn.empty op.
-    auto emptyOp = rewriter.create<ttnn::EmptyOp>(
-        op.getLoc(), tensorType, device,
-        ttnn::ShapeAttr::get(ctx, tensorType.getShape()),
-        ttcore::DataTypeAttr::get(ctx, ttnnLayoutAttr.getDataType()),
-        ttnn::LayoutAttr::get(ctx, ttnnLayoutAttr.getLayout()), memcfg);
+    auto convertedTensorType = detail::convertMemrefToTTNNTensor(
+        rewriter.getContext(), op.getMemref());
+    auto convertedLayoutAttr =
+        mlir::cast<ttnn::TTNNLayoutAttr>(convertedTensorType.getEncoding());
 
     // Find and handle users of the alloc result. We need to:
     // 1. Erase any dealloc ops (ttnn.empty doesn't need explicit deallocation)
@@ -711,15 +700,76 @@ public:
       }
     }
 
+    // Determine the tensor type for the ttnn.empty op. If there's a
+    // ttnn_metal_layout_cast user, use its result type to preserve the
+    // uncollapsed shape. Otherwise, use the converted type.
+    RankedTensorType emptyTensorType = convertedTensorType;
+    if (!castsToReplace.empty()) {
+      // Use the first cast's result type. All casts should have compatible
+      // types.
+      auto castResultType =
+          mlir::cast<RankedTensorType>(castsToReplace[0].getResult().getType());
+      auto castLayoutAttr =
+          mlir::cast<ttnn::TTNNLayoutAttr>(castResultType.getEncoding());
+
+      // Assert that the converted type is compatible with the cast result type.
+      // Cannot assert on shape because we cannot recover the uncollapsed shape,
+      // but we can assert on volume.
+      assert(castResultType.getNumElements() ==
+                 convertedTensorType.getNumElements() &&
+             "ttnn_metal_layout_cast and converted type must have the same "
+             "volume");
+
+      // Assert they both have the same element type.
+      assert(castResultType.getElementType() ==
+                 convertedTensorType.getElementType() &&
+             "ttnn_metal_layout_cast and converted type must have the same "
+             "element type");
+
+      // Assert they both have the same memory space (buffer type).
+      assert(castLayoutAttr.getBufferType() ==
+                 convertedLayoutAttr.getBufferType() &&
+             "ttnn_metal_layout_cast and converted type must have the same "
+             "buffer type");
+
+      // Assert they both have the same shard shape.
+      assert(castLayoutAttr.getShardShape() ==
+                 convertedLayoutAttr.getShardShape() &&
+             "ttnn_metal_layout_cast and converted type must have the same "
+             "shard shape");
+
+      // Assert they both have the same grid shape.
+      assert(castLayoutAttr.getGrid().getShape() ==
+                 convertedLayoutAttr.getGrid().getShape() &&
+             "ttnn_metal_layout_cast and converted type must have the same "
+             "grid shape");
+
+      // Use the cast's result type for the empty op to preserve the uncollapsed
+      // shape.
+      emptyTensorType = castResultType;
+    }
+
+    auto emptyLayoutAttr =
+        mlir::cast<ttnn::TTNNLayoutAttr>(emptyTensorType.getEncoding());
+
+    auto device = ttnn::utils::getOrInsertDevice(rewriter, op);
+    auto memcfg =
+        ttnn::MemoryConfigAttr::get(emptyLayoutAttr, deviceAttr.getWorkerGrid());
+
+    // Create the ttnn.empty op.
+    auto emptyOp = rewriter.create<ttnn::EmptyOp>(
+        op.getLoc(), emptyTensorType, device,
+        ttnn::ShapeAttr::get(ctx, emptyTensorType.getShape()),
+        ttcore::DataTypeAttr::get(ctx, emptyLayoutAttr.getDataType()),
+        ttnn::LayoutAttr::get(ctx, emptyLayoutAttr.getLayout()), memcfg);
+
     // Erase deallocs.
     for (auto deallocOp : deallocsToErase) {
       rewriter.eraseOp(deallocOp);
     }
 
-    // Replace casts with the empty result, asserting type compatibility.
+    // Replace casts with the empty result.
     for (auto castOp : castsToReplace) {
-      assert(castOp.getResult().getType() == emptyOp.getResult().getType() &&
-             "ttnn_metal_layout_cast result type must match ttnn.empty type");
       rewriter.replaceOp(castOp, emptyOp.getResult());
     }
 
