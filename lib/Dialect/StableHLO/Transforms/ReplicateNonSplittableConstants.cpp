@@ -119,10 +119,9 @@ public:
           context, globalMeshOp.getSymName(), replicatedDimShardings,
           /*replicatedAxes=*/{}, /*unknownAxes=*/{});
 
-      constantOp->setAttr(
-          mlir::sdy::TensorShardingAttr::name,
-          mlir::sdy::TensorShardingPerValueAttr::get(context,
-                                                     {replicatedSharding}));
+      constantOp->setAttr(mlir::sdy::TensorShardingAttr::name,
+                          mlir::sdy::TensorShardingPerValueAttr::get(
+                              context, {replicatedSharding}));
     });
   }
 };

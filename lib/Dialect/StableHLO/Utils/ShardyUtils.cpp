@@ -998,7 +998,7 @@ std::optional<mlir::DenseElementsAttr> tryGetPeriodicShardSlice(
   };
   llvm::SmallVector<ShardedDimInfo> shardedDims;
 
-  // Build axis-name to size map for O(1) lookup.
+  // Build axis-name to size map for lookup.
   llvm::StringMap<int64_t> axisNameToSize;
   for (auto meshAxis : meshOp.getMesh().getAxes()) {
     axisNameToSize[meshAxis.getName()] = meshAxis.getSize();
@@ -1034,8 +1034,6 @@ std::optional<mlir::DenseElementsAttr> tryGetPeriodicShardSlice(
   }
 
   // Verify periodicity independently along each sharded dimension.
-  // If data is periodic along dim A with period La AND periodic along dim B
-  // with period Lb, then any shard (ka, kb) matches shard (0, 0).
   auto globalValues = globalAttr.getValues<mlir::Attribute>();
 
   for (auto &sd : shardedDims) {
