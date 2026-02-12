@@ -82,117 +82,6 @@ static bool isSoleReader(Value sharedMemref, GenericOp consumer) {
   return true;
 }
 
-// Get the nesting depth of an affine.for induction variable relative to the
-// enclosing generic region. Returns -1 if the value is not an affine.for IV.
-static int getAffineForDepth(Value val) {
-  auto blockArg = dyn_cast<BlockArgument>(val);
-  if (!blockArg) {
-    return -1;
-  }
-  auto *parentOp = blockArg.getOwner()->getParentOp();
-  if (!isa<affine::AffineForOp>(parentOp)) {
-    return -1;
-  }
-  int depth = 0;
-  Operation *current = parentOp;
-  while (current) {
-    if (isa<GenericOp>(current)) {
-      return depth;
-    }
-    if (isa<affine::AffineForOp>(current)) {
-      depth++;
-    }
-    current = current->getParentOp();
-  }
-  return -1;
-}
-
-// Structurally compare two index computation DAGs rooted at two values.
-static bool areIndicesStructurallyIdentical(Value lhs, Value rhs) {
-  if (lhs == rhs) {
-    return true;
-  }
-
-  Operation *lhsDef = lhs.getDefiningOp();
-  Operation *rhsDef = rhs.getDefiningOp();
-  if (!lhsDef || !rhsDef) {
-    int lhsDepth = getAffineForDepth(lhs);
-    int rhsDepth = getAffineForDepth(rhs);
-    if (lhsDepth >= 0 && lhsDepth == rhsDepth) {
-      return true;
-    }
-    return false;
-  }
-
-  if (lhsDef->getName() != rhsDef->getName()) {
-    return false;
-  }
-
-  if (isa<CoreIndexOp, GetBlockFactorOp, IterIndexOp, BlockIndexOp>(lhsDef)) {
-    if (auto lhsIdx = lhsDef->getAttrOfType<IntegerAttr>("dim")) {
-      auto rhsIdx = rhsDef->getAttrOfType<IntegerAttr>("dim");
-      return rhsIdx && lhsIdx.getInt() == rhsIdx.getInt();
-    }
-    return false;
-  }
-
-  if (lhsDef->getNumOperands() != rhsDef->getNumOperands()) {
-    return false;
-  }
-  for (unsigned i = 0; i < lhsDef->getNumOperands(); ++i) {
-    if (!areIndicesStructurallyIdentical(lhsDef->getOperand(i),
-                                         rhsDef->getOperand(i))) {
-      return false;
-    }
-  }
-  return true;
-}
-
-// Check that the producer's remote_store indices match the consumer's
-// remote_load indices structurally. Returns the store op if valid.
-static RemoteStoreOp getMatchingStoreForShared(GenericOp producer,
-                                               GenericOp consumer,
-                                               Value sharedMemref) {
-  SmallVector<RemoteStoreOp> producerStores;
-  producer.getRegion(0).walk([&](RemoteStoreOp storeOp) {
-    if (storeOp.getMemref() == sharedMemref) {
-      producerStores.push_back(storeOp);
-    }
-  });
-
-  if (producerStores.size() != 1) {
-    return nullptr;
-  }
-
-  RemoteStoreOp storeOp = producerStores.front();
-
-  SmallVector<RemoteLoadOp> consumerLoads;
-  consumer.getRegion(0).walk([&](RemoteLoadOp loadOp) {
-    Value rawMemref = unwrapIfViewLike(loadOp.getMemref());
-    if (rawMemref == sharedMemref) {
-      consumerLoads.push_back(loadOp);
-    }
-  });
-
-  if (consumerLoads.size() != 1) {
-    return nullptr;
-  }
-  RemoteLoadOp consumerLoad = consumerLoads.front();
-
-  auto storeIndices = storeOp.getIndices();
-  auto loadIndices = consumerLoad.getIndices();
-  if (storeIndices.size() != loadIndices.size()) {
-    return nullptr;
-  }
-  for (unsigned i = 0; i < storeIndices.size(); ++i) {
-    if (!areIndicesStructurallyIdentical(storeIndices[i], loadIndices[i])) {
-      return nullptr;
-    }
-  }
-
-  return storeOp;
-}
-
 // Find the output operand number that corresponds to `target`.
 static std::optional<unsigned> findOutputOperandForValue(GenericOp generic,
                                                          Value target) {
@@ -444,7 +333,7 @@ static bool runAffineLoopFusion(GenericOp fusedOp,
 static GenericOp tryFusePair(GenericOp producer, GenericOp consumer,
                              OpOperand *inputOperand, Value sharedMemref,
                              OpBuilder &builder) {
-  // Step 1: Get outermost loops to determine superset/subset
+  // Step 1: Get outermost loops to determine superset/subset.
   affine::AffineForOp producerLoop = getOutermostLoop(producer);
   affine::AffineForOp consumerLoop = getOutermostLoop(consumer);
 
@@ -452,7 +341,7 @@ static GenericOp tryFusePair(GenericOp producer, GenericOp consumer,
     return nullptr;
   }
 
-  // Step 2: Determine superset generic (one with deeper loop nesting)
+  // Step 2: Determine superset generic (one with deeper loop nesting).
   unsigned producerDepth = getOuterLoopDepth(producerLoop);
   unsigned consumerDepth = getOuterLoopDepth(consumerLoop);
 
@@ -470,7 +359,7 @@ static GenericOp tryFusePair(GenericOp producer, GenericOp consumer,
       buildFusedOperandInfo(producer, consumer, supersetGeneric, subsetGeneric,
                             inputOperand, sharedMemref);
 
-  // Step 5: Create fused GenericOp shell
+  // Step 5: Create fused GenericOp shell.
   builder.setInsertionPoint(consumer);
   auto fusedOp = builder.create<GenericOp>(
       consumer.getLoc(), TypeRange{}, fusedInfo.inputs, fusedInfo.outputs,
@@ -527,8 +416,7 @@ public:
           Value rawMemref = unwrapIfViewLike(inputOperand->get());
           GenericOp producer = findProducerGeneric(rawMemref, consumer);
           if (!producer || !isFusionCandidate(producer) ||
-              !isSoleReader(rawMemref, consumer) ||
-              !getMatchingStoreForShared(producer, consumer, rawMemref)) {
+              !isSoleReader(rawMemref, consumer)) {
             continue;
           }
 
@@ -539,11 +427,14 @@ public:
             continue;
           }
 
-          // Erase originals.
+          // If we made it here, we successfully fused a pair of generics. So
+          // run at least one more iteration.
+          changed = true;
+
+          // Erase unfused original generics.
           producer->erase();
           consumer->erase();
-          changed = true;
-          break; // Restart iteration — generic list is invalidated.
+          break;
         }
         if (changed) {
           break; // Restart outer loop.

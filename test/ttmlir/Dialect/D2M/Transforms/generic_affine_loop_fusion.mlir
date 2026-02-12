@@ -254,3 +254,74 @@ func.func @test_matmul_add_subset_fusion(
 
   return
 }
+
+// Test: producer/consumer index mismatch on the shared memref must not fuse.
+// CHECK-LABEL: func.func @test_store_load_index_mismatch_ab
+// CHECK: d2m.generic
+// CHECK: d2m.generic
+// CHECK-NOT: d2m.affine_fused
+func.func @test_store_load_index_mismatch_ab(
+    %input: memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>) {
+  %intermediate = memref.alloc() {alignment = 64 : i64} : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>
+  %output = memref.alloc() {alignment = 64 : i64} : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>
+  %cb_in = memref.alloc() {alignment = 64 : i64} : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>
+  %stream_in = "d2m.stream_layout"(%input, %cb_in) : (memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>) -> memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #dram>
+
+  d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<2x4>, indexing_maps = [#map, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<unified>]}
+      ins(%stream_in : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #dram>)
+      outs(%intermediate : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>) {
+  ^unified0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb1: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>):
+    %bf0 = d2m.get_block_factor(0) : index
+    %bf1 = d2m.get_block_factor(1) : index
+    affine.for %i = 0 to %bf0 {
+      affine.for %j = 0 to %bf1 {
+        %idx0 = d2m.block_index(0) : index
+        %idx1 = d2m.block_index(1) : index
+        %buf_in = memref.alloc() : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
+        %loaded = d2m.remote_load %buf_in %stream_in[%idx0, %idx1] : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #dram> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
+        %buf_out = memref.alloc() : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
+        linalg.generic {
+          indexing_maps = [#map, #map],
+          iterator_types = ["parallel", "parallel"]}
+          ins(%loaded : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>)
+          outs(%buf_out : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>)
+        {
+        ^bb0(%in_val: !ttcore.tile<32x32, f32>, %out: !ttcore.tile<32x32, f32>):
+          %relu = "d2m.tile_relu"(%in_val) : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
+          linalg.yield %relu : !ttcore.tile<32x32, f32>
+        }
+        %stored = d2m.remote_store %intermediate[%idx0, %idx1] %buf_out : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>, memref<2x4x!ttcore.tile<32x32, f32>, #l1_> -> memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>
+      } {d2m.blocking_loop = 1}
+    } {d2m.blocking_loop = 0}
+  }
+
+  d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<2x4>, indexing_maps = [#map, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<unified>]}
+      ins(%intermediate : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>)
+      outs(%output : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>) {
+  ^unified1(%cb2: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb3: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>):
+    %bf0 = d2m.get_block_factor(0) : index
+    %bf1 = d2m.get_block_factor(1) : index
+    affine.for %i = 0 to %bf0 {
+      affine.for %j = 0 to %bf1 {
+        %idx0 = d2m.block_index(0) : index
+        %idx1 = d2m.block_index(1) : index
+        %buf_in = memref.alloc() : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
+        %loaded = d2m.remote_load %buf_in %intermediate[%idx1, %idx0] : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
+        %buf_out = memref.alloc() : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
+        linalg.generic {
+          indexing_maps = [#map, #map],
+          iterator_types = ["parallel", "parallel"]}
+          ins(%loaded : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>)
+          outs(%buf_out : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>)
+        {
+        ^bb0(%in_val: !ttcore.tile<32x32, f32>, %out: !ttcore.tile<32x32, f32>):
+          %exp = "d2m.tile_exp"(%in_val) : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
+          linalg.yield %exp : !ttcore.tile<32x32, f32>
+        }
+        %stored = d2m.remote_store %output[%idx0, %idx1] %buf_out : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>, memref<2x4x!ttcore.tile<32x32, f32>, #l1_> -> memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>
+      } {d2m.blocking_loop = 1}
+    } {d2m.blocking_loop = 0}
+  }
+
+  return
+}
