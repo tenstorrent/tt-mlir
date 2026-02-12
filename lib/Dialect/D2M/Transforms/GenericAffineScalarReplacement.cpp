@@ -13,6 +13,7 @@
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/Utils/GenericAffineUtils.h"
+#include "llvm/ADT/DenseSet.h"
 
 #define DEBUG_TYPE "D2MGenericAffineScalarReplacement"
 
@@ -266,25 +267,120 @@ static void convertRemoteLoadToDPSStyle(func::FuncOp funcOp) {
   });
 }
 
-/// Replace memref.alloc ops marked with d2m.scratch_slot with
-/// d2m.scratch_allocate ops. These markers were placed by
-/// internalizeIntermediates before scalar replacement ran.
-static void replaceMarkedAllocsWithScratch(func::FuncOp funcOp,
-                                           OpBuilder &builder) {
-  SmallVector<memref::AllocOp> toReplace;
-  funcOp.walk([&](memref::AllocOp allocOp) {
-    if (allocOp->hasAttr(kScratchSlotAttr)) {
-      toReplace.push_back(allocOp);
+/// Return true if the value participates in any remote load/store path
+/// reachable through simple memref view/cast forwarding ops.
+static bool isRelatedToRemoteLoadStore(Value value) {
+  SmallVector<Value> worklist{value};
+  llvm::DenseSet<Value> visited;
+  visited.insert(value);
+
+  while (!worklist.empty()) {
+    Value current = worklist.pop_back_val();
+    for (OpOperand &use : current.getUses()) {
+      Operation *user = use.getOwner();
+      if (auto loadOp = mlir::dyn_cast<RemoteLoadOp>(user)) {
+        if (loadOp.getMemref() == current ||
+            loadOp.getLocalBuffer() == current) {
+          return true;
+        }
+      }
+      if (auto storeOp = mlir::dyn_cast<RemoteStoreOp>(user)) {
+        if (storeOp.getMemref() == current ||
+            storeOp.getLocalBuffer() == current) {
+          return true;
+        }
+      }
+
+      if (mlir::isa<memref::CastOp, memref::SubViewOp,
+                    memref::ReinterpretCastOp, memref::ViewOp>(user)) {
+        for (Value result : user->getResults()) {
+          if (visited.insert(result).second) {
+            worklist.push_back(result);
+          }
+        }
+      }
+    }
+  }
+  return false;
+}
+
+struct ScratchAllocCandidate {
+  memref::AllocOp allocOp;
+  int64_t slot;
+};
+
+static int64_t computeNextScratchSlot(GenericOp genericOp) {
+  int64_t maxSlot = -1;
+  genericOp.walk([&](Operation *op) {
+    if (auto scratchOp = mlir::dyn_cast<ScratchAllocateOp>(op)) {
+      maxSlot = std::max(maxSlot, static_cast<int64_t>(scratchOp.getSlot()));
+      return;
+    }
+    if (auto allocOp = mlir::dyn_cast<memref::AllocOp>(op)) {
+      if (auto slot = allocOp->getAttrOfType<IntegerAttr>(kScratchSlotAttr)) {
+        maxSlot = std::max(maxSlot, slot.getInt());
+      }
     }
   });
+  return maxSlot + 1;
+}
 
-  for (memref::AllocOp allocOp : toReplace) {
-    auto slot = allocOp->getAttrOfType<IntegerAttr>(kScratchSlotAttr);
-    builder.setInsertionPoint(allocOp);
-    auto scratchOp = builder.create<ScratchAllocateOp>(allocOp.getLoc(),
-                                                       allocOp.getType(), slot);
-    allocOp.replaceAllUsesWith(scratchOp.getResult());
-    allocOp.erase();
+/// Replace generic-local intermediate memref.alloc ops with
+/// d2m.scratch_allocate. Internalized intermediates (tagged with
+/// d2m.scratch_slot) are always lowered. Additionally, untagged generic-local
+/// intermediates that are not related to any remote load/store are lowered as
+/// scratch allocations. Scratch allocs are inserted at the top of the generic
+/// unified region.
+static void replaceGenericIntermediateAllocsWithScratch(func::FuncOp funcOp,
+                                                        OpBuilder &builder) {
+  for (GenericOp genericOp : collectFusedGenericOps(funcOp)) {
+    if (genericOp.getRegions().empty() || genericOp.getRegion(0).empty()) {
+      continue;
+    }
+
+    int64_t nextSlot = computeNextScratchSlot(genericOp);
+    SmallVector<ScratchAllocCandidate> candidates;
+    SmallVector<memref::AllocOp> deadAllocs;
+    genericOp.getRegion(0).walk([&](memref::AllocOp allocOp) {
+      if (allocOp.getResult().use_empty()) {
+        deadAllocs.push_back(allocOp);
+        return;
+      }
+      if (auto slot = allocOp->getAttrOfType<IntegerAttr>(kScratchSlotAttr)) {
+        candidates.push_back({allocOp, slot.getInt()});
+        return;
+      }
+      if (!isRelatedToRemoteLoadStore(allocOp.getResult())) {
+        candidates.push_back({allocOp, nextSlot++});
+      }
+    });
+
+    if (candidates.empty() && deadAllocs.empty()) {
+      continue;
+    }
+
+    Block &body = genericOp.getRegion(0).front();
+    SmallVector<Value> replacementValues;
+    replacementValues.reserve(candidates.size());
+    for (ScratchAllocCandidate &candidate : candidates) {
+      builder.setInsertionPointToStart(&body);
+      auto scratchOp = builder.create<ScratchAllocateOp>(
+          candidate.allocOp.getLoc(), candidate.allocOp.getType(),
+          builder.getI64IntegerAttr(candidate.slot));
+      replacementValues.push_back(scratchOp.getResult());
+    }
+
+    for (auto [candidate, replacement] :
+         llvm::zip_equal(candidates, replacementValues)) {
+      candidate.allocOp.replaceAllUsesWith(replacement);
+      candidate.allocOp.erase();
+    }
+
+    for (memref::AllocOp deadAlloc : deadAllocs) {
+      if (deadAlloc.getResult().use_empty()) {
+        deadAlloc.erase();
+      }
+    }
   }
 }
 
@@ -346,8 +442,8 @@ public:
       convertRemoteLoadToDPSStyle(funcOp);
       restoreFusedGenericsFromAffineCompatibilityForm(funcOp, builder);
 
-      // Lower marked intermediate allocs to d2m.scratch_allocate.
-      replaceMarkedAllocsWithScratch(funcOp, builder);
+      // Lower generic-local intermediate allocs to d2m.scratch_allocate.
+      replaceGenericIntermediateAllocsWithScratch(funcOp, builder);
     });
   }
 };

@@ -190,7 +190,8 @@ func.func @test_multiple_block_index_same_dimension(
 // CB block arg erased, and its internal uses replaced with a local alloc.
 // After scalrep, the store-to-load through the intermediate is fully forwarded,
 // eliminating both the remote_store and remote_load to the intermediate.
-// Since the intermediate is fully eliminated, no scratch_allocate is needed.
+// Intermediate local allocs in the unified region are lowered to
+// d2m.scratch_allocate.
 //
 // CHECK-LABEL: func.func @test_intermediate_internalization
 // The intermediate operand should be removed; only one input remains.
@@ -198,7 +199,7 @@ func.func @test_multiple_block_index_same_dimension(
 // CHECK: ins(%{{.*}} : memref<{{.*}}>)
 // The intermediate remote_store and remote_load should be eliminated by scalrep.
 // Only the input remote_load and output remote_store should remain.
-// CHECK-NOT: d2m.scratch_allocate
+// CHECK: d2m.scratch_allocate
 // CHECK: d2m.remote_load
 // CHECK: test.use
 // CHECK: d2m.remote_store
@@ -241,14 +242,14 @@ func.func @test_intermediate_internalization(
 // Test 7: Complex matmul + add fusion with multiple block factors and indices.
 // Tests scalar replacement on nested affine loops with reduction dimension.
 // The intermediate (%alloc) is internalized and the store-to-load through it
-// is fully scalar replaced. Since all uses are eliminated, no scratch_allocate
-// is needed. Remote loads for matmul inputs, compute (matmul, add), and final
-// store should be preserved.
+// is fully scalar replaced. Generic-local intermediate allocs are lowered to
+// d2m.scratch_allocate at the top of the unified region. Remote loads for
+// matmul inputs, compute (matmul, add), and final store should be preserved.
 //
 // CHECK-LABEL: func.func @test_matmul_add_subset_fusion
 // CHECK: d2m.generic
+// CHECK: d2m.scratch_allocate
 // CHECK: d2m.get_block_factor
-// CHECK-NOT: d2m.scratch_allocate
 // CHECK: affine.for
 // CHECK: affine.for
 // CHECK: affine.for
