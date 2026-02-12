@@ -145,30 +145,16 @@ public:
         return;
       }
 
-      // Count sharded dimensions to detect multi-axis sharding.
-      int numShardedDims = 0;
-      for (auto dimSharding : sharding.getDimShardings()) {
-        if (!dimSharding.getAxes().empty()) {
-          numShardedDims++;
-        }
+      // Check if the constant is periodic across shards. If so, it can be
+      // sliced to the local type without loss; skip.
+      llvm::errs() << "[DEBUG]   calling tryGetPeriodicShardSlice...\n";
+      if (shardy_utils::tryGetPeriodicShardSlice(denseAttr, *localType,
+                                                 sharding, globalMeshOp)
+              .has_value()) {
+        llvm::errs() << "[DEBUG]   -> SKIP (periodic)\n";
+        return;
       }
-      llvm::errs() << "[DEBUG]   numShardedDims:   " << numShardedDims << "\n";
-
-      if (numShardedDims > 1) {
-        llvm::errs() << "[DEBUG]   -> REPLICATE (multi-axis sharding, "
-                        "tryGetPeriodicShardSlice cannot handle)\n";
-      } else {
-        // Check if the constant is periodic across shards. If so, it can be
-        // sliced to the local type without loss; skip.
-        llvm::errs() << "[DEBUG]   calling tryGetPeriodicShardSlice...\n";
-        if (shardy_utils::tryGetPeriodicShardSlice(denseAttr, *localType,
-                                                   sharding, globalMeshOp)
-                .has_value()) {
-          llvm::errs() << "[DEBUG]   -> SKIP (periodic)\n";
-          return;
-        }
-        llvm::errs() << "[DEBUG]   -> REPLICATE (non-periodic, non-splat)\n";
-      }
+      llvm::errs() << "[DEBUG]   -> REPLICATE (non-periodic, non-splat)\n";
 
       // This constant is non-splat and non-periodic: it cannot be sharded
       // in SPMD. Change its sharding to fully replicated so that
