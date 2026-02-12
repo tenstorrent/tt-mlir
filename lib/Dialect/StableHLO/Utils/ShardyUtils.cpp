@@ -989,50 +989,20 @@ std::optional<mlir::DenseElementsAttr> tryGetPeriodicShardSlice(
   auto globalShape = oldType.getShape();
   int64_t rank = static_cast<int64_t>(globalShape.size());
 
-  llvm::errs() << "[DEBUG] tryGetPeriodicShardSlice ENTER\n";
-  llvm::errs() << "[DEBUG]   globalType: " << oldType << "\n";
-  llvm::errs() << "[DEBUG]   localType:  " << localType << "\n";
-  llvm::errs() << "[DEBUG]   sharding:   " << sharding << "\n";
-  llvm::errs() << "[DEBUG]   globalShape: [";
-  for (auto [i, d] : llvm::enumerate(globalShape)) {
-    if (i > 0)
-      llvm::errs() << ", ";
-    llvm::errs() << d;
-  }
-  llvm::errs() << "]\n";
-  llvm::errs() << "[DEBUG]   numElements(global): " << oldType.getNumElements()
-               << ", numElements(local): " << localType.getNumElements()
-               << "\n";
-  llvm::errs() << "[DEBUG]   isSplat: "
-               << (globalAttr.isSplat() ? "true" : "false") << "\n";
-  // Print mesh info.
-  llvm::errs() << "[DEBUG]   mesh axes: [";
-  for (auto [i, meshAxis] : llvm::enumerate(meshOp.getMesh().getAxes())) {
-    if (i > 0)
-      llvm::errs() << ", ";
-    llvm::errs() << meshAxis.getName() << "=" << meshAxis.getSize();
-  }
-  llvm::errs() << "]\n";
-  // Print per-dim sharding detail.
-  for (auto [dimIdx, dimSharding] :
-       llvm::enumerate(sharding.getDimShardings())) {
-    llvm::errs() << "[DEBUG]   dim[" << dimIdx << "] axes: [";
-    for (auto [ai, axis] : llvm::enumerate(dimSharding.getAxes())) {
-      if (ai > 0)
-        llvm::errs() << ", ";
-      llvm::errs() << "\"" << axis.getName() << "\"";
-    }
-    llvm::errs() << "] isClosed=" << dimSharding.getIsClosed() << "\n";
-  }
-
-  // 1. Collect ALL sharded dimensions and their shard counts.
-  //    A dimension may have multiple axes (e.g. {"_axis_0", "_axis_1"}),
-  //    in which case its total shard count is the product of the axis sizes.
+  // Collect all sharded dimensions and their shard counts.
+  // Only one axis per dimension is supported (multi-axis-per-dim returns
+  // nullopt).
   struct ShardedDimInfo {
     int64_t dimIdx;
     int64_t numShards;
   };
   llvm::SmallVector<ShardedDimInfo> shardedDims;
+
+  // Build axis-name to size map for O(1) lookup.
+  llvm::StringMap<int64_t> axisNameToSize;
+  for (auto meshAxis : meshOp.getMesh().getAxes()) {
+    axisNameToSize[meshAxis.getName()] = meshAxis.getSize();
+  }
 
   llvm::ArrayRef<mlir::sdy::DimensionShardingAttr> dimShardings =
       sharding.getDimShardings();
@@ -1043,42 +1013,29 @@ std::optional<mlir::DenseElementsAttr> tryGetPeriodicShardSlice(
       continue;
     }
 
-    // Compute total shard count for this dimension (product of all axis sizes).
-    int64_t dimShardCount = 1;
-    for (auto axisRef : axisRefs) {
-      auto axisName = axisRef.getName();
-      for (auto meshAxis : meshOp.getMesh().getAxes()) {
-        if (meshAxis.getName() == axisName) {
-          dimShardCount *= meshAxis.getSize();
-          break;
-        }
-      }
+    // Multi-axis-per-dim not supported for periodic slicing.
+    if (axisRefs.size() > 1) {
+      return std::nullopt;
     }
-    if (dimShardCount > 1) {
-      shardedDims.push_back(
-          {static_cast<int64_t>(dimIdx), dimShardCount});
-    }
-  }
 
-  llvm::errs() << "[DEBUG]   shardedDims: [";
-  for (auto [i, sd] : llvm::enumerate(shardedDims)) {
-    if (i > 0)
-      llvm::errs() << ", ";
-    llvm::errs() << "(dim=" << sd.dimIdx << ", shards=" << sd.numShards << ")";
+    auto it = axisNameToSize.find(axisRefs[0].getName());
+    if (it == axisNameToSize.end()) {
+      return std::nullopt;
+    }
+
+    int64_t dimShardCount = it->second;
+    if (dimShardCount > 1) {
+      shardedDims.push_back({static_cast<int64_t>(dimIdx), dimShardCount});
+    }
   }
-  llvm::errs() << "]\n";
 
   if (shardedDims.empty()) {
-    llvm::errs() << "[DEBUG]   -> RETURN nullopt (no sharded dims found)\n";
     return std::nullopt;
   }
 
-  // 2. Verify periodicity independently along EACH sharded dimension.
-  //    Mathematical justification: if data is periodic along dim A with period
-  //    La, AND periodic along dim B with period Lb, then any shard (ka, kb)
-  //    matches shard (0,0) because:
-  //      val[i_a + ka*La][i_b + kb*Lb] = val[i_a][i_b + kb*Lb]  (dim-A period)
-  //                                    = val[i_a][i_b]           (dim-B period)
+  // Verify periodicity independently along each sharded dimension.
+  // If data is periodic along dim A with period La AND periodic along dim B
+  // with period Lb, then any shard (ka, kb) matches shard (0, 0).
   auto globalValues = globalAttr.getValues<mlir::Attribute>();
 
   for (auto &sd : shardedDims) {
@@ -1088,9 +1045,6 @@ std::optional<mlir::DenseElementsAttr> tryGetPeriodicShardSlice(
     int64_t shardDimSize = totalDimSize / numShards;
 
     if (totalDimSize % numShards != 0) {
-      llvm::errs() << "[DEBUG]   -> RETURN nullopt (dim " << shardingDim
-                   << " size " << totalDimSize << " not divisible by "
-                   << numShards << ")\n";
       return std::nullopt;
     }
 
@@ -1107,15 +1061,6 @@ std::optional<mlir::DenseElementsAttr> tryGetPeriodicShardSlice(
     int64_t shardStep = shardDimSize * innerBlockSize;
     int64_t rowSize = totalDimSize * innerBlockSize;
 
-    llvm::errs() << "[DEBUG]   checking periodicity for dim " << shardingDim
-                 << ": totalDimSize=" << totalDimSize
-                 << " shardDimSize=" << shardDimSize
-                 << " numShards=" << numShards
-                 << " innerBlockSize=" << innerBlockSize
-                 << " outerCount=" << outerCount
-                 << " shardStep=" << shardStep << " rowSize=" << rowSize
-                 << "\n";
-
     for (int64_t out = 0; out < outerCount; ++out) {
       int64_t rowStart = out * rowSize;
 
@@ -1126,33 +1071,16 @@ std::optional<mlir::DenseElementsAttr> tryGetPeriodicShardSlice(
             int64_t offsetK = offset0 + (k * shardStep);
 
             if (globalValues[offset0] != globalValues[offsetK]) {
-              llvm::errs()
-                  << "[DEBUG]   -> RETURN nullopt (periodicity FAILED on dim "
-                  << shardingDim << " at out=" << out << " k=" << k
-                  << " s=" << s << " inner=" << inner
-                  << " offset0=" << offset0 << " offsetK=" << offsetK << ")\n";
-              llvm::errs() << "[DEBUG]     val[offset0]=";
-              globalValues[offset0].print(llvm::errs());
-              llvm::errs() << " val[offsetK]=";
-              globalValues[offsetK].print(llvm::errs());
-              llvm::errs() << "\n";
               return std::nullopt;
             }
           }
         }
       }
     }
-
-    llvm::errs() << "[DEBUG]   periodicity PASSED for dim " << shardingDim
-                 << "\n";
   }
 
-  llvm::errs() << "[DEBUG]   ALL dimensions periodic — extracting shard 0\n";
-
-  // 3. Extract shard 0 across all sharded dimensions.
-  //    For shard 0, local indices map directly to global indices.
-  //    We iterate over the local shape and compute the flat global index
-  //    using global strides.
+  // Extract shard 0 across all sharded dimensions.
+  // For shard 0, local indices map directly to global indices.
   auto localShape = localType.getShape();
 
   // Compute global strides (row-major).
@@ -1170,7 +1098,6 @@ std::optional<mlir::DenseElementsAttr> tryGetPeriodicShardSlice(
   llvm::SmallVector<int64_t> localIndices(rank, 0);
 
   for (int64_t elem = 0; elem < numLocalElements; ++elem) {
-    // Compute flat global index (shard 0: local indices == global indices).
     int64_t globalFlatIdx = 0;
     for (int64_t d = 0; d < rank; ++d) {
       globalFlatIdx += localIndices[d] * globalStrides[d];
@@ -1187,11 +1114,6 @@ std::optional<mlir::DenseElementsAttr> tryGetPeriodicShardSlice(
       localIndices[d] = 0;
     }
   }
-
-  llvm::errs() << "[DEBUG]   newValues.size()=" << newValues.size()
-               << " localType.numElements()=" << localType.getNumElements()
-               << "\n";
-  llvm::errs() << "[DEBUG]   -> RETURN periodic slice OK\n";
 
   return mlir::DenseElementsAttr::get(localType, newValues);
 }
