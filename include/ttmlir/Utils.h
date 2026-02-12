@@ -17,6 +17,7 @@
 #include "llvm/Support/LineIterator.h"
 #include "llvm/Support/MemoryBuffer.h"
 
+#include <cassert>
 #include <cstdint>
 #include <numeric>
 #include <tuple>

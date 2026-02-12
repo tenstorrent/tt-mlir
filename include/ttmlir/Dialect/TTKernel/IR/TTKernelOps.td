@@ -692,31 +692,16 @@ def TTKernel_WhereTileOp : TTKernel_SFPUOp<"where_tile", [TTKernel_TernaryOpTrai
       The DST register buffer must be in acquired state via *acquire_dst* call.
     }];
 
-    let arguments = (ins IndexLike:$dst_cond_index, IndexLike:$dst_true_index, IndexLike:$dst_false_index, IndexLike:$odst_index);
+    let arguments = (ins IndexLike:$dst_cond_index,
+                         IndexLike:$dst_true_index,
+                         IndexLike:$dst_false_index,
+                         IndexLike:$odst_index,
+                         TTCore_DataTypeAttr:$dtype);
 
     let assemblyFormat = [{
-      `(` $dst_cond_index `,` $dst_true_index `,` $dst_false_index `,` $odst_index `)` attr-dict `:` functional-type(operands, results)
+      `(` $dst_cond_index `,` $dst_true_index `,` $dst_false_index `,` $odst_index `,` $dtype `)` attr-dict `:` functional-type(operands, results)
     }];
 }
-
-def TTKernel_WhereTileF32Op : TTKernel_SFPUOp<"where_fp32_tile", [TTKernel_TernaryOpTrait]> {
-    let summary = "Conditional selection operation";
-    let description = [{
-      Performs element-wise conditional selection
-      DST[odst_index] <- condition ? DST[dst_true_index] : DST[dst_false_index]
-      For each element, if condition is non-zero, selects from dst_true_index,
-      otherwise selects from dst_false_index.
-      The DST register buffer must be in acquired state via *acquire_dst* call.
-    }];
-
-    let arguments = (ins IndexLike:$dst_cond_index, IndexLike:$dst_true_index, IndexLike:$dst_false_index, IndexLike:$odst_index);
-
-    let assemblyFormat = [{
-      `(` $dst_cond_index `,` $dst_true_index `,` $dst_false_index `,` $odst_index `)` attr-dict `:` functional-type(operands, results)
-    }];
-}
-
-
 
 def TTKernel_AddBinaryTilesInitOp : TTKernel_InitOp<"add_binary_tile_init"> {
     let summary = "Short init function";
@@ -856,10 +841,13 @@ def TTKernel_BitwiseAndBinaryTilesOp : TTKernel_SFPUOp<"bitwise_and_binary_tile"
       acquired state via *tile_regs_acquire* call.
     }];
 
-    let arguments = (ins IndexLike:$dst0_index, IndexLike:$dst1_index, IndexLike:$odst_index);
+    let arguments = (ins IndexLike:$dst0_index,
+                         IndexLike:$dst1_index,
+                         IndexLike:$odst_index,
+                         TTCore_DataTypeAttr:$dtype);
 
     let assemblyFormat = [{
-      `(` $dst0_index `,` $dst1_index `,` $odst_index `)` attr-dict `:` functional-type(operands, results)
+      `(` $dst0_index `,` $dst1_index `,` $odst_index `,` $dtype `)` attr-dict `:` functional-type(operands, results)
     }];
 }
 
@@ -872,10 +860,13 @@ def TTKernel_BitwiseOrBinaryTilesOp : TTKernel_SFPUOp<"bitwise_or_binary_tile", 
       acquired state via *tile_regs_acquire* call.
     }];
 
-    let arguments = (ins IndexLike:$dst0_index, IndexLike:$dst1_index, IndexLike:$odst_index);
+    let arguments = (ins IndexLike:$dst0_index,
+                         IndexLike:$dst1_index,
+                         IndexLike:$odst_index,
+                         TTCore_DataTypeAttr:$dtype);
 
     let assemblyFormat = [{
-      `(` $dst0_index `,` $dst1_index `,` $odst_index `)` attr-dict `:` functional-type(operands, results)
+      `(` $dst0_index `,` $dst1_index `,` $odst_index `,` $dtype `)` attr-dict `:` functional-type(operands, results)
     }];
 }
 
@@ -888,10 +879,13 @@ def TTKernel_BitwiseXorBinaryTilesOp : TTKernel_SFPUOp<"bitwise_xor_binary_tile"
       acquired state via *tile_regs_acquire* call.
     }];
 
-    let arguments = (ins IndexLike:$dst0_index, IndexLike:$dst1_index, IndexLike:$odst_index);
+    let arguments = (ins IndexLike:$dst0_index,
+                         IndexLike:$dst1_index,
+                         IndexLike:$odst_index,
+                         TTCore_DataTypeAttr:$dtype);
 
     let assemblyFormat = [{
-      `(` $dst0_index `,` $dst1_index `,` $odst_index `)` attr-dict `:` functional-type(operands, results)
+      `(` $dst0_index `,` $dst1_index `,` $odst_index `,` $dtype `)` attr-dict `:` functional-type(operands, results)
     }];
 }
 
@@ -2204,6 +2198,53 @@ def TTKernel_ExperimentalUntilizeBlockOp : TTKernel_Op<"experimental::untilize_b
     }];
 }
 
+def TTKernel_ExperimentalTileFillOp : TTKernel_SFPUOp<"experimental::tile_fill", [TTKernel_UnaryOpTrait]> {
+    let summary = "Experimental Tile Fill Op";
+    let description = [{
+      Creates a tile in DST filled with a constant scalar value. All elements in the
+      resulting tile will have the same value as the input scalar. The DST register
+      buffer must be in acquired state via *tile_regs_acquire* call. This call is
+      blocking and is only available on the compute engine.
+    }];
+
+    let arguments = (ins IndexLike:$dst_index, F32:$value);
+
+    let assemblyFormat = [{
+      `(` $dst_index `,` $value `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_ExperimentalWriteRowMaskTileOp : TTKernel_Op<"experimental::write_row_mask_tile"> {
+    let summary = "Experimental Write Row Mask Tile Op";
+    let description = [{
+      Writes a row mask tile pattern to a CB, where element[i,j] = 1.0 if i < validRows, else 0.0.
+      This is used in dataflow kernels to generate OOB mask tiles directly in L1 memory,
+      avoiding DST register pressure in the compute kernel.
+    }];
+
+    let arguments = (ins I32:$validRows, TTKernel_CB:$cb);
+
+    let assemblyFormat = [{
+      `(` $validRows `,` $cb `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_ExperimentalWriteColMaskTileOp : TTKernel_Op<"experimental::write_col_mask_tile"> {
+    let summary = "Experimental Write Col Mask Tile Op";
+    let description = [{
+      Writes a column mask tile pattern to a CB, where element[i,j] = 1.0 if j < validCols, else 0.0.
+      This is used in dataflow kernels to generate OOB mask tiles directly in L1 memory,
+      avoiding DST register pressure in the compute kernel.
+    }];
+
+    let arguments = (ins I32:$validCols, TTKernel_CB:$cb);
+
+    let assemblyFormat = [{
+      `(` $validCols `,` $cb `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+
 def TTKernel_UntilizeInitOp : TTKernel_Op<"untilize_init"> {
     let summary = "UntilizeInitOp call.";
     let description = [{
@@ -2911,6 +2952,20 @@ def TTKernel_FabricWriteOp : TTKernel_Op<"experimental::fabric_fast_write_any_le
 
   let assemblyFormat = [{
     `(` $fabric_connection_manager `,` $dst_mesh_id `,` $dst_dev_id `,` $dst_addr `,` $src_addr `,` $len_bytes `)` attr-dict `:` functional-type(operands, results)
+  }];
+}
+
+def TTKernel_FabricMulticastWriteOp : TTKernel_Op<"experimental::fabric_mcast_fast_write_any_len"> {
+  let summary = "FabricMulticastWriteOp";
+  let description = [{
+    FabricMulticastWriteOp
+  }];
+
+  let arguments = (ins TTKernel_FabricConnectionManager:$fabric_connection_manager, I16:$dst_mesh_id, I16:$dst_dev_id_start, I16:$dst_dev_id_end, TTKernel_NocAddr:$dst_addr, I32:$src_addr, I32:$len_bytes);
+  let results = (outs);
+
+  let assemblyFormat = [{
+    `(` $fabric_connection_manager `,` $dst_mesh_id `,` $dst_dev_id_start `,` $dst_dev_id_end `,` $dst_addr `,` $src_addr `,` $len_bytes `)` attr-dict `:` functional-type(operands, results)
   }];
 }
 

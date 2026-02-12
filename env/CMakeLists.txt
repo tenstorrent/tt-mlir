@@ -51,7 +51,8 @@ if(TTMLIR_BUILD_LLVM)
     ExternalProject_Add(
         llvm-project
         # Super hacky way to install the python dependencies before the build
-        PATCH_COMMAND bash -c "source ${CMAKE_CURRENT_SOURCE_DIR}/activate && pip install -r mlir/python/requirements.txt"
+        # Sync nanobind with tt-metal's pinned version to avoid ODR violations
+        PATCH_COMMAND bash -c "source ${CMAKE_CURRENT_SOURCE_DIR}/activate && pip install -r mlir/python/requirements.txt && pip install --force-reinstall 'nanobind==2.10.2'"
         CMAKE_GENERATOR Ninja
         CMAKE_ARGS
         -DCMAKE_BUILD_TYPE=${LLVM_BUILD_TYPE}
@@ -60,7 +61,7 @@ if(TTMLIR_BUILD_LLVM)
         -DCMAKE_INSTALL_PREFIX=${TTMLIR_TOOLCHAIN_DIR}
         -DCMAKE_C_COMPILER=clang
         -DCMAKE_CXX_COMPILER=clang++
-        -DLLVM_ENABLE_PROJECTS=mlir
+        -DLLVM_ENABLE_PROJECTS=mlir,lld
         -DLLVM_INSTALL_UTILS=ON
         -DLLVM_INSTALL_GTEST=ON
         -DLLVM_ENABLE_ASSERTIONS=ON

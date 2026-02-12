@@ -131,6 +131,44 @@ static bool isElementwiseFusable(OpOperand *fusionTargetOperand,
     return false;
   }
 
+  // Check that the producer's result is only used by the consumer
+  // Count external users (users outside producer's own regions and outside
+  // consumer's regions).
+  for (auto result : producer->getResults()) {
+    unsigned numExternalUsers = 0;
+    for (auto *user : result.getUsers()) {
+      // Skip users inside the producer's own regions.
+      if (producer.getOperation()->isProperAncestor(user)) {
+        continue;
+      }
+      // Skip users inside the consumer's regions (e.g., remote_load
+      // operations).
+      if (consumer.getOperation()->isProperAncestor(user)) {
+        continue;
+      }
+      numExternalUsers++;
+    }
+    // Producer result should only be used by the consumer.
+    if (numExternalUsers != 1) {
+      return false;
+    }
+    // Verify the single external user is indeed the consumer operation itself.
+    bool foundConsumerAsUser = false;
+    for (auto *user : result.getUsers()) {
+      if (!producer.getOperation()->isProperAncestor(user) &&
+          !consumer.getOperation()->isProperAncestor(user)) {
+        if (user == consumer.getOperation()) {
+          foundConsumerAsUser = true;
+        } else {
+          return false;
+        }
+      }
+    }
+    if (!foundConsumerAsUser) {
+      return false;
+    }
+  }
+
   if (checkConsumer && !isValidElementwiseFusionTarget(consumer)) {
     return false;
   }
@@ -237,7 +275,7 @@ static GenericOp createFusedGeneric(OpOperand *fusedOperand, GenericOp producer,
       consumer.getLoc(), fusedResultTypes, fusedInputs, fusedOutputs,
       consumer.getGrid(), consumer.getBlockFactors(),
       rewriter.getAffineMapArrayAttr(fusedMaps), consumer.getIteratorTypes(),
-      consumer.getThreads(), /*regions=*/1);
+      consumer.getThreads(), consumer.getScratchInputsAttr(), /*regions=*/1);
 
   /////////////////////////////////////////////////////////////////////////////
   // Map the block arguments of the fusedOp
@@ -341,10 +379,25 @@ static GenericOp createFusedGeneric(OpOperand *fusedOperand, GenericOp producer,
   // consumer.
   rewriter.setInsertionPointToEnd(&fusedBlock);
 
-  // Clone producer body (skip explicit d2m.yield if present).
+  // Clone producer body (skip explicit d2m.yield and remote_store to output).
   for (Operation &op : pb) {
     if (isa<YieldOp>(op)) {
       continue;
+    }
+    // Skip remote_store operations that store to the producer's output operand
+    // The producer's output is now an intermediate value, not a real output.
+    if (auto storeOp = dyn_cast<d2m::RemoteStoreOp>(&op)) {
+      Value storeMemref = storeOp.getMemref();
+      // Check if this is storing to the producer's output/init operand.
+      if (storeMemref == producer.getDpsInitOperand(0)->get()) {
+        // The remote_store result is the updated output tensor. In fusion,
+        // we don't actually store the intermediate result. Map the store result
+        // to the tensor value being stored (the computation result).
+        Value tensorBeingStored = storeOp.getLocalBuffer();
+        Value mappedTensor = irMap.lookupOrDefault(tensorBeingStored);
+        irMap.map(storeOp.getResult(), mappedTensor);
+        continue;
+      }
     }
     rewriter.clone(op, irMap);
   }
@@ -365,12 +418,11 @@ static GenericOp createFusedGeneric(OpOperand *fusedOperand, GenericOp producer,
   // operation result or a mapped block argument.
   Value repl = irMap.lookupOrDefault(prodYieldOperand);
 
-  // Map consumer arg corresponding to fused operand number to repl.
-  // If `repl` is a tensor, and consumer block arg is tensor, direct map.
-  // If consumer expects a tensor but repl is produced by inner ops,
-  // ensure we cloned those inner ops already (we did by cloning pb body),
-  // so `repl` dominates this point.
-  irMap.map(cb.getArgument(fusedOperand->getOperandNumber()), repl);
+  // NOTE: We do NOT map the consumer's CB block argument here. The CB block arg
+  // is only used as a parameter to remote_load operations. We will handle the
+  // remote_load specially below (skip it and map its result to repl).
+  // Storing repl for later use when we skip the consumer's remote_load:
+  Value producerYieldedValue = repl;
 
   // Clone remaining consumer body ops (except terminator). Treat nested
   // operations opaquely; cloning preserves dominance as long as operands
@@ -443,6 +495,18 @@ static GenericOp createFusedGeneric(OpOperand *fusedOperand, GenericOp producer,
       Value cbOperand = irMap.lookupOrDefault(waitOp.getCb());
       if (cbOperand && !mlir::isa<BlockArgument>(cbOperand)) {
         irMap.map(waitOp.getResult(), cbOperand);
+        continue;
+      }
+    }
+
+    // Handle remote_load operations - skip if loading from the fused operand
+    // (producer's result), since the producer's computation is now inline.
+    if (auto loadOp = dyn_cast<d2m::RemoteLoadOp>(&op)) {
+      // Check if this remote_load is loading from the producer's result
+      // (the fusedOperand value).
+      if (loadOp.getMemref() == fusedOperand->get()) {
+        // Map the remote_load result directly to the producer's yielded value.
+        irMap.map(loadOp.getResult(), producerYieldedValue);
         continue;
       }
     }

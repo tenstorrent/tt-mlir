@@ -813,14 +813,11 @@ convertXlaSdyToSdyDictionary(mlir::MLIRContext *context,
     llvm::SmallVector<mlir::sdy::DimensionShardingAttr> dimShardings =
         parseDimensionShardings(dimsContent, context);
 
-    if (!dimShardings.empty()) {
-      mlir::sdy::TensorShardingAttr sharding =
-          mlir::sdy::TensorShardingAttr::get(context, meshName, dimShardings,
-                                             {}, {});
-      newArgAttrs.emplace_back(
-          mlir::StringAttr::get(context, mlir::sdy::TensorShardingAttr::name),
-          sharding);
-    }
+    mlir::sdy::TensorShardingAttr sharding = mlir::sdy::TensorShardingAttr::get(
+        context, meshName, dimShardings, {}, {});
+    newArgAttrs.emplace_back(
+        mlir::StringAttr::get(context, mlir::sdy::TensorShardingAttr::name),
+        sharding);
   }
 
   return mlir::DictionaryAttr::get(context, newArgAttrs);
@@ -982,6 +979,144 @@ convertCustomCallToShardingConstraint(mlir::ModuleOp &rootModule,
   }
 
   return mlir::success();
+}
+
+std::optional<mlir::DenseElementsAttr> tryGetPeriodicShardSlice(
+    mlir::DenseElementsAttr globalAttr, mlir::RankedTensorType localType,
+    mlir::sdy::TensorShardingAttr sharding, mlir::sdy::MeshOp meshOp) {
+
+  auto oldType = mlir::cast<mlir::RankedTensorType>(globalAttr.getType());
+  auto globalShape = oldType.getShape();
+
+  // 1. Identify Sharding Dimension & Count
+  int64_t shardingDim = -1;
+  int64_t numShards = 1;
+
+  // We assume single-axis sharding for this optimization
+  llvm::ArrayRef<mlir::sdy::DimensionShardingAttr> dimShardings =
+      sharding.getDimShardings();
+
+  for (auto [dimIdx, dimSharding] : llvm::enumerate(dimShardings)) {
+    auto axisRefs = dimSharding.getAxes();
+    if (!axisRefs.empty()) {
+      shardingDim = dimIdx;
+      auto axisName = axisRefs[0].getName();
+
+      for (auto meshAxis : meshOp.getMesh().getAxes()) {
+        if (meshAxis.getName() == axisName) {
+          numShards = meshAxis.getSize();
+          break;
+        }
+      }
+      break;
+    }
+  }
+
+  // If no valid sharding found, we cannot proceed
+  if (shardingDim == -1 || numShards <= 1) {
+    return std::nullopt;
+  }
+
+  // 2. Pre-calculate Dimensions and Strides
+  int64_t totalDimSize = globalShape[shardingDim];
+  int64_t shardDimSize = totalDimSize / numShards;
+
+  int64_t innerBlockSize = 1;
+  for (int64_t i = shardingDim + 1;
+       i < static_cast<int64_t>(globalShape.size()); ++i) {
+    innerBlockSize *= globalShape[i];
+  }
+
+  int64_t outerCount = 1;
+  for (int64_t i = 0; i < shardingDim; ++i) {
+    outerCount *= globalShape[i];
+  }
+
+  // 3. Verify Periodicity
+  // We check if Shard K (k=1..N) contains the same data as Shard 0
+  auto globalValues = globalAttr.getValues<mlir::Attribute>();
+  int64_t shardStep = shardDimSize * innerBlockSize;
+  int64_t rowSize = totalDimSize * innerBlockSize;
+
+  for (int64_t out = 0; out < outerCount; ++out) {
+    int64_t rowStart = out * rowSize;
+
+    for (int64_t k = 1; k < numShards; ++k) {
+      // Compare Shard 0 vs Shard K block by block
+      for (int64_t s = 0; s < shardDimSize; ++s) {
+        for (int64_t inner = 0; inner < innerBlockSize; ++inner) {
+          int64_t offset0 = rowStart + (s * innerBlockSize) + inner;
+          int64_t offsetK = offset0 + (k * shardStep);
+
+          if (globalValues[offset0] != globalValues[offsetK]) {
+            return std::nullopt; // Verification failed: Data is different
+          }
+        }
+      }
+    }
+  }
+
+  // 4. Construct New Attribute (Slice 0)
+  // Since verification passed, we copy only the data for Shard 0
+  std::vector<mlir::Attribute> newValues;
+  newValues.reserve(localType.getNumElements());
+
+  for (int64_t out = 0; out < outerCount; ++out) {
+    int64_t rowStart = out * rowSize;
+
+    // Only iterate over the first shard (s < shardDimSize)
+    for (int64_t s = 0; s < shardDimSize; ++s) {
+      for (int64_t inner = 0; inner < innerBlockSize; ++inner) {
+        int64_t idx = rowStart + (s * innerBlockSize) + inner;
+        newValues.push_back(globalValues[idx]);
+      }
+    }
+  }
+
+  return mlir::DenseElementsAttr::get(localType, newValues);
+}
+
+// Check if the operation has Shardy-sharded inputs or outputs.
+// Note: This only detects Shardy TensorShardingAttrs, not legacy GSPMD
+// mhlo.sharding attributes. Should be called after ConvertXlaSdyToSdyPass.
+bool opHasShardySharding(mlir::Operation *op) {
+  // Get the module op to check for mesh ops.
+  mlir::ModuleOp moduleOp = op->getParentOfType<mlir::ModuleOp>();
+  if (!moduleOp) {
+    return false;
+  }
+
+  // Get mesh ops from the module.
+  llvm::SmallVector<mlir::sdy::MeshOp> meshOps = getMeshOps(moduleOp);
+
+  // If no mesh ops exist, there's no sharding.
+  if (meshOps.empty()) {
+    return false;
+  }
+
+  mlir::sdy::MeshOp globalMeshOp = meshOps[0];
+
+  // Check if any input operands are sharded.
+  for (mlir::OpOperand &operand : op->getOpOperands()) {
+    mlir::sdy::TensorShardingAttr shardingAttr =
+        getOperandShardingAttr(operand, globalMeshOp);
+    if (!isFullyReplicatedTensor(shardingAttr)) {
+      return true;
+    }
+  }
+
+  // Check if any output results are sharded.
+  if (auto shardingPerValue =
+          op->getAttrOfType<mlir::sdy::TensorShardingPerValueAttr>(
+              mlir::sdy::TensorShardingAttr::name)) {
+    for (auto shardingAttr : shardingPerValue.getShardings()) {
+      if (!isFullyReplicatedTensor(shardingAttr)) {
+        return true;
+      }
+    }
+  }
+
+  return false;
 }
 
 #endif // #ifdef TTMLIR_ENABLE_STABLEHLO

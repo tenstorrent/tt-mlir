@@ -365,4 +365,28 @@ def TTNN_PlacementType : I32EnumAttr<"PlacementType", "TTNN Placement Type",
   let cppNamespace = "::mlir::tt::ttnn";
 }
 
+def TTNN_NocIndexNoc0 : I32EnumAttrCase<"Noc0", 0, "noc0">;
+def TTNN_NocIndexNoc1 : I32EnumAttrCase<"Noc1", 1, "noc1">;
+
+def TTNN_NocIndex : I32EnumAttr<"NocIndex", "TT NocIndex",
+                           [
+                            TTNN_NocIndexNoc0,
+                            TTNN_NocIndexNoc1,
+                           ]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::mlir::tt::ttnn";
+}
+
+def TTNN_RoutingModeBidirLineMesh : I32EnumAttrCase<"BidirLineMesh", 0, "bidir_line_mesh">;
+def TTNN_RoutingModeUnidirRingTorus : I32EnumAttrCase<"UnidirRingTorus", 1, "unidir_ring_torus">;
+
+def TTNN_RoutingMode : I32EnumAttr<"RoutingMode", "TT RoutingMode",
+                           [
+                            TTNN_RoutingModeBidirLineMesh,
+                            TTNN_RoutingModeUnidirRingTorus,
+                           ]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::mlir::tt::ttnn";
+}
+
 #endif

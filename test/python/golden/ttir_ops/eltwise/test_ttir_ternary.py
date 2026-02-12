@@ -178,3 +178,60 @@ def test_clamp_scalar(
         system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
     )
+
+
+@x86_only
+@pytest.mark.parametrize("shape", [(64, 128)], ids=shape_str)
+@pytest.mark.parametrize("max_arg,min_arg", [(0.8, -0.5)])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+def test_hoisted_clamp_scalar(
+    shape: Shape, max_arg: float, min_arg: float, target: str, request, device
+):
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [torch.float32])
+        def hoisted_clamp_scalar(
+            in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+        ):
+            # Set input values explicitly in range [-1, 1]
+            input_tensor = torch.rand(shape, dtype=torch.float32) * 2 - 1
+            builder.set_goldens(inputs={in0: input_tensor})
+            return builder.clamp_scalar(
+                in0,
+                max_arg=max_arg,
+                min_arg=min_arg,
+                unit_attrs=["ttir.should_hoist"],
+            )
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+    )
+
+
+# 1D tensor test for ttmetal
+@pytest.mark.parametrize("shape", [(128,)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_1d(shape: Shape, dtype: torch.dtype, target: str, request, device):
+    def module(builder: TTIRBuilder):
+        @builder.func([shape, shape, shape], [dtype, dtype, dtype])
+        def ternary_1d(
+            in0: Operand,
+            in1: Operand,
+            in2: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            # in0 is the condition tensor, should be filled with 0s or 1s
+            condition_tensor = torch.randint(0, 2, shape, dtype=dtype)
+            builder.set_goldens(inputs={in0: condition_tensor})
+            return builder.where(in0, in1, in2, unit_attrs=unit_attrs)
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+    )

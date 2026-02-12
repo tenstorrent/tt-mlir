@@ -89,7 +89,6 @@ export LD_LIBRARY_PATH="$INSTALL_DIR/tools/tt-alchemist/test:$INSTALL_DIR/lib:$I
 export PYTHONPATH="$INSTALL_DIR/tools/tt-alchemist/test:$INSTALL_DIR/tt-metal/ttnn:$INSTALL_DIR/tt-metal:${PYTHONPATH:-}"
 cd "$INSTALL_DIR/tools/tt-alchemist/test"
 
-
 echo "Run test_python_runner_simple"
 ./test_python_runner_simple
 
