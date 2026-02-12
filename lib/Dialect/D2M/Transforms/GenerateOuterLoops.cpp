@@ -2,10 +2,10 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
-#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/IR/AffineExpr.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
@@ -57,23 +57,43 @@ public:
     return loops;
   }
 
-  static void replaceIndexOpUses(PatternRewriter &rewriter, Location loc,
-                                 SmallVector<affine::AffineForOp> &loops,
-                                 GenericOp generic) {
-    // NOTE: BlockIndexOp is NOT lowered here - it will be lowered in a later
-    // pass that has access to the full context needed for proper index
-    // computation.
+  static void rewriteBlockIndexOps(PatternRewriter &rewriter, Location loc,
+                                   GenericOp generic) {
+    AffineMap addMap = AffineMap::get(
+        /*dimCount=*/1, /*symbolCount=*/1,
+        rewriter.getAffineDimExpr(0) + rewriter.getAffineSymbolExpr(0),
+        rewriter.getContext());
 
-    // Handle IterIndexOp: simple replacement with loop induction variable
-    loops.back().walk([&](IterIndexOp index) {
-      uint64_t dim = index.getDim();
-      assert(dim < loops.size());
-      affine::AffineForOp loop = loops[dim];
-      Value iterIndex = loop.getInductionVar();
+    SmallVector<BlockIndexOp> blockIndices;
+    generic->walk(
+        [&](BlockIndexOp blockIndex) { blockIndices.push_back(blockIndex); });
 
-      rewriter.setInsertionPoint(index);
-      rewriter.replaceOp(index, iterIndex);
-    });
+    for (BlockIndexOp blockIndex : blockIndices) {
+      rewriter.setInsertionPoint(blockIndex);
+      int64_t dim = blockIndex.getDim();
+      Value offset = rewriter.create<BlockOffsetOp>(loc, dim);
+      Value iterIndex = rewriter.create<IterIndexOp>(loc, dim);
+      Value index = rewriter.create<affine::AffineApplyOp>(
+          loc, addMap, ValueRange{iterIndex, offset});
+      rewriter.replaceOp(blockIndex, index);
+    }
+  }
+
+  static void lowerIterIndexOps(PatternRewriter &rewriter,
+                                SmallVector<affine::AffineForOp> &loops,
+                                GenericOp generic) {
+    SmallVector<IterIndexOp> iterIndices;
+    generic->walk(
+        [&](IterIndexOp iterIndex) { iterIndices.push_back(iterIndex); });
+
+    for (IterIndexOp iterIndex : iterIndices) {
+      uint64_t dim = iterIndex.getDim();
+      TT_assertv(dim < loops.size(),
+                 "iter_index dim {} out of bounds for loop nest size {}", dim,
+                 loops.size());
+      Value loopIv = loops[dim].getInductionVar();
+      rewriter.replaceOp(iterIndex, loopIv);
+    }
   }
 
   LogicalResult matchAndRewrite(GenericOp generic,
@@ -102,7 +122,7 @@ public:
     if (!checkRegion.empty()) {
       Block &checkBlock = checkRegion.front();
       for (Operation &op : checkBlock.getOperations()) {
-        if (auto forOp = dyn_cast<affine::AffineForOp>(&op)) {
+        if (auto forOp = mlir::dyn_cast<affine::AffineForOp>(&op)) {
           if (forOp->hasAttr("d2m.blocking_loop")) {
             return failure();
           }
@@ -142,12 +162,11 @@ public:
                     rewriter.getI64IntegerAttr(static_cast<int64_t>(i)));
     }
 
-    // Replace IterIndexOp uses. We need to do this after the loops are created
-    // but before we replace the generic op, so the operations are created in
-    // the right place. Set insertion point back to the start of loopedBlock
-    // so CoreIndexOp operations are created in the right place.
+    // First rewrite block_index(dim) -> block_offset(dim) + iter_index(dim).
+    // Then lower the iter_index ops to the generated blocking loop IVs.
     rewriter.setInsertionPointToStart(loopedBlock);
-    replaceIndexOpUses(rewriter, generic.getLoc(), loops, loopedGeneric);
+    rewriteBlockIndexOps(rewriter, generic.getLoc(), loopedGeneric);
+    lowerIterIndexOps(rewriter, loops, loopedGeneric);
 
     rewriter.replaceOp(generic, loopedGeneric.getResults());
 
