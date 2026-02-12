@@ -319,6 +319,7 @@ public:
 
     for (auto [i, cb] : llvm::enumerate(cbs)) {
       cb.dump();
+      cb.getDefiningOp()->dump();
       auto cb_memref = dyn_cast<MemRefType>(cb.getType());
       TT_assertv(mlir::isa<ttcore::TileType>(cb_memref.getElementType()),
                  "Only TileType supported.");
@@ -331,7 +332,8 @@ public:
           ttnn::KernelCBFormatAttr::get(ctx, i, dtype, pageSize);
 
       ttnn::KernelCBGlobalBufferAddressOfTensorAttr globalCBIndexOfTensor;
-      if (auto castOp = mlir::dyn_cast_if_present<ttir::TTNNMetalLayoutCastOp>(
+      if (mlir::dyn_cast_if_present<ttir::TTNNMetalLayoutCastOp>(
+              cb.getDefiningOp()) || mlir::dyn_cast_if_present<memref::AllocOp>(
               cb.getDefiningOp())) {
         // Input is not streamed, thus buffer must be aliased.
         TT_assertv(ttcore::getMemorySpace(cb_memref) ==
