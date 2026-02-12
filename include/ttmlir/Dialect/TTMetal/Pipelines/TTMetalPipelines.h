@@ -186,6 +186,14 @@ struct TTIRToTTMetalPipelineOptions
                      "analytical and sampling-based coalescing checks and "
                      "prints debug output comparing them."),
       llvm::cl::init(false)};
+
+  // Option to enable affine loop fusion and scalar replacement passes in the
+  // middleend.
+  Option<bool> enableAffineLoopFusionAndScalarReplacement{
+      *this, "enable-affine-loop-fusion-and-scalar-replacement",
+      llvm::cl::desc(
+          "Enable affine loop fusion and scalar replacement passes."),
+      llvm::cl::init(true)};
 };
 
 void createTTIRBufferizationPipeline(

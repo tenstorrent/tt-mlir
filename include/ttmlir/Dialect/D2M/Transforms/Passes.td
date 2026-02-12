@@ -876,6 +876,10 @@ def D2MGenericAffineScalarReplacement : Pass<"d2m-generic-affine-scalrep", "::ml
     elimination, load CSE) on each func.func in the module. This is useful for
     cleaning up redundant affine loads/stores after loop fusion.
   }];
+  let options = [
+    Option<"enable", "enable", "bool", "true",
+           "Enable scalar replacement; when false, pass early exits as a no-op.">,
+  ];
   let dependentDialects = ["::mlir::tt::d2m::D2MDialect",
                            "::mlir::affine::AffineDialect",
                            "::mlir::func::FuncDialect"];
@@ -888,6 +892,10 @@ def D2MGenericAffineLoopFusion : Pass<"d2m-generic-affine-loop-fusion", "::mlir:
     relationship and fuses them into a single generic with merged affine loop nests.
     Runs after d2m-generate-outer-loops, before allocation.
   }];
+  let options = [
+    Option<"enable", "enable", "bool", "true",
+           "Enable loop fusion; when false, pass early exits as a no-op.">,
+  ];
   let dependentDialects = ["::mlir::tt::d2m::D2MDialect",
                            "::mlir::affine::AffineDialect"];
 }

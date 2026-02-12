@@ -501,11 +501,15 @@ public:
   using D2MGenericAffineLoopFusionBase::D2MGenericAffineLoopFusionBase;
 
   void runOnOperation() final {
+    if (!enable) {
+      return;
+    }
     auto isFusionCandidate = [](GenericOp generic) {
       return generic.isUnifiedForm() &&
              !generic.hasSkipOpAffineLoopFusionTrait();
     };
 
+    // Iteratively fuse pairs of generics until no more can be fused.
     bool changed = true;
     while (changed) {
       changed = false;

@@ -319,6 +319,9 @@ public:
       D2MGenericAffineScalarReplacementBase;
 
   void runOnOperation() final {
+    if (!enable) {
+      return;
+    }
     getOperation()->walk([&](func::FuncOp funcOp) {
       OpBuilder builder(funcOp.getContext());
 
