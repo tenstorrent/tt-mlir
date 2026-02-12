@@ -90,7 +90,7 @@ static bool allLoadsStoreDominated(GenericOp genericOp, Value operandVal,
 static SmallVector<GenericOp> collectFusedGenericOps(func::FuncOp funcOp) {
   SmallVector<GenericOp> genericOps;
   funcOp.walk([&](GenericOp op) {
-    if (op->hasAttr(kAffineFusedAttr)) {
+    if (op->hasAttr(kAffineFusedAttr) && !op.isDMAOnlyForm()) {
       genericOps.push_back(op);
     }
   });

@@ -408,7 +408,7 @@ public:
       return;
     }
     auto isFusionCandidate = [](GenericOp generic) {
-      return generic.isUnifiedForm() &&
+      return generic.isUnifiedForm() && !generic.isDMAOnlyForm() &&
              !generic.hasSkipOpAffineLoopFusionTrait();
     };
 
