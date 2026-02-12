@@ -3251,7 +3251,9 @@ def ttir_constant_golden(value: DenseElementsAttr) -> GoldenMapTensor:
         flat_values = [elem for elem in value]
         torch_tensor = torch.tensor(flat_values, dtype=dtype).reshape(shape)
 
-    return GoldenMapTensor({0: torch_tensor.reshape(shape)}, (1, 1))
+    return GoldenMapTensor(
+        {0: torch_tensor.reshape(shape), 1: torch_tensor.reshape(shape)}, (1, 2)
+    )
 
 
 def ttir_convolution_golden(
@@ -4025,6 +4027,8 @@ def ttir_mesh_shard_golden(
     if shard_direction == ttcore.ir.MeshShardDirection.FullToShard:
         if shard_type == ttcore.ir.MeshShardType.Replicate:
             shard_dims = [None] * len(mesh_shape)
+        # elif shard_type == ttcore.ir.MeshShardType.Identity:
+        #    return input.clone().to(output_dtype)
         return apply_sharding(input, mesh_shape, shard_dims)
     elif shard_direction == ttcore.ir.MeshShardDirection.ShardToFull:
         if shard_type == ttcore.ir.MeshShardType.Replicate:

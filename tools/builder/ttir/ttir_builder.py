@@ -611,6 +611,65 @@ class TTIRBuilder(Builder):
         op_map_dictionary[old_op.result] = new_op_result
         return new_op, op_map_dictionary
 
+    @split(ttir.AllReduceOp)
+    def all_reduce_split(
+        self,
+        old_op: ttir.AllReduceOp,
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(TTIRBuilder.all_reduce_split)
+
+        old_context = old_op.context
+        old_loc = Location.unknown(old_context)
+        with old_context, old_loc:
+            all_reduce_module = Module.create()
+            all_reduce_builder = TTIRBuilder(old_context, old_loc)
+            op_input_types = [old_op.input.type]
+
+            with InsertionPoint(all_reduce_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="all_reduce_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
+
+                    new_op = ttir_op(
+                        result,
+                        in0,
+                        reduce_type=old_op.reduce_type,
+                        cluster_axis=old_op.cluster_axis,
+                        loc=old_op.location,
+                    )
+                    new_op_result = new_op.result
+
+                    if not self._disable_golden_check:
+                        input0 = self._get_golden_tensor(old_op.input)
+                        op_golden_function = get_golden_function(ttir_op)
+                        golden_output = op_golden_function(
+                            input0,
+                            old_op.reduce_type,
+                            old_op.cluster_axis,
+                            result.element_type,
+                        )
+                        all_reduce_builder._set_golden_tensor(
+                            new_op_result, golden_output
+                        )
+                        all_reduce_builder._set_golden_tensor(in0, input0)
+                        ordered_inputs.append(in0)
+                        ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                all_reduce_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return all_reduce_module, all_reduce_builder
+
     ############### ttir.MeshShardOp ###############
 
     @tag(ttir.MeshShardOp)
@@ -716,6 +775,69 @@ class TTIRBuilder(Builder):
         op_map_dictionary = {}
         op_map_dictionary[old_op.result] = new_op_result
         return new_op, op_map_dictionary
+
+    @split(ttir.MeshShardOp)
+    def mesh_shard_split(
+        self,
+        old_op: ttir.MeshShardOp,
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(TTIRBuilder.mesh_shard_split)
+
+        old_context = old_op.context
+        old_loc = Location.unknown(old_context)
+        with old_context, old_loc:
+            mesh_shard_module = Module.create()
+            mesh_shard_builder = TTIRBuilder(old_context, old_loc)
+            op_input_types = [old_op.input.type]
+
+            with InsertionPoint(mesh_shard_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="mesh_shard_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
+
+                    new_op = ttir_op(
+                        result,
+                        in0,
+                        shard_type=old_op.shard_type,
+                        shard_direction=old_op.shard_direction,
+                        shard_shape=old_op.shard_shape,
+                        shard_dims=old_op.shard_dims,
+                        loc=old_op.location,
+                    )
+                    new_op_result = new_op.result
+
+                    if not self._disable_golden_check:
+                        input0 = self._get_golden_tensor(old_op.input)
+                        op_golden_function = get_golden_function(ttir_op)
+                        golden_output = op_golden_function(
+                            input0,
+                            old_op.shard_type,
+                            old_op.shard_direction,
+                            old_op.shard_shape,
+                            old_op.shard_dims,
+                            result.element_type,
+                        )
+                        mesh_shard_builder._set_golden_tensor(
+                            new_op_result, golden_output
+                        )
+                        mesh_shard_builder._set_golden_tensor(in0, input0)
+                        ordered_inputs.append(in0)
+                        ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                mesh_shard_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return mesh_shard_module, mesh_shard_builder
 
     ############### ttir.AllGatherOp ###############
 
@@ -13099,7 +13221,7 @@ class TTIRBuilder(Builder):
     def from_module(
         ctx: Context,
         mlir_text: str,
-        golden_inputs: Dict[str, List[torch.tensor]] = None,
+        golden_inputs: Dict[str, List[Dict[int, torch.tensor]]] = None,
     ) -> Tuple(Module, TTIRBuilder):
         if golden_inputs is None:
             golden_inputs = {}
@@ -13126,6 +13248,11 @@ class TTIRBuilder(Builder):
 
             ttir_builder = TTIRBuilder(ctx, loc, mesh_name, mesh_shape)
             new_module = ttir_builder.parse_root_module(root_module, golden_inputs)
+            new_mesh = ttcore.ir.MeshAttr.get(
+                ttir_builder._ctx, ttir_builder._mesh_name, ttir_builder._mesh_shape
+            )
+            new_meshes = ttcore.ir.MeshesAttr.get(ttir_builder._ctx, [new_mesh])
+            new_module.operation.attributes["ttcore.meshes"] = new_meshes
 
         return new_module, ttir_builder
 
@@ -13165,6 +13292,8 @@ class TTIRBuilder(Builder):
                                             ttir.EmptyOp,
                                         ):
                                             continue
+                                        # elif isinstance(op, ttir.MeshShardOp):
+                                        #    print(f"Skipping op: {type(op)}")
                                         elif isinstance(op, func.CallOp):
                                             sub_op_module_builder = (
                                                 builder.split_call_op(op)
@@ -13174,6 +13303,7 @@ class TTIRBuilder(Builder):
                                                     sub_op_module_builder
                                                 )
                                         else:
+                                            print(type(op))
                                             sub_op_module_builder = builder.split_op(op)
                                             if len(sub_op_module_builder) != 0:
                                                 sub_modules_and_builders.append(
@@ -13190,13 +13320,17 @@ class TTIRBuilder(Builder):
                                 ttir.EmptyOp,
                             ):
                                 continue
+                            # elif isinstance(op, ttir.MeshShardOp):
+                            #    print(f"Skipping op: {type(op)}")
                             elif isinstance(op, func.CallOp):
+                                print(f"Splitting call op: {type(op)}")
                                 sub_op_module_builder = builder.split_call_op(op)
                                 if len(sub_op_module_builder) != 0:
                                     sub_modules_and_builders.append(
                                         sub_op_module_builder
                                     )
                             else:
+                                print(f"Splitting op: {type(op)}")
                                 sub_op_module_builder = builder.split_op(op)
                                 if len(sub_op_module_builder) != 0:
                                     sub_modules_and_builders.append(
