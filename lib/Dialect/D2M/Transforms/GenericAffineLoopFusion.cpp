@@ -14,6 +14,7 @@
 #include "mlir/Dialect/Affine/LoopUtils.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/IRMapping.h"
+#include "mlir/Interfaces/SideEffectInterfaces.h"
 
 #include <optional>
 
@@ -285,16 +286,69 @@ static IRMapping buildFusedBlockArgMapping(GenericOp producer,
   return irMap;
 }
 
+// Recursively clone loop-external, side-effect-free defs into the destination
+// block so cloned loops don't retain uses into soon-to-be-erased regions.  This
+// mainly avoids issues with get_block_factor() ops outside of loop being
+// referenced post fusion.
+static void cloneExternalDefForValue(Value value, affine::AffineForOp loopOp,
+                                     OpBuilder &builder, IRMapping &irMap,
+                                     DenseSet<Operation *> &visited) {
+  Operation *defOp = value.getDefiningOp();
+  if (irMap.contains(value) || !defOp) {
+    return;
+  }
+  bool isLoopExternalDef =
+      defOp->getBlock() == loopOp->getBlock() && defOp->isBeforeInBlock(loopOp);
+  if (!isLoopExternalDef || !visited.insert(defOp).second) {
+    return;
+  }
+
+  // Recursively clone operands of external defs.
+  for (Value operand : defOp->getOperands()) {
+    cloneExternalDefForValue(operand, loopOp, builder, irMap, visited);
+  }
+  if (!mlir::isMemoryEffectFree(defOp)) {
+    return;
+  }
+
+  Operation *cloned = builder.clone(*defOp, irMap);
+  for (auto [oldRes, newRes] :
+       llvm::zip(defOp->getResults(), cloned->getResults())) {
+    irMap.map(oldRes, newRes);
+  }
+}
+
+// Clone values defined outside each loop (e.g. d2m.get_block_factor) into
+// the fused region, so cloned loops do not keep references into operations
+// that will be erased with the original producer/consumer generics.
+static void cloneExternalLoopDefs(affine::AffineForOp loopOp,
+                                  OpBuilder &builder, IRMapping &irMap) {
+  DenseSet<Operation *> visited;
+  loopOp->walk([&](affine::AffineForOp forOp) {
+    for (Value operand : forOp->getOperands()) {
+      cloneExternalDefForValue(operand, loopOp, builder, irMap, visited);
+    }
+  });
+}
+
 // Clone producer/consumer loops and run affine fusion utilities.
 static bool runAffineLoopFusion(GenericOp fusedOp,
                                 affine::AffineForOp producerLoop,
                                 affine::AffineForOp consumerLoop,
                                 unsigned producerDepth, unsigned consumerDepth,
                                 OpBuilder &builder, IRMapping &irMap) {
+  // Insert all newly cloned IR into the fused generic body.
   Block &fusedBlock = fusedOp.getRegion(0).front();
   builder.setInsertionPointToEnd(&fusedBlock);
+
+  // Remap loop-external defs (e.g. block factors) so cloned loops do not
+  // reference values owned by the original producer/consumer regions.
+  cloneExternalLoopDefs(producerLoop, builder, irMap);
+  cloneExternalLoopDefs(consumerLoop, builder, irMap);
+
+  // Clone both loop nests into the fused generic and preserve result remaps.
   affine::AffineForOp clonedProducerLoop =
-      cast<affine::AffineForOp>(builder.clone(*producerLoop, irMap));
+      mlir::cast<affine::AffineForOp>(builder.clone(*producerLoop, irMap));
 
   for (auto [oldRes, newRes] : llvm::zip(producerLoop->getResults(),
                                          clonedProducerLoop->getResults())) {
@@ -302,10 +356,9 @@ static bool runAffineLoopFusion(GenericOp fusedOp,
   }
 
   affine::AffineForOp clonedConsumerLoop =
-      cast<affine::AffineForOp>(builder.clone(*consumerLoop, irMap));
+      mlir::cast<affine::AffineForOp>(builder.clone(*consumerLoop, irMap));
 
-  utils::convertToAffineCompatibilityForm(fusedOp, builder);
-
+  // Treat the deeper nest as fusion source and fuse into the shallower depth.
   bool isProducerSrc = (producerDepth >= consumerDepth);
   affine::AffineForOp srcLoop =
       isProducerSrc ? clonedProducerLoop : clonedConsumerLoop;
@@ -318,14 +371,15 @@ static bool runAffineLoopFusion(GenericOp fusedOp,
       srcLoop, dstLoop, dstLoopDepth, &srcSlice,
       affine::FusionStrategy(affine::FusionStrategy::ProducerConsumer));
   if (result.value != affine::FusionResult::Success) {
+    // Bail out without mutating originals if fusion legality checks fail.
     return false;
   }
 
+  // Fuse loops and erase original source loop nest.
   affine::fuseLoops(srcLoop, dstLoop, srcSlice,
                     /*isInnermostSiblingInsertion=*/false);
   srcLoop->erase();
 
-  utils::convertFromAffineCompatibilityForm(fusedOp, builder);
   return true;
 }
 
@@ -333,7 +387,7 @@ static bool runAffineLoopFusion(GenericOp fusedOp,
 static GenericOp tryFusePair(GenericOp producer, GenericOp consumer,
                              OpOperand *inputOperand, Value sharedMemref,
                              OpBuilder &builder) {
-  // Step 1: Get outermost loops to determine superset/subset.
+  // Get outermost loops to determine superset/subset.
   affine::AffineForOp producerLoop = getOutermostLoop(producer);
   affine::AffineForOp consumerLoop = getOutermostLoop(consumer);
 
@@ -341,7 +395,7 @@ static GenericOp tryFusePair(GenericOp producer, GenericOp consumer,
     return nullptr;
   }
 
-  // Step 2: Determine superset generic (one with deeper loop nesting).
+  // Determine superset generic (one with deeper loop nesting).
   unsigned producerDepth = getOuterLoopDepth(producerLoop);
   unsigned consumerDepth = getOuterLoopDepth(consumerLoop);
 
@@ -355,11 +409,12 @@ static GenericOp tryFusePair(GenericOp producer, GenericOp consumer,
     return nullptr;
   }
 
+  // Build fused generic op signature (inputs, outputs, indexing maps, etc).
   FusedOperandInfo fusedInfo =
       buildFusedOperandInfo(producer, consumer, supersetGeneric, subsetGeneric,
                             inputOperand, sharedMemref);
 
-  // Step 5: Create fused GenericOp shell.
+  // Create fused GenericOp shell.
   builder.setInsertionPoint(consumer);
   auto fusedOp = builder.create<GenericOp>(
       consumer.getLoc(), TypeRange{}, fusedInfo.inputs, fusedInfo.outputs,
