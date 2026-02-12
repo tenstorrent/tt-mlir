@@ -15,12 +15,6 @@ table ToDeviceOp {
   out: tt.target.ttnn.TensorRef;
 }
 
-table ToDTypeOp {
-  in: tt.target.ttnn.TensorRef;
-  dtype: tt.target.DataType;
-  out: tt.target.ttnn.TensorRef;
-}
-
 table ToLayoutOp {
   in: tt.target.ttnn.TensorRef;
   layout: tt.target.TensorLayout;

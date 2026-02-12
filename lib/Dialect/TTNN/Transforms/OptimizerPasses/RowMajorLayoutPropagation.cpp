@@ -231,7 +231,7 @@ private:
     // Create layout with TILE (required for on-device typecast) and the
     // original tensor element type. TTNNDecomposeLayouts requires TILE
     // layout for on-device dtype conversion; ROW_MAJOR would force a
-    // host round-trip (from_device → to_dtype → to_device).
+    // host round-trip (from_device → typecast → to_device).
     TTNNLayoutAttr correctedLayout = rmOutputLayout.withElementType(
         tensorElementType, userResultType.getShape());
     TTNNLayoutAttr tileLayout =
