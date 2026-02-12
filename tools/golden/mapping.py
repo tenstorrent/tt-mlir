@@ -2244,6 +2244,35 @@ def transpose_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor
     return torch.transpose(input_tensor, dim0, dim1)
 
 
+def concatenate_heads_golden(
+    input_tensor: GoldenMapTensor, **kwargs
+) -> GoldenMapTensor:
+    """
+    Golden function for concatenate_heads operation (TTIR).
+
+    Transforms [batch, num_heads, seq_len, head_dim] -> [batch, seq_len, num_heads * head_dim]
+    by permuting to [batch, seq_len, num_heads, head_dim] and reshaping.
+
+    Parameters
+    ----------
+    input_tensor : GoldenMapTensor
+        Input tensor with shape [batch, num_heads, seq_len, head_dim]
+    **kwargs : dict
+        Optional keyword arguments (unused)
+
+    Returns
+    -------
+    GoldenMapTensor
+        Output tensor with shape [batch, seq_len, num_heads * head_dim]
+    """
+    # Input: [batch, num_heads, seq_len, head_dim]
+    # Permute to: [batch, seq_len, num_heads, head_dim]
+    permuted = input_tensor.permute(0, 2, 1, 3)
+    # Reshape to: [batch, seq_len, num_heads * head_dim]
+    batch, seq_len, num_heads, head_dim = permuted.shape
+    return permuted.reshape(batch, seq_len, num_heads * head_dim)
+
+
 def reshape_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
     """
     Golden function for reshape operation (TTIR/StableHLO).
@@ -5870,6 +5899,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.RequantizeOp: requantize_golden,
     # Complex operations
     ttir.CbrtOp: cbrt_golden,
+    ttir.ConcatenateHeadsOp: concatenate_heads_golden,
     ttir.Conv2dOp: conv2d_golden,
     ttir.ConvTranspose2dOp: conv_transpose2d_golden,
     ttir.MaxPool2dOp: ttir_max_pool2d_golden,

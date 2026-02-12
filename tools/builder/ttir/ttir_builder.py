@@ -6983,6 +6983,52 @@ class TTIRBuilder(Builder):
 
         return reshape_module, reshape_builder
 
+    ############### ttir.ConcatenateHeadsOp ###############
+
+    @tag(ttir.ConcatenateHeadsOp)
+    def concatenate_heads(
+        self,
+        in0: Operand,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttir_op = self.get_opview_from_method(TTIRBuilder.concatenate_heads)
+
+        input_shape = self.get_shape(in0)
+        # Input: [batch, num_heads, seq_len, head_dim]
+        # Output: [batch, seq_len, num_heads * head_dim]
+        assert len(input_shape) == 4, f"Expected 4D input, got {len(input_shape)}D"
+        batch, num_heads, seq_len, head_dim = input_shape
+        output_shape = [batch, seq_len, num_heads * head_dim]
+
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        result = self._create_ranked_tensor_type(output_shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir_op(
+            result,
+            in0,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            op_golden_function = get_golden_function(ttir_op)
+            golden_output = op_golden_function(input0)
+            self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
     ############### ttir.MaximumOp ###############
 
     @tag(ttir.MaximumOp)
