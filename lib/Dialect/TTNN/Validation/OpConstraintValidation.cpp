@@ -164,15 +164,14 @@ validateConstraints(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
   auto [cbPeakUsage, l1BuffersPeakUsage, overallPeakL1Usage,
         outputTensorUsagePerCore, outputLayouts] = l1UsageExp.get();
 
-  TTNNLayoutAttr firstOutputLayout =
-      outputLayouts.empty() ? nullptr : outputLayouts[0];
-
   TTMLIR_DEBUG(
       ttmlir::LogComponent::OpValidation,
       "Backend returned {} output layouts, first one: {}, layout={}, dtype={}",
-      outputLayouts.size(), firstOutputLayout,
-      static_cast<int>(firstOutputLayout.getLayout()),
-      static_cast<int>(firstOutputLayout.getDataType()));
+      outputLayouts.size(), outputLayouts.empty() ? nullptr : outputLayouts[0],
+      outputLayouts.empty() ? 0
+                            : static_cast<int>(outputLayouts[0].getLayout()),
+      outputLayouts.empty() ? 0
+                            : static_cast<int>(outputLayouts[0].getDataType()));
 
   // Get usable L1 cache size from device.
   ttcore::SystemDescAttr systemDesc = mlir::cast<ttcore::SystemDescAttr>(
@@ -199,8 +198,10 @@ validateConstraints(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
                "OpModel constraints valid. Op: {}\nFirstOutputLayout: {}\n"
                "L1 usage: overallPeakL1Usage={}, cbPeakUsage={}, "
                "l1BuffersPeakUsage={}, outputTensorUsagePerCore={}",
-               ttmlir::opToString(op), firstOutputLayout, overallPeakL1Usage,
-               cbPeakUsage, l1BuffersPeakUsage, outputTensorUsagePerCore);
+               ttmlir::opToString(op),
+               outputLayouts.empty() ? nullptr : outputLayouts[0],
+               overallPeakL1Usage, cbPeakUsage, l1BuffersPeakUsage,
+               outputTensorUsagePerCore);
 
   return ValidationResult::success(0, outputLayouts, outputTensorUsagePerCore);
 }
