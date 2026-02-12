@@ -1387,6 +1387,30 @@ void TileUntilizeBlockOp::getEffects(
                        0, true, mlir::SideEffects::DefaultResource::get());
 }
 
+static mlir::OpFoldResult foldScalarIdentity(mlir::Operation *op,
+                                             mlir::Attribute rhsAttr,
+                                             double identityValue) {
+  if (!rhsAttr) {
+    return nullptr;
+  }
+  if (auto floatAttr = mlir::dyn_cast<mlir::FloatAttr>(rhsAttr)) {
+    if (floatAttr.getValueAsDouble() == identityValue) {
+      return op->getOperand(0); // lhs
+    }
+  }
+  if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(rhsAttr)) {
+    if (static_cast<double>(intAttr.getValue().getSExtValue()) ==
+        identityValue) {
+      return op->getOperand(0); // lhs
+    }
+  }
+  return nullptr;
+}
+
+mlir::OpFoldResult TileAddOp::fold(FoldAdaptor adaptor) {
+  return foldScalarIdentity(getOperation(), adaptor.getRhs(), 0.0);
+}
+
 //===----------------------------------------------------------------------===//
 // BlockMaskOp
 //===----------------------------------------------------------------------===//

@@ -162,6 +162,7 @@ def D2M_TileAddOp : D2M_GenericRegionComputeFPUOrSFPUBinary<"tile_add", [Pure, D
     let arguments = (ins TTCore_Tile:$lhs,
                          TileOrScalar:$rhs);
     let results = (outs TTCore_Tile:$result);
+    let hasFolder = 1;
 }
 
 def D2M_TileSubOp : D2M_GenericRegionComputeFPUOrSFPUBinary<"tile_sub", [Pure, D2M_SkipOpEltwiseFusionTrait]> {
