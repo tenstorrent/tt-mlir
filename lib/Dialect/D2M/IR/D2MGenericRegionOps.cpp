@@ -1277,6 +1277,27 @@ mlir::OpFoldResult BlockIndexOp::fold(FoldAdaptor adaptor) {
 }
 
 //===----------------------------------------------------------------------===//
+// BlockOffsetOp
+//===----------------------------------------------------------------------===//
+
+void BlockOffsetOp::getAsmResultNames(
+    function_ref<void(Value, StringRef)> setNameFn) {
+  int64_t dim = getDim();
+  setNameFn(getResult(), "block_offset" + std::to_string(dim));
+}
+
+void BlockOffsetOp::inferResultRanges(
+    ::llvm::ArrayRef<::mlir::ConstantIntRanges> argRanges,
+    mlir::SetIntRangeFn setResultRange) {
+  setResultRange(getResult(),
+                 getIndexRange(0, std::numeric_limits<uint32_t>::max()));
+}
+
+mlir::OpFoldResult BlockOffsetOp::fold(FoldAdaptor adaptor) {
+  return adaptor.getDimAttr();
+}
+
+//===----------------------------------------------------------------------===//
 // GetBlockFactorOp
 //===----------------------------------------------------------------------===//
 

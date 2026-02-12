@@ -82,52 +82,6 @@ void convertToAffineCompatibilityForm(GenericOp fusedOp, OpBuilder &builder) {
     loop->setOperand(loop.getNumControlOperands() - ubOperands.size(),
                      sharedConstants[dim]);
   }
-
-  // Replace BlockIndexOp with affine.apply identity maps from the
-  // corresponding blocking-loop induction variable.  This exposes the index
-  // computation to the affine dependence analysis so that it can compute
-  // correct fusion slices.
-  //
-  // Each BlockIndexOp is matched to its own enclosing affine.for (walking
-  // upward), NOT a global dim → IV map, because producer and consumer loop
-  // nests coexist in the fused block and may have different depths.
-
-  SmallVector<BlockIndexOp> blockIndexOps;
-  fusedOp.getRegion(0).walk(
-      [&](BlockIndexOp op) { blockIndexOps.push_back(op); });
-
-  AffineMap identityMap1D =
-      AffineMap::get(1, 0, builder.getAffineDimExpr(0), builder.getContext());
-  for (BlockIndexOp op : blockIndexOps) {
-    int64_t dim = op.getDim();
-
-    // Walk up from the BlockIndexOp to find the enclosing affine.for whose
-    // d2m.blocking_loop attribute matches this dimension.
-    Value iv;
-    for (Operation *parent = op->getParentOp(); parent;
-         parent = parent->getParentOp()) {
-      auto forOp = dyn_cast<affine::AffineForOp>(parent);
-      if (!forOp) {
-        continue;
-      }
-      auto loopDimAttr = forOp->getAttrOfType<IntegerAttr>("d2m.blocking_loop");
-      if (loopDimAttr && loopDimAttr.getInt() == dim) {
-        iv = forOp.getInductionVar();
-        break;
-      }
-    }
-    if (!iv) {
-      continue;
-    }
-
-    OpBuilder::InsertionGuard guard(builder);
-    builder.setInsertionPoint(op);
-    auto applyOp = builder.create<affine::AffineApplyOp>(
-        op.getLoc(), identityMap1D, ValueRange{iv});
-    applyOp->setAttr("d2m.orig_block_index", builder.getI64IntegerAttr(dim));
-    op.replaceAllUsesWith(applyOp.getResult());
-    op.erase();
-  }
 }
 
 void convertFromAffineCompatibilityForm(GenericOp compatGeneric,
@@ -152,26 +106,6 @@ void convertFromAffineCompatibilityForm(GenericOp compatGeneric,
         builder.create<GetBlockFactorOp>(constOp.getLoc(), dim);
     constOp.replaceAllUsesWith(getBlockFactorOp.getResult());
     constOp.erase();
-  }
-
-  // Restore block_index ops from tagged affine.apply identity maps.
-  SmallVector<affine::AffineApplyOp> taggedApplies;
-  compatGeneric.getRegion(0).walk([&](affine::AffineApplyOp op) {
-    if (op->hasAttr("d2m.orig_block_index")) {
-      taggedApplies.push_back(op);
-    }
-  });
-
-  for (affine::AffineApplyOp applyOp : taggedApplies) {
-    auto dimAttr = applyOp->getAttrOfType<IntegerAttr>("d2m.orig_block_index");
-    int64_t dim = dimAttr.getInt();
-
-    OpBuilder::InsertionGuard guard(builder);
-    builder.setInsertionPoint(applyOp);
-
-    auto blockIndexOp = builder.create<BlockIndexOp>(applyOp.getLoc(), dim);
-    applyOp.replaceAllUsesWith(blockIndexOp.getResult());
-    applyOp.erase();
   }
 }
 

@@ -2066,6 +2066,14 @@ def D2M_BlockIndexOp : D2M_IndexOp<"block_index"> {
     }];
 }
 
+def D2M_BlockOffsetOp : D2M_IndexOp<"block_offset", [ConstantLike]> {
+    let summary = "Block Offset op.";
+    let description = [{
+      Represents block_factor * core_index as a constant-like operation. Useful
+      for representing blocking index math in an affine dialect compatible way.
+    }];
+}
+
 def D2M_GetBlockFactorOp : D2M_IndexOp<"get_block_factor"> {
     let summary = "Get block factor op.";
     let description = [{
