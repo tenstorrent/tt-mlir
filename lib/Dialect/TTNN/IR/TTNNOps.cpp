@@ -1619,6 +1619,11 @@ static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttnn::ReshapeOp op) {
                        "the rank of the input tensor");
   }
 
+  bool hasNegativePadding =
+      llvm::any_of(getPadding(), [](int32_t padding) { return padding < 0; });
+  if (hasNegativePadding) {
+    return emitOpError("Padding cannot contain negative values");
+  }
   std::vector<int64_t> inferredShapeVec = inputType.getShape().vec();
   llvm::ArrayRef<int32_t> padding = getPadding();
   for (int64_t i = 0; i < inputType.getRank(); i++) {

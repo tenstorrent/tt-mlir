@@ -138,6 +138,13 @@ struct TTIRToTTIRDecompositionPass
       auto dimsAttr = op.getDimArg();
       return !dimsAttr || dimsAttr->size() <= 1; // Legal if 0 or 1 dimensions
     });
+
+    target.addDynamicallyLegalOp<ttir::PadOp>([&](ttir::PadOp op) {
+      // Illegal if any padding value is negative (needs decomposition into
+      // slice + pad).
+      return llvm::none_of(op.getPadding(), [](int32_t p) { return p < 0; });
+    });
+
     TypeConverter typeConverter;
     // All types map 1:1.
     typeConverter.addConversion([](Type type) { return type; });

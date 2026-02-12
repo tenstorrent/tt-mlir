@@ -2568,6 +2568,86 @@ private:
 };
 } // namespace
 
+namespace {
+struct NegativePadOpDecompositionPattern
+    : public OpConversionPattern<ttir::PadOp> {
+  using OpConversionPattern<ttir::PadOp>::OpConversionPattern;
+
+  // Decomposes ttir.pad operation with negative padding into: ttir.slice_static
+  // and ttir.pad with positive padding issue in tt-metal
+  // https://github.com/tenstorrent/tt-metal/issues/37475
+
+  LogicalResult
+  matchAndRewrite(ttir::PadOp op, ttir::PadOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    ArrayRef<int32_t> padding = adaptor.getPadding();
+    bool needSlice = llvm::any_of(padding, [](int32_t p) { return p < 0; });
+    bool needPad = llvm::any_of(padding, [](int32_t p) { return p > 0; });
+
+    Value input = adaptor.getInput();
+    auto inputType = cast<RankedTensorType>(adaptor.getInput().getType());
+    auto inputShape = inputType.getShape();
+
+    if (!needSlice) {
+      return failure();
+    }
+
+    SmallVector<int32_t> sliceBegins(inputShape.size(), 0);
+    SmallVector<int32_t> sliceEnds(inputShape.begin(), inputShape.end());
+    SmallVector<int32_t> sliceSteps(inputShape.size(), 1);
+
+    // Adjust slice parameters for dimensions with negative padding.
+    for (size_t i = 0; i < inputShape.size(); i++) {
+      int64_t padLow = padding[2 * i];
+      int64_t padHigh = padding[2 * i + 1];
+
+      if (padLow < 0) {
+        sliceBegins[i] = std::abs(padLow);
+      }
+      if (padHigh < 0) {
+        sliceEnds[i] = inputShape[i] - std::abs(padHigh);
+      }
+    }
+
+    // Compute the slice result type.
+    RankedTensorType sliceResultType;
+    if (needPad) {
+      // Intermediate type: sliced shape.
+      SmallVector<int64_t> slicedShape;
+      for (size_t i = 0; i < inputShape.size(); i++) {
+        slicedShape.push_back(sliceEnds[i] - sliceBegins[i]);
+      }
+      sliceResultType =
+          RankedTensorType::get(slicedShape, inputType.getElementType());
+    } else {
+      // Final output type when only slicing is needed.
+      sliceResultType = cast<RankedTensorType>(op.getType());
+    }
+
+    ttir::SliceStaticOp sliceOp = rewriter.create<ttir::SliceStaticOp>(
+        op.getLoc(), sliceResultType, input,
+        rewriter.getI32ArrayAttr(sliceBegins),
+        rewriter.getI32ArrayAttr(sliceEnds),
+        rewriter.getI32ArrayAttr(sliceSteps));
+    input = sliceOp.getResult();
+
+    if (needPad) {
+      // Build padding with negative values zeroed out.
+      SmallVector<int32_t> posPadding = llvm::to_vector(
+          llvm::map_range(padding, [](int32_t p) { return std::max(p, 0); }));
+
+      ttir::PadOp padOp = rewriter.create<ttir::PadOp>(
+          op.getLoc(), op.getType(), input,
+          rewriter.getDenseI32ArrayAttr(posPadding), adaptor.getValue());
+      input = padOp.getResult();
+    }
+
+    rewriter.replaceOp(op, input);
+    return success();
+  }
+};
+} // namespace
+
 void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
                                              RewritePatternSet &patterns,
                                              TypeConverter &typeConverter,
@@ -2592,6 +2672,7 @@ void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
   patterns.add<EmbeddingToGatherConversionPattern>(typeConverter, ctx);
   patterns.add<SplitQueryKeyValueAndSplitHeadsDecompositionPattern>(
       typeConverter, ctx);
+  patterns.add<NegativePadOpDecompositionPattern>(typeConverter, ctx);
 
   // Configure which ReductionPattern to add base on the configuration
   switch (decompConfig) {
