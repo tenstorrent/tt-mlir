@@ -193,7 +193,7 @@ struct TTIRToTTMetalPipelineOptions
       *this, "enable-affine-loop-fusion-and-scalar-replacement",
       llvm::cl::desc(
           "Enable affine loop fusion and scalar replacement passes."),
-      llvm::cl::init(true)};
+      llvm::cl::init(false)};
 };
 
 void createTTIRBufferizationPipeline(
