@@ -3061,7 +3061,7 @@ def TTIR_RepeatInterleaveOp : TTIR_NamedOp<"repeat_interleave"> {
     let hasVerifier = 1;
 }
 
-def TTIR_UpdateCacheOp : TTIR_NamedOp<"update_cache"> {
+def TTIR_UpdateCacheOp : TTIR_NamedOp<"update_cache", [TTIR_CacheOpInterface]> {
   let summary = "Cache update operation.";
   let description = [{
     The `update_cache` operation updates a cache tensor with values from an input tensor at specific indices.
@@ -3108,7 +3108,7 @@ def TTIR_UpdateCacheOp : TTIR_NamedOp<"update_cache"> {
   let hasVerifier = 1;
 }
 
-def TTIR_PagedUpdateCacheOp : TTIR_NamedOp<"paged_update_cache"> {
+def TTIR_PagedUpdateCacheOp : TTIR_NamedOp<"paged_update_cache", [TTIR_CacheOpInterface]> {
   let summary = "Paged update cache op.";
   let description = [{
       Inputs:
@@ -3137,7 +3137,7 @@ def TTIR_PagedUpdateCacheOp : TTIR_NamedOp<"paged_update_cache"> {
   let hasVerifier = 1;
 }
 
-def TTIR_FillCacheOp : TTIR_NamedOp<"fill_cache"> {
+def TTIR_FillCacheOp : TTIR_NamedOp<"fill_cache", [TTIR_CacheOpInterface]> {
   let summary = "Cache filling operation.";
   let description = [{
       The `fill_cache` operation fills a cache tensor with values from an input tensor.
@@ -3187,7 +3187,7 @@ def TTIR_FillCacheOp : TTIR_NamedOp<"fill_cache"> {
   }];
 }
 
-def TTIR_PagedFillCacheOp : TTIR_NamedOp<"paged_fill_cache"> {
+def TTIR_PagedFillCacheOp : TTIR_NamedOp<"paged_fill_cache", [TTIR_CacheOpInterface]> {
   let summary = "Paged fill cache op.";
   let description = [{
     Fills the `cache` tensor in-place with values from `input` at `batch_idx_tensor`.

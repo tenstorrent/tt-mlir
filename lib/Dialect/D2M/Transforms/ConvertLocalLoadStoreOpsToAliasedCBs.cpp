@@ -388,6 +388,21 @@ public:
       // Erase the original remote_store operation
       rewriter.eraseOp(remoteStore);
     }
+
+    // Convert get_scratch_from_cb operations to reserve ops.
+    SmallVector<GetScratchFromCBOp> scratchOpsToConvert;
+    moduleOp->walk([&](GetScratchFromCBOp getScratchOp) {
+      scratchOpsToConvert.push_back(getScratchOp);
+    });
+
+    for (GetScratchFromCBOp getScratchOp : scratchOpsToConvert) {
+      rewriter.setInsertionPoint(getScratchOp);
+      auto reserveOp = rewriter.create<ReserveOp>(getScratchOp.getLoc(),
+                                                  getScratchOp.getCb());
+      rewriter.replaceAllUsesWith(getScratchOp.getResult(),
+                                  reserveOp.getResult());
+      rewriter.eraseOp(getScratchOp);
+    }
   }
 };
 } // namespace

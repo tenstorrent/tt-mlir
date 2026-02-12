@@ -36,6 +36,7 @@ void createTTNNPipelineTTIRPasses(
     registerDeviceOptions.systemDescPath = options.systemDescPath;
     registerDeviceOptions.mockSystemDescArch = options.mockSystemDescArch;
     registerDeviceOptions.meshShape = llvm::to_vector(options.meshShape);
+    registerDeviceOptions.meshTopology = llvm::to_vector(options.meshTopology);
   }
   pm.addPass(
       mlir::tt::ttcore::createTTCoreRegisterDevicePass(registerDeviceOptions));
@@ -62,6 +63,9 @@ void createTTNNPipelineTTIRPasses(
   // function. Removes all private functions.
   pm.addPass(mlir::createInlinerPass());
 
+  // Infer kv_cache argument types from cache operations.
+  pm.addPass(mlir::tt::ttir::createTTIRInferKVCacheArgumentTypes());
+
   // Flattening sliding window ops for compatibility with conversion to TTNN
   pm.addPass(mlir::tt::ttir::createTTIRFlattenSlidingWindow());
 
@@ -79,6 +83,7 @@ void createTTNNPipelineTTIRPasses(
   if (options.enableFusing) {
     pm.addPass(mlir::tt::ttir::createTTIRFusing(fusingOptions));
   }
+  pm.addPass(mlir::tt::ttir::createTTIRFoldFullToScalar());
 }
 
 void createTTNNPipelineAnalysisPasses(

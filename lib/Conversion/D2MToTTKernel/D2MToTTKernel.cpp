@@ -692,6 +692,7 @@ public:
       rewriter.create<ttkernel::ReduceTileOp>(
           op->getLoc(), cbA, cbB, adaptor.getA(), adaptor.getB(),
           adaptor.getC(), reduce_type, kernel_reduce_dim);
+      rewriter.create<ttkernel::ReduceUninitOp>(op->getLoc());
     } else if constexpr (std::is_same_v<ConcreteOp, d2m::TileBcastOp>) {
       ttkernel::BcastType bcastType = ttkernel::BcastType::None;
       switch (op.getBcastType()) {
@@ -1728,22 +1729,6 @@ public:
 } // namespace
 
 namespace {
-class D2MPackerMaskResetRewriter
-    : public OpConversionPattern<d2m::PackerMaskResetOp> {
-public:
-  using OpConversionPattern<d2m::PackerMaskResetOp>::OpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(d2m::PackerMaskResetOp op,
-                  d2m::PackerMaskResetOpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const final {
-    rewriter.replaceOpWithNewOp<ttkernel::ReduceUninitOp>(op);
-    return success();
-  }
-};
-} // namespace
-
-namespace {
 class MemRefCollapseRewriter
     : public OpConversionPattern<memref::CollapseShapeOp> {
 public:
@@ -2049,7 +2034,6 @@ void populateD2MToTTKernelPatterns(
                ttkernel::D2MDMAWaitRewriter,
                ttkernel::D2MCoreIndexRewriter,
                ttkernel::D2MNullTxRewriter,
-               ttkernel::D2MPackerMaskResetRewriter,
                ttkernel::MemRefCollapseRewriter,
                ttkernel::D2MSemaphoreUpdateRewriter<d2m::SemaphoreSetOp>,
                ttkernel::D2MSemaphoreUpdateRewriter<d2m::SemaphoreIncOp>,

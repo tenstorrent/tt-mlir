@@ -194,6 +194,9 @@ std::vector<HostRuntime> getAvailableHostRuntimes() { __builtin_trap(); }
 DeviceRuntime getCurrentDeviceRuntime() { __builtin_trap(); }
 HostRuntime getCurrentHostRuntime() { __builtin_trap(); }
 std::vector<int> getDeviceIds(Device meshDevice) { __builtin_trap(); }
+std::vector<int> getMappedDeviceIds(const std::vector<uint32_t> &meshShape) {
+  __builtin_trap();
+}
 size_t getDramSizePerChannel(Device meshDevice) { __builtin_trap(); }
 size_t getL1SizePerCore(Device meshDevice) { __builtin_trap(); }
 size_t getL1SmallSize(Device meshDevice) { __builtin_trap(); }
