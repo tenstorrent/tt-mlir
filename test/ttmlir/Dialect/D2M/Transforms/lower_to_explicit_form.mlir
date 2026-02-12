@@ -55,9 +55,7 @@ module {
     // CHECK-SAME: block_factors = [1, 1, 2]
     // CHECK-DAG: d2m.core_index(0)
     // CHECK-DAG: d2m.core_index(1)
-    // CHECK-DAG: %[[CORE2:.*]] = d2m.core_index(2) : index
-    // CHECK-DAG: %[[C2OFF:.*]] = arith.constant 2 : index
-    // CHECK-DAG: %[[OFF2:.*]] = arith.muli %[[CORE2]], %[[C2OFF]] : index
+    // CHECK-NOT: d2m.core_index(2)
     // CHECK-DAG: arith.addi
     // CHECK-NOT: d2m.block_offset
     d2m.generic {block_factors = [1, 1, 2], grid = #ttcore.grid<1x1>, indexing_maps = [#mapL, #mapR, #mapO], iterator_types = [#parallel, #parallel, #reduction], threads = [#d2m.thread<unified>]}
