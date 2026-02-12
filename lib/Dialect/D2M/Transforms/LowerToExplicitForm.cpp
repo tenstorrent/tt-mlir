@@ -9,6 +9,7 @@
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/IR/AffineExpr.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
@@ -71,9 +72,46 @@ static void lowerBlockingAffineLoopsToSCF(IRRewriter &rewriter,
   rewriter.eraseOp(forOp);
 }
 
-/// Lower d2m.block_offset(dim) into block_factor(dim) * d2m.core_index(dim).
+/// Build a lookup table from loop dimension -> grid dimension index.
+/// A loop dimension participates in grid offsets when that dim appears in one
+/// of the output indexing map's grid result positions.
+static SmallVector<int64_t> buildLoopDimToGridDimMap(GenericOp generic,
+                                                     size_t numLoopDims) {
+  SmallVector<int64_t> loopDimToGridDim(numLoopDims, -1);
+
+  unsigned outputOperandIndex = generic.getOutputs().getBeginOperandIndex();
+  AffineMap outputOperandIndexingMap =
+      generic.getIndexingMap(outputOperandIndex);
+
+  // The first output map results correspond to grid dimensions. The grid
+  // mapping includes a leading device id result when present.
+  AffineMap gridMapping = generic.getGrid().getMapping();
+  constexpr unsigned numPhysicalGridDims = 2;
+  unsigned numGridDims = gridMapping.isEmpty()
+                             ? numPhysicalGridDims
+                             : gridMapping.getNumResults() - 1;
+
+  for (size_t loopDim = 0; loopDim < numLoopDims; ++loopDim) {
+    AffineExpr dimExpr = mlir::getAffineDimExpr(
+        static_cast<unsigned>(loopDim), outputOperandIndexingMap.getContext());
+    std::optional<unsigned> resultPos =
+        outputOperandIndexingMap.getResultPosition(dimExpr);
+    if (resultPos && *resultPos < numGridDims) {
+      loopDimToGridDim[loopDim] = static_cast<int64_t>(*resultPos);
+    }
+  }
+
+  return loopDimToGridDim;
+}
+
+/// Lower d2m.block_offset(dim) into block_factor(dim) * d2m.core_index(gridDim)
+/// when the loop dim participates in the grid. Otherwise lower to 0.
 static void lowerBlockOffsetOps(IRRewriter &rewriter, GenericOp generic,
                                 ArrayRef<int64_t> blockFactors) {
+  SmallVector<int64_t> loopDimToGridDim =
+      buildLoopDimToGridDimMap(generic, blockFactors.size());
+  AffineMap gridMapping = generic.getGrid().getMapping();
+
   SmallVector<BlockOffsetOp> blockOffsetOps;
   generic.walk([&](BlockOffsetOp op) { blockOffsetOps.push_back(op); });
 
@@ -85,9 +123,17 @@ static void lowerBlockOffsetOps(IRRewriter &rewriter, GenericOp generic,
                dim, blockFactors.size());
 
     rewriter.setInsertionPoint(op);
+    int64_t gridDim = loopDimToGridDim[dim];
+    if (gridDim < 0) {
+      Value zero = arith::ConstantIndexOp::create(rewriter, op.getLoc(), 0);
+      rewriter.replaceOp(op, zero);
+      continue;
+    }
+
     Value blockFactorConstant = arith::ConstantIndexOp::create(
         rewriter, op.getLoc(), blockFactors[dim]);
-    Value coreIndex = rewriter.create<CoreIndexOp>(op.getLoc(), dim);
+    Value coreIndex =
+        rewriter.create<CoreIndexOp>(op.getLoc(), gridDim, gridMapping);
     Value blockOffset = rewriter.create<arith::MulIOp>(
         op.getLoc(), blockFactorConstant, coreIndex);
     rewriter.replaceOp(op, blockOffset);
