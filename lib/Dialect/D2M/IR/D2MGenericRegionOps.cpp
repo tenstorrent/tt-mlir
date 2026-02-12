@@ -1294,7 +1294,9 @@ void BlockOffsetOp::inferResultRanges(
 }
 
 mlir::OpFoldResult BlockOffsetOp::fold(FoldAdaptor adaptor) {
-  return adaptor.getDimAttr();
+  // Block offset must remain explicit so later D2M lowering can preserve
+  // block/core index math structure.
+  return {};
 }
 
 //===----------------------------------------------------------------------===//

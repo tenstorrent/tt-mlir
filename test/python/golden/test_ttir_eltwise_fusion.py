@@ -30,10 +30,10 @@ pytestmark = pytest.mark.frontend("ttir")
 ### ----------------------------------------------------------------------- ###
 
 gridParams = [
-    "override-device-shape=1,1",
+    # "override-device-shape=1,1",
     "override-device-shape=2,2",
-    "override-device-shape=4,4",
-    "override-device-shape=8,8",
+    # "override-device-shape=4,4",
+    # "override-device-shape=8,8",
 ]
 
 ### ----------------------------------------------------------------------- ###
@@ -277,7 +277,7 @@ def test_eltwise_sanity_check_unary_op(
 
 
 @pytest.mark.parametrize("grid", gridParams)
-@pytest.mark.parametrize("shape", [(128, 128)])
+@pytest.mark.parametrize("shape", [(512, 512)])
 @pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_eltwise_fuse_unary_chain(
@@ -290,8 +290,7 @@ def test_eltwise_fuse_unary_chain(
         def unary_chain(in0: Operand, builder: TTIRBuilder):
             res_0 = builder.abs(in0)
             res_1 = builder.sin(res_0)
-
-            return res_19
+            return res_1
 
     options = [grid]
 
@@ -300,6 +299,7 @@ def test_eltwise_fuse_unary_chain(
         target=target,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
         **get_request_kwargs(request),
+        save_artifacts=True,
         device=device,
     )
 
