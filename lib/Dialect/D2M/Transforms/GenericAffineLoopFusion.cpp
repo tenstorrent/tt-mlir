@@ -15,6 +15,8 @@
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/IRMapping.h"
 
+#include <optional>
+
 #define DEBUG_TYPE "D2MGenericAffineLoopFusion"
 
 namespace mlir::tt::d2m {
@@ -163,17 +165,18 @@ static RemoteStoreOp getMatchingStoreForShared(GenericOp producer,
 
   RemoteStoreOp storeOp = producerStores.front();
 
-  RemoteLoadOp consumerLoad = nullptr;
+  SmallVector<RemoteLoadOp> consumerLoads;
   consumer.getRegion(0).walk([&](RemoteLoadOp loadOp) {
     Value rawMemref = peelStreamLayout(loadOp.getMemref());
     if (rawMemref == sharedMemref) {
-      consumerLoad = loadOp;
+      consumerLoads.push_back(loadOp);
     }
   });
 
-  if (!consumerLoad) {
+  if (consumerLoads.size() != 1) {
     return nullptr;
   }
+  RemoteLoadOp consumerLoad = consumerLoads.front();
 
   auto storeIndices = storeOp.getIndices();
   auto loadIndices = consumerLoad.getIndices();
@@ -187,6 +190,17 @@ static RemoteStoreOp getMatchingStoreForShared(GenericOp producer,
   }
 
   return storeOp;
+}
+
+// Find the output operand number that corresponds to `target`.
+static std::optional<unsigned> findOutputOperandForValue(GenericOp generic,
+                                                         Value target) {
+  for (OpOperand &output : generic.getOutputsMutable()) {
+    if (output.get() == target) {
+      return output.getOperandNumber();
+    }
+  }
+  return std::nullopt;
 }
 
 // Find the single outermost affine.for with d2m.blocking_loop attribute.
@@ -229,31 +243,19 @@ static unsigned getOuterLoopDepth(affine::AffineForOp outerLoop) {
   return depth;
 }
 
-// Try to fuse a producer-consumer pair. Returns the fused generic on success.
-static GenericOp tryFusePair(GenericOp producer, GenericOp consumer,
-                             OpOperand *inputOperand, Value sharedMemref,
-                             OpBuilder &builder) {
-  // Step 1: Get outermost loops to determine superset/subset
-  affine::AffineForOp producerLoop = getOutermostLoop(producer);
-  affine::AffineForOp consumerLoop = getOutermostLoop(consumer);
+struct FusedOperandInfo {
+  SmallVector<Value> inputs;
+  SmallVector<Value> outputs;
+  SmallVector<AffineMap> maps;
+  unsigned sharedInputIdx;
+};
 
-  if (!producerLoop || !consumerLoop) {
-    return nullptr;
-  }
-
-  // Step 2: Determine superset generic (one with deeper loop nesting)
-  unsigned producerDepth = getOuterLoopDepth(producerLoop);
-  unsigned consumerDepth = getOuterLoopDepth(consumerLoop);
-
-  GenericOp supersetGeneric =
-      (producerDepth >= consumerDepth) ? producer : consumer;
-  GenericOp subsetGeneric =
-      (producerDepth >= consumerDepth) ? consumer : producer;
-
-  // Step 4: Build fused generic operands and indexing maps
-  SmallVector<Value> fusedInputs;
-  SmallVector<Value> fusedOutputs;
-  SmallVector<AffineMap> fusedMaps;
+// Build fused GenericOp inputs/outputs/indexing maps.
+static FusedOperandInfo
+buildFusedOperandInfo(GenericOp producer, GenericOp consumer,
+                      GenericOp supersetGeneric, GenericOp subsetGeneric,
+                      OpOperand *inputOperand, Value sharedMemref) {
+  FusedOperandInfo info;
 
   AffineMap supersetSharedMap =
       supersetGeneric.getIndexingMapForOperand(sharedMemref);
@@ -261,69 +263,68 @@ static GenericOp tryFusePair(GenericOp producer, GenericOp consumer,
       subsetGeneric.getDpsInitOperand(0)->getOperandNumber());
   AffineMap subsetOutputInv = inversePermutation(subsetOutputMap);
 
-  // Producer inputs
+  // Producer inputs.
   for (OpOperand *pi : producer.getDpsInputOperands()) {
-    fusedInputs.push_back(pi->get());
+    info.inputs.push_back(pi->get());
     AffineMap argMap = producer.getIndexingMap(pi->getOperandNumber());
     if (producer == subsetGeneric) {
-      fusedMaps.push_back(
+      info.maps.push_back(
           argMap.compose(subsetOutputInv).compose(supersetSharedMap));
     } else {
-      fusedMaps.push_back(argMap);
+      info.maps.push_back(argMap);
     }
   }
 
-  // Shared intermediate as input
-  unsigned fusedSharedInputIdx = fusedInputs.size();
-  fusedInputs.push_back(sharedMemref);
+  // Shared intermediate as input.
+  info.sharedInputIdx = info.inputs.size();
+  info.inputs.push_back(sharedMemref);
   AffineMap sharedMap =
       consumer.getIndexingMap(inputOperand->getOperandNumber());
   if (consumer == subsetGeneric) {
-    fusedMaps.push_back(
+    info.maps.push_back(
         sharedMap.compose(subsetOutputInv).compose(supersetSharedMap));
   } else {
-    fusedMaps.push_back(sharedMap);
+    info.maps.push_back(sharedMap);
   }
 
-  // Other consumer inputs
+  // Other consumer inputs.
   for (OpOperand *ci : consumer.getDpsInputOperands()) {
     if (ci == inputOperand) {
       continue;
     }
-    fusedInputs.push_back(ci->get());
+    info.inputs.push_back(ci->get());
     AffineMap argMap = consumer.getIndexingMap(ci->getOperandNumber());
     if (consumer == subsetGeneric) {
-      fusedMaps.push_back(
+      info.maps.push_back(
           argMap.compose(subsetOutputInv).compose(supersetSharedMap));
     } else {
-      fusedMaps.push_back(argMap);
+      info.maps.push_back(argMap);
     }
   }
 
-  // Consumer outputs only
+  // Consumer outputs only.
   for (OpOperand &co : consumer.getDpsInitsMutable()) {
-    fusedOutputs.push_back(co.get());
+    info.outputs.push_back(co.get());
     AffineMap argMap = consumer.getIndexingMap(co.getOperandNumber());
     if (consumer == subsetGeneric) {
-      fusedMaps.push_back(
+      info.maps.push_back(
           argMap.compose(subsetOutputInv).compose(supersetSharedMap));
     } else {
-      fusedMaps.push_back(argMap);
+      info.maps.push_back(argMap);
     }
   }
 
-  // Step 5: Create fused GenericOp shell
-  builder.setInsertionPoint(consumer);
-  auto fusedOp = builder.create<GenericOp>(
-      consumer.getLoc(), TypeRange{}, fusedInputs, fusedOutputs,
-      supersetGeneric.getGrid(), supersetGeneric.getBlockFactors(),
-      builder.getAffineMapArrayAttr(fusedMaps),
-      supersetGeneric.getIteratorTypes(), supersetGeneric.getThreads(),
-      supersetGeneric.getScratchInputsAttr(), /*regions=*/1);
+  return info;
+}
 
+// Populate fused block arguments and seed IRMapping for producer/consumer args.
+static IRMapping buildFusedBlockArgMapping(GenericOp producer,
+                                           GenericOp consumer,
+                                           OpOperand *inputOperand,
+                                           GenericOp fusedOp,
+                                           unsigned fusedSharedInputIdx,
+                                           unsigned producerSharedInitIdx) {
   Block &fusedBlock = fusedOp.getRegion(0).emplaceBlock();
-
-  // Step 3: Set up block arguments
   Block &prodBlock = producer.getRegion(0).front();
   Block &consBlock = consumer.getRegion(0).front();
 
@@ -362,18 +363,17 @@ static GenericOp tryFusePair(GenericOp producer, GenericOp consumer,
 
   IRMapping irMap;
 
-  // Map producer block args
+  // Map producer block args.
   for (OpOperand *pi : producer.getDpsInputOperands()) {
     unsigned fusedIdx =
         sourceToFusedIdx[{producer.getOperation(), pi->getOperandNumber()}];
     irMap.map(prodBlock.getArgument(pi->getOperandNumber()),
               fusedBlock.getArgument(fusedIdx));
   }
-  unsigned prodInitIdx = producer.getDpsInitOperand(0)->getOperandNumber();
-  irMap.map(prodBlock.getArgument(prodInitIdx),
+  irMap.map(prodBlock.getArgument(producerSharedInitIdx),
             fusedBlock.getArgument(fusedSharedInputIdx));
 
-  // Map consumer block args
+  // Map consumer block args.
   irMap.map(consBlock.getArgument(inputOperand->getOperandNumber()),
             fusedBlock.getArgument(fusedSharedInputIdx));
   for (OpOperand *ci : consumer.getDpsInputOperands()) {
@@ -392,60 +392,103 @@ static GenericOp tryFusePair(GenericOp producer, GenericOp consumer,
               fusedBlock.getArgument(fusedIdx));
   }
 
-  // Step 4: Clone producer loop into fused block as sibling
+  return irMap;
+}
+
+// Clone producer/consumer loops and run affine fusion utilities.
+static bool runAffineLoopFusion(GenericOp fusedOp,
+                                affine::AffineForOp producerLoop,
+                                affine::AffineForOp consumerLoop,
+                                unsigned producerDepth, unsigned consumerDepth,
+                                OpBuilder &builder, IRMapping &irMap) {
+  Block &fusedBlock = fusedOp.getRegion(0).front();
   builder.setInsertionPointToEnd(&fusedBlock);
   affine::AffineForOp clonedProducerLoop =
       cast<affine::AffineForOp>(builder.clone(*producerLoop, irMap));
 
-  // Update irMap with producer loop results
   for (auto [oldRes, newRes] : llvm::zip(producerLoop->getResults(),
                                          clonedProducerLoop->getResults())) {
     irMap.map(oldRes, newRes);
   }
 
-  // Step 5: Clone consumer loop into fused block as sibling
   affine::AffineForOp clonedConsumerLoop =
       cast<affine::AffineForOp>(builder.clone(*consumerLoop, irMap));
 
-  // Step 6: Convert fused generic to affine-compatible form for dependence
-  // analysis
   utils::convertToAffineCompatibilityForm(fusedOp, builder);
 
-  // Step 7: Use MLIR fusion utilities
-  // Determine which is source (to fuse into destination)
   bool isProducerSrc = (producerDepth >= consumerDepth);
   affine::AffineForOp srcLoop =
       isProducerSrc ? clonedProducerLoop : clonedConsumerLoop;
   affine::AffineForOp dstLoop =
       isProducerSrc ? clonedConsumerLoop : clonedProducerLoop;
-
-  // Fuse at the full matching loop depth so all nested levels are merged.
   unsigned dstLoopDepth = std::min(producerDepth, consumerDepth);
 
-  // Check if fusion is legal and compute slice
   affine::ComputationSliceState srcSlice;
   affine::FusionResult result = affine::canFuseLoops(
       srcLoop, dstLoop, dstLoopDepth, &srcSlice,
       affine::FusionStrategy(affine::FusionStrategy::ProducerConsumer));
-
   if (result.value != affine::FusionResult::Success) {
-    // Fusion failed, cleanup
+    return false;
+  }
+
+  affine::fuseLoops(srcLoop, dstLoop, srcSlice,
+                    /*isInnermostSiblingInsertion=*/false);
+  srcLoop->erase();
+
+  utils::convertFromAffineCompatibilityForm(fusedOp, builder);
+  return true;
+}
+
+// Try to fuse a producer-consumer pair. Returns the fused generic on success.
+static GenericOp tryFusePair(GenericOp producer, GenericOp consumer,
+                             OpOperand *inputOperand, Value sharedMemref,
+                             OpBuilder &builder) {
+  // Step 1: Get outermost loops to determine superset/subset
+  affine::AffineForOp producerLoop = getOutermostLoop(producer);
+  affine::AffineForOp consumerLoop = getOutermostLoop(consumer);
+
+  if (!producerLoop || !consumerLoop) {
+    return nullptr;
+  }
+
+  // Step 2: Determine superset generic (one with deeper loop nesting)
+  unsigned producerDepth = getOuterLoopDepth(producerLoop);
+  unsigned consumerDepth = getOuterLoopDepth(consumerLoop);
+
+  GenericOp supersetGeneric =
+      (producerDepth >= consumerDepth) ? producer : consumer;
+  GenericOp subsetGeneric =
+      (producerDepth >= consumerDepth) ? consumer : producer;
+  std::optional<unsigned> producerSharedInitIdx =
+      findOutputOperandForValue(producer, sharedMemref);
+  if (!producerSharedInitIdx) {
+    return nullptr;
+  }
+
+  FusedOperandInfo fusedInfo =
+      buildFusedOperandInfo(producer, consumer, supersetGeneric, subsetGeneric,
+                            inputOperand, sharedMemref);
+
+  // Step 5: Create fused GenericOp shell
+  builder.setInsertionPoint(consumer);
+  auto fusedOp = builder.create<GenericOp>(
+      consumer.getLoc(), TypeRange{}, fusedInfo.inputs, fusedInfo.outputs,
+      supersetGeneric.getGrid(), supersetGeneric.getBlockFactors(),
+      builder.getAffineMapArrayAttr(fusedInfo.maps),
+      supersetGeneric.getIteratorTypes(), supersetGeneric.getThreads(),
+      supersetGeneric.getScratchInputsAttr(), /*regions=*/1);
+
+  IRMapping irMap = buildFusedBlockArgMapping(producer, consumer, inputOperand,
+                                              fusedOp, fusedInfo.sharedInputIdx,
+                                              *producerSharedInitIdx);
+
+  if (!runAffineLoopFusion(fusedOp, producerLoop, consumerLoop, producerDepth,
+                           consumerDepth, builder, irMap)) {
     fusedOp->erase();
     return nullptr;
   }
 
-  // Perform the fusion
-  affine::fuseLoops(srcLoop, dstLoop, srcSlice,
-                    /*isInnermostSiblingInsertion=*/false);
-
-  // fuseLoops copies the source body into the destination but does not erase
-  // the original source loop.
-  srcLoop->erase();
-
-  // Step 8: Convert back from affine-compatible form
-  utils::convertFromAffineCompatibilityForm(fusedOp, builder);
-
-  // Mark as fused
+  // Mark as fused.
   fusedOp->setAttr("d2m.affine_fused", builder.getUnitAttr());
 
   return fusedOp;
@@ -458,6 +501,11 @@ public:
   using D2MGenericAffineLoopFusionBase::D2MGenericAffineLoopFusionBase;
 
   void runOnOperation() final {
+    auto isFusionCandidate = [](GenericOp generic) {
+      return generic.isUnifiedForm() &&
+             !generic.hasSkipOpAffineLoopFusionTrait();
+    };
+
     bool changed = true;
     while (changed) {
       changed = false;
@@ -466,38 +514,16 @@ public:
       getOperation()->walk([&](GenericOp g) { generics.push_back(g); });
 
       for (GenericOp consumer : generics) {
-        if (consumer->hasAttr("d2m.affine_fused")) {
-          continue;
-        }
-        if (!consumer.isUnifiedForm()) {
-          continue;
-        }
-        if (consumer.hasSkipOpAffineLoopFusionTrait()) {
-          continue;
-        }
-        affine::AffineForOp consumerLoop = getOutermostLoop(consumer);
-        if (!consumerLoop) {
+        if (!isFusionCandidate(consumer) || !getOutermostLoop(consumer)) {
           continue;
         }
 
         for (OpOperand *inputOperand : consumer.getDpsInputOperands()) {
           Value rawMemref = peelStreamLayout(inputOperand->get());
           GenericOp producer = findProducerGeneric(rawMemref, consumer);
-          if (!producer || producer->hasAttr("d2m.affine_fused")) {
-            continue;
-          }
-          if (!producer.isUnifiedForm()) {
-            continue;
-          }
-          if (producer.hasSkipOpAffineLoopFusionTrait()) {
-            continue;
-          }
-          if (!isSoleReader(rawMemref, consumer)) {
-            continue;
-          }
-          RemoteStoreOp storeOp =
-              getMatchingStoreForShared(producer, consumer, rawMemref);
-          if (!storeOp) {
+          if (!producer || !isFusionCandidate(producer) ||
+              !isSoleReader(rawMemref, consumer) ||
+              !getMatchingStoreForShared(producer, consumer, rawMemref)) {
             continue;
           }
 
