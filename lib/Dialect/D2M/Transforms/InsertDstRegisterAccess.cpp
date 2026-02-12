@@ -44,6 +44,35 @@ static bool hasTileMatmul(linalg::GenericOp linalgGenericOp) {
   return hasTileMatmul;
 }
 
+static bool canReplaceWithMatmulBlock(linalg::GenericOp linalgGenericOp) {
+  Value outputMemref = linalgGenericOp.getOutputs()[0];
+  ShapedType shapedType = mlir::cast<ShapedType>(outputMemref.getType());
+  // Output of matmul must be at least rank 2.
+  if (shapedType.getRank() < 2) {
+    return false;
+  }
+
+  // Technically the special case below seems feasible, but the indexing math
+  // for matmul block gets tripped up during ttkernel lowering. Filed follow
+  // on issue to support special case below:
+  //   https://github.com/tenstorrent/tt-mlir/issues/6955
+  // Once linked issue is fixed, this early out can be removed.
+  if (shapedType.getRank() > 2) {
+    return false;
+  }
+
+  // Higher rank matmuls are incompatible with tile matmul block, but there
+  // is a special case if all outer ranks are 1's.
+  // e.g.
+  //   2x1x2x4 -> Not compatible
+  //   1x2x2x4 -> Not Compatible
+  //   1x1x2x4 -> Compatible (special case)
+  auto outerShape = shapedType.getShape().drop_back(2);
+  int64_t outerVolume = std::accumulate(outerShape.begin(), outerShape.end(), 1,
+                                        std::multiplies<int64_t>());
+  return outerVolume == 1;
+}
+
 struct D2MInsertDstRegisterAccessRewriter final
     : public OpRewritePattern<GenericOp> {
 public:
@@ -711,6 +740,8 @@ public:
     Value inputAMemref = linalgGenericOp.getInputs()[0];
     Value inputBMemref = linalgGenericOp.getInputs()[1];
     Value outputCMemref = linalgGenericOp.getOutputs()[0];
+    const bool replaceWithMatmulBlock =
+        canReplaceWithMatmulBlock(linalgGenericOp);
 
     rewriter.setInsertionPoint(linalgGenericOp);
 
@@ -723,16 +754,19 @@ public:
         rewriter, gOp, region, dstCapacity,
         !linalgLoops.value().empty() ? linalgLoops.value().front() : nullptr);
 
-    Operation *outerLoop = linalgLoops.value()[0];
-    Block *parentBlk = outerLoop->getBlock();
-    auto insertPos = std::next(Block::iterator(outerLoop));
+    if (replaceWithMatmulBlock) {
+      Operation *outerLoop = linalgLoops.value()[0];
+      Block *parentBlk = outerLoop->getBlock();
+      auto insertPos = std::next(Block::iterator(outerLoop));
 
-    rewriter.setInsertionPoint(parentBlk, insertPos);
-    for (Operation *loopOp : llvm::reverse(linalgLoops.value())) {
-      rewriter.eraseOp(loopOp);
+      rewriter.setInsertionPoint(parentBlk, insertPos);
+      for (Operation *loopOp : llvm::reverse(linalgLoops.value())) {
+        rewriter.eraseOp(loopOp);
+      }
+      rewriter.create<d2m::TileMatmulBlockOp>(gOp.getLoc(), inputAMemref,
+                                              inputBMemref, outputCMemref);
     }
-    rewriter.create<d2m::TileMatmulBlockOp>(gOp.getLoc(), inputAMemref,
-                                            inputBMemref, outputCMemref);
+
     return true;
   }
 
@@ -1592,75 +1626,6 @@ public:
 } // namespace
 
 namespace {
-template <typename TileReduceOp>
-class D2MPackerMaskResetRewriter : public OpRewritePattern<TileReduceOp> {
-public:
-  using OpRewritePattern<TileReduceOp>::OpRewritePattern;
-
-  Value index(OpBuilder &rewriter, Location loc, int64_t val) const {
-    return rewriter.create<arith::ConstantOp>(loc, rewriter.getIndexType(),
-                                              rewriter.getIndexAttr(val));
-  }
-
-  LogicalResult matchAndRewrite(TileReduceOp op,
-                                PatternRewriter &rewriter) const final {
-
-    bool packerResetFound = false;
-    op->getBlock()->walk([&](Operation *op) {
-      if (auto packerReset =
-              mlir::dyn_cast_or_null<d2m::PackerMaskResetOp>(op)) {
-        packerResetFound = true;
-      }
-    });
-    if (packerResetFound) {
-      return failure();
-    }
-
-    rewriter.setInsertionPointAfter(op);
-    ReduceDim reduceDim = op.getReduceDim();
-    SmallVector<int64_t> loopBounds =
-        op->template getParentOfType<GenericOp>().getLoopBounds();
-
-    scf::IfOp ifOp;
-    if (reduceDim == ReduceDim::R) {
-      auto iterIndex = rewriter.create<d2m::IterIndexOp>(
-          op.getLoc(), static_cast<int64_t>(1));
-      auto condOp = rewriter.create<arith::CmpIOp>(
-          op.getLoc(), arith::CmpIPredicate::ne, iterIndex,
-          index(rewriter, op.getLoc(), loopBounds[1] - 1));
-      ifOp = rewriter.create<scf::IfOp>(op.getLoc(), condOp);
-    } else if (reduceDim == ReduceDim::C) {
-      auto iterIndex = rewriter.create<d2m::IterIndexOp>(
-          op.getLoc(), static_cast<int64_t>(0));
-      auto condOp = rewriter.create<arith::CmpIOp>(
-          op.getLoc(), arith::CmpIPredicate::ne, iterIndex,
-          index(rewriter, op.getLoc(), loopBounds[0] - 1));
-      ifOp = rewriter.create<scf::IfOp>(op.getLoc(), condOp);
-    } else if (reduceDim == ReduceDim::RC) {
-      auto iterIndexR = rewriter.create<d2m::IterIndexOp>(
-          op.getLoc(), static_cast<int64_t>(1));
-      auto iterIndexC = rewriter.create<d2m::IterIndexOp>(
-          op.getLoc(), static_cast<int64_t>(0));
-      auto condOp = rewriter.create<arith::CmpIOp>(
-          op.getLoc(), arith::CmpIPredicate::ne, iterIndexR,
-          index(rewriter, op.getLoc(), loopBounds[1] - 1));
-      auto condOp2 = rewriter.create<arith::CmpIOp>(
-          op.getLoc(), arith::CmpIPredicate::ne, iterIndexC,
-          index(rewriter, op.getLoc(), loopBounds[0] - 1));
-      auto finalCondOp =
-          rewriter.create<arith::OrIOp>(op.getLoc(), condOp, condOp2);
-      ifOp = rewriter.create<scf::IfOp>(op.getLoc(), finalCondOp);
-    }
-    rewriter.setInsertionPointToStart(&ifOp.getThenRegion().front());
-    rewriter.create<d2m::PackerMaskResetOp>(op.getLoc());
-
-    return success();
-  }
-};
-
-} // namespace
-
-namespace {
 class D2MInsertDstRegisterAccess
     : public impl::D2MInsertDstRegisterAccessBase<D2MInsertDstRegisterAccess> {
 public:
@@ -1695,9 +1660,6 @@ public:
 
     patterns.add<D2MInsertDstRegisterAccessRewriter>(
         ctx, useTileMatmul, maxDstPhysicalSizeTiles.getValue());
-
-    patterns.add<D2MPackerMaskResetRewriter<TileReduceSumOp>,
-                 D2MPackerMaskResetRewriter<TileReduceMaxOp>>(ctx);
 
     if (failed(applyPatternsGreedily(moduleOp, std::move(patterns)))) {
       signalPassFailure();

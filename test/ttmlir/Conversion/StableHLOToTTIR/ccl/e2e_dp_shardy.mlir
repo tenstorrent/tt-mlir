@@ -161,4 +161,4 @@ module @jit_loss_dp attributes {mhlo.num_partitions = 8 : i32, mhlo.num_replicas
 // CHECK-SAME: shard_dims = array<i64: -1>
 // CHECK-SAME: shard_direction = #ttcore.shard_direction<shard_to_full>
 // CHECK-SAME: shard_shape = array<i64: 1>
-// CHECK-SAME: shard_type = #ttcore.shard_type<replicate>
+// CHECK-SAME: shard_type = #ttcore.shard_type<identity>

@@ -309,18 +309,6 @@ createOp(FlatbufferObjectCache &cache, ToLayoutOp op) {
       memoryConfig ? toFlatbuffer(cache, *memoryConfig) : 0, output);
 }
 
-::flatbuffers::Offset<::tt::target::ttnn::ToDTypeOp>
-createOp(FlatbufferObjectCache &cache, ToDTypeOp op) {
-  auto input = cache.at<::tt::target::ttnn::TensorRef>(
-      getOperandThroughDPSOps(op.getInput()));
-  ::tt::target::DataType dtype = toFlatbuffer(cache, op.getDtype());
-  auto output =
-      cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
-                                  /*local_shape*/ std::nullopt);
-
-  return ::tt::target::ttnn::CreateToDTypeOp(*cache.fbb, input, dtype, output);
-}
-
 ::flatbuffers::Offset<::tt::target::ttnn::TypecastOp>
 createOp(FlatbufferObjectCache &cache, TypecastOp op) {
   auto input = cache.at<::tt::target::ttnn::TensorRef>(
@@ -3000,6 +2988,17 @@ createProgramDescriptor(FlatbufferObjectCache &cache, ProgramAttr programAttr,
                                                            &semaphores, &cbs);
 }
 
+static ::tt::target::RoutingMode
+toFlatbuffer(tt::ttnn::RoutingMode routingMode) {
+  switch (routingMode) {
+  case ttnn::RoutingMode::BidirLineMesh:
+    return ::tt::target::RoutingMode::BidirLineMesh;
+  case ttnn::RoutingMode::UnidirRingTorus:
+    return ::tt::target::RoutingMode::UnidirRingTorus;
+  }
+  assert(false && "Unsupported RoutingMode");
+}
+
 static ::flatbuffers::Offset<::tt::target::ttnn::MeshProgramDescriptor>
 createMeshProgramDescriptor(FlatbufferObjectCache &cache,
                             MeshProgramDescriptorAttr meshProgramDescAttr,
@@ -3029,6 +3028,7 @@ createMeshProgramDescriptor(FlatbufferObjectCache &cache,
       *cache.fbb, toFlatbuffer(cache, fabricConnectionConfigAttr.getNocIndex()),
       toFlatbuffer(cache, fabricConnectionConfigAttr.getTopology()),
       fabricConnectionConfigAttr.getClusterAxis(),
+      toFlatbuffer(fabricConnectionConfigAttr.getRoutingMode()),
       fabricConnectionConfigAttr.getNumLinks());
 
   return ::tt::target::ttnn::CreateMeshProgramDescriptorDirect(
@@ -3346,10 +3346,6 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto toLayoutOp = dyn_cast<ToLayoutOp>(op); toLayoutOp) {
     return createOperation(cache, createOp(cache, toLayoutOp), debugString,
-                           locInfo);
-  }
-  if (auto toDTypeOp = dyn_cast<ToDTypeOp>(op); toDTypeOp) {
-    return createOperation(cache, createOp(cache, toDTypeOp), debugString,
                            locInfo);
   }
   if (auto typecastOp = dyn_cast<TypecastOp>(op); typecastOp) {
