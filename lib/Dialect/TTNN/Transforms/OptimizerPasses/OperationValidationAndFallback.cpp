@@ -235,7 +235,7 @@ public:
           }
         } else {
           // Try fallback configurations
-          // TODO(bmalesevic, #): Fallback paths only pass configs[0] to
+          // TODO(bmalesevic, #7023): Fallback paths only pass configs[0] to
           // tryFallbacks/tryConfigFallbacks, so multi-output ops will only
           // have the first output's layout revert handled. Extend to pass
           // all configs when multi-output fallback support is needed.
