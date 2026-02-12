@@ -8,13 +8,13 @@
 
 #include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/common/system_mesh.h"
-#include "ttmlir/Target/Common/types_generated.h"
 
 namespace tt::runtime::common {
 
-MeshFabricConfig computeFabricConfig(const ::tt::target::SystemDesc *systemDesc,
-                                     const std::vector<uint32_t> &meshShape) {
-  LOG_ASSERT(systemDesc != nullptr, "SystemDesc must not be null");
+MeshFabricConfig
+computeFabricConfig(const std::vector<::tt::target::ChipChannel> &chipChannels,
+                    const std::vector<uint32_t> &meshShape,
+                    const std::vector<int> &deviceIds) {
   LOG_ASSERT(meshShape.size() == 2,
              "meshShape must have exactly 2 dimensions, got ",
              meshShape.size());
@@ -27,24 +27,18 @@ MeshFabricConfig computeFabricConfig(const ::tt::target::SystemDesc *systemDesc,
     return {FabricConfig::DISABLED, {}};
   }
 
-  std::set<std::pair<uint32_t, uint32_t>> connections;
-  auto chipChannels = systemDesc->chip_channels();
-  if (chipChannels) {
-    for (size_t i = 0; i < chipChannels->size(); ++i) {
-      const auto *channel = chipChannels->Get(i);
-      uint32_t id0 = channel->device_id0();
-      uint32_t id1 = channel->device_id1();
-      if (id0 > id1) {
-        std::swap(id0, id1);
-      }
-      connections.insert({id0, id1});
-    }
-  }
-
-  std::vector<int> deviceIds = getMappedDeviceIds(meshShape);
-
   LOG_ASSERT(deviceIds.size() == totalDevices, "Expected ", totalDevices,
              " device IDs, got ", deviceIds.size());
+
+  std::set<std::pair<uint32_t, uint32_t>> connections;
+  for (const auto &channel : chipChannels) {
+    uint32_t id0 = channel.device_id0();
+    uint32_t id1 = channel.device_id1();
+    if (id0 > id1) {
+      std::swap(id0, id1);
+    }
+    connections.insert({id0, id1});
+  }
 
   auto getDeviceAt = [&deviceIds, numCols](uint32_t row,
                                            uint32_t col) -> uint32_t {
@@ -99,6 +93,21 @@ MeshFabricConfig computeFabricConfig(const ::tt::target::SystemDesc *systemDesc,
                                   : FabricConfig::FABRIC_1D;
 
   return {globalConfig, perAxisConfig};
+}
+
+MeshFabricConfig
+computeFabricConfig(const ::tt::target::SystemDesc *systemDesc,
+                    const std::vector<uint32_t> &meshShape) {
+  LOG_ASSERT(systemDesc != nullptr, "SystemDesc must not be null");
+
+  std::vector<::tt::target::ChipChannel> chipChannels;
+  auto fbChannels = systemDesc->chip_channels();
+  if (fbChannels) {
+    chipChannels.assign(fbChannels->begin(), fbChannels->end());
+  }
+
+  return computeFabricConfig(chipChannels, meshShape,
+                             getMappedDeviceIds(meshShape));
 }
 
 } // namespace tt::runtime::common

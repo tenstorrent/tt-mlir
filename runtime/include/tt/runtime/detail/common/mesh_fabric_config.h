@@ -12,8 +12,14 @@
 
 namespace tt::runtime::common {
 
-MeshFabricConfig computeFabricConfig(const ::tt::target::SystemDesc *systemDesc,
-                                     const std::vector<uint32_t> &meshShape);
+MeshFabricConfig
+computeFabricConfig(const std::vector<::tt::target::ChipChannel> &chipChannels,
+                    const std::vector<uint32_t> &meshShape,
+                    const std::vector<int> &deviceIds);
+
+MeshFabricConfig
+computeFabricConfig(const ::tt::target::SystemDesc *systemDesc,
+                    const std::vector<uint32_t> &meshShape);
 
 } // namespace tt::runtime::common
 
