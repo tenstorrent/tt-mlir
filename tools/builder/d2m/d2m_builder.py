@@ -167,17 +167,6 @@ class D2MBuilder(Builder):
     ) -> OpView:
         """Create a D2M view_layout operation."""
 
-        result = self._op_proxy(
-            d2m.ViewLayoutOp,
-            [input],
-            d2m_kwargs={"reinterpretLayout": reinterpret_layout},
-            output_type=output_type,
-            output_shape=output_type.shape,
-            output_create_fn=self._create_empty_from_tensor_type,
-            organize_d2m_args=lambda i, o, _: (self._get_type(o), i[0]),
-            unit_attrs=unit_attrs,
-        )
-
         if remapping is None:
             remapping = AffineMap.get_identity(len(output_type.shape), self._ctx)
         remapping_attr = (
@@ -185,7 +174,21 @@ class D2MBuilder(Builder):
             if isinstance(remapping, AffineMapAttr)
             else AffineMapAttr.get(remapping)
         )
-        result.owner.attributes["remapping"] = remapping_attr
+
+        result = self._op_proxy(
+            d2m.ViewLayoutOp,
+            [input],
+            d2m_kwargs={
+                "remapping": remapping_attr,
+                "reinterpretLayout": reinterpret_layout,
+            },
+            output_type=output_type,
+            output_shape=output_type.shape,
+            output_create_fn=self._create_empty_from_tensor_type,
+            organize_d2m_args=lambda i, o, _: (self._get_type(o), i[0]),
+            unit_attrs=unit_attrs,
+        )
+
         return result
 
     def stream_layout(
@@ -198,7 +201,6 @@ class D2MBuilder(Builder):
         with self._ctx, self._loc:
             # Determine result type based on input type
             result_type = input.type
-            op = d2m.StreamLayoutOp(result_type, input, storage)
             if remapping is None:
                 remapping = AffineMap.get_identity(len(result_type.shape), self._ctx)
             remapping_attr = (
@@ -206,7 +208,7 @@ class D2MBuilder(Builder):
                 if isinstance(remapping, AffineMapAttr)
                 else AffineMapAttr.get(remapping)
             )
-            op.operation.attributes["remapping"] = remapping_attr
+            op = d2m.StreamLayoutOp(result_type, input, remapping_attr, storage)
             return op.result
 
     # ----- D2M Layout Convenience Methods -----
