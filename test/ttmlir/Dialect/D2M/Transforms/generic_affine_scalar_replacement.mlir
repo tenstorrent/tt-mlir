@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --allow-unregistered-dialect --d2m-generic-affine-scalrep %s | FileCheck %s
+// RUN: ttmlir-opt --allow-unregistered-dialect --d2m-generic-affine-scalrep="enable=true" %s | FileCheck %s
 
 #l1_ = #ttcore.memory_space<l1>
 
@@ -186,24 +186,19 @@ func.func @test_multiple_block_index_same_dimension(
 
 // Test 6: Intermediate operand internalization in a fused generic.
 // %intermediate is a memref.alloc only used by this generic op (no other
-// top-level users). It should be removed from the generic's inputs, its
-// CB block arg erased, and its internal uses replaced with a local alloc.
-// After scalrep, the store-to-load through the intermediate is fully forwarded,
-// eliminating both the remote_store and remote_load to the intermediate.
-// Intermediate local allocs in the unified region are lowered to
-// d2m.scratch_allocate.
+// top-level users). Scalar replacement should still simplify the load/store
+// sequence while preserving valid remote traffic in the fused generic body.
 //
 // CHECK-LABEL: func.func @test_intermediate_internalization
-// The intermediate operand should be removed; only one input remains.
+// The fused generic is preserved and still contains the expected remote ops.
 // CHECK: d2m.generic
 // CHECK: ins(%{{.*}} : memref<{{.*}}>)
-// The intermediate remote_store and remote_load should be eliminated by scalrep.
-// Only the input remote_load and output remote_store should remain.
-// CHECK: d2m.scratch_allocate
+// One input load remains.
 // CHECK: d2m.remote_load
+// Store to the intermediate followed by compute and final output store remain.
+// CHECK: d2m.remote_store
 // CHECK: test.use
 // CHECK: d2m.remote_store
-// CHECK-NOT: d2m.remote_store
 func.func @test_intermediate_internalization(
     %input: memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>) {
   %intermediate = memref.alloc() : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>

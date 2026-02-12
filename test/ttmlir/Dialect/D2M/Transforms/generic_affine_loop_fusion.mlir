@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttcore-register-device --d2m-generic-affine-loop-fusion %s | FileCheck %s
+// RUN: ttmlir-opt --ttcore-register-device --d2m-generic-affine-loop-fusion="enable=true" %s | FileCheck %s
 
 #l1_ = #ttcore.memory_space<l1>
 #dram = #ttcore.memory_space<dram>
