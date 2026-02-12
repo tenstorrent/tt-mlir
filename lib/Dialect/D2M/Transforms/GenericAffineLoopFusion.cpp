@@ -26,11 +26,11 @@ namespace mlir::tt::d2m {
 
 // Unwrap view-like ops (stream_layout/view_layout/etc.) to get the underlying
 // memref (if necessary).
-static Value unwrapIfViewLike(Value val) {
-  while (auto viewOp = val.getDefiningOp<ViewOpInterface>()) {
-    val = viewOp.getInput();
+static Value unwrapIfViewLike(Value value) {
+  while (auto viewOp = value.getDefiningOp<ViewOpInterface>()) {
+    value = viewOp.getInput();
   }
-  return val;
+  return value;
 }
 
 // Find a preceding GenericOp that writes to `sharedMemref` as a DPS init.
@@ -70,68 +70,18 @@ static bool isSoleReader(Value sharedMemref, GenericOp consumer) {
       }
       continue;
     }
-    if (auto otherGeneric = dyn_cast<GenericOp>(user)) {
-      for (OpOperand *input : otherGeneric.getDpsInputOperands()) {
-        Value rawInput = unwrapIfViewLike(input->get());
-        if (rawInput == sharedMemref) {
-          return false;
-        }
-      }
+    auto otherGeneric = mlir::dyn_cast<GenericOp>(user);
+    if (!otherGeneric) {
       continue;
+    }
+    for (OpOperand *input : otherGeneric.getDpsInputOperands()) {
+      Value rawInput = unwrapIfViewLike(input->get());
+      if (rawInput == sharedMemref) {
+        return false;
+      }
     }
   }
   return true;
-}
-
-// Find the output operand number that corresponds to `target`.
-static std::optional<unsigned> findOutputOperandForValue(GenericOp generic,
-                                                         Value target) {
-  for (OpOperand &output : generic.getOutputsMutable()) {
-    if (output.get() == target) {
-      return output.getOperandNumber();
-    }
-  }
-  return std::nullopt;
-}
-
-// Find the single outermost affine.for with d2m.blocking_loop attribute.
-static affine::AffineForOp getOutermostLoop(GenericOp generic) {
-  affine::AffineForOp outerLoop = nullptr;
-  unsigned count = 0;
-  for (Operation &op : generic.getRegion(0).front()) {
-    if (auto forOp = dyn_cast<affine::AffineForOp>(&op)) {
-      if (forOp->hasAttr("d2m.blocking_loop")) {
-        outerLoop = forOp;
-        count++;
-      }
-    }
-  }
-  if (count != 1) {
-    return nullptr;
-  }
-  return outerLoop;
-}
-
-// Count the depth of nested d2m.blocking_loop affine.for ops.
-static unsigned getOuterLoopDepth(affine::AffineForOp outerLoop) {
-  unsigned depth = 0;
-  auto current = outerLoop;
-  while (current) {
-    if (current->hasAttr("d2m.blocking_loop")) {
-      depth++;
-    }
-    affine::AffineForOp nested = nullptr;
-    for (Operation &op : current.getBody()->getOperations()) {
-      if (auto forOp = dyn_cast<affine::AffineForOp>(&op)) {
-        if (forOp->hasAttr("d2m.blocking_loop")) {
-          nested = forOp;
-          break;
-        }
-      }
-    }
-    current = nested;
-  }
-  return depth;
 }
 
 struct FusedOperandInfo {
@@ -388,23 +338,32 @@ static GenericOp tryFusePair(GenericOp producer, GenericOp consumer,
                              OpOperand *inputOperand, Value sharedMemref,
                              OpBuilder &builder) {
   // Get outermost loops to determine superset/subset.
-  affine::AffineForOp producerLoop = getOutermostLoop(producer);
-  affine::AffineForOp consumerLoop = getOutermostLoop(consumer);
+  std::optional<Operation *> producerLoopOp =
+      producer.getOutermostBlockingLoopOp();
+  std::optional<Operation *> consumerLoopOp =
+      consumer.getOutermostBlockingLoopOp();
+  if (!producerLoopOp || !consumerLoopOp) {
+    return nullptr;
+  }
+  auto producerLoop =
+      mlir::dyn_cast<affine::AffineForOp>(producerLoopOp.value());
+  auto consumerLoop =
+      mlir::dyn_cast<affine::AffineForOp>(consumerLoopOp.value());
 
   if (!producerLoop || !consumerLoop) {
     return nullptr;
   }
 
   // Determine superset generic (one with deeper loop nesting).
-  unsigned producerDepth = getOuterLoopDepth(producerLoop);
-  unsigned consumerDepth = getOuterLoopDepth(consumerLoop);
+  unsigned producerDepth = producer.getNumBlockFactors();
+  unsigned consumerDepth = consumer.getNumBlockFactors();
 
   GenericOp supersetGeneric =
       (producerDepth >= consumerDepth) ? producer : consumer;
   GenericOp subsetGeneric =
       (producerDepth >= consumerDepth) ? consumer : producer;
   std::optional<unsigned> producerSharedInitIdx =
-      findOutputOperandForValue(producer, sharedMemref);
+      producer.getOutputOperandIndex(sharedMemref);
   if (!producerSharedInitIdx) {
     return nullptr;
   }
@@ -463,7 +422,8 @@ public:
       getOperation()->walk([&](GenericOp g) { generics.push_back(g); });
 
       for (GenericOp consumer : generics) {
-        if (!isFusionCandidate(consumer) || !getOutermostLoop(consumer)) {
+        if (!isFusionCandidate(consumer) ||
+            !consumer.getOutermostBlockingLoopOp().has_value()) {
           continue;
         }
 

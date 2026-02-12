@@ -343,9 +343,13 @@ def D2M_GenericOp
       std::optional<SmallVector<int64_t>> computeGridDimConstraints(std::function<bool(ttcore::MetalLayoutAttr, bool)> operandFilterPredicate);
       unsigned getNumLoops();
       unsigned getNumDims();
+      unsigned getNumBlockFactors();
+      std::optional<Operation *> getOutermostBlockingLoopOp();
+      unsigned getBlockingLoopDepth();
       AffineMap getIndexingMap(int64_t operandIndex);
       AffineMap getIndexingMapForOperand(Value operand);
       AffineMap getOutputIndexingMap();
+      std::optional<unsigned> getOutputOperandIndex(Value operand);
       SmallVector<int64_t> getOutputGridDimPositions();
       int64_t getOperandIndex(Value operand);
       bool hasCompatibleBlocking(GenericOp gOp);

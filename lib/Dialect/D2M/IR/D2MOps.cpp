@@ -13,6 +13,7 @@
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
+#include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
@@ -1841,6 +1842,32 @@ unsigned d2m::GenericOp::getNumDims() {
   return getIndexingMap(0).getNumDims();
 }
 
+unsigned d2m::GenericOp::getNumBlockFactors() {
+  return static_cast<unsigned>(getBlockFactors().size());
+}
+
+std::optional<Operation *> d2m::GenericOp::getOutermostBlockingLoopOp() {
+  Operation *outerLoop = nullptr;
+  unsigned count = 0;
+  for (Operation &op : getRegion(0).front()) {
+    auto forOp = mlir::dyn_cast<affine::AffineForOp>(&op);
+    if (!forOp || !forOp->hasAttr("d2m.blocking_loop")) {
+      continue;
+    }
+    outerLoop = forOp;
+    count++;
+  }
+  if (count != 1) {
+    return std::nullopt;
+  }
+  return outerLoop;
+}
+
+unsigned d2m::GenericOp::getBlockingLoopDepth() {
+  // Verification enforces block-factor rank matches blocking-loop depth.
+  return getNumBlockFactors();
+}
+
 mlir::AffineMap d2m::GenericOp::getIndexingMap(int64_t operandIndex) {
   TT_debugv(!isExplicitDatamovementForm(),
             "Attempting to access indexing map while in explicit "
@@ -1861,6 +1888,15 @@ AffineMap d2m::GenericOp::getOutputIndexingMap() {
   TT_assertv(getNumDpsInits() == 1,
              "getOutputIndexingMap expects exactly one output operand");
   return getIndexingMapForOperand(getOutputs().front());
+}
+
+std::optional<unsigned> d2m::GenericOp::getOutputOperandIndex(Value operand) {
+  for (OpOperand &output : getOutputsMutable()) {
+    if (output.get() == operand) {
+      return output.getOperandNumber();
+    }
+  }
+  return std::nullopt;
 }
 
 mlir::SmallVector<int64_t> d2m::GenericOp::getOutputGridDimPositions() {
