@@ -146,11 +146,10 @@ getNDTensor(FlatbufferObjectCache &cache, RankedTensorType tensorType,
       cache.getOrCreate(layoutAttr, ttnnNDLayoutAttrToFlatbuffer));
 }
 
-flatbuffers::Offset<::tt::target::ttnn::TensorDesc>
-tensorTypeToFlatbuffer(FlatbufferObjectCache &cache, Type type,
-                       ttcore::DeviceAttr deviceAttr,
-                       ttcore::ShardStatus shardStatusType,
-                       mlir::RankedTensorType localShapeType) {
+flatbuffers::Offset<::tt::target::ttnn::TensorDesc> tensorTypeToFlatbuffer(
+    FlatbufferObjectCache &cache, Type type, ttcore::DeviceAttr deviceAttr,
+    ttcore::ShardStatus shardStatusType, mlir::RankedTensorType localShapeType,
+    std::optional<ttnn::MemoryConfigAttr> memoryConfigOverride = std::nullopt) {
   auto tensorType = mlir::cast<RankedTensorType>(type);
 
   // Runtime deals with a trace id as a system memory tensor. Appropriate
@@ -205,10 +204,22 @@ tensorTypeToFlatbuffer(FlatbufferObjectCache &cache, Type type,
   auto runtimeTensorShardingDesc =
       ::tt::target::ttnn::CreateRuntimeTensorShardingDescDirect(
           *cache.fbb, shardStatus, &localShape);
+
+  ::flatbuffers::Offset<::tt::target::ttnn::LayoutDesc> layoutDesc;
+  if (memoryConfigOverride) {
+    layoutDesc = ttnnLayoutAttrToFlatbuffer(cache, layoutAttr, deviceAttr,
+                                            memoryConfigOverride);
+  } else {
+    layoutDesc = cache.getOrCreate(
+        layoutAttr,
+        [](FlatbufferObjectCache &c, ttnn::TTNNLayoutAttr layout,
+           ttcore::DeviceAttr device) {
+          return ttnnLayoutAttrToFlatbuffer(c, layout, device);
+        },
+        deviceAttr);
+  }
   return ::tt::target::ttnn::CreateTensorDescDirect(
-      *cache.fbb, &shape, &meshShape,
-      cache.getOrCreate(layoutAttr, ttnnLayoutAttrToFlatbuffer, deviceAttr),
-      runtimeTensorShardingDesc);
+      *cache.fbb, &shape, &meshShape, layoutDesc, runtimeTensorShardingDesc);
 }
 
 flatbuffers::Offset<::tt::target::ttnn::TensorRef>
@@ -234,8 +245,23 @@ tensorValueToFlatbuffer(FlatbufferObjectCache &cache, Value value,
     tensorType = mlir::RankedTensorType::get(tensorType.getShape(), elementType,
                                              tensorType.getEncoding());
   }
-  auto tensorDesc = tensorTypeToFlatbuffer(cache, tensorType, deviceAttr,
-                                           shardStatus, newLocalType);
+
+  // When the value is produced by EmptyOp, use its memory_config for the
+  // tensor descriptor so the flatbuffer "expected" memory config matches the
+  // actual (e.g. shard grid (1,1) instead of (0,0) from layout).
+  std::optional<ttnn::MemoryConfigAttr> memoryConfigOverride;
+  if (mlir::Operation *defOp = value.getDefiningOp()) {
+    if (auto emptyOp = mlir::dyn_cast<EmptyOp>(defOp)) {
+      memoryConfigOverride = emptyOp.getMemoryConfig();
+    }
+    if (auto fullOp = mlir::dyn_cast<FullOp>(defOp)) {
+      memoryConfigOverride = fullOp.getMemoryConfig();
+    }
+  }
+
+  auto tensorDesc =
+      tensorTypeToFlatbuffer(cache, tensorType, deviceAttr, shardStatus,
+                             newLocalType, memoryConfigOverride);
   return ::tt::target::ttnn::CreateTensorRef(*cache.fbb, cache.global_id++,
                                              tensorDesc);
 }

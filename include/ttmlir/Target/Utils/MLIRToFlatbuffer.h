@@ -930,12 +930,12 @@ toFlatbuffer(FlatbufferObjectCache &cache,
       *cache.fbb, tensorMemoryLayout, bufferType, shardSpec, ndShardSpec);
 }
 
-inline flatbuffers::Offset<::tt::target::ttnn::MemoryDesc>
-toFlatbuffer(FlatbufferObjectCache &cache, mlir::MemRefType memref,
-             ttcore::TensorMeshAttr tensorMesh, ttnn::BufferType bufferType,
-             ttnn::TensorMemoryLayoutAttr memLayoutAttr,
-             ttcore::GridAttr shardGrid, ttcore::GridAttr deviceGrid,
-             bool exactGrid) {
+inline flatbuffers::Offset<::tt::target::ttnn::MemoryDesc> toFlatbuffer(
+    FlatbufferObjectCache &cache, mlir::MemRefType memref,
+    ttcore::TensorMeshAttr tensorMesh, ttnn::BufferType bufferType,
+    ttnn::TensorMemoryLayoutAttr memLayoutAttr, ttcore::GridAttr shardGrid,
+    ttcore::GridAttr deviceGrid, bool exactGrid,
+    std::optional<ttnn::MemoryConfigAttr> memoryConfigOverride = std::nullopt) {
   auto shapeInt64 = memref.getShape();
   std::vector<int32_t> shape(shapeInt64.begin(), shapeInt64.end());
   ttcore::DataType dtype = ttcore::DataType::Float32;
@@ -962,55 +962,60 @@ toFlatbuffer(FlatbufferObjectCache &cache, mlir::MemRefType memref,
 
   // Only device tensors should have a memory config
   if (bufferType != ttnn::BufferType::SystemMemory) {
-    ::mlir::MLIRContext *ctx = memref.getContext();
-    auto bufferTypeAttr = ttnn::BufferTypeAttr::get(ctx, bufferType);
-    std::optional<mlir::tt::ttnn::ShardSpecAttr> shardSpecAttr = std::nullopt;
-    if (isShardedMemoryLayout(memLayoutAttr.getValue())) {
-      llvm::SmallVector<int64_t> shape(memref.getShape().begin(),
-                                       memref.getShape().end());
-      assert(shape.size() == 2);
-      shape[0] *= tileShape.y();
-      shape[1] *= tileShape.x();
+    if (memoryConfigOverride) {
+      memoryConfig = toFlatbuffer(cache, *memoryConfigOverride);
+    } else {
+      ::mlir::MLIRContext *ctx = memref.getContext();
+      auto bufferTypeAttr = ttnn::BufferTypeAttr::get(ctx, bufferType);
+      std::optional<mlir::tt::ttnn::ShardSpecAttr> shardSpecAttr = std::nullopt;
+      if (isShardedMemoryLayout(memLayoutAttr.getValue())) {
+        llvm::SmallVector<int64_t> shape(memref.getShape().begin(),
+                                         memref.getShape().end());
+        assert(shape.size() == 2);
+        shape[0] *= tileShape.y();
+        shape[1] *= tileShape.x();
 
-      ttnn::CoreRangeSetAttr coreRangeSetAttr;
-      // For TTNN JIT, the sharding core range has already been set by the user.
-      // This means that for height and width sharding, the grid in the
-      // TTNNLayoutAttr is not a virtual Mx1 or 1xN grid that would require
-      // collapsing. This is required to distinguish between 3x4 and 2x6 as
-      // sharding grids for height and width sharding.
-      // Note that the core coord is (X,Y) but the grid shape is (Y,X).
-      if (exactGrid) {
-        coreRangeSetAttr = ttnn::CoreRangeSetAttr::get(
-            ctx, ttnn::CoreRangeAttr::get(
-                     ctx, ttnn::CoreCoordAttr::get(ctx, 0, 0),
-                     ttnn::CoreCoordAttr::get(ctx, shardGrid.getShape()[1] - 1,
-                                              shardGrid.getShape()[0] - 1)));
-      } else {
-        coreRangeSetAttr = ttnn::CoreRangeSetAttr::get(
-            ctx, llvm::map_to_vector(
-                     ttcore::utils::toCoreRangeSet(
-                         shardGrid.getShape(),
-                         ttnn::optimizer_utils::
-                             createSingleDeviceVirtualToPhysicalAffineMap(
-                                 ctx, memLayoutAttr.getValue(),
-                                 deviceGrid.getShape())),
-                     [ctx](const auto &range) {
-                       const auto [loc, size] = range;
-                       return ttnn::CoreRangeAttr::get(
-                           ctx, ttnn::CoreCoordAttr::get(ctx, loc[0], loc[1]),
-                           ttnn::CoreCoordAttr::get(ctx, loc[0] + size[0] - 1,
-                                                    loc[1] + size[1] - 1));
-                     }));
+        ttnn::CoreRangeSetAttr coreRangeSetAttr;
+        // For TTNN JIT, the sharding core range has already been set by the
+        // user. This means that for height and width sharding, the grid in the
+        // TTNNLayoutAttr is not a virtual Mx1 or 1xN grid that would require
+        // collapsing. This is required to distinguish between 3x4 and 2x6 as
+        // sharding grids for height and width sharding.
+        // Note that the core coord is (X,Y) but the grid shape is (Y,X).
+        if (exactGrid) {
+          coreRangeSetAttr = ttnn::CoreRangeSetAttr::get(
+              ctx,
+              ttnn::CoreRangeAttr::get(
+                  ctx, ttnn::CoreCoordAttr::get(ctx, 0, 0),
+                  ttnn::CoreCoordAttr::get(ctx, shardGrid.getShape()[1] - 1,
+                                           shardGrid.getShape()[0] - 1)));
+        } else {
+          coreRangeSetAttr = ttnn::CoreRangeSetAttr::get(
+              ctx, llvm::map_to_vector(
+                       ttcore::utils::toCoreRangeSet(
+                           shardGrid.getShape(),
+                           ttnn::optimizer_utils::
+                               createSingleDeviceVirtualToPhysicalAffineMap(
+                                   ctx, memLayoutAttr.getValue(),
+                                   deviceGrid.getShape())),
+                       [ctx](const auto &range) {
+                         const auto [loc, size] = range;
+                         return ttnn::CoreRangeAttr::get(
+                             ctx, ttnn::CoreCoordAttr::get(ctx, loc[0], loc[1]),
+                             ttnn::CoreCoordAttr::get(ctx, loc[0] + size[0] - 1,
+                                                      loc[1] + size[1] - 1));
+                       }));
+        }
+        shardSpecAttr = ttnn::ShardSpecAttr::get(
+            ctx, coreRangeSetAttr, ttnn::ShapeAttr::get(ctx, shape),
+            ttnn::ShardOrientationAttr::get(ctx,
+                                            ttnn::ShardOrientation::RowMajor));
       }
-      shardSpecAttr = ttnn::ShardSpecAttr::get(
-          ctx, coreRangeSetAttr, ttnn::ShapeAttr::get(ctx, shape),
-          ttnn::ShardOrientationAttr::get(ctx,
-                                          ttnn::ShardOrientation::RowMajor));
-    }
-    auto memoryConfigAttr = ::mlir::tt::ttnn::MemoryConfigAttr::get(
-        ctx, memLayoutAttr, bufferTypeAttr, shardSpecAttr);
+      auto memoryConfigAttr = ::mlir::tt::ttnn::MemoryConfigAttr::get(
+          ctx, memLayoutAttr, bufferTypeAttr, shardSpecAttr);
 
-    memoryConfig = toFlatbuffer(cache, memoryConfigAttr);
+      memoryConfig = toFlatbuffer(cache, memoryConfigAttr);
+    }
   }
 
   return ::tt::target::ttnn::CreateMemoryDesc(
@@ -1019,9 +1024,10 @@ toFlatbuffer(FlatbufferObjectCache &cache, mlir::MemRefType memref,
 }
 
 inline flatbuffers::Offset<::tt::target::ttnn::LayoutDesc>
-ttnnLayoutAttrToFlatbuffer(FlatbufferObjectCache &cache,
-                           ttnn::TTNNLayoutAttr layoutAttr,
-                           ttcore::DeviceAttr deviceAttr) {
+ttnnLayoutAttrToFlatbuffer(
+    FlatbufferObjectCache &cache, ttnn::TTNNLayoutAttr layoutAttr,
+    ttcore::DeviceAttr deviceAttr,
+    std::optional<ttnn::MemoryConfigAttr> memoryConfigOverride = std::nullopt) {
   // TODO (jnie): Memory reference alone is insufficient to determine LayoutDesc
   // uniquely. Using `cache.getOrCreate()` is unsafe because identical memory
   // references can produce different LayoutDesc objects.
@@ -1034,7 +1040,7 @@ ttnnLayoutAttrToFlatbuffer(FlatbufferObjectCache &cache,
       toFlatbuffer(cache, layoutAttr.getMemref(), layoutAttr.getTensorMesh(),
                    layoutAttr.getBufferType(), layoutAttr.getMemLayout(),
                    layoutAttr.getGrid(), deviceAttr.getWorkerGrid(),
-                   layoutAttr.getExactGrid()));
+                   layoutAttr.getExactGrid(), memoryConfigOverride));
 }
 
 inline flatbuffers::Offset<::tt::target::ttnn::MemoryDesc> toFlatbuffer(
