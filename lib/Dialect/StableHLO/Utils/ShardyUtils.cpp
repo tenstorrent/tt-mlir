@@ -988,6 +988,42 @@ std::optional<mlir::DenseElementsAttr> tryGetPeriodicShardSlice(
   auto oldType = mlir::cast<mlir::RankedTensorType>(globalAttr.getType());
   auto globalShape = oldType.getShape();
 
+  llvm::errs() << "[DEBUG] tryGetPeriodicShardSlice ENTER\n";
+  llvm::errs() << "[DEBUG]   globalType: " << oldType << "\n";
+  llvm::errs() << "[DEBUG]   localType:  " << localType << "\n";
+  llvm::errs() << "[DEBUG]   sharding:   " << sharding << "\n";
+  llvm::errs() << "[DEBUG]   globalShape: [";
+  for (auto [i, d] : llvm::enumerate(globalShape)) {
+    if (i > 0)
+      llvm::errs() << ", ";
+    llvm::errs() << d;
+  }
+  llvm::errs() << "]\n";
+  llvm::errs() << "[DEBUG]   numElements(global): " << oldType.getNumElements()
+               << ", numElements(local): " << localType.getNumElements()
+               << "\n";
+  llvm::errs() << "[DEBUG]   isSplat: "
+               << (globalAttr.isSplat() ? "true" : "false") << "\n";
+  // Print mesh info.
+  llvm::errs() << "[DEBUG]   mesh axes: [";
+  for (auto [i, meshAxis] : llvm::enumerate(meshOp.getMesh().getAxes())) {
+    if (i > 0)
+      llvm::errs() << ", ";
+    llvm::errs() << meshAxis.getName() << "=" << meshAxis.getSize();
+  }
+  llvm::errs() << "]\n";
+  // Print per-dim sharding detail.
+  for (auto [dimIdx, dimSharding] :
+       llvm::enumerate(sharding.getDimShardings())) {
+    llvm::errs() << "[DEBUG]   dim[" << dimIdx << "] axes: [";
+    for (auto [ai, axis] : llvm::enumerate(dimSharding.getAxes())) {
+      if (ai > 0)
+        llvm::errs() << ", ";
+      llvm::errs() << "\"" << axis.getName() << "\"";
+    }
+    llvm::errs() << "] isClosed=" << dimSharding.getIsClosed() << "\n";
+  }
+
   // 1. Identify Sharding Dimension & Count
   int64_t shardingDim = -1;
   int64_t numShards = 1;
@@ -1012,8 +1048,13 @@ std::optional<mlir::DenseElementsAttr> tryGetPeriodicShardSlice(
     }
   }
 
+  llvm::errs() << "[DEBUG]   shardingDim=" << shardingDim
+               << " numShards=" << numShards << "\n";
+
   // If no valid sharding found, we cannot proceed
   if (shardingDim == -1 || numShards <= 1) {
+    llvm::errs() << "[DEBUG]   -> RETURN nullopt (no valid sharding dim or "
+                    "numShards<=1)\n";
     return std::nullopt;
   }
 
@@ -1032,11 +1073,19 @@ std::optional<mlir::DenseElementsAttr> tryGetPeriodicShardSlice(
     outerCount *= globalShape[i];
   }
 
+  llvm::errs() << "[DEBUG]   totalDimSize=" << totalDimSize
+               << " shardDimSize=" << shardDimSize
+               << " innerBlockSize=" << innerBlockSize
+               << " outerCount=" << outerCount << "\n";
+
   // 3. Verify Periodicity
   // We check if Shard K (k=1..N) contains the same data as Shard 0
   auto globalValues = globalAttr.getValues<mlir::Attribute>();
   int64_t shardStep = shardDimSize * innerBlockSize;
   int64_t rowSize = totalDimSize * innerBlockSize;
+
+  llvm::errs() << "[DEBUG]   shardStep=" << shardStep
+               << " rowSize=" << rowSize << "\n";
 
   for (int64_t out = 0; out < outerCount; ++out) {
     int64_t rowStart = out * rowSize;
@@ -1049,12 +1098,24 @@ std::optional<mlir::DenseElementsAttr> tryGetPeriodicShardSlice(
           int64_t offsetK = offset0 + (k * shardStep);
 
           if (globalValues[offset0] != globalValues[offsetK]) {
+            llvm::errs()
+                << "[DEBUG]   -> RETURN nullopt (periodicity FAILED at "
+                << "out=" << out << " k=" << k << " s=" << s
+                << " inner=" << inner << " offset0=" << offset0
+                << " offsetK=" << offsetK << ")\n";
+            llvm::errs() << "[DEBUG]     val[offset0]=";
+            globalValues[offset0].print(llvm::errs());
+            llvm::errs() << " val[offsetK]=";
+            globalValues[offsetK].print(llvm::errs());
+            llvm::errs() << "\n";
             return std::nullopt; // Verification failed: Data is different
           }
         }
       }
     }
   }
+
+  llvm::errs() << "[DEBUG]   periodicity PASSED\n";
 
   // 4. Construct New Attribute (Slice 0)
   // Since verification passed, we copy only the data for Shard 0
@@ -1072,6 +1133,11 @@ std::optional<mlir::DenseElementsAttr> tryGetPeriodicShardSlice(
       }
     }
   }
+
+  llvm::errs() << "[DEBUG]   newValues.size()=" << newValues.size()
+               << " localType.numElements()=" << localType.getNumElements()
+               << "\n";
+  llvm::errs() << "[DEBUG]   -> RETURN periodic slice OK\n";
 
   return mlir::DenseElementsAttr::get(localType, newValues);
 }

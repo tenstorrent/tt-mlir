@@ -44,6 +44,47 @@ static FailureOr<mlir::OperationState> createNewOperationState(
                 mlir::cast<mlir::DenseElementsAttr>(
                     attrDict.get(valueAttrName));
 
+            llvm::errs() << "[DEBUG] UpdateGlobalToLocalShapes: ConstantOp at "
+                         << constantOp.getLoc() << "\n";
+            llvm::errs() << "[DEBUG]   denseElementsAttr.getType(): "
+                         << denseElementsAttr.getType() << "\n";
+            llvm::errs() << "[DEBUG]   newTypes[0]:                 "
+                         << newTypes[0] << "\n";
+            llvm::errs() << "[DEBUG]   tensorShardings[0]:          "
+                         << tensorShardings[0] << "\n";
+            llvm::errs() << "[DEBUG]   isSplat:                     "
+                         << (denseElementsAttr.isSplat() ? "true" : "false")
+                         << "\n";
+            llvm::errs()
+                << "[DEBUG]   numElements(dense):            "
+                << mlir::cast<mlir::RankedTensorType>(
+                       denseElementsAttr.getType())
+                       .getNumElements()
+                << "\n";
+            llvm::errs() << "[DEBUG]   numElements(newTypes[0]):     "
+                         << newTypes[0].getNumElements() << "\n";
+            llvm::errs() << "[DEBUG]   typesEqual:                   "
+                         << (denseElementsAttr.getType() == newTypes[0]
+                                 ? "true"
+                                 : "false")
+                         << "\n";
+            // Print first few values for non-splat.
+            if (!denseElementsAttr.isSplat()) {
+              auto vals = denseElementsAttr.getValues<mlir::Attribute>();
+              auto rtt = mlir::cast<mlir::RankedTensorType>(
+                  denseElementsAttr.getType());
+              int64_t numToPrint =
+                  std::min(static_cast<int64_t>(8), rtt.getNumElements());
+              llvm::errs() << "[DEBUG]   values[0.." << numToPrint << "]: ";
+              for (int64_t i = 0; i < numToPrint; ++i) {
+                if (i > 0)
+                  llvm::errs() << ", ";
+                vals[i].print(llvm::errs());
+              }
+              llvm::errs() << (rtt.getNumElements() > 8 ? ", ..." : "")
+                           << "\n";
+            }
+
             mlir::DenseElementsAttr newAttr;
 
             // If the type didn't change (e.g. replicated constant), keep
@@ -52,13 +93,18 @@ static FailureOr<mlir::OperationState> createNewOperationState(
             // non-periodic constants as replicated before this pass runs,
             // so they arrive here with newTypes[0] == original type.
             if (denseElementsAttr.getType() == newTypes[0]) {
+              llvm::errs() << "[DEBUG]   -> BRANCH: type unchanged (replicated "
+                              "or no sharding)\n";
               newAttr = denseElementsAttr;
             } else if (denseElementsAttr.isSplat()) {
+              llvm::errs() << "[DEBUG]   -> BRANCH: splat reshape\n";
               // Handle splat constants (Optimization for all-same values)
               newAttr = mlir::DenseElementsAttr::get(
                   newTypes[0],
                   denseElementsAttr.getSplatValue<mlir::Attribute>());
             } else {
+              llvm::errs() << "[DEBUG]   -> BRANCH: periodic slice "
+                              "(tryGetPeriodicShardSlice)\n";
               // The constant is periodic across shards — slice it.
               // Non-splat, non-periodic constants were already replicated
               // by ReplicateNonSplittableConstantsPass and handled above.
@@ -73,6 +119,8 @@ static FailureOr<mlir::OperationState> createNewOperationState(
                      "ReplicateNonSplittableConstantsPass should have marked "
                      "it as replicated.");
               newAttr = periodicAttr.value();
+              llvm::errs() << "[DEBUG]   periodic slice result type: "
+                           << newAttr.getType() << "\n";
             }
 
             auto namedAttrIt = llvm::find_if(
