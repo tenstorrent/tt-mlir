@@ -23,10 +23,11 @@ namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MGENERICAFFINELOOPFUSION
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h.inc"
 
-// Peel through optional stream_layout to get the underlying memref.
-static Value peelStreamLayout(Value val) {
-  if (auto streamOp = val.getDefiningOp<StreamLayoutOp>()) {
-    return streamOp.getInput();
+// Unwrap view-like ops (stream_layout/view_layout/etc.) to get the underlying
+// memref (if necessary).
+static Value unwrapIfViewLike(Value val) {
+  while (auto viewOp = val.getDefiningOp<ViewOpInterface>()) {
+    val = viewOp.getInput();
   }
   return val;
 }
@@ -51,18 +52,18 @@ static GenericOp findProducerGeneric(Value sharedMemref, GenericOp consumer) {
 }
 
 // Check that the consumer is the sole reader of `sharedMemref` among
-// GenericOps. Also check through stream_layout wrappers.
+// GenericOps. Also check through view wrappers.
 static bool isSoleReader(Value sharedMemref, GenericOp consumer) {
   for (Operation *user : sharedMemref.getUsers()) {
     if (user == consumer.getOperation()) {
       continue;
     }
-    if (auto streamOp = dyn_cast<StreamLayoutOp>(user)) {
-      for (Operation *streamUser : streamOp.getResult().getUsers()) {
-        if (streamUser == consumer.getOperation()) {
+    if (auto viewOp = mlir::dyn_cast<ViewOpInterface>(user)) {
+      for (Operation *viewUser : viewOp.getResult().getUsers()) {
+        if (viewUser == consumer.getOperation()) {
           continue;
         }
-        if (isa<GenericOp>(streamUser)) {
+        if (mlir::isa<GenericOp>(viewUser)) {
           return false;
         }
       }
@@ -70,7 +71,7 @@ static bool isSoleReader(Value sharedMemref, GenericOp consumer) {
     }
     if (auto otherGeneric = dyn_cast<GenericOp>(user)) {
       for (OpOperand *input : otherGeneric.getDpsInputOperands()) {
-        Value rawInput = peelStreamLayout(input->get());
+        Value rawInput = unwrapIfViewLike(input->get());
         if (rawInput == sharedMemref) {
           return false;
         }
@@ -167,7 +168,7 @@ static RemoteStoreOp getMatchingStoreForShared(GenericOp producer,
 
   SmallVector<RemoteLoadOp> consumerLoads;
   consumer.getRegion(0).walk([&](RemoteLoadOp loadOp) {
-    Value rawMemref = peelStreamLayout(loadOp.getMemref());
+    Value rawMemref = unwrapIfViewLike(loadOp.getMemref());
     if (rawMemref == sharedMemref) {
       consumerLoads.push_back(loadOp);
     }
@@ -523,7 +524,7 @@ public:
         }
 
         for (OpOperand *inputOperand : consumer.getDpsInputOperands()) {
-          Value rawMemref = peelStreamLayout(inputOperand->get());
+          Value rawMemref = unwrapIfViewLike(inputOperand->get());
           GenericOp producer = findProducerGeneric(rawMemref, consumer);
           if (!producer || !isFusionCandidate(producer) ||
               !isSoleReader(rawMemref, consumer) ||
