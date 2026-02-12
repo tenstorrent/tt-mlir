@@ -6,6 +6,7 @@ import ttnn
 import ttnn_jit
 import torch
 from typing import Callable, Optional, Dict, Iterable
+from ttnn_jit._src.utils import get_maximal_block_sharding_grid
 
 
 def _get_ttnn_op(func: Callable) -> Optional[Callable]:
@@ -78,32 +79,14 @@ def _get_input_transform(
 
 def get_core_grid_from_device(device):
     """Get the core grid from the device"""
-    return (device.core_grid.x, device.core_grid.y)
+    print(f"Device core grid: {device.core_grid.x} x {device.core_grid.y}")
+    return (device.core_grid.x - 1, device.core_grid.y - 1)
 
 
-def get_block_sharding_grid(shape, core_grid):
-    """Infer a TTNN grid/end coord for block sharding the given logical tensor shape and device core grid"""
-    # collapse dims [0, -1)
-    if len(shape) > 2:
-        collapsed_dim = 1
-        for i in range(len(shape) - 1):
-            collapsed_dim *= shape[i]
-    else:
-        collapsed_dim = shape[0]
-    tile_shape = [collapsed_dim // 32, shape[-1] // 32]
-
-    grid = []
-    for dim, max_grid in zip(tile_shape, core_grid):
-        for grid_dim in reversed(range(max_grid)):
-            if dim % (grid_dim + 1) == 0:
-                grid.append(grid_dim)
-                break
-    return list(reversed(grid))
-
-
-def get_expected_memory_config(tensor_shape, core_grid):
+def get_expected_block_sharded_memory_config(tensor_shape, device):
     """Get expected block sharded memory config for a given tensor shape"""
-    grid = get_block_sharding_grid(tensor_shape, core_grid)
+    max_core_grid = get_core_grid_from_device(device)
+    grid = get_maximal_block_sharding_grid(tensor_shape, max_core_grid)
 
     return ttnn.create_sharded_memory_config(
         shape=tensor_shape,
@@ -279,9 +262,8 @@ def run_op_test(
         else:
             # ttnn-jit will by default set l1 block sharded output memory config
             # get expected memory config to check for
-            max_core_grid = get_core_grid_from_device(device)
-            expected_memory_config = get_expected_memory_config(
-                golden_tensor.shape, max_core_grid
+            expected_memory_config = get_expected_block_sharded_memory_config(
+                golden_tensor.shape, device
             )
             assert memory_configs_equal(
                 output_tensor.memory_config(), expected_memory_config

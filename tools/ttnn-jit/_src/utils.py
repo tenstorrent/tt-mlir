@@ -9,6 +9,7 @@ import ttnn
 from typing import Callable
 from ttmlir.ir import *
 from ttnn_jit._src import DispatchCoreType
+from ttnn_jit._src.tensor_translator import _calculate_tile_shape
 
 
 def discover_dialect_ops(dialect, denylist=None):
@@ -104,16 +105,14 @@ def get_dispatch_core_type():
 
 
 def get_maximal_block_sharding_grid(shape, core_grid):
-    """Infer a TTNN grid/end coord for block sharding the given logical tensor shape and device core grid"""
+    """Infer a TTNN grid/end coord for block sharding the given logical tensor shape and device core grid
+    Note: core_grid parameter expects index starting at 0, e.g. (7, 7) for an 8x8 grid
+    """
 
-    # Collapse dims [0, -1)
-    if len(shape) > 2:
-        collapsed_dim = 1
-        for i in range(len(shape) - 1):
-            collapsed_dim *= shape[i]
-    else:
-        collapsed_dim = shape[0]
-    tile_shape = [collapsed_dim // 32, shape[-1] // 32]
+    tile_shape = _calculate_tile_shape(shape)
+
+    # modify core_grid to starting index 1
+    core_grid = [dim + 1 for dim in core_grid]
 
     grid = []
     for dim, max_grid in zip(tile_shape, core_grid):
@@ -131,4 +130,4 @@ def get_core_grid_from_tensor_args(tensor_args):
         raise ValueError("No tensor arguments provided")
     tensor_arg = next(iter(tensor_args.values()))
     device = tensor_arg.device()
-    return (device.core_grid.x, device.core_grid.y)
+    return (device.core_grid.x - 1, device.core_grid.y - 1)

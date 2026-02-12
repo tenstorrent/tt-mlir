@@ -8,10 +8,10 @@ import itertools
 
 import pytest
 
+from ttnn_jit._src.utils import get_maximal_block_sharding_grid
 from utils import (
     create_sharded_tile_tensor,
     create_dram_tensor,
-    get_block_sharding_grid,
 )
 
 
@@ -71,7 +71,7 @@ def test_matmul_composite(device, shapes, input_layouts, dtype, ttnn_dtype):
     input_tensors = []
     for shape, layout in zip(shapes, input_layouts):
         if layout == ttnn.TensorMemoryLayout.BLOCK_SHARDED:
-            grid = get_block_sharding_grid(shape)
+            grid = get_maximal_block_sharding_grid(shape)
             input_tensors.append(
                 create_sharded_tile_tensor(
                     device,

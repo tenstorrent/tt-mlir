@@ -7,12 +7,12 @@ import torch
 
 import pytest
 
+from ttnn_jit._src.utils import get_maximal_block_sharding_grid
 from utils import (
     all_close_check,
     memory_configs_equal,
-    get_expected_memory_config,
+    get_expected_block_sharded_memory_config,
     get_core_grid_from_device,
-    get_block_sharding_grid,
     create_dram_tensor,
     create_sharded_tile_tensor,
     run_op_test,
@@ -195,7 +195,9 @@ def test_muladd_broadcast_jit_l1(device, shape, max_grid, dtype):
     # Golden path
     golden_result = mul_add(A, B, C)
 
-    expected_memory_config = get_expected_memory_config(golden_result.shape, max_grid)
+    expected_memory_config = get_expected_block_sharded_memory_config(
+        golden_result.shape, device
+    )
     assert memory_configs_equal(interop_result.memory_config(), expected_memory_config)
     assert all_close_check(interop_result, golden_result)
 
@@ -219,9 +221,9 @@ def test_muladd_broadcast_jit_dram(device, shape, dtype):
     # Golden path
     golden_result = mul_add(A, B, C)
 
-    max_grid = get_core_grid_from_device(device)
-    core_grid = get_block_sharding_grid(shape, max_grid)
-    expected_memory_config = get_expected_memory_config(golden_result.shape, core_grid)
+    expected_memory_config = get_expected_block_sharded_memory_config(
+        golden_result.shape, device
+    )
     assert memory_configs_equal(interop_result.memory_config(), expected_memory_config)
     assert all_close_check(interop_result, golden_result)
 
