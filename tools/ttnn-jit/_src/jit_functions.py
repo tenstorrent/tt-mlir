@@ -5,8 +5,20 @@
 from abc import ABC, abstractmethod
 from functools import partial
 
-from ttmlir.dialects import ttir
-from ttmlir.ir import InsertionPoint, Location, RankedTensorType, StringAttr
+from ttmlir.dialects import ttir, arith
+from ttmlir.ir import (
+    InsertionPoint,
+    Location,
+    RankedTensorType,
+    StringAttr,
+    F32Type,
+    F64Type,
+    IntegerType,
+    IntegerAttr,
+    FloatAttr,
+    DenseElementsAttr,
+    BF16Type,
+)
 
 from ttnn_jit._src.supported_ops import (
     unary_ops,
@@ -53,20 +65,26 @@ class BaseOpHandler(ABC):
         Resolve a Python argument to its corresponding MLIR operand.
 
         Resolution order:
-        1. Check if arg is a ResultWrapper (has mlir_value attribute)
-        2. Check if arg is in value_map (tracked intermediate result)
-        3. Fallback to function block argument (input argument)
+        1. Check if arg is a scalar constant (int, float, bool) - return as-is
+        2. Check if arg is a ResultWrapper (has mlir_value attribute)
+        3. Check if arg is in value_map (tracked intermediate result)
+        4. Fallback to function block argument (input argument)
 
         Args:
-            arg: Python argument (tensor or ResultWrapper)
+            arg: Python argument (tensor, scalar, or ResultWrapper)
             arg_index: Index of the argument in the function signature
             jit_ctx: JIT context containing value_map, func_bb, etc.
 
         Returns:
-            MLIR Value corresponding to the argument
+            MLIR Value corresponding to the argument, or scalar value as-is
         """
         if arg is None:
             raise ValueError(f"Argument at index {arg_index} is None")
+
+        # Check if arg is a scalar constant (int, float, bool)
+        # These are passed as-is to the operation handlers
+        if isinstance(arg, (int, float, bool)):
+            return arg
 
         # Check if arg is a ResultWrapper (intermediate result with mlir_value)
         if hasattr(arg, "mlir_value"):
@@ -123,6 +141,56 @@ class BaseOpHandler(ABC):
             self._store_result(arg_id, op_result)
         return self._create_result_wrapper(op_result, args[0] if args else None)
 
+    def _create_scalar_tensor_constant(self, scalar_value, reference_tensor_operand):
+        """
+        Create a scalar constant tensor using ttir.full operation.
+        This creates a tensor filled with the scalar value that will be broadcast to match
+        the other operand's shape. Unlike the reference tensor which might have a complex
+        layout (sharded, etc.), the constant uses a simple no-layout tensor that can be
+        efficiently broadcast during lowering.
+
+        Args:
+            scalar_value: Python scalar (int, float, or bool)
+            reference_tensor_operand: MLIR tensor operand to match shape/type from
+
+        Returns:
+            MLIR Value representing the constant tensor
+        """
+        # Get shape and element type from reference tensor
+        ref_type = reference_tensor_operand.type
+        shape = list(ref_type.shape)
+        element_type = ref_type.element_type
+
+        with InsertionPoint(self.jit_ctx.func_bb), Location.unknown(self.jit_ctx.ctx):
+            # Create output tensor type without layout encoding
+            # The layout will be inferred/added by TTIR lowering passes
+            output_type = RankedTensorType.get(shape, element_type)
+
+            # Convert scalar to MLIR Attribute (f32 for floats, i32 for ints)
+            # ttir.full expects the fill_value as f32 or i32 attribute
+            if isinstance(scalar_value, bool):
+                fill_value_attr = IntegerAttr.get(
+                    IntegerType.get_signless(32, self.jit_ctx.ctx), int(scalar_value)
+                )
+            elif isinstance(scalar_value, int):
+                fill_value_attr = IntegerAttr.get(
+                    IntegerType.get_signless(32, self.jit_ctx.ctx), scalar_value
+                )
+            elif isinstance(scalar_value, float):
+                fill_value_attr = FloatAttr.get(
+                    F32Type.get(self.jit_ctx.ctx), scalar_value
+                )
+            else:
+                raise ValueError(f"Unsupported scalar type: {type(scalar_value)}")
+
+            # Use ttir.full to create a tensor filled with the scalar value
+            # Note: ttir.full expects shape as DenseI32ArrayAttr and fill_value as Attribute
+            from ttmlir.ir import DenseI32ArrayAttr
+
+            shape_attr = DenseI32ArrayAttr.get(shape, self.jit_ctx.ctx)
+
+            return ttir.full(output_type, shape_attr, fill_value_attr)
+
     def _default_dram_interleaved_layout(self, element_type, new_shape):
         """
         Create a default DRAM interleaved layout for a given shape.
@@ -171,6 +239,12 @@ class UnaryOpHandler(BaseOpHandler):
         operands = self._get_operands(args)
         operand = operands[0]
 
+        # Check if operand is a scalar - unary ops require tensor operands
+        if isinstance(operand, (int, float, bool)):
+            raise ValueError(
+                f"{self.op_name} requires a tensor operand, got scalar: {operand}"
+            )
+
         # Infer result type (no layout for intermediate results)
         result_type = self._infer_result_type(operand)
 
@@ -213,8 +287,24 @@ class BinaryOpHandler(BaseOpHandler):
         operands = self._get_operands(args)
         operand0, operand1 = operands[0], operands[1]
 
-        # Infer result type (no layout for intermediate results)
-        result_type = self._infer_result_type(operand0, operand1)
+        # Check if either operand is a scalar
+        operand0_is_scalar = isinstance(operand0, (int, float, bool))
+        operand1_is_scalar = isinstance(operand1, (int, float, bool))
+
+        if operand0_is_scalar and operand1_is_scalar:
+            raise ValueError(f"{self.op_name} requires at least one tensor operand")
+
+        # Get the tensor operand for type inference and reference
+        tensor_operand = operand1 if operand0_is_scalar else operand0
+
+        # Convert scalars to MLIR constant tensors
+        if operand0_is_scalar:
+            operand0 = self._create_scalar_tensor_constant(operand0, tensor_operand)
+        if operand1_is_scalar:
+            operand1 = self._create_scalar_tensor_constant(operand1, tensor_operand)
+
+        # Infer result type from the tensor operand
+        result_type = self._infer_result_type(tensor_operand, tensor_operand)
 
         # Get the TTIR operation constructor (handles name mapping like divide -> div)
         op_constructor = getattr(ttir, get_ttir_name(self.op_name))

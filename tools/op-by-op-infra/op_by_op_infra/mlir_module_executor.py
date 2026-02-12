@@ -72,23 +72,6 @@ class MLIRModuleExecutor:
         # Prepare for new run.
         self._reset(module)
 
-        # TODO special case where module consists solely of one of following TTNN ops
-        # that cannot be executed on their own. They either fail fb generation or run.
-        # See what should be done with them.
-        if (
-            module.has_origin_op
-            and module.dialect == ModuleDialect.TTNN
-            and module.origin_op_name
-            in [
-                "ttnn.get_device",
-                "ttnn.to_device",
-                "ttnn.full",
-                "ttnn.empty",
-                "ttnn.deallocate",
-            ]
-        ):
-            return self._execution_result
-
         # Run execution steps on stored module.
         return self._execute()
 
@@ -156,6 +139,7 @@ class MLIRModuleExecutor:
             return self._compile_ttir_to_ttnn()
         elif self._original_module_dialect == ModuleDialect.TTNN:
             # Trivial, original module was already a TTNN module.
+            self._debug_print_module(self._module)
             return self._module
         else:
             raise ValueError(

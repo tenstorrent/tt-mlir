@@ -5,6 +5,7 @@
 #include "ttmlir/Conversion/TTNNToEmitPy/EmitPyConversion.h"
 #include "ttmlir/Conversion/TTNNToEmitPy/TTNNToEmitPy.h"
 #include "ttmlir/Dialect/EmitPy/IR/EmitPy.h"
+#include "ttmlir/FunctionTypes.h"
 
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
 #include "mlir/Pass/PassManager.h"
@@ -129,6 +130,14 @@ struct ConvertTTNNToEmitPyPass
     builder.create<emitpy::GlobalOp>(module->getLoc(), "_CONST_EVAL_CACHE",
                                      opaqueAttr);
 
+    // If we are in the module-export path (i.e., `target-module=true`),
+    // const-eval functions must also take `device` as an explicit argument so
+    // they can avoid materializing `ttnn.get_device` in the function body.
+    //
+    if (this->targetModule) {
+      targetModuleConversion(module);
+    }
+
     // TTNN -> EmitPy
     //
     {
@@ -170,6 +179,50 @@ struct ConvertTTNNToEmitPyPass
             [&](func::FuncOp funcOp) { enableTorchConversion(funcOp); });
       }
     }
+  }
+
+private:
+  // This function is used to convert the const-eval functions to accept a
+  // device argument. This is duplicated from
+  // `lib/Dialect/TTNN/Transforms/Passes.cpp@TTNNPrepareModuleForExport` because
+  // `ttcore.load_cached` op expects const-eval function without device
+  // argument. Issue: https://github.com/tenstorrent/tt-mlir/issues/6746
+  void targetModuleConversion(ModuleOp moduleOp) {
+    IRRewriter rewriter(&getContext());
+    mlir::tt::ttnn::DeviceType deviceType =
+        mlir::tt::ttnn::DeviceType::get(&getContext());
+
+    moduleOp.walk([&](func::FuncOp funcOp) {
+      if (!ttmlir::utils::isConstEvalFunc(funcOp) || funcOp.isExternal()) {
+        return;
+      }
+
+      // Add device argument to the const-eval function signature.
+      //
+      auto originalFuncType = funcOp.getFunctionType();
+      SmallVector<Type> newInputTypes(originalFuncType.getInputs().begin(),
+                                      originalFuncType.getInputs().end());
+      newInputTypes.push_back(deviceType);
+      auto newFuncType = FunctionType::get(&getContext(), newInputTypes,
+                                           originalFuncType.getResults());
+
+      funcOp.setFunctionType(newFuncType);
+
+      Block &entryBlock = funcOp.getBody().front();
+      BlockArgument deviceArg =
+          entryBlock.addArgument(deviceType, funcOp.getLoc());
+      funcOp.setArgAttr(newInputTypes.size() - 1, "emitpy.name",
+                        rewriter.getStringAttr("device"));
+
+      // Replace all GetDeviceOp operations with the new device argument.
+      //
+      SmallVector<mlir::tt::ttnn::GetDeviceOp> getDeviceOps;
+      funcOp.walk(
+          [&](mlir::tt::ttnn::GetDeviceOp op) { getDeviceOps.push_back(op); });
+      for (auto op : getDeviceOps) {
+        rewriter.replaceOp(op, deviceArg);
+      }
+    });
   }
 };
 

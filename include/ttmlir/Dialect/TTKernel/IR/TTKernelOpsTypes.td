@@ -109,6 +109,18 @@ def TTKernel_DataFormat : TTKernel_Type<"DataFormat", "DataFormat"> {
     let description = "Data format type in TTKernel dialect";
 }
 
+def TTKernel_FabricConnectionManager : TTKernel_Type<"FabricConnectionManager", "fabric_connection_manager"> {
+    let summary = "TTKernel fabric connection manager";
+    let description = "Fabric connection manager type in TTKernel dialect";
+}
+
+def TTKernel_MeshPosition : TTKernel_Type<"MeshPosition", "mesh_position"> {
+    let summary = "TTKernel logical mesh position";
+    let description = [{
+      A logical mesh position representing a coordinate in the device mesh.
+    }];
+}
+
 class TTKernel_Attr<string name, string attrMnemonic, list<Trait> traits = [],
                    string baseCppClass = "::mlir::Attribute">
     : AttrDef<TTKernel_Dialect, name, traits, baseCppClass> {

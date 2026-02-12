@@ -48,6 +48,7 @@
 #include "operations/eltwise/unary/unary_composite.h"
 #include "operations/embedding/embedding.h"
 #include "operations/embedding/embedding_backward.h"
+#include "operations/experimental/dropout.h"
 #include "operations/experimental/gelu_bw.h"
 #include "operations/generic/generic_op.h"
 #include "operations/kv_cache/fill_cache.h"
@@ -56,7 +57,6 @@
 #include "operations/kv_cache/update_cache.h"
 #include "operations/layout/from_device.h"
 #include "operations/layout/to_device.h"
-#include "operations/layout/to_dtype.h"
 #include "operations/layout/to_layout.h"
 #include "operations/layout/to_memory_config.h"
 #include "operations/layout/typecast.h"
@@ -193,9 +193,6 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::ToLayoutOp: {
     return operations::layout::run(op->type_as_ToLayoutOp(), getContext());
   }
-  case ::tt::target::ttnn::OpType::ToDTypeOp: {
-    return operations::layout::run(op->type_as_ToDTypeOp(), getContext());
-  }
   case ::tt::target::ttnn::OpType::TypecastOp: {
     return operations::layout::run(op->type_as_TypecastOp(), getContext());
   }
@@ -248,6 +245,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::ExperimentalEltwiseBinaryBackwardOp: {
     return operations::experimental::run(
         op->type_as_ExperimentalEltwiseBinaryBackwardOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::DropoutOp: {
+    return operations::experimental::run(op->type_as_DropoutOp(), getContext());
   }
   // ANCHOR: adding_an_op_matmul_runtime_program
   case ::tt::target::ttnn::OpType::MatmulOp: {

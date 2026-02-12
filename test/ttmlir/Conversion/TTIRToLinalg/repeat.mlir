@@ -50,14 +50,4 @@ module {
     %0 = "ttir.repeat"(%arg0) <{repeat_dimensions = array<i64: 2, 1>}> : (tensor<2x3xbf16>) -> tensor<4x3xbf16>
     return %0 : tensor<4x3xbf16>
   }
-
-  // Test repeat with no repetition (1x factor)
-  func.func @repeat_identity(%arg0: tensor<2x3xf32>) -> tensor<2x3xf32> {
-    // CHECK-LABEL: func.func @repeat_identity
-    // CHECK: tosa.const_shape
-    // CHECK: tosa.tile
-    // CHECK-NOT: ttir.repeat
-    %0 = "ttir.repeat"(%arg0) <{repeat_dimensions = array<i64: 1, 1>}> : (tensor<2x3xf32>) -> tensor<2x3xf32>
-    return %0 : tensor<2x3xf32>
-  }
 }

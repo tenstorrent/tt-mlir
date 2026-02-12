@@ -28,24 +28,21 @@ if (USE_TTNN_JIT_WHEEL)
       $<TARGET_FILE:_ttnn_jit>
       $<TARGET_FILE:TTMLIRRuntime>
       $<TARGET_FILE:_ttmlir_runtime>
-    DESTINATION ttnn_jit/runtime
-    COMPONENT TTNNJITWheel
-    EXCLUDE_FROM_ALL
-  )
-  install(DIRECTORY ${CMAKE_BINARY_DIR}/python_packages/ttmlir/
-    DESTINATION ttnn_jit/runtime/ttmlir
+    DESTINATION ttnn_jit
     COMPONENT TTNNJITWheel
     EXCLUDE_FROM_ALL
   )
 
+  # Build ttnn-jit wheel with --find-links pointing to ttmlir wheel location
+  set(TTMLIR_WHEEL_DIR "${CMAKE_SOURCE_DIR}/python/dist")
   add_custom_command(
     COMMAND rm -rf build ttnn_jit.egg-info
     COMMAND python -m pip install build patchelf
     COMMAND TTMLIR_DEV_BUILD=ON python -m build --wheel --outdir build
-    COMMAND python -m pip install build/ttnn_jit-*.whl --force-reinstall
+    COMMAND python -m pip install --find-links ${TTMLIR_WHEEL_DIR} build/ttnn_jit-*.whl --force-reinstall
     COMMAND touch ${CMAKE_CURRENT_BINARY_DIR}/build/.installed
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
-    DEPENDS _ttnn_jit
+    DEPENDS _ttnn_jit ttmlir-wheel
     OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/build/.ttnn-jit-installed
   )
 
@@ -83,17 +80,12 @@ else ()
         __init__.py
         _src/__init__.py
         _src/jit.py
-        _src/ttir_ast.py
         _src/utils.py
         _src/dispatch_op.py
         _src/ir_generator.py
-        _src/levelized_graph.py
-        _src/graph_trace_compiler.py
         _src/tensor_translator.py
         _src/supported_ops.py
         _src/conversions.py
-        _src/op_registry.py
-        _src/return_modifier.py
         _src/jit_functions.py
         _src/tracing_compiler.py
   )

@@ -6,15 +6,19 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
+#include "ttmlir/Dialect/TTNN/Types/Types.h"
+#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/Analysis/TopologicalSortUtils.h"
+#include "mlir/IR/Attributes.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/TypeSwitch.h"
+#include <cstdint>
 
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRFUSING
@@ -72,7 +76,8 @@ private:
 
     size_t outputFeatureDim = 0;
     if constexpr (std::is_same_v<ConvOpType, Conv2dOp> ||
-                  std::is_same_v<ConvOpType, ConvTranspose2dOp>) {
+                  std::is_same_v<ConvOpType, ConvTranspose2dOp> ||
+                  std::is_same_v<ConvOpType, Conv3dOp>) {
       outputFeatureDim = convOp.getChannelDim();
     } else {
       static_assert(ttmlir::utils::always_false<ConvOpType>(),
@@ -530,10 +535,6 @@ public:
     mlir::Value lhs = utils::lookThrough<TypecastOp>(multiplyOp.getLhs());
     mlir::Value rhs = utils::lookThrough<TypecastOp>(multiplyOp.getRhs());
 
-    if (lhs.getType() != rhs.getType()) {
-      return mlir::failure();
-    }
-
     SigmoidOp sigmoidOp = nullptr;
     mlir::Value otherOperand;
 
@@ -549,11 +550,13 @@ public:
       return mlir::failure();
     }
 
-    if (sigmoidOp.getInput() != otherOperand) {
+    mlir::Value sigmoidInput =
+        utils::lookThrough<TypecastOp>(sigmoidOp.getInput());
+    if (sigmoidInput != otherOperand) {
       return mlir::failure();
     }
 
-    auto inputType = sigmoidOp.getInput().getType();
+    auto inputType = sigmoidInput.getType();
     auto outputType = multiplyOp.getResult().getType();
     auto siluOp =
         rewriter.create<SiluOp>(multiplyOp->getLoc(), inputType, otherOperand);
@@ -562,7 +565,7 @@ public:
     // after silu to convert back to the multiply output type.
     if (inputType != outputType) {
       auto typecastOp = rewriter.create<TypecastOp>(
-          multiplyOp->getLoc(), inputType, siluOp.getResult());
+          multiplyOp->getLoc(), outputType, siluOp.getResult());
       rewriter.replaceAllOpUsesWith(multiplyOp, typecastOp);
     } else {
       rewriter.replaceAllOpUsesWith(multiplyOp, siluOp);
@@ -809,18 +812,21 @@ private:
     return true;
   }
 
-  // Scale must have rank 4 and size 1 in all dimensions except the output
+  // Scale must have rank 4/5 and size 1 in all dimensions except the output
   // feature dim.
   // For Conv2dOp: shape (1, 1, 1, out_channels)
+  // For Conv3dOp: shape (1, 1, 1, 1, out_channels)
   static bool hasValidScaleShape(ConvOpType convOp,
                                  RankedTensorType scaleType) {
-    if (!scaleType || scaleType.getRank() != 4) {
+    const int64_t expectedRank = std::is_same_v<ConvOpType, Conv3dOp> ? 5 : 4;
+    if (!scaleType || scaleType.getRank() != expectedRank) {
       return false;
     }
 
     size_t outputFeatureDim = 0;
     if constexpr (std::is_same_v<ConvOpType, Conv2dOp> ||
-                  std::is_same_v<ConvOpType, ConvTranspose2dOp>) {
+                  std::is_same_v<ConvOpType, ConvTranspose2dOp> ||
+                  std::is_same_v<ConvOpType, Conv3dOp>) {
       outputFeatureDim = convOp.getChannelDim();
     } else {
       static_assert(ttmlir::utils::always_false<ConvOpType>(),
@@ -874,12 +880,14 @@ private:
 
     // Create a new shape to match weight layout.
     llvm::SmallVector<int64_t> newShape(scaleType.getShape());
-    assert(newShape.size() == 4 &&
-           "Scale tensor must have 4 dimensions for reshaping.");
+    const size_t expectedRank = std::is_same_v<ConvOpType, Conv3dOp> ? 5 : 4;
+    assert(newShape.size() == expectedRank &&
+           "Scale tensor must have expected rank for reshaping.");
 
     size_t outputFeatureDim = 0;
     size_t kernelOutputFeatureDim = 0;
-    if constexpr (std::is_same_v<ConvOpType, Conv2dOp>) {
+    if constexpr (std::is_same_v<ConvOpType, Conv2dOp> ||
+                  std::is_same_v<ConvOpType, Conv3dOp>) {
       outputFeatureDim = convOp.getChannelDim();
       kernelOutputFeatureDim = 0;
     } else if constexpr (std::is_same_v<ConvOpType, ConvTranspose2dOp>) {
@@ -1277,45 +1285,6 @@ private:
   }
 };
 
-class PadPoolingFusionPattern : public mlir::OpRewritePattern<PoolingOp> {
-public:
-  using mlir::OpRewritePattern<PoolingOp>::OpRewritePattern;
-
-  mlir::LogicalResult
-  matchAndRewrite(PoolingOp op, mlir::PatternRewriter &rewriter) const final {
-    PadOp padToCompare;
-    SmallVector<Value> newInputs;
-    for (Value value : op.getInputs()) {
-      PadOp padOp = value.getDefiningOp<PadOp>();
-      if (!padOp) {
-        return failure();
-      }
-      if (!padToCompare) {
-        padToCompare = padOp;
-      }
-
-      if (padOp.getPadding() != padToCompare.getPadding()) {
-        return failure();
-      }
-      newInputs.push_back(padOp.getInput());
-    }
-
-    ArrayRef<int32_t> padding = padToCompare.getPadding();
-    SmallVector<int64_t> newPadding;
-    // We add the padding of the input to the ops current padding
-    // in the event the current PoolingOp already has non-zero padding
-    for (const auto [a, b] : llvm::zip_equal(padding, op.getPadding())) {
-      newPadding.push_back(a + b);
-    }
-    rewriter.modifyOpInPlace(op, [&]() {
-      op.getInputsMutable().assign(newInputs);
-      op.setPadding(newPadding);
-    });
-
-    return success();
-  }
-};
-
 // Fuse MatmulOp followed by AddOp into a single LinearOp.
 // This pattern looks for an AddOp where one of its operands is the result of
 // a MatmulOp and the other operand is a bias term. It then replaces the
@@ -1329,59 +1298,67 @@ public:
   mlir::LogicalResult
   matchAndRewrite(AddOp addOp, mlir::PatternRewriter &rewriter) const final {
     // Matmul -> Add pattern.
-    if (MatmulOp matmulOp = getFusableMatmulOp(addOp); matmulOp) {
-      TypedValue<RankedTensorType> bias = addOp.getLhs() == matmulOp.getResult()
-                                              ? addOp.getRhs()
-                                              : addOp.getLhs();
-      Value matmulOpA = matmulOp.getA();
-      Value matmulOpB = matmulOp.getB();
-      LinearOp linearOp = rewriter.create<ttir::LinearOp>(
-          addOp.getLoc(), addOp.getResult().getType(), matmulOpA, matmulOpB,
-          bias, matmulOp.getTransposeA(), matmulOp.getTransposeB());
-
-      rewriter.replaceOp(addOp, linearOp);
-
-      return mlir::success();
-    }
-    // Matmul -> Reshape -> Add pattern.
-    if (MatmulOp matmulOp = getFusableReshapedMatmulOp(addOp); matmulOp) {
+    MatmulOp matmulOp = nullptr;
+    TypedValue<RankedTensorType> bias = nullptr;
+    if (matmulOp = getFusableMatmulOp(addOp); matmulOp) {
+      bias = addOp.getLhs() == matmulOp.getResult() ? addOp.getRhs()
+                                                    : addOp.getLhs();
+    } else if (matmulOp = getFusableReshapedMatmulOp(addOp); matmulOp) {
       ReshapeOp reshapeOp =
           mlir::dyn_cast<ReshapeOp>(*matmulOp.getResult().getUsers().begin());
-      TypedValue<RankedTensorType> bias =
-          (addOp.getLhs() == reshapeOp.getResult()) ? addOp.getRhs()
-                                                    : addOp.getLhs();
-      auto biasType = bias.getType();
-      llvm::ArrayRef<int64_t> addOpShape =
-          addOp.getResult().getType().getShape();
-      SmallVector<int32_t> addShapeI32(addOpShape.begin(), addOpShape.end());
-
-      llvm::SmallVector<int64_t> newLinearOutputShape;
-      OpTrait::util::getBroadcastedShape(matmulOp.getType().getShape(),
-                                         biasType.getShape(),
-                                         newLinearOutputShape);
-
-      auto matmulOutputType = matmulOp.getResult().getType();
-      auto newOutputType = RankedTensorType::get(
-          newLinearOutputShape, matmulOutputType.getElementType());
-      Value matmulOpA = matmulOp.getA();
-      Value matmulOpB = matmulOp.getB();
-
-      LinearOp linearOp = rewriter.create<ttir::LinearOp>(
-          addOp.getLoc(), newOutputType, matmulOpA, matmulOpB, bias,
-          matmulOp.getTransposeA(), matmulOp.getTransposeB());
-
-      RankedTensorType addOpType = addOp.getType();
-
-      Value finalReshape = rewriter.create<ttir::ReshapeOp>(
-          addOp.getLoc(),
-          RankedTensorType::get(addOpShape, addOpType.getElementType(),
-                                addOpType.getEncoding()),
-          linearOp.getResult(), rewriter.getI32ArrayAttr(addShapeI32));
-      rewriter.replaceOp(addOp, finalReshape);
-
-      return mlir::success();
+      bias = (addOp.getLhs() == reshapeOp.getResult()) ? addOp.getRhs()
+                                                       : addOp.getLhs();
+    } else {
+      return mlir::failure();
     }
-    return mlir::failure();
+
+    ReshapeOp biasReshapeOp = bias.getDefiningOp<ReshapeOp>();
+    llvm::SmallVector<int64_t> broadcastShape;
+    // Remove bias reshape op if the input can be broadcasted to matmul or add
+    // output shape.
+    if (biasReshapeOp &&
+        mlir::OpTrait::util::getBroadcastedShape(
+            matmulOp.getType().getShape(),
+            biasReshapeOp.getInput().getType().getShape(), broadcastShape) &&
+        (llvm::equal(broadcastShape, addOp.getType().getShape()) ||
+         llvm::equal(broadcastShape, matmulOp.getType().getShape()))) {
+      bias = biasReshapeOp.getInput();
+    }
+
+    Value matmulOpA = matmulOp.getA();
+    Value matmulOpB = matmulOp.getB();
+    RankedTensorType outputType = matmulOp.getResult().getType();
+    RankedTensorType biasType = bias.getType();
+    // tt-metal uses a composite LinearOp where the bias is added after the
+    // matmul, and ttnn.add supports broadcasting of both operands. Otherwise,
+    // tt-metal lowers to a fused LinearOp, which uses the matmul result shape
+    // as the output shape. The composite LinearOp requires that the bias
+    // second-to-last dim (of padded shape) does not match the tile height.
+    // Update the output type to match the broadcasted shape in this case.
+    llvm::SmallVector<int64_t> paddedBiasShape =
+        ttnn::utils::getTilePaddedShape(biasType.getShape());
+    if (paddedBiasShape.size() > 1 &&
+        paddedBiasShape[paddedBiasShape.size() - 2] != ttnn::TILE_HEIGHT) {
+      llvm::SmallVector<int64_t> broadcastOutputShape;
+      mlir::OpTrait::util::getBroadcastedShape(matmulOp.getType().getShape(),
+                                               bias.getType().getShape(),
+                                               broadcastOutputShape);
+      outputType = RankedTensorType::get(broadcastOutputShape,
+                                         outputType.getElementType(),
+                                         outputType.getEncoding());
+    }
+    LinearOp linearOp = rewriter.create<ttir::LinearOp>(
+        addOp.getLoc(), outputType, matmulOpA, matmulOpB, bias,
+        matmulOp.getTransposeA(), matmulOp.getTransposeB());
+
+    llvm::SmallVector<int32_t> addShapeI32(addOp.getType().getShape().begin(),
+                                           addOp.getType().getShape().end());
+    Value finalReshape = rewriter.create<ttir::ReshapeOp>(
+        addOp.getLoc(), addOp.getType(), linearOp.getResult(),
+        rewriter.getI32ArrayAttr(addShapeI32));
+    rewriter.replaceOp(addOp, finalReshape);
+
+    return mlir::success();
   }
 
 private:
@@ -1475,287 +1452,6 @@ private:
       return nullptr;
     }
     return validMatmulOp;
-  }
-};
-
-// The following OpRewritePattern fuses:
-//     div(sum_pool(act), broadcast(reshape(sum_pool(const))))
-// to:
-//     avg_pool(act)
-// when the denominator is such that the division is equivalent to an average
-// pooling.
-class AveragePoolingWithPoolingDenominatorFusionPattern
-    : public mlir::OpRewritePattern<DivOp> {
-public:
-  using mlir::OpRewritePattern<DivOp>::OpRewritePattern;
-
-  mlir::LogicalResult
-  matchAndRewrite(DivOp op, mlir::PatternRewriter &rewriter) const final {
-    // Numerator must be poolingOp.
-    PoolingOp numerator = op.getLhs().getDefiningOp<PoolingOp>();
-    if (!numerator) {
-      return mlir::failure();
-    }
-
-    // Numerator must have the Sum pooling method.
-    if (numerator.getPoolingMethod() != PoolingMethod::Sum) {
-      return mlir::failure();
-    }
-
-    // Denominator must trace through first operands to pooling op.
-    Value currentDenominator = op.getRhs();
-    PoolingOp denominator;
-    while (!currentDenominator.getDefiningOp<PoolingOp>()) {
-      if (!currentDenominator.getDefiningOp()) {
-        return mlir::failure();
-      }
-      // We expect that the pooling denominator is only reshaped (for rank
-      // change) and broadcasted if any ops lies between at all. If any other
-      // ops lie between the denominator pooling op and the div op, then we
-      // cannot fuse.
-      if (!isa<ReshapeOp, BroadcastOp>(currentDenominator.getDefiningOp())) {
-        return mlir::failure();
-      }
-      currentDenominator = currentDenominator.getDefiningOp()->getOperand(0);
-    }
-    denominator = currentDenominator.getDefiningOp<PoolingOp>();
-
-    // The denominator must have the Sum pooling method.
-    if (denominator.getPoolingMethod() != PoolingMethod::Sum) {
-      return mlir::failure();
-    }
-
-    // Denominator pooling op must have the same number of inputs as numerator.
-    if (numerator.getInputs().size() != denominator.getInputs().size()) {
-      return mlir::failure();
-    }
-
-    // Denominator pooling op must have all inputs be either a FullOp or a
-    // ConstantOp, or trace back to one through broadcast/reshape ops.
-    for (Value input : denominator.getInputs()) {
-      if (traceToFullOrConstantOp(input) == nullptr) {
-        return mlir::failure();
-      }
-    }
-
-    // Besides the padding attribute, all attributes of the denominator must
-    // match the rightmost sublist of the numerator's attributes.
-    if (!matchRightMostSubList(numerator.getWindowDimensions(),
-                               denominator.getWindowDimensions())) {
-      return mlir::failure();
-    }
-
-    if (!matchRightMostSubList(numerator.getWindowStrides(),
-                               denominator.getWindowStrides())) {
-      return mlir::failure();
-    }
-
-    if (!matchRightMostSubList(numerator.getBaseDilations(),
-                               denominator.getBaseDilations())) {
-      return mlir::failure();
-    }
-
-    if (!matchRightMostSubList(numerator.getWindowDilations(),
-                               denominator.getWindowDilations())) {
-      return mlir::failure();
-    }
-
-    // The padding attribute of the denominator must
-    // be all zeros.
-    if (denominator.getPadding().empty()) {
-      return mlir::failure();
-    }
-    for (int64_t paddingValue : denominator.getPadding()) {
-      if (paddingValue != 0) {
-        return mlir::failure();
-      }
-    }
-
-    // For each denominator input, trace through broadcast/reshape to find the
-    // underlying FullOp or ConstantOp. If it is a FullOp, its fill value must
-    // be 1. If it is a constant op, its value must be a tensor filled with
-    // ones, and padded with zeroes according to the padding attribute of the
-    // numerator.
-    for (Value input : denominator.getInputs()) {
-      Value tracedInput = traceToFullOrConstantOp(input);
-      if (!tracedInput) {
-        return mlir::failure();
-      }
-
-      if (FullOp inputOp = tracedInput.getDefiningOp<FullOp>()) {
-        // If the denominator is a pool of a full op, then
-        // the numerator must have a padding attribute of all zeros.
-        if (numerator.getPadding().empty()) {
-          return mlir::failure();
-        }
-        if (!llvm::all_of(numerator.getPadding(),
-                          [](int64_t p) { return p == 0; })) {
-          return mlir::failure();
-        }
-
-        if (isa<IntegerAttr>(inputOp.getFillValue())) {
-          int64_t value = dyn_cast<IntegerAttr>(inputOp.getFillValue())
-                              .getValue()
-                              .getSExtValue();
-          if (value != 1) {
-            return mlir::failure();
-          }
-        } else if (isa<FloatAttr>(inputOp.getFillValue())) {
-          float value = dyn_cast<FloatAttr>(inputOp.getFillValue())
-                            .getValue()
-                            .convertToFloat();
-          if (value != 1.0) {
-            return mlir::failure();
-          }
-        } else {
-          return mlir::failure();
-        }
-      } else if (ConstantOp inputOp = tracedInput.getDefiningOp<ConstantOp>()) {
-        Type constantElementType = inputOp.getValue().getElementType();
-        if (isa<IntegerType>(constantElementType)) {
-          auto values = inputOp.getValue().getValues<APInt>();
-          if (!constantTensorAllOnesWithPadding(
-                  values, inputOp.getType().getShape(), numerator.getPadding(),
-                  APInt::getZero(values[0].getBitWidth()),
-                  APInt::getOneBitSet(values[0].getBitWidth(), 0))) {
-            return mlir::failure();
-          }
-        } else if (isa<FloatType>(constantElementType)) {
-          auto values = inputOp.getValue().getValues<APFloat>();
-          if (!constantTensorAllOnesWithPadding(
-                  values, inputOp.getType().getShape(), numerator.getPadding(),
-                  APFloat::getZero(values[0].getSemantics()),
-                  APFloat::getOne(values[0].getSemantics()))) {
-            return mlir::failure();
-          }
-        } else {
-          return mlir::failure();
-        }
-      } else {
-        llvm_unreachable("We should have confirmed that all inputs are either "
-                         "a FullOp or a ConstantOp by this point.");
-      }
-    }
-
-    rewriter.replaceOpWithNewOp<PoolingOp>(
-        op, numerator.getResultTypes(), numerator.getInputs(),
-        PoolingMethod::Average, numerator.getWindowDimensions(),
-        numerator.getWindowStrides(), numerator.getBaseDilations(),
-        numerator.getWindowDilations(), numerator.getPadding());
-
-    return mlir::success();
-  }
-
-private:
-  bool matchRightMostSubList(ArrayRef<int64_t> numeratorAttrs,
-                             ArrayRef<int64_t> denominatorAttrs) const {
-    if (denominatorAttrs.size() > numeratorAttrs.size()) {
-      return false;
-    }
-    ArrayRef<int64_t> subList =
-        numeratorAttrs.take_back(denominatorAttrs.size());
-    return llvm::equal(subList, denominatorAttrs);
-  }
-
-  inline bool indexInPaddedRegion(ArrayRef<int64_t> index,
-                                  ArrayRef<int64_t> shape,
-                                  ArrayRef<int64_t> padding) const {
-    for (size_t i = 0; i < index.size(); ++i) {
-      int64_t lowPadding = padding[2 * i];
-      int64_t highPadding = padding[2 * i + 1];
-
-      if (index[i] < lowPadding || index[i] >= shape[i] - highPadding) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  inline SmallVector<int64_t>
-  getTensorIndexFromBufferIndex(int64_t bufferIndex,
-                                ArrayRef<int64_t> shape) const {
-    SmallVector<int64_t> index;
-    for (size_t i = 0; i < shape.size(); ++i) {
-      index.push_back(bufferIndex % shape[i]);
-      bufferIndex /= shape[i];
-    }
-    return index;
-  }
-
-  // This function will check if a tensor is filled with ones, and padded with
-  // zeros according to `padding`. Example 1:
-  //    padding: [1, 1, 1, 1]
-  //    data with shape: (4, 4):
-  //        [[0.0, 0.0, 0.0, 0.0],
-  //         [0.0, 1.0, 1.0, 0.0],
-  //         [0.0, 1.0, 1.0, 0.0],
-  //         [0.0, 0.0, 0.0, 0.0]]
-  // returns true
-  //
-  // Example 2:
-  //    padding: [0, 0, 0, 0]
-  //    data with shape: (4, 4):
-  //        [[1.0, 1.0, 1.0, 1.0],
-  //         [1.0, 1.0, 1.0, 1.0],
-  //         [1.0, 1.0, 1.0, 1.0],
-  //         [1.0, 1.0, 1.0, 1.0]]
-  // returns true
-  //
-  // Example 3:
-  //    padding: [1, 1, 1, 1]
-  //    data with shape: (4, 4):
-  //        [[1.0, 1.0, 1.0, 1.0],
-  //         [1.0, 1.0, 1.0, 1.0],
-  //         [1.0, 1.0, 1.0, 1.0],
-  //         [1.0, 1.0, 1.0, 1.0]]
-  // returns false
-
-  template <typename NumericType>
-  bool constantTensorAllOnesWithPadding(
-      mlir::detail::ElementsAttrRange<
-          mlir::detail::ElementsAttrIterator<NumericType>>
-          data,
-      ArrayRef<int64_t> shape, ArrayRef<int64_t> padding, NumericType zero,
-      NumericType one) const {
-
-    padding = padding.take_back(shape.size() * 2);
-    for (size_t i = 0; i < data.size(); ++i) {
-      SmallVector<int64_t> index = getTensorIndexFromBufferIndex(i, shape);
-      if (indexInPaddedRegion(index, shape, padding)) {
-        if (data[i] != zero) {
-          return false;
-        }
-      } else if (data[i] != one) {
-        return false;
-      }
-    }
-    return true;
-  }
-
-  // Helper function to trace a value through broadcast/reshape ops and return
-  // the underlying FullOp or ConstantOp value.
-  static Value traceToFullOrConstantOp(Value value) {
-    while (value) {
-      Operation *defOp = value.getDefiningOp();
-      if (!defOp) {
-        return nullptr;
-      }
-
-      if (isa<FullOp, ConstantOp>(defOp)) {
-        return value;
-      }
-      if (auto broadcastOp = dyn_cast<BroadcastOp>(defOp)) {
-        value = broadcastOp.getInput();
-        continue;
-      }
-      if (auto reshapeOp = dyn_cast<ReshapeOp>(defOp)) {
-        value = reshapeOp.getInput();
-        continue;
-      }
-      return nullptr;
-    }
-
-    return nullptr;
   }
 };
 
@@ -3381,6 +3077,31 @@ public:
   mlir::LogicalResult
   matchAndRewrite(MultiplyOp outerMul,
                   mlir::PatternRewriter &rewriter) const final {
+    // TTNN RMS norm only supports normalization over the last dimension.
+    // The normalized_shape parameter of RMSNormOp is the size of the last dim.
+    auto outputType = mlir::cast<RankedTensorType>(outerMul.getType());
+    if (outputType.getRank() == 0) {
+      return mlir::failure();
+    }
+    int64_t normalizedDimSize = outputType.getShape().back();
+
+    // Traces through ops that preserve or set the last dim to
+    // normalizedDimSize.
+    auto lookThroughSafeOps = [normalizedDimSize](mlir::Value value) {
+      return utils::lookThroughLayoutOpsIf(
+          value, [normalizedDimSize](mlir::Operation *op) {
+            if (utils::preservesDim(op, -1)) {
+              return true;
+            }
+            // Allow broadcasts that expand to normalized size.
+            if (auto broadcast = mlir::dyn_cast<BroadcastOp>(op)) {
+              auto outType = mlir::cast<RankedTensorType>(broadcast.getType());
+              return outType.getShape().back() == normalizedDimSize;
+            }
+            return false;
+          });
+    };
+
     MultiplyOp innerMul =
         utils::findOpThrough<MultiplyOp, TypecastOp>(outerMul.getLhs());
     mlir::Value gammaRaw = outerMul.getRhs();
@@ -3393,20 +3114,22 @@ public:
       return mlir::failure();
     }
 
-    RsqrtOp rsqrtOp = utils::findOpThroughLayoutOps<RsqrtOp>(innerMul.getLhs());
+    RsqrtOp rsqrtOp =
+        lookThroughSafeOps(innerMul.getLhs()).getDefiningOp<RsqrtOp>();
     mlir::Value xRaw = innerMul.getRhs();
     if (!rsqrtOp) {
-      rsqrtOp = utils::findOpThroughLayoutOps<RsqrtOp>(innerMul.getRhs());
+      rsqrtOp = lookThroughSafeOps(innerMul.getRhs()).getDefiningOp<RsqrtOp>();
       xRaw = innerMul.getLhs();
     }
     if (!rsqrtOp) {
       return mlir::failure();
     }
 
-    auto addOp = utils::findOpThroughLayoutOps<AddOp>(rsqrtOp.getInput());
+    auto addOp = lookThroughSafeOps(rsqrtOp.getInput()).getDefiningOp<AddOp>();
     if (!addOp) {
       return mlir::failure();
     }
+
     MeanOp meanOp = addOp.getLhs().getDefiningOp<MeanOp>();
     mlir::Value epsilon = addOp.getRhs();
     if (!meanOp) {
@@ -3417,7 +3140,6 @@ public:
       return mlir::failure();
     }
 
-    // TTNN RMS norm only supports normalization over the last dimension.
     auto dimArg = meanOp.getDimArg();
     if (!dimArg || dimArg->size() != 1) {
       return mlir::failure();
@@ -3431,18 +3153,17 @@ public:
     }
 
     // Match x^2 as mul(x,x) or pow(x,2).
-    // Look through layout ops to find the original input.
     mlir::Value meanInput = meanOp.getInput();
     mlir::Value squareInput = nullptr;
-    mlir::Value x = utils::lookThroughLayoutOps(xRaw);
+    mlir::Value x = lookThroughSafeOps(xRaw);
 
     if (auto sq = meanInput.getDefiningOp<MultiplyOp>()) {
       if (sq.getLhs() == sq.getRhs()) {
-        squareInput = utils::lookThroughLayoutOps(sq.getLhs());
+        squareInput = lookThroughSafeOps(sq.getLhs());
       }
     } else if (auto pw = meanInput.getDefiningOp<PowOp>()) {
       if (isFullOpWithValue(pw.getRhs(), 2.0f)) {
-        squareInput = utils::lookThroughLayoutOps(pw.getLhs());
+        squareInput = lookThroughSafeOps(pw.getLhs());
       }
     }
 
@@ -3451,7 +3172,7 @@ public:
     }
 
     // Look through layout ops to find the epsilon FullOp
-    auto epsFull = utils::findOpThroughLayoutOps<FullOp>(epsilon);
+    auto epsFull = lookThroughSafeOps(epsilon).getDefiningOp<FullOp>();
     if (!epsFull) {
       return mlir::failure();
     }
@@ -3460,11 +3181,8 @@ public:
       return mlir::failure();
     }
 
-    mlir::Value gamma = utils::lookThroughLayoutOps(gammaRaw);
-    auto inputType = mlir::cast<RankedTensorType>(x.getType());
-    auto outputType = mlir::cast<RankedTensorType>(outerMul.getType());
-
-    llvm::SmallVector<int64_t> normalizedShape{inputType.getShape().back()};
+    mlir::Value gamma = lookThroughSafeOps(gammaRaw);
+    llvm::SmallVector<int64_t> normalizedShape{normalizedDimSize};
 
     // Reshape gamma to match normalized_shape if needed.
     // Gamma may have extra dimensions (e.g., [1, 1, 2048] instead of [2048]).
@@ -3491,7 +3209,8 @@ public:
                                          rewriter.getI32ArrayAttr(targetShape));
     }
 
-    // Create RMSNormOp with output shape and dtype matching input
+    // Create RMSNormOp with output shape and dtype matching input.
+    auto inputType = mlir::cast<RankedTensorType>(x.getType());
     auto rmsNormOutputType =
         RankedTensorType::get(inputType.getShape(), inputType.getElementType(),
                               inputType.getEncoding());
@@ -3502,22 +3221,9 @@ public:
 
     mlir::Value result = rmsNorm;
 
-    // If output shape differs from input shape, add a reshape
-    if (inputType.getShape() != outputType.getShape()) {
-      llvm::SmallVector<int32_t> targetShape(outputType.getShape());
-      auto reshapeOutputType = RankedTensorType::get(outputType.getShape(),
-                                                     inputType.getElementType(),
-                                                     inputType.getEncoding());
-      result = rewriter.create<ReshapeOp>(
-          outerMul.getLoc(), reshapeOutputType, result,
-          rewriter.getI32ArrayAttr(targetShape));
-    }
-
-    // If output dtype differs from input dtype, add a typecast
-    if (inputType.getElementType() != outputType.getElementType()) {
-      result =
-          rewriter.create<TypecastOp>(outerMul.getLoc(), outputType, result);
-    }
+    // Transform result to match output type (reshape and/or typecast as needed)
+    result = utils::reshapeAndCastToType(rewriter, outerMul.getLoc(), result,
+                                         outputType);
 
     rewriter.replaceOp(outerMul, result);
     return mlir::success();
@@ -3603,6 +3309,128 @@ public:
   }
 };
 
+// Pattern to fuse reshape -> broadcast -> reshape into either:
+// - repeat_interleave (when final reshape multiplies the dim left of inserted
+// 1)
+// - repeat (when final reshape multiplies the dim right of inserted 1)
+//
+// This pattern is commonly used for GQA (Grouped Query Attention) to expand KV
+// heads to match Q heads.
+class ReshapeBroadcastReshapeToRepeatPattern
+    : public mlir::OpRewritePattern<ReshapeOp> {
+  using mlir::OpRewritePattern<ReshapeOp>::OpRewritePattern;
+
+public:
+  mlir::LogicalResult
+  matchAndRewrite(ReshapeOp finalReshape,
+                  mlir::PatternRewriter &rewriter) const final {
+    // Match: reshape -> broadcast -> reshape.
+    auto broadcastOp = finalReshape.getInput().getDefiningOp<BroadcastOp>();
+    if (!broadcastOp || !broadcastOp->hasOneUse()) {
+      return mlir::failure();
+    }
+
+    auto firstReshape = broadcastOp.getInput().getDefiningOp<ReshapeOp>();
+    if (!firstReshape || !firstReshape->hasOneUse()) {
+      return mlir::failure();
+    }
+
+    auto inputType =
+        mlir::cast<RankedTensorType>(firstReshape.getInput().getType());
+    auto intermediateType =
+        mlir::cast<RankedTensorType>(firstReshape.getResult().getType());
+    auto outputType =
+        mlir::cast<RankedTensorType>(finalReshape.getResult().getType());
+
+    ArrayRef<int64_t> inputShape = inputType.getShape();
+    ArrayRef<int64_t> intermediateShape = intermediateType.getShape();
+    ArrayRef<int64_t> outputShape = outputType.getShape();
+    ArrayRef<int64_t> broadcastDims = broadcastOp.getBroadcastDimensions();
+
+    if (intermediateShape.size() != inputShape.size() + 1) {
+      return mlir::failure();
+    }
+    if (broadcastDims.size() != intermediateShape.size()) {
+      return mlir::failure();
+    }
+    if (outputShape.size() != inputShape.size()) {
+      return mlir::failure();
+    }
+
+    // Use broadcast evidence to pick the inserted dim. This avoids ambiguity
+    // when the input shape already contains size-1 dims. This rewrite only
+    // models a single expanded dimension.
+    int64_t insertedDim = -1;
+    int64_t repeatCount = 1;
+    for (size_t i = 0; i < broadcastDims.size(); ++i) {
+      if (broadcastDims[i] == 1) {
+        continue;
+      }
+      if (insertedDim != -1) {
+        return mlir::failure();
+      }
+      insertedDim = static_cast<int64_t>(i);
+      repeatCount = broadcastDims[i];
+    }
+    if (repeatCount <= 1) {
+      return mlir::failure();
+    }
+
+    // Validate that `intermediateShape` is exactly `inputShape` with a single
+    // size-1 dimension inserted at `insertedDim`.
+    if (insertedDim < 0 ||
+        static_cast<size_t>(insertedDim) >= intermediateShape.size()) {
+      return mlir::failure();
+    }
+    if (intermediateShape[insertedDim] != 1) {
+      return mlir::failure();
+    }
+    for (size_t i = 0; i < inputShape.size(); ++i) {
+      size_t intermediateIdx = i < static_cast<size_t>(insertedDim) ? i : i + 1;
+      if (intermediateShape[intermediateIdx] != inputShape[i]) {
+        return mlir::failure();
+      }
+    }
+
+    // Find which input dimension was multiplied by repeatCount in the output.
+    int64_t changedDim = -1;
+    for (size_t i = 0; i < outputShape.size(); ++i) {
+      if (outputShape[i] == inputShape[i]) {
+        continue;
+      }
+      if (changedDim != -1) {
+        return mlir::failure();
+      }
+      changedDim = static_cast<int64_t>(i);
+    }
+    if (changedDim == -1) {
+      return mlir::failure();
+    }
+    if (outputShape[changedDim] != inputShape[changedDim] * repeatCount) {
+      return mlir::failure();
+    }
+
+    // Decide between repeat_interleave (left-merge) and repeat (right-merge).
+    if (changedDim == insertedDim - 1) {
+      rewriter.replaceOpWithNewOp<RepeatInterleaveOp>(
+          finalReshape, outputType, firstReshape.getInput(),
+          static_cast<uint32_t>(repeatCount), static_cast<int32_t>(changedDim));
+      return mlir::success();
+    }
+
+    if (changedDim == insertedDim) {
+      llvm::SmallVector<int64_t> repeatDims(inputShape.size(), 1);
+      repeatDims[changedDim] = repeatCount;
+      rewriter.replaceOpWithNewOp<RepeatOp>(
+          finalReshape, outputType, firstReshape.getInput(),
+          rewriter.getDenseI64ArrayAttr(repeatDims));
+      return mlir::success();
+    }
+
+    return mlir::failure();
+  }
+};
+
 } // namespace
 
 class TTIRFusingPass : public impl::TTIRFusingBase<TTIRFusingPass> {
@@ -3612,6 +3440,7 @@ public:
     {
       RewritePatternSet patterns(&getContext());
       patterns.add<ConvTagWeights<Conv2dOp>>(&getContext());
+      patterns.add<ConvTagWeights<Conv3dOp>>(&getContext());
       if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
         signalPassFailure();
         return;
@@ -3621,6 +3450,7 @@ public:
       RewritePatternSet patterns(&getContext());
       patterns.add<ConvAddBias<Conv2dOp>>(&getContext());
       patterns.add<ConvAddBias<ConvTranspose2dOp>>(&getContext());
+      patterns.add<ConvAddBias<Conv3dOp>>(&getContext());
 
       // Add patterns for each reduction op type.
       patterns.add<ReductionWithReshapePattern<SumOp>>(&getContext());
@@ -3652,10 +3482,6 @@ public:
           &getContext());
       patterns.add<SplitQueryKeyValueAndSplitHeadsUpdatePattern<LinearOp>>(
           &getContext());
-
-      patterns.add<PadPoolingFusionPattern>(&getContext());
-      patterns.add<AveragePoolingWithPoolingDenominatorFusionPattern>(
-          &getContext());
       patterns.add<ScaledSumToMeanPattern>(&getContext());
       patterns.add<SpatialMeanOptimizationPattern>(&getContext());
       patterns.add<MatmulWithBiasFusionPattern>(&getContext());
@@ -3666,6 +3492,7 @@ public:
       patterns.add<SiluFusionPattern>(&getContext());
       patterns.add<HardsigmoidFusionPattern>(&getContext());
       patterns.add<MishFusingPattern>(&getContext());
+      patterns.add<ReshapeBroadcastReshapeToRepeatPattern>(&getContext());
 
       GreedyRewriteConfig config;
       config.setUseTopDownTraversal(true);

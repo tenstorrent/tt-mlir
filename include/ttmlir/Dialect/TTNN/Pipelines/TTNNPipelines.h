@@ -212,17 +212,23 @@ struct TTIRToTTNNDevicePipelineOptions
       *this, OptionNames::meshShape,
       llvm::cl::desc("Set the multi-device mesh shape.")};
 
+  ListOption<ttcore::Topology> meshTopology{
+      *this, OptionNames::meshTopology,
+      llvm::cl::desc("Set the per-axis topology for the mesh."),
+      llvm::cl::values(
+          clEnumValN(ttcore::Topology::Ring, "ring", "Ring topology"),
+          clEnumValN(ttcore::Topology::Linear, "linear", "Linear topology"))};
+
   Option<bool> rowMajorEnabled{
       *this, "row-major-enabled",
       llvm::cl::desc(
           "Enable row major layout generation in legal layout analysis."),
       llvm::cl::init(false)};
-
   // Option to override maximum percent of L1 storage that can be used
   // by tensors in Optimizer analysis.
   // This is a value between 0.0 and 1.0, where 1.0 means that the entire L1
   // storage can be used by tensors.
-  // The default value is 0.8.
+  // The default value is 0.95.
   //
   Option<float> tensorL1UsageCap{
       *this, OptionNames::tensorL1UsageCap,
@@ -266,6 +272,10 @@ struct TTIRToTTNNDevicePipelineOptions
   Option<bool> enableFusing{*this, "enable-fusing-pass",
                             llvm::cl::desc("Enable fusing pass."),
                             llvm::cl::init(true)};
+
+  Option<bool> enableD2MFusing{*this, "enable-d2m-fusing-pass",
+                               llvm::cl::desc("Enable D2M fusing pass."),
+                               llvm::cl::init(false)};
 
   // Enable fusing of conv2d + multiply pattern.
   // If not explicitly set, determined by optimization_level.
@@ -436,6 +446,14 @@ struct TTNNToEmitCDevicePipelineOptions
                            llvm::cl::desc("Tailor passes for dylib target."),
                            llvm::cl::init(false)};
 
+  Option<bool> tryRecoverStructure{
+      *this, "try-recover-structure",
+      llvm::cl::desc(
+          "Enable pipelines and passes that try to recover structure of the "
+          "original IR/code. Highly experimental; please file issues at "
+          "https://github.com/tenstorrent/tt-mlir/issues"),
+      llvm::cl::init(false)};
+
   Option<bool> tuplifyInputIfEmpty{
       *this, "tuplify-input-if-empty",
       llvm::cl::desc("Whether to create an empty tuple if no inputs to forward "
@@ -487,8 +505,10 @@ struct TTNNToEmitPyDevicePipelineOptions
 
   Option<bool> tryRecoverStructure{
       *this, "try-recover-structure",
-      llvm::cl::desc("Enable pipelines and passes that try to recover "
-                     "structure of the original IR/code."),
+      llvm::cl::desc(
+          "Enable pipelines and passes that try to recover structure of the "
+          "original IR/code. Highly experimental; please file issues at "
+          "https://github.com/tenstorrent/tt-mlir/issues"),
       llvm::cl::init(false)};
 };
 
@@ -507,7 +527,13 @@ struct TTIRToTTNNBackendPipelineOptions
 // TTNNToEmitCDevicePipelineOptions to reuse the options.
 //
 struct TTIRToEmitCPipelineOptions : public TTIRToTTNNDevicePipelineOptions,
-                                    public TTNNToEmitCDevicePipelineOptions {};
+                                    public TTNNToEmitCDevicePipelineOptions {
+  TTIRToEmitCPipelineOptions() {
+    // TODO(dmilinkovic): Remove once CPU-hoisting is supported on EmitC - issue
+    // #6100.
+    this->enableCPUHoistedConstEval = false;
+  }
+};
 
 // TTIR to EmitPy pipeline options.
 //
@@ -542,6 +568,8 @@ void createTTNNToEmitPyPipeline(
 
 void createRecoverStructureXLATorchPipeline(
     OpPassManager &pm, const RecoverStructureXLATorchPipelineOptions &options);
+
+void createTTNNPipelineD2MPass(OpPassManager &pm);
 
 void registerTTNNPipelines();
 } // namespace mlir::tt::ttnn

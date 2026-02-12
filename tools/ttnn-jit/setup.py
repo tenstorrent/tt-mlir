@@ -249,6 +249,7 @@ setup(
     package_dir={"ttnn_jit": "."},
     ext_modules=[ttnn_jit_ext],
     cmdclass={"build_ext": CMakeBuild},
+    install_requires=["ttmlir"],
     python_requires=">=3.10",  # tt-metal uses python3.10
     zip_safe=False,
 )

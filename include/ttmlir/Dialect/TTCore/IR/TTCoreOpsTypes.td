@@ -289,13 +289,11 @@ def TTCore_ShardLayoutAttr : TTCore_Attr<"ShardLayout", "shard", [TTCore_DeviceL
     AffineMap getAffineMap() const;
 
     std::optional<mlir::AffineMap> getVirtualizationMapIfExists() {
-      return getCoreVirtualizationMap();
+      auto vmap = getCoreVirtualizationMap();
+      return (vmap.isEmpty()) ? std::nullopt : std::make_optional(vmap);
     }
 
     unsigned getRank() const { return getStride().size(); }
-
-    // Computes the implied physical grid shape using the grid shape and index map (if present)
-    llvm::SmallVector<int64_t> getPhysicalGridShape(ShapedType tensorType) const;
   }];
 }
 
@@ -510,11 +508,9 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_
     // Returns the full rank (including grid dimensions).
     unsigned getRank() const { return getNormalizedIntervals().size(); }
 
-    // Computes the implied physical grid shape using the grid shape and index map (if present)
-    llvm::SmallVector<int64_t> getPhysicalGridShape(ShapedType tensorType) const;
-
     std::optional<mlir::AffineMap> getVirtualizationMapIfExists() {
-      return getIndexAffineMap();
+      auto vmap = getIndexAffineMap();
+      return (vmap.isEmpty()) ? std::nullopt : std::make_optional(vmap);
     }
 
     // Returns true if this layout has two or more dims collapsed into a single dim
@@ -543,12 +539,13 @@ def TTCore_DeviceAttr : TTCore_Attr<"Device", "device", []> {
                         "AffineMap":$l1Map,
                         "AffineMap":$dramMap,
                         ArrayRefParameter<"int64_t">:$meshShape,
-                        ArrayRefParameter<"unsigned">:$chipIds);
-  let assemblyFormat = "`<` `workerGrid` `=` qualified($workerGrid) `,` `l1Map` `=` qualified($l1Map) `,` `dramMap` `=` qualified($dramMap) `,` `meshShape` `=` custom<DimensionList>($meshShape) `,` `chipIds` `=` `[` $chipIds `]` `>`";
+                        ArrayRefParameter<"unsigned">:$chipIds,
+                        OptionalArrayRefParameter<"Topology">:$meshTopology);
+  let assemblyFormat = "`<` `workerGrid` `=` qualified($workerGrid) `,` `l1Map` `=` qualified($l1Map) `,` `dramMap` `=` qualified($dramMap) `,` `meshShape` `=` custom<DimensionList>($meshShape) `,` `chipIds` `=` `[` $chipIds `]` (`,` `meshTopology` `=` `[` $meshTopology^ `]`)? `>`";
 
   let extraClassDeclaration = [{
-      static DeviceAttr get(::mlir::MLIRContext *context, SystemDescAttr systemDesc, ArrayRef<int64_t> meshShape, ArrayRef<unsigned> chipIds);
-      static DeviceAttr get(::mlir::MLIRContext *context, SystemDescAttr systemDesc, ArrayRef<int64_t> meshShape = {});
+      static DeviceAttr get(::mlir::MLIRContext *context, SystemDescAttr systemDesc, ArrayRef<int64_t> meshShape, ArrayRef<unsigned> chipIds, ArrayRef<Topology> meshTopology = {});
+      static DeviceAttr get(::mlir::MLIRContext *context, SystemDescAttr systemDesc, ArrayRef<int64_t> meshShape = {}, ArrayRef<Topology> meshTopology = {});
       AffineMap getMemoryMap(MemRefType memrefType,
                              size_t pageSize,
                              std::optional<AffineMap> view = std::nullopt,
@@ -669,6 +666,17 @@ def TTCore_MeshAttr : TTCore_Attr<"Mesh", "mesh", []> {
   let assemblyFormat = "`<` $name `=` custom<DimensionList>($shape) `>`";
 }
 
+def TTCore_MeshTopologyAttr : TTCore_Attr<"MeshTopology", "mesh_topology", []> {
+  let summary = "Per-axis topology for a mesh.";
+  let description = [{
+    Describes a topology for each axis of a mesh.
+
+    Example: `#ttcore.mesh_topology<[ring, linear]>`
+  }];
+  let parameters = (ins ArrayRefParameter<"Topology">:$topologies);
+  let assemblyFormat = "`<` `[` $topologies `]` `>`";
+}
+
 def TTCore_MeshesAttr : TTCore_Attr<"Meshes", "meshes"> {
   let summary = "TT system meshes attribute.";
   let description = [{
@@ -685,6 +693,24 @@ def TTCore_MeshesAttr : TTCore_Attr<"Meshes", "meshes"> {
         }
         return nullptr;
       }
+  }];
+}
+
+def TTCore_RuntimeTensorShardingAttr : TTCore_Attr<"RuntimeTensorSharding", "runtime_tensor_sharding"> {
+  let summary = "Runtime tensor sharding information";
+  let description = [{
+    Holds the runtime sharding information for this tensor.
+    This includes whether the tensor is presharded/unsharded and its per device shape.
+    This attribute is required for graphs coming from torch-xla/jax where the inputs/outputs to the graph can be presharded.
+    Any tool built ontop of mlir runtime needs to know how to generate the inputs (unsharded or presharded) and this attribute encapsulate that information.
+  }];
+  let parameters = (ins
+    "ShardStatusAttr":$shardStatus,
+    "RankedTensorType":$localShape);
+
+  let assemblyFormat = [{
+        `shard_status` `=` $shardStatus `,`
+        `local_shape` `=` $localShape
   }];
 }
 

@@ -51,9 +51,18 @@ class DeviceGetter:
 
 # Wrapper to abstract const-eval logic out of runtime funcs to keep them
 # cleaner. Invokes constEvalFunc iff key is not in cacheDict.
-def constEvalFuncWrapper(constEvalFunc, inputs, cacheDict, key):
+def constEvalFuncWrapper(constEvalFunc, inputs, cacheDict, key, device=None):
     if key not in cacheDict:
-        cacheDict[key] = constEvalFunc(inputs)
+        # Support both calling conventions:
+        # - Singleton-device path: constEvalFunc(inputs) and const-eval body
+        #   opens device via DeviceGetter.
+        # - Explicit-device-arg path: constEvalFunc(inputs, device) where device
+        #   is passed from the exported forward() entrypoint.
+        #
+        if device is not None:
+            cacheDict[key] = constEvalFunc(inputs, device)
+        else:
+            cacheDict[key] = constEvalFunc(inputs)
     return cacheDict[key]
 
 
@@ -61,9 +70,16 @@ def constEvalFuncWrapper(constEvalFunc, inputs, cacheDict, key):
 # cleaner. Invokes constEvalFunc iff key is not in cacheDict.
 # This is an overload of constEvalFuncWrapper for const-eval functions that
 # take zero arguments.
-def constEvalFuncWrapperZeroArg(constEvalFunc, cacheDict, key):
+def constEvalFuncWrapperZeroArg(constEvalFunc, cacheDict, key, device=None):
     if key not in cacheDict:
-        cacheDict[key] = constEvalFunc()
+        # Support both calling conventions:
+        # - Singleton-device path: constEvalFunc()
+        # - Explicit-device-arg path: constEvalFunc(device)
+        #
+        if device is not None:
+            cacheDict[key] = constEvalFunc(device)
+        else:
+            cacheDict[key] = constEvalFunc()
     return cacheDict[key]
 
 

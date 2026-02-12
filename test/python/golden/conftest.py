@@ -40,6 +40,7 @@ ALL_CONFIGS = ALL_BACKENDS | ALL_SYSTEMS | ALL_ENVIRONMENTS
 _current_device = None
 _current_device_target: Optional[str] = None
 _current_device_mesh_shape: Optional[Tuple[int, int]] = None
+_current_fabric_config: Optional[str] = None
 
 
 def json_string_as_dict(json_string):
@@ -58,14 +59,16 @@ def fbb_as_dict(bin):
     return json_string_as_dict(bin.as_json())
 
 
-def _get_device_for_target(target: str, mesh_shape: Tuple[int, int], pytestconfig):
+def _get_device_for_target(
+    target: str, mesh_shape: Tuple[int, int], pytestconfig, fabric_config=None
+):
     """Given a `target`, returns a device capable of executing a flatbuffer
     compiled for that `target`.
 
     For efficiency, this device is reused from the last test if possible via
-    the `_current_device`, `_current_device_target` & `_current_device_mesh_shape` caches
+    the `_current_device`, `_current_device_target`, `_current_device_mesh_shape` & `_current_fabric_config` caches
     """
-    global _current_device, _current_device_target, _current_device_mesh_shape
+    global _current_device, _current_device_target, _current_device_mesh_shape, _current_fabric_config
 
     if _current_device is not None:
 
@@ -73,13 +76,14 @@ def _get_device_for_target(target: str, mesh_shape: Tuple[int, int], pytestconfi
         if (
             _current_device_target == target
             and _current_device_mesh_shape == mesh_shape
+            and _current_fabric_config == fabric_config
         ):
             return _current_device
         elif _current_device_target == "emitpy":
             ttnn.close_mesh_device(_current_device)
         else:  # Cache miss, need to teardown
             print(
-                f"Found new target {target} with mesh shape {mesh_shape}, closing device for {_current_device_target} with {_current_device_mesh_shape}"
+                f"Found new target {target} with mesh shape {mesh_shape} and fabric config {fabric_config}, closing device for {_current_device_target} with {_current_device_mesh_shape} and {_current_fabric_config}"
             )
             tt_runtime.runtime.close_mesh_device(_current_device)
             tt_runtime.runtime.set_fabric_config(
@@ -88,6 +92,7 @@ def _get_device_for_target(target: str, mesh_shape: Tuple[int, int], pytestconfi
         _current_device = None
         _current_device_target = None
         _current_device_mesh_shape = None
+        _current_fabric_config = None
 
     # Open new device for target
     print(f"Opening device for {target} with mesh shape {mesh_shape}")
@@ -126,17 +131,20 @@ def _get_device_for_target(target: str, mesh_shape: Tuple[int, int], pytestconfi
             )
 
         tt_runtime.runtime.set_current_device_runtime(device_runtime_enum)
-        if math.prod(mesh_shape) > 1:
+        if fabric_config is not None:
+            tt_runtime.runtime.set_fabric_config(fabric_config)
+        elif math.prod(mesh_shape) > 1:
             tt_runtime.runtime.set_fabric_config(
                 tt_runtime.runtime.FabricConfig.FABRIC_1D
             )
         device = tt_runtime.runtime.open_mesh_device(mesh_options)
         print(
-            f"Device opened for test session with target {target} & mesh shape {mesh_options.mesh_shape}."
+            f"Device opened for test session with target {target}, mesh shape {mesh_options.mesh_shape}, fabric config {fabric_config}."
         )
     _current_device = device
     _current_device_target = target
     _current_device_mesh_shape = mesh_shape
+    _current_fabric_config = fabric_config
     return _current_device
 
 
@@ -196,6 +204,7 @@ def device(request, pytestconfig):
     # default target is ttnn elsewhere, if no "target" is supplied it will compile to ttnn
     target = "ttnn"
     mesh_shape = (1, 1)
+    fabric_config = None
 
     if hasattr(request.node, "callspec"):
         target = request.node.callspec.params.get("target", "ttnn")
@@ -205,7 +214,48 @@ def device(request, pytestconfig):
             return None
 
         mesh_shape = request.node.callspec.params.get("mesh_shape", (1, 1))
-    return _get_device_for_target(target, mesh_shape, pytestconfig)
+        fabric_config = request.node.callspec.params.get("fabric_config", None)
+    return _get_device_for_target(target, mesh_shape, pytestconfig, fabric_config)
+
+
+def get_request_kwargs(request):
+    """
+    Extracts and organizes request-related arguments into a dictionary.
+
+    Parameters
+    ----------
+    request : pytest.FixtureRequest
+        The pytest request object.
+
+    Returns
+    -------
+    Dict[str, Any]
+        A dictionary containing request-related arguments.
+    """
+    kwargs = {
+        "test_base": request.node.name,
+        "output_root": request.config.getoption("--path"),
+        "system_desc_path": request.config.getoption("--sys-desc"),
+    }
+    if request.config.getoption("--save-artifacts"):
+        kwargs["save_artifacts"] = True
+    if request.config.getoption("--print-ir"):
+        kwargs["print_ir"] = True
+    if request.config.getoption("--check-atol"):
+        kwargs["check_atol"] = True
+    if request.config.getoption("--check-rtol"):
+        kwargs["check_rtol"] = True
+    if request.config.getoption("--enable-intermediate-verification"):
+        kwargs["enable_intermediate_verification"] = True
+    if request.config.getoption("--disable-golden"):
+        kwargs["disable_golden"] = True
+    if request.config.getoption("--skip-exec"):
+        kwargs["skip_exec"] = True
+    if request.config.getoption("--disable-pcc"):
+        kwargs["check_pcc"] = False
+    if request.config.getoption("--dump-memory"):
+        kwargs["dump_memory"] = True
+    return kwargs
 
 
 def pytest_addoption(parser):
@@ -257,6 +307,51 @@ def pytest_addoption(parser):
         action="store_true",
         help="Use location info for kernel filenames when dumping",
     )
+    parser.addoption(
+        "--save-artifacts",
+        action="store_true",
+        help="Save generated artifacts (flatbuffers, mlir files, etc.) to disk",
+    )
+    parser.addoption(
+        "--print-ir",
+        action="store_true",
+        help="Print the MLIR of the compiled module to stdout",
+    )
+    parser.addoption(
+        "--check-atol",
+        action="store_true",
+        help="Enable absolute tolerance check. Raises an exception if tolerance is exceeded.",
+    )
+    parser.addoption(
+        "--check-rtol",
+        action="store_true",
+        help="Enable relative tolerance check. Raises an exception if tolerance is exceeded.",
+    )
+    parser.addoption(
+        "--enable-intermediate-verification",
+        action="store_true",
+        help="Enable runtime callbacks to verify intermediate outputs match golden outputs.",
+    )
+    parser.addoption(
+        "--disable-golden",
+        action="store_true",
+        help="Disable golden comparison and use random inputs.",
+    )
+    parser.addoption(
+        "--skip-exec",
+        action="store_true",
+        help="Skip execution of the compiled flatbuffer.",
+    )
+    parser.addoption(
+        "--disable-pcc",
+        action="store_true",
+        help="Disable PCC check.",
+    )
+    parser.addoption(
+        "--dump-memory",
+        action="store_true",
+        help="Dump device memory to disk after execution.",
+    )
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -306,6 +401,8 @@ def get_board_id(system_desc) -> str:
             return "n300"
         case "Wormhole_b0", 8:
             return "llmbox"
+        case "Wormhole_b0", 32:
+            return "tg"
         case _:
             raise ValueError(f"Unknown architecture/chip# combo: {arch}, {num_chips}")
 
@@ -714,14 +811,18 @@ def pytest_collection_modifyitems(config, items):
 
 
 def pytest_sessionfinish(session):
-    global _current_device, _current_device_target, _current_device_mesh_shape
+    global _current_device, _current_device_target, _current_device_mesh_shape, _current_fabric_config
     if _current_device is not None:
         print("\nClosing device for end of session")
         if _current_device_target == "emitpy":
             ttnn.close_mesh_device(_current_device)
         else:
             tt_runtime.runtime.close_mesh_device(_current_device)
+            tt_runtime.runtime.set_fabric_config(
+                tt_runtime.runtime.FabricConfig.DISABLED
+            )
 
         _current_device = None
         _current_device_target = None
         _current_device_mesh_shape = None
+        _current_fabric_config = None

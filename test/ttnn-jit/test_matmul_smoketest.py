@@ -57,13 +57,12 @@ INPUT_LAYOUTS = [
     ],
     ids=["f32", "bf16", "bfp8"],
 )
-@pytest.mark.parametrize("frontend", ["ast"])
 @pytest.mark.parametrize(
     "input_layouts",
     INPUT_LAYOUTS,
     ids=[f"{str(layout)}" for layout in INPUT_LAYOUTS],
 )
-def test_matmul_composite(device, shapes, input_layouts, dtype, ttnn_dtype, frontend):
+def test_matmul_composite(device, shapes, input_layouts, dtype, ttnn_dtype):
     # Skip large matmuls for float32
     if dtype == torch.float32 and shapes == (2048, 2048, 2048):
         pytest.skip("Skipping large matmul for float32")
@@ -90,7 +89,6 @@ def test_matmul_composite(device, shapes, input_layouts, dtype, ttnn_dtype, fron
 
     compiled_op = ttnn_jit.jit(
         debug=True,
-        frontend=frontend,
         compile_only=False,
     )(matmul_composite)
 

@@ -5,6 +5,7 @@
 #include "tt/runtime/runtime.h"
 #include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/common/runtime_context.h"
+#include "tt/runtime/detail/common/system_mesh.h"
 #include "tt/runtime/types.h"
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Version.h"
@@ -374,6 +375,32 @@ Tensor createMultiDeviceHostTensor(
       });
 }
 
+Tensor createMultiDeviceBorrowedHostTensor(
+    std::vector<void *> &data, const std::vector<std::uint32_t> &shape,
+    const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
+    ::tt::target::DataType dataType,
+    const std::unordered_map<std::string, std::string> &strategy,
+    const std::vector<uint32_t> &meshShape) {
+  using RetType = Tensor;
+  LOG_ASSERT(!shape.empty());
+  LOG_ASSERT(!stride.empty());
+  LOG_ASSERT(itemsize > 0);
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() -> RetType {
+        return ::tt::runtime::ttnn::createMultiDeviceBorrowedHostTensor(
+            data, shape, stride, itemsize, dataType, strategy, meshShape);
+      },
+      [&]() -> RetType {
+        return ::tt::runtime::ttmetal::createMultiDeviceBorrowedHostTensor(
+            data, shape, stride, itemsize, dataType, strategy, meshShape);
+      },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("createMultiDeviceBorrowedHostTensor",
+                                    HostRuntime::Distributed);
+      });
+}
+
 Tensor createEmptyTensor(Device device, Layout layout,
                          const std::vector<std::uint32_t> &shape,
                          const std::vector<std::uint32_t> &stride,
@@ -657,6 +684,13 @@ std::vector<int> getDeviceIds(Device meshDevice) {
       [&]() -> RetType {
         detail::fatalNotImplemented("getDeviceIds", HostRuntime::Distributed);
       });
+}
+
+std::vector<int> getMappedDeviceIds(const std::vector<uint32_t> &meshShape) {
+#if defined(DEVICE_RUNTIME_ENABLED)
+  return ::tt::runtime::common::getMappedDeviceIds(meshShape);
+#endif
+  LOG_FATAL("Runtime is not enabled");
 }
 
 size_t getNumHwCqs(Device meshDevice) {

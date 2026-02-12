@@ -5,7 +5,7 @@
 import pytest
 import torch
 from typing import Callable, List, Optional
-from conftest import x86_only
+from conftest import x86_only, get_request_kwargs
 from builder.base.builder_utils import Operand, Shape
 from builder.ttnn.ttnn_builder import TTNNBuilder
 from builder.base.builder_apis import (
@@ -273,9 +273,7 @@ def test_unary_ops(
     pipeline_options = []
     compile_and_execute_ttnn(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
         pipeline_options=pipeline_options,
@@ -306,9 +304,7 @@ def test_bitwise_unary_ops(
 
     compile_and_execute_ttnn(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )
@@ -351,9 +347,7 @@ def test_unary_ops_with_float_param(
     pipeline_options = []
     compile_and_execute_ttnn(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
         pipeline_options=pipeline_options,
@@ -388,6 +382,7 @@ hoisted_unary_ops = [
     sin,
     cos,
     relu,
+    relu6,
 ]
 
 
@@ -412,6 +407,4 @@ def test_cpu_hoistable_unary_ops(
         module,
         test_base=f"{request.node.name}",
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
     )

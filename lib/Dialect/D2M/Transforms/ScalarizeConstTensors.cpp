@@ -9,13 +9,17 @@
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
+#include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+
+#include <climits>
 
 namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MSCALARIZECONSTTENSORS
@@ -56,7 +60,15 @@ traceConstantToGenericOps(Operation *constOp,
       // NOTE: This only follows the first user. If a result has
       // multiple users, only one path will be traced. This is acceptable for
       // the current use case but may miss optimization opportunities.
-      currentOp = *currentValue.getUsers().begin();
+      for (Operation *user : currentValue.getUsers()) {
+        // RemoteLoadOps are embedded within a GenericOp, so we skip them to try
+        // to find the enclosing GenericOp.
+        if (isa<RemoteLoadOp>(user)) {
+          continue;
+        }
+        currentOp = user;
+        break;
+      }
     }
 
     if (auto genericOp = dyn_cast<GenericOp>(currentOp)) {
@@ -76,19 +88,11 @@ findLinalgBlockArgsForGenericInput(GenericOp genericOp,
   for (Region &region : genericOp.getRegions()) {
     region.walk([&](linalg::GenericOp linalgOp) {
       Block *linalgBlock = linalgOp.getBody();
-
       for (auto [linalgArgIdx, linalgInput] :
            llvm::enumerate(linalgOp.getInputs())) {
-        Value tracedValue = linalgInput;
-        Operation *defOp = tracedValue.getDefiningOp();
-
-        if (auto waitOp = dyn_cast_or_null<WaitOp>(defOp)) {
-          tracedValue = waitOp.getCb();
-        }
-
-        if (auto blockArg = dyn_cast<BlockArgument>(tracedValue)) {
-          if (blockArg.getOwner()->getParentOp() == genericOp.getOperation() &&
-              blockArg.getArgNumber() == genericInputIdx) {
+        if (auto remoteLoadOp = linalgInput.getDefiningOp<RemoteLoadOp>()) {
+          if (remoteLoadOp.getMemref() ==
+              genericOp.getOperand(genericInputIdx)) {
             linalgArgs.push_back(linalgBlock->getArgument(linalgArgIdx));
           }
         }
@@ -121,6 +125,31 @@ static SmallVector<unsigned> findScalarizedInputIndices(Block *block,
   return scalarizedIndices;
 }
 
+// Build a list of unused input operands for a GenericOp.
+static SmallVector<unsigned>
+findUnusedGenericInputIndices(GenericOp genericOp) {
+  SmallVector<unsigned> unusedIndices;
+
+  auto isInputUsed = [&](Value input) {
+    for (Region &region : genericOp.getRegions()) {
+      for (Operation &op : region.getOps()) {
+        if (llvm::is_contained(op.getOperands(), input)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  };
+
+  for (auto [idx, input] : llvm::enumerate(genericOp.getInputs())) {
+    if (!isInputUsed(input)) {
+      unusedIndices.push_back(idx);
+    }
+  }
+
+  return unusedIndices;
+}
+
 template <typename RangeT>
 static SmallVector<Value>
 buildInputsWithoutScalarizedIndices(RangeT &&inputs,
@@ -149,6 +178,47 @@ static IRMapping buildBlockArgMappingWithoutScalarizedIndices(
                 newBlock->getArgument(newArgIdx++));
   }
   return mapping;
+}
+
+static void updateTensorEmptyResultType(
+    Operation *originalOp, Operation *clonedOp, GenericOp oldGenericOp,
+    GenericOp newGenericOp,
+    const llvm::DenseMap<uint64_t, uint64_t> &operandIndexRemap) {
+  auto tensorEmptyOp = mlir::dyn_cast<mlir::tensor::EmptyOp>(clonedOp);
+  auto originalEmptyOp = mlir::dyn_cast<mlir::tensor::EmptyOp>(originalOp);
+  if (!tensorEmptyOp || !originalEmptyOp) {
+    return;
+  }
+
+  Value associatedOperand = oldGenericOp.findAssocOperand(originalEmptyOp);
+  if (!associatedOperand) {
+    return;
+  }
+
+  // Find the operand index in the old generic op
+  unsigned oldOperandIdx = UINT_MAX;
+  for (unsigned i = 0; i < oldGenericOp->getNumOperands(); ++i) {
+    if (oldGenericOp->getOperand(i) == associatedOperand) {
+      oldOperandIdx = i;
+      break;
+    }
+  }
+
+  auto it = operandIndexRemap.find(oldOperandIdx);
+  if (it == operandIndexRemap.end()) {
+    return;
+  }
+
+  Value newCB = newGenericOp.findAssocCBByOperandIndex(clonedOp, it->second);
+  auto cbType = mlir::dyn_cast<d2m::CBType>(newCB.getType());
+  if (!cbType) {
+    return;
+  }
+
+  auto tensorType = mlir::dyn_cast<RankedTensorType>(cbType.getUnderlying());
+  if (tensorType) {
+    tensorEmptyOp.getResult().setType(tensorType);
+  }
 }
 
 static linalg::GenericOp rebuildLinalgGenericWithoutScalarizedInputs(
@@ -203,6 +273,7 @@ static GenericOp rebuildD2MGenericWithoutScalarizedInputs(
     GenericOp genericOp, ArrayRef<unsigned> scalarizedInputIndices,
     PatternRewriter &rewriter) {
   unsigned numInputs = genericOp.getInputs().size();
+  unsigned numOutputs = genericOp.getOutputs().size();
 
   SmallVector<Value> newGenericInputs = buildInputsWithoutScalarizedIndices(
       genericOp.getInputs(), scalarizedInputIndices);
@@ -218,12 +289,26 @@ static GenericOp rebuildD2MGenericWithoutScalarizedInputs(
     newIndexingMaps.push_back(oldMaps[i]);
   }
 
+  // Build operand index remapping: old operand index -> new operand index
+  llvm::DenseMap<uint64_t, uint64_t> operandIndexRemap;
+  unsigned newOperandIdx = 0;
+  // Map input operands (skip scalarized ones)
+  for (unsigned oldIdx = 0; oldIdx < numInputs; ++oldIdx) {
+    if (!llvm::is_contained(scalarizedInputIndices, oldIdx)) {
+      operandIndexRemap[oldIdx] = newOperandIdx++;
+    }
+  }
+  // Map output operands (these shift down by the number of removed inputs)
+  for (unsigned oldIdx = numInputs; oldIdx < numInputs + numOutputs; ++oldIdx) {
+    operandIndexRemap[oldIdx] = newOperandIdx++;
+  }
+
   rewriter.setInsertionPoint(genericOp);
   auto newGenericOp = rewriter.create<GenericOp>(
       genericOp.getLoc(), genericOp.getResultTypes(), newGenericInputs,
       genericOp.getOutputs(), genericOp.getGrid(), genericOp.getBlockFactors(),
       rewriter.getArrayAttr(newIndexingMaps), genericOp.getIteratorTypes(),
-      genericOp.getThreads(),
+      genericOp.getThreads(), genericOp.getScratchInputsAttr(),
       /*regions=*/1);
 
   for (auto [oldRegion, newRegion] :
@@ -248,7 +333,10 @@ static GenericOp rebuildD2MGenericWithoutScalarizedInputs(
 
     rewriter.setInsertionPointToStart(newBlock);
     for (Operation &op : oldBlock->without_terminator()) {
-      rewriter.clone(op, mapping);
+      Operation *clonedOp = rewriter.clone(op, mapping);
+      // Update tensor.empty result type to match the associated operand CB
+      updateTensorEmptyResultType(&op, clonedOp, genericOp, newGenericOp,
+                                  operandIndexRemap);
     }
     if (oldBlock->mightHaveTerminator()) {
       rewriter.clone(*oldBlock->getTerminator(), mapping);
@@ -286,6 +374,8 @@ public:
         continue;
       }
 
+      // Replace each candidate const linalg block argument with a scalar
+      // constant if possible.
       for (BlockArgument arg : linalgArgs) {
         bool canScalarize = false;
         for (Operation *user : arg.getUsers()) {
@@ -338,6 +428,7 @@ public:
       }
     }
 
+    // rewrite modified linalg.generic ops to remove unused inputs
     for (linalg::GenericOp linalgOp : linalgOpsToCleanup) {
       Block *linalgBlock = linalgOp.getBody();
       SmallVector<unsigned> scalarizedInputIndices =
@@ -347,14 +438,14 @@ public:
         continue;
       }
 
-      // Collect wait ops that will become dead after removing scalarized
+      // Collect remote load ops that will become dead after removing scalarized
       // inputs.
-      SmallVector<WaitOp> waitOpsToErase;
+      SmallVector<RemoteLoadOp> remoteLoadOpsToErase;
       for (unsigned idx : scalarizedInputIndices) {
         Value input = linalgOp.getInputs()[idx];
-        if (auto waitOp = input.getDefiningOp<WaitOp>()) {
-          if (waitOp->hasOneUse()) {
-            waitOpsToErase.push_back(waitOp);
+        if (auto remoteLoadOp = input.getDefiningOp<RemoteLoadOp>()) {
+          if (remoteLoadOp->hasOneUse()) {
+            remoteLoadOpsToErase.push_back(remoteLoadOp);
           }
         }
       }
@@ -364,28 +455,28 @@ public:
 
       rewriter.replaceOp(linalgOp, newLinalgOp.getResults());
 
-      for (WaitOp waitOp : waitOpsToErase) {
-        rewriter.eraseOp(waitOp);
+      // Erase RemoteLoadOps after rebuilding linalg.generic
+      for (RemoteLoadOp remoteLoadOp : remoteLoadOpsToErase) {
+        rewriter.eraseOp(remoteLoadOp);
       }
 
       madeChanges = true;
     }
 
+    // Rebuild linalg.generic ops to remove unused inputs
     for (GenericOp genericOp : genericOpsToCleanup) {
-      if (!genericOp.getRegions().empty()) {
-        Block *block = &genericOp.getRegions().front().front();
-        unsigned numInputs = genericOp.getInputs().size();
-        SmallVector<unsigned> scalarizedInputIndices =
-            findScalarizedInputIndices(block, numInputs);
+      SmallVector<unsigned> unusedInputIndices =
+          findUnusedGenericInputIndices(genericOp);
 
-        if (!scalarizedInputIndices.empty()) {
-          auto newGenericOp = rebuildD2MGenericWithoutScalarizedInputs(
-              genericOp, scalarizedInputIndices, rewriter);
-
-          rewriter.replaceOp(genericOp, newGenericOp.getResults());
-          madeChanges = true;
-        }
+      if (unusedInputIndices.empty()) {
+        continue;
       }
+
+      auto newGenericOp = rebuildD2MGenericWithoutScalarizedInputs(
+          genericOp, unusedInputIndices, rewriter);
+
+      rewriter.replaceOp(genericOp, newGenericOp.getResults());
+      madeChanges = true;
     }
 
     return madeChanges ? success() : failure();

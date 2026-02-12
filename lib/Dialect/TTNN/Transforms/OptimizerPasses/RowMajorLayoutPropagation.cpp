@@ -10,6 +10,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
+#include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 #include "ttmlir/Dialect/TTNN/Validation/OpConstraintValidation.h"
 #include "ttmlir/FunctionTypes.h"
 #include "ttmlir/Support/Logger.h"
@@ -29,6 +30,7 @@
 #include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/Error.h"
 
+#include <cassert>
 #include <queue>
 #include <utility>
 #include <vector>
@@ -87,7 +89,11 @@ public:
 
 private:
   // Returns true if block argument is an input argument of the function.
+  // KV cache arguments are excluded even though they have Input argument type.
   bool isInputArgument(BlockArgument arg, func::FuncOp func) {
+    if (func.getArgAttr(arg.getArgNumber(), ttcore::g_kvCacheAttrName)) {
+      return false;
+    }
     if (auto typeAttr = func.getArgAttrOfType<ttcore::ArgumentTypeAttr>(
             arg.getArgNumber(), ttcore::ArgumentTypeAttr::name)) {
       auto argType = typeAttr.getValue();
@@ -191,13 +197,75 @@ private:
     return rmArgs;
   }
 
+  // Handles dtype conversion when backend dtype differs from IR tensor element
+  // type. Inserts a toLayout op with TILE layout (required for on-device
+  // typecast) to perform the dtype conversion. Returns true if conversion was
+  // inserted, indicating RM propagation should stop at this point.
+  //
+  // TODO(bmalesevic, #6783): Once issue is addressed (on-device typecasting
+  // support for RM tensors), RM propagation should be allowed to continue after
+  // dtype conversion without forcing conversion to tile layout (which currently
+  // stops RM propagation).
+  bool handleDtypeConversionIfNeeded(Operation *user, IRRewriter &rewriter,
+                                     TTNNLayoutAttr rmOutputLayout,
+                                     Type backendDataType,
+                                     Type tensorElementType,
+                                     RankedTensorType userResultType) {
+    if (backendDataType == tensorElementType) {
+      return false; // No conversion needed
+    }
+
+    TTMLIR_DEBUG(ttmlir::LogComponent::RMPropagation,
+                 "Dtype mismatch detected at op {}: backend dtype {} != "
+                 "tensor element type {}. Inserting toLayout op.",
+                 ttmlir::opToString(user), backendDataType, tensorElementType);
+
+    // First, set the operation's result type to match what the backend
+    // actually produces (with backend's dtype in the layout)
+    RankedTensorType backendResultType = RankedTensorType::get(
+        userResultType.getShape(), backendDataType, rmOutputLayout);
+    user->getResult(0).setType(backendResultType);
+
+    rewriter.setInsertionPointAfter(user);
+
+    // Create layout with TILE (required for on-device typecast) and the
+    // original tensor element type. TTNNDecomposeLayouts requires TILE
+    // layout for on-device dtype conversion; ROW_MAJOR would force a
+    // host round-trip (from_device → typecast → to_device).
+    TTNNLayoutAttr correctedLayout = rmOutputLayout.withElementType(
+        tensorElementType, userResultType.getShape());
+    TTNNLayoutAttr tileLayout =
+        correctedLayout.withLayout(Layout::Tile, userResultType.getShape());
+
+    // Create toLayout op using TILE layout for dtype conversion
+    auto toLayoutOp = utils::createToLayoutOp(
+        user,
+        mlir::cast<mlir::TypedValue<RankedTensorType>>(user->getResult(0)),
+        rewriter, tileLayout.getLayout(), tileLayout.getBufferType(),
+        tileLayout.getMemLayout(), tileLayout.getDataType(),
+        "_dtype_conversion");
+
+    // Replace all uses (except the toLayout itself)
+    user->getResult(0).replaceAllUsesExcept(toLayoutOp.getResult(), toLayoutOp);
+
+    TTMLIR_DEBUG(ttmlir::LogComponent::RMPropagation,
+                 "Inserted toLayout op (TILE) after {} to convert {} -> "
+                 "{}. Stopping RM propagation.",
+                 ttmlir::opToString(user), backendDataType, tensorElementType);
+
+    return true; // Conversion inserted, stop RM propagation
+  }
+
   // Propagates RowMajor layout through the function starting from the given
   // argument values. Updates the operation result types in-place. Stops when
-  // reaching operations that return Tiled layouts.
+  // reaching operations that return Tiled layouts. Inserts ToLayoutOps before
+  // ReturnOp when actual layout differs from expected function signature.
   void
   propagateRowMajorLayout(func::FuncOp func,
                           const llvm::SmallVector<Value> &rowMajorArgs,
                           llvm::DenseMap<Operation *, Layout> &constraints) {
+    IRRewriter rewriter(func.getContext());
+    FunctionType funcType = func.getFunctionType();
 
     std::queue<Value> worklist = {};
 
@@ -212,6 +280,12 @@ private:
       for (auto &use : current.getUses()) {
         Operation *user = use.getOwner();
 
+        if (auto returnOp = mlir::dyn_cast<func::ReturnOp>(user)) {
+          handleReturnOp(rewriter, funcType, returnOp, use.getOperandNumber(),
+                         current);
+          continue;
+        }
+
         llvm::Expected<TTNNLayoutAttr> rmOutputLayout =
             opStopsRowMajorPropagation(user, use.getOperandNumber());
 
@@ -223,11 +297,21 @@ private:
         RankedTensorType userResultType =
             mlir::cast<RankedTensorType>(user->getResult(0).getType());
 
-        RankedTensorType newResultType = RankedTensorType::get(
-            userResultType.getShape(), userResultType.getElementType(),
-            rmOutputLayout.get());
+        Type backendDataType = rmOutputLayout->getScalarElementType();
+        Type tensorElementType = userResultType.getElementType();
 
-        user->getResult(0).setType(newResultType);
+        // Handle dtype conversion if backend dtype differs from IR element type
+        if (handleDtypeConversionIfNeeded(user, rewriter, rmOutputLayout.get(),
+                                          backendDataType, tensorElementType,
+                                          userResultType)) {
+          continue; // Stop RM propagation (converted to TILE)
+        }
+
+        // No dtype mismatch, continue propagating with RM layout
+        RankedTensorType backendResultType = RankedTensorType::get(
+            userResultType.getShape(), backendDataType, rmOutputLayout.get());
+        user->getResult(0).setType(backendResultType);
+
         TTMLIR_DEBUG(
             ttmlir::LogComponent::RMPropagation,
             "Set RowMajor layout on op {} at {}, \n\t output layout: {}",
@@ -305,6 +389,51 @@ private:
                  result.actualOutputLayout);
 
     return result.actualOutputLayout;
+  }
+
+  // Handles ReturnOp during propagation. Checks if actual layout matches
+  // expected function signature and inserts ToLayoutOp if needed for tilizing.
+  void handleReturnOp(IRRewriter &rewriter, FunctionType funcType,
+                      func::ReturnOp returnOp, unsigned operandIdx,
+                      Value previousOp) {
+    auto actualTensorType =
+        mlir::dyn_cast<RankedTensorType>(previousOp.getType());
+    assert(actualTensorType && "Expected ranked tensor type");
+
+    auto actualLayout =
+        mlir::dyn_cast_or_null<TTNNLayoutAttr>(actualTensorType.getEncoding());
+    assert(actualLayout && "Expected layout attribute");
+    assert(!actualLayout.isTiled() &&
+           "Expected row major as propagation result");
+
+    // Extract expected layout from function signature and check if conversion
+    // needed
+    Type expectedReturnType = funcType.getResult(operandIdx);
+    auto expectedTensorType =
+        mlir::dyn_cast<RankedTensorType>(expectedReturnType);
+    if (!expectedTensorType) {
+      return;
+    }
+    auto expectedLayout = mlir::dyn_cast_or_null<TTNNLayoutAttr>(
+        expectedTensorType.getEncoding());
+    if (!expectedLayout || !expectedLayout.isTiled()) {
+      return;
+    }
+
+    TTMLIR_DEBUG(ttmlir::LogComponent::RMPropagation,
+                 "Inserting ToLayoutOp before return for operand {}: "
+                 "actual layout {} -> expected layout {}",
+                 operandIdx, actualLayout, expectedLayout);
+
+    rewriter.setInsertionPoint(returnOp);
+
+    auto toLayoutOp = utils::createToLayoutOp(
+        returnOp, mlir::cast<mlir::TypedValue<RankedTensorType>>(previousOp),
+        rewriter, expectedLayout.getLayout(), expectedLayout.getBufferType(),
+        expectedLayout.getMemLayout(), expectedLayout.getDataType(),
+        "_return_conversion");
+
+    returnOp.setOperand(operandIdx, toLayoutOp.getResult());
   }
 
   // Extract OpConfig from operation's IR

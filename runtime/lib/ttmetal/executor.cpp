@@ -11,6 +11,7 @@
 #include "tt/runtime/debug.h"
 #include "tt/runtime/detail/common/common.h"
 #include "tt/runtime/detail/common/dylib.h"
+#include "tt/runtime/detail/common/fabric_config.h"
 #include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/ttmetal/profiler.h"
 #include "tt/runtime/detail/ttmetal/ttmetal.h"
@@ -288,67 +289,94 @@ void MCQExecutor::execute(const target::metal::ReturnCommand *command) {
 void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
                           const char *loc, const char *debugInfo) {
   ZoneScopedN("EnqueueProgramCommand");
-  tt_metal::Program program = tt_metal::CreateProgram();
-
-  for (const target::metal::KernelConfig *kernelConfig :
-       *command->program()->kernels()) {
-    const target::metal::KernelSource *kernelSource =
-        kernelConfig->kernel_as_KernelSource();
-    LOG_ASSERT(kernelSource, "Only source kernels supported for now");
-    std::string kernelSourceString(kernelSource->source()->c_str(),
-                                   kernelSource->source()->size());
-
-    tt::tt_metal::CoreRangeSet coreRangeSet =
-        common::toCoreRangeSet(kernelConfig->core_range_set());
-
-    auto createSemaphore = [&](std::uint32_t initialValue,
-                               CoreType coreType) -> std::uint32_t {
-      return tt_metal::CreateSemaphore(program, coreRangeSet, initialValue,
-                                       coreType);
-    };
-
-    tt_metal::KernelHandle handle = createKernel(
-        program, kernelSourceString, coreRangeSet,
-        createKernelConfig(kernelConfig, command->buffers(), meshBuffers,
-                           command->cbs(), deviceAddressValidator,
-                           createSemaphore),
-        currentProgramName, debugInfo, kernelConfig->debug_info()->c_str(),
-        kernelConfig->loc() ? kernelConfig->loc()->c_str() : nullptr);
-
-    std::vector<uint32_t> rtArgsVec = processRuntimeArgs(
-        kernelConfig->args()->rt_args(), command->buffers(), meshBuffers,
-        command->cbs(), deviceAddressValidator, createSemaphore);
-    tt_metal::SetRuntimeArgs(program, handle, coreRangeSet, rtArgsVec);
-  }
-
-  for (const target::metal::CBRef *cbRef : *command->cbs()) {
-    const target::metal::BufferDesc *bufferDesc = cbRef->buffer_ref()->desc();
-    LOG_ASSERT(bufferDesc->buffer_detail_type() ==
-               target::metal::BufferDetail::MetalBuffer);
-    const target::metal::MetalBuffer *metalBuffer =
-        bufferDesc->buffer_detail_as_MetalBuffer();
-
-    assert((metalBuffer->buffer_config_type() !=
-                target::metal::BufferConfig::InterleavedBufferConfig ||
-            !metalBuffer->circular_buffer_config()) &&
-           "Interleaved buffer configs should not have a CB config");
-
-    // skip init if CircularBufferConfig is not present
-    if (!metalBuffer->circular_buffer_config()) {
-      continue;
-    }
-
-    tt::tt_metal::CoreRangeSet coreRangeSet = common::toCoreRangeSet(
-        metalBuffer->circular_buffer_config()->core_range_set());
-    tt_metal::CircularBufferConfig config =
-        createCircularBufferConfig(cbRef, meshBuffers);
-    tt_metal::CreateCircularBuffer(program, coreRangeSet, config);
-  }
 
   auto meshWorkload = distributed::MeshWorkload();
   auto deviceRange = distributed::MeshCoordinateRange(meshDevice->shape());
 
-  meshWorkload.add_program(deviceRange, std::move(program));
+  for (auto deviceCoord : deviceRange) {
+    tt_metal::Program program = tt_metal::CreateProgram();
+
+    for (const target::metal::KernelConfig *kernelConfig :
+         *command->program()->kernels()) {
+      const target::metal::KernelSource *kernelSource =
+          kernelConfig->kernel_as_KernelSource();
+      LOG_ASSERT(kernelSource, "Only source kernels supported for now");
+      std::string kernelSourceString(kernelSource->source()->c_str(),
+                                     kernelSource->source()->size());
+
+      tt::tt_metal::CoreRangeSet coreRangeSet =
+          common::toCoreRangeSet(kernelConfig->core_range_set());
+
+      auto createSemaphore = [&](std::uint32_t initialValue,
+                                 CoreType coreType) -> std::uint32_t {
+        return tt_metal::CreateSemaphore(program, coreRangeSet, initialValue,
+                                         coreType);
+      };
+
+      tt_metal::KernelHandle handle = createKernel(
+          program, kernelSourceString, coreRangeSet,
+          createKernelConfig(kernelConfig, command->buffers(), meshBuffers,
+                             command->cbs(), deviceAddressValidator,
+                             createSemaphore),
+          currentProgramName, debugInfo, kernelConfig->debug_info()->c_str(),
+          kernelConfig->loc() ? kernelConfig->loc()->c_str() : nullptr);
+
+      std::vector<uint32_t> rtArgsVec = processRuntimeArgs(
+          kernelConfig->args()->rt_args(), command->buffers(), meshBuffers,
+          command->cbs(), deviceAddressValidator, createSemaphore);
+
+      if (command->fabric_connection_config() &&
+          kernelConfig->type_type() ==
+              target::metal::KernelConfigType::NocConfig &&
+          command->fabric_connection_config()->noc_index() ==
+              kernelConfig->type_as_NocConfig()->noc_index()) {
+        auto fabricConfigArgs = common::appendFabricConfigArgs(
+            command->fabric_connection_config(), kernelConfig, program, handle,
+            deviceCoord, meshDevice, rtArgsVec, coreRangeSet);
+
+        for (auto core : tt::tt_metal::corerange_to_cores(coreRangeSet)) {
+          tt_metal::SetRuntimeArgs(program, handle, core,
+                                   fabricConfigArgs[core]);
+        }
+      } else {
+        tt_metal::SetRuntimeArgs(program, handle, coreRangeSet, rtArgsVec);
+      }
+    }
+
+    for (const target::metal::CBRef *cbRef : *command->cbs()) {
+      const target::metal::BufferDesc *bufferDesc = cbRef->buffer_ref()->desc();
+      LOG_ASSERT(bufferDesc->buffer_detail_type() ==
+                 target::metal::BufferDetail::MetalBuffer);
+      const target::metal::MetalBuffer *metalBuffer =
+          bufferDesc->buffer_detail_as_MetalBuffer();
+
+      assert((metalBuffer->buffer_config_type() !=
+                  target::metal::BufferConfig::InterleavedBufferConfig ||
+              !metalBuffer->circular_buffer_config()) &&
+             "Interleaved buffer configs should not have a CB config");
+
+      // skip init if CircularBufferConfig is not present
+      if (!metalBuffer->circular_buffer_config()) {
+        continue;
+      }
+
+      tt::tt_metal::CoreRangeSet coreRangeSet = common::toCoreRangeSet(
+          metalBuffer->circular_buffer_config()->core_range_set());
+      tt_metal::CircularBufferConfig config =
+          createCircularBufferConfig(cbRef, meshBuffers);
+      tt_metal::CreateCircularBuffer(program, coreRangeSet, config);
+    }
+
+    // fabric connected cores all have separate runtime args so we add a
+    // separate program for each device
+    if (command->fabric_connection_config()) {
+      meshWorkload.add_program(distributed::MeshCoordinateRange(deviceCoord),
+                               std::move(program));
+    } else {
+      meshWorkload.add_program(deviceRange, std::move(program));
+      break;
+    }
+  }
 
   if (perf::Env::get().enablePerfTrace) {
     auto devices = meshDevice->get_devices();

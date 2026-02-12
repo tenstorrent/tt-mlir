@@ -105,8 +105,6 @@ inline ::tt::DataFormat toDataFormat(::tt::target::DataType dataType) {
 
 inline ::tt::target::Arch toTargetArch(::tt::ARCH arch) {
   switch (arch) {
-  case ::tt::ARCH::GRAYSKULL:
-    return ::tt::target::Arch::Grayskull;
   case ::tt::ARCH::WORMHOLE_B0:
     return ::tt::target::Arch::Wormhole_b0;
   case ::tt::ARCH::BLACKHOLE:

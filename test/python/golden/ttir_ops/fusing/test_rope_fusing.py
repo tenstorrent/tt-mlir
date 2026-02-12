@@ -8,6 +8,7 @@ from typing import List, Optional
 from builder.base.builder_utils import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_apis import compile_and_execute_ttir
+from conftest import get_request_kwargs
 
 pytestmark = pytest.mark.frontend("ttir")
 
@@ -147,9 +148,7 @@ def test_rotary_embedding(
     output = compile_and_execute_ttir(
         module,
         target=target,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         device=device,
     )
 
@@ -222,9 +221,7 @@ def test_rotary_embedding_failure(
     output = compile_and_execute_ttir(
         module,
         target=target,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         device=device,
         pipeline_options=["disable-workarounds=true"],
     )

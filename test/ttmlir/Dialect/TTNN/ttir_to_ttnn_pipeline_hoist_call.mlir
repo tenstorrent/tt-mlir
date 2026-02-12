@@ -11,9 +11,9 @@ module {
     // CHECK: %{{.*}} = "ttnn.multiply"(%{{.*}}, %{{.*}})
     %1 = "ttir.multiply"(%arg0, %arg1) : (tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
     // CHECK: %{{.*}} = "ttnn.from_device"(%{{.*}}) : (tensor<[[DIMS:.*]], #{{.*}}>) -> tensor<[[DIMS]], #{{.*}}>
-    // CHECK: %{{.*}} = call @hoisted_ttir_add_64x128xf32_64x128xf32_func_decl(%{{.*}}, %{{.*}})
+    // CHECK: %{{.*}} = call @cpu_hoisted_ttir_add_{{.*}}(%{{.*}}, %{{.*}})
     %3 = "ttir.add"(%arg0, %1) {ttir.should_hoist} : (tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
-    // CHECK: %{{.*}} = call @hoisted_ttir_add_64x128xf32_64x128xf32_func_decl(%{{.*}}, %{{.*}})
+    // CHECK: %{{.*}} = call @cpu_hoisted_ttir_add_{{.*}}(%{{.*}}, %{{.*}})
     %5 = "ttir.add"(%arg0, %3) {ttir.should_hoist} : (tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
     // CHECK: %{{.*}} = "ttnn.to_device"(%{{.*}}, %{{.*}}) <{memory_config = {{.*}}}> : (tensor<[[DIMS:.*]], #{{.*}}>, !ttnn.device) -> tensor<[[DIMS]], #{{.*}}>
     // CHECK: %{{.*}} = "ttnn.to_layout"(%{{.*}}) <{layout = #ttnn.layout<{{.*}}>}> : (tensor<[[DIMS:.*]], #{{.*}}>) -> tensor<[[DIMS]], #{{.*}}>
@@ -23,9 +23,13 @@ module {
     %7 = "ttir.multiply"(%3, %5) : (tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
     return %7 : tensor<64x128xf32>
   }
-  // CHECK: func.func private @hoisted_ttir_add_64x128xf32_64x128xf32_func_decl
+
+  // Should have only ONE CPU-hoisted function since all add operations have
+  // the same signature after type conversion.
+  // CHECK-COUNT-1: func.func private @cpu_hoisted_ttir_add_{{.*}}
+
   // CHECK: ttcore.cpu_module {
   // CHECK: builtin.module {
-  // CHECK: llvm.func @hoisted_ttir_add_64x128xf32_64x128xf32_func
-  // CHECK: llvm.func @hoisted_ttir_add_64x128xf32_64x128xf32_func_helper(%arg0: !llvm.ptr)
+  // CHECK-COUNT-1: llvm.func @cpu_hoisted_ttir_add_{{[^_]*}}(
+  // CHECK: llvm.func @cpu_hoisted_ttir_add_{{.*}}_helper(%arg0: !llvm.ptr)
 }

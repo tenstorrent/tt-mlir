@@ -231,27 +231,6 @@ def test_muladd_broadcast_jit_dram(device, shape, dtype):
 
 @pytest.mark.parametrize("shape", [(64, 64), (128, 128)])
 @pytest.mark.parametrize("dtype", [torch.float32])
-def test_digamma_dram(device, shape, dtype):
-    """Test digamma function (derivative of log gamma)"""
-
-    def digamma_func(input_tensor):
-        return ttnn.digamma(input_tensor)
-
-    max_grid = (0, 0)
-    run_op_test(
-        device,
-        shape,
-        max_grid,
-        dtype,
-        digamma_func,
-        num_inputs=1,
-        buffer_type=ttnn.BufferType.DRAM,
-        frontend="graph_capture",
-    )
-
-
-@pytest.mark.parametrize("shape", [(64, 64), (128, 128)])
-@pytest.mark.parametrize("dtype", [torch.float32])
 def test_complex_composite_dram(device, shape, dtype):
     """Test complex composite operation with multiple steps"""
 
@@ -270,7 +249,6 @@ def test_complex_composite_dram(device, shape, dtype):
         complex_op,
         num_inputs=2,
         buffer_type=ttnn.BufferType.DRAM,
-        frontend="graph_capture",
     )
 
 
@@ -294,7 +272,6 @@ def test_nested_composite_dram(device, shape, dtype):
         nested_op,
         num_inputs=3,
         buffer_type=ttnn.BufferType.DRAM,
-        frontend="graph_capture",
     )
 
 

@@ -1,6 +1,7 @@
 add_mlir_library(MLIRD2MUtils
   Utils.cpp
   AffineMapAnalysis.cpp
+  VirtualGrid.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${PROJECT_SOURCE_DIR}/include/ttmlir
@@ -8,4 +9,5 @@ add_mlir_library(MLIRD2MUtils
   LINK_LIBS PUBLIC
   MLIRIR
   MLIRAffineDialect
+  MLIRAffineUtils
 )

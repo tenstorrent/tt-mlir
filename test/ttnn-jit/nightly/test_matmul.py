@@ -45,8 +45,7 @@ MATMUL_SHAPE_GRIDS_SINGLE_OR_FULL = [
     ],
     ids=["f32", "bf16", "bfp8"],
 )
-@pytest.mark.parametrize("frontend", ["ast"])
-def test_matmul_with_dtypes(device, shape_grids, dtype, ttnn_dtype, frontend):
+def test_matmul_with_dtypes(device, shape_grids, dtype, ttnn_dtype):
     shapes, grids = shape_grids
     # shape is (m, k, n)
     shape0 = [shapes[0], shapes[1]]
@@ -57,7 +56,6 @@ def test_matmul_with_dtypes(device, shape_grids, dtype, ttnn_dtype, frontend):
 
     compiled_op = ttnn_jit.jit(
         debug=True,
-        frontend=frontend,
         compile_only=False,
     )(matmul)
     input0_tensor = create_sharded_tile_tensor(
@@ -112,13 +110,12 @@ INPUT_LAYOUTS = [
     ],
     ids=["bf16"],
 )
-@pytest.mark.parametrize("frontend", ["ast"])
 @pytest.mark.parametrize(
     "input_layouts",
     INPUT_LAYOUTS,
     ids=[f"{str(layout)}" for layout in INPUT_LAYOUTS],
 )
-def test_matmul_with_grids(device, shapes, dtype, ttnn_dtype, frontend, input_layouts):
+def test_matmul_with_grids(device, shapes, dtype, ttnn_dtype, input_layouts):
     shapes = [(shapes[0], shapes[1]), (shapes[1], shapes[2])]
     input_tensors = []
     for shape, layout in zip(shapes, input_layouts):
@@ -141,7 +138,6 @@ def test_matmul_with_grids(device, shapes, dtype, ttnn_dtype, frontend, input_la
 
     compiled_op = ttnn_jit.jit(
         debug=True,
-        frontend=frontend,
         compile_only=False,
     )(matmul)
     output = compiled_op(*input_tensors)

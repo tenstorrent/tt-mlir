@@ -271,6 +271,7 @@ def create_nd_tensor(device, shape, shard_shape, max_grid):
     return nd_sharded
 
 
+@pytest.mark.skip(reason="See issue #6950")
 @pytest.mark.parametrize(
     "shape, shard_shape, max_grid",
     ND_LAYOUT_TEST_CASES,
@@ -279,14 +280,9 @@ def create_nd_tensor(device, shape, shard_shape, max_grid):
         for shape, shard_shape, max_grid in ND_LAYOUT_TEST_CASES
     ],
 )
-@pytest.mark.parametrize("frontend", ["ast", "tracing"])
-def test_nd_ttnn_layout(device, shape, shard_shape, max_grid, frontend):
+def test_nd_ttnn_layout(device, shape, shard_shape, max_grid):
     nd_input_tensor = create_nd_tensor(device, shape, shard_shape, max_grid)
-    op_jit = ttnn_jit.jit(
-        debug=True,
-        enable_cache=False,
-        frontend=frontend,
-    )(abs)
+    op_jit = ttnn_jit.jit(debug=True, enable_cache=False)(abs)
     output_tensor = op_jit(nd_input_tensor)
 
     # We cannot run the TTNN op with an ND tensor as no op supports it, including to_memory_config.

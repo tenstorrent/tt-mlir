@@ -3,8 +3,11 @@ add_mlir_dialect_library(MLIRTTIRTransforms
         Broadcast.cpp
         ExplicateTMs.cpp
         FlattenSlidingWindow.cpp
+        FoldConstantReshapeBroadcast.cpp
         HoistCPUOps.cpp
         ElementTypeNormalization.cpp
+        InferKVCacheArgumentTypes.cpp
+        MoveReshapeToConstant.cpp
         Quantization.cpp
         QuantDequantConversion.cpp
         Transforms.cpp

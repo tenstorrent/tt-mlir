@@ -22,7 +22,6 @@ struct L1InterleavedFallbackAnalysisInput {
   llvm::DenseMap<Operation *, std::vector<OpConfig>> legalL1InterleavedConfigs;
   llvm::DenseMap<Operation *, OpConfig> currentConfigs;
   func::FuncOp funcOp;
-  unsigned usableL1CacheSize = 0;
 
   L1InterleavedFallbackAnalysisInput()
       : legalL1InterleavedConfigs(), funcOp() {}
@@ -31,15 +30,13 @@ struct L1InterleavedFallbackAnalysisInput {
       const llvm::DenseMap<Operation *, std::vector<OpConfig>>
           &legalL1InterleavedConfigs,
       const llvm::DenseMap<Operation *, OpConfig> &currentConfigs,
-      const func::FuncOp &funcOp, unsigned usableL1CacheSize)
+      const func::FuncOp &funcOp)
       : legalL1InterleavedConfigs(legalL1InterleavedConfigs),
-        currentConfigs(currentConfigs), funcOp(funcOp),
-        usableL1CacheSize(usableL1CacheSize) {}
+        currentConfigs(currentConfigs), funcOp(funcOp) {}
 
   bool operator==(const L1InterleavedFallbackAnalysisInput &rhs) const {
     return legalL1InterleavedConfigs == rhs.legalL1InterleavedConfigs &&
-           currentConfigs == rhs.currentConfigs && funcOp == rhs.funcOp &&
-           usableL1CacheSize == rhs.usableL1CacheSize;
+           currentConfigs == rhs.currentConfigs && funcOp == rhs.funcOp;
   }
 
   bool operator!=(const L1InterleavedFallbackAnalysisInput &rhs) const {

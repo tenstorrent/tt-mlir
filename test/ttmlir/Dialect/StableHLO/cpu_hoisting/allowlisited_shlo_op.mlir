@@ -23,8 +23,12 @@ module {
   // CHECK: ttcore.device_module
   // CHECK-NOT: stablehlo.dynamic_update_slice
   // CHECK: ttcore.cpu_module
-  // CHECK-LABEL: func.func @hoisted_stablehlo_dynamic_update_slice_4xi32_2xi32_i32_func
+
+  // First function, operating on 1D tensors.
+  // CHECK-LABEL: func.func @cpu_hoisted_stablehlo_dynamic_update_slice_
   // CHECK: stablehlo.dynamic_update_slice
-  // CHECK-LABEL: func.func @hoisted_stablehlo_dynamic_update_slice_4x4xi32_2x2xi32_i32_i32_func
+
+  // Second function, operating on 2D tensors.
+  // CHECK-LABEL: func.func @cpu_hoisted_stablehlo_dynamic_update_slice_
   // CHECK: stablehlo.dynamic_update_slice
 }

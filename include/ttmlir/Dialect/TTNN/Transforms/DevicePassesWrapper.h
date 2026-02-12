@@ -21,6 +21,8 @@ struct DevicePassesWrapperOptions {
   // External device pointer (if provided by frontend)
   std::shared_ptr<::tt::tt_metal::distributed::MeshDevice> devicePtr = nullptr;
   // Tensor L1 usage cap (fraction of available L1 memory)
+  // This is set as a module attribute by DevicePassesWrapper, making it
+  // accessible to all nested passes via utils::getTensorL1UsageCap()
   float tensorL1UsageCap = 0.95f;
 };
 

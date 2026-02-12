@@ -22,11 +22,17 @@ void createStableHLOPipeline(OpPassManager &pm,
   pm.addPass(
       mlir::tt::ttcore::createTTPopulateArgumentTypes(options.argumentTypeMap));
 
-  // Annotate arguments with whether they are already pre-sharded or not.
-  pm.addPass(createApplyArgumentShardStatusPass());
-
   // Convert any xla.sdy ops to sdy ops.
   pm.addPass(createConvertXlaSdyToSdyPass());
+
+  // Apply StableHLO fusing pass.
+  pm.addPass(mlir::tt::stablehlo::createStableHLOFusingPass());
+
+  // Partially convert sdy ops to stablehlo.
+  pm.addPass(createPartiallyConvertSdyToStableHLOPass());
+
+  // Annotate arguments with whether they are already pre-sharded or not.
+  pm.addPass(createApplyArgumentShardStatusPass());
 
   // Analyze the mesh of the graph and update shardings or annotations to match
   // the target device.
@@ -73,6 +79,9 @@ void createStableHLOPipeline(OpPassManager &pm,
   // Convert reshards to collectives
   pm.nest<mlir::func::FuncOp>().addPass(
       mlir::sdy::createReshardToCollectivesPass());
+
+  // Canonicalize shardy CCL ops
+  pm.addPass(createShardyCCLCanonicalizationPass());
 
   // Split tensor dimensions according to tensor sharding annotations.
   pm.addPass(createUpdateGlobalToLocalShapesPass());

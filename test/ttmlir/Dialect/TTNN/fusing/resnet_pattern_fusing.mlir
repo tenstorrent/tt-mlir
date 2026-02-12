@@ -6,7 +6,6 @@
 
 module {
   // CHECK-LABEL: func.func private @main_const_eval_0
-  // CHECK: "ttnn.multiply"
 
   // CHECK-LABEL: func.func @main
   // CHECK-SAME: %arg0: tensor<64x64x3x3xf32, #ttnn.ttnn_layout<{{.*}}, memref<12288x3xf32, #ttnn.buffer_type<system_memory

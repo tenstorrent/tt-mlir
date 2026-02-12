@@ -3,11 +3,6 @@ include "ttmlir/Target/TTMetal/types.fbs";
 
 namespace tt.target.metal;
 
-enum NocIndex : ushort {
-  Noc0,
-  Noc1,
-}
-
 enum EthType : ushort {
   Sender,
   Receiver,

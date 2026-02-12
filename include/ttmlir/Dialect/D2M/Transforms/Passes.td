@@ -7,6 +7,53 @@
 
 include "mlir/Pass/PassBase.td"
 
+// Add scratch inputs to d2m.generic ops (post-bufferization)
+def D2MAddScratchInputs : Pass<"d2m-add-scratch-inputs", "::mlir::ModuleOp"> {
+  let summary = "Add scratch input operand to fused d2m.generic ops.";
+  let description = [{
+    This pass adds a scratch memref input to fused `d2m.generic` operations
+    that may need to spill intermediate results. A generic is considered to
+    need scratch when its compute region contains more than one binary FPU op
+    (`d2m.tile_add`, `d2m.tile_sub`, `d2m.tile_mul`).
+
+    The scratch buffer is a 128KB L1 buffer whose tile type matches the first
+    tiled input operand. Its shape is `[grid_dims..., 1, numTiles]`, where
+    `numTiles = 128KB / tile_size_bytes`.
+
+    This pass runs after bufferization (in memref space) and before the
+    D2MAllocate pass. It creates a `memref.alloc` for the scratch buffer
+    before the generic and adds it as an input operand.
+
+    The scratch operand index is recorded in the `scratch_inputs` attribute
+    so that later passes (e.g. `D2MLowerScratchAllocate`) can identify it.
+
+    Example transformation:
+    ```mlir
+    // Before:
+    d2m.generic { ... }
+    ins(%A, %B : memref<...>, memref<...>)
+    outs(%C : memref<...>) {
+    ^bb0(%cb_A, %cb_B, %cb_C):
+      // ...compute body...
+    }
+
+    // After:
+    %scratch = memref.alloc() : memref<1x1x1x32x!tile_f32, #shard, #l1>
+    d2m.generic { ..., scratch_inputs = array<i64: 2>, ... }
+    ins(%A, %B, %scratch : ...) outs(%C : ...) {
+    ^bb0(%cb_A, %cb_B, %cb_scratch, %cb_C):
+      // ...compute body...
+    }
+    ```
+  }];
+
+  let dependentDialects = [
+    "::mlir::tt::d2m::D2MDialect",
+    "::mlir::tt::ttcore::TTCoreDialect",
+    "::mlir::memref::MemRefDialect"
+  ];
+}
+
 // Elementwise fusion of d2m.generic ops on tensors
 def D2MElementwiseFusion : Pass<"d2m-elementwise-fusion", "::mlir::ModuleOp"> {
   let summary = "Fuse chains of compute-only d2m.generic elementwise ops";
@@ -231,172 +278,9 @@ def D2MGenericLinearizeMemref: Pass<"d2m-generic-linearize-memref", "::mlir::Mod
   }];
 }
 
-def D2MGenericGenerateDatamovement: Pass<"d2m-generic-generate-datamovement", "::mlir::ModuleOp"> {
-  let summary = "Generate generic data movement threads.";
-  let description = [{
-    This pass makes the following transformation, given a generic compute region:
-    ```mlir
-    #map = affine_map<(d0, d1) -> (d0, d1)>
-    #parallel = #ttcore.iterator_type<parallel>
 
-    "d2m.generic"(%arg0, %arg1, %alloc) <{indexing_maps = [#map, #map, #map], iterator_types = [#parallel, #parallel]}> ({
-    ^bb0(%arg2: memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, %arg3: memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, %arg4: memref<2x4x!ttcore.tile<32x32, f32>, #l1_>):
-      affine.for %arg5 = 0 to 2 {
-        affine.for %arg6 = 0 to 4 {
-          %0 = affine.load %arg2[%arg5, %arg6] : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
-          %1 = affine.load %arg3[%arg5, %arg6] : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
-          %2 = "d2m.tile_add"(%0, %1) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
-          affine.store %2, %arg4[%arg5, %arg6] : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
-        }
-      }
-    })
-    ```
 
-    We generate additional (prepended) regions that correspond to the data movement
-    for each operand respectively:
-    ```mlir
-    "d2m.generic"(%arg0, %arg1, %alloc) <{indexing_maps = [#map, #map, #map], iterator_types = [#parallel, #parallel]}> ({
-    ^bb0(%arg2: memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, %arg3: memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, %arg4: memref<2x4x!ttcore.tile<32x32, f32>, #l1_>):
-      d2m.yield %arg2 : (memref<2x4x!ttcore.tile<32x32, f32>, #l1_>)
-    }, {
-    ^bb0(%arg2: memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, %arg3: memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, %arg4: memref<2x4x!ttcore.tile<32x32, f32>, #l1_>):
-      d2m.yield %arg3 : (memref<2x4x!ttcore.tile<32x32, f32>, #l1_>)
-    }, {
-    ^bb0(%arg2: memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, %arg3: memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, %arg4: memref<2x4x!ttcore.tile<32x32, f32>, #l1_>):
-      d2m.await %arg4 : (memref<2x4x!ttcore.tile<32x32, f32>, #l1_>)
-    }, {
-    ^bb0(%arg2: memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, %arg3: memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, %arg4: memref<2x4x!ttcore.tile<32x32, f32>, #l1_>):
-      d2m.await %arg2, %arg3 : (memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, memref<2x4x!ttcore.tile<32x32, f32>, #l1_>)
-      affine.for %arg5 = 0 to 2 {
-        affine.for %arg6 = 0 to 4 {
-          %0 = affine.load %arg2[%arg5, %arg6] : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
-          %1 = affine.load %arg3[%arg5, %arg6] : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
-          %2 = "d2m.tile_add"(%0, %1) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
-          affine.store %2, %arg4[%arg5, %arg6] : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
-        }
-      }
-      d2m.yield %arg4 : (memref<2x4x!ttcore.tile<32x32, f32>, #l1_>)
-    })
-    ```
-  }];
-}
 
-def D2MGenericHWThreadSelection : Pass<"d2m-generic-hw-thread-selection", "::mlir::ModuleOp"> {
-  let summary = "Assign datamovement regions to hardware threads.";
-  let description = [{
-    This pass assigns the data movement regions to hardware threads. This usually means
-    merging 2 or more data movement regions into a single region that is executed by one
-    of the 2 datamovement threads (on wormhole).
-
-    ```mlir
-    "d2m.generic"(%arg0, %arg1, %alloc) <{grid = #ttcore.grid<1x1>, indexing_maps = [#map1, #map2, #map3], iterator_types = [#parallel, #parallel, #reduction], operandSegmentSizes = array<i32: 2, 1>}> ({
-    ^datamovement0(%cb0: memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, %cb1: memref<4x2x!ttcore.tile<32x32, f32>, #l1_>, %cb2: memref<2x2x!ttcore.tile<32x32, f32>, #l1_>):
-      d2m.yield %cb0 : (memref<2x4x!ttcore.tile<32x32, f32>, #l1_>)
-    }, {
-    ^datamovement1(%cb0: memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, %cb1: memref<4x2x!ttcore.tile<32x32, f32>, #l1_>, %cb2: memref<2x2x!ttcore.tile<32x32, f32>, #l1_>):
-      d2m.yield %cb1 : (memref<4x2x!ttcore.tile<32x32, f32>, #l1_>)
-    }, {
-    ^datamovement2(%cb0: memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, %cb1: memref<4x2x!ttcore.tile<32x32, f32>, #l1_>, %cb2: memref<2x2x!ttcore.tile<32x32, f32>, #l1_>):
-      d2m.await %cb2 : (memref<2x2x!ttcore.tile<32x32, f32>, #l1_>)
-    }, {
-    ^compute(%cb0: memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, %cb1: memref<4x2x!ttcore.tile<32x32, f32>, #l1_>, %cb2: memref<2x2x!ttcore.tile<32x32, f32>, #l1_>):
-      d2m.await %cb0, %cb1 : (memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, memref<4x2x!ttcore.tile<32x32, f32>, #l1_>)
-      "d2m.tile_matmul_block"(%cb0, %cb1, %cb2) : (memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, memref<4x2x!ttcore.tile<32x32, f32>, #l1_>, memref<2x2x!ttcore.tile<32x32, f32>, #l1_>) -> ()
-      d2m.yield %cb2 : (memref<2x2x!ttcore.tile<32x32, f32>, #l1_>)
-    }) : (memref<1x1x2x4x!ttcore.tile<32x32, f32>, #l1_>, memref<1x1x4x2x!ttcore.tile<32x32, f32>, #l1_>, memref<1x1x2x2x!ttcore.tile<32x32, f32>, #l1_>) -> ()
-    ```
-
-    Might move a trivial output datamovement thread to the compute thread to become:
-    ```mlir
-    "d2m.generic"(%arg0, %arg1, %alloc) <{grid = #ttcore.grid<1x1>, indexing_maps = [#map1, #map2, #map3], iterator_types = [#parallel, #parallel, #reduction], operandSegmentSizes = array<i32: 2, 1>}> ({
-    ^datamovement0(%cb0: memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, %cb1: memref<4x2x!ttcore.tile<32x32, f32>, #l1_>, %cb2: memref<2x2x!ttcore.tile<32x32, f32>, #l1_>):
-      d2m.yield %cb0 : (memref<2x4x!ttcore.tile<32x32, f32>, #l1_>)
-    }, {
-    ^datamovement1(%cb0: memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, %cb1: memref<4x2x!ttcore.tile<32x32, f32>, #l1_>, %cb2: memref<2x2x!ttcore.tile<32x32, f32>, #l1_>):
-      d2m.yield %cb1 : (memref<4x2x!ttcore.tile<32x32, f32>, #l1_>)
-    }, {
-    ^compute(%cb0: memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, %cb1: memref<4x2x!ttcore.tile<32x32, f32>, #l1_>, %cb2: memref<2x2x!ttcore.tile<32x32, f32>, #l1_>):
-      d2m.await %cb0, %cb1 : (memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, memref<4x2x!ttcore.tile<32x32, f32>, #l1_>)
-      "d2m.tile_matmul_block"(%cb0, %cb1, %cb2) : (memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, memref<4x2x!ttcore.tile<32x32, f32>, #l1_>, memref<2x2x!ttcore.tile<32x32, f32>, #l1_>) -> ()
-      d2m.yield %cb2 : (memref<2x2x!ttcore.tile<32x32, f32>, #l1_>)
-      d2m.await %cb2 : (memref<2x2x!ttcore.tile<32x32, f32>, #l1_>)
-    }) : (memref<1x1x2x4x!ttcore.tile<32x32, f32>, #l1_>, memref<1x1x4x2x!ttcore.tile<32x32, f32>, #l1_>, memref<1x1x2x2x!ttcore.tile<32x32, f32>, #l1_>) -> ()
-    ```
-  }];
-}
-
-def D2MGenericGenerateLoops : Pass<"d2m-generic-generate-loops", "::mlir::ModuleOp"> {
-  let summary = "Generate generic loops.";
-  let description = [{
-    One of the final lowering forms of d2m generic op. This pass converts the affine declarative
-    loops into imperative loops and the affine maps are erased. For example a generic region
-    might transform as follows:
-
-    ```mlir
-    #lhs = affine_map<(d0, d1, d2) -> (d0, d2)>
-    #rhs = affine_map<(d0, d1, d2) -> (d2, d1)>
-    #out = affine_map<(d0, d1, d2) -> (d0, d1)>
-
-    grid = #ttcore.grid<2x4>
-    operands : (memref<2x4x4x6x!ttcore.tile<32x32, f32>>, memref<4x4x6x8x!ttcore.tile<32x32, f32>>, memref<2x4x4x8x!ttcore.tile<32x32, f32>>)
-
-    ^compute(%cb0: memref<4x6x!ttcore.tile<32x32, f32>, #l1_>, %cb1: memref<6x8x!ttcore.tile<32x32, f32>, #l1_>, %cb2: memref<4x8x!ttcore.tile<32x32, f32>, #l1_>):
-      d2m.await %cb0, %cb1
-      "d2m.tile_matmul_block"(%cb0, %cb1, %cb2)
-      d2m.yield %cb2
-    ```
-
-    Into:
-    ```mlir
-    ^compute(%cb0: memref<4x6x!ttcore.tile<32x32, f32>, #l1_>, %cb1: memref<6x8x!ttcore.tile<32x32, f32>, #l1_>, %cb2: memref<4x8x!ttcore.tile<32x32, f32>, #l1_>):
-      %c0 = arith.constant 0 : index
-      %c1 = arith.constant 1 : index
-      %c4 = arith.constant 4 : index
-      scf.for %arg2 = %c0 to %c1 step %c1 {
-        scf.for %arg3 = %c0 to %c1 step %c1 {
-          scf.for %arg4 = %c0 to %c4 step %c1 {
-            d2m.await %cb0, %cb1
-            "d2m.tile_matmul_block"(%cb0, %cb1, %cb2)
-            d2m.yield %cb2
-          }
-        }
-      }
-    ```
-  }];
-}
-
-def D2MGenericLowerDMAs : Pass<"d2m-generic-lower-dmas", "::mlir::ModuleOp"> {
-  let summary = "Lower DMA ops from their high level form to fully indexed form.";
-  let description = [{
-    This pass lowers DMA ops from their high level forms to fully indexed form.
-
-    One important pattern is rewriting their affine form to indexed form. This is useful for doing analysis on the DMA
-    ops and lowering them to an optimal loop nest of coalesced transactions.  This is acheived by sampling the affine
-    map over the entire parent generic op iterator space. Note that the affine map provided to the DMA op must be
-    one of the indexing maps of the parent generic op.
-
-    e.g.
-    ```mlir
-    %tx = d2m.dma %stream<#map1>, %cb0
-    ```
-
-    Might become:
-    ```mlir
-    %c2 = arith.constant 2
-    %iter0 = d2m.iter_index(0)
-    %core0 = d2m.core_index(0)
-    %0 = arith.muli %core0, %c2
-    %1 = arith.addi %0, %iter0
-    %iter2 = d2m.iter_index(2)
-    %tx = d2m.dma %stream [%1, %iter2], %cb0
-    ```
-  }];
-  let options = [
-    Option<"debugCoalescingInference", "debug-d2m-coalescing-inference", "bool", /*default=*/"false",
-           "Enable debug mode for coalescing inference. Runs both analytical and sampling-based "
-           "coalescing checks and prints debug output comparing them.">,
-  ];
-}
 
 def D2MGenericRegionsToFuncs : Pass<"d2m-generic-regions-to-funcs", "::mlir::ModuleOp"> {
   let summary = "Move generic regions to top level functions.";
@@ -861,5 +745,288 @@ def D2MDecomposeComplexPermute: Pass<"d2m-decompose-complex-permute", "::mlir::M
   }];
 }
 
+def D2MRankNormalization: Pass<"d2m-rank-normalization", "::mlir::ModuleOp"> {
+  let summary = "Normalize tensor ranks by promoting low-rank tensors to 2D.";
+  let description = [{
+    This pass destructively rewrites tensor ranks to ensure all tensors have at
+    least rank 2. This is needed because the device compute kernels work with
+    2D+ tensors.
+
+    The pass directly modifies types in place - no reshape operations are inserted.
+    This is safe because adding 1's to the outer dimensions doesn't change the
+    memory layout in any way; a scalar is packed the same way regardless of rank.
+
+    The pass performs the following transformations:
+
+    1. Function argument types are promoted: tensor<N> -> tensor<1xN>,
+       tensor<f32> -> tensor<1x1xf32>
+
+    2. All operation result types are promoted similarly.
+
+    3. The function signature is updated to match the new types.
+
+    Example 1 - Scalar tensor:
+      Before:
+        func.func @main(%a: tensor<f32>) -> tensor<f32> {
+          %0 = "ttir.exp"(%a) : (tensor<f32>) -> tensor<f32>
+          return %0 : tensor<f32>
+        }
+
+      After:
+        func.func @main(%a: tensor<1x1xf32>) -> tensor<1x1xf32> {
+          %0 = "ttir.exp"(%a) : (tensor<1x1xf32>) -> tensor<1x1xf32>
+          return %0 : tensor<1x1xf32>
+        }
+
+    Example 2 - 1D tensor:
+      Before:
+        func.func @forward(%arg0: tensor<32xf32>) -> tensor<32xf32> {
+          %0 = "ttir.abs"(%arg0) : (tensor<32xf32>) -> tensor<32xf32>
+          return %0 : tensor<32xf32>
+        }
+
+      After:
+        func.func @forward(%arg0: tensor<1x32xf32>) -> tensor<1x32xf32> {
+          %0 = "ttir.abs"(%arg0) : (tensor<1x32xf32>) -> tensor<1x32xf32>
+          return %0 : tensor<1x32xf32>
+        }
+
+    Example 3 - Chained ops:
+      Before:
+        func.func @forward(%arg0: tensor<128xf32>) -> tensor<128xf32> {
+          %0 = "ttir.abs"(%arg0) : (tensor<128xf32>) -> tensor<128xf32>
+          %1 = "ttir.neg"(%0) : (tensor<128xf32>) -> tensor<128xf32>
+          return %1 : tensor<128xf32>
+        }
+
+      After:
+        func.func @forward(%arg0: tensor<1x128xf32>) -> tensor<1x128xf32> {
+          %0 = "ttir.abs"(%arg0) : (tensor<1x128xf32>) -> tensor<1x128xf32>
+          %1 = "ttir.neg"(%0) : (tensor<1x128xf32>) -> tensor<1x128xf32>
+          return %1 : tensor<1x128xf32>
+        }
+
+    This pass runs in isolation and requires no changes to existing code.
+    It should run early in the D2M pipeline, before layout lowering.
+  }];
+  let dependentDialects = ["::mlir::tt::d2m::D2MDialect"];
+}
+
+def D2MGenerateOuterLoops : Pass<"d2m-generate-outer-loops", "::mlir::ModuleOp"> {
+  let summary = "Generate outer loops.";
+  let description = [{
+    This pass generates outer loops for generic operations.
+  }];
+  let dependentDialects = ["::mlir::tt::d2m::D2MDialect"];
+}
+
+def D2MLowerMulticastLoads : Pass<"d2m-lower-multicast-loads", "::mlir::ModuleOp"> {
+  let summary = "Lower high-level multicast remote loads to low-level form.";
+  let description = [{
+    This pass converts RemoteLoadOp operations from high-level multicast form
+    (using mcast[dims]) to low-level multicast form (using mcore[...] mshape[...]).
+
+    The high-level form specifies which grid dimensions participate in multicast
+    as dimension indices. The low-level form provides explicit core start coordinates
+    and multicast shape values for each grid dimension.
+
+    Example:
+    ```mlir
+    // Before (high-level form):
+    d2m.remote_load %memref[%i, %j] mcast[%c0] : ...
+
+    // After (low-level form, assuming grid shape [4, 8]):
+    d2m.remote_load %memref[%i, %j] mcore[%c1, %core_x] mshape[%c3, %c1] : ...
+    ```
+  }];
+  let dependentDialects = ["::mlir::tt::d2m::D2MDialect", "::mlir::arith::ArithDialect"];
+}
+
+def D2MSplitUnifiedThread : Pass<"d2m-split-unified-thread", "::mlir::ModuleOp"> {
+  let summary = "Split unified thread regions.";
+  let description = [{
+    This pass splits unified thread regions into separate regions.
+  }];
+  let dependentDialects = ["::mlir::tt::d2m::D2MDialect"];
+}
+
+def D2MPreallocateMcastSemaphores : Pass<"d2m-preallocate-mcast-semaphores", "::mlir::ModuleOp"> {
+  let summary = "Pre-allocate semaphores for multicast DMA operations.";
+  let description = [{
+    This pass pre-allocates semaphores for RemoteLoadOp operations that will
+    require multicast synchronization. It runs before d2m-schedule-dma to ensure
+    that each multicast operation has its own dedicated semaphores that are
+    correctly mapped across all regions of the generic op.
+
+    The pass identifies RemoteLoadOps that have multicast parameters (mcastStartIndex
+    and mcastShape) and creates two semaphore block arguments for each:
+    - receiversReadySemaphore: used by receivers to signal they are ready
+    - senderFinishedSemaphore: used by sender to signal completion
+
+    The indices of these semaphores are stored as attributes on the RemoteLoadOp
+    so that downstream passes (d2m-schedule-dma and d2m-lower-load-store-ops-to-dma)
+    can correctly use them even after region cloning/splitting.
+
+    Example:
+    ```mlir
+    // Before:
+    d2m.generic {threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]} {
+    ^dm0(%cb0: !d2m.cb<...>, %cb1: !d2m.cb<...>):
+      d2m.remote_load %cb0, %memref[%i] core[%c0] mcast[%c4] : ...
+    }, { ... }
+
+    // After (semaphores pre-allocated):
+    d2m.generic {threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]} {
+    ^dm0(%cb0: !d2m.cb<...>, %cb1: !d2m.cb<...>, %sem0: !d2m.semaphore, %sem1: !d2m.semaphore):
+      d2m.remote_load %cb0, %memref[%i] core[%c0] mcast[%c4]
+        {preallocated_semaphores = [2, 3]} : ...
+    }, {
+    ^compute0(%cb0: !d2m.cb<...>, %cb1: !d2m.cb<...>, %sem0: !d2m.semaphore, %sem1: !d2m.semaphore):
+      ...
+    }
+    ```
+  }];
+  let dependentDialects = ["::mlir::tt::d2m::D2MDialect"];
+}
+
+def D2MScheduleDMA : Pass<"d2m-schedule-dma", "::mlir::ModuleOp"> {
+  let summary = "Schedule DMA operations across multiple hardware threads.";
+  let description = [{
+    This pass takes a single datamovement region from a d2m.generic op and splits
+    it into N separate datamovement regions, distributing remote_load and remote_store
+    operations across hardware datamovement threads for balanced execution.
+
+    The pass runs after d2m-split-unified-thread which produces a generic op with
+    a single datamovement region and a compute region. This pass analyzes the
+    remote_load and remote_store operations in the datamovement region and
+    distributes them across available hardware datamovement threads (typically 2
+    on Wormhole).
+
+    The scheduling strategy aims to balance the workload across threads by:
+    1. Counting the number of DMA operations per operand/CB
+    2. Assigning each operand's DMA operations to a thread to balance total work
+    3. Creating separate regions for each thread's assigned work
+
+    Example transformation:
+    ```mlir
+    // Before (single datamovement region with 2 remote_loads):
+    d2m.generic {threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]}
+        ins(%stream0, %stream1 : ...) outs(%alloc : ...) {
+    ^datamovement0(%cb0, %cb1, %cb2):
+      scf.for ... {
+        d2m.remote_load %cb0, %stream0[...]  // Load for operand 0
+        d2m.remote_load %cb1, %stream1[...]  // Load for operand 1
+      }
+    }, {
+    ^compute0(...):
+      // compute ops
+    }
+
+    // After (split into 2 datamovement regions):
+    d2m.generic {threads = [#d2m.thread<datamovement>, #d2m.thread<datamovement>, #d2m.thread<compute>]}
+        ins(%stream0, %stream1 : ...) outs(%alloc : ...) {
+    ^datamovement0(%cb0, %cb1, %cb2):
+      scf.for ... {
+        d2m.remote_load %cb0, %stream0[...]  // Thread 0 handles operand 0
+      }
+    }, {
+    ^datamovement1(%cb0, %cb1, %cb2):
+      scf.for ... {
+        d2m.remote_load %cb1, %stream1[...]  // Thread 1 handles operand 1
+      }
+    }, {
+    ^compute0(...):
+      // compute ops
+    }
+    ```
+
+    If there are more DMA operands than available threads, operations are grouped
+    to balance work. If there are fewer operands than threads, some threads may
+    be empty (and can be eliminated by later passes).
+  }];
+  let dependentDialects = ["::mlir::tt::d2m::D2MDialect"];
+}
+
+def D2MLowerLoadStoreOpsToDMA : Pass<"d2m-lower-load-store-ops-to-dma", "::mlir::ModuleOp"> {
+  let summary = "Lower D2M load/store operations to DMA operations.";
+  let description = [{
+    This pass performs lowering of D2M load/store operations to DMA operations.
+  }];
+  let dependentDialects = ["::mlir::tt::d2m::D2MDialect"];
+  let options = [
+    Option<"debugCoalescingInference", "debug-d2m-coalescing-inference", "bool",
+           /*default=*/"false",
+           "Enable debug mode for coalescing inference. Runs both analytical and "
+           "sampling-based coalescing checks and prints debug output comparing them.">,
+  ];
+}
+
+def D2MLowerLoadStoreOpsToExplicitCBForm : Pass<"d2m-lower-load-store-ops-to-explicit-cb-form", "::mlir::ModuleOp"> {
+  let summary = "Lower load/store operations to explicit CB form.";
+  let description = [{
+    This pass converts remote_load and remote_store operations from implicit form
+    to explicit CB form.
+  }];
+  let dependentDialects = ["::mlir::tt::d2m::D2MDialect"];
+}
+
+def D2MConvertLocalLoadStoreOpsToAliasedCBs : Pass<"d2m-convert-local-load-store-ops-to-aliased-cbs", "::mlir::ModuleOp"> {
+  let summary = "Convert local load/store operations to aliased circular buffers.";
+  let description = [{
+    This pass converts local load/store operations to aliased circular buffers.
+  }];
+  let dependentDialects = ["::mlir::tt::d2m::D2MDialect"];
+}
+
+def D2MLowerScratchAllocate : Pass<"d2m-lower-scratch-allocate", "::mlir::ModuleOp"> {
+  let summary = "Lower d2m.scratch_allocate ops to memref.subview of the scratch buffer.";
+  let description = [{
+    This pass lowers `d2m.scratch_allocate` operations inside `d2m.generic` ops
+    into rank-reducing `memref.subview` operations of the scratch memref.
+
+    For each `d2m.generic` that has a `scratch_inputs` attribute, the pass:
+    1. Collects all `d2m.scratch_allocate` ops in the compute region and sorts
+       them by `slot` ID for deterministic layout.
+    2. Computes sequential element offsets for each allocation.
+    3. Validates that total allocations fit within the scratch buffer capacity.
+    4. Introduces a `d2m.get_scratch_from_cb` op at the start of the generic
+       and uses its result as the base scratch memref.
+    5. Replaces each `d2m.scratch_allocate` with a rank-reducing
+       `memref.subview` of the scratch memref at the computed offset.
+
+    The scratch buffer has shape `[1, N]` (set by AddScratchInputs). Each
+    `d2m.scratch_allocate` requests a 1D `memref<M x tile>`, which is lowered to
+    `memref.subview [0, offset][1, M][1, 1] : memref<1xN> -> memref<M>`.
+
+    Example transformation:
+    ```mlir
+    // Before:
+    d2m.generic { scratch_inputs = array<i64: 1>, ... }
+    ins(%in, %scratch_buf : ...) outs(%out : ...) {
+    ^bb0(%cb0: ..., %cb1: ..., %cb2: ...):
+      %s0 = d2m.scratch_allocate {slot = 0} : memref<1x!tile_f32, #l1>
+      %s1 = d2m.scratch_allocate {slot = 1} : memref<2x!tile_f32, #l1>
+      memref.store %val, %s0[%c0] : memref<1x!tile_f32, #l1>
+      // ...
+    }
+
+    // After:
+    d2m.generic { scratch_inputs = array<i64: 1>, ... }
+    ins(%in, %scratch_buf : ...) outs(%out : ...) {
+    ^bb0(%cb0: ..., %cb1: ..., %cb2: ...):
+      %scratch = d2m.get_scratch_from_cb %cb1 : ... -> memref<1x32x!tile_f32, #l1>
+      %sv0 = memref.subview %scratch[0, 0][1, 1][1, 1] : memref<1x32x!tile_f32, #l1> to memref<1x!tile_f32, #l1>
+      %sv1 = memref.subview %scratch[0, 1][1, 2][1, 1] : memref<1x32x!tile_f32, #l1> to memref<2x!tile_f32, strided<[1], offset: 1>, #l1>
+      memref.store %val, %sv0[%c0] : memref<1x!tile_f32, #l1>
+      // ...
+    }
+    ```
+  }];
+  let dependentDialects = [
+    "::mlir::tt::d2m::D2MDialect",
+    "::mlir::tt::ttcore::TTCoreDialect",
+    "::mlir::memref::MemRefDialect"
+  ];
+}
 
 #endif

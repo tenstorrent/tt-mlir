@@ -5,6 +5,7 @@
 #include "ttmlir/Dialect/TTNN/Analysis/MatmulProgramConfig.h"
 
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
+#include "ttmlir/Dialect/TTNN/Interfaces/TTNNTensorSpecInterface.h"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
@@ -13,6 +14,37 @@
 namespace mlir::tt::ttnn {
 
 static inline int64_t divUp(int64_t a, int64_t b) { return (a + b - 1) / b; }
+
+// Compute the maximum number of tiles that can fit in the destination register.
+// This depends on the compute kernel config settings:
+//   - Base: 16 tiles (for standard 32x32 tiles)
+//   - If dst_full_sync_en = false: divide by 2 -> 8 tiles (typical case)
+//   - If fp32_dest_acc_en = true: divide by 2 -> 4 tiles
+// If config is null or properties are not set, returns default of 8.
+static int64_t getMaxSubblockSize(DeviceComputeKernelConfigAttr computeConfig) {
+  // Default max subblock size (assumes dst_full_sync_en=false which is typical)
+  int64_t maxSubblockSize = 8;
+
+  if (!computeConfig) {
+    return maxSubblockSize;
+  }
+
+  // If dst_full_sync_en is explicitly set to true, we have double the registers
+  if (auto dstFullSyncAttr = computeConfig.getDstFullSyncEn()) {
+    if (dstFullSyncAttr.getValue()) {
+      maxSubblockSize *= 2;
+    }
+  }
+
+  // If fp32_dest_acc_en is explicitly set to true, registers are halved
+  if (auto fp32DestAccAttr = computeConfig.getFp32DestAccEn()) {
+    if (fp32DestAccAttr.getValue()) {
+      maxSubblockSize /= 2;
+    }
+  }
+
+  return maxSubblockSize;
+}
 
 // Find the largest divisor of 'value' that is <= 'maxDivisor'.
 static inline int64_t largestDivisorUpTo(int64_t value, int64_t maxDivisor) {
@@ -45,7 +77,8 @@ static inline int64_t largestDivisorUpTo(int64_t value, int64_t maxDivisor) {
 //   - out_block_w % out_subblock_w == 0
 //
 // Register constraints:
-//   - out_subblock_w * out_subblock_h <= available_reg_count (typically 8)
+//   - out_subblock_w * out_subblock_h <= available_reg_count
+//     (4-16 depending on fp32_dest_acc_en and dst_full_sync_en)
 //
 // L1 memory constraints:
 //   - Circular buffers for input/output tiles must fit in L1 memory.
@@ -65,7 +98,8 @@ static mlir::Attribute
 generateMatmul1DProgramConfig(MLIRContext *ctx, int64_t Mt, int64_t Nt,
                               int64_t Kt, TTNNLayoutAttr outputLayout,
                               TensorMemoryLayout outputMemLayout,
-                              UnaryWithParamAttr fusedActivation) {
+                              UnaryWithParamAttr fusedActivation,
+                              int64_t maxSubblockSize, bool fuseBatch) {
   auto [gridX, gridY] = utils::getPhysicalGridDimensions(outputLayout);
   int64_t numCores = gridX * gridY;
 
@@ -105,7 +139,7 @@ generateMatmul1DProgramConfig(MLIRContext *ctx, int64_t Mt, int64_t Nt,
   int64_t outSubblockH = 1;
   // out_subblock_w must divide out_block_w (== perCoreN) evenly.
   // See matmul_op.cpp constraints: out_block_w % out_subblock_w == 0.
-  int64_t outSubblockW = largestDivisorUpTo(outBlockW, 8);
+  int64_t outSubblockW = largestDivisorUpTo(outBlockW, maxSubblockSize);
 
   auto gridAttr = CoreCoordAttr::get(ctx, gridX, gridY);
   auto hopCoresAttr = CoreRangeSetAttr::get(ctx, {});
@@ -115,7 +149,7 @@ generateMatmul1DProgramConfig(MLIRContext *ctx, int64_t Mt, int64_t Nt,
       static_cast<uint64_t>(outSubblockH), static_cast<uint64_t>(outSubblockW),
       static_cast<uint64_t>(outBlockH), static_cast<uint64_t>(outBlockW),
       static_cast<uint64_t>(perCoreM), static_cast<uint64_t>(perCoreN),
-      /*fuse_batch=*/true, /*fusedActivation=*/fusedActivation, mcastIn0,
+      fuseBatch, /*fusedActivation=*/fusedActivation, mcastIn0,
       /*gather_in0=*/false, hopCoresAttr, /*num_global_cb_receivers=*/0,
       /*untilize_out=*/false);
 }
@@ -124,7 +158,8 @@ generateMatmul1DProgramConfig(MLIRContext *ctx, int64_t Mt, int64_t Nt,
 static mlir::Attribute
 generateMatmul2DProgramConfig(MLIRContext *ctx, int64_t Mt, int64_t Nt,
                               int64_t Kt, TTNNLayoutAttr outputLayout,
-                              UnaryWithParamAttr fusedActivation) {
+                              UnaryWithParamAttr fusedActivation,
+                              int64_t maxSubblockSize, bool fuseBatch) {
   auto [gridX, gridY] = utils::getPhysicalGridDimensions(outputLayout);
 
   int64_t perCoreM = divUp(Mt, gridY);
@@ -135,7 +170,7 @@ generateMatmul2DProgramConfig(MLIRContext *ctx, int64_t Mt, int64_t Nt,
 
   // out_subblock_w must divide out_block_w (== perCoreN) evenly.
   // See matmul_op.cpp constraints: out_block_w % out_subblock_w == 0.
-  int64_t outSubblockW = largestDivisorUpTo(perCoreN, 8);
+  int64_t outSubblockW = largestDivisorUpTo(perCoreN, maxSubblockSize);
   int64_t outBlockH = perCoreM;
   int64_t outBlockW = perCoreN;
 
@@ -147,7 +182,7 @@ generateMatmul2DProgramConfig(MLIRContext *ctx, int64_t Mt, int64_t Nt,
       static_cast<uint64_t>(outBlockH), static_cast<uint64_t>(outBlockW),
       static_cast<uint64_t>(perCoreM), static_cast<uint64_t>(perCoreN),
       /*transpose_mcast=*/false, /*fusedActivation=*/fusedActivation,
-      /*fuse_batch=*/true);
+      fuseBatch);
 }
 
 std::optional<mlir::Attribute>
@@ -173,32 +208,45 @@ generateMatmulProgramConfig(Operation *op, TTNNLayoutAttr outputLayout) {
     return std::nullopt;
   }
 
-  // Get input A shape and activation from the op.
-  auto [inputA, activation] =
-      llvm::TypeSwitch<Operation *, std::pair<Value, std::optional<StringRef>>>(
-          op)
+  // Get input A, input B shapes and activation from the op.
+  auto [inputA, inputB, activation] =
+      llvm::TypeSwitch<Operation *,
+                       std::tuple<Value, Value, std::optional<StringRef>>>(op)
           .Case<ttnn::MatmulOp, ttnn::LinearOp>([](auto matmulOp) {
             std::optional<StringRef> act;
             if (auto actAttr = matmulOp.getActivationAttr()) {
               act = actAttr.getValue();
             }
-            return std::make_pair(matmulOp.getA(), act);
+            return std::make_tuple(matmulOp.getA(), matmulOp.getB(), act);
           })
           .Default([](Operation *) {
-            return std::make_pair(nullptr, std::optional<StringRef>{});
+            return std::make_tuple(nullptr, nullptr,
+                                   std::optional<StringRef>{});
           });
 
-  if (!inputA) {
+  if (!inputA || !inputB) {
     return std::nullopt;
   }
 
   auto inputAType = mlir::dyn_cast<RankedTensorType>(inputA.getType());
-  if (!inputAType) {
+  auto inputBType = mlir::dyn_cast<RankedTensorType>(inputB.getType());
+  if (!inputAType || !inputBType) {
     return std::nullopt;
   }
   llvm::ArrayRef<int64_t> aShape = inputAType.getShape();
-  if (aShape.size() < 2) {
+  llvm::ArrayRef<int64_t> bShape = inputBType.getShape();
+  if (aShape.size() < 2 || bShape.size() < 2) {
     return std::nullopt;
+  }
+
+  // Check if all batch dimensions of input B are 1.
+  // fuse_batch can only be true when all batch dims of B are 1.
+  bool fuseBatch = true;
+  for (size_t i = 0; i < bShape.size() - 2; ++i) {
+    if (bShape[i] != 1) {
+      fuseBatch = false;
+      break;
+    }
   }
 
   int64_t M = outShape[outShape.size() - 2];
@@ -212,13 +260,22 @@ generateMatmulProgramConfig(Operation *op, TTNNLayoutAttr outputLayout) {
   UnaryWithParamAttr fusedActivation =
       ttnn::utils::getActivationAttr(ctx, activation);
 
+  // Get compute kernel config from the operation to determine max subblock size
+  DeviceComputeKernelConfigAttr computeConfig = nullptr;
+  if (auto computeConfigOp = dyn_cast<TTNNComputeKernelConfigOpInterface>(op)) {
+    computeConfig = computeConfigOp.getComputeConfigAttr();
+  }
+  int64_t maxSubblockSize = getMaxSubblockSize(computeConfig);
+
   if (outputMemLayout == TensorMemoryLayout::BlockSharded) {
     return generateMatmul2DProgramConfig(ctx, Mt, Nt, Kt, outputLayout,
-                                         fusedActivation);
+                                         fusedActivation, maxSubblockSize,
+                                         fuseBatch);
   }
 
   return generateMatmul1DProgramConfig(ctx, Mt, Nt, Kt, outputLayout,
-                                       outputMemLayout, fusedActivation);
+                                       outputMemLayout, fusedActivation,
+                                       maxSubblockSize, fuseBatch);
 }
 
 } // namespace mlir::tt::ttnn

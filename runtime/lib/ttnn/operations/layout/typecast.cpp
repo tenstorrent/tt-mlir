@@ -20,7 +20,11 @@ void run(const ::tt::target::ttnn::TypecastOp *op, ProgramContext &context) {
   ::ttnn::DataType targetDataType =
       ::tt::runtime::ttnn::utils::toTTNNDataType(op->dtype());
 
-  ::ttnn::Tensor out = ::ttnn::typecast(inputTensor, targetDataType);
+  std::optional<::ttnn::MemoryConfig> memoryConfig =
+      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(op->memcfg());
+
+  ::ttnn::Tensor out =
+      ::ttnn::typecast(inputTensor, targetDataType, memoryConfig);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }

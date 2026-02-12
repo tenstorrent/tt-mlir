@@ -687,8 +687,8 @@ def TTNN_DeviceComputeKernelConfig : TTNN_Attr<"DeviceComputeKernelConfig", "dev
       - `fp32_dest_acc_en`: Configures destination registers to use 32-bit floating-point precision instead of the default 16-bit mode. It provides higher precision at the cost of reducing available destination register count by half.
       - `packer_l1_acc`: When packing multiple tiles to the same address, subsequent packs perform accumulation (addition using FP16 or FP32 precision) rather than overwriting.
       - `dst_full_sync_en`: Configures destination register acquisition mode:
-        - Half mode (false): Acquires 8 tiles in destination registers
-        - Full mode (true): Acquires 16 tiles in destination registers, providing increased parallelism at the cost of higher resource usage
+        - Half mode (false): Acquires 8 tiles in destination registers, allowing pipelined execution
+        - Full mode (true): Acquires 16 tiles in destination registers, providing more register space at the cost of reduced parallelism due to full synchronization
 
     Example:
 
@@ -773,6 +773,16 @@ def TTNN_MeshOffsetAttr : TTNN_Mesh2DCoordAttr<"MeshOffset", "mesh_offset"> {
   let description = [{
     TTNN mesh offset representing the starting coordinates in a 2D mesh.
   }];
+}
+
+def TTNN_MeshRangeAttr : TTNN_Attr<"MeshRange", "mesh_range"> {
+  let summary = "TTNN Mesh range";
+  let description = [{
+    TTNN mesh range representing a range of coordinates in a mesh. This attribute mirrors MeshCoordinateRange in ttnn proper.
+  }];
+
+  let parameters = (ins "MeshOffsetAttr":$start_coord, "MeshOffsetAttr":$end_coord);
+  let assemblyFormat = "`<` custom<CoordBracketStyle>($start_coord) `,` custom<CoordBracketStyle>($end_coord) `>`";
 }
 
 def TTNN_TTNNLayoutAttr: TTNN_Attr<"TTNNLayout", "ttnn_layout"> {
@@ -1058,6 +1068,20 @@ def TTNN_WriteKernelAttr: TTNN_Attr<"WriteKernel", "write_kernel", [TTNN_KernelI
   let genVerifyDecl = 1;
 }
 
+def TTNN_FabricConnectionConfigAttr: TTNN_Attr<"FabricConnectionConfig", "fabric_connection_config"> {
+  let summary = "TTNN Fabric Connection Config attribute.";
+  let description = [{
+    Structure for configuring fabric connections for worker cores.
+  }];
+
+  let parameters = (ins "NocIndex":$noc_index,
+                        "mlir::tt::ttcore::Topology":$topology,
+                        "uint32_t":$cluster_axis,
+                        "RoutingMode":$routing_mode,
+                        "uint32_t":$num_links);
+  let assemblyFormat = "`<` `noc_index` `=` $noc_index `,` `topology` `=` $topology `,` `cluster_axis` `=` $cluster_axis `,` `routing_mode` `=` $routing_mode `,` `num_links` `=` $num_links `>`";
+}
+
 def TTNN_ProgramAttr: TTNN_Attr<"Program", "program"> {
   let summary = "Program";
   let description = [{
@@ -1071,6 +1095,32 @@ def TTNN_ProgramAttr: TTNN_Attr<"Program", "program"> {
 
   let genVerifyDecl = 1;
 }
+
+def TTNN_MeshProgramAttr : TTNN_Attr<"MeshProgram", "mesh_program"> {
+  let summary = "Mesh program";
+  let description = [{
+    Mesh program describing the program to be executed on a specified range of devices on a mesh.
+  }];
+
+  let parameters = (ins "MeshRangeAttr":$mesh_range, "ProgramAttr":$program);
+  let assemblyFormat = "`<` `range` `=` qualified($mesh_range) `,` `program` `=` qualified($program) `>`";
+
+  let genVerifyDecl = 1;
+}
+
+def TTNN_MeshProgramDescriptorAttr : TTNN_Attr<"MeshProgramDescriptor", "mesh_program_descriptor"> {
+  let summary = "Mesh program descriptor";
+  let description = [{
+    Mesh program descriptor for TTNN generic operation.
+  }];
+
+  let parameters = (ins ArrayRefParameter<"MeshProgramAttr">:$mesh_programs, "FabricConnectionConfigAttr":$fabric_connection_config);
+  let assemblyFormat = "`<` `[` qualified($mesh_programs) `]` `,` `fabric_connection_config` `=` qualified($fabric_connection_config) `>`";
+
+  let genVerifyDecl = 1;
+}
+
+def TTNN_GenericProgramAttr : AnyAttrOf<[TTNN_ProgramAttr, TTNN_MeshProgramDescriptorAttr]>;
 
 def TTNN_TraceIdAttr : TTNN_Attr<"TraceId", "trace_id"> {
   let summary = "TTNN Trace ID attribute";

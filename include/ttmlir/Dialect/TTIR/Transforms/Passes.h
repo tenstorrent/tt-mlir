@@ -5,6 +5,7 @@
 #ifndef TTMLIR_DIALECT_TTIR_TRANSFORMS_PASSES_H
 #define TTMLIR_DIALECT_TTIR_TRANSFORMS_PASSES_H
 
+#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 
@@ -19,9 +20,6 @@ struct OneShotBufferizationOptions;
 namespace mlir::tt::ttir {
 #define GEN_PASS_DECL
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
-
-// Suffix used for CPU-hoisted function declarations.
-constexpr const char *kCPUHoistedDeclSuffix = "_decl";
 
 // Creates a CPU hoist transform pass which hoists ops manually tagged
 // with ttir.should_hoist attribute.

@@ -12,10 +12,10 @@ module {
   // CHECK-LABEL: func.func private @forward_const_eval_0{{.*}} -> tensor<32x32xbf16
   // Inputs should already be on the host.
   // CHECK-NOT: "ttnn.from_device"
-  // CHECK: "ttnn.to_dtype"(%arg0)
-  // CHECK: "ttnn.to_dtype"(%arg1)
+  // CHECK: "ttnn.typecast"(%arg0)
+  // CHECK: "ttnn.typecast"(%arg1)
 
-  // CHECK: call @hoisted_forward_const_eval_0_decl
+  // CHECK: call @cpu_hoisted_const_eval_{{.*}}
 
   // CHECK: "ttnn.to_device"(%{{.*}})
 
@@ -40,7 +40,7 @@ module {
 
   // CHECK-LABEL: func.func private @forward_merge_return_multiple_values_const_eval_0
   // CHECK-SAME: -> (tensor<32x32xbf16{{.*}}>, tensor<32x32xbf16{{.*}}>)
-  // CHECK: call @hoisted_forward_merge_return_multiple_values_const_eval_0_decl
+  // CHECK: call @cpu_hoisted_const_eval_{{.*}}
 
   // CHECK-LABEL: func.func @forward_merge_return_multiple_values
   func.func @forward_merge_return_multiple_values(
@@ -67,12 +67,11 @@ module {
     return %5 : tensor<32x32xbf16>
   }
 
-  // CHECK-LABEL: func.func private @hoisted_forward_const_eval_0_decl{{.*}} -> tensor<32x32xf32
-  // CHECK-LABEL: func.func private @hoisted_forward_merge_return_multiple_values_const_eval_0_decl
-  // CHECK-SAME: -> (tensor<32x32xf32{{.*}}>, tensor<32x32xf32{{.*}}>)
+  // CHECK-LABEL: func.func private @cpu_hoisted_const_eval_{{.*}} -> tensor<32x32xf32
+  // CHECK-LABEL: func.func private @cpu_hoisted_const_eval_{{.*}} -> (tensor<32x32xf32{{.*}}>, tensor<32x32xf32{{.*}}>)
 
   // CHECK: ttcore.cpu_module {
   // CHECK: builtin.module {
-  // CHECK-LABEL: llvm.func @hoisted_forward_const_eval_0{{.*}}
-  // CHECK-LABEL: llvm.func @hoisted_forward_merge_return_multiple_values_const_eval_0{{.*}}
+  // CHECK-LABEL: llvm.func @cpu_hoisted_const_eval_{{.*}}(
+  // CHECK-LABEL: llvm.func @cpu_hoisted_const_eval_{{.*}}(
 }

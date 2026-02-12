@@ -117,6 +117,22 @@ jobs:
           ttrt query --save-artifacts
         fi
 
+    - name: Set up tt-triage
+      shell: bash
+      run: |
+        TT_METAL_VERSION=$(grep 'set(TT_METAL_VERSION' third_party/CMakeLists.txt | sed 's/.*"\(.*\)".*/\1/')
+
+        mkdir -p tt-triage
+        curl -L "https://github.com/tenstorrent/tt-metal/archive/${TT_METAL_VERSION}.tar.gz" \
+          | tar -xz -C tt-triage --strip-components=1 \
+              tt-metal-${TT_METAL_VERSION}/scripts/ttexalens_ref.txt \
+              tt-metal-${TT_METAL_VERSION}/tools/tt-triage.py \
+              tt-metal-${TT_METAL_VERSION}/tools/triage \
+              tt-metal-${TT_METAL_VERSION}/tt_metal
+
+        echo "TT_METAL_OPERATION_TIMEOUT_SECONDS=${{ vars.TT_METAL_OPERATION_TIMEOUT_SECONDS || 300 }}" >> $GITHUB_ENV
+        echo "TT_METAL_DISPATCH_TIMEOUT_COMMAND_TO_EXECUTE=python $(pwd)/tt-triage/tools/tt-triage.py 1>&2" >> $GITHUB_ENV
+
     - name: Run Lit Tests
       shell: bash
       run: |

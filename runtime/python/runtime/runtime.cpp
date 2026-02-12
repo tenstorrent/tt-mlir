@@ -308,7 +308,6 @@ void registerRuntimeBindings(nb::module_ &m) {
       .value("CUSTOM", ::tt::runtime::FabricConfig::CUSTOM);
 
   nb::enum_<::tt::target::Arch>(m, "Arch")
-      .value("GRAYSKULL", ::tt::target::Arch::Grayskull)
       .value("WORMHOLE_B0", ::tt::target::Arch::Wormhole_b0)
       .value("BLACKHOLE", ::tt::target::Arch::Blackhole);
 
@@ -393,6 +392,23 @@ void registerRuntimeBindings(nb::module_ &m) {
                          return reinterpret_cast<const void *>(ptr);
                        });
         return tt::runtime::createMultiDeviceHostTensor(
+            data, shape, stride, itemsize, dataType, strategy, meshShape);
+      },
+      "Create a multi-device host tensor with owned memory");
+  m.def(
+      "create_multi_device_borrowed_host_tensor",
+      [](std::vector<std::uintptr_t> &ptrs,
+         const std::vector<std::uint32_t> &shape,
+         const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
+         ::tt::target::DataType dataType,
+         const std::unordered_map<std::string, std::string> &strategy,
+         const std::vector<uint32_t> &meshShape) {
+        std::vector<void *> data;
+        data.reserve(ptrs.size());
+        std::transform(
+            ptrs.begin(), ptrs.end(), std::back_inserter(data),
+            [](std::uintptr_t ptr) { return reinterpret_cast<void *>(ptr); });
+        return tt::runtime::createMultiDeviceBorrowedHostTensor(
             data, shape, stride, itemsize, dataType, strategy, meshShape);
       },
       "Create a multi-device host tensor with owned memory");

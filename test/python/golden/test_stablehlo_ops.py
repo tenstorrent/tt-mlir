@@ -4,13 +4,14 @@
 
 import pytest
 import torch
+from conftest import get_request_kwargs
 from typing import Callable, List, Optional, Tuple
 from collections import OrderedDict
 
-from builder.base.builder_utils import Operand, Shape, TypeInfo
+from builder.base.builder_utils import Operand, Shape
 from builder.stablehlo.stablehlo_builder import StableHLOBuilder
 from builder.base.builder_apis import compile_and_execute_shlo
-from test_utils import shape_str, shapes_list_str, Marks
+from test_utils import shape_str, Marks
 
 pytestmark = pytest.mark.frontend("shlo")
 
@@ -384,6 +385,24 @@ def module_subtract(builder: StableHLOBuilder):
         return builder.subtract(in0, in1, unit_attrs=unit_attrs)
 
 
+def module_broadcast_in_dim(builder: StableHLOBuilder):
+    @builder.func([(128, 128), (128, 128)], [torch.float32, torch.float32])
+    def broadcast_in_dim(
+        in0: Operand,
+        builder: StableHLOBuilder,
+        broadcast_dimensions: List[int],
+        output_shape: List[int],
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.broadcast_in_dim(
+            in0,
+            broadcast_dimensions=broadcast_dimensions,
+            output_shape=output_shape,
+            unit_attrs=unit_attrs,
+        )
+
+
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 @pytest.mark.parametrize(
     "test_fn",
@@ -409,9 +428,7 @@ def module_subtract(builder: StableHLOBuilder):
 def test_binary_ops(test_fn: Callable, target: str, request, device):
     compile_and_execute_shlo(
         test_fn,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )
@@ -456,6 +473,36 @@ def test_unary_ops(
 
     compile_and_execute_shlo(
         test_fn,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+    )
+
+
+@pytest.mark.parametrize("shape", [(64, 128), (32, 64, 128)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.parametrize("dimension", [0, 1])
+def test_get_dimension_size(
+    shape: Shape,
+    dtype: torch.dtype,
+    dimension: int,
+    target: str,
+    request,
+    device,
+):
+    def module_get_dimension_size(builder: StableHLOBuilder):
+        @builder.func([shape], [dtype])
+        def get_dimension_size(
+            in0: Operand,
+            builder: StableHLOBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            builder.set_graph_level_check(True)
+            return builder.get_dimension_size(in0, dimension, unit_attrs=unit_attrs)
+
+    compile_and_execute_shlo(
+        module_get_dimension_size,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -509,9 +556,7 @@ def test_reshape(
 
     compile_and_execute_shlo(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )
@@ -528,9 +573,7 @@ def test_reshape(
 def test_ternary_ops(test_fn: Callable, target: str, request, device):
     compile_and_execute_shlo(
         test_fn,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )
@@ -555,9 +598,7 @@ def test_reshape_mismatch_raises(target, request, device):
     with pytest.raises(Exception):
         compile_and_execute_shlo(
             module,
-            test_base=request.node.name,
-            output_root=request.config.getoption("--path"),
-            system_desc_path=request.config.getoption("--sys-desc"),
+            **get_request_kwargs(request),
             target=target,
             device=device,
         )
@@ -603,9 +644,7 @@ def test_dot_general(
 
     compile_and_execute_shlo(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target="ttnn",
         device=device,
     )
@@ -650,9 +689,7 @@ def test_transpose(
 
     compile_and_execute_shlo(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )
@@ -694,9 +731,7 @@ def test_pad(
 
     compile_and_execute_shlo(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )
@@ -734,9 +769,7 @@ def test_concatenate(
 
     compile_and_execute_shlo(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )
@@ -763,9 +796,7 @@ def test_stablehlo_multi_return_support(
 
     compile_and_execute_shlo(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )
@@ -789,9 +820,7 @@ def test_logical_binary_ops(
 ):
     compile_and_execute_shlo(
         test_fn,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
         pcc=-1.0,
@@ -816,9 +845,7 @@ def test_logical_unary_ops(
 
     compile_and_execute_shlo(
         module_not_,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
         pcc=-1.0,
@@ -855,9 +882,7 @@ def test_slice(
 
     compile_and_execute_shlo(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )
@@ -889,9 +914,7 @@ def test_constant(
 
     compile_and_execute_shlo(
         constant_fn,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )
@@ -933,9 +956,7 @@ def test_dynamic_slice(
 
     compile_and_execute_shlo(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )
@@ -958,9 +979,7 @@ def test_bitwise_binary_ops(
 ):
     compile_and_execute_shlo(
         test_fn,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )
@@ -984,9 +1003,7 @@ def test_bitwise_unary_ops(
 
     compile_and_execute_shlo(
         module_not_,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )
@@ -1041,9 +1058,7 @@ def test_reduce_sum(
 
     compile_and_execute_shlo(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )
@@ -1068,9 +1083,7 @@ def test_reduce_max(
 
     compile_and_execute_shlo(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )
@@ -1095,9 +1108,7 @@ def test_reduce_min(
 
     compile_and_execute_shlo(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )
@@ -1182,9 +1193,7 @@ def test_max_pool_2d(
 
     compile_and_execute_shlo(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )
@@ -1228,9 +1237,7 @@ def test_avg_pool_2d(
 
     compile_and_execute_shlo(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )
@@ -1253,9 +1260,7 @@ def test_reverse(shapes, dtype, dimensions, target: str, request, device):
 
     compile_and_execute_shlo(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )
@@ -1265,9 +1270,7 @@ def test_reverse(shapes, dtype, dimensions, target: str, request, device):
 def test_select(target: str, request, device):
     compile_and_execute_shlo(
         module_select,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )
@@ -1354,9 +1357,7 @@ def test_batch_norm_training_op(test_fn: Callable, target: str, request, device)
 
     compile_and_execute_shlo(
         test_fn,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )
@@ -1372,9 +1373,7 @@ def test_batch_norm_training_op(test_fn: Callable, target: str, request, device)
 def test_batch_norm_inference_op(test_fn: Callable, target: str, request, device):
     compile_and_execute_shlo(
         test_fn,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )
@@ -1388,6 +1387,189 @@ def test_batch_norm_inference_op(test_fn: Callable, target: str, request, device
     ],
 )
 def test_batch_norm_grad_op(test_fn: Callable, target: str, request, device):
+    compile_and_execute_shlo(
+        test_fn,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+    )
+
+
+@pytest.mark.parametrize(
+    "output_shape, output_type, iota_dimension",
+    [
+        ([4, 5], torch.float32, 0),
+        ([4, 5], torch.float32, 1),
+        ([2, 3, 4], torch.float32, 1),
+        ([2, 3, 4], torch.float32, 2),
+        ([32, 64], torch.bfloat16, 0),
+        ([32, 64], torch.bfloat16, 1),
+    ],
+    ids=[
+        "shape_4x5_dim0",
+        "shape_4x5_dim1",
+        "shape_2x3x4_dim1",
+        "shape_2x3x4_dim2",
+        "shape_32x64_bf16_dim0",
+        "shape_32x64_bf16_dim1",
+    ],
+)
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_iota(
+    output_shape: List[int],
+    output_type: torch.dtype,
+    iota_dimension: int,
+    target: str,
+    request,
+    device,
+):
+    def module(builder: StableHLOBuilder):
+        @builder.func([output_shape], [output_type])
+        def iota(
+            in0: Operand,
+            builder: StableHLOBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            builder.set_graph_level_check(True)
+            return builder.iota(
+                output=in0.type,
+                iota_dimension=iota_dimension,
+                unit_attrs=unit_attrs,
+            )
+
+    compile_and_execute_shlo(
+        module,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        device=device,
+    )
+
+
+@pytest.mark.parametrize(
+    "output_shape, output_type, iota_dimension",
+    [
+        ([4, 5], torch.float32, 0),
+        ([4, 5], torch.float32, 1),
+        ([2, 3, 4], torch.float32, 1),
+        ([2, 3, 4], torch.float32, 2),
+        ([32, 64], torch.bfloat16, 0),
+        ([32, 64], torch.bfloat16, 1),
+    ],
+    ids=[
+        "shape_4x5_dim0",
+        "shape_4x5_dim1",
+        "shape_2x3x4_dim1",
+        "shape_2x3x4_dim2",
+        "shape_32x64_bf16_dim0",
+        "shape_32x64_bf16_dim1",
+    ],
+)
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_dynamic_iota(
+    output_shape: List[int],
+    output_type: torch.dtype,
+    iota_dimension: int,
+    target: str,
+    request,
+    device,
+):
+    def module(builder: StableHLOBuilder):
+        @builder.func([output_shape], [output_type])
+        def dynamic_iota(
+            in0: Operand,
+            builder: StableHLOBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            builder.set_graph_level_check(True)
+            shape_tensor = builder.constant(
+                torch.tensor(output_shape, dtype=torch.int64)
+            )
+            return builder.dynamic_iota(
+                output=in0.type,
+                output_shape=shape_tensor,
+                iota_dimension=iota_dimension,
+                unit_attrs=unit_attrs,
+            )
+
+    compile_and_execute_shlo(
+        module,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        device=device,
+    )
+
+
+def module_reduce_window_sum(builder: StableHLOBuilder):
+    @builder.func([(1, 1, 8, 8)], [torch.float32])
+    def reduce_window_sum(
+        in0: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.reduce_window(
+            in0,
+            init_value=0.0,
+            window_dimensions=[1, 1, 2, 2],
+            window_strides=[1, 1, 2, 2],
+            padding=[[0, 0], [0, 0], [0, 0], [0, 0]],
+            body="add",
+        )
+
+
+def module_reduce_window_avg(builder: StableHLOBuilder):
+    @builder.func([(1, 1, 8, 8)], [torch.float32])
+    def reduce_window_avg(
+        in0: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        window_h, window_w = 2, 2
+        window_area = float(window_h * window_w)
+        output_shape = (1, 1, 4, 4)
+        summed = builder.reduce_window(
+            in0,
+            init_value=0.0,
+            window_dimensions=[1, 1, window_h, window_w],
+            window_strides=[1, 1, 2, 2],
+            padding=[[0, 0], [0, 0], [0, 0], [0, 0]],
+            body="add",
+        )
+        divisor = builder.constant(
+            torch.full(output_shape, window_area, dtype=torch.float32)
+        )
+        return builder.divide(summed, divisor)
+
+
+def module_reduce_window_max(builder: StableHLOBuilder):
+    @builder.func([(1, 1, 8, 8)], [torch.float32])
+    def reduce_window_max(
+        in0: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.reduce_window(
+            in0,
+            init_value=float("-inf"),
+            window_dimensions=[1, 1, 3, 3],
+            window_strides=[1, 1, 1, 1],
+            padding=[[0, 0], [0, 0], [1, 1], [1, 1]],
+            body="max",
+        )
+
+
+@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.parametrize(
+    "test_fn",
+    [module_reduce_window_sum, module_reduce_window_avg, module_reduce_window_max],
+)
+def test_reduce_window_op(test_fn: Callable, target: str, request, device):
     compile_and_execute_shlo(
         test_fn,
         test_base=request.node.name,
@@ -1440,9 +1622,7 @@ def test_all_gather(target: str, request, device):
 
     compile_and_execute_shlo(
         module_all_gather,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
         target=target,
         device=device,
         mesh_dict=OrderedDict([("x", 1), ("y", 1)]),
@@ -1642,5 +1822,45 @@ def test_convolution_groups_dilation(
         target=target,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
+        device=device,
+    )
+
+
+@pytest.mark.parametrize("shape", [(128,)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.parametrize("broadcast_dimensions", [[1]])
+@pytest.mark.parametrize("output_shape", [[32, 128]])
+def test_broadcast_ops(
+    shape: Shape,
+    dtype: torch.dtype,
+    target: str,
+    broadcast_dimensions: List[int],
+    output_shape: List[int],
+    request,
+    device,
+):
+    # Create a wrapper function that captures broadcast_dimensions and output_shape
+    def broadcast_wrapper(builder: StableHLOBuilder):
+        @builder.func([shape], [dtype])
+        def broadcast(
+            in0: Operand,
+            builder: StableHLOBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            builder.set_graph_level_check(True)
+            return builder.broadcast_in_dim(
+                in0,
+                broadcast_dimensions=broadcast_dimensions,
+                output_shape=output_shape,
+                unit_attrs=unit_attrs,
+            )
+
+    compile_and_execute_shlo(
+        broadcast_wrapper,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
         device=device,
     )

@@ -24,6 +24,11 @@ enum ShardDistributionStrategy: uint32 {
   Grid2D,
 }
 
+enum ShardStatus: uint32 {
+  Presharded,
+  Unsharded,
+}
+
 struct CoreCoord {
   x: uint64;
   y: uint64;
@@ -86,10 +91,16 @@ table LayoutDesc {
   memory_desc: MemoryDesc;
 }
 
+table RuntimeTensorShardingDesc {
+  shard_status: ShardStatus;
+  local_shape: [int];
+}
+
 table TensorDesc {
   shape: [int];
   mesh_shape: [int32];
   layout: LayoutDesc;
+  runtime_tensor_sharding: RuntimeTensorShardingDesc;
 }
 
 table TensorRef {
@@ -101,8 +112,8 @@ table FloatingPointType {
   value: float;
 }
 
-table UIntegralType {
-  value: uint32;
+table IntegralType {
+  value: int32;
 }
 
 enum PlacementType: ushort {
@@ -123,4 +134,13 @@ table MeshMapperConfig {
 table MeshComposerConfig {
   dims: [int32];
   mesh_shape_override: [uint32];
+}
+
+table MeshCoord {
+  coords: [uint32];
+}
+
+table MeshCoordRange {
+  start: MeshCoord;
+  end: MeshCoord;
 }

@@ -108,6 +108,70 @@ def ConvertXlaSdyToSdyPass : Pass<"convert-xla-sdy-to-sdy", "::mlir::ModuleOp">
   ];
 }
 
+def StableHLOFusingPass : Pass<"stablehlo-fusing", "::mlir::ModuleOp">
+{
+  let summary = "StableHLO fusing pass for shardy passes optimization.";
+  let description = [{
+    This pass tries to fuse stablehlo operations together with the goal of optimizing shardy passes.
+    If proposed fusion is not optimizing shardy passes, it should be implemented in lower level passes. i.e. in TTIR/ TTNN fusion passes.
+
+    For example, it implements `ConcatenateToBroadcastInDimFusionPattern` pattern which fuses stablehlo.concatenate
+    and stablehlo.reshape into stablehlo.broadcast_in_dim. This is due to the fact that
+    stablehlo.broadcast_in_dim propagates shardings better during UserPriorityPropagationPass and InsertExplicitReshardsPass.
+    See https://github.com/openxla/shardy/issues/945 for more details.
+
+    Example, this pass will convert the following code:
+    ```mlir
+      %0 = stablehlo.concatenate %arg0, %arg0, %arg0, dim = 0 :
+            (tensor<2x4xbf16>, tensor<2x4xbf16>, tensor<2x4xbf16>) ->
+            tensor<6x4xbf16>
+      %1 = stablehlo.reshape %0 : (tensor<6x4xbf16>) -> tensor<3x2x4xbf16>
+    ```
+
+    Into:
+    ```mlir
+      %0 = stablehlo.broadcast_in_dim %arg0, dims = [1, 2] :
+            (tensor<2x4xbf16>) -> tensor<3x2x4xbf16>
+    ```
+  }];
+
+  let dependentDialects = [
+    "::mlir::stablehlo::StablehloDialect"
+  ];
+}
+
+def PartiallyConvertSdyToStableHLOPass : Pass<"partially-convert-sdy-to-stablehlo", "::mlir::ModuleOp">
+{
+  let summary = "Partially convert Shardy operations to StableHLO operations.";
+  let description = [{
+    This pass partially converts Shardy operations to their StableHLO equivalents.
+    This is needed because tt-xla may receive graphs from XLA containing Shardy operations,
+    but tt-mlir does not need or handle them beyond sharding annotations.
+
+    Currently, this pass converts sdy.constant operations to stablehlo.constant operations.
+
+    Example, this pass will convert the following code:
+    ```mlir
+    func.func @main() -> tensor<2x3xf32> {
+      %0 = sdy.constant dense<[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]> : tensor<2x3xf32>
+      return %0 : tensor<2x3xf32>
+    }
+    ```
+
+    Into:
+    ```mlir
+    func.func @main() -> tensor<2x3xf32> {
+      %0 = stablehlo.constant dense<[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]> : tensor<2x3xf32>
+      return %0 : tensor<2x3xf32>
+    }
+    ```
+  }];
+
+  let dependentDialects = [
+    "::mlir::stablehlo::StablehloDialect",
+    "::mlir::sdy::SdyDialect"
+  ];
+}
 
 def AnalyzeMeshPass : Pass<"analyze-mesh", "::mlir::ModuleOp">
 {
@@ -313,6 +377,18 @@ def InsertExplicitReshardsPass : Pass<"insert-explicit-reshards", "::mlir::Modul
     manual_axes, indicating that the sharding propagation has already been completed.
   }];
 
+  let dependentDialects = [
+    "::mlir::sdy::SdyDialect"
+  ];
+}
+
+def ShardyCCLCanonicalizationPass : Pass<"shardy-ccl-canonicalization", "::mlir::ModuleOp">
+{
+  let summary = "Canonicalize Shardy CCL operations.";
+  let description = [{
+    This pass canonicalizes Shardy collective communication operations by fusing / rewriting
+    patterns that can be represented more efficiently.
+  }];
   let dependentDialects = [
     "::mlir::sdy::SdyDialect"
   ];

@@ -12,6 +12,7 @@ include "mlir/IR/CommonTypeConstraints.td"
 include "ttmlir/Dialect/TTMetal/IR/TTMetalBase.td"
 include "ttmlir/Dialect/TTMetal/IR/TTMetalOpsEnums.td"
 include "ttmlir/Dialect/TTMetal/IR/TTMetalAttrInterfaces.td"
+include "ttmlir/Dialect/TTCore/IR/TTCoreOpsEnums.td"
 
 //===----------------------------------------------------------------------===//
 // TTMetal attr definitions
@@ -136,5 +137,19 @@ def TTMetal_EthernetConfigAttr: TTMetal_Attr<"EthernetConfig", "ethernet_config"
 def TTMetal_KernelConfigAttr : AnyAttrOf<[TTMetal_ComputeConfigAttr, TTMetal_NocConfigAttr, TTMetal_EthernetConfigAttr]>;
 
 def TTMetal_KernelConfigArrayAttr : TypedArrayAttrBase<TTMetal_KernelConfigAttr, "">;
+
+def TTMetal_FabricConnectionConfigAttr: TTMetal_Attr<"FabricConnectionConfig", "fabric_connection_config"> {
+  let summary = "TTMetal CCL Config attribute.";
+  let description = [{
+    Structure for configuring fabric connections for worker cores (in CCL ops).
+  }];
+
+  let parameters = (ins "NocIndex":$noc_index,
+                        "mlir::tt::ttcore::Topology":$topology,
+                        "uint32_t":$cluster_axis,
+                        "RoutingMode":$routing_mode,
+                        "uint32_t":$num_links);
+  let assemblyFormat = "`<` `noc_index` `=` $noc_index `,` `topology` `=` $topology `,` `cluster_axis` `=` $cluster_axis `,` `routing_mode` `=` $routing_mode `,` `num_links` `=` $num_links `>`";
+}
 
 #endif

@@ -58,6 +58,14 @@ struct FlatbufferObjectCache {
     }
     return insert(obj, createFn(*this, obj, args...));
   }
+
+  template <typename MLIRTypeOrAttr, typename CreateFn, typename... Args>
+  std::invoke_result_t<CreateFn, FlatbufferObjectCache &, MLIRTypeOrAttr,
+                       mlir::tt::ttcore::ShardStatus, Args...>
+  getOrCreateNoSharding(MLIRTypeOrAttr obj, CreateFn createFn, Args &&...args) {
+    return getOrCreate(obj, createFn, mlir::tt::ttcore::ShardStatus::Unsharded,
+                       std::forward<Args>(args)...);
+  }
 };
 
 } // namespace mlir::tt

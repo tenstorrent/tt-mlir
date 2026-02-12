@@ -6,6 +6,8 @@ import torch
 import pytest
 from typing import List
 
+from conftest import get_request_kwargs
+
 from builder.base.builder_utils import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_apis import compile_and_execute_ttir
@@ -27,10 +29,8 @@ def test_arbitrary_model(
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("path"),
         device=device,
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
     )
 
 
@@ -84,11 +84,9 @@ def test_mnist(
 
     compile_and_execute_ttir(
         module,
-        test_base=request.node.name,
         target=target,
         device=device,
-        output_root=request.config.getoption("path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
     )
 
 
@@ -215,7 +213,5 @@ def test_llama_attention(
         module,
         target=target,
         device=device,
-        test_base=request.node.name,
-        output_root=request.config.getoption("path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        **get_request_kwargs(request),
     )

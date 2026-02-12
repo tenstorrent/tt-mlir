@@ -975,7 +975,9 @@ struct OpModel<LinearOp> {
       std::optional<TTNNLayoutAttr> biasLayout, TTNNLayoutAttr outputLayout,
       bool transposeA, bool transposeB,
       std::optional<llvm::StringRef> activation,
-      std::optional<mlir::Attribute> programConfigAttr = std::nullopt);
+      std::optional<mlir::Attribute> programConfigAttr = std::nullopt,
+      std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig =
+          std::nullopt);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputShapeA, TTNNLayoutAttr inputLayoutA,
@@ -996,7 +998,9 @@ struct OpModel<MatmulOp> {
       TTNNLayoutAttr inputLayoutA, llvm::ArrayRef<int64_t> inputShapeB,
       TTNNLayoutAttr inputLayoutB, TTNNLayoutAttr outputLayout, bool transposeA,
       bool transposeB, std::optional<llvm::StringRef> activation = std::nullopt,
-      std::optional<mlir::Attribute> programConfigAttr = std::nullopt);
+      std::optional<mlir::Attribute> programConfigAttr = std::nullopt,
+      std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig =
+          std::nullopt);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputShapeA, TTNNLayoutAttr inputLayoutA,
@@ -1195,6 +1199,7 @@ struct OpModel<ConvTranspose2dOp> {
       llvm::ArrayRef<int32_t> stride, llvm::ArrayRef<int32_t> padding,
       llvm::ArrayRef<int32_t> output_padding, llvm::ArrayRef<int32_t> dilation,
       uint32_t groups, std::optional<Conv2dConfigAttr> conv2dConfig,
+      std::optional<Conv2dSliceConfigAttr> conv2dSliceConfig,
       TTNNLayoutAttr outputLayout);
 
   static llvm::Expected<size_t> getOpRuntime(
@@ -1207,6 +1212,7 @@ struct OpModel<ConvTranspose2dOp> {
       llvm::ArrayRef<int32_t> stride, llvm::ArrayRef<int32_t> padding,
       llvm::ArrayRef<int32_t> output_padding, llvm::ArrayRef<int32_t> dilation,
       uint32_t groups, std::optional<Conv2dConfigAttr> conv2dConfig,
+      std::optional<Conv2dSliceConfigAttr> conv2dSliceConfig,
       TTNNLayoutAttr outputLayout);
 };
 
@@ -1270,7 +1276,8 @@ struct OpModel<PrepareConvTranspose2dWeightsOp> {
       std::optional<ttcore::DataType> outputDtype,
       std::optional<Conv2dConfigAttr> conv2dConfig,
       std::optional<DeviceComputeKernelConfigAttr> deviceComputeKernelConfig,
-      bool mirrorKernel, TTNNLayoutAttr outputLayout);
+      std::optional<Conv2dSliceConfigAttr> conv2dSliceConfig, bool mirrorKernel,
+      TTNNLayoutAttr outputLayout);
 };
 
 //===----------------------------------------------------------------------===//
@@ -1290,6 +1297,7 @@ struct OpModel<PrepareConvTranspose2dBiasOp> {
       ttcore::DataType inputDtype, std::optional<ttcore::DataType> outputDtype,
       std::optional<Conv2dConfigAttr> conv2dConfig,
       std::optional<DeviceComputeKernelConfigAttr> deviceComputeKernelConfig,
+      std::optional<Conv2dSliceConfigAttr> conv2dSliceConfig,
       TTNNLayoutAttr outputLayout);
 };
 
@@ -1305,7 +1313,8 @@ struct OpModel<MaxPool2dOp> {
       int32_t inputWidth, int32_t inputChannels,
       llvm::ArrayRef<int32_t> kernelSize, llvm::ArrayRef<int32_t> stride,
       llvm::ArrayRef<int32_t> padding, llvm::ArrayRef<int32_t> dilation,
-      bool ceilMode, bool reallocateHaloOutput, TTNNLayoutAttr outputLayout);
+      bool ceilMode, bool reallocateHaloOutput,
+      std::optional<bool> configTensorsInDram, TTNNLayoutAttr outputLayout);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
@@ -1313,7 +1322,9 @@ struct OpModel<MaxPool2dOp> {
                int32_t inputChannels, llvm::ArrayRef<int32_t> kernelSize,
                llvm::ArrayRef<int32_t> stride, llvm::ArrayRef<int32_t> padding,
                llvm::ArrayRef<int32_t> dilation, bool ceilMode,
-               bool reallocateHaloOutput, TTNNLayoutAttr outputLayout);
+               bool reallocateHaloOutput,
+               std::optional<bool> configTensorsInDram,
+               TTNNLayoutAttr outputLayout);
 };
 
 //===----------------------------------------------------------------------===//
@@ -1329,7 +1340,8 @@ struct OpModel<MaxPool2dWithIndicesOp> {
       llvm::ArrayRef<int32_t> kernelSize, llvm::ArrayRef<int32_t> stride,
       llvm::ArrayRef<int32_t> padding, llvm::ArrayRef<int32_t> dilation,
       bool ceilMode, bool reallocateHaloOutput, bool deallocateInput,
-      bool returnIndices, TTNNLayoutAttr outputLayout);
+      bool returnIndices, std::optional<bool> configTensorsInDram,
+      TTNNLayoutAttr outputLayout);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
@@ -1338,7 +1350,8 @@ struct OpModel<MaxPool2dWithIndicesOp> {
                llvm::ArrayRef<int32_t> stride, llvm::ArrayRef<int32_t> padding,
                llvm::ArrayRef<int32_t> dilation, bool ceilMode,
                bool reallocateHaloOutput, bool deallocateInput,
-               bool returnIndices, TTNNLayoutAttr outputLayout);
+               bool returnIndices, std::optional<bool> configTensorsInDram,
+               TTNNLayoutAttr outputLayout);
 };
 
 //===----------------------------------------------------------------------===//
@@ -1353,7 +1366,8 @@ struct OpModel<AvgPool2dOp> {
       int32_t inputWidth, int32_t inputChannels,
       llvm::ArrayRef<int32_t> kernelSize, llvm::ArrayRef<int32_t> stride,
       llvm::ArrayRef<int32_t> padding, llvm::ArrayRef<int32_t> dilation,
-      bool ceilMode, bool reallocateHaloOutput, TTNNLayoutAttr outputLayout);
+      bool ceilMode, bool reallocateHaloOutput,
+      std::optional<bool> configTensorsInDram, TTNNLayoutAttr outputLayout);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
@@ -1361,7 +1375,9 @@ struct OpModel<AvgPool2dOp> {
                int32_t inputChannels, llvm::ArrayRef<int32_t> kernelSize,
                llvm::ArrayRef<int32_t> stride, llvm::ArrayRef<int32_t> padding,
                llvm::ArrayRef<int32_t> dilation, bool ceilMode,
-               bool reallocateHaloOutput, TTNNLayoutAttr outputLayout);
+               bool reallocateHaloOutput,
+               std::optional<bool> configTensorsInDram,
+               TTNNLayoutAttr outputLayout);
 };
 
 //===----------------------------------------------------------------------===//
@@ -1689,6 +1705,23 @@ struct OpModel<mlir::tt::ttnn::RandOp> {
       mlir::tt::ttnn::MemoryConfigAttr memoryConfig,
       mlir::tt::ttnn::Layout layout, llvm::APFloat low, llvm::APFloat high,
       uint32_t seed, mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
+};
+
+//===----------------------------------------------------------------------===//
+// DropoutOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<mlir::tt::ttnn::DropoutOp> {
+  static llvm::Expected<OpConstraints> getOpConstraints(
+      mlir::tt::ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+      TTNNLayoutAttr inputLayout, llvm::APFloat prob, llvm::APFloat scale,
+      uint32_t seed, bool usePerDeviceSeed, TTNNLayoutAttr outputLayout);
+
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+               llvm::APFloat prob, llvm::APFloat scale, uint32_t seed,
+               bool usePerDeviceSeed, TTNNLayoutAttr outputLayout);
 };
 
 //===----------------------------------------------------------------------===//

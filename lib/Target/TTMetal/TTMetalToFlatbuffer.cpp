@@ -18,6 +18,7 @@
 #include "ttmlir/Target/TTMetal/Target.h"
 #include "ttmlir/Target/TTMetal/binary_generated.h"
 #include "ttmlir/Target/TTMetal/command_generated.h"
+#include "ttmlir/Target/TTMetal/program_generated.h"
 #include "ttmlir/Target/TTMetal/types_generated.h"
 #include "ttmlir/Target/Utils/FlatbufferObjectCache.h"
 #include "ttmlir/Target/Utils/MLIRToFlatbuffer.h"
@@ -133,21 +134,22 @@ static target::metal::EthType toFlatbuffer(ttmetal::EthType ethType) {
   assert(false && "Unsupported EthType");
 }
 
-static target::metal::NocIndex toFlatbuffer(ttmetal::NocIndex nocIndex) {
-  switch (nocIndex) {
-  case ttmetal::NocIndex::Noc0:
-    return target::metal::NocIndex::Noc0;
-  case ttmetal::NocIndex::Noc1:
-    return target::metal::NocIndex::Noc1;
-  }
-  assert(false && "Unsupported NocIndex");
-}
-
 static target::Dim2dRange toFlatbuffer(CoreRangeAttr coreRange) {
   const auto offset = coreRange.getOffset();
   const auto size = coreRange.getSize();
   return target::Dim2dRange(target::Dim2d(offset[0], offset[1]),
                             target::Dim2d(size[0], size[1]));
+}
+
+static ::tt::target::RoutingMode
+toFlatbuffer(ttmetal::RoutingMode routingMode) {
+  switch (routingMode) {
+  case ttmetal::RoutingMode::BidirLineMesh:
+    return ::tt::target::RoutingMode::BidirLineMesh;
+  case ttmetal::RoutingMode::UnidirRingTorus:
+    return ::tt::target::RoutingMode::UnidirRingTorus;
+  }
+  assert(false && "Unsupported RoutingMode");
 }
 
 static std::array<int32_t, 2> calculateCoreRangeSetShapeExtents(
@@ -634,7 +636,7 @@ static flatbuffers::Offset<target::metal::NocConfig>
 nocConfigToFlatbuffer(FlatbufferObjectCache &cache,
                       NocConfigAttr nocConfigAttr) {
   return target::metal::CreateNocConfig(
-      *cache.fbb, toFlatbuffer(nocConfigAttr.getNocIndex()));
+      *cache.fbb, toFlatbuffer(cache, nocConfigAttr.getNocIndex()));
 }
 
 static flatbuffers::Offset<target::metal::ComputeConfig>
@@ -654,7 +656,19 @@ ethernetConfigToFlatbuffer(FlatbufferObjectCache &cache,
                            EthernetConfigAttr ethernetConfigAttr) {
   return target::metal::CreateEthernetConfig(
       *cache.fbb, toFlatbuffer(ethernetConfigAttr.getEthType()),
-      toFlatbuffer(ethernetConfigAttr.getNocIndex()));
+      toFlatbuffer(cache, ethernetConfigAttr.getNocIndex()));
+}
+
+static flatbuffers::Offset<target::FabricConnectionConfig>
+fabricConnectionConfigToFlatbuffer(
+    FlatbufferObjectCache &cache,
+    FabricConnectionConfigAttr fabricConnectionConfig) {
+  return target::CreateFabricConnectionConfig(
+      *cache.fbb, toFlatbuffer(cache, fabricConnectionConfig.getNocIndex()),
+      toFlatbuffer(cache, fabricConnectionConfig.getTopology()),
+      fabricConnectionConfig.getClusterAxis(),
+      toFlatbuffer(fabricConnectionConfig.getRoutingMode()),
+      fabricConnectionConfig.getNumLinks());
 }
 
 static flatbuffers::Offset<target::metal::KernelConfig>
@@ -850,10 +864,19 @@ std::shared_ptr<void> translateTTMetalToFlatbuffer(
               cache, mlir::cast<KernelConfigInterface>(kernelConfig),
               symbolTable));
         }
+
+        flatbuffers::Offset<target::FabricConnectionConfig>
+            fabricConnectionConfig;
+        if (enqueueProgramOp.getFabricConnectionConfigAttr()) {
+          fabricConnectionConfig = fabricConnectionConfigToFlatbuffer(
+              cache, enqueueProgramOp.getFabricConnectionConfigAttr());
+        }
+
         cqBuilder.appendCommand(
             target::metal::CreateEnqueueProgramCommandDirect(
                 fbb, &buffers, &cbs,
-                target::metal::CreateProgramDescDirect(fbb, &kernelConfigs)),
+                target::metal::CreateProgramDescDirect(fbb, &kernelConfigs),
+                fabricConnectionConfig),
             op);
       } else if (auto createBufferOp =
                      dyn_cast_if_present<tt::ttmetal::CreateBufferOp>(op);

@@ -657,6 +657,7 @@ public:
         emitter.emit(srcOp.getAppliedShardScheme(), "applied_shard_scheme"),
         emitter.emit(std::nullopt, "compute_kernel_config"),
         emitter.emit(srcOp.getReallocateHaloOutput(), "reallocate_halo_output"),
+        emitter.emit(srcOp.getConfigTensorsInDram(), "config_tensor_in_dram"),
     };
 
     emitter.replaceOp(*this, args);
@@ -716,6 +717,88 @@ public:
                      "applied_shard_scheme"),
         emitter.emit(maxPool2dOp.getReallocateHaloOutput(),
                      "reallocate_halo_output"),
+        emitter.emit(maxPool2dOp.getConfigTensorsInDram(),
+                     "config_tensor_in_dram"),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
+// MaxPool2dWithIndicesOp conversion pattern
+//
+namespace {
+class MaxPool2dWithIndicesOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::MaxPool2dWithIndicesOp> {
+
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::MaxPool2dWithIndicesOp>::
+      TTNNToEmitPyBaseOpConversionPattern;
+
+  // Override convertOpName to return "ttnn.max_pool2d" instead of
+  // "ttnn.max_pool2d_with_indices"
+  std::string convertOpName(mlir::tt::ttnn::MaxPool2dWithIndicesOp op) const {
+    return "ttnn.max_pool2d";
+  }
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::MaxPool2dWithIndicesOp maxPool2dWithIndicesOp,
+                  OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::MaxPool2dWithIndicesOp>
+        emitter(maxPool2dWithIndicesOp, adaptor, rewriter,
+                this->isGoldenModeEnabled());
+
+    SmallVector<int32_t> padding;
+    if (maxPool2dWithIndicesOp.getPadding().size() == 2) {
+      padding.push_back(
+          static_cast<uint32_t>(maxPool2dWithIndicesOp.getPadding()[0]));
+      padding.push_back(
+          static_cast<uint32_t>(maxPool2dWithIndicesOp.getPadding()[1]));
+    } else {
+      padding.push_back(
+          static_cast<uint32_t>(maxPool2dWithIndicesOp.getPadding()[0]));
+      padding.push_back(
+          static_cast<uint32_t>(maxPool2dWithIndicesOp.getPadding()[2]));
+      padding.push_back(
+          static_cast<uint32_t>(maxPool2dWithIndicesOp.getPadding()[1]));
+      padding.push_back(
+          static_cast<uint32_t>(maxPool2dWithIndicesOp.getPadding()[3]));
+    }
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(maxPool2dWithIndicesOp.getInput()),
+        emitter.emit(maxPool2dWithIndicesOp.getBatchSize()),
+        emitter.emit(maxPool2dWithIndicesOp.getInputHeight()),
+        emitter.emit(maxPool2dWithIndicesOp.getInputWidth()),
+        emitter.emit(maxPool2dWithIndicesOp.getChannels()),
+        emitter.template emit<std::vector<uint32_t>>(
+            maxPool2dWithIndicesOp.getKernelSizeAttr()),
+        emitter.template emit<std::vector<uint32_t>>(
+            maxPool2dWithIndicesOp.getStrideAttr()),
+        emitter.template emit<
+            std::variant<std::array<uint32_t, 2>, std::array<uint32_t, 4>>>(
+            rewriter.getI32ArrayAttr(padding)),
+        emitter.template emit<std::vector<uint32_t>>(
+            maxPool2dWithIndicesOp.getDilationAttr()),
+        emitter.emit(maxPool2dWithIndicesOp.getCeilMode(), "ceil_mode"),
+        emitter.emit(
+            emitter.getMemoryConfig(maxPool2dWithIndicesOp.getResult()),
+            "memory_config"),
+        emitter.emit(maxPool2dWithIndicesOp.getAppliedShardScheme(),
+                     "applied_shard_scheme"),
+        emitter.emit(maxPool2dWithIndicesOp.getReallocateHaloOutput(),
+                     "reallocate_halo_output"),
+        // Add return_indices=True parameter to match the runtime implementation
+        emitter.emit(true, "return_indices"),
+        emitter.emit(maxPool2dWithIndicesOp.getConfigTensorsInDram(),
+                     "config_tensor_in_dram"),
     };
 
     emitter.replaceOp(*this, args);
@@ -1024,35 +1107,6 @@ public:
 };
 } // namespace
 
-// ToDTypeOp conversion pattern
-//
-namespace {
-class ToDTypeOpConversionPattern
-    : public TTNNToEmitPyBaseOpConversionPattern<mlir::tt::ttnn::ToDTypeOp> {
-
-public:
-  using TTNNToEmitPyBaseOpConversionPattern<
-      mlir::tt::ttnn::ToDTypeOp>::TTNNToEmitPyBaseOpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(mlir::tt::ttnn::ToDTypeOp srcOp, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-
-    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::ToDTypeOp> emitter(
-        srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
-
-    llvm::SmallVector<mlir::Attribute> args{
-        emitter.emit(srcOp.getInput()),
-        emitter.emit(srcOp.getDtype()),
-    };
-
-    emitter.replaceOp(*this, args);
-
-    return success();
-  }
-};
-} // namespace
-
 // ToLayoutOp conversion pattern
 //
 namespace {
@@ -1310,6 +1364,42 @@ public:
 };
 } // namespace
 
+// Dropout op conversion pattern
+//
+namespace {
+class DropoutOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<tt::ttnn::DropoutOp> {
+private:
+  std::string getPrefixSearchPattern() const override { return "ttnn.dropout"; }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn.experimental.dropout";
+  }
+
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      tt::ttnn::DropoutOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(tt::ttnn::DropoutOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<tt::ttnn::DropoutOp> emitter(
+        srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getProb(), "probability"),
+        emitter.emit(srcOp.getScale(), "scale"),
+        emitter.emit(srcOp.getSeed(), "seed"),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // Prod op conversion pattern
 //
 namespace {
@@ -1547,6 +1637,7 @@ public:
         emitter.emit(srcOp.getMemoryConfig() |
                          emitter.getMemoryConfig(srcOp.getResult()),
                      "memory_config"),
+        emitter.emit(srcOp.getConv2dSliceConfig(), "dram_slice_config"),
     };
 
     emitter.replaceOp(*this, args);
@@ -1733,6 +1824,7 @@ public:
         emitter.emit(srcOp.getConv2dConfig(), "conv_config"),
         emitter.emit(std::nullopt, "compute_config"),
         emitter.emit(srcOp.getMirrorKernel(), "mirror_kernel"),
+        emitter.emit(srcOp.getConv2dSliceConfig(), "slice_config"),
     };
 
     emitter.replaceOp(*this, args);
@@ -1794,6 +1886,7 @@ public:
         emitter.emit(srcOp.getOutputDtype(), "output_dtype"),
         emitter.emit(srcOp.getConv2dConfig(), "conv_config"),
         emitter.emit(std::nullopt, "compute_config"),
+        emitter.emit(srcOp.getConv2dSliceConfig(), "slice_config"),
     };
 
     emitter.replaceOp(*this, args);
@@ -2491,6 +2584,32 @@ public:
     auto funcOp = loadCachedOp->getParentOfType<func::FuncOp>();
     Block &entryBlock = funcOp.getBody().front();
 
+    // If the enclosing function has a device argument (module-export path),
+    // pass it into the const-eval wrapper so it can invoke const-eval functions
+    // that take `device` as an explicit parameter.
+    //
+    // Type-based detection:
+    // - Before/during signature conversion: `mlir::tt::ttnn::DeviceType`
+    // - After signature conversion: whatever `TypeConverter` converts
+    //   `mlir::tt::ttnn::DeviceType` into (today: `!emitpy.opaque<"...">`).
+    //
+    Value deviceArg = nullptr;
+    mlir::tt::ttnn::DeviceType deviceType =
+        mlir::tt::ttnn::DeviceType::get(rewriter.getContext());
+    Type convertedDeviceType = nullptr;
+    if (auto *typeConverter = this->getTypeConverter()) {
+      convertedDeviceType = typeConverter->convertType(deviceType);
+    }
+    for (unsigned i = 0; i < funcOp.getNumArguments(); ++i) {
+      Type argTy = funcOp.getArgumentTypes()[i];
+      bool isDevice = (argTy == deviceType) ||
+                      (convertedDeviceType && argTy == convertedDeviceType);
+      if (isDevice) {
+        deviceArg = entryBlock.getArgument(i);
+        break;
+      }
+    }
+
     // Find or create a global statement for the global cache dictionary at the
     // beginning of the function body.
     //
@@ -2556,6 +2675,10 @@ public:
                                         "\"" + calleeName.str() + "\""))
             ->getResult(0);
     operands.push_back(keyValue);
+
+    if (deviceArg) {
+      operands.push_back(deviceArg);
+    }
 
     // Call into the callee.
     //
@@ -3766,6 +3889,11 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                GeluBackwardOpConversionPattern>(typeConverter, ctx, enableGoldenMode);
   // clang-format on
 
+  // Experimental dropout op
+  //
+  patterns.add<DropoutOpConversionPattern>(typeConverter, ctx,
+                                           enableGoldenMode);
+
   patterns.add<EltwiseTernaryOpConversionPattern<ttnn::WhereOp>>(
       typeConverter, ctx, enableGoldenMode);
 
@@ -3793,7 +3921,6 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   patterns.add<DeallocateOpConversionPattern,
                FromDeviceOpConversionPattern,
                ToDeviceOpConversionPattern,
-               ToDTypeOpConversionPattern,
                ToLayoutOpConversionPattern,
                ToMemoryConfigOpConversionPattern,
                TypecastOpConversionPattern
@@ -3806,6 +3933,7 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   patterns.add<AvgPool2dOpConversionPattern,
                GlobalAvgPool2dOpConversionPattern,
                MaxPool2dOpConversionPattern,
+               MaxPool2dWithIndicesOpConversionPattern,
                UpsampleOpConversionPattern
               >(typeConverter, ctx, enableGoldenMode);
   // clang-format on

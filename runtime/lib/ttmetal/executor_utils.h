@@ -250,7 +250,23 @@ inline std::string kernelConfigTypeString(
     case (tt_metal::DataMovementProcessor::RISCV_1):
       dataMovementCore = "ncrisc";
       break;
+    // Handle RISCV_2 to RISCV_7 for Quasar Data Movement Processors
+    // Quasar RISCV_0/RISCV_1 map to dm0, dm1 on quasar.
+    // TODO @jameszianxu Case this string generation based on processor type.
+    case (tt_metal::DataMovementProcessor::RISCV_2):
+      return "quasar_dm2";
+    case (tt_metal::DataMovementProcessor::RISCV_3):
+      return "quasar_dm3";
+    case (tt_metal::DataMovementProcessor::RISCV_4):
+      return "quasar_dm4";
+    case (tt_metal::DataMovementProcessor::RISCV_5):
+      return "quasar_dm5";
+    case (tt_metal::DataMovementProcessor::RISCV_6):
+      return "quasar_dm6";
+    case (tt_metal::DataMovementProcessor::RISCV_7):
+      return "quasar_dm7";
     }
+
     return dataMovementCore + "_noc" + std::to_string(dataMovementConfig->noc);
   } else if (std::holds_alternative<tt_metal::ComputeConfig>(kernelConfig)) {
     return "trisc";
@@ -467,10 +483,10 @@ createKernelConfig(
   switch (kernelConfig->type_type()) {
   case target::metal::KernelConfigType::NocConfig: {
     switch (kernelConfig->type_as_NocConfig()->noc_index()) {
-    case tt::target::metal::NocIndex::Noc0: {
+    case tt::target::NocIndex::Noc0: {
       return tt_metal::ReaderDataMovementConfig(compileArgs);
     }
-    case tt::target::metal::NocIndex::Noc1: {
+    case tt::target::NocIndex::Noc1: {
       return tt_metal::WriterDataMovementConfig(compileArgs);
     }
     }
@@ -490,11 +506,11 @@ createKernelConfig(
     }
 
     switch (kernelConfig->type_as_EthernetConfig()->noc_index()) {
-    case tt::target::metal::NocIndex::Noc0: {
+    case tt::target::NocIndex::Noc0: {
       ethernetConfig.noc = tt_metal::NOC::NOC_0;
       break;
     }
-    case tt::target::metal::NocIndex::Noc1: {
+    case tt::target::NocIndex::Noc1: {
       ethernetConfig.noc = tt_metal::NOC::NOC_1;
       break;
     }

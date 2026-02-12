@@ -19,7 +19,7 @@ import inspect
 from utils import create_sharded_tile_tensor
 
 # Import the IR generator directly
-from ttnn_jit._src.ir_generator import generate_ir_from_tracing
+from ttnn_jit._src.ir_generator import generate_ir
 
 # Import ops from shared definitions (aliased to match FileCheck patterns)
 from op_definitions import (
@@ -215,7 +215,7 @@ def loop_with_conditional_func(a, b):
 def test_ir_generation(func, *tensors, debug=True):
     """Generate and print IR for a function."""
     tensor_args = _get_tensor_args(func, *tensors)
-    ir = generate_ir_from_tracing(func, debug, *tensors, _tensor_args=tensor_args)
+    ir = generate_ir(func, debug, None, *tensors, _tensor_args=tensor_args)
     return ir
 
 

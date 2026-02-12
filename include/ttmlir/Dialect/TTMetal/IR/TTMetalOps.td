@@ -29,7 +29,8 @@ def TTMetal_EnqueueProgramOp : TTMetal_Op<"enqueue_program", [MemoryEffects<[Mem
     let arguments = (ins Variadic<AnyNon0RankedMemRef>:$buffers,
                          Variadic<AnyNon0RankedMemRef>:$cbs,
                          DenseI64ArrayAttr:$cb_ports,
-                         TTMetal_KernelConfigArrayAttr:$kernelConfigs);
+                         TTMetal_KernelConfigArrayAttr:$kernelConfigs,
+                         OptionalAttr<TTMetal_FabricConnectionConfigAttr>:$fabricConnectionConfig);
     let hasVerifier = 1;
 }
 

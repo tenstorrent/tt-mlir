@@ -23,4 +23,12 @@ module {
     %3 = "ttir.permute"(%1) <{permutation = array<i64: 3, 2, 1, 0>}> : (tensor<1x256x256x384xbf16>) -> tensor<384x256x256x1xbf16>
     return %2, %3 : tensor<8x256x256x384xbf16>, tensor<384x256x256x1xbf16>
   }
+
+  func.func @identity_repeat_fold(%arg0: tensor<1x128x128x96xbf16>) -> tensor<1x128x128x96xbf16> {
+    // CHECK-NOT: "ttir.repeat"
+
+    %1 = "ttir.repeat"(%arg0) <{repeat_dimensions = array<i64: 1, 1, 1, 1>}> : (tensor<1x128x128x96xbf16>) -> tensor<1x128x128x96xbf16>
+    %2 = "ttir.add"(%1, %1) : (tensor<1x128x128x96xbf16>, tensor<1x128x128x96xbf16>) -> tensor<1x128x128x96xbf16>
+    return %2 : tensor<1x128x128x96xbf16>
+  }
 }
