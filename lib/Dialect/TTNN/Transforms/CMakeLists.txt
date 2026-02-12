@@ -8,6 +8,8 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         OptimizerPasses/OperationValidationAndFallback.cpp
         OptimizerPasses/Optimizer.cpp
         OptimizerPasses/DevicePassesWrapper.cpp
+        OptimizerPasses/GreedyL1SpillManagement.cpp
+        OptimizerPasses/GreedyLayoutPropagation.cpp
         OptimizerPasses/RowMajorLayoutPropagation.cpp
         OptimizerPasses/TTNNPrepareConv2dWeightsAndBias.cpp
         TTNNAdjustDeallocs.cpp

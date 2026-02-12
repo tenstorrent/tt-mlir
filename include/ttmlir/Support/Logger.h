@@ -39,7 +39,8 @@ enum class LogComponent {
   Allocator,
   Test,
   General,
-  D2MFusion
+  D2MFusion,
+  GreedyOptimizer
 };
 
 // Log levels in order of verbosity
@@ -70,6 +71,8 @@ inline constexpr const char *getLogComponentStr(LogComponent type) {
     return "general";
   case LogComponent::D2MFusion:
     return "d2m-fusion";
+  case LogComponent::GreedyOptimizer:
+    return "greedy-optimizer";
   }
   return "unknown";
 }
