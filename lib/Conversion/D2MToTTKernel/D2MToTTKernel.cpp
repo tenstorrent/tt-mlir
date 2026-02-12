@@ -312,14 +312,14 @@ public:
 } // namespace
 
 namespace {
-class PackReconfigL1AccRewriter
-    : public OpConversionPattern<d2m::PackReconfigL1AccOp> {
+class D2MSetL1AccumulateRewriter
+    : public OpConversionPattern<d2m::SetL1AccumulateOp> {
 public:
-  using OpConversionPattern<d2m::PackReconfigL1AccOp>::OpConversionPattern;
+  using OpConversionPattern<d2m::SetL1AccumulateOp>::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(d2m::PackReconfigL1AccOp op,
-                  d2m::PackReconfigL1AccOpAdaptor adaptor,
+  matchAndRewrite(d2m::SetL1AccumulateOp op,
+                  d2m::SetL1AccumulateOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
     rewriter.replaceOpWithNewOp<ttkernel::PackReconfigL1AccOp>(
         op, adaptor.getEnable());
@@ -2058,7 +2058,7 @@ void populateD2MToTTKernelPatterns(
                ttkernel::D2MTileTransposeRewriter,
                ttkernel::D2MDstReinterpretCastRewriter,
                ttkernel::AcquireDstRewriter,
-               ttkernel::PackReconfigL1AccRewriter,
+               ttkernel::D2MSetL1AccumulateRewriter,
                ttkernel::MemrefLoadRewriter,
                ttkernel::MemrefStoreRewriter,
                ttkernel::D2MCBOpRewriter<d2m::WaitOp, ttkernel::CBWaitFrontOp, ttkernel::CBPopFrontOp>,

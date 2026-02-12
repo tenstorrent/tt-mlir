@@ -400,7 +400,7 @@ public:
     rewriter.setInsertionPointToStart(&ifOp.getThenRegion().front());
     Value enableFlag = rewriter.create<arith::ConstantOp>(
         loc, rewriter.getI32Type(), rewriter.getI32IntegerAttr(1));
-    rewriter.create<PackReconfigL1AccOp>(loc, enableFlag);
+    rewriter.create<SetL1AccumulateOp>(loc, enableFlag);
   }
 
   static bool
@@ -823,7 +823,7 @@ public:
 
   // Consumes the recorded load/store info to generate two data copy loops: one
   // for loads and one for stores. When enablePackerL1Acc is true, skip the
-  // CB->DST copy loop for loads but still rewrite original load accesses to use
+  // copy loop for loads but still rewrite original load accesses to use
   // DST indices.
   static void dataCopyGenerate(PatternRewriter &rewriter, Location loc,
                                Value dst, const CopyInfoMap &copyInfos,
@@ -1370,9 +1370,6 @@ public:
 
       // When rewriteOnly (enablePackerL1Acc is true), skip copy generation.
       if (!rewriteOnly) {
-        // Generate the copy operation: for loads, this stores the load result
-        // into dst; for stores, this would load from dst to store elsewhere.
-        // This creates: affine.load %subview → affine.store to %dst
         loadStoreDstAccessGenerator(
             rewriter, loadStore.getLoc(), loadStore.getMemRef(), l1AccessMap,
             l1AccessIndices, dstAccessMap, dstAccessIndices);
@@ -1592,7 +1589,6 @@ public:
         // When L1 accumulation is enabled, skip CB->DST copy but still
         // rewrite the original load to use DST.
         if (!enablePackerL1Acc) {
-          // Generate CB->DST copy: memref.load cb -> affine.store dst
           auto cbLoad = rewriter.create<memref::LoadOp>(
               loadOp.getLoc(), loadOp.getMemRef(), loadOp.getIndices());
           rewriter.create<affine::AffineStoreOp>(loadOp.getLoc(),
