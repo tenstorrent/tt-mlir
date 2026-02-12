@@ -2611,18 +2611,13 @@ struct NegativePadOpDecompositionPattern
 
     // Compute the slice result type.
     RankedTensorType sliceResultType;
-    if (needPad) {
-      // Intermediate type: sliced shape.
-      SmallVector<int64_t> slicedShape;
-      for (size_t i = 0; i < inputShape.size(); i++) {
-        slicedShape.push_back(sliceEnds[i] - sliceBegins[i]);
-      }
-      sliceResultType =
-          RankedTensorType::get(slicedShape, inputType.getElementType());
-    } else {
-      // Final output type when only slicing is needed.
-      sliceResultType = cast<RankedTensorType>(op.getType());
+    // Intermediate type: sliced shape.
+    SmallVector<int64_t> slicedShape;
+    for (size_t i = 0; i < inputShape.size(); i++) {
+      slicedShape.push_back(sliceEnds[i] - sliceBegins[i]);
     }
+    sliceResultType =
+        RankedTensorType::get(slicedShape, inputType.getElementType());
 
     ttir::SliceStaticOp sliceOp = rewriter.create<ttir::SliceStaticOp>(
         op.getLoc(), sliceResultType, input,
