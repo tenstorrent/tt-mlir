@@ -2221,8 +2221,8 @@ def TTIR_GroupNormOp : TTIR_NamedOp<"group_norm", [AttrSizedOperandSegments]> {
             (tensor<1x1x64x480xf32>, tensor<1x8x32x32xf32>, tensor<1x1x15x32xf32>, tensor<1x1x15x32xf32>) -> tensor<1x1x64x480xf32>
     ```
 
-    Mathematical definition: group_norm(x, gamma, beta, epsilon) =
-      ((x - mu) / sqrt(sigma^2 + epsilon)) * gamma + beta
+    Mathematical definition: group_norm(x, weight, bias, epsilon) =
+      ((x - mu) / sqrt(sigma^2 + epsilon)) * weight + bias
     where mu and sigma^2 are the mean and variance computed per group.
   }];
 

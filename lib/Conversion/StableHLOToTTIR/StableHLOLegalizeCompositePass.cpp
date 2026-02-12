@@ -422,6 +422,8 @@ public:
     } else if (auto denseAttr = mlir::dyn_cast_or_null<DenseIntElementsAttr>(
                    numGroupsAttr)) {
       // Handle case where num_groups comes as a single-element dense tensor.
+      assert(denseAttr.getNumElements() == 1 &&
+             "Expected num_groups to be a single-element dense tensor");
       numGroupsIntAttr =
           rewriter.getI64IntegerAttr((*denseAttr.getValues<int64_t>().begin()));
     } else {
@@ -431,9 +433,8 @@ public:
 
     auto epsilonAttr = compositeAttrs.get("epsilon");
 
-    // Extract channel_dim (defaults to 1 if not present, matching PyTorch
-    // NCHW).
     auto channelDimAttr = compositeAttrs.get("channel_dim");
+    assert(channelDimAttr && "channel_dim must be present");
 
     SmallVector<NamedAttribute> namedAttrs;
     namedAttrs.push_back(rewriter.getNamedAttr("num_groups", numGroupsIntAttr));
