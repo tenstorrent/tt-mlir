@@ -949,18 +949,9 @@ recreateGenericOp(d2m::GenericOp genericOp,
               remoteStoreOp.getResult().setType(tensorType);
             } else if (auto dstOp = llvm::dyn_cast<DestinationStyleOpInterface>(
                            clonedOp)) {
-              int numIns, numOuts = 0;
-              if (auto segAttr =
-                      clonedOp->getAttrOfType<mlir::DenseI32ArrayAttr>(
-                          "operandSegmentSizes")) {
-                numIns = segAttr[0];
-                numOuts = segAttr[1];
-              } else {
-                numIns = dstOp.getNumDpsInputs();
-                numOuts = clonedOp->getNumResults();
-              }
-              numOuts = std::min<int32_t>(numOuts, clonedOp->getNumResults());
-              for (int32_t i = 0; i < numOuts; ++i) {
+              int numIns = dstOp.getNumDpsInputs();
+              int numOuts = clonedOp->getNumResults();
+              for (int i = 0; i < numOuts; ++i) {
                 auto outputOperandType =
                     clonedOp->getOperand(numIns + i).getType();
                 clonedOp->getResult(i).setType(outputOperandType);

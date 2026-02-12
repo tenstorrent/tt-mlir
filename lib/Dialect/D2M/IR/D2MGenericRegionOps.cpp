@@ -839,10 +839,10 @@ bool RemoteLoadOp::bufferizesToMemoryRead(
 }
 
 //===----------------------------------------------------------------------===//
-// ExperimentalWriteFullIndexTileOp Implementation
+// WriteFullLinearIndexTileOp Implementation
 //===----------------------------------------------------------------------===//
 
-void ExperimentalWriteFullIndexTileOp::getEffects(
+void WriteFullLinearIndexTileOp::getEffects(
     mlir::SmallVectorImpl<
         mlir::SideEffects::EffectInstance<mlir::MemoryEffects::Effect>>
         &effects) {
@@ -875,7 +875,7 @@ void ArangeBlockOp::getEffects(
         mlir::SideEffects::EffectInstance<mlir::MemoryEffects::Effect>>
         &effects) {
   // Read and write index tile tensor (written by
-  // ExperimentalWriteFullIndexTileOp, then read for tile arithmetic).
+  // WriteFullLinearIndexTileOp, then read for tile arithmetic).
   effects.emplace_back(mlir::MemoryEffects::Read::get(),
                        &getIndexTileTensorMutable(), 0, true,
                        mlir::SideEffects::DefaultResource::get());

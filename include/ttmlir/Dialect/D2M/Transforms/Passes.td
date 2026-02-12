@@ -635,7 +635,7 @@ def D2MDecomposeArange : Pass<"d2m-decompose-arange", "::mlir::ModuleOp"> {
     values: output[i] = start + step * i, where i is the linear index.
 
     The decomposition:
-    1. Write full index tile to scratch CB using ExperimentalWriteFullIndexTileOp
+    1. Write full linear index tile to scratch CB using ExperimentalWriteLinearFullIndexTileOp
     2. Loop over output tiles:
        a. Compute tile_offset = (tile_row * num_tile_cols * 32 + tile_col) * 32
        b. Load scratch tile for local_index
@@ -650,7 +650,7 @@ def D2MDecomposeArange : Pass<"d2m-decompose-arange", "::mlir::ModuleOp"> {
         : (memref<1x1x!ttcore.tile<32x32, f32>>, memref<1x1x!ttcore.tile<32x32, f32>>)
 
     // After:
-    d2m.experimental::write_full_index_tile to %full_index_alloc
+    d2m.experimental::write_full_linear_index_tile to %full_index_alloc
     scf.for %i = 0 to %num_tile_rows {
       scf.for %j = 0 to %num_tile_cols {
         %tile_offset = ... // (i * num_tile_cols + j) * 1024

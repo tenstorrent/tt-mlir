@@ -292,7 +292,7 @@ void dprint(Arg &&arg, ArgV&&... argv) {
     if (hasCall("experimental::tile_fill") ||
         hasCall("experimental::write_row_mask_tile") ||
         hasCall("experimental::write_col_mask_tile") ||
-        hasCall("experimental::write_full_index_tile")) {
+        hasCall("experimental::write_full_linear_index_tile")) {
       auto experimentalPaddingLLKs =
           StringRef(experimental_padding_llks_generated,
                     experimental_padding_llks_generated_len);

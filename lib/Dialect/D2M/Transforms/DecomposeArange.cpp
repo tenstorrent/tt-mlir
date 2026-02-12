@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -34,29 +34,17 @@ struct DecomposeArangeBlockPattern : OpRewritePattern<ArangeBlockOp> {
     int64_t step = op.getStep();
 
     auto outputType = dyn_cast<MemRefType>(output.getType());
-    if (!outputType) {
-      return rewriter.notifyMatchFailure(
-          op, "output must be a memref, run after bufferization");
-    }
+    TT_assertv(outputType, "output must be a memref, run after bufferization");
 
     ArrayRef<int64_t> outputShape = outputType.getShape();
-    if (outputShape.size() < 2) {
-      return rewriter.notifyMatchFailure(op,
-                                         "output must have at least 2 dims");
-    }
+    TT_assertv(outputShape.size() >= 2ul, "output must have at least 2 dims");
 
     auto genericOp = op->getParentOfType<GenericOp>();
-    if (!genericOp) {
-      return rewriter.notifyMatchFailure(
-          op, "ArangeBlockOp must be inside a GenericOp");
-    }
+    TT_assertv(genericOp, "ArangeBlockOp must be inside a GenericOp");
 
     ttcore::GridAttr gridAttr = genericOp.getGrid();
     ArrayRef<int64_t> gridShape = gridAttr.getShape();
-    if (gridShape.size() < 2) {
-      return rewriter.notifyMatchFailure(
-          op, "grid must have at least 2 dimensions");
-    }
+    TT_assertv(gridShape.size() >= 2ul, "grid must have at least 2 dimensions");
 
     auto tileType = cast<ttcore::TileType>(outputType.getElementType());
     Type elemType = tileType.getElementType();
@@ -75,7 +63,7 @@ struct DecomposeArangeBlockPattern : OpRewritePattern<ArangeBlockOp> {
 
     // === STEP 1: Write the scratch tile ===
     TT_assert(indexTileMemref);
-    rewriter.create<ExperimentalWriteFullIndexTileOp>(loc, indexTileMemref);
+    rewriter.create<WriteFullLinearIndexTileOp>(loc, indexTileMemref);
 
     // === STEP 2: Scalar constants for arange start and step ===
     Value startF = rewriter.create<arith::ConstantOp>(
