@@ -6,11 +6,14 @@ add_mlir_dialect_library(MLIRTTNNAnalysis
         GreedyL1InterleavedPolicy.cpp
         L1ChainConfig.cpp
         L1InterleavedFallbackAnalysis.cpp
+        L1SpillManagement.cpp
+        LayoutPropagation.cpp
         LegalOpConfigAnalysis.cpp
         LegalOpLayoutAnalysis.cpp
         LegalTensorLayoutAnalysis.cpp
         MemoryLayoutAnalysis.cpp
         OpConfigAnalysis.cpp
+        OpModelStrategy.cpp
         ScalarDataTypeAnalysis.cpp
         ShardSolver.cpp
         TensorLayouts.cpp

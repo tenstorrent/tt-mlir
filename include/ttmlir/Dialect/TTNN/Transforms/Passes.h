@@ -12,6 +12,8 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Dialect/TTNN/Transforms/GreedyL1SpillManagement.h"
+#include "ttmlir/Dialect/TTNN/Transforms/GreedyLayoutPropagation.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Optimizer.h"
 #include "ttmlir/Dialect/TTNN/Utils/MathFidelityParser.h"
 #include "ttmlir/Dialect/TTNN/Utils/OptimizerOverrides.h"

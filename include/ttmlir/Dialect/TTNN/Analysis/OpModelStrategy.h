@@ -1,0 +1,114 @@
+// SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+//
+// SPDX-License-Identifier: Apache-2.0
+
+#ifndef TTMLIR_DIALECT_TTNN_ANALYSIS_OPMODELSTRATEGY_H
+#define TTMLIR_DIALECT_TTNN_ANALYSIS_OPMODELSTRATEGY_H
+
+#include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Dialect/TTNN/Validation/OpConstraintValidation.h"
+
+#include "mlir/IR/Operation.h"
+#include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/SmallVector.h"
+
+#include <cstdint>
+#include <vector>
+
+namespace mlir::tt::ttnn {
+
+/// Per-op output hint strategy: what output config hints to try for a given
+/// set of input layouts. These are secondary to the input candidates.
+///
+/// Most ops: {NULL} + {L1-interleaved} (2 hints; backend decides sharding from
+///   NULL)
+/// Matmul: full legalConfigs (each carries MatmulProgramConfig tied to sharded
+///   hint)
+/// Conv2d: full legalConfigs (each carries Conv2dConfig)
+/// Reshape/Permute: DRAM-only configs (skip L1 sharding entirely)
+struct OutputHints {
+  /// Output configs to pass as hints to backend.
+  std::vector<OpConfig> hints;
+
+  /// Whether to attempt L1 sharding for this op. False for reshape, permute,
+  /// etc.
+  bool attemptL1Sharding = true;
+};
+
+/// Get output hints for an op type. Per-op dispatch via TypeSwitch.
+/// These are crossed with input candidates to form the full search space.
+OutputHints getOutputHints(Operation *op,
+                           const std::vector<OpConfig> &legalConfigs);
+
+/// Whether an op should participate in reshard exploration at all.
+/// Returns false for ops that must always be DRAM (e.g., reshape, permute).
+bool shouldExploreReshards(Operation *op);
+
+//--- Scoring ---
+
+/// Score representing the quality of a layout candidate. Used for ranking.
+struct LayoutScore {
+  /// Primary: more cores = better parallelism.
+  int64_t coreCount = 0;
+
+  /// Prefer sharded over interleaved.
+  bool isSharded = false;
+
+  /// Prefer L1 over DRAM.
+  bool isL1 = false;
+
+  /// Penalize reshard.
+  bool requiresReshard = false;
+
+  /// Memory footprint from ValidationResult (for tie-breaking).
+  uint64_t outputL1Usage = 0;
+
+  /// Higher score is better.
+  bool operator>(const LayoutScore &other) const;
+  bool operator==(const LayoutScore &other) const;
+  bool operator<(const LayoutScore &other) const { return other > *this; }
+  bool operator>=(const LayoutScore &other) const {
+    return *this > other || *this == other;
+  }
+  bool operator<=(const LayoutScore &other) const {
+    return other >= *this;
+  }
+  bool operator!=(const LayoutScore &other) const {
+    return !(*this == other);
+  }
+};
+
+/// A single candidate in the beam. Used for both K=1 (greedy) and K>1 (beam
+/// search). Contains back pointers to support the backward pass for fork
+/// consolidation.
+struct BeamCandidate {
+  /// Final config (actualOutputLayout from backend + opSpecificAttrs).
+  OpConfig config;
+
+  /// Quality score for this candidate.
+  LayoutScore score;
+
+  /// Backend validation result.
+  op_constraint_validation::ValidationResult validationResult;
+
+  /// Input layouts used for this candidate.
+  std::vector<TTNNLayoutAttr> inputLayouts;
+
+  /// Back pointers: per-operand, which candidate from the producer's beam was
+  /// used. For func args (no producer): index into initial layout candidates.
+  /// These enable the backward pass to trace which producer choices led here.
+  llvm::SmallVector<size_t> producerCandidateIndices;
+
+  /// Per-operand reshard targets (empty entry = no reshard for that operand).
+  llvm::DenseMap<size_t, TTNNLayoutAttr> reshardLayouts;
+};
+
+/// Score a backend validation result. Per-op customization via TypeSwitch.
+LayoutScore scoreCandidate(Operation *op, const OpConfig &config,
+                           const op_constraint_validation::ValidationResult &result,
+                           bool requiresReshard);
+
+} // namespace mlir::tt::ttnn
+
+#endif // TTMLIR_DIALECT_TTNN_ANALYSIS_OPMODELSTRATEGY_H

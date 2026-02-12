@@ -149,6 +149,8 @@ void mlir::tt::registerAllPasses() {
   mlir::tt::ttir::registerPasses();
   mlir::tt::d2m::registerPasses();
   mlir::tt::ttnn::registerTTNNOptimizer();
+  mlir::tt::ttnn::registerTTNNGreedyLayoutPropagation();
+  mlir::tt::ttnn::registerTTNNGreedyL1SpillManagement();
   mlir::tt::ttnn::registerPasses();
   mlir::tt::ttmetal::registerPasses();
   mlir::tt::ttkernel::registerPasses();

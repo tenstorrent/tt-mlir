@@ -418,6 +418,16 @@ struct TTIRToTTNNDevicePipelineOptions
   // This allows frontends to pass in an active device without closing it.
   std::shared_ptr<::tt::tt_metal::distributed::MeshDevice> devicePtr = nullptr;
 
+  // Enable the greedy optimizer (GreedyLayoutPropagation + L1SpillManagement)
+  // instead of the default TTNNOptimizer. This is an experimental alternative
+  // to the chain-based optimizer.
+  Option<bool> enableGreedyOptimizer{
+      *this, "enable-greedy-optimizer",
+      llvm::cl::desc(
+          "Use the greedy layout propagation optimizer instead of the "
+          "default chain-based TTNNOptimizer."),
+      llvm::cl::init(false)};
+
   // Resolve options controlled by optimization_level.
   void resolveOptimizationLevelOptions() const {
     // Validate optimization_level is in valid range.
@@ -430,7 +440,9 @@ struct TTIRToTTNNDevicePipelineOptions
     // Only apply optimization_level if user didn't explicitly set the option.
     // Use getNumOccurrences() to detect explicit user settings.
     if (optimizerPassEnabled.getNumOccurrences() == 0) {
-      optimizerPassEnabled = (optimizationLevel >= 1);
+      // enable-greedy-optimizer implies enable-optimizer.
+      optimizerPassEnabled =
+          (optimizationLevel >= 1) || enableGreedyOptimizer;
     }
     if (enableFusingConv2dWithMultiplyPattern.getNumOccurrences() == 0) {
       enableFusingConv2dWithMultiplyPattern = (optimizationLevel >= 1);
