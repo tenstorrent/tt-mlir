@@ -884,9 +884,8 @@ public:
 };
 
 // PackReconfigL1AccOp must be wrapped in the PACK((...)) macro to ensure it
-// only executes on the TRISC_PACK thread. We emit this as a VerbatimOp with
-// operand substitution.
-class PackReconfigL1AccToEmitCRewriter
+// only executes on the TRISC_PACK thread.
+class TTKernelToEmitCPackReconfigL1AccToEmitCRewriter
     : public OpConversionPattern<ttkernel::PackReconfigL1AccOp> {
 public:
   using OpConversionPattern<ttkernel::PackReconfigL1AccOp>::OpConversionPattern;
@@ -1035,7 +1034,7 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::CopyTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::CopyTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::PackTileOp>,
-        PackReconfigL1AccToEmitCRewriter,
+        TTKernelToEmitCPackReconfigL1AccToEmitCRewriter,
 
         // FPU Ops
         TTKernelToEmitCOpaqueRewriter<ttkernel::UnaryOpInitCommonOp>,

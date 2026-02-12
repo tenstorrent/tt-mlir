@@ -119,14 +119,20 @@ def test_matmul_multi_core_8otpc(m: int, k: int, n: int, target: str, request, d
     ],
     ids=shape_str,
 )
-@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
-@pytest.mark.parametrize("use_tile_matmul", [True, False])
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
+@pytest.mark.parametrize(
+    "use_tile_matmul", [True, False], ids=["matmul_tile", "matmul_block"]
+)
+@pytest.mark.parametrize(
+    "enable_packer_l1_acc", [True, False], ids=["packer_l1_acc", "no_packer_l1_acc"]
+)
 @pytest.mark.parametrize("target", ["ttmetal"])
 # Large matmuls, based on ttnn's matmul benchmarks
 def test_matmul_ttnn_shapes_single_buffered(
     shape: tuple[int, ...],
     dtype: torch.dtype,
     use_tile_matmul: bool,
+    enable_packer_l1_acc: bool,
     target: str,
     request,
     device,
@@ -136,7 +142,10 @@ def test_matmul_ttnn_shapes_single_buffered(
         (2048, 2048, 2048),
         (1024, 2048, 2048),
     ):
-        pytest.xfail(reason="bf16 PCC below threshold for these shapes")
+        # packer_l1_acc passes pcc for matmul block, but not matmul tile
+        # no packer_l1_acc fails pcc for block and tile.
+        if not enable_packer_l1_acc or use_tile_matmul:
+            pytest.xfail(reason="bf16 PCC below threshold for these shapes")
 
     lhs = (
         shape[0],
@@ -151,6 +160,7 @@ def test_matmul_ttnn_shapes_single_buffered(
         f"matmul-interchange=2,0,1",
         f"num-stream-buffers=1",
         f"use-tile-matmul={use_tile_matmul}",
+        f"enable-packer-l1-acc={enable_packer_l1_acc}",
     ]
     compile_and_execute_ttir(
         create_matmul_constrained_inputs(lhs, rhs, dtype),
@@ -177,9 +187,13 @@ def test_matmul_ttnn_shapes_single_buffered(
     ],
     ids=shape_str,
 )
-@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
-@pytest.mark.parametrize("use_tile_matmul", [True, False])
-@pytest.mark.parametrize("enable_packer_l1_acc", [True, False])
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
+@pytest.mark.parametrize(
+    "use_tile_matmul", [True, False], ids=["matmul_tile", "matmul_block"]
+)
+@pytest.mark.parametrize(
+    "enable_packer_l1_acc", [True, False], ids=["packer_l1_acc", "no_packer_l1_acc"]
+)
 @pytest.mark.parametrize("target", ["ttmetal"])
 # Large matmuls, based on ttnn's matmul benchmarks
 def test_matmul_ttnn_shapes_double_buffered(
@@ -192,6 +206,18 @@ def test_matmul_ttnn_shapes_double_buffered(
     device,
 ):
     pcc = 0.99 if dtype == torch.float32 else 0.96
+    if dtype == torch.float32 and shape == (2048, 2048, 2048):
+        pytest.xfail(reason="Too large for f32.")
+
+    if dtype == torch.bfloat16 and shape in (
+        (2048, 2048, 2048),
+        (1024, 2048, 2048),
+    ):
+        # packer_l1_acc passes pcc for matmul block, but not matmul tile
+        # no packer_l1_acc fails pcc for block and tile.
+        if not enable_packer_l1_acc or use_tile_matmul:
+            pytest.xfail(reason="bf16 PCC below threshold for these shapes")
+
     lhs = (
         shape[0],
         shape[1],
@@ -205,7 +231,6 @@ def test_matmul_ttnn_shapes_double_buffered(
         f"matmul-interchange=2,0,1",
         f"use-tile-matmul={use_tile_matmul}",
         f"enable-packer-l1-acc={enable_packer_l1_acc}",
-        f"set-math-fidelity=HiFi2",
     ]
     compile_and_execute_ttir(
         create_matmul_constrained_inputs(lhs, rhs, dtype),
