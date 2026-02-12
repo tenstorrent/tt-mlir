@@ -137,18 +137,8 @@ getUniqueTestConfigs(const std::vector<OpConfig> &consumerConfigs,
     return getUniqueTestConfigsForMatmulLinear(consumerConfigs);
   }
 
-  // For non-Matmul/Linear ops that still have output layout (e.g.
-  // D2MSubgraphOp), use configs as-is so validation and reference matching
-  // succeed.
-  if (!consumerConfigs.empty() && consumerConfigs.front().outputLayout) {
-    llvm::SmallVector<OpConfig> testConfigs;
-    for (const OpConfig &c : consumerConfigs) {
-      testConfigs.push_back(c);
-    }
-    return testConfigs;
-  }
-
-  // For ops that truly need only op-specific attrs (no output layout).
+  // For non-Matmul/Linear: only op-specific attrs matter, no output layout
+  // needed.
   std::vector<OpConfig::OpSpecificAttrs> uniqueAttrs =
       getUniqueOpSpecificAttrs(consumerConfigs);
   llvm::SmallVector<OpConfig> testConfigs;
