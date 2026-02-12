@@ -189,7 +189,7 @@ struct TTIRToTTMetalPipelineOptions
 
   Option<bool> enablePackerL1Acc{
       *this, "enable-packer-l1-acc",
-      llvm::cl::desc("Enable accumulating partials in L1."),
+      llvm::cl::desc("Enable packer to accumulate into L1."),
       llvm::cl::init(false)};
 };
 

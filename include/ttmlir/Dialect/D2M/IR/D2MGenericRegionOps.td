@@ -890,16 +890,11 @@ def D2M_AcquireDstOp : D2M_GenericRegionComputeOp<"acquire_dst",
 }
 
 def D2M_PackReconfigL1AccOp : D2M_GenericRegionOp<"pack_reconfig_l1_acc"> {
-    let summary = "Reconfigure packer L1 accumulation mode.";
+    let summary = "Reconfigure packer to L1 accumulation mode.";
     let description = [{
-      Configures the packer to accumulate the values it takes from DST with
-      the ones that are already in L1 at a given CB ID and tile index.
+      Configures the packer to accumulate when packing from DST to L1.
 
-      When `enable` is 1, the packer will add the DST contents to the existing
-      L1 values instead of overwriting them. When `enable` is 0, the packer
-      reverts to normal (overwrite) mode.
-
-      This op lowers to `pack_reconfig_l1_acc(enable)` in the compute kernel.
+      This op lowers to `PACK(pack_reconfig_l1_acc(enable))` in the compute kernel.
 
       Example IR:
       ```mlir

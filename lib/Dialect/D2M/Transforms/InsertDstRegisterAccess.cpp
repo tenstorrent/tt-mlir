@@ -365,6 +365,37 @@ public:
     return success(modified);
   }
 
+  // Insert a guarded pack_reconfig_l1_acc(1) enabling L1 accumulation
+  // starting from the second iteration of the reduction loop. First iteration
+  // packs normally, afterwards pack will accumulate into L1.
+  static void insertPackerL1AccGuard(PatternRewriter &rewriter, GenericOp gOp,
+                                     Location loc, AcquireDstOp acquireDst) {
+    // Find the outermost reduction dim post interchange. This is usually k.
+    auto iteratorTypes = gOp.getIteratorTypesValue();
+    int64_t reductionDim = -1;
+    for (int64_t i = 0; i < static_cast<int64_t>(iteratorTypes.size()); ++i) {
+      if (iteratorTypes[i] == ttcore::IteratorType::Reduction) {
+        reductionDim = i;
+        break;
+      }
+    }
+    assert(reductionDim >= 0 &&
+           "L1 accumulation requires a reduction dimension");
+
+    rewriter.setInsertionPointAfter(acquireDst);
+    Value iterIdx = rewriter.create<IterIndexOp>(loc, reductionDim);
+    Value one = rewriter.create<arith::ConstantOp>(
+        loc, rewriter.getIndexType(),
+        rewriter.getIntegerAttr(rewriter.getIndexType(), 1));
+    Value cond = rewriter.create<arith::CmpIOp>(loc, arith::CmpIPredicate::eq,
+                                                iterIdx, one);
+    auto ifOp = rewriter.create<scf::IfOp>(loc, cond);
+    rewriter.setInsertionPointToStart(&ifOp.getThenRegion().front());
+    Value enableFlag = rewriter.create<arith::ConstantOp>(
+        loc, rewriter.getI32Type(), rewriter.getI32IntegerAttr(1));
+    rewriter.create<PackReconfigL1AccOp>(loc, enableFlag);
+  }
+
   static bool
   insertDstRegisterAccess(PatternRewriter &rewriter, GenericOp gOp,
                           Region &region, unsigned dstCapacity,
@@ -398,10 +429,9 @@ public:
       return false;
     }
 
-    // When L1 accumulation mode is enabled, skip generating CB->DST reload
-    // copy loops. The packer hardware will accumulate partials directly in L1,
-    // so there is no need to reload from L1 to DST on subsequent iterations.
-    if (enablePackerL1Acc && !isScheduled) {
+    // When L1 accumulation mode is enabled, don't generate CB->DST reload
+    // loops.
+    if (enablePackerL1Acc) {
       for (auto &[op, info] : copyInfos) {
         info.loads.clear();
       }
@@ -426,26 +456,9 @@ public:
       dataCopyGenerate(rewriter, loc, dst, copyInfos);
     }
 
-    // 4. When L1 accumulation is enabled, insert a guarded
-    //    pack_reconfig_l1_acc(1) to enable L1 accumulation starting from the
-    //    second iteration of the reduction loop.
-    if (enablePackerL1Acc && !isScheduled) {
-      rewriter.setInsertionPointAfter(acquireDst);
-      // Guard: enable L1 accum on the second iteration (iter_index(0) == 1).
-      // On the first iteration, pack writes DST to L1 normally. From the
-      // second iteration onward, pack accumulates DST into L1.
-      Value iterIdx =
-          rewriter.create<IterIndexOp>(loc, static_cast<int64_t>(0));
-      Value one = rewriter.create<arith::ConstantOp>(
-          loc, rewriter.getIndexType(),
-          rewriter.getIntegerAttr(rewriter.getIndexType(), 1));
-      Value cond = rewriter.create<arith::CmpIOp>(loc, arith::CmpIPredicate::eq,
-                                                  iterIdx, one);
-      auto ifOp = rewriter.create<scf::IfOp>(loc, cond);
-      rewriter.setInsertionPointToStart(&ifOp.getThenRegion().front());
-      Value enableFlag = rewriter.create<arith::ConstantOp>(
-          loc, rewriter.getI32Type(), rewriter.getI32IntegerAttr(1));
-      rewriter.create<PackReconfigL1AccOp>(loc, enableFlag);
+    // 4. When L1 accum is enabled, insert a guarded packer reconfig.
+    if (enablePackerL1Acc) {
+      insertPackerL1AccGuard(rewriter, gOp, loc, acquireDst);
     }
 
     // 5. Fix the passing of intermediate results through the DST.

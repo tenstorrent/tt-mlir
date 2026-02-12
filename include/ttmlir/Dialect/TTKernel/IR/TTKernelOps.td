@@ -123,11 +123,9 @@ def TTKernel_PackTileOp : TTKernel_Op<"pack_tile"> {
 }
 
 def TTKernel_PackReconfigL1AccOp : TTKernel_Op<"pack_reconfig_l1_acc"> {
-    let summary = "Reconfigure packer L1 accumulation mode.";
+    let summary = "Reconfigure packer to L1 accumulation mode.";
     let description = [{
-      Helper function to reconfigure the packer L1 accumulation flag.
-      When l1_acc_en is 1, the packer accumulates the values from DST
-      with the existing values in L1. When 0, the packer overwrites.
+      Reconfigures the packer to accumulate when packing from DST to L1.
     }];
 
     let arguments = (ins I32:$l1_acc_en);
