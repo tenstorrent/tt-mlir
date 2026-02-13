@@ -2,50 +2,36 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Dialect/TTIR/Transforms/HoistCPUOps/HoistCPUOps.h"
+
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/FunctionTypes.h"
 #include "ttmlir/Support/IRHasher.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
-#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
-#include "mlir/IR/Location.h"
-#include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/Types.h"
 #include "mlir/IR/Value.h"
-#include "mlir/IR/ValueRange.h"
-#include "mlir/Transforms/DialectConversion.h"
-#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/ADT/STLExtras.h"
-#include "llvm/ADT/SmallSet.h"
-#include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/Casting.h"
 
 #include <optional>
 
-#ifdef TTMLIR_ENABLE_STABLEHLO
-#include "stablehlo/dialect/StablehloOps.h"
-#endif
-
 namespace mlir::tt::ttir {
-#define GEN_PASS_DEF_CPUHOISTTRANSFORM
-#include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
 
 //===----------------------------------------------------------------------===//
-// Hoist CPU ops to standalone funcs pass
+// Helper functions
 //===----------------------------------------------------------------------===//
 
 namespace {
-using OpsVectorType = llvm::SmallVector<mlir::Operation *>;
-using ValuesVectorType = llvm::SmallVector<mlir::Value>;
-using TypesVectorType = llvm::SmallVector<mlir::Type>;
 
 // Helper function to get ranks of tensor values.
 // Used to populate attrs needed for tensor packing/unpacking operations.
@@ -252,23 +238,6 @@ convertResultsBackToOriginalTypes(mlir::OpBuilder &opBuilder,
     }
   }
 }
-
-// Descriptor for the set of operations which are to be CPU-hoisted.
-struct CPUHoistedOpsDescriptor {
-  // Vector of operations to be hoisted.
-  OpsVectorType operations;
-  // Values representing the outputs of the hoisted operations.
-  ValuesVectorType outputValues;
-  // Suffix for the hoisted function name (appears after "cpu_hoisted_",
-  // and before the implementation hash).
-  llvm::SmallString<64> funcNameSuffix;
-
-  CPUHoistedOpsDescriptor(const OpsVectorType &ops,
-                          const ValuesVectorType &outputs,
-                          llvm::SmallString<64> suffix)
-      : operations(ops), outputValues(outputs),
-        funcNameSuffix(std::move(suffix)) {}
-};
 
 // Helper function to drop sign information from integer tensor types,
 // used inside CPU-hoisted function definitions. The sign information is NOT
@@ -490,7 +459,12 @@ static void hoistOperationsToFunction(CPUHoistedOpsDescriptor &descriptor,
   const ValuesVectorType inputArguments =
       collectInputArguments(descriptor.operations);
 
-  mlir::OpBuilder opBuilder(descriptor.operations.front());
+  // Place the ToLayout conversion ops and the call right after the last
+  // hoisted op. All inputs are guaranteed to be available at this point
+  // (SSA dominance), and the hoisted ops will be erased afterwards.
+  mlir::OpBuilder opBuilder(descriptor.operations.back()->getContext());
+  opBuilder.setInsertionPointAfter(descriptor.operations.back());
+
   const ValuesVectorType convertedInputArguments =
       performInputArgumentsConversion(opBuilder, inputArguments);
 
@@ -534,8 +508,6 @@ static void hoistOperationsToFunction(CPUHoistedOpsDescriptor &descriptor,
   }
 
   // Create the call using already converted inputs.
-  opBuilder.setInsertionPointAfter(descriptor.operations.back());
-
   auto callOp = opBuilder.create<mlir::func::CallOp>(
       deviceModule->getLoc(), funcDeclaration, convertedInputArguments);
 
@@ -552,45 +524,35 @@ static void hoistOperationsToFunction(CPUHoistedOpsDescriptor &descriptor,
     opToErase->erase();
   }
 }
+
 } // namespace
 
-/*
-====================================================================
--------------------- CPU Hoisting Analyzers ------------------------
-====================================================================
-*/
+//===----------------------------------------------------------------------===//
+// Shared public functions
+//===----------------------------------------------------------------------===//
 
-namespace {
-// Predicate type for determining sets of ops to hoist in the provided function.
-// Returns a vector of descriptors, one for each set of ops to hoist.
-//
-// TODO(dmilinkovic): Currently, the implementation limits the user to hoisting
-// ops inside a single function; we should consider allowing cross-function
-// CPU-hoisting in the future - issue #6097.
-using CPUHoistAnalyzerType =
-    std::function<llvm::SmallVector<CPUHoistedOpsDescriptor>(func::FuncOp)>;
+llvm::SmallVector<CPUHoistedOpsDescriptor> createDescriptorsWithPredicate(
+    func::FuncOp funcOp,
+    llvm::function_ref<bool(mlir::Operation *)> predicate) {
+  llvm::SmallVector<CPUHoistedOpsDescriptor> hoistedOpsDescriptors;
+  funcOp.walk([&](mlir::Operation *nestedOp) {
+    if (predicate(nestedOp)) {
+      OpsVectorType operations{nestedOp};
+      ValuesVectorType outputValues{nestedOp->getResults().begin(),
+                                    nestedOp->getResults().end()};
 
-// Predicate type for determining whether an op should be hoisted in an op-by-op
-// CPU hoisting analyzer.
-using ShouldHoistOpType = std::function<bool(mlir::Operation *)>;
+      // Using the op name as the CPU-hoisted function's suffix.
+      hoistedOpsDescriptors.emplace_back(
+          operations, outputValues,
+          nestedOp->getName().getIdentifier().getValue());
+    }
+  });
+  return hoistedOpsDescriptors;
+}
 
-/*
-====================================================================
------------------- Single op CPU-hoisting analyzer -----------------
-====================================================================
-*/
-
-// HoistAnalyzer which hoists single ops based on a provided predicate.
-CPUHoistAnalyzerType singleOpHoistAnalyzer(ShouldHoistOpType predicate) {
-  return [predicate](func::FuncOp funcOp) {
-    llvm::SmallVector<CPUHoistedOpsDescriptor> hoistedOpsDescriptors;
-    // Hoisting individual ops based on the predicate.
-    funcOp.walk([&](mlir::Operation *nestedOp) {
-      if (predicate(nestedOp)) {
-        OpsVectorType operations{nestedOp};
-        ValuesVectorType outputValues{nestedOp->getResults().begin(),
-                                      nestedOp->getResults().end()};
-
+mlir::ModuleOp getDeviceInnerModule(mlir::ModuleOp rootModule) {
+  TT_assertv(rootModule->getParentOp() == nullptr,
+             "getDeviceInnerModule must be called on the root ModuleOp.");
         // Using the op name as the CPU-hoisted function's suffix.
         hoistedOpsDescriptors.emplace_back(
             operations, outputValues,
@@ -756,126 +718,65 @@ public:
       return;
     }
 
-    ttcore::DeviceModuleOp deviceModule;
-    for (Operation &op : rootModule.getBodyRegion().front()) {
-      if (auto maybeDeviceModule = dyn_cast<ttcore::DeviceModuleOp>(op)) {
-        deviceModule = maybeDeviceModule;
-        break;
-      }
-    }
-    TT_assertv(deviceModule,
-               "Must run tt::WrapDeviceModulePass on IR before hoisting.");
-
-    ModuleOp deviceInnerModule = dyn_cast_if_present<mlir::ModuleOp>(
-        deviceModule.getBodyRegion().front().front());
-    TT_assertv(deviceInnerModule,
-               "ttcore::DeviceModuleOp must have single ModuleOp child.");
-
-    IRRewriter rewriter(&getContext());
-
-    auto loc = rootModule->getLoc();
-
-    // Collect hoisted ops descriptors by iterating over all functions.
-    llvm::SmallVector<CPUHoistedOpsDescriptor> hoistedOpsDescriptors;
-    deviceInnerModule.walk([&](func::FuncOp funcOp) {
-      auto descriptors = analyzer(funcOp);
-      for (auto &descriptor : descriptors) {
-        hoistedOpsDescriptors.push_back(std::move(descriptor));
-      }
-    });
-
-    // We don't want to create a CPUModuleOp etc. if we aren't hoisting any
-    // ops.
-    if (hoistedOpsDescriptors.empty()) {
-      return;
-    }
-
-    // Check if a "cpu_module" already exists.
-    ttcore::CPUModuleOp cpuModule;
-    mlir::ModuleOp cpuInnerModule;
-    for (auto &op : rootModule.getBody()->getOperations()) {
-      if (auto module = llvm::dyn_cast<ttcore::CPUModuleOp>(op)) {
-        cpuModule = module;
-        cpuInnerModule = dyn_cast_if_present<mlir::ModuleOp>(
-            cpuModule.getBodyRegion().front().front());
-        TT_assertv(cpuInnerModule, "CPUModuleOp must contain 1 ModuleOp.");
-        break;
-      }
-    }
-
-    // If no CPU module exists, create one.
-    if (!cpuModule) {
-      rewriter.setInsertionPointToEnd(rootModule.getBody());
-      cpuModule = rewriter.create<ttcore::CPUModuleOp>(loc);
-      rewriter.setInsertionPointToStart(&cpuModule.getBodyRegion().front());
-      cpuInnerModule = rewriter.create<mlir::ModuleOp>(loc);
-    }
-
-    // Hoist each set of ops into a new function in the CPU module.
-    for (auto &descriptor : hoistedOpsDescriptors) {
-      hoistOperationsToFunction(descriptor, deviceInnerModule, cpuInnerModule);
+  ttcore::DeviceModuleOp deviceModule;
+  for (Operation &op : rootModule.getBodyRegion().front()) {
+    if (auto maybeDeviceModule = dyn_cast<ttcore::DeviceModuleOp>(op)) {
+      deviceModule = maybeDeviceModule;
+      break;
     }
   }
 
-private:
-  CPUHoistAnalyzerType analyzer;
-};
-} // namespace
+  if (!deviceModule) {
+    return nullptr;
+  }
 
-template <typename... Dialects>
-std::unique_ptr<mlir::Pass> createCPUHoistForDialectsTransform() {
-  const auto customPredicate = [](mlir::Operation *op) {
-    return ((op->getDialect()->getTypeID() == TypeID::get<Dialects>()) || ...);
-  };
-  CPUHoistAnalyzerType analyzer = singleOpHoistAnalyzer(customPredicate);
-  auto pass = std::make_unique<CPUHoistTransform>(analyzer);
-  return pass;
+  ModuleOp deviceInnerModule = dyn_cast_if_present<mlir::ModuleOp>(
+      deviceModule.getBodyRegion().front().front());
+  TT_assertv(deviceInnerModule,
+             "ttcore::DeviceModuleOp must have single ModuleOp child.");
+
+  return deviceInnerModule;
 }
 
-template <typename... Ops>
-std::unique_ptr<mlir::Pass> createCPUHoistForOpsTransform() {
-  const auto customPredicate = [](mlir::Operation *op) {
-    return llvm::isa<Ops...>(op);
-  };
-  CPUHoistAnalyzerType analyzer = singleOpHoistAnalyzer(customPredicate);
-  auto pass = std::make_unique<CPUHoistTransform>(analyzer);
-  return pass;
+void runCPUHoist(mlir::ModuleOp rootModule,
+                 llvm::SmallVector<CPUHoistedOpsDescriptor> descriptors) {
+  if (descriptors.empty()) {
+    return;
+  }
+
+  ModuleOp deviceInnerModule = getDeviceInnerModule(rootModule);
+  TT_assertv(deviceInnerModule,
+             "Must run tt::WrapDeviceModulePass on IR before hoisting.");
+
+  IRRewriter rewriter(rootModule->getContext());
+
+  auto loc = rootModule->getLoc();
+
+  // Check if a "cpu_module" already exists.
+  ttcore::CPUModuleOp cpuModule;
+  mlir::ModuleOp cpuInnerModule;
+  for (auto &op : rootModule.getBody()->getOperations()) {
+    if (auto module = llvm::dyn_cast<ttcore::CPUModuleOp>(op)) {
+      cpuModule = module;
+      cpuInnerModule = dyn_cast_if_present<mlir::ModuleOp>(
+          cpuModule.getBodyRegion().front().front());
+      TT_assertv(cpuInnerModule, "CPUModuleOp must contain 1 ModuleOp.");
+      break;
+    }
+  }
+
+  // If no CPU module exists, create one.
+  if (!cpuModule) {
+    rewriter.setInsertionPointToEnd(rootModule.getBody());
+    cpuModule = rewriter.create<ttcore::CPUModuleOp>(loc);
+    rewriter.setInsertionPointToStart(&cpuModule.getBodyRegion().front());
+    cpuInnerModule = rewriter.create<mlir::ModuleOp>(loc);
+  }
+
+  // Hoist each set of ops into a new function in the CPU module.
+  for (auto &descriptor : descriptors) {
+    hoistOperationsToFunction(descriptor, deviceInnerModule, cpuInnerModule);
+  }
 }
-
-std::unique_ptr<mlir::Pass> createCPUHoistConstEvalTransform() {
-  CPUHoistAnalyzerType analyzer = constEvalHoistAnalyzer();
-  auto pass = std::make_unique<CPUHoistTransform>(analyzer);
-  return pass;
-}
-
-std::unique_ptr<mlir::Pass> createCPUHoistManuallyTaggedOpsTransform() {
-  const auto customPredicate = [](mlir::Operation *op) {
-    return op->hasAttr(ttir::ShouldHoistAttr::name);
-  };
-  CPUHoistAnalyzerType analyzer = singleOpHoistAnalyzer(customPredicate);
-  auto pass = std::make_unique<CPUHoistTransform>(analyzer);
-  return pass;
-}
-
-std::unique_ptr<mlir::Pass>
-createSingleOpCPUHoistTransform(ShouldHoistOpType predicate) {
-  CPUHoistAnalyzerType analyzer = singleOpHoistAnalyzer(predicate);
-  auto pass = std::make_unique<CPUHoistTransform>(analyzer);
-  return pass;
-}
-
-// Must explicitly instantiate any dialects and ops we want this pass to
-// potentially fallback elsewhere due to template in .cpp file constraints.
-#ifdef TTMLIR_ENABLE_STABLEHLO
-template std::unique_ptr<mlir::Pass>
-createCPUHoistForDialectsTransform<mlir::stablehlo::StablehloDialect>();
-
-template std::unique_ptr<mlir::Pass>
-createCPUHoistForOpsTransform<stablehlo::DynamicUpdateSliceOp,
-                              stablehlo::EinsumOp>();
-
-#endif
-template std::unique_ptr<mlir::Pass>
-createCPUHoistForDialectsTransform<TTIRDialect>();
 
 } // namespace mlir::tt::ttir

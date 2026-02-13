@@ -271,7 +271,7 @@ void createTTIRToTTMetalPipeline(OpPassManager &pm,
   pm.addPass(ttcore::createTTCoreWrapDeviceModulePass());
 
   // Hoist manually-tagged ops to CPU module.
-  pm.addPass(ttir::createCPUHoistManuallyTaggedOpsTransform());
+  pm.addPass(ttir::createCPUHoistManuallyTaggedTransform());
 
   OpPassManager &devicePm =
       pm.nest<ttcore::DeviceModuleOp>().nest<mlir::ModuleOp>();
