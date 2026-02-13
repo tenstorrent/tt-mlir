@@ -10,6 +10,7 @@ from ttmlir.ir import (
     InsertionPoint,
     Location,
     RankedTensorType,
+    StringAttr,
     F32Type,
     F64Type,
     IntegerType,
@@ -23,6 +24,7 @@ from ttnn_jit._src.supported_ops import (
     unary_ops,
     binary_ops,
     reduction_ops,
+    tm_ops,
     get_ttir_name,
     TTIR_NAME_MAP,
 )
@@ -30,6 +32,17 @@ from ttnn_jit._src.tensor_translator import (
     create_default_dram_interleaved_layout,
     create_output_tensor,
 )
+
+"""
+Set this to True to create encoding for intermediate tensors (and the final output tensor), False otherwise.
+Encodings are created based on the following logic:
+1. For Unary and Binary operations, the encoding is the same as the first input operand.
+2. For Matmul operation, the encoding is L1 Block Sharded layout.
+3. For all other operations named hereafter, the encoding is a default DRAM interleaved layout:
+   - Reductions (Sum, Mean, Max, Min)
+   - TMs (Permute, Transpose, Reshape)
+"""
+CREATE_INTERMEDIATE_LAYOUT = True
 
 
 class ResultWrapper:
@@ -178,6 +191,18 @@ class BaseOpHandler(ABC):
 
             return ttir.full(output_type, shape_attr, fill_value_attr)
 
+    def _default_dram_interleaved_layout(self, element_type, new_shape):
+        """
+        Create a default DRAM interleaved layout for a given shape.
+        """
+        return (
+            create_default_dram_interleaved_layout(
+                self.jit_ctx.ctx, new_shape, element_type
+            )
+            if CREATE_INTERMEDIATE_LAYOUT
+            else None
+        )
+
     @abstractmethod
     def create_operation(self, *args, **kwargs):
         """Create the MLIR operation. Must be implemented by subclasses."""
@@ -195,7 +220,7 @@ class UnaryOpHandler(BaseOpHandler):
 
     def _infer_output_layout(self, operand):
         """Infer output layout for unary ops - preserves input encoding."""
-        return operand.type.encoding
+        return operand.type.encoding if CREATE_INTERMEDIATE_LAYOUT else None
 
     def _infer_result_type(self, operand):
         """Infer result type from operand, preserving encoding (layout unchanged)."""
@@ -243,7 +268,7 @@ class BinaryOpHandler(BaseOpHandler):
 
     def _infer_output_layout(self, operand0, operand1):
         """Infer output layout for binary ops - preserves first operand's encoding."""
-        return operand0.type.encoding
+        return operand0.type.encoding if CREATE_INTERMEDIATE_LAYOUT else None
 
     def _infer_result_type(self, operand0, operand1):
         """Infer result type from operands, preserving encoding from first operand."""
@@ -336,26 +361,13 @@ class ReductionOpHandler(BaseOpHandler):
             new_shape = [s for i, s in enumerate(original_shape) if i not in dim_arg]
             return new_shape  # Can be empty if all dims removed
 
-    def _infer_output_layout(self, element_type, new_shape):
-        """
-        Infer output layout for reductions - creates a default layout.
-
-        For scalar results (empty shape), still creates a valid layout using
-        a [1, 1] logical shape internally.
-        """
-        # create_default_dram_interleaved_layout handles empty shapes via _get_logical_tensor_shape
-        # which converts [] -> [1, 1] for layout purposes
-        return create_default_dram_interleaved_layout(
-            self.jit_ctx.ctx, new_shape, element_type
-        )
-
     def _infer_result_type(self, operand, dim_arg, keep_dim):
         """Infer result type based on reduction parameters with default layout."""
         operand_type = operand.type
         element_type = operand_type.element_type
 
         new_shape = self._infer_output_shape(operand_type, dim_arg, keep_dim)
-        encoding = self._infer_output_layout(element_type, new_shape)
+        encoding = self._default_dram_interleaved_layout(element_type, new_shape)
 
         with Location.unknown(self.jit_ctx.ctx):
             # For scalar results, new_shape is [] which creates a 0D tensor
@@ -395,7 +407,9 @@ class MatmulOpHandler(BaseOpHandler):
     def _infer_result_type(self, lhs_type, rhs_type):
         """Infer result type for matmul using create_output_tensor."""
         # Use create_output_tensor which handles matmul output layout inference
-        return create_output_tensor(self.jit_ctx.ctx, "matmul", [lhs_type, rhs_type])
+        return create_output_tensor(
+            self.jit_ctx.ctx, "matmul", [lhs_type, rhs_type], CREATE_INTERMEDIATE_LAYOUT
+        )
 
     def create_operation(self, *args, **kwargs):
         """Create matmul operation."""
@@ -420,6 +434,392 @@ class MatmulOpHandler(BaseOpHandler):
                 b=rhs,
                 transpose_a=transpose_a,
                 transpose_b=transpose_b,
+            )
+
+        return self._finalize_result(op_result, args)
+
+
+class PermuteOpHandler(BaseOpHandler):
+    """Handler for permute operation."""
+
+    def _apply_permutation(self, shape, permutation):
+        """
+        Apply permutation to shape to get output shape.
+
+        For permute, output_shape[i] = input_shape[permutation[i]]
+        Example: input shape [2, 3, 4], permutation [2, 0, 1] -> output shape [4, 2, 3]
+        """
+        return [shape[p] for p in permutation]
+
+    def _infer_result_type(self, operand, permutation):
+        """Infer result type based on permutation."""
+        operand_type = operand.type
+        element_type = operand_type.element_type
+        input_shape = list(operand_type.shape)
+
+        output_shape = self._apply_permutation(input_shape, permutation)
+        encoding = self._default_dram_interleaved_layout(element_type, output_shape)
+
+        with Location.unknown(self.jit_ctx.ctx):
+            return RankedTensorType.get(output_shape, element_type, encoding)
+
+    def create_operation(self, *args, **kwargs):
+        """Create permute operation."""
+        if len(args) < 1:
+            raise ValueError("permute requires at least 1 argument (input tensor)")
+
+        operands = self._get_operands(args)
+        operand = operands[0]
+
+        # Extract permutation from kwargs
+        permutation = kwargs.get("permutation", None)
+        if permutation is None:
+            raise ValueError("permute requires 'permutation' keyword argument")
+
+        # Validate permutation - only check what's needed to prevent Python crash.
+        # Semantic validation (length, uniqueness) is handled by MLIR verify().
+        input_rank = len(operand.type.shape)
+        if any(p >= input_rank for p in permutation):
+            raise ValueError(
+                f"Permutation contains out-of-bounds index for tensor with rank {input_rank}"
+            )
+
+        # Infer result type
+        result_type = self._infer_result_type(operand, permutation)
+
+        # Create the operation
+        with InsertionPoint(self.jit_ctx.func_bb), Location.unknown(self.jit_ctx.ctx):
+            op_result = ttir.permute(
+                result=result_type,
+                input=operand,
+                permutation=permutation,
+            )
+
+        return self._finalize_result(op_result, args)
+
+
+class TransposeOpHandler(BaseOpHandler):
+    """Handler for transpose operation - swaps two dimensions of a tensor."""
+
+    def _swap_dimensions(self, shape, dim0, dim1):
+        """
+        Swap two dimensions in shape to get output shape.
+
+        For transpose, output_shape is the same as input_shape except
+        dimensions at dim0 and dim1 are swapped.
+        Example: input shape [2, 3, 4], dim0=0, dim1=2 -> output shape [4, 3, 2]
+        """
+
+        output_shape = list(shape)
+        output_shape[dim0], output_shape[dim1] = output_shape[dim1], output_shape[dim0]
+        return output_shape
+
+    def _normalize_dim(self, dim, rank):
+        """Normalize negative dimension index to positive."""
+        if dim < 0:
+            dim = rank + dim
+        return dim
+
+    def _infer_result_type(self, operand, dim0, dim1):
+        """Infer result type based on dimensions to swap."""
+        operand_type = operand.type
+        element_type = operand_type.element_type
+        input_shape = list(operand_type.shape)
+        rank = len(input_shape)
+
+        # Normalize negative dimensions
+        dim0 = self._normalize_dim(dim0, rank)
+        dim1 = self._normalize_dim(dim1, rank)
+
+        output_shape = self._swap_dimensions(input_shape, dim0, dim1)
+        encoding = self._default_dram_interleaved_layout(element_type, output_shape)
+
+        with Location.unknown(self.jit_ctx.ctx):
+            return RankedTensorType.get(output_shape, element_type, encoding)
+
+    def create_operation(self, *args, **kwargs):
+        """Create transpose operation."""
+        if len(args) < 1:
+            raise ValueError("transpose requires at least 1 argument (input tensor)")
+
+        operands = self._get_operands(args)
+        operand = operands[0]
+
+        # Extract dim0 and dim1 from kwargs (default to swapping first two dims)
+        dim0 = kwargs.get("dim0", 0)
+        dim1 = kwargs.get("dim1", 1)
+
+        # Validate dimensions - needed to prevent Python IndexError in _swap_dimensions.
+        # Semantic validation is also done by MLIR verify().
+        input_rank = len(operand.type.shape)
+        norm_dim0 = self._normalize_dim(dim0, input_rank)
+        norm_dim1 = self._normalize_dim(dim1, input_rank)
+
+        if not (0 <= norm_dim0 < input_rank) or not (0 <= norm_dim1 < input_rank):
+            raise ValueError(
+                f"Dimension out of range for tensor with rank {input_rank}"
+            )
+
+        # Infer result type
+        result_type = self._infer_result_type(operand, dim0, dim1)
+
+        # Create the operation
+        with InsertionPoint(self.jit_ctx.func_bb), Location.unknown(self.jit_ctx.ctx):
+            op_result = ttir.transpose(
+                result=result_type,
+                input=operand,
+                dim0=dim0,
+                dim1=dim1,
+            )
+
+        return self._finalize_result(op_result, args)
+
+
+class ReshapeOpHandler(BaseOpHandler):
+    """Handler for reshape operation - changes tensor shape while preserving element count."""
+
+    def _resolve_reshape(self, input_shape, new_shape):
+        """
+        Resolve -1 in new_shape if present.
+
+        This is needed because MLIR tensor types require concrete dimensions.
+        Element count validation is delegated to MLIR verify().
+
+        Returns the resolved new_shape with -1 replaced if present.
+        """
+        # Check for -1 in new_shape (infer dimension)
+        infer_idx = None
+        for i, dim in enumerate(new_shape):
+            if dim == -1:
+                if infer_idx is not None:
+                    raise ValueError("Only one dimension can be -1 in reshape")
+                infer_idx = i
+            elif dim <= 0:
+                raise ValueError(f"Invalid dimension {dim} in reshape shape")
+
+        if infer_idx is not None:
+            # Infer the -1 dimension - needed to build result type
+            input_elements = 1
+            for dim in input_shape:
+                input_elements *= dim
+
+            known_elements = 1
+            for i, dim in enumerate(new_shape):
+                if i != infer_idx:
+                    known_elements *= dim
+
+            if input_elements % known_elements != 0:
+                raise ValueError(
+                    f"Cannot infer dimension: {input_elements} elements "
+                    f"not divisible by {known_elements}"
+                )
+            inferred_dim = input_elements // known_elements
+            new_shape = list(new_shape)
+            new_shape[infer_idx] = inferred_dim
+
+        # Element count validation is handled by ReshapeOp::verify()
+        return list(new_shape)
+
+    def _infer_result_type(self, operand, new_shape):
+        """Infer result type based on new shape."""
+        operand_type = operand.type
+        element_type = operand_type.element_type
+        input_shape = list(operand_type.shape)
+
+        output_shape = self._resolve_reshape(input_shape, new_shape)
+        encoding = self._default_dram_interleaved_layout(element_type, output_shape)
+
+        with Location.unknown(self.jit_ctx.ctx):
+            return RankedTensorType.get(output_shape, element_type, encoding)
+
+    def create_operation(self, *args, **kwargs):
+        """Create reshape operation."""
+        if len(args) < 1:
+            raise ValueError("reshape requires at least 1 argument (input tensor)")
+
+        operands = self._get_operands(args)
+        operand = operands[0]
+
+        # Extract shape from kwargs or second positional arg
+        new_shape = kwargs.get("shape", None)
+        if new_shape is None and len(args) >= 2:
+            new_shape = args[1]
+        if new_shape is None:
+            raise ValueError("reshape requires 'shape' argument")
+
+        # Convert to list if tuple
+        new_shape = list(new_shape)
+
+        # Infer result type (validates reshape)
+        result_type = self._infer_result_type(operand, new_shape)
+
+        # Resolve -1 dimensions for the attribute
+        input_shape = list(operand.type.shape)
+        resolved_shape = self._resolve_reshape(input_shape, new_shape)
+
+        # Create the operation
+        with InsertionPoint(self.jit_ctx.func_bb), Location.unknown(self.jit_ctx.ctx):
+            op_result = ttir.reshape(
+                result=result_type,
+                input=operand,
+                shape=resolved_shape,
+            )
+
+        return self._finalize_result(op_result, args)
+
+
+class RearrangeOpHandler(BaseOpHandler):
+    """Handler for rearrange operation - uses einops-style pattern to rearrange tensor dimensions."""
+
+    def _parse_dims(self, pattern):
+        """
+        Parse dimension names from a pattern string.
+
+        Returns a list of lists, where each inner list represents a group of dimensions.
+        Single dimensions are in groups of size 1, merged dimensions (in parentheses)
+        are in groups of size > 1.
+
+        Examples:
+        - "b h w c" -> [["b"], ["h"], ["w"], ["c"]]
+        - "b c (h w)" -> [["b"], ["c"], ["h", "w"]]
+        - "(b h) w c" -> [["b", "h"], ["w"], ["c"]]
+        """
+        result = []
+        current_group = []
+        in_parens = False
+        i = 0
+
+        while i < len(pattern):
+            c = pattern[i]
+
+            if c == "(":
+                in_parens = True
+                i += 1
+                continue
+
+            if c == ")":
+                if current_group:
+                    result.append(current_group)
+                    current_group = []
+                in_parens = False
+                i += 1
+                continue
+
+            if c == " " and not in_parens and current_group:
+                result.append(current_group)
+                current_group = []
+                i += 1
+                continue
+
+            if c == " ":
+                i += 1
+                continue
+
+            # Parse dimension name
+            start = i
+            while i < len(pattern) and pattern[i] not in " ()":
+                i += 1
+
+            if i > start:
+                current_group.append(pattern[start:i])
+
+        if current_group:
+            result.append(current_group)
+
+        return result
+
+    def _compute_output_shape(self, input_shape, pattern):
+        """
+        Compute output shape based on einops-style pattern.
+
+        The pattern is of the form "input_pattern -> output_pattern" where:
+        - Input pattern names the input dimensions
+        - Output pattern describes how to rearrange them
+
+        For merging (parentheses in output): dimensions are multiplied
+        For reordering: dimensions are permuted
+
+        Note: Splitting dimensions (parentheses in input) is currently unsupported.
+        """
+        # Split pattern into input and output parts
+        parts = pattern.split("->")
+        if len(parts) != 2:
+            raise ValueError("Pattern must contain exactly one '->' separator")
+
+        input_pattern = parts[0].strip()
+        output_pattern = parts[1].strip()
+
+        # Parse input dims to build dimension name -> size mapping
+        input_dims = self._parse_dims(input_pattern)
+
+        # Build map from dimension name to its size
+        dim_to_size = {}
+        for pos, group in enumerate(input_dims):
+            if len(group) > 1:
+                # Splitting (parentheses in input) is unsupported
+                raise ValueError(
+                    "Splitting dimensions (parentheses in input pattern) is not supported #6339"
+                )
+            if pos >= len(input_shape):
+                raise ValueError(
+                    f"Pattern has more input dimensions than tensor rank "
+                    f"(pattern has {len(input_dims)}, tensor has {len(input_shape)})"
+                )
+            dim_name = group[0]
+            dim_to_size[dim_name] = input_shape[pos]
+
+        # Parse output dims and compute output shape
+        output_dims = self._parse_dims(output_pattern)
+        output_shape = []
+
+        for group in output_dims:
+            # Compute size for this output dimension (multiply if merged)
+            dim_size = 1
+            for dim_name in group:
+                if dim_name not in dim_to_size:
+                    raise ValueError(
+                        f"Unknown dimension '{dim_name}' in output pattern"
+                    )
+                dim_size *= dim_to_size[dim_name]
+            output_shape.append(dim_size)
+
+        return output_shape
+
+    def _infer_result_type(self, operand, pattern):
+        """Infer result type based on pattern."""
+        operand_type = operand.type
+        element_type = operand_type.element_type
+        input_shape = list(operand_type.shape)
+
+        output_shape = self._compute_output_shape(input_shape, pattern)
+        encoding = self._default_dram_interleaved_layout(element_type, output_shape)
+
+        with Location.unknown(self.jit_ctx.ctx):
+            return RankedTensorType.get(output_shape, element_type, encoding)
+
+    def create_operation(self, *args, **kwargs):
+        """Create rearrange operation."""
+        if len(args) < 1:
+            raise ValueError("rearrange requires at least 1 argument (input tensor)")
+
+        operands = self._get_operands(args)
+        operand = operands[0]
+
+        # Extract pattern from kwargs
+        pattern = kwargs.get("pattern", None)
+        if pattern is None:
+            raise ValueError("rearrange requires 'pattern' keyword argument")
+
+        # Infer result type (validates pattern)
+        result_type = self._infer_result_type(operand, pattern)
+
+        # Create the operation - pattern must be a StringAttr
+        with InsertionPoint(self.jit_ctx.func_bb), Location.unknown(self.jit_ctx.ctx):
+            pattern_attr = StringAttr.get(pattern)
+            op_result = ttir.rearrange(
+                result=result_type,
+                input=operand,
+                pattern=pattern_attr,
             )
 
         return self._finalize_result(op_result, args)
@@ -478,6 +878,19 @@ class TTNNJitNamespaceUpdater:
         ######################## Matmul operation ########################
         self._matmul_handler = MatmulOpHandler(jit_ctx)
         self.matmul = partial(self._call_handler, self._matmul_handler)
+
+        ######################## TM (Tensor Manipulation) operations ########################
+        self._permute_handler = PermuteOpHandler(jit_ctx)
+        self.permute = partial(self._call_handler, self._permute_handler)
+
+        self._transpose_handler = TransposeOpHandler(jit_ctx)
+        self.transpose = partial(self._call_handler, self._transpose_handler)
+
+        self._reshape_handler = ReshapeOpHandler(jit_ctx)
+        self.reshape = partial(self._call_handler, self._reshape_handler)
+
+        self._rearrange_handler = RearrangeOpHandler(jit_ctx)
+        self.rearrange = partial(self._call_handler, self._rearrange_handler)
 
     def _call_handler(self, handler, *args, **kwargs):
         """Call the handler's create_operation method."""

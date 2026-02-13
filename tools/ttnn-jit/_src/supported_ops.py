@@ -79,8 +79,17 @@ reduction_ops = [
     "min",
 ]
 
+# Tensor manipulation (TM) operations - operations that change tensor shape/layout
+# These operations reorder or reshape tensor data without performing computation
+tm_ops = [
+    "permute",
+    "transpose",
+    "reshape",
+    "rearrange",
+]
+
 # All supported operations (excluding composite ops that need expansion)
-all_ops = set(unary_ops + binary_ops + reduction_ops)
+all_ops = set(unary_ops + binary_ops + reduction_ops + tm_ops)
 
 
 def is_supported(op_name: str) -> bool:
@@ -96,5 +105,7 @@ def get_op_category(op_name: str) -> str:
         return "binary"
     elif op_name in reduction_ops:
         return "reduction"
+    elif op_name in tm_ops:
+        return "tm"
     else:
         return "unsupported"
