@@ -94,7 +94,10 @@ private:
       auto memrefType = mlir::cast<MemRefType>(allocOp.getResult().getType());
       allocations.push_back({allocOp, static_cast<int64_t>(allocOp.getSlot()),
                              getNumElements(memrefType),
-                             /*elementOffset=*/0});
+                             /*elementOffset=*/0,
+                             /*startPosition=*/-1,
+                             /*endPosition=*/-1,
+                             /*conflicts=*/{}});
     });
 
     if (allocations.empty()) {
