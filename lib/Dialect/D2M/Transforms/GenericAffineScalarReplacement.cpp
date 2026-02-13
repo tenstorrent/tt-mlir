@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "GenericAffineUtils.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 
 #include "mlir/Analysis/AliasAnalysis.h"
@@ -414,10 +415,17 @@ public:
       // Move remote_load into direct style so scalrep can forward through SSA.
       convertRemoteLoadToDirectStyle(funcOp);
 
+      // Bridge d2m.block_offset into tagged constants for affine utility
+      // compatibility during scalar replacement.
+      convertBlockOffsetsToTaggedConstants(funcOp.getOperation());
+
       // Run the core affine scalar replacement transform.
       auto &postDomInfo = getAnalysis<PostDominanceInfo>();
       auto &aliasAnalysis = getAnalysis<AliasAnalysis>();
       affine::affineScalarReplace(funcOp, domInfo, postDomInfo, aliasAnalysis);
+
+      // Restore canonical d2m.block_offset form after affine utility work.
+      restoreTaggedConstantsToBlockOffsets(funcOp.getOperation());
 
       // Restore remote_load back to destination-passing style.
       convertRemoteLoadToDPSStyle(funcOp);

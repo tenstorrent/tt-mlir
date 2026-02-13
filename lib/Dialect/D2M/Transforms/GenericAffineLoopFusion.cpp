@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "GenericAffineUtils.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MTraits.h"
@@ -308,6 +309,10 @@ static bool runAffineLoopFusion(GenericOp fusedOp,
   affine::AffineForOp clonedConsumerLoop =
       mlir::cast<affine::AffineForOp>(builder.clone(*consumerLoop, irMap));
 
+  // Bridge d2m.block_offset into affine-compatible tagged constants for the
+  // duration of affine fusion utility analysis/transformation.
+  convertBlockOffsetsToTaggedConstants(fusedOp.getOperation());
+
   // Treat the deeper nest as fusion source and fuse into the shallower depth.
   bool isProducerSrc = (producerDepth >= consumerDepth);
   affine::AffineForOp srcLoop =
@@ -329,6 +334,9 @@ static bool runAffineLoopFusion(GenericOp fusedOp,
   affine::fuseLoops(srcLoop, dstLoop, srcSlice,
                     /*isInnermostSiblingInsertion=*/false);
   srcLoop->erase();
+
+  // Reconstruct valid d2m.generic form after affine utilities are done.
+  restoreTaggedConstantsToBlockOffsets(fusedOp.getOperation());
 
   return true;
 }

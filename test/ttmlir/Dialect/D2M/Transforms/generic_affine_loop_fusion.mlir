@@ -1,4 +1,3 @@
-// UNSUPPORTED: true
 // RUN: ttmlir-opt --ttcore-register-device --d2m-generic-affine-loop-fusion="enable=true" %s | FileCheck %s
 
 #l1_ = #ttcore.memory_space<l1>
@@ -18,11 +17,13 @@
 // CHECK-LABEL: func.func @test_basic_fusion
 // CHECK: d2m.generic
 // CHECK-SAME: d2m.affine_fused
+// CHECK: d2m.block_offset
 // Verify producer ops (load from dram stream) precede consumer ops in fused body.
 // CHECK: d2m.remote_load{{.*}}#dram
 // CHECK: d2m.remote_store
 // CHECK: d2m.remote_load
 // CHECK: d2m.remote_store
+// CHECK-NOT: d2m.block_offset_dim
 // CHECK-NOT: d2m.generic
 func.func @test_basic_fusion(
     %input: memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>) {

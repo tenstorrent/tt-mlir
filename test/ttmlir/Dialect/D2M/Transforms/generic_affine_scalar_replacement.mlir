@@ -303,3 +303,40 @@ func.func @test_matmul_add_subset_fusion(
   }
   return
 }
+
+// Test 8: Ensure temporary block_offset-to-constant bridge is reversed.
+// The pass may use placeholder arith.constant values internally, but the
+// resulting IR must keep d2m.block_offset and must not leak tag attrs.
+//
+// CHECK-LABEL: func.func @test_block_offset_bridge_roundtrip
+// CHECK: d2m.generic
+// CHECK: d2m.block_offset
+// CHECK-NOT: d2m.block_offset_dim
+// CHECK: d2m.remote_load
+// CHECK: d2m.remote_store
+func.func @test_block_offset_bridge_roundtrip(
+    %input: memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>) {
+  %output = memref.alloc() : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>
+
+  d2m.generic {block_factors = [1, 1], d2m.affine_fused, grid = #ttcore.grid<2x4>, indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>], iterator_types = [#ttcore.iterator_type<parallel>, #ttcore.iterator_type<parallel>], threads = [#d2m.thread<unified>]}
+      ins(%input : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>)
+      outs(%output : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>) {
+  ^unified0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb1: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>):
+    %bf0 = d2m.get_block_factor(0) : index
+    %bf1 = d2m.get_block_factor(1) : index
+    affine.for %i = 0 to %bf0 {
+      affine.for %j = 0 to %bf1 {
+        %off0 = d2m.block_offset(0) : index
+        %idx0 = affine.apply affine_map<(d0)[s0] -> (d0 + s0)>(%i)[%off0]
+        %off1 = d2m.block_offset(1) : index
+        %idx1 = affine.apply affine_map<(d0)[s0] -> (d0 + s0)>(%j)[%off1]
+        %buf_in = memref.alloc() : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
+        %loaded = d2m.remote_load %buf_in %input[%idx0, %idx1] : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
+        "test.use"(%loaded) : (memref<2x4x!ttcore.tile<32x32, f32>, #l1_>) -> ()
+        %buf_out = memref.alloc() : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
+        %stored = d2m.remote_store %output[%idx0, %idx1] %buf_out : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>, memref<2x4x!ttcore.tile<32x32, f32>, #l1_> -> memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>
+      } {d2m.blocking_loop = 1}
+    } {d2m.blocking_loop = 0}
+  }
+  return
+}

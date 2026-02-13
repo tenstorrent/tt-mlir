@@ -882,6 +882,7 @@ def D2MGenericAffineScalarReplacement : Pass<"d2m-generic-affine-scalrep", "::ml
   ];
   let dependentDialects = ["::mlir::tt::d2m::D2MDialect",
                            "::mlir::affine::AffineDialect",
+                           "::mlir::arith::ArithDialect",
                            "::mlir::func::FuncDialect"];
 }
 
@@ -897,7 +898,8 @@ def D2MGenericAffineLoopFusion : Pass<"d2m-generic-affine-loop-fusion", "::mlir:
            "Enable loop fusion; when false, pass early exits as a no-op.">,
   ];
   let dependentDialects = ["::mlir::tt::d2m::D2MDialect",
-                           "::mlir::affine::AffineDialect"];
+                           "::mlir::affine::AffineDialect",
+                           "::mlir::arith::ArithDialect"];
 }
 
 def D2MLowerToExplicitForm : Pass<"d2m-lower-to-explicit-form", "::mlir::ModuleOp"> {

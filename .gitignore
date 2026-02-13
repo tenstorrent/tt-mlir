@@ -40,6 +40,7 @@ test/lit.site.cfg.py
 *.ttnn
 *.ttm
 
+env/build/
 
 # Root level log files (various tools generate logs)
 /*.log
