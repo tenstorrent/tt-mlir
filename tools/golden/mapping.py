@@ -4207,7 +4207,9 @@ def stablehlo_concatenate_golden(
     return torch.cat(input_tensors, dim=dim).to(output_dtype)
 
 
-def stablehlo_constant_golden(value: DenseElementsAttr) -> GoldenMapTensor:
+def stablehlo_constant_golden(
+    value: DenseElementsAttr, mesh_shape_attr: DenseI32ArrayAttr
+) -> GoldenMapTensor:
     shape = list(value.type.shape)
     dtype = mlir_type_to_torch_dtype(value.type.element_type)
 
@@ -4217,13 +4219,15 @@ def stablehlo_constant_golden(value: DenseElementsAttr) -> GoldenMapTensor:
     else:
         torch_tensor = torch.tensor(np.array(value), dtype=dtype).reshape(shape)
 
-    return GoldenMapTensor({0: torch_tensor.reshape(shape)}, (1, 1))
+    mesh_shape = tuple(unpack_mlir_attr(mesh_shape_attr))
+    return GoldenMapTensor({0: torch_tensor.reshape(shape)}, mesh_shape)
 
 
 def stablehlo_iota_golden(
     iota_dimension_attr: IntegerAttr,
     output_shape_attr: DenseI64ArrayAttr,
     output_type_mlir: Type,
+    mesh_shape_attr: DenseI32ArrayAttr,
 ) -> GoldenMapTensor:
     iota_dimension = unpack_mlir_attr(iota_dimension_attr)
     output_shape = unpack_mlir_attr(output_shape_attr)
@@ -4238,13 +4242,15 @@ def stablehlo_iota_golden(
 
     result = iota_values.expand(output_shape).clone()
 
-    return GoldenMapTensor({0: result}, (1, 1))
+    mesh_shape = tuple(unpack_mlir_attr(mesh_shape_attr))
+    return GoldenMapTensor({0: result}, mesh_shape)
 
 
 def stablehlo_dynamic_iota_golden(
     output_shape: GoldenMapTensor,
     iota_dimension_attr: IntegerAttr,
     output_type_mlir: Type,
+    mesh_shape_attr: DenseI32ArrayAttr,
 ) -> GoldenMapTensor:
     iota_dimension = unpack_mlir_attr(iota_dimension_attr)
     dtype = mlir_type_to_torch_dtype(output_type_mlir)
@@ -4262,7 +4268,8 @@ def stablehlo_dynamic_iota_golden(
     full_shape = [int(s) for s in shape_list]
     result = iota_values.expand(full_shape).clone()
 
-    return GoldenMapTensor({0: result}, (1, 1))
+    mesh_shape = tuple(unpack_mlir_attr(mesh_shape_attr))
+    return GoldenMapTensor({0: result}, mesh_shape)
 
 
 def stablehlo_batch_norm_grad_golden(
