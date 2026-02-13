@@ -40,9 +40,10 @@ class MemoryAnalyzer:
     * Note that the numbers in 2.2 and 3.2 are not yet supported by D2M, so we output them as "not-implemented-...".
     """
 
-    # Alignment requirement for addresses (must be multiple of 32)
-    # It was suggested by @audrey_kertesz to always round down the addresses to the nearest multiple of 32 for alignment.
-    ALIGNMENT = 32
+    # Alignment requirement for addresses
+    # It was suggested by @audrey_kertesz to always round down the addresses to the nearest ALIGNMENT.
+    ALIGNMENT_L1 = 32
+    ALIGNMENT_DRAM = 64
 
     def __init__(self, device, output_type, perform_memory_analysis: bool = True):
         self.device = device
@@ -102,9 +103,12 @@ class MemoryAnalyzer:
     ############################# Private Methods #############################
     ###########################################################################
 
-    def _round_down_to_alignment(self, value: int) -> int:
+    def _round_down_to_alignment(self, value: int, is_l1: bool = True) -> int:
         """Round down to the nearest multiple of ALIGNMENT."""
-        return (value // self.ALIGNMENT) * self.ALIGNMENT
+        if is_l1:
+            return (value // self.ALIGNMENT_L1) * self.ALIGNMENT_L1
+        else:
+            return (value // self.ALIGNMENT_DRAM) * self.ALIGNMENT_DRAM
 
     def _get_l1_addr_range(self) -> tuple[int, int]:
         """
@@ -137,7 +141,7 @@ class MemoryAnalyzer:
         lowest = get_lowest_occupied_compute_l1_address(self.device)
         # If no allocations exist, lowest is None, use full L1 size
         end = lowest if lowest is not None else get_l1_size_per_core(self.device)
-        end = self._round_down_to_alignment(end)
+        end = self._round_down_to_alignment(end, is_l1=True)
         return (start, end)
 
     def _bytes_to_kb(self, bytes_val: int) -> float:
@@ -213,7 +217,7 @@ class MemoryAnalyzer:
 
         start_addr = buffer.address()
         end_addr = start_addr + buffer_size
-        end_addr = self._round_down_to_alignment(end_addr)
+        end_addr = self._round_down_to_alignment(end_addr, is_l1=False)
 
         # Deallocate the buffer before returning
         buffer.deallocate()

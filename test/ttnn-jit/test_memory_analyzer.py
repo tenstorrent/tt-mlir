@@ -33,7 +33,7 @@ def _generate_ir_for_func(func, *args):
     sig = inspect.signature(func)
     param_names = list(sig.parameters.keys())
     tensor_args = {param_names[i]: args[i] for i in range(len(args))}
-    return generate_ir(func, False, *args, _tensor_args=tensor_args)
+    return generate_ir(func, False, None, *args, _tensor_args=tensor_args)
 
 
 class TestMemoryAnalyzerBasic:
