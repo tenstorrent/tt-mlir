@@ -4226,8 +4226,8 @@ def stablehlo_constant_golden(
 def stablehlo_iota_golden(
     iota_dimension_attr: IntegerAttr,
     output_shape_attr: DenseI64ArrayAttr,
-    output_type_mlir: Type,
     mesh_shape_attr: DenseI32ArrayAttr,
+    output_type_mlir: Type,
 ) -> GoldenMapTensor:
     iota_dimension = unpack_mlir_attr(iota_dimension_attr)
     output_shape = unpack_mlir_attr(output_shape_attr)
@@ -4249,8 +4249,8 @@ def stablehlo_iota_golden(
 def stablehlo_dynamic_iota_golden(
     output_shape: GoldenMapTensor,
     iota_dimension_attr: IntegerAttr,
-    output_type_mlir: Type,
     mesh_shape_attr: DenseI32ArrayAttr,
+    output_type_mlir: Type,
 ) -> GoldenMapTensor:
     iota_dimension = unpack_mlir_attr(iota_dimension_attr)
     dtype = mlir_type_to_torch_dtype(output_type_mlir)
