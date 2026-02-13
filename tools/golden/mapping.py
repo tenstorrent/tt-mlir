@@ -5077,22 +5077,25 @@ def stablehlo_convolution_golden(
 
 
 def stablehlo_rng_golden(
-    shape: List[int],
-    low: float,
-    high: float,
+    low_attr: DenseElementsAttr,
+    high_attr: DenseElementsAttr,
+    shape_attr: DenseElementsAttr,
     output_type_mlir: Type,
 ) -> GoldenMapTensor:
     """Generate random tensor for StableHLO RngOp (uniform distribution).
 
     Args:
-        shape: Output tensor shape
-        low: Lower bound of uniform distribution
-        high: Upper bound of uniform distribution
-        output_type_mlir: MLIR type for output dtype conversion
+        low_attr: DenseElementsAttr for lower bound of uniform distribution
+        high_attr: DenseElementsAttr for upper bound of uniform distribution
+        shape_attr: DenseElementsAttr for output tensor shape
+        output_type_mlir: MLIR element type for output dtype conversion
 
     Returns:
         GoldenMapTensor with uniformly distributed random values in [low, high)
     """
+    low = float(unpack_mlir_attr(low_attr))
+    high = float(unpack_mlir_attr(high_attr))
+    shape = unpack_mlir_attr(shape_attr).tolist()
     output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
     base = torch.rand(shape, dtype=torch.bfloat16)
     rand_tensor = (base * (high - low) + low).to(output_dtype)

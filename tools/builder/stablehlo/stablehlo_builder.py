@@ -734,9 +734,8 @@ class StableHLOBuilder(Builder):
         else:
             loc = Location.name(loc)
 
-        # Create output type for the RNG result
+        # Create output element type for the RNG result
         output_element_type = self._get_type_from_torch_dtype(dtype)
-        output = self._create_ranked_tensor_type(shape, output_element_type)
 
         # Create scalar (0-dimensional) tensor constants for low and high
         # StableHLO RngOp requires tensor operands, not scalar attributes
@@ -754,9 +753,9 @@ class StableHLOBuilder(Builder):
         shape_attr = DenseElementsAttr.get(np.array(shape, dtype=np.int64))
         shape_tensor = stablehlo.ConstantOp(shape_attr, loc=loc).result
 
-        # Build the StableHLO RNG op (uniform distribution only)
+        # Build the StableHLO RNG op (uniform distribution only
+        # RngOp implements InferReturnTypeComponents, so no result type arg)
         op = stablehlo_op(
-            output,
             low_tensor,
             high_tensor,
             shape_tensor,
@@ -795,7 +794,6 @@ class StableHLOBuilder(Builder):
         rng_distribution = old_op.rng_distribution
 
         new_op = stablehlo_op(
-            old_op.result.type,
             a,
             b,
             shape,
@@ -810,7 +808,10 @@ class StableHLOBuilder(Builder):
             shape_attr = old_op.shape.owner.attributes["value"]
             op_golden_function = get_golden_function(stablehlo_op)
             golden_output = op_golden_function(
-                low_attr, high_attr, shape_attr, old_op.result.type
+                low_attr,
+                high_attr,
+                shape_attr,
+                old_op.result.type.element_type,
             )
             self._set_golden_tensor(new_op_result, golden_output)
 
@@ -850,7 +851,6 @@ class StableHLOBuilder(Builder):
                     rng_distribution = old_op.rng_distribution
 
                     new_op = stablehlo_op(
-                        old_op.result.type,
                         a,
                         b,
                         shape,
@@ -865,7 +865,10 @@ class StableHLOBuilder(Builder):
                         shape_attr = old_op.shape.owner.attributes["value"]
                         op_golden_function = get_golden_function(stablehlo_op)
                         golden_output = op_golden_function(
-                            low_attr, high_attr, shape_attr, old_op.result.type
+                            low_attr,
+                            high_attr,
+                            shape_attr,
+                            old_op.result.type.element_type,
                         )
                         rng_builder._set_golden_tensor(new_op_result, golden_output)
                         ordered_outputs.append(new_op_result)
