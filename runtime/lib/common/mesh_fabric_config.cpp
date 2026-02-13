@@ -11,6 +11,40 @@
 
 namespace tt::runtime::common {
 
+namespace {
+
+// Classify a line of devices as RING or FABRIC_1D. A line is a ring if all
+// adjacent pairs are connected AND the last device wraps around to the first.
+// Falls back to FABRIC_1D otherwise.
+FabricConfig
+classifyLine(const std::vector<uint32_t> &line,
+             const std::set<std::pair<uint32_t, uint32_t>> &connections) {
+  if (line.size() < 2) {
+    return FabricConfig::FABRIC_1D;
+  }
+
+  auto areConnected = [&connections](uint32_t id0, uint32_t id1) {
+    if (id0 > id1) {
+      std::swap(id0, id1);
+    }
+    return connections.count({id0, id1}) > 0;
+  };
+
+  for (size_t i = 0; i + 1 < line.size(); ++i) {
+    if (!areConnected(line[i], line[i + 1])) {
+      return FabricConfig::FABRIC_1D;
+    }
+  }
+
+  if (!areConnected(line.front(), line.back())) {
+    return FabricConfig::FABRIC_1D;
+  }
+
+  return FabricConfig::FABRIC_1D_RING;
+}
+
+} // namespace
+
 MeshFabricConfig
 computeFabricConfig(const std::vector<::tt::target::ChipChannel> &chipChannels,
                     const std::vector<uint32_t> &meshShape,
@@ -40,47 +74,32 @@ computeFabricConfig(const std::vector<::tt::target::ChipChannel> &chipChannels,
     connections.insert({id0, id1});
   }
 
-  auto getDeviceAt = [&deviceIds, numCols](uint32_t row,
-                                           uint32_t col) -> uint32_t {
+  auto getDeviceAt = [&deviceIds, numCols](uint32_t row, uint32_t col) {
     int id = deviceIds[row * numCols + col];
-    return id >= 0 ? static_cast<uint32_t>(id) : 0;
+    LOG_ASSERT(id >= 0, "Unmapped device at (", row, ", ", col, ")");
+    return static_cast<uint32_t>(id);
   };
 
-  auto areConnected = [&connections](uint32_t id0, uint32_t id1) {
-    if (id0 > id1) {
-      std::swap(id0, id1);
+  // Classify each row and check if all rows agree on ring.
+  bool allRowsRing = numCols > 1;
+  for (uint32_t row = 0; row < numRows && allRowsRing; ++row) {
+    std::vector<uint32_t> line(numCols);
+    for (uint32_t col = 0; col < numCols; ++col) {
+      line[col] = getDeviceAt(row, col);
     }
-    return connections.count({id0, id1}) > 0;
-  };
-
-  // Check row wraparound: for each row, check if first and last device
-  // connect. Default to linear (false) — only upgrade to ring if all rows have
-  // wraparound.
-  bool allRowsRing = false;
-  if (numCols > 1) {
-    allRowsRing = true;
-    for (uint32_t row = 0; row < numRows && allRowsRing; ++row) {
-      uint32_t firstDevice = getDeviceAt(row, 0);
-      uint32_t lastDevice = getDeviceAt(row, numCols - 1);
-      if (!areConnected(firstDevice, lastDevice)) {
-        allRowsRing = false;
-      }
-    }
+    allRowsRing =
+        classifyLine(line, connections) == FabricConfig::FABRIC_1D_RING;
   }
 
-  // Check column wraparound: for each column, check if first and last connect.
-  // Default to linear (false) — only upgrade to ring if all columns have
-  // wraparound.
-  bool allColsRing = false;
-  if (numRows > 1) {
-    allColsRing = true;
-    for (uint32_t col = 0; col < numCols && allColsRing; ++col) {
-      uint32_t firstDevice = getDeviceAt(0, col);
-      uint32_t lastDevice = getDeviceAt(numRows - 1, col);
-      if (!areConnected(firstDevice, lastDevice)) {
-        allColsRing = false;
-      }
+  // Classify each column and check if all columns agree on ring.
+  bool allColsRing = numRows > 1;
+  for (uint32_t col = 0; col < numCols && allColsRing; ++col) {
+    std::vector<uint32_t> line(numRows);
+    for (uint32_t row = 0; row < numRows; ++row) {
+      line[row] = getDeviceAt(row, col);
     }
+    allColsRing =
+        classifyLine(line, connections) == FabricConfig::FABRIC_1D_RING;
   }
 
   std::vector<FabricConfig> perAxisConfig = {

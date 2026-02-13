@@ -153,15 +153,29 @@ TEST(ComputeFabricConfig, ReversedChannelOrder) {
   EXPECT_EQ(result.perAxisConfig[0], FabricConfig::FABRIC_1D_RING);
 }
 
-// --- 1x4 ring ---
+// --- 1x4 ring: all adjacent + wraparound ---
 
 TEST(ComputeFabricConfig, FourDevices1x4Ring) {
-  auto result = computeFabricConfig({makeChannel(0, 3)}, {1, 4}, {0, 1, 2, 3});
+  auto result = computeFabricConfig({makeChannel(0, 1), makeChannel(1, 2),
+                                     makeChannel(2, 3), makeChannel(0, 3)},
+                                    {1, 4}, {0, 1, 2, 3});
 
   ASSERT_EQ(result.perAxisConfig.size(), 2u);
   EXPECT_EQ(result.perAxisConfig[0], FabricConfig::FABRIC_1D_RING);
   EXPECT_EQ(result.perAxisConfig[1], FabricConfig::FABRIC_1D);
   EXPECT_EQ(result.globalConfig, FabricConfig::FABRIC_1D_RING);
+}
+
+// --- 1x4 wraparound only (missing intermediate links): falls back to linear
+// ---
+
+TEST(ComputeFabricConfig, FourDevices1x4WrapOnly) {
+  auto result = computeFabricConfig({makeChannel(0, 3)}, {1, 4}, {0, 1, 2, 3});
+
+  ASSERT_EQ(result.perAxisConfig.size(), 2u);
+  EXPECT_EQ(result.perAxisConfig[0], FabricConfig::FABRIC_1D);
+  EXPECT_EQ(result.perAxisConfig[1], FabricConfig::FABRIC_1D);
+  EXPECT_EQ(result.globalConfig, FabricConfig::FABRIC_1D);
 }
 
 // --- 1x4 linear (no wraparound) ---
