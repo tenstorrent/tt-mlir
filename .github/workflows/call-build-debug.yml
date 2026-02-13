@@ -26,7 +26,6 @@ jobs:
     steps:
 
     - name: Maximize space
-      if: matrix.build.runs-on == 'ubuntu-latest'
       uses: tenstorrent/tt-github-actions/.github/actions/maximize_space@main
 
     - uses: actions/checkout@v4
