@@ -6,7 +6,6 @@
 #define TTMLIR_OPMODEL_TTNN_TTNNOPCONSTRAINTS_H
 
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
-#include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/SmallVector.h"
 
 namespace mlir::tt::ttnn::op_model {
