@@ -471,6 +471,20 @@ private:
       return;
     }
 
+    // If the output is L1 sharded and we need to tilize, tilize on host first.
+    // Row-major shard shapes may be smaller than tile dimensions, making
+    // on-device tilization impossible.
+    if (info.shouldTilize() && output.isL1Sharded()) {
+      currentInput =
+          this->createToLayoutOpIfNeeded(op, rewriter, currentInput, info);
+      currentInput =
+          this->createToDeviceOpIfNeeded(op, rewriter, currentInput, info);
+      currentInput = this->createToMemoryConfigOpIfNeeded(op, rewriter,
+                                                          currentInput, info);
+      op.getResult().replaceAllUsesWith(currentInput);
+      return;
+    }
+
     // If the tensor tilizable on device, we can move the tensor to device and
     // perform the tilization on device.
     if (info.shouldTilize() && canTilizeDataTypeOnDevice(output.dataType)) {
@@ -594,6 +608,23 @@ private:
                                                            currentInput, info);
       currentInput =
           this->createToLayoutOpIfNeeded(op, rewriter, currentInput, info);
+      currentInput =
+          this->createToDeviceOpIfNeeded(op, rewriter, currentInput, info);
+      currentInput = this->createToMemoryConfigOpIfNeeded(op, rewriter,
+                                                          currentInput, info);
+      op.getResult().replaceAllUsesWith(currentInput);
+      return;
+    }
+
+    // If the output is L1 sharded and we need to tilize, tilize and typecast
+    // on host first. Row-major shard shapes may be smaller than tile
+    // dimensions, making on-device tilization impossible. Additionally,
+    // sharded typecast requires matching input/output tile sizes.
+    if (info.shouldTilize() && output.isL1Sharded()) {
+      currentInput =
+          this->createToLayoutOpIfNeeded(op, rewriter, currentInput, info);
+      currentInput = this->createDataTypeCastingOpIfNeeded(op, rewriter,
+                                                           currentInput, info);
       currentInput =
           this->createToDeviceOpIfNeeded(op, rewriter, currentInput, info);
       currentInput = this->createToMemoryConfigOpIfNeeded(op, rewriter,

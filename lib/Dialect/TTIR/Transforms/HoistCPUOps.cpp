@@ -738,6 +738,185 @@ CPUHoistAnalyzerType constEvalHoistAnalyzer() {
   };
 }
 
+/*
+====================================================================
+------------- Small-tensor heuristic CPU-hoisting analyzer ----------
+====================================================================
+*/
+
+// Returns the total number of elements for a ranked tensor type.
+// Returns INT64_MAX for dynamic dimensions to prevent hoisting.
+static int64_t getTotalElements(mlir::RankedTensorType tensorType) {
+  int64_t total = 1;
+  for (int64_t dim : tensorType.getShape()) {
+    if (mlir::ShapedType::isDynamic(dim)) {
+      return INT64_MAX;
+    }
+    total *= dim;
+  }
+  return total;
+}
+
+// Returns true if the op is a small-tensor op eligible for heuristic hoisting.
+static bool isSmallTensorOp(mlir::Operation *op, int64_t resultThreshold,
+                            int64_t inputThreshold) {
+  // Skip infrastructure ops.
+  if (mlir::isa<func::FuncOp, func::ReturnOp, ttir::EmptyOp>(op)) {
+    return false;
+  }
+
+  // Skip creation ops.
+  if (op->hasTrait<ttcore::Trait::TTCoreCreationOpTrait>()) {
+    return false;
+  }
+
+  // Skip CCL / MeshShard ops.
+  if (mlir::isa<ttir::MeshShardOp, ttir::AllGatherOp, ttir::AllReduceOp,
+                ttir::ReduceScatterOp, ttir::CollectivePermuteOp,
+                ttir::AllToAllOp, ttir::CollectiveBroadcastOp>(op)) {
+    return false;
+  }
+
+  // Skip already-hoisted ops.
+  if (op->hasAttr(CPUHoistedCallAttr::name)) {
+    return false;
+  }
+
+  // Skip LoadCached ops
+  if (mlir::isa<ttcore::LoadCachedOp>(op)) {
+    return false;
+  }
+
+  // All result tensors must have element count <= resultThreshold.
+  for (auto result : op->getResults()) {
+    auto tensorType = mlir::dyn_cast<mlir::RankedTensorType>(result.getType());
+    if (!tensorType) {
+      return false;
+    }
+    if (getTotalElements(tensorType) > resultThreshold) {
+      return false;
+    }
+  }
+
+  // All input tensors must have element count <= inputThreshold.
+  for (auto operand : op->getOperands()) {
+    auto tensorType = mlir::dyn_cast<mlir::RankedTensorType>(operand.getType());
+    if (!tensorType) {
+      return false;
+    }
+    if (getTotalElements(tensorType) > inputThreshold) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+// CPUHoistAnalyzer which identifies connected subgraphs of small-tensor ops
+// and hoists them as a batch. This eliminates per-op device dispatch overhead
+// for tiny tensors (scalar/sub-tile) that are faster to compute on CPU.
+CPUHoistAnalyzerType smallTensorHoistAnalyzer(int64_t resultThreshold,
+                                              int64_t inputThreshold) {
+  return [resultThreshold, inputThreshold](func::FuncOp funcOp) {
+    // Skip const-eval functions (already handled by constEvalHoistAnalyzer).
+    if (ttmlir::utils::isConstEvalFunc(funcOp)) {
+      return llvm::SmallVector<CPUHoistedOpsDescriptor>{};
+    }
+
+    // Phase 1: Seed — collect all ops passing isSmallTensorOp.
+    llvm::SmallPtrSet<mlir::Operation *, 16> seeds;
+    funcOp.walk([&](mlir::Operation *nestedOp) {
+      if (isSmallTensorOp(nestedOp, resultThreshold, inputThreshold)) {
+        seeds.insert(nestedOp);
+      }
+    });
+
+    if (seeds.empty()) {
+      return llvm::SmallVector<CPUHoistedOpsDescriptor>{};
+    }
+
+    // Phase 2: Grow subgraphs — BFS from unassigned seeds.
+    llvm::SmallPtrSet<mlir::Operation *, 16> assigned;
+    llvm::SmallVector<llvm::SmallPtrSet<mlir::Operation *, 8>> subgraphs;
+
+    for (mlir::Operation *seed : seeds) {
+      if (assigned.contains(seed)) {
+        continue;
+      }
+
+      llvm::SmallPtrSet<mlir::Operation *, 8> subgraph;
+      llvm::SmallVector<mlir::Operation *> worklist;
+      worklist.push_back(seed);
+
+      while (!worklist.empty()) {
+        mlir::Operation *current = worklist.pop_back_val();
+        if (!seeds.contains(current) || assigned.contains(current)) {
+          continue;
+        }
+        // Restrict to same block as seed.
+        if (current->getBlock() != seed->getBlock()) {
+          continue;
+        }
+
+        subgraph.insert(current);
+        assigned.insert(current);
+
+        // Grow backward to producers.
+        for (auto operand : current->getOperands()) {
+          if (auto *defOp = operand.getDefiningOp()) {
+            worklist.push_back(defOp);
+          }
+        }
+
+        // Grow forward to users.
+        for (auto result : current->getResults()) {
+          for (auto *user : result.getUsers()) {
+            worklist.push_back(user);
+          }
+        }
+      }
+
+      if (!subgraph.empty()) {
+        subgraphs.push_back(std::move(subgraph));
+      }
+    }
+
+    // Phase 3: Build descriptors.
+    llvm::SmallVector<CPUHoistedOpsDescriptor> descriptors;
+
+    for (auto &subgraph : subgraphs) {
+      // Sort ops in block order.
+      OpsVectorType sortedOps(subgraph.begin(), subgraph.end());
+      llvm::sort(sortedOps, [](mlir::Operation *a, mlir::Operation *b) {
+        return a->isBeforeInBlock(b);
+      });
+
+      // Identify output values: results used by ops outside the subgraph.
+      ValuesVectorType outputValues;
+      for (auto *op : sortedOps) {
+        for (auto result : op->getResults()) {
+          for (auto *user : result.getUsers()) {
+            if (!subgraph.contains(user)) {
+              outputValues.push_back(result);
+              break;
+            }
+          }
+        }
+      }
+
+      // Skip subgraphs with no external outputs (dead code).
+      if (outputValues.empty()) {
+        continue;
+      }
+
+      descriptors.emplace_back(sortedOps, outputValues,
+                               llvm::SmallString<64>("heuristic"));
+    }
+
+    return descriptors;
+  };
+}
+
 // Transform pass to hoist specific ops, based on the provided
 // HoistAnalyzerType implementation. By default, only ops manually tagged with
 // ttir.should_hoist are hoisted.
@@ -845,6 +1024,14 @@ std::unique_ptr<mlir::Pass> createCPUHoistConstEvalTransform() {
   CPUHoistAnalyzerType analyzer = constEvalHoistAnalyzer();
   auto pass = std::make_unique<CPUHoistTransform>(analyzer);
   return pass;
+}
+
+std::unique_ptr<mlir::Pass>
+createCPUHoistSmallTensorTransform(int64_t resultElementThreshold,
+                                   int64_t inputElementThreshold) {
+  CPUHoistAnalyzerType analyzer =
+      smallTensorHoistAnalyzer(resultElementThreshold, inputElementThreshold);
+  return std::make_unique<CPUHoistTransform>(analyzer);
 }
 
 std::unique_ptr<mlir::Pass> createCPUHoistManuallyTaggedOpsTransform() {

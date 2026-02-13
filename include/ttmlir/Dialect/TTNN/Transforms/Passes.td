@@ -404,6 +404,23 @@ def TTNNConstEvalInputsToSystemMemory : Pass<"ttnn-force-const-eval-to-system-me
   }];
 }
 
+def TTNNCPUHoistedInputsToSystemMemory : Pass<"ttnn-force-cpu-hoisted-to-system-memory", "::mlir::ModuleOp"> {
+  let summary = "Force CPU-hoisted function inputs to system memory.";
+  let description = [{
+    This pass forces forward function arguments that are only consumed by
+    CPU-hoisted calls to be in system memory from the start.
+
+    For each tensor argument of a forward device function, the pass checks
+    whether all of its users are ttnn.to_layout ops converting to system
+    memory, and all of those to_layout results are exclusively consumed by
+    CPU-hoisted func.call ops. If so, the argument type is changed to system
+    memory (row-major), avoiding unnecessary device memory allocation and
+    device-to-host transfers.
+
+    The existing canonicalizer folds away identity to_layout ops afterwards.
+  }];
+}
+
 def TTNNCollectPerfMetrics: Pass<"ttnn-collect-perf-metrics", "::mlir::ModuleOp"> {
   let summary = "Collect and export TTNN operation metrics.";
   let description = [{

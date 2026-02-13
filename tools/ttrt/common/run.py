@@ -378,7 +378,7 @@ class Run:
 
         # If benchmark mode is enabled, set certain defaults
         if self["--benchmark"]:
-            self["--loops"] = 2
+            self["--loops"] = 5
             self["--enable-program-cache"] = True
             self["--enable-golden"] = False
             self["--program-index"] = 0

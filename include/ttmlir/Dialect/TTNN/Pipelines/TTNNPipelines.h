@@ -321,10 +321,32 @@ struct TTIRToTTNNDevicePipelineOptions
       llvm::cl::desc("Enable hoisting const-eval ops to CPU module."),
       llvm::cl::init(false)};
 
+  // Enable heuristic CPU-hoisting for small-tensor ops.
+  Option<bool> enableHeuristicCPUHoist{
+      *this, "enable-heuristic-cpu-hoist",
+      llvm::cl::desc("Enable heuristic CPU hoisting for small-tensor ops."),
+      llvm::cl::init(false)};
+
+  Option<int64_t> heuristicCPUHoistElementThreshold{
+      *this, "heuristic-cpu-hoist-element-threshold",
+      llvm::cl::desc("Max result element count for heuristic CPU hoisting."),
+      llvm::cl::init(1024)};
+
+  Option<int64_t> heuristicCPUHoistInputElementThreshold{
+      *this, "heuristic-cpu-hoist-input-element-threshold",
+      llvm::cl::desc("Max input element count for heuristic CPU hoisting."),
+      llvm::cl::init(8192)};
+
   // Force const-eval function inputs to system memory.
   Option<bool> enableConstEvalInputsToSystemMemory{
       *this, "enable-const-eval-inputs-to-system-memory",
       llvm::cl::desc("Force const-eval function inputs to system memory."),
+      llvm::cl::init(true)};
+
+  // Force CPU-hoisted function inputs to system memory.
+  Option<bool> enableCPUHoistedInputsToSystemMemory{
+      *this, "enable-cpu-hoisted-inputs-to-system-memory",
+      llvm::cl::desc("Force CPU-hoisted function inputs to system memory."),
       llvm::cl::init(true)};
 
   Option<bool> enableTrace{*this, "enable-trace",

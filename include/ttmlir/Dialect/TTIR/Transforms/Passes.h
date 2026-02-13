@@ -41,6 +41,12 @@ std::unique_ptr<Pass> createCPUHoistForOpsTransform();
 // as a whole.
 std::unique_ptr<Pass> createCPUHoistConstEvalTransform();
 
+// Creates a CPU hoist transform pass which identifies connected subgraphs of
+// small-tensor ops and hoists them to CPU as a batch.
+std::unique_ptr<Pass>
+createCPUHoistSmallTensorTransform(int64_t resultElementThreshold = 1024,
+                                   int64_t inputElementThreshold = 8192);
+
 } // namespace mlir::tt::ttir
 
 #endif

@@ -268,6 +268,13 @@ void createTTIRToTTNNDevicePipeline(
     pm.addPass(ttir::createCPUHoistConstEvalTransform());
   }
 
+  // Heuristic CPU-hoisting pass for small-tensor subgraphs.
+  if (options.enableHeuristicCPUHoist) {
+    pm.addPass(ttir::createCPUHoistSmallTensorTransform(
+        options.heuristicCPUHoistElementThreshold,
+        options.heuristicCPUHoistInputElementThreshold));
+  }
+
   // Device module passes after const-eval CPU hoisting.
   {
     auto &devicePm = pm.nest<ttcore::DeviceModuleOp>().nest<mlir::ModuleOp>();
@@ -329,6 +336,17 @@ void createTTIRToTTNNDevicePipeline(
         devicePm.addPass(mlir::createCanonicalizerPass());
       }
     }
+
+    // Force CPU-hoisted function inputs to system memory to avoid unnecessary
+    // device memory allocation and device-to-host transfers.
+    if (options.enableCPUHoistedInputsToSystemMemory) {
+      devicePm.addPass(createTTNNCPUHoistedInputsToSystemMemory());
+
+      // Clean up any redundant to_layout ops that may have been introduced
+      // previously.
+      devicePm.addPass(mlir::createCanonicalizerPass());
+    }
+
     createTTNNPipelineLayoutDecompositionPass(devicePm, options);
     if (options.enableTrace) {
       devicePm.addPass(tt::ttnn::createTTNNTraceHoistTransform());
