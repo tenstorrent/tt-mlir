@@ -40,7 +40,7 @@ TEST(ComputeFabricConfig, TwoDevices1x2NoWrap) {
 
 // --- Two devices, with wraparound: ring ---
 
-TEST(ComputeFabricConfig, TwoDevices_1x2_WithWrap) {
+TEST(ComputeFabricConfig, TwoDevices1x2WithWrap) {
   auto result = computeFabricConfig({makeChannel(0, 1)}, {1, 2}, {0, 1});
 
   ASSERT_EQ(result.perAxisConfig.size(), 2u);
@@ -51,7 +51,7 @@ TEST(ComputeFabricConfig, TwoDevices_1x2_WithWrap) {
 
 // --- 2x1 column, with col wraparound ---
 
-TEST(ComputeFabricConfig, TwoDevices_2x1_WithWrap) {
+TEST(ComputeFabricConfig, TwoDevices2x1WithWrap) {
   auto result = computeFabricConfig({makeChannel(0, 1)}, {2, 1}, {0, 1});
 
   ASSERT_EQ(result.perAxisConfig.size(), 2u);
@@ -62,7 +62,7 @@ TEST(ComputeFabricConfig, TwoDevices_2x1_WithWrap) {
 
 // --- 2x2, all wraparound: both axes ring ---
 
-TEST(ComputeFabricConfig, FourDevices_2x2_AllRing) {
+TEST(ComputeFabricConfig, FourDevices2x2AllRing) {
   // Mesh layout (logical):
   //   0  1
   //   2  3
@@ -80,7 +80,7 @@ TEST(ComputeFabricConfig, FourDevices_2x2_AllRing) {
 
 // --- 2x2, only rows ring ---
 
-TEST(ComputeFabricConfig, FourDevices_2x2_OnlyRowsRing) {
+TEST(ComputeFabricConfig, FourDevices2x2OnlyRowsRing) {
   auto result = computeFabricConfig({makeChannel(0, 1), makeChannel(2, 3)},
                                     {2, 2}, {0, 1, 2, 3});
 
@@ -92,7 +92,7 @@ TEST(ComputeFabricConfig, FourDevices_2x2_OnlyRowsRing) {
 
 // --- 2x2, only cols ring ---
 
-TEST(ComputeFabricConfig, FourDevices_2x2_OnlyColsRing) {
+TEST(ComputeFabricConfig, FourDevices2x2OnlyColsRing) {
   auto result = computeFabricConfig({makeChannel(0, 2), makeChannel(1, 3)},
                                     {2, 2}, {0, 1, 2, 3});
 
@@ -104,7 +104,7 @@ TEST(ComputeFabricConfig, FourDevices_2x2_OnlyColsRing) {
 
 // --- 2x2, no connections at all: linear ---
 
-TEST(ComputeFabricConfig, FourDevices_2x2_NoConnections) {
+TEST(ComputeFabricConfig, FourDevices2x2NoConnections) {
   auto result = computeFabricConfig({}, {2, 2}, {0, 1, 2, 3});
 
   ASSERT_EQ(result.perAxisConfig.size(), 2u);
@@ -115,7 +115,7 @@ TEST(ComputeFabricConfig, FourDevices_2x2_NoConnections) {
 
 // --- Non-identity device ID mapping ---
 
-TEST(ComputeFabricConfig, NonIdentityMapping_2x2) {
+TEST(ComputeFabricConfig, NonIdentityMapping2x2) {
   // Physical IDs are remapped: logical [0,1,2,3] -> physical [3,1,2,0]
   // Mesh layout (physical):
   //   3  1
@@ -134,7 +134,7 @@ TEST(ComputeFabricConfig, NonIdentityMapping_2x2) {
 
 // --- Partial row ring: one row has wrap, other doesn't ---
 
-TEST(ComputeFabricConfig, FourDevices_2x2_PartialRowRing) {
+TEST(ComputeFabricConfig, FourDevices2x2PartialRowRing) {
   // Row 0: 0<->1 connected. Row 1: 2<->3 NOT connected.
   auto result = computeFabricConfig({makeChannel(0, 1)}, {2, 2}, {0, 1, 2, 3});
 
@@ -155,7 +155,7 @@ TEST(ComputeFabricConfig, ReversedChannelOrder) {
 
 // --- 1x4 ring ---
 
-TEST(ComputeFabricConfig, FourDevices_1x4_Ring) {
+TEST(ComputeFabricConfig, FourDevices1x4Ring) {
   auto result = computeFabricConfig({makeChannel(0, 3)}, {1, 4}, {0, 1, 2, 3});
 
   ASSERT_EQ(result.perAxisConfig.size(), 2u);
@@ -166,7 +166,7 @@ TEST(ComputeFabricConfig, FourDevices_1x4_Ring) {
 
 // --- 1x4 linear (no wraparound) ---
 
-TEST(ComputeFabricConfig, FourDevices_1x4_Linear) {
+TEST(ComputeFabricConfig, FourDevices1x4Linear) {
   auto result = computeFabricConfig(
       {makeChannel(0, 1), makeChannel(1, 2), makeChannel(2, 3)}, {1, 4},
       {0, 1, 2, 3});
