@@ -2069,6 +2069,147 @@ public:
 } // namespace
 
 namespace {
+// ArgMax conversion pattern.
+// TOSA has no ArgMax reduction op, so we implement this using
+// linalg::GenericOp with two output tensors (max values + max indices).
+// After TTIRToTTIRDecomposition, ArgMaxOp arrives here with either no dim_arg
+// (reduce all dimensions) or exactly 1 reduce dim.
+// The tracked index is a linearized (flattened) index across reduce dimensions.
+class ArgMaxOpConversionPattern : public OpConversionPattern<ttir::ArgMaxOp> {
+public:
+  using OpConversionPattern<ttir::ArgMaxOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::ArgMaxOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    Location loc = op.getLoc();
+    Value input = adaptor.getInput();
+    auto inputType = cast<RankedTensorType>(input.getType());
+    int64_t rank = inputType.getRank();
+    Type elementType = inputType.getElementType();
+
+    auto resultType = dyn_cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getResult().getType()));
+    assert(resultType && "Result type must be a ranked tensor type.");
+
+    // After TTIRToTTIRDecomposition, dim_arg is either absent (reduce all
+    // dims) or has exactly 1 entry.
+    auto dimArg = op.getDimArg();
+    assert((!dimArg || dimArg->size() <= 1) &&
+           "Multi-dim argmax should have been decomposed");
+
+    SmallVector<int64_t> reduceDims = getDimsFromAttribute(op, rank);
+    bool keepDim = getKeepDimFromAttribute(op);
+
+    // Compute the output shape (without keep_dim) and classify each dim.
+    SmallVector<int64_t> reducedShape;
+    SmallVector<utils::IteratorType> iteratorTypes;
+    SmallVector<AffineExpr> outputExprs;
+    for (int64_t i = 0; i < rank; ++i) {
+      if (llvm::is_contained(reduceDims, i)) {
+        iteratorTypes.push_back(utils::IteratorType::reduction);
+      } else {
+        iteratorTypes.push_back(utils::IteratorType::parallel);
+        reducedShape.push_back(inputType.getShape()[i]);
+        outputExprs.push_back(rewriter.getAffineDimExpr(i));
+      }
+    }
+
+    auto maxValuesType = RankedTensorType::get(reducedShape, elementType);
+    auto maxIndicesType =
+        RankedTensorType::get(reducedShape, rewriter.getI32Type());
+
+    // Initialize max values to -inf and max indices to 0.
+    auto negInfAttr = rewriter.getFloatAttr(
+        elementType,
+        APFloat::getInf(cast<FloatType>(elementType).getFloatSemantics(),
+                        /*Negative=*/true));
+    Value negInf =
+        rewriter.create<arith::ConstantOp>(loc, elementType, negInfAttr);
+    Value zero = rewriter.create<arith::ConstantOp>(
+        loc, rewriter.getI32Type(), rewriter.getI32IntegerAttr(0));
+
+    Value maxValuesFilled =
+        rewriter
+            .create<linalg::FillOp>(
+                loc, negInf,
+                rewriter.create<tensor::EmptyOp>(loc, reducedShape, elementType)
+                    .getResult())
+            .getResult(0);
+    Value maxIndicesFilled =
+        rewriter
+            .create<linalg::FillOp>(
+                loc, zero,
+                rewriter
+                    .create<tensor::EmptyOp>(loc, reducedShape,
+                                             rewriter.getI32Type())
+                    .getResult())
+            .getResult(0);
+
+    // Indexing maps: identity for input, projection for outputs.
+    AffineMap inputMap =
+        AffineMap::getMultiDimIdentityMap(rank, rewriter.getContext());
+    AffineMap outputMap =
+        AffineMap::get(rank, 0, outputExprs, rewriter.getContext());
+
+    auto genericOp = rewriter.create<linalg::GenericOp>(
+        loc, TypeRange{maxValuesType, maxIndicesType}, ValueRange{input},
+        ValueRange{maxValuesFilled, maxIndicesFilled},
+        SmallVector<AffineMap>{inputMap, outputMap, outputMap}, iteratorTypes,
+        [&](OpBuilder &b, Location loc, ValueRange args) {
+          Value currentVal = args[0];
+          Value currentMax = args[1];
+          Value currentIdx = args[2];
+
+          // Compute linearized index across reduce dimensions (row-major).
+          Value linearIdx = nullptr;
+          for (int64_t d : reduceDims) {
+            Value idx = b.create<arith::IndexCastOp>(
+                loc, b.getI32Type(), b.create<linalg::IndexOp>(loc, d));
+            if (!linearIdx) {
+              linearIdx = idx;
+            } else {
+              Value dimSize = b.create<arith::ConstantOp>(
+                  loc, b.getI32Type(),
+                  b.getI32IntegerAttr(inputType.getShape()[d]));
+              linearIdx = b.create<arith::AddIOp>(
+                  loc, b.create<arith::MulIOp>(loc, linearIdx, dimSize), idx);
+            }
+          }
+
+          Value isGreater = b.create<arith::CmpFOp>(
+              loc, arith::CmpFPredicate::OGT, currentVal, currentMax);
+          Value newMax =
+              b.create<arith::SelectOp>(loc, isGreater, currentVal, currentMax);
+          Value newIdx =
+              b.create<arith::SelectOp>(loc, isGreater, linearIdx, currentIdx);
+          b.create<linalg::YieldOp>(loc, ValueRange{newMax, newIdx});
+        });
+
+    Value result = genericOp.getResult(1);
+
+    // If keep_dim, reshape to reinsert reduced dimensions as size-1.
+    if (keepDim) {
+      SmallVector<int64_t> keepDimShape;
+      for (int64_t i = 0; i < rank; ++i) {
+        keepDimShape.push_back(
+            llvm::is_contained(reduceDims, i) ? 1 : inputType.getShape()[i]);
+      }
+      auto shapeType =
+          tosa::shapeType::get(rewriter.getContext(), keepDimShape.size());
+      auto shapeOp = rewriter.create<tosa::ConstShapeOp>(
+          loc, shapeType, rewriter.getIndexTensorAttr(keepDimShape));
+      result =
+          rewriter.create<tosa::ReshapeOp>(loc, resultType, result, shapeOp);
+    }
+
+    rewriter.replaceOp(op, result);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 // CumSum conversion pattern.
 // Cumulative sum computes the running sum along a specified dimension.
 // Since this is a scan operation (not a reduction), we cannot use the standard
@@ -3522,11 +3663,12 @@ void populateTTIRToTosaPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                Relu6OpConversionPattern, GatherOpConversionPattern,
                LogicalNotOpConversionPattern, MaxOpConversionPattern,
                MinOpConversionPattern, SumOpConversionPattern,
-               ProdOpConversionPattern, MeanOpConversionPattern,
-               LayerNormOpConversionPattern, SqueezeOpConversionPattern,
-               UnsqueezeOpConversionPattern, MaxPool2dOpConversionPattern,
-               AvgPool2dOpConversionPattern, GlobalAvgPool2dOpConversionPattern,
-               Conv2dOpConversionPattern>(typeConverter, ctx);
+               ProdOpConversionPattern, ArgMaxOpConversionPattern,
+               MeanOpConversionPattern, LayerNormOpConversionPattern,
+               SqueezeOpConversionPattern, UnsqueezeOpConversionPattern,
+               MaxPool2dOpConversionPattern, AvgPool2dOpConversionPattern,
+               GlobalAvgPool2dOpConversionPattern, Conv2dOpConversionPattern>(
+      typeConverter, ctx);
 
   // Special operations
   patterns.add<WhereOpConversionPattern, ReshapeOpConversionPattern,
