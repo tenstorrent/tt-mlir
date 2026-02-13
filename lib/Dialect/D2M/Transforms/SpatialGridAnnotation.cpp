@@ -60,7 +60,8 @@ static AffineMap buildVirtualToPhysicalMap(MLIRContext *ctx, unsigned rank,
 // Update the type of the value (spatial output operand) to use a layout that
 // includes the virtual-to-physical mapping for the given core range start.
 // This allows getPhysicalGridShape and allocation to see the correct core
-// range.
+// range. Also propagates the new type to all users that require their result
+// type to match (RemoteStoreOp, GenericOp) so the verifier does not fail.
 static void updateOutputOperandType(Value outputValue, int64_t startY,
                                     int64_t startX) {
   auto tensorType = mlir::dyn_cast<RankedTensorType>(outputValue.getType());
@@ -90,7 +91,27 @@ static void updateOutputOperandType(Value outputValue, int64_t startY,
   for (OpResult result : definingOp->getResults()) {
     if (result == outputValue) {
       result.setType(newType);
-      return;
+      break;
+    }
+  }
+
+  // Propagate new type to users whose result type must match the memref/operand
+  // type: RemoteStoreOp (result must match memref) and GenericOp (result must
+  // match init operand).
+  for (Operation *user : llvm::make_early_inc_range(outputValue.getUsers())) {
+    if (auto remoteStore = mlir::dyn_cast<d2m::RemoteStoreOp>(user)) {
+      if (remoteStore.getMemref() == outputValue && remoteStore.getResult()) {
+        remoteStore->getResult(0).setType(newType);
+      }
+      continue;
+    }
+    if (auto genericOp = mlir::dyn_cast<d2m::GenericOp>(user)) {
+      for (auto [idx, init] : llvm::enumerate(genericOp.getDpsInits())) {
+        if (init == outputValue) {
+          genericOp.getResult(idx).setType(newType);
+          break;
+        }
+      }
     }
   }
 }
@@ -125,9 +146,15 @@ void annotateSpatialOp(d2m::SpatialOp spatialOp) {
     d2m::GenericOp genericOp = *genericOps.begin();
 
     SmallVector<int64_t> virtualGridShape = {sizeY, sizeX};
-    AffineMap invMap = buildPhysicalToVirtualMap(ctx, startY, startX);
+    // Single core at (0,0): use empty grid mapping so GenericOp verifier does
+    // not require output to have a non-empty virtualization map (identity is
+    // stored as empty in MetalLayoutAttr::withIndexAffineMap).
     ttcore::GridAttr newGrid =
-        ttcore::GridAttr::get(ctx, virtualGridShape, invMap);
+        (startY == 0 && startX == 0 && sizeY == 1 && sizeX == 1)
+            ? ttcore::GridAttr::get(ctx, virtualGridShape)
+            : ttcore::GridAttr::get(
+                  ctx, virtualGridShape,
+                  buildPhysicalToVirtualMap(ctx, startY, startX));
     genericOp->setAttr("grid", newGrid);
   }
 
@@ -142,6 +169,8 @@ void annotateSpatialOp(d2m::SpatialOp spatialOp) {
     int64_t startY = coreRange.getStartCoord().getY();
     int64_t startX = coreRange.getStartCoord().getX();
     updateOutputOperandType(outputValue, startY, startX);
+    // Keep spatial op's result type in sync with the updated output operand.
+    spatialOp.getResult(outputIndex).setType(outputValue.getType());
   }
 }
 
