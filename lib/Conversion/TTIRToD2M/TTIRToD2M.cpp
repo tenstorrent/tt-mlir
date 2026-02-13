@@ -919,9 +919,13 @@ private:
     newInputs.emplace_back(createScaler(
         rewriter, loc,
         mlir::cast<mlir::RankedTensorType>(origInputs.front().getType())));
+    auto inputTensorType =
+        mlir::cast<RankedTensorType>(origInputs.front().getType());
+    bool noCollapse = (inputTensorType.getRank() > 2);
+
     auto [inputs, outputs] =
         toLayoutOperandsAndResults(rewriter, {newInputs, origOutputs},
-                                   /*tiled*/ true);
+                                   /*tiled*/ true, noCollapse);
 
     const std::size_t numInputs = inputs.size();
     const std::size_t numOutputs = outputs.size();
@@ -1115,25 +1119,25 @@ private:
   }
 
   static d2m::ReduceDim dimArgAsReduceDim(ConcreteOp op, std::size_t rank) {
-    // TODO(#2613) This implements a very simple case; more work is required
-    // to decompose more than 2 right-most dims being reduced over.
-    assert(rank <= 64 && "rank value too large for a 64-bit set");
-    std::uint64_t bits = 0;
-    forAllDims(rank, getDimArg(op), [&](std::size_t index, bool dropped) {
-      if (dropped) {
-        bits |= (1L << index);
-      }
-    });
+    assert(rank >= 2 && "rank must be at least 2");
+    SmallVector<bool> dims(rank, false);
+    forAllDims(rank, getDimArg(op),
+               [&](std::size_t index, bool dropped) { dims[index] = dropped; });
 
-    switch (bits) {
-    case 1:
-      return d2m::ReduceDim::C;
-    case 2:
-      return d2m::ReduceDim::R;
-    case 3:
+    bool reduceSecondToLast = dims[rank - 2]; // "C" in tile terminology
+    bool reduceLast = dims[rank - 1];         // "R" in tile terminology
+
+    if (reduceSecondToLast && reduceLast) {
       return d2m::ReduceDim::RC;
     }
-    llvm_unreachable("unexpected dimArg bit pattern");
+    if (reduceSecondToLast) {
+      return d2m::ReduceDim::C;
+    }
+    if (reduceLast) {
+      return d2m::ReduceDim::R;
+    }
+    llvm_unreachable(
+        "expected at least one of the last two dims to be reduced");
   }
 
   static mlir::ArrayAttr getDimArg(ConcreteOp op) {
