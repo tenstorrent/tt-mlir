@@ -3392,8 +3392,7 @@ public:
       TTNNToEmitPyBaseOpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(mlir::tt::ttnn::DistributedRMSNormOp srcOp,
-                  OpAdaptor adaptor,
+  matchAndRewrite(mlir::tt::ttnn::DistributedRMSNormOp srcOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::DistributedRMSNormOp>
@@ -4011,11 +4010,11 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
 
   // Normalization ops
   //
-  patterns.add<BatchNormInferenceOpConversionPattern,
-               BatchNormTrainingOpConversionPattern, RMSNormOpConversionPattern,
-               DistributedRMSNormOpConversionPattern,
-               LayerNormOpConversionPattern>(typeConverter, ctx,
-                                             enableGoldenMode);
+  patterns
+      .add<BatchNormInferenceOpConversionPattern,
+           BatchNormTrainingOpConversionPattern, RMSNormOpConversionPattern,
+           DistributedRMSNormOpConversionPattern, LayerNormOpConversionPattern>(
+          typeConverter, ctx, enableGoldenMode);
 
   // Transformers ops
   //

@@ -779,15 +779,13 @@ toFlatbuffer(FlatbufferObjectCache &cache,
 
 inline ::flatbuffers::Offset<
     ::tt::target::ttnn::LayerNormShardedMultiCoreProgramConfig>
-toFlatbuffer(
-    FlatbufferObjectCache &cache,
-    ttnn::LayerNormShardedMultiCoreProgramConfigAttr configAttr) {
+toFlatbuffer(FlatbufferObjectCache &cache,
+             ttnn::LayerNormShardedMultiCoreProgramConfigAttr configAttr) {
   ::tt::target::ttnn::CoreCoord computeWithStorageGridSize =
       toFlatbuffer(cache, configAttr.getComputeWithStorageGridSize());
   return ::tt::target::ttnn::CreateLayerNormShardedMultiCoreProgramConfig(
       *cache.fbb, &computeWithStorageGridSize, configAttr.getSubblockW(),
-      configAttr.getBlockH(), configAttr.getBlockW(),
-      configAttr.getInplace());
+      configAttr.getBlockH(), configAttr.getBlockW(), configAttr.getInplace());
 }
 
 inline ::flatbuffers::Offset<::tt::target::ttnn::Conv2dConfig>

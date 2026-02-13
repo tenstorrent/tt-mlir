@@ -1816,8 +1816,8 @@ struct EmitPyTypeConverter<
 
     std::string buf;
     llvm::raw_string_ostream rso(buf);
-    rso << TypeNameV<::ttnn::prim::LayerNormShardedMultiCoreProgramConfig>
-        << "(";
+    rso << TypeNameV<
+               ::ttnn::prim::LayerNormShardedMultiCoreProgramConfig> << "(";
 
     auto gridSize = attr.getComputeWithStorageGridSize();
     rso << "compute_with_storage_grid_size=(" << gridSize.getX() << ", "

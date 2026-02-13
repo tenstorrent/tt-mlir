@@ -386,7 +386,9 @@ def test_distributed_rms_norm(
             sharded_weight = None
             if weight is not None:
                 weight_shard_dims = [-1, 0]
-                weight_shard_shape = make_shard_shape(len(weight_shape), weight_shard_dims, mesh_shape)
+                weight_shard_shape = make_shard_shape(
+                    len(weight_shape), weight_shard_dims, mesh_shape
+                )
                 sharded_weight = builder.mesh_shard(
                     weight,
                     shard_direction=MeshShardDirection.FullToShard.value,

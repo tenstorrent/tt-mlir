@@ -11,7 +11,6 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNWorkaroundsPass.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/AllGatherOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ArgMaxOpRewritePattern.h"
-#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/DistributedRMSNormWidthShardInputRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ConcatOpDecompositionRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ConcatOpReshapeRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ConcatenateHeadsOpRewritePattern.h"
@@ -21,6 +20,7 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/Conv3dRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/CumSumOpDimRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/CumSumOpRankRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/DistributedRMSNormWidthShardInputRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/EmbeddingOpSqueezeWeightRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ExplicateOperandBroadcastsRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/LinearOpRewritePattern.h"
@@ -596,8 +596,7 @@ public:
           workarounds::decomposition::PointToPointOpRewritePattern,
           workarounds::decomposition::RMSNormConfigRewritePattern,
           workarounds::decomposition::
-              DistributedRMSNormWidthShardInputRewritePattern>(
-          &getContext());
+              DistributedRMSNormWidthShardInputRewritePattern>(&getContext());
 
       runRewritePatterns(std::move(patterns),
                          GreedyRewriteConfig::kNoLimit /*maxIterations*/);

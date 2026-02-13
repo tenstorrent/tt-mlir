@@ -35,8 +35,7 @@ namespace mlir::tt::ttnn::workarounds::decomposition {
 // If the original output layout differs from the sharded config (e.g.
 // interleaved DRAM), a to_memory_config op is inserted after the norm.
 //
-LogicalResult
-DistributedRMSNormWidthShardInputRewritePattern::matchAndRewrite(
+LogicalResult DistributedRMSNormWidthShardInputRewritePattern::matchAndRewrite(
     ttnn::DistributedRMSNormOp op, PatternRewriter &rewriter) const {
 
   RankedTensorType inputType =
@@ -139,8 +138,7 @@ DistributedRMSNormWidthShardInputRewritePattern::matchAndRewrite(
     SmallVector<int32_t> reshapedShapeI32(reshapedShape.begin(),
                                           reshapedShape.end());
     RankedTensorType reshapedWeightType =
-        ttnn::utils::RankedTensorTypeFactory::create(weightType,
-                                                     reshapedShape);
+        ttnn::utils::RankedTensorTypeFactory::create(weightType, reshapedShape);
     auto reshapeOp = rewriter.create<ttnn::ReshapeOp>(
         op.getLoc(), reshapedWeightType, weight,
         rewriter.getI32ArrayAttr(reshapedShapeI32), ttnn::MemoryConfigAttr());
@@ -151,22 +149,19 @@ DistributedRMSNormWidthShardInputRewritePattern::matchAndRewrite(
     weightLayout =
         mlir::dyn_cast_or_null<ttnn::TTNNLayoutAttr>(weightType.getEncoding());
     if (weightLayout && weightLayout.isTiled()) {
-      ttnn::TTNNLayoutAttr rowMajorLayout =
-          weightLayout.withLayout(ttnn::Layout::RowMajor,
-                                  weightType.getShape());
+      ttnn::TTNNLayoutAttr rowMajorLayout = weightLayout.withLayout(
+          ttnn::Layout::RowMajor, weightType.getShape());
       RankedTensorType rowMajorWeightType =
           weightType.cloneWithEncoding(rowMajorLayout);
       auto weightMemConfig = ttnn::MemoryConfigAttr::get(
           rewriter.getContext(),
           ttnn::TensorMemoryLayoutAttr::get(
-              rewriter.getContext(),
-              ttnn::TensorMemoryLayout::Interleaved),
+              rewriter.getContext(), ttnn::TensorMemoryLayout::Interleaved),
           ttnn::BufferTypeAttr::get(rewriter.getContext(),
                                     weightLayout.getBufferType()),
           /*shardSpec=*/std::nullopt);
       auto weightToLayoutOp = rewriter.create<ttnn::ToLayoutOp>(
-          op.getLoc(), rowMajorWeightType, weight,
-          tt::ttnn::Layout::RowMajor,
+          op.getLoc(), rowMajorWeightType, weight, tt::ttnn::Layout::RowMajor,
           ttcore::DataTypeAttr::get(
               rewriter.getContext(),
               ttcore::elementTypeToDataType(weightElementType)),
@@ -187,8 +182,7 @@ DistributedRMSNormWidthShardInputRewritePattern::matchAndRewrite(
       RankedTensorType shardedResidualType =
           residualType.cloneWithEncoding(desiredInputLayout);
       auto residualToLayoutOp = rewriter.create<ttnn::ToLayoutOp>(
-          op.getLoc(), shardedResidualType, residual,
-          tt::ttnn::Layout::Tile,
+          op.getLoc(), shardedResidualType, residual, tt::ttnn::Layout::Tile,
           ttcore::DataTypeAttr::get(
               rewriter.getContext(),
               ttcore::elementTypeToDataType(inputElementType)),
@@ -220,15 +214,15 @@ DistributedRMSNormWidthShardInputRewritePattern::matchAndRewrite(
       fp32DestAccEn
           ? static_cast<Type>(Float32Type::get(rewriter.getContext()))
           : static_cast<Type>(BFloat16Type::get(rewriter.getContext()));
-  auto statsDataType = fp32DestAccEn ? ttcore::DataType::Float32
-                                     : ttcore::DataType::BFloat16;
+  auto statsDataType =
+      fp32DestAccEn ? ttcore::DataType::Float32 : ttcore::DataType::BFloat16;
 
   // Create stats scratch tensor: one tile (32x32) per device, width-sharded
   // on core (0,0) in L1. The fused kernel writes partial RMS statistics here
   // and exchanges them across devices via the allgather.
   SmallVector<int64_t> statsGridShape = {1, 1};
-  auto statsGrid = mlir::tt::ttcore::GridAttr::get(
-      rewriter.getContext(), statsGridShape, affineMap);
+  auto statsGrid = mlir::tt::ttcore::GridAttr::get(rewriter.getContext(),
+                                                   statsGridShape, affineMap);
   auto statsMemLayoutAttr = mlir::tt::ttnn::TensorMemoryLayoutAttr::get(
       rewriter.getContext(), ttnn::TensorMemoryLayout::WidthSharded);
 
