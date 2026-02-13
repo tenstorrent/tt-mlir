@@ -133,18 +133,21 @@ private:
     OpBuilder builder(&block, block.begin());
     Location loc = genericOp.getLoc();
 
-    auto scratchAlloc = builder.create<memref::AllocOp>(
-        loc, scratchMemRefType, builder.getI64IntegerAttr(64));
+    // auto scratchAlloc = builder.create<memref::AllocOp>(
+    //     loc, scratchMemRefType, builder.getI64IntegerAttr(64));
 
-    SmallVector<Value> blockIndices;
-    for (int64_t i = 0; i < numGridDims; ++i) {
-      blockIndices.push_back(builder.create<BlockIndexOp>(loc, i));
-    }
+    // SmallVector<Value> blockIndices;
+    // for (int64_t i = 0; i < numGridDims; ++i) {
+    //   blockIndices.push_back(builder.create<BlockIndexOp>(loc, i));
+    // }
 
-    auto remoteLoadOp = builder.create<RemoteLoadOp>(
-        loc, scratchMemRefType, scratchAlloc.getResult(), scratchGlobalOperand,
-        blockIndices);
-    Value scratchMemRef = remoteLoadOp.getResult();
+    // auto remoteLoadOp = builder.create<RemoteLoadOp>(
+    //     loc, scratchMemRefType, scratchAlloc.getResult(), scratchGlobalOperand,
+    //     blockIndices);
+
+    auto reserveOp = builder.create<ReserveOp>(loc, scratchCB);
+
+    Value scratchMemRef = reserveOp.getResult();
 
     // Replace each scratch_allocate with a rank-reducing subview.
     for (auto &info : allocations) {
