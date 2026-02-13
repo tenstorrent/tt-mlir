@@ -193,8 +193,9 @@ struct MeshFabricConfig {
   std::vector<FabricConfig> perAxisConfig;
 };
 
-MeshFabricConfig computeFabricConfig(const SystemDesc &systemDesc,
-                                     const std::vector<uint32_t> &meshShape);
+MeshFabricConfig
+computeMeshFabricConfig(const SystemDesc &systemDesc,
+                        const std::vector<uint32_t> &meshShape);
 
 void setFabricConfig(tt::runtime::FabricConfig config);
 

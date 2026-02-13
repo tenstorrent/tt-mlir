@@ -13,14 +13,17 @@ namespace tt::runtime::common {
 
 namespace {
 
-// Classify a line of devices as FABRIC_1D_RING or FABRIC_1D. A line of devices
-// is a ring if all adjacent pairs are connected AND the last device wraps
-// around to the first. Falls back to FABRIC_1D otherwise.
+// Classify a line of devices based on their connectivity:
+//   DISABLED       — fewer than 2 devices, or any adjacent link is missing.
+//   FABRIC_1D      — all adjacent pairs connected, no wraparound.
+//   FABRIC_1D_RING — all adjacent pairs connected AND last wraps to first.
+//
+// If any adjacent link is broken the line cannot form even a linear topology.
 FabricConfig
 classifyLine(const std::vector<uint32_t> &line,
              const std::set<std::pair<uint32_t, uint32_t>> &connections) {
   if (line.size() < 2) {
-    return FabricConfig::FABRIC_1D;
+    return FabricConfig::DISABLED;
   }
 
   auto areConnected = [&connections](uint32_t id0, uint32_t id1) {
@@ -32,7 +35,9 @@ classifyLine(const std::vector<uint32_t> &line,
 
   for (size_t i = 0; i + 1 < line.size(); ++i) {
     if (!areConnected(line[i], line[i + 1])) {
-      return FabricConfig::FABRIC_1D;
+      LOG_WARNING("Devices ", line[i], " and ", line[i + 1],
+                  " are not connected, disabling line.");
+      return FabricConfig::DISABLED;
     }
   }
 
@@ -43,12 +48,32 @@ classifyLine(const std::vector<uint32_t> &line,
   return FabricConfig::FABRIC_1D_RING;
 }
 
+// Classify an axis by taking the worst classification across all its lines.
+// A single broken line downgrades the entire axis:
+//   - Any line DISABLED  -> axis is DISABLED
+//   - Any line FABRIC_1D -> axis is at most FABRIC_1D
+//   - All lines RING     -> axis is FABRIC_1D_RING
+FabricConfig
+classifyAxis(const std::vector<std::vector<uint32_t>> &lines,
+             const std::set<std::pair<uint32_t, uint32_t>> &connections) {
+  bool allRing = true;
+  for (const auto &line : lines) {
+    FabricConfig lineConfig = classifyLine(line, connections);
+    if (lineConfig == FabricConfig::DISABLED) {
+      return FabricConfig::DISABLED;
+    }
+    if (lineConfig == FabricConfig::FABRIC_1D) {
+      allRing = false;
+    }
+  }
+  return allRing ? FabricConfig::FABRIC_1D_RING : FabricConfig::FABRIC_1D;
+}
+
 } // namespace
 
-MeshFabricConfig
-computeFabricConfig(const std::vector<::tt::target::ChipChannel> &chipChannels,
-                    const std::vector<uint32_t> &meshShape,
-                    const std::vector<int> &deviceIds) {
+MeshFabricConfig computeMeshFabricConfig(
+    const std::vector<::tt::target::ChipChannel> &chipChannels,
+    const std::vector<uint32_t> &meshShape, const std::vector<int> &deviceIds) {
   LOG_ASSERT(meshShape.size() == 2,
              "meshShape must have exactly 2 dimensions, got ",
              meshShape.size());
@@ -74,48 +99,43 @@ computeFabricConfig(const std::vector<::tt::target::ChipChannel> &chipChannels,
     connections.insert({id0, id1});
   }
 
-  auto getDeviceAt = [&deviceIds, numCols](uint32_t row, uint32_t col) {
-    int id = deviceIds[row * numCols + col];
-    LOG_ASSERT(id >= 0, "Unmapped device at (", row, ", ", col, ")");
-    return static_cast<uint32_t>(id);
-  };
-
-  // Classify each row and check if all rows agree on ring.
-  bool allRowsRing = numCols > 1;
-  for (uint32_t row = 0; row < numRows && allRowsRing; ++row) {
-    std::vector<uint32_t> line(numCols);
+  // Build row-axis and column-axis lines of devices.
+  std::vector<std::vector<uint32_t>> rowLines(numRows,
+                                              std::vector<uint32_t>(numCols));
+  std::vector<std::vector<uint32_t>> colLines(numCols,
+                                              std::vector<uint32_t>(numRows));
+  for (uint32_t row = 0; row < numRows; ++row) {
     for (uint32_t col = 0; col < numCols; ++col) {
-      line[col] = getDeviceAt(row, col);
+      int id = deviceIds[row * numCols + col];
+      LOG_ASSERT(id >= 0, "Unmapped device at (", row, ", ", col, ")");
+      auto device = static_cast<uint32_t>(id);
+      rowLines[row][col] = device;
+      colLines[col][row] = device;
     }
-    allRowsRing =
-        classifyLine(line, connections) == FabricConfig::FABRIC_1D_RING;
   }
 
-  // Classify each column and check if all columns agree on ring.
-  bool allColsRing = numRows > 1;
-  for (uint32_t col = 0; col < numCols && allColsRing; ++col) {
-    std::vector<uint32_t> line(numRows);
-    for (uint32_t row = 0; row < numRows; ++row) {
-      line[row] = getDeviceAt(row, col);
-    }
-    allColsRing =
-        classifyLine(line, connections) == FabricConfig::FABRIC_1D_RING;
+  FabricConfig rowAxisConfig = classifyAxis(rowLines, connections);
+  FabricConfig colAxisConfig = classifyAxis(colLines, connections);
+
+  std::vector<FabricConfig> perAxisConfig = {rowAxisConfig, colAxisConfig};
+
+  // Global config is the best of the two axes: if at least one axis supports
+  // a topology, the fabric can use it.
+  FabricConfig globalConfig = FabricConfig::DISABLED;
+  if (rowAxisConfig == FabricConfig::FABRIC_1D_RING ||
+      colAxisConfig == FabricConfig::FABRIC_1D_RING) {
+    globalConfig = FabricConfig::FABRIC_1D_RING;
+  } else if (rowAxisConfig == FabricConfig::FABRIC_1D ||
+             colAxisConfig == FabricConfig::FABRIC_1D) {
+    globalConfig = FabricConfig::FABRIC_1D;
   }
-
-  std::vector<FabricConfig> perAxisConfig = {
-      allRowsRing ? FabricConfig::FABRIC_1D_RING : FabricConfig::FABRIC_1D,
-      allColsRing ? FabricConfig::FABRIC_1D_RING : FabricConfig::FABRIC_1D,
-  };
-
-  FabricConfig globalConfig = (allRowsRing || allColsRing)
-                                  ? FabricConfig::FABRIC_1D_RING
-                                  : FabricConfig::FABRIC_1D;
 
   return {globalConfig, perAxisConfig};
 }
 
-MeshFabricConfig computeFabricConfig(const ::tt::target::SystemDesc *systemDesc,
-                                     const std::vector<uint32_t> &meshShape) {
+MeshFabricConfig
+computeMeshFabricConfig(const ::tt::target::SystemDesc *systemDesc,
+                        const std::vector<uint32_t> &meshShape) {
   LOG_ASSERT(systemDesc != nullptr, "SystemDesc must not be null");
 
   std::vector<::tt::target::ChipChannel> chipChannels;
@@ -127,8 +147,8 @@ MeshFabricConfig computeFabricConfig(const ::tt::target::SystemDesc *systemDesc,
     }
   }
 
-  return computeFabricConfig(chipChannels, meshShape,
-                             getMappedDeviceIds(meshShape));
+  return computeMeshFabricConfig(chipChannels, meshShape,
+                                 getMappedDeviceIds(meshShape));
 }
 
 } // namespace tt::runtime::common

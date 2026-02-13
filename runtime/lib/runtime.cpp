@@ -694,11 +694,12 @@ std::vector<int> getMappedDeviceIds(const std::vector<uint32_t> &meshShape) {
   LOG_FATAL("Runtime is not enabled");
 }
 
-MeshFabricConfig computeFabricConfig(const SystemDesc &systemDesc,
-                                     const std::vector<uint32_t> &meshShape) {
+MeshFabricConfig
+computeMeshFabricConfig(const SystemDesc &systemDesc,
+                        const std::vector<uint32_t> &meshShape) {
 #if defined(DEVICE_RUNTIME_ENABLED)
-  return ::tt::runtime::common::computeFabricConfig(systemDesc.get(),
-                                                    meshShape);
+  return ::tt::runtime::common::computeMeshFabricConfig(systemDesc.get(),
+                                                        meshShape);
 #endif
   LOG_FATAL("Runtime is not enabled");
 }
