@@ -545,6 +545,24 @@ def D2MGridSelection: Pass<"d2m-grid-selection", "::mlir::ModuleOp"> {
   ];
 }
 
+def D2MSpatialGridAnnotation : Pass<"d2m-spatial-grid-annotation", "::mlir::ModuleOp"> {
+  let summary = "Annotate d2m.spatial with grid mapping on generics and output tensor layouts.";
+  let description = [{
+    For each d2m.spatial op, this pass (1) sets the grid attribute (shape and
+    physical-to-virtual mapping) on the d2m.generic inside each region so that
+    lowering can correctly map virtual core indices to the physical core range
+    given by grid_ranges[i], and (2) updates each spatial output operand's tensor
+    type so its layout carries the virtual-to-physical grid mapping for the
+    core range that writes it, enabling correct allocation and getPhysicalGridShape.
+
+    The pass runs after d2m.spatial is created (e.g. after ttir-to-d2m).
+  }];
+  let dependentDialects = [
+    "::mlir::tt::d2m::D2MDialect",
+    "::mlir::tt::ttcore::TTCoreDialect",
+  ];
+}
+
 def D2MGenericReplaceGlobals : Pass<"d2m-generic-replace-globals", "::mlir::ModuleOp"> {
   let summary = "Replace `ttcore.get_global` operations with direct operand references within `d2m.generic` operations";
   let description = [{

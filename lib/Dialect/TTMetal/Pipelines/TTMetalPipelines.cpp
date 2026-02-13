@@ -102,6 +102,7 @@ void createTTIRToTTMetalFrontendPipeline(
     toD2MOptions.enableMulticastInference = options.enableMulticastInference;
   }
   pm.addPass(tt::createTTIRToD2MPass(toD2MOptions));
+  pm.addPass(d2m::createD2MSpatialGridAnnotation());
   pm.addPass(d2m::createD2MScalarizeConstTensors());
   d2m::D2MGridSelectionOptions gridOptOptions;
   {
