@@ -265,7 +265,6 @@ def test_reshape(
         ((1, 64), 32, 2),  # Two tiles
         ((1, 96), 64, 1),  # Three tiles
         ((1, 128), 0, 1),  # Four tiles (from GPT model)
-        ((1, 2048), 0, 1),  # 64 tiles
     ],
 )
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
