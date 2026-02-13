@@ -1142,8 +1142,7 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::ExperimentalTileFillOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ExperimentalWriteRowMaskTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ExperimentalWriteColMaskTileOp>,
-        TTKernelToEmitCOpaqueRewriter<
-            ttkernel::ExperimentalWriteFullLinearIndexTileOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::ExperimentalFillArangeTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::UnaryBcastInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::UnaryBcastTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::WhereTileInitOp>,

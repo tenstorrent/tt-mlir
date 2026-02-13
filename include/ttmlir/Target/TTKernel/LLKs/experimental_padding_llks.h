@@ -133,7 +133,7 @@ ALWI void write_col_mask_tile(uint32_t validCols, uint32_t cb_id) {
 // Each element gets its linear index: element[i,j] = i * 32 + j (0-1023)
 // This is used for arange operations where we need the global element index
 // within a tile.
-inline void _write_full_linear_index_to_l1_(volatile uint32_t *ptr) {
+inline void _fill_arange_tile_to_l1_(volatile uint32_t *ptr) {
   uint32_t count = 0;
 
   for (uint32_t i = 0; i < 2; ++i) {      // Face row (0-1)
@@ -151,12 +151,12 @@ inline void _write_full_linear_index_to_l1_(volatile uint32_t *ptr) {
   }
 }
 
-ALWI void write_full_linear_index_tile(uint32_t cb_id) {
+ALWI void fill_arange_tile(uint32_t cb_id) {
 #ifdef TRISC_UNPACK
   uint32_t write_addr = (get_local_cb_interface(cb_id).fifo_rd_ptr) << 4;
   volatile tt_l1_ptr uint32_t *ptr =
       reinterpret_cast<volatile tt_l1_ptr uint32_t *>(write_addr);
-  _write_full_linear_index_to_l1_(ptr);
+  _fill_arange_tile_to_l1_(ptr);
 #endif
 }
 

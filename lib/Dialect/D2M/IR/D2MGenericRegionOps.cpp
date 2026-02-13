@@ -839,10 +839,10 @@ bool RemoteLoadOp::bufferizesToMemoryRead(
 }
 
 //===----------------------------------------------------------------------===//
-// WriteFullLinearIndexTileOp Implementation
+// FillArangeTileOp Implementation
 //===----------------------------------------------------------------------===//
 
-void WriteFullLinearIndexTileOp::getEffects(
+void FillArangeTileOp::getEffects(
     mlir::SmallVectorImpl<
         mlir::SideEffects::EffectInstance<mlir::MemoryEffects::Effect>>
         &effects) {

@@ -63,7 +63,7 @@ struct DecomposeArangeBlockPattern : OpRewritePattern<ArangeBlockOp> {
 
     // === STEP 1: Write the scratch tile ===
     TT_assert(indexTileMemref);
-    rewriter.create<WriteFullLinearIndexTileOp>(loc, indexTileMemref);
+    rewriter.create<FillArangeTileOp>(loc, indexTileMemref);
 
     // === STEP 2: Scalar constants for arange start and step ===
     Value startF = rewriter.create<arith::ConstantOp>(

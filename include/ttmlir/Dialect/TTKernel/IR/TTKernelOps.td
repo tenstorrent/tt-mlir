@@ -2245,7 +2245,7 @@ def TTKernel_ExperimentalWriteColMaskTileOp : TTKernel_Op<"experimental::write_c
 }
 
 
-def TTKernel_ExperimentalWriteFullLinearIndexTileOp : TTKernel_Op<"experimental::write_full_linear_index_tile"> {
+def TTKernel_ExperimentalFillArangeTileOp : TTKernel_Op<"experimental::fill_arange_tile"> {
     let summary = "Experimental Write Full Linear Index Tile Op";
     let description = [{
       Writes a full linear index tile pattern to a CB, where element[i,j] = i * 32 + j

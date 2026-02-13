@@ -2031,7 +2031,7 @@ def D2M_WriteColMaskTileOp : D2M_GenericRegionOp<"write_col_mask_tile",
 // D2M Arange Ops
 //===----------------------------------------------------------------------===//
 
-def D2M_WriteFullLinearIndexTileOp : D2M_GenericRegionOp<"write_full_linear_index_tile",
+def D2M_FillArangeTileOp : D2M_GenericRegionOp<"fill_arange_tile",
   [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
   let summary = "Write full linear index pattern to a tile CB";
   let description = [{
@@ -2069,7 +2069,7 @@ def D2M_ArangeBlockOp : D2M_GenericRegionComputeOp<"arange_block",
       This op operates at the block level (memref of tiles).
 
       The index_tile_tensor is a scratch tensor (1x1 tile) handled by
-      ExperimentalWriteFullLinearIndexTileOp.
+      the FillArangeTileOp.
 
       For each tile at position (tile_row, tile_col), the computation is:
       1. tile_offset = (tile_row * num_tile_cols * 32 + tile_col) * 32
