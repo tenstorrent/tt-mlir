@@ -149,16 +149,16 @@ def test_permute(shape: Shape, permutation: List[int], target: str, request, dev
     [
         # Format: (batch, num_heads, seq_len, head_dim)
         (1, 8, 32, 64),
-        # (1, 12, 64, 64),
-        # (1, 16, 32, 128),
-        # (2, 8, 32, 64),
-        # (1, 24, 32, 128),
-        # (2, 24, 32, 128),
-        # (1, 32, 64, 128),
-        # (1, 8, 128, 64),
-        # (1, 4, 32, 32),
-        # (1, 2, 32, 64),
-        # (1, 12, 256, 64),
+        (1, 12, 64, 64),
+        (1, 16, 32, 128),
+        (2, 8, 32, 64),
+        (1, 24, 32, 128),
+        (2, 24, 32, 128),
+        (1, 32, 64, 128),
+        (1, 8, 128, 64),
+        (1, 4, 32, 32),
+        (1, 2, 32, 64),
+        (1, 12, 256, 64),
     ],
 )
 @pytest.mark.parametrize("target", ["ttmetal"])
@@ -181,15 +181,14 @@ def test_concatenate_heads(
             builder: TTIRBuilder,
             unit_attrs: List[str] = None,
         ):
-            return builder.concatenate_heads(in0)
+            return builder.concatenate_heads(in0, output_type=torch.float32)
 
     compile_and_execute_ttir(
         concatenate_heads_module,
         target=target,
         device=device,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
+        print_ir=True,
+        **get_request_kwargs(request),
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '}}}",
     )
 

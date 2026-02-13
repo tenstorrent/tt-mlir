@@ -7024,7 +7024,7 @@ class TTIRBuilder(Builder):
         if not self._disable_golden_check:
             input0 = self._get_golden_tensor(in0)
             op_golden_function = get_golden_function(ttir_op)
-            golden_output = op_golden_function(input0)
+            golden_output = op_golden_function(input0, mlir_output_type)
             self._set_golden_tensor(op_result, golden_output)
 
         return op_result
@@ -7049,7 +7049,7 @@ class TTIRBuilder(Builder):
         if not self._disable_golden_check:
             input0 = self._get_golden_tensor(in0)
             op_golden_function = get_golden_function(ttir_op)
-            golden_output = op_golden_function(input0)
+            golden_output = op_golden_function(input0, result.element_type)
             self._set_golden_tensor(new_op_result, golden_output)
 
         op_map_dictionary = {}
@@ -7086,7 +7086,7 @@ class TTIRBuilder(Builder):
                     if not self._disable_golden_check:
                         op_golden_function = get_golden_function(ttir_op)
                         input0 = self._get_golden_tensor(old_op.input)
-                        golden_output = op_golden_function(input0)
+                        golden_output = op_golden_function(input0, result.element_type)
                         concatenate_heads_builder._set_golden_tensor(
                             new_op_result, golden_output
                         )

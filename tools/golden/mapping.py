@@ -4210,7 +4210,7 @@ def ttir_embedding_backward_golden(
 
 
 def ttir_concatenate_heads_golden(
-    input_tensor: GoldenMapTensor, **kwargs
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
 ) -> GoldenMapTensor:
     # Input: [batch, num_heads, seq_len, head_dim]
     # Permute to: [batch, seq_len, num_heads, head_dim]
