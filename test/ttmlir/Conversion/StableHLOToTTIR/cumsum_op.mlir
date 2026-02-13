@@ -110,4 +110,19 @@ module @moreh_cumsum attributes {} {
     }) : (tensor<1x1xi32>, tensor<i32>) -> tensor<1x1xi32>
     return %1 : tensor<1x1xi32>
   }
+
+  func.func @reduce_window_3d_input_to_cumsum(%arg0: tensor<1x25x34xf32>) -> tensor<1x25x34xf32> {
+    // CHECK: %[[RET:[0-9]+]] = "ttir.cumsum"(%arg0)
+    // CHECK-SAME: <{dim = 1 : i64}>
+    %cst = stablehlo.constant dense<0.000000e+00> : tensor<f32>
+    %1 = "stablehlo.reduce_window"(%arg0, %cst) <{
+      padding = dense<[[0, 0], [24, 0], [0, 0]]> : tensor<3x2xi64>,
+      window_dimensions = array<i64: 1, 25, 1>
+    }> ({
+    ^bb0(%arg1: tensor<f32>, %arg2: tensor<f32>):
+      %sum = stablehlo.add %arg1, %arg2 : tensor<f32>
+      stablehlo.return %sum : tensor<f32>
+    }) : (tensor<1x25x34xf32>, tensor<f32>) -> tensor<1x25x34xf32>
+    return %1 : tensor<1x25x34xf32>
+  }
 }

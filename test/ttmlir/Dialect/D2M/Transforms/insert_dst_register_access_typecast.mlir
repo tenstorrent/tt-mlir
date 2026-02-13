@@ -13,10 +13,10 @@ module {
     %in0: memref<1x1x1x8x!ttcore.tile<32x32, f32>, #ttcore.shard<32768x4096, 1>, #ttcore.memory_space<l1>>,
     %out0: memref<1x1x1x8x!ttcore.tile<32x32, f16>, #ttcore.shard<16384x2048, 1>, #ttcore.memory_space<l1>>
   ) {
-    d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>], iterator_types = [#ttcore.iterator_type<parallel>, #ttcore.iterator_type<parallel>], threads = [#d2m.thread<compute>]}
+    d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>], iterator_types = [#ttcore.iterator_type<parallel>, #ttcore.iterator_type<parallel>], threads = [#d2m.thread<unified>]}
         ins(%in0 : memref<1x1x1x8x!ttcore.tile<32x32, f32>, #ttcore.shard<32768x4096, 1>, #ttcore.memory_space<l1>>)
         outs(%out0 : memref<1x1x1x8x!ttcore.tile<32x32, f16>, #ttcore.shard<16384x2048, 1>, #ttcore.memory_space<l1>>)  {
-    ^compute0(%arg0_cb: !d2m.cb<memref<1x8x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>>, %arg1_cb: !d2m.cb<memref<1x8x!ttcore.tile<32x32, f16>, #ttcore.memory_space<l1>>>):
+    ^unified0(%arg0_cb: !d2m.cb<memref<1x8x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>>, %arg1_cb: !d2m.cb<memref<1x8x!ttcore.tile<32x32, f16>, #ttcore.memory_space<l1>>>):
       %cb0 = d2m.wait %arg0_cb : !d2m.cb<memref<1x8x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>> -> memref<1x8x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>
       %cb1 = d2m.reserve %arg1_cb : !d2m.cb<memref<1x8x!ttcore.tile<32x32, f16>, #ttcore.memory_space<l1>>> -> memref<1x8x!ttcore.tile<32x32, f16>, #ttcore.memory_space<l1>>
       // CHECK: %[[DST:.*]] = d2m.acquire_dst() : memref<{{.*}}x!ttcore.tile<32x32, f32>, #dst>

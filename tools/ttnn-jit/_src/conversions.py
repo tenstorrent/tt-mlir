@@ -16,7 +16,7 @@ This includes:
 """
 from ttmlir.ir import BF16Type, F32Type, IntegerType
 from ttmlir.dialects import ttcore
-from ttmlir.dialects import ttnn
+import ttnn
 
 import ttnn as ttnn_lib
 
@@ -127,6 +127,30 @@ def ttcore_dtype_from_mlir_dtype(dtype):
             return ttcore.DataType.Int32
         case _:
             raise ValueError(f"Unsupported MLIR dtype: {dtype}")
+
+
+def ttnn_dtype_from_mlir_dtype(dtype):
+    """
+    Convert MLIR dtype to TTNN dtype.
+
+    Args:
+        dtype: MLIR dtype object
+
+    Returns:
+        TTNN dtype (integer enum)
+    """
+    dtype_str = str(dtype)
+    match dtype_str:
+        case "f32":
+            return ttnn.DataType.FLOAT32
+        case "bf16":
+            return ttnn.DataType.BFLOAT16
+        case s if "bfp_bf8" in s.lower():
+            return ttnn.DataType.BFLOAT8_B
+        case "i32":
+            return ttnn.DataType.INT32
+        case _:
+            raise ValueError(f"Unsupported MLIR dtype for TTNN: {dtype}")
 
 
 def buffer_type_from_string(buffer_type_str: str):

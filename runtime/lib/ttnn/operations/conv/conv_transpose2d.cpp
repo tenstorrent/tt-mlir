@@ -66,11 +66,16 @@ void run(const ::tt::target::ttnn::ConvTranspose2dOp *op,
 
   ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
 
+  std::optional<::ttnn::operations::conv::conv2d::Conv2dSliceConfig>
+      sliceConfig;
+  if (op->conv2d_slice_config()) {
+    sliceConfig = utils::createConv2dSliceConfig(op->conv2d_slice_config());
+  }
   ResultWithOptions result = ::ttnn::conv_transpose2d(
       input, weight, &targetDevice, op->in_channels(), op->out_channels(),
       op->batch_size(), op->input_height(), op->input_width(), kernelSize,
       stride, padding, outputPadding, dilation, op->groups(), outputDtype, bias,
-      conv2dConfig, computeConfig, memoryConfig);
+      conv2dConfig, computeConfig, memoryConfig, sliceConfig);
 
   LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result));
 

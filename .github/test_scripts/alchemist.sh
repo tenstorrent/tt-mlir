@@ -89,13 +89,10 @@ export LD_LIBRARY_PATH="$INSTALL_DIR/tools/tt-alchemist/test:$INSTALL_DIR/lib:$I
 export PYTHONPATH="$INSTALL_DIR/tools/tt-alchemist/test:$INSTALL_DIR/tt-metal/ttnn:$INSTALL_DIR/tt-metal:${PYTHONPATH:-}"
 cd "$INSTALL_DIR/tools/tt-alchemist/test"
 
-# TODO (azecevic): Re-enable tests when PythonModelRunner segfault is fixed.
-# https://github.com/tenstorrent/tt-mlir/issues/6813
+echo "Run test_python_runner_simple"
+./test_python_runner_simple
 
-# echo "Run test_python_runner_simple"
-# ./test_python_runner_simple
-
-# echo "Run test_python_runner (requires device)"
-# ./test_python_runner
+echo "Run test_python_runner (requires device)"
+./test_python_runner
 
 cd $WORK_DIR

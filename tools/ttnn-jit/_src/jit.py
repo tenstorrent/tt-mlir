@@ -37,6 +37,7 @@ class JitFunction:
         debug: bool,
         enable_cache: bool,
         math_fidelity: ttnn.MathFidelity,
+        memory_config: ttnn.MemoryConfig,
     ):
         self.func = func
         self.source_code = cleanup_source_code(func)
@@ -44,6 +45,7 @@ class JitFunction:
         self.debug = debug or compile_only
         self.out_dir = os.path.join("generated", "ttnn-jit", func.__name__)
         self.math_fidelity = math_fidelity
+        self.memory_config = memory_config
         os.makedirs(self.out_dir, exist_ok=True)
 
         self.system_desc_path = os.getenv("SYSTEM_DESC_PATH")
@@ -120,6 +122,7 @@ class JitFunction:
         ir, output_type = generate_ir(
             self.func,
             self.debug,
+            self.memory_config,
             *args,
             **kwargs,
         )

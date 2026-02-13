@@ -7,7 +7,9 @@ add_mlir_dialect_library(MLIRStableHLOTransforms
   PartiallyConvertSdyToStableHLO.cpp
   RegisterCustomShardingRule.cpp
   ReoutlineComposite.cpp
+  ShardyCCLCanonicalization.cpp
   ShardyCCLToStableHLOCCLPatterns.cpp
+  StableHLOFusing.cpp
   UnsolvedGraphPasses.cpp
   UpdateGlobalToLocalShapes.cpp
   WrapUnderManualComputation.cpp

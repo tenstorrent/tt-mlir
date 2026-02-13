@@ -902,7 +902,8 @@ void memcpy(void *dst, ::tt::runtime::Tensor src,
     size_t size = srcTensor.physical_volume() * srcTensor.element_size();
     std::memcpy(dst, srcPtr, size);
   } else {
-    ::tt::tt_metal::memcpy(dst, srcTensor);
+    ::tt::tt_metal::copy_to_host(srcTensor.device()->mesh_command_queue(),
+                                 srcTensor, reinterpret_cast<std::byte *>(dst));
   }
 }
 
@@ -921,8 +922,13 @@ void memcpy(::tt::runtime::Tensor dst, ::tt::runtime::Tensor src) {
     const void *srcPtr = utils::getRawHostDataPtr(srcTensor);
     size_t size = srcTensor.physical_volume() * srcTensor.element_size();
     std::memcpy(dstPtr, srcPtr, size);
+  } else if (utils::isOnHost(srcTensor.storage_type())) {
+    ::tt::tt_metal::copy_to_device(srcTensor, dstTensor);
   } else {
-    ::tt::tt_metal::memcpy(dstTensor, srcTensor);
+    void *dstPtr = utils::getRawHostDataPtr(dstTensor);
+    ::tt::tt_metal::copy_to_host(srcTensor.device()->mesh_command_queue(),
+                                 srcTensor,
+                                 reinterpret_cast<std::byte *>(dstPtr));
   }
 }
 
@@ -1010,10 +1016,6 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_ToLayoutOp()->out();
     break;
   }
-  case ::tt::target::ttnn::OpType::ToDTypeOp: {
-    tensorRef = opContext.type_as_ToDTypeOp()->out();
-    break;
-  }
   case ::tt::target::ttnn::OpType::TypecastOp: {
     tensorRef = opContext.type_as_TypecastOp()->out();
     break;
@@ -1084,6 +1086,10 @@ getOpOutputRef(OpContext opContextHandle,
   }
   case ::tt::target::ttnn::OpType::RandOp: {
     tensorRef = opContext.type_as_RandOp()->out();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::DropoutOp: {
+    tensorRef = opContext.type_as_DropoutOp()->out();
     break;
   }
   case ::tt::target::ttnn::OpType::ReductionArgMaxOp: {
@@ -1373,16 +1379,16 @@ getOpInputRefs(OpContext opContextHandle,
   case ::tt::target::ttnn::OpType::RandOp: {
     break;
   }
+  case ::tt::target::ttnn::OpType::DropoutOp: {
+    tensorRefs = {opContext.type_as_DropoutOp()->in()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::ToMemoryConfigOp: {
     tensorRefs = {opContext.type_as_ToMemoryConfigOp()->in0()};
     break;
   }
   case ::tt::target::ttnn::OpType::ToLayoutOp: {
     tensorRefs = {opContext.type_as_ToLayoutOp()->in()};
-    break;
-  }
-  case ::tt::target::ttnn::OpType::ToDTypeOp: {
-    tensorRefs = {opContext.type_as_ToDTypeOp()->in()};
     break;
   }
   case ::tt::target::ttnn::OpType::TypecastOp: {

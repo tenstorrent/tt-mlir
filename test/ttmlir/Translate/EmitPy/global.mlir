@@ -55,8 +55,8 @@ module {
     %0 = emitpy.global_statement @global_var_3 : i64
     // CHECK: global global_var_4
     %1 = emitpy.global_statement @global_var_4 : i64
-    %2 = emitpy.get_global @global_var_3 : i64
-    %3 = emitpy.get_global @global_var_4 : i64
+    %2 = emitpy.global_statement @global_var_3 : i64
+    %3 = emitpy.global_statement @global_var_4 : i64
     // CHECK: global_var_3 = global_var_4
     emitpy.assign_global @global_var_3 = %3 : i64
     return

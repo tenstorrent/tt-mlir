@@ -241,6 +241,17 @@ mlir::LogicalResult broadcastValue(mlir::PatternRewriter &rewriter,
                                    mlir::Value &output, mlir::Location loc,
                                    bool frontUnsqueeze);
 
+// Given a reshape operation and an input dimension position (RTL - right to
+// left, 0 = rightmost), finds the corresponding output dimension position where
+// that dimension maps to. Returns -1 if no matching dimension is found.
+int64_t findMatchingDimRTL(ReshapeOp reshapeOp, int64_t dimRTL);
+
+// Checks if an operation preserves a given dimension.
+// For reshape, this checks both that the dimension size is unchanged and that
+// the product of trailing dimensions (stride) is preserved.
+// Dimension can be negative (counted from back, e.g. -1 for last dimension).
+bool preservesDim(mlir::Operation *op, int64_t dim);
+
 template <typename AdaptorT>
 mlir::ValueRange getDpsInputsFromAdaptor(AdaptorT adaptor,
                                          unsigned numDpsInits) {
@@ -322,17 +333,43 @@ OpTy findOpThrough(mlir::Value value) {
   return lookThrough<Ops...>(value).template getDefiningOp<OpTy>();
 }
 
-// Traces backward through all layout ops (typecast, reshape, permute,
-// broadcast, repeat_interleave) to find the source value.
+// Traces backward through all layout ops (typecast, reshape, broadcast,
+// repeat_interleave) to find the source value.
 inline mlir::Value lookThroughLayoutOps(mlir::Value value) {
-  return lookThrough<TypecastOp, ReshapeOp, PermuteOp, BroadcastOp,
-                     RepeatInterleaveOp>(value);
+  return lookThrough<TypecastOp, ReshapeOp, BroadcastOp, RepeatInterleaveOp>(
+      value);
+}
+
+// Traces backward through all layout ops, but only looks through ops that
+// satisfy the given predicate. The predicate receives the operation and should
+// return true if we should look through it, false to stop.
+template <typename PredicateFn>
+mlir::Value lookThroughLayoutOpsIf(mlir::Value value, PredicateFn &&predicate) {
+  while (auto *op = value.getDefiningOp()) {
+    if (llvm::isa<TypecastOp, ReshapeOp, BroadcastOp, RepeatInterleaveOp>(op)) {
+      if (!predicate(op)) {
+        break;
+      }
+      value = op->getOperand(0);
+    } else {
+      break;
+    }
+  }
+  return value;
 }
 
 // Traces backward through all layout ops to find an operation of type OpTy.
 template <typename OpTy>
 OpTy findOpThroughLayoutOps(mlir::Value value) {
   return lookThroughLayoutOps(value).template getDefiningOp<OpTy>();
+}
+
+// Traces backward through all layout ops that satisfy the predicate to find
+// an operation of type OpTy.
+template <typename OpTy, typename PredicateFn>
+OpTy findOpThroughLayoutOpsIf(mlir::Value value, PredicateFn &&predicate) {
+  return lookThroughLayoutOpsIf(value, std::forward<PredicateFn>(predicate))
+      .template getDefiningOp<OpTy>();
 }
 
 // Moves the use-define chain of a value before a target operation.
@@ -360,6 +397,34 @@ inline void moveUDChainBefore(mlir::Value value, mlir::Operation *targetOp) {
     }
     op->moveBefore(targetOp);
   }
+}
+
+// Transforms a value to match a target type by adding reshape and/or typecast
+// as needed. This is commonly used when fusing patterns that trace through
+// reshape and typecast ops.
+// Returns the transformed value that matches targetType's shape and dtype.
+inline mlir::Value reshapeAndCastToType(mlir::PatternRewriter &rewriter,
+                                        mlir::Location loc, mlir::Value value,
+                                        mlir::RankedTensorType targetType) {
+  auto valueType = mlir::cast<mlir::RankedTensorType>(value.getType());
+  mlir::Value result = value;
+
+  // If shape differs, add a reshape
+  if (valueType.getShape() != targetType.getShape()) {
+    llvm::SmallVector<int32_t> targetShape(targetType.getShape());
+    auto reshapeOutputType = mlir::RankedTensorType::get(
+        targetType.getShape(), valueType.getElementType(),
+        valueType.getEncoding());
+    result = rewriter.create<ReshapeOp>(loc, reshapeOutputType, result,
+                                        rewriter.getI32ArrayAttr(targetShape));
+  }
+
+  // If dtype differs, add a typecast
+  if (valueType.getElementType() != targetType.getElementType()) {
+    result = rewriter.create<TypecastOp>(loc, targetType, result);
+  }
+
+  return result;
 }
 
 } // namespace mlir::tt::ttir::utils

@@ -69,6 +69,14 @@ def TTCoreRegisterDevicePass : Pass<"ttcore-register-device", "::mlir::ModuleOp"
              )}]>,
         Option<"systemDescPath", "system-desc-path", "std::string", "", "System desc path">,
         ListOption<"meshShape", "mesh-shape", "int64_t", "Set the mesh shape">,
+        ListOption<"meshTopology", "mesh-topology", "ttcore::Topology",
+            "Set the per-axis mesh topology",
+            [{::llvm::cl::values(
+              clEnumValN(ttcore::Topology::Ring, "ring",
+               "Ring topology"),
+              clEnumValN(ttcore::Topology::Linear, "linear",
+               "Linear topology")
+             )}]>,
     ];
   let dependentDialects = ["::mlir::tt::ttcore::TTCoreDialect"];
 }

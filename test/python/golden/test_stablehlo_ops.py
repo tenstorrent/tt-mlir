@@ -479,6 +479,78 @@ def test_unary_ops(
     )
 
 
+@pytest.mark.parametrize("shape", [(256, 256)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
+@pytest.mark.parametrize("dimension", [1, 0], ids=["dim1", "dim0"])
+@pytest.mark.parametrize("descending", [True, False])
+@pytest.mark.parametrize("is_stable", [True, False])
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_sort(
+    shape: Shape,
+    dtype: torch.dtype,
+    dimension: int,
+    descending: bool,
+    is_stable: bool,
+    target: str,
+    request,
+    device,
+):
+    def module(builder: StableHLOBuilder):
+        @builder.func([shape], [dtype])
+        def sort(
+            in0: Operand,
+            builder: StableHLOBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            builder.set_graph_level_check(True)
+            return builder.sort(
+                in0,
+                dimension=dimension,
+                is_stable=is_stable,
+                descending=descending,
+                unit_attrs=unit_attrs,
+            )
+
+    compile_and_execute_shlo(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+    )
+
+
+@pytest.mark.parametrize("shape", [(64, 128), (32, 64, 128)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.parametrize("dimension", [0, 1])
+def test_get_dimension_size(
+    shape: Shape,
+    dtype: torch.dtype,
+    dimension: int,
+    target: str,
+    request,
+    device,
+):
+    def module_get_dimension_size(builder: StableHLOBuilder):
+        @builder.func([shape], [dtype])
+        def get_dimension_size(
+            in0: Operand,
+            builder: StableHLOBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            builder.set_graph_level_check(True)
+            return builder.get_dimension_size(in0, dimension, unit_attrs=unit_attrs)
+
+    compile_and_execute_shlo(
+        module_get_dimension_size,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        device=device,
+    )
+
+
 _RESHAPE_CASES = [
     # shapes, semantic id, skip_ttmetal?
     ([(2, 3), (3, 2)], "swap", True),
@@ -1358,6 +1430,114 @@ def test_batch_norm_grad_op(test_fn: Callable, target: str, request, device):
     compile_and_execute_shlo(
         test_fn,
         **get_request_kwargs(request),
+        target=target,
+        device=device,
+    )
+
+
+@pytest.mark.parametrize(
+    "output_shape, output_type, iota_dimension",
+    [
+        ([4, 5], torch.float32, 0),
+        ([4, 5], torch.float32, 1),
+        ([2, 3, 4], torch.float32, 1),
+        ([2, 3, 4], torch.float32, 2),
+        ([32, 64], torch.bfloat16, 0),
+        ([32, 64], torch.bfloat16, 1),
+    ],
+    ids=[
+        "shape_4x5_dim0",
+        "shape_4x5_dim1",
+        "shape_2x3x4_dim1",
+        "shape_2x3x4_dim2",
+        "shape_32x64_bf16_dim0",
+        "shape_32x64_bf16_dim1",
+    ],
+)
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_iota(
+    output_shape: List[int],
+    output_type: torch.dtype,
+    iota_dimension: int,
+    target: str,
+    request,
+    device,
+):
+    def module(builder: StableHLOBuilder):
+        @builder.func([output_shape], [output_type])
+        def iota(
+            in0: Operand,
+            builder: StableHLOBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            builder.set_graph_level_check(True)
+            return builder.iota(
+                output=in0.type,
+                iota_dimension=iota_dimension,
+                unit_attrs=unit_attrs,
+            )
+
+    compile_and_execute_shlo(
+        module,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        device=device,
+    )
+
+
+@pytest.mark.parametrize(
+    "output_shape, output_type, iota_dimension",
+    [
+        ([4, 5], torch.float32, 0),
+        ([4, 5], torch.float32, 1),
+        ([2, 3, 4], torch.float32, 1),
+        ([2, 3, 4], torch.float32, 2),
+        ([32, 64], torch.bfloat16, 0),
+        ([32, 64], torch.bfloat16, 1),
+    ],
+    ids=[
+        "shape_4x5_dim0",
+        "shape_4x5_dim1",
+        "shape_2x3x4_dim1",
+        "shape_2x3x4_dim2",
+        "shape_32x64_bf16_dim0",
+        "shape_32x64_bf16_dim1",
+    ],
+)
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_dynamic_iota(
+    output_shape: List[int],
+    output_type: torch.dtype,
+    iota_dimension: int,
+    target: str,
+    request,
+    device,
+):
+    def module(builder: StableHLOBuilder):
+        @builder.func([output_shape], [output_type])
+        def dynamic_iota(
+            in0: Operand,
+            builder: StableHLOBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            builder.set_graph_level_check(True)
+            shape_tensor = builder.constant(
+                torch.tensor(output_shape, dtype=torch.int64)
+            )
+            return builder.dynamic_iota(
+                output=in0.type,
+                output_shape=shape_tensor,
+                iota_dimension=iota_dimension,
+                unit_attrs=unit_attrs,
+            )
+
+    compile_and_execute_shlo(
+        module,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
         device=device,
     )

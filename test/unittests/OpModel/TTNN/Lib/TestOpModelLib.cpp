@@ -1605,7 +1605,7 @@ TEST_F(OpModelTest, MaxPool2dWithIndices) {
           CreateWorkerGrid(), inputShape, layoutDRAM, batchSize, inputHeight,
           inputWidth, inputChannels, kernelSize, stride, padding, dilation,
           ceilMode, reallocateHaloOutput, deallocateInput, returnIndices,
-          layoutDRAM);
+          std::nullopt, layoutDRAM);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   OpConstraints &opCstr = constraintsExp.get();
   EXPECT_GT(opCstr.cbL1PeakSize, 0);
@@ -1617,7 +1617,7 @@ TEST_F(OpModelTest, MaxPool2dWithIndices) {
       CreateWorkerGrid(), inputShape, layoutDRAM, batchSize, inputHeight,
       inputWidth, inputChannels, kernelSize, stride, padding, dilation,
       ceilMode, reallocateHaloOutput, deallocateInput, returnIndices,
-      layoutDRAM);
+      std::nullopt, layoutDRAM);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   opCstr = constraintsExp.get();
   EXPECT_GT(opCstr.cbL1PeakSize, 0);
@@ -1629,7 +1629,7 @@ TEST_F(OpModelTest, MaxPool2dWithIndices) {
       CreateWorkerGrid(), inputShape, layoutL1Interleaved, batchSize,
       inputHeight, inputWidth, inputChannels, kernelSize, stride, padding,
       dilation, ceilMode, reallocateHaloOutput, deallocateInput, returnIndices,
-      layoutL1WSharded);
+      std::nullopt, layoutL1WSharded);
   EXPECT_FALSE(static_cast<bool>(constraintsExp));
   llvm::consumeError(constraintsExp.takeError());
 }
@@ -2856,7 +2856,7 @@ TEST_P(OpModelConvTranspose2dParam, ConvTranspose2d) {
       CreateWorkerGrid(), inputShape, inputLayout, weightShape, weightLayout,
       std::nullopt, std::nullopt, in_channels, out_channels, batch_size,
       input_height, input_width, kernel_size, stride, padding, output_padding,
-      dilation, groups, std::nullopt, outputLayout);
+      dilation, groups, std::nullopt, std::nullopt, outputLayout);
   // Manually cast to bool because EXPECT_TRUE requires a const bool operator
   // which llvm::Expected<T> does not have
   EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
@@ -2875,7 +2875,7 @@ TEST_P(OpModelConvTranspose2dParam, ConvTranspose2d) {
       inputShape, inputLayout, weightShape, weightLayout, std::nullopt,
       std::nullopt, in_channels, out_channels, batch_size, input_height,
       input_width, kernel_size, stride, padding, output_padding, dilation,
-      groups, std::nullopt, outputLayout);
+      groups, std::nullopt, std::nullopt, outputLayout);
   // Manually cast to bool because EXPECT_TRUE requires a const bool operator
   // which llvm::Expected<T> does not have
   EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
@@ -3071,7 +3071,7 @@ protected:
     auto constraintsExp = OpModel<OpTy>::getOpConstraints(
         this->CreateWorkerGrid(), inputShape, inputLayout, batchSize,
         inputHeight, inputWidth, inputChannels, kernelSize, stride, padding,
-        dilation, ceilMode, reallocateHaloOutput, outputLayout);
+        dilation, ceilMode, reallocateHaloOutput, std::nullopt, outputLayout);
     EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
 
     if (constraintsExp) {
@@ -3088,7 +3088,7 @@ protected:
     auto runtimeExp = OpModel<OpTy>::getOpRuntime(
         inputShape, inputLayout, batchSize, inputHeight, inputWidth,
         inputChannels, kernelSize, stride, padding, dilation, ceilMode,
-        reallocateHaloOutput, outputLayout);
+        reallocateHaloOutput, std::nullopt, outputLayout);
     EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
     if (runtimeExp) {
       EXPECT_TRUE(runtimeExp.get() > 0);
@@ -4718,6 +4718,49 @@ TEST_F(OpModelTest, RandOp) {
   EXPECT_GT(opCstr.cbL1PeakSize, 0);
   EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
   EXPECT_EQ(opCstr.outputL1BufferSize, 0);
+}
+
+TEST_F(OpModelTest, DropoutOp) {
+  const llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
+  const auto workerGrid = CreateWorkerGrid(gridShapeHwN300);
+  const TTNNLayoutAttr inputLayoutDRAM = CreateTiledLayout(
+      tensorShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr inputLayoutL1 = CreateTiledLayout(
+      tensorShape, BufferType::L1, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr outputLayoutDRAM = CreateTiledLayout(
+      tensorShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr outputLayoutL1 = CreateTiledLayout(
+      tensorShape, BufferType::L1, TensorMemoryLayout::Interleaved);
+
+  auto legalExp = Device::getDeviceConstraints(workerGrid);
+  EXPECT_TRUE(static_cast<bool>(legalExp));
+
+  auto constraintsExp = OpModel<DropoutOp>::getOpConstraints(
+      workerGrid, tensorShape, inputLayoutDRAM, llvm::APFloat(0.0f),
+      llvm::APFloat(1.0f), 0, true, outputLayoutDRAM);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  OpConstraints &opCstr = constraintsExp.get();
+  EXPECT_GE(opCstr.cbL1PeakSize, 0);
+
+  constraintsExp = OpModel<DropoutOp>::getOpConstraints(
+      workerGrid, tensorShape, inputLayoutL1, llvm::APFloat(0.2f),
+      llvm::APFloat(1.25f), 21, true, outputLayoutL1);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  opCstr = constraintsExp.get();
+  EXPECT_GE(opCstr.cbL1PeakSize, 0);
+
+  constraintsExp = OpModel<DropoutOp>::getOpConstraints(
+      workerGrid, tensorShape, inputLayoutDRAM, llvm::APFloat(0.5f),
+      llvm::APFloat(2.0f), 21, false, outputLayoutL1);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  opCstr = constraintsExp.get();
+  EXPECT_GE(opCstr.cbL1PeakSize, 0);
+
+  auto runtimeExp = OpModel<DropoutOp>::getOpRuntime(
+      tensorShape, inputLayoutDRAM, llvm::APFloat(0.2f), llvm::APFloat(1.25f),
+      21, true, outputLayoutDRAM);
+  EXPECT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_GE(runtimeExp.get(), 0);
 }
 
 TEST_F(OpModelTest, FillCacheOp) {

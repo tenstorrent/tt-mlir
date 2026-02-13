@@ -169,6 +169,14 @@ struct TTIRToTTMetalPipelineOptions
       llvm::cl::desc("Enable operation scheduling optimization"),
       llvm::cl::init(true)};
 
+  // Option to enable/disable automatic multicast inference for reduction
+  // operations.
+  Option<bool> enableMulticastInference{
+      *this, "enable-multicast-inference",
+      llvm::cl::desc("Enable automatic multicast inference for reduction "
+                     "operations"),
+      llvm::cl::init(true)};
+
   // Option to enable debug mode for coalescing inference in DMA lowering.
   // When enabled, runs both analytical and sampling-based coalescing checks
   // and prints debug output comparing them.
@@ -183,8 +191,17 @@ struct TTIRToTTMetalPipelineOptions
 void createTTIRBufferizationPipeline(
     OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options);
 
+void createTTIRToTTMetalFrontendPipeline(
+    OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options);
+
+void createTTIRToTTMetalMiddleendPipeline(
+    OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options);
+
 void createTTIRToTTMetalBackendPipeline(
     OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options);
+
+void createTTIRToTTMetalPipeline(OpPassManager &pm,
+                                 const TTIRToTTMetalPipelineOptions &options);
 
 void createTTIRToTTMetalPipelineDebug(
     OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options);

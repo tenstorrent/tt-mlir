@@ -15,6 +15,7 @@ LICENSE @nsmithtt
 # Docs
 *.md @nsmithtt @sdjordjevicTT
 /docs/ @nsmithtt @sdjordjevicTT
+/docs/src/specs/ttnn-optimizer.md @rpavlovicTT @odjuricicTT
 
 # tt-mlir Bindings
 /include/ttmlir/Bindings/ @tapspatel
@@ -108,13 +109,13 @@ test/ttmlir/Dialect/StableHLO @tenstorrent/forge-developers-mlir-stablehlo
 /test/unittests/Allocation @tenstorrent/forge-developers-mlir-d2m
 
 # TTIR Erase Inverse Ops Optimization Pass
-/include/ttmlir/Dialect/TTIR/Transforms/EraseInverseOps/ @azecevicTT @odjuricicTT
-/lib/Dialect/TTIR/Transforms/EraseInverseOps/ @azecevicTT @odjuricicTT
-/test/ttmlir/Dialect/TTIR/erase_inverse_ops/ @azecevicTT @odjuricicTT
+/include/ttmlir/Dialect/TTIR/Transforms/EraseInverseOps/ @azecevicTT @odjuricicTT @mvasiljevicTT
+/lib/Dialect/TTIR/Transforms/EraseInverseOps/ @azecevicTT @odjuricicTT @mvasiljevicTT
+/test/ttmlir/Dialect/TTIR/erase_inverse_ops/ @azecevicTT @odjuricicTT @mvasiljevicTT
 
 # TTIR Fusing Passes
-/lib/Dialect/TTIR/Transforms/TTIRFusing.cpp @tenstorrent/forge-developers-mlir-core @odjuricicTT
-/test/ttmlir/Dialect/TTIR/fusing/ @tenstorrent/forge-developers-mlir-core @odjuricicTT
+/lib/Dialect/TTIR/Transforms/TTIRFusing.cpp @tenstorrent/forge-developers-mlir-core @odjuricicTT @mvasiljevicTT
+/test/ttmlir/Dialect/TTIR/fusing/ @tenstorrent/forge-developers-mlir-core @odjuricicTT @mvasiljevicTT
 
 # TTNN Dialects
 /include/ttmlir/Dialect/TTNN/ @tenstorrent/forge-developers-mlir-core
@@ -142,8 +143,8 @@ test/ttmlir/Dialect/StableHLO @tenstorrent/forge-developers-mlir-stablehlo
 /test/unittests/TestScheduler/ @tenstorrent/forge-developers-mlir-optimizer
 
 # TTNN Fusing Passes
-/lib/Dialect/TTNN/Transforms/TTNNFusing.cpp @tenstorrent/forge-developers-mlir-core @odjuricicTT
-/test/ttmlir/Dialect/TTNN/fusing/ @tenstorrent/forge-developers-mlir-core @odjuricicTT
+/lib/Dialect/TTNN/Transforms/TTNNFusing.cpp @tenstorrent/forge-developers-mlir-core @odjuricicTT @mvasiljevicTT
+/test/ttmlir/Dialect/TTNN/fusing/ @tenstorrent/forge-developers-mlir-core @odjuricicTT @mvasiljevicTT
 
 # LLVM Target
 /include/ttmlir/Target/LLVM/ @vwellsTT @mtopalovicTT

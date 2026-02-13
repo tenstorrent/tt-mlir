@@ -66,6 +66,7 @@ def createDeviceAttr(
     workerGridMap=None,
     system_desc=None,
     mesh_shape=[1],
+    mesh_topology=[],
 ):
     if system_desc is not None:
         return ttcore.ir.DeviceAttr.from_system_desc(ctx, system_desc, mesh_shape)
@@ -85,6 +86,7 @@ def createDeviceAttr(
         dramMap,
         mesh_shape,
         list(range(deviceStartIdx, deviceStartIdx + totalDevices)),
+        mesh_topology,
     )
 
 
@@ -203,4 +205,31 @@ print(
 print(
     "staircase systolic\n",
     createDeviceAttr([8, 8], workerGridMap=amap(2, [c0, d0, (d0 + d1) % 8])),
+)
+
+# ------------------------------------------------------------------------------
+
+print("\n=== Mesh Topology ===")
+# CHECK: ttcore.device<workerGrid = #ttcore.grid<8x8, (d0, d1) -> (0, d0, d1)>, l1Map = [[L1:.*]], dramMap = [[DRAM:.*]], meshShape = 1, chipIds = [0], meshTopology = [ring]>
+print(
+    "single device ring topology\n",
+    createDeviceAttr([8, 8], mesh_topology=[ttcore.ir.Topology.Ring]),
+)
+# CHECK: ttcore.device<workerGrid = #ttcore.grid<8x16, (d0, d1) -> (d1 floordiv 8, d0, d1 mod 8)>, l1Map = [[L1:.*]], dramMap = [[DRAM:.*]], meshShape = 1x2, chipIds = [0, 1], meshTopology = [ring, linear]>
+print(
+    "1x2 mesh with ring and linear topology\n",
+    createDeviceAttr(
+        [8, 16],
+        mesh_shape=[1, 2],
+        mesh_topology=[ttcore.ir.Topology.Ring, ttcore.ir.Topology.Linear],
+    ),
+)
+# CHECK: ttcore.device<workerGrid = #ttcore.grid<8x16, (d0, d1) -> (d1 floordiv 8, d0, d1 mod 8)>, l1Map = [[L1:.*]], dramMap = [[DRAM:.*]], meshShape = 1x2, chipIds = [0, 1], meshTopology = [ring, ring]>
+print(
+    "1x2 mesh with ring topology on both axes\n",
+    createDeviceAttr(
+        [8, 16],
+        mesh_shape=[1, 2],
+        mesh_topology=[ttcore.ir.Topology.Ring, ttcore.ir.Topology.Ring],
+    ),
 )

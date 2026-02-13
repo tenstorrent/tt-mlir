@@ -15,6 +15,7 @@
 #include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Affine/ViewLikeInterfaceUtils.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
@@ -96,6 +97,12 @@ static Value getCB(ConversionPatternRewriter &rewriter, Value cb) {
   llvm_unreachable("Expected load or subview op");
 }
 
+// Get DST index from where a compute op result is stored.
+// Handles both affine.store and memref.store.
+// When a value has multiple stores to different DST memrefs (due to value
+// reuse across DST regions after LICM), we prefer stores in the same block
+// as the defining op. This ensures we get the DST index for the correct
+// allocation context.
 static Value getDstIdxFromResult(Value d2mOpResult) {
   memref::StoreOp storeOp;
   for (Operation *op : d2mOpResult.getUsers()) {
@@ -207,6 +214,31 @@ static void setInsertionPointAfterOperands(OpBuilder &rewriter,
   }
 }
 
+static void setInsertionPointToFuncStart(OpBuilder &rewriter,
+                                         func::FuncOp func) {
+  Block &entry = func.getBody().front();
+  Operation *firstLoop = nullptr;
+
+  for (Operation &entryOp : entry) {
+    if (isa<scf::ForOp>(entryOp)) {
+      firstLoop = &entryOp;
+      break;
+    }
+  }
+
+  if (firstLoop) {
+    rewriter.setInsertionPoint(firstLoop);
+  } else {
+    rewriter.setInsertionPointToEnd(&entry);
+  }
+}
+
+static bool hasMatmulInit(func::FuncOp func) {
+  return llvm::any_of(func.getBody().front(), [](Operation &op) {
+    return isa<ttkernel::MatmulInitOp>(op);
+  });
+}
+
 } // namespace
 
 namespace {
@@ -279,6 +311,33 @@ public:
 };
 } // namespace
 
+// Helper to compute linear index from multi-dimensional indices.
+// For shape <d0, d1, d2, ...> and indices [i0, i1, i2, ...]:
+// linear = i0 * (d1*d2*...) + i1 * (d2*d3*...) + ... + i_last.
+static Value computeLinearIndex(Location loc, ArrayRef<int64_t> shape,
+                                ValueRange indices,
+                                ConversionPatternRewriter &rewriter) {
+  if (indices.size() == 1) {
+    return indices.front();
+  }
+
+  Value linearIdx = rewriter.create<arith::ConstantIndexOp>(loc, 0);
+  for (size_t i = 0; i < indices.size(); ++i) {
+    int64_t stride = 1;
+    for (size_t j = i + 1; j < shape.size(); ++j) {
+      stride *= shape[j];
+    }
+
+    Value contribution = indices[i];
+    if (stride != 1) {
+      auto strideVal = rewriter.create<arith::ConstantIndexOp>(loc, stride);
+      contribution = rewriter.create<arith::MulIOp>(loc, indices[i], strideVal);
+    }
+    linearIdx = rewriter.create<arith::AddIOp>(loc, linearIdx, contribution);
+  }
+  return linearIdx;
+}
+
 namespace {
 class MemrefLoadRewriter : public OpConversionPattern<memref::LoadOp> {
 public:
@@ -287,9 +346,12 @@ public:
   LogicalResult
   matchAndRewrite(memref::LoadOp op, memref::LoadOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    assert(adaptor.getIndices().size() == 1 &&
-           "Expected single index in load op, failing.");
-    rewriter.replaceOp(op, adaptor.getIndices().front());
+    // For DST loads, the indices give us the DST slot.
+    // For multi-index accesses (e.g., memref<4x1x1x...>), compute linear index.
+    Value linearIdx =
+        computeLinearIndex(op.getLoc(), op.getMemRefType().getShape(),
+                           adaptor.getIndices(), rewriter);
+    rewriter.replaceOp(op, linearIdx);
     return success();
   };
 };
@@ -303,10 +365,22 @@ public:
   static LogicalResult lowerCopyTile(memref::LoadOp load, memref::StoreOp store,
                                      memref::StoreOpAdaptor adaptor,
                                      ConversionPatternRewriter &rewriter) {
-    assert(adaptor.getIndices().size() == 1);
     auto cb = rewriter.getRemappedValue(load.getMemref());
     auto cbIndex = adaptor.getValue();
-    auto dstIndex = adaptor.getIndices().front();
+    auto dstIndex =
+        computeLinearIndex(store.getLoc(), store.getMemRefType().getShape(),
+                           adaptor.getIndices(), rewriter);
+
+    auto inCB = getInCB(rewriter, store);
+    auto outCB = getOutCB(rewriter, store);
+
+    auto insertionPoint = rewriter.getInsertionPoint();
+    rewriter.setInsertionPointToStart(rewriter.getInsertionBlock());
+    setInsertionPointAfterOperands(rewriter, {inCB, outCB},
+                                   /*allowHoisting*/ true);
+    rewriter.create<ttkernel::InitSFPUOp>(store.getLoc(), inCB, outCB);
+    rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
+
     rewriter.create<ttkernel::CopyTileInitOp>(store.getLoc(), cb);
     rewriter.replaceOpWithNewOp<ttkernel::CopyTileOp>(store, cb, cbIndex,
                                                       dstIndex);
@@ -316,10 +390,11 @@ public:
   static LogicalResult lowerPackTile(memref::StoreOp store,
                                      memref::StoreOpAdaptor adaptor,
                                      ConversionPatternRewriter &rewriter) {
-    assert(adaptor.getIndices().size() == 1);
     auto dst = adaptor.getValue();
     auto cb = adaptor.getMemref();
-    auto storeIdx = adaptor.getIndices().front();
+    auto storeIdx =
+        computeLinearIndex(store.getLoc(), store.getMemRefType().getShape(),
+                           adaptor.getIndices(), rewriter);
     rewriter.replaceOpWithNewOp<ttkernel::PackTileOp>(
         store, dst, cb, storeIdx, rewriter.getBoolAttr(true));
     return success();
@@ -345,8 +420,12 @@ public:
     bool storeToDst = ttcore::getMemorySpace(op.getMemRef()) ==
                       ttcore::MemorySpace::RegisterDst;
 
-    if (load && storeToDst) {
-      // If we are coming from a load, then we are a copy tile. Pattern:
+    // Check if the load is from L1 (CB), not from DST.
+    bool loadFromL1 = load && ttcore::getMemorySpace(load.getMemRef()) ==
+                                  ttcore::MemorySpace::DeviceL1;
+
+    if (loadFromL1 && storeToDst) {
+      // If we are coming from a load from L1, then we are a copy tile. Pattern:
       //    %0 = memref.load %arg0, %c0 : memref<1x!tt.tile, l1>
       //    tt.store %0, %arg1, %c0 : memref<1x!tt.tile, dst>
       // OR with dst reinterpret cast:
@@ -499,11 +578,18 @@ public:
       auto cbA = getCB(rewriter, op.getA());
       auto cbB = getCB(rewriter, op.getB());
       auto outCB = getOutCB(rewriter, op);
-      setInsertionPointAfterOperands(rewriter, {cbA, cbB, outCB},
-                                     /*allowHoisting*/ true);
+
+      // Must have only 1 MatmulInit op per kernel, so we always insert at
+      // beginning of the func, and only if no MatmulInit already exists.
+      if (auto func = op->template getParentOfType<func::FuncOp>();
+          !hasMatmulInit(func)) {
+        setInsertionPointToFuncStart(rewriter, func);
+        auto transpose = i32(rewriter, op->getLoc(), 0);
+        rewriter.create<ttkernel::MatmulInitOp>(op->getLoc(), cbA, cbB, outCB,
+                                                transpose);
+      }
+
       auto transpose = i32(rewriter, op->getLoc(), 0);
-      rewriter.create<ttkernel::MatmulInitOp>(op->getLoc(), cbA, cbB, outCB,
-                                              transpose);
       rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
       rewriter.create<ttkernel::MatmulInitShortOp>(op->getLoc(), cbA, cbB,
                                                    transpose);
@@ -606,6 +692,7 @@ public:
       rewriter.create<ttkernel::ReduceTileOp>(
           op->getLoc(), cbA, cbB, adaptor.getA(), adaptor.getB(),
           adaptor.getC(), reduce_type, kernel_reduce_dim);
+      rewriter.create<ttkernel::ReduceUninitOp>(op->getLoc());
     } else if constexpr (std::is_same_v<ConcreteOp, d2m::TileBcastOp>) {
       ttkernel::BcastType bcastType = ttkernel::BcastType::None;
       switch (op.getBcastType()) {
@@ -699,6 +786,7 @@ public:
     } else {
       rewriter.create<InitOp>(op->getLoc());
     }
+
     if constexpr (std::is_same_v<SFPUOp, ttkernel::AbsTileOp> ||
                   std::is_same_v<SFPUOp, ttkernel::LogicalNotUnaryTileOp> ||
                   std::is_same_v<SFPUOp, ttkernel::ReluTileOp>) {
@@ -820,13 +908,25 @@ public:
               loc, rewriter.getI32Type(), adaptor.getRhs());
           rewriter.create<ttkernel::PowUnaryTileOp>(loc, dstIdx, scalarParam);
         }
+        // Scalar ops operate in-place on DST slot - replace with the same
+        // dstIdx.
+        rewriter.replaceOp(op, dstIdx);
+        return success();
+      }
+      // Otherwise, this is a binary tile operation.
+      OpBuilder::InsertionGuard guard(rewriter);
+      const auto dstIdx = getDstIdxFromResult(op.getResult());
+      setInsertionPointAfterOperands(
+          rewriter, {adaptor.getLhs(), adaptor.getRhs(), dstIdx},
+          /*allowHoisting*/ false);
+      if constexpr (std::is_same_v<SFPUOp, ttkernel::BitwiseAndBinaryTilesOp> ||
+                    std::is_same_v<SFPUOp, ttkernel::BitwiseOrBinaryTilesOp> ||
+                    std::is_same_v<SFPUOp, ttkernel::BitwiseXorBinaryTilesOp>) {
+        const auto dtype =
+            mlir::cast<ttcore::TileType>(op.getLhs().getType()).getDataType();
+        rewriter.create<SFPUOp>(op->getLoc(), adaptor.getLhs(),
+                                adaptor.getRhs(), dstIdx, dtype);
       } else {
-        // Binary tile operation
-        OpBuilder::InsertionGuard guard(rewriter);
-        const auto dstIdx = getDstIdxFromResult(op.getResult());
-        setInsertionPointAfterOperands(
-            rewriter, {adaptor.getLhs(), adaptor.getRhs(), dstIdx},
-            /*allowHoisting*/ false);
         rewriter.create<SFPUOp>(op->getLoc(), adaptor.getLhs(),
                                 adaptor.getRhs(), dstIdx);
       }
@@ -839,20 +939,13 @@ public:
                                       adaptor.getTrueValue(),
                                       adaptor.getFalseValue(), dstIdx},
                                      /*allowHoisting*/ false);
-      const auto elemType =
-          mlir::cast<ttcore::TileType>(op.getTrueValue().getType())
-              .getElementType();
-      const bool isCBF32 = llvm::isa<Float32Type>(elemType);
-      if (isCBF32) {
-        if (std::is_same_v<ConcreteOp, d2m::TileWhereOp>) {
-          rewriter.create<ttkernel::WhereTileF32Op>(
-              op->getLoc(), adaptor.getCondition(), adaptor.getTrueValue(),
-              adaptor.getFalseValue(), dstIdx);
-        }
-      } else {
-        rewriter.create<SFPUOp>(op->getLoc(), adaptor.getCondition(),
-                                adaptor.getTrueValue(), adaptor.getFalseValue(),
-                                dstIdx);
+      if constexpr (std::is_same_v<ConcreteOp, d2m::TileWhereOp>) {
+        const auto dtype =
+            mlir::cast<ttcore::TileType>(op.getTrueValue().getType())
+                .getDataType();
+        rewriter.create<ttkernel::WhereTileOp>(
+            op->getLoc(), adaptor.getCondition(), adaptor.getTrueValue(),
+            adaptor.getFalseValue(), dstIdx, dtype);
       }
     }
 
@@ -1048,6 +1141,71 @@ public:
 
     return success();
   };
+};
+
+class D2MTileFillRewriter : public OpConversionPattern<d2m::TileFillOp> {
+public:
+  using OpConversionPattern<d2m::TileFillOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::TileFillOp op, d2m::TileFillOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    Value dstIdx = getDstIdxFromResult(op.getResult());
+
+    Value fillValue = adaptor.getValue();
+    Location loc = op->getLoc();
+
+    rewriter.create<ttkernel::ExperimentalTileFillOp>(loc, dstIdx, fillValue);
+
+    // Replace the op with its DST index so users (like TileWhereOp) get the
+    // correct operand value.
+    rewriter.replaceOp(op, dstIdx);
+    return success();
+  }
+};
+
+class D2MWriteRowMaskTileRewriter
+    : public OpConversionPattern<d2m::WriteRowMaskTileOp> {
+public:
+  using OpConversionPattern<d2m::WriteRowMaskTileOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::WriteRowMaskTileOp op,
+                  d2m::WriteRowMaskTileOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    Location loc = op->getLoc();
+    Value validRows = adaptor.getValidRows();
+    if (!validRows.getType().isInteger(32)) {
+      validRows = rewriter.create<arith::IndexCastOp>(
+          loc, rewriter.getI32Type(), validRows);
+    }
+    rewriter.create<ttkernel::ExperimentalWriteRowMaskTileOp>(
+        loc, validRows, adaptor.getOutput());
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+
+class D2MWriteColMaskTileRewriter
+    : public OpConversionPattern<d2m::WriteColMaskTileOp> {
+public:
+  using OpConversionPattern<d2m::WriteColMaskTileOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::WriteColMaskTileOp op,
+                  d2m::WriteColMaskTileOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    Location loc = op->getLoc();
+    Value validCols = adaptor.getValidCols();
+    if (!validCols.getType().isInteger(32)) {
+      validCols = rewriter.create<arith::IndexCastOp>(
+          loc, rewriter.getI32Type(), validCols);
+    }
+    rewriter.create<ttkernel::ExperimentalWriteColMaskTileOp>(
+        loc, validCols, adaptor.getOutput());
+    rewriter.eraseOp(op);
+    return success();
+  }
 };
 } // namespace
 
@@ -1571,22 +1729,6 @@ public:
 } // namespace
 
 namespace {
-class D2MPackerMaskResetRewriter
-    : public OpConversionPattern<d2m::PackerMaskResetOp> {
-public:
-  using OpConversionPattern<d2m::PackerMaskResetOp>::OpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(d2m::PackerMaskResetOp op,
-                  d2m::PackerMaskResetOpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const final {
-    rewriter.replaceOpWithNewOp<ttkernel::ReduceUninitOp>(op);
-    return success();
-  }
-};
-} // namespace
-
-namespace {
 class MemRefCollapseRewriter
     : public OpConversionPattern<memref::CollapseShapeOp> {
 public:
@@ -1616,6 +1758,11 @@ public:
     }
     case d2m::ThreadType::Datamovement: {
       return ThreadType::Noc;
+    }
+    case d2m::ThreadType::Unified: {
+      // Unified threads should have been split by SplitUnifiedThread before
+      // reaching this pass.
+      llvm_unreachable("Unexpected thread type in backend conversion");
     }
     }
   }
@@ -1872,6 +2019,9 @@ void populateD2MToTTKernelPatterns(
 
                ttkernel::D2MTilizeUntilizeRewriter<d2m::TileTilizeBlockOp, ttkernel::ExperimentalTilizeBlockOp>,
                ttkernel::D2MTilizeUntilizeRewriter<d2m::TileUntilizeBlockOp, ttkernel::ExperimentalUntilizeBlockOp>,
+               ttkernel::D2MTileFillRewriter,
+               ttkernel::D2MWriteRowMaskTileRewriter,
+               ttkernel::D2MWriteColMaskTileRewriter,
                ttkernel::D2MTileTransposeRewriter,
                ttkernel::D2MDstReinterpretCastRewriter,
                ttkernel::AcquireDstRewriter,
@@ -1884,7 +2034,6 @@ void populateD2MToTTKernelPatterns(
                ttkernel::D2MDMAWaitRewriter,
                ttkernel::D2MCoreIndexRewriter,
                ttkernel::D2MNullTxRewriter,
-               ttkernel::D2MPackerMaskResetRewriter,
                ttkernel::MemRefCollapseRewriter,
                ttkernel::D2MSemaphoreUpdateRewriter<d2m::SemaphoreSetOp>,
                ttkernel::D2MSemaphoreUpdateRewriter<d2m::SemaphoreIncOp>,

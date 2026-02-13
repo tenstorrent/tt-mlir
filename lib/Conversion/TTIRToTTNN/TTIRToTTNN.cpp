@@ -1452,15 +1452,22 @@ public:
     auto inputTy = mlir::cast<RankedTensorType>(adaptor.getInput().getType());
     auto weightTy = mlir::cast<RankedTensorType>(adaptor.getWeight().getType());
 
-    // Extract dimensions from input tensor: (N, D, H, W, C)
-    auto batchSizeAttr = rewriter.getI32IntegerAttr(inputTy.getDimSize(0));
-    auto inputDepthAttr = rewriter.getI32IntegerAttr(inputTy.getDimSize(1));
-    auto inputHeightAttr = rewriter.getI32IntegerAttr(inputTy.getDimSize(2));
-    auto inputWidthAttr = rewriter.getI32IntegerAttr(inputTy.getDimSize(3));
-    auto inChannelsAttr = rewriter.getI32IntegerAttr(inputTy.getDimSize(4));
+    // Extract dimensions using the input layout described by the op.
+    auto inputShape = inputTy.getShape();
+    int64_t batchDim = op.getBatchDim();
+    int64_t depthDim = op.getDepthDim();
+    int64_t heightDim = op.getHeightDim();
+    int64_t widthDim = op.getWidthDim();
+    int64_t channelDim = op.getChannelDim();
 
-    auto outChannelsAttr =
-        rewriter.getI32IntegerAttr(op.getResult().getType().getDimSize(4));
+    auto batchSizeAttr = rewriter.getI32IntegerAttr(inputShape[batchDim]);
+    auto inputDepthAttr = rewriter.getI32IntegerAttr(inputShape[depthDim]);
+    auto inputHeightAttr = rewriter.getI32IntegerAttr(inputShape[heightDim]);
+    auto inputWidthAttr = rewriter.getI32IntegerAttr(inputShape[widthDim]);
+    auto inChannelsAttr = rewriter.getI32IntegerAttr(inputShape[channelDim]);
+
+    auto outChannelsAttr = rewriter.getI32IntegerAttr(
+        op.getResult().getType().getDimSize(op.getChannelDim()));
 
     // Extract kernel size from weight tensor: (O, C/G, K_D, K_H, K_W)
     auto kernelSizeAttr = rewriter.getDenseI32ArrayAttr(
@@ -1499,16 +1506,49 @@ public:
     if (reshapedBias) {
       reshapedBias = reshapeBiasForConv3d(
           reshapedBias, mlir::cast<RankedTensorType>(reshapedBias.getType()),
-          rewriter, op.getLoc());
+          outChannelsAttr.getInt(), rewriter, op.getLoc());
     }
 
-    rewriter.replaceOpWithNewOp<ttnn::Conv3dOp>(
-        op, getTypeConverter()->convertType(op.getResult().getType()),
-        adaptor.getInput(), reshapedWeight, reshapedBias, device,
+    llvm::SmallVector<int64_t, 5> toNdhwcPermutation = {
+        batchDim, depthDim, heightDim, widthDim, channelDim};
+    bool needsPermute = !op.isNDHWC();
+
+    Value input = adaptor.getInput();
+    if (needsPermute) {
+      input = ttir_to_ttnn::utils::generatePermute(
+          mlir::cast<TypedValue<RankedTensorType>>(input), toNdhwcPermutation,
+          rewriter,
+          ttmlir::utils::appendLocationSuffix(op.getLoc(), "_to_ndhwc"));
+    }
+
+    RankedTensorType outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(op.getResult().getType()));
+    if (needsPermute) {
+      auto permutedOutputShape = ttmlir::utils::applyPermutation(
+          outputType.getShape(), toNdhwcPermutation);
+      outputType = ttnn::utils::RankedTensorTypeFactory::create(
+          outputType, permutedOutputShape);
+    }
+
+    auto convOp = rewriter.create<ttnn::Conv3dOp>(
+        op.getLoc(), outputType, input, reshapedWeight, reshapedBias, device,
         inChannelsAttr, outChannelsAttr, batchSizeAttr, inputDepthAttr,
         inputHeightAttr, inputWidthAttr, kernelSizeAttr, *strideAttr,
         *paddingAttr, paddingModeAttr, groupsAttr, outputDtypeAttr, nullptr,
         nullptr);
+
+    if (needsPermute) {
+      auto fromNdhwcPermutation =
+          ttmlir::utils::inversePermutation(toNdhwcPermutation);
+      Value permutedOutput = ttir_to_ttnn::utils::generatePermute(
+          mlir::cast<TypedValue<RankedTensorType>>(convOp.getResult()),
+          fromNdhwcPermutation, rewriter,
+          ttmlir::utils::appendLocationSuffix(op.getLoc(), "_from_ndhwc"));
+      rewriter.replaceOp(op, permutedOutput);
+      return success();
+    }
+
+    rewriter.replaceOp(op, convOp.getResult());
 
     return success();
   }
@@ -1569,9 +1609,12 @@ private:
 
   // Transforms bias tensor to 2D: (1, 1, 1, 1, O) → (1, O)
   Value reshapeBiasForConv3d(Value bias, RankedTensorType biasTy,
-                             PatternRewriter &rewriter, Location loc) const {
-    llvm::ArrayRef<int64_t> biasShape = biasTy.getShape();
-    int64_t outChannels = biasShape[4];
+                             int64_t outChannels, PatternRewriter &rewriter,
+                             Location loc) const {
+    int64_t biasElements = biasTy.getNumElements();
+    if (biasElements != outChannels) {
+      outChannels = biasElements;
+    }
 
     llvm::SmallVector<int64_t> newShape = {1, outChannels};
     llvm::SmallVector<int32_t> newShapeI32(newShape.begin(), newShape.end());
@@ -1675,7 +1718,8 @@ public:
         outChannelsAttr, batchSizeAttr, inputHeightAttr, inputWidthAttr,
         kernelSizeAttr, *strideAttr, reducedPaddingAttr, *outputPaddingAttr,
         *dilationAttr, groupsAttr, outputDtypeAttr, conv2dConfigAttr,
-        /*compute_config=*/nullptr, /*memoryConfig=*/nullptr);
+        /*compute_config=*/nullptr, /*memoryConfig=*/nullptr,
+        /*conv2d_slice_config=*/nullptr);
 
     return success();
   }
@@ -1831,7 +1875,8 @@ public:
           strideAttr, paddingAttr, dilationAttr,
           /*memory_config=*/nullptr,
           /* applied_shard_scheme=*/nullptr, adaptor.getCeilMode(),
-          /* in_place_halo=*/false, adaptor.getCountIncludePad());
+          /* in_place_halo=*/false, adaptor.getCountIncludePad(),
+          /*config_tensors_in_dram=*/rewriter.getBoolAttr(true));
     } else if constexpr (std::is_same_v<TTIROpTy, ttir::MaxPool2dOp>) {
       rewriter.replaceOpWithNewOp<TTNNOpTy>(
           op, this->getTypeConverter()->convertType(op.getResult().getType()),
@@ -1839,7 +1884,8 @@ public:
           strideAttr, paddingAttr, dilationAttr,
           /*memory_config=*/nullptr,
           /* applied_shard_scheme=*/nullptr, adaptor.getCeilMode(),
-          /* in_place_halo=*/false);
+          /* in_place_halo=*/false,
+          /*config_tensors_in_dram=*/rewriter.getBoolAttr(true));
     } else if constexpr (std::is_same_v<TTIROpTy,
                                         ttir::MaxPool2dWithIndicesOp>) {
       // Convert all result types for MaxPool2dWithIndicesOp which returns 2
@@ -1855,7 +1901,8 @@ public:
           kernelSizeAttr, strideAttr, paddingAttr, dilationAttr,
           /*memory_config=*/nullptr,
           /* applied_shard_scheme=*/nullptr, adaptor.getCeilMode(),
-          /* in_place_halo=*/false);
+          /* in_place_halo=*/false,
+          /*config_tensors_in_dram=*/rewriter.getBoolAttr(true));
     } else {
       llvm_unreachable("Pool2dOp must be AvgPool2dOp, MaxPool2dOp or "
                        "MaxPool2dWithIndicesOp");
@@ -2386,6 +2433,24 @@ public:
         op, this->getTypeConverter()->convertType(op.getType()), device,
         sizeAttr, adaptor.getLowAttr(), adaptor.getHighAttr(),
         adaptor.getSeedAttr(), dTypeAttr, tensorLayoutAttr, memoryConfigAttr);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class DropoutOpConversionPattern : public OpConversionPattern<ttir::DropoutOp> {
+public:
+  using OpConversionPattern<ttir::DropoutOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::DropoutOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<ttnn::DropoutOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(), adaptor.getProb(), adaptor.getScale(),
+        adaptor.getSeed(), adaptor.getUsePerDeviceSeed(),
+        /*memory_config=*/nullptr);
     return success();
   }
 };
@@ -3004,7 +3069,8 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ScaledDotProductAttentionDecodeOpConversionPattern,
            PagedScaledDotProductAttentionDecodeOpConversionPattern,
            SplitQueryKeyValueAndSplitHeadsOpConversionPattern,
-           GeluBackwardOpConversionPattern
+           GeluBackwardOpConversionPattern,
+           DropoutOpConversionPattern
            >(typeConverter, ctx);
   // ANCHOR_END: op_rewriter_pattern_set
   // clang-format on

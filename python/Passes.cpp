@@ -69,9 +69,17 @@ void populatePassesModule(nb::module_ &m) {
 
   m.def(
       "stablehlo_pipeline",
-      [](MlirModule module, std::string options = "") {
+      [](MlirModule module, std::string options = "", bool printIr = false) {
         mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
         mlir::PassManager pm(moduleOp->getContext());
+
+        if (printIr) {
+          pm.getContext()->disableMultithreading();
+          pm.enableIRPrinting(
+              [](mlir::Pass *, mlir::Operation *) { return false; },
+              [](mlir::Pass *, mlir::Operation *) { return true; }, true,
+              false);
+        }
 
         const auto *pipeline =
             mlir::PassPipelineInfo::lookup("stablehlo-pipeline");
@@ -87,13 +95,21 @@ void populatePassesModule(nb::module_ &m) {
           throw std::runtime_error("Failed to run pass manager");
         }
       },
-      nb::arg("module"), nb::arg("options") = "");
+      nb::arg("module"), nb::arg("options") = "", nb::arg("print_ir") = false);
 
   m.def(
       "ttir_to_ttnn_backend_pipeline",
-      [](MlirModule module, std::string options = "") {
+      [](MlirModule module, std::string options = "", bool printIr = false) {
         mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
         mlir::PassManager pm(moduleOp->getName());
+
+        if (printIr) {
+          pm.getContext()->disableMultithreading();
+          pm.enableIRPrinting(
+              [](mlir::Pass *, mlir::Operation *) { return false; },
+              [](mlir::Pass *, mlir::Operation *) { return true; }, true,
+              false);
+        }
 
         const auto *pipeline =
             mlir::PassPipelineInfo::lookup("ttir-to-ttnn-backend-pipeline");
@@ -109,13 +125,21 @@ void populatePassesModule(nb::module_ &m) {
           throw std::runtime_error("Failed to run pass manager");
         }
       },
-      nb::arg("module"), nb::arg("options") = "");
+      nb::arg("module"), nb::arg("options") = "", nb::arg("print_ir") = false);
 
   m.def(
       "ttir_to_ttmetal_backend_pipeline",
-      [](MlirModule module, std::string options = "") {
+      [](MlirModule module, std::string options = "", bool printIr = false) {
         mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
         mlir::PassManager pm(moduleOp->getName());
+
+        if (printIr) {
+          pm.getContext()->disableMultithreading();
+          pm.enableIRPrinting(
+              [](mlir::Pass *, mlir::Operation *) { return false; },
+              [](mlir::Pass *, mlir::Operation *) { return true; }, true,
+              false);
+        }
 
         const auto *pipeline =
             mlir::PassPipelineInfo::lookup("ttir-to-ttmetal-pipeline");
@@ -128,13 +152,21 @@ void populatePassesModule(nb::module_ &m) {
           throw std::runtime_error("Failed to run pass manager");
         }
       },
-      nb::arg("module"), nb::arg("options") = "");
+      nb::arg("module"), nb::arg("options") = "", nb::arg("print_ir") = false);
 
   m.def(
       "ttnn_to_ttmetal_pipeline",
-      [](MlirModule module, std::string options = "") {
+      [](MlirModule module, std::string options = "", bool printIr = false) {
         mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
         mlir::PassManager pm(moduleOp->getName());
+
+        if (printIr) {
+          pm.getContext()->disableMultithreading();
+          pm.enableIRPrinting(
+              [](mlir::Pass *, mlir::Operation *) { return false; },
+              [](mlir::Pass *, mlir::Operation *) { return true; }, true,
+              false);
+        }
 
         pm.addPass(tt::createConvertTTNNToTTIRPass());
 
@@ -152,16 +184,24 @@ void populatePassesModule(nb::module_ &m) {
           throw std::runtime_error("Failed to run pass manager");
         }
       },
-      nb::arg("module"), nb::arg("options") = "");
+      nb::arg("module"), nb::arg("options") = "", nb::arg("print_ir") = false);
 
   m.def(
       "stablehlo_to_ttir_pipeline",
-      [](MlirModule module, std::string options = "") {
+      [](MlirModule module, std::string options = "", bool printIr = false) {
         mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
         // Implicit nesting required to call the stablehlo.composite ->
         // func.call conversion.
         mlir::PassManager pm(moduleOp->getName(),
                              mlir::PassManager::Nesting::Implicit);
+
+        if (printIr) {
+          pm.getContext()->disableMultithreading();
+          pm.enableIRPrinting(
+              [](mlir::Pass *, mlir::Operation *) { return false; },
+              [](mlir::Pass *, mlir::Operation *) { return true; }, true,
+              false);
+        }
 
         const auto *pipeline =
             mlir::PassPipelineInfo::lookup("stablehlo-to-ttir-pipeline");
@@ -177,13 +217,21 @@ void populatePassesModule(nb::module_ &m) {
           throw std::runtime_error("Failed to run pass manager");
         }
       },
-      nb::arg("module"), nb::arg("options") = "");
+      nb::arg("module"), nb::arg("options") = "", nb::arg("print_ir") = false);
 
   m.def(
       "ttir_to_emitpy_pipeline",
-      [](MlirModule module, std::string options = "") {
+      [](MlirModule module, std::string options = "", bool printIr = false) {
         mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
         mlir::PassManager pm(moduleOp->getContext());
+
+        if (printIr) {
+          pm.getContext()->disableMultithreading();
+          pm.enableIRPrinting(
+              [](mlir::Pass *, mlir::Operation *) { return false; },
+              [](mlir::Pass *, mlir::Operation *) { return true; }, true,
+              false);
+        }
 
         const auto *pipeline =
             mlir::PassPipelineInfo::lookup("ttir-to-emitpy-pipeline");
@@ -199,7 +247,7 @@ void populatePassesModule(nb::module_ &m) {
           throw std::runtime_error("Failed to run pass manager");
         }
       },
-      nb::arg("module"), nb::arg("options") = "");
+      nb::arg("module"), nb::arg("options") = "", nb::arg("print_ir") = false);
 
   // This binds the vector into an interfaceable object in python and also an
   // opaquely passed one into other functions.
@@ -455,9 +503,17 @@ void populatePassesModule(nb::module_ &m) {
 
   m.def(
       "pykernel_compile_pipeline",
-      [](MlirModule module, std::string options = "") {
+      [](MlirModule module, std::string options = "", bool printIr = false) {
         mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
         mlir::PassManager pm(moduleOp->getName());
+
+        if (printIr) {
+          pm.getContext()->disableMultithreading();
+          pm.enableIRPrinting(
+              [](mlir::Pass *, mlir::Operation *) { return false; },
+              [](mlir::Pass *, mlir::Operation *) { return true; }, true,
+              false);
+        }
 
         const auto *pipeline =
             mlir::PassPipelineInfo::lookup("pykernel-compile-pipeline");
@@ -473,7 +529,7 @@ void populatePassesModule(nb::module_ &m) {
           throw std::runtime_error("Failed to run pass manager");
         }
       },
-      nb::arg("module"), nb::arg("options") = "");
+      nb::arg("module"), nb::arg("options") = "", nb::arg("print_ir") = false);
 
   m.def(
       "translate_to_cpp",

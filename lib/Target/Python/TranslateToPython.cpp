@@ -315,7 +315,7 @@ static bool hasDeferredEmission(Operation *op) {
   if (auto exprOp = dyn_cast_or_null<ExpressionOp>(op)) {
     return !exprOp.getDoNotInline();
   }
-  return isa_and_nonnull<LiteralOp, GetGlobalOp>(op);
+  return isa_and_nonnull<LiteralOp>(op);
 }
 
 StringRef PythonEmitter::getOrCreateName(Value value, std::string name) {
@@ -871,10 +871,6 @@ LogicalResult PythonEmitter::emitOperation(Operation &op) {
                 GlobalStatementOp, CreateDictOp, SetValueForDictKeyOp,
                 GetValueForDictKeyOp, ExpressionOp, YieldOp>(
               [&](auto op) { return printOperation(*this, op); })
-          .Case<GetGlobalOp>([&](auto op) {
-            registerDeferredValue(op.getResult(), op.getName());
-            return success();
-          })
           .Case<LiteralOp>([&](auto op) {
             registerDeferredValue(op.getResult(), op.getValue());
             return success();
