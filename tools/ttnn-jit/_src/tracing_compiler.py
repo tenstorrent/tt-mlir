@@ -117,7 +117,7 @@ class TracingCompiler:
             print(f"Output layout conversion insertion failed: {e}")
             raise e
 
-        return module
+        return module, return_type
 
     def _create_input_types(self, ctx):
         """

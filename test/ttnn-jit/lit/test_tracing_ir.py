@@ -215,7 +215,7 @@ def loop_with_conditional_func(a, b):
 def test_ir_generation(func, *tensors, debug=True):
     """Generate and print IR for a function."""
     tensor_args = _get_tensor_args(func, *tensors)
-    ir = generate_ir(func, debug, None, *tensors, _tensor_args=tensor_args)
+    ir, _ = generate_ir(func, debug, None, *tensors, _tensor_args=tensor_args)
     return ir
 
 
