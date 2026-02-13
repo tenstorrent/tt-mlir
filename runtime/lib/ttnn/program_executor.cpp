@@ -170,7 +170,15 @@ void ProgramExecutor::execute() {
 }
 
 std::vector<::tt::runtime::Tensor> ProgramExecutor::gatherOutputTensors() {
-  return context->getTensorPool().gatherOutputTensors();
+  auto outputs =  context->getTensorPool().gatherOutputTensors();
+  auto event = context->getMeshDevice().mesh_command_queue(std::nullopt).enqueue_record_event_to_host();
+  for (auto t: outputs) {
+  ::tt::runtime::ttnn::TTNNTensorWrapper &tensorWrapper = t.as<::tt::runtime::ttnn::TTNNTensorWrapper>(
+      DeviceRuntime::TTNN);
+
+    tensorWrapper.setMeshEvent(event);
+  }
+  return outputs;
 }
 
 void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {

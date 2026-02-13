@@ -32,6 +32,7 @@
 
 #include <memory>
 #include <optional>
+#include <tracy/Tracy.hpp>
 #include <vector>
 
 namespace tt::runtime::ttnn {
@@ -151,6 +152,7 @@ toHostSingleTensor(const ::tt::runtime::ttnn::TTNNTensorWrapper &tensorWrapper,
       ::ttnn::from_device(inputTensor, /*blocking=*/blocking);
 
   if (untilize) {
+    LOG_WARNING("Untilizing on host!");
     hostTensor = ::ttnn::to_layout(hostTensor, ::ttnn::Layout::ROW_MAJOR,
                                    std::nullopt, std::nullopt);
   }
@@ -701,14 +703,18 @@ void wait(::tt::runtime::Tensor tensor, std::optional<uint8_t> cqId) {
       tensorWrapper.getMeshEvent();
 
   if (!meshEvent.has_value()) {
+    std::cerr << "no mesh event here!" << std::endl;
     return;
   }
 
   // If no cqId provided, block and wait until the event is recorded
   if (!cqId.has_value()) {
+    std::cerr << "no cq here - event synchronize!" << std::endl;
     ::ttnn::events::event_synchronize(meshEvent.value());
     return;
   }
+
+  std::cerr << "we have a cq - wait_for_mesh_event" << std::endl;
 
   // tell cqId to wait until the event is recorded
   ::ttnn::QueueId cqIdValue(cqId.value());
@@ -854,6 +860,7 @@ Layout getLayout(Binary executableHandle, std::uint32_t programIndex,
 
 void memcpy(void *dst, ::tt::runtime::Tensor src,
             std::optional<::tt::target::DataType> dstDataType) {
+  ZoneScoped;
 
   if (dstDataType.has_value()) {
     LOG_ASSERT(
@@ -891,9 +898,13 @@ void memcpy(void *dst, ::tt::runtime::Tensor src,
         "integrity of the data.");
 
     // Cast to dstDataType, mempy into dst, and return
+    {
+
+      ZoneScopedN("handleBufferCast");
     return ::tt::runtime::utils::handleBufferCast(srcPtr, dst, srcDataType,
                                                   dstDataType.value(),
                                                   srcTensor.physical_volume());
+    }
   }
 
   // Handle direct copy without cast
