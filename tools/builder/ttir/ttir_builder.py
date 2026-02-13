@@ -13648,31 +13648,6 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> Tuple[OpResult, OpResult]:
-        """
-        Creates ``ttir.topk``.
-        *Top-K selection operation.*
-        Selects the top K elements along a specified dimension of the input tensor.
-        Parameters
-        ----------
-        in0 : Operand
-            Input tensor
-        k : int
-            Number of top elements to select
-        dim : int, optional
-            Dimension along which to select top K elements (default: -1)
-        largest : bool, optional
-            If True, selects the largest K elements; if False, selects the smallest K elements (default: True)
-        sorted : bool, optional
-            If True, the selected elements are sorted in descending order (default: True)
-        unit_attrs : *Optional[List[str]]*, optional
-            Optional list of unit attributes
-        Returns
-        -------
-        (*Tuple[OpResult, OpResult]*)
-            A tuple containing two OpResults:
-            - The tensor of top K values
-            - The tensor of indices corresponding to the top K values
-        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.topk)
 
         if output_type is None:
@@ -13722,3 +13697,102 @@ class TTIRBuilder(Builder):
             self._set_golden_tensor(op_indices, golden_indices)
 
         return op_values, op_indices
+
+    @parse(ttir.TopKOp)
+    def topk_parser(
+        self,
+        old_op: ttir.TopKOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.topk_parser)
+        input_tensor = global_dict[old_op.input_tensor]
+        k_attr = old_op.k
+        dim_attr = old_op.dim
+        largest_attr = old_op.largest
+        sorted_attr = old_op.sorted
+        result = old_op.result.type
+
+        new_op = ttir_op(
+            result,
+            input_tensor,
+            k=k_attr,
+            dim=dim_attr,
+            largest=largest_attr,
+            sorted=sorted_attr,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        if not self._disable_golden_check:
+            input = self._get_golden_tensor(input_tensor)
+            op_golden_function = get_golden_function(ttir_op)
+            golden_output = op_golden_function(
+                input, k_attr, dim_attr, largest_attr, sorted_attr, result.element_type
+            )
+            self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(ttir.TopKOp)
+    def topk_split(
+        self,
+        old_op: ttir.TopKOp,
+    ) -> Tuple[torch.Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(TTIRBuilder.topk_split)
+
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
+
+            topk_module = Module.create()
+            topk_builder = TTIRBuilder(old_ctx, old_loc)
+            op_input_types = [old_op.input.type]
+
+            with InsertionPoint(topk_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="topk_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
+
+                    new_op = ttir_op(
+                        result,
+                        in0,
+                        old_op.k,
+                        old_op.dim,
+                        old_op.largest,
+                        old_op.sorted,
+                        loc=old_op.location,
+                    )
+                    new_op_result = new_op.result
+
+                    if not self._disable_golden_check:
+                        op_golden_function = get_golden_function(ttir_op)
+                        input0 = self._get_golden_tensor(old_op.input)
+                        golden_output = op_golden_function(
+                            input0,
+                            old_op.k,
+                            old_op.dim,
+                            old_op.largest,
+                            old_op.sorted,
+                            result.element_type,
+                        )
+                        topk_builder._set_golden_tensor(new_op_result, golden_output)
+                        topk_builder._set_golden_tensor(in0, input0)
+                        ordered_inputs.append(in0)
+                        ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                topk_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return topk_module, topk_builder
