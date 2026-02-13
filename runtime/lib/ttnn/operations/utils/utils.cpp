@@ -486,7 +486,7 @@ createSDPAProgramConfig(const ::tt::target::ttnn::SDPAConfig *config) {
 ::ttnn::prim::LayerNormProgramConfig
 createLayerNormShardedMultiCoreProgramConfig(
     const ::tt::target::ttnn::LayerNormShardedMultiCoreProgramConfig *config) {
-  auto gridSize = config->compute_with_storage_grid_size();
+  const auto *gridSize = config->compute_with_storage_grid_size();
   return ::ttnn::prim::LayerNormShardedMultiCoreProgramConfig{
       .compute_with_storage_grid_size = {gridSize->x(), gridSize->y()},
       .subblock_w = config->subblock_w(),
