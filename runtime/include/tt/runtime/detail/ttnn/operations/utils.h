@@ -46,6 +46,10 @@ createSDPAProgramConfig(const ::tt::target::ttnn::SDPAConfig *config);
 ::ttnn::DeviceComputeKernelConfig createDeviceComputeKernelConfig(
     const ::tt::target::ttnn::DeviceComputeKernelConfig *config);
 
+::ttnn::prim::LayerNormProgramConfig
+createLayerNormShardedMultiCoreProgramConfig(
+    const ::tt::target::ttnn::LayerNormShardedMultiCoreProgramConfig *config);
+
 ::ttnn::Tensor toTTNNTensor(const ::flatbuffers::Vector<uint8_t> *input,
                             const ::ttnn::DataType &inputDataType,
                             const ::ttnn::Shape &shape,

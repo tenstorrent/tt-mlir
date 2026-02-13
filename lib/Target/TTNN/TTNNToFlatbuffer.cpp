@@ -1316,6 +1316,12 @@ createOp(FlatbufferObjectCache &cache, DistributedRMSNormOp op) {
         getOperandThroughDPSOps(op.getResidual()));
   }
 
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> stats = 0;
+  if (op.getStats()) {
+    stats = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getStats()));
+  }
+
   auto output =
       cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
                                   /*local_shape*/ std::nullopt);
@@ -1334,10 +1340,17 @@ createOp(FlatbufferObjectCache &cache, DistributedRMSNormOp op) {
       ::flatbuffers::Offset<::tt::target::ttnn::DeviceComputeKernelConfig>>
       computeConfig = toFlatbuffer(cache, op.getComputeConfig());
 
+  ::flatbuffers::Offset<
+      ::tt::target::ttnn::LayerNormShardedMultiCoreProgramConfig>
+      programConfig = 0;
+  if (op.getProgramConfig()) {
+    programConfig = toFlatbuffer(cache, op.getProgramConfig().value());
+  }
+
   return ::tt::target::ttnn::CreateDistributedRMSNormOp(
       *cache.fbb, input, weight, residual, op.getClusterAxis(),
       op.getEpsilon().convertToFloat(), subDeviceId, memoryConfig, numLinks,
-      topology, computeConfig.value_or(0), output);
+      topology, computeConfig.value_or(0), stats, programConfig, output);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::LayerNormOp>

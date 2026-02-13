@@ -325,12 +325,14 @@ def test_hoisted_layer_norm(
 @pytest.mark.parametrize("has_residual", [True, False])
 @pytest.mark.parametrize("mesh_shape", [(1, 2)], ids=shape_str)
 @pytest.mark.parametrize("cluster_axis", [1])
+@pytest.mark.parametrize("target", ["ttnn", "emitpy"])
 def test_distributed_rms_norm(
     shape: Shape,
     has_weight: bool,
     has_residual: bool,
     mesh_shape: Tuple[int, int],
     cluster_axis: int,
+    target: str,
     request,
     device,
 ):
@@ -428,4 +430,5 @@ def test_distributed_rms_norm(
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         **get_request_kwargs(request),
         device=device,
+        target=target,
     )

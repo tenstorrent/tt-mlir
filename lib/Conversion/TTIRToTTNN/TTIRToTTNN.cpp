@@ -1279,12 +1279,14 @@ public:
     rewriter.replaceOpWithNewOp<ttnn::DistributedRMSNormOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getInput(), adaptor.getWeight(), adaptor.getResidual(),
+        /*stats=*/nullptr,
         static_cast<uint32_t>(adaptor.getClusterAxis()), adaptor.getEpsilon(),
         /*sub_device_id=*/nullptr,
         /*memory_config=*/nullptr,
         /*num_links=*/nullptr,
         /*topology=*/nullptr,
-        /*compute_config=*/nullptr);
+        /*compute_config=*/nullptr,
+        /*program_config=*/nullptr);
     return success();
   }
 };

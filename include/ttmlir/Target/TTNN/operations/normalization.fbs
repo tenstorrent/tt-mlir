@@ -47,6 +47,14 @@ table RMSNormOp {
   compute_config: tt.target.ttnn.DeviceComputeKernelConfig;
 }
 
+table LayerNormShardedMultiCoreProgramConfig {
+  compute_with_storage_grid_size: tt.target.ttnn.CoreCoord;
+  subblock_w: uint64;
+  block_h: uint64;
+  block_w: uint64;
+  inplace: bool;
+}
+
 table DistributedRMSNormOp {
   input: tt.target.ttnn.TensorRef;
   weight: tt.target.ttnn.TensorRef;
@@ -58,6 +66,8 @@ table DistributedRMSNormOp {
   num_links: uint32 = null;
   topology: tt.target.Topology = null;
   compute_config: tt.target.ttnn.DeviceComputeKernelConfig;
+  stats: tt.target.ttnn.TensorRef;
+  program_config: tt.target.ttnn.LayerNormShardedMultiCoreProgramConfig;
   out: tt.target.ttnn.TensorRef;
 }
 

@@ -3372,6 +3372,68 @@ public:
 };
 } // namespace
 
+// DistributedRMSNormOp conversion pattern
+//
+namespace {
+class DistributedRMSNormOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::DistributedRMSNormOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.distributed_rms_norm";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn.fused_rms_minimal";
+  }
+
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::DistributedRMSNormOp>::
+      TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::DistributedRMSNormOp srcOp,
+                  OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::DistributedRMSNormOp>
+        emitter(srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
+
+    auto opaqueType =
+        emitpy::OpaqueType::get(rewriter.getContext(), "ttnn.Tensor");
+
+    auto meshDeviceOp = rewriter.create<emitpy::CallOpaqueOp>(
+        srcOp.getLoc(), opaqueType, "utils.get_mesh_device",
+        llvm::SmallVector<mlir::Value>{adaptor.getInput()});
+
+    auto globalSemaphoreOp = rewriter.create<emitpy::CallOpaqueOp>(
+        srcOp.getLoc(), opaqueType, "utils.create_global_semaphore",
+        llvm::SmallVector<mlir::Value>{adaptor.getInput()});
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getProgramConfig()),
+        emitter.emit(srcOp.getClusterAxis()),
+        emitter.emit(meshDeviceOp.getResult(0), "", 1),
+        emitter.emit(globalSemaphoreOp.getResult(0), "", 2),
+        emitter.emit(srcOp.getStats(), "stats"),
+        emitter.emitSubDeviceId(srcOp.getSubDeviceId(), "subdevice_id"),
+        emitter.emit(srcOp.getComputeConfig(), "compute_kernel_config"),
+        emitter.emit(srcOp.getMemoryConfig() |
+                         emitter.getMemoryConfig(srcOp.getResult()),
+                     "memory_config"),
+        emitter.emit(srcOp.getResidual(), "residual_input_tensor"),
+        emitter.emit(srcOp.getEpsilon(), "epsilon"),
+        emitter.emit(srcOp.getWeight(), "weight"),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // LayerNormOp conversion pattern
 //
 namespace {
@@ -3951,6 +4013,7 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   //
   patterns.add<BatchNormInferenceOpConversionPattern,
                BatchNormTrainingOpConversionPattern, RMSNormOpConversionPattern,
+               DistributedRMSNormOpConversionPattern,
                LayerNormOpConversionPattern>(typeConverter, ctx,
                                              enableGoldenMode);
 

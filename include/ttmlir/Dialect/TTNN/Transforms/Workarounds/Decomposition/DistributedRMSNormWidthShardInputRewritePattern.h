@@ -13,10 +13,11 @@
 namespace mlir::tt::ttnn::workarounds::decomposition {
 
 // Workaround that prepares DistributedRMSNormOp for the tt-metal
-// fused_rms_minimal kernel: width-shards the input/residual into L1,
+// fused_rms_minimal kernel. Width-shards the input/residual into L1,
 // reshapes the weight to ROW_MAJOR (N/32, 32), sets the output memory
-// config to match the input shard spec, and inserts a to_memory_config
-// after the op when the original output layout differs.
+// config to match the input shard spec, creates a stats scratch tensor
+// (EmptyOp), sets compute_config if absent, and computes a
+// LayerNormShardedMultiCoreProgramConfig from the shard spec.
 // Related tt-metal issue https://github.com/tenstorrent/tt-metal/issues/37746
 class DistributedRMSNormWidthShardInputRewritePattern
     : public OpRewritePattern<ttnn::DistributedRMSNormOp> {
