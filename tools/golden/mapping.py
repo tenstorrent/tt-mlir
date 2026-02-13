@@ -4219,8 +4219,8 @@ def stablehlo_constant_golden(
     else:
         torch_tensor = torch.tensor(np.array(value), dtype=dtype).reshape(shape)
 
-    mesh_shape = tuple(unpack_mlir_attr(mesh_shape_attr))
-    return GoldenMapTensor({0: torch_tensor.reshape(shape)}, mesh_shape)
+    mesh_shape = unpack_mlir_attr(mesh_shape_attr)
+    return apply_sharding(torch_tensor.reshape(shape), mesh_shape)
 
 
 def stablehlo_iota_golden(
@@ -4242,8 +4242,8 @@ def stablehlo_iota_golden(
 
     result = iota_values.expand(output_shape).clone()
 
-    mesh_shape = tuple(unpack_mlir_attr(mesh_shape_attr))
-    return GoldenMapTensor({0: result}, mesh_shape)
+    mesh_shape = unpack_mlir_attr(mesh_shape_attr)
+    return apply_sharding(result, mesh_shape)
 
 
 def stablehlo_dynamic_iota_golden(
@@ -4268,8 +4268,8 @@ def stablehlo_dynamic_iota_golden(
     full_shape = [int(s) for s in shape_list]
     result = iota_values.expand(full_shape).clone()
 
-    mesh_shape = tuple(unpack_mlir_attr(mesh_shape_attr))
-    return GoldenMapTensor({0: result}, mesh_shape)
+    mesh_shape = unpack_mlir_attr(mesh_shape_attr)
+    return apply_sharding(result, mesh_shape)
 
 
 def stablehlo_batch_norm_grad_golden(
