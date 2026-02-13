@@ -13,9 +13,9 @@ namespace tt::runtime::common {
 
 namespace {
 
-// Classify a line of devices as RING or FABRIC_1D. A line is a ring if all
-// adjacent pairs are connected AND the last device wraps around to the first.
-// Falls back to FABRIC_1D otherwise.
+// Classify a line of devices as FABRIC_1D_RING or FABRIC_1D. A line of devices
+// is a ring if all adjacent pairs are connected AND the last device wraps
+// around to the first. Falls back to FABRIC_1D otherwise.
 FabricConfig
 classifyLine(const std::vector<uint32_t> &line,
              const std::set<std::pair<uint32_t, uint32_t>> &connections) {
