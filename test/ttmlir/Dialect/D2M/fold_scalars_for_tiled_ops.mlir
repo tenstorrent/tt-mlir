@@ -25,9 +25,18 @@ func.func @fold_tile_add_zero(%arg0: tensor<1x1x4x4x!ttype_f32, #layout>) -> ten
         ins(%load : tensor<4x4x!ttype_f32>) outs(%reserve : tensor<4x4x!ttype_f32>) {
     ^bb0(%in: !ttype_f32, %out: !ttype_f32):
       %zero = arith.constant 0.0 : f32
+      %one = arith.constant 1.0 : f32
       // CHECK-NOT: d2m.tile_add
+      // CHECK-NOT: d2m.tile_sub
+      // CHECK-NOT: d2m.tile_mul
+      // CHECK-NOT: d2m.tile_div
+      // CHECK-NOT: d2m.tile_pow
       %added = "d2m.tile_add"(%in, %zero) : (!ttype_f32, f32) -> !ttype_f32
-      linalg.yield %added : !ttype_f32
+      %subtract = "d2m.tile_sub"(%added, %zero) : (!ttype_f32, f32) -> !ttype_f32
+      %multiply = "d2m.tile_mul"(%subtract, %one) : (!ttype_f32, f32) -> !ttype_f32
+      %divide = "d2m.tile_div"(%multiply, %one) : (!ttype_f32, f32) -> !ttype_f32
+      %power = "d2m.tile_pow"(%divide, %one) : (!ttype_f32, f32) -> !ttype_f32
+      linalg.yield %power : !ttype_f32
     } -> tensor<4x4x!ttype_f32>
     d2m.yield %result : (tensor<4x4x!ttype_f32>)
   } : tensor<1x1x4x4x!ttype_f32, #layout>

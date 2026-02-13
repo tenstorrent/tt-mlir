@@ -175,6 +175,7 @@ def D2M_TileSubOp : D2M_GenericRegionComputeFPUOrSFPUBinary<"tile_sub", [Pure, D
     let arguments = (ins TTCore_Tile:$lhs,
                          TileOrScalar:$rhs);
     let results = (outs TTCore_Tile:$result);
+    let hasFolder = 1;
 }
 
 def D2M_TileMulOp : D2M_GenericRegionComputeFPUOrSFPUBinary<"tile_mul", [Pure, D2M_SkipOpEltwiseFusionTrait]> {
@@ -187,6 +188,7 @@ def D2M_TileMulOp : D2M_GenericRegionComputeFPUOrSFPUBinary<"tile_mul", [Pure, D
     let arguments = (ins TTCore_Tile:$lhs,
                          TileOrScalar:$rhs);
     let results = (outs TTCore_Tile:$result);
+    let hasFolder = 1;
 }
 
 def D2M_TileDivOp : D2M_GenericRegionComputeBinaryWithScalarOptionDstOp<"tile_div", D2M_TileComputeOpTraitBundle> {
@@ -199,6 +201,7 @@ def D2M_TileDivOp : D2M_GenericRegionComputeBinaryWithScalarOptionDstOp<"tile_di
     let arguments = (ins TTCore_Tile:$lhs,
                          TileOrScalar:$rhs);
     let results = (outs TTCore_Tile:$result);
+    let hasFolder = 1;
 }
 
 def D2M_TileRecipOp : D2M_GenericRegionComputeUnaryDstOp<"tile_recip", D2M_TileComputeOpTraitBundle> {
@@ -221,6 +224,7 @@ def D2M_TilePowOp : D2M_GenericRegionComputeBinaryWithScalarOptionDstOp<"tile_po
     let arguments = (ins TTCore_Tile:$lhs,
                          TileOrScalar:$rhs);
     let results = (outs TTCore_Tile:$result);
+    let hasFolder = 1;
 }
 
 def D2M_TileExpOp : D2M_GenericRegionComputeUnaryDstOp<"tile_exp", D2M_TileComputeOpTraitBundle> {
