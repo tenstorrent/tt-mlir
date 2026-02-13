@@ -100,9 +100,12 @@ MeshFabricConfig computeFabricConfig(const ::tt::target::SystemDesc *systemDesc,
   LOG_ASSERT(systemDesc != nullptr, "SystemDesc must not be null");
 
   std::vector<::tt::target::ChipChannel> chipChannels;
-  auto fbChannels = systemDesc->chip_channels();
+  const auto *fbChannels = systemDesc->chip_channels();
   if (fbChannels) {
-    chipChannels.assign(fbChannels->begin(), fbChannels->end());
+    chipChannels.reserve(fbChannels->size());
+    for (const auto *channel : *fbChannels) {
+      chipChannels.push_back(*channel);
+    }
   }
 
   return computeFabricConfig(chipChannels, meshShape,
