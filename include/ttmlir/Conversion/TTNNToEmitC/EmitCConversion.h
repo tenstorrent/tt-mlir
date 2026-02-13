@@ -772,6 +772,8 @@ struct EmitCTypeConverter<::mlir::tt::ttcore::Topology> {
     case mlir::tt::ttcore::Topology::Torus:
       rso << "Torus";
       return buf;
+    case mlir::tt::ttcore::Topology::Disabled:
+      llvm_unreachable("Disabled topology is not supported in tt_fabric");
     }
 
     llvm_unreachable("Unknown mlir::tt::ttcore::Topology");
