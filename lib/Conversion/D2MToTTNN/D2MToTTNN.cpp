@@ -358,7 +358,7 @@ public:
     llvm_unreachable(
         "Expected stream_layout, view_layout, or cast op as operand.");
   }
-  
+
   static ttnn::CoreRangeSetAttr createCoreRangeSet(
       mlir::Builder &builder, llvm::ArrayRef<int64_t> gridSize,
       std::optional<llvm::ArrayRef<int64_t>> startCoord = std::nullopt) {
@@ -382,6 +382,21 @@ public:
             ttnn::CoreCoordAttr::get(builder.getContext(),
                                      startCoordRef[0] + gridSize[0] - 1,
                                      startCoordRef[1] + gridSize[1] - 1)));
+  }
+
+  /// Create a TTNN CoreRangeSet from explicit start and end coordinates (e.g.
+  /// from SpatialOp grid_ranges). Use this for SpatialOp so the region's core
+  /// range is preserved instead of being derived from the output's physical
+  /// grid shape.
+  static ttnn::CoreRangeSetAttr
+  createCoreRangeSetFromStartEnd(mlir::Builder &builder, int64_t startX,
+                                 int64_t startY, int64_t endX, int64_t endY) {
+    return ttnn::CoreRangeSetAttr::get(
+        builder.getContext(),
+        ttnn::CoreRangeAttr::get(
+            builder.getContext(),
+            ttnn::CoreCoordAttr::get(builder.getContext(), startX, startY),
+            ttnn::CoreCoordAttr::get(builder.getContext(), endX, endY)));
   }
 
   // Structure to hold all descriptors and I/O values for a GenericOp.
@@ -575,23 +590,18 @@ public:
       }
       d2m::GenericOp genericOp = *genericOpIt;
 
-      // Compute grid size for this region's GenericOp.
-      llvm::SmallVector<int64_t> gridSize =
-          D2MGenericRewriter::computeGridSizeFromGenericOp(genericOp);
-
-      // Get the start coordinate from the corresponding core range in
-      // grid_ranges.
+      // Use the core range from grid_ranges for this region (start and end).
+      // Do not use computeGridSizeFromGenericOp here: that derives extent from
+      // the output's physical grid shape, which can span more cores than this
+      // region.
       TT_assert(regionIndex < coreRanges.size());
       auto coreRange = coreRanges[regionIndex];
       auto startCoord = coreRange.getStartCoord();
-      llvm::SmallVector<int64_t> startCoordVec = {startCoord.getX(),
-                                                  startCoord.getY()};
-
-      // Create core range set for this region using its grid size and start
-      // coord.
+      auto endCoord = coreRange.getEndCoord();
       ttnn::CoreRangeSetAttr coreRangeSet =
-          D2MGenericRewriter::createCoreRangeSet(rewriter, gridSize,
-                                                 startCoordVec);
+          D2MGenericRewriter::createCoreRangeSetFromStartEnd(
+              rewriter, startCoord.getX(), startCoord.getY(), endCoord.getX(),
+              endCoord.getY());
 
       // Extract inputs and outputs for merged I/O list (CBs come from
       // createDescriptorsFromGenericOp per region).
@@ -646,13 +656,18 @@ public:
           remappedFormats.push_back(remappedFormat);
         }
 
-        // Preserve global buffer address attr if present (tensor_operand_index
-        // refers to the merged I/O list; no remap needed when indices align).
+        // Remap global buffer address attr: each region's CB descriptor uses
+        // tensor_operand_index from that region's local I/O list (e.g. output
+        // at index 2). In the merged I/O list we have [allInputs...,
+        // allOutputs...]; outputs are appended in region order, so region r's
+        // output is at index allInputs.size() + r.
         ttnn::KernelCBGlobalBufferAddressOfTensorAttr remappedGlobalBuffer;
         if (auto globalBuffer = cbDesc.getBuffer()) {
+          uint32_t mergedTensorIndex =
+              allInputs.size() + static_cast<uint32_t>(regionIndex);
           remappedGlobalBuffer =
               ttnn::KernelCBGlobalBufferAddressOfTensorAttr::get(
-                  rewriter.getContext(), globalBuffer.getTensorOperandIndex());
+                  rewriter.getContext(), mergedTensorIndex);
         }
 
         auto remappedCBDesc = ttnn::KernelCBAttr::get(
@@ -757,6 +772,65 @@ public:
 } // namespace
 
 namespace {
+// Evaluate an AffineExpr with all dimensions and symbols set to zero.
+// Returns std::nullopt if the expression is not constant under that
+// substitution (e.g. non-constant multiply).
+static std::optional<int64_t> evalAffineExprAtZero(AffineExpr expr) {
+  if (auto c = dyn_cast<AffineConstantExpr>(expr)) {
+    return c.getValue();
+  }
+  if (isa<AffineDimExpr>(expr)) {
+    return static_cast<int64_t>(0);
+  }
+  if (auto add = dyn_cast<AffineBinaryOpExpr>(expr)) {
+    if (add.getKind() == AffineExprKind::Add) {
+      std::optional<int64_t> l = evalAffineExprAtZero(add.getLHS());
+      std::optional<int64_t> r = evalAffineExprAtZero(add.getRHS());
+      if (l && r) {
+        return *l + *r;
+      }
+    }
+  }
+  return std::nullopt;
+}
+
+// If the empty result is consumed by a single ttir.ttnn_metal_layout_cast whose
+// result memref has a shard layout with virtual→physical grid mapping, return
+// the physical core (x, y) for the single shard (virtual 0,0). Otherwise return
+// std::nullopt so the default full-grid memory config is used.
+static std::optional<std::pair<int64_t, int64_t>>
+getPhysicalCoreFromCastConsumer(Value emptyResult) {
+  if (!emptyResult.hasOneUse()) {
+    return std::nullopt;
+  }
+  auto castOp =
+      dyn_cast<ttir::TTNNMetalLayoutCastOp>(*emptyResult.getUsers().begin());
+  if (!castOp) {
+    return std::nullopt;
+  }
+  auto memrefType = dyn_cast<MemRefType>(castOp.getResult().getType());
+  if (!memrefType) {
+    return std::nullopt;
+  }
+  auto shardLayout = dyn_cast<ttcore::ShardLayoutAttr>(memrefType.getLayout());
+  if (!shardLayout) {
+    return std::nullopt;
+  }
+  std::optional<AffineMap> vmap = shardLayout.getVirtualizationMapIfExists();
+  if (!vmap || vmap->isEmpty()) {
+    return std::nullopt;
+  }
+  if (vmap->getNumResults() < 2) {
+    return std::nullopt;
+  }
+  std::optional<int64_t> x = evalAffineExprAtZero(vmap->getResult(0));
+  std::optional<int64_t> y = evalAffineExprAtZero(vmap->getResult(1));
+  if (!x || !y) {
+    return std::nullopt;
+  }
+  return std::make_pair(*x, *y);
+}
+
 class D2MEmptyRewriter : public OpConversionPattern<d2m::EmptyOp> {
 public:
   using OpConversionPattern<d2m::EmptyOp>::OpConversionPattern;
@@ -783,6 +857,31 @@ public:
       layout = ttnn::LayoutAttr::get(ctx, layoutAttr.getLayout());
       memcfg =
           ttnn::MemoryConfigAttr::get(layoutAttr, deviceAttr.getWorkerGrid());
+      // If this empty is cast to a memref with a virtual→physical grid mapping
+      // (e.g. spatial output for core (1,1)), create memory_config with that
+      // core range so ttnn.empty allocates on the correct core.
+      if (std::optional<std::pair<int64_t, int64_t>> core =
+              getPhysicalCoreFromCastConsumer(op.getResult())) {
+        if (ttnn::isShardedMemoryLayout(layoutAttr.getMemLayout().getValue())) {
+          auto bufferTypeAttr = mlir::cast<ttnn::BufferTypeAttr>(
+              layoutAttr.getMemref().getMemorySpace());
+          auto grid = layoutAttr.getGrid().getShape();
+          llvm::SmallVector<int64_t, 2> shardShape(
+              {tensorType.getShape()[0] / grid[0],
+               tensorType.getShape()[1] / grid[1]});
+          auto coreRangeSet = ttnn::CoreRangeSetAttr::get(
+              ctx,
+              ttnn::CoreRangeAttr::get(
+                  ctx, ttnn::CoreCoordAttr::get(ctx, core->first, core->second),
+                  ttnn::CoreCoordAttr::get(ctx, core->first, core->second)));
+          auto shardSpec = ttnn::ShardSpecAttr::get(
+              ctx, coreRangeSet, ttnn::ShapeAttr::get(ctx, shardShape),
+              ttnn::ShardOrientationAttr::get(
+                  ctx, ttnn::ShardOrientation::RowMajor));
+          memcfg = ttnn::MemoryConfigAttr::get(ctx, layoutAttr.getMemLayout(),
+                                               bufferTypeAttr, shardSpec);
+        }
+      }
     } else if (auto ndLayoutAttr =
                    mlir::dyn_cast<ttnn::TTNNNDLayoutAttr>(encoding)) {
       dtype = ttcore::DataTypeAttr::get(ctx, ndLayoutAttr.getDataType());
