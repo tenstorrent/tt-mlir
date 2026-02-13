@@ -1263,8 +1263,6 @@ class StableHLOBuilder(Builder):
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        print(op_result.type.element_type, type(op_result.type.element_type))
-        print(op_result.type, type(op_result.type))
         if not self._disable_golden_check:
             input0 = self._get_golden_tensor(in0)
             op_golden_function = get_golden_function(stablehlo_op)

@@ -621,9 +621,10 @@ def test_zeros(shape: Shape, dtype: torch.dtype, request, device):
 
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=["128x128"])
-@pytest.mark.parametrize("mesh_shape", [(1, 1), (1, 2)])
-@pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
-def test_ones(shape: Shape, mesh_shape, dtype: torch.dtype, request, device):
+@pytest.mark.parametrize(
+    "dtype", [torch.bfloat16, torch.float32, torch.int32], ids=["bf16", "f32", "i32"]
+)
+def test_ones(shape: Shape, dtype: torch.dtype, request, device):
     def module(builder: TTIRBuilder):
         @builder.func([], [])
         def ones(builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
@@ -633,7 +634,6 @@ def test_ones(shape: Shape, mesh_shape, dtype: torch.dtype, request, device):
         module,
         **get_request_kwargs(request),
         device=device,
-        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
     )
 
 
