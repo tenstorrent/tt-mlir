@@ -31,6 +31,11 @@ LayoutPropagation::LayoutPropagation(
     : func(func), deviceGrid(deviceGrid), legalConfigs(legalConfigs) {}
 
 void LayoutPropagation::run() {
+  TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+               "LayoutPropagation::run() starting for func {0}",
+               func.getName());
+
+  size_t opIndex = 0;
   // Forward pass: propagate layouts in topological (IR) order.
   func->walk([&](Operation *op) {
     if (!LegalOpLayoutAnalysis::isValidAnalysisTarget(op)) {
@@ -59,6 +64,9 @@ void LayoutPropagation::run() {
           return ttcore::valueTracesToConstantArgs(operand);
         });
     if (allFromConstEval) {
+      TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
+                   "[op {0}] Skipping {1} @{2}: all operands from const_eval",
+                   opIndex, op->getName(), op->getLoc());
       return;
     }
     // Skip ops whose output feeds directly into func.return.
@@ -68,12 +76,35 @@ void LayoutPropagation::run() {
         op->getResult(0).getUsers(),
         [](Operation *user) { return isa<func::ReturnOp>(user); });
     if (feedsReturn) {
+      TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
+                   "[op {0}] Skipping {1} @{2}: feeds func.return",
+                   opIndex, op->getName(), op->getLoc());
       return;
     }
 
+    TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+                 "[op {0}] Processing {1} @{2}, legalConfigs={3}",
+                 opIndex, op->getName(), op->getLoc(),
+                 legalConfigs.find(op)->second.size());
+
     beamState[op] = processOp(op);
+
+    if (!beamState[op].empty()) {
+      const auto &best = beamState[op][0];
+      TTMLIR_DEBUG(
+          ttmlir::LogComponent::GreedyOptimizer,
+          "[op {0}] -> chosen: bufType={1}, memLayout={2}, "
+          "coreCount={3}, isSharded={4}, isL1={5}, reshard={6}",
+          opIndex, best.config.outputLayout.getBufferType(),
+          best.config.outputLayout.getMemLayout(), best.score.coreCount,
+          best.score.isSharded, best.score.isL1, best.score.requiresReshard);
+    }
+    ++opIndex;
   });
 
+  TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+               "LayoutPropagation: processed {0} ops, applying to IR",
+               opIndex);
   // Apply resolved configs to IR.
   applyToIR();
 }
@@ -89,6 +120,17 @@ LayoutPropagation::processOp(Operation *op) {
   assert(it != legalConfigs.end());
   const std::vector<OpConfig> &configs = it->second;
   OutputHints outputHints = getOutputHints(op, configs);
+
+  // Log search space dimensions.
+  size_t crossProductSize = outputHints.hints.size();
+  for (const auto &ics : inputCandidateSets) {
+    crossProductSize *= ics.size();
+  }
+  TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
+               "  processOp {0}: inputSets={1}, outputHints={2}, "
+               "crossProduct={3}",
+               op->getName(), inputCandidateSets.size(),
+               outputHints.hints.size(), crossProductSize);
 
   // Step 3: Cross-product evaluation.
   // For greedy (K=1), each operand typically has 1-3 candidates, and output
@@ -174,6 +216,10 @@ LayoutPropagation::processOp(Operation *op) {
       }
     }
   }
+
+  TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
+               "  processOp {0}: {1} valid candidates from cross-product",
+               op->getName(), candidates.size());
 
   // Step 4: Sort by score descending, keep top-K.
   std::sort(candidates.begin(), candidates.end(),
@@ -273,6 +319,17 @@ LayoutPropagation::getInputCandidateSets(Operation *op) {
       }
     }
 
+    TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
+                 "  operand {0}: {1} candidates (fromProducer={2}, "
+                 "reshards={3})",
+                 result.size(), candidatesForOperand.size(),
+                 producerOp && beamState.count(producerOp)
+                     ? beamState[producerOp].size()
+                     : 0,
+                 candidatesForOperand.size() -
+                     (producerOp && beamState.count(producerOp)
+                          ? std::min(beamState[producerOp].size(), beamWidth)
+                          : 1));
     result.push_back(std::move(candidatesForOperand));
   }
 
@@ -282,21 +339,12 @@ LayoutPropagation::getInputCandidateSets(Operation *op) {
 std::vector<TTNNLayoutAttr>
 LayoutPropagation::generateReshardCandidates(
     RankedTensorType tensorType, TTNNLayoutAttr currentLayout) {
-  std::vector<TTNNLayoutAttr> candidates;
-
-  // Add DRAM interleaved variant.
-  TTNNLayoutAttr dramInterleaved =
-      currentLayout.withBufferType(BufferType::DRAM)
-          .withMemoryLayout(TensorMemoryLayout::Interleaved);
-  candidates.push_back(dramInterleaved);
-
-  // Add L1 interleaved variant.
-  TTNNLayoutAttr l1Interleaved =
-      currentLayout.withBufferType(BufferType::L1)
-          .withMemoryLayout(TensorMemoryLayout::Interleaved);
-  candidates.push_back(l1Interleaved);
-
-  return candidates;
+  // Don't generate interleaved reshard candidates. Resharding from sharded to
+  // interleaved (DRAM or L1) almost always hurts performance — the consumer op
+  // ends up on a slow kernel path (e.g. in0:l1_interleaved matmul is ~5x
+  // slower than in0:dram_interleaved). Sharded-to-sharded reshards will be
+  // added here once op-type-aware candidate generation is implemented.
+  return {};
 }
 
 TTNNLayoutAttr LayoutPropagation::getDRAMInterleavedFallback(Operation *op) {
@@ -322,6 +370,9 @@ TTNNLayoutAttr LayoutPropagation::getDRAMInterleavedFallback(Operation *op) {
 //===----------------------------------------------------------------------===//
 
 void LayoutPropagation::applyToIR() {
+  TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+               "applyToIR: applying configs for {0} ops in beam state",
+               beamState.size());
   // First pass: apply op configs (result types, DPS operands, op-specific
   // attrs, L1 usage annotation).
   func->walk([&](Operation *op) {
