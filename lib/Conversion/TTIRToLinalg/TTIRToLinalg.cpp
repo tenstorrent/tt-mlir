@@ -115,29 +115,6 @@ convertToBooleanTensorComparison(Value input, Location loc,
   return greaterThanZero;
 }
 
-// Create a tensor of all ones or zeros with the given type
-static std::pair<Value, Value>
-createTrueAndFalseSplatConstants(RankedTensorType resultType, Location loc,
-                                 ConversionPatternRewriter &rewriter) {
-  auto elementType = resultType.getElementType();
-  assert(elementType.isF32());
-  TypedAttr trueAttr = rewriter.getF32FloatAttr(1.0f);
-  TypedAttr falseAttr = rewriter.getF32FloatAttr(0.0f);
-
-  // Create constant scalars with the true/false values
-  auto trueValue = rewriter.create<arith::ConstantOp>(loc, trueAttr);
-  auto falseValue = rewriter.create<arith::ConstantOp>(loc, falseAttr);
-
-  // Create splat tensors with the true/false values
-  auto trueValueSplat =
-      rewriter.create<tensor::SplatOp>(loc, resultType, trueValue.getResult());
-
-  auto falseValueSplat =
-      rewriter.create<tensor::SplatOp>(loc, resultType, falseValue.getResult());
-
-  return {trueValueSplat, falseValueSplat};
-}
-
 // Normalize negative dimension to positive. Negative dimensions are interpreted
 // as indexing from the end (e.g., -1 is the last dimension).
 static int64_t normalizeDim(int64_t dim, int64_t rank) {
@@ -568,13 +545,9 @@ public:
     auto boolResult =
         rewriter.create<TosaOpTy>(op.getLoc(), boolType, lhs, rhs);
 
-    // Create true and false constants for the select operation
-    auto [trueValueSplat, falseValueSplat] =
-        createTrueAndFalseSplatConstants(resultType, op.getLoc(), rewriter);
-
-    // Convert boolean result to original type using select
-    auto result = rewriter.create<tosa::SelectOp>(
-        op.getLoc(), resultType, boolResult, trueValueSplat, falseValueSplat);
+    // Convert boolean result to original type using cast.
+    auto result =
+        rewriter.create<tosa::CastOp>(op.getLoc(), resultType, boolResult);
 
     rewriter.replaceOp(op, result);
     return success();
@@ -605,13 +578,9 @@ public:
     auto boolResult =
         rewriter.create<TosaOpTy>(op.getLoc(), boolType, rhs, lhs);
 
-    // Create true and false constants for the select operation
-    auto [trueValueSplat, falseValueSplat] =
-        createTrueAndFalseSplatConstants(resultType, op.getLoc(), rewriter);
-
-    // Convert boolean result to original type using select
-    auto result = rewriter.create<tosa::SelectOp>(
-        op.getLoc(), resultType, boolResult, trueValueSplat, falseValueSplat);
+    // Convert boolean result to original type using cast.
+    auto result =
+        rewriter.create<tosa::CastOp>(op.getLoc(), resultType, boolResult);
 
     rewriter.replaceOp(op, result);
     return success();
@@ -646,13 +615,9 @@ public:
     auto notResult =
         rewriter.create<tosa::LogicalNotOp>(op.getLoc(), boolType, boolResult);
 
-    // Create true and false constants for the select operation
-    auto [trueValueSplat, falseValueSplat] =
-        createTrueAndFalseSplatConstants(resultType, op.getLoc(), rewriter);
-
-    // Convert boolean result to original type using select
-    auto result = rewriter.create<tosa::SelectOp>(
-        op.getLoc(), resultType, notResult, trueValueSplat, falseValueSplat);
+    // Convert boolean result to original type using cast.
+    auto result =
+        rewriter.create<tosa::CastOp>(op.getLoc(), resultType, notResult);
 
     rewriter.replaceOp(op, result);
     return success();
@@ -1886,13 +1851,9 @@ public:
     auto notResult =
         rewriter.create<tosa::LogicalNotOp>(op.getLoc(), boolType, boolInput);
 
-    // Create true and false constants for the select operation
-    auto [trueValueSplat, falseValueSplat] =
-        createTrueAndFalseSplatConstants(resultType, op.getLoc(), rewriter);
-
-    // Convert boolean result back to original type using select
-    auto result = rewriter.create<tosa::SelectOp>(
-        op.getLoc(), resultType, notResult, trueValueSplat, falseValueSplat);
+    // Convert boolean result back to original type using cast.
+    auto result =
+        rewriter.create<tosa::CastOp>(op.getLoc(), resultType, notResult);
 
     rewriter.replaceOp(op, result);
     return success();
@@ -1933,14 +1894,9 @@ public:
     auto logicalResult =
         rewriter.create<TosaOpTy>(op.getLoc(), boolType, boolLhs, boolRhs);
 
-    // Create true and false constants for the select operation.
-    auto [trueValueSplat, falseValueSplat] =
-        createTrueAndFalseSplatConstants(resultType, op.getLoc(), rewriter);
-
-    // Convert boolean result back to original type using select.
+    // Convert boolean result back to original type using cast.
     auto result =
-        rewriter.create<tosa::SelectOp>(op.getLoc(), resultType, logicalResult,
-                                        trueValueSplat, falseValueSplat);
+        rewriter.create<tosa::CastOp>(op.getLoc(), resultType, logicalResult);
 
     rewriter.replaceOp(op, result);
     return success();
