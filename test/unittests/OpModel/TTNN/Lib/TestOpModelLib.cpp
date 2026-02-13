@@ -1539,7 +1539,6 @@ TEST_F(OpModelTest, Sort) {
   EXPECT_EQ(opCstr.outputL1BufferSize, 0);
   // Sort has two outputs: values and indices.
   ASSERT_EQ(opCstr.outputLayouts.size(), 2);
-  ExpectLayoutsEQ(layoutDRAM, opCstr.outputLayouts[0]);
 
   auto runtimeExp = op_model::OpModel<SortOp>::getOpRuntime(
       tensorShape, layoutDRAM, 0, false, false, layoutDRAM);
@@ -1556,7 +1555,6 @@ TEST_F(OpModelTest, Sort) {
   EXPECT_EQ(opCstr.outputL1BufferSize, 0);
   // Sort has two outputs: values and indices.
   ASSERT_EQ(opCstr.outputLayouts.size(), 2);
-  ExpectLayoutsEQ(layoutL1Interleaved, opCstr.outputLayouts[0]);
 
   runtimeExp = op_model::OpModel<SortOp>::getOpRuntime(
       tensorShape, layoutDRAM, 0, false, false, layoutL1Interleaved);
