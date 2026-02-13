@@ -266,6 +266,10 @@ class TTIRBuilder(Builder):
         op_map_dictionary[old_op.result] = new_op_result
         return new_op, op_map_dictionary
 
+    @split(ttir.AllToAllOp)
+    def all_to_all_split(self, old_op: ttir.AllToAllOp) -> Tuple:
+        return ()
+
     ############### ttir.CollectiveBroadcastOp ###############
 
     @tag(ttir.CollectiveBroadcastOp)
@@ -346,6 +350,10 @@ class TTIRBuilder(Builder):
         op_map_dictionary[old_op.result] = new_op_result
         return new_op, op_map_dictionary
 
+    @split(ttir.CollectiveBroadcastOp)
+    def collective_broadcast_split(self, old_op: ttir.CollectiveBroadcastOp) -> Tuple:
+        return ()
+
     ############### ttir.CollectivePermuteOp ###############
 
     @tag(ttir.CollectivePermuteOp)
@@ -424,6 +432,10 @@ class TTIRBuilder(Builder):
         op_map_dictionary = {}
         op_map_dictionary[old_op.result] = new_op_result
         return new_op, op_map_dictionary
+
+    @split(ttir.CollectivePermuteOp)
+    def collective_permute_split(self, old_op: ttir.CollectivePermuteOp) -> Tuple:
+        return ()
 
     ############### ttir.ReduceScatterOp ###############
 
@@ -523,6 +535,10 @@ class TTIRBuilder(Builder):
         op_map_dictionary[old_op.result] = new_op_result
         return new_op, op_map_dictionary
 
+    @split(ttir.ReduceScatterOp)
+    def reduce_scatter_split(self, old_op: ttir.ReduceScatterOp) -> Tuple:
+        return ()
+
     ############### ttir.AllReduceOp ###############
 
     @tag(ttir.AllReduceOp)
@@ -610,6 +626,14 @@ class TTIRBuilder(Builder):
         op_map_dictionary = {}
         op_map_dictionary[old_op.result] = new_op_result
         return new_op, op_map_dictionary
+
+    @split(ttir.AllReduceOp)
+    def all_reduce_split(
+        self,
+        old_op: ttir.AllReduceOp,
+    ) -> Tuple:
+        # Do not split all_reduce into a standalone module (stays in parent).
+        return ()
 
     ############### ttir.MeshShardOp ###############
 
@@ -717,6 +741,14 @@ class TTIRBuilder(Builder):
         op_map_dictionary[old_op.result] = new_op_result
         return new_op, op_map_dictionary
 
+    @split(ttir.MeshShardOp)
+    def mesh_shard_split(
+        self,
+        old_op: ttir.MeshShardOp,
+    ) -> Tuple:
+        # Do not split mesh_shard into a standalone module (stays in parent).
+        return ()
+
     ############### ttir.AllGatherOp ###############
 
     @tag(ttir.AllGatherOp)
@@ -806,6 +838,10 @@ class TTIRBuilder(Builder):
         op_map_dictionary = {}
         op_map_dictionary[old_op.result] = new_op_result
         return new_op, op_map_dictionary
+
+    @split(ttir.AllGatherOp)
+    def all_gather_split(self, old_op: ttir.AllGatherOp) -> Tuple:
+        return ()
 
     ############### ttir.ToLayoutOp ###############
 
@@ -11265,6 +11301,44 @@ class TTIRBuilder(Builder):
             ),
             unit_attrs=unit_attrs,
         )
+
+    @parse(ttir.FillCacheOp)
+    def fill_cache_parser(
+        self,
+        old_op: ttir.FillCacheOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.fill_cache_parser)
+        cache = global_dict[old_op.cache]
+        input_operand = global_dict[old_op.input]
+        result = old_op.result.type
+        batch_offset_attr = old_op.batch_offset
+
+        new_op = ttir_op(
+            result,
+            cache,
+            input_operand,
+            batch_offset_attr,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        if not self._disable_golden_check:
+            cache_golden = self._get_golden_tensor(cache)
+            input_golden = self._get_golden_tensor(input_operand)
+            op_golden_function = get_golden_function(ttir_op)
+            golden_output = op_golden_function(
+                cache_golden,
+                input_golden,
+            )
+            self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {old_op.result: new_op_result}
+        return new_op, op_map_dictionary
+
+    @split(ttir.FillCacheOp)
+    def fill_cache_split(self, old_op: ttir.FillCacheOp) -> Tuple:
+        return ()
 
     def update_cache(
         self,

@@ -550,6 +550,11 @@ class Builder(metaclass=BuilderMeta):
                 dtype=dtype,
             )
 
+    def _replicated_shard_map(self, tensor: torch.Tensor) -> Dict[int, torch.Tensor]:
+        """Build a shard_map with one entry per device, same tensor replicated (for golden consistency)."""
+        num_devices = self._mesh_shape[0] * self._mesh_shape[1]
+        return {i: tensor for i in range(num_devices)}
+
     def _generate_golden_tensor(
         self, operand: Operand, dtype: Union[torch.dtype, TypeInfo]
     ) -> GoldenMapTensor:
@@ -607,12 +612,43 @@ class Builder(metaclass=BuilderMeta):
 
         return input_goldens
 
+    def _normalize_golden_for_storage(
+        self, value: Union[GoldenMapTensor, torch.Tensor]
+    ) -> GoldenMapTensor:
+        """Ensure value is a GoldenMapTensor with shard count matching mesh.
+
+        Golden functions in mapping.py often return GoldenMapTensor({0: t}, (1, 1)).
+        When mesh is e.g. 2x4, that would mix 1-shard with 8-shard and trigger
+        'All GoldenMapTensors must have the same shard count.' Replicate to
+        num_devices so all stored goldens have consistent shard count.
+        """
+        num_devices = self._mesh_shape[0] * self._mesh_shape[1]
+        if isinstance(value, torch.Tensor):
+            return GoldenMapTensor(
+                self._replicated_shard_map(value), mesh_shape=self._mesh_shape
+            )
+        if isinstance(value, GoldenMapTensor):
+            if len(value.shard_map) == num_devices:
+                return value
+            single = next(iter(value.shard_map.values()))
+            return GoldenMapTensor(
+                self._replicated_shard_map(single), mesh_shape=self._mesh_shape
+            )
+        return value
+
     def _set_golden_tensor(
         self,
         operand: Operand,
-        goldens: List[GoldenMapTensor],
+        goldens: Union[GoldenMapTensor, torch.Tensor, List[GoldenMapTensor]],
     ):
-        self._goldens[operand] = goldens
+        if isinstance(goldens, (GoldenMapTensor, torch.Tensor)):
+            self._goldens[operand] = self._normalize_golden_for_storage(goldens)
+        elif isinstance(goldens, (list, tuple)):
+            self._goldens[operand] = [
+                self._normalize_golden_for_storage(g) for g in goldens
+            ]
+        else:
+            self._goldens[operand] = goldens
         self._operand_to_loc[operand] = str(operand.location)
 
     def _set_goldens(

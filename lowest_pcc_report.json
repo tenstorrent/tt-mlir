@@ -1,0 +1,357 @@
+{
+  "artifact_dir": "/localdev/gengelage/tt-mlir/builder-artifacts/load_split_execute",
+  "total_ops_checked": 1078,
+  "lowest_pcc_count": 50,
+  "lowest_pccs": [
+    {
+      "program_index": 81,
+      "loc": "output_0",
+      "op_debug_str": "",
+      "actual_pcc": 0.9984593289630634,
+      "result": "pass"
+    },
+    {
+      "program_index": 71,
+      "loc": "output_0",
+      "op_debug_str": "",
+      "actual_pcc": 0.9989096110747707,
+      "result": "pass"
+    },
+    {
+      "program_index": 51,
+      "loc": "output_0",
+      "op_debug_str": "",
+      "actual_pcc": 0.9992870660569598,
+      "result": "pass"
+    },
+    {
+      "program_index": 52,
+      "loc": "output_0",
+      "op_debug_str": "",
+      "actual_pcc": 0.9992870660569598,
+      "result": "pass"
+    },
+    {
+      "program_index": 53,
+      "loc": "output_0",
+      "op_debug_str": "",
+      "actual_pcc": 0.999287066056969,
+      "result": "pass"
+    },
+    {
+      "program_index": 244,
+      "loc": "output_0",
+      "op_debug_str": "",
+      "actual_pcc": 0.9996606936739435,
+      "result": "pass"
+    },
+    {
+      "program_index": 245,
+      "loc": "output_0",
+      "op_debug_str": "",
+      "actual_pcc": 0.9996606936739435,
+      "result": "pass"
+    },
+    {
+      "program_index": 246,
+      "loc": "output_0",
+      "op_debug_str": "",
+      "actual_pcc": 0.9996606936739859,
+      "result": "pass"
+    },
+    {
+      "program_index": 871,
+      "loc": "output_0",
+      "op_debug_str": "",
+      "actual_pcc": 0.9998455824322832,
+      "result": "pass"
+    },
+    {
+      "program_index": 872,
+      "loc": "output_0",
+      "op_debug_str": "",
+      "actual_pcc": 0.9998455824322832,
+      "result": "pass"
+    },
+    {
+      "program_index": 873,
+      "loc": "output_0",
+      "op_debug_str": "",
+      "actual_pcc": 0.9998455824323093,
+      "result": "pass"
+    },
+    {
+      "program_index": 1032,
+      "loc": "output_0",
+      "op_debug_str": "",
+      "actual_pcc": 0.9998485722636479,
+      "result": "pass"
+    },
+    {
+      "program_index": 1033,
+      "loc": "output_0",
+      "op_debug_str": "",
+      "actual_pcc": 0.9998485722636479,
+      "result": "pass"
+    },
+    {
+      "program_index": 1034,
+      "loc": "output_0",
+      "op_debug_str": "",
+      "actual_pcc": 0.9998485722636805,
+      "result": "pass"
+    },
+    {
+      "program_index": 1070,
+      "loc": "output_0",
+      "op_debug_str": "",
+      "actual_pcc": 0.9998516036478644,
+      "result": "pass"
+    },
+    {
+      "program_index": 1068,
+      "loc": "output_0",
+      "op_debug_str": "",
+      "actual_pcc": 0.9998516036478684,
+      "result": "pass"
+    },
+    {
+      "program_index": 1069,
+      "loc": "output_0",
+      "op_debug_str": "",
+      "actual_pcc": 0.9998516036478684,
+      "result": "pass"
+    },
+    {
+      "program_index": 676,
+      "loc": "output_0",
+      "op_debug_str": "",
+      "actual_pcc": 0.9999191756986424,
+      "result": "pass"
+    },
+    {
+      "program_index": 674,
+      "loc": "output_0",
+      "op_debug_str": "",
+      "actual_pcc": 0.9999191756986974,
+      "result": "pass"
+    },
+    {
+      "program_index": 675,
+      "loc": "output_0",
+      "op_debug_str": "",
+      "actual_pcc": 0.9999191756986974,
+      "result": "pass"
+    },
+    {
+      "program_index": 835,
+      "loc": "output_0",
+      "op_debug_str": "",
+      "actual_pcc": 0.999920265431212,
+      "result": "pass"
+    },
+    {
+      "program_index": 836,
+      "loc": "output_0",
+      "op_debug_str": "",
+      "actual_pcc": 0.999920265431212,
+      "result": "pass"
+    },
+    {
+      "program_index": 837,
+      "loc": "output_0",
+      "op_debug_str": "",
+      "actual_pcc": 0.9999202654312194,
+      "result": "pass"
+    },
+    {
+      "program_index": 47,
+      "loc": "output_0",
+      "op_debug_str": "",
+      "actual_pcc": 0.9999348469881056,
+      "result": "pass"
+    },
+    {
+      "program_index": 48,
+      "loc": "output_0",
+      "op_debug_str": "",
+      "actual_pcc": 0.9999348469881056,
+      "result": "pass"
+    },
+    {
+      "program_index": 49,
+      "loc": "output_0",
+      "op_debug_str": "",
+      "actual_pcc": 0.9999348469881056,
+      "result": "pass"
+    },
+    {
+      "program_index": 50,
+      "loc": "output_0",
+      "op_debug_str": "",
+      "actual_pcc": 0.9999371060694868,
+      "result": "pass"
+    },
+    {
+      "program_index": 282,
+      "loc": "output_0",
+      "op_debug_str": "",
+      "actual_pcc": 0.9999564593592488,
+      "result": "pass"
+    },
+    {
+      "program_index": 280,
+      "loc": "output_0",
+      "op_debug_str": "",
+      "actual_pcc": 0.99995645935926,
+      "result": "pass"
+    },
+    {
+      "program_index": 281,
+      "loc": "output_0",
+      "op_debug_str": "",
+      "actual_pcc": 0.99995645935926,
+      "result": "pass"
+    },
+    {
+      "program_index": 443,
+      "loc": "output_0",
+      "op_debug_str": "",
+      "actual_pcc": 0.9999599752136946,
+      "result": "pass"
+    },
+    {
+      "program_index": 441,
+      "loc": "output_0",
+      "op_debug_str": "",
+      "actual_pcc": 0.9999599752137334,
+      "result": "pass"
+    },
+    {
+      "program_index": 442,
+      "loc": "output_0",
+      "op_debug_str": "",
+      "actual_pcc": 0.9999599752137334,
+      "result": "pass"
+    },
+    {
+      "program_index": 638,
+      "loc": "output_0",
+      "op_debug_str": "",
+      "actual_pcc": 0.9999646455109581,
+      "result": "pass"
+    },
+    {
+      "program_index": 639,
+      "loc": "output_0",
+      "op_debug_str": "",
+      "actual_pcc": 0.9999646455109581,
+      "result": "pass"
+    },
+    {
+      "program_index": 640,
+      "loc": "output_0",
+      "op_debug_str": "",
+      "actual_pcc": 0.9999646455109681,
+      "result": "pass"
+    },
+    {
+      "program_index": 477,
+      "loc": "output_0",
+      "op_debug_str": "",
+      "actual_pcc": 0.9999652879597394,
+      "result": "pass"
+    },
+    {
+      "program_index": 478,
+      "loc": "output_0",
+      "op_debug_str": "",
+      "actual_pcc": 0.9999652879597394,
+      "result": "pass"
+    },
+    {
+      "program_index": 479,
+      "loc": "output_0",
+      "op_debug_str": "",
+      "actual_pcc": 0.9999652879597541,
+      "result": "pass"
+    },
+    {
+      "program_index": 1064,
+      "loc": "output_0",
+      "op_debug_str": "",
+      "actual_pcc": 0.9999672659967322,
+      "result": "pass"
+    },
+    {
+      "program_index": 1065,
+      "loc": "output_0",
+      "op_debug_str": "",
+      "actual_pcc": 0.9999672659967322,
+      "result": "pass"
+    },
+    {
+      "program_index": 1066,
+      "loc": "output_0",
+      "op_debug_str": "",
+      "actual_pcc": 0.9999672659967322,
+      "result": "pass"
+    },
+    {
+      "program_index": 1067,
+      "loc": "output_0",
+      "op_debug_str": "",
+      "actual_pcc": 0.9999686918638785,
+      "result": "pass"
+    },
+    {
+      "program_index": 657,
+      "loc": "output_0",
+      "op_debug_str": "",
+      "actual_pcc": 0.9999742493814457,
+      "result": "pass"
+    },
+    {
+      "program_index": 729,
+      "loc": "output_0",
+      "op_debug_str": "",
+      "actual_pcc": 0.9999743333042753,
+      "result": "pass"
+    },
+    {
+      "program_index": 926,
+      "loc": "output_0",
+      "op_debug_str": "",
+      "actual_pcc": 0.9999743714858069,
+      "result": "pass"
+    },
+    {
+      "program_index": 240,
+      "loc": "output_0",
+      "op_debug_str": "",
+      "actual_pcc": 0.9999745325238484,
+      "result": "pass"
+    },
+    {
+      "program_index": 241,
+      "loc": "output_0",
+      "op_debug_str": "",
+      "actual_pcc": 0.9999745325238484,
+      "result": "pass"
+    },
+    {
+      "program_index": 242,
+      "loc": "output_0",
+      "op_debug_str": "",
+      "actual_pcc": 0.9999745325238484,
+      "result": "pass"
+    },
+    {
+      "program_index": 243,
+      "loc": "output_0",
+      "op_debug_str": "",
+      "actual_pcc": 0.999974555659372,
+      "result": "pass"
+    }
+  ]
+}
