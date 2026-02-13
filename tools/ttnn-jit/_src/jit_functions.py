@@ -203,6 +203,15 @@ class BaseOpHandler(ABC):
             else None
         )
 
+    def _normalize_dim(self, dim, rank):
+        """Normalize negative dimension index to positive."""
+        if dim < 0:
+            dim = rank + dim
+        assert (
+            0 <= dim < rank
+        ), f"Dimension {dim} out of range for tensor with rank {rank}"
+        return dim
+
     @abstractmethod
     def create_operation(self, *args, **kwargs):
         """Create the MLIR operation. Must be implemented by subclasses."""
@@ -514,12 +523,6 @@ class TransposeOpHandler(BaseOpHandler):
         output_shape[dim0], output_shape[dim1] = output_shape[dim1], output_shape[dim0]
         return output_shape
 
-    def _normalize_dim(self, dim, rank):
-        """Normalize negative dimension index to positive."""
-        if dim < 0:
-            dim = rank + dim
-        return dim
-
     def _infer_result_type(self, operand, dim0, dim1):
         """Infer result type based on dimensions to swap."""
         operand_type = operand.type
@@ -527,7 +530,6 @@ class TransposeOpHandler(BaseOpHandler):
         input_shape = list(operand_type.shape)
         rank = len(input_shape)
 
-        # Normalize negative dimensions
         dim0 = self._normalize_dim(dim0, rank)
         dim1 = self._normalize_dim(dim1, rank)
 
@@ -555,13 +557,8 @@ class TransposeOpHandler(BaseOpHandler):
         norm_dim0 = self._normalize_dim(dim0, input_rank)
         norm_dim1 = self._normalize_dim(dim1, input_rank)
 
-        if not (0 <= norm_dim0 < input_rank) or not (0 <= norm_dim1 < input_rank):
-            raise ValueError(
-                f"Dimension out of range for tensor with rank {input_rank}"
-            )
-
         # Infer result type
-        result_type = self._infer_result_type(operand, dim0, dim1)
+        result_type = self._infer_result_type(operand, norm_dim0, norm_dim1)
 
         # Create the operation
         with InsertionPoint(self.jit_ctx.func_bb), Location.unknown(self.jit_ctx.ctx):
@@ -828,12 +825,6 @@ class RearrangeOpHandler(BaseOpHandler):
 class ConcatOpHandler(BaseOpHandler):
     """Handler for concat operation - concatenates tensors along a specified dimension."""
 
-    def _normalize_dim(self, dim, rank):
-        """Normalize negative dimension index to positive."""
-        if dim < 0:
-            dim = rank + dim
-        return dim
-
     def _compute_output_shape(self, operand_types, dim):
         """
         Compute output shape for concatenation.
@@ -847,13 +838,6 @@ class ConcatOpHandler(BaseOpHandler):
         first_shape = list(operand_types[0].shape)
         rank = len(first_shape)
         normalized_dim = self._normalize_dim(dim, rank)
-
-        # Validate dimension
-        if normalized_dim < 0 or normalized_dim >= rank:
-            raise ValueError(
-                f"Dimension {dim} out of range for tensor with rank {rank}"
-            )
-
         # Sum dimensions along concat axis
         concat_dim_size = sum(t.shape[normalized_dim] for t in operand_types)
 
@@ -863,19 +847,13 @@ class ConcatOpHandler(BaseOpHandler):
 
         return output_shape
 
-    def _infer_output_layout(self, element_type, new_shape):
-        """Create a default DRAM interleaved layout for concat output."""
-        return create_default_dram_interleaved_layout(
-            self.jit_ctx.ctx, new_shape, element_type
-        )
-
     def _infer_result_type(self, operands, dim):
         """Infer result type based on input operands and concat dimension."""
         operand_types = [op.type for op in operands]
         element_type = operand_types[0].element_type
 
         output_shape = self._compute_output_shape(operand_types, dim)
-        encoding = self._infer_output_layout(element_type, output_shape)
+        encoding = self._default_dram_interleaved_layout(element_type, output_shape)
 
         with Location.unknown(self.jit_ctx.ctx):
             return RankedTensorType.get(output_shape, element_type, encoding)
@@ -946,19 +924,13 @@ class RepeatOpHandler(BaseOpHandler):
         ]
         return output_shape
 
-    def _infer_output_layout(self, element_type, new_shape):
-        """Create a default DRAM interleaved layout for repeat output."""
-        return create_default_dram_interleaved_layout(
-            self.jit_ctx.ctx, new_shape, element_type
-        )
-
     def _infer_result_type(self, operand, repeat_dimensions):
         """Infer result type based on input operand and repeat dimensions."""
         operand_type = operand.type
         element_type = operand_type.element_type
 
         output_shape = self._compute_output_shape(operand_type, repeat_dimensions)
-        encoding = self._infer_output_layout(element_type, output_shape)
+        encoding = self._default_dram_interleaved_layout(element_type, output_shape)
 
         with Location.unknown(self.jit_ctx.ctx):
             return RankedTensorType.get(output_shape, element_type, encoding)
@@ -1016,12 +988,6 @@ class GatherOpHandler(BaseOpHandler):
 
     This is converted to TTIR's StableHLO-style gather operation.
     """
-
-    def _normalize_dim(self, dim, rank):
-        """Normalize negative dimension index to positive."""
-        if dim < 0:
-            dim = rank + dim
-        return dim
 
     def _compute_output_shape(self, index_type):
         """
@@ -1093,12 +1059,6 @@ class GatherOpHandler(BaseOpHandler):
             "indices_are_sorted": False,
         }
 
-    def _infer_output_layout(self, element_type, new_shape):
-        """Create a default DRAM interleaved layout for gather output."""
-        return create_default_dram_interleaved_layout(
-            self.jit_ctx.ctx, new_shape, element_type
-        )
-
     def _infer_result_type(self, input_operand, index_operand, dim):
         """Infer result type based on index tensor shape."""
         input_type = input_operand.type
@@ -1107,15 +1067,11 @@ class GatherOpHandler(BaseOpHandler):
 
         # Validate dim is in range
         input_rank = len(input_type.shape)
-        normalized_dim = self._normalize_dim(dim, input_rank)
-        if normalized_dim < 0 or normalized_dim >= input_rank:
-            raise ValueError(
-                f"Dimension {dim} out of range for tensor with rank {input_rank}"
-            )
+        _ = self._normalize_dim(dim, input_rank)
 
         # Output shape is the same as index shape
         output_shape = self._compute_output_shape(index_type)
-        encoding = self._infer_output_layout(element_type, output_shape)
+        encoding = self._default_dram_interleaved_layout(element_type, output_shape)
 
         with Location.unknown(self.jit_ctx.ctx):
             return RankedTensorType.get(output_shape, element_type, encoding)
@@ -1216,12 +1172,6 @@ class EmbeddingOpHandler(BaseOpHandler):
         output_shape = input_shape + [embedding_dim]
         return output_shape
 
-    def _infer_output_layout(self, element_type, new_shape):
-        """Create a default DRAM interleaved layout for embedding output."""
-        return create_default_dram_interleaved_layout(
-            self.jit_ctx.ctx, new_shape, element_type
-        )
-
     def _infer_result_type(self, input_operand, weight_operand):
         """Infer result type based on input and weight operands."""
         input_type = input_operand.type
@@ -1230,7 +1180,7 @@ class EmbeddingOpHandler(BaseOpHandler):
         element_type = weight_type.element_type
 
         output_shape = self._compute_output_shape(input_type, weight_type)
-        encoding = self._infer_output_layout(element_type, output_shape)
+        encoding = self._default_dram_interleaved_layout(element_type, output_shape)
 
         with Location.unknown(self.jit_ctx.ctx):
             return RankedTensorType.get(output_shape, element_type, encoding)
