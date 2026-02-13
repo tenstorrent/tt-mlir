@@ -98,8 +98,9 @@ computeOptimalVirtualGrid(ArrayRef<int64_t> physicalShape,
   // Find the largest factor of the sharded dimension that fits within the
   // target grid volume.
   int64_t bestFactor = 0;
-  for (int64_t factor : llvm::reverse(
-           ttmlir::utils::getFactors(physicalShape[shardedDimIndex]))) {
+  const auto factors =
+      ttmlir::utils::getFactors(physicalShape[shardedDimIndex]);
+  for (int64_t factor : llvm::reverse(factors)) {
     if (factor <= targetGridVolume) {
       auto physGrid =
           utils::findLegalPhysicalGridForVolume(factor, targetSquareGridShape);
