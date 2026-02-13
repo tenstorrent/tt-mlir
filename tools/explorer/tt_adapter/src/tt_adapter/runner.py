@@ -361,7 +361,7 @@ class ModelRunner:
             )
             emitc_command = [
                 f"{self._build_dir}/bin/ttmlir-opt",
-                "--ttnn-to-emitc-device-pipeline",
+                "--ttnn-common-to-emitc-pipeline",
                 ttnn_ir_file,
                 "-o",
                 emitc_ir_file,
