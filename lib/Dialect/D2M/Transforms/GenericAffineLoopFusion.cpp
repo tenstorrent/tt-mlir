@@ -11,6 +11,7 @@
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Affine/LoopFusionUtils.h"
 #include "mlir/Dialect/Affine/LoopUtils.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/IRMapping.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
@@ -408,7 +409,7 @@ public:
       return;
     }
     auto isFusionCandidate = [](GenericOp generic) {
-      return generic.isUnifiedForm() && !generic.isDMAOnlyForm() &&
+      return generic.isUnifiedForm() &&
              !generic.hasSkipOpAffineLoopFusionTrait();
     };
 

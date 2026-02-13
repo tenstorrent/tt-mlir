@@ -39,11 +39,11 @@ func.func @test_basic_fusion(
     %bf1 = d2m.get_block_factor(1) : index
     affine.for %i = 0 to %bf0 {
       affine.for %j = 0 to %bf1 {
-        %off0 = d2m.block_offset(0) : index
-        %off1 = d2m.block_offset(1) : index
-        %idx0 = affine.apply #map_add(%i)[%off0]
-        %idx1 = affine.apply #map_add(%j)[%off1]
         %buf_in = memref.alloc() : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
+        %off0 = d2m.block_offset(0) : index
+        %idx0 = affine.apply #map_add(%i)[%off0]
+        %off1 = d2m.block_offset(1) : index
+        %idx1 = affine.apply #map_add(%j)[%off1]
         %loaded = d2m.remote_load %buf_in %stream_in[%idx0, %idx1] : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #dram> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
 
         %buf_out = memref.alloc() : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
@@ -58,7 +58,11 @@ func.func @test_basic_fusion(
           linalg.yield %relu : !ttcore.tile<32x32, f32>
         }
 
-        %stored = d2m.remote_store %intermediate[%idx0, %idx1] %buf_out : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>, memref<2x4x!ttcore.tile<32x32, f32>, #l1_> -> memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>
+        %off0_store = d2m.block_offset(0) : index
+        %idx0_store = affine.apply #map_add(%i)[%off0_store]
+        %off1_store = d2m.block_offset(1) : index
+        %idx1_store = affine.apply #map_add(%j)[%off1_store]
+        %stored = d2m.remote_store %intermediate[%idx0_store, %idx1_store] %buf_out : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>, memref<2x4x!ttcore.tile<32x32, f32>, #l1_> -> memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>
       } {d2m.blocking_loop = 1}
     } {d2m.blocking_loop = 0}
   }
@@ -72,11 +76,11 @@ func.func @test_basic_fusion(
     %bf1 = d2m.get_block_factor(1) : index
     affine.for %i = 0 to %bf0 {
       affine.for %j = 0 to %bf1 {
-        %off0 = d2m.block_offset(0) : index
-        %off1 = d2m.block_offset(1) : index
-        %idx0 = affine.apply #map_add(%i)[%off0]
-        %idx1 = affine.apply #map_add(%j)[%off1]
         %buf_in = memref.alloc() : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
+        %off0 = d2m.block_offset(0) : index
+        %idx0 = affine.apply #map_add(%i)[%off0]
+        %off1 = d2m.block_offset(1) : index
+        %idx1 = affine.apply #map_add(%j)[%off1]
         %loaded = d2m.remote_load %buf_in %intermediate[%idx0, %idx1] : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
 
         %buf_out = memref.alloc() : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
@@ -91,7 +95,11 @@ func.func @test_basic_fusion(
           linalg.yield %exp : !ttcore.tile<32x32, f32>
         }
 
-        %stored = d2m.remote_store %output[%idx0, %idx1] %buf_out : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>, memref<2x4x!ttcore.tile<32x32, f32>, #l1_> -> memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>
+        %off0_store = d2m.block_offset(0) : index
+        %idx0_store = affine.apply #map_add(%i)[%off0_store]
+        %off1_store = d2m.block_offset(1) : index
+        %idx1_store = affine.apply #map_add(%j)[%off1_store]
+        %stored = d2m.remote_store %output[%idx0_store, %idx1_store] %buf_out : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>, memref<2x4x!ttcore.tile<32x32, f32>, #l1_> -> memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>
       } {d2m.blocking_loop = 1}
     } {d2m.blocking_loop = 0}
   }
@@ -207,24 +215,29 @@ func.func @test_matmul_add_subset_fusion(
     %bf2 = d2m.get_block_factor(2) : index
     affine.for %m = 0 to %bf0 {
       affine.for %n = 0 to %bf1 {
-        %off0 = d2m.block_offset(0) : index
-        %off1 = d2m.block_offset(1) : index
-        %idx0 = affine.apply #map_add(%m)[%off0]
-        %idx1 = affine.apply #map_add(%n)[%off1]
-
         %buf_out = memref.alloc() : memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
 
         affine.for %k = 0 to %bf2 {
-          %off2 = d2m.block_offset(2) : index
-          %idx2 = affine.apply #map_add(%k)[%off2]
           %buf_lhs = memref.alloc() : memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
           %buf_rhs = memref.alloc() : memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
+          %off0 = d2m.block_offset(0) : index
+          %idx0 = affine.apply #map_add(%m)[%off0]
+          %off2 = d2m.block_offset(2) : index
+          %idx2 = affine.apply #map_add(%k)[%off2]
           %loaded_lhs = d2m.remote_load %buf_lhs %stream_lhs[%idx0, %idx2]      : memref<2x2x!ttcore.tile<32x32, f32>, #l1_>, memref<1x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #ttcore.view<map(4)>, #dram> -> memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
-          %loaded_rhs = d2m.remote_load %buf_rhs %stream_rhs[%idx2, %idx1]      : memref<2x2x!ttcore.tile<32x32, f32>, #l1_>, memref<2x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #ttcore.view<map(4)>, #dram> -> memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
+          %off1 = d2m.block_offset(1) : index
+          %idx1 = affine.apply #map_add(%n)[%off1]
+          %off2_rhs = d2m.block_offset(2) : index
+          %idx2_rhs = affine.apply #map_add(%k)[%off2_rhs]
+          %loaded_rhs = d2m.remote_load %buf_rhs %stream_rhs[%idx2_rhs, %idx1]      : memref<2x2x!ttcore.tile<32x32, f32>, #l1_>, memref<2x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #ttcore.view<map(4)>, #dram> -> memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
           "d2m.tile_matmul_block"(%loaded_lhs, %loaded_rhs, %buf_out) : (memref<2x2x!ttcore.tile<32x32, f32>, #l1_>, memref<2x2x!ttcore.tile<32x32, f32>, #l1_>, memref<2x2x!ttcore.tile<32x32, f32>, #l1_>) -> ()
         } {d2m.blocking_loop = 2}
 
-        %stored = d2m.remote_store %intermediate[%idx0, %idx1] %buf_out : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_>, memref<2x2x!ttcore.tile<32x32, f32>, #l1_> -> memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_>
+        %off0_store = d2m.block_offset(0) : index
+        %idx0_store = affine.apply #map_add(%m)[%off0_store]
+        %off1_store = d2m.block_offset(1) : index
+        %idx1_store = affine.apply #map_add(%n)[%off1_store]
+        %stored = d2m.remote_store %intermediate[%idx0_store, %idx1_store] %buf_out : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_>, memref<2x2x!ttcore.tile<32x32, f32>, #l1_> -> memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_>
 
       } {d2m.blocking_loop = 1}
     } {d2m.blocking_loop = 0}
@@ -239,16 +252,19 @@ func.func @test_matmul_add_subset_fusion(
     %abf1 = d2m.get_block_factor(1) : index
     affine.for %am = 0 to %abf0 {
       affine.for %an = 0 to %abf1 {
-        %aoff0 = d2m.block_offset(0) : index
-        %aoff1 = d2m.block_offset(1) : index
-        %aidx0 = affine.apply #map_add(%am)[%aoff0]
-        %aidx1 = affine.apply #map_add(%an)[%aoff1]
-
         %buf_inter = memref.alloc() : memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
+        %aoff0 = d2m.block_offset(0) : index
+        %aidx0 = affine.apply #map_add(%am)[%aoff0]
+        %aoff1 = d2m.block_offset(1) : index
+        %aidx1 = affine.apply #map_add(%an)[%aoff1]
         %loaded_inter = d2m.remote_load %buf_inter %intermediate[%aidx0, %aidx1] : memref<2x2x!ttcore.tile<32x32, f32>, #l1_>, memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_> -> memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
 
         %buf_bias = memref.alloc() : memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
-        %loaded_bias = d2m.remote_load %buf_bias %bias[%aidx0, %aidx1] : memref<2x2x!ttcore.tile<32x32, f32>, #l1_>, memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_> -> memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
+        %aoff0_bias = d2m.block_offset(0) : index
+        %aidx0_bias = affine.apply #map_add(%am)[%aoff0_bias]
+        %aoff1_bias = d2m.block_offset(1) : index
+        %aidx1_bias = affine.apply #map_add(%an)[%aoff1_bias]
+        %loaded_bias = d2m.remote_load %buf_bias %bias[%aidx0_bias, %aidx1_bias] : memref<2x2x!ttcore.tile<32x32, f32>, #l1_>, memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_> -> memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
 
         %buf_add_out = memref.alloc() : memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
 
@@ -263,7 +279,11 @@ func.func @test_matmul_add_subset_fusion(
           linalg.yield %add : !ttcore.tile<32x32, f32>
         }
 
-        %stored_out = d2m.remote_store %output[%aidx0, %aidx1] %buf_add_out : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_>, memref<2x2x!ttcore.tile<32x32, f32>, #l1_> -> memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_>
+        %aoff0_store = d2m.block_offset(0) : index
+        %aidx0_store = affine.apply #map_add(%am)[%aoff0_store]
+        %aoff1_store = d2m.block_offset(1) : index
+        %aidx1_store = affine.apply #map_add(%an)[%aoff1_store]
+        %stored_out = d2m.remote_store %output[%aidx0_store, %aidx1_store] %buf_add_out : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_>, memref<2x2x!ttcore.tile<32x32, f32>, #l1_> -> memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_>
       } {d2m.blocking_loop = 1}
     } {d2m.blocking_loop = 0}
   }

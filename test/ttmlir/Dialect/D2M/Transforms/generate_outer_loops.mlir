@@ -24,13 +24,13 @@ module {
     // CHECK-SAME: block_factors = [1, 1]
   // CHECK-NOT: d2m.block_index
     // CHECK: ^{{.*}}(%{{.*}}: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %{{.*}}: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>):
-  // CHECK-DAG: %[[OFF1:.*]] = d2m.block_offset(1)
-  // CHECK-DAG: %[[OFF0:.*]] = d2m.block_offset(0)
   // CHECK-DAG: %{{.*}} = d2m.get_block_factor(0) : index
   // CHECK-DAG: %{{.*}} = d2m.get_block_factor(1) : index
   // CHECK: affine.for %[[I:.*]] = 0 to %{{.*}} {
   // CHECK-NEXT:   affine.for %[[J:.*]] = 0 to %{{.*}} {
+  // CHECK-NEXT:     %[[OFF0:.*]] = d2m.block_offset(0)
   // CHECK-NEXT:     %[[IDX0:.*]] = affine.apply #{{.*}}(%[[I]])[%[[OFF0]]]
+  // CHECK-NEXT:     %[[OFF1:.*]] = d2m.block_offset(1)
   // CHECK-NEXT:     %[[IDX1:.*]] = affine.apply #{{.*}}(%[[J]])[%[[OFF1]]]
   // CHECK-NEXT:     %{{.*}} = memref.alloc
   // CHECK-NEXT:     %{{.*}} = d2m.remote_load %{{.*}} %{{.*}}[%[[IDX0]], %[[IDX1]]] : memref<{{.*}}>, memref<{{.*}}> -> memref<{{.*}}>
@@ -67,15 +67,15 @@ module {
     // CHECK-SAME: block_factors = [1, 1, 2]
   // CHECK-NOT: d2m.block_index
     // CHECK: ^{{.*}}(%{{.*}}: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1>>, %{{.*}}: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1>>, %{{.*}}: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1>>):
-  // CHECK-DAG: %[[OFF1:.*]] = d2m.block_offset(1)
-  // CHECK-DAG: %[[OFF0:.*]] = d2m.block_offset(0)
   // CHECK-DAG: %{{.*}} = d2m.get_block_factor(0) : index
   // CHECK-DAG: %{{.*}} = d2m.get_block_factor(1) : index
   // CHECK-DAG: %{{.*}} = d2m.get_block_factor(2) : index
   // CHECK: affine.for %[[I:.*]] = 0 to %{{.*}} {
   // CHECK-NEXT:   affine.for %[[J:.*]] = 0 to %{{.*}} {
   // CHECK-NEXT:     affine.for %{{.*}} = 0 to %{{.*}} {
+  // CHECK-NEXT:       %[[OFF0:.*]] = d2m.block_offset(0)
   // CHECK-NEXT:       %[[IDX0:.*]] = affine.apply #{{.*}}(%[[I]])[%[[OFF0]]]
+  // CHECK-NEXT:       %[[OFF1:.*]] = d2m.block_offset(1)
   // CHECK-NEXT:       %[[IDX1:.*]] = affine.apply #{{.*}}(%[[J]])[%[[OFF1]]]
   // CHECK-NEXT:       %{{.*}} = memref.alloc
   // CHECK-NEXT:       %{{.*}} = memref.alloc
@@ -115,13 +115,13 @@ module {
     // CHECK-SAME: block_factors = [1, 1]
   // CHECK-NOT: d2m.block_index
     // CHECK: ^{{.*}}(%{{.*}}: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %{{.*}}: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>):
-  // CHECK-DAG: %[[OFF1:.*]] = d2m.block_offset(1)
-  // CHECK-DAG: %[[OFF0:.*]] = d2m.block_offset(0)
   // CHECK-DAG: %{{.*}} = d2m.get_block_factor(0) : index
   // CHECK-DAG: %{{.*}} = d2m.get_block_factor(1) : index
   // CHECK: affine.for %[[I:.*]] = 0 to %{{.*}} {
   // CHECK-NEXT:   affine.for %[[J:.*]] = 0 to %{{.*}} {
+  // CHECK-NEXT:     %[[OFF0:.*]] = d2m.block_offset(0)
   // CHECK-NEXT:     %[[IDX0:.*]] = affine.apply #{{.*}}(%[[I]])[%[[OFF0]]]
+  // CHECK-NEXT:     %[[OFF1:.*]] = d2m.block_offset(1)
   // CHECK-NEXT:     %[[IDX1:.*]] = affine.apply #{{.*}}(%[[J]])[%[[OFF1]]]
   // CHECK-NEXT:     %{{.*}} = memref.alloc
   // CHECK-NEXT:     %{{.*}} = d2m.remote_load %{{.*}} %{{.*}}[%[[IDX0]], %[[IDX1]]] : memref<{{.*}}>, memref<{{.*}}> -> memref<{{.*}}>
