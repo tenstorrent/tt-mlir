@@ -379,13 +379,13 @@ struct TTIRToTTNNDevicePipelineOptions
           clEnumValN(OptionalMathFidelity::HiFi4, "hifi4", "High fidelity 4"),
           clEnumValN(OptionalMathFidelity::Undefined, "undefined",
                      "Undefined math fidelity")),
-      llvm::cl::init(OptionalMathFidelity::HiFi4)};
+      llvm::cl::init(OptionalMathFidelity::Undefined)};
 
   Option<bool> computeCfgFp32DestAccEn{
       *this, "compute-cfg-fp32-dest-acc-en",
       llvm::cl::desc("Set fp32 destination accumulation for all ttnn "
                      "operations exposing compute kernel config."),
-      llvm::cl::init(true)};
+      llvm::cl::init(false)};
 
   Option<bool> ttnnPerfMetricsEnabled{
       *this, "ttnn-perf-metrics-enabled",
