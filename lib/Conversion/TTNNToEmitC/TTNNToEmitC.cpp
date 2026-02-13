@@ -822,7 +822,11 @@ public:
         emitter.emit(/*deallocate_input=*/false),
         emitter.emit(
             /*reallocate_halo_output=*/srcOp.getReallocateHaloOutput()),
-        /*return_indices=*/emitter.emit(false)};
+        /*return_indices=*/emitter.emit(false),
+        emitter.emit(/*dtype=*/ttcore::DataType::BFloat16),
+        emitter.emit(/*output_layout=*/mlir::tt::ttnn::Layout::RowMajor),
+        /*config_tensors_in_dram=*/emitter.emit(srcOp.getConfigTensorsInDram()),
+    };
 
     emitter.replaceOp(*this, args);
     return success();
@@ -890,7 +894,9 @@ public:
         /*return_indices=*/emitter.emit(true),
         emitter.emit(/*dtype=*/ttcore::DataType::BFloat16),
         emitter.emit(/*output_layout=*/mlir::tt::ttnn::Layout::
-                         RowMajor)}; // ROW_MAJOR required for return_indices
+                         RowMajor), // ROW_MAJOR required for return_indices
+                                    /*config_tensors_in_dram=*/
+        emitter.emit(srcOp.getConfigTensorsInDram())};
 
     // MaxPool2dWithIndicesOp returns a std::vector<ttnn::Tensor> containing two
     // elements: [0] = pooled tensor, [1] = corresponding indices. Extract both
@@ -2003,35 +2009,6 @@ public:
         emitter.emit(srcOp.getInput()),
         emitter.emit(srcOp.getDtype()),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
-    };
-
-    emitter.replaceOp(*this, args);
-
-    return success();
-  }
-};
-} // namespace
-
-// ToDTypeOp conversion pattern
-//
-namespace {
-class ToDTypeOpConversionPattern
-    : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::ToDTypeOp> {
-
-public:
-  using TTNNToEmitCBaseOpConversionPattern<
-      mlir::tt::ttnn::ToDTypeOp>::TTNNToEmitCBaseOpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(mlir::tt::ttnn::ToDTypeOp srcOp, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-
-    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::ToDTypeOp> emitter(
-        srcOp, adaptor, rewriter);
-
-    llvm::SmallVector<mlir::Attribute> args{
-        emitter.emit(srcOp.getInput()),
-        emitter.emit(srcOp.getDtype()),
     };
 
     emitter.replaceOp(*this, args);
@@ -4478,7 +4455,6 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   // clang-format off
   patterns.add<ToLayoutOpConversionPattern,
                ToMemoryConfigOpConversionPattern,
-               ToDTypeOpConversionPattern,
                TypecastOpConversionPattern,
                ToDeviceOpConversionPattern,
                FromDeviceOpConversionPattern,

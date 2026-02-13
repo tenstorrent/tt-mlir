@@ -10,7 +10,9 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         OptimizerPasses/RowMajorLayoutPropagation.cpp
         OptimizerPasses/TTNNPrepareConv2dWeightsAndBias.cpp
         TTNNAdjustDeallocs.cpp
+        TTNNCollaspeD2M.cpp
         TTNNCollectPerfMetrics.cpp
+        TTNND2MFusing.cpp
         TTNNDecomposeLayouts.cpp
         TTNNEmitPyWorkarounds.cpp
         TTNNConstEvalInputsToSystemMemory.cpp

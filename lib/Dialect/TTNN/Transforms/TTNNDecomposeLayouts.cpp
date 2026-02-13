@@ -346,7 +346,6 @@ private:
                                             /*memory_config*/ nullptr);
   }
 
-  template <typename OpType>
   mlir::Value createDataTypeCastingOp(ttnn::ToLayoutOp op, IRRewriter &rewriter,
                                       mlir::Value currentInput,
                                       const OpCreationInfo &info) const {
@@ -355,8 +354,8 @@ private:
     RankedTensorType newResultType = utils::RankedTensorTypeFactory::create(
         mlir::cast<RankedTensorType>(currentInput.getType()),
         info.output.dataType);
-    return this->createOp<OpType>(rewriter, op, newResultType, currentInput,
-                                  dtypeAttr);
+    return this->createOp<ttnn::TypecastOp>(rewriter, op, newResultType,
+                                            currentInput, dtypeAttr);
   }
 
   mlir::Value
@@ -372,17 +371,11 @@ private:
 
     TTNNLayoutAttr inputLayout =
         mlir::cast<TTNNLayoutAttr>(currentInputType.getEncoding());
-    if (inputLayout.isSystemBufferType()) {
-      // If the input tensor is on host, we need to cast it on the host.
-      return this->createDataTypeCastingOp<ttnn::ToDTypeOp>(op, rewriter,
-                                                            currentInput, info);
+    if (!inputLayout.isSystemBufferType()) {
+      assert(inputLayout.getLayout() == Layout::Tile &&
+             "Only tilized tensors are supported for device typecast");
     }
-
-    assert(inputLayout.getLayout() == Layout::Tile &&
-           "Only tilized tensors are supported for device typecast");
-    // If the input tensor is on device, we can cast it on the device.
-    return this->createDataTypeCastingOp<ttnn::TypecastOp>(op, rewriter,
-                                                           currentInput, info);
+    return this->createDataTypeCastingOp(op, rewriter, currentInput, info);
   }
 
   mlir::Value createToMemoryConfigOpIfNeeded(ttnn::ToLayoutOp op,

@@ -13,7 +13,7 @@ Current state:
 - ✅ 3D addition: Works correctly with non-collapsed tensors
 - ✅ 3D multiplication: Works correctly with non-collapsed tensors
 - ✅ 3D exponential: Works correctly with non-collapsed tensors
-- ❌ 3D matmul: Causes core dump due to hardcoded rank==2 assertions in matmul rewriter
+- ✅ 3D matmul: Works correctly with non-collapsed tensors (fixed in #6648)
 - ❌ 3D transpose: Causes core dump due to hardcoded rank==2 assertions in permute rewriter
 """
 
@@ -92,14 +92,9 @@ def module_transpose_inner_dims(builder: TTIRBuilder):
             marks=pytest.mark.xfail(reason="Golden failure"),
         ),
         (module_unary_exp_4d_exp, "4d_exp"),
+        # Batched matmul (fixed in #6648)
+        (module_batch_matmul, "matmul"),
         # Operations with known issues (marked as skip)
-        pytest.param(
-            module_batch_matmul,
-            "matmul",
-            marks=pytest.mark.skip(
-                reason="Hardcoded rank==2 assertions in matmul rewriter cause core dump"
-            ),
-        ),
         pytest.param(
             module_transpose_inner_dims,
             "transpose",

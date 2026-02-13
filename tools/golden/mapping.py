@@ -972,6 +972,32 @@ def rms_norm_golden(
     return rms_norm.to(input.dtype)
 
 
+def ttir_rms_norm_golden(
+    input: GoldenMapTensor,
+    weight: Optional[GoldenMapTensor],
+    bias: Optional[GoldenMapTensor],
+    normalized_shape: ArrayAttr,
+    epsilon: FloatAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    normalized_shape = unpack_mlir_attr(normalized_shape)
+    epsilon = unpack_mlir_attr(epsilon)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    input_float = input.float()
+
+    rms_norm = torch.nn.functional.rms_norm(
+        input_float,
+        normalized_shape=normalized_shape,
+        weight=weight,
+        eps=epsilon,
+    )
+
+    if bias is not None:
+        rms_norm = torch.add(rms_norm, bias)
+
+    return rms_norm.to(output_dtype)
+
+
 def ttir_layer_norm_golden(
     input: GoldenMapTensor,
     weight: Optional[GoldenMapTensor],
@@ -1439,30 +1465,6 @@ def less_than_golden(
         Tensor with the same dtype as input_tensor containing the comparison results.
     """
     result_bool = torch.lt(input_tensor, other_tensor)
-    return result_bool.to(input_tensor.dtype)
-
-
-def logical_and_golden(
-    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, **kwargs
-) -> GoldenMapTensor:
-    """
-    Golden function for logical_and operation.
-
-    Elementwise logical AND.
-
-    Parameters
-    ----------
-    input_tensor : GoldenMapTensor
-        Left-hand side tensor.
-    other_tensor : GoldenMapTensor
-        Right-hand side tensor.
-
-    Returns
-    -------
-    GoldenMapTensor
-        Tensor with the same dtype as input_tensor containing the logical AND results.
-    """
-    result_bool = torch.logical_and(input_tensor, other_tensor)
     return result_bool.to(input_tensor.dtype)
 
 
@@ -3057,6 +3059,13 @@ def ttir_minimum_golden(
     return torch.minimum(input_tensor, other_tensor).to(output_dtype)
 
 
+def ttir_logical_and_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.logical_and(input_tensor, other_tensor).to(output_dtype)
+
+
 def ttir_logical_right_shift_golden(
     input_tensor: GoldenMapTensor, shift_tensor: GoldenMapTensor, output_type_mlir: Type
 ) -> GoldenMapTensor:
@@ -3523,6 +3532,111 @@ def ttir_logical_not_golden(
     return result_bool.to(output_dtype)
 
 
+def ttir_split_query_key_value_and_split_heads_golden(
+    input_tensor: GoldenMapTensor,
+    kv_input_tensor: Optional[GoldenMapTensor],
+    num_heads_attr: IntegerAttr,
+    num_kv_heads_attr: Optional[IntegerAttr],
+    transpose_key_attr: BoolAttr,
+    query_output_type_mlir: Type,
+    key_output_type_mlir: Type,
+    value_output_type_mlir: Type,
+) -> Tuple[GoldenMapTensor, GoldenMapTensor, GoldenMapTensor]:
+    """
+    Golden function for split_query_key_value_and_split_heads operation.
+
+    This operation splits fused QKV tensors and reshapes them for attention computation.
+
+    Parameters
+    ----------
+    input_tensor : GoldenMapTensor
+        For MHA: [batch, seq, 3 * hidden_size] containing fused Q, K, V
+        For GQA: [batch, seq, hidden_size] containing Q only
+    kv_input_tensor : Optional[GoldenMapTensor]
+        For GQA: [batch, seq, 2 * hidden_size] containing fused K, V
+        For MHA: None
+    num_heads_attr : IntegerAttr
+        Number of query attention heads
+    num_kv_heads_attr : Optional[IntegerAttr]
+        Number of key/value heads (for GQA). If None, equals num_heads (MHA case)
+    transpose_key_attr : BoolAttr
+        Whether to transpose the key tensor
+    query_output_type_mlir : Type
+        Output type for query tensor
+    key_output_type_mlir : Type
+        Output type for key tensor
+    value_output_type_mlir : Type
+        Output type for value tensor
+
+    Returns
+    -------
+    Tuple[GoldenMapTensor, GoldenMapTensor, GoldenMapTensor]
+        query: [batch, num_heads, seq, head_size]
+        key: [batch, num_kv_heads, seq, head_size] or [batch, num_kv_heads, head_size, seq] if transpose_key
+        value: [batch, num_kv_heads, seq, head_size]
+    """
+    num_heads = unpack_mlir_attr(num_heads_attr)
+    num_kv_heads = (
+        unpack_mlir_attr(num_kv_heads_attr) if num_kv_heads_attr else num_heads
+    )
+    transpose_key = unpack_mlir_attr(transpose_key_attr)
+    query_output_dtype = mlir_type_to_torch_dtype(query_output_type_mlir)
+    key_output_dtype = mlir_type_to_torch_dtype(key_output_type_mlir)
+    value_output_dtype = mlir_type_to_torch_dtype(value_output_type_mlir)
+
+    batch_size = input_tensor.shape[0]
+    seq_len = input_tensor.shape[1]
+
+    if kv_input_tensor is None:
+        # MHA case: input_tensor contains fused Q, K, V
+        # Shape: [batch, seq, 3 * hidden_size]
+        hidden_size = input_tensor.shape[2] // 3
+        head_size = hidden_size // num_heads
+
+        # Slice Q, K, V from fused tensor
+        q = input_tensor[:, :, :hidden_size]
+        k = input_tensor[:, :, hidden_size : 2 * hidden_size]
+        v = input_tensor[:, :, 2 * hidden_size :]
+
+        # Reshape: [batch, seq, hidden] -> [batch, seq, num_heads, head_size]
+        q = q.reshape(batch_size, seq_len, num_heads, head_size)
+        k = k.reshape(batch_size, seq_len, num_kv_heads, head_size)
+        v = v.reshape(batch_size, seq_len, num_kv_heads, head_size)
+    else:
+        # GQA case: separate Q and KV tensors
+        # input_tensor: [batch, seq, q_hidden_size]
+        # kv_input_tensor: [batch, seq, 2 * kv_hidden_size]
+        q_hidden_size = input_tensor.shape[2]
+        head_size = q_hidden_size // num_heads
+        kv_hidden_size = kv_input_tensor.shape[2] // 2
+
+        # Q directly from input_tensor
+        q = input_tensor.reshape(batch_size, seq_len, num_heads, head_size)
+
+        # Slice K, V from kv_input_tensor
+        k = kv_input_tensor[:, :, :kv_hidden_size]
+        v = kv_input_tensor[:, :, kv_hidden_size:]
+
+        # Reshape K, V: [batch, seq, kv_hidden] -> [batch, seq, num_kv_heads, head_size]
+        k = k.reshape(batch_size, seq_len, num_kv_heads, head_size)
+        v = v.reshape(batch_size, seq_len, num_kv_heads, head_size)
+
+    # Permute: [batch, seq, num_heads, head_size] -> [batch, num_heads, seq, head_size]
+    q = q.permute(0, 2, 1, 3)
+    k = k.permute(0, 2, 1, 3)
+    v = v.permute(0, 2, 1, 3)
+
+    # Optionally transpose key: [batch, num_heads, seq, head_size] -> [batch, num_heads, head_size, seq]
+    if transpose_key:
+        k = k.transpose(-2, -1)
+
+    return (
+        q.to(query_output_dtype),
+        k.to(key_output_dtype),
+        v.to(value_output_dtype),
+    )
+
+
 def ttir_max_golden(
     input_tensor: GoldenMapTensor,
     dim_arg_attr: ArrayAttr,
@@ -3696,6 +3810,24 @@ def ttir_reverse_golden(
     dimensions = unpack_mlir_attr(dimensions_attr)
     output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
     return torch.flip(input_tensor, dimensions).to(output_dtype)
+
+
+def stablehlo_sort_golden(
+    input_tensor: GoldenMapTensor,
+    dimension_attr: IntegerAttr,
+    is_stable_attr: BoolAttr,
+    descending_attr: BoolAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    dimension = unpack_mlir_attr(dimension_attr)
+    is_stable = unpack_mlir_attr(is_stable_attr)
+    descending = unpack_mlir_attr(descending_attr)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+
+    values, _ = torch.sort(
+        input_tensor, dim=dimension, descending=descending, stable=is_stable
+    )
+    return values.to(output_dtype)
 
 
 def ttir_equal_golden(
@@ -5687,7 +5819,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.LessEqualOp: ttir_le_golden,
     ttir.LessThanOp: ttir_lt_golden,
     # Logical operations
-    ttir.LogicalAndOp: logical_and_golden,
+    ttir.LogicalAndOp: ttir_logical_and_golden,
     ttir.LogicalLeftShiftOp: logical_left_shift_golden,
     ttir.LogicalOrOp: logical_or_golden,
     ttir.LogicalRightShiftOp: ttir_logical_right_shift_golden,
@@ -5738,7 +5870,8 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.BatchNormInferenceOp: ttir_batch_norm_inference_golden,
     ttir.BatchNormTrainingOp: ttir_batch_norm_training_golden,
     ttir.LayerNormOp: ttir_layer_norm_golden,
-    ttir.RMSNormOp: rms_norm_golden,
+    ttir.SplitQueryKeyValueAndSplitHeadsOp: ttir_split_query_key_value_and_split_heads_golden,
+    ttir.RMSNormOp: ttir_rms_norm_golden,
     # Type operations
     ttir.TypecastOp: ttir_typecast_golden,
     # Tensor creation
@@ -5830,6 +5963,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     stablehlo.DynamicSliceOp: dynamic_slice_golden,
     stablehlo.DynamicUpdateSliceOp: stablehlo_dynamic_update_slice_golden,
     stablehlo.ConvolutionOp: stablehlo_convolution_golden,
+    stablehlo.SortOp: stablehlo_sort_golden,
     # StableHLO tensor manipulation operations
     stablehlo.TransposeOp: stablehlo_transpose_golden,
     stablehlo.SelectOp: stablehlo_select_golden,

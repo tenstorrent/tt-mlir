@@ -52,6 +52,91 @@ def _get_tensor_args(func, *tensors):
 
 
 # ============================================================
+# Tensor manipulation (TM) operations - permute tests
+# ============================================================
+
+
+def permute_2d_func(a):
+    """2D transpose - swap dimensions."""
+    return ttnn.permute(a, permutation=[1, 0])
+
+
+def permute_4d_func(a):
+    """4D attention-style transpose - BHSD -> BSHD."""
+    return ttnn.permute(a, permutation=[0, 2, 1, 3])
+
+
+# ============================================================
+# Tensor manipulation (TM) operations - transpose tests
+# ============================================================
+
+
+def transpose_2d_func(a):
+    """2D transpose - swap dimensions 0 and 1."""
+    return ttnn.transpose(a, dim0=0, dim1=1)
+
+
+def transpose_4d_func(a):
+    """4D transpose - swap dimensions 1 and 2 (e.g., BHSD -> BSHD)."""
+    return ttnn.transpose(a, dim0=1, dim1=2)
+
+
+def transpose_negative_dims_func(a):
+    """Transpose with negative dimensions - swap last two dims."""
+    return ttnn.transpose(a, dim0=-2, dim1=-1)
+
+
+# ============================================================
+# Tensor manipulation (TM) operations - reshape tests
+# ============================================================
+
+
+def reshape_2d_to_1d_func(a):
+    """Flatten 2D tensor to 1D."""
+    return ttnn.reshape(a, shape=[64 * 64])
+
+
+def reshape_2d_to_3d_func(a):
+    """Reshape 2D tensor to 3D."""
+    return ttnn.reshape(a, shape=[1, 64, 64])
+
+
+def reshape_4d_to_2d_func(a):
+    """Reshape 4D tensor to 2D (flatten batch and spatial)."""
+    return ttnn.reshape(a, shape=[1 * 8 * 32, 64])
+
+
+# ============================================================
+# Tensor manipulation (TM) operations - rearrange tests
+# ============================================================
+
+
+def rearrange_identity_func(a):
+    """Identity rearrange - no change in shape."""
+    return ttnn.rearrange(a, pattern="b h w c -> b h w c")
+
+
+def rearrange_reorder_func(a):
+    """Reordering dimensions - BHWC -> BCHW."""
+    return ttnn.rearrange(a, pattern="b h w c -> b c h w")
+
+
+def rearrange_merge_func(a):
+    """Merge two dimensions into one using rearrange."""
+    return ttnn.rearrange(a, pattern="b h w c -> (b h) w c")
+
+
+def rearrange_reorder_merge_func(a):
+    """Reorder and merge dimensions - 'b h w c -> h (b w) c'."""
+    return ttnn.rearrange(a, pattern="b h w c -> h (b w) c")
+
+
+def rearrange_multi_merge_func(a):
+    """Merge multiple dimensions - 'b h w c -> b (c h w)'."""
+    return ttnn.rearrange(a, pattern="b h w c -> b (c h w)")
+
+
+# ============================================================
 # Reduction operations - kept local due to specific parameters
 # ============================================================
 
@@ -139,7 +224,7 @@ def loop_with_conditional_func(a, b):
 def test_ir_generation(func, *tensors, debug=True):
     """Generate and print IR for a function."""
     tensor_args = _get_tensor_args(func, *tensors)
-    ir = generate_ir(func, debug, *tensors, _tensor_args=tensor_args)
+    ir = generate_ir(func, debug, None, *tensors, _tensor_args=tensor_args)
     return ir
 
 
@@ -389,6 +474,185 @@ if __name__ == "__main__":
     # CHECK-SAME: ([[IN_TYPE]], [[IN_TYPE]]) -> [[IN_TYPE]]
     # CHECK: return %[[V1]] : [[IN_TYPE]]
     test_ir_generation(loop_with_conditional_func, input_a, input_b)
+
+    # ============================================================
+    # Tensor manipulation (TM) operations tests - permute
+    # ============================================================
+
+    # 2D permute (transpose)
+    # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
+    # CHECK: func.func @permute_2d_func
+    # CHECK-SAME: (%arg0: tensor<64x128xbf16, #ttnn_layout>)
+    # CHECK-SAME: -> tensor<128x64xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK: %[[VAL:[0-9]+]] = "ttir.permute"(%arg0)
+    # CHECK-SAME: permutation = array<i64: 1, 0>
+    # CHECK-SAME: (tensor<64x128xbf16, #ttnn_layout>) -> tensor<128x64xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK: return %[[VAL]] : tensor<128x64xbf16, #ttnn_layout{{[0-9]*}}>
+    test_ir_generation(permute_2d_func, input_c)
+
+    # 4D permute (attention-style BHSD -> BSHD)
+    input_4d = create_sharded_tile_tensor(
+        device, (1, 8, 32, 64), (0, 0), torch.bfloat16
+    )
+    # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
+    # CHECK: func.func @permute_4d_func
+    # CHECK-SAME: (%arg0: tensor<1x8x32x64xbf16, #ttnn_layout>)
+    # CHECK-SAME: -> tensor<1x32x8x64xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK: %[[VAL:[0-9]+]] = "ttir.permute"(%arg0)
+    # CHECK-SAME: permutation = array<i64: 0, 2, 1, 3>
+    # CHECK-SAME: (tensor<1x8x32x64xbf16, #ttnn_layout>) -> tensor<1x32x8x64xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK: return %[[VAL]] : tensor<1x32x8x64xbf16, #ttnn_layout{{[0-9]*}}>
+    test_ir_generation(permute_4d_func, input_4d)
+
+    # ============================================================
+    # Tensor manipulation (TM) operations tests - transpose
+    # ============================================================
+
+    # 2D transpose (swap dims 0 and 1)
+    # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
+    # CHECK: func.func @transpose_2d_func
+    # CHECK-SAME: (%arg0: tensor<64x128xbf16, #ttnn_layout>)
+    # CHECK-SAME: -> tensor<128x64xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK: %[[VAL:[0-9]+]] = "ttir.transpose"(%arg0)
+    # CHECK-SAME: dim0 = 0 : si32
+    # CHECK-SAME: dim1 = 1 : si32
+    # CHECK-SAME: (tensor<64x128xbf16, #ttnn_layout>) -> tensor<128x64xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK: return %[[VAL]] : tensor<128x64xbf16, #ttnn_layout{{[0-9]*}}>
+    test_ir_generation(transpose_2d_func, input_c)
+
+    # 4D transpose (swap dims 1 and 2 - BHSD -> BSHD style)
+    # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
+    # CHECK: func.func @transpose_4d_func
+    # CHECK-SAME: (%arg0: tensor<1x8x32x64xbf16, #ttnn_layout>)
+    # CHECK-SAME: -> tensor<1x32x8x64xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK: %[[VAL:[0-9]+]] = "ttir.transpose"(%arg0)
+    # CHECK-SAME: dim0 = 1 : si32
+    # CHECK-SAME: dim1 = 2 : si32
+    # CHECK-SAME: (tensor<1x8x32x64xbf16, #ttnn_layout>) -> tensor<1x32x8x64xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK: return %[[VAL]] : tensor<1x32x8x64xbf16, #ttnn_layout{{[0-9]*}}>
+    test_ir_generation(transpose_4d_func, input_4d)
+
+    # Transpose with negative dimensions (swap last two dims of 4D tensor)
+    # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
+    # CHECK: func.func @transpose_negative_dims_func
+    # CHECK-SAME: (%arg0: tensor<1x8x32x64xbf16, #ttnn_layout>)
+    # CHECK-SAME: -> tensor<1x8x64x32xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK: %[[VAL:[0-9]+]] = "ttir.transpose"(%arg0)
+    # CHECK-SAME: dim0 = -2 : si32
+    # CHECK-SAME: dim1 = -1 : si32
+    # CHECK-SAME: (tensor<1x8x32x64xbf16, #ttnn_layout>) -> tensor<1x8x64x32xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK: return %[[VAL]] : tensor<1x8x64x32xbf16, #ttnn_layout{{[0-9]*}}>
+    test_ir_generation(transpose_negative_dims_func, input_4d)
+
+    # ============================================================
+    # Tensor manipulation (TM) operations tests - reshape
+    # ============================================================
+
+    # Reshape 2D to 1D (flatten)
+    # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
+    # CHECK: func.func @reshape_2d_to_1d_func
+    # CHECK-SAME: (%arg0: tensor<64x64xbf16, #ttnn_layout>)
+    # CHECK-SAME: -> tensor<4096xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK: %[[VAL:[0-9]+]] = "ttir.reshape"(%arg0)
+    # CHECK-SAME: shape = [4096 : i32]
+    # CHECK-SAME: (tensor<64x64xbf16, #ttnn_layout>) -> tensor<4096xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK: return %[[VAL]] : tensor<4096xbf16, #ttnn_layout{{[0-9]*}}>
+    test_ir_generation(reshape_2d_to_1d_func, input_a)
+
+    # Reshape 2D to 3D (add batch dimension)
+    # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
+    # CHECK: func.func @reshape_2d_to_3d_func
+    # CHECK-SAME: (%arg0: tensor<64x64xbf16, #ttnn_layout>)
+    # CHECK-SAME: -> tensor<1x64x64xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK: %[[VAL:[0-9]+]] = "ttir.reshape"(%arg0)
+    # CHECK-SAME: shape = [1 : i32, 64 : i32, 64 : i32]
+    # CHECK-SAME: (tensor<64x64xbf16, #ttnn_layout>) -> tensor<1x64x64xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK: return %[[VAL]] : tensor<1x64x64xbf16, #ttnn_layout{{[0-9]*}}>
+    test_ir_generation(reshape_2d_to_3d_func, input_a)
+
+    # Reshape 4D to 2D (flatten batch and spatial)
+    # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
+    # CHECK: func.func @reshape_4d_to_2d_func
+    # CHECK-SAME: (%arg0: tensor<1x8x32x64xbf16, #ttnn_layout>)
+    # CHECK-SAME: -> tensor<256x64xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK: %[[VAL:[0-9]+]] = "ttir.reshape"(%arg0)
+    # CHECK-SAME: shape = [256 : i32, 64 : i32]
+    # CHECK-SAME: (tensor<1x8x32x64xbf16, #ttnn_layout>) -> tensor<256x64xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK: return %[[VAL]] : tensor<256x64xbf16, #ttnn_layout{{[0-9]*}}>
+    test_ir_generation(reshape_4d_to_2d_func, input_4d)
+
+    # ============================================================
+    # Tensor manipulation (TM) operations tests - rearrange
+    # All 5 supported rearrange patterns are tested here:
+    # 1. Identity: 'b h w c -> b h w c'
+    # 2. Reordering: 'b h w c -> b c h w'
+    # 3. Merging: 'b h w c -> (b h) w c'
+    # 4. Reorder + merge: 'b h w c -> h (b w) c'
+    # 5. Multi-merge: 'b h w c -> b (c h w)'
+    # ============================================================
+
+    # Create 4D BHWC tensor for rearrange tests: (b=2, h=4, w=32, c=64)
+    input_bhwc = create_sharded_tile_tensor(
+        device, (2, 4, 32, 64), (0, 0), torch.bfloat16
+    )
+
+    # 1. Identity rearrange: 'b h w c -> b h w c' (no shape change)
+    # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
+    # CHECK: func.func @rearrange_identity_func
+    # CHECK-SAME: (%arg0: tensor<2x4x32x64xbf16, #ttnn_layout>)
+    # CHECK-SAME: -> tensor<2x4x32x64xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK: %[[VAL:[0-9]+]] = "ttir.rearrange"(%arg0)
+    # CHECK-SAME: pattern = "b h w c -> b h w c"
+    # CHECK-SAME: (tensor<2x4x32x64xbf16, #ttnn_layout>) -> tensor<2x4x32x64xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK: return %[[VAL]] : tensor<2x4x32x64xbf16, #ttnn_layout{{[0-9]*}}>
+    test_ir_generation(rearrange_identity_func, input_bhwc)
+
+    # 2. Reordering: 'b h w c -> b c h w' (BHWC -> BCHW)
+    # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
+    # CHECK: func.func @rearrange_reorder_func
+    # CHECK-SAME: (%arg0: tensor<2x4x32x64xbf16, #ttnn_layout>)
+    # CHECK-SAME: -> tensor<2x64x4x32xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK: %[[VAL:[0-9]+]] = "ttir.rearrange"(%arg0)
+    # CHECK-SAME: pattern = "b h w c -> b c h w"
+    # CHECK-SAME: (tensor<2x4x32x64xbf16, #ttnn_layout>) -> tensor<2x64x4x32xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK: return %[[VAL]] : tensor<2x64x4x32xbf16, #ttnn_layout{{[0-9]*}}>
+    test_ir_generation(rearrange_reorder_func, input_bhwc)
+
+    # 3. Merging: 'b h w c -> (b h) w c' (merge batch and height)
+    # Output shape: (b*h, w, c) = (2*4, 32, 64) = (8, 32, 64)
+    # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
+    # CHECK: func.func @rearrange_merge_func
+    # CHECK-SAME: (%arg0: tensor<2x4x32x64xbf16, #ttnn_layout>)
+    # CHECK-SAME: -> tensor<8x32x64xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK: %[[VAL:[0-9]+]] = "ttir.rearrange"(%arg0)
+    # CHECK-SAME: pattern = "b h w c -> (b h) w c"
+    # CHECK-SAME: (tensor<2x4x32x64xbf16, #ttnn_layout>) -> tensor<8x32x64xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK: return %[[VAL]] : tensor<8x32x64xbf16, #ttnn_layout{{[0-9]*}}>
+    test_ir_generation(rearrange_merge_func, input_bhwc)
+
+    # 4. Reorder + merge: 'b h w c -> h (b w) c'
+    # Output shape: (h, b*w, c) = (4, 2*32, 64) = (4, 64, 64)
+    # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
+    # CHECK: func.func @rearrange_reorder_merge_func
+    # CHECK-SAME: (%arg0: tensor<2x4x32x64xbf16, #ttnn_layout>)
+    # CHECK-SAME: -> tensor<4x64x64xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK: %[[VAL:[0-9]+]] = "ttir.rearrange"(%arg0)
+    # CHECK-SAME: pattern = "b h w c -> h (b w) c"
+    # CHECK-SAME: (tensor<2x4x32x64xbf16, #ttnn_layout>) -> tensor<4x64x64xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK: return %[[VAL]] : tensor<4x64x64xbf16, #ttnn_layout{{[0-9]*}}>
+    test_ir_generation(rearrange_reorder_merge_func, input_bhwc)
+
+    # 5. Multi-merge: 'b h w c -> b (c h w)' (flatten to 2D)
+    # Output shape: (b, c*h*w) = (2, 64*4*32) = (2, 8192)
+    # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
+    # CHECK: func.func @rearrange_multi_merge_func
+    # CHECK-SAME: (%arg0: tensor<2x4x32x64xbf16, #ttnn_layout>)
+    # CHECK-SAME: -> tensor<2x8192xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK: %[[VAL:[0-9]+]] = "ttir.rearrange"(%arg0)
+    # CHECK-SAME: pattern = "b h w c -> b (c h w)"
+    # CHECK-SAME: (tensor<2x4x32x64xbf16, #ttnn_layout>) -> tensor<2x8192xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK: return %[[VAL]] : tensor<2x8192xbf16, #ttnn_layout{{[0-9]*}}>
+    test_ir_generation(rearrange_multi_merge_func, input_bhwc)
 
     # ============================================================
     # Concat operations tests

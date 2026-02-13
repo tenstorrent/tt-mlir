@@ -57,7 +57,6 @@
 #include "operations/kv_cache/update_cache.h"
 #include "operations/layout/from_device.h"
 #include "operations/layout/to_device.h"
-#include "operations/layout/to_dtype.h"
 #include "operations/layout/to_layout.h"
 #include "operations/layout/to_memory_config.h"
 #include "operations/layout/typecast.h"
@@ -193,9 +192,6 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::ToLayoutOp: {
     return operations::layout::run(op->type_as_ToLayoutOp(), getContext());
-  }
-  case ::tt::target::ttnn::OpType::ToDTypeOp: {
-    return operations::layout::run(op->type_as_ToDTypeOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::TypecastOp: {
     return operations::layout::run(op->type_as_TypecastOp(), getContext());

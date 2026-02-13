@@ -6,9 +6,7 @@
 // RUN: ttmlir-translate --mlir-to-python -o %t.py %t.mlir
 // RUN: FileCheck %s --input-file=%t.py
 
-// Verify that 5 CPU-hoisted functions are generated with golden_function calls.
-// CHECK-LABEL: def cpu_hoisted_const_eval_{{.*}}
-// CHECK: golden_function
+// Verify that 4 CPU-hoisted functions are generated with golden_function calls.
 // CHECK-LABEL: def cpu_hoisted_const_eval_{{.*}}
 // CHECK: golden_function
 // CHECK-LABEL: def cpu_hoisted_const_eval_{{.*}}

@@ -371,6 +371,21 @@ void populateTTModule(nb::module_ &m) {
         return self.getChipChannels().vec();
       });
 
+  nb::enum_<tt::ttcore::Topology>(m, "Topology")
+      .value("Ring", tt::ttcore::Topology::Ring)
+      .value("Linear", tt::ttcore::Topology::Linear);
+
+  tt_attribute_class<tt::ttcore::TopologyAttr>(m, "TopologyAttr")
+      .def_static(
+          "get",
+          [](MlirContext ctx, uint32_t topology) {
+            return wrap(tt::ttcore::TopologyAttr::get(
+                unwrap(ctx), static_cast<tt::ttcore::Topology>(topology)));
+          })
+      .def_prop_ro("topology_as_int", [](tt::ttcore::TopologyAttr self) {
+        return static_cast<uint32_t>(self.getValue());
+      });
+
   tt_attribute_class<tt::ttcore::MemorySpaceAttr>(m, "MemorySpaceAttr")
       .def_static("get",
                   [](MlirContext ctx, uint32_t memorySpace) {
@@ -418,12 +433,14 @@ void populateTTModule(nb::module_ &m) {
                   [](MlirContext ctx, std::vector<int64_t> gridShape,
                      MlirAffineMap workerGridMapping, MlirAffineMap l1Map,
                      MlirAffineMap dramMap, std::vector<int64_t> meshShape,
-                     std::vector<unsigned> chipIds) {
+                     std::vector<unsigned> chipIds,
+                     std::vector<tt::ttcore::Topology> meshTopology) {
                     return wrap(tt::ttcore::DeviceAttr::get(
                         unwrap(ctx),
                         tt::ttcore::GridAttr::get(unwrap(ctx), gridShape,
                                                   unwrap(workerGridMapping)),
-                        unwrap(l1Map), unwrap(dramMap), meshShape, chipIds));
+                        unwrap(l1Map), unwrap(dramMap), meshShape, chipIds,
+                        meshTopology));
                   })
       .def("unwrap",
            [](const MlirAttribute &self) {
@@ -440,8 +457,14 @@ void populateTTModule(nb::module_ &m) {
                    [](const tt::ttcore::DeviceAttr &self) {
                      return self.getMeshShape().vec();
                    })
-      .def_prop_ro("chip_ids", [](const tt::ttcore::DeviceAttr &self) {
-        return self.getChipIds().vec();
+      .def_prop_ro("chip_ids",
+                   [](const tt::ttcore::DeviceAttr &self) {
+                     return self.getChipIds().vec();
+                   })
+      .def_prop_ro("mesh_topology", [](const tt::ttcore::DeviceAttr &self) {
+        auto topologies = self.getMeshTopology();
+        return std::vector<tt::ttcore::Topology>(topologies.begin(),
+                                                 topologies.end());
       });
 
   nb::enum_<mlir::tt::ttcore::TensorMemoryLayout>(m, "TensorMemoryLayout")

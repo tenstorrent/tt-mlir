@@ -6,6 +6,7 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreTraits.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsResources.h"
 
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
@@ -21,6 +22,7 @@
 #include "mlir/Dialect/Quant/IR/QuantTypes.h"
 #include "mlir/Dialect/Traits.h"
 #include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/IR/SymbolTable.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 
 #include "mlir/IR/BuiltinTypes.h"
@@ -1088,46 +1090,8 @@ static ::mlir::LogicalResult verifyQuantizeOpCommon(
 ::llvm::LogicalResult
 mlir::tt::ttnn::TypecastOp::canonicalize(TypecastOp typecastOp,
                                          ::mlir::PatternRewriter &rewriter) {
-  return foldConsecutiveDataCastOps(typecastOp, rewriter);
-}
-
-//===----------------------------------------------------------------------===//
-// ToDTypeOp
-//===----------------------------------------------------------------------===//
-
-// ToDTypeOp verification
-::mlir::LogicalResult mlir::tt::ttnn::ToDTypeOp::verify() {
-  ::mlir::RankedTensorType outputType = getResult().getType();
-  TTNNLayoutAttr outputLayout =
-      mlir::cast<TTNNLayoutAttr>(outputType.getEncoding());
-
-  if (getDtype() != outputLayout.getDataType()) {
-    return emitOpError() << "Output tensor data type "
-                         << DataTypeEnumToString(outputLayout.getDataType())
-                         << " must match the data type of dtype attribute "
-                         << DataTypeEnumToString(getDtype()) << ".";
-  }
-
-  return success();
-}
-
-// ToDTypeOp folder
-::mlir::OpFoldResult mlir::tt::ttnn::ToDTypeOp::fold(FoldAdaptor adaptor) {
-
-  // If the input and output are same, fold to the input.
-  if (getType() == getInput().getType()) {
-    return getInput();
-  }
-
-  return nullptr;
-}
-
-// ToDTypeOp canonicalizer method
-::llvm::LogicalResult
-mlir::tt::ttnn::ToDTypeOp::canonicalize(ToDTypeOp op,
-                                        ::mlir::PatternRewriter &rewriter) {
   // NOLINTNEXTLINE
-  return foldConsecutiveDataCastOps(op, rewriter);
+  return foldConsecutiveDataCastOps(typecastOp, rewriter);
 }
 
 //===----------------------------------------------------------------------===//
@@ -3314,6 +3278,46 @@ mlir::tt::ttnn::ReduceScatterOp::fold(FoldAdaptor adaptor) {
   return success();
 }
 
+static mlir::OpFoldResult foldIdentityPermute(mlir::tt::ttnn::PermuteOp op) {
+  llvm::ArrayRef<int64_t> perm = op.getPermutation();
+  if (llvm::equal(perm, llvm::seq<int64_t>(0, perm.size()))) {
+    return op.getInput();
+  }
+  return nullptr;
+}
+
+mlir::OpFoldResult foldConsecutivePermutes(mlir::tt::ttnn::PermuteOp op) {
+  auto permuteOperand =
+      op.getInput().getDefiningOp<mlir::tt::ttnn::PermuteOp>();
+  if (!permuteOperand) {
+    return nullptr;
+  }
+
+  if (!permuteOperand->hasOneUse()) {
+    return nullptr;
+  }
+
+  llvm::SmallVector<int64_t> combinedPerm = ttmlir::utils::applyPermutation(
+      permuteOperand.getPermutation(), op.getPermutation());
+
+  mlir::Value newInput = permuteOperand.getInput();
+  op->setOperand(0, newInput);
+  op.setPermutation(combinedPerm);
+
+  return op.getResult();
+}
+
+// Permute folder
+mlir::OpFoldResult mlir::tt::ttnn::PermuteOp::fold(FoldAdaptor adaptor) {
+  if (auto result = foldIdentityPermute(*this)) {
+    return result;
+  }
+  if (auto result = foldConsecutivePermutes(*this)) {
+    return result;
+  }
+  return nullptr;
+}
+
 //===----------------------------------------------------------------------===//
 // UpsampleOp
 //===----------------------------------------------------------------------===//
@@ -4040,11 +4044,15 @@ mlir::tt::ttnn::SplitQueryKeyValueAndSplitHeadsOp::verify() {
 // GenericOp
 //===----------------------------------------------------------------------===//
 
-// GenericOp verification
-::mlir::LogicalResult mlir::tt::ttnn::GenericOp::verify() {
-  ProgramAttr program = getProgram();
-  size_t numberOfInputsAndOutputs = getInputsAndOutputs().size();
+// Helper to verify a single ProgramAttr.
+static ::mlir::LogicalResult
+verifyProgramAttr(mlir::tt::ttnn::GenericOp op, ProgramAttr program,
+                  size_t numberOfInputsAndOutputs) {
   size_t numberOfSemaphores = program.getSemaphores().size();
+
+  if (numberOfInputsAndOutputs == 0) {
+    return op.emitError() << "GenericOp must have at least one operand";
+  }
 
   for (auto kernel : program.getKernels()) {
     auto kernelInterface = llvm::cast<KernelInterface>(kernel);
@@ -4053,13 +4061,14 @@ mlir::tt::ttnn::SplitQueryKeyValueAndSplitHeadsOp::verify() {
       if (auto addressOfTensor =
               llvm::dyn_cast_or_null<KernelArgAddressOfTensorAttr>(arg)) {
         if (addressOfTensor.getTensorIndex() >= numberOfInputsAndOutputs) {
-          return emitError() << "Address of tensor at index is out of bounds";
+          return op.emitOpError()
+                 << "Address of tensor at index is out of bounds";
         }
       }
       if (auto semaphoreAt =
               llvm::dyn_cast_or_null<KernelArgSemaphoreAtAttr>(arg)) {
         if (semaphoreAt.getSemaphoreIndex() >= numberOfSemaphores) {
-          return emitError() << "Semaphore at index is out of bounds";
+          return op.emitOpError() << "Semaphore at index is out of bounds";
         }
       }
     }
@@ -4068,13 +4077,34 @@ mlir::tt::ttnn::SplitQueryKeyValueAndSplitHeadsOp::verify() {
       if (auto semaphoreAt =
               llvm::dyn_cast_or_null<KernelArgSemaphoreAtAttr>(arg)) {
         if (semaphoreAt.getSemaphoreIndex() >= numberOfSemaphores) {
-          return emitError() << "Semaphore at index is out of bounds";
+          return op.emitOpError() << "Semaphore at index is out of bounds";
         }
       }
     }
   }
 
   return mlir::success();
+}
+
+::mlir::LogicalResult mlir::tt::ttnn::GenericOp::verify() {
+  mlir::Attribute programAttr = getProgram();
+  size_t numberOfInputsAndOutputs = getInputsAndOutputs().size();
+
+  // Handle MeshProgramDescriptorAttr case.
+  if (auto meshProgramDescAttr =
+          llvm::dyn_cast<MeshProgramDescriptorAttr>(programAttr)) {
+    for (auto meshProgram : meshProgramDescAttr.getMeshPrograms()) {
+      if (failed(verifyProgramAttr(*this, meshProgram.getProgram(),
+                                   numberOfInputsAndOutputs))) {
+        return mlir::failure();
+      }
+    }
+    return mlir::success();
+  }
+
+  // Handle ProgramAttr case.
+  auto program = llvm::cast<ProgramAttr>(programAttr);
+  return verifyProgramAttr(*this, program, numberOfInputsAndOutputs);
 }
 
 //===----------------------------------------------------------------------===//
@@ -4737,6 +4767,75 @@ mlir::tt::ttnn::PagedScaledDotProductAttentionDecodeOp::verify() {
   }
 
   return success();
+}
+
+//===----------------------------------------------------------------------===//
+// D2MSubgraphOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttnn::D2MSubgraphOp::verify() {
+  func::FuncOp mainFunc = getD2MMainFunc();
+  if (!mainFunc) {
+    return emitOpError("Could not find D2M function '")
+           << getD2mFunc() << "' in parent module.";
+  }
+
+  // Verify input types match function arguments
+  if (mainFunc.getNumArguments() != getInputs().size()) {
+    return emitOpError("D2M function must have ")
+           << getInputs().size() << " arguments, got "
+           << mainFunc.getNumArguments();
+  }
+
+  for (auto [idx, pair] : llvm::enumerate(
+           llvm::zip(getInputs().getTypes(), mainFunc.getArgumentTypes()))) {
+    auto [inputType, funcArgType] = pair;
+    if (inputType != funcArgType) {
+      return emitOpError("D2M function argument type ")
+             << idx << " mismatch: expected " << inputType << ", got "
+             << funcArgType;
+    }
+  }
+
+  // Verify return types match op results
+  if (mainFunc.getNumResults() != getNumResults()) {
+    return emitOpError("D2M function must have ")
+           << getNumResults() << " return values, got "
+           << mainFunc.getNumResults();
+  }
+
+  for (auto [idx, pair] : llvm::enumerate(
+           llvm::zip(getResults().getTypes(), mainFunc.getResultTypes()))) {
+    auto [resultType, funcResultType] = pair;
+    if (resultType != funcResultType) {
+      return emitOpError("D2M function return type ")
+             << idx << " mismatch: expected " << resultType << ", got "
+             << funcResultType;
+    }
+  }
+
+  return success();
+}
+
+func::FuncOp mlir::tt::ttnn::D2MSubgraphOp::getD2MMainFunc() {
+  ModuleOp parentModule = getOperation()->getParentOfType<ModuleOp>();
+  if (!parentModule) {
+    return nullptr;
+  }
+
+  StringRef mainName = getD2mFunc().getRootReference();
+  StringAttr nameAttr = StringAttr::get(getContext(), mainName);
+  return dyn_cast_or_null<func::FuncOp>(
+      SymbolTable::lookupSymbolIn(parentModule, nameAttr));
+}
+
+void mlir::tt::ttnn::D2MSubgraphOp::getEffects(
+    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
+        &effects) {
+  effects.emplace_back(MemoryEffects::Read::get(),
+                       SideEffects::DefaultResource::get());
+  effects.emplace_back(MemoryEffects::Write::get(),
+                       SideEffects::DefaultResource::get());
 }
 
 } // namespace mlir::tt::ttnn
