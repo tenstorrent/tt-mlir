@@ -141,6 +141,58 @@ def test_permute(shape: Shape, permutation: List[int], target: str, request, dev
     )
 
 
+# ==================== CONCATENATE HEADS TESTS ====================
+
+
+@pytest.mark.parametrize(
+    "input_shape",
+    [
+        # Format: (batch, num_heads, seq_len, head_dim)
+        (1, 8, 32, 64),
+        (1, 12, 64, 64),
+        (1, 16, 32, 128),
+        (2, 8, 32, 64),
+        (1, 24, 32, 128),
+        (2, 24, 32, 128),
+        (1, 32, 64, 128),
+        (1, 8, 128, 64),
+        (1, 4, 32, 32),
+        (1, 2, 32, 64),
+        (1, 12, 256, 64),
+    ],
+)
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_concatenate_heads(
+    input_shape: Tuple[int, int, int, int], target: str, request, device
+):
+    """Test concatenate_heads operation on TTMetal backend.
+
+    Concatenate heads transforms:
+    Input: [batch, num_heads, seq_len, head_dim]
+    Output: [batch, seq_len, num_heads * head_dim]
+    """
+    batch, num_heads, seq_len, head_dim = input_shape
+    output_shape = (batch, seq_len, num_heads * head_dim)
+
+    def concatenate_heads_module(builder: TTIRBuilder):
+        @builder.func([input_shape], [torch.float32])
+        def concatenate_heads(
+            in0: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: List[str] = None,
+        ):
+            return builder.concatenate_heads(in0, output_type=torch.float32)
+
+    compile_and_execute_ttir(
+        concatenate_heads_module,
+        target=target,
+        device=device,
+        print_ir=True,
+        **get_request_kwargs(request),
+        custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '}}}",
+    )
+
+
 # ==================== RESHAPE TESTS ====================
 
 # Test shapes: (input_shape, output_shape)

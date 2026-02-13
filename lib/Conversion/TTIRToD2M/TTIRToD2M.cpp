@@ -2065,6 +2065,52 @@ static TensorManipulationInfo reshapeLogicalInfo(ttir::ReshapeOp op) {
   return {map, canBeTilized};
 }
 
+// Compute logical map for ConcatenateHeadsOp:
+// Input: [batch, num_heads, seq_len, head_dim]
+// Output: [batch, seq_len, num_heads * head_dim]
+// This is equivalent to: permute [0, 2, 1, 3] then reshape to merge last 2
+// dims. Returns a map from output logical coords to input logical coords.
+static TensorManipulationInfo
+concatenateHeadsLogicalInfo(ttir::ConcatenateHeadsOp op) {
+  auto inputTensorType = mlir::cast<RankedTensorType>(op.getInput().getType());
+  auto outputTensorType =
+      mlir::cast<RankedTensorType>(op.getResult().getType());
+
+  ArrayRef<int64_t> inputShape = inputTensorType.getShape();
+  ArrayRef<int64_t> outputShape = outputTensorType.getShape();
+
+  assert(inputShape.size() == 4 &&
+         "Input must be 4D: [batch, num_heads, seq_len, head_dim]");
+  assert(outputShape.size() == 3 &&
+         "Output must be 3D: [batch, seq_len, hidden_dim]");
+
+  int64_t numHeads = inputShape[1];
+  int64_t headDim = inputShape[3];
+  int64_t hiddenDim = outputShape[2];
+
+  assert(numHeads * headDim == hiddenDim &&
+         "Output hidden_dim must equal num_heads * head_dim");
+
+  // Just reshuffle tiles when head_dim is a multiple of the tile width.
+  constexpr int64_t tileWidth = ttcore::TileType::getDefaultShape()[1];
+  bool canBeTilized = (headDim % tileWidth == 0);
+  // Scale the constants by tile width when tilized.
+  int64_t headDimDivisor = canBeTilized ? (headDim / tileWidth) : headDim;
+
+  MLIRContext *ctx = op.getContext();
+  Builder builder(ctx);
+
+  SmallVector<AffineExpr> exprs;
+  exprs.push_back(builder.getAffineDimExpr(0)); // batch
+  exprs.push_back(
+      builder.getAffineDimExpr(2).floorDiv(headDimDivisor));     // num_heads
+  exprs.push_back(builder.getAffineDimExpr(1));                  // seq_len
+  exprs.push_back(builder.getAffineDimExpr(2) % headDimDivisor); // head_dim
+
+  AffineMap map = AffineMap::get(/*dimCount=*/3, /*symbolCount=*/0, exprs, ctx);
+  return {map, canBeTilized};
+}
+
 } // namespace mlir::tt
 
 namespace mlir::tt {
@@ -2129,9 +2175,10 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
     // Data movement.
     D2MNamedElementwiseRewriter<ttir::TypecastOp,        d2m::TileTypecastOp>,
     // Tensor manipulation/View ops.
-    D2MTensorManipulationOpRewriter<ttir::RearrangeOp,   rearrangeLogicalInfo>,
-    D2MTensorManipulationOpRewriter<ttir::ReshapeOp,     reshapeLogicalInfo>,
+    D2MTensorManipulationOpRewriter<ttir::RearrangeOp, rearrangeLogicalInfo>,
+    D2MTensorManipulationOpRewriter<ttir::ReshapeOp, reshapeLogicalInfo>,
     D2MTensorManipulationOpRewriter<ttir::SliceStaticOp, sliceLogicalInfo>,
+    D2MTensorManipulationOpRewriter<ttir::ConcatenateHeadsOp, concatenateHeadsLogicalInfo>,
     // Permute (handles transpose ops, since they're canonicalized into permutes).
     D2MPermuteRewriter,
     D2MTensorManipulationOpRewriter<ttir::PermuteOp, permuteLogicalInfo>
