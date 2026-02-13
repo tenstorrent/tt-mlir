@@ -27,6 +27,7 @@
 #include "ttmlir/Version.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/Quant/IR/Quant.h"
 #include "mlir/Dialect/Quant/IR/QuantTypes.h"
 #include "mlir/IR/OperationSupport.h"
@@ -4245,6 +4246,37 @@ LogicalResult translateTTNNToFlatbuffer(
   ModuleOp rootModule = dyn_cast<ModuleOp>(op);
   if (!rootModule) {
     return op->emitError("expected ModuleOp as top level operation");
+  }
+
+  // Verify that the CPU module (if present) has been lowered to LLVM dialect.
+  // If it contains non-LLVM operations, the user likely forgot to run the
+  // flatbuffer pipeline step that lowers the CPU module.
+  if (auto cpuModule =
+          mlir::tt::utils::findOpAtTopLevel<ttcore::CPUModuleOp>(rootModule);
+      cpuModule != nullptr) {
+    mlir::ModuleOp cpuNestedModule = dyn_cast_if_present<mlir::ModuleOp>(
+        cpuModule.getBodyRegion().front().front());
+    if (cpuNestedModule) {
+      auto *llvmDialect =
+          rootModule->getContext()->getOrLoadDialect<LLVM::LLVMDialect>();
+      bool hasNonLLVMOps = false;
+      cpuNestedModule.walk([&](Operation *innerOp) -> WalkResult {
+        if (!isa<mlir::ModuleOp>(innerOp) &&
+            innerOp->getDialect() != llvmDialect) {
+          hasNonLLVMOps = true;
+          return WalkResult::interrupt();
+        }
+        return WalkResult::advance();
+      });
+      if (hasNonLLVMOps) {
+        return rootModule.emitError()
+               << "Flatbuffer translation requires the CPU module to be "
+                  "lowered to LLVM dialect, but it contains non-LLVM "
+                  "operations. Use 'ttir-to-ttnn-common-pipeline' followed by "
+                  "'ttnn-common-to-flatbuffer-pipeline', or the end-to-end "
+                  "'ttir-to-ttnn-backend-pipeline'.";
+      }
+    }
   }
 
   // Verify that all functions have function type attributes.
