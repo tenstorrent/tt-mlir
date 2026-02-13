@@ -88,7 +88,7 @@ computeFabricConfig(const std::vector<::tt::target::ChipChannel> &chipChannels,
       allColsRing ? FabricConfig::FABRIC_1D_RING : FabricConfig::FABRIC_1D,
   };
 
-  FabricConfig globalConfig = (allRowsRing && allColsRing)
+  FabricConfig globalConfig = (allRowsRing || allColsRing)
                                   ? FabricConfig::FABRIC_1D_RING
                                   : FabricConfig::FABRIC_1D;
 

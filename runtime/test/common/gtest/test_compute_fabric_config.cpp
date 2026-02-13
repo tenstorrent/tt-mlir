@@ -21,7 +21,7 @@ ChipChannel makeChannel(uint32_t id0, uint32_t id1) {
 
 // --- Single device: always DISABLED ---
 
-TEST(ComputeFabricConfig, SingleDevice_1x1) {
+TEST(ComputeFabricConfig, SingleDevice1x1) {
   auto result = computeFabricConfig({}, {1, 1}, {0});
   EXPECT_EQ(result.globalConfig, FabricConfig::DISABLED);
   EXPECT_TRUE(result.perAxisConfig.empty());
@@ -29,7 +29,7 @@ TEST(ComputeFabricConfig, SingleDevice_1x1) {
 
 // --- Two devices, no wraparound: linear ---
 
-TEST(ComputeFabricConfig, TwoDevices_1x2_NoWrap) {
+TEST(ComputeFabricConfig, TwoDevices1x2NoWrap) {
   auto result = computeFabricConfig({}, {1, 2}, {0, 1});
 
   ASSERT_EQ(result.perAxisConfig.size(), 2u);
@@ -46,7 +46,7 @@ TEST(ComputeFabricConfig, TwoDevices_1x2_WithWrap) {
   ASSERT_EQ(result.perAxisConfig.size(), 2u);
   EXPECT_EQ(result.perAxisConfig[0], FabricConfig::FABRIC_1D_RING);
   EXPECT_EQ(result.perAxisConfig[1], FabricConfig::FABRIC_1D);
-  EXPECT_EQ(result.globalConfig, FabricConfig::FABRIC_1D);
+  EXPECT_EQ(result.globalConfig, FabricConfig::FABRIC_1D_RING);
 }
 
 // --- 2x1 column, with col wraparound ---
@@ -57,7 +57,7 @@ TEST(ComputeFabricConfig, TwoDevices_2x1_WithWrap) {
   ASSERT_EQ(result.perAxisConfig.size(), 2u);
   EXPECT_EQ(result.perAxisConfig[0], FabricConfig::FABRIC_1D);
   EXPECT_EQ(result.perAxisConfig[1], FabricConfig::FABRIC_1D_RING);
-  EXPECT_EQ(result.globalConfig, FabricConfig::FABRIC_1D);
+  EXPECT_EQ(result.globalConfig, FabricConfig::FABRIC_1D_RING);
 }
 
 // --- 2x2, all wraparound: both axes ring ---
@@ -87,7 +87,7 @@ TEST(ComputeFabricConfig, FourDevices_2x2_OnlyRowsRing) {
   ASSERT_EQ(result.perAxisConfig.size(), 2u);
   EXPECT_EQ(result.perAxisConfig[0], FabricConfig::FABRIC_1D_RING);
   EXPECT_EQ(result.perAxisConfig[1], FabricConfig::FABRIC_1D);
-  EXPECT_EQ(result.globalConfig, FabricConfig::FABRIC_1D);
+  EXPECT_EQ(result.globalConfig, FabricConfig::FABRIC_1D_RING);
 }
 
 // --- 2x2, only cols ring ---
@@ -99,7 +99,7 @@ TEST(ComputeFabricConfig, FourDevices_2x2_OnlyColsRing) {
   ASSERT_EQ(result.perAxisConfig.size(), 2u);
   EXPECT_EQ(result.perAxisConfig[0], FabricConfig::FABRIC_1D);
   EXPECT_EQ(result.perAxisConfig[1], FabricConfig::FABRIC_1D_RING);
-  EXPECT_EQ(result.globalConfig, FabricConfig::FABRIC_1D);
+  EXPECT_EQ(result.globalConfig, FabricConfig::FABRIC_1D_RING);
 }
 
 // --- 2x2, no connections at all: linear ---
@@ -129,7 +129,7 @@ TEST(ComputeFabricConfig, NonIdentityMapping_2x2) {
   ASSERT_EQ(result.perAxisConfig.size(), 2u);
   EXPECT_EQ(result.perAxisConfig[0], FabricConfig::FABRIC_1D_RING);
   EXPECT_EQ(result.perAxisConfig[1], FabricConfig::FABRIC_1D);
-  EXPECT_EQ(result.globalConfig, FabricConfig::FABRIC_1D);
+  EXPECT_EQ(result.globalConfig, FabricConfig::FABRIC_1D_RING);
 }
 
 // --- Partial row ring: one row has wrap, other doesn't ---
@@ -161,7 +161,7 @@ TEST(ComputeFabricConfig, FourDevices_1x4_Ring) {
   ASSERT_EQ(result.perAxisConfig.size(), 2u);
   EXPECT_EQ(result.perAxisConfig[0], FabricConfig::FABRIC_1D_RING);
   EXPECT_EQ(result.perAxisConfig[1], FabricConfig::FABRIC_1D);
-  EXPECT_EQ(result.globalConfig, FabricConfig::FABRIC_1D);
+  EXPECT_EQ(result.globalConfig, FabricConfig::FABRIC_1D_RING);
 }
 
 // --- 1x4 linear (no wraparound) ---
