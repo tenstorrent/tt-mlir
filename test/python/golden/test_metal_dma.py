@@ -33,7 +33,6 @@ def compile_dma_test(test_func, shape, request, device):
         target="ttmetal",
         device=device,
         custom_pipeline=pipeline,
-        save_artifacts=True,
         **get_request_kwargs(request),
     )
 
