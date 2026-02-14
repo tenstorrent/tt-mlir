@@ -1478,7 +1478,9 @@ class TTIRBuilder(Builder):
 
                     if not self._disable_golden_check:
                         op_golden_function = get_golden_function(ttir_op)
-                        mesh_shape_attr = DenseI32ArrayAttr.get(self._mesh_shape)
+                        mesh_shape_attr = DenseI32ArrayAttr.get(
+                            arange_builder._mesh_shape
+                        )
                         golden_output = op_golden_function(
                             old_op.result.type.shape,
                             start_attr,
@@ -1934,7 +1936,9 @@ class TTIRBuilder(Builder):
 
                     if not self._disable_golden_check:
                         op_golden_function = get_golden_function(ttir_op)
-                        mesh_shape_attr = DenseI32ArrayAttr.get(self._mesh_shape)
+                        mesh_shape_attr = DenseI32ArrayAttr.get(
+                            ones_builder._mesh_shape
+                        )
                         golden_output = op_golden_function(
                             old_op.shape, mesh_shape_attr, result.element_type
                         )
@@ -2053,7 +2057,9 @@ class TTIRBuilder(Builder):
 
                     if not self._disable_golden_check:
                         op_golden_function = get_golden_function(ttir_op)
-                        mesh_shape_attr = DenseI32ArrayAttr.get(self._mesh_shape)
+                        mesh_shape_attr = DenseI32ArrayAttr.get(
+                            zeros_builder._mesh_shape
+                        )
                         golden_output = op_golden_function(
                             old_op.shape, mesh_shape_attr, result.element_type
                         )
@@ -2214,7 +2220,9 @@ class TTIRBuilder(Builder):
 
                     if not self._disable_golden_check:
                         op_golden_function = get_golden_function(ttir_op)
-                        mesh_shape_attr = DenseI32ArrayAttr.get(self._mesh_shape)
+                        mesh_shape_attr = DenseI32ArrayAttr.get(
+                            rand_builder._mesh_shape
+                        )
                         golden_output = op_golden_function(
                             size_attr,
                             low_attr,
@@ -4861,7 +4869,9 @@ class TTIRBuilder(Builder):
 
                     if not self._disable_golden_check:
                         op_golden_function = get_golden_function(ttir_op)
-                        mesh_shape_attr = DenseI32ArrayAttr.get(self._mesh_shape)
+                        mesh_shape_attr = DenseI32ArrayAttr.get(
+                            full_builder._mesh_shape
+                        )
                         golden_output = op_golden_function(
                             shape_attr,
                             fill_value_attr,
@@ -6272,7 +6282,10 @@ class TTIRBuilder(Builder):
 
                     if not self._disable_golden_check:
                         op_golden_function = get_golden_function(ttir_op)
-                        golden_output = op_golden_function(value_attr)
+                        mesh_shape_attr = DenseI32ArrayAttr.get(
+                            constant_builder._mesh_shape
+                        )
+                        golden_output = op_golden_function(value_attr, mesh_shape_attr)
                         constant_builder._set_golden_tensor(
                             new_op_result, golden_output
                         )
