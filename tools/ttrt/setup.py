@@ -44,6 +44,7 @@ perflibs = []
 metallibs = []
 install_requires = []
 install_requires += ["nanobind==2.10.2"]
+install_requires += ["torch==2.3.0 --index-url https://download.pytorch.org/whl/cpu"]
 
 if enable_ttnn:
     runlibs += ["_ttnncpp.so"]
