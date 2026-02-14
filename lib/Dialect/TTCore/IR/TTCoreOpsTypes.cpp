@@ -1613,7 +1613,20 @@ mlir::AffineMap DeviceAttr::getMemoryMap(MemRefType memrefType, size_t pageSize,
         projectedDims.set(0, dimsToRemove);
 
         affineMap = getProjectedMap(affineMap, projectedDims);
-        affineMap = affineMap.dropResults(projectedDims);
+
+        // Drop leading constant-zero grid results that were zeroed by
+        // projection, but only enough to match the memory map's expected
+        // input dimensionality (both L1 and DRAM maps expect 3 inputs:
+        // row, col, byte-offset). Using projectedDims directly could
+        // over-drop when the core virt map has fewer results than the
+        // shard's grid rank.
+        unsigned targetNumResults = getL1Map().getNumDims();
+        if (affineMap.getNumResults() > targetNumResults) {
+          unsigned resultsToDrop = affineMap.getNumResults() - targetNumResults;
+          llvm::SmallBitVector droppedResults(affineMap.getNumResults());
+          droppedResults.set(0, resultsToDrop);
+          affineMap = affineMap.dropResults(droppedResults);
+        }
       }
 
       affineMap = affineMap.compose(coreVirtMap);
