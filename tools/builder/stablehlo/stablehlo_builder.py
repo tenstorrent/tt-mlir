@@ -8232,3 +8232,309 @@ class StableHLOBuilder(Builder):
                                 sub_modules_and_builders.append(sub_op_module_builder)
 
         return sub_modules_and_builders
+
+
+############### stablehlo.CompareOp - Equal ###############
+
+@tag(stablehlo.CompareOp)
+def equal(
+    self,
+    in0: Operand,
+    in1: Operand,
+    output_type: Optional[torch.dtype] = None,
+    loc: Optional[str] = None,
+    unit_attrs: Optional[List[str]] = None,
+    sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+) -> OpResult:
+    """Element-wise equality comparison."""
+    comparison_direction = stablehlo.ComparisonDirectionAttr.get(
+        stablehlo.ComparisonDirection.EQ, context=self._ctx
+    )
+    
+    if output_type is None:
+        mlir_output_type = self.get_type(in0)
+    else:
+        mlir_output_type = self._get_type_from_torch_dtype(output_type)
+    
+    if loc is None:
+        loc = self._get_location()
+    else:
+        loc = Location.name(loc)
+    
+    op = stablehlo.CompareOp(
+        in0,
+        in1,
+        comparison_direction,
+        loc=loc,
+    )
+    op_result = op.result
+    
+    if sharding_attr is not None:
+        op.operation.attributes["sdy.sharding"] = sharding_attr
+    
+    if unit_attrs is not None:
+        for attr_name in unit_attrs:
+            op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+    
+    if not self._disable_golden_check:
+        input0 = self._get_golden_tensor(in0)
+        input1 = self._get_golden_tensor(in1)
+        golden_output = torch.eq(input0, input1)
+        self._set_golden_tensor(op_result, golden_output)
+    
+    return op_result
+
+
+############### stablehlo.CompareOp - NotEqual ###############
+
+@tag(stablehlo.CompareOp)
+def not_equal(
+    self,
+    in0: Operand,
+    in1: Operand,
+    output_type: Optional[torch.dtype] = None,
+    loc: Optional[str] = None,
+    unit_attrs: Optional[List[str]] = None,
+    sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+) -> OpResult:
+    """Element-wise inequality comparison."""
+    comparison_direction = stablehlo.ComparisonDirectionAttr.get(
+        stablehlo.ComparisonDirection.NE, context=self._ctx
+    )
+    
+    if output_type is None:
+        mlir_output_type = self.get_type(in0)
+    else:
+        mlir_output_type = self._get_type_from_torch_dtype(output_type)
+    
+    if loc is None:
+        loc = self._get_location()
+    else:
+        loc = Location.name(loc)
+    
+    op = stablehlo.CompareOp(
+        in0,
+        in1,
+        comparison_direction,
+        loc=loc,
+    )
+    op_result = op.result
+    
+    if sharding_attr is not None:
+        op.operation.attributes["sdy.sharding"] = sharding_attr
+    
+    if unit_attrs is not None:
+        for attr_name in unit_attrs:
+            op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+    
+    if not self._disable_golden_check:
+        input0 = self._get_golden_tensor(in0)
+        input1 = self._get_golden_tensor(in1)
+        golden_output = torch.ne(input0, input1)
+        self._set_golden_tensor(op_result, golden_output)
+    
+    return op_result
+
+
+############### stablehlo.CompareOp - GreaterEqual ###############
+
+@tag(stablehlo.CompareOp)
+def greater_equal(
+    self,
+    in0: Operand,
+    in1: Operand,
+    output_type: Optional[torch.dtype] = None,
+    loc: Optional[str] = None,
+    unit_attrs: Optional[List[str]] = None,
+    sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+) -> OpResult:
+    """Element-wise greater than or equal comparison."""
+    comparison_direction = stablehlo.ComparisonDirectionAttr.get(
+        stablehlo.ComparisonDirection.GE, context=self._ctx
+    )
+    
+    if output_type is None:
+        mlir_output_type = self.get_type(in0)
+    else:
+        mlir_output_type = self._get_type_from_torch_dtype(output_type)
+    
+    if loc is None:
+        loc = self._get_location()
+    else:
+        loc = Location.name(loc)
+    
+    op = stablehlo.CompareOp(
+        in0,
+        in1,
+        comparison_direction,
+        loc=loc,
+    )
+    op_result = op.result
+    
+    if sharding_attr is not None:
+        op.operation.attributes["sdy.sharding"] = sharding_attr
+    
+    if unit_attrs is not None:
+        for attr_name in unit_attrs:
+            op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+    
+    if not self._disable_golden_check:
+        input0 = self._get_golden_tensor(in0)
+        input1 = self._get_golden_tensor(in1)
+        golden_output = torch.ge(input0, input1)
+        self._set_golden_tensor(op_result, golden_output)
+    
+    return op_result
+
+
+############### stablehlo.CompareOp - GreaterThan ###############
+
+@tag(stablehlo.CompareOp)
+def greater(
+    self,
+    in0: Operand,
+    in1: Operand,
+    output_type: Optional[torch.dtype] = None,
+    loc: Optional[str] = None,
+    unit_attrs: Optional[List[str]] = None,
+    sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+) -> OpResult:
+    """Element-wise greater than comparison."""
+    comparison_direction = stablehlo.ComparisonDirectionAttr.get(
+        stablehlo.ComparisonDirection.GT, context=self._ctx
+    )
+    
+    if output_type is None:
+        mlir_output_type = self.get_type(in0)
+    else:
+        mlir_output_type = self._get_type_from_torch_dtype(output_type)
+    
+    if loc is None:
+        loc = self._get_location()
+    else:
+        loc = Location.name(loc)
+    
+    op = stablehlo.CompareOp(
+        in0,
+        in1,
+        comparison_direction,
+        loc=loc,
+    )
+    op_result = op.result
+    
+    if sharding_attr is not None:
+        op.operation.attributes["sdy.sharding"] = sharding_attr
+    
+    if unit_attrs is not None:
+        for attr_name in unit_attrs:
+            op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+    
+    if not self._disable_golden_check:
+        input0 = self._get_golden_tensor(in0)
+        input1 = self._get_golden_tensor(in1)
+        golden_output = torch.gt(input0, input1)
+        self._set_golden_tensor(op_result, golden_output)
+    
+    return op_result
+
+
+############### stablehlo.CompareOp - LessEqual ###############
+
+@tag(stablehlo.CompareOp)
+def less_equal(
+    self,
+    in0: Operand,
+    in1: Operand,
+    output_type: Optional[torch.dtype] = None,
+    loc: Optional[str] = None,
+    unit_attrs: Optional[List[str]] = None,
+    sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+) -> OpResult:
+    """Element-wise less than or equal comparison."""
+    comparison_direction = stablehlo.ComparisonDirectionAttr.get(
+        stablehlo.ComparisonDirection.LE, context=self._ctx
+    )
+    
+    if output_type is None:
+        mlir_output_type = self.get_type(in0)
+    else:
+        mlir_output_type = self._get_type_from_torch_dtype(output_type)
+    
+    if loc is None:
+        loc = self._get_location()
+    else:
+        loc = Location.name(loc)
+    
+    op = stablehlo.CompareOp(
+        in0,
+        in1,
+        comparison_direction,
+        loc=loc,
+    )
+    op_result = op.result
+    
+    if sharding_attr is not None:
+        op.operation.attributes["sdy.sharding"] = sharding_attr
+    
+    if unit_attrs is not None:
+        for attr_name in unit_attrs:
+            op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+    
+    if not self._disable_golden_check:
+        input0 = self._get_golden_tensor(in0)
+        input1 = self._get_golden_tensor(in1)
+        golden_output = torch.le(input0, input1)
+        self._set_golden_tensor(op_result, golden_output)
+    
+    return op_result
+
+
+############### stablehlo.CompareOp - LessThan ###############
+
+@tag(stablehlo.CompareOp)
+def less(
+    self,
+    in0: Operand,
+    in1: Operand,
+    output_type: Optional[torch.dtype] = None,
+    loc: Optional[str] = None,
+    unit_attrs: Optional[List[str]] = None,
+    sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+) -> OpResult:
+    """Element-wise less than comparison."""
+    comparison_direction = stablehlo.ComparisonDirectionAttr.get(
+        stablehlo.ComparisonDirection.LT, context=self._ctx
+    )
+    
+    if output_type is None:
+        mlir_output_type = self.get_type(in0)
+    else:
+        mlir_output_type = self._get_type_from_torch_dtype(output_type)
+    
+    if loc is None:
+        loc = self._get_location()
+    else:
+        loc = Location.name(loc)
+    
+    op = stablehlo.CompareOp(
+        in0,
+        in1,
+        comparison_direction,
+        loc=loc,
+    )
+    op_result = op.result
+    
+    if sharding_attr is not None:
+        op.operation.attributes["sdy.sharding"] = sharding_attr
+    
+    if unit_attrs is not None:
+        for attr_name in unit_attrs:
+            op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+    
+    if not self._disable_golden_check:
+        input0 = self._get_golden_tensor(in0)
+        input1 = self._get_golden_tensor(in1)
+        golden_output = torch.lt(input0, input1)
+        self._set_golden_tensor(op_result, golden_output)
+    
+    return op_result

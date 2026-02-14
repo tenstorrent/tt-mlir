@@ -1904,3 +1904,84 @@ def test_broadcast_ops(
         target=target,
         device=device,
     )
+# Compare Operations Tests for StableHLO
+# Tests for equal, not_equal, greater_equal, greater, less_equal, less
+
+import pytest
+import torch
+from typing import Optional, List
+
+from builder.base.builder_utils import Operand
+from builder.stablehlo.stablehlo_builder import StableHLOBuilder
+
+
+def module_equal(builder: StableHLOBuilder):
+    @builder.func([(128, 128), (128, 128)], [torch.float32, torch.float32])
+    def equal(
+        in0: Operand,
+        in1: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.equal(in0, in1, unit_attrs=unit_attrs)
+
+
+def module_not_equal(builder: StableHLOBuilder):
+    @builder.func([(128, 128), (128, 128)], [torch.float32, torch.float32])
+    def not_equal(
+        in0: Operand,
+        in1: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.not_equal(in0, in1, unit_attrs=unit_attrs)
+
+
+def module_greater_equal(builder: StableHLOBuilder):
+    @builder.func([(128, 128), (128, 128)], [torch.float32, torch.float32])
+    def greater_equal(
+        in0: Operand,
+        in1: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.greater_equal(in0, in1, unit_attrs=unit_attrs)
+
+
+def module_greater(builder: StableHLOBuilder):
+    @builder.func([(128, 128), (128, 128)], [torch.float32, torch.float32])
+    def greater(
+        in0: Operand,
+        in1: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.greater(in0, in1, unit_attrs=unit_attrs)
+
+
+def module_less_equal(builder: StableHLOBuilder):
+    @builder.func([(128, 128), (128, 128)], [torch.float32, torch.float32])
+    def less_equal(
+        in0: Operand,
+        in1: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.less_equal(in0, in1, unit_attrs=unit_attrs)
+
+
+def module_less(builder: StableHLOBuilder):
+    @builder.func([(128, 128), (128, 128)], [torch.float32, torch.float32])
+    def less(
+        in0: Operand,
+        in1: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.less(in0, in1, unit_attrs=unit_attrs)
