@@ -97,33 +97,47 @@ llvm::SmallVector<OpConfig> getUniqueTestConfigsForMatmulLinear(
     }
   };
 
-  // Build map from BufferMemLayoutKey to representative layout with
-  // ignorePhysicalLayout.
-  std::unordered_map<BufferMemLayoutKey, TTNNLayoutAttr, BufferMemLayoutKeyHash>
-      layoutKeyToAttr;
+  // For each unique (bufferType, memLayout), collect:
+  //   - A representative partial layout (with ignorePhysicalLayout=true)
+  //   - The unique opSpecificAttrs from configs with that same memLayout
+  //
+  // MatmulProgramConfig depends on the tensor memory layout type
+  // (width_sharded uses mcast_in0=true, height_sharded uses mcast_in0=false,
+  // block_sharded uses a 2D config). Pairing a program config generated for
+  // one memLayout type with a different memLayout would produce invalid
+  // configs.
+  struct LayoutGroup {
+    TTNNLayoutAttr partialLayout;
+    std::vector<OpConfig::OpSpecificAttrs> uniqueAttrs;
+    llvm::DenseSet<OpConfig::OpSpecificAttrs> seenAttrs;
+  };
 
-  // Collect unique (bufferType, memLayout) pairs and build the map in one pass.
+  std::unordered_map<BufferMemLayoutKey, LayoutGroup, BufferMemLayoutKeyHash>
+      groups;
+
   for (const OpConfig &config : consumerConfigs) {
     assert(config.outputLayout &&
            "Matmul/Linear configs must have valid output layout");
 
     BufferMemLayoutKey key{config.outputLayout.getBufferType(),
                            config.outputLayout.getMemLayout().getValue()};
-    if (layoutKeyToAttr.find(key) == layoutKeyToAttr.end()) {
+
+    auto &group = groups[key];
+    if (!group.partialLayout) {
       TTNNLayoutAttr layout = config.outputLayout;
-      layoutKeyToAttr[key] = layout.withIgnorePhysicalLayout(true);
+      group.partialLayout = layout.withIgnorePhysicalLayout(true);
+    }
+    if (group.seenAttrs.insert(config.opSpecificAttrs).second) {
+      group.uniqueAttrs.push_back(config.opSpecificAttrs);
     }
   }
 
-  // Collect unique op-specific attrs.
-  std::vector<OpConfig::OpSpecificAttrs> opAttrs =
-      getUniqueOpSpecificAttrs(consumerConfigs);
-
-  // Generate Cartesian product.
+  // Build test configs: each partial layout is paired only with
+  // opSpecificAttrs from configs of the same (bufferType, memLayout) group.
   llvm::SmallVector<OpConfig> testConfigs;
-  for (const auto &[layoutKey, partialLayout] : layoutKeyToAttr) {
-    for (const OpConfig::OpSpecificAttrs &attrs : opAttrs) {
-      testConfigs.push_back(OpConfig(partialLayout, attrs));
+  for (const auto &[layoutKey, group] : groups) {
+    for (const OpConfig::OpSpecificAttrs &attrs : group.uniqueAttrs) {
+      testConfigs.push_back(OpConfig(group.partialLayout, attrs));
     }
   }
 
