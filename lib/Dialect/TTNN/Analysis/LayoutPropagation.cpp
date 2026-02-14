@@ -407,6 +407,34 @@ void LayoutPropagation::applyToIR() {
     }
   });
 
+  // Fixup: disable deallocate_activation for conv2d/conv_transpose2d ops
+  // whose input has multiple users, preventing use-after-free. This mirrors
+  // the tryDisableDeallocateActivation logic in DFShardingPolicy.cpp.
+  func->walk([&](Operation *op) {
+    auto disableDeallocIfMultiUser = [](auto convOp) {
+      auto config = convOp.getConv2dConfigAttr();
+      if (!config || !config.getDeallocateActivation() ||
+          !config.getDeallocateActivation().getValue()) {
+        return;
+      }
+      Value input = convOp.getInput();
+      if (!input.hasOneUse()) {
+        convOp.setConv2dConfigAttr(
+            config.withDeallocateActivation(false));
+        TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+                     "Disabled deallocate_activation for conv2d with "
+                     "multi-use input: {}",
+                     ttmlir::opToString(convOp));
+      }
+    };
+
+    if (auto conv2d = dyn_cast<ttnn::Conv2dOp>(op)) {
+      disableDeallocIfMultiUser(conv2d);
+    } else if (auto convT = dyn_cast<ttnn::ConvTranspose2dOp>(op)) {
+      disableDeallocIfMultiUser(convT);
+    }
+  });
+
   // Third pass: update function return types.
   updateFunctionReturnTypes();
 }
