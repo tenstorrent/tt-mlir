@@ -8538,3 +8538,143 @@ def less(
         self._set_golden_tensor(op_result, golden_output)
     
     return op_result
+
+
+############### Additional Elementwise Binary Ops ###############
+
+@tag(stablehlo.AndOp)
+def bitwise_and(
+    self,
+    in0: Operand,
+    in1: Operand,
+    output_type: Optional[torch.dtype] = None,
+    loc: Optional[str] = None,
+    unit_attrs: Optional[List[str]] = None,
+    sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+) -> OpResult:
+    """Element-wise bitwise AND operation."""
+    stablehlo_op = self.get_opview_from_method(StableHLOBuilder.bitwise_and)
+
+    if output_type is None:
+        mlir_output_type = self.get_type(in0)
+    else:
+        mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+    if loc is None:
+        loc = self._get_location()
+    else:
+        loc = Location.name(loc)
+
+    op = stablehlo_op(
+        in0,
+        in1,
+        loc=loc,
+    )
+    op_result = op.result
+
+    if sharding_attr is not None:
+        op.operation.attributes["sdy.sharding"] = sharding_attr
+
+    if unit_attrs is not None:
+        for attr_name in unit_attrs:
+            op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+    if not self._disable_golden_check:
+        input0 = self._get_golden_tensor(in0)
+        input1 = self._get_golden_tensor(in1)
+        golden_output = torch.bitwise_and(input0, input1)
+        self._set_golden_tensor(op_result, golden_output)
+
+    return op_result
+
+
+@tag(stablehlo.OrOp)
+def bitwise_or(
+    self,
+    in0: Operand,
+    in1: Operand,
+    output_type: Optional[torch.dtype] = None,
+    loc: Optional[str] = None,
+    unit_attrs: Optional[List[str]] = None,
+    sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+) -> OpResult:
+    """Element-wise bitwise OR operation."""
+    stablehlo_op = self.get_opview_from_method(StableHLOBuilder.bitwise_or)
+
+    if output_type is None:
+        mlir_output_type = self.get_type(in0)
+    else:
+        mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+    if loc is None:
+        loc = self._get_location()
+    else:
+        loc = Location.name(loc)
+
+    op = stablehlo_op(
+        in0,
+        in1,
+        loc=loc,
+    )
+    op_result = op.result
+
+    if sharding_attr is not None:
+        op.operation.attributes["sdy.sharding"] = sharding_attr
+
+    if unit_attrs is not None:
+        for attr_name in unit_attrs:
+            op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+    if not self._disable_golden_check:
+        input0 = self._get_golden_tensor(in0)
+        input1 = self._get_golden_tensor(in1)
+        golden_output = torch.bitwise_or(input0, input1)
+        self._set_golden_tensor(op_result, golden_output)
+
+    return op_result
+
+
+@tag(stablehlo.XorOp)
+def bitwise_xor(
+    self,
+    in0: Operand,
+    in1: Operand,
+    output_type: Optional[torch.dtype] = None,
+    loc: Optional[str] = None,
+    unit_attrs: Optional[List[str]] = None,
+    sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+) -> OpResult:
+    """Element-wise bitwise XOR operation."""
+    stablehlo_op = self.get_opview_from_method(StableHLOBuilder.bitwise_xor)
+
+    if output_type is None:
+        mlir_output_type = self.get_type(in0)
+    else:
+        mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+    if loc is None:
+        loc = self._get_location()
+    else:
+        loc = Location.name(loc)
+
+    op = stablehlo_op(
+        in0,
+        in1,
+        loc=loc,
+    )
+    op_result = op.result
+
+    if sharding_attr is not None:
+        op.operation.attributes["sdy.sharding"] = sharding_attr
+
+    if unit_attrs is not None:
+        for attr_name in unit_attrs:
+            op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+    if not self._disable_golden_check:
+        input0 = self._get_golden_tensor(in0)
+        input1 = self._get_golden_tensor(in1)
+        golden_output = torch.bitwise_xor(input0, input1)
+        self._set_golden_tensor(op_result, golden_output)
+
+    return op_result

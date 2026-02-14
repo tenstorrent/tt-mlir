@@ -1985,3 +1985,40 @@ def module_less(builder: StableHLOBuilder):
     ):
         builder.set_graph_level_check(True)
         return builder.less(in0, in1, unit_attrs=unit_attrs)
+
+
+# Additional Elementwise Binary Ops Tests
+def module_bitwise_and(builder: StableHLOBuilder):
+    @builder.func([(128, 128), (128, 128)], [torch.int32, torch.int32])
+    def bitwise_and(
+        in0: Operand,
+        in1: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.bitwise_and(in0, in1, unit_attrs=unit_attrs)
+
+
+def module_bitwise_or(builder: StableHLOBuilder):
+    @builder.func([(128, 128), (128, 128)], [torch.int32, torch.int32])
+    def bitwise_or(
+        in0: Operand,
+        in1: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.bitwise_or(in0, in1, unit_attrs=unit_attrs)
+
+
+def module_bitwise_xor(builder: StableHLOBuilder):
+    @builder.func([(128, 128), (128, 128)], [torch.int32, torch.int32])
+    def bitwise_xor(
+        in0: Operand,
+        in1: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.bitwise_xor(in0, in1, unit_attrs=unit_attrs)
