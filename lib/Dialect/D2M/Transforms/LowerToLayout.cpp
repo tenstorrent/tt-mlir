@@ -891,7 +891,71 @@ public:
     // 3. TILIZE: Before mapping (so mapping operates on final format).
     bool needsTilize =
         !ttcore::isTiled(currentInfo.type) && ttcore::isTiled(targetInfo.type);
-    if (needsTilize && currentInfo.hasLayout()) {
+
+    // Pre-check: if tilize is needed but the subsequent mapping step would
+    // immediately untilize for a complex mapping change, skip the tilize here
+    // to avoid a redundant tilize->untilize round-trip. The mapping will be
+    // done in scalar space and tilize applied once afterward (in step 5c).
+    // This is safe because layout properties (grid shape, index map, logical
+    // shape, dim alignments) are unchanged by tilization.
+    bool skipTilizeForComplexMapping = false;
+    if (needsTilize && currentInfo.hasLayout() && targetInfo.hasLayout() &&
+        currentInfo.isL1()) {
+      bool preNeedsMappingChange =
+          (currentInfo.getGridShape() != targetInfo.getGridShape() ||
+           currentInfo.layout->getIndexAffineMap() !=
+               targetInfo.layout->getIndexAffineMap() ||
+           currentInfo.layout->getLogicalShape() !=
+               targetInfo.layout->getLogicalShape() ||
+           currentInfo.layout->getDimAlignments() !=
+               targetInfo.layout->getDimAlignments());
+      if (preNeedsMappingChange) {
+        bool preIsSimpleReblocking =
+            (currentInfo.layout->getLogicalShape() ==
+                 targetInfo.layout->getLogicalShape() &&
+             currentInfo.layout->getDimAlignments() ==
+                 targetInfo.layout->getDimAlignments() &&
+             currentInfo.layout->getCollapsedIntervals() ==
+                 targetInfo.layout->getCollapsedIntervals());
+        skipTilizeForComplexMapping = !preIsSimpleReblocking;
+      }
+    }
+
+    // Mirror pre-check: if untilize is needed but the target also requires
+    // a complex mapping change, handle both together in step 5. Without this,
+    // step 5 is skipped (tiled != scalar format mismatch) and step 6 only
+    // untilizes without applying the grid/index_map change, dropping the
+    // reshape. The sequence will be: 5a untilize → 5b map in scalar space →
+    // skip 5c (target is already scalar).
+    bool skipUntilizeForComplexMapping = false;
+    {
+      bool wouldNeedUntilize = ttcore::isTiled(currentInfo.type) &&
+                               !ttcore::isTiled(targetInfo.type);
+      if (wouldNeedUntilize && currentInfo.hasLayout() &&
+          targetInfo.hasLayout() && currentInfo.isL1()) {
+        bool preNeedsMappingChange =
+            (currentInfo.getGridShape() != targetInfo.getGridShape() ||
+             currentInfo.layout->getIndexAffineMap() !=
+                 targetInfo.layout->getIndexAffineMap() ||
+             currentInfo.layout->getLogicalShape() !=
+                 targetInfo.layout->getLogicalShape() ||
+             currentInfo.layout->getDimAlignments() !=
+                 targetInfo.layout->getDimAlignments());
+        if (preNeedsMappingChange) {
+          bool preIsSimpleReblocking =
+              (currentInfo.layout->getLogicalShape() ==
+                   targetInfo.layout->getLogicalShape() &&
+               currentInfo.layout->getDimAlignments() ==
+                   targetInfo.layout->getDimAlignments() &&
+               currentInfo.layout->getCollapsedIntervals() ==
+                   targetInfo.layout->getCollapsedIntervals());
+          skipUntilizeForComplexMapping = !preIsSimpleReblocking;
+        }
+      }
+    }
+
+    if (needsTilize && currentInfo.hasLayout() &&
+        !skipTilizeForComplexMapping) {
       // Tilize with current layout, then mapping change will adjust layout if
       // needed.
       ArrayRef<int64_t> tileShape = ttcore::getTensorTileShape(targetInfo.type);
@@ -931,11 +995,13 @@ public:
     // 5. MAPPING CHANGE: Grid/index_map/logical_shape/dim_alignments (after
     // tilize). Includes all reblocking (both virtual and normal grids). Must
     // happen in L1 (can't reblock in DRAM). Only when element type formats
-    // match (tilize/untilize should happen first).
+    // match (tilize/untilize should happen first), OR when tilize was
+    // deliberately skipped to avoid a redundant tilize->untilize round-trip.
     if (currentInfo.hasLayout() && targetInfo.hasLayout() &&
         currentInfo.isL1() &&
         (ttcore::isTiled(currentInfo.type) ==
-         ttcore::isTiled(targetInfo.type))) {
+             ttcore::isTiled(targetInfo.type) ||
+         skipTilizeForComplexMapping || skipUntilizeForComplexMapping)) {
       // Check if layout properties differ (excluding memSpace and memLayout).
       bool needsMappingChange =
           (currentInfo.getGridShape() != targetInfo.getGridShape() ||
@@ -959,26 +1025,35 @@ public:
         bool bothTilized = ttcore::isTiled(currentInfo.type) &&
                            ttcore::isTiled(targetInfo.type);
 
-        if (bothTilized && !isSimpleReblocking) {
+        if ((bothTilized || skipTilizeForComplexMapping ||
+             skipUntilizeForComplexMapping) &&
+            !isSimpleReblocking) {
           // Complex mapping change on tilized tensors: the affine map approach
           // via logical space doesn't work for unaligned tensors where logical
           // shapes don't divide evenly into tiles. Decompose via scalar space:
           // untilize → map in scalar space → tilize back.
+          //
+          // When skipTilizeForComplexMapping is set, we skipped step 3's tilize
+          // to avoid a redundant tilize->untilize round-trip. The tensor is
+          // already in scalar space, so we skip 5a and go directly to 5b/5c.
 
-          // 5a. Untilize to scalar space (preserve current layout properties).
-          // Reblock virtual grid shape here to align with earlier splitting
-          // phases that use reblocked intermediates to bounce virtual grid
-          // shapes from host to device.
           Type scalarType = getScalarType(currentInfo.type.getElementType());
-          auto untilizedType = typeBuilder.modifyDeviceType(
-              currentInfo.type, *currentInfo.layout, targetGridShape,
-              ttcore::MemorySpace::DeviceL1,
-              /*newTensorGrid=*/{}, scalarType,
-              /* reblockVirtualGridShapes */ true);
-          auto untilizedEmpty = createEmpty(untilizedType);
-          currentValue = lowerFormatConversionGeneric(
-              rewriter, currentValue, untilizedEmpty, op.getLoc());
-          currentInfo = TensorInfo::from(currentValue);
+
+          if (bothTilized || skipUntilizeForComplexMapping) {
+            // 5a. Untilize to scalar space (preserve current layout
+            // properties). Reblock virtual grid shape here to align with
+            // earlier splitting phases that use reblocked intermediates to
+            // bounce virtual grid shapes from host to device.
+            auto untilizedType = typeBuilder.modifyDeviceType(
+                currentInfo.type, *currentInfo.layout, targetGridShape,
+                ttcore::MemorySpace::DeviceL1,
+                /*newTensorGrid=*/{}, scalarType,
+                /* reblockVirtualGridShapes */ true);
+            auto untilizedEmpty = createEmpty(untilizedType);
+            currentValue = lowerFormatConversionGeneric(
+                rewriter, currentValue, untilizedEmpty, op.getLoc());
+            currentInfo = TensorInfo::from(currentValue);
+          }
 
           // 5b. Apply complex mapping change in scalar space.
           // Build scalar target with ALL target's layout properties.
@@ -1004,17 +1079,22 @@ public:
           currentInfo = TensorInfo::from(currentValue);
 
           // 5c. Tilize back to match target format.
-          ArrayRef<int64_t> tileShape =
-              ttcore::getTensorTileShape(targetInfo.type);
-          auto tiledDeviceShape = targetInfo.layout->getDeviceShape(
-              targetInfo.getGridShape(), tileShape);
-          auto tiledType = RankedTensorType::get(
-              tiledDeviceShape, targetInfo.type.getElementType(),
-              *targetInfo.layout);
-          auto tiledEmpty = createEmpty(tiledType);
-          currentValue = lowerFormatConversionGeneric(rewriter, currentValue,
-                                                      tiledEmpty, op.getLoc());
-          currentInfo = TensorInfo::from(currentValue);
+          // Skip when the target is scalar (skipUntilizeForComplexMapping):
+          // the mapping was done entirely in scalar space and the target
+          // doesn't need re-tilization.
+          if (!skipUntilizeForComplexMapping) {
+            ArrayRef<int64_t> tileShape =
+                ttcore::getTensorTileShape(targetInfo.type);
+            auto tiledDeviceShape = targetInfo.layout->getDeviceShape(
+                targetInfo.getGridShape(), tileShape);
+            auto tiledType = RankedTensorType::get(
+                tiledDeviceShape, targetInfo.type.getElementType(),
+                *targetInfo.layout);
+            auto tiledEmpty = createEmpty(tiledType);
+            currentValue = lowerFormatConversionGeneric(
+                rewriter, currentValue, tiledEmpty, op.getLoc());
+            currentInfo = TensorInfo::from(currentValue);
+          }
 
         } else {
           // Simple reblocking or untilized complex: use direct approach.
