@@ -404,20 +404,28 @@ void L1SpillManagement<MemoryTracker>::run() {
                  "    OOM: validation failed, trying demotion/eviction");
 
     // Stage 1: Demote current op to L1 interleaved (no eviction needed).
-    OpConfig l1InterleavedConfig = makeL1InterleavedConfig(op);
-    auto demoteResult =
-        memoryTracker.validate(op, inputLayouts, l1InterleavedConfig);
+    // Skip for MatmulOp/LinearOp — L1-interleaved output is strictly worse
+    // than DRAM-interleaved for matmul: no program config is generated for
+    // non-sharded output (generateMatmulProgramConfig returns nullopt),
+    // causing runtime to fall back to MatmulMultiCoreProgramConfig with
+    // hardcoded HiFi4. Fall through to Stage 2 (eviction) or Stage 3
+    // (spill to DRAM) instead.
+    if (!isa<MatmulOp, LinearOp>(op)) {
+      OpConfig l1InterleavedConfig = makeL1InterleavedConfig(op);
+      auto demoteResult =
+          memoryTracker.validate(op, inputLayouts, l1InterleavedConfig);
 
-    if (demoteResult.isSuccess()) {
-      TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
-                   "    DEMOTED to L1 interleaved: outputL1Usage={0}",
-                   demoteResult.outputL1Usage);
-      applyDemotedConfig(op, demoteResult);
-      uint64_t l1Size = demoteResult.outputL1Usage;
-      memoryTracker.addTensor(op, l1Size);
-      liveOps.insert(op);
-      liveSet.push({opLastUse, op});
-      continue;
+      if (demoteResult.isSuccess()) {
+        TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+                     "    DEMOTED to L1 interleaved: outputL1Usage={0}",
+                     demoteResult.outputL1Usage);
+        applyDemotedConfig(op, demoteResult);
+        uint64_t l1Size = demoteResult.outputL1Usage;
+        memoryTracker.addTensor(op, l1Size);
+        liveOps.insert(op);
+        liveSet.push({opLastUse, op});
+        continue;
+      }
     }
 
     // Stage 2: Evict from live set (Belady: farthest last-use first).

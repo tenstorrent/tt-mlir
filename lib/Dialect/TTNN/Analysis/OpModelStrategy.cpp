@@ -5,6 +5,7 @@
 #include "ttmlir/Dialect/TTNN/Analysis/OpModelStrategy.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Dialect/TTNN/Utils/OptimizerUtils.h"
 
 #include "llvm/ADT/TypeSwitch.h"
 
@@ -50,9 +51,35 @@ OutputHints getOutputHints(Operation *op,
                            const std::vector<OpConfig> &legalConfigs) {
   return llvm::TypeSwitch<Operation *, OutputHints>(op)
       .Case<MatmulOp, LinearOp>([&](auto) {
-        // Must pass full configs (carry MatmulProgramConfig tied to sharded
-        // output hint). Without hints, matmul defaults to DRAM interleaved.
-        return OutputHints{legalConfigs, /*attemptL1Sharding=*/true};
+        // Use partial configs: deduplicate by (bufferType, memLayout),
+        // set ignorePhysicalLayout=true. Backend decides physical layout.
+        auto partialConfigs =
+            optimizer_utils::getUniqueTestConfigsForMatmulLinear(legalConfigs);
+
+        // Remove L1-interleaved hints for matmul/linear output.
+        //
+        // L1-interleaved output is "worst of both worlds" for matmul:
+        //  - generateMatmulProgramConfig() returns nullopt for non-sharded
+        //    output, so no program config is emitted by the compiler.
+        //  - tt-metal runtime falls back to MatmulMultiCoreProgramConfig{}
+        //    with hardcoded HiFi4 math fidelity (the slowest kernel path).
+        //  - Same NOC write overhead as DRAM interleaved (not eliminated
+        //    like sharded), loses bias fusion, optimized mcast program
+        //    configs, and narrow-shape 1D optimization.
+        //  - Subject to L1 capacity constraints unlike DRAM interleaved.
+        //
+        // DRAM-interleaved is the safe default: full bias fusion, optimized
+        // 1D/2D mcast configs, and no L1 pressure from the output tensor.
+        // L1-sharded is best when applicable (eliminates NOC writes entirely).
+        std::vector<OpConfig> filtered;
+        for (const auto &cfg : partialConfigs) {
+          if (isL1Interleaved(cfg)) {
+            continue;
+          }
+          filtered.push_back(cfg);
+        }
+
+        return OutputHints{filtered, /*attemptL1Sharding=*/true};
       })
       .Case<Conv2dOp, ConvTranspose2dOp>([&](auto) {
         // Conv2d configs carry Conv2dConfig tied to output hint.
