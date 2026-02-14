@@ -13667,7 +13667,7 @@ class TTIRBuilder(Builder):
         )
         values = self._create_ranked_tensor_type(golden_values.shape, mlir_output_type)
         indices = self._create_ranked_tensor_type(
-            golden_indices.shape, self._get_type_from_torch_dtype(torch.int64)
+            golden_indices.shape, golden_indices.dtype
         )
 
         if loc is None:
@@ -13686,7 +13686,6 @@ class TTIRBuilder(Builder):
             loc=loc,
         )
         op_values = op.values
-        op_indices = op.indices
 
         if unit_attrs is not None:
             for attr_name in unit_attrs:
@@ -13694,9 +13693,8 @@ class TTIRBuilder(Builder):
 
         if not self._disable_golden_check:
             self._set_golden_tensor(op_values, golden_values)
-            self._set_golden_tensor(op_indices, golden_indices)
 
-        return op_values, op_indices
+        return op_values
 
     @parse(ttir.TopKOp)
     def topk_parser(

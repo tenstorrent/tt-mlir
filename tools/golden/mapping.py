@@ -4374,7 +4374,8 @@ def ttir_topk_golden(
     values, indices = torch.topk(
         input_tensor, k=k, dim=dim, largest=largest, sorted=sorted
     )
-    return values.to(output_dtype), indices.to(torch.int64)
+
+    return values.to(output_dtype), indices.to(torch.uint16)
 
 
 ################ StableHLO Op Golden Functions ###############

@@ -3850,7 +3850,7 @@ public:
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInputTensor()),
         emitter.emit(srcOp.getK()),
-        emitter.emit(srcOp.getDim()),
+        emitter.template emit<int32_t>(srcOp.getDim()),
         emitter.emit(srcOp.getLargest()),
         emitter.emit(srcOp.getSorted()),
         emitter.emit(std::nullopt | emitter.getMemoryConfig(srcOp.getValues()),
