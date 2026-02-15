@@ -434,6 +434,41 @@ def test_binary_ops(test_fn: Callable, target: str, request, device):
     )
 
 
+
+@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.parametrize("comparison_direction", ["EQ", "NE", "LT", "LE", "GT", "GE"])
+def test_compare_ops(
+    shape: Shape,
+    dtype: torch.dtype,
+    target: str,
+    comparison_direction: str,
+    request,
+    device,
+):
+    def module(builder: StableHLOBuilder):
+        @builder.func([shape, shape], [dtype, dtype])
+        def compare(
+            in0: Operand,
+            in1: Operand,
+            builder: StableHLOBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            builder.set_graph_level_check(True)
+            return builder.compare(
+                in0,
+                in1,
+                comparison_direction=comparison_direction,
+                unit_attrs=unit_attrs,
+            )
+
+    compile_and_execute_shlo(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+    )
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn"])

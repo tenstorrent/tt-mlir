@@ -1232,6 +1232,62 @@ class StableHLOBuilder(Builder):
 
         return abs_module, abs_builder
 
+    ############### stablehlo.CompareOp ###############
+
+    @tag(stablehlo.CompareOp)
+    def compare(
+        self,
+        in0: Operand,
+        in1: Operand,
+        comparison_direction: str = "EQ",
+        compare_type: str = "TOTALORDER",
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpResult:
+        stablehlo_op = self.get_opview_from_method(StableHLOBuilder.compare)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        comparison_direction_attr = stablehlo.ComparisonDirectionAttr.get(
+            comparison_direction, self._ctx
+        )
+        compare_type_attr = stablehlo.ComparisonTypeAttr.get(compare_type, self._ctx)
+
+        op = stablehlo_op(
+            in0,
+            in1,
+            comparison_direction_attr,
+            compare_type=compare_type_attr,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if sharding_attr is not None:
+            op.operation.attributes["sdy.sharding"] = sharding_attr
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            input1 = self._get_golden_tensor(in1)
+            op_golden_function = get_golden_function(stablehlo_op)
+            golden_output = op_golden_function(
+                input0,
+                input1,
+                comparison_direction_attr,
+                compare_type_attr,
+                op_result.type.element_type,
+            )
+            self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
     ################ stablehlo.SortOp ###############
 
     @tag(stablehlo.SortOp)

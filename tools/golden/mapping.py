@@ -3830,6 +3830,44 @@ def stablehlo_sort_golden(
     return values.to(output_dtype)
 
 
+
+def _stablehlo_attr_to_enum_str(attr) -> str:
+    # StableHLO enum attrs are not always covered by unpack_mlir_attr.
+    if hasattr(attr, "value"):
+        s = str(attr.value)
+    else:
+        s = str(attr)
+    # Typical forms: "LT" or "stablehlo.comparison_direction<LT>"
+    if "<" in s and ">" in s:
+        s = s.split("<", 1)[1].split(">", 1)[0]
+    return s
+
+def stablehlo_compare_golden(
+    input_tensor: GoldenMapTensor,
+    other_tensor: GoldenMapTensor,
+    comparison_direction_attr: Attribute,
+    compare_type_attr: Attribute,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    # Note: compare_type affects NaN handling for floats; we ignore it for now.
+    _ = compare_type_attr
+    direction = _stablehlo_attr_to_enum_str(comparison_direction_attr)
+    if direction == "EQ":
+        out = torch.eq(input_tensor, other_tensor)
+    elif direction == "NE":
+        out = torch.ne(input_tensor, other_tensor)
+    elif direction == "GT":
+        out = torch.gt(input_tensor, other_tensor)
+    elif direction == "GE":
+        out = torch.ge(input_tensor, other_tensor)
+    elif direction == "LT":
+        out = torch.lt(input_tensor, other_tensor)
+    elif direction == "LE":
+        out = torch.le(input_tensor, other_tensor)
+    else:
+        raise ValueError(f"Unsupported comparison_direction: {direction}")
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return out.to(output_dtype)
 def ttir_equal_golden(
     input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
 ) -> GoldenMapTensor:
@@ -5910,7 +5948,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.LinearOp: linear_golden,
     ttir.DotGeneralOp: ttir_dot_general_golden,
     ttir.ScatterOp: ttir_scatter_golden,
-    # Layout operations (identity functions) — accept and ignore extra kwargs like reinterpretLayout
+    # Layout operations (identity functions) 閳?accept and ignore extra kwargs like reinterpretLayout
     ttir.ToLayoutOp: ttir_to_layout_golden,
     # Cache operations
     ttir.FillCacheOp: fill_cache_golden,
@@ -5933,6 +5971,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     # StableHLO elementwise operations
     stablehlo.AddOp: stablehlo_add_golden,
     stablehlo.AbsOp: stablehlo_abs_golden,
+    stablehlo.CompareOp: stablehlo_compare_golden,
     stablehlo.CeilOp: stablehlo_ceil_golden,
     stablehlo.ClampOp: stablehlo_clamp_golden,
     stablehlo.ConcatenateOp: stablehlo_concatenate_golden,
