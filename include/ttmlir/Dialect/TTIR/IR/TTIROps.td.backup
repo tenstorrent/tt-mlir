@@ -4861,8 +4861,7 @@ def TTIR_ArangeOp : TTIR_CreationOp<"arange"> {
   let arguments = (ins SI64Attr:$start,
                        SI64Attr:$end,
                        SI64Attr:$step,
-                       I64Attr:$arange_dimension,
-                       TTCore_DataType:$dtype);
+                       I64Attr:$arange_dimension);
 
   let results = (outs AnyRankedTensor:$result);
   let hasVerifier = 1;
@@ -4986,8 +4985,7 @@ class TTIR_NamedFullOp<string mnemonic, list<Trait> traits = []> :
     by providing common argument and result definitions.
   }];
 
-  let arguments = (ins DenseI32ArrayAttr:$shape,
-                       TTCore_DataType:$dtype);
+  let arguments = (ins DenseI32ArrayAttr:$shape);
 
   let results = (outs AnyRankedTensor:$result);
 }
@@ -4995,24 +4993,22 @@ class TTIR_NamedFullOp<string mnemonic, list<Trait> traits = []> :
 def TTIR_ZerosOp : TTIR_NamedFullOp<"zeros"> {
   let summary = "Creates a tensor filled with zeros.";
   let description = [{
-    The `zeros` operation creates a tensor filled with zeros of the specified shape and data type.
+    The `zeros` operation creates a tensor filled with zeros of the specified shape.
 
     This operation is commonly used to initialize tensors with zero values. It takes a shape attribute
-    and a data type attribute, and produces a tensor of that shape with all elements set to zero.
+    and produces a tensor of that shape with all elements set to zero.
 
     Example:
     ```mlir
-    // Create a 3D tensor of zeros with shape [64, 28, 28] and bfloat16 type
+    // Create a 3D tensor of zeros with shape [64, 28, 28]
     %result = ttir.zeros() {
-        shape = [64, 28, 28],
-        dtype = #tt.dtype<bf16>
+        shape = [64, 28, 28]
     } : () -> tensor<64x28x28xbf16>
     // Result: A tensor of shape [64, 28, 28] filled with zeros
 
-    // Create a 2D tensor of zeros with shape [3, 4] and float32 type
+    // Create a 2D tensor of zeros with shape [3, 4]
     %result = ttir.zeros() {
-        shape = [3, 4],
-        dtype = #tt.dtype<f32>
+        shape = [3, 4]
     } : () -> tensor<3x4xf32>
     // Result: [[0.0, 0.0, 0.0, 0.0],
     //          [0.0, 0.0, 0.0, 0.0],
@@ -5034,24 +5030,22 @@ def TTIR_ZerosOp : TTIR_NamedFullOp<"zeros"> {
 def TTIR_OnesOp : TTIR_NamedFullOp<"ones"> {
   let summary = "Creates a tensor filled with ones.";
   let description = [{
-    The `ones` operation creates a tensor filled with ones of the specified shape and data type.
+    The `ones` operation creates a tensor filled with ones of the specified shape.
 
     This operation is commonly used to initialize tensors with one values. It takes a shape attribute
-    and a data type attribute, and produces a tensor of that shape with all elements set to one.
+    and produces a tensor of that shape with all elements set to one.
 
     Example:
     ```mlir
-    // Create a 3D tensor of ones with shape [64, 28, 28] and bfloat16 type
+    // Create a 3D tensor of ones with shape [64, 28, 28]
     %result = ttir.ones() {
-        shape = [64, 28, 28],
-        dtype = #tt.dtype<bf16>
+        shape = [64, 28, 28]
     } : () -> tensor<64x28x28xbf16>
     // Result: A tensor of shape [64, 28, 28] filled with ones
 
-    // Create a 2D tensor of ones with shape [3, 4] and float32 type
+    // Create a 2D tensor of ones with shape [3, 4]
     %result = ttir.ones() {
-        shape = [3, 4],
-        dtype = #tt.dtype<f32>
+        shape = [3, 4]
     } : () -> tensor<3x4xf32>
     // Result: [[1.0, 1.0, 1.0, 1.0],
     //          [1.0, 1.0, 1.0, 1.0],
