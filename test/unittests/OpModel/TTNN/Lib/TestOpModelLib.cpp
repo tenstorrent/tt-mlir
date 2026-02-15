@@ -4053,6 +4053,33 @@ INSTANTIATE_TEST_SUITE_P(
                         llvm::SmallVector<int32_t>{2, 2},
                         llvm::SmallVector<int32_t>{3, 3},
                         llvm::SmallVector<int32_t>{1, 1}, 1,
+                        detail::ExpectedResult{true}),
+        // Test case 2: 1x1 conv bias preparation with interleaved input
+        // (mm_conv=true path in tt-metal)
+        std::make_tuple(detail::TestTensor{{1, 1, 1, 128},
+                                           TensorMemoryLayout::Interleaved,
+                                           BufferType::SystemMemory},
+                        detail::TestTensor{{1, 1, 1, 128},
+                                           TensorMemoryLayout::Interleaved,
+                                           BufferType::DRAM},
+                        ::mlir::tt::ttnn::Layout::Tile, 64, 128, 1, 56, 56,
+                        llvm::SmallVector<int32_t>{1, 1},
+                        llvm::SmallVector<int32_t>{1, 1},
+                        llvm::SmallVector<int32_t>{0, 0},
+                        llvm::SmallVector<int32_t>{1, 1}, 1,
+                        detail::ExpectedResult{true}),
+        // Test case 3: 3x3 conv bias preparation with interleaved input
+        std::make_tuple(detail::TestTensor{{1, 1, 1, 64},
+                                           TensorMemoryLayout::Interleaved,
+                                           BufferType::SystemMemory},
+                        detail::TestTensor{{1, 1, 1, 64},
+                                           TensorMemoryLayout::Interleaved,
+                                           BufferType::DRAM},
+                        ::mlir::tt::ttnn::Layout::Tile, 64, 64, 1, 56, 56,
+                        llvm::SmallVector<int32_t>{3, 3},
+                        llvm::SmallVector<int32_t>{1, 1},
+                        llvm::SmallVector<int32_t>{1, 1},
+                        llvm::SmallVector<int32_t>{1, 1}, 1,
                         detail::ExpectedResult{true})));
 
 //===----------------------------------------------------------------------===//

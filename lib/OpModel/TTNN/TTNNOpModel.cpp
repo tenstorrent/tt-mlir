@@ -700,11 +700,13 @@ getPrepareConv2dBiasOpOutputTensorSpec(
     ::ttnn::operations::conv::conv2d::Conv2dConfig localConfig;
     if (!conv2dConfigConverted.has_value()) {
       localConfig = ::ttnn::operations::conv::conv2d::Conv2dConfig();
-      // Weights dtype needs to be set for prepare_conv_bias.
-      localConfig.weights_dtype = weightsDtype;
     } else {
       localConfig = *conv2dConfigConverted;
     }
+    // Weights dtype must always be set for prepare_conv_bias.
+    // tt-metal's prepare_conv_bias accesses weights_dtype.value() without
+    // checking has_value(), causing std::bad_optional_access when unset.
+    localConfig.weights_dtype = weightsDtype;
 
     return ::ttnn::graph::query_op_constraints(
         &::ttnn::operations::conv::conv2d::prepare_conv_bias, device,
