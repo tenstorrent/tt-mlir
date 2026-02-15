@@ -445,7 +445,8 @@ struct TTIRToTTNNDevicePipelineOptions
           (optimizationLevel >= 1) || enableGreedyOptimizer;
     }
     if (enableFusingConv2dWithMultiplyPattern.getNumOccurrences() == 0) {
-      enableFusingConv2dWithMultiplyPattern = (optimizationLevel >= 1);
+      enableFusingConv2dWithMultiplyPattern =
+          (optimizationLevel >= 1) || enableGreedyOptimizer;
     }
     if (memoryLayoutAnalysisEnabled.getNumOccurrences() == 0) {
       memoryLayoutAnalysisEnabled = (optimizationLevel >= 2);
