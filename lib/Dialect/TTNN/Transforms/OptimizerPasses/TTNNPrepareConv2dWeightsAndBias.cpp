@@ -109,6 +109,7 @@ private:
 
     ttnn::TTNNLayoutAttr inputLayoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
         convOp.getInput().getType().getEncoding());
+
     ttnn::TTNNLayoutAttr outputLayoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
         convOp.getResult().getType().getEncoding());
 
