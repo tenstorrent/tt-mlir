@@ -84,7 +84,7 @@ struct Hooks {
   constexpr static Hooks get() { return Hooks(); }
 #endif
 
-  std::optional<CallbackFn> getPreOperatorCallback() const {
+  std::optional<CallbackFn>& getPreOperatorCallback() const {
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
     return preOperatorCallback;
 #else
@@ -92,7 +92,7 @@ struct Hooks {
 #endif
   }
 
-  std::optional<CallbackFn> getPostOperatorCallback() const {
+  std::optional<CallbackFn>& getPostOperatorCallback() const {
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
     return postOperatorCallback;
 #else

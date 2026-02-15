@@ -91,10 +91,14 @@
 #include "operations/transformer/scaled_dot_product_attention_decode.h"
 #include "operations/transformer/split_query_key_value_and_split_heads.h"
 #include "tt/runtime/debug.h"
+#include "tt/runtime/detail/ttnn/auto_debug_hooks.h"
 #include "tt/runtime/detail/ttnn/types/types.h"
 #include "tt/runtime/detail/ttnn/utils.h"
 #include "tt/runtime/perf.h"
 #include "tt/runtime/utils.h"
+
+// import Python.h
+#include <Python.h>
 
 namespace tt::runtime::ttnn {
 
@@ -133,10 +137,11 @@ ProgramExecutor::ProgramExecutor(
 }
 
 void ProgramExecutor::runCallback(
-    std::optional<debug::Hooks::CallbackFn> callback, Binary &executableHandle,
+    std::optional<debug::Hooks::CallbackFn>& callback, Binary &executableHandle,
     const ::tt::target::ttnn::Operation *opContext,
     ProgramContext *programContext) {
   if (callback) {
+    PyGILState_STATE gstate = PyGILState_Ensure();
     std::shared_ptr<void> programContextPtr =
         ::tt::runtime::utils::unsafeBorrowShared(programContext);
     std::shared_ptr<void> opContextPtr =
@@ -145,12 +150,17 @@ void ProgramExecutor::runCallback(
     (*callback)(executableHandle,
                 CallbackContext(programContextPtr, DeviceRuntime::TTNN),
                 OpContext(opContextPtr, DeviceRuntime::TTNN));
+    PyGILState_Release(gstate);
   }
 }
 
 void ProgramExecutor::execute() {
   LOG_DEBUG(LogType::LogRuntimeTTNN,
             "Starting execution of program: ", program->name()->c_str());
+
+  // Conditionally register Python debug callbacks based on binary conditions
+  conditionallyRegisterCallbacks(executableHandle);
+
   for (const ::tt::target::ttnn::Operation *op : *program->operations()) {
     LOG_DEBUG(LogType::LogRuntimeTTNN,
               "Executing operation: ", op->debug_info()->c_str());

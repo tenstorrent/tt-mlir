@@ -2,6 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include <iostream>
+#include <memory>
 #include <sstream>
 
 #include "tt/runtime/debug.h"
@@ -9,6 +11,7 @@
 #include "tt/runtime/runtime.h"
 #include "tt/runtime/utils.h"
 #include "tt/runtime/workarounds.h"
+#include "tt/runtime/detail/ttnn/auto_debug_hooks.h"
 
 #include "tt/runtime/detail/python/nanobind_headers.h"
 
@@ -641,6 +644,8 @@ void registerRuntimeBindings(nb::module_ &m) {
           "get",
           [](nb::callable pre_op_func, nb::callable post_op_func) {
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+            nb::gil_scoped_acquire gil;
+            
             return tt::runtime::debug::Hooks::get(
                 [pre_op_func](tt::runtime::Binary Binary,
                               tt::runtime::CallbackContext programContext,

@@ -30,7 +30,7 @@ public:
    * Executes pre and post operation callbacks if registered
    */
   void
-  runCallback(std::optional<::tt::runtime::debug::Hooks::CallbackFn> callback,
+  runCallback(std::optional<::tt::runtime::debug::Hooks::CallbackFn>& callback,
               Binary &executableHandle,
               const ::tt::target::ttnn::Operation *opContext,
               ProgramContext *programContext);

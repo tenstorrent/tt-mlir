@@ -9,6 +9,7 @@ from ttrt.runtime._ttmlir_runtime.binary import (
     load_system_desc_from_path,
     Flatbuffer,
     GoldenTensor,
+    Binary,
 )
 
 from . import stats

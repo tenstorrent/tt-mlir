@@ -10,6 +10,8 @@ try:
         TensorRef,
         TensorDesc,
         MemoryBufferType,
+        CallbackContext,
+        OpContext,
         DataType,
         DeviceRuntime,
         HostRuntime,
@@ -77,3 +79,61 @@ except ImportError:
     print(
         "Warning: not importing testing submodule since project was not built with runtime testing enabled. To enable, rebuild with: -DTTMLIR_ENABLE_RUNTIME_TESTS=ON"
     )
+
+def bind_callbacks():
+    from ttrt.runtime import (
+        get_op_input_refs,
+        get_op_output_ref,
+        get_op_debug_str,
+        get_op_loc_info,
+        retrieve_tensor_from_pool,
+        CallbackContext,
+        OpContext,
+        DebugHooks,
+    )
+    from ttrt.binary import Binary
+
+    def pre_op_callback(binary: Binary, program_ctx: CallbackContext, op_ctx: OpContext):
+        """Called before each TTNN operation.
+
+        Args:
+            binary: Binary object
+            program_ctx: CallbackContext reference for tensor pool access
+            op_ctx: OpContext reference with operation metadata
+        """
+        # Get operation info
+        debug_str = get_op_debug_str(op_ctx)
+        loc_info = get_op_loc_info(op_ctx)
+
+        print(f"✓ PRE: {debug_str}")
+        print(f"  Location: {loc_info}")
+
+        # Access input tensors
+        input_refs = get_op_input_refs(op_ctx, program_ctx)
+        print(f"  Inputs: {len(input_refs)} tensors")
+
+    def post_op_callback(binary: Binary, program_ctx: CallbackContext, op_ctx: OpContext):
+        """Called after each TTNN operation.
+
+        Args:
+            binary: Binary object
+            program_ctx: CallbackContext reference
+            op_ctx: OpContext reference
+        """
+        debug_str = get_op_debug_str(op_ctx)
+
+        # Get output tensor info
+        output_ref = get_op_output_ref(op_ctx, program_ctx)
+
+        print(f"✓ POST: {debug_str}")
+        print(f"  Has output: {output_ref is not None}")
+    
+    DebugHooks.get(pre_op_callback, post_op_callback)
+
+
+import atexit
+
+def cleanup():
+    unregister_hooks()
+
+atexit.register(cleanup)
