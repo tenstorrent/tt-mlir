@@ -96,6 +96,7 @@ public:
       : TTNNGreedyLayoutPropagationBase() {
     maxLegalLayouts = std::move(options.maxLegalLayouts);
     rowMajorEnabled = std::move(options.rowMajorEnabled);
+    beamWidth = std::move(options.beamWidth);
     insertMemReconfig = std::move(options.insertMemReconfig);
     overrideOutputLayout = std::move(options.overrideOutputLayout);
     overrideConv2dConfig = std::move(options.overrideConv2dConfig);
@@ -112,6 +113,11 @@ protected:
       ::llvm::cl::desc(
           "Enable row major layout generation in legal layout analysis."),
       ::llvm::cl::init(false)};
+  ::mlir::Pass::Option<int64_t> beamWidth{
+      *this, "beam-width",
+      ::llvm::cl::desc(
+          "Beam width for layout propagation (1=greedy, >1=beam search)."),
+      ::llvm::cl::init(8)};
   ::mlir::Pass::Option<llvm::StringMap<InsertMemReconfigParams>,
                        mlir::tt::ttnn::InsertMemReconfigParser>
       insertMemReconfig{
@@ -251,7 +257,9 @@ public:
                    "{1} legal op configs.",
                    func.getName(), legalConfigs.size());
 
-      LayoutPropagation propagation(func, deviceGrid, legalConfigs);
+      LayoutPropagation propagation(func, deviceGrid, legalConfigs,
+                                    &tensorTypePossibleLayouts,
+                                    static_cast<size_t>(beamWidth));
       propagation.run();
     });
 #endif

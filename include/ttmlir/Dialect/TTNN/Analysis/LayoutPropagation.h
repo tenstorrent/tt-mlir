@@ -8,6 +8,7 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpModelStrategy.h"
+#include "ttmlir/Dialect/TTNN/Analysis/TensorLayouts.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -28,21 +29,38 @@ class LayoutPropagation {
 public:
   LayoutPropagation(
       func::FuncOp func, ttcore::GridAttr deviceGrid,
-      const llvm::DenseMap<Operation *, std::vector<OpConfig>> &legalConfigs);
+      const llvm::DenseMap<Operation *, std::vector<OpConfig>> &legalConfigs,
+      const TensorTypeLayoutsMap *tensorTypePossibleLayouts = nullptr,
+      size_t beamWidth = 8);
 
   /// Run layout propagation and apply all changes directly to the IR.
   void run();
+
+  /// Accessors for testing and debugging.
+  const llvm::DenseMap<Operation *, llvm::SmallVector<BeamCandidate>> &
+  getBeamState() const {
+    return beamState;
+  }
+  const llvm::DenseMap<Operation *, size_t> &getFinalChoice() const {
+    return finalChoice;
+  }
+  size_t getBeamWidth() const { return beamWidth; }
 
 private:
   func::FuncOp func;
   ttcore::GridAttr deviceGrid;
   const llvm::DenseMap<Operation *, std::vector<OpConfig>> &legalConfigs;
+  const TensorTypeLayoutsMap *tensorTypePossibleLayouts;
 
   /// Per-op beam state: K candidates per op (K=1 for greedy).
   llvm::DenseMap<Operation *, llvm::SmallVector<BeamCandidate>> beamState;
 
   /// Beam width (K=1 for greedy, K>1 for beam search).
-  size_t beamWidth = 1;
+  size_t beamWidth = 8;
+
+  /// Final candidate choice per op (set by backward pass, used by applyToIR).
+  /// Maps op -> index into beamState[op]. For K=1, always 0.
+  llvm::DenseMap<Operation *, size_t> finalChoice;
 
   /// Process a single op. Returns top-K candidates sorted by score descending.
   llvm::SmallVector<BeamCandidate> processOp(Operation *op);
@@ -80,6 +98,18 @@ private:
 
   /// Update function return types to match modified IR.
   void updateFunctionReturnTypes();
+
+  /// Backward pass: consolidate beam at fork points.
+  /// Only runs when beamWidth > 1.
+  void consolidateBeam();
+
+  /// Resolve fork point: pick the producer candidate that minimizes
+  /// total reshard count across all consumers.
+  size_t resolveForForkPoint(Operation *forkOp);
+
+  /// Map from tensor-operand index (used in producerCandidateIndices) back to
+  /// the actual defining op. Skips non-tensor operands.
+  Operation *getProducerForOperandIdx(Operation *op, size_t tensorOperandIdx);
 };
 
 } // namespace mlir::tt::ttnn

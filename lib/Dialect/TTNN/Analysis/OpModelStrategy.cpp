@@ -39,14 +39,6 @@ static bool isL1Interleaved(const OpConfig &config) {
          memLayout.getValue() == TensorMemoryLayout::Interleaved;
 }
 
-/// Check if a config is DRAM.
-static bool isDRAM(const OpConfig &config) {
-  if (!config.outputLayout) {
-    return false;
-  }
-  return config.outputLayout.getBufferType() == BufferType::DRAM;
-}
-
 OutputHints getOutputHints(Operation *op,
                            const std::vector<OpConfig> &legalConfigs) {
   return llvm::TypeSwitch<Operation *, OutputHints>(op)
@@ -85,24 +77,23 @@ OutputHints getOutputHints(Operation *op,
         // Conv2d configs carry Conv2dConfig tied to output hint.
         return OutputHints{legalConfigs, /*attemptL1Sharding=*/true};
       })
-      .Case<ReshapeOp, PermuteOp>([&](auto) {
-        auto dramConfigs = filterNonSharded(legalConfigs);
-        return OutputHints{dramConfigs, /*attemptL1Sharding=*/false};
+      .Case<ReshapeOp, PermuteOp, ConcatenateHeadsOp>([&](auto) {
+        auto nonShardedConfigs = filterNonSharded(legalConfigs);
+        return OutputHints{nonShardedConfigs, /*attemptL1Sharding=*/false};
       })
       .Default([&](Operation *) {
-        // Default: NULL hint (backend decides sharding) + L1-interleaved
-        // (explicit) + DRAM configs.
+        // Use all legalConfigs as output hints, plus NULL hint.
+        // This gives elementwise ops access to sharded output configs
+        // that the backend can validate (not just interleaved/DRAM).
         OutputHints result;
         result.attemptL1Sharding = true;
 
         // NULL hint: backend decides output sharding from inputs.
         result.hints.push_back(OpConfig(TTNNLayoutAttr()));
 
-        // Add L1-interleaved and DRAM configs from legalConfigs.
+        // Add all configs from legalConfigs (sharded + interleaved + DRAM).
         for (const auto &cfg : legalConfigs) {
-          if (isL1Interleaved(cfg) || isDRAM(cfg)) {
-            result.hints.push_back(cfg);
-          }
+          result.hints.push_back(cfg);
         }
         return result;
       });

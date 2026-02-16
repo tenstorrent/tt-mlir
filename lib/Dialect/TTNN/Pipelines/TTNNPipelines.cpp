@@ -111,6 +111,7 @@ void createTTNNPipelineAnalysisPasses(
       TTNNGreedyLayoutPropagationOptions propagationOptions;
       propagationOptions.maxLegalLayouts = options.maxLegalLayouts;
       propagationOptions.rowMajorEnabled = options.rowMajorEnabled;
+      propagationOptions.beamWidth = 8;
       propagationOptions.insertMemReconfig = options.insertMemReconfig;
       propagationOptions.overrideOutputLayout = options.overrideOutputLayout;
       propagationOptions.overrideConv2dConfig = options.overrideConv2dConfig;

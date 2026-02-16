@@ -19,6 +19,8 @@ target_link_libraries(OptimizerTests
 if (TTMLIR_ENABLE_OPMODEL)
     add_mlir_unittest(OpModelStrategyTests
         TestOpModelStrategy.cpp
+        TestBeamSearch.cpp
+        TestReshardCandidates.cpp
         PARTIAL_SOURCES_INTENDED
     )
 

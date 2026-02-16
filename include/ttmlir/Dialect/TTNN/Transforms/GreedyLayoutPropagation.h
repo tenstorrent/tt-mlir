@@ -19,6 +19,7 @@ struct TTIRToTTNNDevicePipelineOptions;
 struct TTNNGreedyLayoutPropagationOptions {
   int64_t maxLegalLayouts = 64;
   bool rowMajorEnabled = false;
+  int64_t beamWidth = 8;
   llvm::StringMap<InsertMemReconfigParams> insertMemReconfig =
       llvm::StringMap<InsertMemReconfigParams>();
   llvm::StringMap<OutputLayoutOverrideParams> overrideOutputLayout =
