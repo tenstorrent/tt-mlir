@@ -1155,8 +1155,8 @@ void d2m::GenericOp::build(mlir::OpBuilder &builder,
         ttmlir::utils::concatInversePermutationMap(maps, /*reverse=*/true);
 
     SmallVector<int64_t> flattenedOperandGridShapes;
-    for (Value v :
-         llvm::reverse(llvm::to_vector(llvm::concat<Value>(inputs, outputs)))) {
+    const auto values = llvm::to_vector(llvm::concat<Value>(inputs, outputs));
+    for (Value v : llvm::reverse(values)) {
       auto shapedType = mlir::cast<ShapedType>(v.getType());
       ttcore::DeviceLayoutInterface layout =
           ttcore::getDeviceLayout(shapedType);

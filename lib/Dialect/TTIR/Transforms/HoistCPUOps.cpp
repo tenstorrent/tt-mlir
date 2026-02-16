@@ -223,32 +223,6 @@ performResultConversions(const ValuesVectorType &outputValues) {
   return resultTypes;
 }
 
-// Helper function to collect the operations producing the output values of a
-// set of operations.
-static OpsVectorType
-collectOutputProducers(const OpsVectorType &operations,
-                       const ValuesVectorType &outputValues) {
-  OpsVectorType outputProducers;
-  for (auto outputValue : outputValues) {
-    auto *definingOp = outputValue.getDefiningOp();
-
-    TT_assertv(definingOp, "Output value does not have a defining operation.");
-
-    TT_assertv(llvm::is_contained(operations, definingOp),
-               "Output value's defining operation is not in the hoisted ops "
-               "set.");
-
-    TT_assertv(!mlir::isa<DestinationStyleOpInterface>(definingOp),
-               "DPS ops as output producers are not supported.");
-
-    TT_assertv(definingOp->getNumResults() == 1L,
-               "Output producer ops with multiple results are not supported.");
-
-    outputProducers.push_back(definingOp);
-  }
-  return outputProducers;
-}
-
 // Helper function to convert results of callOp back to original types,
 // inserting conversion ops as needed.
 static void
@@ -333,7 +307,7 @@ static func::FuncOp createCPUHoistedFunctionDefinition(
     mlir::MLIRContext *context, mlir::Location loc,
     CPUHoistedOpsDescriptor &descriptor,
     const ValuesVectorType &convertedInputArguments,
-    const TypesVectorType &resultTypes, const OpsVectorType &outputProducers) {
+    const TypesVectorType &resultTypes) {
   // Determine argument types from input arguments.
   const TypesVectorType argumentTypes =
       llvm::map_to_vector(convertedInputArguments, [](mlir::Value value) {
@@ -357,7 +331,6 @@ static func::FuncOp createCPUHoistedFunctionDefinition(
   builder.setInsertionPointToStart(block);
 
   mlir::IRMapping mapping;
-  OpsVectorType clonedOutputProducers;
 
   // Clone each operation, replacing input operands with block arguments.
   // We iterate in the same order as collectInputArguments, so incrementing
@@ -399,19 +372,14 @@ static func::FuncOp createCPUHoistedFunctionDefinition(
 
     // Convert constant op value attributes to match the converted result type.
     convertConstantOpValue(clonedOp);
-
-    // Check if this is the output producing op. If it is, keep track of it
-    // for later.
-    if (llvm::is_contained(outputProducers, opToHoist)) {
-      clonedOutputProducers.push_back(clonedOp);
-    }
   }
 
-  // Add return op to the function from the cloned output producers.
-  const ValuesVectorType returnValues =
-      llvm::map_to_vector(clonedOutputProducers, [](mlir::Operation *op) {
-        return mlir::cast<mlir::Value>(op->getResult(0));
-      });
+  // Build return values by looking up the cloned counterpart of each output
+  // value through the IRMapping populated during cloning.
+  ValuesVectorType returnValues;
+  for (auto outputValue : descriptor.outputValues) {
+    returnValues.push_back(mapping.lookup(outputValue));
+  }
 
   builder.create<mlir::func::ReturnOp>(loc, returnValues);
 
@@ -516,9 +484,6 @@ static void hoistOperationsToFunction(CPUHoistedOpsDescriptor &descriptor,
                                       mlir::ModuleOp cpuModule) {
   mlir::MLIRContext *context = deviceModule.getContext();
 
-  const OpsVectorType outputProducers =
-      collectOutputProducers(descriptor.operations, descriptor.outputValues);
-
   const TypesVectorType resultTypes =
       performResultConversions(descriptor.outputValues);
 
@@ -532,7 +497,7 @@ static void hoistOperationsToFunction(CPUHoistedOpsDescriptor &descriptor,
   // Create the CPU-hoisted function definition.
   func::FuncOp funcDefinition = createCPUHoistedFunctionDefinition(
       cpuModule->getContext(), cpuModule->getLoc(), descriptor,
-      convertedInputArguments, resultTypes, outputProducers);
+      convertedInputArguments, resultTypes);
 
   auto funcHash =
       funcDefinition->getAttrOfType<mlir::StringAttr>("func_hash").getValue();
@@ -623,7 +588,8 @@ CPUHoistAnalyzerType singleOpHoistAnalyzer(ShouldHoistOpType predicate) {
     funcOp.walk([&](mlir::Operation *nestedOp) {
       if (predicate(nestedOp)) {
         OpsVectorType operations{nestedOp};
-        ValuesVectorType outputValues{nestedOp->getResult(0)};
+        ValuesVectorType outputValues{nestedOp->getResults().begin(),
+                                      nestedOp->getResults().end()};
 
         // Using the op name as the CPU-hoisted function's suffix.
         hoistedOpsDescriptors.emplace_back(

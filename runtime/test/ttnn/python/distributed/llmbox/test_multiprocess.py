@@ -68,6 +68,10 @@ def compare_system_descriptors(
             )
             return
 
+        # Multihost descriptors can have different chip channel assignments
+        if path == "system_desc.chip_channels":
+            return
+
         if isinstance(obj1, dict):
             keys1 = set(obj1.keys())
             keys2 = set(obj2.keys())
