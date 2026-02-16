@@ -223,15 +223,27 @@ TEST_F(OpModelStrategyTest, ElementwiseOpL1InterleavedIsExplicit) {
   EXPECT_TRUE(foundL1Interleaved);
 }
 
-TEST_F(OpModelStrategyTest, MatmulOpPassesFullLegalConfigs) {
+TEST_F(OpModelStrategyTest, MatmulOpFiltersL1Interleaved) {
   auto matmulOp = createMockMatmulOp();
   auto legalConfigs = createElementwiseLegalConfigs();
 
   OutputHints hints = getOutputHints(matmulOp, legalConfigs);
 
   EXPECT_TRUE(hints.attemptL1Sharding);
-  // Should pass through all legal configs as hints.
-  EXPECT_EQ(hints.hints.size(), legalConfigs.size());
+
+  // L1-interleaved configs are filtered out for matmul (no program config
+  // generated -> HiFi4 fallback). Remaining: DRAM + L1-sharded variants.
+  EXPECT_LT(hints.hints.size(), legalConfigs.size());
+
+  // No hint should be L1-interleaved.
+  for (const auto &hint : hints.hints) {
+    if (hint.outputLayout && hint.outputLayout.getBufferType() == BufferType::L1
+        && hint.outputLayout.getMemLayout() &&
+        hint.outputLayout.getMemLayout().getValue() ==
+            TensorMemoryLayout::Interleaved) {
+      FAIL() << "Matmul hints should not contain L1-interleaved configs";
+    }
+  }
 }
 
 TEST_F(OpModelStrategyTest, ReshapeOpSkipsL1Sharding) {
