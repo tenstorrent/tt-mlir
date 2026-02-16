@@ -1510,6 +1510,65 @@ void TileUntilizeBlockOp::getEffects(
                        0, true, mlir::SideEffects::DefaultResource::get());
 }
 
+template <typename Pred>
+static mlir::OpFoldResult foldScalarIdentity(mlir::Operation *op,
+                                             mlir::Attribute rhsAttr,
+                                             Pred isIdentity) {
+  if (!rhsAttr) {
+    return nullptr;
+  }
+  if (auto floatAttr = mlir::dyn_cast<mlir::FloatAttr>(rhsAttr)) {
+    return isIdentity(floatAttr.getValue()) ? op->getOperand(0) : nullptr;
+  }
+  if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(rhsAttr)) {
+    return isIdentity(intAttr.getValue()) ? op->getOperand(0) : nullptr;
+  }
+  return nullptr;
+}
+
+mlir::OpFoldResult TileAddOp::fold(FoldAdaptor adaptor) {
+  return foldScalarIdentity(getOperation(), adaptor.getRhs(),
+                            [](auto v) { return v.isZero(); });
+}
+
+mlir::OpFoldResult TileSubOp::fold(FoldAdaptor adaptor) {
+  return foldScalarIdentity(getOperation(), adaptor.getRhs(),
+                            [](auto v) { return v.isZero(); });
+}
+
+mlir::OpFoldResult TileMulOp::fold(FoldAdaptor adaptor) {
+  return foldScalarIdentity(getOperation(), adaptor.getRhs(), [](auto v) {
+    using T = std::decay_t<decltype(v)>;
+    if constexpr (std::is_same_v<T, mlir::APFloat>) {
+      return v.isExactlyValue(1.0);
+    } else {
+      return v.isOne();
+    }
+  });
+}
+
+mlir::OpFoldResult TileDivOp::fold(FoldAdaptor adaptor) {
+  return foldScalarIdentity(getOperation(), adaptor.getRhs(), [](auto v) {
+    using T = std::decay_t<decltype(v)>;
+    if constexpr (std::is_same_v<T, mlir::APInt>) {
+      return v.isOne();
+    } else {
+      return v.isExactlyValue(1.0);
+    }
+  });
+}
+
+mlir::OpFoldResult TilePowOp::fold(FoldAdaptor adaptor) {
+  return foldScalarIdentity(getOperation(), adaptor.getRhs(), [](auto v) {
+    using T = std::decay_t<decltype(v)>;
+    if constexpr (std::is_same_v<T, mlir::APInt>) {
+      return v.isOne();
+    } else {
+      return v.isExactlyValue(1.0);
+    }
+  });
+}
+
 //===----------------------------------------------------------------------===//
 // BlockMaskOp
 //===----------------------------------------------------------------------===//
