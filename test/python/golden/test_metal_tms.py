@@ -305,3 +305,63 @@ def test_reshape(
         custom_pipeline="ttir-to-ttmetal-pipeline",
         **get_request_kwargs(request),
     )
+
+
+# ==================== ARANGE TESTS ====================
+
+
+@pytest.mark.parametrize(
+    "shape,start,step",
+    [
+        ((1, 32), 0, 1),  # Single tile
+        ((1, 64), 32, 2),  # Two tiles
+        ((1, 96), 64, 1),  # Three tiles
+        ((1, 128), 0, 1),  # Four tiles (from GPT model)
+    ],
+)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_arange(
+    shape: tuple,
+    start: int,
+    step: int,
+    dtype: torch.dtype,
+    target: str,
+    request,
+    device,
+):
+    """Test arange operation on TTMetal backend.
+
+    Tests tiled arange implementation with various shapes and parameters.
+    """
+    num_elements = shape[0] * shape[1]
+    end = start + num_elements * step
+    arange_dimension = 1  # Arange is always on the last dimension
+
+    golden = torch.arange(start, end, step, dtype=dtype).reshape(shape)
+
+    def arange_module(builder: TTIRBuilder):
+        @builder.func([shape], [dtype])
+        def arange(
+            in0: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: List[str] = None,
+        ):
+            result = builder.arange(
+                shape=list(shape),
+                dtype=dtype,
+                start=start,
+                end=end,
+                step=step,
+                arange_dimension=arange_dimension,
+                unit_attrs=unit_attrs,
+            )
+            return result
+
+    compile_and_execute_ttir(
+        arange_module,
+        target=target,
+        device=device,
+        custom_pipeline="ttir-to-ttmetal-pipeline",
+        **get_request_kwargs(request),
+    )

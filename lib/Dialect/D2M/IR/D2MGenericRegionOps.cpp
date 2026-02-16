@@ -838,6 +838,129 @@ bool RemoteLoadOp::bufferizesToMemoryRead(
   return operand.get() == getMemref();
 }
 
+//===----------------------------------------------------------------------===//
+// FillArangeTileOp Implementation
+//===----------------------------------------------------------------------===//
+
+void FillArangeTileOp::getEffects(
+    mlir::SmallVectorImpl<
+        mlir::SideEffects::EffectInstance<mlir::MemoryEffects::Effect>>
+        &effects) {
+  effects.emplace_back(mlir::MemoryEffects::Write::get(), &getOutputMutable(),
+                       0, true, mlir::SideEffects::DefaultResource::get());
+}
+
+//===----------------------------------------------------------------------===//
+// ArangeBlockOp Implementation
+//===----------------------------------------------------------------------===//
+
+mlir::LogicalResult ArangeBlockOp::verify() {
+  // Output and index_tile_tensor must have the same element type category
+  // (both tensor or both memref).
+  Type outputType = getOutput().getType();
+  Type indexType = getIndexTileTensor().getType();
+
+  bool outputIsTensor = mlir::isa<mlir::RankedTensorType>(outputType);
+  bool indexIsTensor = mlir::isa<mlir::RankedTensorType>(indexType);
+
+  if (outputIsTensor != indexIsTensor) {
+    return emitOpError(
+        "output and index_tile_tensor must both be tensors or both be memrefs");
+  }
+  return mlir::success();
+}
+
+void ArangeBlockOp::getEffects(
+    mlir::SmallVectorImpl<
+        mlir::SideEffects::EffectInstance<mlir::MemoryEffects::Effect>>
+        &effects) {
+  // Read and write index tile tensor (written by
+  // WriteFullLinearIndexTileOp, then read for tile arithmetic).
+  effects.emplace_back(mlir::MemoryEffects::Read::get(),
+                       &getIndexTileTensorMutable(), 0, true,
+                       mlir::SideEffects::DefaultResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Write::get(),
+                       &getIndexTileTensorMutable(), 0, true,
+                       mlir::SideEffects::DefaultResource::get());
+  // Write to the output tensor.
+  effects.emplace_back(mlir::MemoryEffects::Write::get(), &getOutputMutable(),
+                       0, true, mlir::SideEffects::DefaultResource::get());
+}
+
+bool ArangeBlockOp::bufferizesToMemoryRead(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  return operand.get() == getIndexTileTensor();
+}
+
+bool ArangeBlockOp::bufferizesToMemoryWrite(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  return operand.get() == getOutput() || operand.get() == getIndexTileTensor();
+}
+
+mlir::bufferization::AliasingValueList
+ArangeBlockOp::getAliasingValues(mlir::OpOperand &operand,
+                                 const mlir::bufferization::AnalysisState &) {
+  // The result aliases the output operand (DPS style).
+  if (operand.get() == getOutput()) {
+    return {{getResult(), mlir::bufferization::BufferRelation::Equivalent,
+             /*isDefinite=*/true}};
+  }
+  return {};
+}
+
+mlir::FailureOr<mlir::bufferization::BufferLikeType>
+ArangeBlockOp::getBufferType(mlir::Value value,
+                             const mlir::bufferization::BufferizationOptions &,
+                             const mlir::bufferization::BufferizationState &,
+                             ::llvm::SmallVector<mlir::Value> &) {
+  // The result type is derived from the output tensor's type.
+  auto tensorType =
+      mlir::dyn_cast<mlir::RankedTensorType>(getOutput().getType());
+  if (!tensorType) {
+    // Already a memref.
+    return mlir::bufferization::BufferLikeType(
+        mlir::cast<mlir::MemRefType>(getOutput().getType()));
+  }
+  auto memrefType =
+      mlir::bufferization::getMemRefTypeWithStaticIdentityLayout(tensorType);
+  return mlir::bufferization::BufferLikeType(memrefType);
+}
+
+// NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
+mlir::LogicalResult ArangeBlockOp::bufferize(
+    mlir::RewriterBase &rewriter,
+    const mlir::bufferization::BufferizationOptions &options,
+    mlir::bufferization::BufferizationState &state) {
+  // Skip if already bufferized.
+  if (!mlir::isa<mlir::RankedTensorType>(getOutput().getType())) {
+    return mlir::failure();
+  }
+
+  // Get bufferized versions of the operands.
+  auto maybeOutputBuffer =
+      mlir::bufferization::getBuffer(rewriter, getOutput(), options, state);
+  if (failed(maybeOutputBuffer)) {
+    return maybeOutputBuffer;
+  }
+
+  auto maybeIndexTileBuffer = mlir::bufferization::getBuffer(
+      rewriter, getIndexTileTensor(), options, state);
+  if (failed(maybeIndexTileBuffer)) {
+    return maybeIndexTileBuffer;
+  }
+
+  // Create new op with memref operands.
+  auto newOp = rewriter.create<ArangeBlockOp>(
+      getLoc(), *maybeIndexTileBuffer, *maybeOutputBuffer, getNumElements(),
+      getStart(), getStep());
+
+  // Replace uses and erase (DPS pattern - result aliases output buffer).
+  mlir::bufferization::replaceOpWithBufferizedValues(rewriter, getOperation(),
+                                                     newOp.getResult());
+  return mlir::success();
+}
+// NOLINTEND(clang-analyzer-core.StackAddressEscape)
+
 bool RemoteLoadOp::bufferizesToMemoryWrite(
     mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
   // Only result-form (no CB) operations should exist during bufferization

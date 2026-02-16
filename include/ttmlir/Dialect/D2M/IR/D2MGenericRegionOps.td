@@ -1410,7 +1410,7 @@ def D2M_RemoteStoreOp : D2M_GenericRegionDatamovementOp<"remote_store",
         llvm_unreachable("getMemRefType() called on tensor operand, use getShapedType() instead");
       }
     }];
-  }
+}
 
 //===----------------------------------------------------------------------===//
 // D2M Generic Region Semaphore Ops (Used in TTMetal Lowering)
@@ -2101,4 +2101,89 @@ def D2M_WriteColMaskTileOp : D2M_GenericRegionOp<"write_col_mask_tile",
     let assemblyFormat = [{ `(` $validCols `)` `to` $output attr-dict `:` type($validCols) `,` type($output) }];
 }
 
+//===----------------------------------------------------------------------===//
+// D2M Arange Ops
+//===----------------------------------------------------------------------===//
+
+def D2M_FillArangeTileOp : D2M_GenericRegionOp<"fill_arange_tile",
+  [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
+  let summary = "Write full linear index pattern to a tile CB";
+  let description = [{
+      The `fill_arange_tile` operation writes a linear index pattern
+      to a tile CB, where element[i,j] = i * 32 + j (the linear index as float).
+
+      This is used for arange operations. Each element gets its linear index value
+      (0-1023) within the tile, which can be used to compute global indices.
+
+      The resulting tile looks like:
+      [[  0,   1,   2, ...,  31],
+        [ 32,  33,  34, ...,  63],
+        [ 64,  65,  66, ...,  95],
+        ...
+        [992, 993, 994, ..., 1023]]
+  }];
+
+  let arguments = (ins AnyTypeOf<[AnyRankedTensorOrMemRef, D2M_CB]>:$output);
+
+  let assemblyFormat = [{ `to` $output attr-dict `:` type($output) }];
+}
+
+def D2M_ArangeBlockOp : D2M_GenericRegionComputeOp<"arange_block",
+  [DestinationStyleOpInterface,
+  DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
+  DeclareOpInterfaceMethods<BufferizableOpInterface,
+    ["bufferizesToMemoryRead", "bufferizesToMemoryWrite", "bufferize",
+    "getAliasingValues", "getBufferType"]>,
+  D2M_SkipOpEltwiseFusionTrait]> {
+  let summary = "Generate arange values in a block/memref";
+  let description = [{
+      The `arange_block` operation fills a block/memref with arange values:
+      output[i] = start + step * i, where i is the linear index.
+
+      This op operates at the block level (memref of tiles).
+
+      The index_tile_tensor is a scratch tensor (1x1 tile) handled by
+      the FillArangeTileOp.
+
+      For each tile at position (tile_row, tile_col), the computation is:
+      1. tile_offset = (tile_row * num_tile_cols * 32 + tile_col) * 32
+      2. global_idx = tile_add(tile_offset, local_idx)
+      3. result = tile_add(tile_mul(global_idx, step), start)
+
+      Example:
+      ```mlir
+      %result = d2m.arange_block %output, %index_tile
+                        {num_elements = 64, start = 0, step = 1}
+          : (tensor<1x2x!ttcore.tile<32x32, f32>>,
+              tensor<1x1x!ttcore.tile<32x32, f32>>) -> tensor<1x2x!ttcore.tile<32x32, f32>>
+      ```
+  }];
+
+  let arguments = (ins
+      AnyRankedTensorOrMemRef:$index_tile_tensor,
+      AnyRankedTensorOrMemRef:$output,
+      I64Attr:$num_elements,
+      I64Attr:$start,
+      I64Attr:$step);
+
+  let results = (outs AnyRankedTensorOrMemRef:$result);
+
+  let builders = [
+    OpBuilder<(ins "Value":$indexTileTensor, "Value":$output,
+                    "int64_t":$numElements, "int64_t":$start, "int64_t":$step), [{
+      // Result type is the same as the output type.
+      Type resultType = output.getType();
+      build($_builder, $_state, resultType, indexTileTensor, output,
+            $_builder.getI64IntegerAttr(numElements),
+            $_builder.getI64IntegerAttr(start),
+            $_builder.getI64IntegerAttr(step));
+    }]>
+  ];
+
+  let extraClassDeclaration = [{
+    MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+  }];
+
+  let hasVerifier = 1;
+}
 #endif // TTMLIR_TTMLIR_DIALECT_D2M_D2MGENERICREGIONOPS_TD
