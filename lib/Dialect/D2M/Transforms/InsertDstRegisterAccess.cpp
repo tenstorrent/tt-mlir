@@ -39,7 +39,7 @@ struct OperationTypes {
 static SmallVector<Value> collectAncestorLoopIVs(Operation *op) {
   SmallVector<Value> loopIVs;
   Operation *current = op->getParentOp();
-  while (current) {
+  while (current && !mlir::isa<d2m::GenericOp>(current)) {
     if (auto scfFor = mlir::dyn_cast<scf::ForOp>(current)) {
       loopIVs.push_back(scfFor.getInductionVar());
     } else if (auto affineFor = mlir::dyn_cast<affine::AffineForOp>(current)) {
@@ -77,20 +77,23 @@ static bool valueDependsOnIV(Value value, Value iv) {
   return valueDependsOnIV(value, iv, visited);
 }
 
+// Returns the subset of map operands that are actually referenced by the affine
+// map expressions. An operand is considered used if it appears as a dimension
+// or symbol in any of the map's result expressions.
 static SmallVector<Value> getUsedAffineMapOperands(AffineMap map,
                                                    ValueRange mapOperands) {
-  SmallVector<char> usedOperands(mapOperands.size(), 0);
+  SmallVector<bool> usedOperands(mapOperands.size(), false);
   for (AffineExpr resultExpr : map.getResults()) {
     resultExpr.walk([&](AffineExpr expr) {
       if (auto dimExpr = mlir::dyn_cast<AffineDimExpr>(expr)) {
         unsigned pos = dimExpr.getPosition();
         if (pos < usedOperands.size()) {
-          usedOperands[pos] = 1;
+          usedOperands[pos] = true;
         }
       } else if (auto symbolExpr = mlir::dyn_cast<AffineSymbolExpr>(expr)) {
         unsigned pos = map.getNumDims() + symbolExpr.getPosition();
         if (pos < usedOperands.size()) {
-          usedOperands[pos] = 1;
+          usedOperands[pos] = true;
         }
       }
     });
@@ -105,10 +108,13 @@ static SmallVector<Value> getUsedAffineMapOperands(AffineMap map,
   return usedMapOperands;
 }
 
+// accessDependsOnIV overloads here determine if various load/store ops depend
+// on a particular loop induction variable.
 static bool accessDependsOnIV(affine::AffineLoadOp loadOp, Value iv) {
   if (valueDependsOnIV(loadOp.getMemRef(), iv)) {
     return true;
   }
+  // Determine subset of affine load indices that load is actually affected by.
   SmallVector<Value> mapOperands =
       getUsedAffineMapOperands(loadOp.getAffineMap(), loadOp.getMapOperands());
   return llvm::any_of(mapOperands,
@@ -119,6 +125,7 @@ static bool accessDependsOnIV(affine::AffineStoreOp storeOp, Value iv) {
   if (valueDependsOnIV(storeOp.getMemRef(), iv)) {
     return true;
   }
+  // Determine subset of affine store indices that load is actually affected by.
   SmallVector<Value> mapOperands = getUsedAffineMapOperands(
       storeOp.getAffineMap(), storeOp.getMapOperands());
   return llvm::any_of(mapOperands,
@@ -141,6 +148,8 @@ static bool accessDependsOnIV(memref::StoreOp storeOp, Value iv) {
                       [&](Value idx) { return valueDependsOnIV(idx, iv); });
 }
 
+// Collects all loop IVs in scope for a load/store op, and returns the
+// subset of IVs that actually affect the load/store op.
 template <typename LoadOrStoreTy>
 static SmallVector<Value> getGuardLoopIVs(LoadOrStoreTy loadOrStore,
                                           Operation *contextOp) {
@@ -453,11 +462,11 @@ public:
         Operation *loopOp = nullptr;
         Region *loopRegion = nullptr;
 
-        if (auto affineFor = mlir::dyn_cast<affine::AffineForOp>(op);
+        if (auto affineFor = dyn_cast<affine::AffineForOp>(op);
             affineFor && affineFor->hasAttr("d2m.linalg_root")) {
           loopOp = affineFor;
           loopRegion = &affineFor.getRegion();
-        } else if (auto scfFor = mlir::dyn_cast<scf::ForOp>(op);
+        } else if (auto scfFor = dyn_cast<scf::ForOp>(op);
                    scfFor && scfFor->hasAttr("d2m.linalg_root")) {
           loopOp = scfFor;
           loopRegion = &scfFor.getRegion();
@@ -515,7 +524,7 @@ public:
     // For affine.for loops (including scheduled ones): insert before the loop
     // to maintain compatibility with linalg.generic bodies that can't access
     // values defined inside loop bodies.
-    bool isScfForLoop = mlir::isa<scf::ForOp>(outermostInnerComputeLoop);
+    bool isScfForLoop = isa<scf::ForOp>(outermostInnerComputeLoop);
     AcquireDstOp acquireDst =
         insertAcquireDst(rewriter, loc, region, copyInfos,
                          outermostInnerComputeLoop, dstCapacity,
@@ -547,13 +556,13 @@ public:
     Block &block = genericRegion->getBlocks().front();
 
     block.walk([&](Operation *op) {
-      if (mlir::isa<linalg::GenericOp>(op)) {
+      if (isa<linalg::GenericOp>(op)) {
         types.hasLinalgGeneric = true;
-      } else if (auto affineFor = mlir::dyn_cast<affine::AffineForOp>(op)) {
+      } else if (auto affineFor = dyn_cast<affine::AffineForOp>(op)) {
         if (affineFor->hasAttr("d2m.linalg_root")) {
           types.hasMarkedAffineLoops = true;
         }
-      } else if (auto scfFor = mlir::dyn_cast<scf::ForOp>(op)) {
+      } else if (auto scfFor = dyn_cast<scf::ForOp>(op)) {
         // Also check scf.for loops (scheduled path).
         if (scfFor->hasAttr("d2m.linalg_root")) {
           types.hasMarkedAffineLoops = true;
@@ -614,10 +623,9 @@ public:
       if (insertInsideLoop) {
         // For scheduled (scf.for) path: insert inside the loop body for
         // per-iteration DST allocation.
-        if (auto scfFor =
-                mlir::dyn_cast<scf::ForOp>(outermostInnerComputeLoop)) {
+        if (auto scfFor = dyn_cast<scf::ForOp>(outermostInnerComputeLoop)) {
           rewriter.setInsertionPointToStart(scfFor.getBody());
-        } else if (auto affineFor = mlir::dyn_cast<affine::AffineForOp>(
+        } else if (auto affineFor = dyn_cast<affine::AffineForOp>(
                        outermostInnerComputeLoop)) {
           rewriter.setInsertionPointToStart(affineFor.getBody());
         } else {
@@ -798,7 +806,7 @@ public:
     BlockArgument blockArg = lookThroughSubView(loadOrStore.getMemRef());
 
     SmallVector<Value> guardIVs;
-    if (blockArg && !gOp.isScratchInput(blockArg.getArgNumber())) {
+    if (blockArg) {
       guardIVs = getGuardLoopIVs(loadOrStore, outermostInnerComputeLoop);
     }
 
@@ -1139,7 +1147,7 @@ public:
     SmallVector<affine::AffineForOp> enclosingLoops;
     Operation *current = op->getParentOp();
     while (current) {
-      if (auto affineFor = mlir::dyn_cast<affine::AffineForOp>(current)) {
+      if (auto affineFor = dyn_cast<affine::AffineForOp>(current)) {
         enclosingLoops.push_back(affineFor);
       }
       current = current->getParentOp();
@@ -1194,7 +1202,7 @@ public:
   static void
   fixDstIntermediateResults(PatternRewriter &rewriter, Location loc, Value dst,
                             const DstIntermediatesMap &dstIntermediates) {
-    auto dstType = mlir::dyn_cast<MemRefType>(dst.getType());
+    auto dstType = dyn_cast<MemRefType>(dst.getType());
     if (!dstType) {
       return;
     }
