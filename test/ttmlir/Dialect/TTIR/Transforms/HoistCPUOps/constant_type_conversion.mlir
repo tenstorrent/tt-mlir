@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttcore-wrap-device-module --cpu-hoist-transform --canonicalize -o %t %s
+// RUN: ttmlir-opt --ttcore-wrap-device-module --cpu-hoist-manually-tagged --canonicalize -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
 // Test that constant ops with f64 and i64 types are properly converted to f32 and i32

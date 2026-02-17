@@ -24,16 +24,14 @@ def TTIRImplicitBroadcastFold: Pass<"ttir-implicit-broadcast-fold", "::mlir::Mod
   }];
 }
 
-def CPUHoistTransform: Pass<"cpu-hoist-transform", "::mlir::ModuleOp">
+def CPUHoistManuallyTaggedTransform: Pass<"cpu-hoist-manually-tagged", "::mlir::ModuleOp">
 {
-  let summary = "Transform to perform hoist mechanics on any ops marked to be hoisted for CPU lowering";
+  let summary = "Hoist ops manually tagged with ttir.should_hoist to the CPU module";
   let description = [{
-    Transform pass which runs an analysis pass to find ops which should be hoisted, and then hoists those ops.
-    The analysis behaviour can be customized when instantiating the pass.
-
-    Each of the ops / sets of ops which are hoisted are moved into their own function in a CPU module.
-    A function declaration is created in the device module, and the original ops are replaced with a
-    call to that function declaration.
+    Transform pass which finds ops tagged with the `ttir.should_hoist` attribute
+    and hoists them into their own function in the CPU module. A function declaration
+    is created in the device module, and the original ops are replaced with a call
+    to that function declaration.
 
     Example:
     input:
@@ -41,7 +39,7 @@ def CPUHoistTransform: Pass<"cpu-hoist-transform", "::mlir::ModuleOp">
         builtin.module {
           func.func @add(%arg0: tensor<32x32xbf16>, %arg1: tensor<32x32xbf16>) -> tensor<32x32xbf16> {
             %0 = ttir.empty() : tensor<32x32xbf16>
-            %1 = "ttir.add"(%arg0, %arg1, %0) : (tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16> loc("add_op1")
+            %1 = "ttir.add"(%arg0, %arg1, %0) {ttir.should_hoist} : (tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16> loc("add_op1")
             return %1 : tensor<32x32xbf16>
           }
         }
@@ -68,8 +66,33 @@ def CPUHoistTransform: Pass<"cpu-hoist-transform", "::mlir::ModuleOp">
   }];
 
   let dependentDialects = ["::mlir::tt::ttcore::TTCoreDialect"];
+}
 
-  let constructor = "createCPUHoistManuallyTaggedOpsTransform()";
+def CPUHoistNonLowerableSHLOOpsTransform: Pass<"cpu-hoist-non-lowerable-shlo-ops", "::mlir::ModuleOp">
+{
+  let summary = "Hoist non-lowerable StableHLO ops to the CPU module";
+  let description = [{
+    Transform pass which finds StableHLO ops that cannot be lowered to TTIR and
+    hoists them to the CPU module. The allow-list of ops to hoist is hardcoded;
+    before adding an op, make sure it is supported in StableHLO to TOSA/Linalg
+    conversion.
+
+    When StableHLO support is not compiled in, this pass is a no-op.
+  }];
+
+  let dependentDialects = ["::mlir::tt::ttcore::TTCoreDialect"];
+}
+
+def CPUHoistConstEvalTransform: Pass<"cpu-hoist-const-eval", "::mlir::ModuleOp">
+{
+  let summary = "Hoist ops from const-eval subgraphs to the CPU module";
+  let description = [{
+    Transform pass which finds const-eval functions and hoists ops within them
+    into the CPU module functions. This improves precision (CPU uses 32-bit types)
+    and reduces peak DRAM/L1 usage by keeping intermediate tensors in host memory.
+  }];
+
+  let dependentDialects = ["::mlir::tt::ttcore::TTCoreDialect"];
 }
 
 def ElementTypeNormalization: Pass<"ttir-element-type-normalization", "::mlir::ModuleOp">
