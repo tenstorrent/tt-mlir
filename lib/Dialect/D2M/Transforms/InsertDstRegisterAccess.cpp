@@ -432,17 +432,15 @@ public:
       WalkResult walkResult =
           block.walk([&](linalg::GenericOp linalgGenericOp) {
             if (!useTileMatmul && hasTileMatmul(linalgGenericOp)) {
-              // Only use tile matmul block rewrite when not in explicit
-              // datamovement form. Explicit datamovement form should fall
-              // through to regular linalg-to-affine conversion.
-              if (!gOp.isExplicitDatamovementForm()) {
-                if (rewriteTileMatmulAsTileMatmulBlock(
-                        rewriter, gOp, *genericRegion, linalgGenericOp,
-                        dstCapacity, modified)) {
-                  return WalkResult::interrupt();
-                }
-                return WalkResult::advance();
+              // In useTileMatmul=false mode, tile_matmul linalg.generic ops
+              // are handled here, including when the parent GenericOp is in
+              // explicit datamovement form.
+              if (rewriteTileMatmulAsTileMatmulBlock(
+                      rewriter, gOp, *genericRegion, linalgGenericOp,
+                      dstCapacity, modified)) {
+                return WalkResult::interrupt();
               }
+              return WalkResult::advance();
             }
 
             // This should not happen - all other linalg ops should have been
