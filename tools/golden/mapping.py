@@ -3950,7 +3950,7 @@ def ttir_mesh_shard_golden(
 
     if shard_direction == ttcore.ir.MeshShardDirection.FullToShard:
         if shard_type == ttcore.ir.MeshShardType.Replicate:
-            return apply_sharding(input, mesh_shape)
+            shard_dims = [None] * len(mesh_shape)
         return apply_sharding(input, mesh_shape, shard_dims)
     elif shard_direction == ttcore.ir.MeshShardDirection.ShardToFull:
         if shard_type == ttcore.ir.MeshShardType.Replicate:
