@@ -332,9 +332,14 @@ public:
           ttnn::KernelCBFormatAttr::get(ctx, i, dtype, pageSize);
 
       ttnn::KernelCBGlobalBufferAddressOfTensorAttr globalCBIndexOfTensor;
+      // Alias CBs for direct cast inputs, or for memref.alloc values that are
+      // not consumed by a stream_layout op.
       if (mlir::dyn_cast_if_present<ttir::TTNNMetalLayoutCastOp>(
-              cb.getDefiningOp()) || mlir::dyn_cast_if_present<memref::AllocOp>(
-              cb.getDefiningOp())) {
+              cb.getDefiningOp()) ||
+          (mlir::dyn_cast_if_present<memref::AllocOp>(cb.getDefiningOp()) &&
+           llvm::none_of(cb.getUsers(), [](Operation *user) {
+             return mlir::isa<d2m::StreamLayoutOp>(user);
+           }))) {
         // Input is not streamed, thus buffer must be aliased.
         TT_assertv(ttcore::getMemorySpace(cb_memref) ==
                        ttcore::MemorySpace::DeviceL1,
