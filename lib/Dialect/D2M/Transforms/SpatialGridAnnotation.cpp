@@ -35,33 +35,10 @@ static AffineMap buildPhysicalToVirtualMap(MLIRContext *ctx, int64_t startY,
   return ttmlir::d2m::utils::grids::prependResult(baseMap, c0);
 }
 
-// Build virtual -> physical grid mapping for layout index_map.
-// First two dims are grid: (vy, vx) -> (vy + startY, vx + startX).
-// Remaining dims (shard) are identity.
-// So (d0, d1, d2, ...) -> (d0+startY, d1+startX, d2, ...).
-static AffineMap buildVirtualToPhysicalMap(MLIRContext *ctx, unsigned rank,
-                                           int64_t startY, int64_t startX) {
-  SmallVector<AffineExpr> results;
-  auto sy = getAffineConstantExpr(startY, ctx);
-  auto sx = getAffineConstantExpr(startX, ctx);
-  for (unsigned i = 0; i < rank; ++i) {
-    auto di = getAffineDimExpr(i, ctx);
-    if (i == 0) {
-      results.push_back(di + sy);
-    } else if (i == 1) {
-      results.push_back(di + sx);
-    } else {
-      results.push_back(di);
-    }
-  }
-  return AffineMap::get(rank, 0, results, ctx);
-}
-
-// Update the type of the value (spatial output operand) to use a layout that
-// includes the virtual-to-physical mapping for the given core range start.
-// This allows getPhysicalGridShape and allocation to see the correct core
-// range. Also propagates the new type to all users that require their result
-// type to match (RemoteStoreOp, GenericOp) so the verifier does not fail.
+// Update the type of the value (spatial output operand) so the layout's
+// index_map includes the core range offset for the first two (grid) dimensions.
+// Composes with the existing index_map instead of replacing it, so streaming
+// or other mappings are preserved.
 static void updateOutputOperandType(Value outputValue, int64_t startY,
                                     int64_t startX) {
   auto tensorType = mlir::dyn_cast<RankedTensorType>(outputValue.getType());
@@ -77,9 +54,28 @@ static void updateOutputOperandType(Value outputValue, int64_t startY,
 
   MLIRContext *ctx = tensorType.getContext();
   unsigned rank = tensorType.getRank();
-  AffineMap virToPhysMap = buildVirtualToPhysicalMap(ctx, rank, startY, startX);
-  ttcore::MetalLayoutAttr newLayout =
-      oldLayout.withIndexAffineMap(virToPhysMap);
+  AffineMap oldMap = oldLayout.getIndexAffineMapOrIdentity(rank);
+  if (oldMap.getNumResults() < 2) {
+    return;
+  }
+  // Add (startY, startX) to the first two result dimensions of the existing
+  // map so we keep any existing mapping (e.g. streaming) and add the grid
+  // offset.
+  SmallVector<AffineExpr> newResults;
+  auto sy = getAffineConstantExpr(startY, ctx);
+  auto sx = getAffineConstantExpr(startX, ctx);
+  for (unsigned i = 0; i < oldMap.getNumResults(); ++i) {
+    AffineExpr e = oldMap.getResult(i);
+    if (i == 0) {
+      e = e + sy;
+    } else if (i == 1) {
+      e = e + sx;
+    }
+    newResults.push_back(e);
+  }
+  AffineMap composedMap = AffineMap::get(
+      oldMap.getNumDims(), oldMap.getNumSymbols(), newResults, ctx);
+  ttcore::MetalLayoutAttr newLayout = oldLayout.withIndexAffineMap(composedMap);
   RankedTensorType newType = RankedTensorType::get(
       tensorType.getShape(), tensorType.getElementType(), newLayout);
 
@@ -145,16 +141,29 @@ void annotateSpatialOp(d2m::SpatialOp spatialOp) {
     }
     d2m::GenericOp genericOp = *genericOps.begin();
 
-    SmallVector<int64_t> virtualGridShape = {sizeY, sizeX};
-    // Single core at (0,0): use empty grid mapping so GenericOp verifier does
-    // not require output to have a non-empty virtualization map (identity is
-    // stored as empty in MetalLayoutAttr::withIndexAffineMap).
+    // Preserve the generic's existing grid shape; only add physical-to-virtual
+    // mapping for the core range. Do not replace grid shape with core range
+    // size.
+    ArrayRef<int64_t> existingShape = genericOp.getGrid().getShape();
+    SmallVector<int64_t> virtualGridShape(existingShape.begin(),
+                                          existingShape.end());
+    // Use empty grid mapping only when the core range starts at (0,0). Then
+    // the output gets identity virtual→physical (stored as empty), and the
+    // verifier would require a non-empty output map if we added a grid mapping.
+    // When the core is e.g. (2,2), we must add the mapping so the generic is
+    // known to run on that physical core, and the output layout (d0+2, d1+2,…)
+    // is non-identity so the verifier passes.
+    bool coreAtOrigin = (startY == 0 && startX == 0);
+    bool singleCoreAtOrigin = (coreAtOrigin && sizeY == 1 && sizeX == 1);
+    bool singleVirtualBlock = (existingShape.size() >= 2 &&
+                               existingShape[0] == 1 && existingShape[1] == 1);
+    bool useEmptyMapping =
+        singleCoreAtOrigin || (singleVirtualBlock && coreAtOrigin);
     ttcore::GridAttr newGrid =
-        (startY == 0 && startX == 0 && sizeY == 1 && sizeX == 1)
-            ? ttcore::GridAttr::get(ctx, virtualGridShape)
-            : ttcore::GridAttr::get(
-                  ctx, virtualGridShape,
-                  buildPhysicalToVirtualMap(ctx, startY, startX));
+        useEmptyMapping ? ttcore::GridAttr::get(ctx, virtualGridShape)
+                        : ttcore::GridAttr::get(
+                              ctx, virtualGridShape,
+                              buildPhysicalToVirtualMap(ctx, startY, startX));
     genericOp->setAttr("grid", newGrid);
   }
 
