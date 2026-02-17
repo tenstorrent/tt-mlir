@@ -102,7 +102,6 @@ void createTTIRToTTMetalFrontendPipeline(
     toD2MOptions.enableMulticastInference = options.enableMulticastInference;
   }
   pm.addPass(tt::createTTIRToD2MPass(toD2MOptions));
-  pm.addPass(d2m::createD2MSpatialGridAnnotation());
   pm.addPass(d2m::createD2MScalarizeConstTensors());
   d2m::D2MGridSelectionOptions gridOptOptions;
   {
@@ -111,6 +110,7 @@ void createTTIRToTTMetalFrontendPipeline(
   }
   pm.addPass(d2m::createD2MMaterializeViewReturns());
   pm.addPass(d2m::createD2MGridSelection(gridOptOptions));
+  pm.addPass(d2m::createD2MSpatialGridAnnotation());
   pm.addPass(createCanonicalizerPassWithOptions(options));
   pm.addPass(d2m::createD2MLowerToLayout());
   pm.addPass(d2m::createD2MMaterializeViewReturns());
