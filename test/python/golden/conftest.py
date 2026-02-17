@@ -733,12 +733,13 @@ def pytest_collection_modifyitems(config, items):
 
         # Skip specific target / system combinations
 
-        # Fetch the current target of this test, if any
+        # Fetch the current target of this test, if any (parametrized tests only)
         current_target = None
-        for param in item.callspec.params.items():
-            if param[0] == "target":
-                current_target = param[1]
-                break
+        if hasattr(item, "callspec") and item.callspec is not None:
+            for param in item.callspec.params.items():
+                if param[0] == "target":
+                    current_target = param[1]
+                    break
 
         current_environment = _get_current_environment()
         board_id = get_board_id(system_desc)
@@ -795,7 +796,12 @@ def pytest_collection_modifyitems(config, items):
     items[:] = valid_items
 
     # Sort tests alphabetically by their target and then nodeid to ensure consistent ordering.
-    items.sort(key=lambda x: (x.callspec.params.get("target", "ttnn"), x.nodeid))
+    def _sort_key(x):
+        callspec = getattr(x, "callspec", None)
+        target = callspec.params.get("target", "ttnn") if callspec else "ttnn"
+        return (target, x.nodeid)
+
+    items.sort(key=_sort_key)
     items.reverse()
 
     # Report deselected items to pytest

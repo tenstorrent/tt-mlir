@@ -266,9 +266,73 @@ class TTIRBuilder(Builder):
         op_map_dictionary[old_op.result] = new_op_result
         return new_op, op_map_dictionary
 
-    @split(ttir.AllToAllOp)
-    def all_to_all_split(self, old_op: ttir.AllToAllOp) -> Tuple:
-        return ()
+    # @split(ttir.AllToAllOp)
+    # def all_to_all_split(
+    #     self,
+    #     old_op: ttir.AllToAllOp,
+    # ) -> Tuple[Module, TTIRBuilder]:
+    #     ttir_op = self.get_opview_from_split(TTIRBuilder.all_to_all_split)
+    #     old_ctx = old_op.context
+    #     old_loc = Location.unknown(old_ctx)
+
+    #     mesh_name = list(self._meshes.keys())
+    #     mesh_dict = list(self._meshes.values())
+
+    #     with old_ctx, old_loc:
+    #         all_to_all_module = Module.create()
+    #         all_to_all_builder = TTIRBuilder(
+    #             old_ctx, old_loc, mesh_name, mesh_dict, self._disable_golden_check
+    #         )
+    #         op_input_types = [old_op.input.type]
+
+    #         with InsertionPoint(all_to_all_module.body):
+
+    #             ordered_inputs = []
+    #             ordered_outputs = []
+
+    #             @func.func(*op_input_types, name="all_to_all_module")
+    #             def decorated_func(*inputs):
+    #                 in0 = inputs[0]
+    #                 result = old_op.result.type
+
+    #                 new_op = ttir_op(
+    #                     result,
+    #                     in0,
+    #                     old_op.split_dim,
+    #                     old_op.concat_dim,
+    #                     old_op.split_count,
+    #                     old_op.replica_groups,
+    #                     loc=old_op.location,
+    #                 )
+    #                 new_op_result = new_op.result
+
+    #                 if not self._disable_golden_check:
+    #                     input0 = self._get_golden_tensor(old_op.input)
+    #                     op_golden_function = get_golden_function(ttir_op)
+    #                     golden_output = op_golden_function(
+    #                         input0,
+    #                         old_op.split_dim,
+    #                         old_op.concat_dim,
+    #                         old_op.split_count,
+    #                         old_op.replica_groups,
+    #                         result.element_type,
+    #                     )
+    #                     all_to_all_builder._set_golden_tensor(
+    #                         new_op_result, golden_output
+    #                     )
+    #                     all_to_all_builder._set_golden_tensor(in0, input0)
+    #                     ordered_inputs.append(in0)
+    #                     ordered_outputs.append(new_op_result)
+
+    #                 return new_op
+
+    #             new_func_op = decorated_func.func_op
+    #             all_to_all_builder._func_ops_generated[new_func_op] = [
+    #                 ordered_inputs,
+    #                 ordered_outputs,
+    #             ]
+
+    #     return all_to_all_module, all_to_all_builder
 
     ############### ttir.CollectiveBroadcastOp ###############
 
@@ -350,9 +414,72 @@ class TTIRBuilder(Builder):
         op_map_dictionary[old_op.result] = new_op_result
         return new_op, op_map_dictionary
 
-    @split(ttir.CollectiveBroadcastOp)
-    def collective_broadcast_split(self, old_op: ttir.CollectiveBroadcastOp) -> Tuple:
-        return ()
+    # @split(ttir.CollectiveBroadcastOp)
+    # def collective_broadcast_split(
+    #     self,
+    #     old_op: ttir.CollectiveBroadcastOp,
+    # ) -> Tuple[Module, TTIRBuilder]:
+    #     ttir_op = self.get_opview_from_split(
+    #         TTIRBuilder.collective_broadcast_split
+    #     )
+    #     old_ctx = old_op.context
+    #     old_loc = Location.unknown(old_ctx)
+
+    #     mesh_name = list(self._meshes.keys())
+    #     mesh_dict = list(self._meshes.values())
+
+    #     with old_ctx, old_loc:
+    #         collective_broadcast_module = Module.create()
+    #         collective_broadcast_builder = TTIRBuilder(
+    #             old_ctx, old_loc, mesh_name, mesh_dict, self._disable_golden_check
+    #         )
+    #         op_input_types = [old_op.input.type]
+
+    #         with InsertionPoint(collective_broadcast_module.body):
+
+    #             ordered_inputs = []
+    #             ordered_outputs = []
+
+    #             @func.func(
+    #                 *op_input_types, name="collective_broadcast_module"
+    #             )
+    #             def decorated_func(*inputs):
+    #                 in0 = inputs[0]
+    #                 result = old_op.result.type
+
+    #                 new_op = ttir_op(
+    #                     result, in0, old_op.replica_groups, loc=old_op.location
+    #                 )
+    #                 new_op_result = new_op.result
+
+    #                 if not self._disable_golden_check:
+    #                     input0 = self._get_golden_tensor(old_op.input)
+    #                     op_golden_function = get_golden_function(ttir_op)
+    #                     golden_output = op_golden_function(
+    #                         input0,
+    #                         old_op.replica_groups,
+    #                         result.element_type,
+    #                     )
+    #                     collective_broadcast_builder._set_golden_tensor(
+    #                         new_op_result, golden_output
+    #                     )
+    #                     collective_broadcast_builder._set_golden_tensor(
+    #                         in0, input0
+    #                     )
+    #                     ordered_inputs.append(in0)
+    #                     ordered_outputs.append(new_op_result)
+
+    #                 return new_op
+
+    #             new_func_op = decorated_func.func_op
+    #             collective_broadcast_builder._func_ops_generated[
+    #                 new_func_op
+    #             ] = [
+    #                 ordered_inputs,
+    #                 ordered_outputs,
+    #             ]
+
+    #     return collective_broadcast_module, collective_broadcast_builder
 
     ############### ttir.CollectivePermuteOp ###############
 
@@ -433,9 +560,73 @@ class TTIRBuilder(Builder):
         op_map_dictionary[old_op.result] = new_op_result
         return new_op, op_map_dictionary
 
-    @split(ttir.CollectivePermuteOp)
-    def collective_permute_split(self, old_op: ttir.CollectivePermuteOp) -> Tuple:
-        return ()
+    # @split(ttir.CollectivePermuteOp)
+    # def collective_permute_split(
+    #     self,
+    #     old_op: ttir.CollectivePermuteOp,
+    # ) -> Tuple[Module, TTIRBuilder]:
+    #     ttir_op = self.get_opview_from_split(
+    #         TTIRBuilder.collective_permute_split
+    #     )
+    #     old_ctx = old_op.context
+    #     old_loc = Location.unknown(old_ctx)
+
+    #     mesh_name = list(self._meshes.keys())
+    #     mesh_dict = list(self._meshes.values())
+
+    #     with old_ctx, old_loc:
+    #         collective_permute_module = Module.create()
+    #         collective_permute_builder = TTIRBuilder(
+    #             old_ctx, old_loc, mesh_name, mesh_dict, self._disable_golden_check
+    #         )
+    #         op_input_types = [old_op.input.type]
+
+    #         with InsertionPoint(collective_permute_module.body):
+
+    #             ordered_inputs = []
+    #             ordered_outputs = []
+
+    #             @func.func(*op_input_types, name="collective_permute_module")
+    #             def decorated_func(*inputs):
+    #                 in0 = inputs[0]
+    #                 result = old_op.result.type
+
+    #                 new_op = ttir_op(
+    #                     result,
+    #                     in0,
+    #                     old_op.source_target_pairs,
+    #                     loc=old_op.location,
+    #                 )
+    #                 new_op_result = new_op.result
+
+    #                 if not self._disable_golden_check:
+    #                     input0 = self._get_golden_tensor(old_op.input)
+    #                     op_golden_function = get_golden_function(ttir_op)
+    #                     golden_output = op_golden_function(
+    #                         input0,
+    #                         old_op.source_target_pairs,
+    #                         result.element_type,
+    #                     )
+    #                     collective_permute_builder._set_golden_tensor(
+    #                         new_op_result, golden_output
+    #                     )
+    #                     collective_permute_builder._set_golden_tensor(
+    #                         in0, input0
+    #                     )
+    #                     ordered_inputs.append(in0)
+    #                     ordered_outputs.append(new_op_result)
+
+    #                 return new_op
+
+    #             new_func_op = decorated_func.func_op
+    #             collective_permute_builder._func_ops_generated[
+    #                 new_func_op
+    #             ] = [
+    #                 ordered_inputs,
+    #                 ordered_outputs,
+    #             ]
+
+    #     return collective_permute_module, collective_permute_builder
 
     ############### ttir.ReduceScatterOp ###############
 
@@ -535,9 +726,71 @@ class TTIRBuilder(Builder):
         op_map_dictionary[old_op.result] = new_op_result
         return new_op, op_map_dictionary
 
-    @split(ttir.ReduceScatterOp)
-    def reduce_scatter_split(self, old_op: ttir.ReduceScatterOp) -> Tuple:
-        return ()
+    # @split(ttir.ReduceScatterOp)
+    # def reduce_scatter_split(
+    #     self,
+    #     old_op: ttir.ReduceScatterOp,
+    # ) -> Tuple[Module, TTIRBuilder]:
+    #     ttir_op = self.get_opview_from_split(TTIRBuilder.reduce_scatter_split)
+    #     old_ctx = old_op.context
+    #     old_loc = Location.unknown(old_ctx)
+
+    #     mesh_name = list(self._meshes.keys())
+    #     mesh_dict = list(self._meshes.values())
+
+    #     with old_ctx, old_loc:
+    #         reduce_scatter_module = Module.create()
+    #         reduce_scatter_builder = TTIRBuilder(
+    #             old_ctx, old_loc, mesh_name, mesh_dict, self._disable_golden_check
+    #         )
+    #         op_input_types = [old_op.input.type]
+
+    #         with InsertionPoint(reduce_scatter_module.body):
+
+    #             ordered_inputs = []
+    #             ordered_outputs = []
+
+    #             @func.func(*op_input_types, name="reduce_scatter_module")
+    #             def decorated_func(*inputs):
+    #                 in0 = inputs[0]
+    #                 result = old_op.result.type
+
+    #                 new_op = ttir_op(
+    #                     result,
+    #                     in0,
+    #                     old_op.reduce_type,
+    #                     old_op.scatter_dim,
+    #                     old_op.cluster_axis,
+    #                     loc=old_op.location,
+    #                 )
+    #                 new_op_result = new_op.result
+
+    #                 if not self._disable_golden_check:
+    #                     input0 = self._get_golden_tensor(old_op.input)
+    #                     op_golden_function = get_golden_function(ttir_op)
+    #                     golden_output = op_golden_function(
+    #                         input0,
+    #                         old_op.reduce_type,
+    #                         old_op.scatter_dim,
+    #                         old_op.cluster_axis,
+    #                         result.element_type,
+    #                     )
+    #                     reduce_scatter_builder._set_golden_tensor(
+    #                         new_op_result, golden_output
+    #                     )
+    #                     reduce_scatter_builder._set_golden_tensor(in0, input0)
+    #                     ordered_inputs.append(in0)
+    #                     ordered_outputs.append(new_op_result)
+
+    #                 return new_op
+
+    #             new_func_op = decorated_func.func_op
+    #             reduce_scatter_builder._func_ops_generated[new_func_op] = [
+    #                 ordered_inputs,
+    #                 ordered_outputs,
+    #             ]
+
+    #     return reduce_scatter_module, reduce_scatter_builder
 
     ############### ttir.AllReduceOp ###############
 
@@ -627,13 +880,73 @@ class TTIRBuilder(Builder):
         op_map_dictionary[old_op.result] = new_op_result
         return new_op, op_map_dictionary
 
+    # @split(ttir.AllReduceOp)
+    # def all_reduce_split(self, old_op: ttir.AllReduceOp):
+    #     return ()
+
     @split(ttir.AllReduceOp)
     def all_reduce_split(
         self,
         old_op: ttir.AllReduceOp,
-    ) -> Tuple:
-        # Do not split all_reduce into a standalone module (stays in parent).
-        return ()
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(TTIRBuilder.all_reduce_split)
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+
+        mesh_name = list(self._meshes.keys())
+        mesh_dict = list(self._meshes.values())
+
+        with old_ctx, old_loc:
+            all_reduce_module = Module.create()
+            all_reduce_builder = TTIRBuilder(
+                old_ctx, old_loc, mesh_name, mesh_dict, self._disable_golden_check
+            )
+            op_input_types = [old_op.input.type]
+
+            with InsertionPoint(all_reduce_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="all_reduce_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
+
+                    new_op = ttir_op(
+                        result,
+                        in0,
+                        old_op.reduce_type,
+                        old_op.cluster_axis,
+                        loc=old_op.location,
+                    )
+                    new_op_result = new_op.result
+
+                    if not self._disable_golden_check:
+                        input0 = self._get_golden_tensor(old_op.input)
+                        op_golden_function = get_golden_function(ttir_op)
+                        golden_output = op_golden_function(
+                            input0,
+                            old_op.reduce_type,
+                            old_op.cluster_axis,
+                            result.element_type,
+                        )
+                        all_reduce_builder._set_golden_tensor(
+                            new_op_result, golden_output
+                        )
+                        all_reduce_builder._set_golden_tensor(in0, input0)
+                        ordered_inputs.append(in0)
+                        ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                all_reduce_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return all_reduce_module, all_reduce_builder
 
     ############### ttir.MeshShardOp ###############
 
@@ -741,13 +1054,77 @@ class TTIRBuilder(Builder):
         op_map_dictionary[old_op.result] = new_op_result
         return new_op, op_map_dictionary
 
+    # @split(ttir.MeshShardOp)
+    # def mesh_shard_split(self, old_op: ttir.MeshShardOp):
+    #     return ()
+
     @split(ttir.MeshShardOp)
     def mesh_shard_split(
         self,
         old_op: ttir.MeshShardOp,
-    ) -> Tuple:
-        # Do not split mesh_shard into a standalone module (stays in parent).
-        return ()
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(TTIRBuilder.mesh_shard_split)
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+
+        mesh_name = list(self._meshes.keys())
+        mesh_dict = list(self._meshes.values())
+
+        with old_ctx, old_loc:
+            mesh_shard_module = Module.create()
+            mesh_shard_builder = TTIRBuilder(
+                old_ctx, old_loc, mesh_name, mesh_dict, self._disable_golden_check
+            )
+            op_input_types = [old_op.input.type]
+
+            with InsertionPoint(mesh_shard_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="mesh_shard_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
+
+                    new_op = ttir_op(
+                        result,
+                        in0,
+                        old_op.shard_type,
+                        old_op.shard_direction,
+                        old_op.shard_shape,
+                        old_op.shard_dims,
+                        loc=old_op.location,
+                    )
+                    new_op_result = new_op.result
+
+                    if not self._disable_golden_check:
+                        input0 = self._get_golden_tensor(old_op.input)
+                        op_golden_function = get_golden_function(ttir_op)
+                        golden_output = op_golden_function(
+                            input0,
+                            old_op.shard_type,
+                            old_op.shard_direction,
+                            old_op.shard_shape,
+                            old_op.shard_dims,
+                            result.element_type,
+                        )
+                        mesh_shard_builder._set_golden_tensor(
+                            new_op_result, golden_output
+                        )
+                        mesh_shard_builder._set_golden_tensor(in0, input0)
+                        ordered_inputs.append(in0)
+                        ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                mesh_shard_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return mesh_shard_module, mesh_shard_builder
 
     ############### ttir.AllGatherOp ###############
 
@@ -839,9 +1216,73 @@ class TTIRBuilder(Builder):
         op_map_dictionary[old_op.result] = new_op_result
         return new_op, op_map_dictionary
 
+    # @split(ttir.AllGatherOp)
+    # def all_gather_split(self, old_op: ttir.AllGatherOp):
+    #     return ()
+
     @split(ttir.AllGatherOp)
-    def all_gather_split(self, old_op: ttir.AllGatherOp) -> Tuple:
-        return ()
+    def all_gather_split(
+        self,
+        old_op: ttir.AllGatherOp,
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(TTIRBuilder.all_gather_split)
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+
+        mesh_name = list(self._meshes.keys())
+        mesh_dict = list(self._meshes.values())
+
+        with old_ctx, old_loc:
+            all_gather_module = Module.create()
+            all_gather_builder = TTIRBuilder(
+                old_ctx, old_loc, mesh_name, mesh_dict, self._disable_golden_check
+            )
+            op_input_types = [old_op.input.type]
+
+            with InsertionPoint(all_gather_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="all_gather_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
+
+                    new_op = ttir_op(
+                        result,
+                        in0,
+                        old_op.all_gather_dim,
+                        old_op.cluster_axis,
+                        loc=old_op.location,
+                    )
+                    new_op_result = new_op.result
+
+                    if not self._disable_golden_check:
+                        input0 = self._get_golden_tensor(old_op.input)
+                        op_golden_function = get_golden_function(ttir_op)
+                        golden_output = op_golden_function(
+                            input0,
+                            old_op.all_gather_dim,
+                            old_op.cluster_axis,
+                            result.element_type,
+                        )
+                        all_gather_builder._set_golden_tensor(
+                            new_op_result, golden_output
+                        )
+                        all_gather_builder._set_golden_tensor(in0, input0)
+                        ordered_inputs.append(in0)
+                        ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                all_gather_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return all_gather_module, all_gather_builder
 
     ############### ttir.ToLayoutOp ###############
 
@@ -11337,8 +11778,69 @@ class TTIRBuilder(Builder):
         return new_op, op_map_dictionary
 
     @split(ttir.FillCacheOp)
-    def fill_cache_split(self, old_op: ttir.FillCacheOp) -> Tuple:
-        return ()
+    def fill_cache_split(
+        self,
+        old_op: ttir.FillCacheOp,
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(TTIRBuilder.fill_cache_split)
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+
+        mesh_name = list(self._meshes.keys())
+        mesh_dict = list(self._meshes.values())
+
+        with old_ctx, old_loc:
+            fill_cache_module = Module.create()
+            fill_cache_builder = TTIRBuilder(
+                old_ctx, old_loc, mesh_name, mesh_dict, self._disable_golden_check
+            )
+            op_input_types = [old_op.cache.type, old_op.input.type]
+
+            with InsertionPoint(fill_cache_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="fill_cache_module")
+                def decorated_func(*inputs):
+                    cache = inputs[0]
+                    in0 = inputs[1]
+                    result = old_op.result.type
+
+                    new_op = ttir_op(
+                        result,
+                        cache,
+                        in0,
+                        old_op.batch_offset,
+                        loc=old_op.location,
+                    )
+                    new_op_result = new_op.result
+
+                    if not self._disable_golden_check:
+                        cache_golden = self._get_golden_tensor(old_op.cache)
+                        input0 = self._get_golden_tensor(old_op.input)
+                        op_golden_function = get_golden_function(ttir_op)
+                        golden_output = op_golden_function(
+                            cache_golden,
+                            input0,
+                        )
+                        fill_cache_builder._set_golden_tensor(
+                            new_op_result, golden_output
+                        )
+                        fill_cache_builder._set_golden_tensor(cache, cache_golden)
+                        fill_cache_builder._set_golden_tensor(in0, input0)
+                        ordered_inputs.extend([cache, in0])
+                        ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                fill_cache_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return fill_cache_module, fill_cache_builder
 
     def update_cache(
         self,
@@ -13680,7 +14182,7 @@ class TTIRBuilder(Builder):
                                                 builder.split_call_op(op)
                                             )
                                             if len(sub_op_module_builder) != 0:
-                                                sub_modules_and_builders.append(
+                                                sub_modules_and_builders.extend(
                                                     sub_op_module_builder
                                                 )
                                         else:
@@ -13703,7 +14205,7 @@ class TTIRBuilder(Builder):
                             elif isinstance(op, func.CallOp):
                                 sub_op_module_builder = builder.split_call_op(op)
                                 if len(sub_op_module_builder) != 0:
-                                    sub_modules_and_builders.append(
+                                    sub_modules_and_builders.extend(
                                         sub_op_module_builder
                                     )
                             else:
