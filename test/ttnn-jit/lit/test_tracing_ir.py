@@ -32,6 +32,15 @@ from op_definitions import (
     mul as multiply_func,
     div as divide_func,
     matmul as matmul_func,
+    concat_dim0 as concat_dim0_func,
+    concat_dim1 as concat_dim1_func,
+    concat_three as concat_three_func,
+    repeat_2x1 as repeat_2x1_func,
+    repeat_1x3 as repeat_1x3_func,
+    repeat_2x2 as repeat_2x2_func,
+    embedding as embedding_func,
+    gather_dim0 as gather_dim0_func,
+    gather_dim1 as gather_dim1_func,
 )
 
 
@@ -644,5 +653,155 @@ if __name__ == "__main__":
     # CHECK-SAME: (tensor<2x4x32x64xbf16, #ttnn_layout>) -> tensor<2x8192xbf16, #ttnn_layout{{[0-9]*}}>
     # CHECK: return %[[VAL]] : tensor<2x8192xbf16, #ttnn_layout{{[0-9]*}}>
     test_ir_generation(rearrange_multi_merge_func, input_bhwc)
+
+    # ============================================================
+    # Concat operations tests
+    # ============================================================
+
+    # Concat along dimension 0: [64, 64] + [64, 64] -> [128, 64]
+    # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
+    # CHECK: func.func @concat_dim0
+    # CHECK-SAME: (%arg0: tensor<64x64xbf16, #ttnn_layout>
+    # CHECK-SAME: %arg1: tensor<64x64xbf16, #ttnn_layout{{[0-9]*}}>)
+    # CHECK-SAME: -> tensor<128x64xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK: %[[VAL:[0-9]+]] = "ttir.concat"(%arg0, %arg1)
+    # CHECK-SAME: dim = 0 : si32
+    # CHECK-SAME: (tensor<64x64xbf16, #ttnn_layout>, tensor<64x64xbf16, #ttnn_layout{{[0-9]*}}>) -> tensor<128x64xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK: return %[[VAL]] : tensor<128x64xbf16, #ttnn_layout{{[0-9]*}}>
+    test_ir_generation(concat_dim0_func, input_a, input_b)
+
+    # Concat along dimension 1: [64, 64] + [64, 64] -> [64, 128]
+    # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
+    # CHECK: func.func @concat_dim1
+    # CHECK-SAME: (%arg0: tensor<64x64xbf16, #ttnn_layout>
+    # CHECK-SAME: %arg1: tensor<64x64xbf16, #ttnn_layout{{[0-9]*}}>)
+    # CHECK-SAME: -> tensor<64x128xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK: %[[VAL:[0-9]+]] = "ttir.concat"(%arg0, %arg1)
+    # CHECK-SAME: dim = 1 : si32
+    # CHECK-SAME: (tensor<64x64xbf16, #ttnn_layout>, tensor<64x64xbf16, #ttnn_layout{{[0-9]*}}>) -> tensor<64x128xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK: return %[[VAL]] : tensor<64x128xbf16, #ttnn_layout{{[0-9]*}}>
+    test_ir_generation(concat_dim1_func, input_a, input_b)
+
+    # Concat three tensors along dimension 0: [64, 64] + [64, 64] + [64, 64] -> [192, 64]
+    # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
+    # CHECK: func.func @concat_three
+    # CHECK-SAME: (%arg0: tensor<64x64xbf16, #ttnn_layout>
+    # CHECK-SAME: %arg1: tensor<64x64xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK-SAME: %arg2: tensor<64x64xbf16, #ttnn_layout{{[0-9]*}}>)
+    # CHECK-SAME: -> tensor<192x64xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK: %[[VAL:[0-9]+]] = "ttir.concat"(%arg0, %arg1, %arg2)
+    # CHECK-SAME: dim = 0 : si32
+    # CHECK-SAME: (tensor<64x64xbf16, #ttnn_layout>, tensor<64x64xbf16, #ttnn_layout{{[0-9]*}}>, tensor<64x64xbf16, #ttnn_layout{{[0-9]*}}>) -> tensor<192x64xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK: return %[[VAL]] : tensor<192x64xbf16, #ttnn_layout{{[0-9]*}}>
+    input_c_same = create_sharded_tile_tensor(device, (64, 64), (0, 0), torch.bfloat16)
+    test_ir_generation(concat_three_func, input_a, input_b, input_c_same)
+
+    # ============================================================
+    # Repeat operations tests
+    # ============================================================
+
+    # Repeat [2, 1]: [64, 64] -> [128, 64]
+    # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
+    # CHECK: func.func @repeat_2x1
+    # CHECK-SAME: (%arg0: tensor<64x64xbf16, #ttnn_layout>)
+    # CHECK-SAME: -> tensor<128x64xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK: %[[VAL:[0-9]+]] = "ttir.repeat"(%arg0)
+    # CHECK-SAME: repeat_dimensions = array<i64: 2, 1>
+    # CHECK-SAME: (tensor<64x64xbf16, #ttnn_layout>) -> tensor<128x64xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK: return %[[VAL]] : tensor<128x64xbf16, #ttnn_layout{{[0-9]*}}>
+    test_ir_generation(repeat_2x1_func, input_a)
+
+    # Repeat [1, 3]: [64, 64] -> [64, 192]
+    # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
+    # CHECK: func.func @repeat_1x3
+    # CHECK-SAME: (%arg0: tensor<64x64xbf16, #ttnn_layout>)
+    # CHECK-SAME: -> tensor<64x192xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK: %[[VAL:[0-9]+]] = "ttir.repeat"(%arg0)
+    # CHECK-SAME: repeat_dimensions = array<i64: 1, 3>
+    # CHECK-SAME: (tensor<64x64xbf16, #ttnn_layout>) -> tensor<64x192xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK: return %[[VAL]] : tensor<64x192xbf16, #ttnn_layout{{[0-9]*}}>
+    test_ir_generation(repeat_1x3_func, input_a)
+
+    # Repeat [2, 2]: [64, 64] -> [128, 128]
+    # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
+    # CHECK: func.func @repeat_2x2
+    # CHECK-SAME: (%arg0: tensor<64x64xbf16, #ttnn_layout>)
+    # CHECK-SAME: -> tensor<128x128xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK: %[[VAL:[0-9]+]] = "ttir.repeat"(%arg0)
+    # CHECK-SAME: repeat_dimensions = array<i64: 2, 2>
+    # CHECK-SAME: (tensor<64x64xbf16, #ttnn_layout>) -> tensor<128x128xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK: return %[[VAL]] : tensor<128x128xbf16, #ttnn_layout{{[0-9]*}}>
+    test_ir_generation(repeat_2x2_func, input_a)
+
+    # ============================================================
+    # Embedding operations tests
+    # ============================================================
+
+    # Create tensors for embedding test
+    # indices: [32, 32] (batch of indices)
+    # weight: [512, 128] (embedding table with 512 entries of dim 128)
+    # output: [32, 32, 128]
+    input_indices = create_sharded_tile_tensor(device, (32, 32), (0, 0), torch.bfloat16)
+    weight_table = create_sharded_tile_tensor(
+        device, (512, 128), (0, 0), torch.bfloat16
+    )
+
+    # Embedding: [32, 32] indices + [512, 128] weight -> [32, 32, 128]
+    # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
+    # CHECK: func.func @embedding
+    # CHECK-SAME: (%arg0: tensor<32x32xbf16, #ttnn_layout>
+    # CHECK-SAME: %arg1: tensor<512x128xbf16, #ttnn_layout{{[0-9]*}}>)
+    # CHECK-SAME: -> tensor<32x32x128xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK: %[[VAL:[0-9]+]] = "ttir.embedding"(%arg0, %arg1)
+    # CHECK-SAME: (tensor<32x32xbf16, #ttnn_layout>, tensor<512x128xbf16, #ttnn_layout{{[0-9]*}}>) -> tensor<32x32x128xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK: return %[[VAL]] : tensor<32x32x128xbf16, #ttnn_layout{{[0-9]*}}>
+    test_ir_generation(embedding_func, input_indices, weight_table)
+
+    # ============================================================
+    # Gather operations tests
+    # ============================================================
+
+    # Create tensors for gather test
+    # For torch.gather, output shape = index shape
+    # input: [64, 64], index: [64, 32], dim=1 -> output: [64, 32]
+    gather_input = create_sharded_tile_tensor(device, (64, 64), (0, 0), torch.bfloat16)
+    gather_index_dim0 = create_sharded_tile_tensor(
+        device, (32, 64), (0, 0), torch.bfloat16
+    )
+    gather_index_dim1 = create_sharded_tile_tensor(
+        device, (64, 32), (0, 0), torch.bfloat16
+    )
+
+    # Gather along dimension 0: [64, 64] input + [32, 64] index -> [32, 64]
+    # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
+    # CHECK: func.func @gather_dim0
+    # CHECK-SAME: (%arg0: tensor<64x64xbf16, #ttnn_layout>
+    # CHECK-SAME: %arg1: tensor<32x64xbf16, #ttnn_layout{{[0-9]*}}>)
+    # CHECK-SAME: -> tensor<32x64xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK: %[[VAL:[0-9]+]] = "ttir.gather"(%arg0, %arg1)
+    # CHECK-SAME: collapsed_slice_dims = array<i64: 0, 1>
+    # CHECK-SAME: index_vector_dim = 2 : si64
+    # CHECK-SAME: offset_dims = array<i64>
+    # CHECK-SAME: slice_sizes = array<i64: 1, 1>
+    # CHECK-SAME: start_index_map = array<i64: 0>
+    # CHECK-SAME: (tensor<64x64xbf16, #ttnn_layout>, tensor<32x64xbf16, #ttnn_layout{{[0-9]*}}>) -> tensor<32x64xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK: return %[[VAL]] : tensor<32x64xbf16, #ttnn_layout{{[0-9]*}}>
+    test_ir_generation(gather_dim0_func, gather_input, gather_index_dim0)
+
+    # Gather along dimension 1: [64, 64] input + [64, 32] index -> [64, 32]
+    # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
+    # CHECK: func.func @gather_dim1
+    # CHECK-SAME: (%arg0: tensor<64x64xbf16, #ttnn_layout>
+    # CHECK-SAME: %arg1: tensor<64x32xbf16, #ttnn_layout{{[0-9]*}}>)
+    # CHECK-SAME: -> tensor<64x32xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK: %[[VAL:[0-9]+]] = "ttir.gather"(%arg0, %arg1)
+    # CHECK-SAME: collapsed_slice_dims = array<i64: 0, 1>
+    # CHECK-SAME: index_vector_dim = 2 : si64
+    # CHECK-SAME: offset_dims = array<i64>
+    # CHECK-SAME: slice_sizes = array<i64: 1, 1>
+    # CHECK-SAME: start_index_map = array<i64: 1>
+    # CHECK-SAME: (tensor<64x64xbf16, #ttnn_layout>, tensor<64x32xbf16, #ttnn_layout{{[0-9]*}}>) -> tensor<64x32xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK: return %[[VAL]] : tensor<64x32xbf16, #ttnn_layout{{[0-9]*}}>
+    test_ir_generation(gather_dim1_func, gather_input, gather_index_dim1)
 
     ttnn.close_device(device)

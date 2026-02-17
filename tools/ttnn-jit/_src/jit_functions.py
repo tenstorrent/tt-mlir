@@ -203,6 +203,15 @@ class BaseOpHandler(ABC):
             else None
         )
 
+    def _normalize_dim(self, dim, rank):
+        """Normalize negative dimension index to positive."""
+        if dim < 0:
+            dim = rank + dim
+        assert (
+            0 <= dim < rank
+        ), f"Dimension {dim} out of range for tensor with rank {rank}"
+        return dim
+
     @abstractmethod
     def create_operation(self, *args, **kwargs):
         """Create the MLIR operation. Must be implemented by subclasses."""
@@ -514,12 +523,6 @@ class TransposeOpHandler(BaseOpHandler):
         output_shape[dim0], output_shape[dim1] = output_shape[dim1], output_shape[dim0]
         return output_shape
 
-    def _normalize_dim(self, dim, rank):
-        """Normalize negative dimension index to positive."""
-        if dim < 0:
-            dim = rank + dim
-        return dim
-
     def _infer_result_type(self, operand, dim0, dim1):
         """Infer result type based on dimensions to swap."""
         operand_type = operand.type
@@ -527,7 +530,6 @@ class TransposeOpHandler(BaseOpHandler):
         input_shape = list(operand_type.shape)
         rank = len(input_shape)
 
-        # Normalize negative dimensions
         dim0 = self._normalize_dim(dim0, rank)
         dim1 = self._normalize_dim(dim1, rank)
 
@@ -555,13 +557,8 @@ class TransposeOpHandler(BaseOpHandler):
         norm_dim0 = self._normalize_dim(dim0, input_rank)
         norm_dim1 = self._normalize_dim(dim1, input_rank)
 
-        if not (0 <= norm_dim0 < input_rank) or not (0 <= norm_dim1 < input_rank):
-            raise ValueError(
-                f"Dimension out of range for tensor with rank {input_rank}"
-            )
-
         # Infer result type
-        result_type = self._infer_result_type(operand, dim0, dim1)
+        result_type = self._infer_result_type(operand, norm_dim0, norm_dim1)
 
         # Create the operation
         with InsertionPoint(self.jit_ctx.func_bb), Location.unknown(self.jit_ctx.ctx):
@@ -825,6 +822,392 @@ class RearrangeOpHandler(BaseOpHandler):
         return self._finalize_result(op_result, args)
 
 
+class ConcatOpHandler(BaseOpHandler):
+    """Handler for concat operation - concatenates tensors along a specified dimension."""
+
+    def _compute_output_shape(self, operand_types, dim):
+        """
+        Compute output shape for concatenation.
+
+        For concat, the output shape is the same as the input shapes except
+        for the concatenation dimension, which is the sum of all input dimensions.
+        """
+        if not operand_types:
+            raise ValueError("concat requires at least one input tensor")
+
+        first_shape = list(operand_types[0].shape)
+        rank = len(first_shape)
+        normalized_dim = self._normalize_dim(dim, rank)
+        # Sum dimensions along concat axis
+        concat_dim_size = sum(t.shape[normalized_dim] for t in operand_types)
+
+        # Build output shape
+        output_shape = list(first_shape)
+        output_shape[normalized_dim] = concat_dim_size
+
+        return output_shape
+
+    def _infer_result_type(self, operands, dim):
+        """Infer result type based on input operands and concat dimension."""
+        operand_types = [op.type for op in operands]
+        element_type = operand_types[0].element_type
+
+        output_shape = self._compute_output_shape(operand_types, dim)
+        encoding = self._default_dram_interleaved_layout(element_type, output_shape)
+
+        with Location.unknown(self.jit_ctx.ctx):
+            return RankedTensorType.get(output_shape, element_type, encoding)
+
+    def create_operation(self, *args, **kwargs):
+        """Create concat operation."""
+        if len(args) < 1:
+            raise ValueError("concat requires at least 1 input tensor")
+
+        # ttnn.concat takes a list of tensors as first argument: ttnn.concat([a, b], dim=0)
+        # Handle both cases: list as first arg, or individual tensors as args
+        if len(args) == 1 and isinstance(args[0], (list, tuple)):
+            input_tensors = args[0]
+        else:
+            input_tensors = args
+
+        if len(input_tensors) < 1:
+            raise ValueError("concat requires at least 1 input tensor")
+
+        operands = self._get_operands(input_tensors)
+
+        # Extract dim from kwargs (default to 0)
+        dim = kwargs.get("dim", 0)
+
+        # Infer result type
+        result_type = self._infer_result_type(operands, dim)
+
+        # Create the operation
+        with InsertionPoint(self.jit_ctx.func_bb), Location.unknown(self.jit_ctx.ctx):
+            op_result = ttir.concat(
+                result=result_type,
+                inputs=operands,
+                dim=dim,
+            )
+
+        return self._finalize_result(op_result, input_tensors)
+
+
+class RepeatOpHandler(BaseOpHandler):
+    """Handler for repeat operation - repeats tensor along each dimension."""
+
+    def _compute_output_shape(self, operand_type, repeat_dimensions):
+        """
+        Compute output shape for repeat operation.
+
+        Output shape is input_shape[i] * repeat_dimensions[i] for each dimension.
+        """
+        input_shape = list(operand_type.shape)
+        input_rank = len(input_shape)
+
+        # Fundamental verification: repeat_dimensions must match input rank
+        if len(repeat_dimensions) != input_rank:
+            raise ValueError(
+                f"repeat_dimensions length {len(repeat_dimensions)} doesn't match "
+                f"input tensor rank {input_rank}"
+            )
+
+        # Fundamental verification: all repeat values must be positive
+        for i, rep in enumerate(repeat_dimensions):
+            if rep <= 0:
+                raise ValueError(
+                    f"Repeat dimension at index {i} must be greater than 0, got {rep}"
+                )
+
+        # Compute output shape: input_shape[i] * repeat_dimensions[i]
+        output_shape = [
+            input_shape[i] * repeat_dimensions[i] for i in range(input_rank)
+        ]
+        return output_shape
+
+    def _infer_result_type(self, operand, repeat_dimensions):
+        """Infer result type based on input operand and repeat dimensions."""
+        operand_type = operand.type
+        element_type = operand_type.element_type
+
+        output_shape = self._compute_output_shape(operand_type, repeat_dimensions)
+        encoding = self._default_dram_interleaved_layout(element_type, output_shape)
+
+        with Location.unknown(self.jit_ctx.ctx):
+            return RankedTensorType.get(output_shape, element_type, encoding)
+
+    def create_operation(self, *args, **kwargs):
+        """Create repeat operation."""
+        # Signature: ttnn.repeat(tensor, repeat_dims) where repeat_dims is a list or ttnn.Shape
+        if len(args) < 2:
+            raise ValueError(
+                "repeat requires 2 arguments: (input_tensor, repeat_dimensions)"
+            )
+
+        operands = self._get_operands(args[:1])
+        operand = operands[0]
+
+        # Second argument is the repeat_dimensions (list or ttnn.Shape)
+        repeat_dimensions = args[1]
+
+        # Convert to list if needed (handles ttnn.Shape, numpy arrays, tuples, etc.)
+        if hasattr(repeat_dimensions, "tolist"):
+            repeat_dimensions = repeat_dimensions.tolist()
+        elif hasattr(repeat_dimensions, "__iter__") and not isinstance(
+            repeat_dimensions, (list, tuple)
+        ):
+            # Handle ttnn.Shape or similar iterable objects
+            repeat_dimensions = list(repeat_dimensions)
+        else:
+            repeat_dimensions = list(repeat_dimensions)
+
+        # Infer result type
+        result_type = self._infer_result_type(operand, repeat_dimensions)
+
+        # Create the operation
+        with InsertionPoint(self.jit_ctx.func_bb), Location.unknown(self.jit_ctx.ctx):
+            op_result = ttir.repeat(
+                result=result_type,
+                input=operand,
+                repeat_dimensions=repeat_dimensions,
+            )
+
+        return self._finalize_result(op_result, args)
+
+
+class GatherOpHandler(BaseOpHandler):
+    """Handler for gather operation - gathers elements from input along a dimension.
+
+    The gather operation follows torch.gather semantics:
+    - input: source tensor with shape [d0, d1, ..., dn]
+    - dim: the dimension to gather along
+    - index: tensor with indices, must have same rank as input
+    - output: same shape as index tensor
+
+    For example, torch.gather(input, dim=1, index):
+      output[i][j][k] = input[i][index[i][j][k]][k]
+
+    This is converted to TTIR's StableHLO-style gather operation.
+    """
+
+    def _compute_output_shape(self, index_type):
+        """
+        Compute output shape for gather operation.
+
+        For torch.gather, the output shape is the same as the index tensor shape.
+        """
+        return list(index_type.shape)
+
+    def _compute_gather_attributes(self, input_type, index_type, dim):
+        """
+        Compute StableHLO-style gather attributes from torch.gather parameters.
+
+        For torch.gather(input, dim, index):
+        - Each element in output corresponds to one element from input
+        - index specifies which element to take along 'dim'
+        - Other dimensions are matched between input, index, and output
+
+        StableHLO gather attributes for torch.gather:
+        - offset_dims: dimensions of output that come from the slice (empty for element gather)
+        - collapsed_slice_dims: all dimensions since we take single elements
+        - start_index_map: [dim] - the dimension being indexed
+        - index_vector_dim: rank of index (indices are scalars)
+        - slice_sizes: all ones (gathering individual elements)
+        """
+        input_rank = len(input_type.shape)
+        index_rank = len(index_type.shape)
+
+        # Fundamental verification: dim must be valid
+        if dim < 0 or dim >= input_rank:
+            raise ValueError(
+                f"Dimension {dim} out of range for tensor with rank {input_rank}"
+            )
+
+        # Fundamental verification: index rank must match input rank
+        if index_rank != input_rank:
+            raise ValueError(
+                f"Index tensor rank ({index_rank}) must match input tensor rank ({input_rank})"
+            )
+
+        # For torch.gather, we gather individual elements
+        # offset_dims: empty - output shape comes entirely from index tensor batch dims
+        offset_dims = []
+
+        # collapsed_slice_dims: all dimensions since we take size-1 slices
+        collapsed_slice_dims = list(range(input_rank))
+
+        # operand_batching_dims and start_indices_batching_dims: empty
+        operand_batching_dims = []
+        start_indices_batching_dims = []
+
+        # start_index_map: the dimension we're gathering along
+        start_index_map = [dim]
+
+        # index_vector_dim: equal to index rank (indices are scalars, not vectors)
+        index_vector_dim = index_rank
+
+        # slice_sizes: all ones (gathering individual elements)
+        slice_sizes = [1] * input_rank
+
+        return {
+            "offset_dims": offset_dims,
+            "collapsed_slice_dims": collapsed_slice_dims,
+            "operand_batching_dims": operand_batching_dims,
+            "start_indices_batching_dims": start_indices_batching_dims,
+            "start_index_map": start_index_map,
+            "index_vector_dim": index_vector_dim,
+            "slice_sizes": slice_sizes,
+            "indices_are_sorted": False,
+        }
+
+    def _infer_result_type(self, input_operand, index_operand, dim):
+        """Infer result type based on index tensor shape."""
+        input_type = input_operand.type
+        index_type = index_operand.type
+        element_type = input_type.element_type
+
+        # Validate dim is in range
+        input_rank = len(input_type.shape)
+        _ = self._normalize_dim(dim, input_rank)
+
+        # Output shape is the same as index shape
+        output_shape = self._compute_output_shape(index_type)
+        encoding = self._default_dram_interleaved_layout(element_type, output_shape)
+
+        with Location.unknown(self.jit_ctx.ctx):
+            return RankedTensorType.get(output_shape, element_type, encoding)
+
+    def create_operation(self, *args, **kwargs):
+        """Create gather operation."""
+        if len(args) < 2:
+            raise ValueError("gather requires at least 2 arguments: input and dim")
+
+        operands = self._get_operands(args[:1])
+        input_operand = operands[0]
+
+        # Extract dim (second positional argument)
+        dim = args[1]
+        if not isinstance(dim, int):
+            raise ValueError(f"dim must be an integer, got {type(dim)}")
+
+        # Extract index from kwargs
+        index = kwargs.get("index", None)
+        if index is None:
+            raise ValueError("gather requires 'index' keyword argument")
+
+        # Resolve index operand
+        index_operand = self._resolve_operand(index, 1, self.jit_ctx)
+
+        # Normalize dim
+        input_rank = len(input_operand.type.shape)
+        normalized_dim = self._normalize_dim(dim, input_rank)
+
+        # Compute gather attributes
+        attrs = self._compute_gather_attributes(
+            input_operand.type, index_operand.type, normalized_dim
+        )
+
+        # Infer result type
+        result_type = self._infer_result_type(
+            input_operand, index_operand, normalized_dim
+        )
+
+        # Create the operation
+        with InsertionPoint(self.jit_ctx.func_bb), Location.unknown(self.jit_ctx.ctx):
+            op_result = ttir.gather(
+                result=result_type,
+                input=input_operand,
+                start_indices=index_operand,
+                offset_dims=attrs["offset_dims"],
+                collapsed_slice_dims=attrs["collapsed_slice_dims"],
+                operand_batching_dims=attrs["operand_batching_dims"],
+                start_indices_batching_dims=attrs["start_indices_batching_dims"],
+                start_index_map=attrs["start_index_map"],
+                index_vector_dim=attrs["index_vector_dim"],
+                slice_sizes=attrs["slice_sizes"],
+                indices_are_sorted=attrs["indices_are_sorted"],
+            )
+
+        return self._finalize_result(op_result, args)
+
+
+class EmbeddingOpHandler(BaseOpHandler):
+    """Handler for embedding operation - performs embedding lookup from a table.
+
+    The embedding operation takes an input tensor of indices and a weight tensor
+    (embedding table). For each index in the input tensor, it retrieves the
+    corresponding row from the weight tensor.
+
+    Semantics:
+    - input: tensor of indices (at most 2D, e.g., [batch, seq_len])
+    - weight: embedding table (effectively 2D, e.g., [vocab_size, embedding_dim])
+    - output: input.shape + [embedding_dim]
+    """
+
+    def _compute_output_shape(self, input_type, weight_type):
+        """
+        Compute output shape for embedding operation.
+
+        Output shape is (*input.shape, embedding_dim) where embedding_dim
+        is the last dimension of the weight tensor.
+        """
+        input_shape = list(input_type.shape)
+        weight_shape = list(weight_type.shape)
+
+        # Fundamental verification: input must be at most 2D
+        if len(input_shape) > 2:
+            raise ValueError(
+                f"Embedding input must be at most 2D tensor, got {len(input_shape)}D"
+            )
+
+        # Fundamental verification: weight must be at least 2D
+        if len(weight_shape) < 2:
+            raise ValueError(
+                f"Embedding weight must be at least 2D tensor, got {len(weight_shape)}D"
+            )
+
+        # Get embedding dimension (last dimension of weight)
+        embedding_dim = weight_shape[-1]
+
+        # Output shape is input_shape + [embedding_dim]
+        output_shape = input_shape + [embedding_dim]
+        return output_shape
+
+    def _infer_result_type(self, input_operand, weight_operand):
+        """Infer result type based on input and weight operands."""
+        input_type = input_operand.type
+        weight_type = weight_operand.type
+        # Use weight's element type for output (indices may be integers)
+        element_type = weight_type.element_type
+
+        output_shape = self._compute_output_shape(input_type, weight_type)
+        encoding = self._default_dram_interleaved_layout(element_type, output_shape)
+
+        with Location.unknown(self.jit_ctx.ctx):
+            return RankedTensorType.get(output_shape, element_type, encoding)
+
+    def create_operation(self, *args, **kwargs):
+        """Create embedding operation."""
+        if len(args) < 2:
+            raise ValueError("embedding requires 2 arguments: input and weight")
+
+        operands = self._get_operands(args[:2])
+        input_operand = operands[0]
+        weight_operand = operands[1]
+
+        # Infer result type
+        result_type = self._infer_result_type(input_operand, weight_operand)
+
+        # Create the operation
+        with InsertionPoint(self.jit_ctx.func_bb), Location.unknown(self.jit_ctx.ctx):
+            op_result = ttir.embedding(
+                result=result_type,
+                input=input_operand,
+                weight=weight_operand,
+            )
+
+        return self._finalize_result(op_result, args)
+
+
 class TTNNJitNamespaceUpdater:
     """Namespace updater that provides jit functions for tracing mode."""
 
@@ -891,6 +1274,22 @@ class TTNNJitNamespaceUpdater:
 
         self._rearrange_handler = RearrangeOpHandler(jit_ctx)
         self.rearrange = partial(self._call_handler, self._rearrange_handler)
+
+        ######################## Concat operation ########################
+        self._concat_handler = ConcatOpHandler(jit_ctx)
+        self.concat = partial(self._call_handler, self._concat_handler)
+
+        ######################## Repeat operation ########################
+        self._repeat_handler = RepeatOpHandler(jit_ctx)
+        self.repeat = partial(self._call_handler, self._repeat_handler)
+
+        ######################## Embedding operation ########################
+        self._embedding_handler = EmbeddingOpHandler(jit_ctx)
+        self.embedding = partial(self._call_handler, self._embedding_handler)
+
+        ######################## Gather operation ########################
+        self._gather_handler = GatherOpHandler(jit_ctx)
+        self.gather = partial(self._call_handler, self._gather_handler)
 
     def _call_handler(self, handler, *args, **kwargs):
         """Call the handler's create_operation method."""
