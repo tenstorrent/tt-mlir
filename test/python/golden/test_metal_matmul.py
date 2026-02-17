@@ -128,9 +128,7 @@ def test_matmul_multi_core_8otpc(m: int, k: int, n: int, target: str, request, d
 @pytest.mark.parametrize(
     "use_tile_matmul", [True, False], ids=["matmul_tile", "matmul_block"]
 )
-@pytest.mark.parametrize(
-    "enable_l1_acc", [True, False], ids=["l1_acc", "no_l1_acc"]
-)
+@pytest.mark.parametrize("enable_l1_acc", [True, False], ids=["l1_acc", "no_l1_acc"])
 @pytest.mark.parametrize("target", ["ttmetal"])
 # Large matmuls, based on ttnn's matmul benchmarks
 def test_matmul_ttnn_shapes_single_buffered(
@@ -198,9 +196,7 @@ def test_matmul_ttnn_shapes_single_buffered(
 @pytest.mark.parametrize(
     "use_tile_matmul", [True, False], ids=["matmul_tile", "matmul_block"]
 )
-@pytest.mark.parametrize(
-    "enable_l1_acc", [True, False], ids=["l1_acc", "no_l1_acc"]
-)
+@pytest.mark.parametrize("enable_l1_acc", [True, False], ids=["l1_acc", "no_l1_acc"])
 @pytest.mark.parametrize("target", ["ttmetal"])
 # Large matmuls, based on ttnn's matmul benchmarks
 def test_matmul_ttnn_shapes_double_buffered(
@@ -251,7 +247,6 @@ def test_matmul_ttnn_shapes_double_buffered(
         skip_exec=getattr(request.node, "skip_exec", False),
         pcc=pcc,
     )
-
 
 
 @pytest.mark.parametrize("target", ["ttmetal"])
