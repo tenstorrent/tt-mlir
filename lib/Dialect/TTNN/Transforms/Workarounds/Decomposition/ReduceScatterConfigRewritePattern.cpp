@@ -29,14 +29,12 @@ ReduceScatterConfigRewritePattern::matchAndRewrite(ReduceScatterOp srcOp,
       /*dstFullSyncEn=*/nullptr);
 
   // Create a new operation with the compute config set
-  auto newOp = rewriter.create<ReduceScatterOp>(
-      srcOp.getLoc(), srcOp.getResult().getType(), srcOp.getInput(),
+  rewriter.replaceOpWithNewOp<ReduceScatterOp>(
+      srcOp, srcOp.getResult().getType(), srcOp.getInput(),
       srcOp.getReduceTypeAttr(), srcOp.getScatterDimAttr(),
       srcOp.getClusterAxisAttr(), srcOp.getSubDeviceIdAttr(),
       srcOp.getMemoryConfigAttr(), srcOp.getNumLinksAttr(),
       srcOp.getTopologyAttr(), computeConfig);
-
-  rewriter.replaceOp(srcOp, newOp.getResult());
   return success();
 }
 
