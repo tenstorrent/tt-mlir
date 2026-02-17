@@ -73,10 +73,16 @@ table KernelArgSemaphore {
   core_type: CoreType;
 }
 
+table KernelArgNamedArgument {
+  name: string;
+  value: uint32;
+}
+
 union KernelArgType {
   KernelArgCBPort,
   KernelArgBufferAddress,
   KernelArgSemaphore,
+  KernelArgNamedArgument,
 }
 
 table KernelArg {

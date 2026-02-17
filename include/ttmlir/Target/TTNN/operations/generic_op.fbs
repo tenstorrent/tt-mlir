@@ -87,11 +87,17 @@ table KernelArgSemaphoreAt {
   semaphore_index: uint32;
 }
 
+table KernelArgNamedArgument {
+  name: string;
+  value: uint32;
+}
+
 union KernelArgType {
   KernelArgCBBufferIndex,
   KernelArgBufferAddress,
   KernelArgBufferAddressOfTensor,
   KernelArgSemaphoreAt,
+  KernelArgNamedArgument,
 }
 
 table KernelArg {

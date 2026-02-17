@@ -3812,6 +3812,24 @@ def ttir_reverse_golden(
     return torch.flip(input_tensor, dimensions).to(output_dtype)
 
 
+def stablehlo_sort_golden(
+    input_tensor: GoldenMapTensor,
+    dimension_attr: IntegerAttr,
+    is_stable_attr: BoolAttr,
+    descending_attr: BoolAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    dimension = unpack_mlir_attr(dimension_attr)
+    is_stable = unpack_mlir_attr(is_stable_attr)
+    descending = unpack_mlir_attr(descending_attr)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+
+    values, _ = torch.sort(
+        input_tensor, dim=dimension, descending=descending, stable=is_stable
+    )
+    return values.to(output_dtype)
+
+
 def ttir_equal_golden(
     input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
 ) -> GoldenMapTensor:
@@ -4207,6 +4225,17 @@ def ttir_embedding_backward_golden(
         )
 
     return GoldenMapTensor(result_shards, indices_tensor.mesh_shape)
+
+
+def ttir_concatenate_heads_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    # Input: [batch, num_heads, seq_len, head_dim]
+    # Permute to: [batch, seq_len, num_heads, head_dim]
+    permuted = input_tensor.permute(0, 2, 1, 3)
+    # Reshape to: [batch, seq_len, num_heads * head_dim]
+    batch, seq_len, num_heads, head_dim = permuted.shape
+    return permuted.reshape(batch, seq_len, num_heads * head_dim)
 
 
 ################ StableHLO Op Golden Functions ###############
@@ -5870,6 +5899,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.RequantizeOp: requantize_golden,
     # Complex operations
     ttir.CbrtOp: cbrt_golden,
+    ttir.ConcatenateHeadsOp: ttir_concatenate_heads_golden,
     ttir.Conv2dOp: conv2d_golden,
     ttir.ConvTranspose2dOp: conv_transpose2d_golden,
     ttir.MaxPool2dOp: ttir_max_pool2d_golden,
@@ -5945,6 +5975,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     stablehlo.DynamicSliceOp: dynamic_slice_golden,
     stablehlo.DynamicUpdateSliceOp: stablehlo_dynamic_update_slice_golden,
     stablehlo.ConvolutionOp: stablehlo_convolution_golden,
+    stablehlo.SortOp: stablehlo_sort_golden,
     # StableHLO tensor manipulation operations
     stablehlo.TransposeOp: stablehlo_transpose_golden,
     stablehlo.SelectOp: stablehlo_select_golden,

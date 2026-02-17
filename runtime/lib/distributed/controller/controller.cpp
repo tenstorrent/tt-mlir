@@ -963,8 +963,6 @@ void Controller::handleGetSystemDescResponse(
     const std::vector<SizedBuffer> &responseBuffers,
     std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse) {
 
-  debug::checkResponsesIdentical(responseBuffers);
-
   debug::checkResponseTypes(responseBuffers,
                             fb::ResponseType::GetSystemDescResponse);
 

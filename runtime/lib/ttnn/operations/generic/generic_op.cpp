@@ -175,6 +175,10 @@ static std::vector<uint32_t> createKernelArgs(
       coreArgs[i] = kernelArg->arg_as_KernelArgSemaphoreAt()->semaphore_index();
       break;
     }
+    case ::tt::target::ttnn::KernelArgType::KernelArgNamedArgument: {
+      coreArgs[i] = kernelArg->arg_as_KernelArgNamedArgument()->value();
+      break;
+    }
     default: {
       LOG_FATAL("Unknown kernel arg type");
     }

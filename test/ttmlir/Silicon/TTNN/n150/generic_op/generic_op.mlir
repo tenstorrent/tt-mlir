@@ -70,7 +70,7 @@
   core_ranges = #core_ranges,
   ct_args = [#out_cb_arg],
   common_rt_args = [],
-  rt_args = [#ttnn.core_runtime_args<core_coord = #core, args = [#out_addr_arg]>]>
+  rt_args = [#ttnn.core_runtime_args<core_coord = #core, args = [#out_addr_arg, #ttnn.kernel_named_arg<name = "page_size", value = 4096>]>]>
 
 #program = #ttnn.program<
   kernels = [#read_kernel, #compute_kernel, #write_kernel],
@@ -157,9 +157,10 @@ module {
     emitc.call_opaque "cb_pop_front"(%2, %0) : (!emitc.opaque<"::tt::CB">, i32) -> ()
     return
   }
-  func.func private @write_kernel() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec< rt_args = [<arg_type = buffer_address, operand_index = 0>] ct_args = [<arg_type = cb_port, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<noc>} {
-    %0 = "emitc.constant"() <{value = 1 : i32}> : () -> i32
-    %1 = "emitc.constant"() <{value = 4096 : i32}> : () -> i32
+  // Test named arguments by passing page size as a constant
+  func.func private @write_kernel() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec< rt_args = [<arg_type = buffer_address, operand_index = 0>, <arg_type = named_argument, argument_name = "page_size", operand_index = 1 >] ct_args = [<arg_type = cb_port, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<noc>} {
+    %one = "emitc.constant"() <{value = 1 : i32}> : () -> i32
+    %1 = emitc.call_opaque "get_arg_val"(%one) {template_args = [#emitc.opaque<"uint32_t">]} : (i32) -> i32
 
     %zero = "emitc.constant"() <{value = 0 : i32}> : () -> i32
     %2 = emitc.call_opaque "get_arg_val"(%zero) {template_args = [#emitc.opaque<"uint32_t">]} : (i32) -> i32
@@ -168,12 +169,12 @@ module {
     %5 = emitc.literal "my_y[noc_index]" : !emitc.size_t
 
     // Move single tile from CB to address in L1
-    emitc.call_opaque "cb_wait_front"(%3, %0) : (!emitc.opaque<"::tt::CB">, i32) -> ()
+    emitc.call_opaque "cb_wait_front"(%3, %one) : (!emitc.opaque<"::tt::CB">, i32) -> ()
     %6 = emitc.call_opaque "get_read_ptr"(%3) : (!emitc.opaque<"::tt::CB">) -> i32
     %7 = emitc.call_opaque "get_noc_addr"(%4, %5, %2) : (!emitc.size_t, !emitc.size_t, i32) -> i64
     emitc.call_opaque "noc_async_write"(%6, %7, %1) : (i32, i64, i32) -> ()
     emitc.call_opaque "noc_async_write_barrier"() : () -> ()
-    emitc.call_opaque "cb_pop_front"(%3, %0) : (!emitc.opaque<"::tt::CB">, i32) -> ()
+    emitc.call_opaque "cb_pop_front"(%3, %one) : (!emitc.opaque<"::tt::CB">, i32) -> ()
     return
   }
 }

@@ -2245,6 +2245,27 @@ def TTKernel_ExperimentalWriteColMaskTileOp : TTKernel_Op<"experimental::write_c
 }
 
 
+def TTKernel_ExperimentalFillArangeTileOp : TTKernel_Op<"experimental::fill_arange_tile"> {
+    let summary = "Experimental Write Full Linear Index Tile Op";
+    let description = [{
+      Writes a full linear index tile pattern to a CB, where element[i,j] = i * 32 + j
+      (linear index as float, 0-1023). This is used for arange operations to generate
+      index tiles directly in L1 memory.
+
+      The resulting tile looks like:
+      [[  0,   1,   2, ...,  31],
+       [ 32,  33,  34, ...,  63],
+       ...
+       [992, 993, 994, ..., 1023]]
+    }];
+
+    let arguments = (ins TTKernel_CB:$cb);
+
+    let assemblyFormat = [{
+      `(` $cb `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
 def TTKernel_UntilizeInitOp : TTKernel_Op<"untilize_init"> {
     let summary = "UntilizeInitOp call.";
     let description = [{

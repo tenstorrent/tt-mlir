@@ -950,6 +950,17 @@ def TTNN_KernelArgSemaphoreAtAttr : TTNN_Attr<"KernelArgSemaphoreAt", "kernel_ar
   let assemblyFormat = "`<` $semaphore_index `>`";
 }
 
+def TTNN_KernelArgNamedArgAttr : TTNN_Attr<"KernelArgNamedArg", "kernel_named_arg"> {
+  let summary = "Named kernel argument";
+  let description = [{
+    TTNN generic kernel argument for a named argument in kernel. For example this could be
+    used to pass in dynamic loop bounds for M, N, K in a matmul kernel.
+  }];
+
+  let parameters = (ins "StringAttr":$name, "uint32_t":$value);
+  let assemblyFormat = "`<` struct(params) `>`";
+}
+
 def TTNN_CoreRuntimeArgsAttr : TTNN_Attr<"CoreRuntimeArgs", "core_runtime_args"> {
   let summary = "Per-core runtime arguments";
   let description = [{

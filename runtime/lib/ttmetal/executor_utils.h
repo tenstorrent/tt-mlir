@@ -442,6 +442,11 @@ std::vector<std::uint32_t> processKernelArgs(
                                           toCoreType(arg->core_type())));
       break;
     }
+    case target::metal::KernelArgType::KernelArgNamedArgument: {
+      const auto *arg = kernelArg->arg_as_KernelArgNamedArgument();
+      argsVec.push_back(arg->value());
+      break;
+    }
     case target::metal::KernelArgType::NONE:
       LOG_FATAL("Unsupported runtime arg type");
     }

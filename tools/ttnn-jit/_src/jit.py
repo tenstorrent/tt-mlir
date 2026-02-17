@@ -24,6 +24,7 @@ from ttnn_jit._src import (
     get_current_system_desc,
     create_runtime_device_from_ttnn,
 )
+from ttnn_jit._src.memory_analyzer import MemoryAnalyzer
 
 
 class JitFunction:
@@ -104,10 +105,10 @@ class JitFunction:
 
     def __call__(self, *args, **kwargs):
         """Execute the JIT-compiled function."""
+        device = args[0].device() if args else None
+        assert device is not None, "Device is required"
         if not self.system_desc_path:
-            self.system_desc_path = self._query_and_save_system_desc(
-                args[0].device() if args else None
-            )
+            self.system_desc_path = self._query_and_save_system_desc(device)
 
         sig = self._validate_arguments(args, kwargs)
         param_names = list(sig.parameters.keys())
@@ -118,7 +119,7 @@ class JitFunction:
             fb_binary = self.cache.get(*args)
             return run_binary(fb_binary, args)
 
-        ir = generate_ir(
+        ir, output_type = generate_ir(
             self.func,
             self.debug,
             self.memory_config,
@@ -126,7 +127,13 @@ class JitFunction:
             **kwargs,
         )
 
+        # Analyze memory: get available L1/DRAM ranges and output tensor requirements
+        memory_analyzer = MemoryAnalyzer(device, output_type)
+        if self.debug:
+            memory_analyzer.print_stats()
+
         options = f"system-desc-path={self.system_desc_path} ttnn-mode=true set-math-fidelity={self.math_fidelity.name}"
+        options += memory_analyzer.get_l1_range_str()
         if self.compile_only:
             ttnn_to_ttmetal_pipeline(ir, options)
             print("---- IR Dump after ttnn_to_ttmetal_pipeline ----")

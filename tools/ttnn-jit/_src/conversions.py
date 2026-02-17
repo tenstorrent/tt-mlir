@@ -18,6 +18,35 @@ from ttmlir.ir import BF16Type, F32Type, IntegerType
 from ttmlir.dialects import ttcore
 import ttnn
 
+import ttnn as ttnn_lib
+
+
+def ttnn_dtype_from_mlir_element_type(element_type):
+    """
+    Convert MLIR element type to TTNN dtype.
+
+    Args:
+        element_type: MLIR element type (e.g., bf16, f32, i32)
+
+    Returns:
+        TTNN dtype enum (from ttnn library)
+    """
+    type_str = str(element_type)
+    if "bf16" in type_str:
+        return ttnn_lib.bfloat16
+    elif "f32" in type_str:
+        return ttnn_lib.float32
+    elif "i32" in type_str:
+        return ttnn_lib.int32
+    elif "ui32" in type_str:
+        return ttnn_lib.uint32
+    elif "ui16" in type_str:
+        return ttnn_lib.uint16
+    elif "ui8" in type_str:
+        return ttnn_lib.uint8
+    else:
+        return ttnn_lib.bfloat16  # Default fallback
+
 
 def mlir_dtype_from_ttnn_dtype(dtype, ctx):
     """

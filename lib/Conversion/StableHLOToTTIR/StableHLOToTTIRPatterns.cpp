@@ -5200,7 +5200,7 @@ private:
     RankedTensorType updateType =
         mlir::cast<RankedTensorType>(op.getUpdates()[0].getType());
     RankedTensorType indexType = indexTensor.getType();
-    ArrayRef<int64_t> indexShape = indexType.getShape();
+    llvm::SmallVector<int64_t> indexShape(indexType.getShape());
     ArrayRef<int64_t> updateShape = updateType.getShape();
 
     if (indexShape.size() < updateShape.size()) {
