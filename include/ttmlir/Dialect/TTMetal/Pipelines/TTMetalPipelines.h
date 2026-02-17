@@ -187,9 +187,9 @@ struct TTIRToTTMetalPipelineOptions
                      "prints debug output comparing them."),
       llvm::cl::init(false)};
 
-  Option<bool> enablePackerL1Acc{
-      *this, "enable-packer-l1-acc",
-      llvm::cl::desc("Enable packer to accumulate into L1."),
+  Option<bool> enableL1Acc{
+      *this, "enable-l1-acc",
+      llvm::cl::desc("Enable L1 accumulation."),
       llvm::cl::init(false)};
 };
 
