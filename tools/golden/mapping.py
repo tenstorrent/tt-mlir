@@ -2670,17 +2670,11 @@ def stablehlo_not_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTe
 
 
 def apply_sharding(
-    tensor: Union[GoldenMapTensor, torch.Tensor],
+    tensor: GoldenMapTensor,
     mesh_shape: Tuple[int],
-    shard_dims: Tuple[Union[int, None]] = None,
+    shard_dims: Tuple[Union[int, None]],
 ) -> GoldenMapTensor:
-    if isinstance(tensor, GoldenMapTensor):
-        shards = [tensor.shard_at(0).clone()]
-    else:
-        shards = [tensor.clone()]
-    if shard_dims is None:
-        shard_dims = [None] * len(mesh_shape)
-
+    shards = [tensor.shard_at(0).clone()]
     for dim_size, shard_dim in zip(mesh_shape, shard_dims):
         temp_shards = []
         if shard_dim is None or shard_dim == -1:
@@ -2779,7 +2773,9 @@ def ttir_arange_golden(
 
     result = result.expand(shape).clone()
 
-    return apply_sharding(result, mesh_shape)
+    return GoldenMapTensor(
+        {i: result.clone() for i in range(mesh_shape[0] * mesh_shape[1])}, mesh_shape
+    )
 
 
 def ttir_cumsum_golden(
@@ -2964,7 +2960,10 @@ def ttir_ones_golden(
     size = unpack_mlir_attr(shape)
     mesh_shape = unpack_mlir_attr(mesh_shape_attr)
     output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
-    return apply_sharding(torch.ones(size, dtype=output_dtype), mesh_shape)
+    result = torch.ones(size, dtype=output_dtype)
+    return GoldenMapTensor(
+        {i: result.clone() for i in range(mesh_shape[0] * mesh_shape[1])}, mesh_shape
+    )
 
 
 def ttir_zeros_golden(
@@ -2973,7 +2972,10 @@ def ttir_zeros_golden(
     size = unpack_mlir_attr(shape)
     mesh_shape = unpack_mlir_attr(mesh_shape_attr)
     output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
-    return apply_sharding(torch.zeros(size, dtype=output_dtype), mesh_shape)
+    result = torch.zeros(size, dtype=output_dtype)
+    return GoldenMapTensor(
+        {i: result.clone() for i in range(mesh_shape[0] * mesh_shape[1])}, mesh_shape
+    )
 
 
 def ttir_rand_golden(
@@ -2995,7 +2997,10 @@ def ttir_rand_golden(
     gen.manual_seed(seed)
     base = torch.rand(size, generator=gen, dtype=torch.bfloat16)
     rand_tensor = (base * (high - low) + low).to(output_dtype)
-    return apply_sharding(rand_tensor, mesh_shape)
+    return GoldenMapTensor(
+        {i: rand_tensor.clone() for i in range(mesh_shape[0] * mesh_shape[1])},
+        mesh_shape,
+    )
 
 
 def ttir_dropout_golden(
@@ -3270,7 +3275,10 @@ def ttir_constant_golden(
         flat_values = [elem for elem in value]
         torch_tensor = torch.tensor(flat_values, dtype=dtype).reshape(shape)
 
-    return apply_sharding(torch_tensor.reshape(shape), mesh_shape)
+    result = torch_tensor.reshape(shape)
+    return GoldenMapTensor(
+        {i: result.clone() for i in range(mesh_shape[0] * mesh_shape[1])}, mesh_shape
+    )
 
 
 def ttir_convolution_golden(
@@ -3619,7 +3627,9 @@ def ttir_full_golden(
     mesh_shape = unpack_mlir_attr(mesh_shape_attr)
     output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
     tensor = torch.full(shape, fill_value).to(output_dtype)
-    return apply_sharding(tensor, mesh_shape)
+    return GoldenMapTensor(
+        {i: tensor.clone() for i in range(mesh_shape[0] * mesh_shape[1])}, mesh_shape
+    )
 
 
 def ttir_concat_golden(
@@ -4220,7 +4230,10 @@ def stablehlo_constant_golden(
         torch_tensor = torch.tensor(np.array(value), dtype=dtype).reshape(shape)
 
     mesh_shape = unpack_mlir_attr(mesh_shape_attr)
-    return apply_sharding(torch_tensor.reshape(shape), mesh_shape)
+    result = torch_tensor.reshape(shape)
+    return GoldenMapTensor(
+        {i: result.clone() for i in range(mesh_shape[0] * mesh_shape[1])}, mesh_shape
+    )
 
 
 def stablehlo_iota_golden(
@@ -4243,7 +4256,9 @@ def stablehlo_iota_golden(
     result = iota_values.expand(output_shape).clone()
 
     mesh_shape = unpack_mlir_attr(mesh_shape_attr)
-    return apply_sharding(result, mesh_shape)
+    return GoldenMapTensor(
+        {i: result.clone() for i in range(mesh_shape[0] * mesh_shape[1])}, mesh_shape
+    )
 
 
 def stablehlo_dynamic_iota_golden(
@@ -4269,7 +4284,9 @@ def stablehlo_dynamic_iota_golden(
     result = iota_values.expand(full_shape).clone()
 
     mesh_shape = unpack_mlir_attr(mesh_shape_attr)
-    return apply_sharding(result, mesh_shape)
+    return GoldenMapTensor(
+        {i: result.clone() for i in range(mesh_shape[0] * mesh_shape[1])}, mesh_shape
+    )
 
 
 def stablehlo_batch_norm_grad_golden(
