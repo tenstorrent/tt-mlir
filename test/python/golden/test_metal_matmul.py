@@ -2,7 +2,6 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-import os
 import pytest
 import torch
 from typing import List
@@ -10,13 +9,9 @@ from conftest import get_request_kwargs
 
 from test_utils import shape_str
 
-from ttmlir.ir import Context, Location, Module
-from ttmlir.passes import ttmetal_to_flatbuffer_bin
-from builder.base.builder_runtime import execute_fb
 from builder.base.builder_utils import Operand
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_apis import compile_and_execute_ttir
-from golden import GoldenMapTensor
 
 pytestmark = pytest.mark.frontend("ttir")
 
@@ -245,68 +240,6 @@ def test_matmul_ttnn_shapes_double_buffered(
         **get_request_kwargs(request),
         save_artifacts=True,
         skip_exec=getattr(request.node, "skip_exec", False),
-        pcc=pcc,
-    )
-
-
-@pytest.mark.parametrize("target", ["ttmetal"])
-def test_matmul_from_mlir_file(
-    target: str,
-    request,
-    device,
-):
-    pcc = 0.96
-
-    lhs_shape = (512, 1024)
-    rhs_shape = (1024, 1024)
-
-    # Build constrained golden inputs following create_matmul_constrained_inputs.
-    in_lhs = torch.rand(lhs_shape, dtype=torch.bfloat16)
-    in_rhs = torch.rand(rhs_shape, dtype=torch.bfloat16)
-
-    expected_output = torch.matmul(in_lhs, in_rhs)
-
-    golden_input_output_tensors = {
-        0: {
-            "input_0": GoldenMapTensor({0: in_lhs}, (1, 1)),
-            "input_1": GoldenMapTensor({0: in_rhs}, (1, 1)),
-            "output_0": GoldenMapTensor({0: expected_output}, (1, 1)),
-        }
-    }
-
-    # artifact_dir = os.path.join(
-    #     os.path.dirname(__file__),
-    #     "..",
-    #     "..",
-    #     "..",
-    #     "builder-artifacts",
-    #     "TTIRBuilder",
-    #     request.node.name.replace(
-    #         "test_matmul_from_ttmetal_mlir", "test_matmul_ttnn_shapes_double_buffered"
-    #     ),
-    # )
-    mlir_path = "/localdev/vtang/tt-mlir/packer-matmul-block-512x1024x1024.mlir"
-
-    if not os.path.exists(mlir_path):
-        pytest.skip(f"TTMetal MLIR artifact not found: {mlir_path}")
-
-    with open(mlir_path, "r", encoding="utf-8") as f:
-        mlir_text = f.read()
-
-    ctx = Context()
-    loc = Location.unknown(ctx)
-
-    with ctx, loc:
-        module = Module.parse(mlir_text)
-
-    compiled_bin = ttmetal_to_flatbuffer_bin(module)
-
-    execute_fb(
-        compiled_bin,
-        golden_input_output_tensors,
-        {},
-        device=device,
-        check_pcc=True,
         pcc=pcc,
     )
 
