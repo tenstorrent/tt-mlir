@@ -323,6 +323,20 @@ public:
                   ConversionPatternRewriter &rewriter) const final {
     rewriter.replaceOpWithNewOp<ttkernel::PackReconfigL1AccOp>(
         op, adaptor.getEnable());
+
+    // Insert an unconditional disable before return.
+    // Packer config state persists across program launches.
+    auto func = op->getParentOfType<func::FuncOp>();
+    if (func) {
+      func.walk([&](func::ReturnOp returnOp) {
+        OpBuilder builder(returnOp);
+        Value zero = builder.create<arith::ConstantOp>(
+            returnOp.getLoc(), builder.getI32Type(),
+            builder.getI32IntegerAttr(0));
+        builder.create<ttkernel::PackReconfigL1AccOp>(returnOp.getLoc(), zero);
+      });
+    }
+
     return success();
   };
 };
