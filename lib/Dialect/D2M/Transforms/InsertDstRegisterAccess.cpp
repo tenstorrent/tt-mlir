@@ -452,8 +452,7 @@ public:
     // When L1 accumulation mode is enabled, skip CB->DST reload copy loop
     // generation but still rewrite original load accesses to use DST indices.
     if (isScheduled) {
-      dataCopyGenerateScheduled(rewriter, loc, dst, copyInfos,
-                                enableL1Acc);
+      dataCopyGenerateScheduled(rewriter, loc, dst, copyInfos, enableL1Acc);
     } else {
       dataCopyGenerate(rewriter, loc, dst, copyInfos, enableL1Acc);
     }
@@ -1018,7 +1017,8 @@ public:
       return {skeleton, mapper};
     };
 
-    // When enableL1Acc is true skip copy loop generation but still rewrite original accesses to use DST.
+    // When enableL1Acc is true skip copy loop generation but still rewrite
+    // original accesses to use DST.
     Operation *copyLoop = nullptr;
     mlir::IRMapping copyLoopMapper;
     if (!enableL1Acc) {
@@ -1729,8 +1729,7 @@ public:
     RewritePatternSet patterns(ctx);
 
     patterns.add<D2MInsertDstRegisterAccessRewriter>(
-        ctx, useTileMatmul, maxDstPhysicalSizeTiles.getValue(),
-        enableL1Acc);
+        ctx, useTileMatmul, maxDstPhysicalSizeTiles.getValue(), enableL1Acc);
 
     if (failed(applyPatternsGreedily(moduleOp, std::move(patterns)))) {
       signalPassFailure();
