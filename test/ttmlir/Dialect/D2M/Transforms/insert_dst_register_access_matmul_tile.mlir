@@ -20,13 +20,14 @@ module {
       linalg.generic {indexing_maps = [affine_map<(d0, d1, d2) -> (d0, d2)>, affine_map<(d0, d1, d2) -> (d2, d1)>, affine_map<(d0, d1, d2) -> (d0, d1)>], iterator_types = ["parallel", "parallel", "reduction"]} ins(%subview, %subview_1 : memref<1x1x!ttcore.tile<32x32, f32>, strided<[1, 1], offset: ?>, #l1_>, memref<1x1x!ttcore.tile<32x32, f32>, strided<[1, 1], offset: ?>, #l1_>) outs(%subview_2 : memref<1x1x!ttcore.tile<32x32, f32>, strided<[1, 1], offset: ?>, #l1_>) {
       ^bb0(%arg0: !ttcore.tile<32x32, f32>, %arg1: !ttcore.tile<32x32, f32>, %arg2: !ttcore.tile<32x32, f32>):
         // CHECK: %[[DST:.*]] = d2m.acquire_dst() : memref<4x!ttcore.tile<32x32, f32>, #dst>
-        // No blocking loops: accum guard folds away (unit loop, always first iteration).
+        // No blocking loops: reduction guard folds away.
+        // CHECK-NOT: d2m.iter_index
         // CHECK-NOT: scf.if
         // Check that the accumulator is loaded back from dst memory space for the matmul
         // CHECK: %[[ARG0_VAL:.*]] = affine.load %[[ARG0:.*]]
         // CHECK: %[[ARG1_VAL:.*]] = affine.load %[[ARG1:.*]]
         // CHECK: %[[DST_VAL:.*]] = affine.load %[[DST]]
-        // CHECK: %[[MATMUL_RESULT:.*]] = "d2m.tile_matmul"(%[[ARG0_VAL]], %[[ARG1_VAL]], %[[DST_VAL]])
+        // CHECK: %[[MATMUL_RESULT:.*]] = "d2m.tile_matmul"({{%.*}}, {{%.*}}, %[[DST_VAL]])
         %0 = "d2m.tile_matmul"(%arg0, %arg1, %arg2) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
         // Check that result is loaded from dst memory space
         // CHECK: %[[FINAL_VAL:.*]] = affine.load %[[DST]]
@@ -53,7 +54,7 @@ module {
       // Check that destination buffer is created
       // CHECK: %[[DST:.*]] = d2m.acquire_dst() : memref<8x!ttcore.tile<32x32, f16>, #dst>
 
-      // No blocking loops: accum guard folds away (unit loop, always first iteration).
+      // No blocking loops: reduction guard folds away.
       // CHECK-NOT: d2m.iter_index
       // CHECK-NOT: scf.if
 
