@@ -196,8 +196,27 @@ SmallVector<int64_t> getPhysicalGridShape(Value tensorOrMemref) {
     return SmallVector<int64_t>(outputGridShape);
   }
 
-  // Virtualization maps now live on ViewLayoutOp/StreamLayoutOp rather than
-  // on the layout attribute.  Query the defining op for a remapping.
+  // After the virtual-grid refactor, virtualization maps live on EmptyOp
+  // (virtualGridMapping attr) rather than on views or the layout attribute.
+  // Check for an explicit virtualGridMapping first.
+  if (auto vgm = utils::getVirtualGridMapping(tensorOrMemref)) {
+    // The virtualGridMapping is the inverse map (physical → virtual).
+    // Derive the physical grid shape from the virtual grid shape using
+    // the shared getPhysicalGridExtent utility.
+    ttcore::DeviceLayoutInterface layout =
+        ttcore::getDeviceLayout(tensorOrMemref);
+    TT_assert(layout);
+    SmallVector<int64_t> gridShape = to_vector(
+        layout.getGridShape(dyn_cast<ShapedType>(tensorOrMemref.getType())));
+    if (auto *definingOp = tensorOrMemref.getDefiningOp()) {
+      ttcore::DeviceAttr device = ttcore::lookupDevice(definingOp);
+      auto workerGridShape = device.getWorkerGrid().getShape();
+      return ttmlir::d2m::utils::grids::getPhysicalGridExtent(gridShape,
+                                                              workerGridShape);
+    }
+  }
+
+  // Check for a reblocking remapping on a view/stream op.
   auto shapeType = tensorOrMemref.getType();
   SmallVector<int64_t> deviceShape =
       llvm::to_vector(dyn_cast<ShapedType>(shapeType).getShape());
@@ -208,9 +227,9 @@ SmallVector<int64_t> getPhysicalGridShape(Value tensorOrMemref) {
     }
   }
 
-  // No remapping on the defining op.  Derive the grid shape from the layout
-  // and, for grids that exceed the physical device bounds or are ND (> 2D),
-  // collapse to a valid 2D physical grid.
+  // No virtualGridMapping and no reblocking remapping.  Derive the grid shape
+  // from the layout and, for grids that exceed the physical device bounds or
+  // are ND (> 2D), collapse to a valid 2D physical grid.
   ttcore::DeviceLayoutInterface layout =
       ttcore::getDeviceLayout(tensorOrMemref);
   TT_assert(layout);
@@ -230,6 +249,41 @@ SmallVector<int64_t> getPhysicalGridShape(Value tensorOrMemref) {
     }
   }
   return gridShape;
+}
+
+std::optional<AffineMap> getVirtualGridMapping(Value val) {
+  // Direct check on the defining op.
+  if (auto *defOp = val.getDefiningOp()) {
+    // d2m.empty has a declared optional attribute.
+    if (auto emptyOp = mlir::dyn_cast<EmptyOp>(defOp)) {
+      if (auto vgm = emptyOp.getVirtualGridMappingAttr()) {
+        return vgm.getValue();
+      }
+      return std::nullopt;
+    }
+
+    // Trace through d2m.to_layout to its output EmptyOp.
+    if (auto toLayoutOp = mlir::dyn_cast<ToLayoutOp>(defOp)) {
+      return getVirtualGridMapping(toLayoutOp.getOutput());
+    }
+
+    // Trace through d2m.view_layout to its input.
+    if (auto viewOp = mlir::dyn_cast<ViewLayoutOp>(defOp)) {
+      return getVirtualGridMapping(viewOp.getInput());
+    }
+
+    // Trace through d2m.stream_layout to its storage EmptyOp.
+    if (auto streamOp = mlir::dyn_cast<StreamLayoutOp>(defOp)) {
+      return getVirtualGridMapping(streamOp.getStorage());
+    }
+
+    // For ops from other dialects (memref::AllocOp, ttmetal::CreateBufferOp),
+    // check for a discardable attribute.
+    if (auto vgm = defOp->getAttrOfType<AffineMapAttr>("virtualGridMapping")) {
+      return vgm.getValue();
+    }
+  }
+  return std::nullopt;
 }
 
 std::optional<AffineMap> getAssociatedRemapping(Value val) {

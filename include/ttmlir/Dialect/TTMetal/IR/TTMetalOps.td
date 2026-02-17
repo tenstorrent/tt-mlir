@@ -58,10 +58,15 @@ def TTMetal_EnqueueReadBufferOp : TTMetal_Op<"enqueue_read_buffer", [MemoryEffec
 def TTMetal_CreateBufferOp : TTMetal_Op<"create_buffer", [MemoryEffects<[MemAlloc]>]> {
     let summary = "Create buffer op.";
     let description = [{
-      Create buffer operation
+      Create buffer operation.
+
+      When this buffer uses a virtual grid, the `virtualGridMapping` attribute
+      stores the inverse affine map from physical to virtual grid coordinates.
+      This is propagated from d2m.empty through bufferization.
     }];
 
-    let arguments = (ins I64Attr:$address);
+    let arguments = (ins I64Attr:$address,
+                         OptionalAttr<AffineMapAttr>:$virtualGridMapping);
     let results = (outs AnyNon0RankedMemRef:$result);
 }
 
