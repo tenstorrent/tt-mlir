@@ -23,18 +23,18 @@ public:
                 Block *regionBlock, Block *loopedBlock) {
     SmallVector<affine::AffineForOp> loops;
 
-    // Create upper bound values using GetBlockFactorOp
+    // Create upper bound values using GetBlockFactorOp.
     SmallVector<Value> ubs;
     for (unsigned i = 0; i < numDims; ++i) {
       ubs.push_back(
           rewriter.create<GetBlockFactorOp>(loc, static_cast<int64_t>(i)));
     }
 
-    // Upper bound map: ()[s0] -> (s0)
+    // Upper bound map: ()[s0] -> (s0).
     AffineMap ubMap = AffineMap::get(0, 1, rewriter.getAffineSymbolExpr(0),
                                      rewriter.getContext());
 
-    // Build nested affine.for loops from outermost to innermost
+    // Build nested affine.for loops from outermost to innermost.
     for (unsigned i = 0; i < numDims; ++i) {
       auto forOp = affine::AffineForOp::create(
           rewriter, loc,

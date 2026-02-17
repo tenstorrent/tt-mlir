@@ -409,7 +409,7 @@ public:
       auto &domInfo = getAnalysis<DominanceInfo>();
 
       // Internalize generic op inputs that are only referenced locally into
-      // local memref.alloc
+      // local memref.alloc.
       internalizeFusedGenericIntermediates(funcOp, domInfo, builder);
 
       // Move remote_load into direct style so scalrep can forward through SSA.

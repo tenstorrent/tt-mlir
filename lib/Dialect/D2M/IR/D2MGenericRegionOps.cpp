@@ -294,7 +294,7 @@ void DMAWriteOp::getEffects(
   }
 
   // Verify that memref references a generic op operand or scratch allocation
-  // when inside a generic
+  // when inside a generic.
   if (auto genericOp = getOperation()->getParentOfType<GenericOp>()) {
     Value memrefOperand = getMemref();
     std::optional<unsigned> operandIndex;
@@ -304,7 +304,7 @@ void DMAWriteOp::getEffects(
         break;
       }
     }
-    // Also allow scratch allocations
+    // Also allow scratch allocations.
     if (!operandIndex &&
         !isa_and_nonnull<ScratchAllocateOp>(memrefOperand.getDefiningOp())) {
       return emitOpError(
@@ -472,7 +472,7 @@ void WriteColMaskTileOp::getEffects(
   }
 
   // Verify that memref references a generic op operand or scratch allocation
-  // when inside a generic
+  // when inside a generic.
   if (auto genericOp = getOperation()->getParentOfType<GenericOp>()) {
     Value memrefOperand = getMemref();
     bool foundInOperands = false;
