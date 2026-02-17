@@ -12197,6 +12197,7 @@ class TTIRBuilder(Builder):
             unit_attrs=unit_attrs,
         )
 
+    @tag(ttir.MatmulOp)
     def matmul(
         self,
         in0: Operand,
@@ -12215,6 +12216,108 @@ class TTIRBuilder(Builder):
             ttir_kwargs=kwargs,
             unit_attrs=unit_attrs,
         )
+
+    @parse(ttir.MatmulOp)
+    def matmul_parser(
+        self,
+        old_op: ttir.MatmulOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.matmul_parser)
+        in0 = global_dict[old_op.a]
+        in1 = global_dict[old_op.b]
+        result = old_op.result.type
+
+        new_op = ttir_op(
+            result,
+            in0,
+            in1,
+            loc=old_op.location,
+            transpose_a=old_op.transpose_a,
+            transpose_b=old_op.transpose_b,
+        )
+        new_op_result = new_op.result
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            input1 = self._get_golden_tensor(in1)
+            op_golden_function = get_golden_function(ttir_op)
+            transpose_a = unpack_mlir_attr(old_op.transpose_a)
+            transpose_b = unpack_mlir_attr(old_op.transpose_b)
+            golden_output = op_golden_function(
+                input0,
+                input1,
+                transpose_a,
+                transpose_b,
+            )
+            self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(ttir.MatmulOp)
+    def matmul_split(
+        self,
+        old_op: ttir.MatmulOp,
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(TTIRBuilder.matmul_split)
+
+        old_context = old_op.context
+        old_loc = Location.unknown(old_context)
+        with old_context, old_loc:
+            matmul_module = Module.create()
+            matmul_builder = TTIRBuilder(old_context, old_loc)
+            op_input_types = [old_op.a.type, old_op.b.type]
+
+            with InsertionPoint(matmul_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="matmul_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    in1 = inputs[1]
+                    result = old_op.result.type
+
+                    new_op = ttir_op(
+                        result,
+                        in0,
+                        in1,
+                        loc=old_op.location,
+                        transpose_a=old_op.transpose_a,
+                        transpose_b=old_op.transpose_b,
+                    )
+                    new_op_result = new_op.result
+
+                    if not self._disable_golden_check:
+                        op_golden_function = get_golden_function(ttir_op)
+                        input0 = self._get_golden_tensor(old_op.a)
+                        input1 = self._get_golden_tensor(old_op.b)
+                        transpose_a = unpack_mlir_attr(old_op.transpose_a)
+                        transpose_b = unpack_mlir_attr(old_op.transpose_b)
+                        golden_output = op_golden_function(
+                            input0,
+                            input1,
+                            transpose_a,
+                            transpose_b,
+                        )
+                        matmul_builder._set_golden_tensor(new_op_result, golden_output)
+                        matmul_builder._set_golden_tensor(in0, input0)
+                        matmul_builder._set_golden_tensor(in1, input1)
+                        ordered_inputs.extend([in0, in1])
+                        ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                matmul_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return matmul_module, matmul_builder
 
     def upsample2d(
         self,
