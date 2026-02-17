@@ -645,14 +645,6 @@ def D2M_TileBcastOp : D2M_GenericRegionComputeOp<"tile_bcast", [Pure, D2M_SkipOp
   let results = (outs TTCore_Tile:$result);
 }
 
-def D2M_PackerMaskResetOp : D2M_GenericRegionComputeOp<"packer_mask_reset",
-  [D2M_SkipOpAffineLoopFusionTrait]> {
-  let summary = "D2M Packer Mask Reset Op";
-  let description = [{
-        The `packer_mask_reset` operation resets the packer mask. This should be removed once LLK refactors the reduce API.
-        See tt-metal#22904 and tt-metal -> reduce.h.
-    }];
-}
 def D2M_TileMatmulOp : D2M_GenericRegionComputeOp<"tile_matmul"> {
   let summary = "D2M Tile Matmul Op";
   let description = [{
@@ -1469,7 +1461,7 @@ def D2M_RemoteStoreOp : D2M_GenericRegionDatamovementOp<"remote_store",
         llvm_unreachable("getMemRefType() called on tensor operand, use getShapedType() instead");
       }
 
-      // --- AffineWriteOpInterface / AffineMapAccessInterface support ---
+      // --- AffineWriteOpInterface / AffineMapAccessInterface support. ---
 
       /// Returns the affine map operands (the grid indices).
       Operation::operand_range getMapOperands() { return getIndices(); }
@@ -1479,7 +1471,7 @@ def D2M_RemoteStoreOp : D2M_GenericRegionDatamovementOp<"remote_store",
 
       /// Returns the operand index of the value to store.
       unsigned getStoredValOperandIndex() {
-        // localBuffer follows memref and indices in the operand list.
+        // LocalBuffer follows memref and indices in the operand list.
         // Use the ODS segment info to find the correct index.
         return getLocalBuffer()
           ? static_cast<unsigned>(getODSOperandIndexAndLength(2).first)
