@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttcore-register-device --d2m-generate-outer-loops --d2m-lower-to-explicit-form -o %t %s
+// RUN: ttmlir-opt --ttcore-register-device --d2m-generate-outer-loops --d2m-generic-lower-to-explicit-form -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
 #l1_ = #ttcore.memory_space<l1>

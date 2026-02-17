@@ -874,7 +874,9 @@ def D2MGenericAffineScalarReplacement : Pass<"d2m-generic-affine-scalrep", "::ml
   let description = [{
     Runs MLIR's affine scalar replacement (store-to-load forwarding, dead store
     elimination, load CSE) on each func.func in the module. This is useful for
-    cleaning up redundant affine loads/stores after loop fusion.
+    cleaning up redundant affine loads/stores after loop fusion. All
+    intermediate operands that can be internalized are eliminated from GenericOp
+    operand list.
   }];
   let options = [
     Option<"enable", "enable", "bool", "true",
@@ -902,7 +904,7 @@ def D2MGenericAffineLoopFusion : Pass<"d2m-generic-affine-loop-fusion", "::mlir:
                            "::mlir::arith::ArithDialect"];
 }
 
-def D2MLowerToExplicitForm : Pass<"d2m-lower-to-explicit-form", "::mlir::ModuleOp"> {
+def D2MLowerToExplicitForm : Pass<"d2m-generic-lower-to-explicit-form", "::mlir::ModuleOp"> {
   let summary = "Lower outer loop bounds to explicit constants.";
   let description = [{
     This pass replaces affine.for loops marked with the d2m.blocking_loop attribute
