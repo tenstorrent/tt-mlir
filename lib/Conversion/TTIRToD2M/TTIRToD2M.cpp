@@ -28,6 +28,7 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/LogicalResult.h"
 
+#include "mlir/IR/Value.h"
 #include <array>
 
 namespace mlir::tt {
@@ -789,7 +790,8 @@ private:
 
     // Create 'd2m.generic' accepting 'op's operands.
     auto generic = rewriter.create<d2m::GenericOp>(
-        loc, inputs, outputs, rewriter.getAffineMapArrayAttr(indexingMaps),
+        loc, inputs, outputs, ValueRange(),
+        rewriter.getAffineMapArrayAttr(indexingMaps),
         rewriter.getArrayAttr(iteratorTypes));
 
     // Create one bb in 'generic''s region and set its arguments.
@@ -937,7 +939,8 @@ private:
 
     // Create 'd2m.generic' accepting extended operands.
     auto generic = rewriter.create<d2m::GenericOp>(
-        loc, inputs, outputs, rewriter.getAffineMapArrayAttr(indexingMaps),
+        loc, inputs, outputs, ValueRange(),
+        rewriter.getAffineMapArrayAttr(indexingMaps),
         rewriter.getArrayAttr(iteratorTypes));
 
     // Create one bb in 'generic''s region and set its arguments.
@@ -1213,7 +1216,8 @@ private:
 
     // Create 'd2m.generic' accepting 'op's operands.
     auto generic = rewriter.create<d2m::GenericOp>(
-        loc, inputs, outputs, rewriter.getAffineMapArrayAttr(indexingMaps),
+        loc, inputs, outputs, ValueRange(),
+        rewriter.getAffineMapArrayAttr(indexingMaps),
         rewriter.getArrayAttr(iteratorTypes));
 
     // Create one bb in 'generic''s region and set its arguments.
@@ -1454,7 +1458,7 @@ public:
     Value outputOperand = outputs[0];
 
     auto generic = rewriter.create<d2m::GenericOp>(
-        loc, inputs, outputs,
+        loc, inputs, outputs, ValueRange(),
         [&, inputOperand, outputOperand](OpBuilder &builder, Location bodyLoc,
                                          ValueRange blockArgs) {
           assert(blockArgs.size() == 2);
