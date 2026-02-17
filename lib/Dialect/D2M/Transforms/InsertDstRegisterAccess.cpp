@@ -82,10 +82,10 @@ struct D2MInsertDstRegisterAccessRewriter final
 public:
   D2MInsertDstRegisterAccessRewriter(mlir::MLIRContext *ctx, bool useTileMatmul,
                                      unsigned maxDstPhysicalSizeTiles,
-                                     bool enablePackerL1Acc)
+                                     bool enableL1Acc)
       : OpRewritePattern<GenericOp>(ctx), useTileMatmul(useTileMatmul),
         maxDstPhysicalSizeTiles(maxDstPhysicalSizeTiles),
-        enablePackerL1Acc(enablePackerL1Acc) {};
+        enableL1Acc(enableL1Acc) {};
 
   // Records a CB<->DST affine.load/store op, which DST slice it accesses, and
   // some special considerations for looping over the tensor shard while doing
@@ -320,7 +320,7 @@ public:
               if (!gOp.isExplicitDatamovementForm()) {
                 if (rewriteTileMatmulAsTileMatmulBlock(
                         rewriter, gOp, *genericRegion, linalgGenericOp,
-                        dstCapacity, modified, enablePackerL1Acc)) {
+                        dstCapacity, modified, enableL1Acc)) {
                   return WalkResult::interrupt();
                 }
                 return WalkResult::advance();
@@ -359,7 +359,7 @@ public:
           loopOp->removeAttr("d2m.linalg_root");
 
           // Only enable packer L1 accumulation for matmul_tile loops
-          bool packerL1Acc = enablePackerL1Acc && hasTileMatmul(loopOp);
+          bool packerL1Acc = enableL1Acc && hasTileMatmul(loopOp);
 
           // Insert DST register access for this loop nest.
           modified |= insertDstRegisterAccess(rewriter, gOp, *loopRegion,
@@ -407,7 +407,7 @@ public:
   insertDstRegisterAccess(PatternRewriter &rewriter, GenericOp gOp,
                           Region &region, unsigned dstCapacity,
                           Operation *outermostInnerComputeLoop = nullptr,
-                          bool enablePackerL1Acc = false) {
+                          bool enableL1Acc = false) {
     assert(region.getBlocks().size() == 1);
     if (hasAcquireDstOp(region)) {
       return false;
@@ -453,13 +453,13 @@ public:
     // generation but still rewrite original load accesses to use DST indices.
     if (isScheduled) {
       dataCopyGenerateScheduled(rewriter, loc, dst, copyInfos,
-                                enablePackerL1Acc);
+                                enableL1Acc);
     } else {
-      dataCopyGenerate(rewriter, loc, dst, copyInfos, enablePackerL1Acc);
+      dataCopyGenerate(rewriter, loc, dst, copyInfos, enableL1Acc);
     }
 
     // 4. When L1 accum is enabled, insert a guarded packer reconfig.
-    if (enablePackerL1Acc) {
+    if (enableL1Acc) {
       insertPackerL1AccGuard(rewriter, gOp, loc, acquireDst);
     }
 
@@ -822,12 +822,12 @@ public:
   }
 
   // Consumes the recorded load/store info to generate two data copy loops: one
-  // for loads and one for stores. When enablePackerL1Acc is true, skip the
+  // for loads and one for stores. When enableL1Acc is true, skip the
   // copy loop for loads but still rewrite original load accesses to use
   // DST indices.
   static void dataCopyGenerate(PatternRewriter &rewriter, Location loc,
                                Value dst, const CopyInfoMap &copyInfos,
-                               bool enablePackerL1Acc = false) {
+                               bool enableL1Acc = false) {
     for (const auto &[loopNestOrOp, copyInfo] : copyInfos) {
       // Save this insertion point as loopNestOrOp may be replaced.
       rewriter.setInsertionPointAfter(loopNestOrOp);
@@ -879,7 +879,7 @@ public:
       createCopyLoop<affine::AffineLoadOp>(rewriter, loopNestOrOp,
                                            copyInfo.loads, loadAccessGenerator,
                                            loadAccessRewriter,
-                                           /*rewriteOnly=*/enablePackerL1Acc);
+                                           /*enableL1Acc=*/enableL1Acc);
 
       // Step 2: generate affine copy loop for stores.
       rewriter.restoreInsertionPoint(insertionPointAfterLoopNest);
@@ -993,7 +993,7 @@ public:
       llvm::function_ref<void(PatternRewriter &, LoadStoreRecord<LoadOrStoreTy>,
                               AffineMap, ValueRange)>
           dstAccessRewriter,
-      bool rewriteOnly = false) {
+      bool enableL1Acc = false) {
     if (loadStoreRecords.empty()) {
       return;
     }
@@ -1018,11 +1018,10 @@ public:
       return {skeleton, mapper};
     };
 
-    // When rewriteOnly is true (enablePackerL1Acc is true), skip copy loop
-    // generation but still rewrite original accesses to use DST.
+    // When enableL1Acc is true skip copy loop generation but still rewrite original accesses to use DST.
     Operation *copyLoop = nullptr;
     mlir::IRMapping copyLoopMapper;
-    if (!rewriteOnly) {
+    if (!enableL1Acc) {
       std::tie(copyLoop, copyLoopMapper) =
           cloneLoopSkeleton(rewriter, loopNestOrOp);
     }
@@ -1033,7 +1032,7 @@ public:
       auto loadStoreMap = record.loadStore.getMap();
       auto loadStoreMemRefType = record.loadStore.getMemRefType();
 
-      if (!rewriteOnly) {
+      if (!enableL1Acc) {
         mlir::IRMapping irMapper = copyLoopMapper;
         if (!record.guardDims.empty()) {
           const bool isBcastGuard = record.bcast.has_value();
@@ -1344,7 +1343,7 @@ public:
       llvm::function_ref<void(PatternRewriter &, LoadStoreOpTy, AffineMap,
                               ValueRange)>
           dstAccessReplacement,
-      bool rewriteOnly = false) {
+      bool enableL1Acc = false) {
     if (loadStoreOps.empty()) {
       return;
     }
@@ -1368,8 +1367,8 @@ public:
       // are inserted BEFORE it.
       rewriter.setInsertionPoint(loadStore);
 
-      // When rewriteOnly (enablePackerL1Acc is true), skip copy generation.
-      if (!rewriteOnly) {
+      // When enableL1Acc skip copy generation.
+      if (!enableL1Acc) {
         loadStoreDstAccessGenerator(
             rewriter, loadStore.getLoc(), loadStore.getMemRef(), l1AccessMap,
             l1AccessIndices, dstAccessMap, dstAccessIndices);
@@ -1548,7 +1547,7 @@ public:
 
   static void dataCopyGenerateScheduled(PatternRewriter &rewriter, Location loc,
                                         Value dst, const CopyInfoMap &copyInfos,
-                                        bool enablePackerL1Acc = false) {
+                                        bool enableL1Acc = false) {
     for (const auto &[loopNestOrOp, copyInfo] : copyInfos) {
       // Save this insertion point as loopNestOrOp may be replaced.
       rewriter.setInsertionPointAfter(loopNestOrOp);
@@ -1575,7 +1574,7 @@ public:
             rewriter.replaceOpWithNewOp<affine::AffineLoadOp>(
                 op, dst, dstAccessMap, dstAccessIndices);
           },
-          /*rewriteOnly=*/enablePackerL1Acc);
+          /*enableL1Acc=*/enableL1Acc);
 
       // Process memref loads (scheduled path with scf.for loops).
       for (auto [loadOp, bcast, dstSliceIndex, guardDims] :
@@ -1588,7 +1587,7 @@ public:
 
         // When L1 accumulation is enabled, skip CB->DST copy but still
         // rewrite the original load to use DST.
-        if (!enablePackerL1Acc) {
+        if (!enableL1Acc) {
           auto cbLoad = rewriter.create<memref::LoadOp>(
               loadOp.getLoc(), loadOp.getMemRef(), loadOp.getIndices());
           rewriter.create<affine::AffineStoreOp>(loadOp.getLoc(),
@@ -1692,7 +1691,7 @@ public:
 
   bool useTileMatmul = false;
   unsigned maxDstPhysicalSizeTiles = 0;
-  bool enablePackerL1Acc = false;
+  bool enableL1Acc = false;
 };
 } // namespace
 
@@ -1731,7 +1730,7 @@ public:
 
     patterns.add<D2MInsertDstRegisterAccessRewriter>(
         ctx, useTileMatmul, maxDstPhysicalSizeTiles.getValue(),
-        enablePackerL1Acc);
+        enableL1Acc);
 
     if (failed(applyPatternsGreedily(moduleOp, std::move(patterns)))) {
       signalPassFailure();

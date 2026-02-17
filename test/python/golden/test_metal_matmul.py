@@ -2,6 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+import os
 import pytest
 import torch
 from typing import List
@@ -9,9 +10,13 @@ from conftest import get_request_kwargs
 
 from test_utils import shape_str
 
+from ttmlir.ir import Context, Location, Module
+from ttmlir.passes import ttmetal_to_flatbuffer_bin
+from builder.base.builder_runtime import execute_fb
 from builder.base.builder_utils import Operand
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_apis import compile_and_execute_ttir
+from golden import GoldenMapTensor
 
 pytestmark = pytest.mark.frontend("ttir")
 
@@ -124,7 +129,7 @@ def test_matmul_multi_core_8otpc(m: int, k: int, n: int, target: str, request, d
     "use_tile_matmul", [True, False], ids=["matmul_tile", "matmul_block"]
 )
 @pytest.mark.parametrize(
-    "enable_packer_l1_acc", [True, False], ids=["packer_l1_acc", "no_packer_l1_acc"]
+    "enable_l1_acc", [True, False], ids=["l1_acc", "no_l1_acc"]
 )
 @pytest.mark.parametrize("target", ["ttmetal"])
 # Large matmuls, based on ttnn's matmul benchmarks
@@ -132,7 +137,7 @@ def test_matmul_ttnn_shapes_single_buffered(
     shape: tuple[int, ...],
     dtype: torch.dtype,
     use_tile_matmul: bool,
-    enable_packer_l1_acc: bool,
+    enable_l1_acc: bool,
     target: str,
     request,
     device,
@@ -140,7 +145,7 @@ def test_matmul_ttnn_shapes_single_buffered(
     pcc = 0.99 if dtype == torch.float32 else 0.96
     if (
         dtype == torch.bfloat16
-        and not enable_packer_l1_acc
+        and not enable_l1_acc
         and shape
         in (
             (2048, 2048, 2048),
@@ -162,7 +167,7 @@ def test_matmul_ttnn_shapes_single_buffered(
         f"matmul-interchange=2,0,1",
         f"num-stream-buffers=1",
         f"use-tile-matmul={use_tile_matmul}",
-        f"enable-packer-l1-acc={enable_packer_l1_acc}",
+        f"enable-l1-acc={enable_l1_acc}",
     ]
     compile_and_execute_ttir(
         create_matmul_constrained_inputs(lhs, rhs, dtype),
@@ -194,7 +199,7 @@ def test_matmul_ttnn_shapes_single_buffered(
     "use_tile_matmul", [True, False], ids=["matmul_tile", "matmul_block"]
 )
 @pytest.mark.parametrize(
-    "enable_packer_l1_acc", [True, False], ids=["packer_l1_acc", "no_packer_l1_acc"]
+    "enable_l1_acc", [True, False], ids=["l1_acc", "no_l1_acc"]
 )
 @pytest.mark.parametrize("target", ["ttmetal"])
 # Large matmuls, based on ttnn's matmul benchmarks
@@ -202,7 +207,7 @@ def test_matmul_ttnn_shapes_double_buffered(
     shape: tuple[int, ...],
     dtype: torch.dtype,
     use_tile_matmul: bool,
-    enable_packer_l1_acc: bool,
+    enable_l1_acc: bool,
     target: str,
     request,
     device,
@@ -213,7 +218,7 @@ def test_matmul_ttnn_shapes_double_buffered(
 
     if (
         dtype == torch.bfloat16
-        and not enable_packer_l1_acc
+        and not enable_l1_acc
         and shape
         in (
             (2048, 2048, 2048),
@@ -234,7 +239,7 @@ def test_matmul_ttnn_shapes_double_buffered(
     options = [
         f"matmul-interchange=2,0,1",
         f"use-tile-matmul={use_tile_matmul}",
-        f"enable-packer-l1-acc={enable_packer_l1_acc}",
+        f"enable-l1-acc={enable_l1_acc}",
     ]
     compile_and_execute_ttir(
         create_matmul_constrained_inputs(lhs, rhs, dtype),
@@ -244,6 +249,69 @@ def test_matmul_ttnn_shapes_double_buffered(
         **get_request_kwargs(request),
         save_artifacts=True,
         skip_exec=getattr(request.node, "skip_exec", False),
+        pcc=pcc,
+    )
+
+
+
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_matmul_from_mlir_file(
+    target: str,
+    request,
+    device,
+):
+    pcc = 0.96
+
+    lhs_shape = (512, 1024)
+    rhs_shape = (1024, 1024)
+
+    # Build constrained golden inputs following create_matmul_constrained_inputs.
+    in_lhs = torch.rand(lhs_shape, dtype=torch.bfloat16)
+    in_rhs = torch.rand(rhs_shape, dtype=torch.bfloat16)
+
+    expected_output = torch.matmul(in_lhs, in_rhs)
+
+    golden_input_output_tensors = {
+        0: {
+            "input_0": GoldenMapTensor({0: in_lhs}, (1, 1)),
+            "input_1": GoldenMapTensor({0: in_rhs}, (1, 1)),
+            "output_0": GoldenMapTensor({0: expected_output}, (1, 1)),
+        }
+    }
+
+    # artifact_dir = os.path.join(
+    #     os.path.dirname(__file__),
+    #     "..",
+    #     "..",
+    #     "..",
+    #     "builder-artifacts",
+    #     "TTIRBuilder",
+    #     request.node.name.replace(
+    #         "test_matmul_from_ttmetal_mlir", "test_matmul_ttnn_shapes_double_buffered"
+    #     ),
+    # )
+    mlir_path = "/localdev/vtang/tt-mlir/packer-matmul-block-512x1024x1024.mlir"
+
+    if not os.path.exists(mlir_path):
+        pytest.skip(f"TTMetal MLIR artifact not found: {mlir_path}")
+
+    with open(mlir_path, "r", encoding="utf-8") as f:
+        mlir_text = f.read()
+
+    ctx = Context()
+    loc = Location.unknown(ctx)
+
+    with ctx, loc:
+        module = Module.parse(mlir_text)
+
+    compiled_bin = ttmetal_to_flatbuffer_bin(module)
+
+    execute_fb(
+        compiled_bin,
+        golden_input_output_tensors,
+        {},
+        device=device,
+        check_pcc=True,
         pcc=pcc,
     )
 
