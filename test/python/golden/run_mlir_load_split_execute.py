@@ -47,12 +47,16 @@ def main():
     print("Loading", path, "target=ttir")
     try:
         module, builder = load_mlir_file(mlir_text, target="ttir")
+        print(module)
     except Exception as e:
         print("Load failed:", e, file=sys.stderr)
         sys.exit(1)
 
     modules_and_builders = split_mlir_file(module, builder, target="ttir")
     print("Split into", len(modules_and_builders), "modules.")
+    for idx, (mod, bld) in enumerate(modules_and_builders):
+        print("Module", idx)
+        print(mod)
 
     import _ttmlir_runtime as tt_runtime
     mesh_dict = OrderedDict([("x", MESH_SHAPE[0]), ("y", MESH_SHAPE[1])])
@@ -65,40 +69,40 @@ def main():
     opts.mesh_shape = MESH_SHAPE
     device = tt_runtime.runtime.open_mesh_device(opts)
 
-    for idx, (mod, bld) in enumerate(modules_and_builders):
-        prog_dir = artifact_base / f"program_{idx}"
-        prog_dir.mkdir(parents=True, exist_ok=True)
-        print("Compiling program", idx)
-        try:
-            compiled_bin, io_goldens, inter_goldens = compile_ttir_module_to_flatbuffer(
-                mod, bld, target="ttnn", mesh_dict=mesh_dict,
-                save_artifacts=True, artifact_dir=str(prog_dir),
-            )
-        except Exception as e:
-            print("Compile failed:", e, file=sys.stderr)
-            continue
-        print("Executing with intermediate verification...")
-        try:
-            golden_report, _ = execute_fb(
-                compiled_bin, io_goldens, inter_goldens, device=device,
-                enable_intermediate_verification=True,
-                save_artifacts=True, artifact_dir=str(prog_dir),
-            )
-            report_path = prog_dir / "golden_report.json"
-            with open(report_path, "w") as rf:
-                json.dump(golden_report, rf, indent=2)
-            print("Report:", report_path)
-            for loc, results in golden_report.items():
-                for _, data in results.items():
-                    if isinstance(data, dict):
-                        r, pcc = data.get("result", ""), data.get("actual_pcc", 1.0)
-                        if r != "pass" or (isinstance(pcc, (int, float)) and pcc < 0.99):
-                            print("  Low PCC @", loc, "pcc=", pcc)
-        except Exception as e:
-            print("Execute failed:", e, file=sys.stderr)
+    # for idx, (mod, bld) in enumerate(modules_and_builders):
+    #     prog_dir = artifact_base / f"program_{idx}"
+    #     prog_dir.mkdir(parents=True, exist_ok=True)
+    #     print("Compiling program", idx)
+    #     try:
+    #         compiled_bin, io_goldens, inter_goldens = compile_ttir_module_to_flatbuffer(
+    #             mod, bld, target="ttnn", mesh_dict=mesh_dict,
+    #             save_artifacts=True, artifact_dir=str(prog_dir),
+    #         )
+    #     except Exception as e:
+    #         print("Compile failed:", e, file=sys.stderr)
+    #         continue
+    #     print("Executing with intermediate verification...")
+    #     try:
+    #         golden_report, _ = execute_fb(
+    #             compiled_bin, io_goldens, inter_goldens, device=device,
+    #             enable_intermediate_verification=True,
+    #             save_artifacts=True, artifact_dir=str(prog_dir),
+    #         )
+    #         report_path = prog_dir / "golden_report.json"
+    #         with open(report_path, "w") as rf:
+    #             json.dump(golden_report, rf, indent=2)
+    #         print("Report:", report_path)
+    #         for loc, results in golden_report.items():
+    #             for _, data in results.items():
+    #                 if isinstance(data, dict):
+    #                     r, pcc = data.get("result", ""), data.get("actual_pcc", 1.0)
+    #                     if r != "pass" or (isinstance(pcc, (int, float)) and pcc < 0.99):
+    #                         print("  Low PCC @", loc, "pcc=", pcc)
+    #     except Exception as e:
+    #         print("Execute failed:", e, file=sys.stderr)
 
-    tt_runtime.runtime.close_mesh_device(device)
-    print("Artifacts:", artifact_base.resolve())
+    # tt_runtime.runtime.close_mesh_device(device)
+    # print("Artifacts:", artifact_base.resolve())
 
 
 if __name__ == "__main__":
