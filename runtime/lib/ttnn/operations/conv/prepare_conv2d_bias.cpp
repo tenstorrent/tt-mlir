@@ -68,8 +68,7 @@ void run(const ::tt::target::ttnn::PrepareConv2dBiasOp *op,
 
   ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
 
-  std::optional<::ttnn::operations::conv::conv2d::Conv2dSliceConfig>
-      sliceConfig;
+  std::optional<::ttnn::Conv2dSliceConfig> sliceConfig;
   if (op->conv2d_slice_config()) {
     sliceConfig = utils::createConv2dSliceConfig(op->conv2d_slice_config());
   }

@@ -570,8 +570,7 @@ getDeviceComputeKernelConfig(const std::optional<DeviceComputeKernelConfigAttr>
   return config;
 }
 
-std::optional<::ttnn::operations::conv::conv2d::Conv2dSliceConfig>
-getConv2dSliceConfig(
+std::optional<::ttnn::Conv2dSliceConfig> getConv2dSliceConfig(
     const std::optional<Conv2dSliceConfigAttr> &conv2dSliceConfig) {
   if (!conv2dSliceConfig || !conv2dSliceConfig.has_value() ||
       !conv2dSliceConfig.value()) {
@@ -580,20 +579,17 @@ getConv2dSliceConfig(
 
   const Conv2dSliceConfigAttr &sliceConfig = conv2dSliceConfig.value();
 
-  ::ttnn::operations::conv::conv2d::Conv2dSliceConfig config;
+  ::ttnn::Conv2dSliceConfig config;
 
   switch (sliceConfig.getSliceType()) {
   case Conv2dSliceType::DramHeight:
-    config.slice_type = ::ttnn::operations::conv::conv2d::Conv2dSliceConfig::
-        SliceType::DRAM_HEIGHT;
+    config.slice_type = ::ttnn::Conv2dSliceConfig::SliceType::DRAM_HEIGHT;
     break;
   case Conv2dSliceType::DramWidth:
-    config.slice_type = ::ttnn::operations::conv::conv2d::Conv2dSliceConfig::
-        SliceType::DRAM_WIDTH;
+    config.slice_type = ::ttnn::Conv2dSliceConfig::SliceType::DRAM_WIDTH;
     break;
   case Conv2dSliceType::L1Full:
-    config.slice_type =
-        ::ttnn::operations::conv::conv2d::Conv2dSliceConfig::SliceType::L1_FULL;
+    config.slice_type = ::ttnn::Conv2dSliceConfig::SliceType::L1_FULL;
     break;
   }
 

@@ -253,14 +253,12 @@ struct TypeName<::ttnn::operations::unary::UnaryWithParam> {
 
 template <>
 struct TypeName<::ttnn::operations::conv::conv2d::Conv2dConfig> {
-  inline static const std::string value =
-      "::ttnn::operations::conv::conv2d::Conv2dConfig";
+  inline static const std::string value = "::ttnn::Conv2dConfig";
 };
 
 template <>
 struct TypeName<::ttnn::operations::conv::conv2d::Conv2dSliceConfig> {
-  inline static const std::string value =
-      "::ttnn::operations::conv::conv2d::Conv2dSliceConfig";
+  inline static const std::string value = "::ttnn::Conv2dSliceConfig";
 };
 
 template <>
@@ -1625,15 +1623,15 @@ struct EmitCTypeConverter<::ttnn::operations::conv::conv2d::Conv2dSliceConfig> {
     // Convert enum to proper C++ enum value instead of integer
     switch (attr.getSliceType()) {
     case ttnn::Conv2dSliceType::DramHeight:
-      rso << "ttnn::operations::conv::conv2d::Conv2dSliceConfig::SliceType::"
+      rso << "ttnn::Conv2dSliceConfig::SliceType::"
              "DRAM_HEIGHT";
       break;
     case ttnn::Conv2dSliceType::DramWidth:
-      rso << "ttnn::operations::conv::conv2d::Conv2dSliceConfig::SliceType::"
+      rso << "ttnn::Conv2dSliceConfig::SliceType::"
              "DRAM_WIDTH";
       break;
     case ttnn::Conv2dSliceType::L1Full:
-      rso << "ttnn::operations::conv::conv2d::Conv2dSliceConfig::SliceType::L1_"
+      rso << "ttnn::Conv2dSliceConfig::SliceType::L1_"
              "FULL";
       break;
     }

@@ -631,7 +631,7 @@ llvm::Expected<::ttnn::TensorSpec> getPrepareConv2dWeightsOpOutputTensorSpec(
         conv2dConfigConverted,
         /* compute_config_ */ std::nullopt,
         /* dram_slice_config_ */
-        std::optional<::ttnn::operations::conv::conv2d::Conv2dSliceConfig>{},
+        std::optional<::ttnn::Conv2dSliceConfig>{},
         /* mirror_kernel */ true);
   };
 
@@ -4905,9 +4905,8 @@ llvm::Expected<size_t> OpModel<Conv2dOp>::getOpRuntime(
   std::optional<::ttnn::DeviceComputeKernelConfig>
       deviceComputeKernelConfigConverted =
           conversion::getDeviceComputeKernelConfig(deviceComputeKernelConfig);
-  std::optional<::ttnn::operations::conv::conv2d::Conv2dSliceConfig>
-      sliceConfigConverted =
-          conversion::getConv2dSliceConfig(conv2dSliceConfig);
+  std::optional<::ttnn::Conv2dSliceConfig> sliceConfigConverted =
+      conversion::getConv2dSliceConfig(conv2dSliceConfig);
   // Create query closure
   auto conv2dOpQuery = [=]() {
     return ::ttnn::graph::query_op_runtime(
@@ -5349,9 +5348,8 @@ llvm::Expected<OpConstraints> OpModel<PrepareConv2dWeightsOp>::getOpConstraints(
     convertedOutputDtype = conversion::getDataType(outputDtype.value());
   }
 
-  std::optional<::ttnn::operations::conv::conv2d::Conv2dSliceConfig>
-      sliceConfigConverted =
-          conversion::getConv2dSliceConfig(conv2dSliceConfig);
+  std::optional<::ttnn::Conv2dSliceConfig> sliceConfigConverted =
+      conversion::getConv2dSliceConfig(conv2dSliceConfig);
 
   auto prepareConv2dWeightsQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
@@ -5410,8 +5408,7 @@ llvm::Expected<OpConstraints> OpModel<PrepareConv2dBiasOp>::getOpConstraints(
     convertedOutputDtype = conversion::getDataType(outputDtype.value());
   }
 
-  std::optional<::ttnn::operations::conv::conv2d::Conv2dSliceConfig>
-      sliceConfig = std::nullopt;
+  std::optional<::ttnn::Conv2dSliceConfig> sliceConfig = std::nullopt;
 
   auto prepareConv2dWeightsQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
