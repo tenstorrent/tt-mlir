@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+import setuptools
+
+[project]
+name = "ttrt"
+version = "0.0.0"
+description = "TensorRT Tools"
+authors = [
+    { name="Tenstorrent AI ULC", email="info@tenstorrent.com" }
+]
+license = { file="LICENSE" }
+dependencies = [
+    "torch==2.3.0+cpu",
+    "numpy==1.21.5",
+    "onnx==1.13.1",
+    "protobuf==3.19.4",
+    "tensorrt==8.6.1",
+    "torch-cpu"
+]
