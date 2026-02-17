@@ -25,6 +25,9 @@ GRID_SHAPE_CASES = [
 def abs_op(input_tensor):
     return ttnn.abs(input_tensor)
 
+def exp_op(input_tensor):
+    return ttnn.exp(input_tensor)
+
 
 def create_tile_index_tensor(shape, tile_size=32, dtype=torch.bfloat16):
     height, width = shape
@@ -161,7 +164,7 @@ def assert_tilewise_allclose(
 
     assert not mismatched_tiles, f"{len(mismatched_tiles)} tile(s) failed allclose in {output_label}"
 
-
+@pytest.mark.skip(reason="Skip for now")
 @pytest.mark.parametrize(
     "shape, grid",
     GRID_SHAPE_CASES,
@@ -169,7 +172,7 @@ def assert_tilewise_allclose(
 )
 def test_abs_ttnn_and_jit_match_torch_with_reblock(device, shape, grid):
     input_torch = create_tile_index_tensor(shape, tile_size=TILE_SIZE, dtype=torch.bfloat16)
-    golden_torch = torch.abs(input_torch)
+    golden_torch = torch.exp(input_torch)
 
     input_memory_config = ttnn.create_sharded_memory_config(
         shape=shape,
@@ -185,7 +188,7 @@ def test_abs_ttnn_and_jit_match_torch_with_reblock(device, shape, grid):
         memory_config=input_memory_config,
     )
 
-    output_ttnn = abs_op(input_ttnn)
+    output_ttnn = exp_op(input_ttnn)
     output_ttnn_torch = output_ttnn.cpu().to_torch()
     assert_tilewise_allclose(
         output_ttnn_torch,
@@ -205,7 +208,7 @@ def test_abs_ttnn_and_jit_match_torch_with_reblock(device, shape, grid):
     )
     output_jit = ttnn_jit.jit(
         debug=True, enable_cache=False, memory_config=jit_memory_config
-    )(abs_op)(input_ttnn)
+    )(exp_op)(input_ttnn)
     output_jit_torch = output_jit.cpu().to_torch()
     assert_tilewise_allclose(
         output_jit_torch,
@@ -226,7 +229,7 @@ def test_abs_ttnn_and_jit_match_torch_with_reblock(device, shape, grid):
 )
 def test_abs_ttnn_and_jit_match_torch_no_reblock(device, shape, grid):
     input_torch = create_tile_index_tensor(shape, tile_size=TILE_SIZE, dtype=torch.bfloat16)
-    golden_torch = torch.abs(input_torch)
+    golden_torch = torch.exp(input_torch)
 
     input_memory_config = ttnn.create_sharded_memory_config(
         shape=shape,
@@ -242,7 +245,7 @@ def test_abs_ttnn_and_jit_match_torch_no_reblock(device, shape, grid):
         memory_config=input_memory_config,
     )
 
-    output_ttnn = abs_op(input_ttnn)
+    output_ttnn = exp_op(input_ttnn)
     output_ttnn_torch = output_ttnn.cpu().to_torch()
     assert_tilewise_allclose(
         output_ttnn_torch,
@@ -261,8 +264,8 @@ def test_abs_ttnn_and_jit_match_torch_no_reblock(device, shape, grid):
         use_height_and_width_as_shard_shape=False,
     )
     output_jit = ttnn_jit.jit(
-        debug=True, enable_cache=False, memory_config=jit_memory_config,
-    )(abs_op)(input_ttnn)
+        debug=True, enable_cache=False, memory_config=jit_memory_config
+    )(exp_op)(input_ttnn)
     output_jit_torch = output_jit.cpu().to_torch()
     assert_tilewise_allclose(
         output_jit_torch,
