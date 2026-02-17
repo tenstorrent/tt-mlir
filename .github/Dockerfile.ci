@@ -25,7 +25,7 @@ RUN git log -1
 RUN <<EOT
 export CMAKE_BUILD_PARALLEL_LEVEL=16
 # ANCHOR: environment_build
-cmake -B env/build env
+cmake -B env/build env -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
 cmake --build env/build
 # ANCHOR_END: environment_build
 EOT
