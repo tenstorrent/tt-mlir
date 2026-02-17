@@ -164,8 +164,9 @@ public:
                memrefType.getLayout())) &&
            "expected physical device layout (shard or interleaved)");
 
-    rewriter.replaceOpWithNewOp<ttmetal::CreateBufferOp>(op, memrefType,
-                                                         address);
+    auto vgm = op->getAttrOfType<AffineMapAttr>("virtualGridMapping");
+    rewriter.replaceOpWithNewOp<ttmetal::CreateBufferOp>(
+        op, memrefType, address, /*virtualGridMapping=*/vgm);
 
     return success();
   };

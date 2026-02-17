@@ -387,14 +387,22 @@ def D2M_EmptyOp
   let summary = "Empty tensor allocation operation (D2M).";
   let description = [{
     Create an uninitialized tensor with the specified shape, element type and encoding.
+
+    When this tensor uses a virtual grid (a grid that exceeds the physical device
+    bounds or is ND), the `virtualGridMapping` attribute stores the inverse affine
+    map from physical to virtual grid coordinates.  This disambiguates virtual grids
+    from reblocking views and is propagated through bufferization to the flatbuffer
+    target.
   }];
 
+  let arguments = (ins OptionalAttr<AffineMapAttr>:$virtualGridMapping);
   let results = (outs AnyRankedTensor:$result);
 
   let builders = [OpBuilder<(ins "ArrayRef<int64_t>":$shape,
                                 "Type":$elementType, "Attribute":$encoding),
                             [{
-      build($_builder, $_state, RankedTensorType::get(shape, elementType, encoding));
+      build($_builder, $_state, RankedTensorType::get(shape, elementType, encoding),
+            /*virtualGridMapping=*/nullptr);
     }]>,
                   OpBuilder<
                       (ins "ArrayRef<int64_t>":$shape, "Type":$elementType), [{

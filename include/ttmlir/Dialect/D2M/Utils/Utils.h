@@ -55,8 +55,15 @@ SmallVector<int64_t> getPhysicalGridShape(Value tensorOrMemref);
 // Returns the remapping associated with a value, if any.
 // Traces back through the defining op to find a ViewLayoutOp or StreamLayoutOp
 // and returns its remapping attribute. Returns std::nullopt if the value has
-// no associated remapping.
+// no associated remapping.  After the virtual-grid refactor, these remappings
+// are always reblockings — virtual grid info lives on EmptyOp attrs instead.
 std::optional<AffineMap> getAssociatedRemapping(Value val);
+
+// Returns the virtualGridMapping associated with a value, if any.
+// Traces through the def-use chain (ToLayoutOp → EmptyOp, StreamLayoutOp →
+// storage EmptyOp, etc.) to find the underlying EmptyOp/AllocOp/CreateBufferOp
+// and returns its virtualGridMapping attribute.
+std::optional<AffineMap> getVirtualGridMapping(Value val);
 
 // Returns the effective affine map for a memref-typed value by resolving
 // ViewLayoutAttr remappings (via applyViews) and falling back to the layout's

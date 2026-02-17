@@ -288,6 +288,18 @@ protected:
 
     auto emptyOp = rewriter.create<d2m::EmptyOp>(value.getLoc(), shardedShape,
                                                  elementType, layout);
+
+    // For ND tensors (logicalShape.size() > 2), set a placeholder virtual grid
+    // mapping on the EmptyOp.  These mappings will be replaced when
+    // GridSelection optimizes the grid.  Mirrors main's behavior of baking
+    // the coreVirtMap into MetalLayoutAttr for ND shapes.
+    if (logicalShape.size() > 2) {
+      auto [forwardMap, inverseMap] =
+          ttmlir::d2m::utils::grids::createCoreVirtMaps(rewriter.getContext(),
+                                                        simpleGrid, {1, 1});
+      emptyOp.setVirtualGridMappingAttr(AffineMapAttr::get(inverseMap));
+    }
+
     return rewriter.create<d2m::ToLayoutOp>(value.getLoc(), value, emptyOp)
         ->getResult(0);
   }
@@ -339,7 +351,8 @@ protected:
           fromValue.getLoc(), toResultType, fromValue);
     }
     auto output =
-        rewriter.create<d2m::EmptyOp>(fromValue.getLoc(), toResultType);
+        rewriter.create<d2m::EmptyOp>(fromValue.getLoc(), toResultType,
+                                      /*virtualGridMapping=*/nullptr);
     return rewriter.create<d2m::ToLayoutOp>(fromValue.getLoc(), fromValue,
                                             output);
   }
@@ -1998,7 +2011,8 @@ public:
                                           outTy.getElementType(), newLayout);
 
     auto storage =
-        rewriter.create<d2m::EmptyOp>(op.getLoc(), outputs[0].getType());
+        rewriter.create<d2m::EmptyOp>(op.getLoc(), outputs[0].getType(),
+                                      /*virtualGridMapping=*/nullptr);
     auto view = rewriter.create<d2m::StreamLayoutOp>(
         op.getLoc(), newOutTy, inputs[0], deviceMap, storage.getResult());
 

@@ -358,8 +358,34 @@ static void optimizeToLayoutGrid(d2m::ToLayoutOp toLayoutOp,
   RankedTensorType newTensorType = tensorWithOptimalGrid(
       outputType, targetGridShape, targetSquareGridShape, optimalGrid, builder);
   builder.setInsertionPoint(emptyOp);
-  auto newEmptyOp =
-      builder.create<d2m::EmptyOp>(emptyOp.getLoc(), newTensorType);
+
+  // Determine if the chosen grid is virtual (exceeds 2D device bounds or is
+  // ND). On main, this was the isVirtualGrid bool threaded from
+  // computeOptimalGrid. Block sharding always produces 2D grids within device
+  // bounds, so any grid exceeding bounds or >2D came from the virtual path.
+  mlir::AffineMapAttr virtualGridMapping;
+  auto device = ttcore::lookupDevice(toLayoutOp);
+  auto workerGridShape = device.getWorkerGrid().getShape();
+  bool isVirtual =
+      optimalGrid.size() > 2 ||
+      (optimalGrid.size() == 2 && (optimalGrid[0] > workerGridShape[0] ||
+                                   optimalGrid[1] > workerGridShape[1]));
+  if (isVirtual) {
+    auto physicalGridShape = ttcore::findLegalPhysicalGridForVolume(
+        ttmlir::utils::volume<int64_t>(optimalGrid), targetSquareGridShape);
+    TT_assertv(!physicalGridShape.empty(),
+               "Unable to find 2D rect that can fit virtual grid {} within "
+               "device grid {}",
+               ttmlir::utils::formatIterable(optimalGrid, "x"),
+               ttmlir::utils::formatIterable(targetSquareGridShape, "x"));
+    auto [forwardMap, inverseMap] =
+        ttmlir::d2m::utils::grids::createCoreVirtMaps(
+            builder.getContext(), optimalGrid, physicalGridShape);
+    virtualGridMapping = AffineMapAttr::get(inverseMap);
+  }
+
+  auto newEmptyOp = builder.create<d2m::EmptyOp>(
+      emptyOp.getLoc(), newTensorType, virtualGridMapping);
 
   builder.setInsertionPoint(toLayoutOp);
   auto newToLayoutOp = builder.create<d2m::ToLayoutOp>(
@@ -723,8 +749,33 @@ updateStreamLayoutOps(ArrayRef<StreamLayoutUpdateInfo> streamLayoutsToUpdate,
                            ? storageType.getElementType()
                            : ttcore::TileType::get(storageType.getElementType(),
                                                    llvm::ArrayRef(tileShape));
+    // Propagate virtualGridMapping if the old storage had one, or compute
+    // a new one if the storage grid is virtual.
+    mlir::AffineMapAttr virtualGridMapping =
+        storageEmpty.getVirtualGridMappingAttr();
+    if (!virtualGridMapping) {
+      auto device = ttcore::lookupDevice(storageEmpty);
+      auto workerGridShape = device.getWorkerGrid().getShape();
+      bool isVirtual =
+          optimalGrid.size() > 2 ||
+          (optimalGrid.size() == 2 && (optimalGrid[0] > workerGridShape[0] ||
+                                       optimalGrid[1] > workerGridShape[1]));
+      if (isVirtual) {
+        auto physicalGridShape = ttcore::findLegalPhysicalGridForVolume(
+            ttmlir::utils::volume<int64_t>(optimalGrid), targetSquareGridShape);
+        TT_assertv(!physicalGridShape.empty(),
+                   "Unable to find 2D rect that can fit virtual grid");
+        auto [forwardMap, inverseMap] =
+            ttmlir::d2m::utils::grids::createCoreVirtMaps(
+                builder.getContext(), optimalGrid, physicalGridShape);
+        virtualGridMapping = AffineMapAttr::get(inverseMap);
+      }
+    }
+
     auto newStorageEmpty = builder.create<d2m::EmptyOp>(
-        storageEmpty.getLoc(), newStorageShape, elementType, newStorageLayout);
+        storageEmpty.getLoc(),
+        RankedTensorType::get(newStorageShape, elementType, newStorageLayout),
+        virtualGridMapping);
 
     auto outputStreamType =
         mlir::cast<RankedTensorType>(streamLayout.getResult().getType());
@@ -782,8 +833,32 @@ static void updateEmptyOps(ArrayRef<EmptyUpdateInfo> emptyOpsToUpdate,
     RankedTensorType newTensorType = tensorWithOptimalGrid(
         emptyType, targetGridShape, targetSquareGridShape, info.grid, builder);
     builder.setInsertionPoint(info.op);
-    auto newEmptyOp =
-        builder.create<d2m::EmptyOp>(emptyOp.getLoc(), newTensorType);
+
+    // Propagate virtualGridMapping if the old EmptyOp had one, or compute
+    // a new one if the grid is virtual.
+    mlir::AffineMapAttr virtualGridMapping =
+        emptyOp.getVirtualGridMappingAttr();
+    if (!virtualGridMapping) {
+      auto device = ttcore::lookupDevice(emptyOp);
+      auto workerGridShape = device.getWorkerGrid().getShape();
+      bool isVirtual =
+          info.grid.size() > 2 ||
+          (info.grid.size() == 2 && (info.grid[0] > workerGridShape[0] ||
+                                     info.grid[1] > workerGridShape[1]));
+      if (isVirtual) {
+        auto physicalGridShape = ttcore::findLegalPhysicalGridForVolume(
+            ttmlir::utils::volume<int64_t>(info.grid), targetSquareGridShape);
+        TT_assertv(!physicalGridShape.empty(),
+                   "Unable to find 2D rect that can fit virtual grid");
+        auto [forwardMap, inverseMap] =
+            ttmlir::d2m::utils::grids::createCoreVirtMaps(
+                builder.getContext(), info.grid, physicalGridShape);
+        virtualGridMapping = AffineMapAttr::get(inverseMap);
+      }
+    }
+
+    auto newEmptyOp = builder.create<d2m::EmptyOp>(
+        emptyOp.getLoc(), newTensorType, virtualGridMapping);
     emptyOp.getResult().replaceAllUsesWith(newEmptyOp.getResult());
     emptyOp.erase();
   }
@@ -1177,7 +1252,8 @@ insertTTNNDRAMStreams(d2m::GenericOp genericOp,
 
     builder.setInsertionPointAfter(castOp);
     auto storageOp =
-        builder.create<d2m::EmptyOp>(castOp.getLoc(), storageTensor);
+        builder.create<d2m::EmptyOp>(castOp.getLoc(), storageTensor,
+                                     /*virtualGridMapping=*/nullptr);
     auto streamOp = builder.create<d2m::StreamLayoutOp>(
         castOp.getLoc(), streamOutputTensor, castOp.getResult(),
         AffineMapAttr::get(reblockMap), storageOp);

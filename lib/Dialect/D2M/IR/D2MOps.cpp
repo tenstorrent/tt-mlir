@@ -99,10 +99,18 @@ mlir::LogicalResult d2m::EmptyOp::bufferize(
     return success();
   }
   ::llvm::SmallVector<mlir::Value> invocationStack;
-  mlir::bufferization::replaceOpWithNewBufferizedOp<memref::AllocOp>(
-      rewriter, *this,
-      mlir::cast<MemRefType>(
-          *getBufferType(getResult(), options, state, invocationStack)));
+  auto bufferType = mlir::cast<MemRefType>(
+      *getBufferType(getResult(), options, state, invocationStack));
+  auto allocOp = rewriter.create<memref::AllocOp>(getLoc(), bufferType);
+
+  // Propagate virtualGridMapping as a discardable attribute on memref::AllocOp
+  // (we don't own AllocOp so we can't add a declared attribute).
+  if (auto vgm = getVirtualGridMappingAttr()) {
+    allocOp->setAttr("virtualGridMapping", vgm);
+  }
+
+  mlir::bufferization::replaceOpWithBufferizedValues(rewriter, *this,
+                                                     allocOp.getResult());
   return mlir::success();
 }
 
@@ -443,7 +451,8 @@ void ToLayoutOp::getCanonicalizationPatterns(mlir::RewritePatternSet &patterns,
     if (!emptyOp) {
       return failure();
     }
-    rewriter.replaceOpWithNewOp<EmptyOp>(op, op.getOutput().getType());
+    rewriter.replaceOpWithNewOp<EmptyOp>(op, op.getOutput().getType(),
+                                         /*virtualGridMapping=*/nullptr);
     return success();
   });
 
@@ -1100,25 +1109,18 @@ bool d2m::ViewLayoutOp::isReblockOnly() {
 }
 
 mlir::OpFoldResult d2m::ViewLayoutOp::fold(FoldAdaptor adaptor) {
-  // Nop check.  On main, index_map was part of MetalLayoutAttr so type
-  // equality implied the view was a no-op.  Now that remapping lives on ops,
-  // type equality alone is insufficient — we must also account for the input's
-  // remapping context.
+  // Nop check.  After the virtual-grid refactor, views are purely reblockings
+  // (virtual grid info lives on EmptyOp attrs, not on views).  Type equality
+  // plus matching remapping context means this view is a no-op.
   if (getInput().getType() == getType()) {
     auto inputRemapping = utils::getAssociatedRemapping(getInput());
     if (inputRemapping.has_value() && *inputRemapping == getRemapping()) {
       return getInput();
     }
-    // If input has no associated remapping, check what produced it.
-    // Buffer allocation ops (d2m.empty) carry no remapping — a view on top
-    // establishes one for the first time and must not be folded away.
-    // On main, MetalLayoutAttr embedded the index map so alloc and view had
-    // different types and the fold never fired.  Now we guard explicitly.
+    // If the input has no associated remapping and types match, this view is
+    // a no-op.  (Previously, we had to guard against folding virtual-grid
+    // views on EmptyOps, but those no longer exist.)
     if (!inputRemapping.has_value()) {
-      if (getInput().getDefiningOp<d2m::EmptyOp>()) {
-        return nullptr;
-      }
-      // For other ops (generics, block args, etc.), type equality means nop.
       return getInput();
     }
   }
@@ -1220,42 +1222,50 @@ void d2m::GenericOp::build(mlir::OpBuilder &builder,
       gridShape.assign(shape.begin(), shape.begin() + shape.size() / 2);
     }
 
-    // Check if output operand has a virtual grid and IS NOT a view. If so,
-    // infer a physical grid shape and inverse map for the grid attr such that
-    // invMap(physGrid) = virtGrid
     auto layout =
         ttcore::getDeviceLayout(mlir::dyn_cast<ShapedType>(output.getType()));
     auto metalLayout = mlir::dyn_cast<ttcore::MetalLayoutAttr>(layout);
 
-    // Index maps are now stored on ViewLayoutOp/StreamLayoutOp, not on the
-    // layout attribute.  Check for an explicit remapping on the output's
-    // defining op (e.g. for 2D grid permutations).
-    auto existingRemapping = utils::getAssociatedRemapping(output);
-    bool hasNonIdentityIndexMap = existingRemapping.has_value() &&
-                                  !existingRemapping->isEmpty() &&
-                                  !existingRemapping->isIdentity();
-
     if (metalLayout) {
-      // 2D→2D permutation index maps are a special case that isn't a
-      // standard reblocking (i.e. reshape), but a _transpose_ of the grid
-      // indices.  This requires an explicit remapping.
-      if (hasNonIdentityIndexMap) {
-        auto indexMap = *existingRemapping;
-        constexpr size_t kExpectedDimsFor2DDeviceShape = 2 * 2;
-        bool indexMapIs2DPermutation =
-            indexMap.isPermutation() &&
-            indexMap.getNumResults() == kExpectedDimsFor2DDeviceShape &&
-            indexMap.getNumInputs() == kExpectedDimsFor2DDeviceShape;
+      // 1. Check for an explicit virtualGridMapping on the output's EmptyOp.
+      //    This is the primary path after the virtual-grid refactor —
+      //    virtualGridMapping is set by GridSelection on d2m.empty ops with
+      //    virtual grids.  Use it as a signal that this is a virtual grid,
+      //    then derive the inverse map from getPhysicalGridShape (mirroring
+      //    main, which used the indexAffineMap on MetalLayoutAttr as signal
+      //    and derived the maps from the physical grid shape).
+      if (auto vgm = utils::getVirtualGridMapping(output)) {
+        SmallVector<int64_t> physGridShape =
+            d2m::utils::getPhysicalGridShape(output);
+        auto [_, invMap] = ttmlir::d2m::utils::grids::createCoreVirtMaps(
+            builder.getContext(), gridShape, physGridShape);
+        grid = builder.getAttr<ttcore::GridAttr>(gridShape, invMap);
+      }
 
-        if (indexMapIs2DPermutation) {
-          auto invMap = ttmlir::utils::createGridInverseMapFor2DPermutation(
-              indexMap, gridShape.size(), builder.getContext());
-          grid = builder.getAttr<ttcore::GridAttr>(gridShape, invMap);
+      // 2. Check for a 2D→2D permutation reblocking on a ViewLayoutOp.
+      //    After the refactor, associated remappings are always reblockings
+      //    (never virtual grids), so we only need the permutation check.
+      if (!grid) {
+        auto existingRemapping = utils::getAssociatedRemapping(output);
+        if (existingRemapping.has_value() && !existingRemapping->isEmpty() &&
+            !existingRemapping->isIdentity()) {
+          auto indexMap = *existingRemapping;
+          constexpr size_t kExpectedDimsFor2DDeviceShape = 2 * 2;
+          bool indexMapIs2DPermutation =
+              indexMap.isPermutation() &&
+              indexMap.getNumResults() == kExpectedDimsFor2DDeviceShape &&
+              indexMap.getNumInputs() == kExpectedDimsFor2DDeviceShape;
+
+          if (indexMapIs2DPermutation) {
+            auto invMap = ttmlir::utils::createGridInverseMapFor2DPermutation(
+                indexMap, gridShape.size(), builder.getContext());
+            grid = builder.getAttr<ttcore::GridAttr>(gridShape, invMap);
+          }
         }
       }
 
-      // If the logical grid differs from the physical grid (e.g. ND grids
-      // that must be collapsed to 2D), compute a virtualization mapping.
+      // 3. Fallback: if the logical grid differs from the physical grid
+      //    (e.g. ND grids) and no explicit mapping was found, derive one.
       if (!grid) {
         SmallVector<int64_t> physGridShape =
             d2m::utils::getPhysicalGridShape(output);
