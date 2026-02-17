@@ -1312,6 +1312,116 @@ public:
 };
 } // namespace
 
+namespace {
+class GroupNormOpConversionPattern
+    : public OpConversionPattern<ttir::GroupNormOp> {
+public:
+  using OpConversionPattern<ttir::GroupNormOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::GroupNormOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // TTNN operation requires input to be in the shape [N, 1, H*W, C]. Before
+    // coverting, ensure the input is in this shape.
+    RankedTensorType inputType =
+        mlir::cast<RankedTensorType>(adaptor.getInput().getType());
+    ArrayRef<int64_t> inputShape = inputType.getShape();
+    int64_t rank = inputType.getRank();
+    Location loc = op.getLoc();
+    Value input = adaptor.getInput();
+
+    assert(inputType.getRank() == 4 && "input must be a 4D tensor");
+
+    int64_t channelDimIdx = adaptor.getChannelDim();
+
+    // If channel_dim is not the last dimension, permute to move it
+    // there. E.g. for NCHW (channel_dim=1), permute [0,2,3,1] -> NHWC.
+    bool needsPermute = channelDimIdx != rank - 1;
+    llvm::SmallVector<int64_t> permutation;
+    llvm::SmallVector<int64_t> inversePermutation;
+
+    if (needsPermute) {
+      // Build permutation that moves channelDimIdx to the last position.
+      permutation = llvm::to_vector(llvm::seq<int64_t>(0, rank));
+      permutation.erase(permutation.begin() + channelDimIdx);
+      permutation.push_back(channelDimIdx);
+
+      // Build inverse permutation for restoring original layout.
+      inversePermutation = ttmlir::utils::inversePermutation(permutation);
+
+      llvm::SmallVector<int64_t> permutedShape =
+          ttmlir::utils::applyPermutation(inputShape, permutation);
+
+      RankedTensorType permutedType =
+          ttnn::utils::RankedTensorTypeFactory::create(inputType,
+                                                       permutedShape);
+      input = rewriter.create<ttnn::PermuteOp>(
+          loc, permutedType, input, rewriter.getDenseI64ArrayAttr(permutation),
+          /*memory_config=*/nullptr, /*pad_value=*/mlir::FloatAttr());
+
+      // Update inputShape to the permuted shape (channel is now last).
+      inputType = mlir::cast<RankedTensorType>(input.getType());
+      inputShape = inputType.getShape();
+    }
+
+    // TTNN group_norm requires [N, 1, H*W, C].
+    // Reshape to [N, 1, H*W, C] if not already in that form.
+    llvm::SmallVector<int64_t> preNormShape(inputShape.begin(),
+                                            inputShape.end());
+
+    bool needsReshape = inputShape[1] != 1;
+    if (needsReshape) {
+      int64_t n = inputShape[0];
+      int64_t c = inputShape[3];
+      int64_t hw = inputShape[1] * inputShape[2];
+
+      llvm::SmallVector<int64_t> reshapedShape = {n, 1, hw, c};
+      llvm::SmallVector<int32_t> reshapedShapeI32(reshapedShape.begin(),
+                                                  reshapedShape.end());
+      RankedTensorType reshapedType =
+          ttnn::utils::RankedTensorTypeFactory::create(inputType,
+                                                       reshapedShape);
+      input = rewriter.create<ttnn::ReshapeOp>(
+          loc, reshapedType, input, rewriter.getI32ArrayAttr(reshapedShapeI32),
+          /*memory_config=*/nullptr);
+    }
+    // Create the GroupNormOp.
+    RankedTensorType groupNormOutputType =
+        mlir::cast<RankedTensorType>(input.getType());
+    Value groupNormResult = rewriter.create<ttnn::GroupNormOp>(
+        loc, this->getTypeConverter()->convertType(groupNormOutputType), input,
+        adaptor.getInputMask(), adaptor.getWeight(), adaptor.getBias(),
+        adaptor.getNumGroups(), adaptor.getEpsilon(),
+        /*memoryConfig*/ nullptr, /*core_grid=*/nullptr);
+
+    // Reshape back to original shape if reshaped.
+    if (needsReshape) {
+      llvm::SmallVector<int32_t> preNormShapeI32(preNormShape.begin(),
+                                                 preNormShape.end());
+      RankedTensorType preNormType =
+          ttnn::utils::RankedTensorTypeFactory::create(
+              mlir::cast<RankedTensorType>(groupNormResult.getType()),
+              preNormShape);
+      groupNormResult = rewriter.create<ttnn::ReshapeOp>(
+          loc, this->getTypeConverter()->convertType(preNormType),
+          groupNormResult, rewriter.getI32ArrayAttr(preNormShapeI32),
+          /*memory_config=*/nullptr);
+    }
+
+    // Permute back to the original dimension order if permuted.
+    if (needsPermute) {
+      groupNormResult = rewriter.create<ttnn::PermuteOp>(
+          loc, this->getTypeConverter()->convertType(op.getType()),
+          groupNormResult, rewriter.getDenseI64ArrayAttr(inversePermutation),
+          /*memory_config=*/nullptr, /*pad_value=*/mlir::FloatAttr());
+    }
+
+    rewriter.replaceOp(op, groupNormResult);
+    return success();
+  }
+};
+} // namespace
+
 // ANCHOR: adding_an_op_matmul_op_rewriter
 namespace {
 class MatmulOpConversionPattern : public OpConversionPattern<ttir::MatmulOp> {
@@ -3044,6 +3154,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            BatchNormTrainingOpConversionPattern,
            RMSNormOpConversionPattern,
            LayerNormOpConversionPattern,
+           GroupNormOpConversionPattern,
            MatmulOpConversionPattern,
            Conv2dOpConversionPattern,
            Conv3dOpConversionPattern,

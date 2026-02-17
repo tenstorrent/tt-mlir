@@ -55,3 +55,15 @@ table LayerNormOp {
   memory_config: tt.target.ttnn.MemoryConfig;
   out: tt.target.ttnn.TensorRef;
 }
+
+table GroupNormOp {
+  input: tt.target.ttnn.TensorRef;
+  input_mask: tt.target.ttnn.TensorRef;
+  weight: tt.target.ttnn.TensorRef;
+  bias: tt.target.ttnn.TensorRef;
+  num_groups: int64;
+  epsilon: float;
+  memory_config: tt.target.ttnn.MemoryConfig;
+  out: tt.target.ttnn.TensorRef;
+  core_grid: tt.target.ttnn.CoreCoord;
+}

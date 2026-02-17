@@ -296,6 +296,10 @@ public:
 
   static TTNNOperandsWorkarounds createTanhOpOperandsWorkarounds();
 
+  // Create workarounds for group norm op operands.
+  static TTNNOperandsWorkarounds
+  createGroupNormOpOperandsWorkarounds(mlir::Operation *op);
+
   // Create workarounds for ArgMax op operands.
   static TTNNOperandsWorkarounds createArgMaxOpOperandsWorkarounds();
 

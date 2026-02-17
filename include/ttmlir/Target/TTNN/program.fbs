@@ -74,6 +74,7 @@ union OpType {
   GenericOp,
   GetDeviceOp,
   GlobalAvgPool2dOp,
+  GroupNormOp,
   LayerNormOp,
   LinearOp,
   LoadCachedOp,

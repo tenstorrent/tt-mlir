@@ -3407,6 +3407,58 @@ public:
 };
 } // namespace
 
+// GroupNormOp conversion pattern
+//
+namespace {
+class GroupNormOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<mlir::tt::ttnn::GroupNormOp> {
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::GroupNormOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::GroupNormOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::GroupNormOp> emitter(
+        srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
+
+    // ttnn::group_norm requires core_grid to be explicitly specified.
+    // If the op doesn't have it set, derive it from the device's worker grid.
+    mlir::Attribute coreGridArg;
+    if (srcOp.getCoreGrid()) {
+      coreGridArg =
+          emitter.emit<::ttnn::CoreGrid>(srcOp.getCoreGrid(), "core_grid");
+    } else {
+      ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(srcOp);
+      auto gridShape = deviceAttr.getWorkerGrid().getShape();
+      // GridAttr shape is [y, x], CoreCoordAttr takes (x, y).
+      auto defaultCoreGrid = mlir::tt::ttnn::CoreCoordAttr::get(
+          rewriter.getContext(), gridShape[1], gridShape[0]);
+      coreGridArg =
+          emitter.emit<::ttnn::CoreGrid>(defaultCoreGrid, "core_grid");
+    }
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getInputMask(), "input_mask"),
+        emitter.emit(srcOp.getWeight(), "weight"),
+        emitter.emit(srcOp.getBias(), "bias"),
+        emitter.emit(srcOp.getNumGroups(), "num_groups"),
+        emitter.emit(srcOp.getEpsilon(), "epsilon"),
+        emitter.emit(srcOp.getMemoryConfig() |
+                         emitter.getMemoryConfig(srcOp.getResult()),
+                     "memory_config"),
+        coreGridArg,
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // NLPCreateQKVHeadsDecodeOp conversion pattern
 namespace {
 class NLPCreateQKVHeadsDecodeOpConversionPattern
@@ -3951,8 +4003,8 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   //
   patterns.add<BatchNormInferenceOpConversionPattern,
                BatchNormTrainingOpConversionPattern, RMSNormOpConversionPattern,
-               LayerNormOpConversionPattern>(typeConverter, ctx,
-                                             enableGoldenMode);
+               LayerNormOpConversionPattern, GroupNormOpConversionPattern>(
+      typeConverter, ctx, enableGoldenMode);
 
   // Transformers ops
   //

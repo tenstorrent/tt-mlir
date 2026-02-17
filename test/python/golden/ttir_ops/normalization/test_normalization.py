@@ -303,3 +303,101 @@ def test_hoisted_layer_norm(
         device=device,
         target=target,
     )
+
+
+# Group norm tests
+
+
+@pytest.mark.parametrize("num_groups", [8, 32])
+@pytest.mark.parametrize("shape", [(1, 1, 32, 128), (1, 1, 64, 256)])
+@pytest.mark.parametrize("has_weight", [True, False])
+@pytest.mark.parametrize("has_bias", [True, False])
+@pytest.mark.parametrize("target", ["ttnn", "emitpy", "emitc"])
+def test_group_norm(
+    shape: Shape,
+    num_groups: int,
+    has_weight: bool,
+    has_bias: bool,
+    target: str,
+    request,
+    device,
+):
+    # Channel dimension is the last dim
+    channel_dim = shape[-1]
+
+    # Determine input shapes
+    shapes = [shape]
+    if has_weight:
+        shapes.append((channel_dim,))
+    if has_bias:
+        shapes.append((channel_dim,))
+
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, [torch.float32] * len(shapes))
+        def group_norm(*inputs, unit_attrs: Optional[List[str]] = None):
+
+            builder = inputs[-1]
+            # Extract inputs based on test configuration
+            in0 = inputs[0]
+            weight = None
+            bias = None
+
+            if has_weight and len(inputs) > 1:
+                weight = inputs[1]
+            if has_bias:
+                if has_weight and len(inputs) > 2:
+                    bias = inputs[2]
+                elif not has_weight and len(inputs) > 1:
+                    bias = inputs[1]
+
+            return builder.group_norm(
+                in0,
+                num_groups=num_groups,
+                weight=weight,
+                bias=bias,
+                unit_attrs=unit_attrs,
+            )
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        device=device,
+        target=target,
+    )
+
+
+@x86_only
+@pytest.mark.parametrize(
+    "shape,num_groups",
+    [
+        ((1, 1, 32, 128), 8),
+        ((1, 1, 64, 256), 32),
+    ],
+)
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+def test_hoisted_group_norm(
+    shape: Shape,
+    num_groups: int,
+    target: str,
+    request,
+    device,
+):
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [torch.float32])
+        def group_norm(
+            in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+        ):
+            return builder.group_norm(
+                in0,
+                num_groups=num_groups,
+                weight=None,
+                bias=None,
+                unit_attrs=["ttir.should_hoist"],
+            )
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        device=device,
+        target=target,
+    )

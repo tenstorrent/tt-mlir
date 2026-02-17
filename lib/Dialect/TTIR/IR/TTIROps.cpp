@@ -5050,6 +5050,66 @@ mlir::tt::ttir::SplitQueryKeyValueAndSplitHeadsOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
+// GroupNormOp
+//===----------------------------------------------------------------------===//
+::mlir::LogicalResult mlir::tt::ttir::GroupNormOp::verify() {
+  RankedTensorType inputType = getInput().getType();
+  RankedTensorType outputType = getResult().getType();
+
+  if (inputType.getShape() != outputType.getShape()) {
+    return emitOpError("input and output must have the same shape");
+  }
+
+  // Input must be 4D.
+  if (inputType.getRank() != 4) {
+    return emitOpError("input must be a 4D tensor, got rank ")
+           << inputType.getRank();
+  }
+
+  int64_t numGroups = getNumGroups();
+  if (numGroups <= 0) {
+    return emitOpError("num_groups must be positive, got ") << numGroups;
+  }
+
+  // Validate channel_dim is within bounds.
+  int64_t channelDimIdx = getChannelDim();
+  if (channelDimIdx < 0 || channelDimIdx >= inputType.getRank()) {
+    return emitOpError("channel_dim must be in range [0, rank), got ")
+           << channelDimIdx << " for rank " << inputType.getRank();
+  }
+
+  // Channel dimension must be divisible by num_groups.
+  int64_t c = inputType.getShape()[channelDimIdx];
+  if (c % numGroups != 0) {
+    return emitOpError("channel dimension (dim ")
+           << channelDimIdx << ") must be divisible by num_groups; got C=" << c
+           << ", num_groups=" << numGroups;
+  }
+
+  // Weight must be 1D with size matching channel dimension.
+  if (getWeight()) {
+    RankedTensorType weightType = getWeight().getType();
+    if (weightType.getRank() != 1 || weightType.getShape()[0] != c) {
+      return emitOpError(
+                 "weight must be 1D with size matching channel dimension C=")
+             << c;
+    }
+  }
+
+  // Bias must be 1D with size matching channel dimension.
+  if (getBias()) {
+    RankedTensorType biasType = getBias().getType();
+    if (biasType.getRank() != 1 || biasType.getShape()[0] != c) {
+      return emitOpError(
+                 "bias must be 1D with size matching channel dimension C=")
+             << c;
+    }
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // ScaledDotProductAttentionDecodeOp
 //===----------------------------------------------------------------------===//
 
