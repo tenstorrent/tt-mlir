@@ -126,6 +126,7 @@ void createTTIRToTTMetalMiddleendPipeline(
   pm.addPass(createLinalgElementwiseOpFusionPass());
   pm.addPass(mlir::createCanonicalizerPass());
   createTTIRBufferizationPipeline(pm, options);
+  pm.addPass(d2m::createD2MLowerMulticastLoads());
   pm.addPass(d2m::createD2MAddScratchInputs());
 
   d2m::D2MGenericApplyInterchangeOptions applyInterchangeOptions;
@@ -195,8 +196,6 @@ void createTTIRToTTMetalMiddleendPipeline(
   }
   pm.addPass(
       d2m::createD2MInsertDstRegisterAccess(insertDstRegisterAccessOptions));
-
-  pm.addPass(d2m::createD2MLowerMulticastLoads());
 
   pm.addPass(d2m::createD2MSFPUTileLoopFission());
   pm.addPass(mlir::createCanonicalizerPass());
