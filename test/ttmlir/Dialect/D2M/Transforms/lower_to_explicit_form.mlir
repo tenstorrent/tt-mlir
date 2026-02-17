@@ -21,7 +21,9 @@ module {
     %stream = "d2m.stream_layout"(%arg0, %cb_alloc) : (memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>) -> memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #ttcore.view<map(4)>, #dram>
 
     // CHECK: d2m.generic
-    // CHECK-SAME: block_factors = [1, 1]
+    // CHECK-SAME: block_factors = []
+    // CHECK-SAME: indexing_maps = []
+    // CHECK-SAME: iterator_types = []
     // CHECK-DAG: d2m.core_index(0)
     // CHECK-DAG: d2m.core_index(1)
     // CHECK-DAG: arith.addi
@@ -52,7 +54,9 @@ module {
     %stream1 = "d2m.stream_layout"(%arg1, %cb1_alloc) : (memref<2x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #dram>, memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_>) -> memref<2x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #ttcore.view<map(4)>, #dram>
 
     // CHECK: d2m.generic
-    // CHECK-SAME: block_factors = [1, 1, 2]
+    // CHECK-SAME: block_factors = []
+    // CHECK-SAME: indexing_maps = []
+    // CHECK-SAME: iterator_types = []
     // CHECK-DAG: d2m.core_index(0)
     // CHECK-DAG: d2m.core_index(1)
     // CHECK-NOT: d2m.core_index(2)
