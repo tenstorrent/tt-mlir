@@ -436,7 +436,7 @@ convertLLVMSmallVecToTTNNSmallVec(const ::llvm::ArrayRef<int64_t> vec) {
   return ::ttsl::SmallVector<int>(vec.begin(), vec.end());
 }
 
-std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig>
+std::optional<::ttnn::Conv2dConfig>
 getConv2dConfig(const std::optional<Conv2dConfigAttr> &conv2dConfig) {
   if (!conv2dConfig || !conv2dConfig.has_value() || !conv2dConfig.value()) {
     return std::nullopt;
@@ -446,7 +446,7 @@ getConv2dConfig(const std::optional<Conv2dConfigAttr> &conv2dConfig) {
   // CoreRangeSet as an IR attribute.
   assert(!conv2dConfig->getCoreGrid() && "CoreGrid is not supported yet");
 
-  ::ttnn::operations::conv::conv2d::Conv2dConfig config;
+  ::ttnn::Conv2dConfig config;
 
   if (conv2dConfig->getWeightsDtype()) {
     config.weights_dtype = getDataType(*conv2dConfig->getWeightsDtype());
