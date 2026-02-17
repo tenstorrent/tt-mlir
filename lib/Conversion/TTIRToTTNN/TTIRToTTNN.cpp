@@ -32,6 +32,7 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Casting.h"
 
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"  // NEW import
 #include "llvm/Support/LogicalResult.h"
 #include <cstdint>
 #include <optional>
@@ -49,28 +50,29 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
 
     // Get ttnn::TTNNLayoutAttr of the result type
-    //
-    ttnn::TTNNLayoutAttr layoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
-        op.getResult().getType().getEncoding());
+        //
+        ttnn::TTNNLayoutAttr layoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
+            op.getResult().getType().getEncoding());
 
-    // Get the shape of the tensor, tensor layout, and data type
-    //
-    ttnn::ShapeAttr shapeAttr = ttnn::ShapeAttr::get(
-        rewriter.getContext(),
-        mlir::cast<RankedTensorType>(op->getResult(0).getType()).getShape());
-    ttcore::DataType dtype = layoutAttr.getDataType();
-    ttcore::DataTypeAttr dTypeAttr =
-        ttcore::DataTypeAttr::get(rewriter.getContext(), dtype);
+        // Get the shape of the tensor, tensor layout, and data type
+        //
+        ttnn::ShapeAttr shapeAttr = ttnn::ShapeAttr::get(
+            rewriter.getContext(),
+            mlir::cast<RankedTensorType>(op->getResult(0).getType()).getShape());
+        ttcore::DataType dtype = layoutAttr.getDataType();
+        ttcore::DataTypeAttr dTypeAttr =
+            ttcore::DataTypeAttr::get(rewriter.getContext(), dtype);
 
-    ttnn::Layout ttnnLayoutEnum = ttnn::Layout::RowMajor;
+        ttnn::Layout ttnnLayoutEnum = ttnn::Layout::RowMajor;
 
-    if (layoutAttr.isTiled()) {
-      ttnnLayoutEnum = ttnn::Layout::Tile;
-    }
-    ttnn::LayoutAttr tensorLayoutAttr =
-        ttnn::LayoutAttr::get(op.getContext(), ttnnLayoutEnum);
-
-    // Due to API constraints, we need to use a host_empty op if tensor is in
+        if (layoutAttr.isTiled()) {
+          ttnnLayoutEnum = ttnn::Layout::Tile;
+        }
+        ttnn::LayoutAttr tensorLayoutAttr =
+            ttnn::LayoutAttr::get(op.getContext()
+    ... [truncated]
+        // NEW method call
+        newMethodCall(rewriter, op, layoutAttr, shapeAttr, dtype, dTypeAttr, ttnnLayoutEnum, tensorLayoutAttr);
     // system_memory.
     if (mlir::tt::ttnn::isSystemBufferType(layoutAttr.getBufferType())) {
       // Replace op
@@ -1085,7 +1087,8 @@ public:
 
     // Get the data type and tensor layout
     //
-    ttcore::DataType dtype = layoutAttr.getDataType();
+    ttir::TensorType tensorType = op.getResult().getType().cast<ttir::TensorType>();
+    ttcore::DataType dtype = tensorType.getElementType().cast<ttcore::DataType>().getValue();
     ttcore::DataTypeAttr dTypeAttr =
         ttcore::DataTypeAttr::get(rewriter.getContext(), dtype);
 
@@ -3077,3 +3080,34 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
 }
 
 } // namespace mlir::tt
+
+LogicalResult handleDtypeConversion(ttir::OpWithTensorResults op, ConversionPatternRewriter &rewriter) const {
+    // Get the dtype attribute from the operation
+    auto dtypeAttr = op->getAttrOfType<ttcore::DataTypeAttr>("dtype");
+    if (!dtypeAttr) {
+      return rewriter.notifyMatchFailure(op, "missing dtype attribute");
+    }
+
+    // Perform the dtype conversion based on the attribute
+    ttcore::DataType newDtype = dtypeAttr.getValue();
+    // Add your dtype conversion logic here
+
+    // Example: Convert to a different dtype
+    if (newDtype == ttcore::DataType::F32) {
+      // Conversion logic for F32
+    } else if (newDtype == ttcore::DataType::INT8) {
+      // Conversion logic for INT8
+    }
+
+    return success();
+  }
+
+LogicalResult lowerDtypeAttribute(ttir::EmptyOp op, ConversionPatternRewriter &rewriter) const {
+    // Get the dtype attribute from the operation's result type
+    ttcore::DataType dtype = mlir::cast<ttnn::TTNNLayoutAttr>(op.getResult().getType().getEncoding()).getDataType();
+    ttcore::DataTypeAttr dTypeAttr = ttcore::DataTypeAttr::get(rewriter.getContext(), dtype);
+
+    // Create a new operation with the updated dtype attribute
+    rewriter.replaceOpWithNewOp<ttir::EmptyOp>(op, op->getResultTypes(), op.getLoc(), dTypeAttr);
+    return success();
+  }

@@ -29,29 +29,37 @@ class TTIR_DPSOp<string mnemonic, list<Trait> traits = []> :
     }];
 }
 
+include "mlir/IR/Types.td"
+
+include "mlir/IR/Attributes.td"
+include "mlir/IR/Types.td"
+
+include "ttmlir/Dialect/TTCore/IR/TTCoreDataTypes.td"
+
 //===----------------------------------------------------------------------===//
 // TTIR top level ops
 //===----------------------------------------------------------------------===//
 
 def TTIR_ToLayoutOp : TTIR_DPSOp<"to_layout",
-  [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
-    let summary = "Layout op.";
-    let description = [{
-      ToLayout operation, transition tensors from one layout to another.  Some examples include:
-        - Transitioning between different memory spaces, e.g. DRAM to L1.
-        - Transitioning between different data types, e.g. f32 to f16.
-        - Transitioning between different tile sizes, e.g. 1x16 to 32x32
-        - Transitioning between different tensor sharding
-        - Some combination of the above
+  let summary = "Layout op.";
+      let description = [{
+        ToLayout operation, transition tensors from one layout to another.  Some examples include:
+          - Transitioning between different memory spaces, e.g. DRAM to L1.
+          - Transitioning between different data types, e.g. f32 to f16.
+          - Transitioning between different tile sizes, e.g. 1x16 to 32x32
+          - Transitioning between different tensor sharding
+          - Some combination of the above
 
-      ```llvm
-      #layout = #ttcore.metal_layout<8192x128x1, undef, <1x1>, memref<64x128xf32, #system>>
-      #layout1 = #ttcore.metal_layout<8192x128x1, undef, <1x1>, memref<64x128xf32, #l1_>>
-      %1 = "ttir.to_layout"(%arg0, %0) : (tensor<64x128xf32, #layout>, tensor<64x128xf32, #layout1>) -> tensor<64x128xf32, #layout1>
-      ```
-    }];
+        #layout = #ttcore.metal_layout<8192x128x1, undef, <1x1>, memref<64x128xf32, #system>>
+        #layout1 = #ttcore.metal_layout<8192x128x1, undef, <1x1>, memref<64x128xf32, #l1_>>
+        %1 = "ttir.to_layout"(%arg0, %0) : (tensor<64x128xf32, #layout>, tensor<64x128xf32, #layout1>) -> tensor<64x128xf32, #layout1>
+      }];
 
-    let arguments = (ins AnyRankedTensorOrMemRef:$input,
+      let arguments 
+  ... [truncated]
+      let attributes = [
+          OpAttribute("dtype", AttributeType::String)
+      ];
                          AnyRankedTensorOrMemRef:$output,
                          OptionalAttr<TTCore_MetalLayoutAttr>:$layout);
     let results = (outs Variadic<AnyRankedTensor>:$results);
@@ -4908,90 +4916,102 @@ def TTIR_RandOp : TTIR_CreationOp<"rand", [TTCore_NonCacheableTrait]> {
       - `size` (Array of Integer): The shape of the tensor to create.
       - `dtype` (mlir:Type): Data type of the returned tensor.
       - `low` (Float): The lower bound of the range (inclusive) [Default: 0.0].
-      - `high` (Float): The upper bound of the range (exclusive) [Default: 1.0].
-      - `seed` (Integer): Value to initialize the random number generator for reproducible results [Default: 0].
+      def ones : TTIR_DPSOp<"ones",
+        let summary = "Create a tensor filled with ones.";
+            let description = [{
+              Create a tensor of shape `shape` and data type `dtype` filled with ones.
+            }];
 
-    Output:
-      - `result` (Tensor): The generated tensor containing the random values.
-  }];
+            let arguments = [
+                OpAttribute<ShapeAttr> : "shape" {
+                  let description = "The shape of the output tensor."
+                },
+                OpAttribute<TypeAttr> : "dtype" {
+                  let description = "The data type of the output tensor."
+                }
+            ];
 
-  let arguments = (ins I32ArrayAttr:$size,
-                       TypeAttr:$dtype,
-                       DefaultValuedAttr<F32Attr, "0.0">:$low,
-                       DefaultValuedAttr<F32Attr, "1.0">:$high,
-                       DefaultValuedAttr<UI32Attr, "0">:$seed);
+            let results = [
+                TensorType : "result" {
+                  let description = "The output tensor filled with ones."
+                }
+            ];
+      };
 
-  let results = (outs AnyRankedTensor:$result);
+      def zeros : TTIR_DPSOp<"zeros",
+        let summary = "Create a tensor filled with zeros.";
+            let description = [{
+              Create a tensor of shape `shape` and data type `dtype` filled with zeros.
+            }];
 
-  let hasVerifier = 1;
-}
+            let arguments = [
+                OpAttribute<ShapeAttr> : "shape" {
+                  let description = "The shape of the output tensor."
+                },
+                OpAttribute<TypeAttr> : "dtype" {
+                  let description = "The data type of the output tensor."
+                }
+            ];
 
-def TTIR_DropoutOp : TTIR_Op<"dropout", [TTCore_NonCacheableTrait]> {
-  let summary = "Dropout operation.";
-  let description = [{
-    Applies dropout to the input tensor element-wise.
+            let results = [
+                TensorType : "result" {
+                  let description = "The output tensor filled with zeros."
+                }
+            ];
+      };
 
-    During training, randomly zeroes some elements of the input tensor with
-    probability `prob` using samples from a Bernoulli distribution. The
-    remaining elements are scaled by `scale` (typically 1/(1-prob)) to maintain
-    the expected sum.
+      def arange : TTIR_DPSOp<"arange",
+        let summary = "Create a tensor with values from start to end.";
+            let description = [{
+              Create a tensor of shape `shape` and data type `dtype` with values from `start` to `end`.
+            }];
 
-    Example:
-      %result = "ttir.dropout"(%input) <{prob = 0.2 : f32, scale = 1.25 : f32, seed = 42 : ui32}> : (tensor<64x128xbf16>) -> tensor<64x128xbf16>
+            let arguments = [
+                OpAttribute<ShapeAttr> : "shape" {
+                  let description = "The shape of the output tensor."
+                },
+                OpAttribute<f64> : "start" {
+                  let description = "The starting value of the range."
+                },
+                OpAttribute<f64> : "end" {
+                  let description = "The ending value of the range."
+                },
+                OpAttribute<TypeAttr> : "dtype" {
+                  let description = "The data type of the output tensor."
+                }
+            ];
 
-    Attributes:
-      - `prob` (Float): Dropout probability. Elements are zeroed with this probability [Default: 0.0].
-      - `scale` (Float): Scale factor applied to non-zeroed elements. Typically 1/(1-prob) [Default: 1.0].
-      - `seed` (Integer): Seed for the random number generator [Default: 0].
-      - `use_per_device_seed` (Bool): Whether to use a different seed per device [Default: true].
+            let results = [
+                TensorType : "result" {
+                  let description = "The output tensor with values from start to end."
+                }
+            ];
+      };
 
-    Inputs:
-      - `input` (Tensor): The input tensor.
+      def full : TTIR_DPSOp<"full",
+        let summary = "Create a tensor filled with a specified value.";
+            let description = [{
+              Create a tensor of shape `shape` and data type `dtype` filled with the specified `value`.
+            }];
 
-    Output:
-      - `result` (Tensor): The output tensor with dropout applied.
-  }];
+            let arguments = [
+                OpAttribute<ShapeAttr> : "shape" {
+                  let description = "The shape of the output tensor."
+                },
+                OpAttribute<f64> : "value" {
+                  let description = "The value to fill the tensor with."
+                },
+                OpAttribute<TypeAttr> : "dtype" {
+                  let description = "The data type of the output tensor."
+                }
+            ];
 
-  let arguments = (ins AnyRankedTensor:$input,
-                       DefaultValuedAttr<F32Attr, "0.0">:$prob,
-                       DefaultValuedAttr<F32Attr, "1.0">:$scale,
-                       DefaultValuedAttr<UI32Attr, "0">:$seed,
-                       DefaultValuedAttr<BoolAttr, "true">:$use_per_device_seed);
-
-  let results = (outs AnyRankedTensor:$result);
-
-  let hasVerifier = 1;
-}
-
-class TTIR_NamedFullOp<string mnemonic, list<Trait> traits = []> :
-  TTIR_CreationOp<mnemonic, traits> {
-  let summary = "Base class for tensor creation operations with a specified shape.";
-  let description = [{
-    The `TTIR_NamedFullOp` class serves as a base class for tensor creation operations that
-    generate tensors with a specified shape and fill them with predefined values.
-
-    This class is used by operations like `zeros` and `ones` that create tensors with a
-    specific shape and initialize all elements to the same value. The shape is specified
-    as a dense array of 32-bit integers.
-
-    Attributes:
-    - `shape` (Array of Integer): The shape of the tensor to create.
-
-    Output:
-    - `result` (Tensor): The created tensor with the specified shape.
-
-    Note: The element type of the result tensor is determined by the return type specified
-    in the operation. This class simplifies the implementation of tensor creation operations
-    by providing common argument and result definitions.
-  }];
-
-  let arguments = (ins DenseI32ArrayAttr:$shape);
-
-  let results = (outs AnyRankedTensor:$result);
-}
-
-def TTIR_ZerosOp : TTIR_NamedFullOp<"zeros"> {
-  let summary = "Creates a tensor filled with zeros.";
+            let results = [
+                TensorType : "result" {
+                  let description = "The output tensor filled with the specified value."
+                }
+            ];
+      };
   let description = [{
     The `zeros` operation creates a tensor filled with zeros of the specified shape.
 
