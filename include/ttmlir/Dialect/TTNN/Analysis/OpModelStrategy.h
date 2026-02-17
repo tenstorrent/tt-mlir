@@ -21,15 +21,21 @@ namespace mlir::tt::ttnn {
 /// Per-op output hint strategy: what output config hints to try for a given
 /// set of input layouts. These are secondary to the input candidates.
 ///
-/// Most ops: {NULL} + {L1-interleaved} (2 hints; backend decides sharding from
-///   NULL)
-/// Matmul: full legalConfigs (each carries MatmulProgramConfig tied to sharded
-///   hint)
+/// Default ops: {NULL} as primary hint; sharded configs as fallback (tried
+///   only when NULL doesn't produce a sharded result for a given input combo).
+/// Matmul: partial legalConfigs (each carries MatmulProgramConfig tied to
+///   sharded hint, L1-interleaved filtered out)
 /// Conv2d: full legalConfigs (each carries Conv2dConfig)
-/// Reshape/Permute: DRAM-only configs (skip L1 sharding entirely)
+/// Reshape/Permute: non-sharded configs only (skip L1 sharding entirely)
 struct OutputHints {
-  /// Output configs to pass as hints to backend.
+  /// Primary output configs to pass as hints to backend (always tried).
   std::vector<OpConfig> hints;
+
+  /// Fallback output configs tried only when no primary hint produces a
+  /// sharded result for a given input combination. This avoids trying all
+  /// sharded configs when the NULL hint already yields a sharded output
+  /// (e.g., when inputs are already sharded), keeping the search space small.
+  std::vector<OpConfig> fallbackHints;
 
   /// Whether to attempt L1 sharding for this op. False for reshape, permute,
   /// etc.

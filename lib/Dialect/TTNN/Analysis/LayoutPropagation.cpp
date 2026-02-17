@@ -139,9 +139,10 @@ LayoutPropagation::processOp(Operation *op) {
   }
   TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
                "  processOp {0}: inputSets={1}, outputHints={2}, "
-               "crossProduct={3}",
+               "fallbackHints={3}, crossProduct={4}",
                op->getName(), inputCandidateSets.size(),
-               outputHints.hints.size(), crossProductSize);
+               outputHints.hints.size(), outputHints.fallbackHints.size(),
+               crossProductSize);
 
   // Log output hints detail.
   for (size_t hi = 0; hi < outputHints.hints.size(); ++hi) {
@@ -160,32 +161,102 @@ LayoutPropagation::processOp(Operation *op) {
   }
 
   // Step 3: Cross-product evaluation.
-  // For greedy (K=1), each operand typically has 1-3 candidates, and output
-  // hints are small (1-3 for most ops). Total candidates are manageable.
   llvm::SmallVector<BeamCandidate> candidates;
 
-  // Build cross-product of input candidates. For ops with many operands,
-  // limit the explosion by only iterating meaningful combinations.
-  // For most TTNN ops: 1-2 tensor operands.
+  // Helper: check if a layout is sharded.
+  auto isSharded = [](TTNNLayoutAttr layout) {
+    if (!layout) {
+      return false;
+    }
+    auto memLayout = layout.getMemLayout();
+    return memLayout && isShardedMemoryLayout(memLayout.getValue());
+  };
 
-  // Collect per-operand candidates into a flat structure for iteration.
-  // We iterate the cross-product using a simple recursive approach for
-  // arbitrary number of operands.
+  // Helper: try a single hint against an input combination, collect candidate.
+  // Returns true if the result is sharded.
+  auto tryHint = [&](const OpConfig &hint, size_t hintIdx,
+                     const std::vector<TTNNLayoutAttr> &inputLayouts,
+                     bool anyReshard,
+                     const llvm::SmallVector<size_t> &producerCandidateIndices,
+                     const llvm::DenseMap<size_t, TTNNLayoutAttr>
+                         &reshardLayouts) -> bool {
+    auto result = op_constraint_validation::validateOperation(
+        op, inputLayouts, hint);
+    if (result.isSuccess()) {
+      BeamCandidate candidate;
+      candidate.config =
+          OpConfig(result.actualOutputLayout, hint.opSpecificAttrs);
+      candidate.score = scoreCandidate(op, hint, result, anyReshard);
+      candidate.validationResult = result;
+      candidate.inputLayouts = inputLayouts;
+      candidate.producerCandidateIndices = producerCandidateIndices;
+      candidate.reshardLayouts = reshardLayouts;
+      candidates.push_back(std::move(candidate));
+
+      TTMLIR_TRACE(
+          ttmlir::LogComponent::GreedyOptimizer,
+          "    VALID candidate for {0}: hint[{1}] outBuf={2} "
+          "outMem={3} score(L1={4},sharded={5},reshard={6},"
+          "cores={7},l1use={8})",
+          op->getName(), hintIdx,
+          candidate.config.outputLayout.getBufferType(),
+          candidate.config.outputLayout.getMemLayout(),
+          candidate.score.isL1, candidate.score.isSharded,
+          candidate.score.requiresReshard, candidate.score.coreCount,
+          candidate.score.outputL1Usage);
+
+      return isSharded(result.actualOutputLayout);
+    }
+
+    // Log validation failures.
+    llvm::StringRef hintBuf = "null";
+    llvm::StringRef hintMem = "null";
+    std::string hintBufStr, hintMemStr;
+    if (hint.outputLayout) {
+      llvm::raw_string_ostream bufOS(hintBufStr);
+      bufOS << hint.outputLayout.getBufferType();
+      hintBuf = hintBufStr;
+      llvm::raw_string_ostream memOS(hintMemStr);
+      memOS << hint.outputLayout.getMemLayout();
+      hintMem = hintMemStr;
+    }
+    std::string inputDesc;
+    llvm::raw_string_ostream inputOS(inputDesc);
+    for (size_t ii = 0; ii < inputLayouts.size(); ++ii) {
+      if (ii > 0) {
+        inputOS << ", ";
+      }
+      inputOS << inputLayouts[ii].getBufferType() << "/"
+              << inputLayouts[ii].getMemLayout();
+    }
+    TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
+                 "    FAILED validation for {0}: hint[{1}] "
+                 "outBuf={2} outMem={3} inputs=[{4}] reshard={5}",
+                 op->getName(), hintIdx, hintBuf, hintMem, inputDesc,
+                 anyReshard);
+    return false;
+  };
+
   size_t numOperandSets = inputCandidateSets.size();
 
   // If no tensor operands (e.g., constant-like ops), just try output hints.
   if (numOperandSets == 0) {
-    for (const auto &hint : outputHints.hints) {
-      auto result =
-          op_constraint_validation::validateOperation(op, {}, hint);
-      if (result.isSuccess()) {
-        bool anyReshard = false;
-        BeamCandidate candidate;
-        candidate.config = OpConfig(result.actualOutputLayout,
-                                    hint.opSpecificAttrs);
-        candidate.score = scoreCandidate(op, hint, result, anyReshard);
-        candidate.validationResult = result;
-        candidates.push_back(std::move(candidate));
+    std::vector<TTNNLayoutAttr> emptyInputs;
+    llvm::SmallVector<size_t> emptyProducerIndices;
+    llvm::DenseMap<size_t, TTNNLayoutAttr> emptyReshards;
+    bool gotSharded = false;
+    for (size_t hi = 0; hi < outputHints.hints.size(); ++hi) {
+      if (tryHint(outputHints.hints[hi], hi, emptyInputs, false,
+                  emptyProducerIndices, emptyReshards)) {
+        gotSharded = true;
+      }
+    }
+    // Try fallback hints if primary didn't produce a sharded result.
+    if (!gotSharded) {
+      for (size_t fi = 0; fi < outputHints.fallbackHints.size(); ++fi) {
+        tryHint(outputHints.fallbackHints[fi],
+                outputHints.hints.size() + fi, emptyInputs, false,
+                emptyProducerIndices, emptyReshards);
       }
     }
   } else {
@@ -213,62 +284,25 @@ LayoutPropagation::processOp(Operation *op) {
         }
       }
 
-      // Try each output hint with this input combination.
-      for (size_t hintIdx = 0; hintIdx < outputHints.hints.size(); ++hintIdx) {
-        const auto &hint = outputHints.hints[hintIdx];
-        auto result = op_constraint_validation::validateOperation(
-            op, inputLayouts, hint);
-        if (result.isSuccess()) {
-          BeamCandidate candidate;
-          candidate.config = OpConfig(result.actualOutputLayout,
-                                      hint.opSpecificAttrs);
-          candidate.score = scoreCandidate(op, hint, result, anyReshard);
-          candidate.validationResult = result;
-          candidate.inputLayouts = inputLayouts;
-          candidate.producerCandidateIndices = producerCandidateIndices;
-          candidate.reshardLayouts = reshardLayouts;
-          candidates.push_back(std::move(candidate));
+      // Try primary output hints with this input combination.
+      bool gotSharded = false;
+      for (size_t hi = 0; hi < outputHints.hints.size(); ++hi) {
+        if (tryHint(outputHints.hints[hi], hi, inputLayouts, anyReshard,
+                    producerCandidateIndices, reshardLayouts)) {
+          gotSharded = true;
+        }
+      }
 
-          TTMLIR_TRACE(
-              ttmlir::LogComponent::GreedyOptimizer,
-              "    VALID candidate for {0}: hint[{1}] outBuf={2} "
-              "outMem={3} score(L1={4},sharded={5},reshard={6},"
-              "cores={7},l1use={8})",
-              op->getName(), hintIdx,
-              candidate.config.outputLayout.getBufferType(),
-              candidate.config.outputLayout.getMemLayout(),
-              candidate.score.isL1, candidate.score.isSharded,
-              candidate.score.requiresReshard, candidate.score.coreCount,
-              candidate.score.outputL1Usage);
-        } else {
-          // Log validation failures to understand why L1 candidates are
-          // rejected.
-          llvm::StringRef hintBuf = "null";
-          llvm::StringRef hintMem = "null";
-          std::string hintBufStr, hintMemStr;
-          if (hint.outputLayout) {
-            llvm::raw_string_ostream bufOS(hintBufStr);
-            bufOS << hint.outputLayout.getBufferType();
-            hintBuf = hintBufStr;
-            llvm::raw_string_ostream memOS(hintMemStr);
-            memOS << hint.outputLayout.getMemLayout();
-            hintMem = hintMemStr;
-          }
-          std::string inputDesc;
-          llvm::raw_string_ostream inputOS(inputDesc);
-          for (size_t ii = 0; ii < inputLayouts.size(); ++ii) {
-            if (ii > 0) {
-              inputOS << ", ";
-            }
-            inputOS << inputLayouts[ii].getBufferType() << "/"
-                    << inputLayouts[ii].getMemLayout();
-          }
-          TTMLIR_TRACE(
-              ttmlir::LogComponent::GreedyOptimizer,
-              "    FAILED validation for {0}: hint[{1}] "
-              "outBuf={2} outMem={3} inputs=[{4}] reshard={5}",
-              op->getName(), hintIdx, hintBuf, hintMem,
-              inputDesc, anyReshard);
+      // Try fallback hints only if primary didn't produce a sharded result.
+      if (!gotSharded && !outputHints.fallbackHints.empty()) {
+        TTMLIR_TRACE(
+            ttmlir::LogComponent::GreedyOptimizer,
+            "    Primary hints non-sharded for {0}, trying {1} fallback hints",
+            op->getName(), outputHints.fallbackHints.size());
+        for (size_t fi = 0; fi < outputHints.fallbackHints.size(); ++fi) {
+          tryHint(outputHints.fallbackHints[fi],
+                  outputHints.hints.size() + fi, inputLayouts, anyReshard,
+                  producerCandidateIndices, reshardLayouts);
         }
       }
 

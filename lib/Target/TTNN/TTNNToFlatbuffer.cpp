@@ -2347,9 +2347,7 @@ createPadOp(FlatbufferObjectCache &cache, PadOp op) {
       cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
                                   /*local_shape*/ std::nullopt);
 
-  auto memoryConfig = op.getMemoryConfig().has_value()
-                          ? toFlatbuffer(cache, op.getMemoryConfig().value())
-                          : 0;
+  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
   return ::tt::target::ttnn::CreatePadOp(
       *cache.fbb, in, out, cache.fbb->CreateVector<uint32_t>(padding), value,
       op.getUseMulticore(), memoryConfig);

@@ -13,7 +13,7 @@ namespace mlir::tt::ttnn {
 
 /// Filter legalConfigs to only include non-sharded (DRAM or L1-interleaved)
 /// configs.
-static std::vector<OpConfig>
+[[maybe_unused]] static std::vector<OpConfig>
 filterNonSharded(const std::vector<OpConfig> &legalConfigs) {
   std::vector<OpConfig> result;
   for (const auto &config : legalConfigs) {
@@ -30,7 +30,7 @@ filterNonSharded(const std::vector<OpConfig> &legalConfigs) {
 }
 
 /// Check if a config is L1-interleaved.
-static bool isL1Interleaved(const OpConfig &config) {
+[[maybe_unused]] static bool isL1Interleaved(const OpConfig &config) {
   if (!config.outputLayout) {
     return false;
   }
@@ -71,29 +71,45 @@ OutputHints getOutputHints(Operation *op,
           filtered.push_back(cfg);
         }
 
-        return OutputHints{filtered, /*attemptL1Sharding=*/true};
+        return OutputHints{filtered, {}, /*attemptL1Sharding=*/true};
       })
       .Case<Conv2dOp, ConvTranspose2dOp>([&](auto) {
         // Conv2d configs carry Conv2dConfig tied to output hint.
-        return OutputHints{legalConfigs, /*attemptL1Sharding=*/true};
+        return OutputHints{legalConfigs, {}, /*attemptL1Sharding=*/true};
       })
-      .Case<ReshapeOp, PermuteOp, ConcatenateHeadsOp>([&](auto) {
+      // PadOp: ttnn::pad only supports sharded output for
+      // HEIGHT_SHARDED + ROW_MAJOR inputs. Its tile-layout path
+      // (invoke_tile) crashes when given a sharded output memory config
+      // with interleaved input because it unconditionally dereferences
+      // input_tensor.shard_spec()->grid, which is nullopt for
+      // interleaved tensors. The op model validation doesn't catch this
+      // since it only checks sharding constraints when the input is
+      // already sharded. Until tt-metal fixes this, forbid sharded
+      // output hints for PadOp.
+      .Case<ReshapeOp, PermuteOp, ConcatenateHeadsOp, PadOp>([&](auto) {
         auto nonShardedConfigs = filterNonSharded(legalConfigs);
-        return OutputHints{nonShardedConfigs, /*attemptL1Sharding=*/false};
+        return OutputHints{nonShardedConfigs, {}, /*attemptL1Sharding=*/false};
       })
       .Default([&](Operation *) {
-        // Use all legalConfigs as output hints, plus NULL hint.
-        // This gives elementwise ops access to sharded output configs
-        // that the backend can validate (not just interleaved/DRAM).
+        // Primary: NULL hint only -- let the backend decide output from inputs.
+        // Fallback: sharded configs -- tried only when NULL yields non-sharded
+        // output (e.g., when inputs are interleaved and the backend mirrors
+        // the interleaved layout on the output).
         OutputHints result;
         result.attemptL1Sharding = true;
 
         // NULL hint: backend decides output sharding from inputs.
         result.hints.push_back(OpConfig(TTNNLayoutAttr()));
 
-        // Add all configs from legalConfigs (sharded + interleaved + DRAM).
+        // Sharded configs as fallback.
         for (const auto &cfg : legalConfigs) {
-          result.hints.push_back(cfg);
+          if (!cfg.outputLayout) {
+            continue;
+          }
+          auto memLayout = cfg.outputLayout.getMemLayout();
+          if (memLayout && isShardedMemoryLayout(memLayout.getValue())) {
+            result.fallbackHints.push_back(cfg);
+          }
         }
         return result;
       });
