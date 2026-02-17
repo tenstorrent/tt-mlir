@@ -1599,7 +1599,7 @@ TEST_F(OpModelTest, TopK) {
   opCstr = constraintsExp.get();
   EXPECT_GT(opCstr.cbL1PeakSize, 0);
   EXPECT_GT(opCstr.tensorL1PeakSize, 0);
-  EXPECT_EQ(opCstr.outputL1BufferSize, 0);
+  EXPECT_GT(opCstr.outputL1BufferSize, 0);
 
   constraintsExp = op_model::OpModel<TopKOp>::getOpConstraints(
       CreateWorkerGrid(), tensorShape, layoutL1Interleaved, 4, -1, true, true,
