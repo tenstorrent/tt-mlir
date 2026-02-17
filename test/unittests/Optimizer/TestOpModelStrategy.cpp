@@ -186,7 +186,7 @@ public:
 // getOutputHints tests
 //===----------------------------------------------------------------------===//
 
-TEST_F(OpModelStrategyTest, ElementwiseOpNullHintPlusL1Interleaved) {
+TEST_F(OpModelStrategyTest, DefaultOpNullOnlyInPrimaryHints) {
   auto addOp = createMockAddOp();
   auto legalConfigs = createElementwiseLegalConfigs();
 
@@ -195,32 +195,33 @@ TEST_F(OpModelStrategyTest, ElementwiseOpNullHintPlusL1Interleaved) {
   // Should have attemptL1Sharding = true.
   EXPECT_TRUE(hints.attemptL1Sharding);
 
-  // Should contain at least a NULL hint and DRAM/L1-interleaved hints.
-  EXPECT_GE(hints.hints.size(), 1u);
-
-  // First hint should be NULL (no outputLayout).
+  // Primary hints should contain only the NULL hint.
+  EXPECT_EQ(hints.hints.size(), 1u);
   EXPECT_FALSE(hints.hints[0].outputLayout);
 }
 
-TEST_F(OpModelStrategyTest, ElementwiseOpL1InterleavedIsExplicit) {
+TEST_F(OpModelStrategyTest, DefaultOpShardedInFallbackHints) {
   auto addOp = createMockAddOp();
   auto legalConfigs = createElementwiseLegalConfigs();
 
   OutputHints hints = getOutputHints(addOp, legalConfigs);
 
-  // Find an L1-interleaved hint (not the NULL one).
-  bool foundL1Interleaved = false;
+  // Fallback hints should contain only sharded configs.
+  EXPECT_FALSE(hints.fallbackHints.empty());
+  for (const auto &hint : hints.fallbackHints) {
+    ASSERT_TRUE(hint.outputLayout);
+    auto memLayout = hint.outputLayout.getMemLayout();
+    ASSERT_TRUE(memLayout);
+    EXPECT_TRUE(isShardedMemoryLayout(memLayout.getValue()));
+  }
+
+  // Primary hints should have no sharded configs.
   for (const auto &hint : hints.hints) {
-    if (hint.outputLayout &&
-        hint.outputLayout.getBufferType() == BufferType::L1 &&
-        hint.outputLayout.getMemLayout() &&
-        hint.outputLayout.getMemLayout().getValue() ==
-            TensorMemoryLayout::Interleaved) {
-      foundL1Interleaved = true;
-      break;
+    if (hint.outputLayout && hint.outputLayout.getMemLayout()) {
+      EXPECT_FALSE(
+          isShardedMemoryLayout(hint.outputLayout.getMemLayout().getValue()));
     }
   }
-  EXPECT_TRUE(foundL1Interleaved);
 }
 
 TEST_F(OpModelStrategyTest, MatmulOpFiltersL1Interleaved) {
