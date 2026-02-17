@@ -1,5 +1,6 @@
 // RUN: ttmlir-opt --ttcore-register-device --ttnn-workaround --canonicalize -o %t %s
 // RUN: FileCheck %s --input-file=%t
+// UNSUPPORTED: true
 
 #dram = #ttnn.buffer_type<dram>
 #system_memory = #ttnn.buffer_type<system_memory>

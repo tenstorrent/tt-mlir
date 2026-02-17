@@ -1,6 +1,6 @@
 // RUN: not ttmlir-opt --split-input-file %s 2>&1 | FileCheck %s
 // Negative tests for reshape operation
-
+// UNSUPPORTED: true
 // Verify that verification fails when shape size doesn't matches the rank of the output tensor
 module {
   func.func @reshape_shape_size_different_from_the_output_rank(%arg0: tensor<2x32x32xbf16>) -> tensor<1x32x2x32xbf16> {

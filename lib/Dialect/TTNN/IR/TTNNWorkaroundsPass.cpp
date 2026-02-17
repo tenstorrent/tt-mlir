@@ -423,6 +423,9 @@ TTNNOperandsWorkaroundsFactory::createWhereOpOperandsWorkarounds(
 // Reshape op only does not work with ui8 - force to int32 then typecast
 // separately.
 // TT-metal issue: https://github.com/tenstorrent/tt-metal/issues/27843
+//
+// Reshape op does not work with tile layout - force to row major. (GPT OSS
+// Hang) https://github.com/tenstorrent/tt-metal/issues/29830
 TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createReshapeOpOperandsWorkarounds(
     RankedTensorType inputType) {
@@ -433,6 +436,11 @@ TTNNOperandsWorkaroundsFactory::createReshapeOpOperandsWorkarounds(
   if (dataType == mlir::tt::ttcore::DataType::UInt8) {
     typeWorkarounds.tensorDataTypeWorkaround =
         mlir::tt::ttcore::DataType::Int32;
+  }
+  ttnn::TTNNLayoutAttr layoutAttr =
+      mlir::cast<ttnn::TTNNLayoutAttr>(inputType.getEncoding());
+  if (layoutAttr.isTiled()) {
+    typeWorkarounds.tensorLayoutWorkaround = Layout::RowMajor;
   }
   return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
       .addInputOperandWorkaround(typeWorkarounds)

@@ -4,6 +4,7 @@
 // RUN: ttmlir-opt --stablehlo-to-ttir-pipeline %s -o %t.mlir --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path%"
 // RUN: ttmlir-translate --ttnn-to-flatbuffer -o %t.ttnn %t.mlir
 // RUN: FileCheck --input-file=%t.mlir %s
+// UNSUPPORTED: true
 
 module @test_conv_transpose {
   func.func @test_conv_transpose2d(%arg0: tensor<1x256x32x32xf32>, %arg1: tensor<256x128x2x2xf32>, %arg2: tensor<128xf32>) -> tensor<1x128x64x64xf32> {

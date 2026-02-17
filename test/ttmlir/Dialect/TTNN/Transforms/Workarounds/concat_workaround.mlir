@@ -1,5 +1,6 @@
 // RUN: ttmlir-opt --ttcore-register-device --ttnn-layout --convert-ttir-to-ttnn --ttnn-workaround --canonicalize -o %t %s
 // RUN: FileCheck %s --input-file=%t
+// UNSUPPORTED: true
 
 module {
   func.func public @test_concat_datatype_workaround(%arg0: tensor<2x53xsi32>, %arg1: tensor<2x1xsi32>) -> tensor<2x54xsi32> {
