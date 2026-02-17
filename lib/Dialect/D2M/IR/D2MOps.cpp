@@ -1863,11 +1863,6 @@ std::optional<Operation *> d2m::GenericOp::getOutermostBlockingLoopOp() {
   return outerLoop;
 }
 
-unsigned d2m::GenericOp::getBlockingLoopDepth() {
-  // Verification enforces block-factor rank matches blocking-loop depth.
-  return getNumBlockFactors();
-}
-
 mlir::AffineMap d2m::GenericOp::getIndexingMap(int64_t operandIndex) {
   TT_debugv(!isExplicitDatamovementForm(),
             "Attempting to access indexing map while in explicit "
@@ -2214,7 +2209,7 @@ bool d2m::GenericOp::hasCompatibleBlocking(GenericOp b) {
          this->getBlockFactors() == b.getBlockFactors();
 }
 
-/// Returns true if op or any of the operations nested within it's regions have
+/// Returns true if op or any of the operations nested within its regions have
 /// the D2MSkipOpEltwiseFusionTrait.
 bool d2m::GenericOp::hasSkipOpEltwiseFusionTrait() {
   bool skipFusion = false;
@@ -2414,7 +2409,7 @@ Value d2m::GenericOp::findAssocCBByOperand(Operation *op, Value operand) {
     return Value();
   }
 
-  // Find which operand index this corresponds to
+  // Find which operand index this corresponds to.
   unsigned operandIndex = UINT_MAX;
   for (unsigned i = 0; i < generic->getNumOperands(); ++i) {
     if (generic->getOperand(i) == operand) {

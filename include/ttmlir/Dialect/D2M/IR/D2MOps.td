@@ -345,7 +345,6 @@ def D2M_GenericOp
       unsigned getNumDims();
       unsigned getNumBlockFactors();
       std::optional<Operation *> getOutermostBlockingLoopOp();
-      unsigned getBlockingLoopDepth();
       AffineMap getIndexingMap(int64_t operandIndex);
       AffineMap getIndexingMapForOperand(Value operand);
       AffineMap getOutputIndexingMap();
