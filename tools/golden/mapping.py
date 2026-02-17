@@ -4230,12 +4230,13 @@ def ttir_embedding_backward_golden(
 def ttir_concatenate_heads_golden(
     input_tensor: GoldenMapTensor, output_type_mlir: Type
 ) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
     # Input: [batch, num_heads, seq_len, head_dim]
     # Permute to: [batch, seq_len, num_heads, head_dim]
     permuted = input_tensor.permute(0, 2, 1, 3)
     # Reshape to: [batch, seq_len, num_heads * head_dim]
     batch, seq_len, num_heads, head_dim = permuted.shape
-    return permuted.reshape(batch, seq_len, num_heads * head_dim)
+    return permuted.reshape(batch, seq_len, num_heads * head_dim).to(output_dtype)
 
 
 ################ StableHLO Op Golden Functions ###############

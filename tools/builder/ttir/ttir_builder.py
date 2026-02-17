@@ -3723,6 +3723,110 @@ class TTIRBuilder(Builder):
 
         return op_values, op_indices
 
+    @parse(ttir.SortOp)
+    def sort_parser(
+        self,
+        old_op: ttir.SortOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.sort_parser)
+
+        in0 = global_dict[old_op.input]
+        values = old_op.values.type
+        indices = old_op.indices.type
+
+        new_op = ttir_op(
+            values,
+            indices,
+            in0,
+            dim=old_op.dim,
+            descending=old_op.descending,
+            stable=old_op.stable,
+            loc=old_op.location,
+        )
+        new_values = new_op.values
+        new_indices = new_op.indices
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            op_golden_function = get_golden_function(ttir_op)
+            golden_values, golden_indices = op_golden_function(
+                input0,
+                old_op.dim,
+                old_op.descending,
+                old_op.stable,
+                values.element_type,
+            )
+            self._set_golden_tensor(new_values, golden_values)
+            self._set_golden_tensor(new_indices, golden_indices)
+
+        op_map_dictionary: Dict[OpResult, OpResult] = {}
+        op_map_dictionary[old_op.values] = new_values
+        op_map_dictionary[old_op.indices] = new_indices
+        return new_op, op_map_dictionary
+
+    @split(ttir.SortOp)
+    def sort_split(
+        self,
+        old_op: ttir.SortOp,
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(TTIRBuilder.sort_split)
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+
+        with old_ctx, old_loc:
+            sort_module = Module.create()
+            sort_builder = TTIRBuilder(old_ctx, old_loc)
+            op_input_types = [old_op.input.type]
+
+            with InsertionPoint(sort_module.body):
+                ordered_inputs: List[Operand] = []
+                ordered_outputs: List[Operand] = []
+
+                @func.func(*op_input_types, name="sort_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    values = old_op.values.type
+                    indices = old_op.indices.type
+
+                    new_op = ttir_op(
+                        values,
+                        indices,
+                        in0,
+                        dim=old_op.dim,
+                        descending=old_op.descending,
+                        stable=old_op.stable,
+                        loc=old_op.location,
+                    )
+                    new_values = new_op.values
+                    new_indices = new_op.indices
+
+                    if not self._disable_golden_check:
+                        input0 = self._get_golden_tensor(old_op.input)
+                        op_golden_function = get_golden_function(ttir_op)
+                        golden_values, golden_indices = op_golden_function(
+                            input0,
+                            old_op.dim,
+                            old_op.descending,
+                            old_op.stable,
+                            values.element_type,
+                        )
+                        sort_builder._set_golden_tensor(new_values, golden_values)
+                        sort_builder._set_golden_tensor(new_indices, golden_indices)
+                        sort_builder._set_golden_tensor(in0, input0)
+                        ordered_inputs.append(in0)
+                        ordered_outputs.extend([new_values, new_indices])
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                sort_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return sort_module, sort_builder
+
     ############### ttir.ReverseOp ###############
 
     @tag(ttir.ReverseOp)
@@ -11744,6 +11848,135 @@ class TTIRBuilder(Builder):
             self._set_golden_tensor(op_result, golden_output)
 
         return op_result
+
+    @parse(ttir.ConvTranspose2dOp)
+    def conv_transpose2d_parser(
+        self,
+        old_op: ttir.ConvTranspose2dOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.conv_transpose2d_parser)
+
+        in0 = global_dict[old_op.input]
+        weight = global_dict[old_op.weight]
+        bias = None
+        if hasattr(old_op, "bias") and old_op.bias is not None:
+            bias = global_dict[old_op.bias]
+        result = old_op.result.type
+
+        new_op = ttir_op(
+            result,
+            in0,
+            weight,
+            bias,
+            stride=old_op.stride,
+            padding=old_op.padding,
+            output_padding=old_op.output_padding,
+            dilation=old_op.dilation,
+            groups=old_op.groups,
+            loc=old_op.location,
+        )
+        new_res = new_op.result
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            input_weight = self._get_golden_tensor(weight)
+            input_bias = None
+            if bias is not None:
+                input_bias = self._get_golden_tensor(bias)
+            op_golden_function = get_golden_function(ttir_op)
+            golden_output = op_golden_function(
+                input0,
+                input_weight,
+                input_bias,
+                old_op.stride,
+                old_op.padding,
+                old_op.output_padding,
+                old_op.dilation,
+                old_op.groups,
+                result.element_type,
+            )
+            self._set_golden_tensor(new_res, golden_output)
+
+        op_map_dictionary: Dict[OpResult, OpResult] = {old_op.result: new_res}
+        return new_op, op_map_dictionary
+
+    @split(ttir.ConvTranspose2dOp)
+    def conv_transpose2d_split(
+        self,
+        old_op: ttir.ConvTranspose2dOp,
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(TTIRBuilder.conv_transpose2d_split)
+
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
+            deconv_module = Module.create()
+            deconv_builder = TTIRBuilder(old_ctx, old_loc)
+            op_input_types = [old_op.input.type, old_op.weight.type]
+            if hasattr(old_op, "bias") and old_op.bias is not None:
+                op_input_types.append(old_op.bias.type)
+
+            with InsertionPoint(deconv_module.body):
+                ordered_inputs: List[Operand] = []
+                ordered_outputs: List[Operand] = []
+
+                @func.func(*op_input_types, name="conv_transpose2d_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    weight = inputs[1]
+                    bias = inputs[2] if len(inputs) > 2 else None
+                    result = old_op.result.type
+
+                    new_op = ttir_op(
+                        result,
+                        in0,
+                        weight,
+                        bias,
+                        stride=old_op.stride,
+                        padding=old_op.padding,
+                        output_padding=old_op.output_padding,
+                        dilation=old_op.dilation,
+                        groups=old_op.groups,
+                        loc=old_op.location,
+                    )
+                    new_res = new_op.result
+
+                    if not self._disable_golden_check:
+                        input0 = self._get_golden_tensor(old_op.input)
+                        input_weight = self._get_golden_tensor(old_op.weight)
+                        input_bias = None
+                        if bias is not None:
+                            input_bias = self._get_golden_tensor(old_op.bias)
+                        op_golden_function = get_golden_function(ttir_op)
+                        golden_output = op_golden_function(
+                            input0,
+                            input_weight,
+                            input_bias,
+                            old_op.stride,
+                            old_op.padding,
+                            old_op.output_padding,
+                            old_op.dilation,
+                            old_op.groups,
+                            result.element_type,
+                        )
+                        deconv_builder._set_golden_tensor(new_res, golden_output)
+                        deconv_builder._set_golden_tensor(in0, input0)
+                        deconv_builder._set_golden_tensor(weight, input_weight)
+                        if bias is not None and input_bias is not None:
+                            deconv_builder._set_golden_tensor(bias, input_bias)
+                        ordered_inputs.extend(inputs)
+                        ordered_outputs.append(new_res)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                deconv_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return deconv_module, deconv_builder
 
     def avg_pool2d(
         self,
