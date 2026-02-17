@@ -22,6 +22,9 @@ from builder.base.builder_enums import *
 pytestmark = pytest.mark.frontend("ttir")
 
 ttir_mlir_snippets = {}
+run_split_ttir_tests2 = [
+    "ttir_sort.mlir",
+]
 skip_split_ttir_tests = [
     "ttir_reduce_scatter.mlir",
     "ttir_all_to_all.mlir",
@@ -73,11 +76,12 @@ for filename in os.listdir(ttnn_snippets_dir_path):
 
 @pytest.mark.parametrize("mlir_snippet", ttir_mlir_snippets.keys())
 def test_ttir_parsing_splitting_ops(mlir_snippet, request, device):
-    mlir_ir_string = ttir_mlir_snippets[mlir_snippet]
-    mlir_module, builder = load_mlir_file(mlir_ir_string, target="ttir")
+    if mlir_snippet in run_split_ttir_tests2:
+        mlir_ir_string = ttir_mlir_snippets[mlir_snippet]
+        mlir_module, builder = load_mlir_file(mlir_ir_string, target="ttir")
 
-    if mlir_snippet not in skip_split_ttir_tests:
-        split_modules = split_mlir_file(mlir_module, builder)
+        if mlir_snippet not in skip_split_ttir_tests:
+            split_modules = split_mlir_file(mlir_module, builder)
 
 
 @pytest.mark.parametrize("mlir_snippet", sdy_mlir_snippets.keys())

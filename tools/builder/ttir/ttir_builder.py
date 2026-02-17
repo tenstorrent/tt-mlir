@@ -11868,12 +11868,12 @@ class TTIRBuilder(Builder):
             result,
             in0,
             weight,
-            bias,
-            stride=old_op.stride,
-            padding=old_op.padding,
-            output_padding=old_op.output_padding,
-            dilation=old_op.dilation,
-            groups=old_op.groups,
+            old_op.stride,
+            old_op.padding,
+            old_op.output_padding,
+            old_op.dilation,
+            old_op.groups,
+            bias=bias,
             loc=old_op.location,
         )
         new_res = new_op.result
@@ -11894,7 +11894,10 @@ class TTIRBuilder(Builder):
                 old_op.output_padding,
                 old_op.dilation,
                 old_op.groups,
-                result.element_type,
+                old_op.batch_dim,
+                old_op.height_dim,
+                old_op.width_dim,
+                old_op.channel_dim,
             )
             self._set_golden_tensor(new_res, golden_output)
 
