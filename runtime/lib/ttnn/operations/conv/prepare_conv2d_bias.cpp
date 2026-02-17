@@ -44,7 +44,7 @@ void run(const ::tt::target::ttnn::PrepareConv2dBiasOp *op,
         ::tt::runtime::ttnn::utils::toTTNNDataType(*(op->output_dtype()));
   }
 
-  std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig> conv2dConfig;
+  std::optional<::ttnn::Conv2dConfig> conv2dConfig;
   if (op->conv2d_config()) {
     conv2dConfig = utils::createConv2dConfig(op->conv2d_config());
   }

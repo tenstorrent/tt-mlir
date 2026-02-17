@@ -85,7 +85,7 @@ bool validateTensorSpec(const ::ttnn::TensorSpec &tensorSpec,
 ::ttsl::SmallVector<int>
 convertLLVMSmallVecToTTNNSmallVec(const ::llvm::ArrayRef<int64_t> vec);
 
-std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig>
+std::optional<::ttnn::Conv2dConfig>
 getConv2dConfig(const std::optional<Conv2dConfigAttr> &conv2dConfig);
 
 template <typename To, std::size_t N, typename From>
