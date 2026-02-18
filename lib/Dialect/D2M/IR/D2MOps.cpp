@@ -1426,6 +1426,72 @@ static mlir::LogicalResult verifyAffineBlocking(
     return emitOpError("number of regions must match the number of threads");
   }
 
+  ValueTypeRange<OperandRange> operandTypes = getOperation()->getOperandTypes();
+  auto *firstRegion = getRegions().begin();
+  SmallVector<AffineMap> indexingMaps = getIndexingMapsValue();
+
+  for (Region &region : getRegions()) {
+    if (!region.hasOneBlock()) {
+      return emitOpError("region must have a single block");
+    }
+
+    if (region.getNumArguments() < this->getNumOperands()) {
+      return emitOpError("region must have at least as many "
+                         "arguments as the number of top-level operands");
+    }
+
+    if (region.getNumArguments() != firstRegion->getNumArguments()) {
+      return emitOpError("all regions must have the same number of arguments");
+    }
+
+    for (BlockArgument arg : region.getArguments()) {
+      if (!mlir::isa<d2m::CBType, d2m::SemaphoreType>(arg.getType())) {
+        return emitOpError(
+            "all regions must either cb or semaphore block argument type");
+      }
+
+      if (arg.getType() !=
+          firstRegion->getArgument(arg.getArgNumber()).getType()) {
+        return emitOpError("all regions must have the same argument types");
+      }
+    }
+
+    if (isExplicitDatamovementForm()) {
+      continue;
+    }
+
+    if (indexingMaps.empty()) {
+      return emitOpError(
+          "indexing_maps must be non-empty unless in explicit "
+          "datamovement form (all of block_factors, indexing_maps, "
+          "and iterator_types are empty)");
+    }
+
+    auto additionalArguments =
+        region.getArguments().drop_front(operandTypes.size());
+    for (BlockArgument arg : additionalArguments) {
+      bool supportedType = mlir::isa<SemaphoreType>(arg.getType());
+      if (!supportedType) {
+        return emitOpError(
+            "additional region arguments must be of 'semaphore' type");
+      }
+    }
+  }
+
+  if (isExternalSymbolForm()) {
+    if (llvm::any_of(getThreads(), [](Attribute thread) {
+          return !mlir::cast<ThreadAttr>(thread).getKernelSymbol();
+        })) {
+      return emitOpError("threads must have a kernel symbol in external symbol "
+                         "form (i.e. without regions)");
+    }
+  }
+
+  // Early exit for data-movement-only kernels - skip compute-specific checks.
+  if (isDMAOnlyForm()) {
+    return success();
+  }
+
   // Output grid shape must equal the GenericOp grid shape.
   auto opGridShape = getGrid().getShape();
   for (auto output : getOutputs()) {
@@ -1539,9 +1605,8 @@ static mlir::LogicalResult verifyAffineBlocking(
     }
   }
 
-  if (!llvm::all_equal(llvm::map_range(getIndexingMapsValue(), [](AffineMap m) {
-        return m.getNumDims();
-      }))) {
+  if (!llvm::all_equal(llvm::map_range(
+          indexingMaps, [](AffineMap m) { return m.getNumDims(); }))) {
     return emitOpError(
         "all indexing maps must have the same number of dimensions");
   }
@@ -1560,7 +1625,6 @@ static mlir::LogicalResult verifyAffineBlocking(
       mlir::dyn_cast<RankedTensorType>(getOutputs().front().getType());
   bool hasGrid = mlir::isa<MemRefType>(getOutputs().front().getType()) ||
                  (rankedTensorType && rankedTensorType.getEncoding());
-  SmallVector<AffineMap> indexingMaps = getIndexingMapsValue();
   if (hasGrid && !indexingMaps.empty()) {
     // Validate that all operands have device layouts before calling
     // getOperandGridShapes(), which assumes layouts are present
@@ -1626,46 +1690,9 @@ static mlir::LogicalResult verifyAffineBlocking(
     }
   }
 
-  ValueTypeRange<OperandRange> operandTypes = getOperation()->getOperandTypes();
-  auto *firstRegion = getRegions().begin();
   for (Region &region : getRegions()) {
-    if (!region.hasOneBlock()) {
-      return emitOpError("region must have a single block");
-    }
-
-    if (region.getNumArguments() < this->getNumOperands()) {
-      return emitOpError("region must have at least as many "
-                         "arguments as the number of top-level operands");
-    }
-
-    // All regions must have the same number of arguments and signature.
-    if (region.getNumArguments() != firstRegion->getNumArguments()) {
-      return emitOpError("all regions must have the same number of arguments");
-    }
-
-    for (BlockArgument arg : region.getArguments()) {
-      if (!mlir::isa<d2m::CBType, d2m::SemaphoreType>(arg.getType())) {
-        return emitOpError(
-            "all regions must either cb or semaphore block argument type");
-      }
-
-      if (arg.getType() !=
-          firstRegion->getArgument(arg.getArgNumber()).getType()) {
-        return emitOpError("all regions must have the same argument types");
-      }
-    }
-
     if (isExplicitDatamovementForm()) {
-      // Explicit datamovement form: skip shape validation.
       continue;
-    }
-
-    // When not in explicit datamovement form, indexing_maps must be non-empty.
-    if (indexingMaps.empty()) {
-      return emitOpError(
-          "indexing_maps must be non-empty unless in explicit "
-          "datamovement form (all of block_factors, indexing_maps, "
-          "and iterator_types are empty)");
     }
 
     auto valueArguments = region.getArguments().take_front(operandTypes.size());
@@ -1686,25 +1713,6 @@ static mlir::LogicalResult verifyAffineBlocking(
         return emitOpError("region argument shape must match the "
                            "shape of the corresponding operand");
       }
-    }
-
-    auto additionalArguments =
-        region.getArguments().drop_front(operandTypes.size());
-    for (BlockArgument arg : additionalArguments) {
-      bool supportedType = mlir::isa<SemaphoreType>(arg.getType());
-      if (!supportedType) {
-        return emitOpError(
-            "additional region arguments must be of 'semaphore' type");
-      }
-    }
-  }
-
-  if (isExternalSymbolForm()) {
-    if (llvm::any_of(getThreads(), [](Attribute thread) {
-          return !mlir::cast<ThreadAttr>(thread).getKernelSymbol();
-        })) {
-      return emitOpError("threads must have a kernel symbol in external symbol "
-                         "form (i.e. without regions)");
     }
   }
 
