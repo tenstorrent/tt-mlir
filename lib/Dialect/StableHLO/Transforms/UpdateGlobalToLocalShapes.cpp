@@ -64,11 +64,14 @@ static FailureOr<mlir::OperationState> createNewOperationState(
                       denseElementsAttr, newTypes[0], tensorShardings[0],
                       globalMeshOp);
 
-              assert(periodicAttr.has_value() &&
-                     "Non-splat, non-periodic constant reached "
-                     "UpdateGlobalToLocalShapes with a sharded annotation. "
-                     "ReplicateNonSplittableConstantsPass should have marked "
-                     "it as replicated.");
+              if (!periodicAttr.has_value()) {
+                constantOp.emitError(
+                    "Non-splat, non-periodic constant reached "
+                    "UpdateGlobalToLocalShapes with a sharded annotation. "
+                    "ReplicateNonSplittableConstantsPass should have marked "
+                    "it as replicated.");
+                return mlir::failure();
+              }
               newAttr = periodicAttr.value();
             }
 
