@@ -1889,14 +1889,6 @@ public:
     Value value = op.getValue();
     Value semaphoreAddr = adaptor.getSemaphore();
 
-    // if global semaphore type, convert to l1 addr
-    // if (mlir::isa<d2m::GlobalSemaphoreType>(semaphoreAddr.getType())) {
-    //  semaphoreAddr = rewriter
-    //    .create<UnrealizedConversionCastOp>(op.getLoc(),
-    //    ttkernel::L1AddrType::get(rewriter.getContext()), semaphoreAddr)
-    //    ->getResult(0);
-    //}
-
     if (op.getDstCoreIndex().empty()) {
       assert(!mlir::isa<d2m::SemaphoreIncOp>(op) &&
              "d2m.semaphore_inc to local core is illegal.");
@@ -1966,14 +1958,6 @@ public:
                   ConversionPatternRewriter &rewriter) const final {
 
     Value semaphoreAddr = adaptor.getSemaphore();
-
-    // if global semaphore type, convert to l1 addr
-    // if (mlir::isa<d2m::GlobalSemaphoreType>(semaphoreAddr.getType())) {
-    //  semaphoreAddr = rewriter
-    //    .create<UnrealizedConversionCastOp>(op.getLoc(),
-    //    ttkernel::L1AddrType::get(rewriter.getContext()), semaphoreAddr)
-    //    ->getResult(0);
-    //}
 
     auto semaphorePtr =
         rewriter.create<ttkernel::CastToL1PtrOp>(op.getLoc(), semaphoreAddr);
