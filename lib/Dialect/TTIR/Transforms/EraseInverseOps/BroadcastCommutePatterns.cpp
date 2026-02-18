@@ -277,6 +277,11 @@ private:
 
   bool isCommuteUpwardsFavorable(ttir::BroadcastOp op,
                                  ttir::ReshapeOp) const override {
+    // Commute only if the broadcast will be folded.
+    if (!ttir::utils::isFoldableBroadcast(op)) {
+      return false;
+    }
+
     // We should always commute a reshape above a broadcast if all users are an
     // identical reshape. This includes the case where there is one user.
     SmallVector<Operation *> users(op->getUsers());
@@ -370,6 +375,11 @@ private:
 
   bool isCommuteUpwardsFavorable(ttir::BroadcastOp op,
                                  ttir::PermuteOp) const override {
+    // Commute only if the broadcast will be folded.
+    if (!ttir::utils::isFoldableBroadcast(op)) {
+      return false;
+    }
+
     // We should always commute a permute above a broadcast if all users are an
     // identical permutation. This includes the case where there is one user.
     SmallVector<Operation *> users(op->getUsers());

@@ -12,6 +12,7 @@
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/Location.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/STLForwardCompat.h"
 #include "llvm/ADT/SmallVector.h"
 
@@ -251,6 +252,16 @@ int64_t findMatchingDimRTL(ReshapeOp reshapeOp, int64_t dimRTL);
 // the product of trailing dimensions (stride) is preserved.
 // Dimension can be negative (counted from back, e.g. -1 for last dimension).
 bool preservesDim(mlir::Operation *op, int64_t dim);
+
+// Returns true when a broadcast is foldable under the current policy:
+// dims < 6 (RTL) may change; dim 6 and above must be 1.
+inline bool isFoldableBroadcast(BroadcastOp broadcastOp) {
+  auto dims = broadcastOp.getBroadcastDimensions();
+  if (dims.size() <= 6) {
+    return true;
+  }
+  return llvm::all_of(dims.drop_back(6), [](int64_t dim) { return dim == 1; });
+}
 
 template <typename AdaptorT>
 mlir::ValueRange getDpsInputsFromAdaptor(AdaptorT adaptor,
