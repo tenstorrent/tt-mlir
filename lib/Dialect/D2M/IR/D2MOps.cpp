@@ -1929,15 +1929,39 @@ mlir::SmallVector<int64_t> d2m::GenericOp::getBlockFactorsValue() {
   });
 }
 
-bool d2m::GenericOp::isAffineBlockedForm() {
-  // block_factors, indexing_maps, and iterator_types must all be non-empty.
-  if (getBlockFactors().empty() || getIndexingMaps().empty() ||
-      getIteratorTypes().empty()) {
+/// Returns true if the generic op has non-empty block_factors, indexing_maps,
+/// and iterator_types attributes, and a single unified region.
+static bool hasBlockingAttributes(d2m::GenericOp genericOp) {
+  if (genericOp.getBlockFactors().empty() ||
+      genericOp.getIndexingMaps().empty() ||
+      genericOp.getIteratorTypes().empty()) {
     return false;
   }
 
-  // Must have a single region with Unified thread type.
-  if (getNumRegions() != 1 || getRegionThreadType(0) != ThreadType::Unified) {
+  return genericOp.getNumRegions() == 1 &&
+         genericOp.getRegionThreadType(0) == ThreadType::Unified;
+}
+
+bool d2m::GenericOp::isImplicitBlockedForm() {
+  if (!hasBlockingAttributes(*this)) {
+    return false;
+  }
+
+  // No affine blocking loops must be present.
+  bool hasBlockingLoop = false;
+  getRegion(0).walk([&](affine::AffineForOp forOp) {
+    if (forOp->hasAttr("d2m.blocking_loop")) {
+      hasBlockingLoop = true;
+      return WalkResult::interrupt();
+    }
+    return WalkResult::advance();
+  });
+
+  return !hasBlockingLoop;
+}
+
+bool d2m::GenericOp::isAffineBlockedForm() {
+  if (!hasBlockingAttributes(*this)) {
     return false;
   }
 

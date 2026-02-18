@@ -318,9 +318,8 @@ def D2M_GenericOp
         }
         return true;
       }
-      bool isAffineMapForm() { return !getIndexingMaps().empty(); }
+      bool isImplicitBlockedForm();
       bool isAffineBlockedForm();
-      bool isLoweredLoopForm() { return !isAffineMapForm(); }
       bool isExplicitDatamovementForm() {
         return getBlockFactors().empty() &&
                getIndexingMaps().empty() &&
