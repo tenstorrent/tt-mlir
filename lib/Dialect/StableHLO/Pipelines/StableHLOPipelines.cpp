@@ -69,6 +69,10 @@ void createStableHLOPipeline(OpPassManager &pm,
   pm.nest<mlir::func::FuncOp>().addPass(
       mlir::sdy::createShardingConstraintToReshardPass());
 
+  // Replicate non-splittable constants so that InsertExplicitReshards inserts
+  // reshard ops between the replicated constant and its sharded consumers.
+  pm.addPass(createReplicateNonSplittableConstantsPass());
+
   // Insert explicit reshards conditionally.
   pm.addPass(createInsertExplicitReshardsPass());
 

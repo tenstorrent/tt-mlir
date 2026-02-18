@@ -1581,6 +1581,11 @@ static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttnn::ReshapeOp op) {
                        "the rank of the input tensor");
   }
 
+  bool hasNegativePadding =
+      llvm::any_of(getPadding(), [](int32_t padding) { return padding < 0; });
+  if (hasNegativePadding) {
+    return emitOpError("Padding cannot contain negative values");
+  }
   std::vector<int64_t> inferredShapeVec = inputType.getShape().vec();
   llvm::ArrayRef<int32_t> padding = getPadding();
   for (int64_t i = 0; i < inputType.getRank(); i++) {
@@ -2948,6 +2953,29 @@ mlir::tt::ttnn::ReduceScatterOp::fold(FoldAdaptor adaptor) {
   }
 
   return {};
+}
+
+//===----------------------------------------------------------------------===//
+// MeshPartitionOp
+//===----------------------------------------------------------------------===//
+::mlir::LogicalResult MeshPartitionOp::verify() {
+  ::mlir::RankedTensorType inputType = getInput().getType();
+  int32_t dim = getDim();
+  if (dim >= inputType.getRank() || dim < -inputType.getRank()) {
+    return emitOpError(
+               "Invalid tensor dimension for mesh partition op. Dimension "
+               "must be >= to input tensor rank or < -input tensor rank, got "
+               "dim = ")
+           << dim;
+  }
+
+  std::optional<uint32_t> clusterAxis = getClusterAxis();
+  if (clusterAxis.has_value() && clusterAxis.value() > 1) {
+    return emitOpError("Cluster axis must be either None, 0 or 1, got " +
+                       std::to_string(clusterAxis.value()));
+  }
+
+  return success();
 }
 
 //===----------------------------------------------------------------------===//

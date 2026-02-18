@@ -3653,7 +3653,8 @@ public:
       if (auto constOp =
               initValue_.getDefiningOp<mlir::stablehlo::ConstantOp>()) {
         auto valAttr = mlir::cast<DenseFPElementsAttr>(constOp.getValue());
-        fillValue = valAttr.getValues<APFloat>()[0].convertToFloat();
+        fillValue = static_cast<float>(
+            valAttr.getValues<APFloat>()[0].convertToDouble());
       } else {
         llvm::report_fatal_error("initValue_ must be a stablehlo.constant");
       }

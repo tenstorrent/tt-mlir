@@ -4,9 +4,23 @@
 
 #include "ttmlir/Dialect/StableHLO/Transforms/ShardyCCLToStableHLOCCL.h"
 #include "ttmlir/Dialect/StableHLO/Utils/ShardyUtils.h"
+#include "ttmlir/Dialect/StableHLO/Utils/StableHLOUtils.h"
 #include "ttmlir/Utils.h"
 
+#include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/IR/Attributes.h"
+#include "mlir/IR/Builders.h"
+#include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/MLIRContext.h"
+#include "mlir/IR/OperationSupport.h"
+#include "mlir/IR/Value.h"
+#include "mlir/Support/LLVM.h"
 #include "stablehlo/dialect/StablehloOps.h"
+#include "llvm/ADT/SmallVector.h"
+#include <cassert>
+#include <shardy/dialect/sdy/ir/constants.h>
+#include <shardy/dialect/sdy/ir/dialect.h>
 
 namespace mlir::tt::stablehlo {
 
@@ -400,13 +414,28 @@ public:
     auto ch = mlir::stablehlo::ChannelHandleAttr::get(context, /*handle=*/1,
                                                       /*type=*/1);
 
+    // Check if the input is fully replicated.
+    mlir::OpOperand &inputOperand = srcOp->getOpOperand(0);
+    mlir::ModuleOp moduleOp = srcOp->getParentOfType<mlir::ModuleOp>();
+    mlir::sdy::MeshOp globalMeshOp = shardy_utils::getMeshOps(moduleOp)[0];
+    auto inputShardingAttr =
+        shardy_utils::getOperandShardingAttr(inputOperand, globalMeshOp);
+
+    bool input_is_fully_replicated =
+        shardy_utils::isFullyReplicatedTensor(inputShardingAttr);
+
     // Current tensor value/type threaded through the loop.
     mlir::Value result = srcOp.getOperand();
+
     auto prevType = mlir::cast<mlir::RankedTensorType>(result.getType());
 
     // Per-dimension slicing axes (we support at most one mesh axis per tensor
     // dim).
     auto axesPerDim = srcOp.getSlicingAxes();
+
+    // Operations to be outlined in the composite op (if input is fully
+    // replicated).
+    mlir::SmallVector<mlir::Operation *> ops_to_outline;
 
     for (auto it = axesPerDim.begin(), e = axesPerDim.end(); it != e; ++it) {
       int64_t sliceDim =
@@ -461,6 +490,7 @@ public:
           mlir::RankedTensorType::get(reshapeShape, prevType.getElementType());
       auto reshaped = rewriter.create<mlir::stablehlo::ReshapeOp>(
           srcOp.getLoc(), reshapedType, result);
+      ops_to_outline.push_back(reshaped.getOperation());
 
       // 2) Replica groups for the target mesh axis.
       auto groups = createDenseAttrFromReplicaGroups(
@@ -478,6 +508,7 @@ public:
           /*split_count=*/parts,
           /*replica_groups=*/groups,
           /*channel_handle=*/ch);
+      ops_to_outline.push_back(allToAll.getOperation());
 
       // 4) Static slice the "parts" axis to take index 0 only.
       llvm::SmallVector<int64_t> startIdx(reshapeShape.size(), 0);
@@ -500,6 +531,7 @@ public:
       auto slice = rewriter.create<mlir::stablehlo::SliceOp>(
           srcOp.getLoc(), slicedType, allToAllOut, startAttr, limitAttr,
           stridesAttr);
+      ops_to_outline.push_back(slice.getOperation());
 
       // 5) Remove the singleton "parts" axis → final shape with chunkLen at
       // sliceDim.
@@ -508,13 +540,68 @@ public:
           mlir::RankedTensorType::get(shape, prevType.getElementType());
       auto squeezed = rewriter.create<mlir::stablehlo::ReshapeOp>(
           srcOp.getLoc(), finalType, slice.getResult());
-
+      ops_to_outline.push_back(squeezed.getOperation());
       // Thread through for the next dimension (if any).
       result = squeezed.getResult();
       prevType = finalType;
     }
 
-    rewriter.replaceOp(srcOp, result);
+    // Wrap the result in a stablehlo.composite op. During the SHLO->TTIR
+    // lowering pass, this op will be directly replaced with a ttir.mesh_shard
+    // FullToShard op.
+    if (input_is_fully_replicated) {
+      // Counter to track the number of sdy.all_slice ops that will be wrapped
+      // in a stablehlo.composite op.
+      static int allSliceOpNumber = 0;
+      ++allSliceOpNumber;
+      if (ops_to_outline.empty()) {
+        return rewriter.notifyMatchFailure(
+            srcOp, "Cannot create composite op: no operations to outline.");
+      }
+      mlir::OpBuilder builder(ops_to_outline.front());
+      mlir::MLIRContext *ctx = builder.getContext();
+
+      // Step 1: Attach the out_sharding attribute to the composite op.
+      mlir::sdy::TensorShardingAttr resultShardingAttr =
+          srcOp.getOutShardingAttr();
+      llvm::SmallVector<mlir::NamedAttribute> compAttrsVec;
+      compAttrsVec.push_back(mlir::NamedAttribute(
+          mlir::StringAttr::get(ctx, "out_sharding"), resultShardingAttr));
+
+      // Step 2: Create a private function for the composite op.
+      mlir::func::FuncOp callee = utils::createPrivateFunction(
+          moduleOp, srcOp.getOperationName(), std::to_string(allSliceOpNumber),
+          inputOperand.get(), result, ops_to_outline);
+      mlir::SymbolRefAttr decomp =
+          mlir::SymbolRefAttr::get(ctx, callee.getSymName());
+      mlir::DictionaryAttr compAttrs =
+          mlir::DictionaryAttr::get(ctx, compAttrsVec);
+      mlir::StringAttr targetName =
+          builder.getStringAttr(srcOp.getOperationName());
+
+      mlir::Location callee_loc = callee.getLoc();
+
+      // Step 3: Create the composite op.
+      mlir::OperationState state(
+          callee_loc, mlir::stablehlo::CompositeOp::getOperationName());
+      state.addOperands(inputOperand.get());
+      state.addTypes(prevType);
+      state.addAttribute(utils::kCompDecompositionKey, decomp);
+      state.addAttribute(utils::kCompAttrsKey, compAttrs);
+      state.addAttribute(utils::kCompNameKey, targetName);
+
+      mlir::Operation *newOp = rewriter.create(state);
+      auto comp = llvm::cast<mlir::stablehlo::CompositeOp>(newOp);
+      rewriter.replaceOp(srcOp, comp.getResult(0));
+      result.replaceAllUsesWith(comp.getResult(0));
+
+      // Step 4: Erase the original ops.
+      for (auto *op : llvm::reverse(ops_to_outline)) {
+        rewriter.eraseOp(op);
+      }
+    } else {
+      rewriter.replaceOp(srcOp, result);
+    }
     return mlir::success();
   }
 };

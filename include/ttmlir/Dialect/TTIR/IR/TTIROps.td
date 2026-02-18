@@ -5241,6 +5241,18 @@ def TTIR_CollectivePermuteOp : TTIR_NamedOp<"collective_permute"> {
     let hasVerifier = 1;
 }
 
+def TTIR_MeshPartitionOp: TTIR_NamedOp<"mesh_partition"> {
+  let summary = "Mesh partition operation.";
+  let description = [{
+    Mesh partition op.
+  }];
+  let arguments = (ins AnyRankedTensor:$input,
+                       SI32Attr:$dim,
+                       OptionalAttr<UI32Attr>:$cluster_axis);
+  let results = (outs AnyRankedTensor:$result);
+  let hasVerifier = 1;
+}
+
 def TTIR_MeshShardOp: TTIR_Op<"mesh_shard",
   [ Pure
   , TTIROpInterface
