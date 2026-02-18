@@ -1119,9 +1119,8 @@ static void eraseUnitGridReblockingViews(d2m::GenericOp genericOp) {
 // have TTNN DRAM interleaved tensors as operands and:
 // 1. Compute the "optimal" grid for the tensor as if it were a regular Metal
 // sharded tensor.
-// 2. Insert a stream layout op with a mock storage tensor to represent the
-// tensor with the "optimal" grid.
-// 3. Update the genericOp to use the stream output as an operand.
+// 2. Insert a view layout op to represent the tensor with the "optimal" grid.
+// 3. Update the genericOp to use the view output as an operand.
 //
 // Note the cast op is NOT erased as it represents the canonical layout mapping
 // between TTNN and Metal layouts.
@@ -1135,12 +1134,13 @@ static void eraseUnitGridReblockingViews(d2m::GenericOp genericOp) {
 // space, an inferred grid, and an index map to index into the original
 // tensor.
 //
-// 3. A storage tensor required by the stream_layout op to represent the
-// mapping of tensor 1 to tensor 2. This tensor has the inferred grid and L1
-// memory space.
+// A view (not a stream) is used here so that the Allocator pass retains
+// ownership of stream insertion and buffer count selection.
+// Using a stream here would cause the Allocator to
+// skip this operand, resulting in single-buffered streams.
 static llvm::SmallVector<llvm::SmallVector<int64_t>>
-insertTTNNDRAMStreams(d2m::GenericOp genericOp,
-                      ArrayRef<int64_t> targetSquareGridShape) {
+insertTTNNDRAMViews(d2m::GenericOp genericOp,
+                    ArrayRef<int64_t> targetSquareGridShape) {
 
   eraseUnitGridReblockingViews(genericOp);
 
@@ -1185,7 +1185,7 @@ insertTTNNDRAMStreams(d2m::GenericOp genericOp,
         baseMetalLayout.getDeviceShape(optimalOperandGrids[operandIdx],
                                        ttcore::TileType::getDefaultShape());
 
-    auto streamOutputLayout = ttcore::MetalLayoutAttr::get(
+    auto viewOutputLayout = ttcore::MetalLayoutAttr::get(
         builder.getContext(), baseMetalLayout.getLogicalShape(),
         baseMetalLayout.getOobVal(), ttcore::MemorySpace::DeviceDRAM,
         ttcore::TensorMemoryLayout::Interleaved,
@@ -1194,25 +1194,13 @@ insertTTNNDRAMStreams(d2m::GenericOp genericOp,
         ttmlir::utils::calculateReblockMap(
             unShardedShapeWithGrid, fakeShardedShape, builder.getContext()));
 
-    auto streamOutputTensor = mlir::RankedTensorType::get(
-        fakeShardedShape, metalTensor.getElementType(), streamOutputLayout);
-
-    auto storageLayout = ttcore::MetalLayoutAttr::get(
-        builder.getContext(), baseMetalLayout.getLogicalShape(),
-        baseMetalLayout.getOobVal(), ttcore::MemorySpace::DeviceL1,
-        ttcore::TensorMemoryLayout::Sharded,
-        baseMetalLayout.getCollapsedIntervals(),
-        baseMetalLayout.getDimAlignments());
-
-    auto storageTensor = mlir::RankedTensorType::get(
-        fakeShardedShape, metalTensor.getElementType(), storageLayout);
+    auto viewOutputTensor = mlir::RankedTensorType::get(
+        fakeShardedShape, metalTensor.getElementType(), viewOutputLayout);
 
     builder.setInsertionPointAfter(castOp);
-    auto storageOp =
-        builder.create<d2m::EmptyOp>(castOp.getLoc(), storageTensor);
-    auto streamOp = builder.create<d2m::StreamLayoutOp>(
-        castOp.getLoc(), streamOutputTensor, castOp.getResult(), storageOp);
-    castOp.getResult().replaceAllUsesExcept(streamOp.getResult(), streamOp);
+    auto viewOp = builder.create<d2m::ViewLayoutOp>(
+        castOp.getLoc(), viewOutputTensor, castOp.getResult());
+    castOp.getResult().replaceAllUsesExcept(viewOp.getResult(), viewOp);
   }
 
   TT_assertv(llvm::all_of(optimalOperandGrids,
@@ -1247,8 +1235,7 @@ static void assignGrids(d2m::GenericOp genericOp,
 
     updateEmptyOps(emptyOpsToUpdate, targetGridShape, targetSquareGridShape);
   } else {
-    optimalOperandGrids =
-        insertTTNNDRAMStreams(genericOp, targetSquareGridShape);
+    optimalOperandGrids = insertTTNNDRAMViews(genericOp, targetSquareGridShape);
   }
 
   recreateGenericOp(genericOp, optimalOperandGrids);
