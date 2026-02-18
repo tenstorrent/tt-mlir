@@ -214,9 +214,10 @@ def test_binary_ops(
 @pytest.mark.parametrize(
     "shapes",
     [
-        [(1, 2, 1, 32), (1, 1, 1, 32)],  # broadcast dim1
-        [(2, 2, 1, 32), (1, 2, 1, 32)],  # broadcast dim0
+        [(1, 2, 1, 32), (1, 1, 1, 32)],
+        [(1, 16, 1, 32), (1, 1, 1, 32)],
         [(1, 1, 1, 32), (1, 2, 1, 32)],  # broadcast dim1
+        [(2, 2, 1, 32), (1, 2, 1, 32)],  # broadcast dim0
     ],
     ids=shapes_list_str,
 )
