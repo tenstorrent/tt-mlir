@@ -77,7 +77,7 @@ Value materializeView(OpBuilder &builder, Location loc, Value viewResult) {
   auto indexingMapAttr = mlir::cast<AffineMapAttr>(indexingMaps[0]);
   AffineMap indexingMap = indexingMapAttr.getValue();
   auto genericOp = builder.create<GenericOp>(
-      loc, viewResult, emptyOp.getResult(),
+      loc, viewResult, emptyOp.getResult(), ValueRange(),
       [&](OpBuilder &builder, Location innerLoc, ValueRange blockArgs) {
         SmallVector<Value> indices =
             utils::buildGridIndices(builder, innerLoc, indexingMap);

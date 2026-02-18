@@ -46,7 +46,7 @@ public:
   }
 
   static ArrayAttr convertThreadsToKernelConfigs(
-      Builder &builder, mlir::ValueRange operands, ArrayAttr threads,
+      Builder &builder, mlir::ValueRange inputOutputOperands, ArrayAttr threads,
       ArrayRef<int64_t> physicalGridShape, const SymbolTable &symbolTable,
       ttmetal::MathFidelity mathFidelity) {
     SmallVector<Attribute> kernelConfigs;
@@ -63,9 +63,9 @@ public:
       switch (thread.getThreadType()) {
       case d2m::ThreadType::Compute: {
         bool fp32DestAccum = false;
-        for (size_t i = 0; i < operands.size(); ++i) {
+        for (size_t i = 0; i < inputOutputOperands.size(); ++i) {
           ttcore::DataType dataType = ttcore::elementTypeToDataType(
-              ttcore::getOperandInnerElementType(operands[i]));
+              ttcore::getOperandInnerElementType(inputOutputOperands[i]));
 
           if (getNumberOfBits(dataType) == 32) {
             fp32DestAccum = true;
@@ -110,8 +110,11 @@ public:
     llvm::SmallVector<Value> remappedBuffers;
     llvm::SmallVector<Value> cbs;
     llvm::SmallVector<int64_t> cbPorts;
+    llvm::SmallVector<Value> global_semaphores;
     int64_t cbPort = 0;
-    for (auto operand : adaptor.getOperands()) {
+    for (unsigned i = 0; i < op.getNonCaptureOperands().size(); ++i) {
+      auto operand = adaptor.getOperands()[i];
+
       if (auto stream = mlir::dyn_cast_if_present<d2m::StreamLayoutOp>(
               operand.getDefiningOp());
           stream) {
@@ -132,14 +135,27 @@ public:
       cbPorts.push_back(cbPort++);
     }
 
+    // add additional args that are not ins or outs in then generic op
+    for (unsigned i = 0; i < op.getCaptureOperands().size(); ++i) {
+      auto operand =
+          adaptor.getOperands()[op.getNonCaptureOperands().size() + i];
+      if (mlir::isa<ttkernel::GlobalSemaphoreType>(operand.getType())) {
+        global_semaphores.push_back(operand);
+      } else {
+        op.emitOpError("unexpected capture operand type: ")
+            << operand.getType();
+        return failure();
+      }
+    }
+
     ArrayAttr threads = op.getThreads();
     auto physicalGridShape = op.getPhysicalGridShape();
     SymbolTable symbolTable(op->getParentOfType<ModuleOp>());
     auto kernelConfigs = convertThreadsToKernelConfigs(
-        rewriter, adaptor.getOperands(), threads, physicalGridShape,
+        rewriter, op.getNonCaptureOperands(), threads, physicalGridShape,
         symbolTable, mathFidelity_);
     rewriter.replaceOpWithNewOp<ttmetal::EnqueueProgramOp>(
-        op, buffers, cbs, cbPorts, kernelConfigs, nullptr);
+        op, buffers, cbs, global_semaphores, cbPorts, kernelConfigs, nullptr);
     return success();
   };
 
@@ -297,6 +313,35 @@ public:
 
 } // namespace
 
+namespace {
+class D2MCreateGlobalSemaphoreRewriter
+    : public OpConversionPattern<d2m::CreateGlobalSemaphoreOp> {
+public:
+  using OpConversionPattern<d2m::CreateGlobalSemaphoreOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::CreateGlobalSemaphoreOp op,
+                  d2m::CreateGlobalSemaphoreOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    // get address from memref consumed and pass it to create global semaphore
+    // op
+    auto allocOp = op.getInput().getDefiningOp<memref::AllocOp>();
+    assert(
+        allocOp &&
+        "No memref alloc found for CreateGlobalSemaphoreOp's input, failing.");
+    auto address = allocOp->getAttrOfType<IntegerAttr>("address");
+
+    // get core range from memref shape
+    rewriter.replaceOpWithNewOp<ttmetal::CreateGlobalSemaphoreOp>(
+        op, ttkernel::GlobalSemaphoreType::get(rewriter.getContext()), address,
+        adaptor.getValueAttr(),
+        ttmetal::CoreRangeAttr::getPhysicalCoreRange(
+            rewriter.getContext(), ttcore::getGridShape(op.getInput())));
+    return success();
+  }
+};
+} // namespace
+
 } // namespace mlir::tt::ttmetal
 
 namespace mlir::tt {
@@ -306,7 +351,8 @@ void populateD2MToTTMetalPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                                   ttmetal::MathFidelity mathFidelity) {
   patterns.add<ttmetal::MemrefAllocRewriter, ttmetal::MemrefDeallocRewriter,
                ttmetal::D2MToDeviceRewriter, ttmetal::D2MToHostRewriter,
-               ttmetal::D2MMeshShardRewriter>(ctx);
+               ttmetal::D2MMeshShardRewriter,
+               ttmetal::D2MCreateGlobalSemaphoreRewriter>(ctx);
   patterns.add<ttmetal::D2MGenericRewriter>(ctx, mathFidelity);
 }
 

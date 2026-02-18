@@ -484,7 +484,8 @@ normalizeOperandGridsForGeneric(
     return {};
   }
 
-  TT_assert(optimalOperandGrids.size() == genericOp.getNumOperands());
+  TT_assert(optimalOperandGrids.size() ==
+            genericOp.getNonCaptureOperands().size());
 
   // First, normalize input operand grids for operands that share loop
   // dimensions. For example, in a matmul, the two inputs share the reduction
@@ -494,7 +495,7 @@ normalizeOperandGridsForGeneric(
   llvm::SmallVector<llvm::SmallVector<int64_t>> normalizedOperandGrids(
       optimalOperandGrids.begin(), optimalOperandGrids.end());
 
-  uint64_t numInputs = genericOp.getNumDpsInputs();
+  uint64_t numInputs = genericOp.getInputs().size();
   // Map: loopDim -> list of (operandIndex, operandDimIdx) pairs that reference
   // this loop dimension in their indexing maps.
   llvm::DenseMap<int64_t, llvm::SmallVector<std::pair<uint64_t, uint64_t>>>
@@ -558,7 +559,7 @@ normalizeOperandGridsForGeneric(
   // dimension, the corresponding grid extents must agree.
   if (outputConstraints) {
     for (auto [operandIndex, operand] :
-         llvm::enumerate(genericOp->getOpOperands())) {
+         llvm::enumerate(genericOp.getNonCaptureOpOperands())) {
       if (genericOp.isDpsInit(&operand)) {
         continue;
       }
@@ -602,7 +603,7 @@ analyzeOperandsAndComputeGrids(d2m::GenericOp genericOp,
   llvm::SmallVector<StreamLayoutUpdateInfo> streamLayoutsToUpdate;
   llvm::SmallVector<EmptyUpdateInfo> emptyOpsToUpdate;
 
-  for (Value operand : genericOp.getOperands()) {
+  for (Value operand : genericOp.getNonCaptureOperands()) {
     auto operandType = mlir::cast<mlir::RankedTensorType>(operand.getType());
     auto operandLayout =
         mlir::dyn_cast<ttcore::MetalLayoutAttr>(operandType.getEncoding());
@@ -870,13 +871,14 @@ recreateGenericOp(d2m::GenericOp genericOp,
     return;
   }
 
-  TT_assert(optimalOperandGrids.size() == genericOp.getNumOperands());
+  TT_assert(optimalOperandGrids.size() ==
+            genericOp.getNonCaptureOperands().size());
 
   OpBuilder builder(genericOp);
   llvm::SmallVector<Value> newOperands;
 
   for (const auto &[optimalGrid, operand] :
-       llvm::zip(optimalOperandGrids, genericOp->getOpOperands())) {
+       llvm::zip(optimalOperandGrids, genericOp.getNonCaptureOpOperands())) {
 
     auto definingView = operand.get().getDefiningOp<d2m::ViewLayoutOp>();
     if (!definingView) {
@@ -909,7 +911,7 @@ recreateGenericOp(d2m::GenericOp genericOp,
   }
 
   {
-    auto numInputs = genericOp.getNumDpsInputs();
+    auto numInputs = genericOp.getInputs().size();
 
     llvm::SmallVector<Value> newInputs(newOperands.begin(),
                                        newOperands.begin() + numInputs);
@@ -917,17 +919,18 @@ recreateGenericOp(d2m::GenericOp genericOp,
                                         newOperands.end());
 
     Region &oldRegion = genericOp.getRegion(0);
+    auto newCaptures = genericOp.getCaptures();
 
     auto newGenericOp = builder.create<d2m::GenericOp>(
-        genericOp.getLoc(), newInputs, newOutputs, genericOp.getIndexingMaps(),
-        genericOp.getIteratorTypes(),
+        genericOp.getLoc(), newInputs, newOutputs, newCaptures,
+        genericOp.getIndexingMaps(), genericOp.getIteratorTypes(),
         [&](OpBuilder &b, Location loc, ValueRange blockArgs) {
           IRMapping mapping;
 
           // Map old operands to new operands for ops that capture external
           // values (e.g., DMAs that reference views outside the region).
           for (auto [oldOp, newOp] :
-               llvm::zip(genericOp.getOperands(), newOperands)) {
+               llvm::zip(genericOp.getNonCaptureOperands(), newOperands)) {
             mapping.map(oldOp, newOp);
           }
 
@@ -1052,7 +1055,7 @@ recreateGenericOp(d2m::GenericOp genericOp,
 }
 
 static bool hasTTNNOperands(d2m::GenericOp genericOp) {
-  for (Value operand : genericOp.getOperands()) {
+  for (Value operand : genericOp.getNonCaptureOperands()) {
     if (operand.getDefiningOp<ttir::TTNNMetalLayoutCastOp>()) {
       return true;
     }
@@ -1070,8 +1073,8 @@ static llvm::SmallVector<llvm::SmallVector<int64_t>>
 computeTTNNGenericGridShapes(GenericOp genericOp,
                              ArrayRef<int64_t> targetSquareGridShape) {
 
-  auto optimalOperandGrids =
-      llvm::SmallVector<llvm::SmallVector<int64_t>>(genericOp.getNumOperands());
+  auto optimalOperandGrids = llvm::SmallVector<llvm::SmallVector<int64_t>>(
+      genericOp.getNonCaptureOperands().size());
 
   // Determine dim size constraints based on L1 operands. L1 operands are
   // assumed fixed and already legal; DRAM operand streams are aligned to match
@@ -1097,7 +1100,8 @@ computeTTNNGenericGridShapes(GenericOp genericOp,
 
   // Set all grid shapes according to constraints
   OpBuilder builder(genericOp->getContext());
-  for (auto [operandIdx, operand] : llvm::enumerate(genericOp.getOperands())) {
+  for (auto [operandIdx, operand] :
+       llvm::enumerate(genericOp.getNonCaptureOperands())) {
 
     auto constrainedDims = getConstrainedDims(operandIdx);
     // if all dims are constrained, use the constrained dims.
@@ -1140,7 +1144,7 @@ computeTTNNGenericGridShapes(GenericOp genericOp,
 // passing each view's input as the new operands.
 static void eraseUnitGridReblockingViews(d2m::GenericOp genericOp) {
   // Use vector here to avoid invalidating iterator with erasures.
-  auto operands = llvm::to_vector(genericOp.getOperands());
+  auto operands = llvm::to_vector(genericOp.getNonCaptureOperands());
   for (Value operand : operands) {
     if (auto viewOp = operand.getDefiningOp<d2m::ViewLayoutOp>()) {
       auto originalOperand = viewOp.getInput();
@@ -1185,7 +1189,8 @@ insertTTNNDRAMStreams(d2m::GenericOp genericOp,
       computeTTNNGenericGridShapes(genericOp, targetSquareGridShape);
 
   OpBuilder builder(genericOp->getContext());
-  for (auto [operandIdx, operand] : llvm::enumerate(genericOp.getOperands())) {
+  for (auto [operandIdx, operand] :
+       llvm::enumerate(genericOp.getNonCaptureOperands())) {
     auto metalTensor = mlir::cast<mlir::RankedTensorType>(operand.getType());
     auto baseMetalLayout =
         mlir::cast<ttcore::MetalLayoutAttr>(metalTensor.getEncoding());
