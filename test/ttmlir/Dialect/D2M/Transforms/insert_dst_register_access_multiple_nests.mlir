@@ -8,7 +8,8 @@ func.func @cosh(%alloc_1 : memref<4x4x8x12x!ttcore.tile<32x32, bf16>, #ttcore.sh
   %alloc_8 = memref.alloc() {alignment = 64 : i64} : memref<8x12x!ttcore.tile<32x32, bf16>, #ttcore.memory_space<l1>>
   d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<4x4>, indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>], iterator_types = [#ttcore.iterator_type<parallel>, #ttcore.iterator_type<parallel>], threads = [#d2m.thread<unified>]}
       ins(%alloc_1, %alloc, %alloc_3 : memref<4x4x8x12x!ttcore.tile<32x32, bf16>, #ttcore.shard<2048x2048, 1>, #ttcore.memory_space<l1>>, memref<4x4x8x12x!ttcore.tile<32x32, bf16>, #ttcore.shard<2048x2048, 1>, #ttcore.memory_space<l1>>, memref<4x4x8x12x!ttcore.tile<32x32, bf16>, #ttcore.shard<2048x2048, 1>, #ttcore.memory_space<l1>>)
-      outs(%alloc_5 : memref<4x4x8x12x!ttcore.tile<32x32, bf16>, #ttcore.shard<2048x2048, 1>, #ttcore.memory_space<l1>>)  {
+      outs(%alloc_5 : memref<4x4x8x12x!ttcore.tile<32x32, bf16>, #ttcore.shard<2048x2048, 1>, #ttcore.memory_space<l1>>)
+      captures(%alloc_8 : memref<8x12x!ttcore.tile<32x32, bf16>, #ttcore.memory_space<l1>>) {
   ^unified0(%cb0_arg: !d2m.cb<memref<8x12x!ttcore.tile<32x32, bf16>, #ttcore.memory_space<l1>>>, %cb1_arg: !d2m.cb<memref<8x12x!ttcore.tile<32x32, bf16>, #ttcore.memory_space<l1>>>, %cb2_arg: !d2m.cb<memref<8x12x!ttcore.tile<32x32, bf16>, #ttcore.memory_space<l1>>>, %cb3_arg: !d2m.cb<memref<8x12x!ttcore.tile<32x32, bf16>, #ttcore.memory_space<l1>>>):
     %cb0 = d2m.wait %cb0_arg : <memref<8x12x!ttcore.tile<32x32, bf16>, #ttcore.memory_space<l1>>> -> memref<8x12x!ttcore.tile<32x32, bf16>, #ttcore.memory_space<l1>>
     %cb1 = d2m.wait %cb1_arg : <memref<8x12x!ttcore.tile<32x32, bf16>, #ttcore.memory_space<l1>>> -> memref<8x12x!ttcore.tile<32x32, bf16>, #ttcore.memory_space<l1>>

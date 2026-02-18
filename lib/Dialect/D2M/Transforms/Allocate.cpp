@@ -481,8 +481,8 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       analysis.sequencing.operationMap[op] = position;
       analysis.sequencing.positionMap.emplace_back(op);
 
-      if (llvm::isa<memref::AllocOp, d2m::ViewLayoutOp, d2m::StreamLayoutOp>(
-              op)) {
+      if (llvm::isa<memref::AllocOp, d2m::ViewLayoutOp, d2m::StreamLayoutOp,
+                    d2m::CreateGlobalSemaphoreOp>(op)) {
         // Skip memref.alloc operations that have a genericOp as parent
         if (llvm::isa<memref::AllocOp>(op) &&
             op->getParentOfType<d2m::GenericOp>()) {
@@ -610,9 +610,6 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     // any user not contained within the union sets.
     llvm::DenseMap<memref::AllocOp, OperationSet> genericUseClosure;
 
-    const std::size_t outputsStart =
-        genericOp.getOutputs().getBeginOperandIndex();
-
     SmallVector<AffineMap> indexingMaps;
     SmallVector<ttcore::IteratorType> iteratorTypes;
 
@@ -688,12 +685,12 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     // Do some operand-specific analysis.
 
     for (auto [operandIndex, operand] :
-         llvm::enumerate(genericOp->getOpOperands())) {
+         llvm::enumerate(genericOp.getNonCaptureOpOperands())) {
 
       OperandContext operandCtx;
 
       operandCtx.operand = &operand;
-      operandCtx.isOutput = (operandIndex >= outputsStart);
+      operandCtx.isOutput = genericOp.isOutputOperandIdx(operandIndex);
 
       // Find `operand`s "root" memref and the op chain that links to it.
       // This sets `operandCtx.root`, `operandCtx.hasStream`, and
@@ -786,7 +783,8 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
 
       genericCtx.operands.push_back(std::move(operandCtx));
     }
-    TT_assert(genericCtx.operands.size() == genericOp.getNumOperands());
+    TT_assert(genericCtx.operands.size() ==
+              genericOp.getNonCaptureOperands().size());
 
     // `genericUseClosure` is complete, use it to update
     // `MemrefValueContext::isMemspaceBound`:
@@ -1514,7 +1512,8 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
                     /* output */ SmallVector<int64_t>>
   getOperandTileShapes(d2m::GenericOp genericOp) {
     const Type inputElementType =
-        mlir::cast<MemRefType>(genericOp.getOperands().front().getType())
+        mlir::cast<MemRefType>(
+            genericOp.getNonCaptureOperands().front().getType())
             .getElementType();
     for (std::size_t operandIndex = 1;
          operandIndex < genericOp.getOutputs().getBeginOperandIndex();
@@ -1527,7 +1526,8 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     }
 
     const Type outputElementType =
-        mlir::cast<MemRefType>(genericOp.getOperands().back().getType())
+        mlir::cast<MemRefType>(
+            genericOp.getNonCaptureOperands().back().getType())
             .getElementType();
 
     return {getEffectiveTileShape(inputElementType),
@@ -1648,10 +1648,13 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       } else if (auto op = llvm::dyn_cast<d2m::StreamLayoutOp>(definingOp)) {
         value = op.getInput();
         containsStream = true;
+      } else if (auto op =
+                     llvm::dyn_cast<d2m::CreateGlobalSemaphoreOp>(definingOp)) {
+        value = op.getInput();
       } else {
         TT_assertv(false,
                    "unexpected op '{}' in the def chain for operand '{}'",
-                   op.getOperationName(), asOperand(operand));
+                   definingOp->getName(), asOperand(operand));
       }
 
       definingOp = value.getDefiningOp();
@@ -1748,7 +1751,8 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
 
     for (Operation *user : op->getResult(0).getUsers()) {
       if (graph.contains(user)) {
-        if (llvm::isa<d2m::ViewLayoutOp, d2m::StreamLayoutOp>(user)) {
+        if (llvm::isa<d2m::ViewLayoutOp, d2m::StreamLayoutOp,
+                      d2m::CreateGlobalSemaphoreOp>(user)) {
           last = std::max(last, resolve(user, graph));
         }
       }

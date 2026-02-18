@@ -58,6 +58,32 @@ static void rewriteCapturedDMAOperands(OpBuilder &builder, GenericOp generic,
   }
 }
 
+static void rewriteAdditionalArgOperands(OpBuilder &builder,
+                                         GenericOp generic) {
+  for (auto operand : generic.getCaptureOperands()) {
+    auto capturedOperandIndex = *getCapturedOperandIndex(generic, operand);
+    // we need to insert this where the operands are being used, also ensure it
+    // gets canoncialized (should work since its pure)
+    SmallVector<Operation *> users(operand.getUsers().begin(),
+                                   operand.getUsers().end());
+    for (Operation *user : users) {
+      if (user != generic.getOperation() && generic->isAncestor(user)) {
+        // user is an operation that uses myValue
+        llvm::errs() << "capture operand " << capturedOperandIndex
+                     << " being used by " << user->getName() << "\n";
+        builder.setInsertionPoint(user);
+        Operation *globalOperand = builder.create<GetGlobalOperandOp>(
+            user->getLoc(), operand.getType(), capturedOperandIndex);
+        for (OpOperand &opOperand : user->getOpOperands()) {
+          if (opOperand.get() == operand) {
+            opOperand.set(globalOperand->getResult(0));
+          }
+        }
+      }
+    }
+  }
+}
+
 namespace {
 class D2MGenericRegionsToFuncs
     : public impl::D2MGenericRegionsToFuncsBase<D2MGenericRegionsToFuncs> {
@@ -73,6 +99,7 @@ public:
       generic.walk([&](DMAOpInterface dma) {
         rewriteCapturedDMAOperands(builder, generic, dma);
       });
+      rewriteAdditionalArgOperands(builder, generic);
 
       SmallVector<Attribute> threads;
       for (Region &region : generic.getRegions()) {
@@ -108,9 +135,10 @@ public:
       builder.setInsertionPoint(generic);
       auto symbolicGeneric = builder.create<GenericOp>(
           generic->getLoc(), generic.getResultTypes(), generic.getInputs(),
-          generic.getOutputs(), generic.getGrid(), generic.getBlockFactors(),
-          generic.getIndexingMaps(), generic.getIteratorTypes(),
-          builder.getArrayAttr(threads), generic.getScratchInputsAttr(),
+          generic.getOutputs(), generic.getCaptures(), generic.getGrid(),
+          generic.getBlockFactors(), generic.getIndexingMaps(),
+          generic.getIteratorTypes(), builder.getArrayAttr(threads),
+          generic.getScratchInputsAttr(),
           /*numRegions*/ 0);
 
       generic.replaceAllUsesWith(symbolicGeneric);

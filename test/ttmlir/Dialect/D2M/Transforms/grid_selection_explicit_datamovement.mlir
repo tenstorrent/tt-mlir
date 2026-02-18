@@ -23,7 +23,7 @@ func.func @skip_grid_selection_explicit_datamovement(
     grid = #ttcore.grid<1x1>,
     indexing_maps = [],
     iterator_types = [],
-    operandSegmentSizes = array<i32: 1, 1>,
+    operandSegmentSizes = array<i32: 1, 1, 0>,
     threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]
   }> ({
   ^bb0(%cb0: !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>, %cb1: !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>):

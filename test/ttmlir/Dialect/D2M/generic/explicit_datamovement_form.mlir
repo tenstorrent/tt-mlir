@@ -44,7 +44,7 @@ func.func @explicit_datamovement_abs(
     grid = #ttcore.grid<1x1>,
     indexing_maps = [],
     iterator_types = [],
-    operandSegmentSizes = array<i32: 1, 1>,
+    operandSegmentSizes = array<i32: 1, 1, 0>,
     threads = [#d2m.thread<unified>]
   }> ({
   ^unified0(%cb_in: !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>,

@@ -60,7 +60,7 @@ func.func @explicit_datamovement_matmul_mcast(
     grid = #ttcore.grid<1x1>,
     indexing_maps = [],
     iterator_types = [],
-    operandSegmentSizes = array<i32: 2, 1>,
+    operandSegmentSizes = array<i32: 2, 1, 0>,
     threads = [#d2m.thread<unified>]
   }> ({
   ^unified0(%cb_a: !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>,
