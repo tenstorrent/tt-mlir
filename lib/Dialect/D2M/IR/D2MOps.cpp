@@ -1118,9 +1118,20 @@ mlir::OpFoldResult d2m::ViewLayoutOp::fold(FoldAdaptor adaptor) {
       return getInput();
     }
     // If the input has no associated remapping and types match, this view is
-    // a no-op.  (Previously, we had to guard against folding virtual-grid
-    // views on EmptyOps, but those no longer exist.)
+    // generally a no-op — unless the input is in DRAM.  Views on DRAM values
+    // serve as DMA markers in the lowering pipeline (isRemoteOperand checks
+    // for ViewOpInterface to decide whether to emit remote load/store ops).
+    // TODO: Fix isRemoteOperand to check memory space directly instead of
+    // relying on view survival as a proxy signal.
     if (!inputRemapping.has_value()) {
+      if (auto rtt = mlir::dyn_cast<RankedTensorType>(getInput().getType())) {
+        if (auto layout =
+                mlir::dyn_cast<ttcore::MetalLayoutAttr>(rtt.getEncoding())) {
+          if (layout.getMemorySpace() == ttcore::MemorySpace::DeviceDRAM) {
+            return nullptr;
+          }
+        }
+      }
       return getInput();
     }
   }
