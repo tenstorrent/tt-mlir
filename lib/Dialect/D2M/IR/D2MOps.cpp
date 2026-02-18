@@ -175,6 +175,7 @@ mlir::LogicalResult d2m::CreateGlobalSemaphoreOp::bufferize(
     return maybeInput;
   }
 
+  // NOLINTNEXTLINE(clang-analyzer-core.StackAddressEscape)
   rewriter.replaceOpWithNewOp<CreateGlobalSemaphoreOp>(
       *this, getResult().getType(), *maybeInput, getValue());
 

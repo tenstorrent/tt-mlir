@@ -366,9 +366,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       return failure();
     }
 
-    if (failed(assignAllocAddresses(
-            funcOp, analysis))) { // change here to assign addresses to global
-                                  // semaphores
+    if (failed(assignAllocAddresses(funcOp, analysis))) {
       return failure();
     }
 
@@ -376,9 +374,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       return failure();
     }
 
-    if (failed(insertDeallocs(funcOp,
-                              analysis))) { // change here to insert deallocs
-                                            // for global semaphores
+    if (failed(insertDeallocs(funcOp, analysis))) {
       return failure();
     }
 
