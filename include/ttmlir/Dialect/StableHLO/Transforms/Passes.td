@@ -108,6 +108,38 @@ def ConvertXlaSdyToSdyPass : Pass<"convert-xla-sdy-to-sdy", "::mlir::ModuleOp">
   ];
 }
 
+def StableHLOFusingPass : Pass<"stablehlo-fusing", "::mlir::ModuleOp">
+{
+  let summary = "StableHLO fusing pass for shardy passes optimization.";
+  let description = [{
+    This pass tries to fuse stablehlo operations together with the goal of optimizing shardy passes.
+    If proposed fusion is not optimizing shardy passes, it should be implemented in lower level passes. i.e. in TTIR/ TTNN fusion passes.
+
+    For example, it implements `ConcatenateToBroadcastInDimFusionPattern` pattern which fuses stablehlo.concatenate
+    and stablehlo.reshape into stablehlo.broadcast_in_dim. This is due to the fact that
+    stablehlo.broadcast_in_dim propagates shardings better during UserPriorityPropagationPass and InsertExplicitReshardsPass.
+    See https://github.com/openxla/shardy/issues/945 for more details.
+
+    Example, this pass will convert the following code:
+    ```mlir
+      %0 = stablehlo.concatenate %arg0, %arg0, %arg0, dim = 0 :
+            (tensor<2x4xbf16>, tensor<2x4xbf16>, tensor<2x4xbf16>) ->
+            tensor<6x4xbf16>
+      %1 = stablehlo.reshape %0 : (tensor<6x4xbf16>) -> tensor<3x2x4xbf16>
+    ```
+
+    Into:
+    ```mlir
+      %0 = stablehlo.broadcast_in_dim %arg0, dims = [1, 2] :
+            (tensor<2x4xbf16>) -> tensor<3x2x4xbf16>
+    ```
+  }];
+
+  let dependentDialects = [
+    "::mlir::stablehlo::StablehloDialect"
+  ];
+}
+
 def PartiallyConvertSdyToStableHLOPass : Pass<"partially-convert-sdy-to-stablehlo", "::mlir::ModuleOp">
 {
   let summary = "Partially convert Shardy operations to StableHLO operations.";
@@ -140,7 +172,6 @@ def PartiallyConvertSdyToStableHLOPass : Pass<"partially-convert-sdy-to-stablehl
     "::mlir::sdy::SdyDialect"
   ];
 }
-
 
 def AnalyzeMeshPass : Pass<"analyze-mesh", "::mlir::ModuleOp">
 {
@@ -330,6 +361,35 @@ def UpdateGlobalToLocalShapesPass : Pass<"update-global-to-local-shapes", "::mli
       }
     }
     ```
+  }];
+
+  let dependentDialects = [
+    "::mlir::sdy::SdyDialect"
+  ];
+}
+
+def ReplicateNonSplittableConstantsPass : Pass<"replicate-non-splittable-constants", "::mlir::ModuleOp">
+{
+  let summary = "Change sharding of non-splittable constants to replicated.";
+  let description = [{
+    This pass identifies stablehlo.constant operations whose values are
+    non-splat and non-periodic across the sharding dimension, meaning they
+    cannot be meaningfully sharded in SPMD (all devices run the same program
+    and would need to split constant data that has no repeating pattern).
+
+    For such constants, the pass changes their sharding annotation to fully
+    replicated (all dimensions closed, no sharding axes). This must run
+    before InsertExplicitReshards so that Shardy detects the mismatch between
+    the replicated constant and its sharded consumers, and inserts the
+    appropriate sdy.reshard operations. Those reshards are later converted to
+    concrete collective operations by ReshardToCollectives.
+
+    Without this pass, UpdateGlobalToLocalShapes would try to shard the
+    constant value, which fails for non-splat, non-periodic data.
+
+    Example constants that are non-splittable:
+      - dense<[0, 1, 2, ..., 63]> : tensor<64xi64>  (iota / position indices)
+      - dense<[[[0.0, 1.0, ..., 63.0]]]> : tensor<1x1x64xf32>  (RoPE freqs)
   }];
 
   let dependentDialects = [

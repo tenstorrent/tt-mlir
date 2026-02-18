@@ -485,7 +485,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
               op)) {
         // Skip memref.alloc operations that have a genericOp as parent
         if (llvm::isa<memref::AllocOp>(op) &&
-            llvm::isa<d2m::GenericOp>(op->getParentOp())) {
+            op->getParentOfType<d2m::GenericOp>()) {
           return;
         }
 

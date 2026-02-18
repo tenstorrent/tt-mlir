@@ -7,7 +7,7 @@
 
 // Include CB API for pack-side functions (llk_wait_for_free_tiles,
 // llk_push_tiles) and get_local_cb_interface
-#include "compute_kernel_api/cb_api.h"
+#include "api/compute/cb_api.h"
 
 namespace experimental {
 using std::uint32_t;
@@ -91,7 +91,7 @@ inline void _write_col_mask_to_l1_(volatile uint32_t *ptr, uint32_t validCols) {
 }
 
 // Include fill.h for ckernel::fill_tile
-#include "compute_kernel_api/eltwise_unary/fill.h"
+#include "api/compute/eltwise_unary/fill.h"
 
 // Fill a tile in DST with a constant scalar value.
 // Uses the standard fill_tile API from compute_kernel_api.
@@ -122,6 +122,41 @@ ALWI void write_col_mask_tile(uint32_t validCols, uint32_t cb_id) {
   volatile tt_l1_ptr uint32_t *ptr =
       reinterpret_cast<volatile tt_l1_ptr uint32_t *>(write_addr);
   _write_col_mask_to_l1_(ptr, validCols);
+#endif
+}
+
+// =============================================================================
+// Index tile functions for arange operations
+// =============================================================================
+
+// Write a FULL INDEX tile to L1 in F32 format.
+// Each element gets its linear index: element[i,j] = i * 32 + j (0-1023)
+// This is used for arange operations where we need the global element index
+// within a tile.
+inline void _fill_arange_tile_to_l1_(volatile uint32_t *ptr) {
+  uint32_t count = 0;
+
+  for (uint32_t i = 0; i < 2; ++i) {      // Face row (0-1)
+    for (uint32_t j = 0; j < 2; ++j) {    // Face col (0-1)
+      for (uint32_t k = 0; k < 16; ++k) { // Row within face
+        uint32_t global_row = k + 16 * i;
+        for (uint32_t l = 0; l < 16; ++l) { // Col within face
+          uint32_t global_col = l + 16 * j;
+          uint32_t linear_idx = global_row * 32 + global_col;
+          uint32_t val = float_to_bits(static_cast<float>(linear_idx));
+          ptr[count++] = val;
+        }
+      }
+    }
+  }
+}
+
+ALWI void fill_arange_tile(uint32_t cb_id) {
+#ifdef TRISC_UNPACK
+  uint32_t write_addr = (get_local_cb_interface(cb_id).fifo_rd_ptr) << 4;
+  volatile tt_l1_ptr uint32_t *ptr =
+      reinterpret_cast<volatile tt_l1_ptr uint32_t *>(write_addr);
+  _fill_arange_tile_to_l1_(ptr);
 #endif
 }
 

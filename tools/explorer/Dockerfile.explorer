@@ -79,11 +79,18 @@ rm -rf /var/lib/apt/lists/*
 EOT
 
 # Download and run TT-Metal dependencies installer
+ARG TT_METAL_COMMIT
 RUN <<EOT
 set -e
-wget https://raw.githubusercontent.com/tenstorrent/tt-metal/refs/heads/main/install_dependencies.sh
-wget https://raw.githubusercontent.com/tenstorrent/tt-metal/refs/heads/main/tt_metal/sfpi-version
-wget https://raw.githubusercontent.com/tenstorrent/tt-metal/refs/heads/main/tt_metal/sfpi-info.sh
+if [ -z "${TT_METAL_COMMIT}" ]; then
+    echo "ERROR: TT_METAL_COMMIT build arg is required"
+    exit 1
+fi
+echo "Using tt-metal commit: ${TT_METAL_COMMIT}"
+
+wget https://raw.githubusercontent.com/tenstorrent/tt-metal/${TT_METAL_COMMIT}/install_dependencies.sh
+wget https://raw.githubusercontent.com/tenstorrent/tt-metal/${TT_METAL_COMMIT}/tt_metal/sfpi-version
+wget https://raw.githubusercontent.com/tenstorrent/tt-metal/${TT_METAL_COMMIT}/tt_metal/sfpi-info.sh
 chmod u+x install_dependencies.sh sfpi-info.sh
 bash install_dependencies.sh --docker
 rm install_dependencies.sh

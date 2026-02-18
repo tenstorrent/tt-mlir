@@ -25,6 +25,9 @@ void createStableHLOPipeline(OpPassManager &pm,
   // Convert any xla.sdy ops to sdy ops.
   pm.addPass(createConvertXlaSdyToSdyPass());
 
+  // Apply StableHLO fusing pass.
+  pm.addPass(mlir::tt::stablehlo::createStableHLOFusingPass());
+
   // Partially convert sdy ops to stablehlo.
   pm.addPass(createPartiallyConvertSdyToStableHLOPass());
 
@@ -65,6 +68,10 @@ void createStableHLOPipeline(OpPassManager &pm,
   // Convert sharding constraints to reshards
   pm.nest<mlir::func::FuncOp>().addPass(
       mlir::sdy::createShardingConstraintToReshardPass());
+
+  // Replicate non-splittable constants so that InsertExplicitReshards inserts
+  // reshard ops between the replicated constant and its sharded consumers.
+  pm.addPass(createReplicateNonSplittableConstantsPass());
 
   // Insert explicit reshards conditionally.
   pm.addPass(createInsertExplicitReshardsPass());

@@ -94,8 +94,15 @@ def test_cpu_hoistable_concat_op(
 
 
 # Pad tests
-@pytest.mark.parametrize("shape", [(1, 1, 5, 5)], ids=shape_str)
-@pytest.mark.parametrize("padding", [[0, 1, 2, 3, 4, 5, 6, 7]])
+@pytest.mark.parametrize("shape", [(1, 1024, 64, 64)], ids=shape_str)
+@pytest.mark.parametrize(
+    "padding",
+    [
+        [0, 1, 2, 3, 4, 5, 6, 7],
+        [0, 0, 0, 0, -16, -16, -16, -16],
+        [2, 2, 2, 2, -1, -1, -1, -1],
+    ],
+)
 @pytest.mark.parametrize("value", [0])
 @pytest.mark.parametrize("target", ["ttnn", "emitpy"])
 def test_pad(
@@ -115,6 +122,46 @@ def test_pad(
         **get_request_kwargs(request),
         device=device,
         target=target,
+    )
+
+
+@x86_only
+@pytest.mark.parametrize("shape", [(1, 1024, 64, 64)], ids=shape_str)
+@pytest.mark.parametrize(
+    "padding",
+    [
+        [0, 1, 2, 3, 4, 5, 6, 7],
+        [0, 0, 0, 0, -16, -16, -16, -16],
+        [2, 2, 2, 2, -1, -1, -1, -1],
+    ],
+)
+@pytest.mark.parametrize("value", [0])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+def test_cpu_hoistable_pad_op(
+    shape: Shape,
+    padding: List[int],
+    value: int,
+    request,
+    target: str,
+    device,
+):
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [torch.float32])
+        def hoisted_pad_wrapper(
+            in0: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.pad(
+                in0, padding=padding, value=value, unit_attrs=["ttir.should_hoist"]
+            )
+
+    """Test unary ops that support CPU hoisting"""
+    compile_and_execute_ttir(
+        module,
+        test_base=f"{request.node.name}",
+        target=target,
+        device=device,
     )
 
 
@@ -396,7 +443,11 @@ def test_slice(
 
 # Sort tests
 @pytest.mark.parametrize("shape", [(1, 64, 64)], ids=shape_str)
-@pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
+@pytest.mark.parametrize(
+    "dtype",
+    [torch.bfloat16, torch.float32],
+    ids=["bf16", "f32"],
+)
 @pytest.mark.parametrize("dim", [0, 1, 2])
 @pytest.mark.parametrize("descending", [True, False])
 @pytest.mark.parametrize("stable", [True, False])

@@ -981,6 +981,184 @@ convertCustomCallToShardingConstraint(mlir::ModuleOp &rootModule,
   return mlir::success();
 }
 
+std::optional<mlir::DenseElementsAttr> tryGetPeriodicShardSlice(
+    mlir::DenseElementsAttr globalAttr, mlir::RankedTensorType localType,
+    mlir::sdy::TensorShardingAttr sharding, mlir::sdy::MeshOp meshOp) {
+
+  auto oldType = mlir::cast<mlir::RankedTensorType>(globalAttr.getType());
+  auto globalShape = oldType.getShape();
+  int64_t rank = static_cast<int64_t>(globalShape.size());
+
+  // Collect all sharded dimensions and their shard counts.
+  // Only one axis per dimension is supported (multi-axis-per-dim returns
+  // nullopt).
+  struct ShardedDimInfo {
+    int64_t dimIdx;
+    int64_t numShards;
+  };
+  llvm::SmallVector<ShardedDimInfo> shardedDims;
+
+  // Build axis-name to size map for lookup.
+  llvm::StringMap<int64_t> axisNameToSize;
+  for (auto meshAxis : meshOp.getMesh().getAxes()) {
+    axisNameToSize[meshAxis.getName()] = meshAxis.getSize();
+  }
+
+  llvm::ArrayRef<mlir::sdy::DimensionShardingAttr> dimShardings =
+      sharding.getDimShardings();
+
+  for (auto [dimIdx, dimSharding] : llvm::enumerate(dimShardings)) {
+    auto axisRefs = dimSharding.getAxes();
+    if (axisRefs.empty()) {
+      continue;
+    }
+
+    // Multi-axis-per-dim not supported for periodic slicing.
+    if (axisRefs.size() > 1) {
+      return std::nullopt;
+    }
+
+    auto it = axisNameToSize.find(axisRefs[0].getName());
+    if (it == axisNameToSize.end()) {
+      return std::nullopt;
+    }
+
+    int64_t dimShardCount = it->second;
+    if (dimShardCount > 1) {
+      shardedDims.push_back({static_cast<int64_t>(dimIdx), dimShardCount});
+    }
+  }
+
+  if (shardedDims.empty()) {
+    return std::nullopt;
+  }
+
+  // Verify periodicity independently along each sharded dimension.
+  auto globalValues = globalAttr.getValues<mlir::Attribute>();
+
+  for (auto &sd : shardedDims) {
+    int64_t shardingDim = sd.dimIdx;
+    int64_t numShards = sd.numShards;
+    int64_t totalDimSize = globalShape[shardingDim];
+    int64_t shardDimSize = totalDimSize / numShards;
+
+    if (totalDimSize % numShards != 0) {
+      return std::nullopt;
+    }
+
+    int64_t innerBlockSize = 1;
+    for (int64_t i = shardingDim + 1; i < rank; ++i) {
+      innerBlockSize *= globalShape[i];
+    }
+
+    int64_t outerCount = 1;
+    for (int64_t i = 0; i < shardingDim; ++i) {
+      outerCount *= globalShape[i];
+    }
+
+    int64_t shardStep = shardDimSize * innerBlockSize;
+    int64_t rowSize = totalDimSize * innerBlockSize;
+
+    for (int64_t out = 0; out < outerCount; ++out) {
+      int64_t rowStart = out * rowSize;
+
+      for (int64_t k = 1; k < numShards; ++k) {
+        for (int64_t s = 0; s < shardDimSize; ++s) {
+          for (int64_t inner = 0; inner < innerBlockSize; ++inner) {
+            int64_t offset0 = rowStart + (s * innerBlockSize) + inner;
+            int64_t offsetK = offset0 + (k * shardStep);
+
+            if (globalValues[offset0] != globalValues[offsetK]) {
+              return std::nullopt;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // Extract shard 0 across all sharded dimensions.
+  // For shard 0, local indices map directly to global indices.
+  auto localShape = localType.getShape();
+
+  // Compute global strides (row-major).
+  llvm::SmallVector<int64_t> globalStrides(rank);
+  globalStrides[rank - 1] = 1;
+  for (int64_t i = rank - 2; i >= 0; --i) {
+    globalStrides[i] = globalStrides[i + 1] * globalShape[i + 1];
+  }
+
+  std::vector<mlir::Attribute> newValues;
+  int64_t numLocalElements = localType.getNumElements();
+  newValues.reserve(numLocalElements);
+
+  // N-dimensional index iterator over the local shape.
+  llvm::SmallVector<int64_t> localIndices(rank, 0);
+
+  for (int64_t elem = 0; elem < numLocalElements; ++elem) {
+    int64_t globalFlatIdx = 0;
+    for (int64_t d = 0; d < rank; ++d) {
+      globalFlatIdx += localIndices[d] * globalStrides[d];
+    }
+
+    newValues.push_back(globalValues[globalFlatIdx]);
+
+    // Increment local indices (row-major order, last dim fastest).
+    for (int64_t d = rank - 1; d >= 0; --d) {
+      localIndices[d]++;
+      if (localIndices[d] < localShape[d]) {
+        break;
+      }
+      localIndices[d] = 0;
+    }
+  }
+
+  return mlir::DenseElementsAttr::get(localType, newValues);
+}
+
+// Check if the operation has Shardy-sharded inputs or outputs.
+// Note: This only detects Shardy TensorShardingAttrs, not legacy GSPMD
+// mhlo.sharding attributes. Should be called after ConvertXlaSdyToSdyPass.
+bool opHasShardySharding(mlir::Operation *op) {
+  // Get the module op to check for mesh ops.
+  mlir::ModuleOp moduleOp = op->getParentOfType<mlir::ModuleOp>();
+  if (!moduleOp) {
+    return false;
+  }
+
+  // Get mesh ops from the module.
+  llvm::SmallVector<mlir::sdy::MeshOp> meshOps = getMeshOps(moduleOp);
+
+  // If no mesh ops exist, there's no sharding.
+  if (meshOps.empty()) {
+    return false;
+  }
+
+  mlir::sdy::MeshOp globalMeshOp = meshOps[0];
+
+  // Check if any input operands are sharded.
+  for (mlir::OpOperand &operand : op->getOpOperands()) {
+    mlir::sdy::TensorShardingAttr shardingAttr =
+        getOperandShardingAttr(operand, globalMeshOp);
+    if (!isFullyReplicatedTensor(shardingAttr)) {
+      return true;
+    }
+  }
+
+  // Check if any output results are sharded.
+  if (auto shardingPerValue =
+          op->getAttrOfType<mlir::sdy::TensorShardingPerValueAttr>(
+              mlir::sdy::TensorShardingAttr::name)) {
+    for (auto shardingAttr : shardingPerValue.getShardings()) {
+      if (!isFullyReplicatedTensor(shardingAttr)) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
 #endif // #ifdef TTMLIR_ENABLE_STABLEHLO
 
 } // namespace mlir::tt::shardy_utils

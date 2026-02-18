@@ -13,10 +13,12 @@
 namespace mlir::tt::ttcore {
 
 void registerDevice(ModuleOp module, Arch mockSystemDescArch = Arch::WormholeB0,
-                    ArrayRef<int64_t> meshShape = {});
+                    ArrayRef<int64_t> meshShape = {},
+                    ArrayRef<Topology> meshTopology = {});
 
 void registerDevice(ModuleOp module, const std::string &systemDescPath,
-                    ArrayRef<int64_t> meshShape = {});
+                    ArrayRef<int64_t> meshShape = {},
+                    ArrayRef<Topology> meshTopology = {});
 
 } // namespace mlir::tt::ttcore
 

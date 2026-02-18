@@ -98,8 +98,9 @@ computeOptimalVirtualGrid(ArrayRef<int64_t> physicalShape,
   // Find the largest factor of the sharded dimension that fits within the
   // target grid volume.
   int64_t bestFactor = 0;
-  for (int64_t factor : llvm::reverse(
-           ttmlir::utils::getFactors(physicalShape[shardedDimIndex]))) {
+  const auto factors =
+      ttmlir::utils::getFactors(physicalShape[shardedDimIndex]);
+  for (int64_t factor : llvm::reverse(factors)) {
     if (factor <= targetGridVolume) {
       auto physGrid =
           utils::findLegalPhysicalGridForVolume(factor, targetSquareGridShape);
@@ -947,20 +948,14 @@ recreateGenericOp(d2m::GenericOp genericOp,
               auto tensorType = mlir::cast<RankedTensorType>(
                   remoteStoreOp.getMemref().getType());
               remoteStoreOp.getResult().setType(tensorType);
-            } else if (llvm::isa<DestinationStyleOpInterface>(clonedOp)) {
-              auto numInputs = clonedOp->getAttrOfType<mlir::DenseI32ArrayAttr>(
-                  "operandSegmentSizes");
-              if (numInputs && numInputs.size() >= 2) {
-                int32_t numIns = numInputs[0];
-                int32_t numOuts = numInputs[1];
-
-                for (uint32_t i = 0; static_cast<int32_t>(i) < numOuts &&
-                                     i < clonedOp->getNumResults();
-                     ++i) {
-                  auto outputOperandType =
-                      clonedOp->getOperand(numIns + i).getType();
-                  clonedOp->getResult(i).setType(outputOperandType);
-                }
+            } else if (auto dstOp = llvm::dyn_cast<DestinationStyleOpInterface>(
+                           clonedOp)) {
+              int numIns = dstOp.getNumDpsInputs();
+              int numOuts = clonedOp->getNumResults();
+              for (int i = 0; i < numOuts; ++i) {
+                auto outputOperandType =
+                    clonedOp->getOperand(numIns + i).getType();
+                clonedOp->getResult(i).setType(outputOperandType);
               }
             } else if (auto tensorEmptyOp =
                            llvm::dyn_cast<mlir::tensor::EmptyOp>(clonedOp)) {
@@ -1006,6 +1001,11 @@ recreateGenericOp(d2m::GenericOp genericOp,
           }
         },
         /*singleThreadType=*/genericOp.getRegionThreadType(0));
+
+    // Preserve scratch_inputs attribute if present.
+    if (auto scratchInputs = genericOp.getScratchInputsAttr()) {
+      newGenericOp.setScratchInputsAttr(scratchInputs);
+    }
 
     genericOp.replaceAllUsesWith(newGenericOp);
     genericOp.erase();

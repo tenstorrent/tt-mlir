@@ -69,3 +69,11 @@ table AggregateTensorOp {
   composer_config: tt.target.ttnn.MeshComposerConfig;
   device: tt.target.DeviceRef;
 }
+
+table MeshPartitionOp {
+  in: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
+  dim: int32;
+  cluster_axis: uint32 = null;
+  memory_config: tt.target.ttnn.MemoryConfig;
+}

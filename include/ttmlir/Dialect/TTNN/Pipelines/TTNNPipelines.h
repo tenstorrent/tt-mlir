@@ -212,6 +212,13 @@ struct TTIRToTTNNDevicePipelineOptions
       *this, OptionNames::meshShape,
       llvm::cl::desc("Set the multi-device mesh shape.")};
 
+  ListOption<ttcore::Topology> meshTopology{
+      *this, OptionNames::meshTopology,
+      llvm::cl::desc("Set the per-axis topology for the mesh."),
+      llvm::cl::values(
+          clEnumValN(ttcore::Topology::Ring, "ring", "Ring topology"),
+          clEnumValN(ttcore::Topology::Linear, "linear", "Linear topology"))};
+
   Option<bool> rowMajorEnabled{
       *this, "row-major-enabled",
       llvm::cl::desc(
@@ -319,7 +326,7 @@ struct TTIRToTTNNDevicePipelineOptions
   Option<bool> enableCPUHoistedConstEval{
       *this, "enable-cpu-hoisted-const-eval",
       llvm::cl::desc("Enable hoisting const-eval ops to CPU module."),
-      llvm::cl::init(true)};
+      llvm::cl::init(false)};
 
   // Force const-eval function inputs to system memory.
   Option<bool> enableConstEvalInputsToSystemMemory{
@@ -439,6 +446,14 @@ struct TTNNToEmitCDevicePipelineOptions
                            llvm::cl::desc("Tailor passes for dylib target."),
                            llvm::cl::init(false)};
 
+  Option<bool> tryRecoverStructure{
+      *this, "try-recover-structure",
+      llvm::cl::desc(
+          "Enable pipelines and passes that try to recover structure of the "
+          "original IR/code. Highly experimental; please file issues at "
+          "https://github.com/tenstorrent/tt-mlir/issues"),
+      llvm::cl::init(false)};
+
   Option<bool> tuplifyInputIfEmpty{
       *this, "tuplify-input-if-empty",
       llvm::cl::desc("Whether to create an empty tuple if no inputs to forward "
@@ -490,8 +505,10 @@ struct TTNNToEmitPyDevicePipelineOptions
 
   Option<bool> tryRecoverStructure{
       *this, "try-recover-structure",
-      llvm::cl::desc("Enable pipelines and passes that try to recover "
-                     "structure of the original IR/code."),
+      llvm::cl::desc(
+          "Enable pipelines and passes that try to recover structure of the "
+          "original IR/code. Highly experimental; please file issues at "
+          "https://github.com/tenstorrent/tt-mlir/issues"),
       llvm::cl::init(false)};
 };
 

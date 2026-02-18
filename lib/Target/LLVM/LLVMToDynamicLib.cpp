@@ -29,8 +29,12 @@
 #include "llvm/Target/TargetOptions.h"
 #include "llvm/TargetParser/Host.h"
 
+#include "lld/Common/Driver.h"
+
 #include "mlir/IR/BuiltinOps.h"
 #include <fstream>
+
+LLD_HAS_DRIVER(elf)
 
 namespace mlir::tt::llvm_to_cpu {
 
@@ -147,48 +151,46 @@ llvm::LogicalResult compileToObject(llvm::Module &module,
   return llvm::success();
 }
 
-// Run actual system call + handle any errors.
-llvm::LogicalResult runLinkCommand(llvm::StringRef commandLine) {
-  llvm::dbgs() << "Running linker command:\n" << commandLine << "\n";
-  const auto exitCode = system(commandLine.data());
-  if (exitCode == 0) {
-    return llvm::success();
-  }
-  llvm::errs() << "Linking failed; escaped command line returned exit code "
-               << exitCode << ":\n\n"
-               << commandLine << "\n\n";
-  return llvm::failure();
-}
-
-// Invoke linker with correct options on set of .o files.
+// Invoke LLD in-process to link .o files into a shared library.
 llvm::LogicalResult
 linkDynamicLibrary(llvm::StringRef libraryName,
                    ArrayRef<llvm::StringRef> objectFileNames) {
-  SmallVector<llvm::SmallString<13>, 8> flags = {
-      llvm::SmallString<13>("ld.lld-17"), llvm::SmallString<13>("-o"),
-      libraryName};
+  // Build argv-style argument list for LLD.
+  SmallVector<const char *, 16> args;
+  args.push_back("ld.lld");
+  args.push_back("-o");
 
-  // No stdlib dependency makes things easier for us
-  flags.emplace_back("-nostdlib");
+  // LLD reads from the pointers directly, so strings must stay alive.
+  llvm::SmallString<128> outputStr(libraryName);
+  args.push_back(outputStr.c_str());
+
+  // No stdlib dependency makes things easier for us.
+  args.push_back("-nostdlib");
 
   // We want to create a standalone dylib w/o dependencies on other dylibs;
-  // apparently, only lld supports this combo.
-  flags.emplace_back("-static");
-  flags.emplace_back("-shared");
+  // only lld supports this -static -shared combo.
+  args.push_back("-static");
+  args.push_back("-shared");
 
   // In our case, we probably don't gain much useful info from debug symbols
   // anyway.
-  flags.emplace_back("--strip-debug");
+  args.push_back("--strip-debug");
 
   // Link all input .o into 1 output .so file.
+  SmallVector<llvm::SmallString<128>, 8> inputStrs;
   for (const auto &objectFile : objectFileNames) {
-    flags.emplace_back(objectFile);
+    inputStrs.emplace_back(objectFile);
+    args.push_back(inputStrs.back().c_str());
   }
 
-  auto commandLine = llvm::join(flags, " ");
-  if (llvm::failed(runLinkCommand(commandLine))) {
+  lld::Result result = lld::lldMain(args, llvm::outs(), llvm::errs(),
+                                    {{lld::Gnu, &lld::elf::link}});
+  if (result.retCode != 0) {
+    llvm::errs() << "LLD linking failed with return code: " << result.retCode
+                 << "\n";
     return llvm::failure();
   }
+
   return llvm::success();
 }
 

@@ -2,11 +2,10 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/StableHLO/Transforms/Passes.h"
 #include "ttmlir/Dialect/StableHLO/Transforms/ShardyCCLToStableHLOCCL.h"
 #include "ttmlir/Dialect/StableHLO/Utils/GSPMDUtils.h"
 #include "ttmlir/Dialect/StableHLO/Utils/ShardyUtils.h"
-#include "ttmlir/Dialect/TTIR/IR/TTIR.h"
+#include "ttmlir/Dialect/StableHLO/Utils/StableHLOUtils.h"
 
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
@@ -44,18 +43,37 @@ static FailureOr<mlir::OperationState> createNewOperationState(
                 mlir::cast<mlir::DenseElementsAttr>(
                     attrDict.get(valueAttrName));
 
-            // If the element is not a splat value (ie. the same value
-            // for the entire constant) we fail as this is currently
-            // not supported.
-            if (!denseElementsAttr.isSplat()) {
-              constantOp->emitError(
-                  "Shardy automatic parallelization currently does "
-                  "not support non-splat constant tensors");
-              return mlir::failure();
+            mlir::DenseElementsAttr newAttr;
+
+            // If the type didn't change (e.g. replicated constant), keep
+            // the original attribute as-is.
+            if (denseElementsAttr.getType() == newTypes[0]) {
+              newAttr = denseElementsAttr;
+            } else if (denseElementsAttr.isSplat()) {
+              newAttr = mlir::DenseElementsAttr::get(
+                  newTypes[0],
+                  denseElementsAttr.getSplatValue<mlir::Attribute>());
+            } else {
+              // The constant is periodic across shards — slice it.
+              // Non-splat, non-periodic constants were already replicated
+              // by ReplicateNonSplittableConstantsPass and handled by the
+              // type-unchanged branch above.
+              std::optional<mlir::DenseElementsAttr> periodicAttr =
+                  mlir::tt::shardy_utils::tryGetPeriodicShardSlice(
+                      denseElementsAttr, newTypes[0], tensorShardings[0],
+                      globalMeshOp);
+
+              if (!periodicAttr.has_value()) {
+                constantOp.emitError(
+                    "Non-splat, non-periodic constant reached "
+                    "UpdateGlobalToLocalShapes with a sharded annotation. "
+                    "ReplicateNonSplittableConstantsPass should have marked "
+                    "it as replicated.");
+                return mlir::failure();
+              }
+              newAttr = periodicAttr.value();
             }
-            mlir::DenseElementsAttr newAttr = mlir::DenseElementsAttr::get(
-                newTypes[0],
-                denseElementsAttr.getSplatValue<mlir::Attribute>());
+
             auto namedAttrIt = llvm::find_if(
                 namedAttrs, [&](const mlir::NamedAttribute &attr) {
                   return attr.getName() == valueAttrName;
@@ -350,7 +368,7 @@ convertShardyCCLToStableHLOCCL(MLIRContext *context,
   const bool hasProtectedConst = [&] {
     bool found = false;
     rootModule.walk([&](mlir::stablehlo::ConstantOp cst) {
-      if (cst->hasAttr(sharding_utils::kGroupAttr)) {
+      if (cst->hasAttr(utils::kReoutlineGroupAttr)) {
         found = true;
         return mlir::WalkResult::interrupt();
       }

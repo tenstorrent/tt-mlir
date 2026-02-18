@@ -40,6 +40,7 @@ declare_mlir_python_sources(TTRTSources
   ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}"
   SOURCES
     __init__.py
+    __main__.py
     library_tweaks.py
 
     # binary subpackage files

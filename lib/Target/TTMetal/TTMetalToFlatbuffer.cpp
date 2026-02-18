@@ -141,6 +141,17 @@ static target::Dim2dRange toFlatbuffer(CoreRangeAttr coreRange) {
                             target::Dim2d(size[0], size[1]));
 }
 
+static ::tt::target::RoutingMode
+toFlatbuffer(ttmetal::RoutingMode routingMode) {
+  switch (routingMode) {
+  case ttmetal::RoutingMode::BidirLineMesh:
+    return ::tt::target::RoutingMode::BidirLineMesh;
+  case ttmetal::RoutingMode::UnidirRingTorus:
+    return ::tt::target::RoutingMode::UnidirRingTorus;
+  }
+  assert(false && "Unsupported RoutingMode");
+}
+
 static std::array<int32_t, 2> calculateCoreRangeSetShapeExtents(
     const std::vector<target::Dim2dRange> &coreRangeSet) {
   std::array<int32_t, 2> extents = {0, 0};
@@ -608,6 +619,11 @@ toFlatbuffer(FlatbufferObjectCache &cache, KernelArgAttr kernelArg) {
     arg = target::metal::CreateKernelArgSemaphore(*cache.fbb).Union();
     break;
   }
+  case ttkernel::ArgType::NamedArgument: {
+    argType = target::metal::KernelArgType::KernelArgNamedArgument;
+    arg = target::metal::CreateKernelArgNamedArgument(*cache.fbb).Union();
+    break;
+  }
   }
 
   return target::metal::CreateKernelArg(*cache.fbb, argType, arg);
@@ -656,6 +672,7 @@ fabricConnectionConfigToFlatbuffer(
       *cache.fbb, toFlatbuffer(cache, fabricConnectionConfig.getNocIndex()),
       toFlatbuffer(cache, fabricConnectionConfig.getTopology()),
       fabricConnectionConfig.getClusterAxis(),
+      toFlatbuffer(fabricConnectionConfig.getRoutingMode()),
       fabricConnectionConfig.getNumLinks());
 }
 

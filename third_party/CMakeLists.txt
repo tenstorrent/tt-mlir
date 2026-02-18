@@ -1,6 +1,6 @@
 include(ExternalProject)
 
-set(TT_METAL_VERSION "845e68e669d8d9406b9c60fa0bd678de37c68bf1")
+set(TT_METAL_VERSION "d640ed5c093d82978e3256871f86f38f3bc13669")
 
 # Suppress install logs to avoid cluttering the build output
 set(CMAKE_INSTALL_MESSAGE NEVER)
@@ -269,6 +269,14 @@ install(
   DIRECTORY
     ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tests/tt_metal/tt_fabric/custom_mesh_descriptors
   DESTINATION tt-metal/tests/tt_metal/tt_fabric
+  COMPONENT DistributedRuntime
+  EXCLUDE_FROM_ALL
+)
+
+install(
+  DIRECTORY
+    ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tests/scale_out
+  DESTINATION tt-metal/tests/scale_out
   COMPONENT DistributedRuntime
   EXCLUDE_FROM_ALL
 )

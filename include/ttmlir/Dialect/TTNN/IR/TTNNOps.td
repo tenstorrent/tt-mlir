@@ -99,24 +99,6 @@ def TTNN_TypecastOp : TTNN_Op<"typecast"> {
     let hasVerifier = 1;
 }
 
-def TTNN_ToDTypeOp : TTNN_Op<"to_dtype"> {
-    let summary = "ToDType op.";
-    let description = [{
-      This op converts the data type of the input tensor based on the given data type on the host.
-
-      Args:
-        - :attr:`input`: the ttnn.Tensor
-        - :attr:`dtype`: `ttnn` data type.
-    }];
-
-    let arguments = (ins AnyRankedTensor:$input,
-                         TTCore_DataTypeAttr:$dtype);
-    let results = (outs AnyRankedTensor:$result);
-
-    let hasFolder = 1;
-    let hasCanonicalizeMethod = 1;
-    let hasVerifier = 1;
-}
 
 def TTNN_ToDeviceOp : TTNN_Op<"to_device"> {
     let summary = "ToDevice op.";
@@ -2613,6 +2595,25 @@ def TTNN_MeshShardOp: TTNN_Op<"mesh_shard"> {
     let hasVerifier = 1;
 }
 
+def TTNN_MeshPartitionOp: TTNN_Op<"mesh_partition", [TTNN_MemoryConfigOpInterface]> {
+  let summary = "Mesh partition operation.";
+  let description = [{
+    Mesh partition op.
+  }];
+  let arguments = (ins AnyRankedTensor:$input,
+                       SI32Attr:$dim,
+                       OptionalAttr<UI32Attr>:$cluster_axis,
+                       OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+  let results = (outs AnyRankedTensor:$result);
+  let hasVerifier = 1;
+
+  let extraClassDeclaration = [{
+    wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+      return wa::TTNNOperandsWorkaroundsFactory::createMeshPartitionOpOperandsWorkarounds();
+    }
+  }];
+}
+
 def TTNN_PermuteOp : TTNN_Op<"permute"> {
     let summary = "Permute operation.";
     let description = [{
@@ -2643,6 +2644,8 @@ def TTNN_PermuteOp : TTNN_Op<"permute"> {
           );
       }
     }];
+
+    let hasFolder = 1;
 }
 
 def TTNN_UpsampleOp : TTNN_Op<"upsample"> {

@@ -4,29 +4,16 @@
 
 #include "ttmlir/Target/TTNN/TTNNToFlatbuffer.h"
 
-#include "ttmlir/Dialect/Debug/IR/Debug.h"
 #include "ttmlir/Dialect/Debug/IR/DebugOps.h"
-#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
-#include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
-#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
-#include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
-#include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h"
-#include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
-#include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
-#include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
-#include "ttmlir/Dialect/TTNN/Transforms/TTNNToCpp.h"
-#include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/FunctionTypes.h"
 #include "ttmlir/Support/IRHasher.h"
-#include "ttmlir/Target/Common/Target.h"
 #include "ttmlir/Target/Common/types_generated.h"
 #include "ttmlir/Target/LLVM/LLVMToDynamicLib.h"
 #include "ttmlir/Target/TTKernel/TTKernelToCpp.h"
-#include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Target/TTNN/binary_generated.h"
 #include "ttmlir/Target/TTNN/operations/conv_generated.h"
 #include "ttmlir/Target/TTNN/operations/eltwise_generated.h"
@@ -39,7 +26,6 @@
 #include "ttmlir/Utils.h"
 #include "ttmlir/Version.h"
 
-#include "mlir/Dialect/EmitC/IR/EmitC.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Quant/IR/Quant.h"
 #include "mlir/Dialect/Quant/IR/QuantTypes.h"
@@ -307,18 +293,6 @@ createOp(FlatbufferObjectCache &cache, ToLayoutOp op) {
   return ::tt::target::ttnn::CreateToLayoutOp(
       *cache.fbb, input, layout, dtype,
       memoryConfig ? toFlatbuffer(cache, *memoryConfig) : 0, output);
-}
-
-::flatbuffers::Offset<::tt::target::ttnn::ToDTypeOp>
-createOp(FlatbufferObjectCache &cache, ToDTypeOp op) {
-  auto input = cache.at<::tt::target::ttnn::TensorRef>(
-      getOperandThroughDPSOps(op.getInput()));
-  ::tt::target::DataType dtype = toFlatbuffer(cache, op.getDtype());
-  auto output =
-      cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
-                                  /*local_shape*/ std::nullopt);
-
-  return ::tt::target::ttnn::CreateToDTypeOp(*cache.fbb, input, dtype, output);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::TypecastOp>
@@ -1026,6 +1000,20 @@ createOp(FlatbufferObjectCache &cache, Conv3dOp op) {
       op.getInputHeight(), op.getInputWidth(), kernelSize, stride, padding,
       paddingMode, op.getGroups(), outputDtype, conv3dConfig.value_or(0),
       computeConfig.value_or(0), memoryConfig);
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::MeshPartitionOp>
+createOp(FlatbufferObjectCache &cache, MeshPartitionOp op) {
+  auto input = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+  auto output =
+      cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
+                                  /*local_shape*/ std::nullopt);
+
+  auto memoryConfig = toFlatbuffer(cache, op.getMemoryConfig()).value_or(0);
+  return ::tt::target::ttnn::CreateMeshPartitionOp(
+      *cache.fbb, input, output, op.getDim(), op.getClusterAxis(),
+      memoryConfig);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::AllGatherOp>
@@ -2866,6 +2854,15 @@ createKernelArgs(FlatbufferObjectCache &cache,
       arg = ::tt::target::ttnn::CreateKernelArgSemaphoreAt(
                 *cache.fbb, kernelArgSemaphoreAtAttr.getSemaphoreIndex())
                 .Union();
+    } else if (auto kernelArgNamedArgument =
+                   llvm::dyn_cast<KernelArgNamedArgAttr>(argAttr);
+               kernelArgNamedArgument) {
+      argType = ::tt::target::ttnn::KernelArgType::KernelArgNamedArgument;
+      arg =
+          ::tt::target::ttnn::CreateKernelArgNamedArgument(
+              *cache.fbb, toFlatbuffer(cache, kernelArgNamedArgument.getName()),
+              kernelArgNamedArgument.getValue())
+              .Union();
     } else {
       llvm_unreachable("Unsupported kernel argument attribute");
     }
@@ -3000,6 +2997,17 @@ createProgramDescriptor(FlatbufferObjectCache &cache, ProgramAttr programAttr,
                                                            &semaphores, &cbs);
 }
 
+static ::tt::target::RoutingMode
+toFlatbuffer(tt::ttnn::RoutingMode routingMode) {
+  switch (routingMode) {
+  case ttnn::RoutingMode::BidirLineMesh:
+    return ::tt::target::RoutingMode::BidirLineMesh;
+  case ttnn::RoutingMode::UnidirRingTorus:
+    return ::tt::target::RoutingMode::UnidirRingTorus;
+  }
+  assert(false && "Unsupported RoutingMode");
+}
+
 static ::flatbuffers::Offset<::tt::target::ttnn::MeshProgramDescriptor>
 createMeshProgramDescriptor(FlatbufferObjectCache &cache,
                             MeshProgramDescriptorAttr meshProgramDescAttr,
@@ -3029,6 +3037,7 @@ createMeshProgramDescriptor(FlatbufferObjectCache &cache,
       *cache.fbb, toFlatbuffer(cache, fabricConnectionConfigAttr.getNocIndex()),
       toFlatbuffer(cache, fabricConnectionConfigAttr.getTopology()),
       fabricConnectionConfigAttr.getClusterAxis(),
+      toFlatbuffer(fabricConnectionConfigAttr.getRoutingMode()),
       fabricConnectionConfigAttr.getNumLinks());
 
   return ::tt::target::ttnn::CreateMeshProgramDescriptorDirect(
@@ -3346,10 +3355,6 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto toLayoutOp = dyn_cast<ToLayoutOp>(op); toLayoutOp) {
     return createOperation(cache, createOp(cache, toLayoutOp), debugString,
-                           locInfo);
-  }
-  if (auto toDTypeOp = dyn_cast<ToDTypeOp>(op); toDTypeOp) {
-    return createOperation(cache, createOp(cache, toDTypeOp), debugString,
                            locInfo);
   }
   if (auto typecastOp = dyn_cast<TypecastOp>(op); typecastOp) {
@@ -3749,6 +3754,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto allGatherOp = dyn_cast<AllGatherOp>(op); allGatherOp) {
     return createOperation(cache, createOp(cache, allGatherOp), debugString,
+                           locInfo);
+  }
+  if (auto meshPartitionOp = dyn_cast<MeshPartitionOp>(op); meshPartitionOp) {
+    return createOperation(cache, createOp(cache, meshPartitionOp), debugString,
                            locInfo);
   }
   if (auto allReduceOp = dyn_cast<AllReduceOp>(op); allReduceOp) {
