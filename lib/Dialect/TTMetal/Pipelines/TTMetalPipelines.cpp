@@ -135,6 +135,8 @@ void createTTIRToTTMetalMiddleendPipeline(
   }
 
   pm.addPass(d2m::createD2MGenericApplyInterchange(applyInterchangeOptions));
+
+  // After GenerateOuterLoops, all generic ops are in Affine Blocked form.
   pm.addPass(d2m::createD2MGenerateOuterLoops());
   d2m::D2MGenericAffineLoopFusionOptions loopFusionOptions;
   loopFusionOptions.enable = options.enableAffineLoopFusionAndScalarReplacement;
@@ -158,6 +160,9 @@ void createTTIRToTTMetalMiddleendPipeline(
   }
   pm.addPass(d2m::createD2MAllocate(allocateOptions));
   pm.addPass(d2m::createD2MLowerMulticastLoads());
+
+  // After LowerToExplicitForm, all generic op are in Explicit Datamovement
+  // form.
   pm.addPass(d2m::createD2MLowerToExplicitForm());
   pm.addPass(createCanonicalizerPassWithOptions(options));
   pm.addPass(d2m::createD2MDecomposeMasking());
