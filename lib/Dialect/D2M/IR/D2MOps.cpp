@@ -24,6 +24,8 @@
 #include "mlir/IR/Dominance.h"
 #include "mlir/IR/PatternMatch.h"
 
+#include "mlir/Dialect/Bufferization/IR/BufferizableOpInterface.h"
+#include "mlir/IR/ValueRange.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -81,6 +83,8 @@ mlir::LogicalResult d2m::EmptyOp::bufferize(
   return mlir::success();
 }
 
+// implement bufferiz interface, where we insert an alloc right above
+
 mlir::bufferization::AliasingValueList
 d2m::EmptyOp::getAliasingValues(mlir::OpOperand &,
                                 const mlir::bufferization::AnalysisState &) {
@@ -94,6 +98,54 @@ d2m::EmptyOp::getBufferType(mlir::Value value,
                             const mlir::bufferization::BufferizationState &,
                             ::llvm::SmallVector<mlir::Value> &) {
   return ttcore::getBufferType(value.getType(), /*isView=*/false);
+}
+
+//===----------------------------------------------------------------------===//
+// CreateGlobalSemaphoreOp
+//===----------------------------------------------------------------------===//
+
+bool d2m::CreateGlobalSemaphoreOp::bufferizesToMemoryRead(
+    mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+  return false;
+}
+
+bool d2m::CreateGlobalSemaphoreOp::bufferizesToMemoryWrite(
+    mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+  return true;
+}
+
+mlir::bufferization::AliasingValueList
+d2m::CreateGlobalSemaphoreOp::getAliasingValues(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  return {};
+}
+
+// move to verification:
+// if (getNumResults() == 0) {
+//   return failure();
+// }
+//
+// assert(getNumResults() == 1 && "ToLayoutOp should have exactly one result");
+//
+// if (!mlir::isa<::mlir::RankedTensorType>(getResult(0).getType())) {
+//   return failure();
+// }
+
+mlir::LogicalResult d2m::CreateGlobalSemaphoreOp::bufferize(
+    mlir::RewriterBase &rewriter,
+    const mlir::bufferization::BufferizationOptions &options,
+    mlir::bufferization::BufferizationState &state) {
+  // Only bufferize the input
+  auto maybeInput =
+      mlir::bufferization::getBuffer(rewriter, getInput(), options, state);
+  if (failed(maybeInput)) {
+    return maybeInput;
+  }
+
+  rewriter.replaceOpWithNewOp<CreateGlobalSemaphoreOp>(
+      *this, getResult().getType(), *maybeInput, getValue());
+
+  return success();
 }
 
 //===----------------------------------------------------------------------===//
@@ -1174,9 +1226,9 @@ void d2m::ViewLayoutOp::getCanonicalizationPatterns(
 
 void d2m::GenericOp::build(mlir::OpBuilder &builder,
                            mlir::OperationState &state, ValueRange inputs,
-                           ValueRange outputs, ArrayAttr indexingMaps,
-                           ArrayAttr iteratorTypes, ThreadType singleThreadType,
-                           ttcore::GridAttr grid,
+                           ValueRange outputs, ValueRange captures,
+                           ArrayAttr indexingMaps, ArrayAttr iteratorTypes,
+                           ThreadType singleThreadType, ttcore::GridAttr grid,
                            ArrayRef<int64_t> blockFactors) {
   TT_assertv(!indexingMaps.empty(), "expected non-empty indexing maps");
   TT_assertv(outputs.size() == 1u, "expected single output");
@@ -1276,22 +1328,27 @@ void d2m::GenericOp::build(mlir::OpBuilder &builder,
   auto threads =
       builder.getArrayAttr(builder.getAttr<ThreadAttr>(singleThreadType));
 
-  build(builder, state, TypeRange(outputs), inputs, outputs, grid,
+  build(builder, state, TypeRange(outputs), inputs, outputs, captures, grid,
         blockFactorsAttr, indexingMaps, iteratorTypes, threads,
         /*scratch_inputs=*/nullptr, 1);
 }
 
 void d2m::GenericOp::build(
     mlir::OpBuilder &builder, mlir::OperationState &state, ValueRange inputs,
-    ValueRange outputs, ArrayAttr indexingMaps, ArrayAttr iteratorTypes,
+    ValueRange outputs, ValueRange captures, ArrayAttr indexingMaps,
+    ArrayAttr iteratorTypes,
     llvm::function_ref<void(OpBuilder &, Location, ValueRange)>
         singleThreadRegionBuilder,
     ThreadType singleThreadType, ttcore::GridAttr grid,
     ArrayRef<int64_t> blockFactors) {
-  build(builder, state, inputs, outputs, indexingMaps, iteratorTypes,
+  build(builder, state, inputs, outputs, captures, indexingMaps, iteratorTypes,
         singleThreadType, grid, blockFactors);
+
+  auto nonCaptureOperands = llvm::SmallVector<Value>(
+      state.operands.begin(),
+      state.operands.begin() + inputs.size() + outputs.size());
   llvm::SmallVector<Type> blockTypes =
-      llvm::map_to_vector(TypeRange(state.operands), [&](Type t) -> Type {
+      llvm::map_to_vector(TypeRange(nonCaptureOperands), [&](Type t) -> Type {
         mlir::RankedTensorType tensorType = mlir::cast<RankedTensorType>(t);
         auto layout = mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
             tensorType.getEncoding());
@@ -1302,7 +1359,7 @@ void d2m::GenericOp::build(
           if (auto viewAttr = mlir::dyn_cast_if_present<ttcore::ViewLayoutAttr>(
                   tensorType.getEncoding())) {
             // Find the defining StreamLayoutOp to get its storage layout.
-            for (auto operand : state.operands) {
+            for (auto operand : nonCaptureOperands) {
               if (operand.getType() == t) {
                 if (auto streamOp =
                         operand.getDefiningOp<d2m::StreamLayoutOp>()) {
@@ -1325,7 +1382,8 @@ void d2m::GenericOp::build(
             shardShape, tensorType.getElementType()));
       });
   Region &region = *state.regions.front().get();
-  llvm::SmallVector<mlir::Location> locs(state.operands.size(), state.location);
+  llvm::SmallVector<mlir::Location> locs(nonCaptureOperands.size(),
+                                         state.location);
   OpBuilder::InsertionGuard guard(builder);
   Block *block = builder.createBlock(&region, region.end(), blockTypes, locs);
   singleThreadRegionBuilder(builder, state.location, block->getArguments());
@@ -1333,7 +1391,7 @@ void d2m::GenericOp::build(
 
 void d2m::GenericOp::build(
     mlir::OpBuilder &builder, mlir::OperationState &state, ValueRange inputs,
-    ValueRange outputs,
+    ValueRange outputs, ValueRange captures,
     llvm::function_ref<void(OpBuilder &, Location, ValueRange)>
         singleThreadRegionBuilder,
     ThreadType singleThreadType, ttcore::GridAttr grid,
@@ -1348,7 +1406,7 @@ void d2m::GenericOp::build(
                           : tensorType.getShape().size();
   auto [indexingMaps, iteratorTypes] = buildParallelAffineMapsAndIteratorTypes(
       builder, inputs.size() + outputs.size(), rank);
-  build(builder, state, inputs, outputs, indexingMaps, iteratorTypes,
+  build(builder, state, inputs, outputs, captures, indexingMaps, iteratorTypes,
         singleThreadRegionBuilder, singleThreadType, grid);
 }
 
@@ -1477,6 +1535,32 @@ static mlir::LogicalResult verifyAffineBlocking(
   }
 
   return mlir::success();
+}
+
+Operation::operand_range d2m::GenericOp::getNonCaptureOperands() {
+  return Operation::operand_range(getOperands().begin(),
+                                  getOperands().begin() + getInputs().size() +
+                                      getOutputs().size());
+}
+
+MutableArrayRef<OpOperand> d2m::GenericOp::getNonCaptureOpOperands() {
+  return MutableArrayRef<OpOperand>(getOperation()->getOpOperands().begin(),
+                                    getOperation()->getOpOperands().begin() +
+                                        getInputs().size() +
+                                        getOutputs().size());
+}
+
+MutableArrayRef<OpOperand> d2m::GenericOp::getCaptureOpOperands() {
+  return MutableArrayRef<OpOperand>(getOperation()->getOpOperands().begin() +
+                                        getInputs().size() +
+                                        getOutputs().size(),
+                                    getOperation()->getOpOperands().end());
+}
+
+Operation::operand_range d2m::GenericOp::getCaptureOperands() {
+  return Operation::operand_range(getOperands().begin() + getInputs().size() +
+                                      getOutputs().size(),
+                                  getOperands().end());
 }
 
 // GenericOp verification
@@ -1656,7 +1740,7 @@ static mlir::LogicalResult verifyAffineBlocking(
   if (hasGrid && !indexingMaps.empty()) {
     // Validate that all operands have device layouts before calling
     // getOperandGridShapes(), which assumes layouts are present
-    for (Value operand : getOperands()) {
+    for (Value operand : getNonCaptureOperands()) {
       auto result =
           llvm::TypeSwitch<Type, LogicalResult>(operand.getType())
               .Case<MemRefType>([&](MemRefType memrefType) -> LogicalResult {
@@ -1726,14 +1810,16 @@ static mlir::LogicalResult verifyAffineBlocking(
     }
   }
 
-  ValueTypeRange<OperandRange> operandTypes = getOperation()->getOperandTypes();
+  
+  ValueTypeRange<OperandRange> inputOutputOperandTypes =
+      getNonCaptureOperands().getTypes();
   auto *firstRegion = getRegions().begin();
   for (Region &region : getRegions()) {
     if (!region.hasOneBlock()) {
       return emitOpError("region must have a single block");
     }
 
-    if (region.getNumArguments() < this->getNumOperands()) {
+    if (region.getNumArguments() < inputOutputOperandTypes.size()) {
       return emitOpError("region must have at least as many "
                          "arguments as the number of top-level operands");
     }
@@ -1768,10 +1854,11 @@ static mlir::LogicalResult verifyAffineBlocking(
           "and iterator_types are empty)");
     }
 
-    auto valueArguments = region.getArguments().take_front(operandTypes.size());
+    auto valueArguments =
+        region.getArguments().take_front(inputOutputOperandTypes.size());
     for (BlockArgument arg : valueArguments) {
-      mlir::ShapedType operandType =
-          mlir::cast<mlir::ShapedType>(operandTypes[arg.getArgNumber()]);
+      mlir::ShapedType operandType = mlir::cast<mlir::ShapedType>(
+          inputOutputOperandTypes[arg.getArgNumber()]);
       ttcore::DeviceLayoutInterface layout =
           ttcore::getDeviceLayout(operandType);
       if (!layout) {
@@ -1788,8 +1875,8 @@ static mlir::LogicalResult verifyAffineBlocking(
       }
     }
 
-    auto additionalArguments =
-        region.getArguments().drop_front(operandTypes.size());
+    auto additionalArguments = region.getArguments().drop_front(
+        getInputs().size() + getOutputs().size());
     for (BlockArgument arg : additionalArguments) {
       bool supportedType = mlir::isa<SemaphoreType>(arg.getType());
       if (!supportedType) {
@@ -1821,6 +1908,33 @@ static mlir::LogicalResult verifyAffineBlocking(
       llvm::any_of(getOutputs(), isStreamingOutput)) {
     return emitOpError("Streaming outputs are not supported for reduction "
                        "iterators. Issue #5446");
+  }
+
+  // Verify that any values used in regions that are defined outside
+  // must be operands of this GenericOp.
+  for (Region &region : getRegions()) {
+    for (Block &block : region) {
+      for (Operation &op : block) {
+        for (Value operand : op.getOperands()) {
+          // Skip block arguments - they're defined within the region.
+          if (mlir::isa<BlockArgument>(operand)) {
+            continue;
+          }
+
+          // Check if the operand is defined outside this GenericOp.
+          Operation *definingOp = operand.getDefiningOp();
+          if (definingOp && !getOperation()->isAncestor(definingOp)) {
+            // It's defined outside - check if it's one of our operands.
+            bool isOurOperand = llvm::is_contained(getOperands(), operand);
+            if (!isOurOperand) {
+              return emitOpError("region uses value defined outside that is "
+                                 "not an operand of this generic op: ")
+                     << operand;
+            }
+          }
+        }
+      }
+    }
   }
 
   return success();
@@ -2005,7 +2119,7 @@ mlir::SmallVector<int64_t> d2m::GenericOp::getFullBlockFactors() {
       ttmlir::utils::concatInversePermutationMap(maps, /*reverse=*/false);
 
   SmallVector<int64_t> flattenedOperandShardShapes;
-  for (Value v : getOperands()) {
+  for (Value v : getNonCaptureOperands()) {
     auto shapedType = mlir::cast<ShapedType>(v.getType());
     ttcore::DeviceLayoutInterface layout = ttcore::getDeviceLayout(shapedType);
     TT_assertv(
@@ -2027,23 +2141,30 @@ mlir::SmallVector<int64_t> d2m::GenericOp::getFullBlockFactors() {
   return factorizations;
 }
 
+bool d2m::GenericOp::isOutputOperandIdx(unsigned int operandIndex) {
+  return operandIndex >= getOutputs().getBeginOperandIndex() &&
+         operandIndex <
+             getOutputs().getBeginOperandIndex() + getOutputs().size();
+}
+
 mlir::SmallVector<mlir::SmallVector<int64_t>>
 d2m::GenericOp::getOperandGridShapes() {
   SmallVector<SmallVector<int64_t>> gridShapes;
-  gridShapes.reserve(getOperands().size());
-  for (auto operand : this->getOperands()) {
-    auto memrefType = mlir::dyn_cast<MemRefType>(operand.getType());
-    if (memrefType) {
+  gridShapes.reserve(getNonCaptureOperands().size());
+  for (auto operand : this->getNonCaptureOperands()) {
+    if (auto memrefType = mlir::dyn_cast<MemRefType>(operand.getType())) {
       mlir::tt::ttcore::DeviceLayoutInterface layout =
           mlir::cast<mlir::tt::ttcore::DeviceLayoutInterface>(
               memrefType.getLayout());
       gridShapes.emplace_back(layout.getGridShape(memrefType));
-    } else {
-      auto tensorType = mlir::cast<RankedTensorType>(operand.getType());
+    } else if (auto tensorType =
+                   mlir::dyn_cast<RankedTensorType>(operand.getType())) {
       ttcore::MetalLayoutAttr layout =
           mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
 
       gridShapes.emplace_back(layout.getGridShape(tensorType));
+    } else {
+      // error out if not capture operand??
     }
   }
   return gridShapes;
@@ -2052,10 +2173,14 @@ d2m::GenericOp::getOperandGridShapes() {
 mlir::SmallVector<mlir::SmallVector<int64_t>>
 d2m::GenericOp::getOperandShardShapes(bool convertTileToScalar) {
   SmallVector<SmallVector<int64_t>> shardShapes;
-  shardShapes.reserve(getOperands().size());
+  shardShapes.reserve(getNonCaptureOperands().size());
 
-  for (auto operand : this->getOperands()) {
-    auto shapedType = mlir::cast<ShapedType>(operand.getType());
+  for (auto operand : this->getNonCaptureOperands()) {
+    auto shapedType = mlir::dyn_cast<ShapedType>(operand.getType());
+    if (!shapedType) {
+      continue;
+    }
+
     mlir::tt::ttcore::DeviceLayoutInterface layout;
     Type elementType;
 
@@ -2063,13 +2188,14 @@ d2m::GenericOp::getOperandShardShapes(bool convertTileToScalar) {
       layout = mlir::cast<mlir::tt::ttcore::DeviceLayoutInterface>(
           memrefType.getLayout());
       elementType = memrefType.getElementType();
-    } else {
-      auto tensorType = mlir::cast<RankedTensorType>(shapedType);
+    } else if (auto tensorType = mlir::dyn_cast<RankedTensorType>(shapedType)) {
       layout = mlir::cast<mlir::tt::ttcore::DeviceLayoutInterface>(
           tensorType.getEncoding());
 
       assert(layout && "Expected DeviceLayoutInterface.");
       elementType = tensorType.getElementType();
+    } else {
+      // error
     }
 
     auto tileType = mlir::dyn_cast<ttcore::TileType>(elementType);
@@ -2131,7 +2257,7 @@ std::optional<SmallVector<int64_t>> d2m::GenericOp::computeGridDimConstraints(
   // predicate.
   SmallVector<SmallVector<int64_t>> filteredShapes;
   SmallVector<AffineMap> filteredIndexingMaps;
-  for (auto [operandIdx, operand] : llvm::enumerate(getOperands())) {
+  for (auto [operandIdx, operand] : llvm::enumerate(getNonCaptureOperands())) {
     auto metalTensor = mlir::cast<mlir::RankedTensorType>(operand.getType());
     auto baseMetalLayout =
         mlir::cast<ttcore::MetalLayoutAttr>(metalTensor.getEncoding());
@@ -2216,9 +2342,9 @@ mlir::LogicalResult d2m::GenericOp::bufferize(
     bufferOutputs.push_back(*maybeValue);
   }
   auto bufferGeneric = rewriter.create<d2m::GenericOp>(
-      getLoc(), ValueRange(), bufferInputs, bufferOutputs, getGrid(),
-      getBlockFactors(), getIndexingMaps(), getIteratorTypes(), getThreads(),
-      getScratchInputsAttr(), getNumRegions());
+      getLoc(), ValueRange(), bufferInputs, bufferOutputs, getCaptures(),
+      getGrid(), getBlockFactors(), getIndexingMaps(), getIteratorTypes(),
+      getThreads(), getScratchInputsAttr(), getNumRegions());
   for (mlir::Region &region : bufferGeneric.getRegions()) {
     region.takeBody(getRegion(region.getRegionNumber()));
   }

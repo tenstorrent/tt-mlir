@@ -1204,6 +1204,7 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetMyDeviceIdOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::FabricWriteOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::FabricMulticastWriteOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::FabricSemIncOp>,
         TTKernelToEmitCOpaqueRewriter<
             ttkernel::CreateFabricConnectionManagerOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::SetupFabricConnectionsOp>,

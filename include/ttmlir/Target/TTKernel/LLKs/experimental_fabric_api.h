@@ -273,6 +273,50 @@ FORCE_INLINE void fabric_mcast_fast_write_any_len(
   }
 }
 
+FORCE_INLINE void fabric_semaphore_increment_helper(
+    WorkerToFabricEdmSender &connection,
+    volatile tt_l1_ptr PACKET_HEADER_TYPE *packet_header, uint64_t dest_addr,
+    uint32_t incr) {
+  packet_header->to_noc_unicast_atomic_inc(
+      NocUnicastAtomicIncCommandHeader{dest_addr, incr});
+
+  connection.wait_for_empty_write_slot();
+  connection.send_payload_flush_non_blocking_from_address(
+      reinterpret_cast<uint32_t>(packet_header), sizeof(PACKET_HEADER_TYPE));
+
+  noc_async_writes_flushed();
+}
+
+FORCE_INLINE void
+fabric_sem_inc(FabricConnectionManager &fabric_connection_manager,
+               uint16_t dst_mesh_id, uint16_t dst_dev_id, uint64_t dest_addr,
+               uint32_t incr) {
+  tt_l1_ptr routing_l1_info_t *routing_table =
+      reinterpret_cast<tt_l1_ptr routing_l1_info_t *>(
+          MEM_TENSIX_ROUTING_TABLE_BASE);
+  uint16_t my_device_id = routing_table->my_device_id;
+  uint16_t my_mesh_id = routing_table->my_mesh_id;
+  WAYPOINT("DA21");
+  ASSERT(my_mesh_id == dst_mesh_id); // we dont support inter-mesh routing yet
+
+  auto unicast_params = get_unicast_params(
+      fabric_connection_manager.get_topology(), my_device_id, dst_dev_id);
+  auto [connection, packet_header] =
+      fabric_connection_manager.get_connection_and_packet_header(
+          unicast_params.outgoing_direction);
+#ifdef FABRIC_2D
+  fabric_set_unicast_route_custom(
+      static_cast<volatile tt_l1_ptr HybridMeshPacketHeader *>(packet_header),
+      dst_dev_id, dst_mesh_id, unicast_params.ns_hops, unicast_params.ew_hops,
+      unicast_params.ns_dir, unicast_params.ew_dir);
+#else // 1D fabric
+  static_cast<volatile tt_l1_ptr LowLatencyPacketHeader *>(packet_header)
+      ->to_chip_unicast(unicast_params.num_hops);
+#endif
+
+  fabric_semaphore_increment_helper(connection, packet_header, dest_addr, incr);
+}
+
 } // namespace experimental
 
 #endif

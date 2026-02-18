@@ -36,15 +36,22 @@ namespace mlir::tt::ttmetal {
 }
 
 ::mlir::LogicalResult EnqueueProgramOp::verify() {
-  for (auto operand : getOperands()) {
-    ::mlir::MemRefType operandType = mlir::cast<MemRefType>(operand.getType());
-    ttcore::MemorySpaceAttr memSpaceAttr =
-        mlir::cast<ttcore::MemorySpaceAttr>(operandType.getMemorySpace());
-    if (not isDeviceMemorySpace(memSpaceAttr.getValue())) {
-      return emitOpError(
-          "Operand tensor to EnqueueProgramOp must be in device memory space");
-    }
-  }
+  // for (auto operand : getOperands()) {
+  //   if (auto globalSemaphoreType =
+  //   mlir::cast<ttkernel::GlobalSemaphoreType>(operand.getType())) {
+  //     continue;
+  //   }
+  //   if (::mlir::MemRefType memRefType =
+  //   mlir::cast<MemRefType>(operand.getType())) {
+  //     ttcore::MemorySpaceAttr memSpaceAttr =
+  //         mlir::cast<ttcore::MemorySpaceAttr>(memRefType.getMemorySpace());
+  //     if (not isDeviceMemorySpace(memSpaceAttr.getValue())) {
+  //       return emitOpError(
+  //           "Operand tensor to EnqueueProgramOp must be in device memory
+  //           space");
+  //     }
+  //   }
+  // }
   return success();
 }
 
