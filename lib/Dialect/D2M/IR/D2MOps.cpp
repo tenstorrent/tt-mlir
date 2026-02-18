@@ -7,6 +7,7 @@
 #include "ttmlir/AffineMapUtils.h"
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
+#include "ttmlir/Dialect/D2M/Utils/DMAUtils.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/Dialect/D2M/Utils/VirtualGrid.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
@@ -1623,6 +1624,14 @@ static mlir::LogicalResult verifyAffineBlocking(
                              opGridMap, opGridShape, emitDiag);
     if (failed(blockFactorResult)) {
       return blockFactorResult;
+    }
+  }
+
+  // Unified form will be replicated across compute and datamovement threads.
+  // Reject semaphore ops that would create race conditions when replicated.
+  if (isUnifiedForm()) {
+    if (failed(utils::checkForIllegalSemaphoreOps(&getRegion(0).front()))) {
+      return failure();
     }
   }
 
