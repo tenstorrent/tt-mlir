@@ -4,6 +4,7 @@
 
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
+#include "ttmlir/Dialect/D2M/Utils/Utils.h"
 
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/IR/AffineExpr.h"
@@ -123,7 +124,7 @@ public:
       Block &checkBlock = checkRegion.front();
       for (Operation &op : checkBlock.getOperations()) {
         if (auto forOp = mlir::dyn_cast<affine::AffineForOp>(&op)) {
-          if (forOp->hasAttr("d2m.blocking_loop")) {
+          if (forOp->hasAttr(utils::kBlockingLoopAttr)) {
             return failure();
           }
         }
@@ -158,7 +159,7 @@ public:
     // iterating over its block factors. The generic operation's regions contain
     // the "inner" computation that executes within each loop iteration.
     for (auto [i, loop] : llvm::enumerate(loops)) {
-      loop->setAttr("d2m.blocking_loop",
+      loop->setAttr(utils::kBlockingLoopAttr,
                     rewriter.getI64IntegerAttr(static_cast<int64_t>(i)));
     }
 

@@ -333,6 +333,7 @@ def D2M_GenericOp
       }
       bool isImplicitBlockedForm();
       bool isAffineBlockedForm();
+      ::mlir::affine::AffineForOp getOuterAffineBlockingLoopOp();
       bool isExplicitDatamovementForm() {
         return getBlockFactors().empty() &&
                getIndexingMaps().empty() &&
@@ -365,6 +366,7 @@ def D2M_GenericOp
       int64_t getOperandIndex(Value operand);
       bool hasCompatibleBlocking(GenericOp gOp);
       bool hasSkipOpEltwiseFusionTrait();
+      bool hasSkipOpAffineLoopFusionTrait();
       bool hasReduction();
       bool hasMultiUseInputOperand();
       bool isAllParallel();

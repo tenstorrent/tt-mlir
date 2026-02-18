@@ -36,6 +36,11 @@ template <typename ConcreteType>
 struct D2MSkipOpEltwiseFusionTrait
     : public OpTrait::TraitBase<ConcreteType, D2MSkipOpEltwiseFusionTrait> {};
 
+template <typename ConcreteType>
+struct D2MSkipOpAffineLoopFusionTrait
+    : public OpTrait::TraitBase<ConcreteType, D2MSkipOpAffineLoopFusionTrait> {
+};
+
 } // namespace mlir::tt::d2m
 
 #endif // TTMLIR_DIALECT_D2M_IR_D2MTRAITS_H

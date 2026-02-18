@@ -61,4 +61,8 @@ def D2M_GenericRegionDatamovementOpTrait : D2M_Trait<"D2MGenericRegionDatamoveme
 // to skip the ElementwiseFusion pass
 def D2M_SkipOpEltwiseFusionTrait : D2M_Trait<"D2MSkipOpEltwiseFusionTrait">;
 
+// SkipOpAffineLoopFusion is a trait that can be used to mark specific operations
+// to skip the GenericAffineLoopFusion and GenericAffineScalarReplacement passes.
+def D2M_SkipOpAffineLoopFusionTrait : D2M_Trait<"D2MSkipOpAffineLoopFusionTrait">;
+
 #endif // TTMLIR_TTMLIR_DIALECT_D2M_D2MDIALECT_TD
