@@ -5363,7 +5363,8 @@ class StableHLOBuilder(Builder):
 
         if not self._disable_golden_check:
             op_golden_function = get_golden_function(stablehlo_op)
-            golden_output = op_golden_function(value_attr)
+            mesh_shape_attr = DenseI32ArrayAttr.get(self._mesh_shape)
+            golden_output = op_golden_function(value_attr, mesh_shape_attr)
             self._set_golden_tensor(op_result, golden_output)
 
         return op_result
@@ -5385,7 +5386,8 @@ class StableHLOBuilder(Builder):
 
         if not self._disable_golden_check:
             op_golden_function = get_golden_function(stablehlo_op)
-            golden_output = op_golden_function(value_attr)
+            mesh_shape_attr = DenseI32ArrayAttr.get(self._mesh_shape)
+            golden_output = op_golden_function(value_attr, mesh_shape_attr)
             self._set_golden_tensor(new_op_result, golden_output)
 
         op_map_dictionary = {}
@@ -5419,7 +5421,10 @@ class StableHLOBuilder(Builder):
 
                     if not self._disable_golden_check:
                         op_golden_function = get_golden_function(stablehlo_op)
-                        golden_output = op_golden_function(value_attr)
+                        mesh_shape_attr = DenseI32ArrayAttr.get(
+                            constant_builder._mesh_shape
+                        )
+                        golden_output = op_golden_function(value_attr, mesh_shape_attr)
                         constant_builder._set_golden_tensor(
                             new_op_result, golden_output
                         )
@@ -5473,9 +5478,11 @@ class StableHLOBuilder(Builder):
 
         if not self._disable_golden_check:
             op_golden_function = get_golden_function(stablehlo_op)
+            mesh_shape_attr = DenseI32ArrayAttr.get(self._mesh_shape)
             golden_output = op_golden_function(
                 iota_dimension_attr,
                 DenseI64ArrayAttr.get(list(op.result.type.shape)),
+                mesh_shape_attr,
                 op.result.type.element_type,
             )
             self._set_golden_tensor(op_result, golden_output)
@@ -5502,9 +5509,11 @@ class StableHLOBuilder(Builder):
 
         if not self._disable_golden_check:
             op_golden_function = get_golden_function(stablehlo_op)
+            mesh_shape_attr = DenseI32ArrayAttr.get(self._mesh_shape)
             golden_output = op_golden_function(
                 iota_dimension_attr,
                 DenseI64ArrayAttr.get(list(new_op_result.type.shape)),
+                mesh_shape_attr,
                 new_op_result.type.element_type,
             )
             self._set_golden_tensor(new_op_result, golden_output)
@@ -5545,9 +5554,13 @@ class StableHLOBuilder(Builder):
 
                     if not self._disable_golden_check:
                         op_golden_function = get_golden_function(stablehlo_op)
+                        mesh_shape_attr = DenseI32ArrayAttr.get(
+                            iota_builder._mesh_shape
+                        )
                         golden_output = op_golden_function(
                             iota_dimension_attr,
                             DenseI64ArrayAttr.get(list(new_op_result.type.shape)),
+                            mesh_shape_attr,
                             new_op_result.type.element_type,
                         )
                         iota_builder._set_golden_tensor(new_op_result, golden_output)
@@ -5604,8 +5617,12 @@ class StableHLOBuilder(Builder):
         if not self._disable_golden_check:
             op_golden_function = get_golden_function(stablehlo_op)
             output_shape_golden = self._get_golden_tensor(output_shape)
+            mesh_shape_attr = DenseI64ArrayAttr.get(self._mesh_shape)
             golden_output = op_golden_function(
-                output_shape_golden, iota_dimension_attr, op.result.type.element_type
+                output_shape_golden,
+                iota_dimension_attr,
+                mesh_shape_attr,
+                op.result.type.element_type,
             )
             self._set_golden_tensor(op_result, golden_output)
 
@@ -5634,9 +5651,11 @@ class StableHLOBuilder(Builder):
         if not self._disable_golden_check:
             op_golden_function = get_golden_function(stablehlo_op)
             output_shape_golden = self._get_golden_tensor(output_shape)
+            mesh_shape_attr = DenseI64ArrayAttr.get(self._mesh_shape)
             golden_output = op_golden_function(
                 output_shape_golden,
                 iota_dimension_attr,
+                mesh_shape_attr,
                 new_op_result.type.element_type,
             )
             self._set_golden_tensor(new_op_result, golden_output)
@@ -5686,9 +5705,13 @@ class StableHLOBuilder(Builder):
                         output_shape_golden = dynamic_iota_builder._get_golden_tensor(
                             output_shape
                         )
+                        mesh_shape_attr = DenseI64ArrayAttr.get(
+                            dynamic_iota_builder._mesh_shape
+                        )
                         golden_output = op_golden_function(
                             output_shape_golden,
                             iota_dimension_attr,
+                            mesh_shape_attr,
                             new_op_result.type.element_type,
                         )
                         dynamic_iota_builder._set_golden_tensor(
@@ -7047,7 +7070,8 @@ class StableHLOBuilder(Builder):
                 init_value_op = stablehlo.ConstantOp(init_attr, loc=loc).result
                 if not self._disable_golden_check:
                     init_golden_function = get_golden_function(stablehlo.ConstantOp)
-                    init_golden = init_golden_function(init_attr)
+                    mesh_shape_attr = DenseI32ArrayAttr.get(self._mesh_shape)
+                    init_golden = init_golden_function(init_attr, mesh_shape_attr)
                     self._set_golden_tensor(init_value_op, init_golden)
             else:
                 init_value_op = init_value
