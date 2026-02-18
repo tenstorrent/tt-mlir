@@ -1929,6 +1929,51 @@ mlir::SmallVector<int64_t> d2m::GenericOp::getBlockFactorsValue() {
   });
 }
 
+bool d2m::GenericOp::isAffineBlockedForm() {
+  // block_factors, indexing_maps, and iterator_types must all be non-empty.
+  if (getBlockFactors().empty() || getIndexingMaps().empty() ||
+      getIteratorTypes().empty()) {
+    return false;
+  }
+
+  // Must have a single region with Unified thread type.
+  if (getNumRegions() != 1 || getRegionThreadType(0) != ThreadType::Unified) {
+    return false;
+  }
+
+  // Each block factor dimension must have a corresponding affine.for loop
+  // whose upper bound is defined by a get_block_factor() op.
+  unsigned numBlockFactors = static_cast<unsigned>(getBlockFactors().size());
+  SmallVector<bool> factorUsed(numBlockFactors, false);
+  unsigned loopCount = 0;
+
+  getRegion(0).walk([&](affine::AffineForOp forOp) {
+    if (!forOp->hasAttr("d2m.blocking_loop")) {
+      return;
+    }
+    ++loopCount;
+
+    auto ubOperands = forOp.getUpperBoundOperands();
+    if (ubOperands.size() != 1) {
+      return;
+    }
+
+    auto getBlockFactorOp =
+        dyn_cast_or_null<GetBlockFactorOp>(ubOperands[0].getDefiningOp());
+    if (!getBlockFactorOp) {
+      return;
+    }
+
+    int64_t dim = getBlockFactorOp.getDim();
+    if (dim >= 0 && static_cast<unsigned>(dim) < numBlockFactors) {
+      factorUsed[static_cast<unsigned>(dim)] = true;
+    }
+  });
+
+  return loopCount == numBlockFactors &&
+         llvm::all_of(factorUsed, [](bool used) { return used; });
+}
+
 mlir::SmallVector<int64_t> d2m::GenericOp::getFullBlockFactors() {
   auto maps = getIndexingMapsValue();
   // Priority doesn't matter here, so reverse can be false.
