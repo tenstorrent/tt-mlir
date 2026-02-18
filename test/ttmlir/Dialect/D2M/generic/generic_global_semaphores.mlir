@@ -5,6 +5,7 @@
 // 1. Creating a global semaphore with d2m.create_global_semaphore
 // 2. Passing the global semaphore as a runtime arg operand to d2m.generic
 // 3. Using d2m.semaphore_set and d2m.semaphore_wait with the global semaphore inside the generic region
+// 4. Ensuring that the liveness analysis is working for the global semaphore buffer.
 
 #l1 = #ttcore.memory_space<l1>
 #map = affine_map<(d0, d1) -> (d0, d1)>
@@ -18,8 +19,7 @@ func.func @generic_with_global_semaphore(
   %output = d2m.empty() : tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout>
 
   // Create a global semaphore with initial value 0
-  // CHECK: "ttmetal.create_buffer"() <{address = [[SEM_ADDRESS:[0-9]+]] : i64}> : () -> memref<8x8x1x1xui32, #ttcore.shard<4x4, 1>, #l1>
-  "ttmetal.create_buffer"() <{address = 1024 : i64}> : () -> memref<8x8x1x1xui32, #ttcore.shard<4x4, 1>, #l1>
+  // CHECK: %[[SEM_BACKING:.*]] = "ttmetal.create_buffer"() <{address = [[SEM_ADDRESS:[0-9]+]] : i64}> : () -> memref<8x8x1x1xui32, #ttcore.shard<4x4, 1>, #l1>
   %sem_backing = d2m.empty() : tensor<8x8x1x1xui32, #sem_layout>
   // CHECK: "ttmetal.create_global_semaphore"() <{address = [[SEM_ADDRESS]] : i64, core_range = #ttmetal.core_range<0x0, 8x8>, initial_value = 0 : ui32}> : () -> !ttkernel.global_semaphore
   %sem = d2m.create_global_semaphore(%sem_backing) {value = 0 : ui32}
@@ -39,6 +39,8 @@ func.func @generic_with_global_semaphore(
 
   // CHECK: ttmetal.enqueue_program
   // CHECK-SAME: #ttmetal.kernel_args< ct_args = [{{.*}}<global_semaphore[2]>{{.*}}]
+  // The below check is to ensure that the semaphore buffer is deallocated after the generic operation (i.e liveness analysis is working).
+  // CHECK: "ttmetal.deallocate_buffer"(%[[SEM_BACKING]])
   // CHECK: func.func {{.*}} {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [{{.*}}<arg_type = global_semaphore, operand_index = {{[0-9]+}}>{{.*}}]>, {{.*}}}
   // CHECK: "noc_semaphore_wait"
   // CHECK: "noc_semaphore_set"
