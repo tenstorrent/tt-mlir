@@ -362,14 +362,14 @@ module {
 
   // Test 9: semaphore_wait in datamovement region is replicated across split DM threads
   // CHECK-LABEL: func.func @test_semaphore_wait_replicated
-  func.func @test_semaphore_wait_replicated(%arg0: memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #dram>,
-                                            %arg1: memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #dram>) {
+  func.func @test_semaphore_wait_replicated(%arg0: memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>,
+                                            %arg1: memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>) {
     %alloc = memref.alloc() {alignment = 64 : i64} : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>
 
     // CHECK: d2m.generic
     // CHECK-SAME: threads = [#d2m.thread<datamovement>, #d2m.thread<datamovement>, #d2m.thread<compute>]
     d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<2x4>, indexing_maps = [#map, #map, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]}
-        ins(%arg0, %arg1 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #dram>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #dram>)
+        ins(%arg0, %arg1 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>)
         outs(%alloc : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)  {
     ^datamovement0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %cb1: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %cb2: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %sem0: !d2m.semaphore):
       // CHECK: ^datamovement0
@@ -390,8 +390,8 @@ module {
           %0 = arith.addi %core0, %arg2 : index
           %1 = arith.addi %core1, %arg3 : index
           d2m.semaphore_wait %sem0, %c1
-          d2m.remote_load %arg0[%0, %1] into %cb0 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #dram> into !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
-          d2m.remote_load %arg1[%0, %1] into %cb1 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #dram> into !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+          d2m.remote_load %arg0[%0, %1] into %cb0 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram> into !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+          d2m.remote_load %arg1[%0, %1] into %cb1 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram> into !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
         } {d2m.outer_loop}
       } {d2m.outer_loop}
     }, {
