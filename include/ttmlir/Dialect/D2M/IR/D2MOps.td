@@ -325,6 +325,10 @@ def D2M_GenericOp
                getIndexingMaps().empty() &&
                getIteratorTypes().empty();
       }
+      bool isUnifiedForm() {
+        return getNumRegions() == 1 &&
+               getRegionThreadType(0) == ThreadType::Unified;
+      }
       bool isExternalSymbolForm() { return getRegions().empty(); }
       SmallVector<SmallVector<int64_t>> getOperandGridShapes();
       SmallVector<int64_t> getLoopBounds();
