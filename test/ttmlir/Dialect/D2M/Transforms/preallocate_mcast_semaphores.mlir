@@ -18,7 +18,7 @@ module {
     // CHECK: ^{{.*}}(%{{.*}}: !d2m.cb<{{.*}}>, %{{.*}}: !d2m.cb<{{.*}}>, %[[SEM0:.*]]: !d2m.semaphore, %[[SEM1:.*]]: !d2m.semaphore):
     // CHECK: d2m.remote_load {{.*}} {preallocated_semaphores = [2, 3]}
     // CHECK: ^{{.*}}(%{{.*}}: !d2m.cb<{{.*}}>, %{{.*}}: !d2m.cb<{{.*}}>, %{{.*}}: !d2m.semaphore, %{{.*}}: !d2m.semaphore):
-    d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<4x4>, indexing_maps = [#map, #map], iterator_types = [#parallel, #reduction], threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]}
+    d2m.generic {block_factors = [], grid = #ttcore.grid<4x4>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]}
         ins(%arg0 : memref<4x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #dram>)
         outs(%alloc : memref<4x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)  {
     ^datamovement0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %cb1: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>):
@@ -59,7 +59,7 @@ module {
     // CHECK: ^datamovement0(%cb0: !d2m.cb<{{.*}}>, %cb1: !d2m.cb<{{.*}}>):
     // CHECK: d2m.remote_load
     // CHECK-NOT: preallocated_semaphores
-    d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<2x4>, indexing_maps = [#map, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]}
+    d2m.generic {block_factors = [], grid = #ttcore.grid<2x4>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]}
         ins(%arg0 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #dram>)
         outs(%alloc : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)  {
     ^datamovement0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %cb1: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>):
@@ -101,7 +101,7 @@ module {
     // CHECK: d2m.remote_load{{.*}}into %cb0{{.*}} {preallocated_semaphores = [3, 4]}
     // Second load gets indices [5, 6]
     // CHECK: d2m.remote_load{{.*}}into %cb1{{.*}} {preallocated_semaphores = [5, 6]}
-    d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<4x4>, indexing_maps = [#map, #map, #map], iterator_types = [#parallel, #reduction], threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]}
+    d2m.generic {block_factors = [], grid = #ttcore.grid<4x4>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]}
         ins(%arg0, %arg1 : memref<4x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #dram>, memref<4x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #dram>)
         outs(%alloc : memref<4x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)  {
     ^datamovement0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %cb1: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %cb2: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>):
@@ -148,7 +148,7 @@ module {
     // CHECK: d2m.remote_load{{.*}}into %cb0{{.*}} {preallocated_semaphores = [3, 4]}
     // Non-multicast load does NOT get the attribute
     // CHECK: d2m.remote_load{{.*}}into %cb1{{.*}}{{$}}
-    d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<4x4>, indexing_maps = [#map, #map, #map], iterator_types = [#parallel, #reduction], threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]}
+    d2m.generic {block_factors = [], grid = #ttcore.grid<4x4>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]}
         ins(%arg0, %arg1 : memref<4x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #dram>, memref<4x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #dram>)
         outs(%alloc : memref<4x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)  {
     ^datamovement0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %cb1: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %cb2: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>):
@@ -192,7 +192,7 @@ module {
     // Block args should only have CBs, no semaphores
     // CHECK: ^datamovement0(%cb0: !d2m.cb<{{.*}}>, %cb1: !d2m.cb<{{.*}}>):
     // CHECK-NOT: !d2m.semaphore
-    d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<2x4>, indexing_maps = [#map, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]}
+    d2m.generic {block_factors = [], grid = #ttcore.grid<2x4>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]}
         ins(%arg0 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)
         outs(%alloc : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)  {
     ^datamovement0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %cb1: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>):
