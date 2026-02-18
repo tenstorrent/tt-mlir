@@ -399,6 +399,11 @@ std::vector<std::uint32_t> processKernelArgs(
     const std::unordered_map<std::uint32_t,
                              std::shared_ptr<tt_metal::distributed::MeshBuffer>>
         &meshBuffers,
+    const flatbuffers::Vector<
+        flatbuffers::Offset<tt::target::metal::GlobalSemaphoreRef>>
+        *global_semaphore_operands,
+    const std::unordered_map<std::uint32_t, tt_metal::GlobalSemaphore>
+        &global_semaphores_cache,
     const flatbuffers::Vector<flatbuffers::Offset<tt::target::metal::CBRef>>
         *cbs,
     const DeviceAddressValidator &deviceAddressValidator,
@@ -447,6 +452,24 @@ std::vector<std::uint32_t> processKernelArgs(
       argsVec.push_back(arg->value());
       break;
     }
+    case target::metal::KernelArgType::KernelArgGlobalSemaphore: {
+      const auto *arg = kernelArg->arg_as_KernelArgGlobalSemaphore();
+      arg->operand_idx();
+      const tt::target::metal::GlobalSemaphoreRef *global_semaphore_operand =
+          global_semaphore_operands->Get(arg->operand_idx());
+      LOG_ASSERT(
+          global_semaphores_cache.find(global_semaphore_operand->global_id()) !=
+              global_semaphores_cache.end(),
+          "Global semaphore id referenced by rt args is no longer alive or was "
+          "never created ",
+          logger::Buffer(global_semaphore_operand->global_id()));
+
+      argsVec.push_back(deviceAddressValidator(
+          global_semaphores_cache.at(global_semaphore_operand->global_id())
+              .address(),
+          target::BufferType::L1));
+      break;
+    }
     case target::metal::KernelArgType::NONE:
       LOG_FATAL("Unsupported runtime arg type");
     }
@@ -478,12 +501,18 @@ createKernelConfig(
     const std::unordered_map<std::uint32_t,
                              std::shared_ptr<tt_metal::distributed::MeshBuffer>>
         &meshBuffers,
+    const flatbuffers::Vector<
+        flatbuffers::Offset<tt::target::metal::GlobalSemaphoreRef>>
+        *global_semaphore_operands,
+    const std::unordered_map<std::uint32_t, tt_metal::GlobalSemaphore>
+        &global_semaphores_cache,
     const flatbuffers::Vector<flatbuffers::Offset<tt::target::metal::CBRef>>
         *cbs,
     const DeviceAddressValidator &deviceAddressValidator,
     std::function<std::uint32_t(std::uint32_t, CoreType)> createSemaphoreFn) {
   std::vector<uint32_t> compileArgs =
       processCompileArgs(kernelConfig->args()->ct_args(), buffers, meshBuffers,
+                         global_semaphore_operands, global_semaphores_cache,
                          cbs, deviceAddressValidator, createSemaphoreFn);
   switch (kernelConfig->type_type()) {
   case target::metal::KernelConfigType::NocConfig: {
