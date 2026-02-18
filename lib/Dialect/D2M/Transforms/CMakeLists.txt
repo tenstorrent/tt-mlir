@@ -5,6 +5,7 @@ add_mlir_dialect_library(MLIRD2MTransforms
         DecomposeMasking.cpp
         DecomposeComplexPermute.cpp
         GenericApplyInterchange.cpp
+        GenericAffineUtils.cpp
         GenericLinearizeMemref.cpp
         GenericRegionsToFuncs.cpp
         GenericReplaceGlobals.cpp
@@ -23,6 +24,8 @@ add_mlir_dialect_library(MLIRD2MTransforms
         RankNormalization.cpp
         ScalarizeConstTensors.cpp
         GenerateOuterLoops.cpp
+        GenericAffineLoopFusion.cpp
+        GenericAffineScalarReplacement.cpp
         LowerToExplicitForm.cpp
         LowerMulticastLoads.cpp
         SplitUnifiedThread.cpp
@@ -41,6 +44,8 @@ add_mlir_dialect_library(MLIRD2MTransforms
         MLIRTTCoreOpsIncGen
 
         LINK_LIBS PUBLIC
+        MLIRAffineAnalysis
+        MLIRAffineUtils
         MLIRArithDialect
         MLIRD2MAnalysis
         MLIRD2MUtils

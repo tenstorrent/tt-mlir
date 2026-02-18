@@ -2374,6 +2374,19 @@ bool d2m::GenericOp::hasSkipOpEltwiseFusionTrait() {
   return skipFusion;
 }
 
+/// Returns true if op or any of the operations nested within its regions have
+/// the D2MSkipOpAffineLoopFusionTrait.
+bool d2m::GenericOp::hasSkipOpAffineLoopFusionTrait() {
+  bool skipFusion = false;
+
+  walk([&](Operation *op) {
+    skipFusion |= op->hasTrait<D2MSkipOpAffineLoopFusionTrait>();
+    return skipFusion ? WalkResult::interrupt() : WalkResult::advance();
+  });
+
+  return skipFusion;
+}
+
 bool d2m::GenericOp::hasReduction() {
   SmallVector<Attribute> iters = llvm::to_vector(getIteratorTypes());
   return llvm::any_of(iters, [](Attribute it) {
