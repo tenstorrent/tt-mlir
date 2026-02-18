@@ -45,27 +45,30 @@ module attributes {ttcore.system_desc = #system_desc} {
     ^unified0(%cb0: !d2m.cb<memref<1x2x!ttcore.tile<32x32, f32>, #l1>>, %cb1: !d2m.cb<memref<2x1x!ttcore.tile<32x32, f32>, #l1>>, %cb2: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1>>):
       %c0 = arith.constant 0 : index
       %c1 = arith.constant 1 : index
-      %iter0 = d2m.block_index(0) : index
-      %iter2 = d2m.block_index(2) : index
-      // Before fix: remote_load still references %view_5, causing verifier error
-      // After fix: remote_load is updated to reference %stream
-      %buffer_lhs = memref.alloc() : memref<1x2x!ttcore.tile<32x32, f32>, #l1>
-      // CHECK: d2m.remote_load %{{.*}} %[[LHS_STREAM]]
-      %0 = d2m.remote_load %buffer_lhs %view_5[%iter0, %iter2] mcast[%c0] : memref<1x2x!ttcore.tile<32x32, f32>, #l1>, memref<1x64x1x2x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1> -> memref<1x2x!ttcore.tile<32x32, f32>, #l1>
-      %iter2_11 = d2m.block_index(2) : index
-      %iter1 = d2m.block_index(1) : index
-      %buffer_rhs = memref.alloc() : memref<2x1x!ttcore.tile<32x32, f32>, #l1>
-      // CHECK: d2m.remote_load %{{.*}} %[[RHS_STREAM]]
-      %1 = d2m.remote_load %buffer_rhs %view_6[%iter2_11, %iter1] mcast[%c1] : memref<2x1x!ttcore.tile<32x32, f32>, #l1>, memref<64x64x2x1x!ttcore.tile<32x32, f32>, #ttcore.view<(d0, d1, d2, d3) -> ((d0 * 128 + d2 * 64 + d1) floordiv 1024, (d1 floordiv 8) mod 8, (d0 * 2 + d2 + d1 floordiv 64) mod 16, d1 mod 8)>, #l1> -> memref<2x1x!ttcore.tile<32x32, f32>, #l1>
-      %buffer_out = memref.alloc() : memref<1x1x!ttcore.tile<32x32, f32>, #l1>
-      linalg.generic {indexing_maps = [affine_map<(d0, d1, d2) -> (d0, d2)>, affine_map<(d0, d1, d2) -> (d2, d1)>, affine_map<(d0, d1, d2) -> (d0, d1)>], iterator_types = ["parallel", "parallel", "reduction"]} ins(%0, %1 : memref<1x2x!ttcore.tile<32x32, f32>, #l1>, memref<2x1x!ttcore.tile<32x32, f32>, #l1>) outs(%buffer_out : memref<1x1x!ttcore.tile<32x32, f32>, #l1>) {
-      ^bb0(%in: !ttcore.tile<32x32, f32>, %in_14: !ttcore.tile<32x32, f32>, %out: !ttcore.tile<32x32, f32>):
-        %3 = "d2m.tile_matmul"(%in, %in_14, %out) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
-        linalg.yield %3 : !ttcore.tile<32x32, f32>
-      }
-      %iter0_12 = d2m.block_index(0) : index
-      %iter1_13 = d2m.block_index(1) : index
-      %2 = d2m.remote_store %alloc_4[%iter0_12, %iter1_13] %buffer_out : memref<1x64x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1, (d0, d1, d2, d3) -> (d1 floordiv 8, d1 mod 8, d2, d3)>, #l1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1> -> memref<1x64x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1, (d0, d1, d2, d3) -> (d1 floordiv 8, d1 mod 8, d2, d3)>, #l1>
+      %bf0 = d2m.get_block_factor(0) : index
+      %bf1 = d2m.get_block_factor(1) : index
+      %bf2 = d2m.get_block_factor(2) : index
+      affine.for %iter0 = 0 to %bf0 {
+        affine.for %iter1 = 0 to %bf1 {
+          affine.for %iter2 = 0 to %bf2 {
+            // Before fix: remote_load still references %view_5, causing verifier error
+            // After fix: remote_load is updated to reference %stream
+            %buffer_lhs = memref.alloc() : memref<1x2x!ttcore.tile<32x32, f32>, #l1>
+            // CHECK: d2m.remote_load %{{.*}} %[[LHS_STREAM]]
+            %0 = d2m.remote_load %buffer_lhs %view_5[%iter0, %iter2] mcast[%c0] : memref<1x2x!ttcore.tile<32x32, f32>, #l1>, memref<1x64x1x2x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1> -> memref<1x2x!ttcore.tile<32x32, f32>, #l1>
+            %buffer_rhs = memref.alloc() : memref<2x1x!ttcore.tile<32x32, f32>, #l1>
+            // CHECK: d2m.remote_load %{{.*}} %[[RHS_STREAM]]
+            %1 = d2m.remote_load %buffer_rhs %view_6[%iter2, %iter1] mcast[%c1] : memref<2x1x!ttcore.tile<32x32, f32>, #l1>, memref<64x64x2x1x!ttcore.tile<32x32, f32>, #ttcore.view<(d0, d1, d2, d3) -> ((d0 * 128 + d2 * 64 + d1) floordiv 1024, (d1 floordiv 8) mod 8, (d0 * 2 + d2 + d1 floordiv 64) mod 16, d1 mod 8)>, #l1> -> memref<2x1x!ttcore.tile<32x32, f32>, #l1>
+            %buffer_out = memref.alloc() : memref<1x1x!ttcore.tile<32x32, f32>, #l1>
+            linalg.generic {indexing_maps = [affine_map<(d0, d1, d2) -> (d0, d2)>, affine_map<(d0, d1, d2) -> (d2, d1)>, affine_map<(d0, d1, d2) -> (d0, d1)>], iterator_types = ["parallel", "parallel", "reduction"]} ins(%0, %1 : memref<1x2x!ttcore.tile<32x32, f32>, #l1>, memref<2x1x!ttcore.tile<32x32, f32>, #l1>) outs(%buffer_out : memref<1x1x!ttcore.tile<32x32, f32>, #l1>) {
+            ^bb0(%in: !ttcore.tile<32x32, f32>, %in_14: !ttcore.tile<32x32, f32>, %out: !ttcore.tile<32x32, f32>):
+              %3 = "d2m.tile_matmul"(%in, %in_14, %out) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
+              linalg.yield %3 : !ttcore.tile<32x32, f32>
+            }
+            %2 = d2m.remote_store %alloc_4[%iter0, %iter1] %buffer_out : memref<1x64x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1, (d0, d1, d2, d3) -> (d1 floordiv 8, d1 mod 8, d2, d3)>, #l1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1> -> memref<1x64x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1, (d0, d1, d2, d3) -> (d1 floordiv 8, d1 mod 8, d2, d3)>, #l1>
+          } {d2m.blocking_loop = 2}
+        } {d2m.blocking_loop = 1}
+      } {d2m.blocking_loop = 0}
     }
 
     memref.dealloc %alloc : memref<1x64x1x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1, (d0, d1, d2, d3) -> (d1 floordiv 8, d1 mod 8, d2, d3)>, #l1>

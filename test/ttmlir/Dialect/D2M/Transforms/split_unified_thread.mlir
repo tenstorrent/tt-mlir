@@ -42,7 +42,7 @@ module attributes {ttcore.system_desc = #system_desc} {
     // CHECK: d2m.pop %{{.*}}
     // CHECK-NOT: d2m.remote_load
     // CHECK-NOT: d2m.core_index
-    d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<2x4>, indexing_maps = [#map, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<unified>]}
+    d2m.generic {block_factors = [], grid = #ttcore.grid<2x4>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<unified>]}
         ins(%stream : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #dram>)
         outs(%alloc : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>) {
     ^unified0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %cb1: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>):
@@ -64,8 +64,8 @@ module attributes {ttcore.system_desc = #system_desc} {
             linalg.yield %3 : !ttcore.tile<32x32, f32>
           }
           d2m.pop %cb0 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
-        } {d2m.outer_loop}
-      } {d2m.outer_loop}
+        } {d2m.blocking_loop = 1}
+      } {d2m.blocking_loop = 0}
     }
     return
   }
@@ -104,7 +104,7 @@ module attributes {ttcore.system_desc = #system_desc} {
     // CHECK: d2m.push %{{.*}}
     // CHECK-NOT: d2m.remote_store
     // CHECK-NOT: d2m.core_index
-    d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<2x4>, indexing_maps = [#map, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<unified>]}
+    d2m.generic {block_factors = [], grid = #ttcore.grid<2x4>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<unified>]}
         ins(%arg0 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)
         outs(%stream : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #dram>) {
     ^unified0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %cb1: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>):
@@ -128,8 +128,8 @@ module attributes {ttcore.system_desc = #system_desc} {
           d2m.push %cb1 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
           // Explicit CB form: remote_store from CB
           d2m.remote_store %stream[%0, %1] from %cb1 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #dram> from !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
-        } {d2m.outer_loop}
-      } {d2m.outer_loop}
+        } {d2m.blocking_loop = 1}
+      } {d2m.blocking_loop = 0}
     }
     return
   }
@@ -175,7 +175,7 @@ module attributes {ttcore.system_desc = #system_desc} {
     // CHECK-NOT: d2m.remote_load
     // CHECK-NOT: d2m.remote_store
     // CHECK-NOT: d2m.core_index
-    d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<2x4>, indexing_maps = [#map, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<unified>]}
+    d2m.generic {block_factors = [], grid = #ttcore.grid<2x4>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<unified>]}
         ins(%stream_in : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #dram>)
         outs(%stream_out : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #dram>) {
     ^unified0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %cb1: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>):
@@ -201,8 +201,8 @@ module attributes {ttcore.system_desc = #system_desc} {
           d2m.pop %cb0 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
           // Remote store from output CB
           d2m.remote_store %stream_out[%0, %1] from %cb1 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #dram> from !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
-        } {d2m.outer_loop}
-      } {d2m.outer_loop}
+        } {d2m.blocking_loop = 1}
+      } {d2m.blocking_loop = 0}
     }
     return
   }
@@ -234,7 +234,7 @@ module attributes {ttcore.system_desc = #system_desc} {
     // CHECK: d2m.pop %{{.*}}
     // CHECK-NOT: d2m.remote_load
     // CHECK-NOT: d2m.remote_store
-    d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<2x4>, indexing_maps = [#map, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<unified>]}
+    d2m.generic {block_factors = [], grid = #ttcore.grid<2x4>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<unified>]}
         ins(%arg0 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)
         outs(%alloc : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>) {
     ^unified0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %cb1: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>):
@@ -252,8 +252,8 @@ module attributes {ttcore.system_desc = #system_desc} {
             linalg.yield %2 : !ttcore.tile<32x32, f32>
           }
           d2m.pop %cb0 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
-        } {d2m.outer_loop}
-      } {d2m.outer_loop}
+        } {d2m.blocking_loop = 1}
+      } {d2m.blocking_loop = 0}
     }
     return
   }
@@ -276,8 +276,8 @@ module attributes {ttcore.system_desc = #system_desc} {
       scf.for %arg1 = %c0 to %c1 step %c1 {
         scf.for %arg2 = %c0 to %c1 step %c1 {
           %0 = d2m.wait %cb0 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1>
-        } {d2m.outer_loop}
-      } {d2m.outer_loop}
+        } {d2m.blocking_loop = 1}
+      } {d2m.blocking_loop = 0}
     }
     return
   }
