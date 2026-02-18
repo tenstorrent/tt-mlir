@@ -169,14 +169,8 @@ SmallVector<int64_t> getPhysicalGridShape(Value tensorOrMemref) {
     ttcore::DeviceAttr device = ttcore::lookupDevice(viewOp);
     auto deviceGridShape = device.getWorkerGrid().getShape();
     SmallVector<int64_t> outputGridShape;
-    if (ttcore::hasDeviceLayout(tensorOrMemref)) {
-      outputGridShape = llvm::to_vector(ttcore::getGridShape(tensorOrMemref));
-    } else {
-      auto shapedType = mlir::cast<mlir::ShapedType>(tensorOrMemref.getType());
-      auto shape = shapedType.getShape();
-      TT_assert(shape.size() % 2 == 0u);
-      outputGridShape.assign(shape.begin(), shape.begin() + shape.size() / 2);
-    }
+    TT_assert(ttcore::hasDeviceLayout(tensorOrMemref));
+    outputGridShape = llvm::to_vector(ttcore::getGridShape(tensorOrMemref));
 
     bool rankMismatch = outputGridShape.size() != deviceGridShape.size();
     bool outOfDeviceGridBounds = (outputGridShape[0] > deviceGridShape[0]) &&
@@ -483,15 +477,8 @@ collapseToPhysicalGrid2D(ArrayRef<int64_t> gridShape,
   // Try to find an optimal factorization (matches main's behavior).
   // This finds factors near sqrt to balance Y and X dimensions.
   auto result = findLegalPhysicalGridForVolume(volume, deviceGridShape);
-  if (!result.empty()) {
-    return result;
-  }
-
-  // Fallback: if no factorization fits (time-multiplexing needed),
-  // use leading-dimension collapse which may exceed device bounds.
-  auto physGrid = ttcore::collapseGridTo2D(gridShape);
-  assert(physGrid.size() == 2 && "Expected 2D grid after collapse");
-  return physGrid;
+  TT_assert(!result.empty());
+  return result;
 }
 
 } // namespace mlir::tt::d2m::utils

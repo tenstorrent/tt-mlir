@@ -193,6 +193,22 @@ static void simplifyLoadStorePairs(ModuleOp moduleOp, IRRewriter &rewriter) {
     // Case B: Store to remote (output has view layout) -> store from input CB
     bool isRemoteLoad = isRemoteOperand(loadMemref, loadOp.getOperation());
     bool isRemoteStore = isRemoteOperand(storeMemref, storeOp.getOperation());
+
+    // If neither operand is detected as remote via view wrapping, fall back to
+    // memspace: a DRAM operand is always remote (requires noc transfer).
+    if (!isRemoteLoad && !isRemoteStore) {
+      auto loadMemSpace =
+          mlir::cast<MemRefType>(loadMemref.getType()).getMemorySpace();
+      auto storeMemSpace =
+          mlir::cast<MemRefType>(storeMemref.getType()).getMemorySpace();
+      if (loadMemSpace != storeMemSpace) {
+        auto dramSpace = ttcore::MemorySpaceAttr::get(
+            loadOp.getContext(), ttcore::MemorySpace::DeviceDRAM);
+        isRemoteLoad = (loadMemSpace == dramSpace);
+        isRemoteStore = (storeMemSpace == dramSpace);
+      }
+    }
+
     TT_assert(!(isRemoteLoad && isRemoteStore));
     if (isRemoteLoad) {
       // Create the explicit CB form of remote_load (no localBuffer, has CB

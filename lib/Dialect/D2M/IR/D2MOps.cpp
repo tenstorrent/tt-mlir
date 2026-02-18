@@ -1113,19 +1113,6 @@ mlir::OpFoldResult d2m::ViewLayoutOp::fold(FoldAdaptor adaptor) {
   // The input's associated remapping is irrelevant — applying the same
   // non-identity map twice should compose, not fold.
   if (getInput().getType() == getType() && getRemapping().isIdentity()) {
-    // Views on DRAM values serve as DMA markers in the lowering pipeline
-    // (isRemoteOperand checks for ViewOpInterface to decide whether to emit
-    // remote load/store ops).  Don't fold these away.
-    // TODO: Fix isRemoteOperand to check memory space directly instead of
-    // relying on view survival as a proxy signal.
-    if (auto rtt = mlir::dyn_cast<RankedTensorType>(getInput().getType())) {
-      if (auto layout =
-              mlir::dyn_cast<ttcore::MetalLayoutAttr>(rtt.getEncoding())) {
-        if (layout.getMemorySpace() == ttcore::MemorySpace::DeviceDRAM) {
-          return nullptr;
-        }
-      }
-    }
     return getInput();
   }
 
@@ -1217,14 +1204,8 @@ void d2m::GenericOp::build(mlir::OpBuilder &builder,
   if (!grid) {
     auto output = outputs[0];
     SmallVector<int64_t> gridShape;
-    if (ttcore::hasDeviceLayout(output)) {
-      gridShape = llvm::to_vector(ttcore::getGridShape(output));
-    } else {
-      auto shapedType = mlir::cast<mlir::ShapedType>(output.getType());
-      auto shape = shapedType.getShape();
-      TT_assert((shape.size() % 2) == 0ul);
-      gridShape.assign(shape.begin(), shape.begin() + shape.size() / 2);
-    }
+    TT_assert(ttcore::hasDeviceLayout(output));
+    gridShape = llvm::to_vector(ttcore::getGridShape(output));
 
     auto layout =
         ttcore::getDeviceLayout(mlir::dyn_cast<ShapedType>(output.getType()));
