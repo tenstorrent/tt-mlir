@@ -765,18 +765,13 @@ private:
     std::tie(bcastIndexingMaps, tileBcastTypes) =
         getImplicitBcastInfo(rewriter, origInputs, origOutputs);
 
-    const bool hasTileBcast = llvm::any_of(tileBcastTypes, [](auto type) {
-      return type != d2m::TileBcastType::None;
-    });
     // Implicit bcast if tile-level bcast exists or any input indexing map is
     // not identity.
-    const bool hasBroadcastIndexingMap =
+    const bool isImplicitBcast =
         !bcastIndexingMaps.empty() &&
         llvm::any_of(ArrayRef<mlir::AffineMap>(bcastIndexingMaps)
                          .take_front(origInputs.size()),
                      [](mlir::AffineMap map) { return !map.isIdentity(); });
-    const bool isImplicitBcast = hasTileBcast || hasBroadcastIndexingMap;
-
     auto [inputs, outputs] =
         toLayoutOperandsAndResults(rewriter, {origInputs, origOutputs},
                                    /*tiled*/ true, isImplicitBcast);
