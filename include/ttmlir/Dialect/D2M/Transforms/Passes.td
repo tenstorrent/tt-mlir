@@ -869,6 +869,41 @@ def D2MGenerateOuterLoops : Pass<"d2m-generate-outer-loops", "::mlir::ModuleOp">
                            "::mlir::affine::AffineDialect"];
 }
 
+def D2MGenericAffineScalarReplacement : Pass<"d2m-generic-affine-scalrep", "::mlir::ModuleOp"> {
+  let summary = "Run affine scalar replacement on d2m.generic compute regions.";
+  let description = [{
+    Runs MLIR's affine scalar replacement (store-to-load forwarding, dead store
+    elimination, load CSE) on each func.func in the module. This is useful for
+    cleaning up redundant affine loads/stores after loop fusion. All
+    intermediate operands that can be internalized are eliminated from GenericOp
+    operand list.
+  }];
+  let options = [
+    Option<"enable", "enable", "bool", "true",
+           "Enable scalar replacement; when false, pass early exits as a no-op.">,
+  ];
+  let dependentDialects = ["::mlir::tt::d2m::D2MDialect",
+                           "::mlir::affine::AffineDialect",
+                           "::mlir::arith::ArithDialect",
+                           "::mlir::func::FuncDialect"];
+}
+
+def D2MGenericAffineLoopFusion : Pass<"d2m-generic-affine-loop-fusion", "::mlir::ModuleOp"> {
+  let summary = "Fuse producer-consumer d2m.generic ops via affine loop fusion.";
+  let description = [{
+    Identifies pairs of d2m.generic ops connected by a producer-consumer memref
+    relationship and fuses them into a single generic with merged affine loop nests.
+    Runs after d2m-generate-outer-loops, before allocation.
+  }];
+  let options = [
+    Option<"enable", "enable", "bool", "true",
+           "Enable loop fusion; when false, pass early exits as a no-op.">,
+  ];
+  let dependentDialects = ["::mlir::tt::d2m::D2MDialect",
+                           "::mlir::affine::AffineDialect",
+                           "::mlir::arith::ArithDialect"];
+}
+
 def D2MLowerToExplicitForm : Pass<"d2m-generic-lower-to-explicit-form", "::mlir::ModuleOp"> {
   let summary = "Lower outer loop bounds to explicit constants.";
   let description = [{

@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt %s --split-input-file --ttir-to-ttmetal-pipeline | FileCheck %s
+// RUN: ttmlir-opt %s --split-input-file --ttir-to-ttmetal-pipeline="enable-affine-loop-fusion-and-scalar-replacement=false" | FileCheck %s
 
 // Tests are mainly checking that the operation sequence over the main FUSED compute kernel
 // are correct when lowered all the way down to emitc and that the compiler doesn't fail.

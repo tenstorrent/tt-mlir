@@ -138,6 +138,14 @@ void createTTIRToTTMetalMiddleendPipeline(
 
   // After GenerateOuterLoops, all generic ops are in Affine Blocked form.
   pm.addPass(d2m::createD2MGenerateOuterLoops());
+  d2m::D2MGenericAffineLoopFusionOptions loopFusionOptions;
+  loopFusionOptions.enable = options.enableAffineLoopFusionAndScalarReplacement;
+  pm.addPass(d2m::createD2MGenericAffineLoopFusion(loopFusionOptions));
+  d2m::D2MGenericAffineScalarReplacementOptions scalRepOptions;
+  scalRepOptions.enable = options.enableAffineLoopFusionAndScalarReplacement;
+  pm.addPass(d2m::createD2MGenericAffineScalarReplacement(scalRepOptions));
+  // Clean up dead allocs introduced by loop fusion/scalar replacement.
+  pm.addPass(createCanonicalizerPassWithOptions(options));
 
   d2m::D2MAllocateOptions allocateOptions;
   {

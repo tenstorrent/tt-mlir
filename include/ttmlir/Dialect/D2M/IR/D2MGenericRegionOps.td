@@ -691,6 +691,7 @@ def D2M_TileTilizeBlockOp : D2M_GenericRegionComputeOp<"tile_tilize_block",
                                                        , "getBufferType"
                                                        ]>
   , D2M_SkipOpEltwiseFusionTrait
+  , D2M_SkipOpAffineLoopFusionTrait
   ]> {
     let summary = "D2M Tile Tilize Block Op";
     let description = [{
@@ -717,6 +718,7 @@ def D2M_TileUntilizeBlockOp : D2M_GenericRegionComputeOp<"tile_untilize_block",
                                                        , "getBufferType"
                                                        ]>
   , D2M_SkipOpEltwiseFusionTrait
+  , D2M_SkipOpAffineLoopFusionTrait
   ]> {
     let summary = "D2M Tile Untilize Block Op";
     let description = [{
@@ -788,6 +790,7 @@ def D2M_BlockMaskOp : D2M_GenericRegionComputeOp<"block_mask",
                                                        , "getBufferType"
                                                        ]>
   , D2M_SkipOpEltwiseFusionTrait
+  , D2M_SkipOpAffineLoopFusionTrait
   , AttrSizedOperandSegments
   ]> {
     let summary = "Mask block elements outside logical bounds with fill value";
@@ -2165,7 +2168,9 @@ def D2M_GetGlobalOperandOp : D2M_GenericRegionOp<"get_global_operand", [Pure]> {
 //===----------------------------------------------------------------------===//
 
 def D2M_WriteRowMaskTileOp : D2M_GenericRegionOp<"write_row_mask_tile",
-  [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
+  [ DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
+  , D2M_SkipOpAffineLoopFusionTrait
+  ]> {
     let summary = "Write row mask pattern to a tile CB";
     let description = [{
         The `write_row_mask_tile` operation writes a row mask pattern
@@ -2182,7 +2187,9 @@ def D2M_WriteRowMaskTileOp : D2M_GenericRegionOp<"write_row_mask_tile",
 }
 
 def D2M_WriteColMaskTileOp : D2M_GenericRegionOp<"write_col_mask_tile",
-  [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
+  [ DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
+  , D2M_SkipOpAffineLoopFusionTrait
+  ]> {
     let summary = "Write column mask pattern to a tile CB";
     let description = [{
         The `write_col_mask_tile` operation writes a column mask pattern
