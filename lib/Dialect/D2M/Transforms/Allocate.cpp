@@ -510,9 +510,8 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       analysis.sequencing.operationMap[op] = position;
       analysis.sequencing.positionMap.emplace_back(op);
 
-      if (llvm::isa<memref::AllocOp, d2m::ViewLayoutOp,
-                    d2m::StreamLayoutOp>( // , d2m::CreateGlobalSemaphoreOp
-              op)) {
+      if (llvm::isa<memref::AllocOp, d2m::ViewLayoutOp, d2m::StreamLayoutOp,
+                    d2m::CreateGlobalSemaphoreOp>(op)) {
         // Skip memref.alloc operations that have a genericOp as parent
         if (llvm::isa<memref::AllocOp>(op) &&
             op->getParentOfType<d2m::GenericOp>()) {
@@ -1782,7 +1781,8 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
 
     for (Operation *user : op->getResult(0).getUsers()) {
       if (graph.contains(user)) {
-        if (llvm::isa<d2m::ViewLayoutOp, d2m::StreamLayoutOp>(user)) {
+        if (llvm::isa<d2m::ViewLayoutOp, d2m::StreamLayoutOp,
+                      d2m::CreateGlobalSemaphoreOp>(user)) {
           last = std::max(last, resolve(user, graph));
         }
       }
