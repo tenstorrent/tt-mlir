@@ -1276,11 +1276,12 @@ public:
   LogicalResult
   matchAndRewrite(ttir::DistributedRMSNormOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
     rewriter.replaceOpWithNewOp<ttnn::DistributedRMSNormOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getInput(), adaptor.getWeight(), adaptor.getResidual(),
-        /*stats=*/nullptr, static_cast<uint32_t>(adaptor.getClusterAxis()),
-        adaptor.getEpsilon(),
+        /*stats=*/nullptr, device,
+        static_cast<uint32_t>(adaptor.getClusterAxis()), adaptor.getEpsilon(),
         /*sub_device_id=*/nullptr,
         /*memory_config=*/nullptr,
         /*num_links=*/nullptr,

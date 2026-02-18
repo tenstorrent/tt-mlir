@@ -287,14 +287,9 @@ perform_golden_workarounds()
 # Helpers for distributed RMS norm EmitPy support.
 # These mirror the runtime logic in
 # runtime/lib/ttnn/operations/normalization/distributed_rms_norm.cpp
-#
+# TODO(jserbedzija): Remove this once the following issue if fixed in tt-metal: https://github.com/tenstorrent/tt-metal/issues/37746
 def create_global_semaphore(input_tensor):
     """Create a global semaphore from the input tensor's device and shard grid."""
     mesh_device = input_tensor.device()
     shard_spec = input_tensor.memory_config().shard_spec
     return ttnn.create_global_semaphore(mesh_device, shard_spec.grid, 0)
-
-
-def get_mesh_device(input_tensor):
-    """Get the mesh device from the input tensor."""
-    return input_tensor.device()

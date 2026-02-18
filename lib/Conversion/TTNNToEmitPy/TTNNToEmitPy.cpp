@@ -3401,10 +3401,6 @@ public:
     auto opaqueType =
         emitpy::OpaqueType::get(rewriter.getContext(), "ttnn.Tensor");
 
-    auto meshDeviceOp = rewriter.create<emitpy::CallOpaqueOp>(
-        srcOp.getLoc(), opaqueType, "utils.get_mesh_device",
-        llvm::SmallVector<mlir::Value>{adaptor.getInput()});
-
     auto globalSemaphoreOp = rewriter.create<emitpy::CallOpaqueOp>(
         srcOp.getLoc(), opaqueType, "utils.create_global_semaphore",
         llvm::SmallVector<mlir::Value>{adaptor.getInput()});
@@ -3413,7 +3409,7 @@ public:
         emitter.emit(srcOp.getInput()),
         emitter.emit(srcOp.getProgramConfig()),
         emitter.emit(srcOp.getClusterAxis()),
-        emitter.emit(meshDeviceOp.getResult(0), "", 1),
+        emitter.emit(srcOp.getDevice()),
         emitter.emit(globalSemaphoreOp.getResult(0), "", 2),
         emitter.emit(srcOp.getStats(), "stats"),
         emitter.emitSubDeviceId(srcOp.getSubDeviceId(), "subdevice_id"),

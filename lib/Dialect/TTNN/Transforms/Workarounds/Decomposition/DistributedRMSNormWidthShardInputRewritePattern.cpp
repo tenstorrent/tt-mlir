@@ -269,7 +269,7 @@ LogicalResult DistributedRMSNormWidthShardInputRewritePattern::matchAndRewrite(
 
   auto newOp = rewriter.create<ttnn::DistributedRMSNormOp>(
       op.getLoc(), shardedOutputType, inputToLayoutOp.getResult(), weight,
-      residual, statsEmptyOp.getResult(),
+      residual, statsEmptyOp.getResult(), op.getDevice(),
       static_cast<uint32_t>(op.getClusterAxis()), op.getEpsilon(),
       op.getSubDeviceIdAttr(), inputMemoryConfig, op.getNumLinksAttr(),
       op.getTopologyAttr(), computeConfigAttr, programConfigAttr);
