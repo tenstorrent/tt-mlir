@@ -4,7 +4,7 @@
 
 #include "ttmlir/Dialect/D2M/Utils/VirtualGrid.h"
 #include "ttmlir/Asserts.h"
-#include "ttmlir/Dialect/TTCore/IR/Utils.h"
+#include "ttmlir/Dialect/D2M/Utils/Utils.h"
 
 namespace ttmlir::d2m::utils::grids {
 
@@ -108,7 +108,7 @@ getPhysicalGridExtent(llvm::ArrayRef<int64_t> virtualGrid,
   // Try to find an optimal factorization using findLegalPhysicalGridForVolume
   // which balances Y and X dimensions by finding factors near sqrt.
   auto result =
-      mlir::tt::ttcore::findLegalPhysicalGridForVolume(volume, targetGrid);
+      mlir::tt::d2m::utils::findLegalPhysicalGridForVolume(volume, targetGrid);
   if (!result.empty()) {
     return result;
   }

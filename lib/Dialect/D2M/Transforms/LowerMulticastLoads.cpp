@@ -194,7 +194,7 @@ public:
       // Derive the physical 2D grid and compute the forward map
       // (virtual → physical) to convert virtual multicast shapes.
       ttcore::DeviceAttr device = ttcore::lookupDevice(genericOp);
-      auto physGridShape = ttcore::collapseToPhysicalGrid2D(
+      auto physGridShape = utils::collapseToPhysicalGrid2D(
           computeGridShape, device.getWorkerGrid().getShape());
       auto [coreVirtMap, _] = ttmlir::d2m::utils::grids::createCoreVirtMaps(
           rewriter.getContext(), computeGridShape, physGridShape);

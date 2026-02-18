@@ -1109,31 +1109,24 @@ bool d2m::ViewLayoutOp::isReblockOnly() {
 }
 
 mlir::OpFoldResult d2m::ViewLayoutOp::fold(FoldAdaptor adaptor) {
-  // Nop check.  After the virtual-grid refactor, views are purely reblockings
-  // (virtual grid info lives on EmptyOp attrs, not on views).  Type equality
-  // plus matching remapping context means this view is a no-op.
-  if (getInput().getType() == getType()) {
-    auto inputRemapping = utils::getAssociatedRemapping(getInput());
-    if (inputRemapping.has_value() && *inputRemapping == getRemapping()) {
-      return getInput();
-    }
-    // If the input has no associated remapping and types match, this view is
-    // generally a no-op — unless the input is in DRAM.  Views on DRAM values
-    // serve as DMA markers in the lowering pipeline (isRemoteOperand checks
-    // for ViewOpInterface to decide whether to emit remote load/store ops).
-    // TODO (vwells): Fix isRemoteOperand to check memory space directly instead
-    // of relying on view survival as a proxy signal.
-    if (!inputRemapping.has_value()) {
-      if (auto rtt = mlir::dyn_cast<RankedTensorType>(getInput().getType())) {
-        if (auto layout =
-                mlir::dyn_cast<ttcore::MetalLayoutAttr>(rtt.getEncoding())) {
-          if (layout.getMemorySpace() == ttcore::MemorySpace::DeviceDRAM) {
-            return nullptr;
-          }
+  // A view is a no-op when the types match and its own remapping is identity.
+  // The input's associated remapping is irrelevant — applying the same
+  // non-identity map twice should compose, not fold.
+  if (getInput().getType() == getType() && getRemapping().isIdentity()) {
+    // Views on DRAM values serve as DMA markers in the lowering pipeline
+    // (isRemoteOperand checks for ViewOpInterface to decide whether to emit
+    // remote load/store ops).  Don't fold these away.
+    // TODO: Fix isRemoteOperand to check memory space directly instead of
+    // relying on view survival as a proxy signal.
+    if (auto rtt = mlir::dyn_cast<RankedTensorType>(getInput().getType())) {
+      if (auto layout =
+              mlir::dyn_cast<ttcore::MetalLayoutAttr>(rtt.getEncoding())) {
+        if (layout.getMemorySpace() == ttcore::MemorySpace::DeviceDRAM) {
+          return nullptr;
         }
       }
-      return getInput();
     }
+    return getInput();
   }
 
   ViewLayoutOp consecutiveView = getInput().getDefiningOp<d2m::ViewLayoutOp>();

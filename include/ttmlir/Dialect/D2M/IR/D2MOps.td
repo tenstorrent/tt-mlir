@@ -388,11 +388,8 @@ def D2M_EmptyOp
   let description = [{
     Create an uninitialized tensor with the specified shape, element type and encoding.
 
-    When this tensor uses a virtual grid (a grid that exceeds the physical device
-    bounds or is ND), the `virtualGridMapping` attribute stores the inverse affine
-    map from physical to virtual grid coordinates.  This disambiguates virtual grids
-    from reblocking views and is propagated through bufferization to the flatbuffer
-    target.
+    Optionally, the `virtualGridMapping` attribute can store the affine
+    map from physical to virtual grid coordinates for this tensor as well.
   }];
 
   let arguments = (ins OptionalAttr<AffineMapAttr>:$virtualGridMapping);

@@ -189,7 +189,7 @@ SmallVector<int64_t> getPhysicalGridShape(Value tensorOrMemref) {
     // GenericOp::verify().
     if (rankMismatch || outOfDeviceGridBounds) {
       return llvm::to_vector<2>(
-          ttcore::collapseToPhysicalGrid2D(outputGridShape, deviceGridShape));
+          collapseToPhysicalGrid2D(outputGridShape, deviceGridShape));
     }
     // View virtual and physical grid shapes are equivalent if directly mappable
     // to device grid.
@@ -245,7 +245,7 @@ SmallVector<int64_t> getPhysicalGridShape(Value tensorOrMemref) {
     if (gridShape.size() > 2 || gridShape[0] > deviceGridShape[0] ||
         gridShape[1] > deviceGridShape[1]) {
       return llvm::to_vector<2>(
-          ttcore::collapseToPhysicalGrid2D(gridShape, deviceGridShape));
+          collapseToPhysicalGrid2D(gridShape, deviceGridShape));
     }
   }
   return gridShape;
@@ -436,6 +436,62 @@ AffineMap getMemoryMap(ttcore::DeviceAttr device,
                        size_t pageSize, size_t baseOffset) {
   return getMemoryMap(device, memrefAndView.first, pageSize,
                       memrefAndView.second, baseOffset);
+}
+
+llvm::SmallVector<int64_t>
+findLegalPhysicalGridForVolume(int64_t gridVolume,
+                               ArrayRef<int64_t> targetGridShape) {
+  assert(gridVolume > 0 && "Grid volume must be positive");
+  assert(targetGridShape.size() >= 2u &&
+         "Target grid shape must provide at least two dimensions");
+  assert((targetGridShape[0] > 0 && targetGridShape[1] > 0) &&
+         "Target grid dimensions must be positive");
+
+  auto fitsTarget = [&](int64_t dimY, int64_t dimX) {
+    return dimY <= targetGridShape[0] && dimX <= targetGridShape[1];
+  };
+
+  int64_t y = 1;
+  // Find the largest factor of grid volume that is <= sqrt(gridVolume).
+  for (int64_t i = static_cast<int64_t>(std::sqrt(gridVolume)); i > 0; --i) {
+    if (gridVolume % i == 0) {
+      int64_t candidateY = i;
+      int64_t candidateX = gridVolume / i;
+      if (fitsTarget(candidateY, candidateX)) {
+        return {candidateY, candidateX};
+      }
+      if (fitsTarget(candidateX, candidateY)) {
+        return {candidateX, candidateY};
+      }
+      if (y == 1) {
+        y = candidateY;
+      }
+    }
+  }
+  return {};
+}
+
+llvm::SmallVector<int64_t, 2>
+collapseToPhysicalGrid2D(ArrayRef<int64_t> gridShape,
+                         ArrayRef<int64_t> deviceGridShape) {
+  // Compute the volume of the virtual grid
+  int64_t volume = 1;
+  for (int64_t dim : gridShape) {
+    volume *= dim;
+  }
+
+  // Try to find an optimal factorization (matches main's behavior).
+  // This finds factors near sqrt to balance Y and X dimensions.
+  auto result = findLegalPhysicalGridForVolume(volume, deviceGridShape);
+  if (!result.empty()) {
+    return result;
+  }
+
+  // Fallback: if no factorization fits (time-multiplexing needed),
+  // use leading-dimension collapse which may exceed device bounds.
+  auto physGrid = ttcore::collapseGridTo2D(gridShape);
+  assert(physGrid.size() == 2 && "Expected 2D grid after collapse");
+  return physGrid;
 }
 
 } // namespace mlir::tt::d2m::utils

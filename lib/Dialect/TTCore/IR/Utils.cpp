@@ -10,8 +10,6 @@
 
 #include "mlir/IR/BuiltinOps.h"
 
-#include <cmath>
-
 namespace mlir::tt::ttcore {
 
 SystemDescAttr getCurrentScopeSystemDesc(mlir::Operation *op) {
@@ -171,62 +169,6 @@ llvm::SmallVector<int64_t, 2> collapseGridTo2D(ArrayRef<int64_t> gridShape) {
   int64_t width = gridShape.back();
 
   return {collapsedHeight, width};
-}
-
-llvm::SmallVector<int64_t>
-findLegalPhysicalGridForVolume(int64_t gridVolume,
-                               ArrayRef<int64_t> targetGridShape) {
-  assert(gridVolume > 0 && "Grid volume must be positive");
-  assert(targetGridShape.size() >= 2u &&
-         "Target grid shape must provide at least two dimensions");
-  assert((targetGridShape[0] > 0 && targetGridShape[1] > 0) &&
-         "Target grid dimensions must be positive");
-
-  auto fitsTarget = [&](int64_t dimY, int64_t dimX) {
-    return dimY <= targetGridShape[0] && dimX <= targetGridShape[1];
-  };
-
-  int64_t y = 1;
-  // Find the largest factor of grid volume that is <= sqrt(gridVolume).
-  for (int64_t i = static_cast<int64_t>(std::sqrt(gridVolume)); i > 0; --i) {
-    if (gridVolume % i == 0) {
-      int64_t candidateY = i;
-      int64_t candidateX = gridVolume / i;
-      if (fitsTarget(candidateY, candidateX)) {
-        return {candidateY, candidateX};
-      }
-      if (fitsTarget(candidateX, candidateY)) {
-        return {candidateX, candidateY};
-      }
-      if (y == 1) {
-        y = candidateY;
-      }
-    }
-  }
-  return {};
-}
-
-llvm::SmallVector<int64_t, 2>
-collapseToPhysicalGrid2D(ArrayRef<int64_t> gridShape,
-                         ArrayRef<int64_t> deviceGridShape) {
-  // Compute the volume of the virtual grid
-  int64_t volume = 1;
-  for (int64_t dim : gridShape) {
-    volume *= dim;
-  }
-
-  // Try to find an optimal factorization (matches main's behavior).
-  // This finds factors near sqrt to balance Y and X dimensions.
-  auto result = findLegalPhysicalGridForVolume(volume, deviceGridShape);
-  if (!result.empty()) {
-    return result;
-  }
-
-  // Fallback: if no factorization fits (time-multiplexing needed),
-  // use leading-dimension collapse which may exceed device bounds.
-  auto physGrid = collapseGridTo2D(gridShape);
-  assert(physGrid.size() == 2 && "Expected 2D grid after collapse");
-  return physGrid;
 }
 
 static MemRefType getMemRefType(Type type, bool isView,
