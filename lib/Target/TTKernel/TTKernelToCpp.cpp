@@ -83,6 +83,8 @@ public:
       builder->create<emitc::IncludeOp>(
           loc, "api/compute/compute_kernel_api.h", // max ops
           /*isStandard=*/false);
+      builder->create<emitc::IncludeOp>(loc, "api/compute/copy_dest_values.h",
+                                        /*isStandard=*/false);
       builder->create<emitc::IncludeOp>(loc, "api/compute/tile_move_copy.h",
                                         /*isStandard=*/false);
       builder->create<emitc::IncludeOp>(
