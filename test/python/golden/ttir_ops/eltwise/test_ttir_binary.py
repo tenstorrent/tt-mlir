@@ -211,6 +211,48 @@ def test_binary_ops(
     )
 
 
+@pytest.mark.parametrize(
+    "shapes",
+    [
+        [(1, 2, 1, 32), (1, 1, 1, 32)],  # broadcast dim1
+        [(2, 2, 1, 32), (1, 2, 1, 32)],  # broadcast dim0
+        [(1, 1, 1, 32), (1, 2, 1, 32)],  # broadcast dim1
+    ],
+    ids=shapes_list_str,
+)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttmetal"])
+@pytest.mark.parametrize(
+    "test_fn",
+    [add, subtract, multiply],
+    ids=["add", "subtract", "multiply"],
+)
+def test_binary_ops_broadcast_shard_dims(
+    test_fn: Callable,
+    shapes: List[Shape],
+    dtype: torch.dtype,
+    target: str,
+    request,
+    device,
+):
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, [dtype, dtype])
+        def binary_broadcast(
+            in0: Operand,
+            in1: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return test_fn(in0, in1, builder, unit_attrs=unit_attrs)
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+    )
+
+
 # Logical binary ops with custom golden tensors containing mix of 0s and non-0s
 logical_ops = [
     logical_and,
