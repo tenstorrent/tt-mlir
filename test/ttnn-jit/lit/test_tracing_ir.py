@@ -244,37 +244,41 @@ if __name__ == "__main__":
     # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
     # CHECK: func.func @exp
     # CHECK-SAME: (%arg0: [[IN_TYPE:tensor<[0-9]+x[0-9]+xbf16, #ttnn_layout>]])
-    # CHECK-SAME: -> [[IN_TYPE]]
+    # CHECK-SAME: -> [[OUT_TYPE:tensor<[0-9]+x[0-9]+xbf16, #ttnn_layout[0-9]*>]]
     # CHECK: %[[VAL:[0-9]+]] = "ttir.exp"(%arg0)
-    # CHECK-SAME: ([[IN_TYPE]]) -> [[IN_TYPE]]
-    # CHECK: return %[[VAL]] : [[IN_TYPE]]
+    # CHECK-SAME: ([[IN_TYPE]]) -> tensor<{{.*}}>
+    # CHECK: %[[CONVERTED:[0-9]+]] = ttir.to_layout %[[VAL]]{{.*}} -> [[OUT_TYPE]]
+    # CHECK: return %[[CONVERTED]] : [[OUT_TYPE]]
     test_ir_generation(exp_func, input_a)
 
     # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
     # CHECK: func.func @neg
     # CHECK-SAME: (%arg0: [[IN_TYPE:tensor<[0-9]+x[0-9]+xbf16, #ttnn_layout>]])
-    # CHECK-SAME: -> [[IN_TYPE]]
+    # CHECK-SAME: -> [[OUT_TYPE:tensor<[0-9]+x[0-9]+xbf16, #ttnn_layout[0-9]*>]]
     # CHECK: %[[VAL:[0-9]+]] = "ttir.neg"(%arg0)
-    # CHECK-SAME: ([[IN_TYPE]]) -> [[IN_TYPE]]
-    # CHECK: return %[[VAL]] : [[IN_TYPE]]
+    # CHECK-SAME: ([[IN_TYPE]]) -> tensor<{{.*}}>
+    # CHECK: %[[CONVERTED:[0-9]+]] = ttir.to_layout %[[VAL]]{{.*}} -> [[OUT_TYPE]]
+    # CHECK: return %[[CONVERTED]] : [[OUT_TYPE]]
     test_ir_generation(neg_func, input_a)
 
     # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
     # CHECK: func.func @relu
     # CHECK-SAME: (%arg0: [[IN_TYPE:tensor<[0-9]+x[0-9]+xbf16, #ttnn_layout>]])
-    # CHECK-SAME: -> [[IN_TYPE]]
+    # CHECK-SAME: -> [[OUT_TYPE:tensor<[0-9]+x[0-9]+xbf16, #ttnn_layout[0-9]*>]]
     # CHECK: %[[VAL:[0-9]+]] = "ttir.relu"(%arg0)
-    # CHECK-SAME: ([[IN_TYPE]]) -> [[IN_TYPE]]
-    # CHECK: return %[[VAL]] : [[IN_TYPE]]
+    # CHECK-SAME: ([[IN_TYPE]]) -> tensor<{{.*}}>
+    # CHECK: %[[CONVERTED:[0-9]+]] = ttir.to_layout %[[VAL]]{{.*}} -> [[OUT_TYPE]]
+    # CHECK: return %[[CONVERTED]] : [[OUT_TYPE]]
     test_ir_generation(relu_func, input_a)
 
     # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
     # CHECK: func.func @sqrt
     # CHECK-SAME: (%arg0: [[IN_TYPE:tensor<[0-9]+x[0-9]+xbf16, #ttnn_layout>]])
-    # CHECK-SAME: -> [[IN_TYPE]]
+    # CHECK-SAME: -> [[OUT_TYPE:tensor<[0-9]+x[0-9]+xbf16, #ttnn_layout[0-9]*>]]
     # CHECK: %[[VAL:[0-9]+]] = "ttir.sqrt"(%arg0)
-    # CHECK-SAME: ([[IN_TYPE]]) -> [[IN_TYPE]]
-    # CHECK: return %[[VAL]] : [[IN_TYPE]]
+    # CHECK-SAME: ([[IN_TYPE]]) -> tensor<{{.*}}>
+    # CHECK: %[[CONVERTED:[0-9]+]] = ttir.to_layout %[[VAL]]{{.*}} -> [[OUT_TYPE]]
+    # CHECK: return %[[CONVERTED]] : [[OUT_TYPE]]
     test_ir_generation(sqrt_func, input_a)
 
     # ============================================================
@@ -285,40 +289,44 @@ if __name__ == "__main__":
     # CHECK: func.func @add
     # CHECK-SAME: (%arg0: [[IN_TYPE:tensor<[0-9]+x[0-9]+xbf16, #ttnn_layout>]]
     # CHECK-SAME: %arg1: [[IN_TYPE]])
-    # CHECK-SAME: -> [[IN_TYPE]]
+    # CHECK-SAME: -> [[OUT_TYPE:tensor<[0-9]+x[0-9]+xbf16, #ttnn_layout[0-9]*>]]
     # CHECK: %[[VAL:[0-9]+]] = "ttir.add"(%arg0, %arg1)
-    # CHECK-SAME: ([[IN_TYPE]], [[IN_TYPE]]) -> [[IN_TYPE]]
-    # CHECK: return %[[VAL]] : [[IN_TYPE]]
+    # CHECK-SAME: ([[IN_TYPE]], [[IN_TYPE]]) -> tensor<{{.*}}>
+    # CHECK: %[[CONVERTED:[0-9]+]] = ttir.to_layout %[[VAL]]{{.*}} -> [[OUT_TYPE]]
+    # CHECK: return %[[CONVERTED]] : [[OUT_TYPE]]
     test_ir_generation(add_func, input_a, input_b)
 
     # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
     # CHECK: func.func @sub
     # CHECK-SAME: (%arg0: [[IN_TYPE:tensor<[0-9]+x[0-9]+xbf16, #ttnn_layout>]]
     # CHECK-SAME: %arg1: [[IN_TYPE]])
-    # CHECK-SAME: -> [[IN_TYPE]]
+    # CHECK-SAME: -> [[OUT_TYPE:tensor<[0-9]+x[0-9]+xbf16, #ttnn_layout[0-9]*>]]
     # CHECK: %[[VAL:[0-9]+]] = "ttir.subtract"(%arg0, %arg1)
-    # CHECK-SAME: ([[IN_TYPE]], [[IN_TYPE]]) -> [[IN_TYPE]]
-    # CHECK: return %[[VAL]] : [[IN_TYPE]]
+    # CHECK-SAME: ([[IN_TYPE]], [[IN_TYPE]]) -> tensor<{{.*}}>
+    # CHECK: %[[CONVERTED:[0-9]+]] = ttir.to_layout %[[VAL]]{{.*}} -> [[OUT_TYPE]]
+    # CHECK: return %[[CONVERTED]] : [[OUT_TYPE]]
     test_ir_generation(subtract_func, input_a, input_b)
 
     # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
     # CHECK: func.func @mul
     # CHECK-SAME: (%arg0: [[IN_TYPE:tensor<[0-9]+x[0-9]+xbf16, #ttnn_layout>]]
     # CHECK-SAME: %arg1: [[IN_TYPE]])
-    # CHECK-SAME: -> [[IN_TYPE]]
+    # CHECK-SAME: -> [[OUT_TYPE:tensor<[0-9]+x[0-9]+xbf16, #ttnn_layout[0-9]*>]]
     # CHECK: %[[VAL:[0-9]+]] = "ttir.multiply"(%arg0, %arg1)
-    # CHECK-SAME: ([[IN_TYPE]], [[IN_TYPE]]) -> [[IN_TYPE]]
-    # CHECK: return %[[VAL]] : [[IN_TYPE]]
+    # CHECK-SAME: ([[IN_TYPE]], [[IN_TYPE]]) -> tensor<{{.*}}>
+    # CHECK: %[[CONVERTED:[0-9]+]] = ttir.to_layout %[[VAL]]{{.*}} -> [[OUT_TYPE]]
+    # CHECK: return %[[CONVERTED]] : [[OUT_TYPE]]
     test_ir_generation(multiply_func, input_a, input_b)
 
     # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
     # CHECK: func.func @div
     # CHECK-SAME: (%arg0: [[IN_TYPE:tensor<[0-9]+x[0-9]+xbf16, #ttnn_layout>]]
     # CHECK-SAME: %arg1: [[IN_TYPE]])
-    # CHECK-SAME: -> [[IN_TYPE]]
+    # CHECK-SAME: -> [[OUT_TYPE:tensor<[0-9]+x[0-9]+xbf16, #ttnn_layout[0-9]*>]]
     # CHECK: %[[VAL:[0-9]+]] = "ttir.div"(%arg0, %arg1)
-    # CHECK-SAME: ([[IN_TYPE]], [[IN_TYPE]]) -> [[IN_TYPE]]
-    # CHECK: return %[[VAL]] : [[IN_TYPE]]
+    # CHECK-SAME: ([[IN_TYPE]], [[IN_TYPE]]) -> tensor<{{.*}}>
+    # CHECK: %[[CONVERTED:[0-9]+]] = ttir.to_layout %[[VAL]]{{.*}} -> [[OUT_TYPE]]
+    # CHECK: return %[[CONVERTED]] : [[OUT_TYPE]]
     test_ir_generation(divide_func, input_a, input_b)
 
     # ============================================================
@@ -328,56 +336,61 @@ if __name__ == "__main__":
     # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
     # CHECK: func.func @sum_func
     # CHECK-SAME: (%arg0: tensor<64x64xbf16, #ttnn_layout>)
-    # CHECK-SAME: -> tensor<1x64xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK-SAME: -> [[OUT_TYPE:tensor<1x64xbf16, #ttnn_layout[0-9]*>]]
     # CHECK: %[[VAL:[0-9]+]] = "ttir.sum"(%arg0)
     # CHECK-SAME: dim_arg = [0 : i32]
     # CHECK-SAME: keep_dim = true
-    # CHECK-SAME: (tensor<64x64xbf16, #ttnn_layout>) -> tensor<1x64xbf16, #ttnn_layout{{[0-9]*}}>
-    # CHECK: return %[[VAL]] : tensor<1x64xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK-SAME: (tensor<64x64xbf16, #ttnn_layout>) -> [[DRAM_TYPE:tensor<1x64xbf16, #ttnn_layout[0-9]*>]]
+    # CHECK: %[[CONVERTED:[0-9]+]] = ttir.to_layout %[[VAL]]{{.*}} -> [[OUT_TYPE]]
+    # CHECK: return %[[CONVERTED]] : [[OUT_TYPE]]
     test_ir_generation(sum_func, input_a)
 
     # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
     # CHECK: func.func @max_func
     # CHECK-SAME: (%arg0: tensor<64x64xbf16, #ttnn_layout>)
-    # CHECK-SAME: -> tensor<64x1xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK-SAME: -> [[OUT_TYPE:tensor<64x1xbf16, #ttnn_layout[0-9]*>]]
     # CHECK: %[[VAL:[0-9]+]] = "ttir.max"(%arg0)
     # CHECK-SAME: dim_arg = [1 : i32]
     # CHECK-SAME: keep_dim = true
-    # CHECK-SAME: (tensor<64x64xbf16, #ttnn_layout>) -> tensor<64x1xbf16, #ttnn_layout{{[0-9]*}}>
-    # CHECK: return %[[VAL]] : tensor<64x1xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK-SAME: (tensor<64x64xbf16, #ttnn_layout>) -> [[DRAM_TYPE:tensor<64x1xbf16, #ttnn_layout[0-9]*>]]
+    # CHECK: %[[CONVERTED:[0-9]+]] = ttir.to_layout %[[VAL]]{{.*}} -> [[OUT_TYPE]]
+    # CHECK: return %[[CONVERTED]] : [[OUT_TYPE]]
     test_ir_generation(max_func, input_a)
 
     # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
     # CHECK: func.func @mean_func
     # CHECK-SAME: (%arg0: tensor<64x64xbf16, #ttnn_layout>)
-    # CHECK-SAME: -> tensor<64xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK-SAME: -> [[OUT_TYPE:tensor<64xbf16, #ttnn_layout[0-9]*>]]
     # CHECK: %[[VAL:[0-9]+]] = "ttir.mean"(%arg0)
     # CHECK-SAME: dim_arg = [0 : i32]
     # CHECK-SAME: keep_dim = false
-    # CHECK-SAME: (tensor<64x64xbf16, #ttnn_layout>) -> tensor<64xbf16, #ttnn_layout{{[0-9]*}}>
-    # CHECK: return %[[VAL]] : tensor<64xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK-SAME: (tensor<64x64xbf16, #ttnn_layout>) -> [[DRAM_TYPE:tensor<64xbf16, #ttnn_layout[0-9]*>]]
+    # CHECK: %[[CONVERTED:[0-9]+]] = ttir.to_layout %[[VAL]]{{.*}} -> [[OUT_TYPE]]
+    # CHECK: return %[[CONVERTED]] : [[OUT_TYPE]]
     test_ir_generation(mean_func, input_a)
 
     # Full reduction without keepdim - scalar result (0D tensor)
     # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
     # CHECK: func.func @sum_all_func
     # CHECK-SAME: (%arg0: tensor<64x64xbf16, #ttnn_layout>)
-    # CHECK-SAME: -> tensor<bf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK-SAME: -> [[OUT_TYPE:tensor<bf16, #ttnn_layout[0-9]*>]]
     # CHECK: %[[VAL:[0-9]+]] = "ttir.sum"(%arg0)
     # CHECK-SAME: keep_dim = false
-    # CHECK-SAME: (tensor<64x64xbf16, #ttnn_layout>) -> tensor<bf16, #ttnn_layout{{[0-9]*}}>
-    # CHECK: return %[[VAL]] : tensor<bf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK-SAME: (tensor<64x64xbf16, #ttnn_layout>) -> [[DRAM_TYPE:tensor<bf16, #ttnn_layout[0-9]*>]]
+    # CHECK: %[[CONVERTED:[0-9]+]] = ttir.to_layout %[[VAL]]{{.*}} -> [[OUT_TYPE]]
+    # CHECK: return %[[CONVERTED]] : [[OUT_TYPE]]
     test_ir_generation(sum_all_func, input_a)
 
     # Full reduction with keepdim=True - all dims become 1
     # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
     # CHECK: func.func @sum_all_keepdim_func
     # CHECK-SAME: (%arg0: tensor<64x64xbf16, #ttnn_layout>)
-    # CHECK-SAME: -> tensor<1x1xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK-SAME: -> [[OUT_TYPE:tensor<1x1xbf16, #ttnn_layout[0-9]*>]]
     # CHECK: %[[VAL:[0-9]+]] = "ttir.sum"(%arg0)
     # CHECK-SAME: keep_dim = true
-    # CHECK-SAME: (tensor<64x64xbf16, #ttnn_layout>) -> tensor<1x1xbf16, #ttnn_layout{{[0-9]*}}>
-    # CHECK: return %[[VAL]] : tensor<1x1xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK-SAME: (tensor<64x64xbf16, #ttnn_layout>) -> [[DRAM_TYPE:tensor<1x1xbf16, #ttnn_layout[0-9]*>]]
+    # CHECK: %[[CONVERTED:[0-9]+]] = ttir.to_layout %[[VAL]]{{.*}} -> [[OUT_TYPE]]
+    # CHECK: return %[[CONVERTED]] : [[OUT_TYPE]]
     test_ir_generation(sum_all_keepdim_func, input_a)
 
     # ============================================================
@@ -388,12 +401,13 @@ if __name__ == "__main__":
     # CHECK: func.func @matmul
     # CHECK-SAME: (%arg0: tensor<64x128xbf16, #ttnn_layout>
     # CHECK-SAME: %arg1: tensor<128x32xbf16, #ttnn_layout1>)
-    # CHECK-SAME: -> tensor<64x32xbf16, #ttnn_layout2>
+    # CHECK-SAME: -> [[OUT_TYPE:tensor<64x32xbf16, #ttnn_layout[0-9]*>]]
     # CHECK: %[[VAL:[0-9]+]] = "ttir.matmul"(%arg0, %arg1)
     # CHECK-SAME: transpose_a = false
     # CHECK-SAME: transpose_b = false
-    # CHECK-SAME: (tensor<64x128xbf16, #ttnn_layout>, tensor<128x32xbf16, #ttnn_layout1>) -> tensor<64x32xbf16, #ttnn_layout2>
-    # CHECK: return %[[VAL]] : tensor<64x32xbf16, #ttnn_layout2>
+    # CHECK-SAME: (tensor<64x128xbf16, #ttnn_layout>, tensor<128x32xbf16, #ttnn_layout1>) -> tensor<{{.*}}>
+    # CHECK: %[[CONVERTED:[0-9]+]] = ttir.to_layout %[[VAL]]{{.*}} -> [[OUT_TYPE]]
+    # CHECK: return %[[CONVERTED]] : [[OUT_TYPE]]
     test_ir_generation(matmul_func, input_c, input_d)
 
     # ============================================================
@@ -404,14 +418,15 @@ if __name__ == "__main__":
     # CHECK: func.func @chained_ops_func
     # CHECK-SAME: (%arg0: [[IN_TYPE:tensor<[0-9]+x[0-9]+xbf16, #ttnn_layout>]]
     # CHECK-SAME: %arg1: [[IN_TYPE]])
-    # CHECK-SAME: -> [[IN_TYPE]]
+    # CHECK-SAME: -> [[OUT_TYPE:tensor<[0-9]+x[0-9]+xbf16, #ttnn_layout[0-9]*>]]
     # CHECK: %[[V0:[0-9]+]] = "ttir.add"(%arg0, %arg1)
-    # CHECK-SAME: ([[IN_TYPE]], [[IN_TYPE]]) -> [[IN_TYPE]]
+    # CHECK-SAME: ([[IN_TYPE]], [[IN_TYPE]]) -> tensor<{{.*}}>
     # CHECK: %[[V1:[0-9]+]] = "ttir.multiply"(%[[V0]], %arg0)
-    # CHECK-SAME: ([[IN_TYPE]], [[IN_TYPE]]) -> [[IN_TYPE]]
+    # CHECK-SAME: (tensor<{{.*}}>, [[IN_TYPE]]) -> tensor<{{.*}}>
     # CHECK: %[[V2:[0-9]+]] = "ttir.subtract"(%arg1, %[[V1]])
-    # CHECK-SAME: ([[IN_TYPE]], [[IN_TYPE]]) -> [[IN_TYPE]]
-    # CHECK: return %[[V2]] : [[IN_TYPE]]
+    # CHECK-SAME: ([[IN_TYPE]], tensor<{{.*}}>) -> tensor<{{.*}}>
+    # CHECK: %[[CONVERTED:[0-9]+]] = ttir.to_layout %[[V2]]{{.*}} -> [[OUT_TYPE]]
+    # CHECK: return %[[CONVERTED]] : [[OUT_TYPE]]
     test_ir_generation(chained_ops_func, input_a, input_b)
 
     # ============================================================
@@ -422,14 +437,15 @@ if __name__ == "__main__":
     # CHECK: func.func @loop_func
     # CHECK-SAME: (%arg0: [[IN_TYPE:tensor<[0-9]+x[0-9]+xbf16, #ttnn_layout>]]
     # CHECK-SAME: %arg1: [[IN_TYPE]])
-    # CHECK-SAME: -> [[IN_TYPE]]
+    # CHECK-SAME: -> [[OUT_TYPE:tensor<[0-9]+x[0-9]+xbf16, #ttnn_layout[0-9]*>]]
     # CHECK: %[[V0:[0-9]+]] = "ttir.add"(%arg0, %arg1)
-    # CHECK-SAME: ([[IN_TYPE]], [[IN_TYPE]]) -> [[IN_TYPE]]
+    # CHECK-SAME: ([[IN_TYPE]], [[IN_TYPE]]) -> tensor<{{.*}}>
     # CHECK: %[[V1:[0-9]+]] = "ttir.add"(%[[V0]], %arg1)
-    # CHECK-SAME: ([[IN_TYPE]], [[IN_TYPE]]) -> [[IN_TYPE]]
+    # CHECK-SAME: (tensor<{{.*}}>, [[IN_TYPE]]) -> tensor<{{.*}}>
     # CHECK: %[[V2:[0-9]+]] = "ttir.add"(%[[V1]], %arg1)
-    # CHECK-SAME: ([[IN_TYPE]], [[IN_TYPE]]) -> [[IN_TYPE]]
-    # CHECK: return %[[V2]] : [[IN_TYPE]]
+    # CHECK-SAME: (tensor<{{.*}}>, [[IN_TYPE]]) -> tensor<{{.*}}>
+    # CHECK: %[[CONVERTED:[0-9]+]] = ttir.to_layout %[[V2]]{{.*}} -> [[OUT_TYPE]]
+    # CHECK: return %[[CONVERTED]] : [[OUT_TYPE]]
     test_ir_generation(loop_func, input_a, input_b)
 
     # ============================================================
@@ -441,10 +457,11 @@ if __name__ == "__main__":
     # CHECK: func.func @conditional_true_func
     # CHECK-SAME: (%arg0: [[IN_TYPE:tensor<[0-9]+x[0-9]+xbf16, #ttnn_layout>]]
     # CHECK-SAME: %arg1: [[IN_TYPE]])
-    # CHECK-SAME: -> [[IN_TYPE]]
+    # CHECK-SAME: -> [[OUT_TYPE:tensor<[0-9]+x[0-9]+xbf16, #ttnn_layout[0-9]*>]]
     # CHECK: %[[VAL:[0-9]+]] = "ttir.exp"(%arg0)
-    # CHECK-SAME: ([[IN_TYPE]]) -> [[IN_TYPE]]
-    # CHECK: return %[[VAL]] : [[IN_TYPE]]
+    # CHECK-SAME: ([[IN_TYPE]]) -> tensor<{{.*}}>
+    # CHECK: %[[CONVERTED:[0-9]+]] = ttir.to_layout %[[VAL]]{{.*}} -> [[OUT_TYPE]]
+    # CHECK: return %[[CONVERTED]] : [[OUT_TYPE]]
     test_ir_generation(conditional_true_func, input_a, input_b)
 
     # Test with use_exp=False - should generate ttir.neg
@@ -452,10 +469,11 @@ if __name__ == "__main__":
     # CHECK: func.func @conditional_false_func
     # CHECK-SAME: (%arg0: [[IN_TYPE:tensor<[0-9]+x[0-9]+xbf16, #ttnn_layout>]]
     # CHECK-SAME: %arg1: [[IN_TYPE]])
-    # CHECK-SAME: -> [[IN_TYPE]]
+    # CHECK-SAME: -> [[OUT_TYPE:tensor<[0-9]+x[0-9]+xbf16, #ttnn_layout[0-9]*>]]
     # CHECK: %[[VAL:[0-9]+]] = "ttir.neg"(%arg1)
-    # CHECK-SAME: ([[IN_TYPE]]) -> [[IN_TYPE]]
-    # CHECK: return %[[VAL]] : [[IN_TYPE]]
+    # CHECK-SAME: ([[IN_TYPE]]) -> tensor<{{.*}}>
+    # CHECK: %[[CONVERTED:[0-9]+]] = ttir.to_layout %[[VAL]]{{.*}} -> [[OUT_TYPE]]
+    # CHECK: return %[[CONVERTED]] : [[OUT_TYPE]]
     test_ir_generation(conditional_false_func, input_a, input_b)
 
     # ============================================================
@@ -467,12 +485,13 @@ if __name__ == "__main__":
     # CHECK: func.func @loop_with_conditional_func
     # CHECK-SAME: (%arg0: [[IN_TYPE:tensor<[0-9]+x[0-9]+xbf16, #ttnn_layout>]]
     # CHECK-SAME: %arg1: [[IN_TYPE]])
-    # CHECK-SAME: -> [[IN_TYPE]]
+    # CHECK-SAME: -> [[OUT_TYPE:tensor<[0-9]+x[0-9]+xbf16, #ttnn_layout[0-9]*>]]
     # CHECK: %[[V0:[0-9]+]] = "ttir.add"(%arg0, %arg1)
-    # CHECK-SAME: ([[IN_TYPE]], [[IN_TYPE]]) -> [[IN_TYPE]]
+    # CHECK-SAME: ([[IN_TYPE]], [[IN_TYPE]]) -> tensor<{{.*}}>
     # CHECK: %[[V1:[0-9]+]] = "ttir.multiply"(%[[V0]], %arg1)
-    # CHECK-SAME: ([[IN_TYPE]], [[IN_TYPE]]) -> [[IN_TYPE]]
-    # CHECK: return %[[V1]] : [[IN_TYPE]]
+    # CHECK-SAME: (tensor<{{.*}}>, [[IN_TYPE]]) -> tensor<{{.*}}>
+    # CHECK: %[[CONVERTED:[0-9]+]] = ttir.to_layout %[[V1]]{{.*}} -> [[OUT_TYPE]]
+    # CHECK: return %[[CONVERTED]] : [[OUT_TYPE]]
     test_ir_generation(loop_with_conditional_func, input_a, input_b)
 
     # ============================================================
