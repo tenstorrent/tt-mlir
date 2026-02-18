@@ -183,9 +183,6 @@ def run_flatbuffer_execution_process(
     )
 
     if result["status"] == "error":
-        raise RuntimeError(
-            f"Flatbuffer execution failed: {result['error']}\n"
-            f"Flatbuffer: {flatbuffer_file_path}"
-        )
+        raise RuntimeError("Flatbuffer execution failed")
 
     return result["return_code"]

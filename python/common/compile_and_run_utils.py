@@ -322,10 +322,8 @@ def run_subprocess_worker(
         with open(result_path) as f:
             result = json.load(f)
 
-    except subprocess.TimeoutExpired:
-        raise RuntimeError(f"Worker timed out after {timeout}s: {runner_script}")
-    except (FileNotFoundError, json.JSONDecodeError):
-        raise RuntimeError(f"Worker crashed unexpectedly: {runner_script}")
+    except Exception as e:
+        raise RuntimeError(f"Worker failed: {runner_script}") from e
     finally:
         try:
             os.unlink(result_path)
