@@ -45,28 +45,33 @@ static FailureOr<mlir::OperationState> createNewOperationState(
 
             mlir::DenseElementsAttr newAttr;
 
-            // Handle splat constants (Optimization for all-same values)
-            if (denseElementsAttr.isSplat()) {
+            // If the type didn't change (e.g. replicated constant), keep
+            // the original attribute as-is.
+            if (denseElementsAttr.getType() == newTypes[0]) {
+              newAttr = denseElementsAttr;
+            } else if (denseElementsAttr.isSplat()) {
               newAttr = mlir::DenseElementsAttr::get(
                   newTypes[0],
                   denseElementsAttr.getSplatValue<mlir::Attribute>());
             } else {
-              // Try to slice the constant if it is periodic across shards
+              // The constant is periodic across shards — slice it.
+              // Non-splat, non-periodic constants were already replicated
+              // by ReplicateNonSplittableConstantsPass and handled by the
+              // type-unchanged branch above.
               std::optional<mlir::DenseElementsAttr> periodicAttr =
                   mlir::tt::shardy_utils::tryGetPeriodicShardSlice(
                       denseElementsAttr, newTypes[0], tensorShardings[0],
                       globalMeshOp);
 
-              if (periodicAttr.has_value()) {
-                newAttr = periodicAttr.value();
-              } else {
-                constantOp->emitError("Shardy automatic parallelization "
-                                      "currently does not support "
-                                      "non-splat constant tensors, and the "
-                                      "values are not periodic "
-                                      "across the sharding dimension.");
+              if (!periodicAttr.has_value()) {
+                constantOp.emitError(
+                    "Non-splat, non-periodic constant reached "
+                    "UpdateGlobalToLocalShapes with a sharded annotation. "
+                    "ReplicateNonSplittableConstantsPass should have marked "
+                    "it as replicated.");
                 return mlir::failure();
               }
+              newAttr = periodicAttr.value();
             }
 
             auto namedAttrIt = llvm::find_if(
