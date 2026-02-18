@@ -28,7 +28,7 @@ func.func @explicit_datamovement_multi_region(
     grid = #ttcore.grid<1x1>,
     indexing_maps = [],
     iterator_types = [],
-    operandSegmentSizes = array<i32: 2, 1>,
+    operandSegmentSizes = array<i32: 2, 1, 0>,
     threads = [#d2m.thread<datamovement>, #d2m.thread<datamovement>, #d2m.thread<compute>]
   }> ({
   ^bb0(%cb0: !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>, %cb1: !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>, %cb2: !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>):

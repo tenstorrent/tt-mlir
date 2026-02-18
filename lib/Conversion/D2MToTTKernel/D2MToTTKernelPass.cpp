@@ -76,6 +76,7 @@ struct ConvertD2MToTTKernel
     target.addLegalOp<d2m::GenericOp>();
     target.addLegalOp<d2m::EmptyOp>();
     target.addLegalOp<d2m::MeshShardOp>();
+    target.addLegalOp<d2m::CreateGlobalSemaphoreOp>();
 
     if (ttnnMode) {
       target.addLegalOp<ttir::TTNNMetalLayoutCastOp>();
@@ -136,6 +137,9 @@ struct ConvertD2MToTTKernel
     });
     typeConverter.addConversion([](d2m::SemaphoreType semaphore) {
       return ttkernel::SemaphoreType::get(semaphore.getContext());
+    });
+    typeConverter.addConversion([](d2m::GlobalSemaphoreType globalSemaphore) {
+      return ttkernel::L1AddrType::get(globalSemaphore.getContext());
     });
 
     d2m::AssociatedDMAWaits associatedDMAWaits =
