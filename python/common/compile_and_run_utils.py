@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from enum import Enum
 from multiprocessing import queues
 from pathlib import Path
-from typing import Callable, Tuple
+from typing import Any, Callable, Dict, Tuple
 
 from ttmlir.dialects import stablehlo
 from ttmlir.ir import Context, Module, OpView
@@ -120,25 +120,8 @@ class TranslationProcessResult:
         return TranslationProcessResult(Status.ERROR, err=error)
 
 
-@dataclass
-class RunProcessResult:
-    """Result of a flatbuffer run process."""
-
-    status: Status
-    return_code: int = None
-    err: str = None
-
-    @staticmethod
-    def success(return_code: int) -> RunProcessResult:
-        return RunProcessResult(Status.SUCCESS, return_code=return_code)
-
-    @staticmethod
-    def error(error: str) -> RunProcessResult:
-        return RunProcessResult(Status.ERROR, err=error)
-
-
 # Convenience alias.
-Result = CompilationProcessResult | TranslationProcessResult | RunProcessResult
+Result = CompilationProcessResult | TranslationProcessResult
 
 
 @dataclass
