@@ -768,6 +768,8 @@ private:
     const bool hasTileBcast = llvm::any_of(tileBcastTypes, [](auto type) {
       return type != d2m::TileBcastType::None;
     });
+    // Implicit bcast if tile-level bcast exists or any input indexing map is
+    // not identity.
     const bool hasBroadcastIndexingMap =
         !bcastIndexingMaps.empty() &&
         llvm::any_of(ArrayRef<mlir::AffineMap>(bcastIndexingMaps)
