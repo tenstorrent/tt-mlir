@@ -28,7 +28,7 @@ module attributes {ttcore.system_desc = #system_desc} {
     // CHECK: d2m.write_col_mask_tile
     // CHECK: scf.for
     // CHECK:   scf.for
-    d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map, #map1, #map1, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<unified>]}
+    d2m.generic {block_factors = [], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<unified>]}
         ins(%arg0, %arg2, %arg3 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #shard_2x2, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #shard_1x1, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #shard_1x1, #l1>)
         outs(%arg1 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #shard_2x2, #l1>) {
     ^unified0(%cb0: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1>>, %cb1: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1>>, %cb2: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1>>, %cb3: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1>>):
@@ -84,7 +84,7 @@ module attributes {ttcore.system_desc = #system_desc} {
     // CHECK: scf.for
     // CHECK:   scf.for
     // CHECK:     d2m.tile_fill
-    d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map, #map1, #map1, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<unified>]}
+    d2m.generic {block_factors = [], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<unified>]}
         ins(%arg0, %arg2, %arg3 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #shard_2x2, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #shard_1x1, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #shard_1x1, #l1>)
         outs(%arg1 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #shard_2x2, #l1>) {
     ^unified0(%cb0: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1>>, %cb1: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1>>, %cb2: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1>>, %cb3: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1>>):
@@ -112,7 +112,7 @@ module attributes {ttcore.system_desc = #system_desc} {
     // CHECK-NOT: d2m.block_mask
     // CHECK: d2m.generic
     // CHECK: scf.for
-    d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map, #map1, #map1, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<unified>]}
+    d2m.generic {block_factors = [], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<unified>]}
         ins(%arg0, %arg2, %arg3 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #shard_2x2, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #shard_1x1, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #shard_1x1, #l1>)
         outs(%arg1 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #shard_2x2, #l1>) {
     ^unified0(%cb0: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1>>, %cb1: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1>>, %cb2: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1>>, %cb3: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1>>):
@@ -140,7 +140,7 @@ module attributes {ttcore.system_desc = #system_desc} {
     // CHECK-NOT: d2m.block_mask
     // CHECK: d2m.generic
     // CHECK: scf.for
-    d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map, #map1, #map1, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<unified>]}
+    d2m.generic {block_factors = [], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<unified>]}
         ins(%arg0, %arg2, %arg3 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #shard_2x2, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #shard_1x1, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #shard_1x1, #l1>)
         outs(%arg1 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #shard_2x2, #l1>) {
     ^unified0(%cb0: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1>>, %cb1: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1>>, %cb2: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1>>, %cb3: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1>>):
@@ -168,7 +168,7 @@ module attributes {ttcore.system_desc = #system_desc} {
     // CHECK-NOT: d2m.block_mask
     // CHECK: d2m.generic
     // CHECK: scf.for
-    d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map, #map1, #map1, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<unified>]}
+    d2m.generic {block_factors = [], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<unified>]}
         ins(%arg0, %arg2, %arg3 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #shard_2x2, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #shard_1x1, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #shard_1x1, #l1>)
         outs(%arg1 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #shard_2x2, #l1>) {
     ^unified0(%cb0: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1>>, %cb1: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1>>, %cb2: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1>>, %cb3: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1>>):
@@ -191,7 +191,7 @@ module attributes {ttcore.system_desc = #system_desc} {
     // CHECK-NOT: d2m.block_mask
     // CHECK: d2m.generic
     // CHECK: scf.for
-    d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map, #map1, #map1, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<unified>]}
+    d2m.generic {block_factors = [], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<unified>]}
         ins(%arg0, %arg2, %arg3 : memref<1x1x4x4x!ttcore.tile<32x32, f32>, #shard_4x4, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #shard_1x1, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #shard_1x1, #l1>)
         outs(%arg1 : memref<1x1x4x4x!ttcore.tile<32x32, f32>, #shard_4x4, #l1>) {
     ^unified0(%cb0: !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>, %cb1: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1>>, %cb2: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1>>, %cb3: !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>):
