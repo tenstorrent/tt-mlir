@@ -245,6 +245,42 @@ def test_l1_width_sharded_shapes(device, shape, max_grid, op):
 @pytest.mark.parametrize("op", [abs])
 def test_dram_interleaved_shapes(device, shape, op):
     max_grid = (0, 0)
+    strategy = ttnn.ShardStrategy.BLOCK
+    if shape[-2] // shape[-1] >= 8:
+        strategy = ttnn.ShardStrategy.HEIGHT
+    elif shape[-1] // shape[-2] >= 8:
+        strategy = ttnn.ShardStrategy.WIDTH
+    
+    grid = []
+    if strategy == ttnn.ShardStrategy.BLOCK:
+        for shard_dim in [shape[-1], shape[-2]]:
+            for grid_dim in range(8, 0, -1):
+                if (shard_dim // 32) % grid_dim == 0:
+                    grid.append(grid_dim)
+                    break
+    elif strategy == ttnn.ShardStrategy.WIDTH:
+        shard_shape = shape[-1] // 32 
+        for [grid_x, grid_y] in itertools.product(range(8, 0, -1), range(8, 0, -1)):
+            if shard_shape % (grid_x * grid_y) == 0:
+                grid = [grid_x, grid_y]
+                break
+    elif strategy == ttnn.ShardStrategy.HEIGHT:
+        shard_shape = 1
+        for shard_dim in shape[:-2]:
+            shard_shape *= shard_dim
+        shard_shape = shard_shape // 32
+        for [grid_x, grid_y] in itertools.product(range(8, 0, -1), range(8, 0, -1)):
+            if shard_shape % (grid_x * grid_y) == 0:
+                grid = [grid_x, grid_y]
+                break
+    assert len(grid) == 2
+    print(f"picked grid: {grid} and strategy: {strategy} for shape {shape}")
+    output_memory_config = ttnn.create_sharded_memory_config(
+        shape=shape,
+        core_grid=ttnn.CoreGrid(x=grid[0], y=grid[1]),
+        strategy=strategy,
+        use_height_and_width_as_shard_shape=False,
+    )
     run_op_test(
         device,
         shape,
@@ -254,7 +290,7 @@ def test_dram_interleaved_shapes(device, shape, op):
         num_inputs=1,
         buffer_type=ttnn.BufferType.DRAM,
         enable_cache=True,
-        memory_config=ttnn.DRAM_MEMORY_CONFIG,
+        memory_config=output_memory_config,
     )
 
 
