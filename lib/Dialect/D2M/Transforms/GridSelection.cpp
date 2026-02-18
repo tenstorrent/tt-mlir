@@ -81,7 +81,7 @@ computeOptimalVirtualGrid(ArrayRef<int64_t> physicalShape,
     for (const auto &grid : factorCombinations) {
       int64_t gridVolume = ttmlir::utils::volume<int64_t>(grid);
       if (gridVolume <= targetGridVolume && gridVolume > bestGridVolume) {
-        auto physGrid = ttcore::findLegalPhysicalGridForVolume(
+        auto physGrid = utils::findLegalPhysicalGridForVolume(
             gridVolume, targetSquareGridShape);
         if (!physGrid.empty()) {
 
@@ -104,7 +104,7 @@ computeOptimalVirtualGrid(ArrayRef<int64_t> physicalShape,
   for (int64_t factor : llvm::reverse(factors)) {
     if (factor <= targetGridVolume) {
       auto physGrid =
-          ttcore::findLegalPhysicalGridForVolume(factor, targetSquareGridShape);
+          utils::findLegalPhysicalGridForVolume(factor, targetSquareGridShape);
       if (!physGrid.empty()) {
         bestFactor = factor;
         break;
@@ -371,7 +371,7 @@ static void optimizeToLayoutGrid(d2m::ToLayoutOp toLayoutOp,
       (optimalGrid.size() == 2 && (optimalGrid[0] > workerGridShape[0] ||
                                    optimalGrid[1] > workerGridShape[1]));
   if (isVirtual) {
-    auto physicalGridShape = ttcore::findLegalPhysicalGridForVolume(
+    auto physicalGridShape = utils::findLegalPhysicalGridForVolume(
         ttmlir::utils::volume<int64_t>(optimalGrid), targetSquareGridShape);
     TT_assertv(!physicalGridShape.empty(),
                "Unable to find 2D rect that can fit virtual grid {} within "
@@ -761,7 +761,7 @@ updateStreamLayoutOps(ArrayRef<StreamLayoutUpdateInfo> streamLayoutsToUpdate,
           (optimalGrid.size() == 2 && (optimalGrid[0] > workerGridShape[0] ||
                                        optimalGrid[1] > workerGridShape[1]));
       if (isVirtual) {
-        auto physicalGridShape = ttcore::findLegalPhysicalGridForVolume(
+        auto physicalGridShape = utils::findLegalPhysicalGridForVolume(
             ttmlir::utils::volume<int64_t>(optimalGrid), targetSquareGridShape);
         TT_assertv(!physicalGridShape.empty(),
                    "Unable to find 2D rect that can fit virtual grid");
@@ -846,7 +846,7 @@ static void updateEmptyOps(ArrayRef<EmptyUpdateInfo> emptyOpsToUpdate,
           (info.grid.size() == 2 && (info.grid[0] > workerGridShape[0] ||
                                      info.grid[1] > workerGridShape[1]));
       if (isVirtual) {
-        auto physicalGridShape = ttcore::findLegalPhysicalGridForVolume(
+        auto physicalGridShape = utils::findLegalPhysicalGridForVolume(
             ttmlir::utils::volume<int64_t>(info.grid), targetSquareGridShape);
         TT_assertv(!physicalGridShape.empty(),
                    "Unable to find 2D rect that can fit virtual grid");
