@@ -52,8 +52,6 @@ build_and_push() {
         if [ -n "$3" ]; then
             target="--target $3"
         fi
-        # Toolchain build causes the OOM error if parallel level is not limited
-        export CMAKE_BUILD_PARALLEL_LEVEL=8
 
         echo "Building image $image_name:$DOCKER_TAG"
         docker build \
