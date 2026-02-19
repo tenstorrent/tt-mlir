@@ -146,7 +146,11 @@ private:
     RewritePatternSet patterns(&getContext());
     populateElementwiseCommutePatterns<commuteDirection>(&getContext(),
                                                          patterns);
-    populateBroadcastCommutePatterns<commuteDirection>(&getContext(), patterns);
+    // Elementwise downwards can move reshapes onto consteval paths, creating
+    // broadcast->reshape matches; keep broadcast-upwards in both sets so
+    // elementwise-upwards does not race and pull those reshapes back first.
+    populateBroadcastCommutePatterns<CommuteDirection::UPWARDS>(&getContext(),
+                                                                patterns);
     populateConcatCommutePatterns<commuteDirection>(&getContext(), patterns);
     populateSliceCommutePatterns<commuteDirection>(&getContext(), patterns);
     populateReduceCommutePatterns<commuteDirection>(&getContext(), patterns);

@@ -6,7 +6,6 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.h"
 #include "ttmlir/Dialect/TTIR/Transforms/EraseInverseOps/EraseInverseOps.h"
-#include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 
 namespace mlir::tt::ttir {
 
