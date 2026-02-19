@@ -758,8 +758,8 @@ public:
         mlir::cast<ttnn::TTNNLayoutAttr>(emptyTensorType.getEncoding());
 
     auto device = ttnn::utils::getOrInsertDevice(rewriter, op);
-    auto memcfg =
-        ttnn::MemoryConfigAttr::get(emptyLayoutAttr, deviceAttr.getWorkerGrid());
+    auto memcfg = ttnn::MemoryConfigAttr::get(emptyLayoutAttr,
+                                              deviceAttr.getWorkerGrid());
 
     // Create the ttnn.empty op.
     auto emptyOp = rewriter.create<ttnn::EmptyOp>(
