@@ -118,7 +118,7 @@ def get_maximal_block_sharding_grid(shape, core_grid):
     core_grid = [dim + 1 for dim in core_grid]
 
     grid = []
-    for dim, max_grid in zip(tile_shape, core_grid):
+    for dim, max_grid in zip(tile_shape, reversed(core_grid)):
         for grid_dim in reversed(range(max_grid)):
             if dim % (grid_dim + 1) == 0:
                 grid.append(grid_dim)

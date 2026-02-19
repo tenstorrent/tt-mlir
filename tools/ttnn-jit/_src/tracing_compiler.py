@@ -126,16 +126,16 @@ class TracingCompiler:
 
                 # Normalize shape to 2D (handles 0D and 1D tensors)
                 # TTNN memory configs require at least 2D shapes
-                normalized_shape = _get_logical_tensor_shape(output_tensor_shape)
+                logical_tensor_shape = _get_logical_tensor_shape(output_tensor_shape)
 
                 # Get the device core grid from the first tensor arg
                 core_grid = get_core_grid_from_tensor_args(self.tensor_args)
                 block_sharded_grid = get_maximal_block_sharding_grid(
-                    normalized_shape, core_grid
+                    logical_tensor_shape, core_grid
                 )
 
                 block_sharded_memory_config = ttnn.create_sharded_memory_config(
-                    shape=normalized_shape,
+                    shape=logical_tensor_shape,
                     core_grid=ttnn.CoreGrid(
                         x=block_sharded_grid[0] + 1, y=block_sharded_grid[1] + 1
                     ),

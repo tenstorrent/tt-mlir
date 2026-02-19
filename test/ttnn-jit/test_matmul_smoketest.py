@@ -72,7 +72,9 @@ def test_matmul_composite(device, shapes, input_layouts, dtype, ttnn_dtype):
     input_tensors = []
     for shape, layout in zip(shapes, input_layouts):
         if layout == ttnn.TensorMemoryLayout.BLOCK_SHARDED:
-            grid = get_maximal_block_sharding_grid(shape, get_core_grid_from_device(device))
+            grid = get_maximal_block_sharding_grid(
+                shape, get_core_grid_from_device(device)
+            )
             input_tensors.append(
                 create_sharded_tile_tensor(
                     device,
