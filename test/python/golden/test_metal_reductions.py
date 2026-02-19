@@ -155,3 +155,55 @@ def test_max(
         **get_request_kwargs(request),
         device=device,
     )
+
+
+# Unaligned shapes: dimensions that are NOT multiples of the tile size (32).
+# These exercise the OOB padding fill values — sum needs zero-fill and max
+# needs neg-inf fill so that padded elements don't corrupt the reduction.
+
+
+@pytest.mark.parametrize(
+    "shape",
+    [(100, 50), (37, 61), (50, 100), (129, 65)],
+)
+@pytest.mark.parametrize("dim_arg", [[0], [1], [0, 1]])
+@pytest.mark.parametrize("keep_dim", [True])
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_sum_unaligned(
+    shape: tuple,
+    dim_arg: List[int],
+    keep_dim: bool,
+    target: str,
+    request,
+    device,
+):
+    compile_and_execute_ttir(
+        create_reductions_constrained_inputs(shape, "sum", dim_arg, keep_dim),
+        target=target,
+        **get_request_kwargs(request),
+        device=device,
+        atol=shape[0] * shape[1] * 0.0005,
+    )
+
+
+@pytest.mark.parametrize(
+    "shape",
+    [(100, 50), (37, 61), (50, 100), (129, 65)],
+)
+@pytest.mark.parametrize("dim_arg", [[0], [1]])
+@pytest.mark.parametrize("keep_dim", [True])
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_max_unaligned(
+    shape: tuple,
+    dim_arg: List[int],
+    keep_dim: bool,
+    target: str,
+    request,
+    device,
+):
+    compile_and_execute_ttir(
+        create_reductions_constrained_inputs(shape, "max", dim_arg, keep_dim),
+        target=target,
+        **get_request_kwargs(request),
+        device=device,
+    )
