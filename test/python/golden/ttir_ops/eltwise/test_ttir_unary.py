@@ -79,7 +79,7 @@ def log(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = No
     # Constrain values for log
     if str(in0.type.element_type) not in ["bf16", "f32"]:
         raise ValueError("log op only supports bf16 and f32 data types")
-    dtype = torch.bfloat16 if in0.type.element_type == "bf16" else torch.float32
+    dtype = torch.bfloat16 if str(in0.type.element_type) == "bf16" else torch.float32
     randn_tensor = torch.randn(in0.type.shape, dtype=dtype)
     abs_tensor = torch.abs(randn_tensor)
     error_margin = torch.full(randn_tensor.shape, 0.01)
@@ -95,7 +95,7 @@ def log1p(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = 
     # Constrain values for log1p
     if str(in0.type.element_type) not in ["bf16", "f32"]:
         raise ValueError("log1p op only supports bf16 and f32 data types")
-    dtype = torch.bfloat16 if in0.type.element_type == "bf16" else torch.float32
+    dtype = torch.bfloat16 if str(in0.type.element_type) == "bf16" else torch.float32
     randn_tensor = torch.randn(in0.type.shape, dtype=dtype)
     abs_tensor = torch.abs(randn_tensor)
     error_margin = torch.full(randn_tensor.shape, -0.99)
@@ -132,7 +132,7 @@ def reciprocal(
     # Constrain values for reciprocal
     if str(in0.type.element_type) not in ["bf16", "f32"]:
         raise ValueError("reciprocal op only supports bf16 and f32 data types")
-    dtype = torch.bfloat16 if in0.type.element_type == "bf16" else torch.float32
+    dtype = torch.bfloat16 if str(in0.type.element_type) == "bf16" else torch.float32
     input = torch.abs(torch.randn(in0.type.shape, dtype=dtype))
     input_safe = torch.clamp(input, min=-1e-6, max=None)
     input_safe = torch.where(input_safe == 0, torch.tensor(1e-6), input_safe)
@@ -150,7 +150,7 @@ def rsqrt(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = 
     # Constrain values for rsqrt
     if str(in0.type.element_type) not in ["bf16", "f32"]:
         raise ValueError("rsqrt op only supports bf16 and f32 data types")
-    dtype = torch.bfloat16 if in0.type.element_type == "bf16" else torch.float32
+    dtype = torch.bfloat16 if str(in0.type.element_type) == "bf16" else torch.float32
     input_tensor = torch.abs(torch.randn(in0.type.shape, dtype=dtype))
     golden_output_tensor = torch.rsqrt(input_tensor)
     builder.set_goldens({in0: input_tensor}, {rsqrt_0: golden_output_tensor})
@@ -181,7 +181,7 @@ def sqrt(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = N
     # Constrain values for sqrt
     if str(in0.type.element_type) not in ["bf16", "f32"]:
         raise ValueError("rsqrt op only supports bf16 and f32 data types")
-    dtype = torch.bfloat16 if in0.type.element_type == "bf16" else torch.float32
+    dtype = torch.bfloat16 if str(in0.type.element_type) == "bf16" else torch.float32
     input_tensor = torch.abs(torch.randn(in0.type.shape, dtype=dtype))
     golden_output_tensor = torch.sqrt(input_tensor)
     builder.set_goldens({in0: input_tensor}, {sqrt_0: golden_output_tensor})
@@ -203,7 +203,7 @@ def tan(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = No
 
     if str(in0.type.element_type) not in ["bf16", "f32"]:
         raise ValueError("tan op only supports bf16 and f32 data types")
-    dtype = torch.bfloat16 if in0.type.element_type == "bf16" else torch.float32
+    dtype = torch.bfloat16 if str(in0.type.element_type) == "bf16" else torch.float32
     randn_tensor = torch.randn(in0.type.shape, dtype=dtype)
     input_golden = randn_tensor.uniform_((-math.pi / 2 + 0.05), (math.pi / 2 - 0.05))
     output_golden = torch.tan(input_golden)
