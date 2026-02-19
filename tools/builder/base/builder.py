@@ -796,6 +796,8 @@ class Builder(metaclass=BuilderMeta):
             )
         ]
 
+    # def
+
     def parse_root_module(
         self, parsed_root_module: Module, golden_inputs: Dict[str, [List[torch.tensor]]]
     ):

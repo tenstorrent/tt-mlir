@@ -1306,6 +1306,7 @@ def load_mlir_file(
     mlir_text: str,
     golden_inputs: Dict[str, List[torch.tensor]] = None,
     target: Literal["ttir", "ttnn", "d2m", "stablehlo"] = "ttir",
+    split_on_demand: bool = False,
 ) -> (Module, Builder):
     """
     Load an MLIR module text into a `Module` and reconstruct the corresponding builder.
@@ -1318,6 +1319,8 @@ def load_mlir_file(
         Optional map of input names to lists of torch tensors used to seed builder goldens.
     target : Literal["ttir", "ttnn", "d2m", "stablehlo"]
         Which dialect to interpret the module as, controls which builder is reconstructed.
+    split_on_demand : bool, optional
+        Whether to split the module on demand (default: False).
 
     Returns
     -------
@@ -1327,11 +1330,17 @@ def load_mlir_file(
     ctx = Context()
 
     if target == "ttir":
-        module, builder = TTIRBuilder.from_module(ctx, mlir_text, golden_inputs)
+        module, builder = TTIRBuilder.from_module(
+            ctx, mlir_text, golden_inputs, split_on_demand
+        )
     elif target == "stablehlo":
-        module, builder = StableHLOBuilder.from_module(ctx, mlir_text, golden_inputs)
+        module, builder = StableHLOBuilder.from_module(
+            ctx, mlir_text, golden_inputs, split_on_demand
+        )
     elif target == "ttnn":
-        module, builder = TTNNBuilder.from_module(ctx, mlir_text, golden_inputs)
+        module, builder = TTNNBuilder.from_module(
+            ctx, mlir_text, golden_inputs, split_on_demand
+        )
     else:
         raise NotImplementedError(
             "Loading MLIR files is only supported for ttir, stablehlo and ttnn currently."
