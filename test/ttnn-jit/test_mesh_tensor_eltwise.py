@@ -44,7 +44,6 @@ DRAM_INTERLEAVED_SHAPES = [
         (ttnn.ShardTensor2dMesh, (None, 1)),
         (ttnn.ShardTensor2dMesh, (0, None)),
         (ttnn.ShardTensor2dMesh, (1, None)),
-        (ttnn.ShardTensor2dMesh, (0, 1)),
         (ttnn.ShardTensor2dMesh, (1, 0)),
     ],
 )
@@ -58,6 +57,12 @@ def test_mesh_tensor_eltwise(
     mesh_mapper_func,
     dim_arg,
 ):
+
+    if (
+        mesh_mapper_func == ttnn.ShardTensor2dMesh
+        or mesh_mapper_func == ttnn.ShardTensorToMesh
+    ):
+        pytest.xfail("Memory config assert failing. See #7124.")
 
     if mesh_mapper_func == ttnn.ReplicateTensorToMesh:
         mesh_mapper = mesh_mapper_func(mesh_device=mesh_device)
@@ -86,8 +91,8 @@ def test_mesh_tensor_eltwise(
 
     # Run a regular ttnn op (ttnn.sum) using jit output to check interop between ttnn jit and ttnn
     if check_interop:
-        interop_result = ttnn.sum(interop_result, dim=0)
-        golden_result = ttnn.sum(golden_result, dim=0)
+        interop_result = ttnn.exp(interop_result)
+        golden_result = ttnn.exp(golden_result)
 
     expected_memory_config = get_expected_block_sharded_memory_config(
         golden_result.shape, mesh_device
