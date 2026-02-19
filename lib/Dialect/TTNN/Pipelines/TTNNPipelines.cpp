@@ -73,6 +73,9 @@ void createTTNNPipelineTTIRPasses(
   // erase inverse ops can commute TMs through otherwise implicit
   // broadcasts, and handle rank-changing reshape ops which are
   // also otherwise implicit.
+  if (options.implicitBroadcastFoldingEnabled) {
+    pm.addPass(mlir::tt::ttir::createTTIRImplicitBroadcastFold());
+  }
   if (options.eraseInverseOpsEnabled) {
     pm.addPass(mlir::tt::ttir::createTTIRExplicateTMs());
     pm.addPass(mlir::tt::ttir::createTTIREraseInverseOps());
