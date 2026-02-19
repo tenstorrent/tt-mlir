@@ -37,6 +37,8 @@ class JitFunction:
         debug: bool,
         enable_cache: bool,
         math_fidelity: ttnn.MathFidelity,
+        enable_l1_acc: bool,
+        use_tile_matmul: bool,
         memory_config: ttnn.MemoryConfig,
     ):
         self.func = func
@@ -45,6 +47,8 @@ class JitFunction:
         self.debug = debug or compile_only
         self.out_dir = os.path.join("generated", "ttnn-jit", func.__name__)
         self.math_fidelity = math_fidelity
+        self.enable_l1_acc = enable_l1_acc
+        self.use_tile_matmul = use_tile_matmul
         self.memory_config = memory_config
         os.makedirs(self.out_dir, exist_ok=True)
 
@@ -129,8 +133,16 @@ class JitFunction:
         if self.debug:
             memory_analyzer.print_stats()
 
-        options = f"system-desc-path={self.system_desc_path} ttnn-mode=true set-math-fidelity={self.math_fidelity.name}"
+        options = (
+            f"system-desc-path={self.system_desc_path}"
+            f" ttnn-mode=true"
+            f" set-math-fidelity={self.math_fidelity.name}"
+            f" matmul-interchange=2,0,1"
+            f" enable-l1-acc={self.enable_l1_acc}"
+            f" use-tile-matmul={self.use_tile_matmul}"
+        )
         options += memory_analyzer.get_l1_range_str()
+        print("Compiling with options: ", options)
         if self.compile_only:
             ttnn_to_ttmetal_pipeline(ir, options)
             print("---- IR Dump after ttnn_to_ttmetal_pipeline ----")

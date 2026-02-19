@@ -13,6 +13,8 @@ def jit(
     debug: bool = False,
     enable_cache: bool = False,
     math_fidelity: ttnn.MathFidelity = ttnn.MathFidelity.HiFi4,
+    enable_l1_acc: bool = False,
+    use_tile_matmul: bool = False,
     memory_config: ttnn.MemoryConfig = None,
 ):
     """
@@ -37,6 +39,8 @@ def jit(
             debug,
             enable_cache,
             math_fidelity,
+            enable_l1_acc,
+            use_tile_matmul,
             memory_config,
         )
 
