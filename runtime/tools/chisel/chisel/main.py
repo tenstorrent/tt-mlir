@@ -2,31 +2,16 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 from pathlib import Path
-import datetime
-import os
 import argparse
 
-from chisel.core.compile_pipeline import chisel_pipeline
-from chisel.core.context import ChiselContext
-from chisel.core.enums import ExecutionType
 from ttmlir.ir import Operation
-from ttmlir.passes import ttnn_to_flatbuffer_file
 
 
 def parse_arguments():
     """Parse command line arguments for chisel execution."""
     parser = argparse.ArgumentParser(
-        description="Chisel TTIR/TTNN execution and comparison tool",
+        description="Chisel: TTNN differential debugging tool (CPU golden vs device execution)",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-    )
-
-    # Input/Output paths
-    parser.add_argument(
-        "--input-file",
-        "-i",
-        type=Path,
-        default=Path("runtime/tools/chisel/test/mlir/test_fusion.mlir"),
-        help="Path to input TTIR file",
     )
 
     parser.add_argument(
@@ -44,11 +29,13 @@ def parse_arguments():
         help="Directory containing input tensor files",
     )
 
+    # Input/Output paths
     parser.add_argument(
         "--flatbuffer-path",
+        "-f",
         type=Path,
-        default=Path("runtime/tools/chisel/test/mlir/fb.ttnn"),
-        help="Path to flatbuffer file",
+        required=True,
+        help="Path to flatbuffer file (MLIR will be extracted automatically)",
     )
 
     parser.add_argument(
@@ -91,21 +78,6 @@ def parse_arguments():
         help="Pattern to match operations that should be skipped (e.g., '%%6 = \"ttnn.matmul\"')",
     )
 
-    # Dump options
-    parser.add_argument(
-        "--dump-ttir",
-        action="store_true",
-        default=False,
-        help="Dump TTIR module to chisel_ttir.mlir file",
-    )
-
-    parser.add_argument(
-        "--dump-ttnn",
-        action="store_true",
-        default=False,
-        help="Dump TTNN module to chisel_ttnn.mlir file",
-    )
-
     return parser.parse_args()
 
 
@@ -126,16 +98,18 @@ def create_skip_op_function(pattern=None):
 
 def main():
     """
-    This script compiles TTIR files to generate both TTIR (golden) and TTNN (device)
-    modules using the chisel pipeline, then executes and compares them.
+    TTNN differential debugging tool that compares CPU golden execution vs device hardware execution.
+
+    This tool extracts TTNN MLIR from a flatbuffer, executes operations on both CPU (golden)
+    and device (hardware), and compares the outputs to identify discrepancies.
 
     Run with --help to see all available options.
     """
     args = parse_arguments()
 
-    # Validate input file exists
-    if not args.input_file.exists() and args.input_file.endswith(".mlir"):
-        raise FileNotFoundError(f"Input file does not exist: {args.input_file}")
+    # Validate flatbuffer exists
+    if not args.flatbuffer_path.exists():
+        raise FileNotFoundError(f"Flatbuffer not found: {args.flatbuffer_path}")
 
     # Ensure output directory exists and is writable
     try:
@@ -146,32 +120,23 @@ def main():
         )
 
     # Validate report path directory is writable
-    try:
-        args.report_path.parent.mkdir(parents=True, exist_ok=True)
-    except (PermissionError, OSError) as e:
-        raise PermissionError(
-            f"Cannot create directory for report file {args.report_path}: {e}"
-        )
+    if args.report_path:
+        try:
+            args.report_path.parent.mkdir(parents=True, exist_ok=True)
+        except (PermissionError, OSError) as e:
+            raise PermissionError(
+                f"Cannot create directory for report file {args.report_path}: {e}"
+            )
 
-    print(f"Compiling TTIR from: {args.input_file}")
+    print(f"[Chisel] Loading flatbuffer from: {args.flatbuffer_path}")
 
-    # Use chisel_pipeline to compile TTIR to both golden and device modules
-    try:
-        ttir_module, ttnn_module = chisel_pipeline(
-            args.input_file, args.dump_ttir, args.dump_ttnn
-        )
-    except Exception as e:
-        raise RuntimeError(f"Failed to compile TTIR pipeline: {e}")
-
-    ttnn_to_flatbuffer_file(ttnn_module, str(args.flatbuffer_path), {}, {})
-
-    print("TTIR compilation completed successfully")
-
+    # Create skip operation function
     should_skip_op = create_skip_op_function(args.skip_op_pattern)
 
-    chisel_context = ChiselContext(
-        ttir_module=ttir_module,
-        ttnn_module=ttnn_module,
+    # Create global context (lightweight - no MLIR loading yet)
+    from chisel.core.context import setup_chisel, bind_chisel_callbacks
+
+    chisel_context = setup_chisel(
         output_dir=args.output_dir,
         report_path=args.report_path,
         main_fn=args.main_function,
@@ -179,29 +144,32 @@ def main():
         flatbuffer_path=args.flatbuffer_path,
         should_skip_op=should_skip_op,
     )
-    chisel_context.bind_callbacks()
 
+    # Register chisel callbacks using DebugHooks
+    bind_chisel_callbacks()
+
+    # Handle input tensor setup (if needed)
+    # Note: For now, we'll rely on the flatbuffer's built-in inputs
+    # TODO: Support loading inputs from disk if needed
     if args.load_inputs_from_disk:
-        input_paths = discover_input_tensor_paths(args.tensor_folder)
-        if input_paths:
-            print(f"Loading {len(input_paths)} inputs from disk:")
-            print(*input_paths, sep="\n")
-            try:
-                chisel_context.load_inputs_from_disk(input_paths)
-            except Exception as e:
-                print(f"Warning: Failed to load inputs from disk: {e}")
-                print("Falling back to random input generation")
-                chisel_context.generate_random_inputs()
-        else:
-            print("No valid tensor files found, using random inputs instead")
-            chisel_context.generate_random_inputs()
-    else:
-        print("Generating random inputs")
-        chisel_context.generate_random_inputs()
+        print("[Warning] Loading inputs from disk not yet supported in flatbuffer-only mode")
+        print("[Warning] Will use flatbuffer's built-in inputs or runtime initialization")
 
-    chisel_context.registry.load_all_ops()
+    # Run device execution with callbacks
+    # MLIR will be extracted from flatbuffer on first preop callback
+    from ttrt.runtime import submit
+    from ttrt.binary import load_binary_from_path
 
-    chisel_context.run()
+    print("[Chisel] Loading binary and starting execution...")
+    binary = load_binary_from_path(str(args.flatbuffer_path))
+
+    # Execute with registered callbacks - context initialized lazily on first preop
+    result = submit(binary, args.program_index, [], [])
+
+    print(f"[Chisel] Execution completed")
+    print(f"[Chisel] Report written to: {args.report_path}")
+
+    return result
 
 
 def discover_input_tensor_paths(tensor_folder):

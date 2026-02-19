@@ -2,13 +2,16 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Registry module for managing and correlating MLIR operations between GOLDEN and DEVICE execution contexts.
+Registry module for managing and correlating MLIR operations between GOLDEN (CPU) and DEVICE execution contexts.
 
 This module provides the OpGroup and Registry classes which are responsible for:
-- Grouping related operations from different execution contexts (GOLDEN/DEVICE)
+- Grouping related TTNN operations from different execution contexts (GOLDEN CPU vs DEVICE)
 - Tracking tensor locations and their relationships
 - Managing operation groups and their inputs/outputs
-- Facilitating comparison between golden and device execution paths
+- Facilitating comparison between CPU golden and device hardware execution paths
+
+Note: Both GOLDEN and DEVICE execution contexts use the same TTNN MLIR module,
+      differing only in their execution backend (CPU vs hardware).
 """
 from collections import defaultdict
 from functools import cache
@@ -23,11 +26,12 @@ from .ops import IRModule, get_op_inputs, get_op_outputs
 
 class OpGroup:
     """
-    Groups related operations from GOLDEN and DEVICE execution contexts that share the same location.
+    Groups related TTNN operations from GOLDEN (CPU) and DEVICE execution contexts sharing the same location.
 
-    This class maintains a collection of operations from both execution contexts that are considered
-    equivalent based on their source locations. In cases where GOLDEN operations don't have matching
-    DEVICE operations (e.g., due to operation fusion), they are merged into the next group.
+    This class maintains a collection of TTNN operations from both execution contexts that are
+    considered equivalent based on their source locations. In cases where operations don't have
+    matching counterparts (e.g., due to compiler optimizations or operation fusion), they are
+    merged into the next group.
 
     Args:
         id: Unique identifier for the operation group
@@ -74,19 +78,25 @@ class OpGroup:
 
 class Registry:
     """
-    Central registry for managing and correlating MLIR operations between execution contexts.
+    Central registry for managing and correlating TTNN operations between execution contexts.
 
-    This class maintains the relationship between operations in the GOLDEN (reference) and
-    DEVICE (target) execution contexts. It provides methods to:
-    - Load and group operations from both contexts
+    This class maintains the relationship between TTNN operations in the GOLDEN (CPU reference)
+    and DEVICE (hardware target) execution contexts. Both contexts use the same underlying TTNN
+    MLIR module, differing only in their execution backend.
+
+    It provides methods to:
+    - Load and group TTNN operations from both execution contexts
     - Track tensor locations and their relationships
     - Retrieve operation groups and their inputs/outputs
     - Manage operation execution and comparison
 
     Args:
-        golden_module: The IRModule containing golden/reference operations
-        device_module: The IRModule containing device/target operations
+        golden_module: The IRModule wrapping TTNN module for CPU/golden execution
+        device_module: The IRModule wrapping TTNN module for device/hardware execution
         should_skip_op: Callable that determines if an operation should be skipped
+
+    Note: golden_module and device_module wrap the same TTNN MLIR module with different
+          ExecutionType flags (GOLDEN vs DEVICE).
     """
 
     def __init__(
@@ -271,9 +281,14 @@ class Registry:
 
     def _merge_empty_golden_groups(self):
         """
-        This is needed because if the golden ops were fused together,
-        then the new op would get the last golden op's location.
-        This is not what we want, so we merge the groups together.
+        Merge operation groups that only have GOLDEN operations with the next group.
+
+        This handles cases where operations in the GOLDEN execution context don't have
+        corresponding DEVICE operations at the same location (e.g., due to compiler
+        optimizations or execution differences between CPU and hardware).
+
+        Since both contexts now use the same TTNN module, this should rarely occur.
+        However, we keep this logic to handle edge cases where execution diverges.
         """
         # Groups are keyed by (line, col); sorting gives the order of the golden ops in the function.
         sorted_ids = sorted(self.op_groups.keys())

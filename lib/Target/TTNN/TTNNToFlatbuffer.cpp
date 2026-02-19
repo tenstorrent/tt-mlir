@@ -51,6 +51,9 @@
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
 
+#include <algorithm>
+#include <cstdlib>
+
 namespace mlir::tt::ttnn {
 
 #define GEN_PASS_DEF_TTNNSERIALIZETOBINARY
@@ -4048,6 +4051,27 @@ std::shared_ptr<void> ttnnToFlatbuffer(
   flatbuffers::Offset<::tt::target::MLIR> binaryMLIR =
       toMLIR(fbb, "ttnn", rootModule);
 
+  // Optionally inject TTNN MLIR into moduleCache for debugging/analysis
+  // Guard behind TT_INJECT_TTNN2FB environment variable
+  std::vector<std::pair<std::string, std::string>> enrichedModuleCache =
+      moduleCache;
+  if (const char *injectEnv = std::getenv("TT_INJECT_TTNN2FB");
+      injectEnv != nullptr && std::string(injectEnv) == "1") {
+    // Check if "ttnn" entry already exists in moduleCache
+    auto ttnnEntry = std::find_if(
+        enrichedModuleCache.begin(), enrichedModuleCache.end(),
+        [](const auto &p) { return p.first == "ttnn"; });
+
+    // Only add if not already present
+    if (ttnnEntry == enrichedModuleCache.end()) {
+      std::string ttnnMlirString;
+      llvm::raw_string_ostream os(ttnnMlirString);
+      rootModule.print(os, mlir::OpPrintingFlags().enableDebugInfo());
+      os.flush();
+      enrichedModuleCache.push_back({"ttnn", ttnnMlirString});
+    }
+  }
+
   assert(moduleOp->hasAttr(ttcore::SystemDescAttr::name) &&
          "ttcore::SystemDescAttr attribute missing on ModuleOp");
   auto systemDesc =
@@ -4055,7 +4079,7 @@ std::shared_ptr<void> ttnnToFlatbuffer(
                               moduleOp->getAttr(ttcore::SystemDescAttr::name)));
 
   flatbuffers::Offset<::tt::target::DebugInfo> debugInfo =
-      debugInfoToFlatbuffer(fbb, goldenMap, moduleCache);
+      debugInfoToFlatbuffer(fbb, goldenMap, enrichedModuleCache);
 
   // Handle dylib creation and packaging, if needed.
   // Currently, we only have 1 CPUModuleOp and 1 top-level ModuleOp; we use a

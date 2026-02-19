@@ -2,21 +2,23 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Golden Executor for TTIR operations using golden library.
+Golden Executor for TTNN operations using golden library.
 
-This module provides the GoldenExecutor class which executes operations in the golden
-(reference) execution path using golden library implementations exclusively.
+This module provides the GoldenExecutor class which executes TTNN operations in the golden
+(reference/CPU) execution path using golden library implementations exclusively.
 
 Key Features:
 - Integrates with GOLDEN_MAPPINGS from golden library for operation execution
-- Automatic conversion from operation names (e.g., "ttir.abs") to operation classes
-  (e.g., ttir.AbsOp) to lookup golden library implementations
+- Automatic conversion from operation names (e.g., "ttnn.abs") to operation classes
+  (e.g., ttnn.AbsOp) to lookup golden library implementations
 - Fails immediately if an operation does not have a golden library implementation
 - Manages tensor values through a tensor pool with support for multiple execution contexts
 
 Operation Function Resolution:
 1. Looks up the operation type in golden.GOLDEN_MAPPINGS
 2. Raises ValueError if operation is not found - no fallback allowed
+
+Note: This executor works with TTNN operations only. TTIR-specific operations are not supported.
 """
 from typing import Tuple
 from ttmlir.ir import Operation
@@ -49,10 +51,10 @@ OPERATION_NAME_ALIASES = {
 
 class GoldenExecutor:
     """
-    Executes operations in the golden (reference) execution path.
+    Executes TTNN operations in the golden (CPU reference) execution path.
 
-    This class is responsible for executing operations using builder_golden as the reference
-    implementation. It maintains state about the execution and manages tensor values
+    This class is responsible for executing TTNN operations using golden library implementations
+    as the CPU reference. It maintains state about the execution and manages tensor values
     through a tensor pool.
 
     Args:
@@ -107,134 +109,46 @@ class GoldenExecutor:
         print(f"Starting execution of operation: {op.name}")
         print(f"Operation ASM: {op.get_asm(enable_debug_info=True)}")
 
-        # Handle special cases that don't need golden functions
         op_name = op.name
-        if op_name == "ttir.empty":
-            return None
 
+        # Handle func.return specially - just return the input tensor value
         if op_name == "func.return":
-            # For func.return, just return the input tensor value from the pool
             inputs_mlir = get_op_inputs(op)
             if inputs_mlir:
                 input_names = [input.get_name() for input in inputs_mlir]
                 return self.golden_tensor_pool[input_names[0]].execution_data
             return None
 
-        # Validate operation is supported
+        # Validate operation is supported in GOLDEN_MAPPINGS
         if type(op) not in GOLDEN_MAPPINGS:
-            raise ValueError(f"Unknown op: {op.name}")
+            raise ValueError(
+                f"Unknown op: {op.name}. "
+                f"Operation type {type(op)} not found in GOLDEN_MAPPINGS. "
+                f"All TTNN operations must have a golden implementation."
+            )
 
-        # Get the golden function from builder_golden - no fallback allowed
+        # Get the golden function - no fallback allowed
         golden_fn = get_golden_function(type(op))
         if golden_fn is None:
             raise ValueError(
-                f"No builder_golden implementation found for operation: {op_name}. "
-                f"All operations must have a builder_golden implementation. "
+                f"No golden implementation found for operation: {op_name}. "
                 f"Operation class: {type(op)}"
             )
 
-        # Get operation outputs and check if we can use cached results
+        # Get operation outputs
         outputs = get_op_outputs(op)
 
-        # Prepare input tensors, filtering out empty tensors
-        inputs_mlir = [
-            input
-            for input in get_op_inputs(op)
-            if not (
-                hasattr(input, "owner")
-                and hasattr(input.owner, "name")
-                and input.owner.name == "ttir.empty"
-            )
-        ]
+        # Get input tensors
+        inputs_mlir = get_op_inputs(op)
         input_names = [input.get_name() for input in inputs_mlir]
 
         # Retrieve input tensors from the pool
         inputs = [self.golden_tensor_pool[name].execution_data for name in input_names]
 
         # Execute the operation using the golden function
+        # TTNN operations have standardized golden implementations
         try:
-            if op_name == "ttir.dot_general":
-                batch_dims_lhs = []
-                batch_dims_rhs = []
-                contract_dims_lhs = []
-                contract_dims_rhs = []
-
-                if "batch_dims_lhs" in op.attributes:
-                    batch_dims_lhs = [int(x) for x in op.attributes["batch_dims_lhs"]]
-                if "batch_dims_rhs" in op.attributes:
-                    batch_dims_rhs = [int(x) for x in op.attributes["batch_dims_rhs"]]
-                if "contract_dims_lhs" in op.attributes:
-                    contract_dims_lhs = [
-                        int(x) for x in op.attributes["contract_dims_lhs"]
-                    ]
-                if "contract_dims_rhs" in op.attributes:
-                    contract_dims_rhs = [
-                        int(x) for x in op.attributes["contract_dims_rhs"]
-                    ]
-
-                # Simple implementation for common case: no batching, use torch.tensordot
-                if len(batch_dims_lhs) == 0 and len(batch_dims_rhs) == 0:
-                    # For simple case with no batching, use torch.tensordot directly
-                    try:
-                        op_result = torch.tensordot(
-                            inputs[0],
-                            inputs[1],
-                            dims=(contract_dims_lhs, contract_dims_rhs),
-                        )
-                    except Exception as e:
-                        raise
-                else:
-                    # For batched case, wrap inputs as GoldenMapTensor and use golden function
-                    dot_kwargs = {
-                        "batch_dims_lhs": batch_dims_lhs,
-                        "batch_dims_rhs": batch_dims_rhs,
-                        "contract_dims_lhs": contract_dims_lhs,
-                        "contract_dims_rhs": contract_dims_rhs,
-                    }
-                    wrapped_inputs = []
-                    for inp in inputs:
-                        if isinstance(inp, GoldenMapTensor):
-                            wrapped_inputs.append(inp)
-                        else:
-                            wrapped_inputs.append(GoldenMapTensor({0: inp}, (1, 1)))
-                    op_result = golden_fn(*wrapped_inputs, **dot_kwargs)
-            elif op_name == "ttir.broadcast":
-                # Special handling for broadcast: torch.broadcast_to needs the target shape
-                # The second input (from ttir.empty) was filtered out, so we get the shape
-                # from the operation's result type
-                if outputs and len(outputs) > 0:
-                    output_type = outputs[0].type
-                    if hasattr(output_type, "shape"):
-                        target_shape = list(output_type.shape)
-                        op_result = golden_fn(inputs[0], target_shape)
-                    else:
-                        # Fallback if we can't get shape
-                        op_result = golden_fn(*inputs, **kwargs)
-                else:
-                    op_result = golden_fn(*inputs, **kwargs)
-            elif op_name == "ttir.pad":
-                # Extract required attributes for pad operation
-                padding_attr = op.attributes["padding"]
-                value_attr = op.attributes["value"]
-                value = float(value_attr.value)
-
-                # Convert padding ArrayAttr to list of integers
-                padding = [int(x) for x in padding_attr]
-                kwargs = {}
-                if "padding" in op.attributes:
-                    kwargs["padding"] = padding
-                if "value" in op.attributes:
-                    kwargs["value"] = value
-
-                op_result = golden_fn(*inputs, **kwargs)
-            elif op_name == "ttir.permute":
-                # Special handling for permute: needs permutation attribute
-                kwargs = {}
-                if "permutation" in op.attributes:
-                    kwargs["permutation"] = op.attributes["permutation"]
-                op_result = golden_fn(*inputs, **kwargs)
-            else:
-                op_result = golden_fn(*inputs) if inputs else golden_fn()
+            op_result = golden_fn(*inputs) if inputs else golden_fn()
         except Exception as e:
             print(f"Error executing golden function for {op_name}: {e}")
             raise

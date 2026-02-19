@@ -10,7 +10,7 @@ import time
 import os
 import sys
 import logging
-from typing import Tuple, Literal, Callable
+from typing import Tuple, Literal, Callable, Optional
 
 from chisel.utils.runtime_utils import ttir_dtype_maps
 from ttmlir.ir import Context, Module, Operation
@@ -41,12 +41,18 @@ from ttrt.runtime import (
     retrieve_tensor_from_pool,
     DataType,
     Tensor as RtTensor,
+    CallbackContext,
+    OpContext,
 )
+from ttrt.binary import Binary
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger("chisel")
 
 DEBUG = True
+
+# Global context variable - initialized lazily in preop callback
+_chisel_context: Optional['ChiselContext'] = None
 
 
 class ChiselContext:
@@ -78,11 +84,9 @@ class ChiselContext:
 
     def __init__(
         self,
-        ttir_module: Module,
-        ttnn_module: Module,
         output_dir: pathlib.Path,
         report_path: pathlib.Path,
-        main_fn: str,
+        main_fn: str = "main",
         program_index: int = 0,
         flatbuffer_path: pathlib.Path | None = None,
         function_argument_bridge_type: Literal["host", "device"] = "host",
@@ -90,67 +94,35 @@ class ChiselContext:
         should_skip_op: Callable[[Operation], bool] = lambda op: False,
     ):
         """
-        Initialize the Chisel context with MLIR modules and runtime configuration.
+        Lightweight constructor - MLIR-independent initialization only.
 
-        This sets up the execution environment including:
-        - MLIR context and module wrapping
-        - Tensor management pools
-        - Execution tracking and reporting
-        - Runtime integration
+        The actual MLIR module loading and registry setup happens lazily
+        in initialize_from_flatbuffer() when the first preop callback is triggered.
+
+        Args:
+            output_dir: Directory to store output artifacts and reports
+            report_path: Path to store the execution report
+            main_fn: Name of the main function to execute
+            program_index: Index of the program to run
+            flatbuffer_path: Path to flatbuffer file (optional, for setup_ttrt)
+            function_argument_bridge_type: Bridge type for function arguments
+            caching: Enable tensor caching
+            should_skip_op: Function to determine if an operation should be skipped
         """
         self.output_dir = output_dir
         self.main_fn = main_fn
         self.program_index = program_index
         self.function_argument_bridge_type = function_argument_bridge_type
+        self.flatbuffer_path = flatbuffer_path
+        self.caching = caching
+        self.should_skip_op = should_skip_op
 
-        # Initialize MLIR context and load all available dialects
-        self.context = Context()
-        self.context.load_all_available_dialects()
-
-        # Load and parse both golden and device MLIR modules
-        logger.debug("Loading IRs...")
-        self.device_ir_module = IRModule(
-            mlir_module=ttnn_module,
-            context=self.context,
-            execution_type=ExecutionType.DEVICE,
-            functions=[self.main_fn],
-            current_function_name=self.main_fn,
-        )
-        self.golden_ir_module = IRModule(
-            mlir_module=ttir_module,
-            context=self.context,
-            execution_type=ExecutionType.GOLDEN,
-            functions=[self.main_fn],
-            current_function_name=self.main_fn,
-        )
-
-        # Initialize registry and tensor pools for both execution types
-        self.modules = {
-            ExecutionType.DEVICE: self.device_ir_module,
-            ExecutionType.GOLDEN: self.golden_ir_module,
-        }
-
-        # Set up registry, tensor pools, and executors
-        self.registry = Registry(
-            golden_module=self.modules[ExecutionType.GOLDEN],
-            device_module=self.modules[ExecutionType.DEVICE],
-            should_skip_op=should_skip_op,
-        )
+        # Non-MLIR-dependent setup
         self.golden_tensor_pool = TensorPool(
             caching=caching, output_dir=self.output_dir / "golden"
         )
         self.device_tensor_pool = TensorPool(
             caching=caching, output_dir=self.output_dir / "device"
-        )
-        self.executor = GoldenExecutor(self.registry, self.golden_tensor_pool)
-
-        # Set up reporting
-        self.report = ReportWriter(
-            report_path,
-            {
-                ExecutionType.GOLDEN: self.golden_ir_module.get_asm_state(),
-                ExecutionType.DEVICE: self.device_ir_module.get_asm_state(),
-            },
         )
 
         self.rt_logger = RtLogger()
@@ -158,17 +130,141 @@ class ChiselContext:
             logger=self.rt_logger, artifacts_folder_path=str(self.output_dir)
         )
 
-        # Initialize operation tracking and function arguments
-        self.current_device_op = None  # Tracks the currently executing device operation
-        self.arg_names = [
-            arg.get_name() for arg in self.device_ir_module.get_function_inputs()
-        ]
+        # MLIR-dependent components - initialized later
+        self.context = None
+        self.ttnn_module = None
+        self.device_ir_module = None
+        self.golden_ir_module = None
+        self.modules = None
+        self.registry = None
+        self.executor = None
+        self.report = None
+        self.arg_names = []
+        self.current_device_op = None
+        self._initialized = False
 
         # Set up TTRT runtime if flatbuffer path is provided
         self.rt_api = None
         if flatbuffer_path is not None:
-            self.flatbuffer_path = flatbuffer_path
             self.setup_ttrt()
+
+        # Store report path for lazy initialization
+        self._report_path = report_path
+
+    def initialize_from_flatbuffer(self, binary: Binary):
+        """
+        Initialize context from flatbuffer MLIR - called once on first preop.
+
+        This method extracts the MLIR source from the flatbuffer binary,
+        parses it, and sets up all MLIR-dependent components including
+        the registry, executor, and report writer.
+
+        Args:
+            binary: TTRT Binary object from which to extract MLIR
+
+        Raises:
+            ValueError: If no MLIR source found in flatbuffer
+            RuntimeError: If MLIR parsing fails
+        """
+        if self._initialized:
+            return
+
+        import ttrt.binary
+
+        logger.info("[Chisel] Initializing context from flatbuffer...")
+
+        # Extract MLIR from flatbuffer
+        # The key 'ttnn' matches the name we use in module_cache: [("ttnn", mlir_source)]
+        mlir_dict = ttrt.binary.mlir_as_dict(binary)
+        mlir_source = mlir_dict.get('ttnn', '')
+
+        if not mlir_source:
+            available_keys = list(mlir_dict.keys())
+            raise ValueError(
+                f"No MLIR source found in flatbuffer under key 'ttnn'. "
+                f"Available keys: {available_keys}. "
+                f"Ensure flatbuffer was compiled with MLIR embedding enabled using "
+                f"module_cache=[('ttnn', mlir_source)]"
+            )
+
+        logger.info(f"[Chisel] Extracted MLIR from flatbuffer (size: {len(mlir_source)} bytes)")
+
+        # Initialize MLIR context and load all available dialects
+        self.context = Context()
+        self.context.load_all_available_dialects()
+
+        # Parse MLIR to Module
+        try:
+            ttnn_mlir_module = Module.parse(mlir_source, self.context)
+        except Exception as e:
+            # Save MLIR to file for debugging
+            debug_path = self.output_dir / "extracted_mlir_debug.mlir"
+            self.output_dir.mkdir(parents=True, exist_ok=True)
+            debug_path.write_text(mlir_source)
+            raise RuntimeError(
+                f"Failed to parse MLIR from flatbuffer: {e}\n"
+                f"MLIR saved to {debug_path} for debugging"
+            )
+
+        logger.debug("Loading IRs...")
+
+        # Create IRModule wrappers for both golden (CPU) and device execution
+        # Note: Using the same TTNN module for both, just different execution contexts
+        self.device_ir_module = IRModule(
+            mlir_module=ttnn_mlir_module,
+            context=self.context,
+            execution_type=ExecutionType.DEVICE,
+            functions=[self.main_fn],
+            current_function_name=self.main_fn,
+        )
+        self.golden_ir_module = IRModule(
+            mlir_module=ttnn_mlir_module,
+            context=self.context,
+            execution_type=ExecutionType.GOLDEN,
+            functions=[self.main_fn],
+            current_function_name=self.main_fn,
+        )
+
+        # Store modules for easy access
+        self.modules = {
+            ExecutionType.DEVICE: self.device_ir_module,
+            ExecutionType.GOLDEN: self.golden_ir_module,
+        }
+
+        # Initialize Registry with TTNN module
+        self.registry = Registry(
+            golden_module=self.modules[ExecutionType.GOLDEN],
+            device_module=self.modules[ExecutionType.DEVICE],
+            should_skip_op=self.should_skip_op,
+        )
+
+        # Initialize golden executor (will be renamed to CPUExecutor in Phase 2)
+        self.executor = GoldenExecutor(
+            registry=self.registry,
+            golden_tensor_pool=self.golden_tensor_pool
+        )
+
+        # Set up reporting
+        self.report = ReportWriter(
+            self._report_path,
+            {
+                ExecutionType.GOLDEN: self.golden_ir_module.get_asm_state(),
+                ExecutionType.DEVICE: self.device_ir_module.get_asm_state(),
+            },
+        )
+
+        # Initialize operation tracking and function arguments
+        self.arg_names = [
+            arg.get_name() for arg in self.device_ir_module.get_function_inputs()
+        ]
+
+        # Load all operations into registry
+        self.registry.load_all_ops()
+
+        self._initialized = True
+        logger.info(
+            f"[Chisel] Context initialized with {len(self.registry.op_groups)} operation groups"
+        )
 
     def setup_ttrt(self):
         """
@@ -261,9 +357,9 @@ class ChiselContext:
         )
 
     @debug_wrap(debug=DEBUG)
-    def preop(self, binary, programContext, opContext):
+    def handle_preop(self, binary: Binary, programContext: CallbackContext, opContext: OpContext):
         """
-        Pre-operation callback executed before each device operation.
+        Handle pre-operation logic (called from preop callback).
 
         This method:
         1. Extracts operation information and location
@@ -311,9 +407,9 @@ class ChiselContext:
                 )
 
     @debug_wrap(debug=DEBUG)
-    def postop(self, binary, programContext, opContext):
+    def handle_postop(self, binary: Binary, programContext: CallbackContext, opContext: OpContext):
         """
-        Post-operation callback executed after each device operation.
+        Handle post-operation logic (called from postop callback).
 
         This method:
         1. Captures the operation's output tensor
@@ -510,14 +606,6 @@ class ChiselContext:
         result_code, results = self.rt_api()
         return result_code, results
 
-    def bind_callbacks(self):
-        """
-        Set up debug hooks for operation execution.
-
-        This configures the pre-operation and post-operation callbacks
-        that will be triggered during program execution.
-        """
-        callback_env_pre = DebugHooks.get(self.preop, self.postop)
 
     def load_inputs_from_disk(self, positional_inputs_paths):
         """
@@ -582,3 +670,74 @@ class ChiselContext:
                 arg_name, tensor, ExecutionType.GOLDEN
             )
             self.golden_tensor_pool[arg_name].set_execution_data()
+
+
+# Module-level callback functions matching ttrt.runtime.DebugHooks API
+def preop(binary: Binary, program_ctx: CallbackContext, op_ctx: OpContext):
+    """
+    Pre-operation callback - non-member function.
+    Initializes global context on first call.
+    Matches ttrt.runtime.DebugHooks signature.
+
+    Args:
+        binary: Binary object from TTRT runtime
+        program_ctx: Program context for tensor pool access
+        op_ctx: Operation context with operation metadata
+    """
+    global _chisel_context
+
+    # Lazy initialization on first preop
+    if _chisel_context is None or not _chisel_context._initialized:
+        logger.info("[Chisel] First preop - initializing context from flatbuffer...")
+        if _chisel_context is None:
+            # Should not happen if setup_chisel() was called
+            raise RuntimeError("ChiselContext not created. Call setup_chisel() first.")
+        _chisel_context.initialize_from_flatbuffer(binary)
+
+    # Delegate to context for actual work
+    _chisel_context.handle_preop(binary, program_ctx, op_ctx)
+
+
+def postop(binary: Binary, program_ctx: CallbackContext, op_ctx: OpContext):
+    """
+    Post-operation callback - non-member function.
+    Uses global context for operation comparison.
+    Matches ttrt.runtime.DebugHooks signature.
+
+    Args:
+        binary: Binary object from TTRT runtime
+        program_ctx: Program context for tensor pool access
+        op_ctx: Operation context with operation metadata
+    """
+    global _chisel_context
+
+    if _chisel_context is None:
+        raise RuntimeError("ChiselContext not initialized in postop")
+
+    # Delegate to context for actual work
+    _chisel_context.handle_postop(binary, program_ctx, op_ctx)
+
+
+def setup_chisel(**kwargs):
+    """
+    Initialize global chisel context.
+    Called from main before registering callbacks.
+
+    Args:
+        **kwargs: Arguments to pass to ChiselContext constructor
+
+    Returns:
+        ChiselContext: The created context
+    """
+    global _chisel_context
+    _chisel_context = ChiselContext(**kwargs)
+    return _chisel_context
+
+
+def bind_chisel_callbacks():
+    """
+    Register chisel callbacks with runtime using DebugHooks.
+    Uses ttrt.runtime.DebugHooks.get() - same as bind_callbacks() in ttrt.runtime.__init__.py
+    """
+    DebugHooks.get(preop, postop)
+    logger.info("[Chisel] Callbacks registered with DebugHooks")
