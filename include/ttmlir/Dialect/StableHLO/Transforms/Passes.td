@@ -9,6 +9,32 @@ include "mlir/Pass/PassBase.td"
 include "shardy/dialect/sdy/ir/dialect.td"
 include "shardy/dialect/sdy/ir/op_interface.td"
 
+def StableHLOComplexDataTypeConversionPass : Pass<"stablehlo-complex-data-type-conversion", "::mlir::ModuleOp"> {
+  let summary = "Convert complex data types to float pair representations in StableHLO.";
+  let description = [{
+    This pass converts StableHLO operations with complex element types to
+    equivalent operations using float pair representations. Complex tensors of
+    type tensor<...xcomplex<fN>> are converted to tensor<...x2xfN>, where the
+    last dimension stores [real, imag] components.
+
+    Complex specific ops, such as stablehlo.complex, stablehlo.real, and stablehlo.imag transpose
+    the trailing dimension to the front for tilize/ untilize performance.
+
+    Concretely, the pass handles:
+      - stablehlo.complex -> stablehlo.reshape + stablehlo.concatenate + stablehlo.transpose
+      - stablehlo.real / stablehlo.imag -> stablehlo.transpose + stablehlo.slice + stablehlo.reshape
+      - stablehlo.constant with complex element type -> float-pair constant
+      - stablehlo.reshape with complex result type -> float-pair reshape
+      - stablehlo.broadcast_in_dim with complex result type -> float-pair broadcast_in_dim
+      - func signatures and return ops with complex types
+
+    This pass is intended to run after `stablehlo-complex-math-expander` (real-domain elementwise ops).
+    To add support for elementwise ops with complex types, please register them in `stablehlo-complex-math-expander` pass.
+  }];
+  let dependentDialects = ["mlir::func::FuncDialect",
+                           "::mlir::stablehlo::StablehloDialect"];
+}
+
 def RegisterCustomShardingRulePass : Pass<"register-custom-sharding-rule", "::mlir::ModuleOp">
 {
   let summary = "Register custom sharding rules for operations.";
