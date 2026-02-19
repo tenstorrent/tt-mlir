@@ -70,7 +70,8 @@ validateWithMultipleAttributes(Operation *op,
       continue;
     }
 
-    const auto &actualOutputs = constraintResult.actualOutputLayouts;
+    // TODO(bmalesevic, #7023): propagate all output layouts once multi-output
+    // matching is supported.
     const auto firstActualOutputLayout =
         constraintResult.checkAndGetFirstActualOutputLayout();
 
@@ -80,7 +81,8 @@ validateWithMultipleAttributes(Operation *op,
       for (size_t i = 0; i < referenceConfigs.size(); ++i) {
         if (referenceConfigs[i].outputLayout == firstActualOutputLayout &&
             referenceConfigs[i].opSpecificAttrs == testConfig.opSpecificAttrs) {
-          results.push_back(ValidationResult::success(i, actualOutputs));
+          results.push_back(
+              ValidationResult::success(i, firstActualOutputLayout));
           foundMatch = true;
           break;
         }
@@ -92,7 +94,7 @@ validateWithMultipleAttributes(Operation *op,
       }
     } else {
       // No reference configs to search - consider validation success as match.
-      results.push_back(ValidationResult::success(0, actualOutputs));
+      results.push_back(ValidationResult::success(0, firstActualOutputLayout));
     }
   }
 
