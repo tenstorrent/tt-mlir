@@ -34,10 +34,10 @@ createMatmulProgramConfigIfNeeded(const ::tt::target::ttnn::MatmulOp *op);
 std::optional<::ttnn::operations::matmul::MatmulProgramConfig>
 createMatmulProgramConfigIfNeeded(const ::tt::target::ttnn::LinearOp *op);
 
-::ttnn::operations::conv::conv2d::Conv2dConfig
+::ttnn::Conv2dConfig
 createConv2dConfig(const ::tt::target::ttnn::Conv2dConfig *memcfg);
 
-::ttnn::operations::conv::conv2d::Conv2dSliceConfig
+::ttnn::Conv2dSliceConfig
 createConv2dSliceConfig(const ::tt::target::ttnn::Conv2dSliceConfig *config);
 
 ::ttnn::operations::transformer::SDPAProgramConfig
