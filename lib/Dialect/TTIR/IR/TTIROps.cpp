@@ -2195,7 +2195,7 @@ struct HoistSliceAboveEltwise
   matchAndRewrite(mlir::tt::ttir::SliceStaticOp sliceOp,
                   mlir::PatternRewriter &rewriter) const override {
     mlir::Operation *defOp = sliceOp.getInput().getDefiningOp();
-    if (!defOp || defOp->getNumResults() != 1 || !defOp->hasOneUse())
+    if (!defOp || defOp->getNumResults() != 1)
       return mlir::failure();
 
     // All operands must be ranked tensors with the same shape as the result.
@@ -2256,7 +2256,7 @@ struct HoistSliceAboveBroadcast
                   mlir::PatternRewriter &rewriter) const override {
     auto broadcastOp =
         sliceOp.getInput().getDefiningOp<mlir::tt::ttir::BroadcastOp>();
-    if (!broadcastOp || !broadcastOp->hasOneUse())
+    if (!broadcastOp)
       return mlir::failure();
 
     // Skip if the slice does not reduce the broadcast output.

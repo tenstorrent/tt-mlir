@@ -29,11 +29,15 @@ module {
     return %1 : tensor<1x49920x1x5120xf32>
   }
 
-  // Broadcast has two uses: do NOT hoist (pattern requires hasOneUse).
-  func.func @no_hoist_multiple_broadcast_uses(%arg0: tensor<1x1x6x5120xf32>)
+  // Broadcast has two uses (slice + direct return): the slice use is hoisted,
+  // the original large broadcast is kept for the non-slice use.
+  func.func @hoist_with_multiple_broadcast_uses(%arg0: tensor<1x1x6x5120xf32>)
       -> (tensor<1x49920x1x5120xf32>, tensor<1x49920x6x5120xf32>) {
-    // CHECK: "ttir.broadcast"
-    // CHECK: tensor<1x49920x6x5120xf32>
+    // Original large broadcast retained for the direct return.
+    // CHECK: "ttir.broadcast"{{.*}}tensor<1x49920x6x5120xf32>
+    // Slice is hoisted: operates on the small input, not the large broadcast.
+    // CHECK: "ttir.slice_static"(%arg0)
+    // CHECK-NOT: "ttir.slice_static"{{.*}}tensor<1x49920x6x5120xf32>
     %0 = "ttir.broadcast"(%arg0) <{broadcast_dimensions = array<i64: 1, 49920, 1, 1>}> : (tensor<1x1x6x5120xf32>) -> tensor<1x49920x6x5120xf32>
     %1 = "ttir.slice_static"(%0) <{begins = [0 : i32, 0 : i32, 1 : i32, 0 : i32], ends = [1 : i32, 49920 : i32, 2 : i32, 5120 : i32], step = [1 : i32, 1 : i32, 1 : i32, 1 : i32]}> : (tensor<1x49920x6x5120xf32>) -> tensor<1x49920x1x5120xf32>
     return %1, %0 : tensor<1x49920x1x5120xf32>, tensor<1x49920x6x5120xf32>
