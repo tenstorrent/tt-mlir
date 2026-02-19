@@ -219,7 +219,6 @@ bool ShardSolver::resolveStep() {
               // causes hangs. See: github.com/tenstorrent/tt-metal/issues/34765
               if (inputLayout.hasShardedL1TensorMemoryLayout() &&
                   actualFirstOutputLayout.hasShardedL1TensorMemoryLayout() &&
-                  actualFirstOutputLayout.hasShardedL1TensorMemoryLayout() &&
                   llvm::isa<ttnn::AddOp, ttnn::MultiplyOp, ttnn::MinimumOp>(
                       consumerOp)) {
                 int64_t inputCores = inputLayout.getGrid().getGridVolume();
