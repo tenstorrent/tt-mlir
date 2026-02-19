@@ -16,6 +16,7 @@ namespace mlir::tt::ttnn::workarounds::decomposition {
 // When output channels aren't aligned, this pattern pads the weight (and bias)
 // tensors, runs conv3d with padded output channels, then slices the result back
 // to the original size.
+// Issue: https://github.com/tenstorrent/tt-metal/issues/38126
 class Conv3dPadOutputChannelsRewritePattern
     : public mlir::OpRewritePattern<Conv3dOp> {
 public:
