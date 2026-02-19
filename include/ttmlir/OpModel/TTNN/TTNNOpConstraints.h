@@ -24,7 +24,7 @@ struct OpConstraints {
   size_t peakL1MemorySize;   // Peak memory (CB+L1) allocation in bytes
   size_t outputL1BufferSize; // Output L1 buffer allocation in bytes
   llvm::SmallVector<tt::ttnn::TTNNLayoutAttr>
-      outputLayouts; // Layouts of the output tensors
+      outputLayouts; // Layouts of all output tensors (one layout per output tensor)
   // ---------------------------------------------------------------------------
   // Parameterized constructor, should be used in most cases
   OpConstraints(size_t cbPeak, size_t tensorPeak, size_t peakMemory,
