@@ -1211,14 +1211,16 @@ private:
   LogicalResult
   checkConversionLegality(mlir::stablehlo::ConstantOp &srcOp,
                           ConversionPatternRewriter &rewriter) const {
-    if (isa<DenseElementsAttr, DenseResourceElementsAttr>(srcOp.getValue()) &&
-        !srcOp.getValue().getElementType().isIntOrFloat()) {
-      return rewriter.notifyMatchFailure(
-          srcOp, "ttir.constant only supports DenseElementsAttr or "
-                 "DenseResourceElementsAttr with int or float types.");
+    if (!isa<DenseElementsAttr, DenseResourceElementsAttr>(srcOp.getValue())) {
+      return success();
     }
-
-    return success();
+    auto elemType = srcOp.getValue().getElementType();
+    if (elemType.isIntOrFloat() || isa<ComplexType>(elemType)) {
+      return success();
+    }
+    return rewriter.notifyMatchFailure(
+        srcOp, "ttir.constant only supports DenseElementsAttr or "
+               "DenseResourceElementsAttr with int, float, or complex types.");
   }
 };
 } // namespace
@@ -6555,6 +6557,18 @@ addElementwiseUnaryOpsConversionPatterns(MLIRContext *ctx,
       mlir::stablehlo::LogOp, mlir::tt::ttir::LogOp>>(typeConverter, ctx);
 }
 
+static void addComplexOpsConversionPatterns(MLIRContext *ctx,
+                                            RewritePatternSet &patterns,
+                                            TypeConverter &typeConverter) {
+  patterns.add<StableHLOToTTIROpDefaultConversionPattern<
+      mlir::stablehlo::ComplexOp, mlir::tt::ttir::ComplexOp>>(typeConverter,
+                                                              ctx);
+  patterns.add<StableHLOToTTIROpDefaultConversionPattern<
+      mlir::stablehlo::RealOp, mlir::tt::ttir::RealOp>>(typeConverter, ctx);
+  patterns.add<StableHLOToTTIROpDefaultConversionPattern<
+      mlir::stablehlo::ImagOp, mlir::tt::ttir::ImagOp>>(typeConverter, ctx);
+}
+
 static void
 addElementwiseBinaryOpsConversionPatterns(MLIRContext *ctx,
                                           RewritePatternSet &patterns,
@@ -6845,6 +6859,7 @@ void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
                                      TypeConverter &typeConverter) {
   addElementwiseUnaryOpsConversionPatterns(ctx, patterns, typeConverter);
   addElementwiseBinaryOpsConversionPatterns(ctx, patterns, typeConverter);
+  addComplexOpsConversionPatterns(ctx, patterns, typeConverter);
   addQuantizeOpsConversionPattern(ctx, patterns, typeConverter);
   addReduceOpsConversionPatterns(ctx, patterns, typeConverter);
   addDotGeneralOpConversionPatterns(ctx, patterns, typeConverter);
