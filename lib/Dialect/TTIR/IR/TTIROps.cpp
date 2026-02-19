@@ -3577,21 +3577,18 @@ computeMatmulResultShape(llvm::ArrayRef<int64_t> inputAShape,
 }
 
 // MatmulOp canonicalization: absorb leading squeeze/unsqueeze reshapes.
+//
+// Matches patterns like:
+//   %a = reshape [1,B,M,K] -> [B,M,K]   (squeeze leading 1s)
+//   %b = reshape [1,B,K,N] -> [B,K,N]   (squeeze leading 1s)
+//   %r = matmul %a, %b -> [B,M,N]
+//   %o = reshape %r -> [1,B,M,N]         (unsqueeze leading 1s)
+//
+// And replaces with:
+//   %o = matmul %a_orig, %b_orig -> [1,B,M,N]
+//
 void mlir::tt::ttir::MatmulOp::getCanonicalizationPatterns(
     mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
-  // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
-
-  // Absorb leading squeeze/unsqueeze reshapes around matmul.
-  //
-  // Matches patterns like:
-  //   %a = reshape [1,B,M,K] -> [B,M,K]   (squeeze leading 1s)
-  //   %b = reshape [1,B,K,N] -> [B,K,N]   (squeeze leading 1s)
-  //   %r = matmul %a, %b -> [B,M,N]
-  //   %o = reshape %r -> [1,B,M,N]         (unsqueeze leading 1s)
-  //
-  // And replaces with:
-  //   %o = matmul %a_orig, %b_orig -> [1,B,M,N]
-  //
   patterns.add(+[](ttir::MatmulOp op, mlir::PatternRewriter &rewriter) {
     if (!op.getResult().hasOneUse()) {
       return mlir::failure();
