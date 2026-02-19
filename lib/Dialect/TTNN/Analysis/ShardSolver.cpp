@@ -212,17 +212,19 @@ bool ShardSolver::resolveStep() {
           for (std::size_t i = 0; i < results.size(); ++i) {
             const auto &result = results[i];
             if (result.isSuccess()) {
+              TTNNLayoutAttr actualFirstOutputLayout =
+                  result.checkAndGetFirstActualOutputLayout();
               // For elementwise binary ops with sharded input, reject configs
               // that shrink the core count. Implicit resharding in these ops
               // causes hangs. See: github.com/tenstorrent/tt-metal/issues/34765
               if (inputLayout.hasShardedL1TensorMemoryLayout() &&
-                  result.firstActualOutputLayout
-                      .hasShardedL1TensorMemoryLayout() &&
+                  actualFirstOutputLayout.hasShardedL1TensorMemoryLayout() &&
+                  actualFirstOutputLayout.hasShardedL1TensorMemoryLayout() &&
                   llvm::isa<ttnn::AddOp, ttnn::MultiplyOp, ttnn::MinimumOp>(
                       consumerOp)) {
                 int64_t inputCores = inputLayout.getGrid().getGridVolume();
                 int64_t outputCores =
-                    result.firstActualOutputLayout.getGrid().getGridVolume();
+                    actualFirstOutputLayout.getGrid().getGridVolume();
                 if (outputCores < inputCores) {
                   TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
                                "Rejecting {} config: elementwise binary op "
@@ -235,7 +237,8 @@ bool ShardSolver::resolveStep() {
               TTMLIR_TRACE(
                   ttmlir::LogComponent::Optimizer,
                   "Backend chose valid consumer layout {}, consumerId {}",
-                  result.firstActualOutputLayout, result.configIndex);
+                  result.checkAndGetFirstActualOutputLayout(),
+                  result.configIndex);
               edgeProducerBitset.set(producerId);
               edgeConsumerBitset.set(result.configIndex);
               paths.push_back(Path(
@@ -396,14 +399,14 @@ ShardSolver::supportsInterleavedInputShardedOutput(Operation *op,
     return llvm::createStringError(validationResult.errorMessage);
   }
 
-  if (!validationResult.firstActualOutputLayout
+  if (!validationResult.checkAndGetFirstActualOutputLayout()
            .hasShardedL1TensorMemoryLayout()) {
     return llvm::createStringError(
         "Interleaved to sharded not supported - backend did not return sharded "
         "layout");
   }
 
-  return validationResult.firstActualOutputLayout;
+  return validationResult.checkAndGetFirstActualOutputLayout();
 }
 
 // We need to check if first op requires sharded inputs and if so, insert

@@ -70,14 +70,15 @@ validateWithMultipleAttributes(Operation *op,
       continue;
     }
 
-    llvm::SmallVector<TTNNLayoutAttr> actualOutputs =
-        constraintResult.actualOutputLayouts;
+    const auto &actualOutputs = constraintResult.actualOutputLayouts;
+    const auto firstActualOutputLayout =
+        constraintResult.checkAndGetFirstActualOutputLayout();
 
     // 2. Search referenceConfigs for matching (outputLayout + opSpecificAttr).
     if (!referenceConfigs.empty()) {
       bool foundMatch = false;
       for (size_t i = 0; i < referenceConfigs.size(); ++i) {
-        if (referenceConfigs[i].outputLayout == actualOutputs[0] &&
+        if (referenceConfigs[i].outputLayout == firstActualOutputLayout &&
             referenceConfigs[i].opSpecificAttrs == testConfig.opSpecificAttrs) {
           results.push_back(ValidationResult::success(i, actualOutputs));
           foundMatch = true;
