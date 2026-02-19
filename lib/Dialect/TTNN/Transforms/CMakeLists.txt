@@ -50,6 +50,8 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         Workarounds/Decomposition/SubtractOpImplicitBroadcastRewritePattern.cpp
         Workarounds/Decomposition/ExplicateOperandBroadcastsRewritePattern.cpp
         Workarounds/Decomposition/Conv3dPadOutputChannelsRewritePattern.cpp
+        Workarounds/Decomposition/Conv3dDepthPaddingRewritePattern.cpp
+        Workarounds/Decomposition/PadHighDimRewritePattern.cpp
         Workarounds/TTNNWorkaroundsPatterns.cpp
 
         ADDITIONAL_HEADER_DIRS

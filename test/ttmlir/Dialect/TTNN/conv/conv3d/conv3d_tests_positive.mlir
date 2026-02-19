@@ -127,4 +127,28 @@ module {
             }> : (tensor<1x128x11x34x34xbf16>, tensor<48x128x3x3x3xbf16>) -> tensor<1x48x9x32x32xbf16>
     return %0 : tensor<1x48x9x32x32xbf16>
   }
+
+  // Test 3D convolution with depth padding workaround (NCDHW layout).
+  func.func @conv3d_depth_padding_workaround(%arg0: tensor<1x128x2x4x4xbf16>, %arg1: tensor<1024x128x3x3x3xbf16>) -> tensor<1x1024x2x4x4xbf16> {
+    // CHECK: "ttnn.permute"
+    // CHECK: "ttnn.permute"
+    // CHECK: "ttnn.pad"
+    // CHECK: "ttnn.permute"
+    // CHECK: "ttnn.conv3d"
+    // CHECK: "ttnn.permute"
+    %0 = "ttir.conv3d"(%arg0, %arg1)
+            <{
+              stride = array<i32: 1, 1, 1>,
+              padding = array<i32: 1, 1, 1>,
+              groups = 1 : i32,
+              batch_dim = 0 : i64,
+              channel_dim = 1 : i64,
+              depth_dim = 2 : i64,
+              height_dim = 3 : i64,
+              width_dim = 4 : i64,
+              padding_mode = "zeros"
+            }> : (tensor<1x128x2x4x4xbf16>, tensor<1024x128x3x3x3xbf16>) -> tensor<1x1024x2x4x4xbf16>
+    return %0 : tensor<1x1024x2x4x4xbf16>
+  }
+
 }
