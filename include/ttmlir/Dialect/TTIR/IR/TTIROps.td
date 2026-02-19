@@ -4080,6 +4080,8 @@ def TTIR_SliceStaticOp: TTIR_NamedOp<"slice_static"> {
     let hasVerifier = 1;
 
     let hasFolder = 1;
+
+    let hasCanonicalizer = 1;
 }
 
 def TTIR_SliceDynamicOp: TTIR_NamedOp<"slice_dynamic"> {

@@ -2182,6 +2182,154 @@ mlir::OpFoldResult mlir::tt::ttir::SliceStaticOp::fold(FoldAdaptor adaptor) {
   return nullptr;
 }
 
+// Pattern 1: Hoist slice_static above elementwise ops.
+// If the defining op of a slice's input is elementwise (all operands share the
+// same shape as the result), apply the same slice to each operand first, then
+// re-create the op. This reduces peak memory for large intermediate tensors.
+namespace {
+struct HoistSliceAboveEltwise
+    : public mlir::OpRewritePattern<mlir::tt::ttir::SliceStaticOp> {
+  using OpRewritePattern::OpRewritePattern;
+
+  mlir::LogicalResult
+  matchAndRewrite(mlir::tt::ttir::SliceStaticOp sliceOp,
+                  mlir::PatternRewriter &rewriter) const override {
+    mlir::Operation *defOp = sliceOp.getInput().getDefiningOp();
+    if (!defOp || defOp->getNumResults() != 1 || !defOp->hasOneUse())
+      return mlir::failure();
+
+    // All operands must be ranked tensors with the same shape as the result.
+    auto resultType =
+        mlir::dyn_cast<mlir::RankedTensorType>(defOp->getResult(0).getType());
+    if (!resultType)
+      return mlir::failure();
+    for (mlir::Value operand : defOp->getOperands()) {
+      auto opType = mlir::dyn_cast<mlir::RankedTensorType>(operand.getType());
+      if (!opType || opType.getShape() != resultType.getShape())
+        return mlir::failure();
+    }
+
+    // Skip if the slice does not actually reduce the output size.
+    int64_t sliceOutVol = 1;
+    for (int64_t d : sliceOp.getResult().getType().getShape())
+      sliceOutVol *= d;
+    int64_t defOutVol = 1;
+    for (int64_t d : resultType.getShape())
+      defOutVol *= d;
+    if (sliceOutVol >= defOutVol)
+      return mlir::failure();
+
+    // Apply the same slice to each operand.
+    mlir::RankedTensorType sliceResultType =
+        sliceOp.getResult().getType();
+    llvm::SmallVector<mlir::Value> newOperands;
+    for (mlir::Value operand : defOp->getOperands()) {
+      auto operandType = mlir::cast<mlir::RankedTensorType>(operand.getType());
+      auto newSliceType = mlir::RankedTensorType::get(
+          sliceResultType.getShape(), operandType.getElementType(),
+          operandType.getEncoding());
+      newOperands.push_back(rewriter.create<mlir::tt::ttir::SliceStaticOp>(
+          sliceOp.getLoc(), newSliceType, operand, sliceOp.getBeginsAttr(),
+          sliceOp.getEndsAttr(), sliceOp.getStepAttr()));
+    }
+
+    // Re-create the defining op with sliced operands and the slice result type.
+    mlir::OperationState state(defOp->getLoc(), defOp->getName());
+    state.addOperands(newOperands);
+    state.addTypes(sliceResultType);
+    state.addAttributes(defOp->getAttrs());
+    mlir::Operation *newOp = rewriter.create(state);
+    rewriter.replaceOp(sliceOp, newOp->getResult(0));
+    return mlir::success();
+  }
+};
+
+// Pattern 2: Hoist slice_static above broadcast.
+// A broadcast only replicates singleton dims, so a slice of a broadcast output
+// equals a smaller broadcast of a slice of the broadcast input.
+struct HoistSliceAboveBroadcast
+    : public mlir::OpRewritePattern<mlir::tt::ttir::SliceStaticOp> {
+  using OpRewritePattern::OpRewritePattern;
+
+  mlir::LogicalResult
+  matchAndRewrite(mlir::tt::ttir::SliceStaticOp sliceOp,
+                  mlir::PatternRewriter &rewriter) const override {
+    auto broadcastOp =
+        sliceOp.getInput().getDefiningOp<mlir::tt::ttir::BroadcastOp>();
+    if (!broadcastOp || !broadcastOp->hasOneUse())
+      return mlir::failure();
+
+    // Skip if the slice does not reduce the broadcast output.
+    int64_t sliceOutVol = 1;
+    for (int64_t d : sliceOp.getResult().getType().getShape())
+      sliceOutVol *= d;
+    int64_t bcastOutVol = 1;
+    for (int64_t d : broadcastOp.getResult().getType().getShape())
+      bcastOutVol *= d;
+    if (sliceOutVol >= bcastOutVol)
+      return mlir::failure();
+
+    llvm::ArrayRef<int64_t> bcastDims =
+        broadcastOp.getBroadcastDimensions();
+    mlir::ArrayAttr begins = sliceOp.getBeginsAttr();
+    mlir::ArrayAttr ends = sliceOp.getEndsAttr();
+    mlir::ArrayAttr steps = sliceOp.getStepAttr();
+    mlir::Value bcastInput = broadcastOp.getInput();
+
+    llvm::SmallVector<int32_t> newBegins, newEnds, newSteps;
+    llvm::SmallVector<int64_t> newBcastDims, newSliceShape;
+
+    for (size_t i = 0; i < bcastDims.size(); i++) {
+      int32_t b = mlir::cast<mlir::IntegerAttr>(begins[i]).getInt();
+      int32_t e = mlir::cast<mlir::IntegerAttr>(ends[i]).getInt();
+      int32_t s = mlir::cast<mlir::IntegerAttr>(steps[i]).getInt();
+      if (bcastDims[i] > 1) {
+        // Broadcast dim: input is singleton; slice it at [0:1:1] and
+        // re-broadcast to the output slice size for this dim.
+        int64_t sliceSize =
+            (static_cast<int64_t>(e) - b + s - 1) / s;
+        newBegins.push_back(0);
+        newEnds.push_back(1);
+        newSteps.push_back(1);
+        newBcastDims.push_back(sliceSize);
+        newSliceShape.push_back(1);
+      } else {
+        // Non-broadcast dim: pass the slice through unchanged.
+        newBegins.push_back(b);
+        newEnds.push_back(e);
+        newSteps.push_back(s);
+        newBcastDims.push_back(1);
+        newSliceShape.push_back(
+            (static_cast<int64_t>(e) - b + s - 1) / s);
+      }
+    }
+
+    mlir::RankedTensorType inputType =
+        mlir::cast<mlir::RankedTensorType>(bcastInput.getType());
+    auto newSliceType = mlir::RankedTensorType::get(
+        newSliceShape, inputType.getElementType(), inputType.getEncoding());
+
+    auto newSlice = rewriter.create<mlir::tt::ttir::SliceStaticOp>(
+        sliceOp.getLoc(), newSliceType, bcastInput,
+        rewriter.getI32ArrayAttr(newBegins),
+        rewriter.getI32ArrayAttr(newEnds),
+        rewriter.getI32ArrayAttr(newSteps));
+
+    auto newBroadcast = rewriter.create<mlir::tt::ttir::BroadcastOp>(
+        broadcastOp.getLoc(), sliceOp.getResult().getType(), newSlice,
+        newBcastDims);
+
+    rewriter.replaceOp(sliceOp, newBroadcast);
+    return mlir::success();
+  }
+};
+} // namespace
+
+void mlir::tt::ttir::SliceStaticOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &results, mlir::MLIRContext *context) {
+  results.add<HoistSliceAboveEltwise, HoistSliceAboveBroadcast>(context);
+}
+
 //===----------------------------------------------------------------------===//
 // SliceDynamicOp
 //===----------------------------------------------------------------------===//
