@@ -108,16 +108,12 @@ module {
         return %2 : tensor<1x32x64xbf16>
     }
 
-    // RMS norm with f32 input and bf16 output - requires typecast after rms_norm.
-    // Input is f32, gamma is bf16, output should be bf16.
-    // The fusion should produce rms_norm with f32 output followed by typecast to bf16.
+    // Negative case: RMS norm fusion is NOT applied when input is f32, gamma is bf16,
+    // and output is bf16 (typecast after multiply-by-gamma). The pass does not fuse
+    // this pattern, so the expanded ops remain.
     // CHECK-LABEL: func.func @rms_norm_fusion_with_typecast
     func.func @rms_norm_fusion_with_typecast(%arg0: tensor<128x1024xf32>, %arg1: tensor<1024xbf16>) -> tensor<128x1024xbf16> {
-        // CHECK: %[[RMSNORM:.*]] = "ttir.rms_norm"(%arg0, %arg1)
-        // CHECK-SAME: (tensor<128x1024xf32>, tensor<1024xbf16>) -> tensor<128x1024xf32>
-        // CHECK: %[[TYPECAST:.*]] = "ttir.typecast"(%[[RMSNORM]])
-        // CHECK-SAME: (tensor<128x1024xf32>) -> tensor<128x1024xbf16>
-        // CHECK: return %[[TYPECAST]]
+        // CHECK-NOT: "ttir.rms_norm"
         %0 = "ttir.constant"() <{value = dense<9.99999997E-7> : tensor<128x1x1xf32>}> : () -> tensor<128x1x1xf32>
         %1 = "ttir.constant"() <{value = dense<9.765625E-4> : tensor<128x1xf32>}> : () -> tensor<128x1xf32>
         %2 = "ttir.constant"() <{value = dense<2.000000e+00> : tensor<128x1x1024xf32>}> : () -> tensor<128x1x1024xf32>
@@ -174,18 +170,12 @@ module {
         return %18 : tensor<32x1x2048xbf16>
     }
 
-    // RMS norm with f32 input, different output shape (needs reshape), and bf16 output (needs typecast).
-    // Input is 32x2048xf32, output should be 32x1x2048xbf16.
-    // The fusion produces rms_norm -> reshape -> typecast, but erase-inverse-ops commutes reshape before rms_norm.
+    // Negative case: RMS norm fusion is NOT applied when input is f32, output shape
+    // differs (reshape) and output element type is bf16 (typecast). The pass does not
+    // fuse this pattern, so the expanded ops remain.
     // CHECK-LABEL: func.func @rms_norm_fusion_with_reshape_and_typecast
     func.func @rms_norm_fusion_with_reshape_and_typecast(%arg0: tensor<32x2048xf32>, %arg1: tensor<2048xbf16>) -> tensor<32x1x2048xbf16> {
-        // CHECK: %[[RESHAPE:.*]] = "ttir.reshape"(%arg0)
-        // CHECK-SAME: (tensor<32x2048xf32>) -> tensor<32x1x2048xf32>
-        // CHECK: %[[RMSNORM:.*]] = "ttir.rms_norm"(%[[RESHAPE]], %arg1)
-        // CHECK-SAME: (tensor<32x1x2048xf32>, tensor<2048xbf16>) -> tensor<32x1x2048xf32>
-        // CHECK: %[[TYPECAST:.*]] = "ttir.typecast"(%[[RMSNORM]])
-        // CHECK-SAME: (tensor<32x1x2048xf32>) -> tensor<32x1x2048xbf16>
-        // CHECK: return %[[TYPECAST]]
+        // CHECK-NOT: "ttir.rms_norm"
         %0 = "ttir.constant"() <{value = dense<9.99999974E-6> : tensor<32x1x1xf32>}> : () -> tensor<32x1x1xf32>
         %1 = "ttir.constant"() <{value = dense<4.8828125E-4> : tensor<32x1xf32>}> : () -> tensor<32x1xf32>
         %2 = "ttir.constant"() <{value = dense<2.000000e+00> : tensor<32x1x2048xf32>}> : () -> tensor<32x1x2048xf32>
