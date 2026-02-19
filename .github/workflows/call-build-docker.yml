@@ -53,7 +53,7 @@ jobs:
 
   build-image:
     needs: check-if-docker-exist
-    if: needs.check-if-docker-exist.outputs.docker-image == ''
+    # if: needs.check-if-docker-exist.outputs.docker-image == ''
     runs-on: docker-builder
     outputs:
       docker-image: ${{ steps.build.outputs.docker-image }}
