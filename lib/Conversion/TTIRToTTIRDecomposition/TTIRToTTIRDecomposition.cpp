@@ -1572,7 +1572,19 @@ normalizeToNCHW(mlir::Value input, uint64_t featureIndex,
   } else if (rank < 4) {
     llvm::SmallVector<int64_t> reshapedShape(currentShape.begin(),
                                              currentShape.end());
-    reshapedShape.append(4 - rank, 1);
+    // For rank-3 tensors [N, C, S], if S is tile-aligned, split it into
+    // [N, C, S/32, 32] rather than appending a trailing 1 ([N, C, S, 1]).
+    // A trailing W=1 still requires a full 32-wide tile row, causing 32x
+    // memory waste. Splitting into (S/32, 32) keeps the same element count
+    // with a fully-packed tile layout.
+    constexpr int64_t kTileSize = 32;
+    if (rank == 3 && reshapedShape.back() % kTileSize == 0) {
+      int64_t S = reshapedShape.back();
+      reshapedShape.back() = S / kTileSize;
+      reshapedShape.push_back(kTileSize);
+    } else {
+      reshapedShape.append(4 - rank, 1);
+    }
     llvm::SmallVector<int32_t> reshapedShapeI32(reshapedShape.begin(),
                                                 reshapedShape.end());
     newInput = rewriter.create<mlir::tt::ttir::ReshapeOp>(
