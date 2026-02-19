@@ -659,7 +659,7 @@ struct EmptyUpdateInfo {
 static llvm::SmallVector<llvm::SmallVector<int64_t>>
 normalizeOperandGridsForGeneric(
     d2m::GenericOp genericOp,
-    ArrayRef<llvm::SmallVector<int64_t>> optimalOperandGrids) {
+    ArrayRef<llvm::SmallVector<int64_t>> optimalOperandGrids, bool ttnnMode) {
   if (optimalOperandGrids.empty()) {
     return {};
   }
@@ -758,6 +758,52 @@ normalizeOperandGridsForGeneric(
         int64_t constraint = (*outputConstraints)[dimPos];
         if (constraint != 0) {
           normalizedOperandGrids[operandIndex][resultIdx] = constraint;
+        }
+      }
+    }
+  }
+
+  // For TTNN-fed generics, also constrain outputs by TTNN input grids. This
+  // preserves the previous TTNN behavior where DRAM interleaved TTNN inputs
+  // drive a legal/common grid for the whole op.
+  if (!ttnnMode) {
+    return normalizedOperandGrids;
+  }
+  SmallVector<AffineMap> ttnnInputIndexingMaps;
+  SmallVector<SmallVector<int64_t>> ttnnInputShapes;
+  for (auto [operandIndex, operand] :
+       llvm::enumerate(genericOp->getOpOperands())) {
+    if (genericOp.isDpsInit(&operand) || !isTTNNOperand(operand.get())) {
+      continue;
+    }
+    ttnnInputIndexingMaps.push_back(genericOp.getIndexingMap(operandIndex));
+    ttnnInputShapes.push_back(normalizedOperandGrids[operandIndex]);
+  }
+  if (!ttnnInputIndexingMaps.empty()) {
+    auto ttnnInputConstraints =
+        utils::computeDimConstraints(ttnnInputIndexingMaps, ttnnInputShapes);
+    if (ttnnInputConstraints) {
+      for (auto [operandIndex, operand] :
+           llvm::enumerate(genericOp->getOpOperands())) {
+        if (!genericOp.isDpsInit(&operand)) {
+          continue;
+        }
+        AffineMap indexingMap = genericOp.getIndexingMap(operandIndex);
+        auto results = indexingMap.getResults();
+        TT_assertv(results.size() ==
+                       normalizedOperandGrids[operandIndex].size(),
+                   "indexing map results size does not match normalized "
+                   "operand grids size");
+        for (auto [resultIdx, expr] : llvm::enumerate(results)) {
+          auto dimExpr = mlir::dyn_cast<AffineDimExpr>(expr);
+          if (!dimExpr) {
+            continue;
+          }
+          int64_t dimPos = dimExpr.getPosition();
+          int64_t constraint = (*ttnnInputConstraints)[dimPos];
+          if (constraint != 0) {
+            normalizedOperandGrids[operandIndex][resultIdx] = constraint;
+          }
         }
       }
     }
@@ -864,7 +910,57 @@ analyzeOperandsAndComputeGrids(d2m::GenericOp genericOp,
   // Normalize the operand grids for the generic operation - see the comment on
   // this function for details.
   optimalOperandGrids =
-      normalizeOperandGridsForGeneric(genericOp, optimalOperandGrids);
+      normalizeOperandGridsForGeneric(genericOp, optimalOperandGrids, ttnnMode);
+
+  // Propagate normalized grids back into update plans so that rewritten
+  // producers are consistent with the final per-operand grid decisions.
+  bool hasTTNNOperand =
+      llvm::any_of(genericOp->getOpOperands(), [](OpOperand &operand) {
+        return isTTNNOperand(operand.get());
+      });
+  if (!ttnnMode || !hasTTNNOperand) {
+    return {optimalOperandGrids, toLayoutsToUpdate, TTNNTensorsToUpdate,
+            streamLayoutsToUpdate, emptyOpsToUpdate};
+  }
+
+  for (auto [operandIndex, operand] :
+       llvm::enumerate(genericOp.getOperands())) {
+    auto normalizedGrid = optimalOperandGrids[operandIndex];
+
+    for (auto &info : TTNNTensorsToUpdate) {
+      if (info.operand == operand) {
+        info.grid = normalizedGrid;
+      }
+    }
+
+    if (auto streamLayout = operand.getDefiningOp<d2m::StreamLayoutOp>()) {
+      for (auto &info : streamLayoutsToUpdate) {
+        if (info.op == streamLayout) {
+          info.grid = normalizedGrid;
+        }
+      }
+      if (auto toLayoutOp =
+              streamLayout.getInput().getDefiningOp<d2m::ToLayoutOp>()) {
+        for (auto &info : toLayoutsToUpdate) {
+          if (info.op == toLayoutOp) {
+            info.grid = normalizedGrid;
+          }
+        }
+      }
+    } else if (auto toLayoutOp = operand.getDefiningOp<d2m::ToLayoutOp>()) {
+      for (auto &info : toLayoutsToUpdate) {
+        if (info.op == toLayoutOp) {
+          info.grid = normalizedGrid;
+        }
+      }
+    } else if (auto emptyOp = operand.getDefiningOp<d2m::EmptyOp>()) {
+      for (auto &info : emptyOpsToUpdate) {
+        if (info.op == emptyOp) {
+          info.grid = normalizedGrid;
+        }
+      }
+    }
+  }
 
   return {optimalOperandGrids, toLayoutsToUpdate, TTNNTensorsToUpdate,
           streamLayoutsToUpdate, emptyOpsToUpdate};
