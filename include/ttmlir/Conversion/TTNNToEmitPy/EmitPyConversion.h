@@ -375,9 +375,9 @@ struct EmitPyTypeConverter<mlir::tt::ttcore::Topology> {
     case ::mlir::tt::ttcore::Topology::Linear:
       return "ttnn.Topology.Linear";
     default:
-      // Mesh and Torus are not defined in ttnn.Topology yet, so we don't need
-      // to handle them here. See ccl_pybind.cpp for the definition of
-      // ttnn.Topology.
+      // Mesh, Torus, and Disabled are not defined in ttnn.Topology yet, so we
+      // don't need to handle them here. See ccl_pybind.cpp for the definition
+      // of ttnn.Topology.
       llvm_unreachable("Unknown ttnn.Topology");
     }
   }

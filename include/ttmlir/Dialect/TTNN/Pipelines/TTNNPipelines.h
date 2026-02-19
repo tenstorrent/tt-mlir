@@ -217,7 +217,9 @@ struct TTIRToTTNNDevicePipelineOptions
       llvm::cl::desc("Set the per-axis topology for the mesh."),
       llvm::cl::values(
           clEnumValN(ttcore::Topology::Ring, "ring", "Ring topology"),
-          clEnumValN(ttcore::Topology::Linear, "linear", "Linear topology"))};
+          clEnumValN(ttcore::Topology::Linear, "linear", "Linear topology"),
+          clEnumValN(ttcore::Topology::Disabled, "disabled",
+                     "Disabled topology"))};
 
   Option<bool> rowMajorEnabled{
       *this, "row-major-enabled",

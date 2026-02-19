@@ -36,6 +36,7 @@ if (NOT DEVICE_RUNTIME_ENABLED)
   add_library(TTRuntimeWorkarounds INTERFACE)
   add_library(TTRuntimeDylibs INTERFACE)
   add_library(TTRuntimeFabricConfig INTERFACE)
+  add_library(TTRuntimeMeshFabricConfig INTERFACE)
   add_library(TTRuntimeSystemMesh INTERFACE)
   return()
 endif()
@@ -157,3 +158,15 @@ target_include_directories(TTRuntimeFabricConfig
 target_include_directories(TTRuntimeFabricConfig SYSTEM PUBLIC "$<BUILD_INTERFACE:${TTMETAL_INCLUDE_DIRS}>")
 add_dependencies(TTRuntimeFabricConfig tt-metal RUNTIME_FBS_GENERATION)
 target_link_libraries(TTRuntimeFabricConfig PUBLIC coverage_config)
+
+add_library(TTRuntimeMeshFabricConfig STATIC mesh_fabric_config.cpp)
+set_property(TARGET TTRuntimeMeshFabricConfig PROPERTY CXX_STANDARD 20)
+target_include_directories(TTRuntimeMeshFabricConfig
+  PUBLIC
+    ${PROJECT_SOURCE_DIR}/runtime/include
+    ${PROJECT_BINARY_DIR}/runtime/include
+    ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common
+)
+target_include_directories(TTRuntimeMeshFabricConfig SYSTEM PUBLIC "$<BUILD_INTERFACE:${TTMETAL_INCLUDE_DIRS}>")
+add_dependencies(TTRuntimeMeshFabricConfig tt-metal RUNTIME_FBS_GENERATION FBS_GENERATION)
+target_link_libraries(TTRuntimeMeshFabricConfig PUBLIC coverage_config)

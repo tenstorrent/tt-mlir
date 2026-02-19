@@ -75,7 +75,9 @@ def TTCoreRegisterDevicePass : Pass<"ttcore-register-device", "::mlir::ModuleOp"
               clEnumValN(ttcore::Topology::Ring, "ring",
                "Ring topology"),
               clEnumValN(ttcore::Topology::Linear, "linear",
-               "Linear topology")
+               "Linear topology"),
+              clEnumValN(ttcore::Topology::Disabled, "disabled",
+               "Disabled topology")
              )}]>,
     ];
   let dependentDialects = ["::mlir::tt::ttcore::TTCoreDialect"];
