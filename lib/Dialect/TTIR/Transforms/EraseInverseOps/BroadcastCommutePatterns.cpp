@@ -270,17 +270,18 @@ private:
     auto finalShape = reshapeUser.getResult().getType().getShape();
     auto broadcastDims = op.getBroadcastDimensions();
 
-    // There is a bug when broadcasting across more than 4 dimensions.
-    // Will remove this check once TTNN provides a permanent fix.
-    // https://github.com/tenstorrent/tt-metal/issues/21967
-    return finalShape.size() <= 4 &&
-           getNewReshapeAndBroadcastDims(originalShape, finalShape,
+    return getNewReshapeAndBroadcastDims(originalShape, finalShape,
                                          broadcastDims)
-               .has_value();
+        .has_value();
   }
 
   bool isCommuteUpwardsFavorable(ttir::BroadcastOp op,
                                  ttir::ReshapeOp) const override {
+    // Commute only if the broadcast will be folded.
+    if (!ttir::utils::isImplicitBroadcastSupported(op)) {
+      return false;
+    }
+
     // We should always commute a reshape above a broadcast if all users are an
     // identical reshape. This includes the case where there is one user.
     SmallVector<Operation *> users(op->getUsers());
@@ -374,6 +375,11 @@ private:
 
   bool isCommuteUpwardsFavorable(ttir::BroadcastOp op,
                                  ttir::PermuteOp) const override {
+    // Commute only if the broadcast will be folded.
+    if (!ttir::utils::isImplicitBroadcastSupported(op)) {
+      return false;
+    }
+
     // We should always commute a permute above a broadcast if all users are an
     // identical permutation. This includes the case where there is one user.
     SmallVector<Operation *> users(op->getUsers());
