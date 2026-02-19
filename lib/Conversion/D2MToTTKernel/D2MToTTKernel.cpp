@@ -1595,12 +1595,12 @@ public:
           // Dests are one less because the sender core is not included
           rewriter.create<ttkernel::NocAsyncWriteMulticastOp>(
               op.getLoc(), srcL1Start, mcastAddr, transferSize,
-              numDestsMinusOne, nullptr, nullptr, nullptr);
+              numDestsMinusOne, rewriter.getBoolAttr(true), nullptr, nullptr);
         } else {
           // If src != dst, we loopback mcast
           rewriter.create<ttkernel::NocAsyncWriteMulticastLoopbackSrcOp>(
               op.getLoc(), srcL1Start, mcastAddr, transferSize, numDests,
-              nullptr, nullptr, nullptr);
+              rewriter.getBoolAttr(true), nullptr, nullptr);
         }
       } else {
         // Local L1 to Local L1 local data movement lowering
@@ -1629,11 +1629,14 @@ public:
     // Add attribute marking whether the DMA wait is for a read or write
     // operation This will be used when loweing the wait ops because the current
     // DMA op will be replaced with a NullTx.
+    // Mcast writes do not require a write barrier.
     auto dmaWaitOps = associatedDMAWaits->get(op);
+    StringRef waitAttr = op.isMcast()
+                             ? "ttkernel.lowering.associated_noc_mcast_write"
+                             : "ttkernel.lowering.associated_noc_write";
     for (auto dmaWaitOp : dmaWaitOps) {
       rewriter.modifyOpInPlace(dmaWaitOp, [&]() {
-        dmaWaitOp->setDiscardableAttr("ttkernel.lowering.associated_noc_write",
-                                      rewriter.getUnitAttr());
+        dmaWaitOp->setDiscardableAttr(waitAttr, rewriter.getUnitAttr());
       });
     }
 
@@ -1705,7 +1708,9 @@ public:
         op->getDiscardableAttr("ttkernel.lowering.associated_noc_read");
     auto isWrite =
         op->getDiscardableAttr("ttkernel.lowering.associated_noc_write");
-    assert(isRead || isWrite);
+    auto isMcastWrite =
+        op->getDiscardableAttr("ttkernel.lowering.associated_noc_mcast_write");
+    assert(isRead || isWrite || isMcastWrite);
 
     if (isRead) {
       rewriter.create<ttkernel::NocAsyncReadBarrierOp>(op.getLoc());
