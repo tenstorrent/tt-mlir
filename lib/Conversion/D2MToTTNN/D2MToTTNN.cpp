@@ -175,10 +175,10 @@ public:
       case d2m::ThreadType::Datamovement: {
         TT_assert(nocIndex < 2);
         if (nocIndex == 0) {
-          kernelConfigs[i] = builder.getAttr<ttnn::ReadKernelAttr>(
+          kernelConfigs[i] = builder.getAttr<ttnn::WriteKernelAttr>(
               kernelSymbol, coreRangeSet, kernelCRTArgs, kernelCTArgs);
         } else {
-          kernelConfigs[i] = builder.getAttr<ttnn::WriteKernelAttr>(
+          kernelConfigs[i] = builder.getAttr<ttnn::ReadKernelAttr>(
               kernelSymbol, coreRangeSet, kernelCRTArgs, kernelCTArgs);
         }
         nocIndex++;
