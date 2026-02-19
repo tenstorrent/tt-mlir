@@ -58,4 +58,23 @@ module {
     // CHECK: "ttir.reshape"({{.*}}) <{shape = [8 : i32]}>
     return %3#0, %3#1, %3#2 : tensor<4x8xf32>, tensor<8xf32>, tensor<8xf32>
   }
+
+  // Test 4: 3D input with dimension=1 and tile-aligned S - should split S into [S/32, 32]
+  // CHECK-LABEL: func.func public @test_batch_norm_training_3d_dim1_tile_aligned
+  func.func public @test_batch_norm_training_3d_dim1_tile_aligned(%arg0: tensor<2x3x64xf32>, %arg1: tensor<3xf32>, %arg2: tensor<3xf32>, %arg3: tensor<3xf32>, %arg4: tensor<3xf32>) -> (tensor<2x3x64xf32>, tensor<3xf32>, tensor<3xf32>) {
+    // 3D input: [2, 3, 64], dimension=1
+    // S=64 is tile-aligned (64 % 32 == 0), so reshape to [2, 3, 2, 32]
+    // instead of the non-tile-aligned fallback [2, 3, 64, 1]
+    %3:3 = "ttir.batch_norm_training"(%arg0, %arg1, %arg2, %arg3, %arg4) <{dimension = 1 : i32, epsilon = 1.000000e-05 : f32, momentum = 1.000000e-01 : f32}> : (tensor<2x3x64xf32>, tensor<3xf32>, tensor<3xf32>, tensor<3xf32>, tensor<3xf32>) -> (tensor<2x3x64xf32>, tensor<3xf32>, tensor<3xf32>)
+    // CHECK: "ttir.reshape"(%arg0) <{shape = [2 : i32, 3 : i32, 2 : i32, 32 : i32]}>
+    // CHECK-DAG: "ttir.reshape"(%arg1) <{shape = [1 : i32, 3 : i32, 1 : i32, 1 : i32]}>
+    // CHECK-DAG: "ttir.reshape"(%arg2) <{shape = [1 : i32, 3 : i32, 1 : i32, 1 : i32]}>
+    // CHECK-DAG: "ttir.reshape"(%arg3) <{shape = [1 : i32, 3 : i32, 1 : i32, 1 : i32]}>
+    // CHECK-DAG: "ttir.reshape"(%arg4) <{shape = [1 : i32, 3 : i32, 1 : i32, 1 : i32]}>
+    // CHECK: "ttir.batch_norm_training"({{.*}}) <{dimension = 1 : i32, epsilon = {{.*}}, momentum = {{.*}}}>
+    // CHECK: "ttir.reshape"({{.*}}) <{shape = [2 : i32, 3 : i32, 64 : i32]}>
+    // CHECK: "ttir.reshape"({{.*}}) <{shape = [3 : i32]}>
+    // CHECK: "ttir.reshape"({{.*}}) <{shape = [3 : i32]}>
+    return %3#0, %3#1, %3#2 : tensor<2x3x64xf32>, tensor<3xf32>, tensor<3xf32>
+  }
 }
