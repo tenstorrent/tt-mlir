@@ -105,4 +105,26 @@ module {
             }> : (tensor<1x4x8x28x28xbf16>, tensor<16x4x3x3x3xbf16>) -> tensor<1x16x6x26x26xbf16>
     return %0 : tensor<1x16x6x26x26xbf16>
   }
+
+  // Test 3D convolution with non-tile-aligned output channels (NCDHW layout)
+  func.func @conv3d_non_tile_aligned_out_channels(%arg0: tensor<1x128x11x34x34xbf16>, %arg1: tensor<48x128x3x3x3xbf16>) -> tensor<1x48x9x32x32xbf16> {
+    // CHECK: "ttnn.permute"
+    // CHECK: "ttnn.pad"
+    // CHECK: "ttnn.conv3d"
+    // CHECK: "ttnn.slice_static"
+    // CHECK: "ttnn.permute"
+    %0 = "ttir.conv3d"(%arg0, %arg1)
+            <{
+              stride = array<i32: 1, 1, 1>,
+              padding = array<i32: 0, 0, 0>,
+              groups = 1 : i32,
+              batch_dim = 0 : i64,
+              channel_dim = 1 : i64,
+              depth_dim = 2 : i64,
+              height_dim = 3 : i64,
+              width_dim = 4 : i64,
+              padding_mode = "zeros"
+            }> : (tensor<1x128x11x34x34xbf16>, tensor<48x128x3x3x3xbf16>) -> tensor<1x48x9x32x32xbf16>
+    return %0 : tensor<1x48x9x32x32xbf16>
+  }
 }
