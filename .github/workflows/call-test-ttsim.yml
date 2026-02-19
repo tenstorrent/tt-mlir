@@ -106,10 +106,29 @@ jobs:
       - name: Install TTSim
         run: |
           set -euo pipefail
-          export TT_METAL_HOME="${{ steps.strings.outputs.work-dir }}/third_party/tt-metal/src/tt-metal"
+          export WORK_DIR="${{ steps.strings.outputs.work-dir }}"
+          export INSTALL_DIR="${{ steps.strings.outputs.install-output-dir }}"
+          export TT_METAL_HOME="$WORK_DIR/third_party/tt-metal/src/tt-metal"
           mkdir -p "$TT_METAL_SIMULATOR_HOME"
           mv "/tmp/ttsim/${{ steps.ttsim-asset.outputs.asset_name }}" "$TT_METAL_SIMULATOR_HOME/libttsim.so"
-          cp "$TT_METAL_HOME/tt_metal/soc_descriptors/$SOC_DESC" "$TT_METAL_SIMULATOR_HOME/soc_descriptor.yaml"
+
+          soc_desc_path=""
+          for candidate in \
+            "$TT_METAL_HOME/tt_metal/soc_descriptors/$SOC_DESC" \
+            "$INSTALL_DIR/tt-metal/tt_metal/soc_descriptors/$SOC_DESC"; do
+            if [[ -f "$candidate" ]]; then
+              soc_desc_path="$candidate"
+              break
+            fi
+          done
+
+          if [[ -z "$soc_desc_path" ]]; then
+            echo "Unable to locate SoC descriptor: $SOC_DESC"
+            echo "Searched under TT_METAL_HOME=$TT_METAL_HOME and INSTALL_DIR=$INSTALL_DIR"
+            exit 1
+          fi
+
+          cp "$soc_desc_path" "$TT_METAL_SIMULATOR_HOME/soc_descriptor.yaml"
 
       - name: Generate simulator system descriptor
         run: |
