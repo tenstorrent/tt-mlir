@@ -70,7 +70,7 @@ validateWithMultipleAttributes(Operation *op,
       continue;
     }
 
-    // TODO(bmalesevic, #7023): propagate all output layouts once multi-output
+    // TODO(bmalesevic, #7108): propagate all output layouts once multi-output
     // matching is supported.
     const auto firstActualOutputLayout =
         constraintResult.checkAndGetFirstActualOutputLayout();
