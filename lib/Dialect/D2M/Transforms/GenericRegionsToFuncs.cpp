@@ -68,9 +68,6 @@ static void rewriteAdditionalArgOperands(OpBuilder &builder,
                                    operand.getUsers().end());
     for (Operation *user : users) {
       if (user != generic.getOperation() && generic->isAncestor(user)) {
-        // user is an operation that uses myValue
-        llvm::errs() << "capture operand " << capturedOperandIndex
-                     << " being used by " << user->getName() << "\n";
         builder.setInsertionPoint(user);
         Operation *globalOperand = builder.create<GetGlobalOperandOp>(
             user->getLoc(), operand.getType(), capturedOperandIndex);

@@ -67,6 +67,7 @@ private:
   void execute(const target::metal::FinishCommand *command);
   void execute(const target::metal::MeshShardCommand *command);
   void execute(const target::metal::CreateGlobalSemaphoreCommand *command);
+  void execute(const target::metal::ResetGlobalSemaphoreCommand *command);
 
   std::uint64_t getUniqueProgramRuntimeId() { return nextProgramRuntimeId++; }
 
@@ -216,6 +217,10 @@ void MCQExecutor::execute(const target::metal::Command *command) {
     execute(command->type_as_CreateGlobalSemaphoreCommand());
     break;
   }
+  case target::metal::CommandType::ResetGlobalSemaphoreCommand: {
+    execute(command->type_as_ResetGlobalSemaphoreCommand());
+    break;
+  }
   case target::metal::CommandType::NONE: {
     LOG_FATAL("Unsupported CommandType::NONE");
     break;
@@ -307,6 +312,17 @@ void MCQExecutor::execute(
       command->ref()->address());
   global_semaphores.emplace(command->ref()->global_id(),
                             std::move(global_semaphore));
+}
+
+void MCQExecutor::execute(
+    const target::metal::ResetGlobalSemaphoreCommand *command) {
+  ZoneScopedN("ResetGlobalSemaphoreCommand");
+  LOG_ASSERT(global_semaphores.find(command->ref()->global_id()) !=
+                 global_semaphores.end(),
+             "Global sempahore with id ", command->ref()->global_id(),
+             " does not exist.");
+  global_semaphores.at(command->ref()->global_id())
+      .reset_semaphore_value(command->value());
 }
 
 void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
