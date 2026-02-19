@@ -253,9 +253,10 @@ int64_t findMatchingDimRTL(ReshapeOp reshapeOp, int64_t dimRTL);
 // Dimension can be negative (counted from back, e.g. -1 for last dimension).
 bool preservesDim(mlir::Operation *op, int64_t dim);
 
-// Returns true when a broadcast is foldable under the current policy:
-// dims < 6 (RTL) may change; dim 6 and above must be 1.
-inline bool isFoldableBroadcast(BroadcastOp broadcastOp) {
+// In tt-metal, implicit broadcast is supported up to rank 5.
+// For rank >= 6, the device ops require a_dim == b_dim (and c_dim) on all
+// higher axes.
+inline bool isImplicitBroadcastSupported(BroadcastOp broadcastOp) {
   auto dims = broadcastOp.getBroadcastDimensions();
   if (dims.size() <= 6) {
     return true;

@@ -278,7 +278,7 @@ private:
   bool isCommuteUpwardsFavorable(ttir::BroadcastOp op,
                                  ttir::ReshapeOp) const override {
     // Commute only if the broadcast will be folded.
-    if (!ttir::utils::isFoldableBroadcast(op)) {
+    if (!ttir::utils::isImplicitBroadcastSupported(op)) {
       return false;
     }
 
@@ -376,7 +376,7 @@ private:
   bool isCommuteUpwardsFavorable(ttir::BroadcastOp op,
                                  ttir::PermuteOp) const override {
     // Commute only if the broadcast will be folded.
-    if (!ttir::utils::isFoldableBroadcast(op)) {
+    if (!ttir::utils::isImplicitBroadcastSupported(op)) {
       return false;
     }
 

@@ -79,7 +79,7 @@ public:
     for (int64_t i = 0; i < op->getNumOperands(); ++i) {
       if (auto broadcastOp = mlir::dyn_cast_if_present<ttir::BroadcastOp>(
               op->getOperand(i).getDefiningOp())) {
-        if (!ttir::utils::isFoldableBroadcast(broadcastOp)) {
+        if (!ttir::utils::isImplicitBroadcastSupported(broadcastOp)) {
           continue;
         }
         rewriter.modifyOpInPlace(
