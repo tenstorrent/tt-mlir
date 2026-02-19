@@ -443,6 +443,8 @@ void registerRuntimeBindings(nb::module_ &m) {
         "Copy the tensor to host");
   m.def("get_device_tensors", &tt::runtime::getDeviceTensors, nb::arg("tensor"),
         "Returns vector of device tensors.");
+  m.def("get_num_shards", detail::getNumShards, nb::arg("tensor"),
+        "Get the number of shards for a tensor");
   m.def("to_layout", &tt::runtime::toLayout, nb::arg("tensor"),
         nb::arg("device"), nb::arg("layout"), nb::arg("retain") = nb::none(),
         "Create a copy of the tensor with the specified layout");

@@ -291,12 +291,17 @@ class Builder(metaclass=BuilderMeta):
     def set_arg_attribute(
         self, operand: Operand, new_attr_name: str, new_attr: Attribute
     ):
-        func_op = operand.owner.owner
+        if isinstance(operand, BlockArgument):
+            func_op = operand.owner.owner
+        else:
+            func_op = operand.owner.block.owner
 
         arg_attr_list = func_op.arg_attrs
         new_arg_attr_list = []
         for arg_number, arg_attrs in enumerate(arg_attr_list):
-            if arg_number == operand.arg_number:
+            if isinstance(operand, OpResult):
+                new_arg_attr_list.append(arg_attrs)
+            elif arg_number == operand.arg_number:
                 new_arg_attr = {}
                 for attr in arg_attrs:
                     new_arg_attr[attr.name] = attr.attr
@@ -631,9 +636,25 @@ class Builder(metaclass=BuilderMeta):
         self,
         operand: Operand,
         goldens: List[GoldenMapTensor],
+        apply_sharding: bool = True,
     ):
         self._goldens[operand] = goldens
         self._operand_to_loc[operand] = str(operand.location)
+        if apply_sharding:
+            self.apply_golden_sharding_to_arg(operand)
+
+    def apply_golden_sharding_to_arg(self, operand: Operand):
+        golden = self._get_golden_tensor(operand)
+
+        if len(golden.shard_map) > 1:
+            local_shape = golden.shape
+            local_shape_attr = RankedTensorType.get(local_shape, F32Type.get(self._ctx))
+            shard_status_attr = ttcore.ir.ShardStatusAttr.get(
+                self._ctx, ttcore.ir.ShardStatus.Presharded
+            )
+
+            self.set_arg_attribute(operand, "ttcore.shard_status", shard_status_attr)
+            self.set_arg_attribute(operand, "ttcore.local_shape", local_shape_attr)
 
     def _set_goldens(
         self,
