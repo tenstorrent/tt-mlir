@@ -116,8 +116,6 @@ mlir::LogicalResult d2m::EmptyOp::bufferize(
   return mlir::success();
 }
 
-// implement bufferiz interface, where we insert an alloc right above
-
 mlir::bufferization::AliasingValueList
 d2m::EmptyOp::getAliasingValues(mlir::OpOperand &,
                                 const mlir::bufferization::AnalysisState &) {
@@ -153,17 +151,6 @@ d2m::CreateGlobalSemaphoreOp::getAliasingValues(
   return {};
 }
 
-// move to verification:
-// if (getNumResults() == 0) {
-//   return failure();
-// }
-//
-// assert(getNumResults() == 1 && "ToLayoutOp should have exactly one result");
-//
-// if (!mlir::isa<::mlir::RankedTensorType>(getResult(0).getType())) {
-//   return failure();
-// }
-
 mlir::LogicalResult d2m::CreateGlobalSemaphoreOp::bufferize(
     mlir::RewriterBase &rewriter,
     const mlir::bufferization::BufferizationOptions &options,
@@ -177,7 +164,47 @@ mlir::LogicalResult d2m::CreateGlobalSemaphoreOp::bufferize(
 
   // NOLINTNEXTLINE(clang-analyzer-core.StackAddressEscape)
   rewriter.replaceOpWithNewOp<CreateGlobalSemaphoreOp>(
-      *this, getResult().getType(), *maybeInput, getValue());
+      *this, getResult().getType(), *maybeInput, getValueAttr());
+
+  return success();
+}
+
+::mlir::LogicalResult d2m::CreateGlobalSemaphoreOp::verify() {
+  // Verify that the grid shape of the input tensor matches the device grid
+  // shape
+  ttcore::DeviceAttr device = ttcore::lookupDevice(getOperation());
+  auto deviceGridShape = device.getWorkerGrid().getShape();
+  auto tensorGridShape = ttcore::getGridShape(getInput());
+  if (!llvm::equal(deviceGridShape, tensorGridShape)) {
+    return emitOpError() << "input tensor grid shape (" << tensorGridShape
+                         << ") does not match device grid shape ("
+                         << deviceGridShape
+                         << ") for create_global_semaphore op";
+  }
+
+  // check the shard shape is 1x1
+  auto shardShape = ttcore::getShardShape(getInput());
+  if (shardShape != llvm::ArrayRef<int64_t>({1, 1})) {
+    return emitOpError()
+           << "input tensor shard shape (" << shardShape
+           << ") does not match 1x1 for create_global_semaphore op";
+  }
+
+  // check element type is ui32
+  auto expectedType = mlir::IntegerType::get(getOperation()->getContext(), 32,
+                                             mlir::IntegerType::Unsigned);
+  if (mlir::cast<ShapedType>(getInput().getType()).getElementType() !=
+      expectedType) {
+    return emitOpError()
+           << "input tensor element type ("
+           << mlir::cast<ShapedType>(getInput().getType()).getElementType()
+           << ") does not match ui32 for create_global_semaphore op";
+  }
+
+  if (!mlir::isa<d2m::GlobalSemaphoreType>(getResult().getType())) {
+    return emitOpError()
+           << "CreateGlobalSemaphoreOp result should be a GlobalSemaphore type";
+  }
 
   return success();
 }

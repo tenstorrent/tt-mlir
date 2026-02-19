@@ -78,8 +78,17 @@ def TTMetal_CreateGlobalSemaphoreOp : TTMetal_Op<"create_global_semaphore"> {
       Create global semaphore operation
     }];
 
-    let arguments = (ins I64Attr:$address, UI32Attr:$initial_value, TTMetal_CoreRangeAttr:$core_range);
+    let arguments = (ins I64Attr:$address, OptionalAttr<UI32Attr>:$initial_value, TTMetal_CoreRangeAttr:$core_range);
     let results = (outs TTKernel_GlobalSemaphore:$result);
+}
+
+def TTMetal_ResetGlobalSemaphoreOp : TTMetal_Op<"reset_global_semaphore"> {
+    let summary = "Reset global semaphore op.";
+    let description = [{
+      Reset global semaphore operation
+    }];
+
+    let arguments = (ins TTKernel_GlobalSemaphore:$semaphore, UI32Attr:$value);
 }
 
 def TTMetal_DeallocateBufferOp : TTMetal_Op<"deallocate_buffer", [MemoryEffects<[MemFree]>]> {

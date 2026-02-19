@@ -323,20 +323,43 @@ public:
   matchAndRewrite(d2m::CreateGlobalSemaphoreOp op,
                   d2m::CreateGlobalSemaphoreOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    // get address from memref consumed and pass it to create global semaphore
-    // op
     auto allocOp = op.getInput().getDefiningOp<memref::AllocOp>();
     assert(
         allocOp &&
         "No memref alloc found for CreateGlobalSemaphoreOp's input, failing.");
-    auto address = allocOp->getAttrOfType<IntegerAttr>("address");
 
+    // get address from memref consumed and pass it to create global semaphore
+    // op
+    auto address = allocOp->getAttrOfType<IntegerAttr>("address");
     // get core range from memref shape
+    auto coreRange = ttmetal::CoreRangeAttr::getPhysicalCoreRange(
+        rewriter.getContext(), ttcore::getGridShape(op.getInput()));
     rewriter.replaceOpWithNewOp<ttmetal::CreateGlobalSemaphoreOp>(
         op, ttkernel::GlobalSemaphoreType::get(rewriter.getContext()), address,
-        adaptor.getValueAttr(),
-        ttmetal::CoreRangeAttr::getPhysicalCoreRange(
-            rewriter.getContext(), ttcore::getGridShape(op.getInput())));
+        adaptor.getValueAttr(), coreRange);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class D2MResetGlobalSemaphoreRewriter
+    : public OpConversionPattern<d2m::ResetGlobalSemaphoreOp> {
+public:
+  using OpConversionPattern<d2m::ResetGlobalSemaphoreOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::ResetGlobalSemaphoreOp op,
+                  d2m::ResetGlobalSemaphoreOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    auto createGlobalSemaphoreOp =
+        op.getSemaphore().getDefiningOp<d2m::CreateGlobalSemaphoreOp>();
+    assert(createGlobalSemaphoreOp &&
+           "No create global semaphore op found for ResetGlobalSemaphoreOp's "
+           "input, failing.");
+
+    rewriter.replaceOpWithNewOp<ttmetal::ResetGlobalSemaphoreOp>(
+        op, adaptor.getSemaphore(), adaptor.getValueAttr());
     return success();
   }
 };
@@ -352,7 +375,8 @@ void populateD2MToTTMetalPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   patterns.add<ttmetal::MemrefAllocRewriter, ttmetal::MemrefDeallocRewriter,
                ttmetal::D2MToDeviceRewriter, ttmetal::D2MToHostRewriter,
                ttmetal::D2MMeshShardRewriter,
-               ttmetal::D2MCreateGlobalSemaphoreRewriter>(ctx);
+               ttmetal::D2MCreateGlobalSemaphoreRewriter,
+               ttmetal::D2MResetGlobalSemaphoreRewriter>(ctx);
   patterns.add<ttmetal::D2MGenericRewriter>(ctx, mathFidelity);
 }
 

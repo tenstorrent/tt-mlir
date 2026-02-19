@@ -432,27 +432,26 @@ def D2M_CreateGlobalSemaphoreOp : D2M_Op<"create_global_semaphore",
     Create an uninitialized global semaphore with the specified core range.
   }];
 
-  let arguments = (ins AnyRankedTensorOrMemRef:$input, UI32Attr:$value);
+  let arguments = (ins AnyRankedTensorOrMemRef:$input, OptionalAttr<UI32Attr>:$value);
   let results = (outs D2M_GlobalSemaphore:$result);
 
   let assemblyFormat = "`(` $input `)` attr-dict `:` type($input) `->` type($result)";
+  let hasVerifier = 1;
 }
-// input: core range, output: global semaphore type
 
 // DeclareOpInterfaceMethods<MemoryEffectsOpInterface>???
-def D2M_InitializeGlobalSemaphoreOp : D2M_Op<"initialize_global_semaphore"> {
-  let summary = "Global semaphore intialization operation (D2M).";
+def D2M_ResetGlobalSemaphoreOp : D2M_Op<"reset_global_semaphore"> {
+  let summary = "Global semaphore reset operation (D2M).";
 
   let description = [{
-    Initialized global semaphore with a specific value. This operation blocks until the value has been set.
+    Reset global semaphore to a specific value. This operation blocks until the value has been set.
   }];
 
-  let arguments = (ins D2M_GlobalSemaphore:$semaphore, I32Attr:$value);
+  let arguments = (ins D2M_GlobalSemaphore:$semaphore, UI32Attr:$value);
   let results = (outs);
 
   let assemblyFormat = [{ `(` $semaphore `)` attr-dict `:` type($semaphore) }];
 }
-// input global semaphore type (with a core range), output: nothing
 
 def D2M_FullOp
     : D2M_Op<"full", [Pure, DeclareOpInterfaceMethods<
