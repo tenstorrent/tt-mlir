@@ -122,19 +122,20 @@ class TracingCompiler:
 
             if self.memory_config is None:
                 # If no memory_config is provided, set output layout to block-sharded
-                output_tensor_shape = list(result.shape)
+                output_tensor_shape = [int(dim) for dim in return_type.shape]
 
+                # Normalize shape to 2D (handles 0D and 1D tensors)
                 # TTNN memory configs require at least 2D shapes
-                logical_shape = _get_logical_tensor_shape(output_tensor_shape)
+                normalized_shape = _get_logical_tensor_shape(output_tensor_shape)
 
                 # Get the device core grid from the first tensor arg
                 core_grid = get_core_grid_from_tensor_args(self.tensor_args)
                 block_sharded_grid = get_maximal_block_sharding_grid(
-                    logical_shape, core_grid
+                    normalized_shape, core_grid
                 )
 
                 block_sharded_memory_config = ttnn.create_sharded_memory_config(
-                    shape=logical_shape,
+                    shape=normalized_shape,
                     core_grid=ttnn.CoreGrid(
                         x=block_sharded_grid[0] + 1, y=block_sharded_grid[1] + 1
                     ),
