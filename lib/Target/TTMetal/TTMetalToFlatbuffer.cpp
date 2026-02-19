@@ -1053,6 +1053,17 @@ std::shared_ptr<void> translateTTMetalToFlatbuffer(
                                   createGlobalSemaphoreOp.getAddress()),
                 createGlobalSemaphoreOp.getInitialValue(), &coreRangeSet),
             op);
+      } else if (auto resetGlobalSemaphoreOp =
+                     dyn_cast_if_present<tt::ttmetal::ResetGlobalSemaphoreOp>(
+                         op);
+                 resetGlobalSemaphoreOp) {
+        cqBuilder.appendCommand(
+            target::metal::CreateResetGlobalSemaphoreCommand(
+                fbb,
+                cache.at<target::metal::GlobalSemaphoreRef>(
+                    resetGlobalSemaphoreOp.getSemaphore()),
+                resetGlobalSemaphoreOp.getValue()),
+            op);
       } else if (auto funcOp = dyn_cast_if_present<func::FuncOp>(op); funcOp) {
         // Unqualified walk will visit the root op itself last, we should
         // ignore this.
