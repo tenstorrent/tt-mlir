@@ -3479,6 +3479,187 @@ void mlir::tt::ttir::LinearOp::getCanonicalizationPatterns(
 }
 // ANCHOR_END: adding_an_op_matmul_ttir_verify
 
+// Returns the number of leading size-1 dimensions that need to be dropped from
+// `shapeWithLeadingOnes` to obtain `shapeWithoutLeadingOnes`, or -1 if the
+// relation does not hold.
+static int64_t
+getLeadingOnesRankDiff(llvm::ArrayRef<int64_t> shapeWithLeadingOnes,
+                       llvm::ArrayRef<int64_t> shapeWithoutLeadingOnes) {
+  int64_t rankDiff = static_cast<int64_t>(shapeWithLeadingOnes.size()) -
+                     static_cast<int64_t>(shapeWithoutLeadingOnes.size());
+  if (rankDiff <= 0) {
+    return -1;
+  }
+
+  if (!llvm::all_of(shapeWithLeadingOnes.take_front(rankDiff),
+                    [](int64_t dim) { return dim == 1; })) {
+    return -1;
+  }
+
+  if (shapeWithLeadingOnes.drop_front(rankDiff) != shapeWithoutLeadingOnes) {
+    return -1;
+  }
+
+  return rankDiff;
+}
+
+// Returns the number of leading size-1 dimensions removed by a reshape,
+// or -1 if the reshape is not a pure leading squeeze.
+//   input:  [1, ..., 1, d0, d1, ..., dk]  (N leading 1s)
+//   output: [d0, d1, ..., dk]
+static int64_t isLeadingSqueeze(mlir::tt::ttir::ReshapeOp reshapeOp) {
+  return getLeadingOnesRankDiff(reshapeOp.getInput().getType().getShape(),
+                                reshapeOp.getType().getShape());
+}
+
+// Returns the number of leading size-1 dimensions added by a reshape,
+// or -1 if the reshape is not a pure leading unsqueeze.
+//   input:  [d0, d1, ..., dk]
+//   output: [1, ..., 1, d0, d1, ..., dk]  (N leading 1s)
+static int64_t isLeadingUnsqueeze(mlir::tt::ttir::ReshapeOp reshapeOp) {
+  return getLeadingOnesRankDiff(reshapeOp.getType().getShape(),
+                                reshapeOp.getInput().getType().getShape());
+}
+
+// Computes the expected matmul output shape given two input shapes and
+// transpose flags. Returns std::nullopt if the shapes are incompatible.
+static std::optional<llvm::SmallVector<int64_t>>
+computeMatmulResultShape(llvm::ArrayRef<int64_t> inputAShape,
+                         llvm::ArrayRef<int64_t> inputBShape, bool transposeA,
+                         bool transposeB) {
+  llvm::SmallVector<int64_t> aShape(inputAShape);
+  llvm::SmallVector<int64_t> bShape(inputBShape);
+
+  if (aShape.empty() || bShape.empty()) {
+    return std::nullopt;
+  }
+
+  bool aIs1D = (aShape.size() == 1);
+  bool bIs1D = (bShape.size() == 1);
+
+  if (aIs1D) {
+    aShape.insert(aShape.begin(), 1);
+  } else if (transposeA) {
+    std::swap(aShape[aShape.size() - 1], aShape[aShape.size() - 2]);
+  }
+
+  if (bIs1D) {
+    bShape.push_back(1);
+  } else if (transposeB) {
+    std::swap(bShape[bShape.size() - 1], bShape[bShape.size() - 2]);
+  }
+
+  if (aShape.back() != bShape[bShape.size() - 2]) {
+    return std::nullopt;
+  }
+
+  llvm::SmallVector<int64_t> resultShape;
+
+  if (aShape.size() > 2 || bShape.size() > 2) {
+    llvm::SmallVector<int64_t> aBatch(aShape.begin(), aShape.end() - 2);
+    llvm::SmallVector<int64_t> bBatch(bShape.begin(), bShape.end() - 2);
+    llvm::SmallVector<int64_t, 4> broadcastedBatch;
+    if (!mlir::OpTrait::util::getBroadcastedShape(aBatch, bBatch,
+                                                  broadcastedBatch)) {
+      return std::nullopt;
+    }
+    resultShape.assign(broadcastedBatch.begin(), broadcastedBatch.end());
+  }
+
+  if (!aIs1D) {
+    resultShape.push_back(aShape[aShape.size() - 2]);
+  }
+  if (!bIs1D) {
+    resultShape.push_back(bShape.back());
+  }
+
+  return resultShape;
+}
+
+// MatmulOp canonicalization: absorb leading squeeze/unsqueeze reshapes.
+void mlir::tt::ttir::MatmulOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
+  // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
+
+  // Absorb leading squeeze/unsqueeze reshapes around matmul.
+  //
+  // Matches patterns like:
+  //   %a = reshape [1,B,M,K] -> [B,M,K]   (squeeze leading 1s)
+  //   %b = reshape [1,B,K,N] -> [B,K,N]   (squeeze leading 1s)
+  //   %r = matmul %a, %b -> [B,M,N]
+  //   %o = reshape %r -> [1,B,M,N]         (unsqueeze leading 1s)
+  //
+  // And replaces with:
+  //   %o = matmul %a_orig, %b_orig -> [1,B,M,N]
+  //
+  patterns.add(+[](ttir::MatmulOp op, mlir::PatternRewriter &rewriter) {
+    if (!op.getResult().hasOneUse()) {
+      return mlir::failure();
+    }
+
+    auto unsqueezeOp =
+        mlir::dyn_cast<ttir::ReshapeOp>(*op.getResult().getUsers().begin());
+    if (!unsqueezeOp) {
+      return mlir::failure();
+    }
+
+    int64_t unsqueezeDims = isLeadingUnsqueeze(unsqueezeOp);
+    if (unsqueezeDims < 0) {
+      return mlir::failure();
+    }
+
+    mlir::Value inputA = op.getA();
+    mlir::Value inputB = op.getB();
+    mlir::Value newA = inputA;
+    mlir::Value newB = inputB;
+
+    auto squeezeA = inputA.getDefiningOp<ttir::ReshapeOp>();
+    auto squeezeB = inputB.getDefiningOp<ttir::ReshapeOp>();
+
+    int64_t squeezeDimsA = squeezeA ? isLeadingSqueeze(squeezeA) : -1;
+    int64_t squeezeDimsB = squeezeB ? isLeadingSqueeze(squeezeB) : -1;
+
+    if (squeezeDimsA < 0 && squeezeDimsB < 0) {
+      return mlir::failure();
+    }
+
+    if (squeezeDimsA > 0) {
+      newA = squeezeA.getInput();
+    }
+    if (squeezeDimsB > 0) {
+      newB = squeezeB.getInput();
+    }
+
+    auto newAType = mlir::cast<mlir::RankedTensorType>(newA.getType());
+    auto newBType = mlir::cast<mlir::RankedTensorType>(newB.getType());
+
+    auto expectedShape =
+        computeMatmulResultShape(newAType.getShape(), newBType.getShape(),
+                                 op.getTransposeA(), op.getTransposeB());
+
+    if (!expectedShape) {
+      return mlir::failure();
+    }
+
+    llvm::ArrayRef<int64_t> unsqueezeOutputShape =
+        unsqueezeOp.getType().getShape();
+
+    if (llvm::ArrayRef<int64_t>(*expectedShape) != unsqueezeOutputShape) {
+      return mlir::failure();
+    }
+
+    auto newResultType = mlir::RankedTensorType::get(
+        *expectedShape, unsqueezeOp.getType().getElementType(),
+        unsqueezeOp.getType().getEncoding());
+
+    rewriter.replaceOpWithNewOp<ttir::MatmulOp>(unsqueezeOp, newResultType,
+                                                newA, newB, op.getTransposeA(),
+                                                op.getTransposeB());
+
+    return mlir::success();
+  });
+}
+
 //===----------------------------------------------------------------------===//
 // UpsampleOp
 //===----------------------------------------------------------------------===//
