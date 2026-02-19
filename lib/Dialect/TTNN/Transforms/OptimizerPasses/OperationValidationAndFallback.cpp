@@ -239,9 +239,9 @@ public:
           // tryFallbacks/tryConfigFallbacks, so multi-output ops will only
           // have the first output's layout revert handled. Extend to pass
           // all configs when multi-output fallback support is needed.
+          bool fixed = false;
           // For OOM errors, try config fallbacks first as they're cheaper (no
           // ToLayout ops)
-          bool fixed = false;
           if (originalResult.status ==
               op_constraint_validation::ValidationStatus::OutOfMemoryError) {
             TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
