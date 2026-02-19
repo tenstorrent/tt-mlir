@@ -3489,7 +3489,7 @@ def TTNN_TopKOp : TTNN_Op<"topk", [TTNN_MemoryConfigOpInterface]> {
                        I32Attr:$k,
                        DefaultValuedAttr<I32Attr, "-1">:$dim,
                        DefaultValuedAttr<BoolAttr, "true">:$largest,
-                       DefaultValuedAttr<BoolAttr, "true">:$sorted,
+                       DefaultValuedAttr<BoolAttr, "false">:$sorted,
                        OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
   let results = (outs AnyRankedTensor:$values,

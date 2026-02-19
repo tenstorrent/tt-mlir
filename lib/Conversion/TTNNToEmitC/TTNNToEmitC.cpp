@@ -4514,8 +4514,7 @@ public:
         emitter.emit(srcOp.getDim()),
         emitter.emit(srcOp.getLargest()),
         emitter.emit(srcOp.getSorted()),
-        emitter.emit(std::nullopt) | emitter.emit(srcOp.getMemoryConfig()),
-
+        emitter.emit(srcOp.getValues()) | emitter.emit(srcOp.getMemoryConfig()),
     };
 
     emitter.replaceOp(*this, args);

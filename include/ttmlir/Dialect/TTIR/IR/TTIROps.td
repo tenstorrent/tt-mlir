@@ -5802,7 +5802,7 @@ def TTIR_TopKOp : TTIR_NamedOp<"topk"> {
                        I32Attr:$k,
                        DefaultValuedAttr<I32Attr, "-1">:$dim,
                        DefaultValuedAttr<BoolAttr, "true">:$largest,
-                       DefaultValuedAttr<BoolAttr, "true">:$sorted);
+                       DefaultValuedAttr<BoolAttr, "false">:$sorted);
 
   let results = (outs AnyRankedTensor:$values,
                       AnyRankedTensor:$indices);
