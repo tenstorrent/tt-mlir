@@ -38,8 +38,9 @@ WORKDIR $BUILD_DIR/$PROJECT_NAME
 # Show last commit
 RUN git log -1
 
-export CMAKE_BUILD_PARALLEL_LEVEL=12
-RUN cmake -B env/build env && \
+
+RUN export CMAKE_BUILD_PARALLEL_LEVEL=12 && \
+    cmake -B env/build env && \
     cmake --build env/build
 
 # Final stage
