@@ -76,7 +76,6 @@ jobs:
   ttsim-test:
     needs: [ prepare-run, build-image, release-build ]
     if: needs.prepare-run.outputs.skip_build != 'true'
-    continue-on-error: false
     uses: ./.github/workflows/call-test-ttsim.yml
     secrets: inherit
     with:
