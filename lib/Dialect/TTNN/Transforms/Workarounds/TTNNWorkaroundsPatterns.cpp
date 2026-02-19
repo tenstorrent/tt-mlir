@@ -383,13 +383,19 @@ public:
     auto deviceDesc = ttcore::lookupDevice(op);
     ::llvm::ArrayRef<int64_t> meshShape = deviceDesc.getMeshShape();
 
-    // Algorithm: iterate through all tensor dimension values and select first
-    // tensor dimension which is divisible by number of devices along the
+    // Algorithm: iterate through all tensor dimension values and select the
+    // last tensor dimension which is divisible by number of devices along the
     // cluster axis on which we are performing the all reduce.
     auto sizeOfDevices = meshShape[clusterAxis];
     auto inputShape = inputType.getShape();
-    const auto *tensorDimDevice = llvm::find_if(
-        inputShape, [&](int64_t dim) { return dim % sizeOfDevices == 0; });
+    auto reversedInputShape = llvm::reverse(inputShape);
+    auto tensorDimRevIt =
+        llvm::find_if(reversedInputShape, [sizeOfDevices](int64_t dim) {
+          return dim % sizeOfDevices == 0;
+        });
+    const auto *tensorDimDevice = tensorDimRevIt == reversedInputShape.end()
+                                      ? inputShape.end()
+                                      : tensorDimRevIt.base() - 1;
 
     if (tensorDimDevice == inputShape.end()) {
       // If all the dimensions are not evenly divisible by the number of
