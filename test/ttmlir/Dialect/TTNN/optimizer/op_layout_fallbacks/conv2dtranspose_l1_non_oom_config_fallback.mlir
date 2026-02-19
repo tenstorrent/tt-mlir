@@ -20,7 +20,7 @@ module {
     // Conv2d with conv2d_slice_config=<l1_full> which will cause L1 OOM
     // The fallback should replace this attribute
     // CHECK: ttnn.conv_transpose2d
-    // CHECK: conv2d_slice_config = #ttnn.conv2d_slice_config<l1
+    // CHECK: conv2d_slice_config = #ttnn.conv2d_slice_config<dram
     %result = "ttnn.conv_transpose2d"(%arg0, %arg1, %arg2, %0) <{
       batch_size = 1 : i32,
       conv2d_config = #ttnn.conv2d_config<
