@@ -82,7 +82,7 @@ def log(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = No
     dtype = torch.bfloat16 if str(in0.type.element_type) == "bf16" else torch.float32
     randn_tensor = torch.randn(in0.type.shape, dtype=dtype)
     abs_tensor = torch.abs(randn_tensor)
-    error_margin = torch.full(randn_tensor.shape, 0.01)
+    error_margin = torch.full(randn_tensor.shape, 0.01, dtype=dtype)
     input_golden = torch.add(abs_tensor, error_margin)
     output_golden = torch.log(input_golden)
     builder.set_goldens({in0: input_golden}, {log_0: output_golden})
@@ -98,7 +98,7 @@ def log1p(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = 
     dtype = torch.bfloat16 if str(in0.type.element_type) == "bf16" else torch.float32
     randn_tensor = torch.randn(in0.type.shape, dtype=dtype)
     abs_tensor = torch.abs(randn_tensor)
-    error_margin = torch.full(randn_tensor.shape, -0.99)
+    error_margin = torch.full(randn_tensor.shape, -0.99, dtype=dtype)
     input_golden = torch.add(abs_tensor, error_margin)
     output_golden = torch.log1p(input_golden)
 
@@ -250,12 +250,13 @@ unary_ops = [
 
 unary_ops_dtypes = [
     torch.float32,
+    torch.bfloat16,
     torch.int32 | Marks(pytest.mark.skip_config(["ttmetal"])),
 ]
 
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
-@pytest.mark.parametrize("dtype", unary_ops_dtypes, ids=["f32", "i32"])
+@pytest.mark.parametrize("dtype", unary_ops_dtypes, ids=["f32", "bf16", "i32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitc", "emitpy"])
 @pytest.mark.parametrize("test_fn", unary_ops)
 def test_unary_ops(
