@@ -93,7 +93,7 @@ void applyFallbackTransformations(
     Operation *operation, const std::vector<TTNNLayoutAttr> &originalLayouts,
     const std::vector<TTNNLayoutAttr> &workingLayouts,
     const op_constraint_validation::ValidationResult &result,
-    llvm::SmallVector<OpConfig> &configs);
+    const llvm::SmallVector<OpConfig> &configs);
 
 void applyInputOperandChange(Operation *operation, size_t operandIndex,
                              TTNNLayoutAttr currentLayoutAttr,
@@ -703,7 +703,7 @@ void applyFallbackTransformations(
     Operation *operation, const std::vector<TTNNLayoutAttr> &originalLayouts,
     const std::vector<TTNNLayoutAttr> &workingLayouts,
     const op_constraint_validation::ValidationResult &result,
-    llvm::SmallVector<OpConfig> &configs) {
+    const llvm::SmallVector<OpConfig> &configs) {
 
   // Apply input operand changes for each operand that was transformed
   for (size_t i = 0; i < workingLayouts.size(); ++i) {
