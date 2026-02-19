@@ -539,6 +539,48 @@ private:
   }
 
   // ============================================================================
+  // Batch+Head Merge/Split Reshape Predicates
+  // ============================================================================
+
+  // Returns true if `reshapeOp` is a 3D->4D reshape that splits the first dim
+  // back into (batch, heads): inShape[0] == outShape[0] * outShape[1],
+  // inShape[1] == outShape[2], inShape[2] == outShape[3].
+  static bool isBatchHeadSplitReshape(ReshapeOp reshapeOp) {
+    auto inType =
+        mlir::dyn_cast<RankedTensorType>(reshapeOp.getInput().getType());
+    auto outType =
+        mlir::dyn_cast<RankedTensorType>(reshapeOp.getResult().getType());
+    if (!inType || !outType) {
+      return false;
+    }
+    if (inType.getRank() != 3 || outType.getRank() != 4) {
+      return false;
+    }
+    auto in = inType.getShape();
+    auto out = outType.getShape();
+    return in[0] == out[0] * out[1] && in[1] == out[2] && in[2] == out[3];
+  }
+
+  // Returns true if `reshapeOp` is a 4D->3D reshape that merges the first two
+  // dims (batch, heads): outShape[0] == inShape[0] * inShape[1],
+  // outShape[1] == inShape[2], outShape[2] == inShape[3].
+  static bool isBatchHeadMergeReshape(ReshapeOp reshapeOp) {
+    auto inType =
+        mlir::dyn_cast<RankedTensorType>(reshapeOp.getInput().getType());
+    auto outType =
+        mlir::dyn_cast<RankedTensorType>(reshapeOp.getResult().getType());
+    if (!inType || !outType) {
+      return false;
+    }
+    if (inType.getRank() != 4 || outType.getRank() != 3) {
+      return false;
+    }
+    auto in = inType.getShape();
+    auto out = outType.getShape();
+    return out[0] == in[0] * in[1] && out[1] == in[2] && out[2] == in[3];
+  }
+
+  // ============================================================================
   // Layout / Transpose Utilities
   // ============================================================================
 
@@ -708,6 +750,15 @@ private:
   bool matchSoftmaxPath(Value v, SDPAComponents &c) const {
     v = skipTransparent(v);
 
+    // Trace through a batch+head merge reshape (4D→3D collapse).
+    // This handles the pattern where a 4D→3D reshape sits between the
+    // attention matmul output and the softmax/where (e.g., WAN model).
+    if (auto reshapeOp = v.getDefiningOp<ReshapeOp>()) {
+      if (isBatchHeadMergeReshape(reshapeOp)) {
+        v = skipTransparent(reshapeOp.getInput());
+      }
+    }
+
     // Try where(cond, zeros, softmax) pattern first
     if (auto whereOp = v.getDefiningOp<WhereOp>()) {
       Value softmaxCandidate = skipTransparent(whereOp.getThird());
@@ -793,6 +844,15 @@ private:
       }
     }
 
+    // Trace through a batch+head split reshape (3D→4D expand after QK matmul).
+    // This handles the pattern where a 3D→4D reshape sits between the QK
+    // matmul and the softmax path (e.g., WAN model).
+    if (auto reshapeOp = v.getDefiningOp<ReshapeOp>()) {
+      if (isBatchHeadSplitReshape(reshapeOp)) {
+        v = reshapeOp.getInput();
+      }
+    }
+
     // Must end with matmul (different from attention matmul)
     if (auto matmul = v.getDefiningOp<MatmulOp>()) {
       if (matmul != c.attentionMatmul) {
@@ -850,6 +910,13 @@ private:
       v = typecastOp.getInput();
     }
 
+    // Trace through batch+head merge reshape (4D→3D) to recover 4D Q.
+    if (auto reshapeOp = v.getDefiningOp<ReshapeOp>()) {
+      if (isBatchHeadMergeReshape(reshapeOp)) {
+        v = reshapeOp.getInput();
+      }
+    }
+
     // If Q comes from load_cached, trace through const-eval function to find
     // the original dtype before any f32 conversions.
     if (auto loadCached = v.getDefiningOp<ttcore::LoadCachedOp>()) {
@@ -902,6 +969,14 @@ private:
         }
       }
 
+      if (auto reshapeOp = dyn_cast<ReshapeOp>(defOp)) {
+        if (isBatchHeadMergeReshape(reshapeOp)) {
+          v = reshapeOp.getInput();
+          continue;
+        }
+        break;
+      }
+
       break;
     }
 
@@ -922,6 +997,14 @@ private:
         // Only skip if it's GQA head expansion (on dim 1 in [B,H,S,D])
         if (repeatOp.getDim() == kNumHeadsDim) {
           v = repeatOp.getInput();
+          continue;
+        }
+        break;
+      }
+
+      if (auto reshapeOp = dyn_cast<ReshapeOp>(defOp)) {
+        if (isBatchHeadMergeReshape(reshapeOp)) {
+          v = reshapeOp.getInput();
           continue;
         }
         break;
@@ -1013,20 +1096,33 @@ private:
     auto [preparedK, preparedKElementType, skippedKTranspose] = analyzeK(c.key);
     auto [preparedV, preparedVElementType] = analyzeV(c.value);
 
-    // Validate and commit Q.
-    if (validateShapes(preparedQ, c.key, c.value)) {
+    // Validate all three prepared versions together first.
+    // This handles the 3D batch+head-merged case where Q/K/V are all traced
+    // from 3D [B*H,S,D] back to 4D [B,H,S,D] via merge reshapes; the
+    // individual per-tensor checks below would fail because prepared{Q,K,V}
+    // are 4D while the current c.{key,value} are still 3D.
+    if (validateShapes(preparedQ, preparedK, preparedV)) {
       c.query =
           restoreElementTypeIfNeeded(preparedQ, preparedQElementType, rewriter);
-    } else {
-      c.query =
-          restoreElementTypeIfNeeded(c.query, preparedQElementType, rewriter);
-    }
-
-    // Validate K and V together - both must be prepared or neither.
-    // This handles GQA where K and V are both traced through repeat_interleave.
-    if (validateShapes(c.query, preparedK, preparedV)) {
       c.key = preparedK;
       c.value = preparedV;
+    } else {
+      // Validate and commit Q.
+      if (validateShapes(preparedQ, c.key, c.value)) {
+        c.query = restoreElementTypeIfNeeded(preparedQ, preparedQElementType,
+                                             rewriter);
+      } else {
+        c.query =
+            restoreElementTypeIfNeeded(c.query, preparedQElementType, rewriter);
+      }
+
+      // Validate K and V together - both must be prepared or neither.
+      // This handles GQA where K and V are both traced through
+      // repeat_interleave.
+      if (validateShapes(c.query, preparedK, preparedV)) {
+        c.key = preparedK;
+        c.value = preparedV;
+      }
     }
 
     // If key is still in a transposed form, materialize an un-transpose so the
@@ -1181,7 +1277,15 @@ private:
       return false;
     }
 
-    if (!validateShapes(c.query, c.key, c.value)) {
+    // Resolve each tensor to its 4D form before shape validation.
+    // When Q/K/V are 3D [B*H, S, D] (batch+head merged), they are fed into
+    // the pattern as-is. We reuse analyzeQ/K/V to trace through all
+    // relevant transforms (typecast, permute, merge-reshape) and recover
+    // the underlying 4D [B, H, S, D] tensors that validateShapes expects.
+    Value resolvedQ = analyzeQ(c.query).first;
+    Value resolvedK = std::get<0>(analyzeK(c.key));
+    Value resolvedV = analyzeV(c.value).first;
+    if (!validateShapes(resolvedQ, resolvedK, resolvedV)) {
       return false;
     }
 
@@ -1265,6 +1369,21 @@ private:
         mlir::cast<RankedTensorType>(c.attentionMatmul.getResult().getType());
     Type originalElementType = originalOutputType.getElementType();
 
+    // TTNN SDPA only supports BFLOAT16/BFLOAT8_B/BFLOAT4_B. If Q/K/V are f32
+    // (e.g. after RoPE encoding that runs in f32), cast them to bf16 first.
+    // The original output dtype is preserved via restoreElementTypeIfNeeded.
+    auto qElemType =
+        cast<RankedTensorType>(c.query.getType()).getElementType();
+    if (qElemType.isF32()) {
+      Type bf16Type = rewriter.getBF16Type();
+      c.query = restoreElementTypeIfNeeded(c.query, bf16Type, rewriter);
+      c.key = restoreElementTypeIfNeeded(c.key, bf16Type, rewriter);
+      c.value = restoreElementTypeIfNeeded(c.value, bf16Type, rewriter);
+      if (c.mask) {
+        c.mask = restoreElementTypeIfNeeded(c.mask, bf16Type, rewriter);
+      }
+    }
+
     auto qType = mlir::cast<RankedTensorType>(c.query.getType());
     auto qShape = qType.getShape();
     auto kType = mlir::cast<RankedTensorType>(c.key.getType());
@@ -1316,6 +1435,18 @@ private:
       finalResult = restoreElementTypeIfNeeded(finalResult, originalElementType,
                                                rewriter);
 
+      // If the original output was 3D (B*H merged) but SDPA produced 4D,
+      // emit a reshape back to the original shape so consumers are satisfied.
+      auto finalShape =
+          cast<RankedTensorType>(finalResult.getType()).getShape();
+      if (!llvm::equal(finalShape, originalOutputType.getShape())) {
+        SmallVector<int32_t> shape(originalOutputType.getShape().begin(),
+                                   originalOutputType.getShape().end());
+        finalResult = rewriter.create<ReshapeOp>(
+            c.attentionMatmul.getLoc(), originalOutputType, finalResult,
+            rewriter.getI32ArrayAttr(shape), MemoryConfigAttr());
+      }
+
       rewriter.replaceOp(c.attentionMatmul, finalResult);
     } else {
       auto sdpaOp = rewriter.create<ScaledDotProductAttentionOp>(
@@ -1343,6 +1474,18 @@ private:
       // Restore original element type if SDPA produced a different dtype.
       Value finalResult = restoreElementTypeIfNeeded(
           sdpaOp.getResult(), originalElementType, rewriter);
+
+      // If the original output was 3D (B*H merged) but SDPA produced 4D,
+      // emit a reshape back to the original shape so consumers are satisfied.
+      auto finalShape =
+          cast<RankedTensorType>(finalResult.getType()).getShape();
+      if (!llvm::equal(finalShape, originalOutputType.getShape())) {
+        SmallVector<int32_t> shape(originalOutputType.getShape().begin(),
+                                   originalOutputType.getShape().end());
+        finalResult = rewriter.create<ReshapeOp>(
+            c.attentionMatmul.getLoc(), originalOutputType, finalResult,
+            rewriter.getI32ArrayAttr(shape), MemoryConfigAttr());
+      }
 
       rewriter.replaceOp(c.attentionMatmul, finalResult);
     }
