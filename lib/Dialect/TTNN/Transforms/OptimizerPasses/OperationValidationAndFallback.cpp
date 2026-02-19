@@ -770,7 +770,8 @@ void applyFallbackTransformations(
     if (TTNNLayoutOpInterface opWithLayoutIF =
             mlir::dyn_cast<TTNNLayoutOpInterface>(operation)) {
       opWithLayoutIF.setLayoutAttr(LayoutAttr::get(
-          operation->getContext(), result.firstActualOutputLayout.getLayout()));
+          operation->getContext(),
+          result.checkAndGetFirstActualOutputLayout().getLayout()));
     }
   }
 }
@@ -1065,10 +1066,11 @@ bool tryConfigFallbacks(Operation *operation,
     applyConfigChange(operation, workingConfig);
 
     if (originalConfig.outputLayout &&
-        workingResult.firstActualOutputLayout != originalConfig.outputLayout) {
-      applyOutputLayoutRevert(operation, 0,
-                              workingResult.firstActualOutputLayout,
-                              originalConfig.outputLayout);
+        workingResult.checkAndGetFirstActualOutputLayout() !=
+            originalConfig.outputLayout) {
+      applyOutputLayoutRevert(
+          operation, 0, workingResult.checkAndGetFirstActualOutputLayout(),
+          originalConfig.outputLayout);
     }
 
     TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
