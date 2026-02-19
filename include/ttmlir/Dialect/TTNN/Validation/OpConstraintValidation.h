@@ -68,6 +68,14 @@ struct ValidationResult {
     return actualOutputLayouts.front();
   }
 
+  static ValidationResult success(size_t configIndex,
+                                  TTNNLayoutAttr actualOutputLayout,
+                                  uint64_t outputL1Usage = 0) {
+    return ValidationResult(
+        configIndex, llvm::SmallVector<TTNNLayoutAttr>{actualOutputLayout},
+        outputL1Usage);
+  }
+
   static ValidationResult
   success(size_t configIndex,
           llvm::SmallVector<TTNNLayoutAttr> actualOutputLayouts,
