@@ -42,6 +42,7 @@ target_link_libraries(TTMLIRRuntime
     TTRuntimeWorkarounds
     TTRuntimeDylibs
     TTRuntimeFabricConfig
+    TTRuntimeMeshFabricConfig
     TTRuntimeSystemMesh
     # This ensures that symbols from libTTRuntimeTTNNTestLib.a (libA) are linked into libTTMLIRRuntime.so (libB).
     # Since the symbols from libA aren't used in libB, linker will just ignore them. By using --whole-archive,

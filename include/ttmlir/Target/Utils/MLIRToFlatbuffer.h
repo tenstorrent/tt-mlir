@@ -1180,6 +1180,8 @@ inline ::tt::target::Topology toFlatbuffer(FlatbufferObjectCache &cache,
   case ttcore::Topology::Torus:
     fbTopology = ::tt::target::Topology::Torus;
     break;
+  case ttcore::Topology::Disabled:
+    llvm_unreachable("Disabled topology cannot be serialized to flatbuffer");
   }
   return fbTopology;
 }

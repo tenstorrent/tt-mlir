@@ -373,7 +373,8 @@ void populateTTModule(nb::module_ &m) {
 
   nb::enum_<tt::ttcore::Topology>(m, "Topology")
       .value("Ring", tt::ttcore::Topology::Ring)
-      .value("Linear", tt::ttcore::Topology::Linear);
+      .value("Linear", tt::ttcore::Topology::Linear)
+      .value("Disabled", tt::ttcore::Topology::Disabled);
 
   tt_attribute_class<tt::ttcore::TopologyAttr>(m, "TopologyAttr")
       .def_static(
