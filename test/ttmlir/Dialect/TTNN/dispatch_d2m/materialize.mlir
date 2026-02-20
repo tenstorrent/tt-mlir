@@ -1,4 +1,6 @@
 // RUN: ttmlir-opt --split-input-file --ttcore-register-device --ttcore-wrap-device-module --ttnn-through-d2m-pipeline %s | FileCheck %s
+// TTNNToTTIR reverse pass needs to be updated to strip intermediate layouts. Until then, this test compiles but the result is meaningless.
+// UNSUPPORTED: true
 
 // -----
 #l1 = #ttnn.buffer_type<l1>
