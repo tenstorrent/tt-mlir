@@ -1532,13 +1532,26 @@ public:
     llvm::SmallVector<int64_t, 5> toNdhwcPermutation = {
         batchDim, depthDim, heightDim, widthDim, channelDim};
     bool needsPermute = !op.isNDHWC();
-
     Value input = adaptor.getInput();
     if (needsPermute) {
       input = ttir_to_ttnn::utils::generatePermute(
           mlir::cast<TypedValue<RankedTensorType>>(input), toNdhwcPermutation,
           rewriter,
           ttmlir::utils::appendLocationSuffix(op.getLoc(), "_to_ndhwc"));
+    }
+
+    constexpr int64_t TILE_WIDTH = ttcore::TileType::getDefaultShape()[1];
+    int64_t inChannels = inputShape[channelDim];
+    if (inChannels % TILE_WIDTH != 0) {
+      int32_t cinPadAmount = static_cast<int32_t>(
+          llvm::divideCeil(inChannels, TILE_WIDTH) * TILE_WIDTH - inChannels);
+      // Input is now NDHWC; pad dim 4 (C)
+      llvm::SmallVector<int32_t> padding = {0, 0, 0, 0, 0,
+                                            0, 0, 0, 0, cinPadAmount};
+      input = ttir_to_ttnn::utils::generatePad(
+          mlir::cast<TypedValue<RankedTensorType>>(input), padding, rewriter,
+          ttmlir::utils::appendLocationSuffix(op.getLoc(), "_pad_cin"));
+      inChannelsAttr = rewriter.getI32IntegerAttr(inChannels + cinPadAmount);
     }
 
     RankedTensorType outputType = mlir::cast<RankedTensorType>(
@@ -1614,8 +1627,8 @@ private:
 
     // Permute (O, C/G, K_D, K_H, K_W) → (K_D, K_H, K_W, C/G, O)
     Value permutedWeight = ttir_to_ttnn::utils::generatePermute(
-        mlir::cast<TypedValue<RankedTensorType>>(weight),
-        {2, 3, 4, 1, 0}, rewriter, loc);
+        mlir::cast<TypedValue<RankedTensorType>>(weight), {2, 3, 4, 1, 0},
+        rewriter, loc);
 
     int64_t paddedInChannPerGroup =
         llvm::divideCeil(inChannPerGroup, TILE_WIDTH) * TILE_WIDTH;
@@ -1623,12 +1636,11 @@ private:
       int32_t cinPadAmount =
           static_cast<int32_t>(paddedInChannPerGroup - inChannPerGroup);
       // Pad dim 3 (C/G) of (K_D, K_H, K_W, C/G, O)
-      llvm::SmallVector<int32_t> padding = {0, 0, 0, 0, 0,
-                                            0, 0, cinPadAmount, 0, 0};
+      llvm::SmallVector<int32_t> padding = {0, 0, 0, 0, 0, 0, 0, cinPadAmount,
+                                            0, 0};
       permutedWeight = ttir_to_ttnn::utils::generatePad(
           mlir::cast<TypedValue<RankedTensorType>>(permutedWeight), padding,
-          rewriter,
-          ttmlir::utils::appendLocationSuffix(loc, "_pad_cin"));
+          rewriter, ttmlir::utils::appendLocationSuffix(loc, "_pad_cin"));
     }
 
     int64_t flattenedDim =
@@ -1639,9 +1651,8 @@ private:
 
     auto permutedWeightTy =
         mlir::cast<RankedTensorType>(permutedWeight.getType());
-    RankedTensorType outputType =
-        ttnn::utils::RankedTensorTypeFactory::create(permutedWeightTy,
-                                                     newShape);
+    RankedTensorType outputType = ttnn::utils::RankedTensorTypeFactory::create(
+        permutedWeightTy, newShape);
 
     return rewriter.create<ttnn::ReshapeOp>(
         loc, outputType, permutedWeight, rewriter.getI32ArrayAttr(newShapeI32),
