@@ -23,6 +23,7 @@ add_mlir_dialect_library(MLIRD2MTransforms
         RankNormalization.cpp
         ScalarizeConstTensors.cpp
         GenerateOuterLoops.cpp
+        LowerToExplicitForm.cpp
         LowerMulticastLoads.cpp
         SplitUnifiedThread.cpp
         PreallocateMcastSemaphores.cpp
@@ -40,6 +41,7 @@ add_mlir_dialect_library(MLIRD2MTransforms
         MLIRTTCoreOpsIncGen
 
         LINK_LIBS PUBLIC
+        MLIRArithDialect
         MLIRD2MAnalysis
         MLIRD2MUtils
         MLIRTTUtils

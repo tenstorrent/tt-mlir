@@ -14,7 +14,7 @@ func.func @add(%arg0: memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<0x0
     -> memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, #ttcore.memory_space<l1>>
 
   // CHECK: [#d2m.thread<datamovement, @datamovement_kernel0>, #d2m.thread<compute, @compute_kernel1>]
-  d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map, #map, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]}
+  d2m.generic {block_factors = [], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]}
                ins(%view, %arg1 :
                 memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, #ttcore.memory_space<l1>>,
                 memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<0x0, 1>, #l1_>)

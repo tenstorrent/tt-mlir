@@ -35,6 +35,133 @@ struct OperationTypes {
   bool hasMarkedAffineLoops = false;
 };
 
+// Collect loop IVs from ancestor loops that are in scope at `op`.
+static SmallVector<Value> collectAncestorLoopIVs(Operation *op) {
+  SmallVector<Value> loopIVs;
+  Operation *current = op->getParentOp();
+  while (current && !mlir::isa<d2m::GenericOp>(current)) {
+    if (auto scfFor = mlir::dyn_cast<scf::ForOp>(current)) {
+      loopIVs.push_back(scfFor.getInductionVar());
+    } else if (auto affineFor = mlir::dyn_cast<affine::AffineForOp>(current)) {
+      loopIVs.push_back(affineFor.getInductionVar());
+    }
+    current = current->getParentOp();
+  }
+  std::reverse(loopIVs.begin(), loopIVs.end());
+  return loopIVs;
+}
+
+static bool valueDependsOnIV(Value value, Value iv, DenseSet<Value> &visited) {
+  if (value == iv) {
+    return true;
+  }
+  if (!visited.insert(value).second) {
+    return false;
+  }
+
+  Operation *definingOp = value.getDefiningOp();
+  if (!definingOp) {
+    return false;
+  }
+
+  for (Value operand : definingOp->getOperands()) {
+    if (valueDependsOnIV(operand, iv, visited)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+static bool valueDependsOnIV(Value value, Value iv) {
+  DenseSet<Value> visited;
+  return valueDependsOnIV(value, iv, visited);
+}
+
+// Returns the subset of map operands that are actually referenced by the affine
+// map expressions. An operand is considered used if it appears as a dimension
+// or symbol in any of the map's result expressions.
+static SmallVector<Value> getUsedAffineMapOperands(AffineMap map,
+                                                   ValueRange mapOperands) {
+  SmallVector<bool> usedOperands(mapOperands.size(), false);
+  for (AffineExpr resultExpr : map.getResults()) {
+    resultExpr.walk([&](AffineExpr expr) {
+      if (auto dimExpr = mlir::dyn_cast<AffineDimExpr>(expr)) {
+        unsigned pos = dimExpr.getPosition();
+        if (pos < usedOperands.size()) {
+          usedOperands[pos] = true;
+        }
+      } else if (auto symbolExpr = mlir::dyn_cast<AffineSymbolExpr>(expr)) {
+        unsigned pos = map.getNumDims() + symbolExpr.getPosition();
+        if (pos < usedOperands.size()) {
+          usedOperands[pos] = true;
+        }
+      }
+    });
+  }
+
+  SmallVector<Value> usedMapOperands;
+  for (auto [idx, isUsed] : llvm::enumerate(usedOperands)) {
+    if (isUsed) {
+      usedMapOperands.push_back(mapOperands[idx]);
+    }
+  }
+  return usedMapOperands;
+}
+
+// accessDependsOnIV overloads here determine if various load/store ops depend
+// on a particular loop induction variable.
+static bool accessDependsOnIV(affine::AffineLoadOp loadOp, Value iv) {
+  if (valueDependsOnIV(loadOp.getMemRef(), iv)) {
+    return true;
+  }
+  // Determine subset of affine load indices that load is actually affected by.
+  SmallVector<Value> mapOperands =
+      getUsedAffineMapOperands(loadOp.getAffineMap(), loadOp.getMapOperands());
+  return llvm::any_of(mapOperands,
+                      [&](Value v) { return valueDependsOnIV(v, iv); });
+}
+
+static bool accessDependsOnIV(affine::AffineStoreOp storeOp, Value iv) {
+  if (valueDependsOnIV(storeOp.getMemRef(), iv)) {
+    return true;
+  }
+  // Determine subset of affine store indices that load is actually affected by.
+  SmallVector<Value> mapOperands = getUsedAffineMapOperands(
+      storeOp.getAffineMap(), storeOp.getMapOperands());
+  return llvm::any_of(mapOperands,
+                      [&](Value v) { return valueDependsOnIV(v, iv); });
+}
+
+static bool accessDependsOnIV(memref::LoadOp loadOp, Value iv) {
+  if (valueDependsOnIV(loadOp.getMemRef(), iv)) {
+    return true;
+  }
+  return llvm::any_of(loadOp.getIndices(),
+                      [&](Value idx) { return valueDependsOnIV(idx, iv); });
+}
+
+static bool accessDependsOnIV(memref::StoreOp storeOp, Value iv) {
+  if (valueDependsOnIV(storeOp.getMemRef(), iv)) {
+    return true;
+  }
+  return llvm::any_of(storeOp.getIndices(),
+                      [&](Value idx) { return valueDependsOnIV(idx, iv); });
+}
+
+// Collects all loop IVs in scope for a load/store op, and returns the
+// subset of IVs that actually affect the load/store op.
+template <typename LoadOrStoreTy>
+static SmallVector<Value> getGuardLoopIVs(LoadOrStoreTy loadOrStore,
+                                          Operation *contextOp) {
+  SmallVector<Value> guardIVs;
+  for (Value loopIV : collectAncestorLoopIVs(contextOp)) {
+    if (!accessDependsOnIV(loadOrStore, loopIV)) {
+      guardIVs.push_back(loopIV);
+    }
+  }
+  return guardIVs;
+}
+
 static bool hasTileMatmul(linalg::GenericOp linalgGenericOp) {
   bool hasTileMatmul = false;
   linalgGenericOp->walk([&](d2m::TileMatmulOp) {
@@ -90,13 +217,13 @@ public:
     LoadOrStoreTy loadStore = nullptr;
     std::optional<d2m::TileBcastOp> bcast = std::nullopt;
     int dstSlice = -1;
-    std::set<int64_t> guardDims = {};
+    SmallVector<Value> guardIVs = {};
 
     LoadStoreRecord(LoadOrStoreTy loadStore,
                     std::optional<d2m::TileBcastOp> bcast, int dstSlice,
-                    const std::set<int64_t> &guardDims)
+                    ArrayRef<Value> guardIVs)
         : loadStore(loadStore), bcast(bcast), dstSlice(dstSlice),
-          guardDims(guardDims) {}
+          guardIVs(guardIVs.begin(), guardIVs.end()) {}
   };
 
   // Stores all DST<->CB loads/stores that are under the same loop nest.
@@ -104,31 +231,28 @@ public:
   // (for scheduled path with scf.for loops).
   struct CopyInfo {
     void record(affine::AffineLoadOp load, int dstSlice,
-                const std::set<int64_t> &guardDims) {
-      loads.emplace_back(load, std::nullopt, dstSlice, guardDims);
+                ArrayRef<Value> guardIVs) {
+      loads.emplace_back(load, std::nullopt, dstSlice, guardIVs);
     }
 
     void record(affine::AffineLoadOp load, d2m::TileBcastOp bcast, int dstSlice,
-                const std::set<int64_t> &guardDims) {
-      loads.emplace_back(load, bcast, dstSlice, guardDims);
+                ArrayRef<Value> guardIVs) {
+      loads.emplace_back(load, bcast, dstSlice, guardIVs);
     }
 
-    void record(affine::AffineStoreOp store, int dstSlice,
-                const std::set<int64_t> &) {
+    void record(affine::AffineStoreOp store, int dstSlice, ArrayRef<Value>) {
       // Guards are only useful for load loops atm.
-      stores.emplace_back(store, std::nullopt, dstSlice, std::set<int64_t>{});
+      stores.emplace_back(store, std::nullopt, dstSlice, ArrayRef<Value>{});
     }
 
     // Memref ops for scheduled path (scf.for loops).
-    void record(memref::LoadOp load, int dstSlice,
-                const std::set<int64_t> &guardDims) {
-      memrefLoads.emplace_back(load, std::nullopt, dstSlice, guardDims);
+    void record(memref::LoadOp load, int dstSlice, ArrayRef<Value> guardIVs) {
+      memrefLoads.emplace_back(load, std::nullopt, dstSlice, guardIVs);
     }
 
-    void record(memref::StoreOp store, int dstSlice,
-                const std::set<int64_t> &) {
+    void record(memref::StoreOp store, int dstSlice, ArrayRef<Value>) {
       memrefStores.emplace_back(store, std::nullopt, dstSlice,
-                                std::set<int64_t>{});
+                                ArrayRef<Value>{});
     }
 
     SmallVector<LoadStoreRecord<affine::AffineLoadOp>> loads;
@@ -308,17 +432,15 @@ public:
       WalkResult walkResult =
           block.walk([&](linalg::GenericOp linalgGenericOp) {
             if (!useTileMatmul && hasTileMatmul(linalgGenericOp)) {
-              // Only use tile matmul block rewrite when not in explicit
-              // datamovement form. Explicit datamovement form should fall
-              // through to regular linalg-to-affine conversion.
-              if (!gOp.isExplicitDatamovementForm()) {
-                if (rewriteTileMatmulAsTileMatmulBlock(
-                        rewriter, gOp, *genericRegion, linalgGenericOp,
-                        dstCapacity, modified)) {
-                  return WalkResult::interrupt();
-                }
-                return WalkResult::advance();
+              // In useTileMatmul=false mode, tile_matmul linalg.generic ops
+              // are handled here, including when the parent GenericOp is in
+              // explicit datamovement form.
+              if (rewriteTileMatmulAsTileMatmulBlock(
+                      rewriter, gOp, *genericRegion, linalgGenericOp,
+                      dstCapacity, modified)) {
+                return WalkResult::interrupt();
               }
+              return WalkResult::advance();
             }
 
             // This should not happen - all other linalg ops should have been
@@ -469,17 +591,17 @@ public:
     };
 
     for (auto [loopNest, copyInfo] : copyInfos) {
-      for (auto &[loadOp, bcastOp, idx, guardDims] : copyInfo.loads) {
+      for (auto &[loadOp, bcastOp, idx, guardIVs] : copyInfo.loads) {
         updateInfo(loadOp.getMemRefType(), idx);
       }
-      for (auto &[storeOp, bcastOp, idx, guardDims] : copyInfo.stores) {
+      for (auto &[storeOp, bcastOp, idx, guardIVs] : copyInfo.stores) {
         updateInfo(storeOp.getMemRefType(), idx);
       }
       // Also process memref ops (scheduled path).
-      for (auto &[loadOp, bcastOp, idx, guardDims] : copyInfo.memrefLoads) {
+      for (auto &[loadOp, bcastOp, idx, guardIVs] : copyInfo.memrefLoads) {
         updateInfo(loadOp.getMemRefType(), idx);
       }
-      for (auto &[storeOp, bcastOp, idx, guardDims] : copyInfo.memrefStores) {
+      for (auto &[storeOp, bcastOp, idx, guardIVs] : copyInfo.memrefStores) {
         updateInfo(storeOp.getMemRefType(), idx);
       }
     }
@@ -639,6 +761,9 @@ public:
   }
 
   static BlockArgument lookThroughSubView(Value memref) {
+    if (!memref) {
+      return nullptr;
+    }
     while (auto subView = mlir::dyn_cast_or_null<memref::SubViewOp>(
                memref.getDefiningOp())) {
       memref = subView.getSource();
@@ -655,10 +780,13 @@ public:
         }
         Value cb = GenericOp::findAssocCBByOperand(allocOp.getOperation(),
                                                    assocOperand);
-        return mlir::dyn_cast<BlockArgument>(cb);
+        if (!cb) {
+          return nullptr;
+        }
+        return mlir::dyn_cast_or_null<BlockArgument>(cb);
       }
     }
-    return mlir::dyn_cast<BlockArgument>(memref);
+    return mlir::dyn_cast_or_null<BlockArgument>(memref);
   }
 
   // Collect a single load or store and determine its loop guard.
@@ -675,20 +803,12 @@ public:
     auto [iter, _] = copyInfos.try_emplace(outermostInnerComputeLoop);
     BlockArgument blockArg = lookThroughSubView(loadOrStore.getMemRef());
 
-    std::set<int64_t> guardDims = {};
-    if (blockArg && !gOp.isExplicitDatamovementForm() &&
-        !gOp.isScratchInput(blockArg.getArgNumber())) {
-      auto nonParticipatingLoopDims =
-          gOp.getNonParticipatingLoopDims(blockArg.getArgNumber());
-      auto iteratorTypes = gOp.getIteratorTypesValue();
-
-      for (int64_t dim : nonParticipatingLoopDims) {
-        TT_assert(iteratorTypes[dim] == ttcore::IteratorType::Reduction);
-        guardDims.insert(dim);
-      }
+    SmallVector<Value> guardIVs;
+    if (blockArg) {
+      guardIVs = getGuardLoopIVs(loadOrStore, outermostInnerComputeLoop);
     }
 
-    iter->second.record(loadOrStore, dstSlice, guardDims);
+    iter->second.record(loadOrStore, dstSlice, guardIVs);
   }
 
   // Collect a load-bcast pair.
@@ -706,19 +826,12 @@ public:
     auto [iter, _] = copyInfos.try_emplace(outermostInnerComputeLoop);
     BlockArgument blockArg = lookThroughSubView(loadOp.getMemRef());
 
-    std::set<int64_t> guardDims = {};
-    if (blockArg && !gOp.isExplicitDatamovementForm()) {
-      auto nonParticipatingLoopDims =
-          gOp.getNonParticipatingLoopDims(blockArg.getArgNumber());
-      auto iteratorTypes = gOp.getIteratorTypesValue();
-
-      for (int64_t dim : nonParticipatingLoopDims) {
-        TT_assert(iteratorTypes[dim] == ttcore::IteratorType::Parallel);
-        guardDims.insert(dim);
-      }
+    SmallVector<Value> guardIVs;
+    if (blockArg) {
+      guardIVs = getGuardLoopIVs(loadOp, outermostInnerComputeLoop);
     }
 
-    iter->second.record(loadOp, bcastOp, dstSlice, guardDims);
+    iter->second.record(loadOp, bcastOp, dstSlice, guardIVs);
   }
 
   /*
@@ -886,9 +999,9 @@ public:
   // - Accum: skip the CB->DST reload unless any of the reduction dims is not
   //   at the 1st iter. So the accumulation starts with an all-zeros DST tile.
   static scf::IfOp createLoadLoopGuard(PatternRewriter &rewriter, Location loc,
-                                       const std::set<int64_t> &guardDims,
+                                       ValueRange guardIVs,
                                        const bool isBcastGuard) {
-    if (guardDims.empty()) {
+    if (guardIVs.empty()) {
       return nullptr;
     }
 
@@ -911,10 +1024,9 @@ public:
         loc, rewriter.getIndexType(),
         rewriter.getIntegerAttr(rewriter.getIndexType(), 0));
 
-    for (int64_t idx : guardDims) {
-      Value iterIdx = rewriter.create<d2m::IterIndexOp>(loc, idx);
+    for (Value guardIV : guardIVs) {
       Value cmp =
-          rewriter.create<arith::CmpIOp>(loc, cmpPredicate, iterIdx, zero);
+          rewriter.create<arith::CmpIOp>(loc, cmpPredicate, guardIV, zero);
       // Aggregation:
       if (isBcastGuard) {
         // - Bcast: load if ALL(&&) bcast dims ARE at the 1st iter.
@@ -966,7 +1078,7 @@ public:
 
     for (auto record : loadStoreRecords) {
       mlir::IRMapping irMapper = copyLoopMapper;
-      if (!record.guardDims.empty()) {
+      if (!record.guardIVs.empty()) {
         const bool isBcastGuard = record.bcast.has_value();
         // TODO(wenbinlyuTT): #6516 WA to put all bcast inits to the top of the
         // compute tiling loops.
@@ -975,7 +1087,7 @@ public:
         }
         // Guarded loads live in their own loop nest under that guard.
         auto guard = createLoadLoopGuard(rewriter, record.loadStore.getLoc(),
-                                         record.guardDims, isBcastGuard);
+                                         record.guardIVs, isBcastGuard);
         rewriter.setInsertionPointToStart(&guard.getThenRegion().front());
         auto [_, guardedMapper] = cloneLoopSkeleton(rewriter, loopNestOrOp);
         irMapper = guardedMapper;
@@ -1231,7 +1343,7 @@ public:
       });
     }
 
-    for (auto [loadStore, bcast, dstSliceIndex, guardDims] : loadStoreOps) {
+    for (auto [loadStore, bcast, dstSliceIndex, guardIVs] : loadStoreOps) {
       Block *fromScope = loadStore->getBlock();
       Block *toScope = irMapper.lookupOrNull(fromScope);
       if (toScope) {
@@ -1287,7 +1399,7 @@ public:
     // We insert the dst copy logic directly at the point where the original
     // load/store occurs, keeping everything in the same loop.
 
-    for (auto [loadStore, bcast, dstSliceIndex, guardDims] : loadStoreOps) {
+    for (auto [loadStore, bcast, dstSliceIndex, guardIVs] : loadStoreOps) {
       // Use an empty IR mapper since we're working in the original loop
       // context.
       mlir::IRMapping emptyIRMapper;
@@ -1473,8 +1585,8 @@ public:
       // Each simple copy needs its own DST slot for the iteration.
       // Allocate a slot from the stack to avoid conflicts with other ops.
       int dstSlice = dstStackAllocator.allocate();
-      iter->second.record(load, dstSlice, std::set<int64_t>{});
-      iter->second.record(store, dstSlice, std::set<int64_t>{});
+      iter->second.record(load, dstSlice, ArrayRef<Value>{});
+      iter->second.record(store, dstSlice, ArrayRef<Value>{});
     });
 
     return {copyInfos, dstIntermediates};
@@ -1511,7 +1623,7 @@ public:
           });
 
       // Process memref loads (scheduled path with scf.for loops).
-      for (auto [loadOp, bcast, dstSliceIndex, guardDims] :
+      for (auto [loadOp, bcast, dstSliceIndex, guardIVs] :
            copyInfo.memrefLoads) {
         AffineMap dstAccessMap =
             AffineMap::getConstantMap(dstSliceIndex, rewriter.getContext());
@@ -1578,7 +1690,7 @@ public:
           });
 
       // Process memref stores (scheduled path with scf.for loops).
-      for (auto [storeOp, bcast, dstSliceIndex, guardDims] :
+      for (auto [storeOp, bcast, dstSliceIndex, guardIVs] :
            copyInfo.memrefStores) {
         AffineMap dstAccessMap =
             AffineMap::getConstantMap(dstSliceIndex, rewriter.getContext());

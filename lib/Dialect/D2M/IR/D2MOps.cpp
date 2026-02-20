@@ -14,6 +14,7 @@
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
+#include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
@@ -1850,6 +1851,27 @@ unsigned d2m::GenericOp::getNumDims() {
   return getIndexingMap(0).getNumDims();
 }
 
+unsigned d2m::GenericOp::getNumBlockFactors() {
+  return static_cast<unsigned>(getBlockFactors().size());
+}
+
+std::optional<Operation *> d2m::GenericOp::getOutermostBlockingLoopOp() {
+  Operation *outerLoop = nullptr;
+  unsigned count = 0;
+  for (Operation &op : getRegion(0).front()) {
+    auto forOp = mlir::dyn_cast<affine::AffineForOp>(&op);
+    if (!forOp || !forOp->hasAttr("d2m.blocking_loop")) {
+      continue;
+    }
+    outerLoop = forOp;
+    count++;
+  }
+  if (count != 1) {
+    return std::nullopt;
+  }
+  return outerLoop;
+}
+
 mlir::AffineMap d2m::GenericOp::getIndexingMap(int64_t operandIndex) {
   TT_debugv(!isExplicitDatamovementForm(),
             "Attempting to access indexing map while in explicit "
@@ -1870,6 +1892,15 @@ AffineMap d2m::GenericOp::getOutputIndexingMap() {
   TT_assertv(getNumDpsInits() == 1,
              "getOutputIndexingMap expects exactly one output operand");
   return getIndexingMapForOperand(getOutputs().front());
+}
+
+std::optional<unsigned> d2m::GenericOp::getOutputOperandIndex(Value operand) {
+  for (OpOperand &output : getOutputsMutable()) {
+    if (output.get() == operand) {
+      return output.getOperandNumber();
+    }
+  }
+  return std::nullopt;
 }
 
 mlir::SmallVector<int64_t> d2m::GenericOp::getOutputGridDimPositions() {
@@ -1905,6 +1936,75 @@ mlir::SmallVector<int64_t> d2m::GenericOp::getBlockFactorsValue() {
   return llvm::map_to_vector(getBlockFactors(), [](Attribute a) {
     return mlir::cast<IntegerAttr>(a).getInt();
   });
+}
+
+/// Returns true if the generic op has non-empty block_factors, indexing_maps,
+/// and iterator_types attributes, and a single unified region.
+static bool hasBlockingAttributes(d2m::GenericOp genericOp) {
+  if (genericOp.getBlockFactors().empty() ||
+      genericOp.getIndexingMaps().empty() ||
+      genericOp.getIteratorTypes().empty()) {
+    return false;
+  }
+
+  return genericOp.getNumRegions() == 1 &&
+         genericOp.getRegionThreadType(0) == ThreadType::Unified;
+}
+
+bool d2m::GenericOp::isImplicitBlockedForm() {
+  if (!hasBlockingAttributes(*this)) {
+    return false;
+  }
+
+  // No affine blocking loops must be present.
+  bool hasBlockingLoop = false;
+  getRegion(0).walk([&](affine::AffineForOp forOp) {
+    if (forOp->hasAttr("d2m.blocking_loop")) {
+      hasBlockingLoop = true;
+      return WalkResult::interrupt();
+    }
+    return WalkResult::advance();
+  });
+
+  return !hasBlockingLoop;
+}
+
+bool d2m::GenericOp::isAffineBlockedForm() {
+  if (!hasBlockingAttributes(*this)) {
+    return false;
+  }
+
+  // Each block factor dimension must have a corresponding affine.for loop
+  // whose upper bound is defined by a get_block_factor() op.
+  unsigned numBlockFactors = static_cast<unsigned>(getBlockFactors().size());
+  SmallVector<bool> factorUsed(numBlockFactors, false);
+  unsigned loopCount = 0;
+
+  getRegion(0).walk([&](affine::AffineForOp forOp) {
+    if (!forOp->hasAttr("d2m.blocking_loop")) {
+      return;
+    }
+    ++loopCount;
+
+    auto ubOperands = forOp.getUpperBoundOperands();
+    if (ubOperands.size() != 1) {
+      return;
+    }
+
+    auto getBlockFactorOp =
+        dyn_cast_or_null<GetBlockFactorOp>(ubOperands[0].getDefiningOp());
+    if (!getBlockFactorOp) {
+      return;
+    }
+
+    int64_t dim = getBlockFactorOp.getDim();
+    if (dim >= 0 && static_cast<unsigned>(dim) < numBlockFactors) {
+      factorUsed[static_cast<unsigned>(dim)] = true;
+    }
+  });
+
+  return loopCount == numBlockFactors &&
+         llvm::all_of(factorUsed, [](bool used) { return used; });
 }
 
 mlir::SmallVector<int64_t> d2m::GenericOp::getFullBlockFactors() {
@@ -2187,7 +2287,7 @@ bool d2m::GenericOp::hasCompatibleBlocking(GenericOp b) {
          this->getBlockFactors() == b.getBlockFactors();
 }
 
-/// Returns true if op or any of the operations nested within it's regions have
+/// Returns true if op or any of the operations nested within its regions have
 /// the D2MSkipOpEltwiseFusionTrait.
 bool d2m::GenericOp::hasSkipOpEltwiseFusionTrait() {
   bool skipFusion = false;
@@ -2374,7 +2474,7 @@ Value d2m::GenericOp::findAssocCBByOperand(Operation *op, Value operand) {
     return Value();
   }
 
-  // Find which operand index this corresponds to
+  // Find which operand index this corresponds to.
   unsigned operandIndex = UINT_MAX;
   for (unsigned i = 0; i < generic->getNumOperands(); ++i) {
     if (generic->getOperand(i) == operand) {
