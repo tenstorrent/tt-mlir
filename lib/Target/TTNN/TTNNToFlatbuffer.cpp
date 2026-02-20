@@ -2397,12 +2397,11 @@ createSortOp(FlatbufferObjectCache &cache, SortOp op) {
   int8_t dim = op.getDim();
   bool descending = op.getDescending();
   bool stable = op.getStable();
-  std::optional<mlir::tt::ttnn::MemoryConfigAttr> memoryConfig =
-      op.getMemoryConfig();
 
-  return ::tt::target::ttnn::CreateSortOpDirect(
-      *cache.fbb, in, dim, descending, stable,
-      (memoryConfig ? toFlatbuffer(cache, memoryConfig.value()) : 0), &outputs);
+  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
+
+  return ::tt::target::ttnn::CreateSortOpDirect(*cache.fbb, in, dim, descending,
+                                                stable, memoryConfig, &outputs);
 }
 
 template <typename Pool2dOp>
