@@ -516,4 +516,16 @@ def TTNNCollaspeD2M : Pass<"ttnn-collaspe-d2m", "::mlir::ModuleOp"> {
   }];
 }
 
+def TTNNSetCCLTopology : Pass<"ttnn-set-ccl-topology", "::mlir::ModuleOp"> {
+  let summary = "Set CCL topology on collective operations based on mesh topology.";
+  let description = [{
+    This pass sets the topology attribute on CCL operations (AllGather,
+    AllReduce, ReduceScatter) based on the per-axis mesh topology from the
+    DeviceAttr. For each CCL op, it looks up the topology for the op's
+    cluster_axis in the device's meshTopology array, and sets the op's topology
+    attribute accordingly (e.g. Linear for line topology, Ring for ring
+    topology).
+  }];
+}
+
 #endif
