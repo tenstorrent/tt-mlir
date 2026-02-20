@@ -943,6 +943,7 @@ def execute_py(
     )
     output_tensors = {}
     golden_report = {}
+    module_name = None
 
     try:
         # Parse the AST to find function names from the compiled source
@@ -1044,6 +1045,9 @@ def execute_py(
 
     except Exception as e:
         raise TTBuilderRuntimeException(e) from e
+    finally:
+        if module_name is not None:
+            sys.modules.pop(module_name, None)
 
     return golden_report, output_tensors
 
