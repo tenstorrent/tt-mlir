@@ -725,32 +725,21 @@ public:
              "ttnn_metal_layout_cast and converted type must have the same "
              "volume");
 
-      // Assert they both have the same element type.
-      assert(castResultType.getElementType() ==
-                 convertedTensorType.getElementType() &&
-             "ttnn_metal_layout_cast and converted type must have the same "
-             "element type");
-
-      // Assert they both have the same memory space (buffer type).
       assert(castLayoutAttr.getBufferType() ==
                  convertedLayoutAttr.getBufferType() &&
              "ttnn_metal_layout_cast and converted type must have the same "
              "buffer type");
 
-      // Assert they both have the same shard shape.
       assert(castLayoutAttr.getShardShape() ==
                  convertedLayoutAttr.getShardShape() &&
              "ttnn_metal_layout_cast and converted type must have the same "
              "shard shape");
 
-      // Assert they both have the same grid shape.
       assert(castLayoutAttr.getGrid().getShape() ==
                  convertedLayoutAttr.getGrid().getShape() &&
              "ttnn_metal_layout_cast and converted type must have the same "
              "grid shape");
 
-      // Use the cast's result type for the empty op to preserve the uncollapsed
-      // shape.
       emptyTensorType = castResultType;
     }
 
@@ -761,14 +750,13 @@ public:
     auto memcfg = ttnn::MemoryConfigAttr::get(emptyLayoutAttr,
                                               deviceAttr.getWorkerGrid());
 
-    // Create the ttnn.empty op.
     auto emptyOp = rewriter.create<ttnn::EmptyOp>(
         op.getLoc(), emptyTensorType, device,
         ttnn::ShapeAttr::get(ctx, emptyTensorType.getShape()),
         ttcore::DataTypeAttr::get(ctx, emptyLayoutAttr.getDataType()),
         ttnn::LayoutAttr::get(ctx, emptyLayoutAttr.getLayout()), memcfg);
 
-    // Erase deallocs.
+    // Erase the corresponding dealloc.
     for (auto deallocOp : deallocsToErase) {
       rewriter.eraseOp(deallocOp);
     }
