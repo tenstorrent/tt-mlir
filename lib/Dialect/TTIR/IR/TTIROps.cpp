@@ -3479,6 +3479,119 @@ void mlir::tt::ttir::LinearOp::getCanonicalizationPatterns(
 }
 // ANCHOR_END: adding_an_op_matmul_ttir_verify
 
+// Returns true if `longer` is `shorter` with leading size-1 dimensions
+// prepended.
+static bool isLeadingOnesToShorter(llvm::ArrayRef<int64_t> longer,
+                                   llvm::ArrayRef<int64_t> shorter) {
+  if (longer.size() <= shorter.size()) {
+    return false;
+  }
+
+  size_t rankDiff = longer.size() - shorter.size();
+  return llvm::all_of(longer.take_front(rankDiff),
+                      [](int64_t dim) { return dim == 1; }) &&
+         longer.drop_front(rankDiff) == shorter;
+}
+
+// Returns true if the reshape removes leading size-1 dimensions.
+//   input:  [1, ..., 1, d0, d1, ..., dk]  (N leading 1s)
+//   output: [d0, d1, ..., dk]
+static bool isLeadingSqueeze(mlir::tt::ttir::ReshapeOp reshapeOp) {
+  return isLeadingOnesToShorter(reshapeOp.getInput().getType().getShape(),
+                                reshapeOp.getType().getShape());
+}
+
+// Returns true if the reshape adds leading size-1 dimensions.
+//   input:  [d0, d1, ..., dk]
+//   output: [1, ..., 1, d0, d1, ..., dk]  (N leading 1s)
+static bool isLeadingUnsqueeze(mlir::tt::ttir::ReshapeOp reshapeOp) {
+  return isLeadingOnesToShorter(reshapeOp.getType().getShape(),
+                                reshapeOp.getInput().getType().getShape());
+}
+
+// MatmulOp canonicalization: absorb leading squeeze/unsqueeze reshapes.
+//
+// Matches patterns like:
+//   %a = ttir.reshape [1,B,M,K] -> [B,M,K]
+//   %b = ttir.reshape [1,B,K,N] -> [B,K,N]
+//   %r = ttir.matmul (%a, %b) -> [B,M,N]
+//   %o = ttir.reshape %r -> [1,B,M,N]
+//
+// And replaces with:
+//   %o = matmul %a_orig, %b_orig -> [1,B,M,N]
+//
+void mlir::tt::ttir::MatmulOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
+  patterns.add(+[](ttir::MatmulOp op, mlir::PatternRewriter &rewriter) {
+    if (!op.getResult().hasOneUse()) {
+      return mlir::failure();
+    }
+
+    auto unsqueezeOp =
+        mlir::dyn_cast<ttir::ReshapeOp>(*op.getResult().getUsers().begin());
+    if (!unsqueezeOp) {
+      return mlir::failure();
+    }
+
+    if (!isLeadingUnsqueeze(unsqueezeOp)) {
+      return mlir::failure();
+    }
+
+    mlir::Value inputA = op.getA();
+    mlir::Value inputB = op.getB();
+    mlir::Value newA = inputA;
+    mlir::Value newB = inputB;
+
+    auto squeezeA = inputA.getDefiningOp<ttir::ReshapeOp>();
+    auto squeezeB = inputB.getDefiningOp<ttir::ReshapeOp>();
+
+    bool isSqueezedA = squeezeA && isLeadingSqueeze(squeezeA);
+    bool isSqueezedB = squeezeB && isLeadingSqueeze(squeezeB);
+
+    if (!isSqueezedA && !isSqueezedB) {
+      return mlir::failure();
+    }
+
+    if (isSqueezedA) {
+      newA = squeezeA.getInput();
+    }
+    if (isSqueezedB) {
+      newB = squeezeB.getInput();
+    }
+
+    auto newAType = mlir::cast<mlir::RankedTensorType>(newA.getType());
+    auto newBType = mlir::cast<mlir::RankedTensorType>(newB.getType());
+
+    // Bail out if either matmul input is 1D. Un-squeezing would flip it to 2D,
+    // changing matmul semantics (1D inputs have special prepend/append-1
+    // behavior that affects which dimensions are inner vs outer).
+    if (mlir::cast<mlir::RankedTensorType>(inputA.getType()).getRank() < 2 ||
+        mlir::cast<mlir::RankedTensorType>(inputB.getType()).getRank() < 2) {
+      return mlir::failure();
+    }
+
+    // For >= 2D inputs, matmul output rank == max(rankA, rankB) because batch
+    // dims are broadcast-padded with leading 1s. The inner dims and batch
+    // values are guaranteed compatible by the existing valid matmul (squeeze
+    // only removes leading 1s). So a rank check is sufficient.
+    if (std::max(newAType.getRank(), newBType.getRank()) !=
+        unsqueezeOp.getType().getRank()) {
+      return mlir::failure();
+    }
+
+    auto newResultType =
+        mlir::RankedTensorType::get(unsqueezeOp.getType().getShape(),
+                                    unsqueezeOp.getType().getElementType(),
+                                    unsqueezeOp.getType().getEncoding());
+
+    rewriter.replaceOpWithNewOp<ttir::MatmulOp>(unsqueezeOp, newResultType,
+                                                newA, newB, op.getTransposeA(),
+                                                op.getTransposeB());
+
+    return mlir::success();
+  });
+}
+
 //===----------------------------------------------------------------------===//
 // UpsampleOp
 //===----------------------------------------------------------------------===//
