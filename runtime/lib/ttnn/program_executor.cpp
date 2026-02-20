@@ -148,22 +148,67 @@ void ProgramExecutor::runCallback(
 }
 
 void ProgramExecutor::execute() {
+  // Enhanced debug logging for program start
+  LOG_INFO(LogType::LogAlways,
+           "\n========================================");
+  LOG_INFO(LogType::LogAlways,
+           "PROGRAM EXECUTION START: ", program->name()->c_str());
+  LOG_INFO(LogType::LogAlways,
+           "Total operations to execute: ", program->operations()->size());
+  LOG_INFO(LogType::LogAlways,
+           "========================================");
+
   LOG_DEBUG(LogType::LogRuntimeTTNN,
             "Starting execution of program: ", program->name()->c_str());
+
+  // Log input tensors if debug mode is enabled
+  static const char* dumpInputsEnv = std::getenv("TTMLIR_RUNTIME_DEBUG_INPUTS");
+  if (dumpInputsEnv && std::string(dumpInputsEnv) == "1") {
+    LOG_INFO(LogType::LogAlways, "Input tensor IDs: ");
+    for (uint32_t inputId : context->getTensorPool().getProgramInputIds()) {
+      LOG_INFO(LogType::LogAlways, "  - Input ID: ", inputId);
+    }
+  }
+
+  size_t opIndex = 0;
   for (const ::tt::target::ttnn::Operation *op : *program->operations()) {
+    // Enhanced per-operation logging
+    LOG_INFO(LogType::LogAlways,
+             "\n[OP ", opIndex + 1, "/", program->operations()->size(), "] ",
+             ::tt::target::ttnn::EnumNameOpType(op->type_type()),
+             " @ ", op->loc_info()->c_str());
     LOG_DEBUG(LogType::LogRuntimeTTNN,
               "Executing operation: ", op->debug_info()->c_str());
+
     perf::Env::get().tracyLogOpLocation(std::string(op->loc_info()->c_str()));
     perf::Env::get().tracyLogConstEvalProgram(constEvalProgram);
     perf::Env::get().tracyLogProgramMetadata(
         perf::Env::get().tracyProgramMetadata);
+
+    LOG_DEBUG(LogType::LogAlways, "  Running pre-operation callback...");
     runCallback(debug::Hooks::get().getPreOperatorCallback(), executableHandle,
                 op, context.get());
+
+    LOG_DEBUG(LogType::LogAlways, "  Executing operation...");
     runOperation(op);
+
+    LOG_DEBUG(LogType::LogAlways, "  Running post-operation callback...");
     runCallback(debug::Hooks::get().getPostOperatorCallback(), executableHandle,
                 op, context.get());
+
+    LOG_DEBUG(LogType::LogAlways, "  Operation completed successfully");
+
     dumpPerfCountersIfNeeded();
+    opIndex++;
   }
+
+  LOG_INFO(LogType::LogAlways,
+           "\n========================================");
+  LOG_INFO(LogType::LogAlways,
+           "PROGRAM EXECUTION COMPLETE: ", program->name()->c_str());
+  LOG_INFO(LogType::LogAlways,
+           "========================================\n");
+
   LOG_DEBUG(LogType::LogRuntimeTTNN,
             "Finished execution of program: ", program->name()->c_str());
 }
@@ -181,6 +226,16 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
       std::string("Device memory state before operation ") +
           ::tt::target::ttnn::EnumNameOpType(op->type_type()));
 #endif
+
+  // Enhanced debug logging for operation dispatch
+  static const char* verboseOpsEnv = std::getenv("TTMLIR_RUNTIME_VERBOSE_OPS");
+  bool verboseOps = verboseOpsEnv && std::string(verboseOpsEnv) == "1";
+
+  if (verboseOps) {
+    LOG_INFO(LogType::LogAlways,
+             "  >> Dispatching to ", ::tt::target::ttnn::EnumNameOpType(op->type_type()),
+             " handler");
+  }
 
   switch (op->type_type()) {
   case ::tt::target::ttnn::OpType::GetDeviceOp: {
@@ -508,6 +563,23 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
     LOG_FATAL("Unsupported operation type: ",
               ::tt::target::ttnn::EnumNameOpType(op->type_type()));
   }
+  }
+
+  // Log successful operation completion
+  if (verboseOps) {
+    LOG_INFO(LogType::LogAlways,
+             "  << Completed ", ::tt::target::ttnn::EnumNameOpType(op->type_type()),
+             " successfully");
+  }
+
+  // Special logging for trace operations
+  if (op->type_type() == ::tt::target::ttnn::OpType::CaptureOrExecuteTraceOp ||
+      op->type_type() == ::tt::target::ttnn::OpType::ExecuteTraceOp ||
+      op->type_type() == ::tt::target::ttnn::OpType::BeginTraceCaptureOp ||
+      op->type_type() == ::tt::target::ttnn::OpType::EndTraceCaptureOp) {
+    LOG_INFO(LogType::LogAlways,
+             "  [TRACE OP] Completed trace operation: ",
+             ::tt::target::ttnn::EnumNameOpType(op->type_type()));
   }
 
   LOG_FATAL("Unreachable code path, all operations should be handled in switch "
