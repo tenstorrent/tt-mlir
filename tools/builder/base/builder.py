@@ -2,6 +2,15 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+"""
+This module defines the base Builder class and its metaclass for the TT-MLIR project.
+
+The Builder class serves as the foundational component for constructing TTIR (Tenstorrent IR)
+operations. It manages the mapping between high-level OpViews and their corresponding
+builder functions, parsers, and splitters. It also handles the creation and management
+of golden tensors for verification purposes.
+"""
+
 from __future__ import annotations
 import inspect
 from typing import List, Optional, Union, Tuple, Callable, Dict, Any
@@ -25,6 +34,13 @@ from builder.base.builder_utils import (
 
 
 class BuilderMeta(type):
+    """
+    Metaclass for the Builder class.
+    
+    Automatically registers OpView mappings when a new Builder subclass is created.
+    This ensures that all builder methods, parsers, and splitters are correctly
+    associated with their respective OpViews without manual registration.
+    """
     def __new__(mcls, name, bases, namespace):
         cls = super().__new__(mcls, name, bases, namespace)
         cls.build_opview_to_builder_map()
@@ -34,6 +50,13 @@ class BuilderMeta(type):
 
 
 class Builder(metaclass=BuilderMeta):
+    """
+    Base class for all TTIR Builders.
+
+    This class provides the infrastructure for converting Python-level definitions
+    into MLIR operations. It manages context, location, golden tensor verification,
+    and distributed mesh configurations.
+    """
     opview_to_builder_map: Dict[OpView, Callable] = {}
     opview_to_parser_map: Dict[OpView, Callable] = {}
     opview_to_split_map: Dict[OpView, Callable] = {}
@@ -50,6 +73,17 @@ class Builder(metaclass=BuilderMeta):
         ] = OrderedDict([("x", 1), ("y", 1)]),
         disable_golden_check: bool = False,
     ):
+        """
+        Initialize the Builder instance.
+
+        Args:
+            ctx (Context): The MLIR Context in which operations will be created.
+            location (Location): The default source location for operations.
+            mesh_name (Union[List[str], str], optional): Name(s) of the mesh(es). Defaults to "mesh".
+            mesh_dict (Union[List[OrderedDict[str, int]], OrderedDict[str, int]], optional): 
+                Configuration of the mesh dimensions. Defaults to OrderedDict([("x", 1), ("y", 1)]).
+            disable_golden_check (bool, optional): If True, skips golden tensor verification. Defaults to False.
+        """
         self._ctx = ctx
         self._loc = location
         self._global_id = -1
@@ -105,6 +139,7 @@ class Builder(metaclass=BuilderMeta):
 
     @classmethod
     def build_opview_to_builder_map(cls):
+        """Build the mapping from OpView tags to builder methods."""
         for attr_name in dir(cls):
             attr = getattr(cls, attr_name)
             func = attr
@@ -114,6 +149,7 @@ class Builder(metaclass=BuilderMeta):
 
     @classmethod
     def build_opview_to_parser_map(cls):
+        """Build the mapping from OpView parsing tags to parser methods."""
         for attr_name in dir(cls):
             attr = getattr(cls, attr_name)
             func = attr
@@ -123,6 +159,7 @@ class Builder(metaclass=BuilderMeta):
 
     @classmethod
     def build_opview_to_split(cls, map):
+        """Build the mapping from OpView splitting tags to split methods."""
         for attr_name in dir(cls):
             attr = getattr(cls, attr_name)
             func = attr
@@ -131,25 +168,31 @@ class Builder(metaclass=BuilderMeta):
                 cls.opview_to_split_map[func._split] = attr
 
     def get_opview_from_method(self, method: func) -> OpView:
+        """Retrieve the OpView associated with a builder method."""
         return getattr(method, "_tag", None)
 
     def get_opview_from_parser(self, parser: func) -> OpView:
+        """Retrieve the OpView associated with a parser method."""
         return getattr(parser, "_parse", None)
 
     def get_opview_from_split(self, split: func) -> OpView:
+        """Retrieve the OpView associated with a split method."""
         return getattr(split, "_split", None)
 
     def get_builder_from_opview(self, opview: OpView) -> Callable:
+        """Get the builder function for a given OpView."""
         if opview not in self.opview_to_builder_map:
             assert False, f"No builder found for opview {opview}"
         return self.opview_to_builder_map.get(opview)
 
     def get_parser_from_opview(self, opview: OpView) -> Callable:
+        """Get the parser function for a given OpView."""
         if opview not in self.opview_to_parser_map:
             assert False, f"No parser found for opview {opview}"
         return self.opview_to_parser_map.get(opview)
 
     def get_split_from_opview(self, opview: OpView) -> Callable:
+        """Get the split function for a given OpView."""
         if opview not in self.opview_to_split_map:
             assert False, f"No split function found for opview {opview}"
         return self.opview_to_split_map.get(opview)
@@ -158,14 +201,17 @@ class Builder(metaclass=BuilderMeta):
 
     @property
     def context(self) -> Context:
+        """Return the MLIR context."""
         return self._ctx
 
     @property
     def location(self) -> Location:
+        """Return the current source location."""
         return self._loc
 
     @property
     def mesh_shape(self) -> Tuple[int, int]:
+        """Return the shape of the mesh grid."""
         return self._mesh_shape
 
     @property
@@ -175,6 +221,14 @@ class Builder(metaclass=BuilderMeta):
         Dict[int, Dict[str, Dict[int, GoldenMapTensor]]],
         Dict[str, Dict[int, GoldenMapTensor]],
     ]:
+        """
+        Retrieve the map of golden tensors for verification.
+
+        Returns:
+            Tuple containing:
+            1. Input/Output golden info: {program_index: {loc: {device_id: GoldenMapTensor}}}
+            2. Intermediate golden info: {loc: {device_id: GoldenMapTensor}}
+        """
         # { program_index: {loc: {device_id: GoldenMapTensor} } }
         input_output_golden_info: Dict[int, Dict[str, Dict[int, GoldenMapTensor]]] = {}
         intermediate_golden_info: Dict[str, Dict[int, GoldenMapTensor]] = {}
@@ -236,9 +290,11 @@ class Builder(metaclass=BuilderMeta):
         return input_output_golden_info, intermediate_golden_info
 
     def get_shape(self, input: Operand) -> Shape:
+        """Get the shape of the operand's type."""
         return self._get_type(input).shape
 
     def get_type(self, input: Operand) -> Type:
+        """Get the element type of the operand."""
         return self._get_type(input).element_type
 
     def set_goldens(
@@ -247,6 +303,14 @@ class Builder(metaclass=BuilderMeta):
         outputs: Dict[Operand, Union[torch.tensor, Dict[int : torch.tensor]]] = None,
         set_all_outputs: bool = True,
     ):
+        """
+        Set the golden tensors for inputs and optionally outputs.
+
+        Args:
+            inputs: Dictionary mapping operands to their golden tensor data (Tensor, Dict, or Callable).
+            outputs: Dictionary mapping output operands to their golden tensors.
+            set_all_outputs: If True, mark all provided outputs for verification check.
+        """
         self._set_goldens(self._create_builder_golden_from_torch_tensor(inputs))
 
         if outputs != None:
@@ -259,6 +323,7 @@ class Builder(metaclass=BuilderMeta):
         inputs: Dict[Operand, GoldenMapTensor],
         outputs: Dict[Operand, GoldenMapTensor] = None,
     ):
+        """Set goldens using pre-constructed GoldenMapTensors."""
         self._set_goldens(inputs)
 
         if outputs != None:
@@ -268,19 +333,32 @@ class Builder(metaclass=BuilderMeta):
     def set_operand_goldens(
         self, operands: Dict[Operand, Union[torch.tensor, Dict[int : torch.tensor]]]
     ):
+        """Set goldens for a specific set of operands and mark them for checking."""
         self._set_goldens(self._create_builder_golden_from_torch_tensor(operands))
         self.set_goldens_to_check(operands.keys())
 
     def set_goldens_to_check(self, operands: List[Operand], override: bool = False):
+        """
+        Specify which operands should be included in the golden check.
+        
+        Args:
+            operands: List of operands to check.
+            override: If True, replace the existing list; otherwise, append to it.
+        """
         if override:
             self._goldens_to_store = operands
         else:
             self._goldens_to_store.extend(operands)
 
     def set_graph_level_check(self, check: bool):
+        """Enable or disable forced graph-level golden checking."""
         self._force_graph_level_check = check
 
     def bypass(self, operand: Operand):
+        """
+        Mark an operand's operation to be bypassed during golden comparison.
+        Useful for operations that are known to be non-deterministic or difficult to verify.
+        """
         if isinstance(operand, BlockArgument):
             raise TypeError("Cannot bypass BlockArgument")
 
@@ -290,6 +368,14 @@ class Builder(metaclass=BuilderMeta):
     def set_arg_attribute(
         self, operand: Operand, new_attr_name: str, new_attr: Attribute
     ):
+        """
+        Set a new attribute for a function argument.
+
+        Args:
+            operand: The function argument operand.
+            new_attr_name: The name of the new attribute.
+            new_attr: The attribute value to set.
+        """
         func_op = operand.owner.owner
 
         arg_attr_list = func_op.arg_attrs
@@ -315,6 +401,10 @@ class Builder(metaclass=BuilderMeta):
         op_function: Callable,
         golden_kwargs: dict = {},
     ):
+        """
+        Compute the expected output shape and type using the golden function.
+        Used internally to infer result types.
+        """
         op_golden_function = get_golden_function(op_function, **golden_kwargs)
         if op_golden_function is None:
             return
@@ -330,6 +420,7 @@ class Builder(metaclass=BuilderMeta):
         return golden_output.shape, golden_output.dtype
 
     def _get_datatype_from_torch_dtype(self, dtype: torch.dtype) -> DataType:
+        """Map torch.dtype to internal DataType enum."""
         match dtype:
             case torch.float16:
                 return DataType.Float16
@@ -349,6 +440,7 @@ class Builder(metaclass=BuilderMeta):
                 return DataType.Float32
 
     def _get_type(self, input: Operand) -> RankedTensorType:
+        """Helper to get the type of an operand."""
         return input.type
 
     def _get_type_from_torch_dtype(
@@ -357,6 +449,10 @@ class Builder(metaclass=BuilderMeta):
         scale: Optional[float] = None,
         zero_point: Optional[float] = None,
     ) -> Type:
+        """
+        Convert a torch.dtype (and optional quantization params) to an MLIR Type.
+        Handles standard types (f32, bf16) and quantized types (qint8).
+        """
         if scale is not None and zero_point is not None:
             dtype = TypeInfo(dtype=dtype, scale=scale, zero_point=zero_point)
         base_dtype = dtype.dtype if isinstance(dtype, TypeInfo) else dtype
@@ -434,15 +530,14 @@ class Builder(metaclass=BuilderMeta):
                 raise TypeError(f"Invalid Type {dtype}")
 
     def _get_torch_dtype_from_type(self, mlir_type: Type) -> torch.dtype:
-        """Convert MLIR Type to torch.dtype.
-        Parameters
-        ----------
-        mlir_type : Type
-            MLIR type to convert
-        Returns
-        -------
-        torch.dtype
-            Corresponding torch dtype
+        """
+        Convert MLIR Type to torch.dtype.
+
+        Args:
+            mlir_type: MLIR type to convert.
+
+        Returns:
+            Corresponding torch dtype.
         """
         type_str = str(mlir_type)
 
@@ -487,10 +582,15 @@ class Builder(metaclass=BuilderMeta):
             raise TypeError(f"Unsupported MLIR type: {mlir_type}")
 
     def _get_next_global_id(self) -> int:
+        """Generate a unique global ID for tracking operations."""
         self._global_id += 1
         return self._global_id
 
     def _get_loc_of_extra_file_callee(self, id: int = 0) -> Location:
+        """
+        Determine the source location when called from outside the builder.
+        Useful for associating MLIR ops with the user's Python source code.
+        """
         stack = inspect.stack()
         caller_filename = stack[1].filename
 
@@ -507,6 +607,7 @@ class Builder(metaclass=BuilderMeta):
         )
 
     def _get_loc_from_str(self, loc: Union[str, Location]) -> Location:
+        """Convert a string location description to an MLIR Location object."""
         if isinstance(loc, str):
             return Location.name(loc)
         else:
@@ -518,6 +619,7 @@ class Builder(metaclass=BuilderMeta):
         data_type: Optional[Union[Type, torch.dtype]] = None,
         encoding: Optional[Attribute] = None,
     ) -> RankedTensorType:
+        """Create a RankedTensorType with the given shape, type, and optional encoding."""
         with self._ctx, self._loc:
             if isinstance(data_type, torch.dtype):
                 dtype = self._get_type_from_torch_dtype(data_type)
@@ -526,11 +628,13 @@ class Builder(metaclass=BuilderMeta):
             return RankedTensorType.get(shape, dtype, encoding)
 
     def _organize_eltwise_golden(self, inputs: List[Operand]) -> List[GoldenMapTensor]:
+        """Retrieve golden tensors corresponding to the input operands."""
         return [self._goldens[inp] for inp in inputs]
 
     def _generate_random_tensor(
         self, shape: Shape, dtype: Union[torch.dtype, TypeInfo]
     ) -> torch.Tensor:
+        """Generate a random torch tensor for testing/golden purposes."""
         if isinstance(dtype, TypeInfo):
             float_tensor = torch.randn(shape, dtype=torch.float32)
             return torch.quantize_per_tensor(
@@ -553,12 +657,14 @@ class Builder(metaclass=BuilderMeta):
     def _generate_golden_tensor(
         self, operand: Operand, dtype: Union[torch.dtype, TypeInfo]
     ) -> GoldenMapTensor:
+        """Generate a GoldenMapTensor with random data for a given operand."""
         random_tensor = self._generate_random_tensor(self.get_shape(operand), dtype)
         return GoldenMapTensor({0: random_tensor}, mesh_shape=self._mesh_shape)
 
     def _generate_golden_device_tensor(
         self, loc: str, golden_map_tensor: GoldenMapTensor
     ) -> Dict[int, GoldenTensor]:
+        """Convert a GoldenMapTensor into device-specific GoldenTensors."""
         device_golden_info: Dict[int, GoldenTensor] = {}
         contiguous_tensor = golden_map_tensor.contiguous()
         for device_id, device_golden in contiguous_tensor.shard_map.items():
@@ -578,6 +684,9 @@ class Builder(metaclass=BuilderMeta):
         self,
         inputs: Dict[Operand, Union[Callable, torch.Tensor, Dict[int, torch.Tensor]]],
     ) -> Dict[Operand, GoldenMapTensor]:
+        """
+        Create GoldenMapTensors from various input formats (Torch tensors, callables, or dictionaries).
+        """
         input_goldens: Dict[Operand, GoldenMapTensor] = {}
         for operand, tensor_or_shard_map_or_callable in inputs.items():
             if callable(tensor_or_shard_map_or_callable):
@@ -612,6 +721,7 @@ class Builder(metaclass=BuilderMeta):
         operand: Operand,
         goldens: List[GoldenMapTensor],
     ):
+        """Internal helper to store a golden tensor for an operand."""
         self._goldens[operand] = goldens
         self._operand_to_loc[operand] = str(operand.location)
 
@@ -619,6 +729,7 @@ class Builder(metaclass=BuilderMeta):
         self,
         goldens: Dict[Operand, GoldenMapTensor],
     ):
+        """Batch update of golden tensors."""
         for operand, golden in goldens.items():
             self._set_golden_tensor(operand, golden)
 
@@ -626,15 +737,18 @@ class Builder(metaclass=BuilderMeta):
         self,
         operand: Operand,
     ) -> GoldenMapTensor:
+        """Retrieve the golden tensor for an operand."""
         return self._goldens[operand]
 
     def _get_golden_tensors(
         self,
         operands: List[Operand],
     ) -> List[GoldenMapTensor]:
-        return [self._goldens[operand] for operand in operands]
+        """Batch retrieve golden tensors for a list of operands."""
+        return [self._get_golden_tensor(operand) for operand in operands]
 
     def _get_location(self) -> Location:
+        """Capture the current source location from the stack."""
         stack = inspect.stack()
         caller_frame = stack[2]
         filename = caller_frame.filename
@@ -665,6 +779,7 @@ class Builder(metaclass=BuilderMeta):
     def create_tensor_encoding(
         self, shape: Shape, element_type: Union[torch.dtype, TypeInfo]
     ) -> ttnn.ir.TTNNLayoutAttr:
+        """Create a tensor encoding attribute. Must be implemented by subclasses."""
         raise NotImplementedError("Subclasses must implement create_tensor_encoding")
 
     # ----- Shared Metal Tensor Layout -----
@@ -712,6 +827,19 @@ class Builder(metaclass=BuilderMeta):
         original_inputs: List[Operand],
         loc: Optional[str] = None,
     ):
+        """
+        Invoke a nested function call within the builder.
+
+        This method:
+        1. Wraps the Python nested function in an MLIR func operation.
+        2. Manages golden tensor propagation across the function call.
+        3. Creates a CallOp to invoke the new function.
+
+        Args:
+            nested_func: The Python function to call.
+            original_inputs: List of input operands to pass to the function.
+            loc: Optional location string for debug info.
+        """
         fn_input_types = []
         for operand in original_inputs:
             fn_input_types.append(operand.type)
@@ -771,6 +899,10 @@ class Builder(metaclass=BuilderMeta):
         parsed_op: Operation,
         global_dict: Dict[Operand, Operand],
     ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        """
+        Reconstruct an operation from a parsed MLIR operation.
+        Dispatches to the appropriate builder or parser based on the op type.
+        """
         if isinstance(parsed_op, func.CallOp):
             return self.parse_call_op(parsed_op, global_dict)
 
@@ -778,6 +910,7 @@ class Builder(metaclass=BuilderMeta):
         return parsed_function(self, parsed_op, global_dict)
 
     def get_input_types(self, func_op: func.FuncOp):
+        """Extract input tensor types from a FuncOp."""
         inputs_types = []
         inputs_shapes = []
         input_encodings = []
@@ -799,6 +932,10 @@ class Builder(metaclass=BuilderMeta):
     def parse_root_module(
         self, parsed_root_module: Module, golden_inputs: Dict[str, [List[torch.tensor]]]
     ):
+        """
+        Parse and reconstruct the root module, handling CPU and Device submodules.
+        This is the entry point for parsing an existing MLIR module into the builder.
+        """
         found_cpu_module = False
 
         for entry in parsed_root_module.body.operations:
@@ -866,6 +1003,7 @@ class Builder(metaclass=BuilderMeta):
         parsed_builtin_module: Module,
         golden_inputs: Dict[str, [List[torch.tensor]]],
     ):
+        """Parse a builtin module containing function definitions."""
         new_builtin_module = Module.create()
         cloned_op = new_builtin_module.operation.clone()
         self._current_module_insertion_point = cloned_op.regions[0].blocks[0]
@@ -882,6 +1020,10 @@ class Builder(metaclass=BuilderMeta):
     def parse_func(
         self, parsed_func: func.FuncOp, golden_inputs: Dict[str, [List[torch.tensor]]]
     ):
+        """
+        Parse and reconstruct a single function.
+        Generates random golden inputs if they are not provided in `golden_inputs`.
+        """
         fn_input_types = self.get_input_types(parsed_func)
 
         parsed_func_golden_inputs = []
@@ -966,6 +1108,10 @@ class Builder(metaclass=BuilderMeta):
     def parse_nested_func(
         self, parsed_func: func.FuncOp, golden_inputs: List[GoldenMapTensor]
     ):
+        """
+        Parse a nested function call (hoisted function).
+        Nested functions have 'forward_cpu' function type.
+        """
         fn_input_types = self.get_input_types(parsed_func)
 
         ordered_inputs = []
@@ -1023,6 +1169,9 @@ class Builder(metaclass=BuilderMeta):
         parsed_op: func.CallOp,
         global_dict: Dict[Operand, Operand],
     ) -> Tuple[Operation, Dict[Operand, GoldenMapTensor]]:
+        """
+        Parse a CallOp and handle function hoisting if necessary.
+        """
         is_hoisted = False
         parsed_op_attributes = parsed_op.attributes
         parsed_op_callee_value = parsed_op.callee.value
@@ -1118,6 +1267,10 @@ class Builder(metaclass=BuilderMeta):
         self,
         old_op: func.CallOp,
     ) -> Tuple[Module, TTIRBuilder]:
+        """
+        Split a call operation into sub-modules if applicable.
+        Recursively processes nested calls within the target function.
+        """
         is_hoisted = False
         for attr in old_op.attributes:
             if attr.name == "ttir.cpu_hoisted_call":
@@ -1149,6 +1302,10 @@ class Builder(metaclass=BuilderMeta):
     # ----- Helper decorator functions ----
 
     def func(self, input_shapes: List[List[int]], input_types: List[torch.dtype]):
+        """
+        Decorator to register a function with the builder.
+        Handles tensor encoding and golden tensor generation for inputs.
+        """
         def wrapper(fn):
             encoding_fn = self.create_tensor_encoding
             fn_input_types = [
@@ -1194,6 +1351,7 @@ class Builder(metaclass=BuilderMeta):
         return wrapper
 
     def device_module(self, root_func: Callable):
+        """Decorator to wrap a function in a DeviceModuleOp."""
         def wrapper(self):
             device_module_op = ttcore.DeviceModuleOp()
             region = device_module_op.regions[0]
@@ -1211,6 +1369,7 @@ class Builder(metaclass=BuilderMeta):
         return wrapper(self)
 
     def cpu_module(self, root_func: Callable):
+        """Decorator to wrap a function in a CPUModuleOp."""
         def wrapper(self):
             cpu_module_op = ttcore.CPUModuleOp()
             region = cpu_module_op.regions[0]
@@ -1236,6 +1395,14 @@ class Builder(metaclass=BuilderMeta):
         annotation: str,
         loc: Optional[str] = None,
     ) -> OpResult:
+        """
+        Insert a debug annotation operation.
+        
+        Args:
+            operand: The operand to annotate.
+            annotation: The annotation string.
+            loc: Optional debug location.
+        """
         debug_op = self.get_opview_from_method(Builder.annotate)
         annotation_attr = StringAttr.get(annotation)
 
@@ -1265,6 +1432,13 @@ class Builder(metaclass=BuilderMeta):
         operand: Operand,
         loc: Optional[str] = None,
     ) -> OpResult:
+        """
+        Insert a debug breakpoint operation.
+        
+        Args:
+            operand: The operand to break on.
+            loc: Optional debug location.
+        """
         debug_op = self.get_opview_from_method(Builder.breakpoint)
 
         if loc is None:
@@ -1293,6 +1467,14 @@ class Builder(metaclass=BuilderMeta):
         file_path: str,
         loc: Optional[str] = None,
     ) -> OpResult:
+        """
+        Insert a memory snapshot debug operation.
+        
+        Args:
+            operand: The operand to snapshot.
+            file_path: The file path to save the snapshot.
+            loc: Optional debug location.
+        """
         debug_op = self.get_opview_from_method(Builder.memory_snapshot)
         file_path_attr = StringAttr.get(file_path)
 
