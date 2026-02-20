@@ -29,6 +29,7 @@ from ttnn_jit._src.supported_ops import (
     TTIR_NAME_MAP,
 )
 from ttnn_jit._src.tensor_translator import (
+    create_default_dram_interleaved_layout,
     create_output_tensor,
 )
 
@@ -41,7 +42,7 @@ Encodings are created based on the following logic:
    - Reductions (Sum, Mean, Max, Min)
    - TMs (Permute, Transpose, Reshape)
 """
-CREATE_INTERMEDIATE_LAYOUT = True
+CREATE_INTERMEDIATE_LAYOUT = False
 
 
 class ResultWrapper:
@@ -226,13 +227,18 @@ class UnaryOpHandler(BaseOpHandler):
         if op_name not in unary_ops:
             raise ValueError(f"Unknown unary operation: {op_name}")
 
+    def _infer_output_layout(self, operand):
+        """Infer output layout for unary ops - preserves input encoding."""
+        return operand.type.encoding if CREATE_INTERMEDIATE_LAYOUT else None
+
     def _infer_result_type(self, operand):
-        """Infer result type from operand without encoding."""
+        """Infer result type from operand, preserving encoding (layout unchanged)."""
         element_type = operand.type.element_type
         shape = list(operand.type.shape)
+        encoding = self._infer_output_layout(operand)
 
         with Location.unknown(self.jit_ctx.ctx):
-            return RankedTensorType.get(shape, element_type)
+            return RankedTensorType.get(shape, element_type, encoding)
 
     def create_operation(self, *args, **kwargs):
         """Create unary operation."""
@@ -269,13 +275,18 @@ class BinaryOpHandler(BaseOpHandler):
         if op_name not in binary_ops:
             raise ValueError(f"Unknown binary operation: {op_name}")
 
+    def _infer_output_layout(self, operand0, operand1):
+        """Infer output layout for binary ops - preserves first operand's encoding."""
+        return operand0.type.encoding if CREATE_INTERMEDIATE_LAYOUT else None
+
     def _infer_result_type(self, operand0, operand1):
-        """Infer result type from operands without encoding."""
+        """Infer result type from operands, preserving encoding from first operand."""
         element_type = operand0.type.element_type
         shape = list(operand0.type.shape)
+        encoding = self._infer_output_layout(operand0, operand1)
 
         with Location.unknown(self.jit_ctx.ctx):
-            return RankedTensorType.get(shape, element_type)
+            return RankedTensorType.get(shape, element_type, encoding)
 
     def create_operation(self, *args, **kwargs):
         """Create binary operation."""
@@ -360,15 +371,16 @@ class ReductionOpHandler(BaseOpHandler):
             return new_shape  # Can be empty if all dims removed
 
     def _infer_result_type(self, operand, dim_arg, keep_dim):
-        """Infer result type based on reduction parameters without encoding."""
+        """Infer result type based on reduction parameters with default layout."""
         operand_type = operand.type
         element_type = operand_type.element_type
 
         new_shape = self._infer_output_shape(operand_type, dim_arg, keep_dim)
+        encoding = self._default_dram_interleaved_layout(element_type, new_shape)
 
         with Location.unknown(self.jit_ctx.ctx):
             # For scalar results, new_shape is [] which creates a 0D tensor
-            return RankedTensorType.get(new_shape, element_type)
+            return RankedTensorType.get(new_shape, element_type, encoding)
 
     def create_operation(self, *args, **kwargs):
         """Create reduction operation."""
