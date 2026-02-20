@@ -372,8 +372,7 @@ def D2M_GenericOp
 
 def D2M_EmptyOp
     : D2M_Op<
-          "empty", [MemoryEffects<[MemAlloc]>,
-                    DeclareOpInterfaceMethods<
+          "empty", [Pure, DeclareOpInterfaceMethods<
                         BufferizableOpInterface,
                         ["bufferizesToMemoryRead", "bufferizesToMemoryWrite",
                          "bufferize", "getAliasingValues", "getBufferType"]>]> {
@@ -395,8 +394,6 @@ def D2M_EmptyOp
     }]>];
 
   let assemblyFormat = "`(` `)` attr-dict `:` type($result)";
-
-  let hasCanonicalizer = 1;
 }
 
 def D2M_FullOp
