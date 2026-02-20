@@ -689,20 +689,25 @@ public:
         maskLogicalShape[i] = 32;
       }
     }
+    // Create mask layout using the input's collapsed intervals so the mask
+    // tensor has the same grid rank as the input tensor, regardless of
+    // collapse.
+    auto inputNormalizedIntervals = inputLayout.getNormalizedIntervals();
+    auto maskDimAlignments = ttcore::MetalLayoutAttr::computeTileAlignments(
+        maskLogicalShape, inputNormalizedIntervals);
     auto maskLayout = ttcore::MetalLayoutAttr::get(
-        rewriter.getContext(), maskLogicalShape, ttcore::OOBVal::Undef,
-        ttcore::MemorySpace::DeviceL1, ttcore::TensorMemoryLayout::Sharded);
+        rewriter.getContext(), maskLogicalShape, maskDimAlignments,
+        inputLayout.getCollapsedIntervals(), ttcore::OOBVal::Undef,
+        ttcore::MemorySpace::DeviceL1, ttcore::TensorMemoryLayout::Sharded,
+        AffineMap::get(rewriter.getContext()));
 
     auto elemType = inputType.getElementType();
-    // Mask tensor shape: [grid_shape..., ..., 1, 1] in tile coordinates.
-    // This is a single tile on each core.
+    // Mask is a single tile (broadcast via constant indexing maps).
+    // Use a unit grid with the same rank as the input grid.
     auto gridShape = inputLayout.getGridShape(inputType);
-    SmallVector<int64_t> maskShape;
-    for (auto dim : gridShape) {
-      maskShape.push_back(dim);
-    }
-    maskShape.push_back(1);
-    maskShape.push_back(1);
+    SmallVector<int64_t> unitGrid(gridShape.size(), 1);
+    auto tileShape = ttcore::getTensorTileShape(inputType);
+    auto maskShape = maskLayout.getDeviceShape(unitGrid, tileShape);
 
     Value rowMaskTensor =
         rewriter.create<d2m::EmptyOp>(loc, maskShape, elemType, maskLayout)
