@@ -6561,12 +6561,14 @@ static void addComplexOpsConversionPatterns(MLIRContext *ctx,
                                             RewritePatternSet &patterns,
                                             TypeConverter &typeConverter) {
   patterns.add<StableHLOToTTIROpDefaultConversionPattern<
-      mlir::stablehlo::ComplexOp, mlir::tt::ttir::ComplexOp>>(typeConverter,
-                                                              ctx);
+      mlir::stablehlo::ComplexOp, mlir::tt::ttir::StablehloComplexOp>>(
+      typeConverter, ctx);
   patterns.add<StableHLOToTTIROpDefaultConversionPattern<
-      mlir::stablehlo::RealOp, mlir::tt::ttir::RealOp>>(typeConverter, ctx);
+      mlir::stablehlo::RealOp, mlir::tt::ttir::StablehloRealOp>>(typeConverter,
+                                                                 ctx);
   patterns.add<StableHLOToTTIROpDefaultConversionPattern<
-      mlir::stablehlo::ImagOp, mlir::tt::ttir::ImagOp>>(typeConverter, ctx);
+      mlir::stablehlo::ImagOp, mlir::tt::ttir::StablehloImagOp>>(typeConverter,
+                                                                 ctx);
 }
 
 static void

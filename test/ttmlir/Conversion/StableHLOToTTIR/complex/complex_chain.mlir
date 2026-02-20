@@ -8,9 +8,9 @@ module {
     %c = "stablehlo.complex"(%arg0, %arg1) : (tensor<3xf32>, tensor<3xf32>) -> tensor<3xcomplex<f32>>
     %r = "stablehlo.real"(%c) : (tensor<3xcomplex<f32>>) -> tensor<3xf32>
     %i = "stablehlo.imag"(%c) : (tensor<3xcomplex<f32>>) -> tensor<3xf32>
-    // CHECK: "ttir.complex"(%arg0, %arg1)
-    // CHECK: "ttir.real"(
-    // CHECK: "ttir.imag"(
+    // CHECK: "ttir.stablehlo_complex"(%arg0, %arg1)
+    // CHECK: "ttir.stablehlo_real"(
+    // CHECK: "ttir.stablehlo_imag"(
     return %r, %i : tensor<3xf32>, tensor<3xf32>
   }
 
@@ -20,8 +20,8 @@ module {
     %r = "stablehlo.real"(%cst) : (tensor<16x8xcomplex<f32>>) -> tensor<16x8xf32>
     %i = "stablehlo.imag"(%cst) : (tensor<16x8xcomplex<f32>>) -> tensor<16x8xf32>
     // CHECK: ttir.constant
-    // CHECK: "ttir.real"(
-    // CHECK: "ttir.imag"(
+    // CHECK: "ttir.stablehlo_real"(
+    // CHECK: "ttir.stablehlo_imag"(
     return %r, %i : tensor<16x8xf32>, tensor<16x8xf32>
   }
 }

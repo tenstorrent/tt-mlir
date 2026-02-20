@@ -1792,7 +1792,7 @@ def TTIR_AddOp : TTIR_ElementwiseBinaryOp<"add", [DeclareOpInterfaceMethods<TTIR
 // is RankedTensorType with elementType = ComplexType::get(f64). No separate
 // "ComplexTensor" type in TTIR—just tensor with complex element type.
 
-def TTIR_ComplexOp : TTIR_NamedOp<"complex"> {
+def TTIR_StablehloComplexOp : TTIR_NamedOp<"stablehlo_complex"> {
   let summary = "Create a complex tensor from real and imaginary parts.";
   let description = [{
     Builds a tensor with complex element type from two tensors holding the real
@@ -1821,7 +1821,7 @@ def TTIR_ComplexOp : TTIR_NamedOp<"complex"> {
   let hasVerifier = 1;
 }
 
-def TTIR_RealOp : TTIR_NamedOp<"real"> {
+def TTIR_StablehloRealOp : TTIR_NamedOp<"stablehlo_real"> {
   let summary = "Extract the real part of a complex tensor.";
   let description = [{
     Returns a tensor with the same shape as the input and float element type,
@@ -1838,7 +1838,7 @@ def TTIR_RealOp : TTIR_NamedOp<"real"> {
   let hasVerifier = 1;
 }
 
-def TTIR_ImagOp : TTIR_NamedOp<"imag"> {
+def TTIR_StablehloImagOp : TTIR_NamedOp<"stablehlo_imag"> {
   let summary = "Extract the imaginary part of a complex tensor.";
   let description = [{
     Returns a tensor with the same shape as the input and float element type,

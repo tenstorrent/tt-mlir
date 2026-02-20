@@ -49,10 +49,10 @@
 namespace mlir::tt::ttir {
 
 //===----------------------------------------------------------------------===//
-// ComplexOp, RealOp, ImagOp
+// Complex Operations
 //===----------------------------------------------------------------------===//
 
-::mlir::LogicalResult mlir::tt::ttir::ComplexOp::verify() {
+::mlir::LogicalResult mlir::tt::ttir::StablehloComplexOp::verify() {
   auto realType = llvm::cast<RankedTensorType>(getReal().getType());
   auto imagType = llvm::cast<RankedTensorType>(getImag().getType());
   auto resultType = llvm::cast<RankedTensorType>(getResult().getType());
@@ -79,7 +79,7 @@ namespace mlir::tt::ttir {
   return success();
 }
 
-::mlir::LogicalResult mlir::tt::ttir::RealOp::verify() {
+::mlir::LogicalResult mlir::tt::ttir::StablehloRealOp::verify() {
   auto inputType = llvm::cast<RankedTensorType>(getInput().getType());
   auto resultType = llvm::cast<RankedTensorType>(getResult().getType());
   if (!mlir::isa<mlir::ComplexType>(inputType.getElementType())) {
@@ -95,7 +95,7 @@ namespace mlir::tt::ttir {
   return success();
 }
 
-::mlir::LogicalResult mlir::tt::ttir::ImagOp::verify() {
+::mlir::LogicalResult mlir::tt::ttir::StablehloImagOp::verify() {
   auto inputType = llvm::cast<RankedTensorType>(getInput().getType());
   auto resultType = llvm::cast<RankedTensorType>(getResult().getType());
   if (!mlir::isa<mlir::ComplexType>(inputType.getElementType())) {
