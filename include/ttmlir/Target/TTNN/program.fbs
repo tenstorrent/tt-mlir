@@ -82,7 +82,6 @@ union OpType {
   // ANCHOR_END: adding_an_op_matmul_fbs_op_type
   MaxPool2dWithIndicesOp,
   MeshShardOp,
-  MeshPartitionOp,
   MorehCumSumOp,
   NamedFullOp,
   NLPConcatHeadsDecodeOp,

@@ -1220,10 +1220,6 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_MeshShardOp()->out();
     break;
   }
-  case ::tt::target::ttnn::OpType::MeshPartitionOp: {
-    tensorRef = opContext.type_as_MeshPartitionOp()->out();
-    break;
-  }
   case ::tt::target::ttnn::OpType::ArangeOp: {
     tensorRef = opContext.type_as_ArangeOp()->out();
     break;
@@ -1620,10 +1616,6 @@ getOpInputRefs(OpContext opContextHandle,
   }
   case ::tt::target::ttnn::OpType::MeshShardOp: {
     tensorRefs = {opContext.type_as_MeshShardOp()->in()};
-    break;
-  }
-  case ::tt::target::ttnn::OpType::MeshPartitionOp: {
-    tensorRefs = {opContext.type_as_MeshPartitionOp()->out()};
     break;
   }
   case ::tt::target::ttnn::OpType::UpsampleOp: {

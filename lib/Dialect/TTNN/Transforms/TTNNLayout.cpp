@@ -14,10 +14,13 @@
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Quant/IR/QuantTypes.h"
+#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+
+#include "llvm/Support/Casting.h"
 
 namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_TTNNLAYOUT
@@ -243,9 +246,9 @@ public:
           appendInputSuffix(op->getLoc(), operand.getOperandNumber());
 
       // Given the operand constraint, create the desired layout for the operand
-      std::optional<Value> desiredLayout = createToLayoutOp(
-          rewriter, newLoc, operand.get(), g_defaultMemorySpaceDevice,
-          /*tiled=*/true);
+      std::optional<Value> desiredLayout =
+          createToLayoutOp(rewriter, newLoc, operand.get(),
+                           g_defaultMemorySpaceDevice, /*tiled=*/true);
 
       // If layout changed update the operand
       if (desiredLayout) {
@@ -258,9 +261,8 @@ public:
 
     for (auto it : llvm::enumerate(op->getResultTypes())) {
       RankedTensorType ty = mlir::cast<RankedTensorType>(it.value());
-      std::optional<RankedTensorType> desiredType =
-          createDesiredType(rewriter, ty, g_defaultMemorySpaceDevice,
-                            /*tiled=*/shouldTilizeResult(op));
+      std::optional<RankedTensorType> desiredType = createDesiredType(
+          rewriter, ty, g_defaultMemorySpaceDevice, /*tiled=*/shouldTilize(op));
       if (desiredType) {
         rewriter.modifyOpInPlace(op, [&]() {
           modified = true;
@@ -273,7 +275,7 @@ public:
   }
 
 private:
-  bool shouldTilizeResult(Operation *op) const {
+  bool shouldTilize(Operation *op) const {
 
     // TTNN Reshape does not support implicit tilization/untilization
     // Therefore input output layouts should be the same

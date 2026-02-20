@@ -316,10 +316,8 @@ void logMemoryStateIfNeeded(
         tt::runtime::Device)> &getMemoryView,
     tt::runtime::Device device, ::tt::runtime::MemoryLogLevel level,
     std::string_view prefix) {
-  constexpr std::array<tt::runtime::MemoryBufferType, 4> MEMORY_TYPES = {
-      tt::runtime::MemoryBufferType::DRAM, tt::runtime::MemoryBufferType::L1,
-      tt::runtime::MemoryBufferType::L1_SMALL,
-      tt::runtime::MemoryBufferType::TRACE};
+  constexpr std::array<tt::runtime::MemoryBufferType, 1> MEMORY_TYPES = {
+      tt::runtime::MemoryBufferType::DRAM};
 
   ::tt::runtime::MemoryLogLevel currentLogLevel =
       ::tt::runtime::RuntimeContext::instance().getMemoryLogLevel();

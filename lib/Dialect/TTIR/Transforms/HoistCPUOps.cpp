@@ -677,8 +677,7 @@ CPUHoistAnalyzerType constEvalHoistAnalyzer() {
                     mlir::tt::ttir::ReduceScatterOp,
                     mlir::tt::ttir::CollectivePermuteOp,
                     mlir::tt::ttir::AllToAllOp,
-                    mlir::tt::ttir::CollectiveBroadcastOp,
-                    mlir::tt::ttir::MeshPartitionOp>(nestedOp)) {
+                    mlir::tt::ttir::CollectiveBroadcastOp>(nestedOp)) {
         return WalkResult::interrupt();
       }
 

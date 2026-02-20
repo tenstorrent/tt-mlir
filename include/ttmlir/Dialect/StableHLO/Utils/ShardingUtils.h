@@ -5,6 +5,7 @@
 #ifndef TTMLIR_DIALECT_STABLEHLO_UTILS_SHARDINGUTILS_H
 #define TTMLIR_DIALECT_STABLEHLO_UTILS_SHARDINGUTILS_H
 
+#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 
 namespace mlir::tt::sharding_utils {
@@ -17,6 +18,13 @@ inline constexpr llvm::StringRef kXlaSdyMeshesAttr = "xla.sdy.meshes";
 inline constexpr llvm::StringRef kDefaultMeshName = "mesh";
 inline constexpr llvm::StringRef kTTShardingConstraintTargetName =
     "tt.sharding_constraint";
+
+// Composite op flattening/re-outlining related string definitions.
+inline constexpr llvm::StringLiteral kGroupAttr("reoutline.group");
+inline constexpr llvm::StringLiteral kSeedAttr("reoutline.seed");
+inline constexpr llvm::StringLiteral kOrigNameAttr("reoutline.orig_name");
+inline constexpr llvm::StringLiteral kCompAttrsAttr("reoutline.comp_attrs");
+inline constexpr llvm::StringLiteral kDecompositionAttr("decomposition");
 
 inline const llvm::SmallVector<llvm::SmallVector<int64_t, 2>, 7>
     SupportedMeshes = {{{1, 1},

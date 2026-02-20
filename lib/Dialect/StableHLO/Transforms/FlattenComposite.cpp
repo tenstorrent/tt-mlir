@@ -3,11 +3,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "stablehlo/dialect/StablehloOps.h"
+#include "ttmlir/Dialect/StableHLO/Transforms/Passes.h"
+#include "ttmlir/Dialect/StableHLO/Utils/ShardingUtils.h"
 #include "ttmlir/Dialect/StableHLO/Utils/ShardyUtils.h"
-#include "ttmlir/Dialect/StableHLO/Utils/StableHLOUtils.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/IRMapping.h"
+#include "llvm/Support/Error.h"
 
 namespace mlir::tt::stablehlo {
 #define GEN_PASS_DEF_FLATTENCOMPOSITEPASS
@@ -31,12 +33,12 @@ flattenOneComposite(mlir::stablehlo::CompositeOp comp,
 
   // 1) Resolve callee from 'decomposition' (SymbolRefAttr).
   // stablehlo.composite "name" %arg {decomposition = @foo}
-  auto decompAttr =
-      op->getAttrOfType<mlir::SymbolRefAttr>(utils::kCompDecompositionKey);
+  auto decompAttr = op->getAttrOfType<mlir::SymbolRefAttr>(
+      sharding_utils::kDecompositionAttr);
   if (!decompAttr) {
     comp.emitOpError()
         << "missing required SymbolRefAttr attribute '"
-        << utils::kCompDecompositionKey
+        << sharding_utils::kDecompositionAttr
         << "' (stablehlo.composite requires a 'decomposition' target).";
     return mlir::failure();
   }
@@ -48,7 +50,7 @@ flattenOneComposite(mlir::stablehlo::CompositeOp comp,
   if (!callee) {
     comp.emitOpError() << "failed to resolve callee function '" << leaf
                        << "' referenced by attribute '"
-                       << utils::kCompDecompositionKey << "' (full ref: '"
+                       << sharding_utils::kDecompositionAttr << "' (full ref: '"
                        << decompAttr
                        << "'). Please ensure the symbol is defined and visible "
                           "to the symbol table.";
@@ -102,14 +104,14 @@ flattenOneComposite(mlir::stablehlo::CompositeOp comp,
   for (mlir::Operation &inner : calleeEntry.without_terminator()) {
     mlir::Operation *cloned = builder.clone(inner, mapping);
     // Tag the cloned operation with the group marker.
-    cloned->setAttr(utils::kReoutlineGroupAttr, groupAttr);
+    cloned->setAttr(sharding_utils::kGroupAttr, groupAttr);
 
     if (!seeded) {
-      cloned->setAttr(utils::kReoutlineSeedAttr, seedAttr);
+      cloned->setAttr(sharding_utils::kSeedAttr, seedAttr);
       // "tenstorrent.gelu_tanh"
-      cloned->setAttr(utils::kReoutlineOrigNameAttr, origName);
+      cloned->setAttr(sharding_utils::kOrigNameAttr, origName);
       // { approximate = "tanh" }
-      cloned->setAttr(utils::kReoutlineCompAttrsAttr, origCompAttrs);
+      cloned->setAttr(sharding_utils::kCompAttrsAttr, origCompAttrs);
       seeded = true;
     }
     clonedOps.push_back(cloned);

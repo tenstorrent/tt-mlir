@@ -449,6 +449,7 @@ private:
     if (ttmlir::utils::isConstEvalFunc(funcOp)) {
       return;
     }
+
     // Run the analysis to identify const-eval subgraphs
     ConstEvalAnalyze analyzer(funcOp);
     ConstEvalAnalysisResults analysisResults = analyzer.getAnalysisResults();

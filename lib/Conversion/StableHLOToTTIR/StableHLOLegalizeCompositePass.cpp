@@ -4,11 +4,10 @@
 
 #include "ttmlir/Conversion/StableHLOToTTIR/StableHLOLegalizeComposite.h"
 
-#include "ttmlir/Dialect/StableHLO/Utils/ShardyUtils.h"
-#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Conversion/StableHLOToTTIR/StableHLOToTTIR.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
+#include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 
-#include "mlir/IR/Attributes.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/BuiltinTypes.h"
@@ -17,8 +16,6 @@
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "stablehlo/dialect/StablehloOps.h"
-
-#include <shardy/dialect/sdy/ir/dialect.h>
 
 using namespace mlir;
 using namespace mlir::tt;
@@ -293,98 +290,6 @@ public:
   }
 };
 
-class ShardyAllSliceToTTIRMeshPartitionConversionPattern
-    : public OpConversionPattern<mlir::stablehlo::CompositeOp> {
-public:
-  ShardyAllSliceToTTIRMeshPartitionConversionPattern(MLIRContext *context)
-      : OpConversionPattern<mlir::stablehlo::CompositeOp>(context) {}
-
-  LogicalResult
-  matchAndRewrite(mlir::stablehlo::CompositeOp srcOp,
-                  mlir::stablehlo::CompositeOp::Adaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    if (srcOp.getName() != "sdy.all_slice") {
-      return failure();
-    }
-
-    if (srcOp->getNumOperands() != 1) {
-      return rewriter.notifyMatchFailure(
-          srcOp,
-          "sdy.all_slice composite op must have exactly one input operand");
-    }
-
-    DictionaryAttr compositeAttrs = srcOp.getCompositeAttributes();
-    auto maybeOutShardingAttr = compositeAttrs.get("out_sharding");
-    if (!maybeOutShardingAttr) {
-      return rewriter.notifyMatchFailure(srcOp,
-                                         "out_sharding attribute is required");
-    }
-    // Extract the out_sharding attribute
-    mlir::ModuleOp moduleOp = srcOp->getParentOfType<mlir::ModuleOp>();
-    mlir::sdy::MeshOp globalMeshOp = shardy_utils::getMeshOps(moduleOp)[0];
-    mlir::sdy::TensorShardingAttr outShardingAttr =
-        mlir::cast<mlir::sdy::TensorShardingAttr>(maybeOutShardingAttr);
-
-    // Calculate the attributes for the ttir.mesh_shard op.
-    llvm::Expected<mlir::tt::shardy_utils::ShardyMeshSharding>
-        shardyMeshSharding =
-            mlir::tt::shardy_utils::ShardyMeshSharding::generate(
-                globalMeshOp.getMeshAttr(), outShardingAttr,
-                mlir::tt::ttcore::ShardStatus::Unsharded,
-                ttcore::MeshShardDirection::FullToShard);
-    if (auto err = shardyMeshSharding.takeError()) {
-      return rewriter.notifyMatchFailure(
-          srcOp, "Error trying to parse shardy annotation when legalizing "
-                 "sdy.all_slice composite op.");
-    }
-    auto shardDims = shardyMeshSharding->getShardDims();
-    llvm::SmallVector<int32_t> tensorDims;
-    llvm::SmallVector<uint32_t> clusterAxes;
-    for (auto [dimIdx, dim] : llvm::enumerate(shardDims)) {
-      if (dim >= 0) {
-        tensorDims.push_back(static_cast<int32_t>(dim));
-        clusterAxes.push_back(static_cast<uint32_t>(dimIdx));
-      }
-    }
-    rewriter.setInsertionPoint(srcOp);
-
-    mlir::Value currInput = adaptor.getOperands().front();
-    auto meshShape = shardyMeshSharding->getMeshShape();
-    // Replace the composite op with 1 or more ttir.mesh_partition ops.
-    for (size_t i = 0; i < tensorDims.size(); ++i) {
-      auto currInputType = mlir::cast<RankedTensorType>(currInput.getType());
-      llvm::SmallVector<int64_t> newShape(currInputType.getShape().begin(),
-                                          currInputType.getShape().end());
-      if (static_cast<size_t>(tensorDims[i]) >= newShape.size()) {
-        return rewriter.notifyMatchFailure(
-            srcOp, "Invalid mesh partition dimension index.");
-      }
-      if (static_cast<size_t>(clusterAxes[i]) >= meshShape.size()) {
-        return rewriter.notifyMatchFailure(srcOp, "Invalid mesh axis index.");
-      }
-      // Compute new shape for the result tensor, with original dimension
-      // divided by mesh axis size
-      int64_t meshAxisSize = meshShape[clusterAxes[i]];
-      if (newShape[tensorDims[i]] == ShapedType::kDynamic ||
-          newShape[tensorDims[i]] % meshAxisSize != 0) {
-        return rewriter.notifyMatchFailure(
-            srcOp,
-            "Dimension size must be static and divisible by mesh axis size.");
-      }
-      newShape[tensorDims[i]] = newShape[tensorDims[i]] / meshAxisSize;
-      auto resultType =
-          mlir::RankedTensorType::get(newShape, currInputType.getElementType(),
-                                      currInputType.getEncoding());
-      currInput = rewriter.create<ttir::MeshPartitionOp>(
-          srcOp->getLoc(), resultType, currInput,
-          rewriter.getSI32IntegerAttr(tensorDims[i]),
-          rewriter.getUI32IntegerAttr(clusterAxes[i]));
-    }
-    rewriter.replaceOp(srcOp, currInput);
-    return success();
-  }
-};
-
 struct LegalizeStableHLOCompositeToTTIR
     : public ttir::impl::LegalizeStableHLOCompositeToTTIRBase<
           LegalizeStableHLOCompositeToTTIR> {
@@ -422,6 +327,5 @@ void populateStableHLOCompositeLegalizationPatterns(
   patterns.add<TenstorrentRMSNormConversionPattern>(context);
   patterns.add<TenstorrentLayerNormConversionPattern>(context);
   patterns.add<TenstorrentUniformToRandConversionPattern>(context);
-  patterns.add<ShardyAllSliceToTTIRMeshPartitionConversionPattern>(context);
 }
 } // namespace mlir::tt

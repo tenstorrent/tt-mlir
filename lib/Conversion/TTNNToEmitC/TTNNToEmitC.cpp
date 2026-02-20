@@ -2786,35 +2786,6 @@ public:
 };
 } // namespace
 
-// MeshPartitionOp conversion pattern
-//
-namespace {
-class MeshPartitionOpConversionPattern
-    : public TTNNToEmitCBaseOpConversionPattern<
-          mlir::tt::ttnn::MeshPartitionOp> {
-public:
-  using TTNNToEmitCBaseOpConversionPattern<
-      mlir::tt::ttnn::MeshPartitionOp>::TTNNToEmitCBaseOpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(mlir::tt::ttnn::MeshPartitionOp srcOp,
-                  mlir::tt::ttnn::MeshPartitionOp::Adaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::MeshPartitionOp> emitter(
-        srcOp, adaptor, rewriter);
-    llvm::SmallVector<mlir::Attribute> args{
-        emitter.emit(srcOp.getInput()),
-        emitter.emit(srcOp.getDim()),
-        emitter.emit(srcOp.getClusterAxis()),
-        emitter.emit(srcOp.getMemoryConfig()),
-    };
-
-    emitter.replaceOp(*this, args);
-    return success();
-  }
-};
-} // namespace
-
 // AllGatherOp conversion pattern
 //
 namespace {

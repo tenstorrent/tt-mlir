@@ -9,7 +9,6 @@
 #include "operations/ccl/all_gather.h"
 #include "operations/ccl/all_reduce.h"
 #include "operations/ccl/distribute_tensor.h"
-#include "operations/ccl/mesh_partition.h"
 #include "operations/ccl/mesh_shard.h"
 #include "operations/ccl/point_to_point.h"
 #include "operations/ccl/reduce_scatter.h"
@@ -408,9 +407,6 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::ReduceScatterOp: {
     return operations::ccl::run(op->type_as_ReduceScatterOp(), getContext());
-  }
-  case ::tt::target::ttnn::OpType::MeshPartitionOp: {
-    return operations::ccl::run(op->type_as_MeshPartitionOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::MeshShardOp: {
     return operations::ccl::run(op->type_as_MeshShardOp(), getContext());
