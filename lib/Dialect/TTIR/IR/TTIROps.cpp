@@ -3579,10 +3579,10 @@ computeMatmulResultShape(llvm::ArrayRef<int64_t> inputAShape,
 // MatmulOp canonicalization: absorb leading squeeze/unsqueeze reshapes.
 //
 // Matches patterns like:
-//   %a = reshape [1,B,M,K] -> [B,M,K]   (squeeze leading 1s)
-//   %b = reshape [1,B,K,N] -> [B,K,N]   (squeeze leading 1s)
-//   %r = matmul %a, %b -> [B,M,N]
-//   %o = reshape %r -> [1,B,M,N]         (unsqueeze leading 1s)
+//   %a = ttir.reshape [1,B,M,K] -> [B,M,K]
+//   %b = ttir.reshape [1,B,K,N] -> [B,K,N]
+//   %r = ttir.matmul (%a, %b) -> [B,M,N]
+//   %o = ttir.reshape %r -> [1,B,M,N]
 //
 // And replaces with:
 //   %o = matmul %a_orig, %b_orig -> [1,B,M,N]
