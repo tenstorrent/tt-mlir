@@ -3778,6 +3778,15 @@ void mlir::tt::ttir::MatmulOp::getCanonicalizationPatterns(
     auto newAType = mlir::cast<mlir::RankedTensorType>(newA.getType());
     auto newBType = mlir::cast<mlir::RankedTensorType>(newB.getType());
 
+    // When both inputs are batched (rank >= 3), they must have the same rank.
+    // Backends such as TTNN enforce a_shape.rank() == b_shape.rank() for the
+    // non-broadcast BMM path. A rank-2 input is fine (regular matmul, no
+    // batch dimension mismatch).
+    if (newAType.getRank() >= 3 && newBType.getRank() >= 3 &&
+        newAType.getRank() != newBType.getRank()) {
+      return mlir::failure();
+    }
+
     auto expectedShape =
         computeMatmulResultShape(newAType.getShape(), newBType.getShape(),
                                  op.getTransposeA(), op.getTransposeB());
