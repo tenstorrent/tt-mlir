@@ -17,9 +17,6 @@ namespace mlir::tt::d2m::allocation {
 
 namespace gtest = ::testing;
 
-#define TT_TEST_DEBUG(/* fmt, args */...)                                      \
-  TTMLIR_DEBUG(ttmlir::LogComponent::Test, __VA_ARGS__)
-
 using std::int32_t;
 using std::int64_t;
 
