@@ -22,11 +22,6 @@ on:
         required: false
         type: number
         default: 30
-      golden_test_path:
-        description: "Golden pytest path to run under TTSim"
-        required: false
-        type: string
-        default: "test/python/golden/test_metal_sim.py"
 
 permissions:
   checks: write
@@ -61,7 +56,6 @@ jobs:
           echo "work-dir=$(pwd)" >> "$GITHUB_OUTPUT"
           echo "build-output-dir=$(pwd)/build" >> "$GITHUB_OUTPUT"
           echo "install-output-dir=$(pwd)/install" >> "$GITHUB_OUTPUT"
-          echo "test-report-path=$(pwd)/test_reports/ttsim_golden.xml" >> "$GITHUB_OUTPUT"
 
       - name: Git safe dir
         run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
@@ -148,9 +142,17 @@ jobs:
           export LD_LIBRARY_PATH="$INSTALL_DIR/lib:${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
           export SYSTEM_DESC_PATH="${GITHUB_WORKSPACE}/ttrt-artifacts/system_desc.ttsys"
           mkdir -p test_reports
-          pytest -ssv "${{ inputs.golden_test_path }}" \
+          pytest -ssv "test/python/golden/ttir_ops/eltwise/test_ttir_unary.py::test_unary_ops" \
+            -k "ttmetal" \
             --sys-desc "$SYSTEM_DESC_PATH" \
-            --junit-xml="${{ steps.strings.outputs.test-report-path }}"
+            --junit-xml="test_reports/ttsim_unary.xml"
+          pytest -ssv "test/python/golden/ttir_ops/eltwise/test_ttir_binary.py::test_binary_ops" \
+            -k "ttmetal" \
+            --sys-desc "$SYSTEM_DESC_PATH" \
+            --junit-xml="test_reports/ttsim_binary.xml"
+          pytest -ssv "test/python/golden/test_metal_matmul.py::test_matmul_ttnn_shapes_double_buffered" \
+            --sys-desc "$SYSTEM_DESC_PATH" \
+            --junit-xml="test_reports/ttsim_matmul.xml"
 
       - name: Upload TTSim test report xml
         if: success() || failure()
@@ -165,6 +167,6 @@ jobs:
         if: success() || failure()
         uses: mikepenz/action-junit-report@v5
         with:
-          report_paths: ${{ steps.strings.outputs.test-report-path }}
+          report_paths: test_reports/ttsim_*.xml
           check_name: TTSim golden tests
           job_summary: false
