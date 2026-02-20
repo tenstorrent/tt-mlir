@@ -88,18 +88,30 @@ available_targets:
 - n300
 - llmbox
 - tg
+- p150
+- p300
 """
 config.targets = {"n150"}
 
 if system_desc != None:
-    if len(system_desc["chip_desc_indices"]) == 1:
-        config.targets = {"n150"}
-    elif len(system_desc["chip_desc_indices"]) == 2:
-        config.targets = {"n300"}
-    elif len(system_desc["chip_desc_indices"]) == 8:
-        config.targets = {"llmbox"}
-    elif len(system_desc["chip_desc_indices"]) == 32:
-        config.targets = {"tg"}
+    arch = system_desc["chip_descs"][0]["arch"]
+    num_chips = len(system_desc["chip_desc_indices"])
+
+    match arch, num_chips:
+        case "Blackhole", 1:
+            config.targets = {"p150"}
+        case "Blackhole", 2:
+            config.targets = {"p300"}
+        case "Wormhole_b0", 1:
+            config.targets = {"n150"}
+        case "Wormhole_b0", 2:
+            config.targets = {"n300"}
+        case "Wormhole_b0", 8:
+            config.targets = {"llmbox"}
+        case "Wormhole_b0", 32:
+            config.targets = {"tg"}
+        case _:
+            raise ValueError(f"Unknown architecture/chip# combo: {arch}, {num_chips}")
 
 for target in config.targets:
     config.available_features.add(target)
