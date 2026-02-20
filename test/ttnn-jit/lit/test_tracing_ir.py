@@ -340,7 +340,7 @@ if __name__ == "__main__":
     # CHECK: %[[VAL:[0-9]+]] = "ttir.sum"(%arg0)
     # CHECK-SAME: dim_arg = [0 : i32]
     # CHECK-SAME: keep_dim = true
-    # CHECK-SAME: (tensor<64x64xbf16, #ttnn_layout>) -> [[DRAM_TYPE:tensor<1x64xbf16, #ttnn_layout[0-9]*>]]
+    # CHECK-SAME: (tensor<64x64xbf16, #ttnn_layout>) -> tensor<1x64xbf16>
     # CHECK: %[[CONVERTED:[0-9]+]] = ttir.to_layout %[[VAL]]{{.*}} -> [[OUT_TYPE]]
     # CHECK: return %[[CONVERTED]] : [[OUT_TYPE]]
     test_ir_generation(sum_func, input_a)
@@ -352,7 +352,7 @@ if __name__ == "__main__":
     # CHECK: %[[VAL:[0-9]+]] = "ttir.max"(%arg0)
     # CHECK-SAME: dim_arg = [1 : i32]
     # CHECK-SAME: keep_dim = true
-    # CHECK-SAME: (tensor<64x64xbf16, #ttnn_layout>) -> [[DRAM_TYPE:tensor<64x1xbf16, #ttnn_layout[0-9]*>]]
+    # CHECK-SAME: (tensor<64x64xbf16, #ttnn_layout>) -> tensor<64x1xbf16>
     # CHECK: %[[CONVERTED:[0-9]+]] = ttir.to_layout %[[VAL]]{{.*}} -> [[OUT_TYPE]]
     # CHECK: return %[[CONVERTED]] : [[OUT_TYPE]]
     test_ir_generation(max_func, input_a)
@@ -364,7 +364,7 @@ if __name__ == "__main__":
     # CHECK: %[[VAL:[0-9]+]] = "ttir.mean"(%arg0)
     # CHECK-SAME: dim_arg = [0 : i32]
     # CHECK-SAME: keep_dim = false
-    # CHECK-SAME: (tensor<64x64xbf16, #ttnn_layout>) -> [[DRAM_TYPE:tensor<64xbf16, #ttnn_layout[0-9]*>]]
+    # CHECK-SAME: (tensor<64x64xbf16, #ttnn_layout>) -> tensor<64xbf16>
     # CHECK: %[[CONVERTED:[0-9]+]] = ttir.to_layout %[[VAL]]{{.*}} -> [[OUT_TYPE]]
     # CHECK: return %[[CONVERTED]] : [[OUT_TYPE]]
     test_ir_generation(mean_func, input_a)
@@ -376,7 +376,7 @@ if __name__ == "__main__":
     # CHECK-SAME: -> [[OUT_TYPE:tensor<bf16, #ttnn_layout[0-9]*>]]
     # CHECK: %[[VAL:[0-9]+]] = "ttir.sum"(%arg0)
     # CHECK-SAME: keep_dim = false
-    # CHECK-SAME: (tensor<64x64xbf16, #ttnn_layout>) -> [[DRAM_TYPE:tensor<bf16, #ttnn_layout[0-9]*>]]
+    # CHECK-SAME: (tensor<64x64xbf16, #ttnn_layout>) -> tensor<bf16>
     # CHECK: %[[CONVERTED:[0-9]+]] = ttir.to_layout %[[VAL]]{{.*}} -> [[OUT_TYPE]]
     # CHECK: return %[[CONVERTED]] : [[OUT_TYPE]]
     test_ir_generation(sum_all_func, input_a)
@@ -388,7 +388,7 @@ if __name__ == "__main__":
     # CHECK-SAME: -> [[OUT_TYPE:tensor<1x1xbf16, #ttnn_layout[0-9]*>]]
     # CHECK: %[[VAL:[0-9]+]] = "ttir.sum"(%arg0)
     # CHECK-SAME: keep_dim = true
-    # CHECK-SAME: (tensor<64x64xbf16, #ttnn_layout>) -> [[DRAM_TYPE:tensor<1x1xbf16, #ttnn_layout[0-9]*>]]
+    # CHECK-SAME: (tensor<64x64xbf16, #ttnn_layout>) -> tensor<1x1xbf16>
     # CHECK: %[[CONVERTED:[0-9]+]] = ttir.to_layout %[[VAL]]{{.*}} -> [[OUT_TYPE]]
     # CHECK: return %[[CONVERTED]] : [[OUT_TYPE]]
     test_ir_generation(sum_all_keepdim_func, input_a)
