@@ -35,13 +35,17 @@ struct OperationTypes {
   bool hasMarkedAffineLoops = false;
 };
 
-static bool hasTileMatmul(linalg::GenericOp linalgGenericOp) {
-  bool hasTileMatmul = false;
-  linalgGenericOp->walk([&](d2m::TileMatmulOp) {
-    hasTileMatmul = true;
+static bool hasTileMatmul(Operation *op) {
+  bool found = false;
+  op->walk([&](d2m::TileMatmulOp) {
+    found = true;
     return WalkResult::interrupt();
   });
-  return hasTileMatmul;
+  return found;
+}
+
+static bool hasTileMatmul(linalg::GenericOp linalgGenericOp) {
+  return hasTileMatmul(linalgGenericOp.getOperation());
 }
 
 static bool canReplaceWithMatmulBlock(linalg::GenericOp linalgGenericOp) {
@@ -77,9 +81,11 @@ struct D2MInsertDstRegisterAccessRewriter final
     : public OpRewritePattern<GenericOp> {
 public:
   D2MInsertDstRegisterAccessRewriter(mlir::MLIRContext *ctx, bool useTileMatmul,
-                                     unsigned maxDstPhysicalSizeTiles)
+                                     unsigned maxDstPhysicalSizeTiles,
+                                     bool enableL1Acc)
       : OpRewritePattern<GenericOp>(ctx), useTileMatmul(useTileMatmul),
-        maxDstPhysicalSizeTiles(maxDstPhysicalSizeTiles) {};
+        maxDstPhysicalSizeTiles(maxDstPhysicalSizeTiles),
+        enableL1Acc(enableL1Acc) {};
 
   // Records a CB<->DST affine.load/store op, which DST slice it accesses, and
   // some special considerations for looping over the tensor shard while doing
@@ -314,7 +320,7 @@ public:
               if (!gOp.isExplicitDatamovementForm()) {
                 if (rewriteTileMatmulAsTileMatmulBlock(
                         rewriter, gOp, *genericRegion, linalgGenericOp,
-                        dstCapacity, modified)) {
+                        dstCapacity, modified, enableL1Acc)) {
                   return WalkResult::interrupt();
                 }
                 return WalkResult::advance();
@@ -352,9 +358,12 @@ public:
           // Remove the marker attribute after identifying the loop.
           loopOp->removeAttr("d2m.linalg_root");
 
+          // Only enable packer L1 accumulation for matmul_tile loops
+          bool packerL1Acc = enableL1Acc && hasTileMatmul(loopOp);
+
           // Insert DST register access for this loop nest.
           modified |= insertDstRegisterAccess(rewriter, gOp, *loopRegion,
-                                              dstCapacity, loopOp);
+                                              dstCapacity, loopOp, packerL1Acc);
         }
 
         return WalkResult::advance();
@@ -363,10 +372,42 @@ public:
     return success(modified);
   }
 
+  // Insert a guarded pack_reconfig_l1_acc(1) enabling L1 accumulation
+  // starting from the second iteration of the reduction loop. First iteration
+  // packs normally, afterwards pack will accumulate into L1.
+  static void insertPackerL1AccGuard(PatternRewriter &rewriter, GenericOp gOp,
+                                     Location loc, AcquireDstOp acquireDst) {
+    // Find the outermost reduction dim post interchange. This is usually k.
+    auto iteratorTypes = gOp.getIteratorTypesValue();
+    int64_t reductionDim = -1;
+    for (int64_t i = 0; i < static_cast<int64_t>(iteratorTypes.size()); ++i) {
+      if (iteratorTypes[i] == ttcore::IteratorType::Reduction) {
+        reductionDim = i;
+        break;
+      }
+    }
+    assert(reductionDim >= 0 &&
+           "L1 accumulation requires a reduction dimension");
+
+    rewriter.setInsertionPointAfter(acquireDst);
+    Value iterIdx = rewriter.create<IterIndexOp>(loc, reductionDim);
+    Value one = rewriter.create<arith::ConstantOp>(
+        loc, rewriter.getIndexType(),
+        rewriter.getIntegerAttr(rewriter.getIndexType(), 1));
+    Value cond = rewriter.create<arith::CmpIOp>(loc, arith::CmpIPredicate::eq,
+                                                iterIdx, one);
+    auto ifOp = rewriter.create<scf::IfOp>(loc, cond);
+    rewriter.setInsertionPointToStart(&ifOp.getThenRegion().front());
+    Value enableFlag = rewriter.create<arith::ConstantOp>(
+        loc, rewriter.getI32Type(), rewriter.getI32IntegerAttr(1));
+    rewriter.create<SetL1AccumulateOp>(loc, enableFlag);
+  }
+
   static bool
   insertDstRegisterAccess(PatternRewriter &rewriter, GenericOp gOp,
                           Region &region, unsigned dstCapacity,
-                          Operation *outermostInnerComputeLoop = nullptr) {
+                          Operation *outermostInnerComputeLoop = nullptr,
+                          bool enableL1Acc = false) {
     assert(region.getBlocks().size() == 1);
     if (hasAcquireDstOp(region)) {
       return false;
@@ -408,13 +449,20 @@ public:
     Value dst = acquireDst.getResult();
 
     // 3. Generate data copy loops to/from dst and output cb.
+    // When L1 accumulation mode is enabled, skip CB->DST reload copy loop
+    // generation but still rewrite original load accesses to use DST indices.
     if (isScheduled) {
-      dataCopyGenerateScheduled(rewriter, loc, dst, copyInfos);
+      dataCopyGenerateScheduled(rewriter, loc, dst, copyInfos, enableL1Acc);
     } else {
-      dataCopyGenerate(rewriter, loc, dst, copyInfos);
+      dataCopyGenerate(rewriter, loc, dst, copyInfos, enableL1Acc);
     }
 
-    // 4. Fix the passing of intermediate results through the DST.
+    // 4. When L1 accum is enabled, insert a guarded packer reconfig.
+    if (enableL1Acc) {
+      insertPackerL1AccGuard(rewriter, gOp, loc, acquireDst);
+    }
+
+    // 5. Fix the passing of intermediate results through the DST.
     fixDstIntermediateResults(rewriter, loc, dst, dstIntermediates);
 
     return true;
@@ -731,7 +779,8 @@ public:
   */
   static bool rewriteTileMatmulAsTileMatmulBlock(
       PatternRewriter &rewriter, GenericOp gOp, Region &region,
-      linalg::GenericOp linalgGenericOp, unsigned dstCapacity, bool &modified) {
+      linalg::GenericOp linalgGenericOp, unsigned dstCapacity, bool &modified,
+      bool enableL1AccumMode) {
     assert(linalgGenericOp.getInputs().size() == 2 &&
            "Expected exactly 2 input for tile matmul");
     assert(linalgGenericOp.getOutputs().size() == 1 &&
@@ -752,7 +801,8 @@ public:
     rewriter.eraseOp(linalgGenericOp);
     modified |= insertDstRegisterAccess(
         rewriter, gOp, region, dstCapacity,
-        !linalgLoops.value().empty() ? linalgLoops.value().front() : nullptr);
+        !linalgLoops.value().empty() ? linalgLoops.value().front() : nullptr,
+        enableL1AccumMode);
 
     if (replaceWithMatmulBlock) {
       Operation *outerLoop = linalgLoops.value()[0];
@@ -771,9 +821,12 @@ public:
   }
 
   // Consumes the recorded load/store info to generate two data copy loops: one
-  // for loads and one for stores.
+  // for loads and one for stores. When enableL1Acc is true, skip the
+  // copy loop for loads but still rewrite original load accesses to use
+  // DST indices.
   static void dataCopyGenerate(PatternRewriter &rewriter, Location loc,
-                               Value dst, const CopyInfoMap &copyInfos) {
+                               Value dst, const CopyInfoMap &copyInfos,
+                               bool enableL1Acc = false) {
     for (const auto &[loopNestOrOp, copyInfo] : copyInfos) {
       // Save this insertion point as loopNestOrOp may be replaced.
       rewriter.setInsertionPointAfter(loopNestOrOp);
@@ -824,7 +877,8 @@ public:
 
       createCopyLoop<affine::AffineLoadOp>(rewriter, loopNestOrOp,
                                            copyInfo.loads, loadAccessGenerator,
-                                           loadAccessRewriter);
+                                           loadAccessRewriter,
+                                           /*enableL1Acc=*/enableL1Acc);
 
       // Step 2: generate affine copy loop for stores.
       rewriter.restoreInsertionPoint(insertionPointAfterLoopNest);
@@ -937,7 +991,8 @@ public:
           dstAccessGenerator,
       llvm::function_ref<void(PatternRewriter &, LoadStoreRecord<LoadOrStoreTy>,
                               AffineMap, ValueRange)>
-          dstAccessRewriter) {
+          dstAccessRewriter,
+      bool enableL1Acc = false) {
     if (loadStoreRecords.empty()) {
       return;
     }
@@ -962,50 +1017,59 @@ public:
       return {skeleton, mapper};
     };
 
-    auto [copyLoop, copyLoopMapper] = cloneLoopSkeleton(rewriter, loopNestOrOp);
+    // When enableL1Acc is true skip copy loop generation but still rewrite
+    // original accesses to use DST.
+    Operation *copyLoop = nullptr;
+    mlir::IRMapping copyLoopMapper;
+    if (!enableL1Acc) {
+      std::tie(copyLoop, copyLoopMapper) =
+          cloneLoopSkeleton(rewriter, loopNestOrOp);
+    }
 
     for (auto record : loadStoreRecords) {
-      mlir::IRMapping irMapper = copyLoopMapper;
-      if (!record.guardDims.empty()) {
-        const bool isBcastGuard = record.bcast.has_value();
-        // TODO(wenbinlyuTT): #6516 WA to put all bcast inits to the top of the
-        // compute tiling loops.
-        if (isBcastGuard && copyLoop) {
-          rewriter.setInsertionPoint(copyLoop);
-        }
-        // Guarded loads live in their own loop nest under that guard.
-        auto guard = createLoadLoopGuard(rewriter, record.loadStore.getLoc(),
-                                         record.guardDims, isBcastGuard);
-        rewriter.setInsertionPointToStart(&guard.getThenRegion().front());
-        auto [_, guardedMapper] = cloneLoopSkeleton(rewriter, loopNestOrOp);
-        irMapper = guardedMapper;
-        rewriter.setInsertionPointAfter(guard);
-      }
-
-      // Find insertion point in the cloned loop.
-      Block *fromScope = record.loadStore->getBlock();
-      Block *toScope = irMapper.lookupOrNull(fromScope);
-      if (toScope) {
-        Operation *terminator = toScope->getTerminator();
-        if (terminator) {
-          rewriter.setInsertionPoint(terminator);
-        } else {
-          rewriter.setInsertionPointToEnd(toScope);
-        }
-      }
-
       auto loadStoreLoc = record.loadStore.getLoc();
       auto loadStoreIndices = record.loadStore.getIndices();
       auto loadStoreMap = record.loadStore.getMap();
       auto loadStoreMemRefType = record.loadStore.getMemRefType();
 
-      // Generate the data copy loop for the load store.
-      {
-        auto [l1AccessMap, l1AccessIndices, dstAccessMap, dstAccessIndices] =
-            buildIndices(rewriter, loadStoreLoc, irMapper, loadStoreIndices,
-                         record.dstSlice, loadStoreMap, loadStoreMemRefType);
-        dstAccessGenerator(rewriter, record, l1AccessMap, l1AccessIndices,
-                           dstAccessMap, dstAccessIndices);
+      if (!enableL1Acc) {
+        mlir::IRMapping irMapper = copyLoopMapper;
+        if (!record.guardDims.empty()) {
+          const bool isBcastGuard = record.bcast.has_value();
+          // TODO(wenbinlyuTT): #6516 WA to put all bcast inits to the top of
+          // the compute tiling loops.
+          if (isBcastGuard && copyLoop) {
+            rewriter.setInsertionPoint(copyLoop);
+          }
+          // Guarded loads live in their own loop nest under that guard.
+          auto guard = createLoadLoopGuard(rewriter, record.loadStore.getLoc(),
+                                           record.guardDims, isBcastGuard);
+          rewriter.setInsertionPointToStart(&guard.getThenRegion().front());
+          auto [_, guardedMapper] = cloneLoopSkeleton(rewriter, loopNestOrOp);
+          irMapper = guardedMapper;
+          rewriter.setInsertionPointAfter(guard);
+        }
+
+        // Find insertion point in the cloned loop.
+        Block *fromScope = record.loadStore->getBlock();
+        Block *toScope = irMapper.lookupOrNull(fromScope);
+        if (toScope) {
+          Operation *terminator = toScope->getTerminator();
+          if (terminator) {
+            rewriter.setInsertionPoint(terminator);
+          } else {
+            rewriter.setInsertionPointToEnd(toScope);
+          }
+        }
+
+        // Generate the data copy loop for the load store.
+        {
+          auto [l1AccessMap, l1AccessIndices, dstAccessMap, dstAccessIndices] =
+              buildIndices(rewriter, loadStoreLoc, irMapper, loadStoreIndices,
+                           record.dstSlice, loadStoreMap, loadStoreMemRefType);
+          dstAccessGenerator(rewriter, record, l1AccessMap, l1AccessIndices,
+                             dstAccessMap, dstAccessIndices);
+        }
       }
 
       // Replace the original load store with one from dst.
@@ -1278,7 +1342,8 @@ public:
           loadStoreDstAccessGenerator,
       llvm::function_ref<void(PatternRewriter &, LoadStoreOpTy, AffineMap,
                               ValueRange)>
-          dstAccessReplacement) {
+          dstAccessReplacement,
+      bool enableL1Acc = false) {
     if (loadStoreOps.empty()) {
       return;
     }
@@ -1302,12 +1367,12 @@ public:
       // are inserted BEFORE it.
       rewriter.setInsertionPoint(loadStore);
 
-      // Generate the copy operation: for loads, this stores the load result
-      // into dst; for stores, this would load from dst to store elsewhere.
-      // This creates: affine.load %subview → affine.store to %dst
-      loadStoreDstAccessGenerator(
-          rewriter, loadStore.getLoc(), loadStore.getMemRef(), l1AccessMap,
-          l1AccessIndices, dstAccessMap, dstAccessIndices);
+      // When enableL1Acc skip copy generation.
+      if (!enableL1Acc) {
+        loadStoreDstAccessGenerator(
+            rewriter, loadStore.getLoc(), loadStore.getMemRef(), l1AccessMap,
+            l1AccessIndices, dstAccessMap, dstAccessIndices);
+      }
 
       // Now replace the original load/store (which is now positioned after
       // the newly inserted operations) with one that accesses dst instead.
@@ -1481,8 +1546,8 @@ public:
   }
 
   static void dataCopyGenerateScheduled(PatternRewriter &rewriter, Location loc,
-                                        Value dst,
-                                        const CopyInfoMap &copyInfos) {
+                                        Value dst, const CopyInfoMap &copyInfos,
+                                        bool enableL1Acc = false) {
     for (const auto &[loopNestOrOp, copyInfo] : copyInfos) {
       // Save this insertion point as loopNestOrOp may be replaced.
       rewriter.setInsertionPointAfter(loopNestOrOp);
@@ -1508,7 +1573,8 @@ public:
               AffineMap dstAccessMap, ValueRange dstAccessIndices) {
             rewriter.replaceOpWithNewOp<affine::AffineLoadOp>(
                 op, dst, dstAccessMap, dstAccessIndices);
-          });
+          },
+          /*enableL1Acc=*/enableL1Acc);
 
       // Process memref loads (scheduled path with scf.for loops).
       for (auto [loadOp, bcast, dstSliceIndex, guardDims] :
@@ -1519,12 +1585,15 @@ public:
         // Set insertion point at the original load.
         rewriter.setInsertionPoint(loadOp);
 
-        // Generate CB->DST copy: memref.load cb -> affine.store dst
-        auto cbLoad = rewriter.create<memref::LoadOp>(
-            loadOp.getLoc(), loadOp.getMemRef(), loadOp.getIndices());
-        rewriter.create<affine::AffineStoreOp>(loadOp.getLoc(),
-                                               cbLoad.getResult(), dst,
-                                               dstAccessMap, ValueRange{});
+        // When L1 accumulation is enabled, skip CB->DST copy but still
+        // rewrite the original load to use DST.
+        if (!enableL1Acc) {
+          auto cbLoad = rewriter.create<memref::LoadOp>(
+              loadOp.getLoc(), loadOp.getMemRef(), loadOp.getIndices());
+          rewriter.create<affine::AffineStoreOp>(loadOp.getLoc(),
+                                                 cbLoad.getResult(), dst,
+                                                 dstAccessMap, ValueRange{});
+        }
 
         // Replace original load with DST load.
         auto dstLoad = rewriter.create<affine::AffineLoadOp>(
@@ -1622,6 +1691,7 @@ public:
 
   bool useTileMatmul = false;
   unsigned maxDstPhysicalSizeTiles = 0;
+  bool enableL1Acc = false;
 };
 } // namespace
 
@@ -1659,7 +1729,7 @@ public:
     RewritePatternSet patterns(ctx);
 
     patterns.add<D2MInsertDstRegisterAccessRewriter>(
-        ctx, useTileMatmul, maxDstPhysicalSizeTiles.getValue());
+        ctx, useTileMatmul, maxDstPhysicalSizeTiles.getValue(), enableL1Acc);
 
     if (failed(applyPatternsGreedily(moduleOp, std::move(patterns)))) {
       signalPassFailure();
