@@ -79,6 +79,21 @@ module {
     return %2 : tensor<5x1x64x64xbf16>
   }
 
+  // Only A squeezed (rank 4->3), B is batched rank-3 -- pattern does NOT fire.
+  // Both new inputs would be rank >= 3 with different ranks; this would cause
+  // TTNN BMM to fail with "a_shape.rank() == b_shape.rank()".
+  func.func @matmul_only_a_squeezed_b_batched(%arg0: tensor<1x40x6240x128xbf16>, %arg1: tensor<40x128x49920xbf16>) -> tensor<1x40x6240x49920xbf16> {
+    // CHECK-LABEL: @matmul_only_a_squeezed_b_batched
+    // CHECK: "ttir.reshape"
+    // CHECK: "ttir.matmul"
+    // CHECK-SAME: tensor<40x6240x128xbf16>, tensor<40x128x49920xbf16>
+    // CHECK: "ttir.reshape"
+    %0 = "ttir.reshape"(%arg0) <{shape = [40 : i32, 6240 : i32, 128 : i32]}> : (tensor<1x40x6240x128xbf16>) -> tensor<40x6240x128xbf16>
+    %1 = "ttir.matmul"(%0, %arg1) : (tensor<40x6240x128xbf16>, tensor<40x128x49920xbf16>) -> tensor<40x6240x49920xbf16>
+    %2 = "ttir.reshape"(%1) <{shape = [1 : i32, 40 : i32, 6240 : i32, 49920 : i32]}> : (tensor<40x6240x49920xbf16>) -> tensor<1x40x6240x49920xbf16>
+    return %2 : tensor<1x40x6240x49920xbf16>
+  }
+
   // Multiple leading 1s squeezed -- pattern fires.
   func.func @matmul_multiple_leading_ones(%arg0: tensor<1x1x5x64x32xbf16>, %arg1: tensor<1x1x5x32x64xbf16>) -> tensor<1x1x5x64x64xbf16> {
     // CHECK-LABEL: @matmul_multiple_leading_ones
