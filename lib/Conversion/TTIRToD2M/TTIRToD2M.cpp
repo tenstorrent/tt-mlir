@@ -330,9 +330,12 @@ protected:
       result[0].push_back(createOptimalLayoutOp(operand, memorySpaces[0], tiled,
                                                 noCollapse, rewriter, oobVal));
     }
+    // Outputs always use Undef: they are destination buffers being written
+    // into, so their padding fill value is irrelevant.  Only inputs need
+    // identity-element OOB to prevent padded tiles from corrupting reductions.
     for (Value operand : operandsAndResults[1]) {
       result[1].push_back(createOptimalLayoutOp(operand, memorySpaces[1], tiled,
-                                                noCollapse, rewriter, oobVal));
+                                                noCollapse, rewriter));
     }
 
     return result;
