@@ -7,6 +7,7 @@
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
+#include "ttmlir/Dialect/D2M/Utils/DMAUtils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 
 #include "mlir/Dialect/SCF/IR/SCF.h"
@@ -170,6 +171,13 @@ public:
       return failure();
     }
     Block *dmBlock = &dmRegion.front();
+
+    // Check that there are no illegal semaphore ops in the datamovement region.
+    // Replicating these across multiple threads would create a race condition
+    // on the shared semaphore.
+    if (failed(utils::checkForIllegalSemaphoreOps(dmBlock))) {
+      return failure();
+    }
 
     // Collect all DMA operations and their CB associations.
     SmallVector<std::pair<Operation *, unsigned>> dmaOps;

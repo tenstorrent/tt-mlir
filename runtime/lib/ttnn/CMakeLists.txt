@@ -18,7 +18,6 @@ add_library(TTRuntimeTTNN
   STATIC
   runtime.cpp
   program_executor.cpp
-  global_tensor_cache.cpp
 )
 # We have to set the C++ standard to 20 because tt-metal requires it
 set_property(TARGET TTRuntimeTTNN PROPERTY CXX_STANDARD 20)

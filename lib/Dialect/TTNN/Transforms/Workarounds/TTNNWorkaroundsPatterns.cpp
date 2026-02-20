@@ -17,9 +17,11 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/Conv2dEnableKernelStrideFoldingRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/Conv2dRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/Conv3dBlockingRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/Conv3dPadOutputChannelsRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/Conv3dRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/CumSumOpDimRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/CumSumOpRankRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/DistributedRMSNormWidthShardInputRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/EmbeddingOpSqueezeWeightRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ExplicateOperandBroadcastsRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/LinearOpRewritePattern.h"
@@ -383,13 +385,19 @@ public:
     auto deviceDesc = ttcore::lookupDevice(op);
     ::llvm::ArrayRef<int64_t> meshShape = deviceDesc.getMeshShape();
 
-    // Algorithm: iterate through all tensor dimension values and select first
-    // tensor dimension which is divisible by number of devices along the
+    // Algorithm: iterate through all tensor dimension values and select the
+    // last tensor dimension which is divisible by number of devices along the
     // cluster axis on which we are performing the all reduce.
     auto sizeOfDevices = meshShape[clusterAxis];
     auto inputShape = inputType.getShape();
-    const auto *tensorDimDevice = llvm::find_if(
-        inputShape, [&](int64_t dim) { return dim % sizeOfDevices == 0; });
+    auto reversedInputShape = llvm::reverse(inputShape);
+    auto tensorDimRevIt =
+        llvm::find_if(reversedInputShape, [sizeOfDevices](int64_t dim) {
+          return dim % sizeOfDevices == 0;
+        });
+    const auto *tensorDimDevice = tensorDimRevIt == reversedInputShape.end()
+                                      ? inputShape.end()
+                                      : tensorDimRevIt.base() - 1;
 
     if (tensorDimDevice == inputShape.end()) {
       // If all the dimensions are not evenly divisible by the number of
@@ -585,6 +593,7 @@ public:
           workarounds::decomposition::
               Conv2dEnableKernelStrideFoldingRewritePattern<ConvTranspose2dOp>,
           workarounds::decomposition::Conv3dRewritePattern,
+          workarounds::decomposition::Conv3dPadOutputChannelsRewritePattern,
           workarounds::decomposition::Conv3dBlockingRewritePattern,
           workarounds::decomposition::ConcatenateHeadsOpRewritePattern,
           workarounds::decomposition::
@@ -593,8 +602,9 @@ public:
           workarounds::decomposition::
               ScaledDotProductAttentionPadTileDimsRewritePattern,
           workarounds::decomposition::PointToPointOpRewritePattern,
-          workarounds::decomposition::RMSNormConfigRewritePattern>(
-          &getContext());
+          workarounds::decomposition::RMSNormConfigRewritePattern,
+          workarounds::decomposition::
+              DistributedRMSNormWidthShardInputRewritePattern>(&getContext());
 
       runRewritePatterns(std::move(patterns),
                          GreedyRewriteConfig::kNoLimit /*maxIterations*/);

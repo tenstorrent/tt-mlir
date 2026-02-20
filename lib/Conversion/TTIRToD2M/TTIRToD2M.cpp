@@ -765,10 +765,13 @@ private:
     std::tie(bcastIndexingMaps, tileBcastTypes) =
         getImplicitBcastInfo(rewriter, origInputs, origOutputs);
 
-    const bool isImplicitBcast = llvm::any_of(tileBcastTypes, [](auto type) {
-      return type != d2m::TileBcastType::None;
-    });
-
+    // Implicit bcast if tile-level bcast exists or any input indexing map is
+    // not identity.
+    const bool isImplicitBcast =
+        !bcastIndexingMaps.empty() &&
+        llvm::any_of(ArrayRef<mlir::AffineMap>(bcastIndexingMaps)
+                         .take_front(origInputs.size()),
+                     [](mlir::AffineMap map) { return !map.isIdentity(); });
     auto [inputs, outputs] =
         toLayoutOperandsAndResults(rewriter, {origInputs, origOutputs},
                                    /*tiled*/ true, isImplicitBcast);
@@ -1680,6 +1683,24 @@ public:
 
   using D2MNamedRewriterCommon::getMetalTensorFromTTNNTensor;
 
+  LogicalResult
+  matchAndRewrite(ttir::ToLayoutOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto outType = mlir::cast<RankedTensorType>(op.getOutput().getType());
+    if (!ttnnMode) {
+      // When ttnnMode is disabled, we can simply convert ttir.to_layout
+      // directly to d2m.to_layout.
+      Value empty = rewriter.create<d2m::EmptyOp>(
+          op.getLoc(), outType.getShape(), outType.getElementType(),
+          outType.getEncoding());
+      auto newOp = rewriter.create<d2m::ToLayoutOp>(op.getLoc(),
+                                                    adaptor.getInput(), empty);
+      rewriter.replaceOp(op, newOp.getResult(0));
+      return success();
+    }
+    return rewriteIfTTNNModeEnabled(op, adaptor, rewriter);
+  }
+
 private:
   LogicalResult
   rewriteIfTTNNModeEnabled(ttir::ToLayoutOp op, OpAdaptor adaptor,
@@ -1695,13 +1716,11 @@ private:
        5. Cast result back to TTNN layout
     */
     auto outType = mlir::cast<RankedTensorType>(op.getOutput().getType());
-
     bool outputIsTTNN =
         mlir::isa_and_nonnull<ttnn::TTNNLayoutAttr>(outType.getEncoding());
     TT_assertv(
         outputIsTTNN,
         "expected output type to have TTNN layout when ttnnMode is enabled");
-
     // TTNN output handling.
     // Convert input to Metal layout if needed.
     Value metalInput = adaptor.getInput();
@@ -1714,50 +1733,23 @@ private:
                            op.getLoc(), inputMetalType, adaptor.getInput())
                        .getResult();
     }
-
     auto outputMetalType =
         getMetalTensorFromTTNNTensor(rewriter, op.getOutput());
-
     // Create d2m.empty for TTNN layout.
     Value metalEmpty = rewriter.create<d2m::EmptyOp>(
         op.getLoc(), outType.getShape(), outType.getElementType(),
         outType.getEncoding());
-
     // Cast TTNN empty to Metal layout.
     auto metalCast = rewriter.create<ttir::TTNNMetalLayoutCastOp>(
         op.getLoc(), outputMetalType, metalEmpty);
-
     // Create d2m.to_layout with Metal types.
     auto metalToLayout =
         rewriter.create<d2m::ToLayoutOp>(op.getLoc(), metalInput, metalCast);
-
     // Cast back to TTNN.
     auto ttnnResult = rewriter.create<ttir::TTNNMetalLayoutCastOp>(
         op.getLoc(), outType, metalToLayout.getResult(0));
-
     rewriter.replaceOp(op, ttnnResult.getResult());
     return success();
-  }
-
-public:
-  LogicalResult
-  matchAndRewrite(ttir::ToLayoutOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    auto outType = mlir::cast<RankedTensorType>(op.getOutput().getType());
-
-    if (!ttnnMode) {
-      // When ttnnMode is disabled, we can simply convert ttir.to_layout
-      // directly to d2m.to_layout.
-      Value empty = rewriter.create<d2m::EmptyOp>(
-          op.getLoc(), outType.getShape(), outType.getElementType(),
-          outType.getEncoding());
-      auto newOp = rewriter.create<d2m::ToLayoutOp>(op.getLoc(),
-                                                    adaptor.getInput(), empty);
-      rewriter.replaceOp(op, newOp.getResult(0));
-      return success();
-    }
-
-    return rewriteIfTTNNModeEnabled(op, adaptor, rewriter);
   }
 };
 

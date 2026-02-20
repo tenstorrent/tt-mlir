@@ -7,9 +7,12 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/BuiltinOps.h"
+#include "mlir/Interfaces/InferIntRangeInterface.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOps.h"
+
+#include <limits>
 
 #define GET_OP_CLASSES
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.cpp.inc"
@@ -373,6 +376,26 @@ TensorAccessorArgsOp::parse(::mlir::OpAsmParser &parser,
   result.addTypes(tensorAccessorArgsType);
 
   return success();
+}
+
+static mlir::ConstantIntRanges getIndexRange(uint64_t umin, uint64_t umax) {
+  unsigned width = mlir::IndexType::kInternalStorageBitWidth;
+  return mlir::ConstantIntRanges::fromUnsigned(mlir::APInt(width, umin),
+                                               mlir::APInt(width, umax));
+}
+
+void MyLogicalXOp::inferResultRanges(
+    ::llvm::ArrayRef<::mlir::ConstantIntRanges> argRanges,
+    mlir::SetIntRangeFn setResultRange) {
+  setResultRange(getResult(),
+                 getIndexRange(0, std::numeric_limits<uint32_t>::max()));
+}
+
+void MyLogicalYOp::inferResultRanges(
+    ::llvm::ArrayRef<::mlir::ConstantIntRanges> argRanges,
+    mlir::SetIntRangeFn setResultRange) {
+  setResultRange(getResult(),
+                 getIndexRange(0, std::numeric_limits<uint32_t>::max()));
 }
 
 } // namespace mlir::tt::ttkernel

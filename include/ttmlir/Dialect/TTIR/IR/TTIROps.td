@@ -2079,6 +2079,50 @@ def TTIR_RMSNormOp : TTIR_NamedOp<"rms_norm", [AttrSizedOperandSegments]> {
   let hasVerifier = 1;
 }
 
+def TTIR_DistributedRMSNormOp : TTIR_NamedOp<"distributed_rms_norm", [AttrSizedOperandSegments]> {
+  let summary = "Distributed RMS normalization with all-gather operation";
+  let description = [{
+    Fused distributed RMS normalization across mesh devices. Each device
+    computes local RMS statistics (E(x²)), the statistics are all-gathered
+    along cluster_axis to obtain globally-correct values, and each device
+    then normalizes its local shard. The steps are:
+    1. Optional residual addition (input + residual)
+    2. Compute local E(x²) and all-gather statistics across cluster_axis
+    3. RMS normalization: output = input * rsqrt(E(x²) + epsilon) * weight
+
+    Only statistics are communicated across devices — the input data itself
+    is not all-gathered. Each device's output shape equals its input shape.
+
+    This is a multi-device operation that requires the tensor to be sharded
+    across a device mesh.
+
+    Inputs:
+    - `input` (Tensor): The input tensor to be normalized.
+    - `weight` (Optional Tensor): The scale parameter (gamma).
+    - `residual` (Optional Tensor): Residual tensor for fused add before
+        normalization.
+
+    Attributes:
+    - `cluster_axis` specifies which mesh dimension to all-gather the
+        statistics across (0 or 1).
+    - `epsilon` is a small constant added for numerical stability
+        (default: 1e-05).
+
+    Output:
+    - `result` (Tensor): The normalized output tensor (same shape as input).
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       Optional<AnyRankedTensor>:$weight,
+                       Optional<AnyRankedTensor>:$residual,
+                       UI32Attr:$cluster_axis,
+                       DefaultValuedAttr<F32Attr, "1e-05">:$epsilon);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+}
+
 def TTIR_LayerNormOp : TTIR_NamedOp<"layer_norm", [AttrSizedOperandSegments]> {
   let summary = "Layer normalization operation";
   let description = [{

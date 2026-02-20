@@ -81,6 +81,7 @@ This demo is available [here](../../test/ttnn-jit/test_jit_demos.py).
 | `math_fidelity` | `ttnn.MathFidelity` | `ttnn.MathFidelity.HiFi4` | Sets the math fidelity setting for the JIT graph. |
 | `debug` | `bool` | `False` | Enables debug prints during compilation and execution. |
 | `compile_only` | `bool` | `False` | Only compile runtime without execution. The resulting flatbuffer and kernel source files will be dumped to `generated/jit`. |
+| `memory_config` | `ttnn.MemoryConfig` | `None` | Output memory configuration for the JIT function. If specified, the output tensor will use this exact layout. If unspecified, a maximally L1 block sharded layout will be used as default. |
 
 ## Current Support
 
@@ -101,7 +102,6 @@ Not every operation is supported within the above categories.
 - Binary Elementwise and Bitwise
   - Height, width, and block sharded tensors in L1 as well as DRAM interleaved.
   - If both operands are sharded, they must have identical shard specs.
-  - The output will match the layout of the first operand.
 - Matrix Multiplication:
   - Block sharded tensors in L1 and DRAM interleaved.
   - The output will always be block sharded in L1. DRAM outputs are not supported.
@@ -122,7 +122,7 @@ Note: Only tiled tensors with tile-aligned dimensions are currently supported. P
 | Reductions | `f32`, `bf16` |
 
 ### Notes
-- The output layout of a JIT graph cannot be selected. The `memory_config` arguments on JIT ops are ignored.
+- The `memory_config` arguments on JIT ops are ignored; only the `memory_config` passed to the `@ttnn_jit.jit()` decorator is used. Setting the output layout to DRAM interleaved when the input layout is L1 sharded is not supported.
 - See the current [test suite](../../test/ttnn-jit/) for what is guaranteed to be working.
 
 ## How It Works

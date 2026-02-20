@@ -94,8 +94,15 @@ def test_cpu_hoistable_concat_op(
 
 
 # Pad tests
-@pytest.mark.parametrize("shape", [(1, 1, 5, 5)], ids=shape_str)
-@pytest.mark.parametrize("padding", [[0, 1, 2, 3, 4, 5, 6, 7]])
+@pytest.mark.parametrize("shape", [(1, 1024, 64, 64)], ids=shape_str)
+@pytest.mark.parametrize(
+    "padding",
+    [
+        [0, 1, 2, 3, 4, 5, 6, 7],
+        [0, 0, 0, 0, -16, -16, -16, -16],
+        [2, 2, 2, 2, -1, -1, -1, -1],
+    ],
+)
 @pytest.mark.parametrize("value", [0])
 @pytest.mark.parametrize("target", ["ttnn", "emitpy"])
 def test_pad(
@@ -119,8 +126,15 @@ def test_pad(
 
 
 @x86_only
-@pytest.mark.parametrize("shape", [(1, 1, 5, 5)], ids=shape_str)
-@pytest.mark.parametrize("padding", [[0, 1, 2, 3, 4, 5, 6, 7]])
+@pytest.mark.parametrize("shape", [(1, 1024, 64, 64)], ids=shape_str)
+@pytest.mark.parametrize(
+    "padding",
+    [
+        [0, 1, 2, 3, 4, 5, 6, 7],
+        [0, 0, 0, 0, -16, -16, -16, -16],
+        [2, 2, 2, 2, -1, -1, -1, -1],
+    ],
+)
 @pytest.mark.parametrize("value", [0])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 def test_cpu_hoistable_pad_op(

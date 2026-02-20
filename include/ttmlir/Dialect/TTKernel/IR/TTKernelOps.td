@@ -8,6 +8,7 @@
 include "ttmlir/Dialect/TTKernel/IR/TTKernelBase.td"
 include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.td"
 include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.td"
+include "mlir/Interfaces/InferIntRangeInterface.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
 include "mlir/Interfaces/DestinationStyleOpInterface.td"
 include "mlir/Interfaces/ControlFlowInterfaces.td"
@@ -2888,7 +2889,8 @@ def TTKernel_MyYOp : TTKernel_Op<"my_y", [Pure]> {
     }];
 }
 
-def TTKernel_MyLogicalXOp : TTKernel_Op<"my_logical_x_", [Pure]> {
+def TTKernel_MyLogicalXOp : TTKernel_Op<"my_logical_x_",
+  [Pure, DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
     let summary = "MyLogicalX";
     let description = [{
       Lowers to the tt-metal supported my_logical_x_ global. This represents the logical X coordinate of the current core.
@@ -2902,7 +2904,8 @@ def TTKernel_MyLogicalXOp : TTKernel_Op<"my_logical_x_", [Pure]> {
     }];
 }
 
-def TTKernel_MyLogicalYOp : TTKernel_Op<"my_logical_y_", [Pure]> {
+def TTKernel_MyLogicalYOp : TTKernel_Op<"my_logical_y_",
+  [Pure, DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
     let summary = "MyLogicalY";
     let description = [{
       Lowers to the tt-metal supported my_logical_y_ global. This represents the logical Y coordinate of the current core.

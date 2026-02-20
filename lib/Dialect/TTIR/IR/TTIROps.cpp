@@ -5024,6 +5024,52 @@ mlir::tt::ttir::SplitQueryKeyValueAndSplitHeadsOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
+// DistributedRMSNormOp
+//===----------------------------------------------------------------------===//
+::mlir::LogicalResult mlir::tt::ttir::DistributedRMSNormOp::verify() {
+  RankedTensorType inputType = getInput().getType();
+  RankedTensorType outputType = getResult().getType();
+
+  if (inputType.getShape() != outputType.getShape()) {
+    return emitOpError("output shape must match input shape");
+  }
+
+  // Verify cluster_axis is valid (must be 0 or 1 for 2D mesh).
+  uint32_t clusterAxis = getClusterAxis();
+  if (clusterAxis > 1) {
+    return emitOpError("cluster_axis must be 0 or 1");
+  }
+
+  // Verify epsilon is positive.
+  float epsilon = getEpsilon().convertToFloat();
+  if (epsilon <= 0) {
+    return emitOpError("epsilon must be positive");
+  }
+
+  // Verify residual tensor shape matches input if present.
+  if (getResidual()) {
+    RankedTensorType residualType = getResidual().getType();
+    if (residualType.getShape() != inputType.getShape()) {
+      return emitOpError("residual tensor shape must match input tensor shape");
+    }
+  }
+
+  // Verify weight tensor's last dimension matches input's last dimension.
+  if (getWeight()) {
+    RankedTensorType weightType = getWeight().getType();
+    int64_t inputLastDim = inputType.getShape().back();
+    int64_t weightLastDim = weightType.getShape().back();
+
+    if (weightLastDim != inputLastDim) {
+      return emitOpError(
+          "weight tensor's last dimension must match input's last dimension");
+    }
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // LayerNormOp
 //===----------------------------------------------------------------------===//
 ::mlir::LogicalResult mlir::tt::ttir::LayerNormOp::verify() {

@@ -998,6 +998,95 @@ def ttir_rms_norm_golden(
     return rms_norm.to(output_dtype)
 
 
+def ttir_distributed_rms_norm_golden(
+    input: GoldenMapTensor,
+    weight: Optional[GoldenMapTensor],
+    residual: Optional[GoldenMapTensor],
+    cluster_axis_attr: IntegerAttr,
+    epsilon_attr: FloatAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    """Distributed RMS normalization golden.
+
+    Simulates fused_rms_minimal: for each group of devices along
+    ``cluster_axis``, concatenate the per-device shards to compute
+    globally-correct RMS statistics, apply RMS norm + weight on the
+    full tensor, then chunk the result back so each device gets only
+    its local portion.  The per-device output shape equals the
+    per-device input shape (only the stats are all-gathered, not
+    the data).
+
+    Parameters
+    ----------
+    input : GoldenMapTensor
+        Per-device input tensor shards.
+    weight : Optional[GoldenMapTensor]
+        Per-device weight shards. If present, applied after normalization.
+    residual : Optional[GoldenMapTensor]
+        Per-device residual shards. If present, added to input before
+        normalization.
+    cluster_axis_attr : IntegerAttr
+        Mesh axis (0 or 1) along which devices exchange RMS statistics.
+    epsilon_attr : FloatAttr
+        Small constant added to the variance for numerical stability.
+    output_type_mlir : Type
+        MLIR element type used to determine the output torch dtype.
+
+    Returns
+    -------
+    GoldenMapTensor
+        Per-device normalized output shards, each with the same shape
+        as the corresponding input shard.
+    """
+    cluster_axis = unpack_mlir_attr(cluster_axis_attr)
+    epsilon = unpack_mlir_attr(epsilon_attr)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+
+    num_shards = len(input.shard_map)
+    output_shards = [None] * num_shards
+    grouped_shards = input.group_by_axis(cluster_axis)
+
+    for group in grouped_shards:
+        group_ids = list(group.keys())
+        group_tensors = [group[id] for id in group_ids]
+
+        # Add residual per-shard if present
+        if residual is not None:
+            group_tensors = [
+                inp + residual.shard_map[id]
+                for inp, id in zip(group_tensors, group_ids)
+            ]
+
+        # Concatenate shards along last dim to get full tensor for global RMS norm stats
+        full_tensor = torch.cat(group_tensors, dim=-1).float()
+
+        # Compute RMS norm on full tensor
+        normalized_shape = [full_tensor.shape[-1]]
+        weight_tensor = None
+        if weight is not None:
+            # Concatenate weight shards to get the full weight
+            weight_shards = [weight.shard_map[id] for id in group_ids]
+            weight_tensor = torch.cat(weight_shards, dim=-1)
+
+        rms_result = torch.nn.functional.rms_norm(
+            full_tensor,
+            normalized_shape=normalized_shape,
+            weight=weight_tensor,
+            eps=epsilon,
+        )
+
+        rms_result = rms_result.to(output_dtype)
+
+        # Split back into per-device chunks (output shape == input shape).
+        per_shard_chunks = torch.chunk(rms_result, len(group_ids), dim=-1)
+        for id, chunk in zip(group_ids, per_shard_chunks):
+            output_shards[id] = chunk.clone()
+
+    return GoldenMapTensor(
+        {i: t for i, t in enumerate(output_shards)}, input.mesh_shape
+    )
+
+
 def ttir_layer_norm_golden(
     input: GoldenMapTensor,
     weight: Optional[GoldenMapTensor],
@@ -2753,6 +2842,7 @@ def ttir_arange_golden(
     end: IntegerAttr,
     step: IntegerAttr,
     arange_dimension: IntegerAttr,
+    mesh_shape_attr: ArrayAttr,
     output_type_mlir: Type,
 ) -> GoldenMapTensor:
     shape = unpack_mlir_attr(shape)
@@ -2760,6 +2850,7 @@ def ttir_arange_golden(
     end = unpack_mlir_attr(end)
     step = unpack_mlir_attr(step)
     arange_dimension = unpack_mlir_attr(arange_dimension)
+    mesh_shape = unpack_mlir_attr(mesh_shape_attr)
     output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
     result = torch.arange(start=start, end=end, step=step, dtype=torch.float32).to(
         output_dtype
@@ -2771,7 +2862,9 @@ def ttir_arange_golden(
 
     result = result.expand(shape).clone()
 
-    return GoldenMapTensor({0: result}, (1, 1))
+    return GoldenMapTensor(
+        {i: result.clone() for i in range(mesh_shape[0] * mesh_shape[1])}, mesh_shape
+    )
 
 
 def ttir_cumsum_golden(
@@ -2950,16 +3043,28 @@ def ttir_gather_golden(
     return gathered.to(output_dtype).to(device=device)
 
 
-def ttir_ones_golden(shape: ArrayAttr, output_type_mlir: Type) -> GoldenMapTensor:
+def ttir_ones_golden(
+    shape: ArrayAttr, mesh_shape_attr: ArrayAttr, output_type_mlir: Type
+) -> GoldenMapTensor:
     size = unpack_mlir_attr(shape)
+    mesh_shape = unpack_mlir_attr(mesh_shape_attr)
     output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
-    return GoldenMapTensor({0: torch.ones(size, dtype=output_dtype)}, (1, 1))
+    result = torch.ones(size, dtype=output_dtype)
+    return GoldenMapTensor(
+        {i: result.clone() for i in range(mesh_shape[0] * mesh_shape[1])}, mesh_shape
+    )
 
 
-def ttir_zeros_golden(shape: ArrayAttr, output_type_mlir: Type) -> GoldenMapTensor:
+def ttir_zeros_golden(
+    shape: ArrayAttr, mesh_shape_attr: ArrayAttr, output_type_mlir: Type
+) -> GoldenMapTensor:
     size = unpack_mlir_attr(shape)
+    mesh_shape = unpack_mlir_attr(mesh_shape_attr)
     output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
-    return GoldenMapTensor({0: torch.zeros(size, dtype=output_dtype)}, (1, 1))
+    result = torch.zeros(size, dtype=output_dtype)
+    return GoldenMapTensor(
+        {i: result.clone() for i in range(mesh_shape[0] * mesh_shape[1])}, mesh_shape
+    )
 
 
 def ttir_rand_golden(
@@ -2967,19 +3072,24 @@ def ttir_rand_golden(
     low: FloatAttr,
     high: FloatAttr,
     seed: IntegerAttr,
+    mesh_shape_attr: ArrayAttr,
     output_type_mlir: Type,
 ) -> GoldenMapTensor:
     size = unpack_mlir_attr(size)
     low = unpack_mlir_attr(low)
     high = unpack_mlir_attr(high)
     seed = unpack_mlir_attr(seed)
+    mesh_shape = unpack_mlir_attr(mesh_shape_attr)
     output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
 
     gen = torch.Generator()
     gen.manual_seed(seed)
     base = torch.rand(size, generator=gen, dtype=torch.bfloat16)
     rand_tensor = (base * (high - low) + low).to(output_dtype)
-    return GoldenMapTensor({0: rand_tensor}, (1, 1))
+    return GoldenMapTensor(
+        {i: rand_tensor.clone() for i in range(mesh_shape[0] * mesh_shape[1])},
+        mesh_shape,
+    )
 
 
 def ttir_dropout_golden(
@@ -3240,8 +3350,11 @@ def ttir_pad_golden(
     ).to(output_dtype)
 
 
-def ttir_constant_golden(value: DenseElementsAttr) -> GoldenMapTensor:
+def ttir_constant_golden(
+    value: DenseElementsAttr, mesh_shape_attr: ArrayAttr
+) -> GoldenMapTensor:
     shape = list(value.type.shape)
+    mesh_shape = unpack_mlir_attr(mesh_shape_attr)
     dtype = mlir_type_to_torch_dtype(value.type.element_type)
 
     if value.is_splat:
@@ -3251,7 +3364,10 @@ def ttir_constant_golden(value: DenseElementsAttr) -> GoldenMapTensor:
         flat_values = [elem for elem in value]
         torch_tensor = torch.tensor(flat_values, dtype=dtype).reshape(shape)
 
-    return GoldenMapTensor({0: torch_tensor.reshape(shape)}, (1, 1))
+    result = torch_tensor.reshape(shape)
+    return GoldenMapTensor(
+        {i: result.clone() for i in range(mesh_shape[0] * mesh_shape[1])}, mesh_shape
+    )
 
 
 def ttir_convolution_golden(
@@ -3697,13 +3813,17 @@ def ttir_clamp_tensor_golden(
 def ttir_full_golden(
     shape_attr: DenseI32ArrayAttr,
     fill_value_attr: Union[IntegerAttr, FloatAttr],
+    mesh_shape_attr: ArrayAttr,
     output_type_mlir: Type,
 ) -> GoldenMapTensor:
     shape = unpack_mlir_attr(shape_attr)
     fill_value = unpack_mlir_attr(fill_value_attr)
-    tensor = torch.full(shape, fill_value)
+    mesh_shape = unpack_mlir_attr(mesh_shape_attr)
     output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
-    return GoldenMapTensor({0: tensor}, (1, 1)).to(output_dtype)
+    tensor = torch.full(shape, fill_value).to(output_dtype)
+    return GoldenMapTensor(
+        {i: tensor.clone() for i in range(mesh_shape[0] * mesh_shape[1])}, mesh_shape
+    )
 
 
 def ttir_concat_golden(
@@ -4047,8 +4167,7 @@ def ttir_mesh_shard_golden(
     elif shard_direction == ttcore.ir.MeshShardDirection.ShardToFull:
         if shard_type == ttcore.ir.MeshShardType.Replicate:
             return apply_unsharding(input, [1], [1])
-        else:
-            return apply_unsharding(input, mesh_shape, shard_dims)
+        return apply_unsharding(input, mesh_shape, shard_dims)
 
 
 reduce_mapping = {
@@ -4321,7 +4440,9 @@ def stablehlo_concatenate_golden(
     return torch.cat(input_tensors, dim=dim).to(output_dtype)
 
 
-def stablehlo_constant_golden(value: DenseElementsAttr) -> GoldenMapTensor:
+def stablehlo_constant_golden(
+    value: DenseElementsAttr, mesh_shape_attr: DenseI32ArrayAttr
+) -> GoldenMapTensor:
     shape = list(value.type.shape)
     dtype = mlir_type_to_torch_dtype(value.type.element_type)
 
@@ -4331,12 +4452,17 @@ def stablehlo_constant_golden(value: DenseElementsAttr) -> GoldenMapTensor:
     else:
         torch_tensor = torch.tensor(np.array(value), dtype=dtype).reshape(shape)
 
-    return GoldenMapTensor({0: torch_tensor.reshape(shape)}, (1, 1))
+    mesh_shape = unpack_mlir_attr(mesh_shape_attr)
+    result = torch_tensor.reshape(shape)
+    return GoldenMapTensor(
+        {i: result.clone() for i in range(mesh_shape[0] * mesh_shape[1])}, mesh_shape
+    )
 
 
 def stablehlo_iota_golden(
     iota_dimension_attr: IntegerAttr,
     output_shape_attr: DenseI64ArrayAttr,
+    mesh_shape_attr: DenseI32ArrayAttr,
     output_type_mlir: Type,
 ) -> GoldenMapTensor:
     iota_dimension = unpack_mlir_attr(iota_dimension_attr)
@@ -4352,12 +4478,16 @@ def stablehlo_iota_golden(
 
     result = iota_values.expand(output_shape).clone()
 
-    return GoldenMapTensor({0: result}, (1, 1))
+    mesh_shape = unpack_mlir_attr(mesh_shape_attr)
+    return GoldenMapTensor(
+        {i: result.clone() for i in range(mesh_shape[0] * mesh_shape[1])}, mesh_shape
+    )
 
 
 def stablehlo_dynamic_iota_golden(
     output_shape: GoldenMapTensor,
     iota_dimension_attr: IntegerAttr,
+    mesh_shape_attr: DenseI32ArrayAttr,
     output_type_mlir: Type,
 ) -> GoldenMapTensor:
     iota_dimension = unpack_mlir_attr(iota_dimension_attr)
@@ -4376,7 +4506,10 @@ def stablehlo_dynamic_iota_golden(
     full_shape = [int(s) for s in shape_list]
     result = iota_values.expand(full_shape).clone()
 
-    return GoldenMapTensor({0: result}, (1, 1))
+    mesh_shape = unpack_mlir_attr(mesh_shape_attr)
+    return GoldenMapTensor(
+        {i: result.clone() for i in range(mesh_shape[0] * mesh_shape[1])}, mesh_shape
+    )
 
 
 def stablehlo_batch_norm_grad_golden(
@@ -5883,6 +6016,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.LayerNormOp: ttir_layer_norm_golden,
     ttir.SplitQueryKeyValueAndSplitHeadsOp: ttir_split_query_key_value_and_split_heads_golden,
     ttir.RMSNormOp: ttir_rms_norm_golden,
+    ttir.DistributedRMSNormOp: ttir_distributed_rms_norm_golden,
     # Type operations
     ttir.TypecastOp: ttir_typecast_golden,
     # Tensor creation
