@@ -291,16 +291,12 @@ class Builder(metaclass=BuilderMeta):
     def set_arg_attribute(
         self, operand: Operand, new_attr_name: str, new_attr: Attribute
     ):
-        # All changes might need to be removed after I migrate the call
-        if isinstance(operand, BlockArgument):
-            func_op = operand.owner.owner
-        else:
-            func_op = operand.owner.block.owner
+        func_op = operand.owner.owner
 
         arg_attr_list = func_op.arg_attrs
         new_arg_attr_list = []
         for arg_number, arg_attrs in enumerate(arg_attr_list):
-            if not isinstance(operand, OpResult) and arg_number == operand.arg_number:
+            if arg_number == operand.arg_number:
                 new_arg_attr = {}
                 for attr in arg_attrs:
                     new_arg_attr[attr.name] = attr.attr
@@ -637,16 +633,14 @@ class Builder(metaclass=BuilderMeta):
         self,
         operand: Operand,
         goldens: List[GoldenMapTensor],
-        apply_sharding: bool = True,
+        apply_sharding: bool = False,
     ):
         self._goldens[operand] = goldens
         self._operand_to_loc[operand] = str(operand.location)
         if apply_sharding:
             self.apply_golden_sharding_to_arg(operand)
 
-    def apply_golden_sharding_to_arg(self, operand: Operand):
-        golden = self._get_golden_tensor(operand)
-
+    def apply_golden_sharding_to_arg(self, operand: Operand, golden: GoldenMapTensor):
         if len(golden.shard_map) > 1:
             local_shape = golden.shape
             element_type = self._get_type(operand).element_type
