@@ -52,10 +52,10 @@ private:
   // - Divisible by 16 and ≤128 → use as-is
   // - > 128 → cap at 128 (max efficient blocking)
   uint32_t calculateOptimalCInBlock(uint32_t in_channels) const {
-    if (in_channels % 16 != 0) {
+    if (in_channels % 16 != 0 || in_channels > 128) {
       return 0; // Bypass validation
     }
-    return std::min(in_channels, 128u);
+    return in_channels;
   }
 
   std::optional<Conv3dConfigAttr>
