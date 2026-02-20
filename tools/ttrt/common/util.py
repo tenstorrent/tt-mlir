@@ -2,7 +2,6 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-import importlib.machinery
 import importlib.util
 import json
 import os
@@ -11,7 +10,6 @@ from pprint import pprint
 import re
 
 import torch
-from pkg_resources import get_distribution
 
 # environment tweaks
 if "LOGGER_LEVEL" not in os.environ:

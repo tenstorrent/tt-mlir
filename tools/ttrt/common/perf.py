@@ -4,23 +4,16 @@
 
 import os
 import json
-import importlib.machinery
 import sys
 import signal
-import io
 import subprocess
-import time
 import socket
-from pkg_resources import get_distribution
 import shutil
-import atexit
 import traceback
-from pathlib import Path
 import csv
 import ast
 
 from ttrt.common.util import *
-from ttrt.common.query import Query
 
 
 class Perf:

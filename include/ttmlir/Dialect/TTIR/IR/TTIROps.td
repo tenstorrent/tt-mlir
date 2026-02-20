@@ -4672,6 +4672,8 @@ def TTIR_MatmulOp : TTIR_NamedOp<"matmul"> {
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
+
+    let hasCanonicalizer = 1;
 }
 // ANCHOR_END: adding_an_op_matmul_ttir
 
