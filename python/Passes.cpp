@@ -43,9 +43,18 @@ void populatePassesModule(nb::module_ &m) {
 
   m.def(
       "tt_populate_argument_types",
-      [](MlirModule module, std::string argument_types_string = "") {
+      [](MlirModule module, std::string argument_types_string = "",
+         bool printIr = false) {
         mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
         mlir::PassManager pm(moduleOp->getContext());
+
+        if (printIr) {
+          pm.getContext()->disableMultithreading();
+          pm.enableIRPrinting(
+              [](mlir::Pass *, mlir::Operation *) { return false; },
+              [](mlir::Pass *, mlir::Operation *) { return true; }, true,
+              false);
+        }
 
         // Add the pass with options if provided
         if (!argument_types_string.empty()) {
@@ -64,8 +73,8 @@ void populatePassesModule(nb::module_ &m) {
         if (mlir::failed(pm.run(moduleOp))) {
           throw std::runtime_error("Failed to run pass manager");
         }
-      },
-      nb::arg("module"), nb::arg("argument_types_string") = "");
+      }, nb::arg("module"), nb::arg("argument_types_string") = "",
+      nb::arg("print_ir") = false);
 
   m.def(
       "stablehlo_pipeline",
