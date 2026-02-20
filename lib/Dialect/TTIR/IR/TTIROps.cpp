@@ -3479,101 +3479,34 @@ void mlir::tt::ttir::LinearOp::getCanonicalizationPatterns(
 }
 // ANCHOR_END: adding_an_op_matmul_ttir_verify
 
-// Returns the number of leading size-1 dimensions that need to be dropped from
-// `shapeWithLeadingOnes` to obtain `shapeWithoutLeadingOnes`, or -1 if the
-// relation does not hold.
-static int64_t
-getLeadingOnesRankDiff(llvm::ArrayRef<int64_t> shapeWithLeadingOnes,
-                       llvm::ArrayRef<int64_t> shapeWithoutLeadingOnes) {
-  int64_t rankDiff = static_cast<int64_t>(shapeWithLeadingOnes.size()) -
-                     static_cast<int64_t>(shapeWithoutLeadingOnes.size());
-  if (rankDiff <= 0) {
-    return -1;
+// Returns true if `longer` is `shorter` with leading size-1 dimensions
+// prepended.
+static bool isLeadingOnesToShorter(llvm::ArrayRef<int64_t> longer,
+                                   llvm::ArrayRef<int64_t> shorter) {
+  if (longer.size() <= shorter.size()) {
+    return false;
   }
 
-  if (!llvm::all_of(shapeWithLeadingOnes.take_front(rankDiff),
-                    [](int64_t dim) { return dim == 1; })) {
-    return -1;
-  }
-
-  if (shapeWithLeadingOnes.drop_front(rankDiff) != shapeWithoutLeadingOnes) {
-    return -1;
-  }
-
-  return rankDiff;
+  size_t rankDiff = longer.size() - shorter.size();
+  return llvm::all_of(longer.take_front(rankDiff),
+                      [](int64_t dim) { return dim == 1; }) &&
+         longer.drop_front(rankDiff) == shorter;
 }
 
-// Returns the number of leading size-1 dimensions removed by a reshape,
-// or -1 if the reshape is not a pure leading squeeze.
+// Returns true if the reshape removes leading size-1 dimensions.
 //   input:  [1, ..., 1, d0, d1, ..., dk]  (N leading 1s)
 //   output: [d0, d1, ..., dk]
-static int64_t isLeadingSqueeze(mlir::tt::ttir::ReshapeOp reshapeOp) {
-  return getLeadingOnesRankDiff(reshapeOp.getInput().getType().getShape(),
+static bool isLeadingSqueeze(mlir::tt::ttir::ReshapeOp reshapeOp) {
+  return isLeadingOnesToShorter(reshapeOp.getInput().getType().getShape(),
                                 reshapeOp.getType().getShape());
 }
 
-// Returns the number of leading size-1 dimensions added by a reshape,
-// or -1 if the reshape is not a pure leading unsqueeze.
+// Returns true if the reshape adds leading size-1 dimensions.
 //   input:  [d0, d1, ..., dk]
 //   output: [1, ..., 1, d0, d1, ..., dk]  (N leading 1s)
-static int64_t isLeadingUnsqueeze(mlir::tt::ttir::ReshapeOp reshapeOp) {
-  return getLeadingOnesRankDiff(reshapeOp.getType().getShape(),
+static bool isLeadingUnsqueeze(mlir::tt::ttir::ReshapeOp reshapeOp) {
+  return isLeadingOnesToShorter(reshapeOp.getType().getShape(),
                                 reshapeOp.getInput().getType().getShape());
-}
-
-// Computes the expected matmul output shape given two input shapes and
-// transpose flags. Returns std::nullopt if the shapes are incompatible.
-static std::optional<llvm::SmallVector<int64_t>>
-computeMatmulResultShape(llvm::ArrayRef<int64_t> inputAShape,
-                         llvm::ArrayRef<int64_t> inputBShape, bool transposeA,
-                         bool transposeB) {
-  llvm::SmallVector<int64_t> aShape(inputAShape);
-  llvm::SmallVector<int64_t> bShape(inputBShape);
-
-  if (aShape.empty() || bShape.empty()) {
-    return std::nullopt;
-  }
-
-  bool aIs1D = (aShape.size() == 1);
-  bool bIs1D = (bShape.size() == 1);
-
-  if (aIs1D) {
-    aShape.insert(aShape.begin(), 1);
-  } else if (transposeA) {
-    std::swap(aShape[aShape.size() - 1], aShape[aShape.size() - 2]);
-  }
-
-  if (bIs1D) {
-    bShape.push_back(1);
-  } else if (transposeB) {
-    std::swap(bShape[bShape.size() - 1], bShape[bShape.size() - 2]);
-  }
-
-  if (aShape.back() != bShape[bShape.size() - 2]) {
-    return std::nullopt;
-  }
-
-  llvm::SmallVector<int64_t> resultShape;
-
-  if (aShape.size() > 2 || bShape.size() > 2) {
-    llvm::SmallVector<int64_t> aBatch(aShape.begin(), aShape.end() - 2);
-    llvm::SmallVector<int64_t> bBatch(bShape.begin(), bShape.end() - 2);
-    llvm::SmallVector<int64_t, 4> broadcastedBatch;
-    if (!mlir::OpTrait::util::getBroadcastedShape(aBatch, bBatch,
-                                                  broadcastedBatch)) {
-      return std::nullopt;
-    }
-    resultShape.assign(broadcastedBatch.begin(), broadcastedBatch.end());
-  }
-
-  if (!aIs1D) {
-    resultShape.push_back(aShape[aShape.size() - 2]);
-  }
-  if (!bIs1D) {
-    resultShape.push_back(bShape.back());
-  }
-
-  return resultShape;
 }
 
 // MatmulOp canonicalization: absorb leading squeeze/unsqueeze reshapes.
@@ -3600,8 +3533,7 @@ void mlir::tt::ttir::MatmulOp::getCanonicalizationPatterns(
       return mlir::failure();
     }
 
-    int64_t unsqueezeDims = isLeadingUnsqueeze(unsqueezeOp);
-    if (unsqueezeDims < 0) {
+    if (!isLeadingUnsqueeze(unsqueezeOp)) {
       return mlir::failure();
     }
 
@@ -3613,41 +3545,44 @@ void mlir::tt::ttir::MatmulOp::getCanonicalizationPatterns(
     auto squeezeA = inputA.getDefiningOp<ttir::ReshapeOp>();
     auto squeezeB = inputB.getDefiningOp<ttir::ReshapeOp>();
 
-    int64_t squeezeDimsA = squeezeA ? isLeadingSqueeze(squeezeA) : -1;
-    int64_t squeezeDimsB = squeezeB ? isLeadingSqueeze(squeezeB) : -1;
+    bool isSqueezedA = squeezeA && isLeadingSqueeze(squeezeA);
+    bool isSqueezedB = squeezeB && isLeadingSqueeze(squeezeB);
 
-    if (squeezeDimsA < 0 && squeezeDimsB < 0) {
+    if (!isSqueezedA && !isSqueezedB) {
       return mlir::failure();
     }
 
-    if (squeezeDimsA > 0) {
+    if (isSqueezedA) {
       newA = squeezeA.getInput();
     }
-    if (squeezeDimsB > 0) {
+    if (isSqueezedB) {
       newB = squeezeB.getInput();
     }
 
     auto newAType = mlir::cast<mlir::RankedTensorType>(newA.getType());
     auto newBType = mlir::cast<mlir::RankedTensorType>(newB.getType());
 
-    auto expectedShape =
-        computeMatmulResultShape(newAType.getShape(), newBType.getShape(),
-                                 op.getTransposeA(), op.getTransposeB());
-
-    if (!expectedShape) {
+    // Bail out if either matmul input is 1D. Un-squeezing would flip it to 2D,
+    // changing matmul semantics (1D inputs have special prepend/append-1
+    // behavior that affects which dimensions are inner vs outer).
+    if (mlir::cast<mlir::RankedTensorType>(inputA.getType()).getRank() < 2 ||
+        mlir::cast<mlir::RankedTensorType>(inputB.getType()).getRank() < 2) {
       return mlir::failure();
     }
 
-    llvm::ArrayRef<int64_t> unsqueezeOutputShape =
-        unsqueezeOp.getType().getShape();
-
-    if (llvm::ArrayRef<int64_t>(*expectedShape) != unsqueezeOutputShape) {
+    // For >= 2D inputs, matmul output rank == max(rankA, rankB) because batch
+    // dims are broadcast-padded with leading 1s. The inner dims and batch
+    // values are guaranteed compatible by the existing valid matmul (squeeze
+    // only removes leading 1s). So a rank check is sufficient.
+    if (std::max(newAType.getRank(), newBType.getRank()) !=
+        unsqueezeOp.getType().getRank()) {
       return mlir::failure();
     }
 
-    auto newResultType = mlir::RankedTensorType::get(
-        *expectedShape, unsqueezeOp.getType().getElementType(),
-        unsqueezeOp.getType().getEncoding());
+    auto newResultType =
+        mlir::RankedTensorType::get(unsqueezeOp.getType().getShape(),
+                                    unsqueezeOp.getType().getElementType(),
+                                    unsqueezeOp.getType().getEncoding());
 
     rewriter.replaceOpWithNewOp<ttir::MatmulOp>(unsqueezeOp, newResultType,
                                                 newA, newB, op.getTransposeA(),
