@@ -89,6 +89,8 @@ void createTTNNPipelineTTIRPasses(
 void createTTNNPipelineAnalysisPasses(
     OpPassManager &pm, const TTIRToTTNNDevicePipelineOptions &options) {
 
+  pm.addPass(mlir::tt::ttnn::createTTNNSetCCLTopology());
+
   // Add pass to check for unique operation locations if enabled
   if (options.checkUniqueLocations) {
     pm.addPass(mlir::tt::ttnn::createTTNNUniqueLocations());
