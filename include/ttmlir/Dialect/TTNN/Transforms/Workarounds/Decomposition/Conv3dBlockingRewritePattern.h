@@ -47,15 +47,21 @@ public:
   }
 
 private:
-  // Calculate optimal C_in_block based on channel count:
-  // - Not divisible by 16 → 0 (bypass validation, TT-Metal uses full size)
-  // - Divisible by 16 and ≤128 → use as-is
-  // - > 128 → cap at 128 (max efficient blocking)
+  // Calculate optimal C_in_block: largest multiple of 16 that divides
+  // in_channels and fits in ≤128, keeping L1 circular buffers within budget.
+  // Returns 0 only when no valid blocking exists (runtime uses full C_in).
   uint32_t calculateOptimalCInBlock(uint32_t in_channels) const {
-    if (in_channels % 16 != 0 || in_channels > 128) {
-      return 0; // Bypass validation
+    if (in_channels <= 128 && in_channels % 16 == 0) {
+      return in_channels;
     }
-    return in_channels;
+    // Find largest multiple of 16 that divides in_channels and is ≤ 128
+    for (uint32_t block = 128; block >= 16; block -= 16) {
+      if (in_channels % block == 0) {
+        return block;
+      }
+    }
+    // No valid blocking found — fall back to 0 (runtime uses full size).
+    return 0;
   }
 
   std::optional<Conv3dConfigAttr>
