@@ -142,6 +142,35 @@ def create_tensor(tensor_shards, mesh_shape):
     )
 
 
+def shard_to_full(shard_map, full_shape, mesh_shape):
+    if len(shard_map) == 1:
+        # Tensor isn't sharded
+        return shard_map[0]
+    shards = [shard_map[i] for i in range(len(shard_map))]
+    shard_shape = []
+    for i in range(len(full_shape)):
+        shard_dim = full_shape[i] // shards[0].shape[i]
+        shard_shape.append(shard_dim)
+
+    if max(shard_shape) == 1:
+        # Runtime tensor is sharded
+        return shards[0]
+
+    shard_dims = [shard_shape.index(dim) for dim in mesh_shape]
+
+    for dim_size, shard_dim in zip(reversed(mesh_shape), reversed(shard_dims)):
+        if shard_dim is None or shard_dim == -1:
+            shards = shards[::dim_size]
+        else:
+            temp_shards = []
+            for i in range(0, len(shards), dim_size):
+                concat_shard = torch.cat(shards[i : i + dim_size], dim=shard_dim)
+                temp_shards.append(concat_shard)
+            shards = temp_shards
+
+    return shards[0]
+
+
 def convert_input_layouts(
     device: tt_runtime.runtime.Device,
     inputs: List[tt_runtime.runtime.Tensor],
@@ -756,24 +785,7 @@ def execute_fb(
                 )
                 golden_inputs_torch.append(torch_tensor)
 
-        golden_outputs_torch = []
-        outputs_torch = []
-        for i, o_dict in enumerate(output_dict):
-            if not disable_golden:
-                golden_outputs_torch.append(
-                    golden_input_output_tensors[program_index][f"output_{i}"]
-                )
-
-            torch_tensor = torch.zeros(
-                o_dict["desc"]["shape"],
-                dtype=runtime_str_dtype_to_torch_dtype(
-                    o_dict["desc"]["layout"]["memory_desc"]["data_type"]
-                ),
-            )
-            outputs_torch.append({0: torch_tensor})
-
         inputs = []
-        outputs = []
         for i in golden_inputs_torch:
             new_input = create_tensor(i, device.get_mesh_shape())
             inputs.append(new_input)
@@ -783,10 +795,6 @@ def execute_fb(
             fbb=fbb,
             program_index=program_index,
         )
-
-        for i in outputs_torch:
-            new_output = create_tensor(i, (1, 1))
-            outputs.append(new_output)
 
         start_submit = time.perf_counter_ns()
         try:
@@ -805,44 +813,86 @@ def execute_fb(
         e2e_duration_nanoseconds_submit = end_submit - start_submit
 
         e2e_duration_nanoseconds_output = 0
+
+        golden_outputs_torch = []
+        outputs_torch = []
+
+        for i, o_dict in enumerate(output_dict):
+            if not disable_golden:
+                golden_outputs_torch.append(
+                    golden_input_output_tensors[program_index][f"output_{i}"]
+                )
+
+            torch_tensor = torch.zeros(
+                o_dict["desc"]["shape"],
+                dtype=runtime_str_dtype_to_torch_dtype(
+                    o_dict["desc"]["layout"]["memory_desc"]["data_type"]
+                ),
+            )
+            torch_tensor = torch.zeros(
+                runtime_outputs[i].get_shape(),
+                dtype=runtime_str_dtype_to_torch_dtype(
+                    o_dict["desc"]["layout"]["memory_desc"]["data_type"]
+                ),
+            )
+            num_shards = tt_runtime.runtime.get_num_shards(runtime_outputs[i])
+            outputs_torch.append(
+                {shard_id: torch_tensor for shard_id in range(num_shards)}
+            )
+
+        outputs = []
+        for i in outputs_torch:
+            new_output = create_tensor(i, device.get_mesh_shape())
+            outputs.append(new_output)
+
         for i, runtime_output_tensor in enumerate(runtime_outputs):
             start_get_output = time.perf_counter_ns()
             output_host = tt_runtime.runtime.to_host(
                 runtime_output_tensor, untilize=True
-            )[0]
+            )
             end_get_output = time.perf_counter_ns()
             e2e_duration_nanoseconds_output += end_get_output - start_get_output
 
             if disable_golden:
                 continue
 
-            combined_output_tensor = output_host
-            if fbb.file_identifier != "TTM0":
-                combined_output_tensor = (
-                    tt_runtime.runtime.create_multi_device_host_tensor_from_shards(
-                        [output_host], {}, (1, 1)
-                    )
+            output_device_tensors = tt_runtime.runtime.get_device_tensors(outputs[i])
+            output_torch_tensor_map = {}
+            for device_id, shard in enumerate(output_host):
+                tt_runtime.runtime.memcpy(
+                    output_device_tensors[device_id],
+                    shard,
                 )
-            tt_runtime.runtime.memcpy(
-                outputs[i],
-                combined_output_tensor,
-            )
+
+                data_buffer = bytearray(
+                    output_device_tensors[device_id].get_data_buffer()
+                )
+
+                if len(data_buffer) == 0:
+                    output_tensor_torch = torch.empty(
+                        outputs[i].get_shape(),
+                        dtype=runtime_dtype_to_torch_dtype(outputs[i].get_dtype()),
+                    )
+                else:
+                    output_tensor_torch = torch.frombuffer(
+                        data_buffer,
+                        dtype=runtime_dtype_to_torch_dtype(outputs[i].get_dtype()),
+                    ).reshape(outputs[i].get_shape())
+
+                output_torch_tensor_map[device_id] = output_tensor_torch
+
             tt_runtime.runtime.deallocate_tensor(runtime_output_tensor, force=True)
 
-            data_buffer = bytearray(outputs[i].get_data_buffer())
-
-            if len(data_buffer) == 0:
-                output_tensor_torch = torch.empty(
-                    outputs[i].get_shape(),
-                    dtype=runtime_dtype_to_torch_dtype(outputs[i].get_dtype()),
-                )
-            else:
-                output_tensor_torch = torch.frombuffer(
-                    data_buffer,
-                    dtype=runtime_dtype_to_torch_dtype(outputs[i].get_dtype()),
-                ).reshape(outputs[i].get_shape())
-
-            golden_tensor_torch = golden_outputs_torch[i][0]
+            golden_tensor_torch = shard_to_full(
+                golden_outputs_torch[i],
+                output_tensor_torch.shape,
+                device.get_mesh_shape(),
+            )
+            output_tensor_torch = shard_to_full(
+                output_torch_tensor_map,
+                output_tensor_torch.shape,
+                device.get_mesh_shape(),
+            )
             results = check_outputs(
                 golden_tensor_torch,
                 output_tensor_torch,
