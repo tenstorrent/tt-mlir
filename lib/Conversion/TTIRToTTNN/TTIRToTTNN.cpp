@@ -1517,10 +1517,18 @@ public:
     auto outputDtypeAttr =
         rewriter.getAttr<ttcore::DataTypeAttr>(outputLayoutAttr.getDataType());
 
+    Value weights = adaptor.getWeight();
+
+    llvm::SmallVector<int64_t, 5> toDHWCinCoutPermutation = {2, 3, 4, 1, 0};
+
+    weights = ttir_to_ttnn::utils::generatePermute(
+        mlir::cast<TypedValue<RankedTensorType>>(weights),
+        toDHWCinCoutPermutation, rewriter,
+        ttmlir::utils::appendLocationSuffix(op.getLoc(), "_to_dhwio"));
     // Reshape weight tensor: (O, C/G, K_D, K_H, K_W) → (1, 1, K_D*K_H*K_W*C/G,
     // O)
-    Value reshapedWeight = reshapeWeightForConv3d(adaptor.getWeight(), weightTy,
-                                                  rewriter, op.getLoc());
+    Value reshapedWeight =
+        reshapeWeightForConv3d(weights, weightTy, rewriter, op.getLoc());
 
     // Reshape bias tensor: (1, 1, 1, 1, O) → (1, O)
     Value reshapedBias = adaptor.getBias();
