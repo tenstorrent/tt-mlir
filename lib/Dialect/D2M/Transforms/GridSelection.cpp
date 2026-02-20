@@ -347,12 +347,7 @@ static RankedTensorType tensorWithOptimalGrid(
   ttcore::MetalLayoutAttr newLayout =
       layoutWithOptimalGrid(oldLayout, targetGridShape, targetSquareGridShape,
                             optimalGrid, isVirtualGrid, ttnnMode, builder);
-  newLayout.dump();
-  std::cout << "optimalGrid: ";
-  for (int64_t g : optimalGrid) {
-    std::cout << g << " ";
-  }
-  std::cout << std::endl;
+
   llvm::SmallVector<int64_t> deviceShape = newLayout.getDeviceShape(
       optimalGrid, llvm::ArrayRef(tileShape.data(), tileShape.size()));
 
@@ -601,13 +596,8 @@ static void optimizeTTNNMetalLayoutCastOpGrid(
 
   if (optimalGrid == outputLayout.getGridShape(outputType)) {
     // Already at target grid shape.
-    std::cout << "Already at target grid shape." << std::endl;
     return;
   }
-  for (auto g : optimalGrid) {
-    std::cout << g << " ";
-  }
-  std::cout << std::endl;
 
   auto newTensorType = utils::reblockTensor(outputType, optimalGrid);
 
@@ -842,19 +832,9 @@ analyzeOperandsAndComputeGrids(d2m::GenericOp genericOp,
     if (isTTNNOperand(operand)) {
       llvm::SmallVector<int64_t> physShape = computePhysicalShape(
           operand, targetSquareGridShape, ttnnMode, builder);
-      std::cout << "physShape: ";
-      for (auto p : physShape) {
-        std::cout << p << " ";
-      }
-      std::cout << std::endl;
+
       auto [optimalGrid, isVirtualGrid] = computeOptimalGrid(
           operandType, physShape, targetSquareGridShape, ttnnMode);
-      std::cout << "optimalGrid: ";
-      for (auto g : optimalGrid) {
-        std::cout << g << " ";
-      }
-      std::cout << std::endl;
-      std::cout << "isVirtualGrid: " << isVirtualGrid << std::endl;
       optimalOperandGrids.push_back(optimalGrid);
       TTNNTensorsToUpdate.push_back({operand, optimalGrid, isVirtualGrid});
     } else {
@@ -863,11 +843,6 @@ analyzeOperandsAndComputeGrids(d2m::GenericOp genericOp,
       llvm::SmallVector<int64_t> physShape = computePhysicalShape(
           operand, targetSquareGridShape, ttnnMode, builder);
 
-      std::cout << "physShape 2: ";
-      for (auto p : physShape) {
-        std::cout << p << " ";
-      }
-      std::cout << std::endl;
       // Interleaved tensors do not support virtual grids
       auto [optimalGrid, isVirtualGrid] = computeOptimalGrid(
           operandType, physShape, targetSquareGridShape, ttnnMode);
