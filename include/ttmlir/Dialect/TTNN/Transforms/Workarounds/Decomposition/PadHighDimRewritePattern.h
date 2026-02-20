@@ -12,12 +12,17 @@
 
 namespace mlir::tt::ttnn::workarounds::decomposition {
 
-// ttnn::pad only supports padding on the lowest 3 dimensions for tensors with
-// rank > 4. This pattern decomposes a 5D PadOp [N,D,H,W,C] with padding on
-// D/H/W into:
-//   permute [4,0,1,2,3] → reshape [C*N,D,H,W] → pad 4D → reshape
-//   [C,N,D',H',W'] → permute [1,2,3,4,0]
-// This pattern is used to handle padding for 3d convolutions.
+// tt-metal's ttnn::pad only supports padding on the lowest 3 dimensions for
+// rank > 4 tensors, and has a bug (update_original_shape) that silently
+// corrupts shapes when unsqueezing padded tensors back to rank > 4.
+//
+// This pattern handles any rank > 4 PadOp with at most 3 padded dimensions
+// by squeezing to a lower rank:
+//   1. Permute non-padded dims to front, padded dims to back
+//   2. Reshape to merge all non-padded dims into one (rank <= 4)
+//   3. Pad the reduced-rank tensor
+//   4. Reshape back to original rank
+//   5. Inverse permute to restore original order
 // Issue: https://github.com/tenstorrent/tt-metal/issues/38144
 class PadHighDimRewritePattern : public mlir::OpRewritePattern<PadOp> {
 public:
