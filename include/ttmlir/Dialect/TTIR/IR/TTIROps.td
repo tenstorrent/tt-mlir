@@ -1922,31 +1922,25 @@ def TTIR_RealOp : TTIR_NamedOp<"real"> {
 def TTIR_ImagOp : TTIR_NamedOp<"imag"> {
   let summary = "Extract the imaginary part of a TTIR complex tensor.";
   let description = [{
-    Returns the imaginary component of a TTIR complex tensor. The result is a
-    TTIR complex tensor with no real part, holding only the imaginary tensor
-    of the input.
+      Returns the imaginary component of a TTIR complex tensor as a ranked tensor
+      of float element type.
 
-    Example:
-    ```mlir
-    %i = ttir.imag(%c)
-        : !ttir.complex_tensor<real = tensor<2xf32>, imag = tensor<2xf32>>
-          -> !ttir.complex_tensor<imag = tensor<2xf32>>
-    ```
+      Example:
+  ```mlir
+      %i = ttir.imag(%c)
+          : !ttir.complex_tensor<tensor<2xf32>, tensor<2xf32>> -> tensor<2xf32>
+  ```
   }];
 
   let arguments = (ins TTIR_ComplexTensor:$input);
-  let results = (outs TTIR_ComplexTensor:$result);
+  let results = (outs AnyRankedTensor:$result);
 
   let builders = [
     OpBuilder<(ins "::mlir::Value":$input),
     [{
       auto complexType =
           llvm::cast<::mlir::tt::ttir::ComplexTensorType>(input.getType());
-      auto imagTensorType = complexType.getImagType();
-      build($_builder, $_state,
-            ::mlir::tt::ttir::ComplexTensorType::get(
-                $_builder.getContext(), ::mlir::RankedTensorType{}, imagTensorType),
-            input);
+      build($_builder, $_state, complexType.getImagType(), input);
     }]>
   ];
   // let hasVerifier = 1;
