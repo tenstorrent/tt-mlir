@@ -1517,8 +1517,7 @@ public:
     auto outputDtypeAttr =
         rewriter.getAttr<ttcore::DataTypeAttr>(outputLayoutAttr.getDataType());
 
-    // Reshape weight tensor: (O, C/G, K_D, K_H, K_W) → (1, 1, K_D*K_H*K_W*C/G,
-    // O)
+    // Permute + reshape weight: (O, C/G, K_D, K_H, K_W) → (K_D*K_H*K_W*C/G, O)
     Value reshapedWeight = reshapeWeightForConv3d(adaptor.getWeight(), weightTy,
                                                   rewriter, op.getLoc());
 
@@ -1611,20 +1610,22 @@ private:
     int64_t kernelHeight = weightShape[3];
     int64_t kernelWidth = weightShape[4];
 
-    // Calculate flattened dimension: K_D * K_H * K_W * C/G (patch_size)
+    // Permute (O, C/G, K_D, K_H, K_W) → (K_D, K_H, K_W, C/G, O)
+    Value permutedWeight = ttir_to_ttnn::utils::generatePermute(
+        mlir::cast<TypedValue<RankedTensorType>>(weight),
+        {2, 3, 4, 1, 0}, rewriter, loc);
+
     int64_t flattenedDim =
         kernelDepth * kernelHeight * kernelWidth * inChannPerGroup;
 
-    // New shape: (K_D*K_H*K_W*C/G, O) - 2D tensor as required by Conv3d
     llvm::SmallVector<int64_t> newShape = {flattenedDim, outChannels};
     llvm::SmallVector<int32_t> newShapeI32(newShape.begin(), newShape.end());
 
     RankedTensorType outputType =
         ttnn::utils::RankedTensorTypeFactory::create(weightTy, newShape);
 
-    // Create reshape operation
     return rewriter.create<ttnn::ReshapeOp>(
-        loc, outputType, weight, rewriter.getI32ArrayAttr(newShapeI32),
+        loc, outputType, permutedWeight, rewriter.getI32ArrayAttr(newShapeI32),
         /*memory_config=*/nullptr);
   }
 
