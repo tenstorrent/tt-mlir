@@ -13,6 +13,7 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
@@ -223,7 +224,8 @@ protected:
   // dimension alignments are computed later in the D2MGridSelection pass.
   Value createOptimalLayoutOp(Value value, ttcore::MemorySpace memSpace,
                               bool tiled, bool noCollapse,
-                              mlir::ConversionPatternRewriter &rewriter) const {
+                              mlir::ConversionPatternRewriter &rewriter,
+                              ttcore::OOBVal oobVal) const {
     bool isTTNN = isTTNNTensor(value.getType());
     if (isTTNN) {
       assert(ttnnMode && "Unexpected TTNN tensor as op operand");
@@ -282,13 +284,13 @@ protected:
       }
 
       layout = ttcore::MetalLayoutAttr::get(
-          rewriter.getContext(), logicalShape, ttcore::OOBVal::Undef, memSpace,
+          rewriter.getContext(), logicalShape, oobVal, memSpace,
           ttcore::TensorMemoryLayout::Sharded, emptyCollapseIntervals,
           coreVirtMap);
 
     } else {
       layout = ttcore::MetalLayoutAttr::get(
-          rewriter.getContext(), logicalShape, ttcore::OOBVal::Undef, memSpace,
+          rewriter.getContext(), logicalShape, oobVal, memSpace,
           ttcore::TensorMemoryLayout::Sharded);
     }
 
@@ -308,25 +310,43 @@ protected:
         ->getResult(0);
   }
 
+  Value createOptimalLayoutOp(Value value, ttcore::MemorySpace memSpace,
+                              bool tiled, bool noCollapse,
+                              mlir::ConversionPatternRewriter &rewriter) const {
+    return createOptimalLayoutOp(value, memSpace, tiled, noCollapse, rewriter,
+                                 ttcore::OOBVal::Undef);
+  }
+
   // Insert ToLayout operations for a genericOp's operands and results,
   // including sharding and tilizing, with simple 1x1 grids; grid optimization
   // happens later in the D2MGridSelection pass.
   std::array<mlir::SmallVector<Value>, 2> toLayoutOperandsAndResults(
       mlir::ConversionPatternRewriter &rewriter,
       std::array<mlir::SmallVector<Value>, 2> operandsAndResults, bool tiled,
-      bool noCollapse = false) const {
+      bool noCollapse, ttcore::OOBVal oobVal) const {
     std::array<mlir::SmallVector<Value>, 2> result;
 
     for (Value operand : operandsAndResults[0]) {
       result[0].push_back(createOptimalLayoutOp(operand, memorySpaces[0], tiled,
-                                                noCollapse, rewriter));
+                                                noCollapse, rewriter, oobVal));
     }
+    // Outputs always use Undef: they are destination buffers being written
+    // into, so their padding fill value is irrelevant.  Only inputs need
+    // identity-element OOB to prevent padded tiles from corrupting reductions.
     for (Value operand : operandsAndResults[1]) {
       result[1].push_back(createOptimalLayoutOp(operand, memorySpaces[1], tiled,
                                                 noCollapse, rewriter));
     }
 
     return result;
+  }
+
+  std::array<mlir::SmallVector<Value>, 2> toLayoutOperandsAndResults(
+      mlir::ConversionPatternRewriter &rewriter,
+      std::array<mlir::SmallVector<Value>, 2> operandsAndResults, bool tiled,
+      bool noCollapse = false) const {
+    return toLayoutOperandsAndResults(rewriter, operandsAndResults, tiled,
+                                      noCollapse, ttcore::OOBVal::Undef);
   }
 
   Operation *unLayoutResult(mlir::ConversionPatternRewriter &rewriter,
@@ -907,6 +927,19 @@ public:
                                enableMulticastInference) {}
 
 private:
+  // Return the identity OOB fill value for this reduction's tile op.
+  // Padded elements must not affect the reduction result.
+  static constexpr ttcore::OOBVal getReductionOOBVal() {
+    if constexpr (std::is_same_v<TileOp, d2m::TileReduceMaxOp>) {
+      return ttcore::OOBVal::NegInf;
+    } else if constexpr (std::is_same_v<TileOp, d2m::TileReduceSumOp>) {
+      return ttcore::OOBVal::Zero;
+    } else {
+      static_assert(ttmlir::utils::always_false<TileOp>(),
+                    "Unhandled reduction TileOp");
+    }
+  }
+
   LogicalResult
   matchAndRewrite(ConcreteOp op, typename ConcreteOp::Adaptor adaptor,
                   mlir::ConversionPatternRewriter &rewriter) const final {
@@ -926,9 +959,9 @@ private:
         mlir::cast<RankedTensorType>(origInputs.front().getType());
     bool noCollapse = (inputTensorType.getRank() > 2);
 
-    auto [inputs, outputs] =
-        toLayoutOperandsAndResults(rewriter, {newInputs, origOutputs},
-                                   /*tiled*/ true, noCollapse);
+    auto [inputs, outputs] = toLayoutOperandsAndResults(
+        rewriter, {newInputs, origOutputs},
+        /*tiled*/ true, noCollapse, getReductionOOBVal());
 
     const std::size_t numInputs = inputs.size();
     const std::size_t numOutputs = outputs.size();
