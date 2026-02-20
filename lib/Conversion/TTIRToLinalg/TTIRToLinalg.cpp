@@ -8,6 +8,7 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
+#include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
@@ -3130,15 +3131,17 @@ public:
     TypedAttr minAttr, maxAttr;
 
     if (isa<FloatType>(elementType)) {
-      minAttr =
-          rewriter.getFloatAttr(elementType, op.getMin().convertToDouble());
-      maxAttr =
-          rewriter.getFloatAttr(elementType, op.getMax().convertToDouble());
+      minAttr = rewriter.getFloatAttr(
+          elementType, ttmlir::utils::attributeToDouble(op.getMin()));
+      maxAttr = rewriter.getFloatAttr(
+          elementType, ttmlir::utils::attributeToDouble(op.getMax()));
     } else if (isa<IntegerType>(elementType)) {
       minAttr = rewriter.getIntegerAttr(
-          elementType, static_cast<int64_t>(op.getMin().convertToDouble()));
+          elementType,
+          static_cast<int64_t>(ttmlir::utils::attributeToDouble(op.getMin())));
       maxAttr = rewriter.getIntegerAttr(
-          elementType, static_cast<int64_t>(op.getMax().convertToDouble()));
+          elementType,
+          static_cast<int64_t>(ttmlir::utils::attributeToDouble(op.getMax())));
     } else {
       return rewriter.notifyMatchFailure(op,
                                          "Unsupported element type for clamp");
