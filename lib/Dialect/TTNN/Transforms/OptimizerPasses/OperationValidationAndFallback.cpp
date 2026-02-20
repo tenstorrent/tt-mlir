@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTNN/Analysis/Conv2dConfigSearchSpace.h"
+#include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfigAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
@@ -20,6 +21,8 @@
 #include "mlir/Support/WalkResult.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/TypeSwitch.h"
+
+#include "llvm/ADT/STLExtras.h"
 
 #include <cassert>
 #include <cstddef>
@@ -92,13 +95,13 @@ void applyFallbackTransformations(
     Operation *operation, const std::vector<TTNNLayoutAttr> &originalLayouts,
     const std::vector<TTNNLayoutAttr> &workingLayouts,
     const op_constraint_validation::ValidationResult &result,
-    const OpConfig &config);
+    const llvm::SmallVector<OpConfig> &configs);
 
 void applyInputOperandChange(Operation *operation, size_t operandIndex,
                              TTNNLayoutAttr currentLayoutAttr,
                              TTNNLayoutAttr targetLayoutAttr);
 
-void applyOutputLayoutRevert(Operation *operation,
+void applyOutputLayoutRevert(Operation *operation, size_t resultIndex,
                              TTNNLayoutAttr actualOutputLayout,
                              TTNNLayoutAttr expectedOutputLayout);
 
@@ -168,25 +171,34 @@ public:
           return WalkResult::skip();
         }
 
-        totalOperationsChecked++;
+        // Extract OpConfigs from IR
+        llvm::SmallVector<OpConfig> configs = extractOpConfigsFromIR(operation);
 
-        // Extract OpConfig from IR
-        OpConfig config = extractOpConfigFromIR(operation);
+        // Ops with no tensor results (e.g., in-place ops like UpdateCacheOp)
+        // still need validation. The backend returns the mutated tensor as an
+        // output, so use a default null-layout config to allow validation
+        // without triggering output layout comparisons.
+        if (configs.empty()) {
+          configs.emplace_back(OpConfig{nullptr});
+        }
+
+        totalOperationsChecked++;
 
         // Extract input layouts from the operation
         std::vector<TTNNLayoutAttr> inputLayouts =
             utils::extractInputLayouts(operation);
 
         TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
-                     "Validating operation {} at {} with {} input layouts, {} "
-                     "output layout",
+                     "Validating operation {} at {} with {} input layouts, "
+                     "with {} output layouts, {} first output layout",
                      operation->getName(), operation->getLoc(),
-                     inputLayouts.size(), config.outputLayout);
+                     inputLayouts.size(), configs.size(),
+                     configs[0].outputLayout);
 
         // Test original configuration
         op_constraint_validation::ValidationResult originalResult =
             op_constraint_validation::validateOperation(operation, inputLayouts,
-                                                        config);
+                                                        configs[0]);
         if (originalResult.isNotImplemented()) {
           TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
                        "Operation {} at {} not supported for validation: {}",
@@ -196,23 +208,34 @@ public:
         }
 
         if (originalResult.isSuccess()) {
-          // Check if config has output layout before comparing
-          if (config.outputLayout &&
-              originalResult.actualOutputLayout != config.outputLayout) {
-            // Output layout mismatch - need to update the IR to match the
-            // expected layout and insert necessary conversions back to the
-            // expected layout.
-            TTMLIR_DEBUG(
-                ttmlir::LogComponent::OpValidation,
-                "Operation {} at {} passed validation with original config "
-                "but output layouts mismatch: expected output layout: {}, "
-                "backend output layout: {}",
-                operation->getName(), operation->getLoc(), config.outputLayout,
-                originalResult.actualOutputLayout);
+          bool outputLayoutsChangeNeeded = false;
+          assert(originalResult.actualOutputLayouts.size() == configs.size() &&
+                 "Validation result must contain actual output layouts for all "
+                 "configs.");
+          for (size_t i = 0; i < configs.size(); ++i) {
+            // Skip null-layout configs (e.g., in-place ops with no tensor
+            // results)
+            if (configs[i].outputLayout &&
+                originalResult.actualOutputLayouts[i] !=
+                    configs[i].outputLayout) {
+              // Output layout mismatch - need to update the IR to match the
+              // expected layout and insert necessary conversions back to the
+              // expected layout.
+              TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
+                           "Operation {} at {} passed validation but output "
+                           "layout index {} mismatch: expected output layout: "
+                           "{}, backend output layout: {}",
+                           operation->getName(), operation->getLoc(), i,
+                           configs[i].outputLayout,
+                           originalResult.actualOutputLayouts[i]);
+              outputLayoutsChangeNeeded = true;
+            }
+          }
+          if (outputLayoutsChangeNeeded) {
             // Passing inputLayouts as both original and working layouts
             // because we didn't change input layouts.
             fallbacks::applyFallbackTransformations(
-                operation, inputLayouts, inputLayouts, originalResult, config);
+                operation, inputLayouts, inputLayouts, originalResult, configs);
           } else {
             TTMLIR_TRACE(
                 ttmlir::LogComponent::OpValidation,
@@ -221,23 +244,27 @@ public:
           }
         } else {
           // Try fallback configurations
+          // TODO(bmalesevic, #7023): Fallback paths only pass configs[0] to
+          // tryFallbacks/tryConfigFallbacks, so multi-output ops will only
+          // have the first output's layout revert handled. Extend to pass
+          // all configs when multi-output fallback support is needed.
+          bool fixed = false;
           // For OOM errors, try config fallbacks first as they're cheaper (no
           // ToLayout ops)
-          bool fixed = false;
           if (originalResult.status ==
               op_constraint_validation::ValidationStatus::OutOfMemoryError) {
             TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
                          "OOM error detected, trying config fallbacks first "
                          "for operation {} at {}",
                          operation->getName(), operation->getLoc());
-            fixed = fallbacks::tryConfigFallbacks(operation, inputLayouts,
-                                                  config, maxFallbackAttempts);
+            fixed = fallbacks::tryConfigFallbacks(
+                operation, inputLayouts, configs[0], maxFallbackAttempts);
           }
 
           // If config fallbacks didn't work or it wasn't an OOM error, try
           // layout fallbacks
           if (!fixed) {
-            fixed = fallbacks::tryFallbacks(operation, inputLayouts, config,
+            fixed = fallbacks::tryFallbacks(operation, inputLayouts, configs[0],
                                             maxFallbackAttempts);
           }
 
@@ -253,8 +280,8 @@ public:
                          op_constraint_validation::validationStatusToString(
                              originalResult.status),
                          operation->getName(), operation->getLoc());
-            fixed = fallbacks::tryConfigFallbacks(operation, inputLayouts,
-                                                  config, maxFallbackAttempts);
+            fixed = fallbacks::tryConfigFallbacks(
+                operation, inputLayouts, configs[0], maxFallbackAttempts);
           }
 
           if (fixed) {
@@ -310,29 +337,29 @@ private:
         << "\nOperation IR: " << os.str();
   }
 
-  // Extract OpConfig from operation's IR
-  OpConfig extractOpConfigFromIR(Operation *operation) {
-    OpConfig config;
+  // Extract OpConfigs from operation's IR
+  llvm::SmallVector<OpConfig> extractOpConfigsFromIR(Operation *operation) {
+    llvm::SmallVector<OpConfig> configs;
 
-    if (operation->getNumResults() > 0) {
-      // Extract output layout from result type
-      if (auto tensorType = mlir::dyn_cast<RankedTensorType>(
-              operation->getResultTypes()[0])) {
+    for (auto result : operation->getResults()) {
+      if (auto tensorType =
+              mlir::dyn_cast<RankedTensorType>(result.getType())) {
         if (auto layoutAttr = mlir::dyn_cast_or_null<TTNNLayoutAttr>(
                 tensorType.getEncoding())) {
-          config.outputLayout = layoutAttr;
+          configs.emplace_back(OpConfig{layoutAttr});
         }
       }
     }
 
-    // For Conv2d operations, extract op-specific attributes
+    // For Conv2d operations, extract op-specific attributes to first OpConfig
+    // for validation and fallback purposes.
     llvm::TypeSwitch<Operation *>(operation)
-        .Case<ttnn::Conv2dOp, ttnn::ConvTranspose2dOp>([&config](auto convOp) {
-          config.opSpecificAttrs = Conv2dAttrs{convOp.getConv2dConfigAttr(),
-                                               convOp.getComputeConfigAttr()};
+        .Case<ttnn::Conv2dOp, ttnn::ConvTranspose2dOp>([&configs](auto convOp) {
+          configs[0].opSpecificAttrs = Conv2dAttrs{
+              convOp.getConv2dConfigAttr(), convOp.getComputeConfigAttr()};
         });
 
-    return config;
+    return configs;
   }
 };
 
@@ -440,10 +467,13 @@ bool tryFallbacks(Operation *operation,
       }
       continue;
     }
-
+    // TODO(bmalesevic, #7023): Multi-output fallback not yet supported.
+    assert(operation->getNumResults() == 1 &&
+           "Multi-output fallback not yet supported (see #7023)");
+    llvm::SmallVector<OpConfig> outputConfigs({config});
     // Found working solution, apply transformations
     applyFallbackTransformations(operation, originalInputLayouts,
-                                 candidate.layouts, result, config);
+                                 candidate.layouts, result, outputConfigs);
     TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
                  "Found working fallback combination with {} operands after {} "
                  "failed attempts",
@@ -683,7 +713,7 @@ void applyFallbackTransformations(
     Operation *operation, const std::vector<TTNNLayoutAttr> &originalLayouts,
     const std::vector<TTNNLayoutAttr> &workingLayouts,
     const op_constraint_validation::ValidationResult &result,
-    const OpConfig &config) {
+    const llvm::SmallVector<OpConfig> &configs) {
 
   // Apply input operand changes for each operand that was transformed
   for (size_t i = 0; i < workingLayouts.size(); ++i) {
@@ -698,53 +728,68 @@ void applyFallbackTransformations(
     applyInputOperandChange(operation, i, originalLayout, transformedLayout);
   }
 
-  if (!config.outputLayout) {
-    // Current operation doesn't have expected output layout, nothing more to
-    // do.
+  if (llvm::all_of(configs, [](const OpConfig &config) {
+        return !config.outputLayout;
+      })) {
+    // Current operation doesn't have any expected output layouts, nothing more
+    // to do.
     return;
   }
 
-  // Handle output layout changes if backend produced different layout
-  if (result.actualOutputLayout != config.outputLayout) {
-    if (result.actualOutputLayout.getLayout() ==
-            config.outputLayout.getLayout() &&
-        result.actualOutputLayout.getDataType() ==
-            config.outputLayout.getDataType() &&
-        result.actualOutputLayout.getBufferType() ==
-            config.outputLayout.getBufferType() &&
-        result.actualOutputLayout.getMemLayout() ==
-            config.outputLayout.getMemLayout()) {
-      // This may happen if GridAttr is different, which should not matter for
-      // any memory layout other than Sharded. Since fallbacks do not go into
-      // Sharded memory layout, we can avoid this case for now.
-      return;
+  for (size_t i = 0; i < configs.size(); ++i) {
+    if (!configs[i].outputLayout) {
+      // This config doesn't have an expected output layout, skip it.
+      continue;
     }
 
-    // Step 1: Update operation's result type to what backend actually
-    // produced
-    assert(operation->getNumResults() == 1 &&
-           "Currently only single-result operations are supported");
-    auto oldResultType =
-        mlir::dyn_cast<RankedTensorType>(operation->getResult(0).getType());
-    assert(oldResultType && "Operation result type must be RankedTensorType");
-    auto newResultType =
-        RankedTensorType::get(oldResultType.getShape(),
-                              result.actualOutputLayout.getScalarElementType(),
-                              result.actualOutputLayout);
-    operation->getResult(0).setType(newResultType);
+    assert(
+        result.actualOutputLayouts.size() > i &&
+        "Validation result must contain actual output layout for each output.");
+    // Handle output layout changes if backend produced different layout
+    if (result.actualOutputLayouts[i] != configs[i].outputLayout) {
 
-    // Update the layout attribute for ops that have one (e.g., creation ops).
-    // The layout attribute must match the result type's layout.
+      if (result.actualOutputLayouts[i].getLayout() ==
+              configs[i].outputLayout.getLayout() &&
+          result.actualOutputLayouts[i].getDataType() ==
+              configs[i].outputLayout.getDataType() &&
+          result.actualOutputLayouts[i].getBufferType() ==
+              configs[i].outputLayout.getBufferType() &&
+          result.actualOutputLayouts[i].getMemLayout() ==
+              configs[i].outputLayout.getMemLayout()) {
+        // This may happen if GridAttr is different, which should not matter for
+        // any memory layout other than Sharded. Since fallbacks do not go into
+        // Sharded memory layout, we can avoid this case for now.
+        continue;
+      }
+
+      // Step 1: Update operation's result type to what backend actually
+      // produced
+      auto oldResultType =
+          mlir::dyn_cast<RankedTensorType>(operation->getResult(i).getType());
+      assert(oldResultType && "Operation result type must be RankedTensorType");
+      auto newResultType = RankedTensorType::get(
+          oldResultType.getShape(),
+          result.actualOutputLayouts[i].getScalarElementType(),
+          result.actualOutputLayouts[i]);
+      operation->getResult(i).setType(newResultType);
+
+      // Step 2: Add revert ToLayoutOp to convert back to expected layout for
+      // consumers
+      applyOutputLayoutRevert(operation, i, result.actualOutputLayouts[i],
+                              configs[i].outputLayout);
+    }
+  }
+
+  // Update the layout attribute for ops that have one (e.g., creation ops).
+  // The layout attribute must match the first result type's layout.
+  if (configs[0].outputLayout &&
+      result.checkAndGetFirstActualOutputLayout() != configs[0].outputLayout) {
     if (TTNNLayoutOpInterface opWithLayoutIF =
             mlir::dyn_cast<TTNNLayoutOpInterface>(operation)) {
       opWithLayoutIF.setLayoutAttr(LayoutAttr::get(
-          operation->getContext(), result.actualOutputLayout.getLayout()));
+          operation->getContext(),
+          result.checkAndGetFirstActualOutputLayout().getLayout()));
     }
-
-    // Step 2: Add revert ToLayoutOp to convert back to expected layout for
-    // consumers
-    applyOutputLayoutRevert(operation, result.actualOutputLayout,
-                            config.outputLayout);
   }
 }
 
@@ -782,15 +827,16 @@ void applyInputOperandChange(Operation *operation, size_t operandIndex,
 }
 
 // Apply output layout revert after an operation
-void applyOutputLayoutRevert(Operation *operation,
+void applyOutputLayoutRevert(Operation *operation, size_t resultIndex,
                              TTNNLayoutAttr actualOutputLayout,
                              TTNNLayoutAttr expectedOutputLayout) {
   TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
-               "Applying output layout revert for operation {}: "
+               "Applying output layout revert for operation {} result {}: "
                "actual layout {}, expected layout {}",
-               operation->getName(), actualOutputLayout, expectedOutputLayout);
+               operation->getName(), resultIndex, actualOutputLayout,
+               expectedOutputLayout);
 
-  Value result = operation->getResult(0);
+  Value result = operation->getResult(resultIndex);
   auto currentResultType = mlir::cast<RankedTensorType>(result.getType());
 
   // Save all uses of the operation's result before making changes
@@ -906,8 +952,8 @@ bool tryConfigFallbacks(Operation *operation,
                 Conv2dSliceType::DramHeight};
 
             for (Conv2dSliceType sliceType : sliceConfigsToTry) {
-              // Use l1SearchSpace for L1Full (includes 0), dramSearchSpace for
-              // DRAM slices (excludes 0)
+              // Use l1SearchSpace for L1Full (includes 0), dramSearchSpace
+              // for DRAM slices (excludes 0)
               const Conv2dConfigSearchSpace &currentSearchSpace =
                   (sliceType == Conv2dSliceType::L1Full) ? l1SearchSpace
                                                          : dramSearchSpace;
@@ -972,8 +1018,8 @@ bool tryConfigFallbacks(Operation *operation,
             return false;
           })
           // ConvTranspose2dOp doesn't support slice config attribute yet
-          // TODO(bmalesevic, #6639): Move ConvTranspose2dOp to case above when
-          // slice config attribute is supported
+          // TODO(bmalesevic, #6639): Move ConvTranspose2dOp to case above
+          // when slice config attribute is supported
           .Case<ttnn::ConvTranspose2dOp>([&](ttnn::ConvTranspose2dOp convOp) {
             Conv2dConfigGenerator configGenerator(&convOp, baseConfig,
                                                   l1SearchSpace, filterOutFn);
@@ -1009,7 +1055,8 @@ bool tryConfigFallbacks(Operation *operation,
                            static_cast<int>(result.status),
                            result.errorMessage);
 
-              // Check if we've exceeded the maximum attempts (if limit is set)
+              // Check if we've exceeded the maximum attempts (if limit is
+              // set)
               if (maxAttempts > 0 &&
                   failedAttempts >= static_cast<size_t>(maxAttempts)) {
                 TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
@@ -1035,10 +1082,15 @@ bool tryConfigFallbacks(Operation *operation,
     // Found a working config, apply it
     applyConfigChange(operation, workingConfig);
 
+    // TODO(bmalesevic, #7023): Multi-output fallback not yet supported.
+    assert(operation->getNumResults() == 1 &&
+           "Multi-output fallback not yet supported (see #7023)");
     if (originalConfig.outputLayout &&
-        workingResult.actualOutputLayout != originalConfig.outputLayout) {
-      applyOutputLayoutRevert(operation, workingResult.actualOutputLayout,
-                              originalConfig.outputLayout);
+        workingResult.checkAndGetFirstActualOutputLayout() !=
+            originalConfig.outputLayout) {
+      applyOutputLayoutRevert(
+          operation, 0, workingResult.checkAndGetFirstActualOutputLayout(),
+          originalConfig.outputLayout);
     }
 
     TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,

@@ -11,6 +11,7 @@
 #include "mlir/IR/Operation.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/StringRef.h"
+#include <cassert>
 
 namespace mlir::tt::ttnn {
 
@@ -37,7 +38,7 @@ struct ValidationResult {
   size_t configIndex = 0;
 
   // What the backend actually returned (only valid if status == Success).
-  TTNNLayoutAttr actualOutputLayout;
+  llvm::SmallVector<TTNNLayoutAttr> actualOutputLayouts;
 
   // L1 memory usage for the output tensor in bytes (only valid if status ==
   // Success). This is the per-core L1 footprint of the output tensor.
@@ -48,16 +49,39 @@ struct ValidationResult {
 
   ValidationResult() = default;
 
-  explicit ValidationResult(size_t configIndex,
-                            TTNNLayoutAttr actualOutputLayout,
-                            uint64_t outputL1Usage = 0)
-      : configIndex(configIndex), actualOutputLayout(actualOutputLayout),
+  explicit ValidationResult(
+      size_t configIndex, llvm::SmallVector<TTNNLayoutAttr> actualOutputLayouts,
+      uint64_t outputL1Usage = 0)
+      : configIndex(configIndex),
+        actualOutputLayouts(std::move(actualOutputLayouts)),
         outputL1Usage(outputL1Usage) {}
+
+  // Accessors for the first actual output layout (convenience for single-output
+  // ops).
+  // TODO(bmalesevic, #7023): after resolving, consider removing these if they
+  // encourage misuse for multi-output ops.
+  TTNNLayoutAttr getFirstActualOutputLayout() const {
+    return actualOutputLayouts.empty() ? nullptr : actualOutputLayouts[0];
+  }
+  TTNNLayoutAttr checkAndGetFirstActualOutputLayout() const {
+    assert(!actualOutputLayouts.empty());
+    return actualOutputLayouts.front();
+  }
 
   static ValidationResult success(size_t configIndex,
                                   TTNNLayoutAttr actualOutputLayout,
                                   uint64_t outputL1Usage = 0) {
-    return ValidationResult(configIndex, actualOutputLayout, outputL1Usage);
+    return ValidationResult(
+        configIndex, llvm::SmallVector<TTNNLayoutAttr>{actualOutputLayout},
+        outputL1Usage);
+  }
+
+  static ValidationResult
+  success(size_t configIndex,
+          llvm::SmallVector<TTNNLayoutAttr> actualOutputLayouts,
+          uint64_t outputL1Usage = 0) {
+    return ValidationResult(configIndex, std::move(actualOutputLayouts),
+                            outputL1Usage);
   }
 
   static ValidationResult error(ValidationStatus status, std::string message) {
