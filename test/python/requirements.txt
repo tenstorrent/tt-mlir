@@ -5,5 +5,5 @@ pytest-json-report
 pytest-forked
 setuptools
 --extra-index-url https://download.pytorch.org/whl/cpu
-torch==2.7.0
+torch==2.3.0
 einops
