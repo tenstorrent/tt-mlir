@@ -4,15 +4,20 @@
 // RUN: FileCheck %s --input-file=%t.mlir
 
 // Test that an arithmetic sequence constant (iota-like) sharded across all
-// devices is replaced with partition_id-based computation.
-// CHECK: stablehlo.partition_id
+// devices is replicated (kept at full size) and distributed via all_to_all.
+// ReplicateNonSplittableConstantsPass marks it as replicated; reshard +
+// collective ops handle the distribution. UpdateGlobalToLocalShapes keeps
+// the constant unchanged since newType == originalType.
+// CHECK: stablehlo.constant dense<[0, 1, 2, 3, 4, 5, 6, 7]>
+// CHECK: stablehlo.all_to_all
 module @IotaConstantSharding attributes {mhlo.cross_program_prefetches = [], mhlo.frontend_attributes = {xla.sdy.meshes = "{mesh = #sdy.mesh<[\22_axis_0\22=8]>}"}, mhlo.input_output_alias = [], mhlo.is_dynamic = false, mhlo.use_auto_spmd_partitioning = false} {
   func.func @main(
     %arg0: tensor<8xi32> {mhlo.frontend_attributes = {xla.sdy.sharding = "#sdy.sharding<@mesh, [{\22_axis_0\22}]>"}, mhlo.sharding = "{devices=[8]<=[8]}", ttcore.argument_type = #ttcore.argument_type<input>}
   ) -> tensor<8xi32> {
-    // Arithmetic sequence [0,1,...,7]: each device k should get value k.
-    // After propagation and UpdateGlobalToLocalShapes this is replaced by
-    // stablehlo.partition_id-based computation instead of a static constant.
+    // Non-splat, non-periodic constant [0,1,...,7]: ReplicateNonSplittableConstantsPass
+    // marks it as replicated, then reshard/collective ops handle distribution.
+    // UpdateGlobalToLocalShapes sees replicated sharding (newType == originalType)
+    // and keeps the constant value as-is.
     %c = stablehlo.constant dense<[0, 1, 2, 3, 4, 5, 6, 7]> : tensor<8xi32>
     %result = stablehlo.add %arg0, %c : tensor<8xi32>
     return %result : tensor<8xi32>
