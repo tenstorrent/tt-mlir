@@ -164,6 +164,40 @@ bufferization::BufferLikeType
 getBufferType(Type type, bool isView,
               std::optional<MetalLayoutAttr> hostInfo = std::nullopt);
 
+// ArgumentType helpers
+
+// Retrieves the ArgumentType for a given function argument, defaulting to
+// Input if not specified.
+inline ArgumentType getFunctionArgumentType(func::FuncOp op, size_t argIndex) {
+  auto argAttrDict = op.getArgAttrDict(argIndex);
+  if (argAttrDict && argAttrDict.contains(ArgumentTypeAttr::name)) {
+    Attribute attr = argAttrDict.get(ArgumentTypeAttr::name);
+    auto argTypeAttr = mlir::cast<ttcore::ArgumentTypeAttr>(attr);
+    return argTypeAttr.getValue();
+  }
+
+  // Default to Input if not specified
+  return ArgumentType::Input;
+}
+
+// Checks if the function argument is of type Input.
+inline bool isInputArgumentType(func::FuncOp op, size_t argIndex) {
+  return getFunctionArgumentType(op, argIndex) == ArgumentType::Input;
+}
+
+// Checks if the function argument is of type Constant or Parameter.
+inline bool isConstantOrParameterArgumentType(func::FuncOp op,
+                                              size_t argIndex) {
+  ArgumentType argType = getFunctionArgumentType(op, argIndex);
+  return argType == ArgumentType::Constant ||
+         argType == ArgumentType::Parameter;
+}
+
+// Checks if the function argument has the ttcore.kv_cache attribute attached.
+inline bool isKVCacheArgument(func::FuncOp op, size_t argIndex) {
+  return op.getArgAttr(argIndex, ttcore::g_kvCacheAttrName) != nullptr;
+}
+
 } // namespace mlir::tt::ttcore
 
 #endif // TTMLIR_DIALECT_TTCORE_IR_UTILS_H

@@ -24,19 +24,14 @@ getTraceCacheKeys(const ::tt::target::ttnn::CaptureOrExecuteTraceOp *op,
                                    op->execute_program_id())};
 }
 
-static void copyTensor(const ::tt::target::ttnn::TensorRef *srcTensorDesc,
-                       const ::ttnn::Tensor &srcTensor,
+static void copyTensor(const ::ttnn::Tensor &srcTensor,
                        ::ttnn::Tensor &dstTensor) {
 
-  if (::tt::runtime::ttnn::utils::inSystemMemory(srcTensorDesc)) {
-    ::tt::tt_metal::tensor_impl::copy_to_device(srcTensor, dstTensor);
-    return;
-  }
+  LOG_ASSERT(srcTensor.storage_type() == ::ttnn::StorageType::HOST &&
+                 dstTensor.storage_type() == ::ttnn::StorageType::DEVICE,
+             "srcTensor must be on host and dstTensor must be on device");
 
-  LOG_ASSERT(::tt::runtime::workaround::Env::get().traceImplicitFromDevice,
-             "traceImplicitFromDevice workaround must be enabled.");
-  ::ttnn::Tensor hostSrcTensor = ::ttnn::from_device(srcTensor);
-  ::tt::tt_metal::tensor_impl::copy_to_device(hostSrcTensor, dstTensor);
+  ::tt::tt_metal::tensor_impl::copy_to_device(srcTensor, dstTensor);
 }
 
 static void runTraceProgramAndCaptureTrace(
@@ -140,16 +135,37 @@ static void executeTrace(const ::tt::target::ttnn::CaptureOrExecuteTraceOp *op,
         traceData.inputTensors[i].as<::tt::runtime::ttnn::TTNNTensorWrapper>(
             DeviceRuntime::TTNN);
 
-    // If the input tensor versions match (i.e. has been constant since the
-    // previous trace) then we can skip the copy
-    // TODO (#3606): We should model this in the compiler somehow. Currently
-    // it's done implicitly by the runtime.
+    // By trace convention, tensors already on device are constants or KV cache
+    // that persist in their trace slots. Regular inputs require host-to-device
+    // copy into their trace input slots on device.
+    if (input->desc()->layout()->memory_desc()->storage_type() ==
+        ::tt::target::ttnn::StorageType::Device) {
+      LOG_ASSERT(inputTensorWrapper.getVersion() ==
+                     inputSlotWrapper.getVersion(),
+                 "Device trace slots for non-regular inputs (constants and KV "
+                 "cache) are persisted across traces, so their versions must "
+                 "be the same. Expected version: ",
+                 inputSlotWrapper.getVersion());
+      LOG_ASSERT(inputTensorWrapper.getTensor().storage_type() ==
+                     ::ttnn::StorageType::DEVICE &&
+                 "Non-regular inputs must already be on device.");
+      LOG_DEBUG("Skipping copy for constant input ", i,
+                " since it is already on device and trace input slot is "
+                "persisted across traces. Version: ",
+                inputTensorWrapper.getVersion());
+      continue;
+    }
+
+    // For regular inputs, we copy the input tensor from host, if there is a
+    // version mismatch between the input tensor and the trace input slot, into
+    // the corresponding trace input slot on device. This ensures that the trace
+    // input slots always have the most up-to-date data from the host for
+    // regular inputs.
     if (inputTensorWrapper.getVersion() == inputSlotWrapper.getVersion()) {
       continue;
     }
 
-    copyTensor(input, inputTensorWrapper.getTensor(),
-               inputSlotWrapper.getTensor());
+    copyTensor(inputTensorWrapper.getTensor(), inputSlotWrapper.getTensor());
 
     // Input slot will now contain identical data as the input tensor
     // Thus we can syncronize their versions
