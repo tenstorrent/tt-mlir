@@ -32,22 +32,20 @@ def TTIR_Semaphore : TTIR_Type<"Semaphore", "semaphore"> {
 def TTIR_ComplexTensor : TTIR_Type<"ComplexTensor", "complex_tensor"> {
     let summary = "TTIR complex tensor type.";
     let description = [{
-        A complex tensor type represented as a pair of ranked tensors:
-        one for the real component and one for the imaginary component.
-        This is distinct from MLIR's built-in complex type, which operates
-        on scalar element types.
+        A complex tensor type represented as an optional real tensor and a
+        required imaginary tensor. When the real component is absent, the type
+        represents a purely imaginary complex tensor (e.g. the result of
+        TTIR_ImagOp). This is distinct from MLIR's built-in complex type,
+        which operates on scalar element types.
     }];
     let parameters = (ins
-        "::mlir::RankedTensorType":$realType,
+        OptionalParameter<"::mlir::RankedTensorType">:$realType,
         "::mlir::RankedTensorType":$imagType
     );
-    let assemblyFormat = "`<` $realType `,` $imagType `>`";
+    let assemblyFormat = "`<` (`real` `=` $realType^ `,`)? `imag` `=` $imagType `>`";
     let genVerifyDecl = 1;
     let extraClassDeclaration = [{
-        // Convenience: assert real and imag have the same shape/element type.
-        bool isCompatible() const {
-            return getRealType() == getImagType();
-        }
+        bool hasRealType() const { return static_cast<bool>(getRealType()); }
     }];
 }
 
