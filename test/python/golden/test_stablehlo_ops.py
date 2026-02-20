@@ -301,6 +301,30 @@ def module_xor_bool(builder: StableHLOBuilder):
         return builder.xor(in0, in1, unit_attrs=unit_attrs)
 
 
+def module_atan2(builder: StableHLOBuilder):
+    @builder.func([(128, 128), (128, 128)], [torch.float32, torch.float32])
+    def atan2(
+        in0: Operand,
+        in1: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.atan2(in0, in1, unit_attrs=unit_attrs)
+
+
+def module_shift_left(builder: StableHLOBuilder):
+    @builder.func([(128, 128), (128, 128)], [torch.int32, torch.int32])
+    def shift_left(
+        in0: Operand,
+        in1: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.shift_left(in0, in1, unit_attrs=unit_attrs)
+
+
 def module_add(builder: StableHLOBuilder):
     @builder.func([(128, 128), (128, 128)], [torch.float32, torch.float32])
     def add(
@@ -311,6 +335,18 @@ def module_add(builder: StableHLOBuilder):
     ):
         builder.set_graph_level_check(True)
         return builder.add(in0, in1)
+
+
+def module_div(builder: StableHLOBuilder):
+    @builder.func([(128, 128), (128, 128)], [torch.float32, torch.float32])
+    def div(
+        in0: Operand,
+        in1: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.div(in0, in1, unit_attrs=unit_attrs)
 
 
 def module_max(builder: StableHLOBuilder):
@@ -373,6 +409,18 @@ def module_pow(builder: StableHLOBuilder):
         return builder.pow(in0, in1, unit_attrs=unit_attrs)
 
 
+def module_remainder(builder: StableHLOBuilder):
+    @builder.func([(128, 128), (128, 128)], [torch.float32, torch.float32])
+    def remainder(
+        in0: Operand,
+        in1: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.remainder(in0, in1, unit_attrs=unit_attrs)
+
+
 def module_subtract(builder: StableHLOBuilder):
     @builder.func([(128, 128), (128, 128)], [torch.float32, torch.float32])
     def subtract(
@@ -408,6 +456,8 @@ def module_broadcast_in_dim(builder: StableHLOBuilder):
     "test_fn",
     [
         module_add,
+        module_atan2,
+        module_div,
         module_max
         | Marks(
             pytest.mark.skip_config(
@@ -422,6 +472,7 @@ def module_broadcast_in_dim(builder: StableHLOBuilder):
                 ["ttnn"], reason="https://github.com/tenstorrent/tt-metal/pull/33904"
             )
         ),
+        module_remainder,
         module_subtract,
     ],
 )
@@ -852,6 +903,7 @@ def test_stablehlo_multi_return_support(
         module_and_bool,
         module_or_bool,
         module_xor_bool,
+        module_shift_left,
         module_shift_right_logical,
     ],
 )
@@ -864,6 +916,32 @@ def test_logical_binary_ops(
         target=target,
         device=device,
         pcc=-1.0,
+    )
+
+
+@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_select_op(shape: Shape, dtype: torch.dtype, target: str, request, device):
+    def module_select_test(builder: StableHLOBuilder):
+        @builder.func([shape, shape, shape], [torch.bool, dtype, dtype])
+        def select_test(
+            condition: Operand,
+            in0: Operand,
+            in1: Operand,
+            builder: StableHLOBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            builder.set_graph_level_check(True)
+            return builder.select(condition, in0, in1, unit_attrs=unit_attrs)
+
+    compile_and_execute_shlo(
+        module_select_test,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        device=device,
     )
 
 
