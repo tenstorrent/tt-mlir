@@ -51,19 +51,11 @@ private:
   // - Not divisible by 16 → 0 (bypass validation, TT-Metal uses full size)
   // - Divisible by 16 and ≤128 → use as-is
   // - > 128 → cap at 128 (max efficient blocking)
-  // C_in_block must be divisible by 32 (specifically, hal::get_l1_alignment()),
-  // and a factor of in_channels.
   uint32_t calculateOptimalCInBlock(uint32_t in_channels) const {
     if (in_channels % 16 != 0) {
       return 0; // Bypass validation
     }
-
-    for (uint32_t i = 128; i >= 32; i -= 32) {
-      if (in_channels % i == 0) {
-        return i;
-      }
-    }
-    return 0; //
+    return std::min(in_channels, 128u);
   }
 
   std::optional<Conv3dConfigAttr>
