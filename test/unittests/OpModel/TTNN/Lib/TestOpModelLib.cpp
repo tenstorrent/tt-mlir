@@ -4794,6 +4794,8 @@ TEST_F(OpModelTest, FillCacheOp) {
     EXPECT_GT(opCstr.cbL1PeakSize, 0);
     EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
     EXPECT_EQ(opCstr.outputL1BufferSize, 0);
+    // Captures updated cache, even though it is in place update
+    EXPECT_EQ(opCstr.outputLayouts.size(), 1);
   }
 
   // Test with L1 output layout
@@ -4867,6 +4869,8 @@ TEST_F(OpModelTest, UpdateCacheOp) {
     EXPECT_GT(opCstr.cbL1PeakSize, 0);
     EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
     EXPECT_EQ(opCstr.outputL1BufferSize, 0);
+    // Captures updated cache, even though it is in place update
+    EXPECT_EQ(opCstr.outputLayouts.size(), 1);
   }
 
   // Test with L1 output layout
@@ -4938,6 +4942,8 @@ TEST_F(OpModelTest, PagedUpdateCacheOp) {
     EXPECT_GE(opCstr.tensorL1PeakSize, 0);
     EXPECT_EQ(opCstr.outputL1BufferSize, 0);
     EXPECT_GE(opCstr.peakL1MemorySize, 0);
+    // Captures updated cache, even though it is in place update
+    EXPECT_EQ(opCstr.outputLayouts.size(), 1);
   }
 }
 
@@ -4970,6 +4976,8 @@ TEST_F(OpModelTest, PagedUpdateCacheOpWithoutPageTable) {
     EXPECT_GE(opCstr.tensorL1PeakSize, 0);
     EXPECT_EQ(opCstr.outputL1BufferSize, 0);
     EXPECT_GE(opCstr.peakL1MemorySize, 0);
+    // Captures updated cache, even though it is in place update
+    EXPECT_EQ(opCstr.outputLayouts.size(), 1);
   }
 
   auto runtimeExp = OpModel<PagedUpdateCacheOp>::getOpRuntime(
@@ -5011,6 +5019,8 @@ TEST_F(OpModelTest, PagedFillCacheOp) {
     EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
     EXPECT_EQ(opCstr.outputL1BufferSize, 0);
     EXPECT_GT(opCstr.peakL1MemorySize, 0);
+    // Captures updated cache, even though it is in place update
+    EXPECT_EQ(opCstr.outputLayouts.size(), 1);
   }
 
   auto runtimeExp = OpModel<PagedFillCacheOp>::getOpRuntime(
