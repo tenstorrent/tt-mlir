@@ -53,6 +53,7 @@ union OpType {
   CpuOp,
   DeallocateOp,
   DistributeTensorOp,
+  DistributedRMSNormOp,
   DropoutOp,
   EltwiseBinaryCompositeOp,
   EltwiseBinaryCompositeScalarOp,

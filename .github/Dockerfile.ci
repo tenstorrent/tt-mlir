@@ -23,7 +23,7 @@ WORKDIR $BUILD_DIR/$PROJECT_NAME
 RUN git log -1
 
 RUN <<EOT
-export CMAKE_BUILD_PARALLEL_LEVEL=16
+export CMAKE_BUILD_PARALLEL_LEVEL=12
 # ANCHOR: environment_build
 cmake -B env/build env -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
 cmake --build env/build

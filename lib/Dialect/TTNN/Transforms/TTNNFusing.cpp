@@ -811,6 +811,22 @@ private:
   // Input Canonicalization (dtype/TM/mask)
   // ============================================================================
 
+  // TODO(tt-metal): SDPA should natively support f32 inputs. Currently
+  // tt-metal's SDPA only accepts bf16/bfp8_b/bfp4_b, so we insert a typecast
+  // when the input is f32. Remove this once tt-metal adds f32 support.
+  static Value castToBF16IfNeeded(Value v, PatternRewriter &rewriter) {
+    auto vType = cast<RankedTensorType>(v.getType());
+    if (!vType.getElementType().isF32()) {
+      return v;
+    }
+
+    auto dataType = ttcore::DataType::BFloat16;
+    auto castType = utils::RankedTensorTypeFactory::create(vType, dataType);
+    return rewriter.create<TypecastOp>(
+        v.getLoc(), castType, v,
+        ttcore::DataTypeAttr::get(rewriter.getContext(), dataType));
+  }
+
   static Value restoreElementTypeIfNeeded(Value v, Type elementType,
                                           PatternRewriter &rewriter) {
     auto vType = cast<RankedTensorType>(v.getType());
@@ -1264,6 +1280,17 @@ private:
     auto originalOutputType =
         mlir::cast<RankedTensorType>(c.attentionMatmul.getResult().getType());
     Type originalElementType = originalOutputType.getElementType();
+
+    // Cast inputs to bf16 if they are f32, since tt-metal SDPA only supports
+    // bf16/bfp8_b/bfp4_b. The output will be cast back to the original dtype.
+    // TODO(tt-metal): Remove this once tt-metal adds f32 support.
+    // tt-metal issue: https://github.com/tenstorrent/tt-metal/issues/36717
+    c.query = castToBF16IfNeeded(c.query, rewriter);
+    c.key = castToBF16IfNeeded(c.key, rewriter);
+    c.value = castToBF16IfNeeded(c.value, rewriter);
+    if (c.mask) {
+      c.mask = castToBF16IfNeeded(c.mask, rewriter);
+    }
 
     auto qType = mlir::cast<RankedTensorType>(c.query.getType());
     auto qShape = qType.getShape();

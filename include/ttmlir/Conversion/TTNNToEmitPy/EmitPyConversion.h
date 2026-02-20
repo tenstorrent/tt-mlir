@@ -86,6 +86,11 @@ struct WormholeComputeKernelConfig;
 // Math fidelity enum (mock for EmitPy conversion)
 struct MathFidelity;
 
+// LayerNorm program config types (mock for EmitPy conversion)
+namespace prim {
+struct LayerNormShardedMultiCoreProgramConfig;
+} // namespace prim
+
 } // namespace ttnn
 
 namespace mlir {
@@ -163,6 +168,12 @@ struct TypeName<::ttnn::operations::matmul::
 template <>
 struct TypeName<::ttnn::WormholeComputeKernelConfig> {
   inline static const std::string value = "ttnn.WormholeComputeKernelConfig";
+};
+
+template <>
+struct TypeName<::ttnn::prim::LayerNormShardedMultiCoreProgramConfig> {
+  inline static const std::string value =
+      "ttnn.LayerNormShardedMultiCoreProgramConfig";
 };
 
 template <typename T>
@@ -1793,6 +1804,34 @@ struct EmitPyTypeConverter<::ttnn::WormholeComputeKernelConfig> {
   }
 };
 
+// Specialization for LayerNormShardedMultiCoreProgramConfig
+template <>
+struct EmitPyTypeConverter<
+    ::ttnn::prim::LayerNormShardedMultiCoreProgramConfig> {
+  static std::optional<std::string>
+  convert(ttnn::LayerNormShardedMultiCoreProgramConfigAttr attr) {
+    if (!attr) {
+      return std::string("ttnn.LayerNormDefaultProgramConfig()");
+    }
+
+    std::string buf;
+    llvm::raw_string_ostream rso(buf);
+    rso << TypeNameV<
+               ::ttnn::prim::LayerNormShardedMultiCoreProgramConfig> << "(";
+
+    auto gridSize = attr.getComputeWithStorageGridSize();
+    rso << "compute_with_storage_grid_size=(" << gridSize.getX() << ", "
+        << gridSize.getY() << ")";
+    rso << ", subblock_w=" << attr.getSubblockW();
+    rso << ", block_h=" << attr.getBlockH();
+    rso << ", block_w=" << attr.getBlockW();
+    rso << ", inplace=" << (attr.getInplace() ? "True" : "False");
+
+    rso << ")";
+    return buf;
+  }
+};
+
 // This template struct retrieves the most relevant C++ type with a one-to-one
 // Python type correspondence for a given template type.
 template <typename T>
@@ -1886,6 +1925,11 @@ struct TTNNTarget<tt::ttnn::Conv2dSliceConfigAttr> {
 template <>
 struct TTNNTarget<tt::ttnn::DeviceComputeKernelConfigAttr> {
   using type = ::ttnn::WormholeComputeKernelConfig;
+};
+
+template <>
+struct TTNNTarget<tt::ttnn::LayerNormShardedMultiCoreProgramConfigAttr> {
+  using type = ::ttnn::prim::LayerNormShardedMultiCoreProgramConfig;
 };
 
 // Marker type for matmul program config union (AnyAttrOf<[...]>)

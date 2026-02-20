@@ -8,9 +8,10 @@ ARG TT_METAL_DEPENDENCIES_COMMIT=5280a9cfb00998fd49667a29523d03aee905c129
 
 # Install dependencies
 RUN <<EOT
+set -e
 # ANCHOR: developer_dependencies
-apt-get update
-apt-get install -y \
+apt-get update -qq
+apt-get install -y -qq \
     software-properties-common \
     build-essential \
     python3-pip \
@@ -37,13 +38,13 @@ apt-get install -y \
     zstd \
     unzip
 
-# Install Python 3.11
-add-apt-repository ppa:deadsnakes/ppa && \
-    apt-get update && \
-    apt-get install -y python3.11 python3.11-dev python3.11-venv python3.11-distutils
+# Install Python 3.12
+add-apt-repository ppa:deadsnakes/ppa -y
+apt-get update -qq
+apt-get install -y -qq python3.12 python3.12-dev python3.12-venv
 
 # Setup / install metal dependencies
-wget https://raw.githubusercontent.com/tenstorrent/tt-metal/${TT_METAL_DEPENDENCIES_COMMIT}/{install_dependencies.sh,tt_metal/sfpi-info.sh,tt_metal/sfpi-version}
+wget -q https://raw.githubusercontent.com/tenstorrent/tt-metal/${TT_METAL_DEPENDENCIES_COMMIT}/{install_dependencies.sh,tt_metal/sfpi-info.sh,tt_metal/sfpi-version}
 chmod u+x sfpi-info.sh
 bash install_dependencies.sh --docker
 # ANCHOR_END: developer_dependencies

@@ -95,6 +95,12 @@ DRAM_INTERLEAVED_SHAPE_GRIDS.extend(
 )
 @pytest.mark.parametrize("op", [abs])
 def test_l1_block_sharded_shapes(device, shape, max_grid, op):
+    output_memory_config = ttnn.create_sharded_memory_config(
+        shape=shape,
+        core_grid=ttnn.CoreGrid(x=max_grid[0] + 1, y=max_grid[1] + 1),
+        strategy=ttnn.ShardStrategy.BLOCK,
+        use_height_and_width_as_shard_shape=False,
+    )
     run_op_test(
         device,
         shape,
@@ -105,6 +111,7 @@ def test_l1_block_sharded_shapes(device, shape, max_grid, op):
         buffer_type=ttnn.BufferType.L1,
         enable_cache=True,
         shard_strategy=ttnn.ShardStrategy.BLOCK,
+        memory_config=output_memory_config,
     )
 
 
@@ -144,6 +151,12 @@ HEIGHT_SHARDED_SHAPE_GRIDS.extend(
 )
 @pytest.mark.parametrize("op", [abs])
 def test_l1_height_sharded_shapes(device, shape, max_grid, op):
+    output_memory_config = ttnn.create_sharded_memory_config(
+        shape=shape,
+        core_grid=ttnn.CoreGrid(x=max_grid[0] + 1, y=max_grid[1] + 1),
+        strategy=ttnn.ShardStrategy.HEIGHT,
+        use_height_and_width_as_shard_shape=False,
+    )
     run_op_test(
         device,
         shape,
@@ -154,6 +167,7 @@ def test_l1_height_sharded_shapes(device, shape, max_grid, op):
         buffer_type=ttnn.BufferType.L1,
         enable_cache=True,
         shard_strategy=ttnn.ShardStrategy.HEIGHT,
+        memory_config=output_memory_config,
     )
 
 
@@ -194,6 +208,12 @@ WIDTH_SHARDED_SHAPE_GRIDS.extend(
 )
 @pytest.mark.parametrize("op", [abs])
 def test_l1_width_sharded_shapes(device, shape, max_grid, op):
+    output_memory_config = ttnn.create_sharded_memory_config(
+        shape=shape,
+        core_grid=ttnn.CoreGrid(x=max_grid[0] + 1, y=max_grid[1] + 1),
+        strategy=ttnn.ShardStrategy.WIDTH,
+        use_height_and_width_as_shard_shape=False,
+    )
     run_op_test(
         device,
         shape,
@@ -204,6 +224,7 @@ def test_l1_width_sharded_shapes(device, shape, max_grid, op):
         buffer_type=ttnn.BufferType.L1,
         enable_cache=True,
         shard_strategy=ttnn.ShardStrategy.WIDTH,
+        memory_config=output_memory_config,
     )
 
 
@@ -224,6 +245,7 @@ def test_dram_interleaved_shapes(device, shape, op):
         num_inputs=1,
         buffer_type=ttnn.BufferType.DRAM,
         enable_cache=True,
+        memory_config=ttnn.DRAM_MEMORY_CONFIG,
     )
 
 

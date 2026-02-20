@@ -105,9 +105,6 @@ jobs:
             gh workflow run ${{ env.WORKFLOW_NAME }} \
               --repo ${{ env.TARGET_REPO }} --ref main \
               --raw-field mlir_override=${{ github.event.pull_request.head.sha }} \
-              --raw-field same_branch=false \
-              --raw-field tt_forge_branch=main \
-              --raw-field test_filter= \
               --raw-field sh-runner=false
 
           else

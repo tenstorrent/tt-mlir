@@ -1268,6 +1268,32 @@ public:
 } // namespace
 
 namespace {
+class DistributedRMSNormOpConversionPattern
+    : public OpConversionPattern<ttir::DistributedRMSNormOp> {
+public:
+  using OpConversionPattern<ttir::DistributedRMSNormOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::DistributedRMSNormOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
+    rewriter.replaceOpWithNewOp<ttnn::DistributedRMSNormOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(), adaptor.getWeight(), adaptor.getResidual(),
+        /*stats=*/nullptr, device,
+        static_cast<uint32_t>(adaptor.getClusterAxis()), adaptor.getEpsilon(),
+        /*sub_device_id=*/nullptr,
+        /*memory_config=*/nullptr,
+        /*num_links=*/nullptr,
+        /*topology=*/nullptr,
+        /*compute_config=*/nullptr,
+        /*program_config=*/nullptr);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class LayerNormOpConversionPattern
     : public OpConversionPattern<ttir::LayerNormOp> {
 public:
@@ -3058,6 +3084,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            BatchNormInferenceOpConversionPattern,
            BatchNormTrainingOpConversionPattern,
            RMSNormOpConversionPattern,
+           DistributedRMSNormOpConversionPattern,
            LayerNormOpConversionPattern,
            MatmulOpConversionPattern,
            Conv2dOpConversionPattern,

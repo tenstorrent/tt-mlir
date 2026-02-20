@@ -6,6 +6,7 @@ import ttnn
 import ttnn_jit
 import torch
 from typing import Callable, Optional, Dict, Iterable
+from ttnn_jit._src.utils import get_maximal_block_sharding_grid
 
 
 def _get_ttnn_op(func: Callable) -> Optional[Callable]:
@@ -76,17 +77,22 @@ def _get_input_transform(
     return _INPUT_TRANSFORMS.get(op.__name__)
 
 
-def get_block_sharding_grid(shape):
-    """Infer a TTNN grid/end coord for block sharding the given logical tensor shape"""
-    assert len(shape) == 2, f"Only 2D shapes are supported"
-    tile_shape = [shape[0] // 32, shape[1] // 32]
-    grid = []
-    for dim in tile_shape:
-        for grid_dim in reversed(range(8)):
-            if dim % (grid_dim + 1) == 0:
-                grid.append(grid_dim)
-                break
-    return list(reversed(grid))
+def get_core_grid_from_device(device):
+    """Get the core grid from the device"""
+    return (device.core_grid.x - 1, device.core_grid.y - 1)
+
+
+def get_expected_block_sharded_memory_config(tensor_shape, device):
+    """Get expected block sharded memory config for a given tensor shape"""
+    max_core_grid = get_core_grid_from_device(device)
+    grid = get_maximal_block_sharding_grid(tensor_shape, max_core_grid)
+
+    return ttnn.create_sharded_memory_config(
+        shape=tensor_shape,
+        core_grid=ttnn.CoreGrid(x=grid[0] + 1, y=grid[1] + 1),
+        strategy=ttnn.ShardStrategy.BLOCK,
+        use_height_and_width_as_shard_shape=False,
+    )
 
 
 def pcc_check(result, golden_result, threshold=0.99):
@@ -253,8 +259,13 @@ def run_op_test(
         if memory_config is not None:
             assert memory_configs_equal(output_tensor.memory_config(), memory_config)
         else:
+            # ttnn-jit will by default set l1 block sharded output memory config
+            # get expected memory config to check for
+            expected_memory_config = get_expected_block_sharded_memory_config(
+                golden_tensor.shape, device
+            )
             assert memory_configs_equal(
-                output_tensor.memory_config(), golden_tensor.memory_config()
+                output_tensor.memory_config(), expected_memory_config
             )
         print("--------------------------------")
         print("Output:")

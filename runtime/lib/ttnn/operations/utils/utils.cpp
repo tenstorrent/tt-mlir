@@ -480,6 +480,19 @@ createSDPAProgramConfig(const ::tt::target::ttnn::SDPAConfig *config) {
   return sdpaConfig;
 }
 
+::ttnn::prim::LayerNormProgramConfig
+createLayerNormShardedMultiCoreProgramConfig(
+    const ::tt::target::ttnn::LayerNormShardedMultiCoreProgramConfig *config) {
+  const auto *gridSize = config->compute_with_storage_grid_size();
+  return ::ttnn::prim::LayerNormShardedMultiCoreProgramConfig{
+      .compute_with_storage_grid_size = {gridSize->x(), gridSize->y()},
+      .subblock_w = config->subblock_w(),
+      .block_h = config->block_h(),
+      .block_w = config->block_w(),
+      .inplace = config->inplace(),
+  };
+}
+
 template <typename T>
 static ::ttnn::Tensor toTTNNTensorImpl(
     const ::flatbuffers::Vector<uint8_t> *input, const ::ttnn::Shape &shape,
