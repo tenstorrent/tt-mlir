@@ -1600,9 +1600,11 @@ private:
                                    attrName.data());
   }
 
-  // Transforms: (O, C/G, K_D, K_H, K_W) → (K_D*K_H*K_W*C/G, O)
+  // Transforms: (O, C/G, K_D, K_H, K_W) → (K_D*K_H*K_W*C/G_padded, O)
   Value reshapeWeightForConv3d(Value weight, RankedTensorType weightTy,
                                PatternRewriter &rewriter, Location loc) const {
+    constexpr int64_t TILE_WIDTH = ttcore::TileType::getDefaultShape()[1];
+
     llvm::ArrayRef<int64_t> weightShape = weightTy.getShape();
     int64_t outChannels = weightShape[0];
     int64_t inChannPerGroup = weightShape[1];
@@ -1615,14 +1617,31 @@ private:
         mlir::cast<TypedValue<RankedTensorType>>(weight),
         {2, 3, 4, 1, 0}, rewriter, loc);
 
+    int64_t paddedInChannPerGroup =
+        llvm::divideCeil(inChannPerGroup, TILE_WIDTH) * TILE_WIDTH;
+    if (paddedInChannPerGroup != inChannPerGroup) {
+      int32_t cinPadAmount =
+          static_cast<int32_t>(paddedInChannPerGroup - inChannPerGroup);
+      // Pad dim 3 (C/G) of (K_D, K_H, K_W, C/G, O)
+      llvm::SmallVector<int32_t> padding = {0, 0, 0, 0, 0,
+                                            0, 0, cinPadAmount, 0, 0};
+      permutedWeight = ttir_to_ttnn::utils::generatePad(
+          mlir::cast<TypedValue<RankedTensorType>>(permutedWeight), padding,
+          rewriter,
+          ttmlir::utils::appendLocationSuffix(loc, "_pad_cin"));
+    }
+
     int64_t flattenedDim =
-        kernelDepth * kernelHeight * kernelWidth * inChannPerGroup;
+        kernelDepth * kernelHeight * kernelWidth * paddedInChannPerGroup;
 
     llvm::SmallVector<int64_t> newShape = {flattenedDim, outChannels};
     llvm::SmallVector<int32_t> newShapeI32(newShape.begin(), newShape.end());
 
+    auto permutedWeightTy =
+        mlir::cast<RankedTensorType>(permutedWeight.getType());
     RankedTensorType outputType =
-        ttnn::utils::RankedTensorTypeFactory::create(weightTy, newShape);
+        ttnn::utils::RankedTensorTypeFactory::create(permutedWeightTy,
+                                                     newShape);
 
     return rewriter.create<ttnn::ReshapeOp>(
         loc, outputType, permutedWeight, rewriter.getI32ArrayAttr(newShapeI32),
