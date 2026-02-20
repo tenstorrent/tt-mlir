@@ -26,22 +26,15 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
 
-#include <tuple>
-
 namespace mlir::tt {
 
 namespace detail {
-// Converts D2M device layout (ShardLayoutAttr/InterleavedLayoutAttr) to
-// TTNNLayoutAttr. Memref shape is [grid..., shard...], tensor shape is their
-// element-wise product, scaled by tile dimensions if the element type is a
-// tile.
 
 static SmallVector<int64_t> getLogicalShape(MemRefType memrefType) {
   auto deviceLayout = ttcore::getDeviceLayout(memrefType);
   ArrayRef<int64_t> gridShape = deviceLayout.getGridShape(memrefType);
   ArrayRef<int64_t> shardShape = deviceLayout.getShardShape(memrefType);
 
-  // Get tile dimensions if element type is a tile, otherwise [1, 1].
   SmallVector<int64_t> tileDims = {1, 1};
   if (auto tileType =
           mlir::dyn_cast<ttcore::TileType>(memrefType.getElementType())) {
@@ -49,7 +42,8 @@ static SmallVector<int64_t> getLogicalShape(MemRefType memrefType) {
     tileDims[1] = tileType.getWidth();
   }
 
-  // Compute logical shape in elements: (grid * shard * tileDims).
+  // Compute logical shape in elements: (grid * shard * tileDims). If dims have
+  // been collapsed, we cannot recover the original uncollapsed shape.
   SmallVector<int64_t> tensorShape;
   for (size_t i = 0; i < gridShape.size(); ++i) {
     int64_t tileDim = (i < tileDims.size()) ? tileDims[i] : 1;
@@ -58,8 +52,6 @@ static SmallVector<int64_t> getLogicalShape(MemRefType memrefType) {
   return tensorShape;
 }
 
-// Extract the scalar element type from the memref (unwrapping TileType if
-// present).
 static Type getScalarElementType(MemRefType memrefType) {
   Type elemType = memrefType.getElementType();
   if (auto tileType = mlir::dyn_cast<ttcore::TileType>(elemType)) {
@@ -82,9 +74,6 @@ static ttnn::TTNNLayoutAttr getTTNNLayoutFromDeviceLayout(MLIRContext *ctx,
   auto deviceLayout = ttcore::getDeviceLayout(memrefValue);
   ArrayRef<int64_t> shardShape = deviceLayout.getShardShape(memrefType);
 
-  // Build the shard memref directly - don't use ttcore::buildMemRef because
-  // shardShape is already in tile units, but buildMemRef assumes scalar units
-  // and would incorrectly call getTiledShape.
   auto shardMemref =
       MemRefType::get(shardShape, memrefType.getElementType(),
                       AffineMap::getMultiDimIdentityMap(shardShape.size(), ctx),
@@ -93,6 +82,7 @@ static ttnn::TTNNLayoutAttr getTTNNLayoutFromDeviceLayout(MLIRContext *ctx,
   ttcore::GridAttr grid;
   ttnn::TensorMemoryLayout memLayoutEnum;
   ArrayRef<int64_t> gridShape = deviceLayout.getGridShape(memrefType);
+
   if (mlir::isa<ttcore::InterleavedLayoutAttr>(memrefType.getLayout())) {
     grid = ttcore::GridAttr::get(ctx, SmallVector<int64_t>(2, 1));
     memLayoutEnum = ttnn::TensorMemoryLayout::Interleaved;
@@ -107,19 +97,24 @@ static ttnn::TTNNLayoutAttr getTTNNLayoutFromDeviceLayout(MLIRContext *ctx,
     } else {
       grid = ttcore::GridAttr::get(
           ctx, d2m::utils::getPhysicalGridShape(memrefValue));
-      int64_t gridY =
-          gridShape.size() >= 2 ? gridShape[gridShape.size() - 2] : 1;
+      TT_assertv(gridShape.size() >= 2u,
+                 "Expected at least 2 dimensions in grid shape");
+      int64_t gridY = gridShape[gridShape.size() - 2];
       memLayoutEnum = (gridY > 1) ? ttnn::TensorMemoryLayout::HeightSharded
                                   : ttnn::TensorMemoryLayout::WidthSharded;
     }
   }
 
   size_t rank = 2;
+  // This affine map only describes dim collapsing for rank > 2 tensors. Since
+  // we can only recover the collapsed shape here, we can just set it to
+  // identity.
   auto linearMap = AffineMap::getMultiDimIdentityMap(rank, ctx);
   auto memLayout = ttnn::TensorMemoryLayoutAttr::get(ctx, memLayoutEnum);
 
-  return {ttnn::TTNNLayoutAttr::get(ctx, linearMap, grid, shardMemref,
-                                    memLayout, nullptr, false, true)};
+  return {ttnn::TTNNLayoutAttr::get(
+      ctx, linearMap, grid, shardMemref, memLayout, /*tensorMesh=*/nullptr,
+      /*ignorePhysicalLayout=*/false, /*exactGrid=*/true)};
 }
 
 static RankedTensorType convertMemrefToTTNNTensor(MLIRContext *ctx,
@@ -318,8 +313,6 @@ public:
     llvm::SmallVector<ttnn::KernelCBAttr> cbDescriptors(cbs.size());
 
     for (auto [i, cb] : llvm::enumerate(cbs)) {
-      cb.dump();
-      cb.getDefiningOp()->dump();
       auto cb_memref = dyn_cast<MemRefType>(cb.getType());
       TT_assertv(mlir::isa<ttcore::TileType>(cb_memref.getElementType()),
                  "Only TileType supported.");
@@ -332,14 +325,19 @@ public:
           ttnn::KernelCBFormatAttr::get(ctx, i, dtype, pageSize);
 
       ttnn::KernelCBGlobalBufferAddressOfTensorAttr globalCBIndexOfTensor;
-      // Alias CBs for direct cast inputs, or for memref.alloc values that are
-      // not consumed by a stream_layout op.
+
+      // This is brittle. Ideally we should specifically identify outputs and
+      // handle them separately from inputs, but that will require a larger
+      // refactor of this pass.
+      bool isAliasedOutput =
+          mlir::dyn_cast_if_present<memref::AllocOp>(cb.getDefiningOp()) &&
+          llvm::none_of(cb.getUsers(), [](Operation *user) {
+            return mlir::isa<d2m::StreamLayoutOp>(user);
+          });
+
       if (mlir::dyn_cast_if_present<ttir::TTNNMetalLayoutCastOp>(
               cb.getDefiningOp()) ||
-          (mlir::dyn_cast_if_present<memref::AllocOp>(cb.getDefiningOp()) &&
-           llvm::none_of(cb.getUsers(), [](Operation *user) {
-             return mlir::isa<d2m::StreamLayoutOp>(user);
-           }))) {
+          isAliasedOutput) {
         // Input is not streamed, thus buffer must be aliased.
         TT_assertv(ttcore::getMemorySpace(cb_memref) ==
                        ttcore::MemorySpace::DeviceL1,
@@ -362,6 +360,8 @@ public:
   // CB comes from original operands (memref types for CB descriptors).
   static IOAndCB extractIOAndCBFromGenericOperand(Value origOperand,
                                                   Value convertedOperand) {
+    convertedOperand.dump();
+    origOperand.dump();
     if (auto streamLayoutOp = mlir::dyn_cast_if_present<d2m::StreamLayoutOp>(
             origOperand.getDefiningOp())) {
       auto castOp = mlir::dyn_cast_if_present<ttir::TTNNMetalLayoutCastOp>(
@@ -393,20 +393,20 @@ public:
                    "Expected TTNNMetalLayoutCastOp producing stream input.");
         return {innerCastOp.getOperand(), viewOp.getInput()};
       }
+
+      if (auto allocOp = mlir::dyn_cast_if_present<memref::AllocOp>(
+              viewOp.getInput().getDefiningOp())) {
+        // This is a view on top of the output of a previous generic. This
+        // happens for the generic that implements the to_layout for the
+        // user-selected output layout.
+        return {convertedOperand, origOperand};
+      }
     }
 
     if (auto allocOp = mlir::dyn_cast_if_present<memref::AllocOp>(
             origOperand.getDefiningOp())) {
       // There are intermediate tensors that have been bufferized. The operand
       // will have a DeviceLayout, not a TTNNLayout.
-      return {convertedOperand, origOperand};
-    }
-
-    // Handle case where memref.alloc was already converted to ttnn.empty.
-    // The converted operand is from ttnn.empty, but we still need the original
-    // memref type for CB descriptors.
-    if (auto emptyOp = mlir::dyn_cast_if_present<ttnn::EmptyOp>(
-            convertedOperand.getDefiningOp())) {
       return {convertedOperand, origOperand};
     }
 
@@ -418,8 +418,9 @@ public:
   LogicalResult
   matchAndRewrite(d2m::GenericOp op, d2m::GenericOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    // Check if any memref.alloc operands haven't been converted yet.
-    // If so, defer - the greedy rewriter will retry after they're converted.
+    // The ttnn.generic op requires ttnn tensor operands. Defer rewriting until
+    // memref.alloc operands are converted so we have the memref->ttnn
+    // tensor translations
     for (auto [orig, converted] :
          llvm::zip(op->getOperands(), adaptor.getOperands())) {
       if (mlir::isa_and_present<memref::AllocOp>(orig.getDefiningOp()) &&
@@ -474,6 +475,9 @@ public:
     llvm::SmallVector<ttnn::KernelCBAttr> cbDescriptors =
         createCBDescriptors(rewriter, cbs, device, coreRangeSet);
 
+    TT_assertv(
+        cbDescriptors.back().getBuffer(),
+        "Output CBs must be aliased. Non-aliased outputs are not implemented.");
     // Create KernelDescriptors.
     SymbolTable opSymTable(op->getParentOfType<ModuleOp>());
     llvm::SmallVector<mlir::Attribute> kernelDescriptors =
@@ -690,9 +694,8 @@ public:
         mlir::cast<ttnn::TTNNLayoutAttr>(convertedTensorType.getEncoding());
 
     // Find and handle users of the alloc result. We need to:
-    // 1. Erase any dealloc ops (ttnn.empty doesn't need explicit deallocation)
+    // 1. Erase any dealloc ops
     // 2. Replace ttnn_metal_layout_cast ops with the empty result directly
-    // Collect ops first to avoid iterator invalidation.
     llvm::SmallVector<memref::DeallocOp> deallocsToErase;
     llvm::SmallVector<ttir::TTNNMetalLayoutCastOp> castsToReplace;
 
@@ -710,8 +713,6 @@ public:
     // uncollapsed shape. Otherwise, use the converted type.
     RankedTensorType emptyTensorType = convertedTensorType;
     if (!castsToReplace.empty()) {
-      // Use the first cast's result type. All casts should have compatible
-      // types.
       auto castResultType =
           mlir::cast<RankedTensorType>(castsToReplace[0].getResult().getType());
       auto castLayoutAttr =
@@ -720,25 +721,25 @@ public:
       // Assert that the converted type is compatible with the cast result type.
       // Cannot assert on shape because we cannot recover the uncollapsed shape,
       // but we can assert on volume.
-      assert(castResultType.getNumElements() ==
-                 convertedTensorType.getNumElements() &&
-             "ttnn_metal_layout_cast and converted type must have the same "
-             "volume");
+      TT_assertv(castResultType.getNumElements() ==
+                     convertedTensorType.getNumElements(),
+                 "ttnn_metal_layout_cast and converted type must have the same "
+                 "volume");
 
-      assert(castLayoutAttr.getBufferType() ==
-                 convertedLayoutAttr.getBufferType() &&
-             "ttnn_metal_layout_cast and converted type must have the same "
-             "buffer type");
+      TT_assertv(castLayoutAttr.getBufferType() ==
+                     convertedLayoutAttr.getBufferType(),
+                 "ttnn_metal_layout_cast and converted type must have the same "
+                 "buffer type");
 
-      assert(castLayoutAttr.getShardShape() ==
-                 convertedLayoutAttr.getShardShape() &&
-             "ttnn_metal_layout_cast and converted type must have the same "
-             "shard shape");
+      TT_assertv(castLayoutAttr.getShardShape() ==
+                     convertedLayoutAttr.getShardShape(),
+                 "ttnn_metal_layout_cast and converted type must have the same "
+                 "shard shape");
 
-      assert(castLayoutAttr.getGrid().getShape() ==
-                 convertedLayoutAttr.getGrid().getShape() &&
-             "ttnn_metal_layout_cast and converted type must have the same "
-             "grid shape");
+      TT_assertv(castLayoutAttr.getGrid().getShape() ==
+                     convertedLayoutAttr.getGrid().getShape(),
+                 "ttnn_metal_layout_cast and converted type must have the same "
+                 "grid shape");
 
       emptyTensorType = castResultType;
     }
@@ -756,12 +757,10 @@ public:
         ttcore::DataTypeAttr::get(ctx, emptyLayoutAttr.getDataType()),
         ttnn::LayoutAttr::get(ctx, emptyLayoutAttr.getLayout()), memcfg);
 
-    // Erase the corresponding dealloc.
     for (auto deallocOp : deallocsToErase) {
       rewriter.eraseOp(deallocOp);
     }
 
-    // Replace casts with the empty result.
     for (auto castOp : castsToReplace) {
       rewriter.replaceOp(castOp, emptyOp.getResult());
     }
