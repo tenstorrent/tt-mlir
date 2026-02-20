@@ -633,12 +633,9 @@ class Builder(metaclass=BuilderMeta):
         self,
         operand: Operand,
         goldens: List[GoldenMapTensor],
-        apply_sharding: bool = False,
     ):
         self._goldens[operand] = goldens
         self._operand_to_loc[operand] = str(operand.location)
-        if apply_sharding:
-            self.apply_golden_sharding_to_arg(operand)
 
     def apply_golden_sharding_to_arg(self, operand: Operand, golden: GoldenMapTensor):
         if len(golden.shard_map) > 1:
