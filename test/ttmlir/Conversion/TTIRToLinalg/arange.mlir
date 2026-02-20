@@ -12,7 +12,7 @@ module {
     // CHECK: arith.addf
     // CHECK: linalg.yield
     // CHECK-NOT: ttir.arange
-    %0 = "ttir.arange"() <{arange_dimension = 0 : i64, end = 10 : si64, start = 0 : si64, step = 1 : si64}> : () -> tensor<10xf32>
+    %0 = "ttir.arange"() <{arange_dimension = 0 : i64, dtype =f32, end = 10 : si64, start = 0 : si64, step = 1 : si64}> : () -> tensor<10xf32>
     return %0 : tensor<10xf32>
   }
 
@@ -23,7 +23,7 @@ module {
     // CHECK: linalg.generic
     // CHECK: linalg.index
     // CHECK-NOT: ttir.arange
-    %0 = "ttir.arange"() <{arange_dimension = 0 : i64, end = 10 : si64, start = 5 : si64, step = 1 : si64}> : () -> tensor<5xf32>
+    %0 = "ttir.arange"() <{arange_dimension = 0 : i64, dtype = f32, end = 10 : si64, start = 5 : si64, step = 1 : si64}> : () -> tensor<5xf32>
     return %0 : tensor<5xf32>
   }
 
@@ -34,7 +34,7 @@ module {
     // CHECK: linalg.generic
     // CHECK: linalg.index
     // CHECK-NOT: ttir.arange
-    %0 = "ttir.arange"() <{arange_dimension = 0 : i64, end = 10 : si64, start = 0 : si64, step = 2 : si64}> : () -> tensor<5xf32>
+    %0 = "ttir.arange"() <{arange_dimension = 0 : i64, dtype = f32, end = 10 : si64, start = 0 : si64, step = 2 : si64}> : () -> tensor<5xf32>
     return %0 : tensor<5xf32>
   }
 
@@ -46,7 +46,7 @@ module {
     // CHECK: linalg.index
     // CHECK: arith.sitofp
     // CHECK-NOT: ttir.arange
-    %0 = "ttir.arange"() <{arange_dimension = 0 : i64, end = 8 : si64, start = 0 : si64, step = 1 : si64}> : () -> tensor<8xbf16>
+    %0 = "ttir.arange"() <{arange_dimension = 0 : i64, dtype = f32, end = 8 : si64, start = 0 : si64, step = 1 : si64}> : () -> tensor<8xbf16>
     return %0 : tensor<8xbf16>
   }
 
@@ -61,7 +61,7 @@ module {
     // CHECK: arith.addi
     // CHECK: linalg.yield
     // CHECK-NOT: ttir.arange
-    %0 = "ttir.arange"() <{arange_dimension = 0 : i64, end = 10 : si64, start = 0 : si64, step = 1 : si64}> : () -> tensor<10xi32>
+    %0 = "ttir.arange"() <{arange_dimension = 0 : i64, dtype = f32, end = 10 : si64, start = 0 : si64, step = 1 : si64}> : () -> tensor<10xi32>
     return %0 : tensor<10xi32>
   }
 }

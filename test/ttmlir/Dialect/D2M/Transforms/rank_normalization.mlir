@@ -217,10 +217,10 @@ func.func @constant_1d_promoted() -> tensor<4xi64> {
 
 // CHECK-LABEL: func.func @arange_1d_promoted
 // CHECK-SAME: () -> tensor<1x8xi64>
-// CHECK: %[[A:.*]] = "ttir.arange"() <{arange_dimension = 1 : i64, end = 8 : si64, start = 0 : si64, step = 1 : si64}> : () -> tensor<1x8xi64>
+// CHECK: %[[A:.*]] = "ttir.arange"() <{arange_dimension = 1 : i64, dtype = i64, end = 8 : si64, start = 0 : si64, step = 1 : si64}> : () -> tensor<1x8xi64>
 // CHECK: return %[[A]] : tensor<1x8xi64>
 func.func @arange_1d_promoted() -> tensor<8xi64> {
-  %0 = "ttir.arange"() <{arange_dimension = 0 : i64, end = 8 : si64, start = 0 : si64, step = 1 : si64}> : () -> tensor<8xi64>
+  %0 = "ttir.arange"() <{arange_dimension = 0 : i64, dtype = i64, end = 8 : si64, start = 0 : si64, step = 1 : si64}> : () -> tensor<8xi64>
   return %0 : tensor<8xi64>
 }
 
