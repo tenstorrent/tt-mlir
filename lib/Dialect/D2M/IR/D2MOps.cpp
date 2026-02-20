@@ -1855,23 +1855,6 @@ unsigned d2m::GenericOp::getNumBlockFactors() {
   return static_cast<unsigned>(getBlockFactors().size());
 }
 
-std::optional<Operation *> d2m::GenericOp::getOutermostBlockingLoopOp() {
-  Operation *outerLoop = nullptr;
-  unsigned count = 0;
-  for (Operation &op : getRegion(0).front()) {
-    auto forOp = mlir::dyn_cast<affine::AffineForOp>(&op);
-    if (!forOp || !forOp->hasAttr("d2m.blocking_loop")) {
-      continue;
-    }
-    outerLoop = forOp;
-    count++;
-  }
-  if (count != 1) {
-    return std::nullopt;
-  }
-  return outerLoop;
-}
-
 mlir::AffineMap d2m::GenericOp::getIndexingMap(int64_t operandIndex) {
   TT_debugv(!isExplicitDatamovementForm(),
             "Attempting to access indexing map while in explicit "
