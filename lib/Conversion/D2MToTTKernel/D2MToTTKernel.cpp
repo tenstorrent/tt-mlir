@@ -1458,9 +1458,6 @@ static Value buildNocAddress(OpBuilder &rewriter, Location loc, Value cb,
         rewriter, loc, chipDesc, ValueRange{gridY, gridX});
     noc_addr_op =
         rewriter.create<ttkernel::GetNocAddrOp>(loc, virtX, virtY, addr);
-    rewriter.create<ttkernel::DPrintOp>(
-        loc, "GetNocAddr for cb: virtX={} virtY={} baseAddr={} \\n",
-        ValueRange{virtX, virtY, addr});
   } else {
     auto bankID = index[1];
     auto bankIDInt =
@@ -1518,9 +1515,6 @@ public:
     auto size = i32(rewriter, op->getLoc(), op.getSizeBytes());
     rewriter.create<ttkernel::NocAsyncReadOp>(op.getLoc(), srcNocAddr,
                                               dstL1Addr, size);
-    rewriter.create<ttkernel::DPrintOp>(
-        op.getLoc(), "NocAsyncRead: srcNocAddr={} dstL1Addr={} size={}\\n",
-        ValueRange{srcNocAddr, dstL1Addr, size});
 
     // Add attribute marking whether the DMA wait is for a read or write
     // operation This will be used when loweing the wait ops because the current
@@ -1613,20 +1607,11 @@ public:
           rewriter.create<ttkernel::NocAsyncWriteMulticastOp>(
               op.getLoc(), srcL1Start, mcastAddr, transferSize,
               numDestsMinusOne, nullptr, nullptr, nullptr);
-          rewriter.create<ttkernel::DPrintOp>(
-              op.getLoc(),
-              "NocAsyncWriteMulticast: srcL1Addr={} mcastAddr={} size={}\\n",
-              ValueRange{srcL1Start, mcastAddr, transferSize});
         } else {
           // If src != dst, we loopback mcast
           rewriter.create<ttkernel::NocAsyncWriteMulticastLoopbackSrcOp>(
               op.getLoc(), srcL1Start, mcastAddr, transferSize, numDests,
               nullptr, nullptr, nullptr);
-          rewriter.create<ttkernel::DPrintOp>(
-              op.getLoc(),
-              "NocAsyncWriteMulticastLoopbackSrc: srcL1Addr={} mcastAddr={} "
-              "size={}\\n",
-              ValueRange{srcL1Start, mcastAddr, transferSize});
         }
       } else {
         // Local L1 to Local L1 local data movement lowering
@@ -1634,22 +1619,12 @@ public:
         auto myY = rewriter.create<ttkernel::MyLogicalYOp>(op.getLoc());
         auto myX = rewriter.create<ttkernel::MyLogicalXOp>(op.getLoc());
         // Convert local coordinates to virtual coordinates
-        rewriter.create<ttkernel::DPrintOp>(op.getLoc(),
-                                            "MyLogicalCoords: myY={} myX={}\\n",
-                                            ValueRange{myY, myX});
         auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
             rewriter, op.getLoc(), chipDesc, ValueRange{myY, myX});
         auto nocAddr = rewriter.create<ttkernel::GetNocAddrOp>(
             op.getLoc(), virtX, virtY, dstL1Start);
-        rewriter.create<ttkernel::DPrintOp>(
-            op.getLoc(), "GetNocAddr: virtX={} virtY={} dstL1Addr={} \\n",
-            ValueRange{virtX, virtY, dstL1Start});
         rewriter.create<ttkernel::NocAsyncWriteOp>(op.getLoc(), srcL1Start,
                                                    nocAddr, transferSize);
-        rewriter.create<ttkernel::DPrintOp>(
-            op.getLoc(),
-            "NocAsyncWrite (local): srcL1Addr={} nocAddr={} size={}\\n",
-            ValueRange{srcL1Start, nocAddr, transferSize});
       }
     } else if (op.isDstRemote()) {
       auto srcL1Addr = buildL1Address<ttkernel::GetReadPtrOp>(
@@ -1660,10 +1635,6 @@ public:
       auto size = i32(rewriter, op->getLoc(), op.getSizeBytes());
       rewriter.create<ttkernel::NocAsyncWriteOp>(op.getLoc(), srcL1Addr,
                                                  dstNocAddr, size);
-      rewriter.create<ttkernel::DPrintOp>(
-          op.getLoc(),
-          "NocAsyncWrite (remote): srcL1Addr={} dstNocAddr={} size={}\\n",
-          ValueRange{srcL1Addr, dstNocAddr, size});
     }
 
     // Add attribute marking whether the DMA wait is for a read or write
