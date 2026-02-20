@@ -176,6 +176,28 @@ func.func @tilize_with_masking(%arg0: tensor<50x50xf32>) -> tensor<1x1x2x2x!ttco
   return %1 : tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_mask>
 }
 
+// Test masking with non-undef OOBVal and >2D grid (no collapse).
+// This exercises the case where collapsed_intervals is empty, producing >2
+// physical dimensions.  The mask scratch tensors must have the same grid rank
+// as the main operands; a prior bug only appended [1,1] shard dims (always
+// producing a 2D-grid mask) which crashed the verifier when gridRank > 2.
+#layout_mask_4d = #ttcore.metal_layout<logical_shape = 2x2x50x50, dim_alignments = 1x1x32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, zero, l1, sharded, index_map = map(8)>
+
+func.func @masking_no_collapse_4d(%arg0: tensor<2x2x50x50xf32>) -> tensor<1x1x1x1x2x2x2x2x!ttcore.tile<32x32, f32>, #layout_mask_4d> {
+  %0 = d2m.empty() : tensor<1x1x1x1x2x2x2x2x!ttcore.tile<32x32, f32>, #layout_mask_4d>
+
+  // CHECK-LABEL: @masking_no_collapse_4d
+  // Tilize then mask with zero OOBVal on a >2D grid (no collapse)
+  // CHECK: d2m.tile_tilize_block
+  // CHECK: d2m.block_mask
+  // CHECK-SAME: <zero>
+
+  %1 = d2m.to_layout %arg0, %0 : tensor<2x2x50x50xf32> into tensor<1x1x1x1x2x2x2x2x!ttcore.tile<32x32, f32>, #layout_mask_4d>
+    -> tensor<1x1x1x1x2x2x2x2x!ttcore.tile<32x32, f32>, #layout_mask_4d>
+
+  return %1 : tensor<1x1x1x1x2x2x2x2x!ttcore.tile<32x32, f32>, #layout_mask_4d>
+}
+
 // Test chained views with pre-existing index_map
 #layout_base_view = #ttcore.metal_layout<logical_shape = 64x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded, index_map = (d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 #layout_with_view = #ttcore.metal_layout<logical_shape = 64x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded, index_map = (d0, d1, d2, d3) -> (d1, d0, d2, d3)>

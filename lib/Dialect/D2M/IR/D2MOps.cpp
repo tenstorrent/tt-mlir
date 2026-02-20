@@ -1376,6 +1376,18 @@ static mlir::LogicalResult verifyAffineBlocking(
   for (size_t operand = 0; operand < indexingMaps.size(); ++operand) {
     auto shape = shapes[operand];
     auto factor = indexingMaps[operand].compose(factors);
+    if (shape.size() != factor.size()) {
+      llvm::errs() << "MISMATCH operand=" << operand << " shape=[";
+      llvm::interleaveComma(shape, llvm::errs());
+      llvm::errs() << "] (size=" << shape.size() << ") factor=[";
+      llvm::interleaveComma(factor, llvm::errs());
+      llvm::errs() << "] (size=" << factor.size()
+                   << ") indexingMap=" << indexingMaps[operand] << " factors=[";
+      llvm::interleaveComma(factors, llvm::errs());
+      llvm::errs() << "] blockingFactors=[";
+      llvm::interleaveComma(blockingFactors, llvm::errs());
+      llvm::errs() << "]\n";
+    }
     assert(shape.size() == factor.size());
     if (auto dim = isNotEqualOrBroadcast(shape, factor)) {
       return diagFn() << shapeName << " dim unexpected for operand[" << operand
@@ -1600,6 +1612,13 @@ static mlir::LogicalResult verifyAffineBlocking(
 
     auto emitDiag = [&]() -> InFlightDiagnostic { return this->emitOpError(); };
     SmallVector<SmallVector<int64_t>> gridShapes = getOperandGridShapes();
+    // DEBUG: print all operand types as the verifier sees them
+    for (size_t i = 0; i < getOperands().size(); ++i) {
+      llvm::errs() << "VERIFY operand[" << i
+                   << "] type=" << getOperands()[i].getType() << " gridShape=[";
+      llvm::interleaveComma(gridShapes[i], llvm::errs());
+      llvm::errs() << "]\n";
+    }
     LogicalResult gridResult = verifyAffineShapesPermutation(
         "grid", indexingMaps, gridShapes, emitDiag);
 
