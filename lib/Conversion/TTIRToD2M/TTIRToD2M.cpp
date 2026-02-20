@@ -1985,10 +1985,80 @@ public:
 
     auto storage =
         rewriter.create<d2m::EmptyOp>(op.getLoc(), outputs[0].getType());
-    auto view = rewriter.create<d2m::StreamLayoutOp>(
-        op.getLoc(), newOutTy, inputs[0], storage.getResult());
+    auto stream = rewriter.create<d2m::StreamLayoutOp>(op.getLoc(), newOutTy,
+                                                       inputs[0], storage);
 
-    rewriter.replaceOp(op, unLayoutResult(rewriter, view->getResult(0),
+    // Get the logical rank for the generic op from output layout.
+    unsigned logicalRank = layout.getLogicalShape().size();
+
+    // Capture values explicitly for the lambda.
+    Value inputOperand = stream.getResult();
+    Value outputOperand = outputs[0];
+
+    auto generic = rewriter.create<d2m::GenericOp>(
+        op.getLoc(), SmallVector<Value>{inputOperand},
+        SmallVector<Value>{outputOperand},
+        [&, inputOperand, outputOperand](OpBuilder &builder, Location bodyLoc,
+                                         ValueRange blockArgs) {
+          assert(blockArgs.size() == 2);
+          auto identityMap = builder.getMultiDimIdentityMap(logicalRank);
+          SmallVector<mlir::utils::IteratorType> linalgIteratorTypes(
+              logicalRank, mlir::utils::IteratorType::parallel);
+
+          // Get CB types and shard shapes.
+          auto cbInputType = mlir::cast<d2m::CBType>(blockArgs[0].getType());
+          auto cbOutputType = mlir::cast<d2m::CBType>(blockArgs[1].getType());
+          auto inputShardType = cbInputType.getUnderlying();
+          auto outputShardType = cbOutputType.getUnderlying();
+
+          // Create remote_load for input.
+          AffineMap inputIndexingMap = identityMap;
+          SmallVector<Value> inputIndices =
+              d2m::utils::buildGridIndices(builder, bodyLoc, inputIndexingMap);
+          auto inputTensorType = mlir::cast<RankedTensorType>(inputShardType);
+          auto inputBufferOp = builder.create<tensor::EmptyOp>(
+              bodyLoc, inputTensorType.getShape(),
+              inputTensorType.getElementType());
+          Value input =
+              builder
+                  .create<d2m::RemoteLoadOp>(bodyLoc, inputShardType,
+                                             inputBufferOp.getResult(),
+                                             inputOperand, inputIndices)
+                  .getResult();
+
+          // Create tensor.empty for output.
+          auto outputTensorType = mlir::cast<RankedTensorType>(outputShardType);
+          auto emptyOp = builder.create<tensor::EmptyOp>(
+              bodyLoc, outputTensorType.getShape(),
+              outputTensorType.getElementType());
+          Value output = emptyOp.getResult();
+
+          // Create linalg.generic that performs identity copy.
+          auto linalgGeneric = builder.create<mlir::linalg::GenericOp>(
+              bodyLoc, output.getType(), input, output,
+              SmallVector<mlir::AffineMap>{identityMap, identityMap},
+              linalgIteratorTypes,
+              [&](mlir::OpBuilder &bbBuilder, mlir::Location bbLoc,
+                  mlir::ValueRange bbArgs) {
+                // Identity: just yield the input value.
+                bbBuilder.create<mlir::linalg::YieldOp>(bbLoc, bbArgs[0]);
+              });
+
+          // Insert remote_store for output before yield.
+          AffineMap outputIndexingMap = identityMap;
+          SmallVector<Value> outputIndices =
+              d2m::utils::buildGridIndices(builder, bodyLoc, outputIndexingMap);
+          Value result = linalgGeneric->getResult(0);
+          Value storeResult = builder
+                                  .create<d2m::RemoteStoreOp>(
+                                      bodyLoc, outputOperand.getType(),
+                                      outputOperand, outputIndices, result)
+                                  .getResult();
+
+          builder.create<d2m::YieldOp>(bodyLoc, storeResult);
+        });
+
+    rewriter.replaceOp(op, unLayoutResult(rewriter, generic->getResult(0),
                                           op->getResult(0).getType()));
 
     return success();

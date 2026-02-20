@@ -86,6 +86,7 @@ void createTTIRToTTMetalFrontendPipeline(
   pm.addPass(ttir::createTTIRMoveReshapeToConstant());
   pm.addPass(ttir::createTTIRFoldConstantReshapeBroadcast());
   pm.addPass(d2m::createD2MRankNormalization());
+  pm.addPass(ttir::createTTIRDecomposeComplexReshape());
   pm.addPass(createCanonicalizerPassWithOptions(options));
   if (!options.globalDataFormatTarget.empty()) {
     d2m::D2MGlobalDataFormatConversionOptions globalFormatOptions;
