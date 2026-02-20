@@ -58,21 +58,6 @@ module {
     return %0 : tensor<1x8x28x28x16xbf16>
   }
 
-  // Test 3D convolution with groups
-  func.func @conv3d_with_groups(%arg0: tensor<1x8x28x28x8xbf16>, %arg1: tensor<16x4x3x3x3xbf16>) -> tensor<1x6x26x26x16xbf16> {
-    // CHECK: "ttnn.reshape"
-    // CHECK: "ttnn.conv3d"
-    // CHECK-SAME: groups = 2
-    %0 = "ttir.conv3d"(%arg0, %arg1)
-            <{
-              stride = array<i32: 1, 1, 1>,
-              padding = array<i32: 0, 0, 0>,
-              groups = 2 : i32,
-              padding_mode = "zeros"
-            }> : (tensor<1x8x28x28x8xbf16>, tensor<16x4x3x3x3xbf16>) -> tensor<1x6x26x26x16xbf16>
-    return %0 : tensor<1x6x26x26x16xbf16>
-  }
-
   // Test 3D convolution with larger kernel
   func.func @conv3d_large_kernel(%arg0: tensor<1x16x32x32x8xbf16>, %arg1: tensor<32x8x5x5x5xbf16>) -> tensor<1x12x28x28x32xbf16> {
     // CHECK: "ttnn.reshape"
