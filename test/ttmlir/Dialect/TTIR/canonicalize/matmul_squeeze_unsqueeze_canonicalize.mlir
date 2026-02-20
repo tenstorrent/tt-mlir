@@ -28,6 +28,19 @@ module {
     return %2 : tensor<1x64x32xbf16>
   }
 
+  // Only input B squeezed -- pattern fires via batch broadcasting.
+  func.func @matmul_one_input_b_squeezed(%arg0: tensor<64x128xbf16>, %arg1: tensor<1x128x32xbf16>) -> tensor<1x64x32xbf16> {
+    // CHECK-LABEL: @matmul_one_input_b_squeezed
+    // CHECK-NOT: "ttir.reshape"
+    // CHECK: "ttir.matmul"(%arg0, %arg1)
+    // CHECK-SAME: -> tensor<1x64x32xbf16>
+    // CHECK-NOT: "ttir.reshape"
+    %0 = "ttir.reshape"(%arg1) <{shape = [128 : i32, 32 : i32]}> : (tensor<1x128x32xbf16>) -> tensor<128x32xbf16>
+    %1 = "ttir.matmul"(%arg0, %0) : (tensor<64x128xbf16>, tensor<128x32xbf16>) -> tensor<64x32xbf16>
+    %2 = "ttir.reshape"(%1) <{shape = [1 : i32, 64 : i32, 32 : i32]}> : (tensor<64x32xbf16>) -> tensor<1x64x32xbf16>
+    return %2 : tensor<1x64x32xbf16>
+  }
+
   // No squeeze/unsqueeze reshapes -- pattern does not fire.
   func.func @matmul_no_reshape(%arg0: tensor<5x64x32xbf16>, %arg1: tensor<5x32x64xbf16>) -> tensor<5x64x64xbf16> {
     // CHECK-LABEL: @matmul_no_reshape
