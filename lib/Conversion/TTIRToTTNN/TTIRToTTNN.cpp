@@ -5,6 +5,8 @@
 #include "ttmlir/Conversion/TTIRToTTNN/TTIRToTTNN.h"
 
 #include "ttmlir/Conversion/TTIRToTTNN/Utils.h"
+#include "ttmlir/Dialect/Debug/IR/Debug.h"
+#include "ttmlir/Dialect/Debug/IR/DebugOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
@@ -2981,6 +2983,24 @@ public:
 };
 } // namespace
 
+namespace {
+// Conversion pattern for debug operations
+template <typename DebugOpTy, typename TTNNOpTy,
+          typename OpAdaptor = typename DebugOpTy::Adaptor>
+class DebugOpConversionPattern : public OpConversionPattern<DebugOpTy> {
+public:
+  using OpConversionPattern<DebugOpTy>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(DebugOpTy op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<TTNNOpTy>(op, adaptor.getFilePath(),
+                                          adaptor.getOperand());
+    return success();
+  }
+};
+} // namespace
+
 namespace mlir::tt {
 
 void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
@@ -3113,7 +3133,8 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            PagedScaledDotProductAttentionDecodeOpConversionPattern,
            SplitQueryKeyValueAndSplitHeadsOpConversionPattern,
            GeluBackwardOpConversionPattern,
-           DropoutOpConversionPattern
+           DropoutOpConversionPattern,
+           DebugOpConversionPattern<debug::DumpOp, ttnn::DumpTensorOp>
            >(typeConverter, ctx);
   // ANCHOR_END: op_rewriter_pattern_set
   // clang-format on
