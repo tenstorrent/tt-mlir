@@ -16,27 +16,40 @@ namespace mlir::tt::ttnn::workarounds::decomposition {
 
 // Conv3dOp input is NDHWC.
 static constexpr int64_t DEPTH_DIM = 1;
+static constexpr int64_t HEIGHT_DIM = 2;
+static constexpr int64_t WIDTH_DIM = 3;
 static constexpr int64_t INPUT_RANK = 5;
 
 LogicalResult Conv3dDepthPaddingRewritePattern::matchAndRewrite(
     Conv3dOp srcOp, PatternRewriter &rewriter) const {
 
-  ArrayRef<int32_t> padding = srcOp.getPadding();
-  int32_t depthPadding = padding[0];
-
-  if (depthPadding == 0) {
+  if (srcOp.getPaddingMode() != "zeros") {
     return failure();
   }
 
-  // Explicitly pad the input along the depth dimension.
+  ArrayRef<int32_t> padding = srcOp.getPadding();
+  int32_t depthPad = padding[0];
+  int32_t heightPad = padding[1];
+  int32_t widthPad = padding[2];
+
+  if (depthPad == 0 && heightPad == 0 && widthPad == 0) {
+    return failure();
+  }
+
   RankedTensorType inputType = srcOp.getInput().getType();
 
   SmallVector<int32_t> inputPadding(INPUT_RANK * 2, 0);
-  inputPadding[DEPTH_DIM * 2] = depthPadding;
-  inputPadding[DEPTH_DIM * 2 + 1] = depthPadding;
+  inputPadding[DEPTH_DIM * 2] = depthPad;
+  inputPadding[DEPTH_DIM * 2 + 1] = depthPad;
+  inputPadding[HEIGHT_DIM * 2] = heightPad;
+  inputPadding[HEIGHT_DIM * 2 + 1] = heightPad;
+  inputPadding[WIDTH_DIM * 2] = widthPad;
+  inputPadding[WIDTH_DIM * 2 + 1] = widthPad;
 
   SmallVector<int64_t> paddedInputShape(inputType.getShape());
-  paddedInputShape[DEPTH_DIM] += 2 * depthPadding;
+  paddedInputShape[DEPTH_DIM] += 2 * depthPad;
+  paddedInputShape[HEIGHT_DIM] += 2 * heightPad;
+  paddedInputShape[WIDTH_DIM] += 2 * widthPad;
 
   auto paddedInputType =
       RankedTensorType::get(paddedInputShape, inputType.getElementType(),
@@ -45,22 +58,23 @@ LogicalResult Conv3dDepthPaddingRewritePattern::matchAndRewrite(
 
   auto paddedInput =
       rewriter.create<PadOp>(ttmlir::utils::appendLocationSuffix(
-                                 srcOp.getInput().getLoc(), "_pad_depth"),
+                                 srcOp.getInput().getLoc(), "_pad_conv3d"),
                              paddedInputType, srcOp.getInput(), inputPadding,
                              /*pad_value=*/mlir::APFloat(0.0f),
                              /*use_multicore=*/false,
                              /*memory_config=*/nullptr);
 
-  // Update the op: set padded input, zero out depth padding, update
-  // input_depth.
   rewriter.modifyOpInPlace(srcOp, [&]() {
     srcOp.getInputMutable().assign(paddedInput);
 
-    SmallVector<int32_t> newPadding = {0, padding[1], padding[2]};
-    srcOp.setPaddingAttr(rewriter.getDenseI32ArrayAttr(newPadding));
+    srcOp.setPaddingAttr(rewriter.getDenseI32ArrayAttr({0, 0, 0}));
 
     srcOp.setInputDepthAttr(
         rewriter.getI32IntegerAttr(paddedInputShape[DEPTH_DIM]));
+    srcOp.setInputHeightAttr(
+        rewriter.getI32IntegerAttr(paddedInputShape[HEIGHT_DIM]));
+    srcOp.setInputWidthAttr(
+        rewriter.getI32IntegerAttr(paddedInputShape[WIDTH_DIM]));
   });
 
   return success();

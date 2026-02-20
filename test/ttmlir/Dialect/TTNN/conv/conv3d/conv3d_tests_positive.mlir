@@ -132,7 +132,9 @@ module {
   func.func @conv3d_depth_padding_workaround(%arg0: tensor<1x128x2x4x4xbf16>, %arg1: tensor<1024x128x3x3x3xbf16>) -> tensor<1x1024x2x4x4xbf16> {
     // CHECK: "ttnn.permute"
     // CHECK: "ttnn.permute"
+    // CHECK: "ttnn.reshape"
     // CHECK: "ttnn.pad"
+    // CHECK: "ttnn.reshape"
     // CHECK: "ttnn.permute"
     // CHECK: "ttnn.conv3d"
     // CHECK: "ttnn.permute"

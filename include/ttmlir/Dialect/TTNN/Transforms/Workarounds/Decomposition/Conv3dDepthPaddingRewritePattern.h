@@ -12,10 +12,10 @@
 
 namespace mlir::tt::ttnn::workarounds::decomposition {
 
-// TT-Metal's conv3d requires depth padding to be zero (padding[0] == 0).
-// When non-zero depth padding is requested, this pattern explicitly pads the
-// input tensor along the depth dimension using a PadOp, then runs conv3d with
-// depth padding set to zero.
+// Extracts all spatial padding from conv3d into an explicit PadOp.
+// Conv3d with padding=[pD, pH, pW] is decomposed into:
+//   1. PadOp on the NDHWC input (pads D, H, W dims)
+//   2. Conv3d with padding=[0, 0, 0]
 // Issue: https://github.com/tenstorrent/tt-metal/issues/38143
 class Conv3dDepthPaddingRewritePattern
     : public mlir::OpRewritePattern<Conv3dOp> {
