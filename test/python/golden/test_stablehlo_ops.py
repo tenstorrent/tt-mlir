@@ -1866,6 +1866,107 @@ def test_convolution_groups_dilation(
     )
 
 
+def module_rng(builder: StableHLOBuilder):
+    @builder.func([], [])
+    def rng(builder: StableHLOBuilder, unit_attrs: Optional[List[str]] = None):
+        return builder.rng([32, 32], torch.bfloat16, low=0.0, high=1.0)
+
+
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_rng(target: str, request, device):
+    compile_and_execute_shlo(
+        module_rng,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        device=device,
+    )
+
+
+@pytest.mark.parametrize(
+    "shapes,stride,padding,dilation,groups",
+    [
+        # Depthwise convolution (groups = input_channels)
+        (
+            [(1, 32, 28, 28), (32, 1, 3, 3)],
+            [1, 1],
+            [1, 1, 1, 1],
+            [1, 1],
+            32,
+        ),
+        # Group convolution (4 groups)
+        (
+            [(1, 64, 32, 32), (64, 16, 3, 3)],
+            [1, 1],
+            [1, 1, 1, 1],
+            [1, 1],
+            4,
+        ),
+        # Dilated convolution
+        (
+            [(1, 32, 32, 32), (64, 32, 3, 3)],
+            [1, 1],
+            [2, 2, 2, 2],
+            [2, 2],
+            1,
+        ),
+    ],
+    ids=["depthwise_conv", "group_conv_4groups", "dilated_conv"],
+)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_convolution_groups_dilation(
+    shapes: List[Shape],
+    stride: List[int],
+    padding: List[int],
+    dilation: List[int],
+    groups: int,
+    dtype: torch.dtype,
+    target: str,
+    request,
+    device,
+):
+    """Test convolution with group and dilation patterns"""
+
+    def module(builder: StableHLOBuilder):
+        @builder.func(shapes, [dtype] * len(shapes))
+        def convolution(
+            in0: Operand,
+            weight: Operand,
+            builder: StableHLOBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.convolution(
+                in0,
+                weight,
+                window_strides=stride,
+                padding=padding,
+                lhs_dilation=[1, 1],
+                rhs_dilation=dilation,
+                input_batch_dimension=0,
+                input_feature_dimension=1,
+                input_spatial_dimensions=[2, 3],
+                kernel_output_feature_dimension=0,
+                kernel_input_feature_dimension=1,
+                kernel_spatial_dimensions=[2, 3],
+                output_batch_dimension=0,
+                output_feature_dimension=1,
+                output_spatial_dimensions=[2, 3],
+                feature_group_count=groups,
+                batch_group_count=1,
+            )
+
+    compile_and_execute_shlo(
+        module,
+        test_base=request.node.name,
+        target=target,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        device=device,
+    )
+
+
 @pytest.mark.parametrize("shape", [(128,)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn"])
