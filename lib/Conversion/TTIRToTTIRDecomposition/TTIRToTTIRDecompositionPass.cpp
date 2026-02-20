@@ -42,6 +42,9 @@ struct TTIRToTTIRDecompositionPass
     target.addLegalDialect<mlir::func::FuncDialect>();
     target.addLegalDialect<BuiltinDialect>();
     target.addLegalOp<ttir::EmptyOp>();
+    target.addIllegalOp<ttir::StablehloComplexOp>();
+    target.addIllegalOp<ttir::StablehloRealOp>();
+    target.addIllegalOp<ttir::StablehloImagOp>();
 
     // Configure which ops to decompose based on the configuration
     switch (decompConfig) {
@@ -147,10 +150,28 @@ struct TTIRToTTIRDecompositionPass
     TypeConverter typeConverter;
     // All types map 1:1.
     typeConverter.addConversion([](Type type) { return type; });
+    typeConverter.addConversion(
+        [](RankedTensorType type) -> std::optional<Type> {
+          auto complexElem = dyn_cast<ComplexType>(type.getElementType());
+          if (!complexElem) {
+            return type;
+          }
+          auto floatType = complexElem.getElementType();
+          auto realImagType = RankedTensorType::get(type.getShape(), floatType);
+          return ttir::ComplexTensorType::get(type.getContext(), realImagType,
+                                              realImagType);
+        });
 
     RewritePatternSet patterns(&getContext());
     populateTTIRToTTIRDecompositionPatterns(&getContext(), patterns,
                                             typeConverter, decompConfig);
+
+    populateFunctionOpInterfaceTypeConversionPattern<func::FuncOp>(
+        patterns, typeConverter);
+    target.addDynamicallyLegalOp<func::FuncOp>([&](func::FuncOp op) {
+      return typeConverter.isSignatureLegal(op.getFunctionType()) &&
+             typeConverter.isLegal(&op.getBody());
+    });
 
     // Apply partial conversion
     //

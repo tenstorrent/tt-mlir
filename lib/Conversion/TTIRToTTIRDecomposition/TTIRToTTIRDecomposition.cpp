@@ -2551,10 +2551,56 @@ struct NegativePadOpDecompositionPattern
 };
 } // namespace
 
+namespace {
+struct StablehloComplexToComplexPattern
+    : public OpConversionPattern<ttir::StablehloComplexOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::StablehloComplexOp op,
+                  ttir::StablehloComplexOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<ttir::ComplexOp>(op, adaptor.getReal(),
+                                                 adaptor.getImag());
+    return success();
+  }
+};
+
+struct StablehloRealToRealPattern
+    : public OpConversionPattern<ttir::StablehloRealOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::StablehloRealOp op,
+                  ttir::StablehloRealOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<ttir::RealOp>(op, adaptor.getInput());
+    return success();
+  }
+};
+
+struct StablehloImagToImagPattern
+    : public OpConversionPattern<ttir::StablehloImagOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::StablehloImagOp op,
+                  ttir::StablehloImagOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<ttir::ImagOp>(op, adaptor.getInput());
+    return success();
+  }
+};
+
+} // namespace
+
 void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
                                              RewritePatternSet &patterns,
                                              TypeConverter &typeConverter,
                                              DecompMode decompConfig) {
+  patterns.add<StablehloComplexToComplexPattern>(typeConverter, ctx);
+  patterns.add<StablehloRealToRealPattern>(typeConverter, ctx);
+  patterns.add<StablehloImagToImagPattern>(typeConverter, ctx);
   patterns.add<PoolingToFullOp<ttir::MaxPool2dOp>>(typeConverter, ctx);
   patterns.add<PoolingToFullOp<ttir::AvgPool2dOp>>(typeConverter, ctx);
   patterns.add<IndexToSliceConversionPattern>(typeConverter, ctx);
