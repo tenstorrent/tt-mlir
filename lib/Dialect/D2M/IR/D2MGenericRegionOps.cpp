@@ -62,7 +62,6 @@ static mlir::ConstantIntRanges getIndexRange(uint64_t umin, uint64_t umax) {
 }
 
 //===----------------------------------------------------------------------===//
-//===----------------------------------------------------------------------===//
 // DMA Operations
 //===----------------------------------------------------------------------===//
 
@@ -1250,9 +1249,7 @@ void IterIndexOp::inferResultRanges(
 }
 
 mlir::OpFoldResult IterIndexOp::fold(FoldAdaptor adaptor) {
-  // Cannot fold: runtime value depends on loop iteration, not the dimension
-  // index itself.
-  return {};
+  return adaptor.getDimAttr();
 }
 
 //===----------------------------------------------------------------------===//
@@ -1293,12 +1290,6 @@ void BlockOffsetOp::inferResultRanges(
                  getIndexRange(0, std::numeric_limits<uint32_t>::max()));
 }
 
-mlir::OpFoldResult BlockOffsetOp::fold(FoldAdaptor adaptor) {
-  // Block offset must remain explicit so later D2M lowering can preserve
-  // block/core index math structure.
-  return {};
-}
-
 //===----------------------------------------------------------------------===//
 // GetBlockFactorOp
 //===----------------------------------------------------------------------===//
@@ -1314,10 +1305,6 @@ void GetBlockFactorOp::inferResultRanges(
     mlir::SetIntRangeFn setResultRange) {
   setResultRange(getResult(),
                  getIndexRange(0, std::numeric_limits<uint32_t>::max()));
-}
-
-mlir::OpFoldResult GetBlockFactorOp::fold(FoldAdaptor adaptor) {
-  return adaptor.getDimAttr();
 }
 
 void CoreIndexOp::getAsmResultNames(

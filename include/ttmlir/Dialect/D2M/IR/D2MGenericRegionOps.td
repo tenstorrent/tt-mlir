@@ -2061,6 +2061,7 @@ def D2M_BlockOffsetOp : D2M_IndexOp<"block_offset"> {
       Represents block_factor * core_index as a constant-like operation. Useful
       for representing blocking index math in an affine dialect compatible way.
     }];
+    let hasFolder = false;
 }
 
 def D2M_GetBlockFactorOp : D2M_IndexOp<"get_block_factor"> {
@@ -2069,6 +2070,7 @@ def D2M_GetBlockFactorOp : D2M_IndexOp<"get_block_factor"> {
       Retrieve the block factor from the block factor array attribute in
       the parent generic op at the provided dimension index.
     }];
+    let hasFolder = false;
 }
 
 def D2M_CoreIndexOp : D2M_GenericRegionOp<"core_index",
