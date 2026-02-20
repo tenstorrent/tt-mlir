@@ -502,11 +502,12 @@ if __name__ == "__main__":
     # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
     # CHECK: func.func @permute_2d_func
     # CHECK-SAME: (%arg0: tensor<64x128xbf16, #ttnn_layout>)
-    # CHECK-SAME: -> tensor<128x64xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK-SAME: -> [[OUT_TYPE:tensor<128x64xbf16, #ttnn_layout[0-9]*>]]
     # CHECK: %[[VAL:[0-9]+]] = "ttir.permute"(%arg0)
     # CHECK-SAME: permutation = array<i64: 1, 0>
-    # CHECK-SAME: (tensor<64x128xbf16, #ttnn_layout>) -> tensor<128x64xbf16, #ttnn_layout{{[0-9]*}}>
-    # CHECK: return %[[VAL]] : tensor<128x64xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK-SAME: (tensor<64x128xbf16, #ttnn_layout>) -> tensor<{{.*}}>
+    # CHECK: %[[CONVERTED:[0-9]+]] = ttir.to_layout %[[VAL]]{{.*}} -> [[OUT_TYPE]]
+    # CHECK: return %[[CONVERTED]] : [[OUT_TYPE]]
     test_ir_generation(permute_2d_func, input_c)
 
     # 4D permute (attention-style BHSD -> BSHD)
@@ -516,11 +517,12 @@ if __name__ == "__main__":
     # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
     # CHECK: func.func @permute_4d_func
     # CHECK-SAME: (%arg0: tensor<1x8x32x64xbf16, #ttnn_layout>)
-    # CHECK-SAME: -> tensor<1x32x8x64xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK-SAME: -> [[OUT_TYPE:tensor<1x32x8x64xbf16, #ttnn_layout[0-9]*>]]
     # CHECK: %[[VAL:[0-9]+]] = "ttir.permute"(%arg0)
     # CHECK-SAME: permutation = array<i64: 0, 2, 1, 3>
-    # CHECK-SAME: (tensor<1x8x32x64xbf16, #ttnn_layout>) -> tensor<1x32x8x64xbf16, #ttnn_layout{{[0-9]*}}>
-    # CHECK: return %[[VAL]] : tensor<1x32x8x64xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK-SAME: (tensor<1x8x32x64xbf16, #ttnn_layout>) -> tensor<{{.*}}>
+    # CHECK: %[[CONVERTED:[0-9]+]] = ttir.to_layout %[[VAL]]{{.*}} -> [[OUT_TYPE]]
+    # CHECK: return %[[CONVERTED]] : [[OUT_TYPE]]
     test_ir_generation(permute_4d_func, input_4d)
 
     # ============================================================
@@ -531,36 +533,39 @@ if __name__ == "__main__":
     # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
     # CHECK: func.func @transpose_2d_func
     # CHECK-SAME: (%arg0: tensor<64x128xbf16, #ttnn_layout>)
-    # CHECK-SAME: -> tensor<128x64xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK-SAME: -> [[OUT_TYPE:tensor<128x64xbf16, #ttnn_layout[0-9]*>]]
     # CHECK: %[[VAL:[0-9]+]] = "ttir.transpose"(%arg0)
     # CHECK-SAME: dim0 = 0 : si32
     # CHECK-SAME: dim1 = 1 : si32
-    # CHECK-SAME: (tensor<64x128xbf16, #ttnn_layout>) -> tensor<128x64xbf16, #ttnn_layout{{[0-9]*}}>
-    # CHECK: return %[[VAL]] : tensor<128x64xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK-SAME: (tensor<64x128xbf16, #ttnn_layout>) -> tensor<{{.*}}>
+    # CHECK: %[[CONVERTED:[0-9]+]] = ttir.to_layout %[[VAL]]{{.*}} -> [[OUT_TYPE]]
+    # CHECK: return %[[CONVERTED]] : [[OUT_TYPE]]
     test_ir_generation(transpose_2d_func, input_c)
 
     # 4D transpose (swap dims 1 and 2 - BHSD -> BSHD style)
     # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
     # CHECK: func.func @transpose_4d_func
     # CHECK-SAME: (%arg0: tensor<1x8x32x64xbf16, #ttnn_layout>)
-    # CHECK-SAME: -> tensor<1x32x8x64xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK-SAME: -> [[OUT_TYPE:tensor<1x32x8x64xbf16, #ttnn_layout[0-9]*>]]
     # CHECK: %[[VAL:[0-9]+]] = "ttir.transpose"(%arg0)
     # CHECK-SAME: dim0 = 1 : si32
     # CHECK-SAME: dim1 = 2 : si32
-    # CHECK-SAME: (tensor<1x8x32x64xbf16, #ttnn_layout>) -> tensor<1x32x8x64xbf16, #ttnn_layout{{[0-9]*}}>
-    # CHECK: return %[[VAL]] : tensor<1x32x8x64xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK-SAME: (tensor<1x8x32x64xbf16, #ttnn_layout>) -> tensor<{{.*}}>
+    # CHECK: %[[CONVERTED:[0-9]+]] = ttir.to_layout %[[VAL]]{{.*}} -> [[OUT_TYPE]]
+    # CHECK: return %[[CONVERTED]] : [[OUT_TYPE]]
     test_ir_generation(transpose_4d_func, input_4d)
 
     # Transpose with negative dimensions (swap last two dims of 4D tensor)
     # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
     # CHECK: func.func @transpose_negative_dims_func
     # CHECK-SAME: (%arg0: tensor<1x8x32x64xbf16, #ttnn_layout>)
-    # CHECK-SAME: -> tensor<1x8x64x32xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK-SAME: -> [[OUT_TYPE:tensor<1x8x64x32xbf16, #ttnn_layout[0-9]*>]]
     # CHECK: %[[VAL:[0-9]+]] = "ttir.transpose"(%arg0)
     # CHECK-SAME: dim0 = -2 : si32
     # CHECK-SAME: dim1 = -1 : si32
-    # CHECK-SAME: (tensor<1x8x32x64xbf16, #ttnn_layout>) -> tensor<1x8x64x32xbf16, #ttnn_layout{{[0-9]*}}>
-    # CHECK: return %[[VAL]] : tensor<1x8x64x32xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK-SAME: (tensor<1x8x32x64xbf16, #ttnn_layout>) -> tensor<{{.*}}>
+    # CHECK: %[[CONVERTED:[0-9]+]] = ttir.to_layout %[[VAL]]{{.*}} -> [[OUT_TYPE]]
+    # CHECK: return %[[CONVERTED]] : [[OUT_TYPE]]
     test_ir_generation(transpose_negative_dims_func, input_4d)
 
     # ============================================================
@@ -571,33 +576,36 @@ if __name__ == "__main__":
     # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
     # CHECK: func.func @reshape_2d_to_1d_func
     # CHECK-SAME: (%arg0: tensor<64x64xbf16, #ttnn_layout>)
-    # CHECK-SAME: -> tensor<4096xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK-SAME: -> [[OUT_TYPE:tensor<4096xbf16, #ttnn_layout[0-9]*>]]
     # CHECK: %[[VAL:[0-9]+]] = "ttir.reshape"(%arg0)
     # CHECK-SAME: shape = [4096 : i32]
-    # CHECK-SAME: (tensor<64x64xbf16, #ttnn_layout>) -> tensor<4096xbf16, #ttnn_layout{{[0-9]*}}>
-    # CHECK: return %[[VAL]] : tensor<4096xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK-SAME: (tensor<64x64xbf16, #ttnn_layout>) -> tensor<{{.*}}>
+    # CHECK: %[[CONVERTED:[0-9]+]] = ttir.to_layout %[[VAL]]{{.*}} -> [[OUT_TYPE]]
+    # CHECK: return %[[CONVERTED]] : [[OUT_TYPE]]
     test_ir_generation(reshape_2d_to_1d_func, input_a)
 
     # Reshape 2D to 3D (add batch dimension)
     # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
     # CHECK: func.func @reshape_2d_to_3d_func
     # CHECK-SAME: (%arg0: tensor<64x64xbf16, #ttnn_layout>)
-    # CHECK-SAME: -> tensor<1x64x64xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK-SAME: -> [[OUT_TYPE:tensor<1x64x64xbf16, #ttnn_layout[0-9]*>]]
     # CHECK: %[[VAL:[0-9]+]] = "ttir.reshape"(%arg0)
     # CHECK-SAME: shape = [1 : i32, 64 : i32, 64 : i32]
-    # CHECK-SAME: (tensor<64x64xbf16, #ttnn_layout>) -> tensor<1x64x64xbf16, #ttnn_layout{{[0-9]*}}>
-    # CHECK: return %[[VAL]] : tensor<1x64x64xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK-SAME: (tensor<64x64xbf16, #ttnn_layout>) -> tensor<{{.*}}>
+    # CHECK: %[[CONVERTED:[0-9]+]] = ttir.to_layout %[[VAL]]{{.*}} -> [[OUT_TYPE]]
+    # CHECK: return %[[CONVERTED]] : [[OUT_TYPE]]
     test_ir_generation(reshape_2d_to_3d_func, input_a)
 
     # Reshape 4D to 2D (flatten batch and spatial)
     # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
     # CHECK: func.func @reshape_4d_to_2d_func
     # CHECK-SAME: (%arg0: tensor<1x8x32x64xbf16, #ttnn_layout>)
-    # CHECK-SAME: -> tensor<256x64xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK-SAME: -> [[OUT_TYPE:tensor<256x64xbf16, #ttnn_layout[0-9]*>]]
     # CHECK: %[[VAL:[0-9]+]] = "ttir.reshape"(%arg0)
     # CHECK-SAME: shape = [256 : i32, 64 : i32]
-    # CHECK-SAME: (tensor<1x8x32x64xbf16, #ttnn_layout>) -> tensor<256x64xbf16, #ttnn_layout{{[0-9]*}}>
-    # CHECK: return %[[VAL]] : tensor<256x64xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK-SAME: (tensor<1x8x32x64xbf16, #ttnn_layout>) -> tensor<{{.*}}>
+    # CHECK: %[[CONVERTED:[0-9]+]] = ttir.to_layout %[[VAL]]{{.*}} -> [[OUT_TYPE]]
+    # CHECK: return %[[CONVERTED]] : [[OUT_TYPE]]
     test_ir_generation(reshape_4d_to_2d_func, input_4d)
 
     # ============================================================
@@ -619,22 +627,24 @@ if __name__ == "__main__":
     # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
     # CHECK: func.func @rearrange_identity_func
     # CHECK-SAME: (%arg0: tensor<2x4x32x64xbf16, #ttnn_layout>)
-    # CHECK-SAME: -> tensor<2x4x32x64xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK-SAME: -> [[OUT_TYPE:tensor<2x4x32x64xbf16, #ttnn_layout[0-9]*>]]
     # CHECK: %[[VAL:[0-9]+]] = "ttir.rearrange"(%arg0)
     # CHECK-SAME: pattern = "b h w c -> b h w c"
-    # CHECK-SAME: (tensor<2x4x32x64xbf16, #ttnn_layout>) -> tensor<2x4x32x64xbf16, #ttnn_layout{{[0-9]*}}>
-    # CHECK: return %[[VAL]] : tensor<2x4x32x64xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK-SAME: (tensor<2x4x32x64xbf16, #ttnn_layout>) -> tensor<{{.*}}>
+    # CHECK: %[[CONVERTED:[0-9]+]] = ttir.to_layout %[[VAL]]{{.*}} -> [[OUT_TYPE]]
+    # CHECK: return %[[CONVERTED]] : [[OUT_TYPE]]
     test_ir_generation(rearrange_identity_func, input_bhwc)
 
     # 2. Reordering: 'b h w c -> b c h w' (BHWC -> BCHW)
     # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
     # CHECK: func.func @rearrange_reorder_func
     # CHECK-SAME: (%arg0: tensor<2x4x32x64xbf16, #ttnn_layout>)
-    # CHECK-SAME: -> tensor<2x64x4x32xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK-SAME: -> [[OUT_TYPE:tensor<2x64x4x32xbf16, #ttnn_layout[0-9]*>]]
     # CHECK: %[[VAL:[0-9]+]] = "ttir.rearrange"(%arg0)
     # CHECK-SAME: pattern = "b h w c -> b c h w"
-    # CHECK-SAME: (tensor<2x4x32x64xbf16, #ttnn_layout>) -> tensor<2x64x4x32xbf16, #ttnn_layout{{[0-9]*}}>
-    # CHECK: return %[[VAL]] : tensor<2x64x4x32xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK-SAME: (tensor<2x4x32x64xbf16, #ttnn_layout>) -> tensor<{{.*}}>
+    # CHECK: %[[CONVERTED:[0-9]+]] = ttir.to_layout %[[VAL]]{{.*}} -> [[OUT_TYPE]]
+    # CHECK: return %[[CONVERTED]] : [[OUT_TYPE]]
     test_ir_generation(rearrange_reorder_func, input_bhwc)
 
     # 3. Merging: 'b h w c -> (b h) w c' (merge batch and height)
@@ -642,11 +652,12 @@ if __name__ == "__main__":
     # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
     # CHECK: func.func @rearrange_merge_func
     # CHECK-SAME: (%arg0: tensor<2x4x32x64xbf16, #ttnn_layout>)
-    # CHECK-SAME: -> tensor<8x32x64xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK-SAME: -> [[OUT_TYPE:tensor<8x32x64xbf16, #ttnn_layout[0-9]*>]]
     # CHECK: %[[VAL:[0-9]+]] = "ttir.rearrange"(%arg0)
     # CHECK-SAME: pattern = "b h w c -> (b h) w c"
-    # CHECK-SAME: (tensor<2x4x32x64xbf16, #ttnn_layout>) -> tensor<8x32x64xbf16, #ttnn_layout{{[0-9]*}}>
-    # CHECK: return %[[VAL]] : tensor<8x32x64xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK-SAME: (tensor<2x4x32x64xbf16, #ttnn_layout>) -> tensor<{{.*}}>
+    # CHECK: %[[CONVERTED:[0-9]+]] = ttir.to_layout %[[VAL]]{{.*}} -> [[OUT_TYPE]]
+    # CHECK: return %[[CONVERTED]] : [[OUT_TYPE]]
     test_ir_generation(rearrange_merge_func, input_bhwc)
 
     # 4. Reorder + merge: 'b h w c -> h (b w) c'
@@ -654,11 +665,12 @@ if __name__ == "__main__":
     # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
     # CHECK: func.func @rearrange_reorder_merge_func
     # CHECK-SAME: (%arg0: tensor<2x4x32x64xbf16, #ttnn_layout>)
-    # CHECK-SAME: -> tensor<4x64x64xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK-SAME: -> [[OUT_TYPE:tensor<4x64x64xbf16, #ttnn_layout[0-9]*>]]
     # CHECK: %[[VAL:[0-9]+]] = "ttir.rearrange"(%arg0)
     # CHECK-SAME: pattern = "b h w c -> h (b w) c"
-    # CHECK-SAME: (tensor<2x4x32x64xbf16, #ttnn_layout>) -> tensor<4x64x64xbf16, #ttnn_layout{{[0-9]*}}>
-    # CHECK: return %[[VAL]] : tensor<4x64x64xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK-SAME: (tensor<2x4x32x64xbf16, #ttnn_layout>) -> tensor<{{.*}}>
+    # CHECK: %[[CONVERTED:[0-9]+]] = ttir.to_layout %[[VAL]]{{.*}} -> [[OUT_TYPE]]
+    # CHECK: return %[[CONVERTED]] : [[OUT_TYPE]]
     test_ir_generation(rearrange_reorder_merge_func, input_bhwc)
 
     # 5. Multi-merge: 'b h w c -> b (c h w)' (flatten to 2D)
@@ -666,11 +678,12 @@ if __name__ == "__main__":
     # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
     # CHECK: func.func @rearrange_multi_merge_func
     # CHECK-SAME: (%arg0: tensor<2x4x32x64xbf16, #ttnn_layout>)
-    # CHECK-SAME: -> tensor<2x8192xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK-SAME: -> [[OUT_TYPE:tensor<2x8192xbf16, #ttnn_layout[0-9]*>]]
     # CHECK: %[[VAL:[0-9]+]] = "ttir.rearrange"(%arg0)
     # CHECK-SAME: pattern = "b h w c -> b (c h w)"
-    # CHECK-SAME: (tensor<2x4x32x64xbf16, #ttnn_layout>) -> tensor<2x8192xbf16, #ttnn_layout{{[0-9]*}}>
-    # CHECK: return %[[VAL]] : tensor<2x8192xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK-SAME: (tensor<2x4x32x64xbf16, #ttnn_layout>) -> tensor<{{.*}}>
+    # CHECK: %[[CONVERTED:[0-9]+]] = ttir.to_layout %[[VAL]]{{.*}} -> [[OUT_TYPE]]
+    # CHECK: return %[[CONVERTED]] : [[OUT_TYPE]]
     test_ir_generation(rearrange_multi_merge_func, input_bhwc)
 
     # ============================================================
@@ -682,11 +695,12 @@ if __name__ == "__main__":
     # CHECK: func.func @concat_dim0
     # CHECK-SAME: (%arg0: tensor<64x64xbf16, #ttnn_layout>
     # CHECK-SAME: %arg1: tensor<64x64xbf16, #ttnn_layout{{[0-9]*}}>)
-    # CHECK-SAME: -> tensor<128x64xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK-SAME: -> [[OUT_TYPE:tensor<128x64xbf16, #ttnn_layout[0-9]*>]]
     # CHECK: %[[VAL:[0-9]+]] = "ttir.concat"(%arg0, %arg1)
     # CHECK-SAME: dim = 0 : si32
-    # CHECK-SAME: (tensor<64x64xbf16, #ttnn_layout>, tensor<64x64xbf16, #ttnn_layout{{[0-9]*}}>) -> tensor<128x64xbf16, #ttnn_layout{{[0-9]*}}>
-    # CHECK: return %[[VAL]] : tensor<128x64xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK-SAME: (tensor<64x64xbf16, #ttnn_layout>, tensor<64x64xbf16, #ttnn_layout{{[0-9]*}}>) -> tensor<{{.*}}>
+    # CHECK: %[[CONVERTED:[0-9]+]] = ttir.to_layout %[[VAL]]{{.*}} -> [[OUT_TYPE]]
+    # CHECK: return %[[CONVERTED]] : [[OUT_TYPE]]
     test_ir_generation(concat_dim0_func, input_a, input_b)
 
     # Concat along dimension 1: [64, 64] + [64, 64] -> [64, 128]
@@ -694,11 +708,12 @@ if __name__ == "__main__":
     # CHECK: func.func @concat_dim1
     # CHECK-SAME: (%arg0: tensor<64x64xbf16, #ttnn_layout>
     # CHECK-SAME: %arg1: tensor<64x64xbf16, #ttnn_layout{{[0-9]*}}>)
-    # CHECK-SAME: -> tensor<64x128xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK-SAME: -> [[OUT_TYPE:tensor<64x128xbf16, #ttnn_layout[0-9]*>]]
     # CHECK: %[[VAL:[0-9]+]] = "ttir.concat"(%arg0, %arg1)
     # CHECK-SAME: dim = 1 : si32
-    # CHECK-SAME: (tensor<64x64xbf16, #ttnn_layout>, tensor<64x64xbf16, #ttnn_layout{{[0-9]*}}>) -> tensor<64x128xbf16, #ttnn_layout{{[0-9]*}}>
-    # CHECK: return %[[VAL]] : tensor<64x128xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK-SAME: (tensor<64x64xbf16, #ttnn_layout>, tensor<64x64xbf16, #ttnn_layout{{[0-9]*}}>) -> tensor<{{.*}}>
+    # CHECK: %[[CONVERTED:[0-9]+]] = ttir.to_layout %[[VAL]]{{.*}} -> [[OUT_TYPE]]
+    # CHECK: return %[[CONVERTED]] : [[OUT_TYPE]]
     test_ir_generation(concat_dim1_func, input_a, input_b)
 
     # Concat three tensors along dimension 0: [64, 64] + [64, 64] + [64, 64] -> [192, 64]
@@ -707,11 +722,12 @@ if __name__ == "__main__":
     # CHECK-SAME: (%arg0: tensor<64x64xbf16, #ttnn_layout>
     # CHECK-SAME: %arg1: tensor<64x64xbf16, #ttnn_layout{{[0-9]*}}>
     # CHECK-SAME: %arg2: tensor<64x64xbf16, #ttnn_layout{{[0-9]*}}>)
-    # CHECK-SAME: -> tensor<192x64xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK-SAME: -> [[OUT_TYPE:tensor<192x64xbf16, #ttnn_layout[0-9]*>]]
     # CHECK: %[[VAL:[0-9]+]] = "ttir.concat"(%arg0, %arg1, %arg2)
     # CHECK-SAME: dim = 0 : si32
-    # CHECK-SAME: (tensor<64x64xbf16, #ttnn_layout>, tensor<64x64xbf16, #ttnn_layout{{[0-9]*}}>, tensor<64x64xbf16, #ttnn_layout{{[0-9]*}}>) -> tensor<192x64xbf16, #ttnn_layout{{[0-9]*}}>
-    # CHECK: return %[[VAL]] : tensor<192x64xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK-SAME: (tensor<64x64xbf16, #ttnn_layout>, tensor<64x64xbf16, #ttnn_layout{{[0-9]*}}>, tensor<64x64xbf16, #ttnn_layout{{[0-9]*}}>) -> tensor<{{.*}}>
+    # CHECK: %[[CONVERTED:[0-9]+]] = ttir.to_layout %[[VAL]]{{.*}} -> [[OUT_TYPE]]
+    # CHECK: return %[[CONVERTED]] : [[OUT_TYPE]]
     input_c_same = create_sharded_tile_tensor(device, (64, 64), (0, 0), torch.bfloat16)
     test_ir_generation(concat_three_func, input_a, input_b, input_c_same)
 
@@ -723,33 +739,36 @@ if __name__ == "__main__":
     # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
     # CHECK: func.func @repeat_2x1
     # CHECK-SAME: (%arg0: tensor<64x64xbf16, #ttnn_layout>)
-    # CHECK-SAME: -> tensor<128x64xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK-SAME: -> [[OUT_TYPE:tensor<128x64xbf16, #ttnn_layout[0-9]*>]]
     # CHECK: %[[VAL:[0-9]+]] = "ttir.repeat"(%arg0)
     # CHECK-SAME: repeat_dimensions = array<i64: 2, 1>
-    # CHECK-SAME: (tensor<64x64xbf16, #ttnn_layout>) -> tensor<128x64xbf16, #ttnn_layout{{[0-9]*}}>
-    # CHECK: return %[[VAL]] : tensor<128x64xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK-SAME: (tensor<64x64xbf16, #ttnn_layout>) -> tensor<{{.*}}>
+    # CHECK: %[[CONVERTED:[0-9]+]] = ttir.to_layout %[[VAL]]{{.*}} -> [[OUT_TYPE]]
+    # CHECK: return %[[CONVERTED]] : [[OUT_TYPE]]
     test_ir_generation(repeat_2x1_func, input_a)
 
     # Repeat [1, 3]: [64, 64] -> [64, 192]
     # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
     # CHECK: func.func @repeat_1x3
     # CHECK-SAME: (%arg0: tensor<64x64xbf16, #ttnn_layout>)
-    # CHECK-SAME: -> tensor<64x192xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK-SAME: -> [[OUT_TYPE:tensor<64x192xbf16, #ttnn_layout[0-9]*>]]
     # CHECK: %[[VAL:[0-9]+]] = "ttir.repeat"(%arg0)
     # CHECK-SAME: repeat_dimensions = array<i64: 1, 3>
-    # CHECK-SAME: (tensor<64x64xbf16, #ttnn_layout>) -> tensor<64x192xbf16, #ttnn_layout{{[0-9]*}}>
-    # CHECK: return %[[VAL]] : tensor<64x192xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK-SAME: (tensor<64x64xbf16, #ttnn_layout>) -> tensor<{{.*}}>
+    # CHECK: %[[CONVERTED:[0-9]+]] = ttir.to_layout %[[VAL]]{{.*}} -> [[OUT_TYPE]]
+    # CHECK: return %[[CONVERTED]] : [[OUT_TYPE]]
     test_ir_generation(repeat_1x3_func, input_a)
 
     # Repeat [2, 2]: [64, 64] -> [128, 128]
     # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
     # CHECK: func.func @repeat_2x2
     # CHECK-SAME: (%arg0: tensor<64x64xbf16, #ttnn_layout>)
-    # CHECK-SAME: -> tensor<128x128xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK-SAME: -> [[OUT_TYPE:tensor<128x128xbf16, #ttnn_layout[0-9]*>]]
     # CHECK: %[[VAL:[0-9]+]] = "ttir.repeat"(%arg0)
     # CHECK-SAME: repeat_dimensions = array<i64: 2, 2>
-    # CHECK-SAME: (tensor<64x64xbf16, #ttnn_layout>) -> tensor<128x128xbf16, #ttnn_layout{{[0-9]*}}>
-    # CHECK: return %[[VAL]] : tensor<128x128xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK-SAME: (tensor<64x64xbf16, #ttnn_layout>) -> tensor<{{.*}}>
+    # CHECK: %[[CONVERTED:[0-9]+]] = ttir.to_layout %[[VAL]]{{.*}} -> [[OUT_TYPE]]
+    # CHECK: return %[[CONVERTED]] : [[OUT_TYPE]]
     test_ir_generation(repeat_2x2_func, input_a)
 
     # ============================================================
@@ -770,10 +789,11 @@ if __name__ == "__main__":
     # CHECK: func.func @embedding
     # CHECK-SAME: (%arg0: tensor<32x32xbf16, #ttnn_layout>
     # CHECK-SAME: %arg1: tensor<512x128xbf16, #ttnn_layout{{[0-9]*}}>)
-    # CHECK-SAME: -> tensor<32x32x128xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK-SAME: -> [[OUT_TYPE:tensor<32x32x128xbf16, #ttnn_layout[0-9]*>]]
     # CHECK: %[[VAL:[0-9]+]] = "ttir.embedding"(%arg0, %arg1)
-    # CHECK-SAME: (tensor<32x32xbf16, #ttnn_layout>, tensor<512x128xbf16, #ttnn_layout{{[0-9]*}}>) -> tensor<32x32x128xbf16, #ttnn_layout{{[0-9]*}}>
-    # CHECK: return %[[VAL]] : tensor<32x32x128xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK-SAME: (tensor<32x32xbf16, #ttnn_layout>, tensor<512x128xbf16, #ttnn_layout{{[0-9]*}}>) -> tensor<{{.*}}>
+    # CHECK: %[[CONVERTED:[0-9]+]] = ttir.to_layout %[[VAL]]{{.*}} -> [[OUT_TYPE]]
+    # CHECK: return %[[CONVERTED]] : [[OUT_TYPE]]
     test_ir_generation(embedding_func, input_indices, weight_table)
 
     # ============================================================
@@ -796,15 +816,16 @@ if __name__ == "__main__":
     # CHECK: func.func @gather_dim0
     # CHECK-SAME: (%arg0: tensor<64x64xbf16, #ttnn_layout>
     # CHECK-SAME: %arg1: tensor<32x64xbf16, #ttnn_layout{{[0-9]*}}>)
-    # CHECK-SAME: -> tensor<32x64xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK-SAME: -> [[OUT_TYPE:tensor<32x64xbf16, #ttnn_layout[0-9]*>]]
     # CHECK: %[[VAL:[0-9]+]] = "ttir.gather"(%arg0, %arg1)
     # CHECK-SAME: collapsed_slice_dims = array<i64: 0, 1>
     # CHECK-SAME: index_vector_dim = 2 : si64
     # CHECK-SAME: offset_dims = array<i64>
     # CHECK-SAME: slice_sizes = array<i64: 1, 1>
     # CHECK-SAME: start_index_map = array<i64: 0>
-    # CHECK-SAME: (tensor<64x64xbf16, #ttnn_layout>, tensor<32x64xbf16, #ttnn_layout{{[0-9]*}}>) -> tensor<32x64xbf16, #ttnn_layout{{[0-9]*}}>
-    # CHECK: return %[[VAL]] : tensor<32x64xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK-SAME: (tensor<64x64xbf16, #ttnn_layout>, tensor<32x64xbf16, #ttnn_layout{{[0-9]*}}>) -> tensor<{{.*}}>
+    # CHECK: %[[CONVERTED:[0-9]+]] = ttir.to_layout %[[VAL]]{{.*}} -> [[OUT_TYPE]]
+    # CHECK: return %[[CONVERTED]] : [[OUT_TYPE]]
     test_ir_generation(gather_dim0_func, gather_input, gather_index_dim0)
 
     # Gather along dimension 1: [64, 64] input + [64, 32] index -> [64, 32]
@@ -812,15 +833,16 @@ if __name__ == "__main__":
     # CHECK: func.func @gather_dim1
     # CHECK-SAME: (%arg0: tensor<64x64xbf16, #ttnn_layout>
     # CHECK-SAME: %arg1: tensor<64x32xbf16, #ttnn_layout{{[0-9]*}}>)
-    # CHECK-SAME: -> tensor<64x32xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK-SAME: -> [[OUT_TYPE:tensor<64x32xbf16, #ttnn_layout[0-9]*>]]
     # CHECK: %[[VAL:[0-9]+]] = "ttir.gather"(%arg0, %arg1)
     # CHECK-SAME: collapsed_slice_dims = array<i64: 0, 1>
     # CHECK-SAME: index_vector_dim = 2 : si64
     # CHECK-SAME: offset_dims = array<i64>
     # CHECK-SAME: slice_sizes = array<i64: 1, 1>
     # CHECK-SAME: start_index_map = array<i64: 1>
-    # CHECK-SAME: (tensor<64x64xbf16, #ttnn_layout>, tensor<64x32xbf16, #ttnn_layout{{[0-9]*}}>) -> tensor<64x32xbf16, #ttnn_layout{{[0-9]*}}>
-    # CHECK: return %[[VAL]] : tensor<64x32xbf16, #ttnn_layout{{[0-9]*}}>
+    # CHECK-SAME: (tensor<64x64xbf16, #ttnn_layout>, tensor<64x32xbf16, #ttnn_layout{{[0-9]*}}>) -> tensor<{{.*}}>
+    # CHECK: %[[CONVERTED:[0-9]+]] = ttir.to_layout %[[VAL]]{{.*}} -> [[OUT_TYPE]]
+    # CHECK: return %[[CONVERTED]] : [[OUT_TYPE]]
     test_ir_generation(gather_dim1_func, gather_input, gather_index_dim1)
 
     ttnn.close_device(device)
