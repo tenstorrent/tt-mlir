@@ -657,6 +657,7 @@ class TTIRBuilder(Builder):
                             new_op_result, golden_output
                         )
                         all_reduce_builder._set_golden_tensor(in0, input0)
+                        all_reduce_builder.apply_golden_sharding_to_arg(in0, input0)
                         ordered_inputs.append(in0)
                         ordered_outputs.append(new_op_result)
 
@@ -1041,6 +1042,7 @@ class TTIRBuilder(Builder):
                             new_op_result, golden_output
                         )
                         to_layout_builder._set_golden_tensor(in0, input0)
+                        to_layout_builder.apply_golden_sharding_to_arg(in0, input0)
                         ordered_inputs.append(in0)
                         ordered_outputs.append(new_op_result)
 
@@ -1174,6 +1176,7 @@ class TTIRBuilder(Builder):
                             new_op_result, golden_output
                         )
                         rearrange_builder._set_golden_tensor(in0, input0)
+                        rearrange_builder.apply_golden_sharding_to_arg(in0, input0)
                         ordered_inputs.append(in0)
                         ordered_outputs.append(new_op_result)
 
@@ -1317,6 +1320,7 @@ class TTIRBuilder(Builder):
                         )
                         reduce_builder._set_golden_tensor(new_op_result, golden_output)
                         reduce_builder._set_golden_tensor(in0, input0)
+                        reduce_builder.apply_golden_sharding_to_arg(in0, input0)
                         ordered_inputs.append(in0)
                         ordered_outputs.append(new_op_result)
 
@@ -1449,6 +1453,7 @@ class TTIRBuilder(Builder):
                         )
                         repeat_builder._set_golden_tensor(new_op_result, golden_output)
                         repeat_builder._set_golden_tensor(in0, input0)
+                        repeat_builder.apply_golden_sharding_to_arg(in0, input0)
                         ordered_inputs.append(in0)
                         ordered_outputs.append(new_op_result)
 
@@ -1734,6 +1739,7 @@ class TTIRBuilder(Builder):
                         )
                         cumsum_builder._set_golden_tensor(new_op_result, golden_output)
                         cumsum_builder._set_golden_tensor(in0, input0)
+                        cumsum_builder.apply_golden_sharding_to_arg(in0, input0)
                         ordered_inputs.append(in0)
                         ordered_outputs.append(new_op_result)
 
@@ -1949,6 +1955,8 @@ class TTIRBuilder(Builder):
                         gather_builder._set_golden_tensor(new_op_result, golden_output)
                         gather_builder._set_golden_tensor(in0, input0)
                         gather_builder._set_golden_tensor(in1, input1)
+                        gather_builder.apply_golden_sharding_to_arg(in0, input0)
+                        gather_builder.apply_golden_sharding_to_arg(in1, input1)
                         ordered_inputs.extend([in0, in1])
                         ordered_outputs.append(new_op_result)
 
@@ -2516,6 +2524,7 @@ class TTIRBuilder(Builder):
                         )
                         dropout_builder._set_golden_tensor(new_op_result, golden_output)
                         dropout_builder._set_golden_tensor(in0, input0)
+                        dropout_builder.apply_golden_sharding_to_arg(in0, input0)
                         ordered_inputs.append(in0)
                         ordered_outputs.append(new_op_result)
 
@@ -2738,6 +2747,7 @@ class TTIRBuilder(Builder):
                         golden_output = op_golden_function(input0, result.element_type)
                         sin_builder._set_golden_tensor(new_op_result, golden_output)
                         sin_builder._set_golden_tensor(in0, input0)
+                        sin_builder.apply_golden_sharding_to_arg(in0, input0)
                         ordered_inputs.append(in0)
                         ordered_outputs.append(new_op_result)
 
@@ -2848,6 +2858,7 @@ class TTIRBuilder(Builder):
                         golden_output = op_golden_function(input0, result.element_type)
                         sqrt_builder._set_golden_tensor(new_op_result, golden_output)
                         sqrt_builder._set_golden_tensor(in0, input0)
+                        sqrt_builder.apply_golden_sharding_to_arg(in0, input0)
                         ordered_inputs.append(in0)
                         ordered_outputs.append(new_op_result)
 
@@ -2968,6 +2979,8 @@ class TTIRBuilder(Builder):
                         ge_builder._set_golden_tensor(new_op_result, golden_output)
                         ge_builder._set_golden_tensor(in0, input0)
                         ge_builder._set_golden_tensor(in1, input1)
+                        ge_builder.apply_golden_sharding_to_arg(in0, input0)
+                        ge_builder.apply_golden_sharding_to_arg(in1, input1)
                         ordered_inputs.extend([in0, in1])
                         ordered_outputs.append(new_op_result)
 
@@ -3088,6 +3101,8 @@ class TTIRBuilder(Builder):
                         lt_builder._set_golden_tensor(new_op_result, golden_output)
                         lt_builder._set_golden_tensor(in0, input0)
                         lt_builder._set_golden_tensor(in1, input1)
+                        lt_builder.apply_golden_sharding_to_arg(in0, input0)
+                        lt_builder.apply_golden_sharding_to_arg(in1, input1)
                         ordered_inputs.extend([in0, in1])
                         ordered_outputs.append(new_op_result)
 
@@ -3208,6 +3223,8 @@ class TTIRBuilder(Builder):
                         le_builder._set_golden_tensor(new_op_result, golden_output)
                         le_builder._set_golden_tensor(in0, input0)
                         le_builder._set_golden_tensor(in1, input1)
+                        le_builder.apply_golden_sharding_to_arg(in0, input0)
+                        le_builder.apply_golden_sharding_to_arg(in1, input1)
                         ordered_inputs.extend([in0, in1])
                         ordered_outputs.append(new_op_result)
 
@@ -3330,6 +3347,8 @@ class TTIRBuilder(Builder):
                         )
                         bitwise_and_builder._set_golden_tensor(in0, input0)
                         bitwise_and_builder._set_golden_tensor(in1, input1)
+                        bitwise_and_builder.apply_golden_sharding_to_arg(in0, input0)
+                        bitwise_and_builder.apply_golden_sharding_to_arg(in1, input1)
                         ordered_inputs.extend([in0, in1])
                         ordered_outputs.append(new_op_result)
 
@@ -3450,6 +3469,8 @@ class TTIRBuilder(Builder):
                         pow_builder._set_golden_tensor(new_op_result, golden_output)
                         pow_builder._set_golden_tensor(in0, input0)
                         pow_builder._set_golden_tensor(in1, input1)
+                        pow_builder.apply_golden_sharding_to_arg(in0, input0)
+                        pow_builder.apply_golden_sharding_to_arg(in1, input1)
                         ordered_inputs.extend([in0, in1])
                         ordered_outputs.append(new_op_result)
 
@@ -3570,6 +3591,8 @@ class TTIRBuilder(Builder):
                         min_builder._set_golden_tensor(new_op_result, golden_output)
                         min_builder._set_golden_tensor(in0, input0)
                         min_builder._set_golden_tensor(in1, input1)
+                        min_builder.apply_golden_sharding_to_arg(in0, input0)
+                        min_builder.apply_golden_sharding_to_arg(in1, input1)
                         ordered_inputs.extend([in0, in1])
                         ordered_outputs.append(new_op_result)
 
@@ -3690,6 +3713,8 @@ class TTIRBuilder(Builder):
                         lrs_builder._set_golden_tensor(new_op_result, golden_output)
                         lrs_builder._set_golden_tensor(in0, input0)
                         lrs_builder._set_golden_tensor(in1, input1)
+                        lrs_builder.apply_golden_sharding_to_arg(in0, input0)
+                        lrs_builder.apply_golden_sharding_to_arg(in1, input1)
                         ordered_inputs.extend([in0, in1])
                         ordered_outputs.append(new_op_result)
 
@@ -3812,6 +3837,8 @@ class TTIRBuilder(Builder):
                         )
                         logical_and_builder._set_golden_tensor(in0, input0)
                         logical_and_builder._set_golden_tensor(in1, input1)
+                        logical_and_builder.apply_golden_sharding_to_arg(in0, input0)
+                        logical_and_builder.apply_golden_sharding_to_arg(in1, input1)
                         ordered_inputs.extend([in0, in1])
                         ordered_outputs.append(new_op_result)
 
@@ -4005,6 +4032,7 @@ class TTIRBuilder(Builder):
                         )
                         reverse_builder._set_golden_tensor(new_op_result, golden_output)
                         reverse_builder._set_golden_tensor(in0, input0)
+                        reverse_builder.apply_golden_sharding_to_arg(in0, input0)
                         ordered_inputs.append(in0)
                         ordered_outputs.append(new_op_result)
 
@@ -4183,6 +4211,11 @@ class TTIRBuilder(Builder):
                         scatter_builder._set_golden_tensor(in0, input0)
                         scatter_builder._set_golden_tensor(index, input_index)
                         scatter_builder._set_golden_tensor(source, input_source)
+                        scatter_builder.apply_golden_sharding_to_arg(in0, input0)
+                        scatter_builder.apply_golden_sharding_to_arg(index, input_index)
+                        scatter_builder.apply_golden_sharding_to_arg(
+                            source, input_source
+                        )
                         ordered_inputs.extend([in0, index, source])
                         ordered_outputs.append(new_op_result)
 
@@ -4381,6 +4414,7 @@ class TTIRBuilder(Builder):
                             new_op_result, golden_output
                         )
                         max_pool2d_builder._set_golden_tensor(in0, input0)
+                        max_pool2d_builder.apply_golden_sharding_to_arg(in0, input0)
                         ordered_inputs.append(in0)
                         ordered_outputs.append(new_op_result)
 
@@ -4613,6 +4647,9 @@ class TTIRBuilder(Builder):
                         max_pool2d_with_indices_builder._set_golden_tensor(
                             old_op.input, input0
                         )
+                        max_pool2d_with_indices_builder.apply_golden_sharding_to_arg(
+                            in0, input0
+                        )
                         ordered_inputs.append(in0)
                         ordered_outputs.extend([new_op_result, new_op_result_indices])
 
@@ -4733,6 +4770,7 @@ class TTIRBuilder(Builder):
                         golden_output = op_golden_function(input0, result.element_type)
                         log1p_builder._set_golden_tensor(new_op_result, golden_output)
                         log1p_builder._set_golden_tensor(in0, input0)
+                        log1p_builder.apply_golden_sharding_to_arg(in0, input0)
                         ordered_inputs.append(in0)
                         ordered_outputs.append(new_op_result)
 
@@ -4863,6 +4901,9 @@ class TTIRBuilder(Builder):
                             inputs, input_tensors
                         ):
                             concat_builder._set_golden_tensor(
+                                input_operand, input_golden_tensor
+                            )
+                            concat_builder.apply_golden_sharding_to_arg(
                                 input_operand, input_golden_tensor
                             )
                         ordered_inputs.extend(inputs)
@@ -5158,6 +5199,13 @@ class TTIRBuilder(Builder):
                         clamp_tensor_builder._set_golden_tensor(
                             max_tensor, max_tensor_golden
                         )
+                        clamp_tensor_builder.apply_golden_sharding_to_arg(in0, input0)
+                        clamp_tensor_builder.apply_golden_sharding_to_arg(
+                            min_tensor, min_tensor_golden
+                        )
+                        clamp_tensor_builder.apply_golden_sharding_to_arg(
+                            max_tensor, max_tensor_golden
+                        )
                         ordered_inputs.extend([in0, min_tensor, max_tensor])
                         ordered_outputs.append(new_op_result)
 
@@ -5303,6 +5351,7 @@ class TTIRBuilder(Builder):
                             new_op_result, golden_output
                         )
                         reduce_or_builder._set_golden_tensor(in0, input0)
+                        reduce_or_builder.apply_golden_sharding_to_arg(in0, input0)
                         ordered_inputs.append(in0)
                         ordered_outputs.append(new_op_result)
 
@@ -5447,6 +5496,7 @@ class TTIRBuilder(Builder):
                         )
                         max_builder._set_golden_tensor(new_op_result, golden_output)
                         max_builder._set_golden_tensor(in0, input0)
+                        max_builder.apply_golden_sharding_to_arg(in0, input0)
                         ordered_inputs.append(in0)
                         ordered_outputs.append(new_op_result)
 
@@ -5565,6 +5615,7 @@ class TTIRBuilder(Builder):
                             new_op_result, golden_output
                         )
                         logical_not_builder._set_golden_tensor(in0, input0)
+                        logical_not_builder.apply_golden_sharding_to_arg(in0, input0)
                         ordered_inputs.append(in0)
                         ordered_outputs.append(new_op_result)
 
@@ -5681,6 +5732,7 @@ class TTIRBuilder(Builder):
                         golden_output = op_golden_function(input0, result.element_type)
                         log_builder._set_golden_tensor(new_op_result, golden_output)
                         log_builder._set_golden_tensor(in0, input0)
+                        log_builder.apply_golden_sharding_to_arg(in0, input0)
                         ordered_inputs.append(in0)
                         ordered_outputs.append(new_op_result)
 
@@ -5808,6 +5860,8 @@ class TTIRBuilder(Builder):
                         gt_builder._set_golden_tensor(new_op_result, golden_output)
                         gt_builder._set_golden_tensor(in0, input0)
                         gt_builder._set_golden_tensor(in1, input1)
+                        gt_builder.apply_golden_sharding_to_arg(in0, input0)
+                        gt_builder.apply_golden_sharding_to_arg(in1, input1)
                         ordered_inputs.extend([in0, in1])
                         ordered_outputs.append(new_op_result)
 
@@ -6016,6 +6070,21 @@ class TTIRBuilder(Builder):
                         batch_norm_inference_builder._set_golden_tensor(offset, offset0)
                         batch_norm_inference_builder._set_golden_tensor(mean, mean0)
                         batch_norm_inference_builder._set_golden_tensor(
+                            variance, variance0
+                        )
+                        batch_norm_inference_builder.apply_golden_sharding_to_arg(
+                            in0, input0
+                        )
+                        batch_norm_inference_builder.apply_golden_sharding_to_arg(
+                            scale, scale0
+                        )
+                        batch_norm_inference_builder.apply_golden_sharding_to_arg(
+                            offset, offset0
+                        )
+                        batch_norm_inference_builder.apply_golden_sharding_to_arg(
+                            mean, mean0
+                        )
+                        batch_norm_inference_builder.apply_golden_sharding_to_arg(
                             variance, variance0
                         )
                         ordered_inputs.extend([in0, scale, offset, mean, variance])
@@ -6292,6 +6361,21 @@ class TTIRBuilder(Builder):
                         batch_norm_training_builder._set_golden_tensor(
                             running_variance, running_variance0
                         )
+                        batch_norm_training_builder.apply_golden_sharding_to_arg(
+                            in0, input0
+                        )
+                        batch_norm_training_builder.apply_golden_sharding_to_arg(
+                            scale, scale0
+                        )
+                        batch_norm_training_builder.apply_golden_sharding_to_arg(
+                            offset, offset0
+                        )
+                        batch_norm_training_builder.apply_golden_sharding_to_arg(
+                            running_mean, running_mean0
+                        )
+                        batch_norm_training_builder.apply_golden_sharding_to_arg(
+                            running_variance, running_variance0
+                        )
                         ordered_inputs.extend(
                             [in0, scale, offset, running_mean, running_variance]
                         )
@@ -6559,6 +6643,7 @@ class TTIRBuilder(Builder):
                         )
                         pad_builder._set_golden_tensor(new_op_result, golden_output)
                         pad_builder._set_golden_tensor(in0, input0)
+                        pad_builder.apply_golden_sharding_to_arg(in0, input0)
                         ordered_inputs.append(in0)
                         ordered_outputs.append(new_op_result)
 
@@ -6744,6 +6829,8 @@ class TTIRBuilder(Builder):
                         )
                         dot_general_builder._set_golden_tensor(in0, input0)
                         dot_general_builder._set_golden_tensor(in1, input1)
+                        dot_general_builder.apply_golden_sharding_to_arg(in0, input0)
+                        dot_general_builder.apply_golden_sharding_to_arg(in1, input1)
                         ordered_inputs.extend([in0, in1])
                         ordered_outputs.append(new_op_result)
 
@@ -6877,6 +6964,7 @@ class TTIRBuilder(Builder):
                         )
                         permute_builder._set_golden_tensor(new_op_result, golden_output)
                         permute_builder._set_golden_tensor(in0, input0)
+                        permute_builder.apply_golden_sharding_to_arg(in0, input0)
                         ordered_inputs.append(in0)
                         ordered_outputs.append(new_op_result)
 
@@ -7020,6 +7108,7 @@ class TTIRBuilder(Builder):
                             new_op_result, golden_output
                         )
                         broadcast_builder._set_golden_tensor(in0, input0)
+                        broadcast_builder.apply_golden_sharding_to_arg(in0, input0)
                         ordered_inputs.append(in0)
                         ordered_outputs.append(new_op_result)
 
@@ -7146,6 +7235,7 @@ class TTIRBuilder(Builder):
                         )
                         reshape_builder._set_golden_tensor(new_op_result, golden_output)
                         reshape_builder._set_golden_tensor(in0, input0)
+                        reshape_builder.apply_golden_sharding_to_arg(in0, input0)
                         ordered_inputs.append(in0)
                         ordered_outputs.append(new_op_result)
 
@@ -7267,6 +7357,9 @@ class TTIRBuilder(Builder):
                             new_op_result, golden_output
                         )
                         concatenate_heads_builder._set_golden_tensor(in0, input0)
+                        concatenate_heads_builder.apply_golden_sharding_to_arg(
+                            in0, input0
+                        )
                         ordered_inputs.append(in0)
                         ordered_outputs.append(new_op_result)
 
@@ -7394,6 +7487,8 @@ class TTIRBuilder(Builder):
                         maximum_builder._set_golden_tensor(new_op_result, golden_output)
                         maximum_builder._set_golden_tensor(lhs, input0)
                         maximum_builder._set_golden_tensor(rhs, input1)
+                        maximum_builder.apply_golden_sharding_to_arg(lhs, input0)
+                        maximum_builder.apply_golden_sharding_to_arg(rhs, input1)
                         ordered_inputs.extend([lhs, rhs])
                         ordered_outputs.append(new_op_result)
 
@@ -7523,6 +7618,8 @@ class TTIRBuilder(Builder):
                         )
                         multiply_builder._set_golden_tensor(lhs, input0)
                         multiply_builder._set_golden_tensor(rhs, input1)
+                        multiply_builder.apply_golden_sharding_to_arg(lhs, input0)
+                        multiply_builder.apply_golden_sharding_to_arg(rhs, input1)
                         ordered_inputs.extend([lhs, rhs])
                         ordered_outputs.append(new_op_result)
 
@@ -7656,6 +7753,8 @@ class TTIRBuilder(Builder):
                         eq_builder._set_golden_tensor(new_op_result, golden_output)
                         eq_builder._set_golden_tensor(lhs, input0)
                         eq_builder._set_golden_tensor(rhs, input1)
+                        eq_builder.apply_golden_sharding_to_arg(lhs, input0)
+                        eq_builder.apply_golden_sharding_to_arg(rhs, input1)
                         ordered_inputs.extend([lhs, rhs])
                         ordered_outputs.append(new_op_result)
 
@@ -7807,6 +7906,7 @@ class TTIRBuilder(Builder):
                         )
                         sum_builder._set_golden_tensor(new_op_result, golden_output)
                         sum_builder._set_golden_tensor(in0, input0)
+                        sum_builder.apply_golden_sharding_to_arg(in0, input0)
                         ordered_inputs.append(in0)
                         ordered_outputs.append(new_op_result)
 
@@ -8055,6 +8155,7 @@ class TTIRBuilder(Builder):
                         golden_output = op_golden_function(input0, result.element_type)
                         sigmoid_builder._set_golden_tensor(new_op_result, golden_output)
                         sigmoid_builder._set_golden_tensor(in0, input0)
+                        sigmoid_builder.apply_golden_sharding_to_arg(in0, input0)
                         ordered_inputs.append(in0)
                         ordered_outputs.append(new_op_result)
 
@@ -8173,6 +8274,7 @@ class TTIRBuilder(Builder):
                             new_op_result, golden_output
                         )
                         hardsigmoid_builder._set_golden_tensor(in0, input0)
+                        hardsigmoid_builder.apply_golden_sharding_to_arg(in0, input0)
                         ordered_inputs.append(in0)
                         ordered_outputs.append(new_op_result)
 
@@ -8305,6 +8407,8 @@ class TTIRBuilder(Builder):
                         )
                         subtract_builder._set_golden_tensor(lhs, input0)
                         subtract_builder._set_golden_tensor(rhs, input1)
+                        subtract_builder.apply_golden_sharding_to_arg(lhs, input0)
+                        subtract_builder.apply_golden_sharding_to_arg(rhs, input1)
                         ordered_inputs.extend([lhs, rhs])
                         ordered_outputs.append(new_op_result)
 
@@ -8422,6 +8526,7 @@ class TTIRBuilder(Builder):
                         golden_output = op_golden_function(input0, result.element_type)
                         tanh_builder._set_golden_tensor(new_op_result, golden_output)
                         tanh_builder._set_golden_tensor(in0, input0)
+                        tanh_builder.apply_golden_sharding_to_arg(in0, input0)
                         ordered_inputs.append(in0)
                         ordered_outputs.append(new_op_result)
 
@@ -8539,6 +8644,7 @@ class TTIRBuilder(Builder):
                         golden_output = op_golden_function(input0, result.element_type)
                         rsqrt_builder._set_golden_tensor(new_op_result, golden_output)
                         rsqrt_builder._set_golden_tensor(in0, input0)
+                        rsqrt_builder.apply_golden_sharding_to_arg(in0, input0)
                         ordered_inputs.append(in0)
                         ordered_outputs.append(new_op_result)
 
@@ -8656,6 +8762,7 @@ class TTIRBuilder(Builder):
                         golden_output = op_golden_function(input0, result.element_type)
                         neg_builder._set_golden_tensor(new_op_result, golden_output)
                         neg_builder._set_golden_tensor(in0, input0)
+                        neg_builder.apply_golden_sharding_to_arg(in0, input0)
                         ordered_inputs.append(in0)
                         ordered_outputs.append(new_op_result)
 
@@ -8787,6 +8894,8 @@ class TTIRBuilder(Builder):
                         ne_builder._set_golden_tensor(new_op_result, golden_output)
                         ne_builder._set_golden_tensor(lhs, input0)
                         ne_builder._set_golden_tensor(rhs, input1)
+                        ne_builder.apply_golden_sharding_to_arg(lhs, input0)
+                        ne_builder.apply_golden_sharding_to_arg(rhs, input1)
                         ordered_inputs.extend([lhs, rhs])
                         ordered_outputs.append(new_op_result)
 
@@ -8952,6 +9061,9 @@ class TTIRBuilder(Builder):
                         where_builder._set_golden_tensor(first, first_tensor)
                         where_builder._set_golden_tensor(second, input1)
                         where_builder._set_golden_tensor(third, input2)
+                        where_builder.apply_golden_sharding_to_arg(first, first_tensor)
+                        where_builder.apply_golden_sharding_to_arg(second, input1)
+                        where_builder.apply_golden_sharding_to_arg(third, input2)
                         ordered_inputs.extend([first, second, third])
                         ordered_outputs.append(new_op_result)
 
@@ -9069,6 +9181,7 @@ class TTIRBuilder(Builder):
                         golden_output = op_golden_function(input0, result.element_type)
                         abs_builder._set_golden_tensor(new_op_result, golden_output)
                         abs_builder._set_golden_tensor(in0, input0)
+                        abs_builder.apply_golden_sharding_to_arg(in0, input0)
                         ordered_inputs.append(in0)
                         ordered_outputs.append(new_op_result)
 
@@ -9186,6 +9299,7 @@ class TTIRBuilder(Builder):
                         golden_output = op_golden_function(input0, result.element_type)
                         erf_builder._set_golden_tensor(new_op_result, golden_output)
                         erf_builder._set_golden_tensor(in0, input0)
+                        erf_builder.apply_golden_sharding_to_arg(in0, input0)
                         ordered_inputs.append(in0)
                         ordered_outputs.append(new_op_result)
 
@@ -9303,6 +9417,7 @@ class TTIRBuilder(Builder):
                         golden_output = op_golden_function(input0, result.element_type)
                         floor_builder._set_golden_tensor(new_op_result, golden_output)
                         floor_builder._set_golden_tensor(in0, input0)
+                        floor_builder.apply_golden_sharding_to_arg(in0, input0)
                         ordered_inputs.append(in0)
                         ordered_outputs.append(new_op_result)
 
@@ -9421,6 +9536,7 @@ class TTIRBuilder(Builder):
                             new_op_result, golden_output
                         )
                         typecast_builder._set_golden_tensor(in0, input0)
+                        typecast_builder.apply_golden_sharding_to_arg(in0, input0)
                         ordered_inputs.append(in0)
                         ordered_outputs.append(new_op_result)
 
@@ -9538,6 +9654,7 @@ class TTIRBuilder(Builder):
                         golden_output = op_golden_function(input0, result.element_type)
                         exp_builder._set_golden_tensor(new_op_result, golden_output)
                         exp_builder._set_golden_tensor(in0, input0)
+                        exp_builder.apply_golden_sharding_to_arg(in0, input0)
                         ordered_inputs.append(in0)
                         ordered_outputs.append(new_op_result)
 
@@ -9669,6 +9786,8 @@ class TTIRBuilder(Builder):
                         div_builder._set_golden_tensor(new_op_result, golden_output)
                         div_builder._set_golden_tensor(lhs, input0)
                         div_builder._set_golden_tensor(rhs, input1)
+                        div_builder.apply_golden_sharding_to_arg(lhs, input0)
+                        div_builder.apply_golden_sharding_to_arg(rhs, input1)
                         ordered_inputs.extend([lhs, rhs])
                         ordered_outputs.append(new_op_result)
 
@@ -9842,6 +9961,7 @@ class TTIRBuilder(Builder):
                         )
                         slice_builder._set_golden_tensor(new_op_result, golden_output)
                         slice_builder._set_golden_tensor(in0, input0)
+                        slice_builder.apply_golden_sharding_to_arg(in0, input0)
                         ordered_inputs.append(in0)
                         ordered_outputs.append(new_op_result)
 
@@ -9999,6 +10119,15 @@ class TTIRBuilder(Builder):
                             weight, weight_tensor
                         )
                         embedding_backward_builder._set_golden_tensor(
+                            in_gradient, in_gradient_tensor
+                        )
+                        embedding_backward_builder.apply_golden_sharding_to_arg(
+                            input, input_tensor
+                        )
+                        embedding_backward_builder.apply_golden_sharding_to_arg(
+                            weight, weight_tensor
+                        )
+                        embedding_backward_builder.apply_golden_sharding_to_arg(
                             in_gradient, in_gradient_tensor
                         )
                         ordered_inputs.extend([input, weight, in_gradient])
@@ -10305,6 +10434,7 @@ class TTIRBuilder(Builder):
                             new_op_result, golden_output
                         )
                         is_finite_builder._set_golden_tensor(in0, input0)
+                        is_finite_builder.apply_golden_sharding_to_arg(in0, input0)
                         ordered_inputs.extend([in0])
                         ordered_outputs.append(new_op_result)
 
@@ -11755,9 +11885,16 @@ class TTIRBuilder(Builder):
                         conv2d_builder._set_golden_tensor(new_op_result, golden_output)
                         conv2d_builder._set_golden_tensor(in0, input0)
                         conv2d_builder._set_golden_tensor(weight, input_weight)
+                        conv2d_builder.apply_golden_sharding_to_arg(in0, input0)
+                        conv2d_builder.apply_golden_sharding_to_arg(
+                            weight, input_weight
+                        )
                         ordered_inputs.extend([in0, weight])
                         if bias is not None:
                             conv2d_builder._set_golden_tensor(bias, input_bias)
+                            conv2d_builder.apply_golden_sharding_to_arg(
+                                bias, input_bias
+                            )
                             ordered_inputs.append(bias)
                         ordered_outputs.append(new_op_result)
 
@@ -12130,6 +12267,9 @@ class TTIRBuilder(Builder):
                             new_op_result, golden_output
                         )
                         global_avg_pool_builder._set_golden_tensor(in0, input0)
+                        global_avg_pool_builder.apply_golden_sharding_to_arg(
+                            in0, input0
+                        )
                         ordered_inputs.append(in0)
                         ordered_outputs.append(new_op_result)
 
@@ -12484,6 +12624,8 @@ class TTIRBuilder(Builder):
                         matmul_builder._set_golden_tensor(new_op_result, golden_output)
                         matmul_builder._set_golden_tensor(in0, input0)
                         matmul_builder._set_golden_tensor(in1, input1)
+                        matmul_builder.apply_golden_sharding_to_arg(in0, input0)
+                        matmul_builder.apply_golden_sharding_to_arg(in1, input1)
                         ordered_inputs.extend([in0, in1])
                         ordered_outputs.append(new_op_result)
 
@@ -13017,12 +13159,17 @@ class TTIRBuilder(Builder):
                             new_op_result, golden_output
                         )
                         rms_norm_builder._set_golden_tensor(in0, input0)
+                        rms_norm_builder.apply_golden_sharding_to_arg(in0, input0)
                         ordered_inputs.append(in0)
                         if weight is not None:
                             rms_norm_builder._set_golden_tensor(weight, weight0)
+                            rms_norm_builder.apply_golden_sharding_to_arg(
+                                weight, weight0
+                            )
                             ordered_inputs.append(weight)
                         if bias is not None:
                             rms_norm_builder._set_golden_tensor(bias, bias0)
+                            rms_norm_builder.apply_golden_sharding_to_arg(bias, bias0)
                             ordered_inputs.append(bias)
                         ordered_outputs.append(new_op_result)
 
@@ -13280,9 +13427,15 @@ class TTIRBuilder(Builder):
                         split_qkv_builder._set_golden_tensor(new_op_key, golden_key)
                         split_qkv_builder._set_golden_tensor(new_op_value, golden_value)
                         split_qkv_builder._set_golden_tensor(input_tensor, input0)
+                        split_qkv_builder.apply_golden_sharding_to_arg(
+                            input_tensor, input0
+                        )
                         ordered_inputs.append(input_tensor)
                         if kv_input_tensor is not None:
                             split_qkv_builder._set_golden_tensor(
+                                kv_input_tensor, kv_input0
+                            )
+                            split_qkv_builder.apply_golden_sharding_to_arg(
                                 kv_input_tensor, kv_input0
                             )
                             ordered_inputs.append(kv_input_tensor)
@@ -13630,12 +13783,17 @@ class TTIRBuilder(Builder):
                             new_op_result, golden_output
                         )
                         layer_norm_builder._set_golden_tensor(in0, input0)
+                        layer_norm_builder.apply_golden_sharding_to_arg(in0, input0)
                         ordered_inputs.append(in0)
                         if weight is not None:
                             layer_norm_builder._set_golden_tensor(weight, weight0)
+                            layer_norm_builder.apply_golden_sharding_to_arg(
+                                weight, weight0
+                            )
                             ordered_inputs.append(weight)
                         if bias is not None:
                             layer_norm_builder._set_golden_tensor(bias, bias0)
+                            layer_norm_builder.apply_golden_sharding_to_arg(bias, bias0)
                             ordered_inputs.append(bias)
                         ordered_outputs.append(new_op_result)
 
