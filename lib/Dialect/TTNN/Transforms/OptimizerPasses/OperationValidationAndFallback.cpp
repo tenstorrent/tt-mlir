@@ -22,6 +22,8 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/TypeSwitch.h"
 
+#include "llvm/ADT/STLExtras.h"
+
 #include <cassert>
 #include <cstddef>
 #include <optional>
@@ -172,9 +174,12 @@ public:
         // Extract OpConfigs from IR
         llvm::SmallVector<OpConfig> configs = extractOpConfigsFromIR(operation);
 
-        // Skip operations with no tensor results (e.g., GetDeviceOp)
+        // Ops with no tensor results (e.g., in-place ops like UpdateCacheOp)
+        // still need validation. The backend returns the mutated tensor as an
+        // output, so use a default null-layout config to allow validation
+        // without triggering output layout comparisons.
         if (configs.empty()) {
-          return WalkResult::skip();
+          configs.emplace_back(OpConfig{nullptr});
         }
 
         totalOperationsChecked++;
@@ -204,8 +209,12 @@ public:
 
         if (originalResult.isSuccess()) {
           bool outputLayoutsChangeNeeded = false;
+          assert(originalResult.actualOutputLayouts.size() == configs.size() &&
+                 "Validation result must contain actual output layouts for all "
+                 "configs.");
           for (size_t i = 0; i < configs.size(); ++i) {
-            // Safety check if config has output layout before comparing
+            // Skip null-layout configs (e.g., in-place ops with no tensor
+            // results)
             if (configs[i].outputLayout &&
                 originalResult.actualOutputLayouts[i] !=
                     configs[i].outputLayout) {
@@ -458,6 +467,9 @@ bool tryFallbacks(Operation *operation,
       }
       continue;
     }
+    // TODO(bmalesevic, #7023): Multi-output fallback not yet supported.
+    assert(operation->getNumResults() == 1 &&
+           "Multi-output fallback not yet supported (see #7023)");
     llvm::SmallVector<OpConfig> outputConfigs({config});
     // Found working solution, apply transformations
     applyFallbackTransformations(operation, originalInputLayouts,
@@ -718,7 +730,9 @@ void applyFallbackTransformations(
     applyInputOperandChange(operation, i, originalLayout, transformedLayout);
   }
 
-  if (!configs[0].outputLayout) {
+  if (llvm::all_of(configs, [](const OpConfig &config) {
+        return !config.outputLayout;
+      })) {
     // Current operation doesn't have any expected output layouts, nothing more
     // to do.
     return;
@@ -766,9 +780,12 @@ void applyFallbackTransformations(
       applyOutputLayoutRevert(operation, i, result.actualOutputLayouts[i],
                               configs[i].outputLayout);
     }
+  }
 
-    // Update the layout attribute for ops that have one (e.g., creation ops).
-    // The layout attribute must match the result type's layout.
+  // Update the layout attribute for ops that have one (e.g., creation ops).
+  // The layout attribute must match the first result type's layout.
+  if (configs[0].outputLayout &&
+      result.checkAndGetFirstActualOutputLayout() != configs[0].outputLayout) {
     if (TTNNLayoutOpInterface opWithLayoutIF =
             mlir::dyn_cast<TTNNLayoutOpInterface>(operation)) {
       opWithLayoutIF.setLayoutAttr(LayoutAttr::get(
@@ -1012,6 +1029,9 @@ bool tryConfigFallbacks(Operation *operation,
     // Found a working config, apply it
     applyConfigChange(operation, workingConfig);
 
+    // TODO(bmalesevic, #7023): Multi-output fallback not yet supported.
+    assert(operation->getNumResults() == 1 &&
+           "Multi-output fallback not yet supported (see #7023)");
     if (originalConfig.outputLayout &&
         workingResult.checkAndGetFirstActualOutputLayout() !=
             originalConfig.outputLayout) {
