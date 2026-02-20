@@ -134,6 +134,40 @@ getScatterShardingRule(mlir::stablehlo::ScatterOp scatterOp) {
   return builder.build();
 }
 
+static mlir::sdy::OpShardingRuleAttr getBatchNormTrainingShardingRule(
+    mlir::stablehlo::BatchNormTrainingOp bn) {
+  auto inTy = llvm::cast<RankedTensorType>(bn.getOperand().getType());
+
+  const int64_t rank = inTy.getRank();
+  const int64_t featAxis = static_cast<int64_t>(bn.getFeatureIndex());
+
+  // operands: [operand(N-D), scale(1-D), offset(1-D)]
+  // results:  [output(N-D), batch_mean(1-D), batch_var(1-D)]
+  sdy::OpShardingRuleBuilder builder(bn);
+
+  constexpr int64_t kNumOps = 3;
+  constexpr int64_t kNumRes = 3;
+
+  for (int64_t d = 0; d < rank; ++d) {
+    SmallVector<int64_t> opDims(kNumOps, sdy::kNullDim);
+    SmallVector<int64_t> resDims(kNumRes, sdy::kNullDim);
+
+    opDims[0] = d;
+    resDims[0] = d;
+
+    if (d == featAxis) {
+      opDims[1] = 0; // scale
+      opDims[2] = 0; // offset
+      resDims[1] = 0; // batch_mean
+      resDims[2] = 0; // batch_var
+    }
+
+    builder.addFactor(opDims, resDims, inTy.getDimSize(d));
+  }
+
+  return builder.build();
+}
+
 static mlir::sdy::OpShardingRuleAttr
 getSDPAShardingRule(mlir::stablehlo::CustomCallOp op) {
   auto qType = llvm::dyn_cast<RankedTensorType>(op.getOperand(0).getType());
@@ -347,6 +381,21 @@ struct StablehloShardingModel
   }
 };
 
+struct StablehloBatchNormTrainingShardingModel
+    : public mlir::sdy::ShardingRuleOpInterface::ExternalModel<
+          StablehloBatchNormTrainingShardingModel,
+          mlir::stablehlo::BatchNormTrainingOp> {
+
+  mlir::sdy::OpShardingRuleAttr getShardingRule(mlir::Operation *op) const {
+    auto bnOp = llvm::cast<mlir::stablehlo::BatchNormTrainingOp>(op);
+    return getBatchNormTrainingShardingRule(bnOp);
+  }
+
+  bool shouldKeepOutputShardingsDivisible(mlir::Operation *) const {
+    return true;
+  }
+};
+
 struct StablehloCustomCallShardingModel
     : public mlir::sdy::ShardingRuleOpInterface::ExternalModel<
           StablehloCustomCallShardingModel, ::mlir::stablehlo::CustomCallOp> {
@@ -407,6 +456,8 @@ public:
         StablehloCustomCallShardingModel>(*context);
     mlir::stablehlo::ScatterOp::attachInterface<
         StablehloShardingModel<mlir::stablehlo::ScatterOp>>(*context);
+    mlir::stablehlo::BatchNormTrainingOp::attachInterface<
+        StablehloBatchNormTrainingShardingModel>(*context);
   }
 };
 
