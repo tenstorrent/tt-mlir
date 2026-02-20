@@ -54,14 +54,11 @@ Value materializeView(OpBuilder &builder, Location loc, Value viewResult) {
   TT_assertv(layout != nullptr, "Expected MetalLayoutAttr pre-bufferization");
 
   // Allocate output storage for the materialized view result.
-  // We create a new layout without the index map - the source layout's index
-  // map describes how to access the underlying storage with a transformed
-  // layout, but the new allocation should be identity-mapped fresh storage.
+  // Create a new layout for fresh storage (no remapping on the layout attr).
   auto newLayout = ttcore::MetalLayoutAttr::get(
       builder.getContext(), layout.getLogicalShape(), layout.getDimAlignments(),
       layout.getCollapsedIntervals(), layout.getOobVal(),
-      layout.getMemorySpace(), layout.getMemoryLayout(),
-      builder.getEmptyAffineMap());
+      layout.getMemorySpace(), layout.getMemoryLayout());
   auto emptyOp = builder.create<d2m::EmptyOp>(
       loc, tensorType.getShape(), tensorType.getElementType(), newLayout);
 

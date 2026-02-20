@@ -9,6 +9,7 @@
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOpsInterfaces.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
+#include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Support/Logger.h"
 #include "ttmlir/Utils.h"
@@ -120,16 +121,19 @@ static AffineMap getMemoryMap(ttcore::DeviceAttr device, Value input,
       // If there's no defining op (e.g., block argument), use the memref type
       // directly
       MemRefType memrefType = mlir::cast<MemRefType>(input.getType());
-      return device.getMemoryMap(
+      return d2m::utils::getMemoryMap(
+          device,
           std::make_pair(memrefType,
                          AffineMap::getMultiDimIdentityMap(
                              memrefType.getRank(), memrefType.getContext())),
           0 /* use default page size*/);
     }
-    std::pair<MemRefType, AffineMap> underlyingMemrefAndView =
-        mlir::tt::d2m::applyViews(definingOp);
-    return device.getMemoryMap(underlyingMemrefAndView,
-                               0 /* use default page size*/);
+    // View remapping is now stored on the defining op. Pass it through to the
+    // device map so it is composed in the same order as before (before the
+    // device address map is applied).
+    auto [baseMemref, viewMap] = mlir::tt::d2m::applyViews(definingOp);
+    return d2m::utils::getMemoryMap(device, baseMemref, /*pageSize=*/0,
+                                    viewMap);
   }
 
   // For local memrefs (including CB values), get the underlying memref type
@@ -139,9 +143,9 @@ static AffineMap getMemoryMap(ttcore::DeviceAttr device, Value input,
   } else {
     inputType = mlir::cast<MemRefType>(input.getType());
   }
+  auto layoutMap = d2m::utils::resolveEffectiveAffineMap(input, inputType);
   return canonicalStridedMap(device.getContext(), inputType.getShape(),
-                             inputType.getElementType(),
-                             inputType.getLayout().getAffineMap());
+                             inputType.getElementType(), layoutMap);
 }
 
 template <typename Builder>

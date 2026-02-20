@@ -234,8 +234,8 @@ def TTCore_SystemDescAttr : TTCore_Attr<"SystemDesc", "system_desc"> {
 def TTCore_ViewLayoutAttr : TTCore_Attr<"ViewLayout", "view", [TTCore_DeviceLayoutInterface, MemRefLayoutAttrInterface]> {
   let summary = "View layout attribute in TT dialect";
   let description = [{
-    Describes a view layout of a memref buffer.
-    - AffineMap: Provides affine map indexing into the associated data view.
+    Placeholder attr to indicate a view layout of a memref buffer.  Actual affine map
+    is encoded on the view_layout/stream_layout op itself.
 
     Only the view_layout or stream_layout ops should return memref's with this attribute.
     The view layout attribute is necessary for two reasons:
@@ -246,17 +246,14 @@ def TTCore_ViewLayoutAttr : TTCore_Attr<"ViewLayout", "view", [TTCore_DeviceLayo
         should be treated as such.
   }];
 
-  let parameters = (ins "AffineMap":$affineMap);
+  let parameters = (ins "unsigned":$rank);
 
-  let assemblyFormat = "`<` custom<IdentityAffineMap>($affineMap) `>`";
+  let assemblyFormat = "`<` $rank `>`";
 
   let extraClassDeclaration = [{
-      // Compose two view layouts f(g(x)) where f=this and g=other.
-      ViewLayoutAttr compose(ViewLayoutAttr g) const;
-
-      bool isView() { return true; }
-
-      unsigned getRank() const { return getAffineMap().getNumResults(); }
+    mlir::AffineMap getAffineMap() const {
+      return mlir::AffineMap::getMultiDimIdentityMap(getRank(), getContext());
+    }
   }];
 }
 
@@ -272,26 +269,16 @@ def TTCore_ShardLayoutAttr : TTCore_Attr<"ShardLayout", "shard", [TTCore_DeviceL
     a grid of cores.
   }];
   let parameters = (ins ArrayRefParameter<"int64_t">:$stride,
-                        "uint32_t":$buffers,
-                        DefaultValuedParameter<"AffineMap", "$_builder.getEmptyAffineMap()">:$coreVirtualizationMap
-                        );
+                        "uint32_t":$buffers);
 
-  let assemblyFormat = "`<` custom<DimensionList>($stride) `,` $buffers (`,` $coreVirtualizationMap^)? `>`";
+  let assemblyFormat = "`<` custom<DimensionList>($stride) `,` $buffers `>`";
 
   let extraClassDeclaration = [{
     static ShardLayoutAttr get(::mlir::MLIRContext *context, ArrayRef<int64_t> shape, uint64_t elementSize, uint32_t buffers);
     static ShardLayoutAttr get(ArrayRef<int64_t> shape, Type elementType, uint32_t buffers);
     static ShardLayoutAttr get(MemRefType memrefType, uint32_t buffers);
-    static ShardLayoutAttr get(::mlir::MLIRContext *context, ArrayRef<int64_t> strides, uint32_t buffers);
-
-    bool isView() { return false; }
 
     AffineMap getAffineMap() const;
-
-    std::optional<mlir::AffineMap> getVirtualizationMapIfExists() {
-      auto vmap = getCoreVirtualizationMap();
-      return (vmap.isEmpty()) ? std::nullopt : std::make_optional(vmap);
-    }
 
     unsigned getRank() const { return getStride().size(); }
   }];
@@ -311,8 +298,6 @@ def TTCore_InterleavedLayoutAttr : TTCore_Attr<"InterleavedLayout", "interleaved
     static InterleavedLayoutAttr get(::mlir::MLIRContext *context, ArrayRef<int64_t> shape, uint64_t elementSize);
     static InterleavedLayoutAttr get(ArrayRef<int64_t> shape, Type elementType);
     static InterleavedLayoutAttr get(MemRefType memrefType);
-
-    bool isView() { return false; }
 
     AffineMap getAffineMap() const;
 
@@ -416,14 +401,10 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_
     DefaultValuedParameter<"MemorySpace",
                             "MemorySpace::System">:$memory_space,
 
-   AttrParameter<"TensorMemoryLayout", "Tensor memory layout">:$memory_layout,
-
-    // Optional index remapping (e.g., view remap or virtual→physical grid mapping).
-    // Defaults to empty, which is treated as identity.
-    DefaultValuedParameter<"AffineMap", "$_builder.getEmptyAffineMap()">:$indexAffineMap
+   AttrParameter<"TensorMemoryLayout", "Tensor memory layout">:$memory_layout
   );
 
-  let assemblyFormat = "`<` `logical_shape` `=` custom<DimensionList>($logical_shape) `,` `dim_alignments` `=` custom<DimensionList>($dim_alignments) `,` `collapsed_intervals` `=` $collapsed_intervals `,` $oob_val `,` $memory_space `,` $memory_layout `,` `index_map` `=` custom<IdentityAffineMap>($indexAffineMap) `>`";
+  let assemblyFormat = "`<` `logical_shape` `=` custom<DimensionList>($logical_shape) `,` `dim_alignments` `=` custom<DimensionList>($dim_alignments) `,` `collapsed_intervals` `=` $collapsed_intervals `,` $oob_val `,` $memory_space `,` $memory_layout `>`";
 
   let extraClassDeclaration = [{
     static MetalLayoutAttr get(::mlir::MLIRContext *context,
@@ -435,20 +416,7 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_
                                      ArrayRef<int64_t> logicalShape,
                                      OOBVal oobVal, MemorySpace memorySpace,
                                      TensorMemoryLayout memoryLayout,
-                                     mlir::AffineMap indexAffineMap
-                                     );
-
-    static MetalLayoutAttr get(::mlir::MLIRContext *context,
-                                     ArrayRef<int64_t> logicalShape,
-                                     OOBVal oobVal, MemorySpace memorySpace,
-                                     TensorMemoryLayout memoryLayout,
                                      DenseIntElementsAttr collapseIntervals);
-    static MetalLayoutAttr get(::mlir::MLIRContext *context,
-                                     ArrayRef<int64_t> logicalShape,
-                                     OOBVal oobVal, MemorySpace memorySpace,
-                                     TensorMemoryLayout memoryLayout,
-                                     DenseIntElementsAttr collapseIntervals,
-                                     mlir::AffineMap indexAffineMap);
     static MetalLayoutAttr get(::mlir::MLIRContext *context,
                                      ArrayRef<int64_t> logicalShape,
                                      OOBVal oobVal, MemorySpace memorySpace,
@@ -456,18 +424,6 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_
                                      DenseIntElementsAttr collapseIntervals,
                                      ArrayRef<int64_t> dimAlignments
                                      );
-
-    static MetalLayoutAttr get(::mlir::MLIRContext *context,
-                                     ArrayRef<int64_t> logicalShape,
-                                     OOBVal oobVal, MemorySpace memorySpace,
-                                     TensorMemoryLayout memoryLayout,
-                                     DenseIntElementsAttr collapseIntervals,
-                                     ArrayRef<int64_t> dimAlignments,
-                                     mlir::AffineMap indexAffineMap
-                                     );
-
-    MetalLayoutAttr compose(mlir::AffineMap indexAffineMap) const;
-    MetalLayoutAttr withIndexAffineMap(mlir::AffineMap indexAffineMap) const;
 
     // Derive the physical tensor shape from logical shape and grid.
     llvm::SmallVector<int64_t> getPhysicalShape(ArrayRef<int64_t> tileShape) const;
@@ -501,22 +457,11 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_
 
     llvm::SmallVector<int64_t> getNormalizedIntervals() const;
 
-    // Returns the explicit index_map if present; otherwise returns an
-    // identity map of the provided rank.
-    mlir::AffineMap getIndexAffineMapOrIdentity(unsigned rank) const;
-
     // Returns the full rank (including grid dimensions).
     unsigned getRank() const { return getNormalizedIntervals().size(); }
 
-    std::optional<mlir::AffineMap> getVirtualizationMapIfExists() {
-      auto vmap = getIndexAffineMap();
-      return (vmap.isEmpty()) ? std::nullopt : std::make_optional(vmap);
-    }
-
     // Returns true if this layout has two or more dims collapsed into a single dim
     bool hasNonTrivialCollapsedDims(ArrayRef<int64_t> deviceShape);
-
-    bool isView() { return false; }
   }];
 
   let genVerifyDecl = 1;
@@ -546,13 +491,6 @@ def TTCore_DeviceAttr : TTCore_Attr<"Device", "device", []> {
   let extraClassDeclaration = [{
       static DeviceAttr get(::mlir::MLIRContext *context, SystemDescAttr systemDesc, ArrayRef<int64_t> meshShape, ArrayRef<unsigned> chipIds, ArrayRef<Topology> meshTopology = {});
       static DeviceAttr get(::mlir::MLIRContext *context, SystemDescAttr systemDesc, ArrayRef<int64_t> meshShape = {}, ArrayRef<Topology> meshTopology = {});
-      AffineMap getMemoryMap(MemRefType memrefType,
-                             size_t pageSize,
-                             std::optional<AffineMap> view = std::nullopt,
-                             size_t baseOffset = 0) const;
-      AffineMap getMemoryMap(std::pair<MemRefType, AffineMap> memrefAndView,
-                             size_t pageSize,
-                             size_t baseOffset = 0) const;
 
       // Returns the size in bytes of the given memref type. Supports memref's of multiple flavors:
       //   - Generic region memrefs, e.g. memref<64x128xf32, #l1_> this will return the size of the whole memref.

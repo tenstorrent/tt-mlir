@@ -44,7 +44,7 @@ void populateTTModule(nb::module_ &m) {
           "get",
           [](MlirContext ctx, std::vector<int64_t> logicalShape,
              uint32_t oobValValue, uint32_t memorySpaceValue,
-             uint32_t memoryLayoutValue, MlirAffineMap indexMap) {
+             uint32_t memoryLayoutValue) {
             // Use [0, -1] as default collapsed intervals.
             auto *context = unwrap(ctx);
             auto intervalType =
@@ -65,7 +65,7 @@ void populateTTModule(nb::module_ &m) {
                 static_cast<tt::ttcore::OOBVal>(oobValValue),
                 static_cast<tt::ttcore::MemorySpace>(memorySpaceValue),
                 static_cast<tt::ttcore::TensorMemoryLayout>(memoryLayoutValue),
-                collapsedIntervals, dimAlignments, unwrap(indexMap)));
+                collapsedIntervals, dimAlignments));
           })
       // 8-arg overload (full specification with index_map)
       .def_static(
@@ -73,14 +73,14 @@ void populateTTModule(nb::module_ &m) {
           [](MlirContext ctx, std::vector<int64_t> logicalShape,
              uint32_t oobValValue, uint32_t memorySpaceValue,
              uint32_t memoryLayoutValue, MlirAttribute collapseIntervals,
-             std::vector<int64_t> dimAlignments, MlirAffineMap indexMap) {
+             std::vector<int64_t> dimAlignments) {
             return wrap(tt::ttcore::MetalLayoutAttr::get(
                 unwrap(ctx), ArrayRef<int64_t>(logicalShape),
                 static_cast<tt::ttcore::OOBVal>(oobValValue),
                 static_cast<tt::ttcore::MemorySpace>(memorySpaceValue),
                 static_cast<tt::ttcore::TensorMemoryLayout>(memoryLayoutValue),
                 mlir::cast<DenseIntElementsAttr>(unwrap(collapseIntervals)),
-                ArrayRef<int64_t>(dimAlignments), unwrap(indexMap)));
+                ArrayRef<int64_t>(dimAlignments)));
           })
       .def("getLayout",
            [](MlirType &type)

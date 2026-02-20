@@ -12,7 +12,7 @@
 #map = affine_map<(d0, d1) -> (d0, d1)>
 
 // Layout for 2x3 grid with 2x2 shard shape (64x96 logical shape in tiles)
-#layout = #ttcore.metal_layout<logical_shape = 64x96, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded, index_map = map(0)>
+#layout = #ttcore.metal_layout<logical_shape = 64x96, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
 
 // CHECK-LABEL: func.func @explicit_datamovement_abs
 func.func @explicit_datamovement_abs(
@@ -21,12 +21,12 @@ func.func @explicit_datamovement_abs(
   %output = d2m.empty() : tensor<2x3x2x2x!ttcore.tile<32x32, f32>, #layout>
 
   // Wrap input and output in identity stream_layout operations
-  // CHECK-DAG: %[[INPUT_STREAM:.*]] = "d2m.stream_layout"(%arg0, %{{.*}}) : (tensor<2x3x2x2x!ttcore.tile<32x32, f32>, #layout>, tensor<2x3x2x2x!ttcore.tile<32x32, f32>, #layout>) -> tensor<2x3x2x2x!ttcore.tile<32x32, f32>, #layout>
+  // CHECK-DAG: %[[INPUT_STREAM:.*]] = "d2m.stream_layout"(%arg0, %{{.*}}) <{remapping = #map}> : (tensor<2x3x2x2x!ttcore.tile<32x32, f32>, #layout>, tensor<2x3x2x2x!ttcore.tile<32x32, f32>, #layout>) -> tensor<2x3x2x2x!ttcore.tile<32x32, f32>, #layout>
   %input_storage = d2m.empty() : tensor<2x3x2x2x!ttcore.tile<32x32, f32>, #layout>
-  %arg0_stream = "d2m.stream_layout"(%arg0, %input_storage) : (tensor<2x3x2x2x!ttcore.tile<32x32, f32>, #layout>, tensor<2x3x2x2x!ttcore.tile<32x32, f32>, #layout>) -> tensor<2x3x2x2x!ttcore.tile<32x32, f32>, #layout>
-  // CHECK-DAG: %[[OUTPUT_STREAM:.*]] = "d2m.stream_layout"(%{{.*}}, %{{.*}}) : (tensor<2x3x2x2x!ttcore.tile<32x32, f32>, #layout>, tensor<2x3x2x2x!ttcore.tile<32x32, f32>, #layout>) -> tensor<2x3x2x2x!ttcore.tile<32x32, f32>, #layout>
+  %arg0_stream = "d2m.stream_layout"(%arg0, %input_storage) <{remapping = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>}> : (tensor<2x3x2x2x!ttcore.tile<32x32, f32>, #layout>, tensor<2x3x2x2x!ttcore.tile<32x32, f32>, #layout>) -> tensor<2x3x2x2x!ttcore.tile<32x32, f32>, #layout>
+  // CHECK-DAG: %[[OUTPUT_STREAM:.*]] = "d2m.stream_layout"(%{{.*}}, %{{.*}}) <{remapping = #map}> : (tensor<2x3x2x2x!ttcore.tile<32x32, f32>, #layout>, tensor<2x3x2x2x!ttcore.tile<32x32, f32>, #layout>) -> tensor<2x3x2x2x!ttcore.tile<32x32, f32>, #layout>
   %output_storage = d2m.empty() : tensor<2x3x2x2x!ttcore.tile<32x32, f32>, #layout>
-  %output_stream = "d2m.stream_layout"(%output, %output_storage) : (tensor<2x3x2x2x!ttcore.tile<32x32, f32>, #layout>, tensor<2x3x2x2x!ttcore.tile<32x32, f32>, #layout>) -> tensor<2x3x2x2x!ttcore.tile<32x32, f32>, #layout>
+  %output_stream = "d2m.stream_layout"(%output, %output_storage) <{remapping = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>}> : (tensor<2x3x2x2x!ttcore.tile<32x32, f32>, #layout>, tensor<2x3x2x2x!ttcore.tile<32x32, f32>, #layout>) -> tensor<2x3x2x2x!ttcore.tile<32x32, f32>, #layout>
 
   // CHECK: d2m.generic
   // CHECK-SAME: block_factors = []

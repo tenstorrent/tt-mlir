@@ -160,12 +160,13 @@ public:
            "No memref memory space found, failing.");
     auto memrefType = op.getMemref().getType();
 
-    auto layout = mlir::dyn_cast_if_present<ttcore::DeviceLayoutInterface>(
-        memrefType.getLayout());
-    assert(layout && layout.isPhysical() && "expected physical device layout");
+    assert((mlir::isa<ttcore::ShardLayoutAttr, ttcore::InterleavedLayoutAttr>(
+               memrefType.getLayout())) &&
+           "expected physical device layout (shard or interleaved)");
 
-    rewriter.replaceOpWithNewOp<ttmetal::CreateBufferOp>(op, memrefType,
-                                                         address);
+    auto vgm = op->getAttrOfType<AffineMapAttr>("virtualGridMapping");
+    rewriter.replaceOpWithNewOp<ttmetal::CreateBufferOp>(
+        op, memrefType, address, /*virtualGridMapping=*/vgm);
 
     return success();
   };
