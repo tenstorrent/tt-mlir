@@ -35,6 +35,7 @@
 #include "mlir/Transforms/DialectConversion.h"
 #include "stablehlo/dialect/StablehloOps.h"
 #include "llvm/ADT/APFloat.h"
+#include "llvm/ADT/APInt.h"
 #include "llvm/ADT/STLExtras.h"
 
 #include "llvm/ADT/SmallVector.h"
@@ -4874,6 +4875,17 @@ private:
     // Get index tensor shape.
     RankedTensorType indexType = op.getScatterIndices().getType();
     ArrayRef<int64_t> indexShape = indexType.getShape();
+    auto indexElementType = dyn_cast<IntegerType>(indexType.getElementType());
+    if (!indexElementType) {
+      return rewriter.notifyMatchFailure(
+          op, "TTIR scatter requires integer scatter_indices element type.");
+    }
+    if (indexElementType.getWidth() != 32 &&
+        indexElementType.getWidth() != 64) {
+      return rewriter.notifyMatchFailure(
+          op, "TTIR scatter currently supports only i32 or i64 "
+              "scatter_indices element types.");
+    }
 
     // Check that scatter_dims_to_operand_dims is in order.
     ArrayRef<int64_t> scatterDimsToOperandDims =
@@ -5124,16 +5136,19 @@ private:
 
     // Create constant tensors for each window dimension's offsets.
     Type indexElementType = indicesType.getElementType();
+    unsigned indexElementBitWidth =
+        mlir::cast<IntegerType>(indexElementType).getWidth();
     for (size_t dim = 0; dim < windowShape.size(); ++dim) {
       // Build the final offset values: repeat window offsets for each scatter
       // position. Pattern: [w0, w1, ..., wN-1, w0, w1, ..., wN-1, ...]
       //                     |---- window ---|  |--- window ----|
       //                    |--------- numScatterPositions times -----|
-      llvm::SmallVector<int64_t> finalOffsetValues;
+      llvm::SmallVector<APInt> finalOffsetValues;
       finalOffsetValues.reserve(expandedNumIndices);
       for (int64_t i = 0; i < numScatterPositions; ++i) {
         for (int64_t w = 0; w < windowSize; ++w) {
-          finalOffsetValues.push_back(windowOffsets[dim][w]);
+          finalOffsetValues.push_back(
+              APInt(indexElementBitWidth, windowOffsets[dim][w]));
         }
       }
 
