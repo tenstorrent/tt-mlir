@@ -77,15 +77,13 @@ tryBuildChain(ttnn::SliceStaticOp sliceOp) {
   return chain;
 }
 
-static bool analyzeChain(SliceReshapeChain &chain,
-                         ArrayRef<int64_t> repeatInputShape,
-                         ArrayRef<int64_t> repeatOutputShape,
-                         ArrayRef<int64_t> repeatDims, int64_t rank,
-                         SmallVector<int64_t> &slicedInputShape,
-                         SmallVector<int64_t> &adjustedRepeatDims,
-                         SmallVector<int32_t> &begins,
-                         SmallVector<int32_t> &ends,
-                         SmallVector<int32_t> &step) {
+static bool
+analyzeChain(SliceReshapeChain &chain, ArrayRef<int64_t> repeatInputShape,
+             ArrayRef<int64_t> repeatOutputShape, ArrayRef<int64_t> repeatDims,
+             int64_t rank, SmallVector<int64_t> &slicedInputShape,
+             SmallVector<int64_t> &adjustedRepeatDims,
+             SmallVector<int32_t> &begins, SmallVector<int32_t> &ends,
+             SmallVector<int32_t> &step) {
   begins.clear();
   ends.clear();
   step.clear();
@@ -221,8 +219,7 @@ LogicalResult RepeatSliceReshapeRewritePattern::matchAndRewrite(
     // 2. Repeat with relocated dims on the sliced tensor.
     SmallVector<int64_t> newRepeatOutShape;
     for (int64_t d = 0; d < rank; ++d) {
-      newRepeatOutShape.push_back(slicedInputShape[d] *
-                                  adjustedRepeatDims[d]);
+      newRepeatOutShape.push_back(slicedInputShape[d] * adjustedRepeatDims[d]);
     }
 
     RankedTensorType newRepeatType =
