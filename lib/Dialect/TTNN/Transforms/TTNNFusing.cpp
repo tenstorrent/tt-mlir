@@ -282,7 +282,7 @@ private:
       return failure();
     }
 
-    op_model::ScopedSingletonDeviceGuard deviceGuard;
+    op_model::ScopedSingletonDeviceGuard deviceGuard(srcOp.getOperation());
 
     // Create rotary_embedding op
     auto resultType = srcOp.getType();
@@ -1269,7 +1269,8 @@ private:
 
   mlir::LogicalResult createSDPAOp(mlir::PatternRewriter &rewriter,
                                    SDPAComponents &c) const {
-    op_model::ScopedSingletonDeviceGuard deviceGuard;
+    op_model::ScopedSingletonDeviceGuard deviceGuard(
+        c.attentionMatmul.getOperation());
 
     // When no scale is found in the pattern, explicitly set scale=1.0 to
     // prevent tt-metal from applying the default 1/sqrt(head_dim) scaling.

@@ -38,7 +38,7 @@ public:
 #else
     // Device lifecycle is managed by OpModelDeviceWrapperPass in the pipeline,
     // but for standalone pass usage, the guard opens/closes it.
-    op_model::ScopedSingletonDeviceGuard deviceGuard;
+    op_model::ScopedSingletonDeviceGuard deviceGuard(getOperation());
 
     ModuleOp moduleOp = getOperation();
     IRRewriter rewriter(&getContext());

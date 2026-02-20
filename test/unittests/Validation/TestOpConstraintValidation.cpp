@@ -39,8 +39,10 @@ public:
     module = mlir::ModuleOp::create(builder.getUnknownLoc());
     builder.setInsertionPointToStart(&module->getBodyRegion().front());
     mlir::tt::ttcore::registerDevice(module.get());
+    mlir::tt::ttnn::op_model::SingletonDeviceContext::setSystemDesc(
+        mlir::tt::ttcore::getCurrentScopeSystemDesc(module.get()));
     mlir::tt::ttnn::op_model::SingletonDeviceContext::getInstance()
-        .openDevice();
+        .openMockDevice();
 
     // Set default L1 usage cap to 100% for all tests
     setL1UsageCap(1.0f);
