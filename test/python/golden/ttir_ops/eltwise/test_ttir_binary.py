@@ -886,6 +886,61 @@ def test_implicit_bcast_inner_2D(
     )
 
 
+@pytest.mark.parametrize(
+    "shapes",
+    [
+        [(1, 2, 1, 32), (1, 1, 1, 32)],
+        [(1, 16, 1, 32), (1, 1, 1, 32)],
+        [(1, 1, 1, 32), (1, 2, 1, 32)],  # broadcast dim1
+        [(2, 2, 1, 32), (1, 2, 1, 32)],  # broadcast dim0
+        # 3D shape
+        [(1, 16, 32), (1, 16, 32)],
+        # 5D shape
+        [(1, 1, 1, 32, 32), (1, 1, 8, 32, 32)],
+        # Larger tensors
+        [(1, 2, 64, 64), (1, 1, 64, 64)],
+        [(1, 4, 64, 128), (1, 1, 64, 128)],
+        [(1, 1, 8, 64, 64), (1, 1, 1, 64, 64)],
+        # broadcast on row/col dims
+        [(1, 2, 32, 32), (1, 2, 1, 32)],
+        [(1, 4, 64, 128), (1, 4, 1, 128)],
+        [(1, 1, 32, 32), (1, 1, 32, 1)],
+    ],
+    ids=shapes_list_str,
+)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttmetal"])
+@pytest.mark.parametrize(
+    "test_fn",
+    [add, subtract, multiply],
+    ids=["add", "subtract", "multiply"],
+)
+def test_binary_ops_broadcast_shard_dims(
+    test_fn: Callable,
+    shapes: List[Shape],
+    dtype: torch.dtype,
+    target: str,
+    request,
+    device,
+):
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, [dtype, dtype])
+        def binary_broadcast(
+            in0: Operand,
+            in1: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return test_fn(in0, in1, builder, unit_attrs=unit_attrs)
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+    )
+
+
 # Binary eltwise ops with implicit broadcasting
 # There are operations that still do not support Int32 tracked here: https://github.com/tenstorrent/tt-metal/issues/25112.
 @pytest.mark.parametrize(

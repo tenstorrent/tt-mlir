@@ -288,7 +288,7 @@ In all other cases, prefer explicit type declarations to maintain clarity and en
 ## Python Coding Guidelines
 
 ### Python Version and Source Code Formatting
-The current minimum version of Python required is 3.11 or higher. Python code in the tt-mlir repository should only use language features available in this version of Python.
+The current minimum version of Python required is 3.12 or higher. Python code in the tt-mlir repository should only use language features available in this version of Python.
 
 The Python code within the tt-mlir repository should adhere to the formatting guidelines outlined in PEP 8.
 

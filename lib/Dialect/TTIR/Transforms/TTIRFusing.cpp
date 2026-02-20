@@ -3209,8 +3209,14 @@ public:
                                          rewriter.getI32ArrayAttr(targetShape));
     }
 
-    // Create RMSNormOp with output shape and dtype matching input.
+    // Although the op can work with different dtypes, this is
+    // the indication that the matching is not correct.
     auto inputType = mlir::cast<RankedTensorType>(x.getType());
+    if (inputType.getElementType() != gammaType.getElementType()) {
+      return mlir::failure();
+    }
+
+    // Create RMSNormOp with output shape and dtype matching input.
     auto rmsNormOutputType =
         RankedTensorType::get(inputType.getShape(), inputType.getElementType(),
                               inputType.getEncoding());

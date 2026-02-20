@@ -777,6 +777,17 @@ toFlatbuffer(FlatbufferObjectCache &cache,
       toFlatbuffer(cache, sdpaConfigAttr.getMaxCoresPerHeadBatch()));
 }
 
+inline ::flatbuffers::Offset<
+    ::tt::target::ttnn::LayerNormShardedMultiCoreProgramConfig>
+toFlatbuffer(FlatbufferObjectCache &cache,
+             ttnn::LayerNormShardedMultiCoreProgramConfigAttr configAttr) {
+  ::tt::target::ttnn::CoreCoord computeWithStorageGridSize =
+      toFlatbuffer(cache, configAttr.getComputeWithStorageGridSize());
+  return ::tt::target::ttnn::CreateLayerNormShardedMultiCoreProgramConfig(
+      *cache.fbb, &computeWithStorageGridSize, configAttr.getSubblockW(),
+      configAttr.getBlockH(), configAttr.getBlockW(), configAttr.getInplace());
+}
+
 inline ::flatbuffers::Offset<::tt::target::ttnn::Conv2dConfig>
 toFlatbuffer(FlatbufferObjectCache &cache, ttnn::Conv2dConfigAttr config) {
   ::flatbuffers::Offset<::tt::target::ttnn::UnaryWithParam> activation;
@@ -1180,6 +1191,8 @@ inline ::tt::target::Topology toFlatbuffer(FlatbufferObjectCache &cache,
   case ttcore::Topology::Torus:
     fbTopology = ::tt::target::Topology::Torus;
     break;
+  case ttcore::Topology::Disabled:
+    llvm_unreachable("Disabled topology cannot be serialized to flatbuffer");
   }
   return fbTopology;
 }

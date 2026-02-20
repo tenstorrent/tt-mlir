@@ -1,6 +1,7 @@
 add_mlir_dialect_library(MLIRD2MTransforms
         AddScratchInputs.cpp
         Allocate.cpp
+        DecomposeArange.cpp
         DecomposeMasking.cpp
         DecomposeComplexPermute.cpp
         GenericApplyInterchange.cpp

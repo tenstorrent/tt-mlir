@@ -83,6 +83,8 @@ public:
       builder->create<emitc::IncludeOp>(
           loc, "api/compute/compute_kernel_api.h", // max ops
           /*isStandard=*/false);
+      builder->create<emitc::IncludeOp>(loc, "api/compute/copy_dest_values.h",
+                                        /*isStandard=*/false);
       builder->create<emitc::IncludeOp>(loc, "api/compute/tile_move_copy.h",
                                         /*isStandard=*/false);
       builder->create<emitc::IncludeOp>(
@@ -306,7 +308,8 @@ void dprint(Arg &&arg, ArgV&&... argv) {
 
     if (hasCall("experimental::tile_fill") ||
         hasCall("experimental::write_row_mask_tile") ||
-        hasCall("experimental::write_col_mask_tile")) {
+        hasCall("experimental::write_col_mask_tile") ||
+        hasCall("experimental::fill_arange_tile")) {
       auto experimentalPaddingLLKs =
           StringRef(experimental_padding_llks_generated,
                     experimental_padding_llks_generated_len);

@@ -7,11 +7,13 @@ endif()
 
 set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/debug/debug.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/cache/global_tensor_cache.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/cache/load_cached.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/aggregate_tensor.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/all_gather.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/all_reduce.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/distribute_tensor.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/ccl/mesh_partition.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/mesh_shard.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/point_to_point.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/reduce_scatter.cpp
@@ -68,6 +70,7 @@ set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/mlir_native/func_call.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/moreh/moreh_cumsum.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/normalization/batch_norm.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/normalization/distributed_rms_norm.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/normalization/layer_norm.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/normalization/rms_norm.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/normalization/softmax.cpp

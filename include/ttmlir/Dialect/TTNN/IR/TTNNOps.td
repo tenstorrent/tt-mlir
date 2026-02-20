@@ -2144,6 +2144,74 @@ def TTNN_RMSNormOp : TTNN_Op<"rms_norm", [AttrSizedOperandSegments, TTNN_MemoryC
     let hasVerifier = 1;
 }
 
+def TTNN_DistributedRMSNormOp : TTNN_Op<"distributed_rms_norm",
+    [AttrSizedOperandSegments, TTNN_MemoryConfigOpInterface, TTNN_ComputeKernelConfigOpInterface]> {
+    let summary = "Distributed RMS normalization with all-gather op.";
+    let description = [{
+      Fused distributed RMS normalization operation across mesh devices.
+      Computes local RMS statistics (the mean of squared values, E(x²)),
+      all-gathers the statistics along the specified cluster_axis to obtain
+      globally-correct values, then normalizes each element by
+      x / sqrt(E(x²) + epsilon) and applies optional weight scaling locally
+      on each device.
+
+      Only statistics are communicated across devices — the input data itself
+      is not all-gathered. Each device's output shape equals its input shape.
+
+      Maps to ttnn::fused_rms_minimal at runtime.
+
+      This operation requires the input tensor to be width-sharded across devices.
+
+      Inputs:
+        - input: Input tensor. Must be width-sharded in L1 with shape
+            (1,1,32,M) where M is a multiple of 32. Tiled layout required.
+        - weight: Optional gamma (scale) tensor applied after normalization.
+            Must be in ROW_MAJOR layout with width equal to tile_width (32),
+            i.e. reshaped from 1D (N,) to 2D (N/32, 32).
+        - residual: Optional residual tensor to add to input before
+            normalization (x + residual). Must have the same shard spec as
+            input.
+        - stats: Scratch tensor for intermediate RMS statistics exchanged
+            across devices via all-gather. Shape (1,1,32,32), width-sharded
+            on core (0,0) in L1. Dtype is Float32 when fp32_dest_acc_en is
+            set, otherwise BFloat16.
+
+      Attributes:
+        - cluster_axis: Mesh dimension (0 or 1) along which to all-gather
+            the RMS statistics across devices.
+        - epsilon: Small constant added to the denominator for numerical
+            stability. Defaults to 1e-12.
+        - sub_device_id: Optional sub-device targeting for kernel placement.
+        - memory_config: Output memory configuration. Typically matches the
+            input's width-sharded shard spec.
+        - num_links: Optional number of links for the all-gather
+            communication.
+        - topology: CCL topology for all-gather (Linear or Ring).
+        - compute_config: Device compute kernel configuration. Controls math
+            fidelity, fp32_dest_acc_en, and packer L1 accumulation.
+        - program_config: LayerNormShardedMultiCoreProgramConfig derived from
+            the input's shard spec (core grid, block_h, block_w).
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         Optional<AnyRankedTensor>:$weight,
+                         Optional<AnyRankedTensor>:$residual,
+                         Optional<AnyRankedTensor>:$stats,
+                         TTNN_Device:$device,
+                         UI32Attr:$cluster_axis,
+                         DefaultValuedAttr<F32Attr, "1e-12">:$epsilon,
+                         OptionalAttr<UI32Attr>:$sub_device_id,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
+                         OptionalAttr<UI32Attr>:$num_links,
+                         OptionalAttr<TTCore_TopologyAttr>:$topology,
+                         OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config,
+                         OptionalAttr<TTNN_LayerNormShardedMultiCoreProgramConfigAttr>:$program_config);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
 def TTNN_LayerNormOp : TTNN_Op<"layer_norm", [AttrSizedOperandSegments, TTNN_MemoryConfigOpInterface]> {
     let summary = "Layer normalization op.";
     let description = [{
@@ -2593,6 +2661,25 @@ def TTNN_MeshShardOp: TTNN_Op<"mesh_shard"> {
     }];
 
     let hasVerifier = 1;
+}
+
+def TTNN_MeshPartitionOp: TTNN_Op<"mesh_partition", [TTNN_MemoryConfigOpInterface]> {
+  let summary = "Mesh partition operation.";
+  let description = [{
+    Mesh partition op.
+  }];
+  let arguments = (ins AnyRankedTensor:$input,
+                       SI32Attr:$dim,
+                       OptionalAttr<UI32Attr>:$cluster_axis,
+                       OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+  let results = (outs AnyRankedTensor:$result);
+  let hasVerifier = 1;
+
+  let extraClassDeclaration = [{
+    wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+      return wa::TTNNOperandsWorkaroundsFactory::createMeshPartitionOpOperandsWorkarounds();
+    }
+  }];
 }
 
 def TTNN_PermuteOp : TTNN_Op<"permute"> {

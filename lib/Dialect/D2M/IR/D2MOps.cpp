@@ -7,6 +7,7 @@
 #include "ttmlir/AffineMapUtils.h"
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
+#include "ttmlir/Dialect/D2M/Utils/DMAUtils.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/Dialect/D2M/Utils/VirtualGrid.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
@@ -1155,8 +1156,8 @@ void d2m::GenericOp::build(mlir::OpBuilder &builder,
         ttmlir::utils::concatInversePermutationMap(maps, /*reverse=*/true);
 
     SmallVector<int64_t> flattenedOperandGridShapes;
-    for (Value v :
-         llvm::reverse(llvm::to_vector(llvm::concat<Value>(inputs, outputs)))) {
+    const auto values = llvm::to_vector(llvm::concat<Value>(inputs, outputs));
+    for (Value v : llvm::reverse(values)) {
       auto shapedType = mlir::cast<ShapedType>(v.getType());
       ttcore::DeviceLayoutInterface layout =
           ttcore::getDeviceLayout(shapedType);
@@ -1623,6 +1624,14 @@ static mlir::LogicalResult verifyAffineBlocking(
                              opGridMap, opGridShape, emitDiag);
     if (failed(blockFactorResult)) {
       return blockFactorResult;
+    }
+  }
+
+  // Unified form will be replicated across compute and datamovement threads.
+  // Reject semaphore ops that would create race conditions when replicated.
+  if (isUnifiedForm()) {
+    if (failed(utils::checkForIllegalSemaphoreOps(&getRegion(0).front()))) {
+      return failure();
     }
   }
 

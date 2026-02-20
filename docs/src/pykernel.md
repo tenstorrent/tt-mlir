@@ -29,7 +29,7 @@ TTNN consists of Python bindings to precompiled kernels and operator factories t
 Before using PyKernel, ensure your environment is set up with:
 
 - TT-MLIR built and installed
-- Python 3.11 or newer
+- Python 3.12 or newer
 - Required Python packages
 - TTMLIR_ENABLE_RUNTIME and TTMLIR_ENABLE_PYKERNEL flags set during build
 

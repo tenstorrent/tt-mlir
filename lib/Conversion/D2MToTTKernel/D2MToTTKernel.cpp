@@ -1057,13 +1057,16 @@ private:
     // Get the Cb for the non-Dst operand
     Value cb;
     Value cbTileIdx;
+    Value dstOperandIdx;
     if (reuseType == BinaryDestReuseType::DestToSrcA) {
       // LHS from Dst, RHS from Cb
       cb = getCB(rewriter, op.getRhs());
       cbTileIdx = adaptor.getRhs();
+      dstOperandIdx = adaptor.getLhs();
     } else {
       cb = getCB(rewriter, op.getLhs());
       cbTileIdx = adaptor.getLhs();
+      dstOperandIdx = adaptor.getRhs();
     }
 
     auto outCB = getOutCB(rewriter, op);
@@ -1078,6 +1081,14 @@ private:
     rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
 
     auto eltwiseType = getEltwiseBinaryType();
+
+    // binary_dest_reuse is an in-place operation. If the DST
+    // operand comes from a different slot, copy it first to the output slot.
+    if (dstOperandIdx != dstIdx) {
+      rewriter.create<ttkernel::CopyDestValuesInitOp>(loc);
+      rewriter.create<ttkernel::CopyDestValuesOp>(loc, dstOperandIdx, dstIdx);
+    }
+
     rewriter.create<ttkernel::BinaryDestReuseTilesInitOp>(loc, cb, eltwiseType,
                                                           reuseType);
     rewriter.create<ttkernel::BinaryDestReuseTilesOp>(
@@ -1203,6 +1214,21 @@ public:
     }
     rewriter.create<ttkernel::ExperimentalWriteColMaskTileOp>(
         loc, validCols, adaptor.getOutput());
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+class D2MExperimentalFillArangeTileRewriter
+    : public OpConversionPattern<d2m::FillArangeTileOp> {
+public:
+  using OpConversionPattern<d2m::FillArangeTileOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::FillArangeTileOp op,
+                  d2m::FillArangeTileOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    rewriter.create<ttkernel::ExperimentalFillArangeTileOp>(
+        op->getLoc(), adaptor.getOutput());
     rewriter.eraseOp(op);
     return success();
   }
@@ -2022,6 +2048,7 @@ void populateD2MToTTKernelPatterns(
                ttkernel::D2MTileFillRewriter,
                ttkernel::D2MWriteRowMaskTileRewriter,
                ttkernel::D2MWriteColMaskTileRewriter,
+               ttkernel::D2MExperimentalFillArangeTileRewriter,
                ttkernel::D2MTileTransposeRewriter,
                ttkernel::D2MDstReinterpretCastRewriter,
                ttkernel::AcquireDstRewriter,
