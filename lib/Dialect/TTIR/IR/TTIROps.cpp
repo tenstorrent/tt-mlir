@@ -79,6 +79,28 @@ namespace mlir::tt::ttir {
   return success();
 }
 
+::mlir::LogicalResult mlir::tt::ttir::ComplexOp::verify() {
+  // Check input real and imag are same.
+  // Check output ComplexTensorType match input real and imag.
+  auto realType = llvm::cast<RankedTensorType>(getReal().getType());
+  auto imagType = llvm::cast<RankedTensorType>(getImag().getType());
+  if (realType.getShape() != imagType.getShape()) {
+    return emitOpError("real and imag must have the same shape");
+  }
+  if (!realType.getElementType().isIntOrFloat()) {
+    return emitOpError("real must have integer or float element type");
+  }
+  if (imagType.getElementType() != realType.getElementType()) {
+    return emitOpError("real and imag must have the same element type");
+  }
+  auto resultType = mlir::cast<ComplexTensorType>(getResult().getType());
+  if (resultType.getRealType() != realType ||
+      resultType.getImagType() != imagType) {
+    return emitOpError("result must have real and imag types matching input");
+  }
+  return success();
+}
+
 ::mlir::LogicalResult mlir::tt::ttir::StablehloRealOp::verify() {
   auto inputType = llvm::cast<RankedTensorType>(getInput().getType());
   auto resultType = llvm::cast<RankedTensorType>(getResult().getType());
