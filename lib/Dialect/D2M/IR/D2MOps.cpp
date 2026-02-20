@@ -826,9 +826,9 @@ mlir::LogicalResult StreamLayoutOp::verify() {
       *this, "storage", "result", getStorage().getType(), getResult().getType(),
       /*checkSameElementType*/ true,
       /*checkSameMemorySpace*/ false,
-      /*checkSameRank*/ true,
+      /*checkSameRank*/ false,
       /*checkSameGridShape*/ false,
-      /*checkSameShardShape*/ true);
+      /*checkSameShardShape*/ false);
   if (failed(storageResultVerification)) {
     return storageResultVerification;
   }
@@ -1075,6 +1075,34 @@ mlir::OpFoldResult d2m::ViewLayoutOp::fold(FoldAdaptor adaptor) {
       RankedTensorType::Builder(resultType).setEncoding(newLayout));
 
   return getResult();
+}
+
+void d2m::ViewLayoutOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *) {
+  // Fold view(stream) -> stream with composed layout.
+  patterns.add(+[](ViewLayoutOp op, mlir::PatternRewriter &rewriter) {
+    StreamLayoutOp streamOp = op.getInput().getDefiningOp<StreamLayoutOp>();
+    if (!streamOp) {
+      return failure();
+    }
+
+    auto streamMemref =
+        mlir::dyn_cast<MemRefType>(streamOp.getResult().getType());
+    if (!streamMemref) {
+      return failure();
+    }
+
+    auto viewResultMemref = mlir::cast<MemRefType>(op.getResult().getType());
+    auto composedAttr = rewriter.getAttr<ttcore::ViewLayoutAttr>(
+        streamMemref.getLayout().getAffineMap().compose(
+            viewResultMemref.getLayout().getAffineMap()));
+    auto newMemref = MemRefType::get(
+        viewResultMemref.getShape(), viewResultMemref.getElementType(),
+        composedAttr, viewResultMemref.getMemorySpace());
+    rewriter.replaceOpWithNewOp<StreamLayoutOp>(
+        op, newMemref, streamOp.getInput(), streamOp.getStorage());
+    return success();
+  });
 }
 
 //===----------------------------------------------------------------------===//

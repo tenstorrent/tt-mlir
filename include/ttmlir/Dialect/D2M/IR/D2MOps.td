@@ -45,6 +45,7 @@ def D2M_ViewLayoutOp
 
   let hasVerifier = 1;
   let hasFolder = 1;
+  let hasCanonicalizer = 1;
 }
 
 //===----------------------------------------------------------------------===//
