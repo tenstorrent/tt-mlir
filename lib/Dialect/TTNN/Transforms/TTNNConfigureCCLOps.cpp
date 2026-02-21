@@ -10,16 +10,16 @@
 
 namespace mlir::tt::ttnn {
 
-#define GEN_PASS_DEF_TTNNSETCCLTOPOLOGY
+#define GEN_PASS_DEF_TTNNCONFIGURECCLOPS
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h.inc"
 
 namespace {
 
-class TTNNSetCCLTopology
-    : public impl::TTNNSetCCLTopologyBase<TTNNSetCCLTopology> {
+class TTNNConfigureCCLOps
+    : public impl::TTNNConfigureCCLOpsBase<TTNNConfigureCCLOps> {
 
 public:
-  TTNNSetCCLTopology() = default;
+  TTNNConfigureCCLOps() = default;
 
   void runOnOperation() override {
     ModuleOp moduleOp = getOperation();
@@ -55,11 +55,20 @@ private:
     }
 
     uint32_t clusterAxis = op.getClusterAxis();
-    if (clusterAxis >= meshTopology.size()) {
+
+    // meshTopology follows meshShape indexing:
+    //   meshTopology[0] = row-axis (horizontal) connectivity
+    //   meshTopology[1] = col-axis (vertical) connectivity
+    // cluster_axis follows tt-metal convention:
+    //   cluster_axis=0 = vertical movement (devices in same column)
+    //   cluster_axis=1 = horizontal movement (devices in same row)
+    // Map between the two by reversing the index.
+    uint32_t topologyIdx = meshTopology.size() - 1 - clusterAxis;
+    if (topologyIdx >= meshTopology.size()) {
       return;
     }
 
-    ttcore::Topology axisTopology = meshTopology[clusterAxis];
+    ttcore::Topology axisTopology = meshTopology[topologyIdx];
     if (axisTopology == ttcore::Topology::Disabled) {
       return;
     }
