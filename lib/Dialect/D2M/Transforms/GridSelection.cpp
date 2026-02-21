@@ -1291,9 +1291,9 @@ public:
     this->overrideDeviceShape = llvm::to_vector(options.overrideDeviceShape);
     // Setting TTNN mode to true ensures we do not implicitly pad or wrap-around
     // when sharding. Any grid decisions in this mode are representable
-    // using a TTNNLayoutAttr and can be created with a single ttnn.empty() call.
-    // This can be removed only when we implement support for creating padded
-    // tensors in D2MToTTNN pass.
+    // using a TTNNLayoutAttr and can be created with a single ttnn.empty()
+    // call. This can be removed only when we implement support for creating
+    // padded tensors in D2MToTTNN pass.
     this->ttnnMode = options.ttnnMode;
   }
 
