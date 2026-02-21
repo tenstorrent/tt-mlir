@@ -778,56 +778,42 @@ static GridAnalysisResult analyzeOperandsAndComputeGrids(
       continue;
     }
 
+    llvm::SmallVector<int64_t> physShape =
+        computePhysicalShape(operand, targetSquareGridShape, ttnnMode, builder);
+    auto [optimalGrid, isVirtualGrid] = computeOptimalGrid(
+        operandType, physShape, targetSquareGridShape, ttnnMode);
+    result.optimalOperandGrids.push_back(optimalGrid);
+
     if (isTTNNOperand(operand)) {
-      llvm::SmallVector<int64_t> physShape = computePhysicalShape(
-          operand, targetSquareGridShape, ttnnMode, builder);
-
-      auto [optimalGrid, isVirtualGrid] = computeOptimalGrid(
-          operandType, physShape, targetSquareGridShape, ttnnMode);
-      result.optimalOperandGrids.push_back(optimalGrid);
       result.ttnnTensors.push_back({operand, optimalGrid, isVirtualGrid});
-    } else {
-      // Compute physical shape and find the optimal grid that evenly divides
-      // it.
-      llvm::SmallVector<int64_t> physShape = computePhysicalShape(
-          operand, targetSquareGridShape, ttnnMode, builder);
+    } else if (auto streamLayout =
+                   operand.getDefiningOp<d2m::StreamLayoutOp>()) {
+      // For stream_layout ops, the output optimal grid (already computed)
+      // will be used for the storage. The input needs its own grid computed
+      // independently based on its own shape.
+      result.streamLayouts.push_back(
+          {streamLayout, optimalGrid, isVirtualGrid});
+      if (auto toLayoutOp =
+              streamLayout.getInput().getDefiningOp<d2m::ToLayoutOp>()) {
+        if (!toLayoutOp.getInput()
+                 .getDefiningOp<ttir::TTNNMetalLayoutCastOp>()) {
+          auto inputType = mlir::cast<mlir::RankedTensorType>(
+              streamLayout.getInput().getType());
 
-      // Interleaved tensors do not support virtual grids
-      auto [optimalGrid, isVirtualGrid] = computeOptimalGrid(
-          operandType, physShape, targetSquareGridShape, ttnnMode);
+          llvm::SmallVector<int64_t> inputPhysShape =
+              computePhysicalShape(streamLayout.getInput(),
+                                   targetSquareGridShape, ttnnMode, builder);
+          auto [inputOptimalGrid, isVirtualGrid] = computeOptimalGrid(
+              inputType, inputPhysShape, targetSquareGridShape, ttnnMode);
 
-      result.optimalOperandGrids.push_back(optimalGrid);
-
-      // Identify which operations need updating based on the operand type.
-      if (auto streamLayout = operand.getDefiningOp<d2m::StreamLayoutOp>()) {
-        // For stream_layout ops, the output optimal grid (already computed)
-        // will be used for the storage. The input needs its own grid computed
-        // independently based on its own shape.
-        result.streamLayouts.push_back(
-            {streamLayout, optimalGrid, isVirtualGrid});
-        if (auto toLayoutOp =
-                streamLayout.getInput().getDefiningOp<d2m::ToLayoutOp>()) {
-          if (!toLayoutOp.getInput()
-                   .getDefiningOp<ttir::TTNNMetalLayoutCastOp>()) {
-            // Compute the input's grid independently based on its own shape.
-            auto inputType = mlir::cast<mlir::RankedTensorType>(
-                streamLayout.getInput().getType());
-
-            llvm::SmallVector<int64_t> inputPhysShape =
-                computePhysicalShape(streamLayout.getInput(),
-                                     targetSquareGridShape, ttnnMode, builder);
-            auto [inputOptimalGrid, isVirtualGrid] = computeOptimalGrid(
-                inputType, inputPhysShape, targetSquareGridShape, ttnnMode);
-
-            result.toLayouts.push_back(
-                {toLayoutOp, inputOptimalGrid, isVirtualGrid});
-          }
+          result.toLayouts.push_back(
+              {toLayoutOp, inputOptimalGrid, isVirtualGrid});
         }
-      } else if (auto toLayoutOp = operand.getDefiningOp<d2m::ToLayoutOp>()) {
-        result.toLayouts.push_back({toLayoutOp, optimalGrid, isVirtualGrid});
-      } else if (auto emptyOp = operand.getDefiningOp<d2m::EmptyOp>()) {
-        result.emptyOps.push_back({emptyOp, optimalGrid, isVirtualGrid});
       }
+    } else if (auto toLayoutOp = operand.getDefiningOp<d2m::ToLayoutOp>()) {
+      result.toLayouts.push_back({toLayoutOp, optimalGrid, isVirtualGrid});
+    } else if (auto emptyOp = operand.getDefiningOp<d2m::EmptyOp>()) {
+      result.emptyOps.push_back({emptyOp, optimalGrid, isVirtualGrid});
     }
   }
 
