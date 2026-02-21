@@ -117,9 +117,7 @@ MeshFabricConfig computeMeshFabricConfig(
   FabricConfig rowAxisConfig = classifyAxis(rowLines, connections);
   FabricConfig colAxisConfig = classifyAxis(colLines, connections);
 
-  // perAxisConfig[i] describes the connectivity along axis i:
-  //   axis 0 = vertical (columns), axis 1 = horizontal (rows).
-  std::vector<FabricConfig> perAxisConfig = {colAxisConfig, rowAxisConfig};
+  std::vector<FabricConfig> perAxisConfig = {rowAxisConfig, colAxisConfig};
 
   // Global config is the best of the two axes: if at least one axis supports
   // a topology, the fabric can use it.
