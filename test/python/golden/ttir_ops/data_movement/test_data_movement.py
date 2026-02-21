@@ -443,11 +443,7 @@ def test_slice(
 
 # Sort tests
 @pytest.mark.parametrize("shape", [(1, 64, 64)], ids=shape_str)
-@pytest.mark.parametrize(
-    "dtype",
-    [torch.bfloat16, torch.float32],
-    ids=["bf16", "f32"],
-)
+@pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
 @pytest.mark.parametrize("dim", [0, 1, 2])
 @pytest.mark.parametrize("descending", [True, False])
 @pytest.mark.parametrize("stable", [True, False])
