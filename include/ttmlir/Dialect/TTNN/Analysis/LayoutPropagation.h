@@ -37,7 +37,7 @@ public:
   void run();
 
   /// Accessors for testing and debugging.
-  const llvm::DenseMap<Operation *, llvm::SmallVector<BeamCandidate>> &
+  const llvm::DenseMap<Operation *, llvm::SmallVector<BeamCandidate, 0>> &
   getBeamState() const {
     return beamState;
   }
@@ -53,7 +53,7 @@ private:
   const TensorTypeLayoutsMap *tensorTypePossibleLayouts;
 
   /// Per-op beam state: K candidates per op (K=1 for greedy).
-  llvm::DenseMap<Operation *, llvm::SmallVector<BeamCandidate>> beamState;
+  llvm::DenseMap<Operation *, llvm::SmallVector<BeamCandidate, 0>> beamState;
 
   /// Beam width (K=1 for greedy, K>1 for beam search).
   size_t beamWidth = 8;
@@ -63,7 +63,7 @@ private:
   llvm::DenseMap<Operation *, size_t> finalChoice;
 
   /// Process a single op. Returns top-K candidates sorted by score descending.
-  llvm::SmallVector<BeamCandidate> processOp(Operation *op);
+  llvm::SmallVector<BeamCandidate, 0> processOp(Operation *op);
 
   /// Build per-operand input candidate sets.
   /// For greedy (K=1): each operand gets {resolved_producer_layout}

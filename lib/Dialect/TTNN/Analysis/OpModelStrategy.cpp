@@ -117,7 +117,9 @@ OutputHints getOutputHints(Operation *op,
 
 bool shouldExploreReshards(Operation *op) {
   return llvm::TypeSwitch<Operation *, bool>(op)
-      .Case<ReshapeOp, PermuteOp>([](auto) { return false; })
+      .Case<ReshapeOp, PermuteOp, ConcatenateHeadsOp>([](auto) {
+        return false;
+      })
       .Default([](Operation *) { return true; });
 }
 
@@ -134,22 +136,28 @@ bool LayoutScore::operator>(const LayoutScore &other) const {
     return isSharded;
   }
 
-  // 3. No reshard > reshard.
+  // 3. Less DRAM input transfer > more DRAM input transfer.
+  if (inputDramBytes != other.inputDramBytes) {
+    return inputDramBytes < other.inputDramBytes;
+  }
+
+  // 4. No reshard > reshard.
   if (requiresReshard != other.requiresReshard) {
     return !requiresReshard;
   }
 
-  // 4. More cores > fewer cores.
+  // 5. More cores > fewer cores.
   if (coreCount != other.coreCount) {
     return coreCount > other.coreCount;
   }
 
-  // 5. Lower L1 usage is better (leaves more room for other tensors).
+  // 6. Lower L1 usage is better (leaves more room for other tensors).
   return outputL1Usage < other.outputL1Usage;
 }
 
 bool LayoutScore::operator==(const LayoutScore &other) const {
   return isL1 == other.isL1 && isSharded == other.isSharded &&
+         inputDramBytes == other.inputDramBytes &&
          requiresReshard == other.requiresReshard &&
          coreCount == other.coreCount && outputL1Usage == other.outputL1Usage;
 }
