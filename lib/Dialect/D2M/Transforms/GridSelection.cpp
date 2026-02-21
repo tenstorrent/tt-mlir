@@ -638,6 +638,14 @@ struct EmptyUpdateInfo {
   bool isVirtualGrid = false;
 };
 
+struct GridAnalysisResult {
+  llvm::SmallVector<llvm::SmallVector<int64_t>> optimalOperandGrids;
+  llvm::SmallVector<ToLayoutUpdateInfo> toLayouts;
+  llvm::SmallVector<TTNNTensorUpdateInfo> ttnnTensors;
+  llvm::SmallVector<StreamLayoutUpdateInfo> streamLayouts;
+  llvm::SmallVector<EmptyUpdateInfo> emptyOps;
+};
+
 // This function normalizes the operand grids for a generic operation by
 // ensuring that the grids are consistent across all operands that share the
 // same loop dimension. We also need to make sure that the grids respect any
@@ -756,21 +764,11 @@ normalizeOperandGridsForGeneric(
 // Phase 1: Analyze each operand of a GenericOp and compute optimal grids.
 // We compute grids independently per operand to mirror the old TTIRToD2M
 // behavior, ensuring compatibility with existing grid assignment logic.
-static std::tuple<llvm::SmallVector<llvm::SmallVector<int64_t>>,
-                  llvm::SmallVector<ToLayoutUpdateInfo>,
-                  llvm::SmallVector<TTNNTensorUpdateInfo>,
-                  llvm::SmallVector<StreamLayoutUpdateInfo>,
-                  llvm::SmallVector<EmptyUpdateInfo>>
-analyzeOperandsAndComputeGrids(d2m::GenericOp genericOp,
-                               ArrayRef<int64_t> targetGridShape,
-                               ArrayRef<int64_t> targetSquareGridShape,
-                               bool ttnnMode) {
+static GridAnalysisResult analyzeOperandsAndComputeGrids(
+    d2m::GenericOp genericOp, ArrayRef<int64_t> targetGridShape,
+    ArrayRef<int64_t> targetSquareGridShape, bool ttnnMode) {
   OpBuilder builder(genericOp->getContext());
-  SmallVector<SmallVector<int64_t>> optimalOperandGrids;
-  llvm::SmallVector<ToLayoutUpdateInfo> toLayoutsToUpdate;
-  llvm::SmallVector<TTNNTensorUpdateInfo> TTNNTensorsToUpdate;
-  llvm::SmallVector<StreamLayoutUpdateInfo> streamLayoutsToUpdate;
-  llvm::SmallVector<EmptyUpdateInfo> emptyOpsToUpdate;
+  GridAnalysisResult result;
 
   for (Value operand : genericOp.getOperands()) {
     auto operandType = mlir::cast<mlir::RankedTensorType>(operand.getType());
@@ -786,8 +784,8 @@ analyzeOperandsAndComputeGrids(d2m::GenericOp genericOp,
 
       auto [optimalGrid, isVirtualGrid] = computeOptimalGrid(
           operandType, physShape, targetSquareGridShape, ttnnMode);
-      optimalOperandGrids.push_back(optimalGrid);
-      TTNNTensorsToUpdate.push_back({operand, optimalGrid, isVirtualGrid});
+      result.optimalOperandGrids.push_back(optimalGrid);
+      result.ttnnTensors.push_back({operand, optimalGrid, isVirtualGrid});
     } else {
       // Compute physical shape and find the optimal grid that evenly divides
       // it.
@@ -798,14 +796,14 @@ analyzeOperandsAndComputeGrids(d2m::GenericOp genericOp,
       auto [optimalGrid, isVirtualGrid] = computeOptimalGrid(
           operandType, physShape, targetSquareGridShape, ttnnMode);
 
-      optimalOperandGrids.push_back(optimalGrid);
+      result.optimalOperandGrids.push_back(optimalGrid);
 
       // Identify which operations need updating based on the operand type.
       if (auto streamLayout = operand.getDefiningOp<d2m::StreamLayoutOp>()) {
         // For stream_layout ops, the output optimal grid (already computed)
         // will be used for the storage. The input needs its own grid computed
         // independently based on its own shape.
-        streamLayoutsToUpdate.push_back(
+        result.streamLayouts.push_back(
             {streamLayout, optimalGrid, isVirtualGrid});
         if (auto toLayoutOp =
                 streamLayout.getInput().getDefiningOp<d2m::ToLayoutOp>()) {
@@ -821,22 +819,22 @@ analyzeOperandsAndComputeGrids(d2m::GenericOp genericOp,
             auto [inputOptimalGrid, isVirtualGrid] = computeOptimalGrid(
                 inputType, inputPhysShape, targetSquareGridShape, ttnnMode);
 
-            toLayoutsToUpdate.push_back(
+            result.toLayouts.push_back(
                 {toLayoutOp, inputOptimalGrid, isVirtualGrid});
           }
         }
       } else if (auto toLayoutOp = operand.getDefiningOp<d2m::ToLayoutOp>()) {
-        toLayoutsToUpdate.push_back({toLayoutOp, optimalGrid, isVirtualGrid});
+        result.toLayouts.push_back({toLayoutOp, optimalGrid, isVirtualGrid});
       } else if (auto emptyOp = operand.getDefiningOp<d2m::EmptyOp>()) {
-        emptyOpsToUpdate.push_back({emptyOp, optimalGrid, isVirtualGrid});
+        result.emptyOps.push_back({emptyOp, optimalGrid, isVirtualGrid});
       }
     }
   }
 
   // Normalize the operand grids for the generic operation - see the comment on
   // this function for details.
-  optimalOperandGrids =
-      normalizeOperandGridsForGeneric(genericOp, optimalOperandGrids);
+  result.optimalOperandGrids =
+      normalizeOperandGridsForGeneric(genericOp, result.optimalOperandGrids);
 
   // Propagate normalized grids back into update plans so that rewritten
   // producers are consistent with the final per-operand grid decisions.
@@ -845,42 +843,41 @@ analyzeOperandsAndComputeGrids(d2m::GenericOp genericOp,
         return isTTNNOperand(operand.get());
       });
   if (!ttnnMode || !hasTTNNOperand) {
-    return {optimalOperandGrids, toLayoutsToUpdate, TTNNTensorsToUpdate,
-            streamLayoutsToUpdate, emptyOpsToUpdate};
+    return result;
   }
 
   for (auto [operandIndex, operand] :
        llvm::enumerate(genericOp.getOperands())) {
-    auto normalizedGrid = optimalOperandGrids[operandIndex];
+    auto normalizedGrid = result.optimalOperandGrids[operandIndex];
 
-    for (auto &info : TTNNTensorsToUpdate) {
+    for (auto &info : result.ttnnTensors) {
       if (info.operand == operand) {
         info.grid = normalizedGrid;
       }
     }
 
     if (auto streamLayout = operand.getDefiningOp<d2m::StreamLayoutOp>()) {
-      for (auto &info : streamLayoutsToUpdate) {
+      for (auto &info : result.streamLayouts) {
         if (info.op == streamLayout) {
           info.grid = normalizedGrid;
         }
       }
       if (auto toLayoutOp =
               streamLayout.getInput().getDefiningOp<d2m::ToLayoutOp>()) {
-        for (auto &info : toLayoutsToUpdate) {
+        for (auto &info : result.toLayouts) {
           if (info.op == toLayoutOp) {
             info.grid = normalizedGrid;
           }
         }
       }
     } else if (auto toLayoutOp = operand.getDefiningOp<d2m::ToLayoutOp>()) {
-      for (auto &info : toLayoutsToUpdate) {
+      for (auto &info : result.toLayouts) {
         if (info.op == toLayoutOp) {
           info.grid = normalizedGrid;
         }
       }
     } else if (auto emptyOp = operand.getDefiningOp<d2m::EmptyOp>()) {
-      for (auto &info : emptyOpsToUpdate) {
+      for (auto &info : result.emptyOps) {
         if (info.op == emptyOp) {
           info.grid = normalizedGrid;
         }
@@ -888,8 +885,7 @@ analyzeOperandsAndComputeGrids(d2m::GenericOp genericOp,
     }
   }
 
-  return {optimalOperandGrids, toLayoutsToUpdate, TTNNTensorsToUpdate,
-          streamLayoutsToUpdate, emptyOpsToUpdate};
+  return result;
 }
 
 // Phase 2: Update ToLayoutOps with their optimal grids.
@@ -1294,29 +1290,21 @@ static void assignGrids(d2m::GenericOp genericOp,
                         ArrayRef<int64_t> targetGridShape,
                         ArrayRef<int64_t> targetSquareGridShape,
                         bool ttnnMode) {
-  llvm::SmallVector<llvm::SmallVector<int64_t>> optimalOperandGrids;
+  GridAnalysisResult analysis = analyzeOperandsAndComputeGrids(
+      genericOp, targetGridShape, targetSquareGridShape, ttnnMode);
 
-  llvm::SmallVector<ToLayoutUpdateInfo> toLayoutsToUpdate;
-  llvm::SmallVector<TTNNTensorUpdateInfo> TTNNTensorsToUpdate;
-  llvm::SmallVector<StreamLayoutUpdateInfo> streamLayoutsToUpdate;
-  llvm::SmallVector<EmptyUpdateInfo> emptyOpsToUpdate;
-  std::tie(optimalOperandGrids, toLayoutsToUpdate, TTNNTensorsToUpdate,
-           streamLayoutsToUpdate, emptyOpsToUpdate) =
-      analyzeOperandsAndComputeGrids(genericOp, targetGridShape,
-                                     targetSquareGridShape, ttnnMode);
-
-  updateToLayoutOps(toLayoutsToUpdate, targetGridShape, targetSquareGridShape,
+  updateToLayoutOps(analysis.toLayouts, targetGridShape, targetSquareGridShape,
                     ttnnMode);
 
-  updateTTNNTensors(TTNNTensorsToUpdate, targetGridShape);
+  updateTTNNTensors(analysis.ttnnTensors, targetGridShape);
 
-  updateStreamLayoutOps(streamLayoutsToUpdate, targetSquareGridShape,
+  updateStreamLayoutOps(analysis.streamLayouts, targetSquareGridShape,
                         genericOp);
 
-  updateEmptyOps(emptyOpsToUpdate, targetGridShape, targetSquareGridShape,
+  updateEmptyOps(analysis.emptyOps, targetGridShape, targetSquareGridShape,
                  ttnnMode);
 
-  recreateGenericOp(genericOp, optimalOperandGrids);
+  recreateGenericOp(genericOp, analysis.optimalOperandGrids);
 }
 
 // ----------------------------------------------------------------------------
