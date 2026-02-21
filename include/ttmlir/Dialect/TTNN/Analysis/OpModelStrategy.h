@@ -67,6 +67,9 @@ struct LayoutScore {
   /// Penalize reshard.
   bool requiresReshard = false;
 
+  /// Total bytes read from DRAM across all inputs. Lower is better.
+  uint64_t inputDramBytes = 0;
+
   /// Memory footprint from ValidationResult (for tie-breaking).
   uint64_t outputL1Usage = 0;
 
