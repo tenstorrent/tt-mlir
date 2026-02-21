@@ -475,9 +475,6 @@ public:
     llvm::SmallVector<ttnn::KernelCBAttr> cbDescriptors =
         createCBDescriptors(rewriter, cbs, device, coreRangeSet);
 
-    TT_assertv(
-        cbDescriptors.back().getBuffer(),
-        "Output CBs must be aliased. Non-aliased outputs are not implemented.");
     // Create KernelDescriptors.
     SymbolTable opSymTable(op->getParentOfType<ModuleOp>());
     llvm::SmallVector<mlir::Attribute> kernelDescriptors =
