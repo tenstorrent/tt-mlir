@@ -887,16 +887,22 @@ recreateGenericOp(d2m::GenericOp genericOp,
     }
 
     if (genericOp.isDpsInit(&operand) && definingView) {
-      // This is a workaround to avoid type checking errors during/after
-      // canonicalization.  There is an offline proposal being discussed to
-      // address this more holistically.  The short of it is that we need to
-      // just reach through the view to get to the original to_layout operand so
-      // that view_layout folding doesn't need to be applied in the first place.
-      // View layout folding can cause the index_map inside of the metal_layout
-      // to differ from the generic op's result type, leading to type-checking
-      // errors.
-      newOperands.push_back(definingView.getInput());
-      continue;
+      auto inputType =
+          mlir::cast<RankedTensorType>(definingView.getInput().getType());
+      auto metalLayout =
+          mlir::cast<ttcore::MetalLayoutAttr>(inputType.getEncoding());
+      if (metalLayout.getMemorySpace() != ttcore::MemorySpace::DeviceDRAM) {
+        // This is a workaround to avoid type checking errors during/after
+        // canonicalization.  There is an offline proposal being discussed to
+        // address this more holistically.  The short of it is that we need to
+        // just reach through the view to get to the original to_layout operand
+        // so that view_layout folding doesn't need to be applied in the first
+        // place. View layout folding can cause the index_map inside of the
+        // metal_layout to differ from the generic op's result type, leading to
+        // type-checking errors.
+        newOperands.push_back(definingView.getInput());
+        continue;
+      }
     }
 
     auto tensorType =
