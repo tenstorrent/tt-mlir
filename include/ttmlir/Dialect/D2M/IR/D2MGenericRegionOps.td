@@ -889,6 +889,18 @@ def D2M_AcquireDstOp : D2M_GenericRegionComputeOp<"acquire_dst",
     let assemblyFormat = [{ `(` `)` attr-dict `:` type($result) }];
 }
 
+def D2M_SetL1AccumulateOp : D2M_GenericRegionOp<"set_l1_accumulate"> {
+    let summary = "Enable L1 accumulation mode.";
+    let description = [{
+      Configures HW state such that all subsequent stores to L1 memory space
+      will be accumulated to in place.
+    }];
+
+    let arguments = (ins I32:$enable);
+
+    let assemblyFormat = [{ `(` $enable `)` attr-dict }];
+}
+
 def D2M_TileTransposeOp : D2M_GenericRegionComputeOp<"tile_transpose", D2M_TileComputeOpTraitBundle> {
     let summary = "D2M Tile Transpose Op";
     let description = [{

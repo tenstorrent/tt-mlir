@@ -883,6 +883,26 @@ public:
   }
 };
 
+// PackReconfigL1AccOp must be wrapped in the PACK((...)) macro to ensure it
+// only executes on the TRISC_PACK thread.
+class TTKernelToEmitCPackReconfigL1AccToEmitCRewriter
+    : public OpConversionPattern<ttkernel::PackReconfigL1AccOp> {
+public:
+  using OpConversionPattern<ttkernel::PackReconfigL1AccOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttkernel::PackReconfigL1AccOp op,
+                  ttkernel::PackReconfigL1AccOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    rewriter.create<emitc::VerbatimOp>(
+        op->getLoc(),
+        rewriter.getStringAttr("PACK((llk_pack_reconfig_l1_acc({})));"),
+        ValueRange{adaptor.getL1AccEn()});
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+
 // Arith MaxUIOp doesn't have an emitc lowering. We can lower it to a call to
 // std::max.
 class ArithMaxUIRewriter : public OpConversionPattern<arith::MaxUIOp> {
@@ -1014,6 +1034,7 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::CopyTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::CopyTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::PackTileOp>,
+        TTKernelToEmitCPackReconfigL1AccToEmitCRewriter,
 
         // FPU Ops
         TTKernelToEmitCOpaqueRewriter<ttkernel::UnaryOpInitCommonOp>,

@@ -311,6 +311,37 @@ public:
 };
 } // namespace
 
+namespace {
+class D2MSetL1AccumulateRewriter
+    : public OpConversionPattern<d2m::SetL1AccumulateOp> {
+public:
+  using OpConversionPattern<d2m::SetL1AccumulateOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::SetL1AccumulateOp op,
+                  d2m::SetL1AccumulateOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    rewriter.replaceOpWithNewOp<ttkernel::PackReconfigL1AccOp>(
+        op, adaptor.getEnable());
+
+    // Insert an unconditional disable before return.
+    // Packer config state persists across program launches.
+    auto func = op->getParentOfType<func::FuncOp>();
+    if (func) {
+      func.walk([&](func::ReturnOp returnOp) {
+        OpBuilder builder(returnOp);
+        Value zero = builder.create<arith::ConstantOp>(
+            returnOp.getLoc(), builder.getI32Type(),
+            builder.getI32IntegerAttr(0));
+        builder.create<ttkernel::PackReconfigL1AccOp>(returnOp.getLoc(), zero);
+      });
+    }
+
+    return success();
+  };
+};
+} // namespace
+
 // Helper to compute linear index from multi-dimensional indices.
 // For shape <d0, d1, d2, ...> and indices [i0, i1, i2, ...]:
 // linear = i0 * (d1*d2*...) + i1 * (d2*d3*...) + ... + i_last.
@@ -2052,6 +2083,7 @@ void populateD2MToTTKernelPatterns(
                ttkernel::D2MTileTransposeRewriter,
                ttkernel::D2MDstReinterpretCastRewriter,
                ttkernel::AcquireDstRewriter,
+               ttkernel::D2MSetL1AccumulateRewriter,
                ttkernel::MemrefLoadRewriter,
                ttkernel::MemrefStoreRewriter,
                ttkernel::D2MCBOpRewriter<d2m::WaitOp, ttkernel::CBWaitFrontOp, ttkernel::CBPopFrontOp>,
