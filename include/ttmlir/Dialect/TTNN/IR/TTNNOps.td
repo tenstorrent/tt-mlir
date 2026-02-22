@@ -3004,7 +3004,7 @@ def TTNN_CaptureOrExecuteTraceOp : TTNN_MemoryEffectOp<"capture_or_execute_trace
   let hasVerifier = 1;
 }
 
-def TTNN_GenericOp : TTNN_Op<"generic", [TTNN_MemoryConfigOpInterface, MemoryEffects<[MemRead, MemWrite]>, TTCore_NonCacheableTrait]> {
+def TTNN_GenericOp : TTNN_Op<"generic", [AttrSizedOperandSegments, TTNN_MemoryConfigOpInterface, MemoryEffects<[MemRead, MemWrite]>, TTCore_NonCacheableTrait]> {
     let summary = "Generic operation.";
     let description = [{
       Generic operation capable of running a program with custom kernels. Each kernel is described with a
@@ -3017,6 +3017,7 @@ def TTNN_GenericOp : TTNN_Op<"generic", [TTNN_MemoryConfigOpInterface, MemoryEff
     }];
 
     let arguments = (ins Variadic<AnyRankedTensor>:$inputs_and_outputs,
+                         Variadic<TTNN_GlobalSemaphore>:$global_semaphores,
                          TTNN_GenericProgramAttr:$program,
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
@@ -3489,4 +3490,24 @@ def TTNN_TopKOp : TTNN_Op<"topk", [TTNN_MemoryConfigOpInterface]> {
 
   let hasVerifier = 1;
 }
+
+def TTNN_CreateGlobalSemaphoreOp : TTNN_Op<"create_global_semaphore"> {
+    let summary = "Create global semaphore op.";
+    let description = [{
+      Create global semaphore operation
+    }];
+
+    let arguments = (ins OptionalAttr<UI32Attr>:$initial_value, TTNN_CoreRangeAttr:$core_range);
+    let results = (outs TTNN_GlobalSemaphore:$result);
+}
+
+def TTNN_ResetGlobalSemaphoreOp : TTNN_Op<"reset_global_semaphore"> {
+    let summary = "Reset global semaphore op.";
+    let description = [{
+      Reset global semaphore operation
+    }];
+
+    let arguments = (ins TTNN_GlobalSemaphore:$semaphore, UI32Attr:$value);
+}
+
 #endif

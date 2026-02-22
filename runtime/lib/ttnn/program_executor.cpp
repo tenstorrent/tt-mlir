@@ -27,6 +27,7 @@
 #include "operations/creation/empty.h"
 #include "operations/creation/full.h"
 #include "operations/creation/full_with.h"
+#include "operations/creation/global_semaphore.h"
 #include "operations/data_movement/assign.h"
 #include "operations/data_movement/concat.h"
 #include "operations/data_movement/pad.h"
@@ -123,6 +124,8 @@ ProgramExecutor::ProgramExecutor(
     programInputIds.push_back(input->global_id());
   }
 
+  GlobalSemaphoreMap liveGlobalSemaphores;
+
   std::vector<uint32_t> programOutputIds;
   for (const ::tt::target::ttnn::TensorRef *output : *program->outputs()) {
     programOutputIds.push_back(output->global_id());
@@ -130,8 +133,8 @@ ProgramExecutor::ProgramExecutor(
 
   context = std::make_unique<ProgramContext>(
       programInputIds, programOutputIds, std::move(liveTensors),
-      common::DylibManager(program->dylibs()), std::move(deviceHandle),
-      executableHandle, programIndex);
+      std::move(liveGlobalSemaphores), common::DylibManager(program->dylibs()),
+      std::move(deviceHandle), executableHandle, programIndex);
 }
 
 void ProgramExecutor::runCallback(
@@ -525,6 +528,14 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::TopKOp: {
     return operations::reduction::topk::run(op->type_as_TopKOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::CreateGlobalSemaphoreOp: {
+    return operations::creation::run(op->type_as_CreateGlobalSemaphoreOp(),
+                                     getContext());
+  }
+  case ::tt::target::ttnn::OpType::ResetGlobalSemaphoreOp: {
+    return operations::creation::run(op->type_as_ResetGlobalSemaphoreOp(),
+                                     getContext());
   }
   case ::tt::target::ttnn::OpType::NONE: {
     LOG_FATAL("Unsupported operation type: ",
