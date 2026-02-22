@@ -23,6 +23,8 @@ void populateD2MModule(nb::module_ &m) {
           threadType = tt::d2m::ThreadType::Compute;
         } else if (threadTypeStr == "datamovement") {
           threadType = tt::d2m::ThreadType::Datamovement;
+        } else if (threadTypeStr == "unified") {
+          threadType = tt::d2m::ThreadType::Unified;
         } else {
           throw std::runtime_error("Unknown thread type " + threadTypeStr);
         }
