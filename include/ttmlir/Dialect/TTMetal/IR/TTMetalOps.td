@@ -15,6 +15,7 @@ include "mlir/Interfaces/ControlFlowInterfaces.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
 include "mlir/IR/CommonTypeConstraints.td"
 include "mlir/IR/CommonAttrConstraints.td"
+include "ttmlir/Dialect/TTMetal/IR/TTMetalOpsTypes.td"
 
 class AtLeastRegion<int numBlocks> : Region<
   CPred<"$_self.getBlocks().size() >= " # numBlocks>,
@@ -28,7 +29,7 @@ def TTMetal_EnqueueProgramOp : TTMetal_Op<"enqueue_program", [MemoryEffects<[Mem
 
     let arguments = (ins Variadic<AnyNon0RankedMemRef>:$buffers,
                          Variadic<AnyNon0RankedMemRef>:$cbs,
-                         Variadic<TTKernel_GlobalSemaphore>:$global_semaphores,
+                         Variadic<TTMetal_GlobalSemaphore>:$global_semaphores,
                          DenseI64ArrayAttr:$cb_ports,
                          TTMetal_KernelConfigArrayAttr:$kernelConfigs,
                          OptionalAttr<TTMetal_FabricConnectionConfigAttr>:$fabricConnectionConfig);
@@ -74,7 +75,7 @@ def TTMetal_CreateGlobalSemaphoreOp : TTMetal_Op<"create_global_semaphore"> {
     }];
 
     let arguments = (ins I64Attr:$address, OptionalAttr<UI32Attr>:$initial_value, TTMetal_CoreRangeAttr:$core_range);
-    let results = (outs TTKernel_GlobalSemaphore:$result);
+    let results = (outs TTMetal_GlobalSemaphore:$result);
 }
 
 def TTMetal_ResetGlobalSemaphoreOp : TTMetal_Op<"reset_global_semaphore"> {
@@ -83,7 +84,7 @@ def TTMetal_ResetGlobalSemaphoreOp : TTMetal_Op<"reset_global_semaphore"> {
       Reset global semaphore operation
     }];
 
-    let arguments = (ins TTKernel_GlobalSemaphore:$semaphore, UI32Attr:$value);
+    let arguments = (ins TTMetal_GlobalSemaphore:$semaphore, UI32Attr:$value);
 }
 
 def TTMetal_DeallocateBufferOp : TTMetal_Op<"deallocate_buffer", [MemoryEffects<[MemFree]>]> {
