@@ -1734,24 +1734,6 @@ public:
 
   using D2MNamedRewriterCommon::getMetalTensorFromTTNNTensor;
 
-  LogicalResult
-  matchAndRewrite(ttir::ToLayoutOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    auto outType = mlir::cast<RankedTensorType>(op.getOutput().getType());
-    if (!ttnnMode) {
-      // When ttnnMode is disabled, we can simply convert ttir.to_layout
-      // directly to d2m.to_layout.
-      Value empty = rewriter.create<d2m::EmptyOp>(
-          op.getLoc(), outType.getShape(), outType.getElementType(),
-          outType.getEncoding());
-      auto newOp = rewriter.create<d2m::ToLayoutOp>(op.getLoc(),
-                                                    adaptor.getInput(), empty);
-      rewriter.replaceOp(op, newOp.getResult(0));
-      return success();
-    }
-    return rewriteIfTTNNModeEnabled(op, adaptor, rewriter);
-  }
-
 private:
   // Compute the virtualGridInverseMapping (inverse) and
   // virtualGridForwardMapping (forward) for a TTNN legacy layout's shard
@@ -1813,11 +1795,13 @@ private:
        5. Cast result back to TTNN layout
     */
     auto outType = mlir::cast<RankedTensorType>(op.getOutput().getType());
+
     bool outputIsTTNN =
         mlir::isa_and_nonnull<ttnn::TTNNLayoutAttr>(outType.getEncoding());
     TT_assertv(
         outputIsTTNN,
         "expected output type to have TTNN layout when ttnnMode is enabled");
+
     // TTNN output handling.
     // Convert input to Metal layout if needed.
     Value metalInput = adaptor.getInput();
@@ -1831,12 +1815,15 @@ private:
                            inputType.getEncoding());
       metalInput = inputCast.getResult();
     }
+
     auto outputMetalType =
         getMetalTensorFromTTNNTensor(rewriter, op.getOutput());
+
     // Create d2m.empty for TTNN layout.
     Value metalEmpty = rewriter.create<d2m::EmptyOp>(
         op.getLoc(), outType.getShape(), outType.getElementType(),
         outType.getEncoding());
+
     // Cast TTNN empty to Metal layout.
     auto metalCast = rewriter.create<ttir::TTNNMetalLayoutCastOp>(
         op.getLoc(), outputMetalType, metalEmpty);
@@ -1845,11 +1832,34 @@ private:
     // Create d2m.to_layout with Metal types.
     auto metalToLayout =
         rewriter.create<d2m::ToLayoutOp>(op.getLoc(), metalInput, metalCast);
+
     // Cast back to TTNN.
     auto ttnnResult = rewriter.create<ttir::TTNNMetalLayoutCastOp>(
         op.getLoc(), outType, metalToLayout.getResult(0));
+
     rewriter.replaceOp(op, ttnnResult.getResult());
     return success();
+  }
+
+public:
+  LogicalResult
+  matchAndRewrite(ttir::ToLayoutOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto outType = mlir::cast<RankedTensorType>(op.getOutput().getType());
+
+    if (!ttnnMode) {
+      // When ttnnMode is disabled, we can simply convert ttir.to_layout
+      // directly to d2m.to_layout.
+      Value empty = rewriter.create<d2m::EmptyOp>(
+          op.getLoc(), outType.getShape(), outType.getElementType(),
+          outType.getEncoding());
+      auto newOp = rewriter.create<d2m::ToLayoutOp>(op.getLoc(),
+                                                    adaptor.getInput(), empty);
+      rewriter.replaceOp(op, newOp.getResult(0));
+      return success();
+    }
+
+    return rewriteIfTTNNModeEnabled(op, adaptor, rewriter);
   }
 };
 
@@ -2078,7 +2088,8 @@ private:
           bbBuilder.create<mlir::linalg::YieldOp>(bbLoc, mm);
         });
 
-    rewriter.replaceOpWithNewOp<d2m::YieldOp>(op, linalgGeneric.getResult(0));
+    rewriter.setInsertionPointToEnd(linalgGeneric->getBlock());
+    rewriter.create<d2m::YieldOp>(op.getLoc(), linalgGeneric.getResult(0));
 
     // HACK
     for (auto user : op.getOutput().getUsers()) {
@@ -2086,6 +2097,7 @@ private:
         rewriter.eraseOp(user);
       }
     }
+    rewriter.eraseOp(op);
 
     return llvm::success();
   }
@@ -2562,6 +2574,8 @@ public:
 
     // Keep some TTIR ops legal if they don't have D2M equivalents.
     target.addLegalOp<ttir::TTNNMetalLayoutCastOp>();
+
+    target.addIllegalOp<mlir::tt::d2m::TileMatmulBlockOp>();
 
     // Tensor empty is used within GenericOp regions to create local scratch
     // buffers for remote_load and remote_store ops.
