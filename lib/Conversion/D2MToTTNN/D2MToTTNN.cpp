@@ -315,10 +315,21 @@ public:
 
     llvm::SmallVector<Value> ios(size);
     llvm::SmallVector<Value> cbs(size);
-    for (auto [i, operand] : llvm::enumerate(op->getOperands())) {
+    for (auto [i, operand] : llvm::enumerate(op.getNonCaptureOperands())) {
       auto [io, cb] = extractIOAndCBFromGenericOperand(operand);
       ios[i] = io;
       cbs[i] = cb;
+    }
+
+    llvm::SmallVector<Value> global_semaphores;
+    for (auto operand : op.getCaptureOperands()) {
+      if (mlir::isa<ttnn::GlobalSemaphoreType>(operand.getType())) {
+        global_semaphores.push_back(operand);
+      } else {
+        op.emitOpError("unexpected capture operand type: ")
+            << operand.getType();
+        return failure();
+      }
     }
 
     // Create CB descriptors.
@@ -339,8 +350,8 @@ public:
     ttnn::ProgramAttr program = ttnn::ProgramAttr::get(
         ctx, kernelDescriptors, cbDescriptors, semaphoreDescriptors);
 
-    rewriter.replaceOpWithNewOp<ttnn::GenericOp>(op, ios, program,
-                                                 ttnn::MemoryConfigAttr());
+    rewriter.replaceOpWithNewOp<ttnn::GenericOp>(
+        op, ios, global_semaphores, program, ttnn::MemoryConfigAttr());
     return success();
   };
 
@@ -513,11 +524,77 @@ public:
 };
 } // namespace
 
+namespace {
+class D2MCreateGlobalSemaphoreRewriter
+    : public OpConversionPattern<d2m::CreateGlobalSemaphoreOp> {
+public:
+  using OpConversionPattern<d2m::CreateGlobalSemaphoreOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::CreateGlobalSemaphoreOp op,
+                  d2m::CreateGlobalSemaphoreOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    auto allocOp = op.getInput().getDefiningOp<memref::AllocOp>();
+    assert(
+        allocOp &&
+        "No memref alloc found for CreateGlobalSemaphoreOp's input, failing.");
+
+    // get core range from memref shape
+    auto gridShape = ttcore::getGridShape(op.getInput());
+    auto coreRange = ttnn::CoreRangeAttr::get(
+        rewriter.getContext(),
+        ttnn::CoreCoordAttr::get(rewriter.getContext(), 0, 0),
+        ttnn::CoreCoordAttr::get(rewriter.getContext(), gridShape[0] - 1,
+                                 gridShape[1] - 1));
+    rewriter.replaceOpWithNewOp<ttnn::CreateGlobalSemaphoreOp>(
+        op, adaptor.getValueAttr(), coreRange);
+    // erase the memref alloc and dealloc since ttnn creates global semaphore
+    // itself
+    rewriter.eraseOp(allocOp);
+    auto users = op.getInput().getUsers();
+    // search specifically for memrefdealloc and replace with a
+    // deallocate_global_semaphore
+    for (Operation *user : users) {
+      if (user != op) {
+        rewriter.eraseOp(user);
+      }
+    }
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class D2MResetGlobalSemaphoreRewriter
+    : public OpConversionPattern<d2m::ResetGlobalSemaphoreOp> {
+public:
+  using OpConversionPattern<d2m::ResetGlobalSemaphoreOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::ResetGlobalSemaphoreOp op,
+                  d2m::ResetGlobalSemaphoreOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    auto createGlobalSemaphoreOp =
+        op.getSemaphore().getDefiningOp<d2m::CreateGlobalSemaphoreOp>();
+    assert(createGlobalSemaphoreOp &&
+           "No create global semaphore op found for ResetGlobalSemaphoreOp's "
+           "input, failing.");
+
+    rewriter.replaceOpWithNewOp<ttnn::ResetGlobalSemaphoreOp>(
+        op, adaptor.getSemaphore(), adaptor.getValueAttr());
+    return success();
+  }
+};
+} // namespace
+
 void populateD2MToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                                TypeConverter &typeConverter,
                                ttmetal::MathFidelity mathFidelity) {
   patterns.add<D2MGenericRewriter>(ctx, mathFidelity);
-  patterns.add<TTNNMetalLayoutCastRewriter, D2MEmptyRewriter, D2MFullRewriter,
-               StreamLayoutRewriter, ViewLayoutRewriter>(ctx);
+  patterns
+      .add<TTNNMetalLayoutCastRewriter, D2MEmptyRewriter, D2MFullRewriter,
+           StreamLayoutRewriter, ViewLayoutRewriter,
+           D2MCreateGlobalSemaphoreRewriter, D2MResetGlobalSemaphoreRewriter>(
+          ctx);
 }
 } // namespace mlir::tt

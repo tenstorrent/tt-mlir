@@ -27,6 +27,7 @@ include "ttmlir/Target/TTNN/operations/reduction.fbs";
 include "ttmlir/Target/TTNN/operations/tensor_serialization.fbs";
 include "ttmlir/Target/TTNN/operations/trace.fbs";
 include "ttmlir/Target/TTNN/operations/transformer.fbs";
+include "ttmlir/Target/TTNN/operations/global_semaphore.fbs";
 
 namespace tt.target.ttnn;
 
@@ -126,6 +127,8 @@ union OpType {
   AnnotateOp,
   BreakpointOp,
   MemorySnapshotOp,
+  CreateGlobalSemaphoreOp,
+  ResetGlobalSemaphoreOp,
 }
 
 table Operation {

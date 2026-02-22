@@ -18,6 +18,7 @@
 #include "ttmlir/Target/TTNN/operations/conv_generated.h"
 #include "ttmlir/Target/TTNN/operations/eltwise_generated.h"
 #include "ttmlir/Target/TTNN/operations/generic_op_generated.h"
+#include "ttmlir/Target/TTNN/operations/global_semaphore_generated.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
 #include "ttmlir/Target/Utils/FlatbufferObjectCache.h"
 #include "ttmlir/Target/Utils/FuncOpToProgram.h"
@@ -226,6 +227,12 @@ tensorValueToFlatbuffer(FlatbufferObjectCache &cache, Value value,
                                              tensorDesc);
 }
 
+flatbuffers::Offset<::tt::target::ttnn::GlobalSemaphoreRef>
+globalSemaphoreValueToFlatbuffer(FlatbufferObjectCache &cache, Value value) {
+  return ::tt::target::ttnn::CreateGlobalSemaphoreRef(*cache.fbb,
+                                                      cache.global_id++);
+}
+
 template <typename OpT>
 ::flatbuffers::Offset<::tt::target::ttnn::Operation>
 createOperation(FlatbufferObjectCache &cache, ::flatbuffers::Offset<OpT> op,
@@ -384,6 +391,25 @@ createOp(FlatbufferObjectCache &cache, EmptyOp op) {
       cache.getOrCreateNoSharding(output, tensorValueToFlatbuffer,
 
                                   /*local_shape*/ std::nullopt));
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::CreateGlobalSemaphoreOp>
+createOp(FlatbufferObjectCache &cache, CreateGlobalSemaphoreOp op) {
+  auto output =
+      cache.getOrCreate(op.getResult(), globalSemaphoreValueToFlatbuffer);
+  auto coreRangeSet = ::tt::target::ttnn::CreateCoreRangeSet(
+      *cache.fbb, toFlatbuffer(cache, llvm::ArrayRef<ttnn::CoreRangeAttr>{
+                                          op.getCoreRange()}));
+  return ::tt::target::ttnn::CreateCreateGlobalSemaphoreOp(
+      *cache.fbb, coreRangeSet, op.getInitialValue(), output);
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::ResetGlobalSemaphoreOp>
+createOp(FlatbufferObjectCache &cache, ResetGlobalSemaphoreOp op) {
+  auto semaphore =
+      cache.at<::tt::target::ttnn::GlobalSemaphoreRef>(op.getSemaphore());
+  return ::tt::target::ttnn::CreateResetGlobalSemaphoreOp(*cache.fbb, semaphore,
+                                                          op.getValue());
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::FullOp>
@@ -2863,6 +2889,14 @@ createKernelArgs(FlatbufferObjectCache &cache,
               *cache.fbb, toFlatbuffer(cache, kernelArgNamedArgument.getName()),
               kernelArgNamedArgument.getValue())
               .Union();
+    } else if (auto kernelArgGlobalSemaphore =
+                   llvm::dyn_cast<KernelArgGlobalSemaphoreAttr>(argAttr);
+               kernelArgGlobalSemaphore) {
+      argType = ::tt::target::ttnn::KernelArgType::KernelArgGlobalSemaphore;
+      arg = ::tt::target::ttnn::CreateKernelArgGlobalSemaphore(
+                *cache.fbb, kernelArgGlobalSemaphore.getGlobalSemaphoreIndex())
+                .Union();
+
     } else {
       llvm_unreachable("Unsupported kernel argument attribute");
     }
@@ -3052,6 +3086,14 @@ createOp(FlatbufferObjectCache &cache, GenericOp op) {
         getOperandThroughDPSOps(operand)));
   }
 
+  std::vector<::flatbuffers::Offset<::tt::target::ttnn::GlobalSemaphoreRef>>
+      global_semaphores;
+  for (auto operand : op.getGlobalSemaphores()) {
+    global_semaphores.push_back(
+        cache.at<::tt::target::ttnn::GlobalSemaphoreRef>(
+            getOperandThroughDPSOps(operand)));
+  }
+
   ModuleOp moduleOp = dyn_cast<ModuleOp>(op->getParentOp()->getParentOp());
   mlir::Attribute programAttrGeneric = op.getProgramAttr();
 
@@ -3061,7 +3103,7 @@ createOp(FlatbufferObjectCache &cache, GenericOp op) {
     auto meshProgramDesc =
         createMeshProgramDescriptor(cache, meshProgramDescAttr, moduleOp);
     return ::tt::target::ttnn::CreateGenericOpDirect(
-        *cache.fbb, &ios,
+        *cache.fbb, &ios, &global_semaphores,
         ::tt::target::ttnn::ProgramType::MeshProgramDescriptor,
         meshProgramDesc.Union());
   }
@@ -3071,8 +3113,8 @@ createOp(FlatbufferObjectCache &cache, GenericOp op) {
   auto program = createProgramDescriptor(cache, programAttr, moduleOp);
 
   return ::tt::target::ttnn::CreateGenericOpDirect(
-      *cache.fbb, &ios, ::tt::target::ttnn::ProgramType::ProgramDescriptor,
-      program.Union());
+      *cache.fbb, &ios, &global_semaphores,
+      ::tt::target::ttnn::ProgramType::ProgramDescriptor, program.Union());
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::RotaryEmbeddingLlamaOp>
@@ -4021,6 +4063,18 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto memorySnapshotOp = dyn_cast<debug::MemorySnapshotOp>(op);
       memorySnapshotOp) {
     return createOperation(cache, createOp(cache, memorySnapshotOp),
+                           debugString, locInfo);
+  }
+
+  if (auto createGlobalSemaphoreOp = dyn_cast<CreateGlobalSemaphoreOp>(op);
+      createGlobalSemaphoreOp) {
+    return createOperation(cache, createOp(cache, createGlobalSemaphoreOp),
+                           debugString, locInfo);
+  }
+
+  if (auto resetGlobalSemaphoreOp = dyn_cast<ResetGlobalSemaphoreOp>(op);
+      resetGlobalSemaphoreOp) {
+    return createOperation(cache, createOp(cache, resetGlobalSemaphoreOp),
                            debugString, locInfo);
   }
 

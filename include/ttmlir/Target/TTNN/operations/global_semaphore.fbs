@@ -1,0 +1,15 @@
+include "ttmlir/Target/Common/types.fbs";
+include "ttmlir/Target/TTNN/types.fbs";
+
+namespace tt.target.ttnn;
+
+table CreateGlobalSemaphoreOp {
+  core_range_set: tt.target.ttnn.CoreRangeSet;
+  initial_value: uint32 = null;
+  out: tt.target.ttnn.GlobalSemaphoreRef;
+}
+
+table ResetGlobalSemaphoreOp {
+  semaphore: tt.target.ttnn.GlobalSemaphoreRef;
+  value: uint32;
+}

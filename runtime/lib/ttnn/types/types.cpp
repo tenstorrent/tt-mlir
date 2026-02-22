@@ -216,4 +216,71 @@ ProgramTensorPool::erase(const ::tt::target::ttnn::TensorRef *tensorRef) {
   return liveTensors.erase(it);
 }
 
+//
+// ProgramGlobalSemaphorePool APIs
+//
+
+::tt::runtime::GlobalSemaphore &
+ProgramGlobalSemaphorePool::getRuntimeGlobalSemaphore(std::uint32_t globalId) {
+  auto it = liveGlobalSemaphores.find(globalId);
+  LOG_ASSERT(it != liveGlobalSemaphores.end(),
+             "GlobalSemaphore not found in global semaphore pool");
+  return it->second;
+}
+
+::tt::runtime::GlobalSemaphore &
+ProgramGlobalSemaphorePool::getRuntimeGlobalSemaphoreAndValidate(
+    const ::tt::target::ttnn::GlobalSemaphoreRef *globalSemaphoreRef) {
+  LOG_ASSERT(globalSemaphoreRef != nullptr,
+             "globalSemaphoreRef should not be null");
+  ::tt::runtime::GlobalSemaphore &runtimeGlobalSemaphore =
+      getRuntimeGlobalSemaphore(globalSemaphoreRef->global_id());
+  return runtimeGlobalSemaphore;
+}
+
+::ttnn::GlobalSemaphore &
+ProgramGlobalSemaphorePool::getTTNNGlobalSemaphoreAndValidate(
+    const ::tt::target::ttnn::GlobalSemaphoreRef *globalSemaphoreRef) {
+  ::tt::runtime::GlobalSemaphore &runtimeGlobalSemaphore =
+      getRuntimeGlobalSemaphoreAndValidate(globalSemaphoreRef);
+  return runtimeGlobalSemaphore.as<::ttnn::GlobalSemaphore>(
+      DeviceRuntime::TTNN);
+}
+
+std::pair<GlobalSemaphoreMapIterator, bool>
+ProgramGlobalSemaphorePool::insertRuntimeGlobalSemaphoreAndValidate(
+    const ::tt::target::ttnn::GlobalSemaphoreRef *globalSemaphoreRef,
+    ::tt::runtime::GlobalSemaphore runtimeGlobalSemaphore) {
+  LOG_ASSERT(globalSemaphoreRef != nullptr,
+             "globalSemaphoreRef should not be null");
+  std::uint32_t globalId = globalSemaphoreRef->global_id();
+
+  return liveGlobalSemaphores.insert_or_assign(globalId,
+                                               runtimeGlobalSemaphore);
+}
+
+std::pair<GlobalSemaphoreMapIterator, bool>
+ProgramGlobalSemaphorePool::insertTTNNGlobalSemaphoreAndValidate(
+    const ::tt::target::ttnn::GlobalSemaphoreRef *globalSemaphoreRef,
+    const ::ttnn::GlobalSemaphore &ttnnGlobalSemaphore) {
+  auto globalSemaphorePtr =
+      std::make_shared<::ttnn::GlobalSemaphore>(ttnnGlobalSemaphore);
+  ::tt::runtime::GlobalSemaphore runtimeGlobalSemaphore(
+      std::static_pointer_cast<void>(globalSemaphorePtr), DeviceRuntime::TTNN);
+
+  return insertRuntimeGlobalSemaphoreAndValidate(globalSemaphoreRef,
+                                                 runtimeGlobalSemaphore);
+}
+
+GlobalSemaphoreMapIterator ProgramGlobalSemaphorePool::erase(
+    const ::tt::target::ttnn::GlobalSemaphoreRef *globalSemaphoreRef) {
+  LOG_ASSERT(globalSemaphoreRef != nullptr,
+             "globalSemaphoreRef should not be null");
+  std::uint32_t globalId = globalSemaphoreRef->global_id();
+  auto it = liveGlobalSemaphores.find(globalId);
+  LOG_ASSERT(it != liveGlobalSemaphores.end(),
+             "GlobalSemaphore to erase not found in global semaphore pool");
+  return liveGlobalSemaphores.erase(it);
+}
+
 } // namespace tt::runtime::ttnn

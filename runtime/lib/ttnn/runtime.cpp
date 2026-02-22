@@ -1342,6 +1342,12 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_MemorySnapshotOp()->result();
     break;
   }
+  case ::tt::target::ttnn::OpType::CreateGlobalSemaphoreOp: {
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ResetGlobalSemaphoreOp: {
+    break;
+  }
   case ::tt::target::ttnn::OpType::NONE: {
     LOG_FATAL("Invalid op type");
     break;
@@ -1811,6 +1817,12 @@ getOpInputRefs(OpContext opContextHandle,
   }
   case ::tt::target::ttnn::OpType::MemorySnapshotOp: {
     tensorRefs = {opContext.type_as_MemorySnapshotOp()->operand()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::CreateGlobalSemaphoreOp: {
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ResetGlobalSemaphoreOp: {
     break;
   }
   case ::tt::target::ttnn::OpType::NONE: {
