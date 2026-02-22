@@ -43,11 +43,6 @@ def TTKernel_Semaphore : TTKernel_Type<"Semaphore", "semaphore"> {
   let description = "Semaphore type in TTKernel dialect";
 }
 
-def TTKernel_GlobalSemaphore : TTKernel_Type<"GlobalSemaphore", "global_semaphore"> {
-  let summary = "TTKernel global semaphore";
-  let description = "Global semaphore type in TTKernel dialect";
-}
-
 def TTKernel_NocAddr : TTKernel_Type<"NocAddr", "noc_addr"> {
     let summary = "TTKernel noc address";
     let description = "Noc address type in TTKernel dialect";

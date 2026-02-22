@@ -8,8 +8,9 @@ module attributes {} {
     %0 = "ttmetal.mesh_shard"(%arg0) <{shard_dims = array<i64: 0, 1>, shard_direction = #ttcore.shard_direction<full_to_shard>, shard_shape = array<i64: insert_mesh_shape_0, insert_mesh_shape_1>, shard_type = #ttcore.shard_type<devices>}> : (!full_tensor_layout) -> !mesh_shard_layout
     %1 = "ttmetal.create_buffer"() <{address = 104128 : i64}> : () -> !l1_shard_layout
     "ttmetal.enqueue_write_buffer"(%0, %1) : (!mesh_shard_layout, !l1_shard_layout) -> ()
-    %semaphore = "ttmetal.create_global_semaphore"() <{address = 300736 : i64, initial_value = 0 : ui32, core_range = #ttmetal.core_range<0x0, 1x1>}> : () -> !ttkernel.global_semaphore // #ttmetal.core_range<0x0, 1x1>
-    "ttmetal.enqueue_program"(%1, %1, %semaphore) <{cb_ports = array<i64: 0>, kernelConfigs = [#ttmetal.noc_config<@datamovement_kernel0, #ttmetal.core_range<0x0, 1x1>, #ttmetal.kernel_args< ct_args = [<cb_port[0]>, <global_semaphore[0]>]>, noc0>], operandSegmentSizes = array<i32: 1, 1, 1>, fabricConnectionConfig = #ttmetal.fabric_connection_config<noc_index = noc0, topology = insert_topology, cluster_axis = insert_cluster_axis, routing_mode = insert_routing_mode, num_links = 1>}> : (!l1_shard_layout, !l1_shard_layout, !ttkernel.global_semaphore) -> ()
+    %semaphore = "ttmetal.create_global_semaphore"() <{address = 300736 : i64, initial_value = 10 : ui32, core_range = #ttmetal.core_range<0x0, 8x8>}> : () -> !ttmetal.global_semaphore
+    "ttmetal.reset_global_semaphore"(%semaphore) <{value = 0 : ui32}> : (!ttmetal.global_semaphore) -> ()
+    "ttmetal.enqueue_program"(%1, %1, %semaphore) <{cb_ports = array<i64: 0>, kernelConfigs = [#ttmetal.noc_config<@datamovement_kernel0, #ttmetal.core_range<0x0, 1x1>, #ttmetal.kernel_args< ct_args = [<cb_port[0]>, <global_semaphore[0]>]>, noc0>], operandSegmentSizes = array<i32: 1, 1, 1>, fabricConnectionConfig = #ttmetal.fabric_connection_config<noc_index = noc0, topology = insert_topology, cluster_axis = insert_cluster_axis, routing_mode = insert_routing_mode, num_links = 1>}> : (!l1_shard_layout, !l1_shard_layout, !ttmetal.global_semaphore) -> ()
     %alloc_1 = memref.alloc() : !mesh_shard_layout
     "ttmetal.enqueue_read_buffer"(%1, %alloc_1) : (!l1_shard_layout, !mesh_shard_layout) -> ()
     "ttmetal.finish"() : () -> ()

@@ -139,7 +139,7 @@ public:
     for (unsigned i = 0; i < op.getCaptureOperands().size(); ++i) {
       auto operand =
           adaptor.getOperands()[op.getNonCaptureOperands().size() + i];
-      if (mlir::isa<ttkernel::GlobalSemaphoreType>(operand.getType())) {
+      if (mlir::isa<ttmetal::GlobalSemaphoreType>(operand.getType())) {
         global_semaphores.push_back(operand);
       } else {
         op.emitOpError("unexpected capture operand type: ")
@@ -335,7 +335,7 @@ public:
     auto coreRange = ttmetal::CoreRangeAttr::getPhysicalCoreRange(
         rewriter.getContext(), ttcore::getGridShape(op.getInput()));
     rewriter.replaceOpWithNewOp<ttmetal::CreateGlobalSemaphoreOp>(
-        op, ttkernel::GlobalSemaphoreType::get(rewriter.getContext()), address,
+        op, ttmetal::GlobalSemaphoreType::get(rewriter.getContext()), address,
         adaptor.getValueAttr(), coreRange);
     return success();
   }
