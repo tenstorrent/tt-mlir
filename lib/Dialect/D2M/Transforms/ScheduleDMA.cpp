@@ -28,6 +28,9 @@ struct DMAThreadAssignment {
 
   // Estimated workload for this thread (number of DMA ops).
   size_t workload = 0;
+
+  // Assigned NoC index for this thread (0 = DRAM reader, 1 = DRAM writer).
+  int32_t nocIndex = -1;
 };
 
 // Collect all remote_load and remote_store operations from a block,
@@ -52,6 +55,53 @@ collectDMAOps(Block *block,
       if (auto blockArg = mlir::dyn_cast_or_null<BlockArgument>(cb)) {
         dmaOps.push_back({&op, blockArg.getArgNumber()});
       }
+    }
+  }
+}
+
+// Assign NoC indices to thread assignments based on DRAM access patterns.
+// DRAM readers get NoC 0, DRAM writers get NoC 1.
+static void assignNocIndices(
+    SmallVectorImpl<DMAThreadAssignment> &assignments,
+    const SmallVectorImpl<std::pair<Operation *, unsigned>> &dmaOps) {
+  DenseSet<unsigned> dramReadCBs;
+  DenseSet<unsigned> dramWriteCBs;
+  for (const auto &[op, cbIdx] : dmaOps) {
+    if (auto remoteLoad = mlir::dyn_cast<RemoteLoadOp>(op)) {
+      if (ttcore::getMemorySpace(remoteLoad.getMemref()) ==
+          ttcore::MemorySpace::DeviceDRAM) {
+        dramReadCBs.insert(cbIdx);
+      }
+    } else if (auto remoteStore = mlir::dyn_cast<RemoteStoreOp>(op)) {
+      if (ttcore::getMemorySpace(remoteStore.getMemref()) ==
+          ttcore::MemorySpace::DeviceDRAM) {
+        dramWriteCBs.insert(cbIdx);
+      }
+    }
+  }
+
+  // Assign Noc0 for DRAM readers and Noc1 for DRAM writers.
+  unsigned nocCount[2] = {0, 0};
+  for (auto &assignment : assignments) {
+    if (llvm::any_of(assignment.assignedCBs, [&](unsigned cbIdx) {
+          return dramReadCBs.contains(cbIdx);
+        })) {
+      assignment.nocIndex = 0;
+      nocCount[0]++;
+    } else if (llvm::any_of(assignment.assignedCBs, [&](unsigned cbIdx) {
+                 return dramWriteCBs.contains(cbIdx);
+               })) {
+      assignment.nocIndex = 1;
+      nocCount[1]++;
+    }
+  }
+
+  // For unassigned threads, assign to the NoC with fewer assignments.
+  for (auto &assignment : assignments) {
+    if (assignment.nocIndex < 0) {
+      int32_t pick = nocCount[0] <= nocCount[1] ? 0 : 1;
+      assignment.nocIndex = pick;
+      nocCount[pick]++;
     }
   }
 }
@@ -212,10 +262,14 @@ public:
     SmallVector<DMAThreadAssignment> assignments =
         assignCBsToThreads(cbWorkloads, numThreadsToUse);
 
+    assignNocIndices(assignments, dmaOps);
+
     // Create new thread attributes: N datamovement threads + 1 compute thread.
     SmallVector<Attribute> threads;
     for (unsigned i = 0; i < numThreadsToUse; ++i) {
-      threads.push_back(rewriter.getAttr<ThreadAttr>(ThreadType::Datamovement));
+      threads.push_back(rewriter.getAttr<ThreadAttr>(ThreadType::Datamovement,
+                                                     /*kernelSymbol=*/nullptr,
+                                                     assignments[i].nocIndex));
     }
     threads.push_back(rewriter.getAttr<ThreadAttr>(ThreadType::Compute));
 
