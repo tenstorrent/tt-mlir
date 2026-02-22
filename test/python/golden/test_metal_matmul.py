@@ -237,6 +237,7 @@ def test_matmul_ttnn_shapes_double_buffered(
         target=target,
         device=device,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
+        print_ir=True,
         **get_request_kwargs(request),
         save_artifacts=True,
         skip_exec=getattr(request.node, "skip_exec", False),
