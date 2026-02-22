@@ -128,7 +128,6 @@ public:
                           const SymbolTable &symbolTable,
                           ttmetal::MathFidelity mathFidelity) {
     SmallVector<mlir::Attribute> kernelConfigs(threads.size());
-    int nocIndex = 0;
     for (const auto [i, thread] : llvm::enumerate(threads)) {
       const d2m::ThreadAttr threadAttr = mlir::cast<d2m::ThreadAttr>(thread);
 
@@ -170,18 +169,16 @@ public:
             /*math_approx_mode*/ false, kernelCRTArgs, kernelCTArgs);
         break;
       }
-      // TODO (vtangTT) #5033: fix this assumption that order is
-      // read->write->compute; nocIndex == 0 for read, nocIndex == 1 for write.
       case d2m::ThreadType::Datamovement: {
-        TT_assert(nocIndex < 2);
-        if (nocIndex == 0) {
-          kernelConfigs[i] = builder.getAttr<ttnn::WriteKernelAttr>(
-              kernelSymbol, coreRangeSet, kernelCRTArgs, kernelCTArgs);
-        } else {
+        int32_t nocIdx = threadAttr.getNocIndex();
+        TT_assert((nocIdx == 0 || nocIdx == 1));
+        if (nocIdx == 0) {
           kernelConfigs[i] = builder.getAttr<ttnn::ReadKernelAttr>(
               kernelSymbol, coreRangeSet, kernelCRTArgs, kernelCTArgs);
+        } else {
+          kernelConfigs[i] = builder.getAttr<ttnn::WriteKernelAttr>(
+              kernelSymbol, coreRangeSet, kernelCRTArgs, kernelCTArgs);
         }
-        nocIndex++;
         break;
       }
       case d2m::ThreadType::Unified: {
