@@ -407,6 +407,21 @@ private:
   std::uint64_t globalId;
 };
 
+struct GlobalSemaphore : public detail::RuntimeCheckedObjectImpl {
+  using detail::RuntimeCheckedObjectImpl::RuntimeCheckedObjectImpl;
+  GlobalSemaphore() : globalId(nextGlobalSemaphoreGlobalId()) {}
+  GlobalSemaphore(std::shared_ptr<void> handle, DeviceRuntime runtime)
+      : detail::RuntimeCheckedObjectImpl(handle, runtime),
+        globalId(nextGlobalSemaphoreGlobalId()) {}
+
+  void setGlobalId(std::uint64_t id) { globalId = id; }
+  std::uint64_t getGlobalId() const { return globalId; }
+
+private:
+  std::uint64_t nextGlobalSemaphoreGlobalId();
+  std::uint64_t globalId;
+};
+
 struct TensorRef : public detail::RuntimeCheckedConstObjectImpl {
   using detail::RuntimeCheckedConstObjectImpl::RuntimeCheckedConstObjectImpl;
 };

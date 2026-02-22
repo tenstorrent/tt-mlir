@@ -92,12 +92,17 @@ table KernelArgNamedArgument {
   value: uint32;
 }
 
+table KernelArgGlobalSemaphore {
+  global_semaphore_index: uint32;
+}
+
 union KernelArgType {
   KernelArgCBBufferIndex,
   KernelArgBufferAddress,
   KernelArgBufferAddressOfTensor,
   KernelArgSemaphoreAt,
   KernelArgNamedArgument,
+  KernelArgGlobalSemaphore,
 }
 
 table KernelArg {
@@ -153,5 +158,6 @@ union ProgramType {
 
 table GenericOp {
   io_tensors: [tt.target.ttnn.TensorRef];
+  global_semaphores: [tt.target.ttnn.GlobalSemaphoreRef];
   program: ProgramType;
 }

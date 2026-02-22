@@ -24,7 +24,10 @@ using OptionalMeshDeviceRef =
     std::optional<std::reference_wrapper<::ttnn::MeshDevice>>;
 using TensorMap = std::unordered_map<uint32_t, ::tt::runtime::Tensor>;
 using TensorPtrMap = std::unordered_map<uint32_t, ::tt::runtime::Tensor *>;
+using GlobalSemaphoreMap =
+    std::unordered_map<uint32_t, ::tt::runtime::GlobalSemaphore>;
 using TensorPtrMapIterator = typename TensorPtrMap::iterator;
+using GlobalSemaphoreMapIterator = typename GlobalSemaphoreMap::iterator;
 class TTNNTensorWrapper;
 using OnDestroyTensorCallback = std::function<void(TTNNTensorWrapper *)>;
 
@@ -193,16 +196,61 @@ private:
   ::tt::runtime::Tensor &getRuntimeTensor(std::uint32_t globalId);
 };
 
+class ProgramGlobalSemaphorePool {
+public:
+  ProgramGlobalSemaphorePool(GlobalSemaphoreMap &&liveGlobalSemaphores)
+      : liveGlobalSemaphores(std::move(liveGlobalSemaphores)) {}
+  ProgramGlobalSemaphorePool(const ProgramGlobalSemaphorePool &) = delete;
+  ProgramGlobalSemaphorePool &
+  operator=(const ProgramGlobalSemaphorePool &) = delete;
+  ProgramGlobalSemaphorePool(ProgramGlobalSemaphorePool &&) = default;
+  ProgramGlobalSemaphorePool &
+  operator=(ProgramGlobalSemaphorePool &&) = default;
+
+  ::tt::runtime::GlobalSemaphore &getRuntimeGlobalSemaphoreAndValidate(
+      const ::tt::target::ttnn::GlobalSemaphoreRef *globalSemaphoreRef);
+
+  ::ttnn::GlobalSemaphore &getTTNNGlobalSemaphoreAndValidate(
+      const ::tt::target::ttnn::GlobalSemaphoreRef *globalSemaphoreRef);
+
+  std::pair<GlobalSemaphoreMapIterator, bool>
+  insertRuntimeGlobalSemaphoreAndValidate(
+      const ::tt::target::ttnn::GlobalSemaphoreRef *globalSemaphoreRef,
+      ::tt::runtime::GlobalSemaphore runtimeGlobalSemaphore);
+
+  std::pair<GlobalSemaphoreMapIterator, bool>
+  insertTTNNGlobalSemaphoreAndValidate(
+      const ::tt::target::ttnn::GlobalSemaphoreRef *globalSemaphoreRef,
+      const ::ttnn::GlobalSemaphore &ttnnGlobalSemaphore);
+
+  GlobalSemaphoreMapIterator
+  erase(const ::tt::target::ttnn::GlobalSemaphoreRef *globalSemaphoreRef);
+
+  bool contains(
+      const ::tt::target::ttnn::GlobalSemaphoreRef *globalSemaphoreRef) const {
+    return liveGlobalSemaphores.contains(globalSemaphoreRef->global_id());
+  }
+
+private:
+  GlobalSemaphoreMap liveGlobalSemaphores;
+
+  ::tt::runtime::GlobalSemaphore &
+  getRuntimeGlobalSemaphore(std::uint32_t globalId);
+};
+
 class ProgramContext {
 public:
   ProgramContext(const std::vector<uint32_t> &programInputIds,
                  const std::vector<uint32_t> &programOutputIds,
                  TensorPtrMap &&liveTensors,
+                 GlobalSemaphoreMap &&liveGlobalSemaphores,
                  common::DylibManager &&programDylibManager,
                  ::tt::runtime::Device deviceHandle,
                  const Binary &executableHandle, size_t programIndex = 0)
       : tensorPool(ProgramTensorPool(programInputIds, programOutputIds,
                                      std::move(liveTensors))),
+        globalSemaphorePool(
+            ProgramGlobalSemaphorePool(std::move(liveGlobalSemaphores))),
         dylibManager(std::move(programDylibManager)),
         deviceHandle(deviceHandle), executableHandle(executableHandle),
         programIndex(programIndex) {
@@ -249,6 +297,13 @@ public:
 
   const ProgramTensorPool &getTensorPool() const { return tensorPool; }
 
+  //
+  // Global Semaphore Pool Operations
+  //
+  ProgramGlobalSemaphorePool &getGlobalSemaphorePool() {
+    return globalSemaphorePool;
+  }
+
   Binary &getExecutableHandle() { return executableHandle; }
 
   //
@@ -258,6 +313,8 @@ public:
 
 private:
   ProgramTensorPool tensorPool;
+
+  ProgramGlobalSemaphorePool globalSemaphorePool;
 
   common::DylibManager dylibManager;
 
