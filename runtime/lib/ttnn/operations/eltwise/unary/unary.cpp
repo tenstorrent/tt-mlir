@@ -9,6 +9,7 @@
 #include "ttmlir/Target/TTNN/program_generated.h"
 #include "ttnn/operations/copy/typecast/typecast.hpp"
 #include "ttnn/operations/eltwise/unary/common/unary_op_types.hpp"
+#include <operations/eltwise/unary/unary.hpp>
 
 namespace tt::runtime::ttnn::operations::eltwise::unary {
 
@@ -75,7 +76,7 @@ static void runEltwiseUnaryWithFastAndApproximateModeOp(
 static void runEltwiseUnaryWithVectorAndFastAndApproximateModeOp(
     const ::tt::target::ttnn::EltwiseUnaryOp *op, ProgramTensorPool &tensorPool,
     const std::function<
-        ::ttnn::Tensor(const ::ttnn::Tensor &, const int, const bool,
+        ::ttnn::Tensor(const ::ttnn::Tensor &, const int, ::ttnn::operations::unary::Sigmoid::SigmoidMode,
                        const std::optional<::ttnn::MemoryConfig> &,
                        const std::optional<::ttnn::Tensor> &)> &ttnnOp) {
 
@@ -89,7 +90,7 @@ static void runEltwiseUnaryWithVectorAndFastAndApproximateModeOp(
 
   ::ttnn::Tensor out =
       ttnnOp(in, static_cast<int>(::ttnn::operations::unary::VecMode::RC),
-             /*parameter=*/false, outputMemoryConfig, std::nullopt);
+             ::ttnn::operations::unary::Sigmoid::SigmoidMode::ACCURATE, outputMemoryConfig, std::nullopt);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
