@@ -956,28 +956,28 @@ module {
       return
     }
 
-    // CHECK-LABEL: func @logical_not_unary_tile_init
-    func.func @logical_not_unary_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
-      // CHECK: emitc.call_opaque "logical_not_unary_tile_init"()
-      "ttkernel.logical_not_unary_tile_init"() : () -> ()
+    // CHECK-LABEL: func @logical_not_tile_init
+    func.func @logical_not_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: emitc.call_opaque "logical_not_tile_init"()
+      "ttkernel.logical_not_tile_init"() : () -> ()
       return
     }
 
-    // CHECK-LABEL: func @logical_not_unary_tile
-    func.func @logical_not_unary_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+    // CHECK-LABEL: func @logical_not_tile
+    func.func @logical_not_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: %[[DST0_INDEX:.*]] = "emitc.constant"
       %dst0_index = arith.constant 1 : i32
-      // CHECK: emitc.call_opaque "logical_not_unary_tile"(%[[DST0_INDEX]])
-      "ttkernel.logical_not_unary_tile"(%dst0_index) : (i32) -> ()
+      // CHECK: emitc.call_opaque "logical_not_tile"(%[[DST0_INDEX]]) {template_args = [#emitc.opaque<"DataFormat::Float16_b">]}
+      "ttkernel.logical_not_tile"(%dst0_index) {dtype = #ttcore.supportedDataTypes<bf16>} : (i32) -> ()
       return
     }
 
-    // CHECK-LABEL: func @logical_not_unary_tile_int32
-    func.func @logical_not_unary_tile_int32() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+    // CHECK-LABEL: func @logical_not_tile_int32
+    func.func @logical_not_tile_int32() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: %[[DST0_INDEX:.*]] = "emitc.constant"
       %dst0_index = arith.constant 1 : i32
-      // CHECK: emitc.call_opaque "logical_not_unary_tile_int32"(%[[DST0_INDEX]])
-      "ttkernel.logical_not_unary_tile_int32"(%dst0_index) : (i32) -> ()
+      // CHECK: emitc.call_opaque "logical_not_tile"(%[[DST0_INDEX]]) {template_args = [#emitc.opaque<"DataFormat::Int32">]}
+      "ttkernel.logical_not_tile"(%dst0_index) {dtype = #ttcore.supportedDataTypes<si32>} : (i32) -> ()
       return
     }
 
