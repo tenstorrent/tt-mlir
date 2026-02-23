@@ -395,7 +395,7 @@ public:
     auto reversedInputShape = llvm::reverse(inputShape);
     auto tensorDimRevIt =
         llvm::find_if(reversedInputShape, [sizeOfDevices](int64_t dim) {
-          return dim % sizeOfDevices == 0;
+          return dim % sizeOfDevices == 0 && dim % 32 == 0;
         });
     const auto *tensorDimDevice = tensorDimRevIt == reversedInputShape.end()
                                       ? inputShape.end()
