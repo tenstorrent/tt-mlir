@@ -53,7 +53,8 @@ void run(const ::tt::target::ttnn::ReduceScatterOp *op,
 
   std::optional<::ttnn::DeviceComputeKernelConfig> computeConfig;
   if (op->compute_config()) {
-    computeConfig = utils::createDeviceComputeKernelConfig(op->compute_config());
+    computeConfig =
+        utils::createDeviceComputeKernelConfig(op->compute_config());
   }
 
   ::ttnn::Tensor out = ::ttnn::reduce_scatter(

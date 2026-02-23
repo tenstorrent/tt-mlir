@@ -8,9 +8,8 @@
 
 namespace mlir::tt::ttnn::workarounds::decomposition {
 
-LogicalResult
-ReduceScatterConfigRewritePattern::matchAndRewrite(ReduceScatterOp srcOp,
-                                                   PatternRewriter &rewriter) const {
+LogicalResult ReduceScatterConfigRewritePattern::matchAndRewrite(
+    ReduceScatterOp srcOp, PatternRewriter &rewriter) const {
   // Skip if compute config is already set
   if (srcOp.getComputeConfigAttr()) {
     return failure();

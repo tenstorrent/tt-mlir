@@ -1083,7 +1083,8 @@ createOp(FlatbufferObjectCache &cache, ReduceScatterOp op) {
   auto numLinks = toFlatbuffer(cache, op.getNumLinks());
   auto topology = toFlatbuffer(cache, op.getTopology());
 
-  ::flatbuffers::Offset<::tt::target::ttnn::DeviceComputeKernelConfig> computeConfig = 0;
+  ::flatbuffers::Offset<::tt::target::ttnn::DeviceComputeKernelConfig>
+      computeConfig = 0;
   if (op.getComputeConfig().has_value()) {
     computeConfig = toFlatbuffer(cache, op.getComputeConfig().value());
   }
