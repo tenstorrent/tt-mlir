@@ -598,7 +598,7 @@ DeviceComputeKernelConfigAttr buildComputeConfig(mlir::MLIRContext *ctx,
 mlir::LogicalResult createFusedRoPEOp(mlir::PatternRewriter &rewriter,
                                       AddOp srcOp, const RoPEInputs &inputs,
                                       const RoPEComponents &components) {
-  op_model::ScopedSingletonDeviceGuard deviceGuard;
+  op_model::ScopedSingletonDeviceGuard deviceGuard(srcOp.getOperation());
 
   auto computeConfig = buildComputeConfig(rewriter.getContext(), components);
 
@@ -718,7 +718,7 @@ RoPEDecodeFusing::matchAndRewrite(PermuteOp permuteOp,
     return failure();
   }
 
-  op_model::ScopedSingletonDeviceGuard deviceGuard;
+  op_model::ScopedSingletonDeviceGuard deviceGuard(permuteOp.getOperation());
 
   // Create pre-permute on the original RoPE input: BHSD -> permuted order.
   auto prePermute = ttir_to_ttnn::utils::generatePermute(
