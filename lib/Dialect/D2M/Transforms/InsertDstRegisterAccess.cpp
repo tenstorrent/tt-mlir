@@ -1296,6 +1296,57 @@ public:
       return {l1AccessMap, l1AccessIndices, dstAccessMap, {}};
     }
 
+    // Determine which map operands are "inner" loop IVs that should contribute
+    // to the DST index. When a tiled loop generates the affine map, the outer
+    // tiling loop IV maps to CB dimensions through floordiv or similar
+    // non-identity expressions, while inner loop IVs map directly as simple
+    // dimension references (AffineDimExpr). Only the inner operands and their
+    // corresponding CB dimensions should be linearized for DST, because DST is
+    // re-acquired each outer tiling iteration.
+    SmallVector<unsigned> innerOperandPositions;
+    SmallVector<int64_t> innerCbDims;
+    for (unsigned r = 0; r < map.getNumResults(); ++r) {
+      if (auto dimExpr = dyn_cast<AffineDimExpr>(map.getResult(r))) {
+        innerOperandPositions.push_back(dimExpr.getPosition());
+        if (r < cbShape.size()) {
+          innerCbDims.push_back(cbShape[r]);
+        }
+      }
+    }
+
+    // Use the inner-only path when we detected a mix of inner and outer
+    // operands (i.e., some map results are not simple dim refs).
+    bool hasOuterOperands =
+        !isScratchAccess &&
+        innerOperandPositions.size() < map.getNumResults() &&
+        !innerOperandPositions.empty();
+
+    if (hasOuterOperands) {
+      dstOperands.clear();
+      for (unsigned pos : innerOperandPositions) {
+        dstOperands.push_back(l1AccessIndices[pos]);
+      }
+      numDims = innerOperandPositions.size();
+
+      AffineExpr linearExpr =
+          getAffineConstantExpr(dstSlice, rewriter.getContext());
+      int64_t stride = 1;
+      SmallVector<int64_t> strides(numDims, 1);
+      for (int i = numDims - 1; i >= 0; --i) {
+        strides[i] = stride;
+        if (i < static_cast<int>(innerCbDims.size())) {
+          stride *= innerCbDims[i];
+        }
+      }
+      for (unsigned i = 0; i < numDims; ++i) {
+        AffineExpr dimExpr = getAffineDimExpr(i, rewriter.getContext());
+        linearExpr = linearExpr + dimExpr * strides[i];
+      }
+      AffineMap dstAccessMap =
+          AffineMap::get(numDims, 0, linearExpr, rewriter.getContext());
+      return {l1AccessMap, l1AccessIndices, dstAccessMap, dstOperands};
+    }
+
     // Build linearization expression: dstSlice + sum(index[i] * stride[i])
     // where stride[i] = product of cbShape[i+1..n-1]
     AffineExpr linearExpr =
