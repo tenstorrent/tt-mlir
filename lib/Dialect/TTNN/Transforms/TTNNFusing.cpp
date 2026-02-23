@@ -498,7 +498,7 @@ private:
   SmallVector<Value> collectCandidates(Value v) const {
     SmallVector<Value> candidates{v};
     while (Operation *defOp = v.getDefiningOp()) {
-      if (isa<TypecastOp, PermuteOp>(defOp)) {
+      if (isa<TypecastOp, PermuteOp, RepeatOp>(defOp)) {
         v = defOp->getOperand(0);
         candidates.push_back(v);
         continue;
@@ -612,18 +612,15 @@ private:
 
     // The two slices must cover [0, half) and [half, dimSize) exactly.
     int64_t half = dimSize / 2;
-    bool lhsIsFirst = (lhs.begins[dim] == 0 && lhs.ends[dim] == half);
-    bool lhsIsSecond = (lhs.begins[dim] == half && lhs.ends[dim] == dimSize);
-    bool rhsIsFirst = (rhs.begins[dim] == 0 && rhs.ends[dim] == half);
-    bool rhsIsSecond = (rhs.begins[dim] == half && rhs.ends[dim] == dimSize);
+    bool lhsIsSecondHalf =
+        (lhs.begins[dim] == half && lhs.ends[dim] == dimSize);
+    bool rhsIsFirstHalf = (rhs.begins[dim] == 0 && rhs.ends[dim] == half);
 
-    if (!((lhsIsFirst && rhsIsSecond) || (lhsIsSecond && rhsIsFirst))) {
-      return false;
-    }
-
-    // rotate_half produces [-second_half, first_half], so the negated
-    // operand must be the second half.
-    if ((lhsNeg && !lhsIsSecond) || (rhsNeg && !rhsIsSecond)) {
+    // rotate_half = concat(neg(second_half), first_half), so concat
+    // operand 0 must be the negated second-half and operand 1 must be the
+    // non-negated first-half. Reject the swapped order [first, neg(second)]
+    // which is not a valid RoPE rotation.
+    if (!(lhsNeg && lhsIsSecondHalf && rhsIsFirstHalf)) {
       return false;
     }
 
