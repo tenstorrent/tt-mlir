@@ -143,6 +143,9 @@ def create_tensor(tensor_shards, mesh_shape):
 
 
 def shard_to_full(shard_map, full_shape, mesh_shape):
+    if len(full_shape) == 0:
+        # Scalar tensor, nothing to concatenate
+        return shard_map[0]
     if len(shard_map) == 1:
         # Tensor isn't sharded
         return shard_map[0]
