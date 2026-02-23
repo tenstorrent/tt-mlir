@@ -79,15 +79,6 @@ public:
   const std::vector<OpL1MemSpec> &getOpL1MemSpecs() const {
     return opL1MemSpecs;
   }
-
-  void updateOpConfig(Operation *op, const OpConfig &newConfig) {
-    for (auto &spec : opL1MemSpecs) {
-      if (spec.op == op) {
-        spec.config = newConfig;
-        return;
-      }
-    }
-  }
   L1ChainState getState() const { return state; }
   std::string getStateString() const {
     switch (state) {
