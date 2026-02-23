@@ -9,6 +9,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNTraits.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNWorkaroundsPass.h"
+#include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/AllGatherOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ArgMaxOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ConcatOpDecompositionRewritePattern.h"
@@ -390,15 +391,22 @@ public:
     // Algorithm: iterate through all tensor dimension values and select the
     // last tensor dimension which is divisible by number of devices along the
     // cluster axis on which we are performing the all reduce.
-    // For tiled layout, this divisibility check is done on the tiled shape.
+    // For tiled layout, this divisibility check is done on per-dim tile counts.
     auto sizeOfDevices = meshShape[clusterAxis];
     auto inputShape = inputType.getShape();
     auto inputLayout = utils::getLayoutAttrFromTensor(inputType);
-    llvm::SmallVector<int64_t> tiledInputShape;
-    ArrayRef<int64_t> shapeForDivisibility = inputShape;
+    llvm::SmallVector<int64_t> shapeForDivisibility(inputShape.begin(),
+                                                     inputShape.end());
     if (inputLayout.isTiled()) {
-      tiledInputShape = inputLayout.getTiledShape(inputShape);
-      shapeForDivisibility = tiledInputShape;
+      auto tilePaddedShape = utils::getTilePaddedShape(shapeForDivisibility);
+      if (!shapeForDivisibility.empty()) {
+        shapeForDivisibility[shapeForDivisibility.size() - 1] =
+            tilePaddedShape[shapeForDivisibility.size() - 1] / TILE_WIDTH;
+      }
+      if (shapeForDivisibility.size() > 1) {
+        shapeForDivisibility[shapeForDivisibility.size() - 2] =
+            tilePaddedShape[shapeForDivisibility.size() - 2] / TILE_HEIGHT;
+      }
     }
 
     auto reversedInputShape = llvm::reverse(shapeForDivisibility);
