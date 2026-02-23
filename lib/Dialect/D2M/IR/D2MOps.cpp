@@ -266,8 +266,7 @@ static bool layoutsMatchExceptOOB(ttcore::MetalLayoutAttr a,
          a.getDimAlignments() == b.getDimAlignments() &&
          a.getCollapsedIntervals() == b.getCollapsedIntervals() &&
          a.getMemorySpace() == b.getMemorySpace() &&
-         a.getMemoryLayout() == b.getMemoryLayout() &&
-         a.getIndexAffineMap() == b.getIndexAffineMap();
+         a.getMemoryLayout() == b.getMemoryLayout();
 }
 
 // Fold away a to_layout whose only effect is changing the OOB fill value.
@@ -1176,14 +1175,22 @@ void d2m::ViewLayoutOp::getCanonicalizationPatterns(
     }
 
     auto viewResultMemref = mlir::cast<MemRefType>(op.getResult().getType());
+
+    // Compose the stream's remapping with the view's reblock to get the
+    // full mapping from the stream's input to the view's output.
+    mlir::AffineMap viewReblock = ttmlir::utils::calculateReblockMap(
+        streamMemref.getShape(), viewResultMemref.getShape(), op->getContext());
+    mlir::AffineMap composedRemapping =
+        viewReblock.compose(streamOp.getRemapping());
+
     auto composedAttr = rewriter.getAttr<ttcore::ViewLayoutAttr>(
-        streamMemref.getLayout().getAffineMap().compose(
-            viewResultMemref.getLayout().getAffineMap()));
+        static_cast<unsigned>(viewResultMemref.getRank()));
     auto newMemref = MemRefType::get(
         viewResultMemref.getShape(), viewResultMemref.getElementType(),
         composedAttr, viewResultMemref.getMemorySpace());
     rewriter.replaceOpWithNewOp<StreamLayoutOp>(
-        op, newMemref, streamOp.getInput(), streamOp.getStorage());
+        op, newMemref, streamOp.getInput(),
+        AffineMapAttr::get(composedRemapping), streamOp.getStorage());
     return success();
   });
 }

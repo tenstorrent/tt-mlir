@@ -706,8 +706,7 @@ public:
     auto maskLayout = ttcore::MetalLayoutAttr::get(
         rewriter.getContext(), maskLogicalShape, maskDimAlignments,
         inputLayout.getCollapsedIntervals(), ttcore::OOBVal::Undef,
-        ttcore::MemorySpace::DeviceL1, ttcore::TensorMemoryLayout::Sharded,
-        AffineMap::get(rewriter.getContext()));
+        ttcore::MemorySpace::DeviceL1, ttcore::TensorMemoryLayout::Sharded);
 
     auto elemType = inputType.getElementType();
     // Mask is a single tile (broadcast via constant indexing maps).

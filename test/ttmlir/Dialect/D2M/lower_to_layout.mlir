@@ -181,7 +181,7 @@ func.func @tilize_with_masking(%arg0: tensor<50x50xf32>) -> tensor<1x1x2x2x!ttco
 // physical dimensions.  The mask scratch tensors must have the same grid rank
 // as the main operands; a prior bug only appended [1,1] shard dims (always
 // producing a 2D-grid mask) which crashed the verifier when gridRank > 2.
-#layout_mask_4d = #ttcore.metal_layout<logical_shape = 2x2x50x50, dim_alignments = 1x1x32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, zero, l1, sharded, index_map = map(8)>
+#layout_mask_4d = #ttcore.metal_layout<logical_shape = 2x2x50x50, dim_alignments = 1x1x32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, zero, l1, sharded>
 
 func.func @masking_no_collapse_4d(%arg0: tensor<2x2x50x50xf32>) -> tensor<1x1x1x1x2x2x2x2x!ttcore.tile<32x32, f32>, #layout_mask_4d> {
   %0 = d2m.empty() : tensor<1x1x1x1x2x2x2x2x!ttcore.tile<32x32, f32>, #layout_mask_4d>
@@ -198,7 +198,7 @@ func.func @masking_no_collapse_4d(%arg0: tensor<2x2x50x50xf32>) -> tensor<1x1x1x
   return %1 : tensor<1x1x1x1x2x2x2x2x!ttcore.tile<32x32, f32>, #layout_mask_4d>
 }
 
-// Test chained views with pre-existing index_map
+// Test chained views with grid reshaping
 #layout_base_view = #ttcore.metal_layout<logical_shape = 64x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
 #layout_with_view = #ttcore.metal_layout<logical_shape = 64x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
 
@@ -206,7 +206,7 @@ func.func @chained_view(%arg0: tensor<2x4x32x32xf32, #layout_base_view>) -> tens
   %0 = d2m.empty() : tensor<4x2x32x32xf32, #layout_with_view>
 
   // CHECK-LABEL: @chained_view
-  // View chaining (no grid change, just index_map addition) emits view_layout + generic with load+store pair
+  // View chaining (grid reshaping) emits view_layout + generic with load+store pair
   // CHECK: %[[VIEW:.*]] = d2m.view_layout
   // CHECK: d2m.generic
   // CHECK-SAME: threads = [#d2m.thread<unified>]
