@@ -234,7 +234,8 @@ public:
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
         emitter.emit(static_cast<int>(::ttnn::operations::unary::VecMode::RC)),
-        /*parameter=*/emitter.emit(false),
+        rewriter.getAttr<emitc::OpaqueAttr>(
+            "::ttnn::operations::unary::Sigmoid::SigmoidMode::ACCURATE"),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
     };
 
