@@ -467,9 +467,8 @@ bool tryFallbacks(Operation *operation,
       }
       continue;
     }
-    // TODO(bmalesevic, #7023): Multi-output fallback not yet supported.
-    assert(operation->getNumResults() == 1 &&
-           "Multi-output fallback not yet supported (see #7023)");
+    // TODO(bmalesevic, #7023): Multi-output fallback only handles the first
+    // output's layout revert. Remaining outputs are left unchanged.
     llvm::SmallVector<OpConfig> outputConfigs({config});
     // Found working solution, apply transformations
     applyFallbackTransformations(operation, originalInputLayouts,
@@ -1029,9 +1028,8 @@ bool tryConfigFallbacks(Operation *operation,
     // Found a working config, apply it
     applyConfigChange(operation, workingConfig);
 
-    // TODO(bmalesevic, #7023): Multi-output fallback not yet supported.
-    assert(operation->getNumResults() == 1 &&
-           "Multi-output fallback not yet supported (see #7023)");
+    // TODO(bmalesevic, #7023): Multi-output fallback only handles the first
+    // output's layout revert. Remaining outputs are left unchanged.
     if (originalConfig.outputLayout &&
         workingResult.checkAndGetFirstActualOutputLayout() !=
             originalConfig.outputLayout) {
