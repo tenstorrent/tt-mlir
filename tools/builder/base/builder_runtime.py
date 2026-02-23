@@ -838,7 +838,9 @@ def execute_fb(
                     o_dict["desc"]["layout"]["memory_desc"]["data_type"]
                 ),
             )
-            num_shards = tt_runtime.runtime.get_num_shards(runtime_outputs[i])
+            num_shards = 1
+            if fbb.file_identifier != "TTM0":
+                num_shards = tt_runtime.runtime.get_num_shards(runtime_outputs[i])
             outputs_torch.append(
                 {shard_id: torch_tensor for shard_id in range(num_shards)}
             )
@@ -859,7 +861,11 @@ def execute_fb(
             if disable_golden:
                 continue
 
-            output_device_tensors = tt_runtime.runtime.get_device_tensors(outputs[i])
+            output_device_tensors = outputs
+            if fbb.file_identifier != "TTM0":
+                output_device_tensors = tt_runtime.runtime.get_device_tensors(
+                    outputs[i]
+                )
             output_torch_tensor_map = {}
             for device_id, shard in enumerate(output_host):
                 tt_runtime.runtime.memcpy(
