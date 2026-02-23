@@ -13,7 +13,9 @@
 #include "llvm/ADT/SmallVector.h"
 
 #ifdef TTMLIR_ENABLE_OPMODEL
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Fusing/RoPEFusingPattern.h"
+#include "ttmlir/Dialect/TTNN/Utils/OptimizerUtils.h"
 #include "ttmlir/Dialect/TTNN/Validation/OpConstraintValidation.h"
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
 #endif
@@ -1145,18 +1147,6 @@ class NLPConcatHeadsDecodeFusing : public mlir::OpRewritePattern<ReshapeOp> {
   static constexpr std::array<int64_t, 4> kConcatHeadsDecodePermutation = {
       1, 2, 0, 3};
 
-  // Check if a constraint validation error can be recovered by later passes.
-  // The nlp_concat_heads_decode metal op requires sharded input, but during
-  // fusing the tensors are still in DRAM interleaved layout. The optimizer
-  // assigns appropriate sharding later in the pipeline.
-  static bool
-  isRecoverableNLPConcatHeadsDecodeError(const std::string &errorMessage) {
-    if (errorMessage.find("is_sharded") != std::string::npos) {
-      return true;
-    }
-    return false;
-  }
-
   // Skip through transparent ops (typecast, layout changes) that don't alter
   // the semantic meaning of the data.
   static Value skipTransparent(Value v) {
@@ -1167,6 +1157,51 @@ class NLPConcatHeadsDecodeFusing : public mlir::OpRewritePattern<ReshapeOp> {
       v = defOp->getOperand(0);
     }
     return v;
+  }
+
+  // Create a ToLayoutOp that converts the input to height-sharded L1 layout.
+  // The nlp_concat_heads_decode metal op requires sharded input. The virtual
+  // grid is [batchSize, 1] so each batch element is assigned to its own row
+  // of cores.
+  static Value createHeightShardedInput(Value input, RankedTensorType inputType,
+                                        int64_t batchSize,
+                                        PatternRewriter &rewriter,
+                                        Location loc) {
+    auto inputElementType = inputType.getElementType();
+    if (auto tileType = mlir::dyn_cast<ttcore::TileType>(inputElementType)) {
+      inputElementType = tileType.getElementType();
+    }
+
+    auto physicalGrid = ttcore::getCurrentScopeSystemDesc(input.getDefiningOp())
+                            .getChipDescs()[0]
+                            .getGrid();
+
+    auto affineMap =
+        optimizer_utils::createSingleDeviceVirtualToPhysicalAffineMap(
+            rewriter.getContext(), TensorMemoryLayout::HeightSharded,
+            physicalGrid);
+
+    SmallVector<int64_t> virtualGridSize = {batchSize, 1};
+    auto grid = ttcore::GridAttr::get(rewriter.getContext(), virtualGridSize,
+                                      affineMap);
+
+    auto memLayoutAttr = TensorMemoryLayoutAttr::get(
+        rewriter.getContext(), TensorMemoryLayout::HeightSharded);
+
+    auto shardedLayout =
+        TTNNLayoutAttr::get(rewriter.getContext(), inputType.getShape(),
+                            ttcore::TileType::get(inputElementType),
+                            BufferType::L1, grid, memLayoutAttr);
+
+    auto shardedInputType = inputType.cloneWithEncoding(shardedLayout);
+    auto memoryConfig = MemoryConfigAttr::get(shardedLayout, grid);
+
+    return rewriter.create<ToLayoutOp>(
+        loc, shardedInputType, input, Layout::Tile,
+        ttcore::DataTypeAttr::get(
+            rewriter.getContext(),
+            ttcore::elementTypeToDataType(inputElementType)),
+        memoryConfig);
   }
 
 public:
@@ -1205,18 +1240,25 @@ public:
       return failure();
     }
 
-    // Step 4: Construct the NLPConcatHeadsDecodeOp output type.
+    // Step 4: Insert a ToLayoutOp to convert input to height-sharded L1
+    // layout. The metal op requires sharded input.
+    Value shardedInput = createHeightShardedInput(input, inputType, batchSize,
+                                                  rewriter, reshapeOp.getLoc());
+    auto shardedInputType =
+        mlir::cast<RankedTensorType>(shardedInput.getType());
+
+    // Step 5: Construct the NLPConcatHeadsDecodeOp output type.
     // Output shape: [S, 1, B, num_heads * head_dim].
     SmallVector<int64_t> concatHeadsOutputShape = {seqLen, 1, batchSize,
                                                    numHeads * headDim};
     auto concatHeadsResultType = utils::RankedTensorTypeFactory::create(
-        inputType, concatHeadsOutputShape);
+        shardedInputType, concatHeadsOutputShape);
 
-    // Step 5: Create the fused op and validate with op constraints.
-    op_model::ScopedSingletonDeviceGuard deviceGuard;
+    // Step 6: Create the fused op and validate with op constraints.
+    op_model::ScopedSingletonDeviceGuard deviceGuard(reshapeOp);
 
     auto nlpConcatHeadsDecodeOp = rewriter.create<NLPConcatHeadsDecodeOp>(
-        reshapeOp.getLoc(), concatHeadsResultType, input,
+        reshapeOp.getLoc(), concatHeadsResultType, shardedInput,
         rewriter.getUI32IntegerAttr(static_cast<uint32_t>(numHeads)),
         /*memory_config=*/MemoryConfigAttr());
 
@@ -1228,13 +1270,13 @@ public:
     auto result = op_constraint_validation::validateOperation(
         nlpConcatHeadsDecodeOp.getOperation(), inputLayouts, config);
 
-    if (!result.isSuccess() &&
-        !isRecoverableNLPConcatHeadsDecodeError(result.errorMessage)) {
+    if (!result.isSuccess()) {
       rewriter.eraseOp(nlpConcatHeadsDecodeOp);
+      rewriter.eraseOp(shardedInput.getDefiningOp());
       return failure();
     }
 
-    // Step 6: Create a new reshape from 4D fused output to original output
+    // Step 7: Create a new reshape from 4D fused output to original output
     // shape. The old permute and transparent ops become dead code and are
     // eliminated by DCE.
     auto newReshapeOp = rewriter.create<ReshapeOp>(
