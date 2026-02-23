@@ -9,6 +9,7 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/IRMapping.h"
@@ -191,51 +192,82 @@ static LogicalResult addScratchToGeneric(GenericOp genericOp) {
 
     Block *oldBlock = &oldRegion.front();
 
-    // Build new block argument types.
-    // Block args match operands: [input0, ..., inputN, scratch, output0, ...]
+    // Determine if the old block uses CB block args or tensor.empty form.
+    bool hasCBBlockArgs =
+        llvm::any_of(oldBlock->getArguments(), [](BlockArgument arg) {
+          return mlir::isa<CBType>(arg.getType());
+        });
+
     SmallVector<Type> newBlockArgTypes;
     SmallVector<Location> newBlockArgLocs;
-
-    // Copy old input block arg types.
-    for (unsigned i = 0; i < numOldInputs; ++i) {
-      newBlockArgTypes.push_back(oldBlock->getArgument(i).getType());
-      newBlockArgLocs.push_back(oldBlock->getArgument(i).getLoc());
+    for (BlockArgument arg : oldBlock->getArguments()) {
+      newBlockArgTypes.push_back(arg.getType());
+      newBlockArgLocs.push_back(arg.getLoc());
     }
 
-    // Add scratch block arg type: CB wrapping the shard memref.
-    Type scratchBlockArgType = CBType::get(scratchShardMemRefType);
-    newBlockArgTypes.push_back(scratchBlockArgType);
-    newBlockArgLocs.push_back(genericOp.getLoc());
-
-    // Copy old output block arg types.
-    for (unsigned i = numOldInputs; i < oldBlock->getNumArguments(); ++i) {
-      newBlockArgTypes.push_back(oldBlock->getArgument(i).getType());
-      newBlockArgLocs.push_back(oldBlock->getArgument(i).getLoc());
+    // In CB block arg form, add a CB arg for the scratch input.
+    if (hasCBBlockArgs) {
+      auto scratchCBType = CBType::get(scratchShardMemRefType);
+      // Insert scratch CB before the output CB args (after input CBs).
+      newBlockArgTypes.insert(newBlockArgTypes.begin() + numOldInputs,
+                              scratchCBType);
+      newBlockArgLocs.insert(newBlockArgLocs.begin() + numOldInputs,
+                             genericOp.getLoc());
     }
 
     Block *newBlock = builder.createBlock(&newRegion, newRegion.end(),
                                           newBlockArgTypes, newBlockArgLocs);
-
     builder.setInsertionPointToStart(newBlock);
 
-    // Build mapping from old block args to new block args.
+    // Map old block args to new block args (accounting for scratch insertion).
     IRMapping mapping;
-
-    // Map old input args (indices 0 to numOldInputs-1) -> same indices.
-    for (unsigned i = 0; i < numOldInputs; ++i) {
-      mapping.map(oldBlock->getArgument(i), newBlock->getArgument(i));
+    for (unsigned i = 0; i < oldBlock->getNumArguments(); ++i) {
+      unsigned newIdx = i;
+      if (hasCBBlockArgs && i >= numOldInputs) {
+        // Shift by 1 to account for the inserted scratch CB arg.
+        newIdx = i + 1;
+      }
+      mapping.map(oldBlock->getArgument(i), newBlock->getArgument(newIdx));
     }
 
-    // Scratch is at index numOldInputs in new block (unmapped, no old arg).
-
-    // Map old output args -> shifted by 1 (because scratch is inserted).
-    for (unsigned i = numOldInputs; i < oldBlock->getNumArguments(); ++i) {
-      mapping.map(oldBlock->getArgument(i), newBlock->getArgument(i + 1));
-    }
-
-    // Clone operations after the get_scratch_from_cb.
+    // Collect pointers to old ops (Operation is non-copyable).
+    SmallVector<Operation *> oldOps;
     for (Operation &op : oldBlock->without_terminator()) {
-      builder.clone(op, mapping);
+      oldOps.push_back(&op);
+    }
+
+    if (!hasCBBlockArgs) {
+      // New form: clone all ops up through the numOldInputs-th
+      // tensor.empty/memref.alloc, insert scratch, then clone the rest.
+      // Note: alloc ops may be interleaved with non-alloc ops (e.g.,
+      // remote_load), so we must not break on non-alloc ops.
+      unsigned emptyIdx = 0;
+      unsigned clonedUpTo = 0;
+      for (unsigned i = 0; i < oldOps.size(); ++i) {
+        builder.clone(*oldOps[i], mapping);
+        clonedUpTo = i + 1;
+        if (mlir::isa<mlir::tensor::EmptyOp, memref::AllocOp>(oldOps[i])) {
+          ++emptyIdx;
+          if (emptyIdx == numOldInputs) {
+            break;
+          }
+        }
+      }
+
+      // Insert the scratch tensor.empty with the shard shape.
+      builder.create<mlir::tensor::EmptyOp>(
+          genericOp.getLoc(), scratchShardMemRefType.getShape(),
+          scratchShardMemRefType.getElementType());
+
+      // Clone remaining ops (output tensor.empties and all other ops).
+      for (unsigned i = clonedUpTo; i < oldOps.size(); ++i) {
+        builder.clone(*oldOps[i], mapping);
+      }
+    } else {
+      // Old form: CB block args handle operand mapping, just clone all ops.
+      for (Operation *op : oldOps) {
+        builder.clone(*op, mapping);
+      }
     }
 
     // Clone terminator if present.

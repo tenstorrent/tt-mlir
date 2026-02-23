@@ -18,6 +18,7 @@
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/BuiltinAttributes.h"
@@ -1471,48 +1472,44 @@ void d2m::GenericOp::build(
   auto inputOutputOperands = llvm::SmallVector<Value>(
       state.operands.begin(),
       state.operands.begin() + inputs.size() + outputs.size());
-  llvm::SmallVector<Type> blockTypes =
-      llvm::map_to_vector(TypeRange(inputOutputOperands), [&](Type t) -> Type {
-        mlir::RankedTensorType tensorType = mlir::cast<RankedTensorType>(t);
-        auto layout = mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
-            tensorType.getEncoding());
 
-        // If the operand is a view/stream, get the layout from its source.
-        if (!layout) {
-          for (auto operand : inputOutputOperands) {
-            if (operand.getType() != t) {
-              continue;
-            }
-            if (auto streamOp = operand.getDefiningOp<d2m::StreamLayoutOp>()) {
-              auto storageType =
-                  mlir::cast<RankedTensorType>(streamOp.getStorage().getType());
-              layout = mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
-                  storageType.getEncoding());
-              break;
-            }
-            if (auto viewOp = operand.getDefiningOp<d2m::ViewLayoutOp>()) {
-              auto inputType =
-                  mlir::cast<RankedTensorType>(viewOp.getInput().getType());
-              layout = mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
-                  inputType.getEncoding());
-              break;
-            }
-          }
-        }
-
-        assert(
-            layout &&
-            "Expected MetalLayoutAttr or ViewLayoutAttr with StreamLayoutOp");
-        auto shardShape = layout.getShardShape(tensorType);
-        return d2m::CBType::get(mlir::RankedTensorType::get(
-            shardShape, tensorType.getElementType()));
-      });
+  // Create an empty block (no block arguments) and populate it with
+  // tensor.empty ops for each operand's shard shape. The region builder
+  // callback receives these tensor.empty values instead of CB block args.
   Region &region = *state.regions.front().get();
-  llvm::SmallVector<mlir::Location> locs(inputOutputOperands.size(),
-                                         state.location);
   OpBuilder::InsertionGuard guard(builder);
-  Block *block = builder.createBlock(&region, region.end(), blockTypes, locs);
-  singleThreadRegionBuilder(builder, state.location, block->getArguments());
+  builder.createBlock(&region, region.end());
+
+  llvm::SmallVector<Value> operandAllocs;
+  for (Value operand : inputOutputOperands) {
+    auto tensorType = mlir::cast<RankedTensorType>(operand.getType());
+    auto layout = mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
+        tensorType.getEncoding());
+
+    // If the operand is a view/stream, get the layout from its source.
+    if (!layout) {
+      if (auto streamOp = operand.getDefiningOp<d2m::StreamLayoutOp>()) {
+        auto storageType =
+            mlir::cast<RankedTensorType>(streamOp.getStorage().getType());
+        layout = mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
+            storageType.getEncoding());
+      } else if (auto viewOp = operand.getDefiningOp<d2m::ViewLayoutOp>()) {
+        auto inputType =
+            mlir::cast<RankedTensorType>(viewOp.getInput().getType());
+        layout = mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
+            inputType.getEncoding());
+      }
+    }
+
+    assert(layout &&
+           "Expected MetalLayoutAttr or ViewLayoutAttr with StreamLayoutOp");
+    auto shardShape = layout.getShardShape(tensorType);
+    auto emptyOp = builder.create<mlir::tensor::EmptyOp>(
+        state.location, shardShape, tensorType.getElementType());
+    operandAllocs.push_back(emptyOp.getResult());
+  }
+
+  singleThreadRegionBuilder(builder, state.location, operandAllocs);
 }
 
 void d2m::GenericOp::build(
@@ -1896,7 +1893,18 @@ MutableArrayRef<OpOperand> d2m::GenericOp::getInputsAndOutputsMutable() {
       return emitOpError("region must have a single block");
     }
 
-    if (region.getNumArguments() < inputOutputOperandTypes.size()) {
+    // Count CB block arguments.
+    unsigned numCBArgs = 0;
+    for (BlockArgument arg : region.getArguments()) {
+      if (mlir::isa<d2m::CBType>(arg.getType())) {
+        ++numCBArgs;
+      }
+    }
+
+    // If CB block args exist (old form), they must cover all operands.
+    // If there are 0 CB block args (new tensor.empty form), that's valid.
+    if (numCBArgs > 0 &&
+        region.getNumArguments() < inputOutputOperandTypes.size()) {
       return emitOpError("region must have at least as many "
                          "arguments as the number of top-level operands");
     }
@@ -1906,10 +1914,13 @@ MutableArrayRef<OpOperand> d2m::GenericOp::getInputsAndOutputsMutable() {
       return emitOpError("all regions must have the same number of arguments");
     }
 
+    // Block arguments may only be semaphore type or CB type.
+    // CB block args are materialized by the explicit CB form pass;
+    // semaphore block args are added by PreallocateMcastSemaphores.
     for (BlockArgument arg : region.getArguments()) {
-      if (!mlir::isa<d2m::CBType, d2m::SemaphoreType>(arg.getType())) {
+      if (!mlir::isa<d2m::SemaphoreType, d2m::CBType>(arg.getType())) {
         return emitOpError(
-            "all regions must either cb or semaphore block argument type");
+            "region block arguments must be of 'semaphore' or 'cb' type");
       }
 
       if (arg.getType() !=
@@ -1931,35 +1942,39 @@ MutableArrayRef<OpOperand> d2m::GenericOp::getInputsAndOutputsMutable() {
           "and iterator_types are empty)");
     }
 
-    auto valueArguments =
-        region.getArguments().take_front(inputOutputOperandTypes.size());
-    for (BlockArgument arg : valueArguments) {
-      mlir::ShapedType operandType = mlir::cast<mlir::ShapedType>(
-          inputOutputOperandTypes[arg.getArgNumber()]);
-      ttcore::DeviceLayoutInterface layout =
-          ttcore::getDeviceLayout(operandType);
-      if (!layout) {
-        continue;
+    // Validate CB block arg shapes against operand shard shapes (old form
+    // only). In the new form, CBs are tensor.empty/memref.alloc ops inside
+    // the region body.
+    if (numCBArgs > 0) {
+      auto valueArguments =
+          region.getArguments().take_front(inputOutputOperandTypes.size());
+      for (BlockArgument arg : valueArguments) {
+        mlir::ShapedType operandType = mlir::cast<mlir::ShapedType>(
+            inputOutputOperandTypes[arg.getArgNumber()]);
+        ttcore::DeviceLayoutInterface layout =
+            ttcore::getDeviceLayout(operandType);
+        if (!layout) {
+          continue;
+        }
+
+        mlir::ShapedType blockArgType =
+            mlir::cast<mlir::ShapedType>(arg.getType());
+
+        ArrayRef<int64_t> expectedShardShape =
+            layout.getShardShape(operandType);
+        if (expectedShardShape != blockArgType.getShape()) {
+          return emitOpError("region argument shape must match the "
+                             "shape of the corresponding operand");
+        }
       }
 
-      mlir::ShapedType blockArgType =
-          mlir::cast<mlir::ShapedType>(arg.getType());
-
-      ArrayRef<int64_t> expectedShardShape = layout.getShardShape(operandType);
-      if (expectedShardShape != blockArgType.getShape()) {
-        return emitOpError("region argument shape must match the "
-                           "shape of the corresponding operand");
-      }
-    }
-
-    auto additionalArguments =
-        region.getArguments().drop_front(inputOutputOperandTypes.size());
-    ;
-    for (BlockArgument arg : additionalArguments) {
-      bool supportedType = mlir::isa<SemaphoreType>(arg.getType());
-      if (!supportedType) {
-        return emitOpError(
-            "additional region arguments must be of 'semaphore' type");
+      auto additionalArguments =
+          region.getArguments().drop_front(inputOutputOperandTypes.size());
+      for (BlockArgument arg : additionalArguments) {
+        if (!mlir::isa<SemaphoreType>(arg.getType())) {
+          return emitOpError(
+              "additional region arguments must be of 'semaphore' type");
+        }
       }
     }
   }
@@ -2029,20 +2044,24 @@ void GenericOp::getCanonicalizationPatterns(mlir::RewritePatternSet &patterns,
         auto replaceWithOutputCb =
             [op](PatternRewriter &rewriter, Region &region, Operation *regionOp,
                  OpOperand &initOperand, int64_t dpsIOBoundary) -> bool {
-          BlockArgument blockArg =
-              mlir::dyn_cast<BlockArgument>(initOperand.get());
-          if (blockArg && blockArg.getArgNumber() >= dpsIOBoundary) {
-            return false;
-          }
-
           Operation *origDefiningOp = initOperand.get().getDefiningOp();
           if (origDefiningOp &&
               !mlir::isa<EmptyOp, mlir::tensor::EmptyOp>(origDefiningOp)) {
             return false;
           }
 
-          blockArg = region.getArgument(dpsIOBoundary);
-          assert(blockArg.getNumUses() > 0);
+          // Find the output CB value: either as a block arg (legacy/explicit
+          // CB form) or as a tensor.empty op.
+          Value outputCb;
+          if (static_cast<unsigned>(dpsIOBoundary) < region.getNumArguments()) {
+            outputCb = region.getArgument(dpsIOBoundary);
+          } else {
+            outputCb = GenericOp::getOperandAlloc(region, dpsIOBoundary);
+          }
+
+          if (!outputCb || outputCb.use_empty()) {
+            return false;
+          }
 
           // Find a wait/reserve that dominates the DPS operation.
           Operation *waitOrReserve = nullptr;
@@ -2057,11 +2076,11 @@ void GenericOp::getCanonicalizationPatterns(mlir::RewritePatternSet &patterns,
 
           // Use DominanceInfo for cross-block dominance checking.
           DominanceInfo domInfo(parentOp);
-          for (Operation *user : blockArg.getUsers()) {
-            assert((mlir::isa<d2m::WaitOp, d2m::ReserveOp, d2m::PushOp,
-                              d2m::PopOp>(user)) &&
-                   "block argument users must be wait/reserve/push/pop "
-                   "operations");
+          for (Operation *user : outputCb.getUsers()) {
+            if (!mlir::isa<d2m::WaitOp, d2m::ReserveOp, d2m::PushOp,
+                           d2m::PopOp>(user)) {
+              continue;
+            }
             // Check if this wait/reserve dominates the regionOp.
             // Note: push/pop don't have results, so they won't be selected
             // here.
@@ -2407,16 +2426,10 @@ void d2m::GenericOp::getAsmBlockArgumentNames(
   int cbIndex = 0;
   int semIndex = 0;
   for (BlockArgument arg : region.getArguments()) {
-    if (mlir::isa<MemRefType>(arg.getType())) {
+    if (mlir::isa<CBType>(arg.getType())) {
       setNameFn(arg, "cb" + std::to_string(cbIndex++));
-    } else if (mlir::isa<CBType>(arg.getType())) {
-      setNameFn(arg, "cb" + std::to_string(cbIndex++));
-    } else if (mlir::isa<RankedTensorType>(arg.getType())) {
-      setNameFn(arg, "t" + std::to_string(cbIndex++));
     } else if (mlir::isa<SemaphoreType>(arg.getType())) {
       setNameFn(arg, "sem" + std::to_string(semIndex++));
-    } else {
-      llvm_unreachable("Unexpected region argument type");
     }
   }
 }
@@ -2474,27 +2487,22 @@ mlir::LogicalResult d2m::GenericOp::bufferize(
     region.takeBody(getRegion(region.getRegionNumber()));
   }
 
-  // Bufferize region block arguments.
-  ::llvm::SmallVector<mlir::Value> invocationStack;
-  for (mlir::Region &region : bufferGeneric.getRegions()) {
-    OpBuilder::InsertionGuard guard(rewriter);
-    mlir::Block &block = region.front();
-    rewriter.setInsertionPointToStart(&block);
-    for (unsigned argNumber = 0; argNumber < block.getNumArguments();
-         ++argNumber) {
-      mlir::BlockArgument oldArg = block.getArgument(argNumber);
-      if (mlir::isa<d2m::SemaphoreType>(oldArg.getType())) {
+  // Bufferize CB block arguments: convert from cb<tensor<...>> to
+  // cb<memref<...>>. CB block args are materialized by the explicit CB form
+  // pass before bufferization.
+  for (Region &region : bufferGeneric.getRegions()) {
+    Block &block = region.front();
+    for (BlockArgument arg : block.getArguments()) {
+      auto cbType = mlir::dyn_cast<CBType>(arg.getType());
+      if (!cbType || !cbType.hasTensorType()) {
         continue;
       }
-      auto cbType = mlir::cast<d2m::CBType>(oldArg.getType());
-      auto newArgType =
+      auto bufferType =
           cbType.getBufferType(options, [&]() { return this->emitError(); });
-      mlir::BlockArgument newArg =
-          block.insertArgument(argNumber, *newArgType, oldArg.getLoc());
-      auto toTensor = rewriter.create<bufferization::ToTensorOp>(
-          bufferGeneric.getLoc(), oldArg.getType(), newArg);
-      rewriter.replaceAllUsesWith(oldArg, toTensor.getResult());
-      block.eraseArgument(argNumber + 1);
+      if (failed(bufferType)) {
+        return failure();
+      }
+      arg.setType(mlir::cast<Type>(*bufferType));
     }
   }
 
@@ -2514,8 +2522,9 @@ d2m::GenericOp::getBufferType(
   }
 
   auto tensorType = mlir::cast<RankedTensorType>(value.getType());
-  if (mlir::isa<mlir::BlockArgument>(value)) {
-    assert(!tensorType.getEncoding());
+  // tensor.empty ops inside the region (replacing old CB block args) get L1
+  // memory space.
+  if (!tensorType.getEncoding()) {
     return mlir::cast<bufferization::BufferLikeType>(MemRefType::get(
         tensorType.getShape(), tensorType.getElementType(), nullptr,
         ttcore::MemorySpaceAttr::get(tensorType.getContext(),
@@ -2701,13 +2710,7 @@ Value d2m::GenericOp::findAssocCBByOperandIndex(Operation *op,
     return Value();
   }
 
-  Block *threadBlock = &genericRegion->front();
-
-  if (threadBlock->getNumArguments() > operandIndex) {
-    return threadBlock->getArgument(operandIndex);
-  }
-
-  return Value();
+  return getOperandAlloc(*genericRegion, operandIndex);
 }
 
 Value d2m::GenericOp::findAssocCBByOperand(Operation *op, Value operand) {
@@ -2730,6 +2733,73 @@ Value d2m::GenericOp::findAssocCBByOperand(Operation *op, Value operand) {
   }
 
   return findAssocCBByOperandIndex(op, operandIndex);
+}
+
+Value d2m::GenericOp::getOperandAlloc(Region &region, unsigned operandIndex) {
+  if (region.empty()) {
+    return Value();
+  }
+
+  // Walk the region looking for tensor.empty/memref.alloc ops, stepping into
+  // blocking loops (affine.for with d2m.blocking_loop) but NOT into compute
+  // regions (linalg.generic, scf.for without blocking_loop, etc.).
+  Value result;
+  unsigned idx = 0;
+  std::function<void(Block &)> scanBlock = [&](Block &block) {
+    for (Operation &op : block) {
+      if (result) {
+        return;
+      }
+      if (mlir::isa<mlir::tensor::EmptyOp, memref::AllocOp>(&op)) {
+        if (idx == operandIndex) {
+          result = op.getResult(0);
+          return;
+        }
+        ++idx;
+      } else if (auto forOp = mlir::dyn_cast<mlir::affine::AffineForOp>(&op)) {
+        if (forOp->hasAttr("d2m.blocking_loop")) {
+          scanBlock(*forOp.getBody());
+        }
+      } else if (auto scfFor = mlir::dyn_cast<mlir::scf::ForOp>(&op)) {
+        scanBlock(*scfFor.getBody());
+      }
+    }
+  };
+  scanBlock(region.front());
+
+  // Fall back to CB block arguments (old form) if no tensor.empty was found.
+  if (!result) {
+    unsigned cbIdx = 0;
+    for (BlockArgument arg : region.front().getArguments()) {
+      if (mlir::isa<d2m::CBType>(arg.getType())) {
+        if (cbIdx == operandIndex) {
+          return arg;
+        }
+        ++cbIdx;
+      }
+    }
+  }
+
+  return result;
+}
+
+SmallVector<Value> d2m::GenericOp::getOperandAllocs(Region &region,
+                                                    unsigned numOperands) {
+  SmallVector<Value> result;
+  if (region.empty()) {
+    return result;
+  }
+
+  Block &block = region.front();
+  for (Operation &op : block) {
+    if (mlir::isa<mlir::tensor::EmptyOp, memref::AllocOp>(&op)) {
+      result.push_back(op.getResult(0));
+      if (result.size() == numOperands) {
+        break;
+      }
+    }
+  }
+  return result;
 }
 
 } // namespace mlir::tt::d2m

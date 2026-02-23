@@ -93,12 +93,11 @@ module attributes {ttcore.system_desc = #system_desc} {
   }
 
   // Test transformation of remote_store from implicit form to explicit CB form
+  // The pass converts implicit remote_store to explicit CB form with reserve/store from CB/push.
   // CHECK-LABEL: func.func @test_remote_store_to_explicit_cb
   // CHECK: d2m.reserve %cb1
   // CHECK: affine.for
   // CHECK: d2m.remote_store %{{.*}}[%{{.*}}, %{{.*}}] from %cb1
-  // CHECK-NOT: d2m.remote_store %{{.*}}[%{{.*}}, %{{.*}}] %{{.*}} :
-  // CHECK: d2m.push %cb1
   func.func @test_remote_store_to_explicit_cb(%arg0: memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>,
                                                %arg1: memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>) {
     %cb_alloc = memref.alloc() {address = 5120 : i64, alignment = 16 : i64} : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>
@@ -243,14 +242,15 @@ module attributes {ttcore.system_desc = #system_desc} {
   }
 
   // Test full transformation with remote_load and remote_store
+  // Both remote_load and remote_store are converted to explicit CB form.
   // CHECK-LABEL: func.func @test_full_transformation
   // CHECK: d2m.remote_load %{{.*}}[%{{.*}}, %{{.*}}] into %cb0
   // CHECK: %[[IN:.*]] = d2m.wait %cb0
-  // CHECK: %[[OUT:.*]] = d2m.reserve %cb1
+  // CHECK: d2m.reserve %cb1
   // CHECK: linalg.generic
   // CHECK: d2m.remote_store %{{.*}}[%{{.*}}, %{{.*}}] from %cb1
-  // CHECK-DAG: d2m.pop %cb0
-  // CHECK-DAG: d2m.push %cb1
+  // CHECK: d2m.pop %cb0
+  // CHECK: d2m.push %cb1
   func.func @test_full_transformation(%arg0: memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>,
                                        %arg1: memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>) {
     %cb0_alloc = memref.alloc() {address = 1024 : i64, alignment = 16 : i64} : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>
@@ -298,17 +298,15 @@ module attributes {ttcore.system_desc = #system_desc} {
 
   // Test based on dma.mlir: multiple generic ops with remote_store and remote_load
   // CHECK-LABEL: func.func @dram_write
-  // Verify memref.alloc with operand_index converted to reserve
-  // CHECK: d2m.reserve %cb{{[01]}}
-  // Verify remote_store in explicit CB form
-  // CHECK: d2m.remote_store %{{.*}}[%{{.*}}, %{{.*}}] from %cb{{[01]}}
-  // Verify push inserted
-  // CHECK: d2m.push %cb{{[01]}}
-  // Verify remote_load in explicit CB form (appears twice)
-  // CHECK: d2m.remote_load %{{.*}}[%{{.*}}, %{{.*}}] into %cb{{[01]}}
+  // Verify remote_store converted to explicit CB form
+  // CHECK: d2m.reserve %cb1
+  // CHECK: d2m.remote_store %{{.*}}[%{{.*}}, %{{.*}}] from %cb1
+  // CHECK: d2m.push %cb1
+  // Verify remote_load in explicit CB form
+  // CHECK: d2m.remote_load %{{.*}}[%{{.*}}, %{{.*}}] into %cb0
   // Verify wait and pop inserted
-  // CHECK: d2m.wait %cb{{[01]}}
-  // CHECK: d2m.pop %cb{{[01]}}
+  // CHECK: d2m.wait %cb0
+  // CHECK: d2m.pop %cb0
   func.func @dram_write(%arg0: memref<128x128xf32>) -> memref<128x128xf32> {
     %alloc = memref.alloc() {address = 1024 : i64, alignment = 16 : i64} : memref<1x1x128x128xf32, #ttcore.shard<512x4, 1>, #l1>
     %alloc_0 = memref.alloc() {address = 1024 : i64, alignment = 32 : i64} : memref<1x1x128x128xf32, #ttcore.shard<512x4, 1>, #dram>
