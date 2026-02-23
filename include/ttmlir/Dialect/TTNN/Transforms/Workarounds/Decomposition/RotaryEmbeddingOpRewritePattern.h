@@ -10,14 +10,17 @@
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Support/LogicalResult.h"
 
+#include <optional>
+#include <utility>
+
 namespace mlir::tt::ttnn::workarounds::decomposition {
 
-// Returns the op to validate against. If seq_len (dim -2) needs
-// tile-alignment padding, creates and returns a padded copy.
-// Otherwise returns the original op unchanged.
-// Caller is responsible for erasing any temporary ops created.
-RotaryEmbeddingOp getWorkaroundedOp(RotaryEmbeddingOp ropeOp,
-                                    PatternRewriter &rewriter);
+// If seq_len (dim -2) needs tile-alignment padding, creates a padded
+// RotaryEmbeddingOp and a SliceStaticOp to restore the original shape,
+// returning them as a pair. Returns std::nullopt if no padding is needed.
+// Caller is responsible for erasing the returned ops if they are temporary.
+std::optional<std::pair<RotaryEmbeddingOp, SliceStaticOp>>
+getWorkaroundedOp(RotaryEmbeddingOp ropeOp, PatternRewriter &rewriter);
 
 class RotaryEmbeddingOpRewritePattern
     : public OpRewritePattern<RotaryEmbeddingOp> {

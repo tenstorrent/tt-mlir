@@ -608,26 +608,34 @@ mlir::LogicalResult createFusedRoPEOp(mlir::PatternRewriter &rewriter,
       /*memory_config=*/nullptr,
       /*compute_config=*/computeConfig);
 
-  // Validate against the workaround-padded version if needed, since the
-  // workaround pass (seq_len tile alignment) hasn't run yet.
-  auto opToValidate =
-      workarounds::decomposition::getWorkaroundedOp(ropeOp, rewriter);
+  // Validate the fused op. If validation fails, try the workaround-padded
+  // version since the workaround pass (seq_len tile alignment) hasn't run yet.
   std::vector<TTNNLayoutAttr> inputLayouts =
-      utils::extractInputLayouts(opToValidate.getOperation());
-  auto resultType = mlir::cast<RankedTensorType>(opToValidate.getType());
+      utils::extractInputLayouts(ropeOp.getOperation());
+  auto resultType = mlir::cast<RankedTensorType>(ropeOp.getType());
   OpConfig config(mlir::cast<TTNNLayoutAttr>(resultType.getEncoding()));
   auto validationResult = op_constraint_validation::validateOperation(
-      opToValidate.getOperation(), inputLayouts, config);
-
-  // Clean up temporary padded ops if created.
-  if (opToValidate != ropeOp) {
-    rewriter.eraseOp(*opToValidate->getUsers().begin()); // slice
-    rewriter.eraseOp(opToValidate);
-  }
+      ropeOp.getOperation(), inputLayouts, config);
 
   if (!validationResult.isSuccess()) {
-    rewriter.eraseOp(ropeOp);
-    return failure();
+    auto workaround =
+        workarounds::decomposition::getWorkaroundedOp(ropeOp, rewriter);
+    if (workaround) {
+      auto paddedOp = workaround->first;
+      auto sliceOp = workaround->second;
+      inputLayouts = utils::extractInputLayouts(paddedOp.getOperation());
+      resultType = mlir::cast<RankedTensorType>(paddedOp.getType());
+      config = OpConfig(mlir::cast<TTNNLayoutAttr>(resultType.getEncoding()));
+      validationResult = op_constraint_validation::validateOperation(
+          paddedOp.getOperation(), inputLayouts, config);
+      rewriter.eraseOp(sliceOp);
+      rewriter.eraseOp(paddedOp);
+    }
+
+    if (!validationResult.isSuccess()) {
+      rewriter.eraseOp(ropeOp);
+      return failure();
+    }
   }
 
   Value result = ropeOp.getResult();
@@ -725,27 +733,35 @@ RoPEDecodeFusing::matchAndRewrite(PermuteOp permuteOp,
       ropeOp.getCosCache(), ropeOp.getSinCache(), tokenIndex,
       ropeOp.getMemoryConfigAttr(), ropeOp.getComputeConfigAttr());
 
-  // Validate against the workaround-padded version if needed, since the
-  // workaround pass (seq_len tile alignment) hasn't run yet.
-  auto opToValidate =
-      workarounds::decomposition::getWorkaroundedOp(newRope, rewriter);
+  // Validate the fused op. If validation fails, try the workaround-padded
+  // version since the workaround pass (seq_len tile alignment) hasn't run yet.
   std::vector<TTNNLayoutAttr> inputLayouts =
-      utils::extractInputLayouts(opToValidate.getOperation());
-  auto resultType = mlir::cast<RankedTensorType>(opToValidate.getType());
+      utils::extractInputLayouts(newRope.getOperation());
+  auto resultType = mlir::cast<RankedTensorType>(newRope.getType());
   OpConfig config(mlir::cast<TTNNLayoutAttr>(resultType.getEncoding()));
   auto validationResult = op_constraint_validation::validateOperation(
-      opToValidate.getOperation(), inputLayouts, config);
-
-  // Clean up temporary padded ops if created.
-  if (opToValidate != newRope) {
-    rewriter.eraseOp(*opToValidate->getUsers().begin()); // slice
-    rewriter.eraseOp(opToValidate);
-  }
+      newRope.getOperation(), inputLayouts, config);
 
   if (!validationResult.isSuccess()) {
-    rewriter.eraseOp(newRope);
-    rewriter.eraseOp(prePermute);
-    return failure();
+    auto workaround =
+        workarounds::decomposition::getWorkaroundedOp(newRope, rewriter);
+    if (workaround) {
+      auto paddedOp = workaround->first;
+      auto sliceOp = workaround->second;
+      inputLayouts = utils::extractInputLayouts(paddedOp.getOperation());
+      resultType = mlir::cast<RankedTensorType>(paddedOp.getType());
+      config = OpConfig(mlir::cast<TTNNLayoutAttr>(resultType.getEncoding()));
+      validationResult = op_constraint_validation::validateOperation(
+          paddedOp.getOperation(), inputLayouts, config);
+      rewriter.eraseOp(sliceOp);
+      rewriter.eraseOp(paddedOp);
+    }
+
+    if (!validationResult.isSuccess()) {
+      rewriter.eraseOp(newRope);
+      rewriter.eraseOp(prePermute);
+      return failure();
+    }
   }
 
   // Replace the permute's uses with the new RoPE result.
