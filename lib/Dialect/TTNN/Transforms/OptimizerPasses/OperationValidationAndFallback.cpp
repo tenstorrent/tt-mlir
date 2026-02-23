@@ -901,7 +901,7 @@ bool tryConfigFallbacks(Operation *operation,
   // Use TypeSwitch to handle both Conv2dOp and ConvTranspose2dOp
   bool foundConfig =
       llvm::TypeSwitch<Operation *, bool>(operation)
-          .Case<ttnn::Conv2dOp>([&](ttnn::Conv2dOp convOp) {
+          .Case<ttnn::Conv2dOp, ttnn::ConvTranspose2dOp>([&](auto convOp) {
             // Conv2dOp supports all slice configs
             llvm::SmallVector<Conv2dSliceType> sliceConfigsToTry = {
                 Conv2dSliceType::L1Full, Conv2dSliceType::DramWidth,
@@ -966,60 +966,6 @@ bool tryConfigFallbacks(Operation *operation,
                                operation->getLoc());
                   return false;
                 }
-              }
-            }
-            TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
-                         "No working config found after {} failed attempts",
-                         failedAttempts);
-            return false;
-          })
-          // ConvTranspose2dOp doesn't support slice config attribute yet
-          // TODO(bmalesevic, #6639): Move ConvTranspose2dOp to case above when
-          // slice config attribute is supported
-          .Case<ttnn::ConvTranspose2dOp>([&](ttnn::ConvTranspose2dOp convOp) {
-            Conv2dConfigGenerator configGenerator(&convOp, baseConfig,
-                                                  l1SearchSpace, filterOutFn);
-
-            TTMLIR_TRACE(ttmlir::LogComponent::OpValidation,
-                         "Trying config fallback with {} act_block_h values",
-                         l1SearchSpace.actBlockHOverride.size());
-
-            // Iterate through generated configs
-            while (Conv2dConfigAttr configAttr =
-                       configGenerator.getNextConfig()) {
-              // Test this config
-              OpConfig testConfig = originalConfig;
-              auto &testConv2dAttrs =
-                  std::get<Conv2dAttrs>(testConfig.opSpecificAttrs);
-              testConv2dAttrs.conv2dConfig = configAttr;
-
-              auto result = testFallbackCombination(operation, testConfig,
-                                                    originalInputLayouts);
-
-              if (result.isSuccess()) {
-                workingConfig = configAttr;
-                workingResult = result;
-                TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
-                             "Found working config after {} failed attempts",
-                             failedAttempts);
-                return true;
-              }
-
-              failedAttempts++;
-              TTMLIR_TRACE(ttmlir::LogComponent::OpValidation,
-                           "Config fallback failed (status: {}): {}",
-                           static_cast<int>(result.status),
-                           result.errorMessage);
-
-              // Check if we've exceeded the maximum attempts (if limit is set)
-              if (maxAttempts > 0 &&
-                  failedAttempts >= static_cast<size_t>(maxAttempts)) {
-                TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
-                             "Reached maximum fallback attempts ({}) for "
-                             "operation {} at {}. Terminating early.",
-                             maxAttempts, operation->getName(),
-                             operation->getLoc());
-                return false;
               }
             }
             TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
