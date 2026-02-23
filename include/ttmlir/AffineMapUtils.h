@@ -24,15 +24,21 @@ namespace ttmlir::utils {
 /// Returns a new shape by applying `map` to the input shape.
 template <typename Vector>
 llvm::SmallVector<int64_t> evalShape(mlir::AffineMap map, Vector shape) {
-  mlir::SmallVector<int64_t> lastIndex;
+  mlir::SmallVector<int64_t> endCoord;
   for (auto dim : shape) {
-    lastIndex.push_back(dim - 1);
+    endCoord.push_back(dim - 1);
   }
 
-  auto result = map.compose(lastIndex);
-  for (auto &dim : result) {
-    dim += 1;
+  auto newEndCoord = map.compose(endCoord);
+
+  llvm::SmallVector<int64_t> startCoord(endCoord.size(), 0);
+  auto newStartCoord = map.compose(startCoord);
+
+  llvm::SmallVector<int64_t> result;
+  for (size_t i = 0; i < newEndCoord.size(); ++i) {
+    result.push_back(newEndCoord[i] - newStartCoord[i] + 1);
   }
+
   return result;
 }
 
