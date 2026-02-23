@@ -1,4 +1,4 @@
-// // SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -11,17 +11,18 @@
 // dimension to make it a multiple of tile size.
 // Metal issue reference: https://github.com/tenstorrent/tt-metal/issues/31567
 namespace mlir::tt::ttnn::workarounds::decomposition {
-LogicalResult RotaryEmbeddingOpRewritePattern::matchAndRewrite(
-    RotaryEmbeddingOp srcOp, PatternRewriter &rewriter) const {
-  RankedTensorType resultType = srcOp.getType();
+
+RotaryEmbeddingOp getWorkaroundedOp(RotaryEmbeddingOp ropeOp,
+                                    PatternRewriter &rewriter) {
+  RankedTensorType resultType = ropeOp.getType();
   ArrayRef<int64_t> resultShape = resultType.getShape();
   if (resultShape.size() < 2) {
-    return failure();
+    return ropeOp;
   }
 
   int64_t originalSeqLen = resultShape[resultShape.size() - 2];
   if (originalSeqLen % TILE_HEIGHT == 0) {
-    return failure();
+    return ropeOp;
   }
 
   SmallVector<int64_t> paddedResultShape(resultShape);
@@ -31,24 +32,36 @@ LogicalResult RotaryEmbeddingOpRewritePattern::matchAndRewrite(
   auto paddedType =
       utils::RankedTensorTypeFactory::create(resultType, paddedResultShape);
 
-  auto rope = rewriter.create<RotaryEmbeddingOp>(
-      srcOp.getLoc(), paddedType, srcOp.getInput(), srcOp.getCosCache(),
-      srcOp.getSinCache(), srcOp.getTokenIndexAttr(),
-      srcOp.getMemoryConfigAttr(), srcOp.getComputeConfigAttr());
+  auto paddedOp = rewriter.create<RotaryEmbeddingOp>(
+      ropeOp.getLoc(), paddedType, ropeOp.getInput(), ropeOp.getCosCache(),
+      ropeOp.getSinCache(), ropeOp.getTokenIndexAttr(),
+      ropeOp.getMemoryConfigAttr(), ropeOp.getComputeConfigAttr());
 
-  // Slice to original shape
+  // Slice to original shape.
   SmallVector<int32_t> begins(resultShape.size(), 0);
   SmallVector<int32_t> ends(paddedResultShape.begin(), paddedResultShape.end());
   SmallVector<int32_t> steps(resultShape.size(), 1);
   ends[ends.size() - 2] = originalSeqLen;
 
-  auto sliced = rewriter.create<ttnn::SliceStaticOp>(
-      srcOp.getLoc(), resultType, rope.getResult(),
+  rewriter.create<ttnn::SliceStaticOp>(
+      ropeOp.getLoc(), resultType, paddedOp.getResult(),
       rewriter.getI32ArrayAttr(begins), rewriter.getI32ArrayAttr(ends),
       rewriter.getI32ArrayAttr(steps));
 
-  rewriter.replaceOp(srcOp, sliced);
+  return paddedOp;
+}
 
+LogicalResult RotaryEmbeddingOpRewritePattern::matchAndRewrite(
+    RotaryEmbeddingOp srcOp, PatternRewriter &rewriter) const {
+  auto paddedOp = getWorkaroundedOp(srcOp, rewriter);
+  if (paddedOp == srcOp) {
+    return failure();
+  }
+
+  // The utility created paddedOp + SliceStaticOp. Replace srcOp with the
+  // slice result.
+  rewriter.replaceOp(srcOp, (*paddedOp->getUsers().begin())->getResult(0));
   return success();
 }
+
 } // namespace mlir::tt::ttnn::workarounds::decomposition

@@ -11,6 +11,14 @@
 #include "mlir/Support/LogicalResult.h"
 
 namespace mlir::tt::ttnn::workarounds::decomposition {
+
+// Returns the op to validate against. If seq_len (dim -2) needs
+// tile-alignment padding, creates and returns a padded copy.
+// Otherwise returns the original op unchanged.
+// Caller is responsible for erasing any temporary ops created.
+RotaryEmbeddingOp getWorkaroundedOp(RotaryEmbeddingOp ropeOp,
+                                    PatternRewriter &rewriter);
+
 class RotaryEmbeddingOpRewritePattern
     : public OpRewritePattern<RotaryEmbeddingOp> {
 public:
@@ -19,6 +27,7 @@ public:
   LogicalResult matchAndRewrite(RotaryEmbeddingOp srcOp,
                                 PatternRewriter &rewriter) const override;
 };
+
 } // namespace mlir::tt::ttnn::workarounds::decomposition
 
 #endif // TTMLIR_DIALECT_TTNN_TRANSFORMS_WORKAROUNDS_DECOMPOSITION_ROTARYEMBEDDINGOPREWRITEPATTERN_H
