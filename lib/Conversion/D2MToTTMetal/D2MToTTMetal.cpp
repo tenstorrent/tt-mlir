@@ -20,6 +20,17 @@
 namespace mlir::tt::ttmetal {
 
 namespace {
+
+// Returns true if the kernel function contains an op of type OpT.
+template <typename OpT>
+static bool kernelContainsOp(const SymbolTable &symbolTable,
+                             SymbolRefAttr kernelSymbol) {
+  auto kernelFunc =
+      symbolTable.lookup<func::FuncOp>(kernelSymbol.getRootReference());
+  return kernelFunc.walk([](OpT) { return WalkResult::interrupt(); })
+      .wasInterrupted();
+}
+
 class D2MGenericRewriter : public OpConversionPattern<d2m::GenericOp> {
 public:
   D2MGenericRewriter(MLIRContext *ctx, ttmetal::MathFidelity mathFidelity)
@@ -74,15 +85,13 @@ public:
         }
         // This must stay in-sync with ChipDescAttr::getDstLogicalSizeTiles().
         constexpr bool dstFullSyncEn = false;
-        // Use Fp32 unpack mode for typecast operating on fp32 data.
-        auto kernelFunc = symbolTable.lookup<func::FuncOp>(
-            thread.getKernelSymbol().getRootReference());
-        bool isTypecast = kernelFunc
-                              .walk([](ttkernel::TypecastTileOp) {
-                                return WalkResult::interrupt();
-                              })
-                              .wasInterrupted();
-        UnpackToDestMode mode = (fp32DestAccum && isTypecast)
+        // Use Fp32 unpack mode for fp32 data, except for untilize kernels
+        // whose llk_unpack_untilize path is incompatible with
+        // UnpackToDestEn=true (causes hardware deadlock).
+        bool isUntilize =
+            kernelContainsOp<ttkernel::ExperimentalUntilizeBlockOp>(
+                symbolTable, thread.getKernelSymbol());
+        UnpackToDestMode mode = (fp32DestAccum && !isUntilize)
                                     ? UnpackToDestMode::Fp32
                                     : UnpackToDestMode::Default;
         std::vector<UnpackToDestMode> unpackModes{mode};
