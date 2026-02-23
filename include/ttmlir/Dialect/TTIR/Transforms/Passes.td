@@ -24,7 +24,7 @@ def TTIRImplicitBroadcastFold: Pass<"ttir-implicit-broadcast-fold", "::mlir::Mod
   }];
 }
 
-def CPUHoistManuallyTaggedTransform: Pass<"cpu-hoist-manually-tagged", "::mlir::ModuleOp">
+def CPUHoistManuallyTaggedOpsTransform: Pass<"cpu-hoist-manually-tagged", "::mlir::ModuleOp">
 {
   let summary = "Hoist ops manually tagged with ttir.should_hoist to the CPU module";
   let description = [{

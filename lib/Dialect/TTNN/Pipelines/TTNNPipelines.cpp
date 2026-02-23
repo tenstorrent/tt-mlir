@@ -241,7 +241,7 @@ void createTTIRToTTNNDevicePipeline(
   pm.addPass(ttcore::createTTCoreWrapDeviceModulePass());
 
   // Hoist manually tagged ops to CPU module.
-  pm.addPass(ttir::createCPUHoistManuallyTaggedTransform());
+  pm.addPass(ttir::createCPUHoistManuallyTaggedOpsTransform());
 
   // Device module passes before const-eval CPU hoisting.
   {

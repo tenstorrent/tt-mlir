@@ -7,18 +7,18 @@
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 
 namespace mlir::tt::ttir {
-#define GEN_PASS_DEF_CPUHOISTMANUALLYTAGGEDTRANSFORM
+#define GEN_PASS_DEF_CPUHOISTMANUALLYTAGGEDOPSTRANSFORM
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
 
 namespace {
 
 // Transform pass to hoist ops manually tagged with ttir.should_hoist.
-class CPUHoistManuallyTaggedTransform
-    : public impl::CPUHoistManuallyTaggedTransformBase<
-          CPUHoistManuallyTaggedTransform> {
+class CPUHoistManuallyTaggedOpsTransform
+    : public impl::CPUHoistManuallyTaggedOpsTransformBase<
+          CPUHoistManuallyTaggedOpsTransform> {
 public:
-  using CPUHoistManuallyTaggedTransformBase::
-      CPUHoistManuallyTaggedTransformBase;
+  using CPUHoistManuallyTaggedOpsTransformBase::
+      CPUHoistManuallyTaggedOpsTransformBase;
 
   void runOnOperation() final {
     mlir::ModuleOp rootModule = getOperation();
