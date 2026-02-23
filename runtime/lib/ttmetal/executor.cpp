@@ -298,7 +298,6 @@ void MCQExecutor::execute(const target::metal::ReturnCommand *command) {
   }
 }
 
-// to do: add address validator
 void MCQExecutor::execute(
     const target::metal::CreateGlobalSemaphoreCommand *command) {
   ZoneScopedN("CreateGlobalSemaphoreCommand");
@@ -309,7 +308,8 @@ void MCQExecutor::execute(
   auto global_semaphore = tt::tt_metal::GlobalSemaphore(
       meshDevice, common::toCoreRangeSet(command->core_range_set()),
       command->initial_value(), tt_metal::BufferType::L1,
-      command->ref()->address());
+      deviceAddressValidator(command->ref()->address(),
+                             target::BufferType::L1));
   global_semaphores.emplace(command->ref()->global_id(),
                             std::move(global_semaphore));
 }
