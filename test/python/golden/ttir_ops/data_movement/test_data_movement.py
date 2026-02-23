@@ -575,12 +575,6 @@ def test_typecast(
     if from_type == torch.float32 and to_type == torch.int32 and target == "ttmetal":
         pytest.xfail("ttmetal does not support float32 to int32 typecast")
 
-    if from_type == torch.float32 and to_type == torch.bfloat16 and target == "ttmetal":
-        pytest.xfail(
-            "f32->bf16 typecast fails due to LLK tiling issue. "
-            "See comment at: https://github.com/tenstorrent/tt-metal/issues/35302"
-        )
-
     def module(builder: TTIRBuilder):
         @builder.func([shape], [from_type])
         def typecast(
