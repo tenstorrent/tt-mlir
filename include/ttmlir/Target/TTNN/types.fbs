@@ -108,6 +108,10 @@ table TensorRef {
   desc: TensorDesc;
 }
 
+table GlobalSemaphoreRef {
+  global_id: uint32;
+}
+
 table FloatingPointType {
   value: float;
 }

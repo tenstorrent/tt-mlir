@@ -178,6 +178,11 @@ std::uint64_t Tensor::nextTensorGlobalId() {
   return globalId.fetch_add(1, std::memory_order_relaxed);
 }
 
+std::uint64_t GlobalSemaphore::nextGlobalSemaphoreGlobalId() {
+  static std::atomic<std::uint64_t> globalId = 0;
+  return globalId.fetch_add(1, std::memory_order_relaxed);
+}
+
 std::uint64_t Layout::nextLayoutGlobalId() {
   static std::atomic<std::uint64_t> globalId = 0;
   return globalId.fetch_add(1, std::memory_order_relaxed);
