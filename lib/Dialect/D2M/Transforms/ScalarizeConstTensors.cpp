@@ -117,8 +117,9 @@ static SmallVector<unsigned> findScalarizedInputIndices(Block *block,
                                                         unsigned numInputs) {
   SmallVector<unsigned> scalarizedIndices;
   for (unsigned i = 0; i < numInputs; ++i) {
-    BlockArgument arg = block->getArgument(i);
-    if (arg.use_empty()) {
+    Value tensorEmpty =
+        d2m::GenericOp::getOperandTensorEmpty(*block->getParent(), i);
+    if (tensorEmpty && tensorEmpty.use_empty()) {
       scalarizedIndices.push_back(i);
     }
   }
@@ -316,12 +317,11 @@ static GenericOp rebuildD2MGenericWithoutScalarizedInputs(
        llvm::zip(genericOp.getRegions(), newGenericOp.getRegions())) {
     Block *oldBlock = &oldRegion.front();
 
+    // Block args are only semaphore types; copy them all as-is.
+    // The tensor.empty ops (CBs) in the block body are cloned via IRMapping.
     SmallVector<Type> newBlockArgTypes;
     SmallVector<Location> newBlockArgLocs;
     for (unsigned i = 0; i < oldBlock->getNumArguments(); ++i) {
-      if (i < numInputs && llvm::is_contained(scalarizedInputIndices, i)) {
-        continue;
-      }
       newBlockArgTypes.push_back(oldBlock->getArgument(i).getType());
       newBlockArgLocs.push_back(oldBlock->getArgument(i).getLoc());
     }
@@ -329,8 +329,10 @@ static GenericOp rebuildD2MGenericWithoutScalarizedInputs(
     Block *newBlock = rewriter.createBlock(&newRegion, newRegion.end(),
                                            newBlockArgTypes, newBlockArgLocs);
 
-    IRMapping mapping = buildBlockArgMappingWithoutScalarizedIndices(
-        oldBlock, newBlock, numInputs, scalarizedInputIndices);
+    IRMapping mapping;
+    for (unsigned i = 0; i < oldBlock->getNumArguments(); ++i) {
+      mapping.map(oldBlock->getArgument(i), newBlock->getArgument(i));
+    }
 
     rewriter.setInsertionPointToStart(newBlock);
     for (Operation &op : oldBlock->without_terminator()) {

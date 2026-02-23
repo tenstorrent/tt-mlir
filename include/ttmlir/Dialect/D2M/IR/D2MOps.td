@@ -373,6 +373,15 @@ def D2M_GenericOp
       static Value findAssocOperand(::mlir::tensor::EmptyOp emptyOp);
       static Value findAssocCBByOperandIndex(Operation *op, unsigned operandIndex);
       static Value findAssocCBByOperand(Operation *op, Value operand);
+
+      /// Get the tensor.empty (or memref.alloc) op result at position
+      /// `operandIndex` from the start of the region's first block.
+      /// Returns null if not found.
+      static Value getOperandTensorEmpty(Region &region, unsigned operandIndex);
+
+      /// Get all operand tensor.empty/memref.alloc values from a region.
+      static SmallVector<Value> getOperandTensorEmpties(Region &region, unsigned numOperands);
+
       bool isScratchInput(int64_t inputIndex) {
         auto scratchAttr = getScratchInputsAttr();
         if (!scratchAttr) return false;

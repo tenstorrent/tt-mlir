@@ -7,6 +7,7 @@
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
@@ -31,13 +32,43 @@ static bool isRemoteOperand(Value operand, Operation *op) {
   return mlir::isa<ViewOpInterface>(defOp);
 }
 
+// Ensure that CB block arguments are materialized for all operands in the
+// generic op's region. This pass is the transition point where CB block args
+// are introduced. Returns the CB block arg for the given operand index.
+static void materializeCBBlockArgs(GenericOp generic, Region &region) {
+  Block &block = region.front();
+  unsigned numOperands = generic->getNumOperands();
+
+  // Check if CB block args already exist (idempotent).
+  unsigned numExistingCBArgs = 0;
+  for (BlockArgument arg : block.getArguments()) {
+    if (mlir::isa<CBType>(arg.getType())) {
+      ++numExistingCBArgs;
+    }
+  }
+  if (numExistingCBArgs >= numOperands) {
+    return;
+  }
+
+  // Compute CB types from operand layouts and add block args.
+  for (unsigned i = 0; i < numOperands; ++i) {
+    auto operandType = mlir::cast<ShapedType>(generic->getOperand(i).getType());
+    auto layout = mlir::tt::ttcore::getDeviceLayout(operandType);
+    if (!layout) {
+      continue;
+    }
+    auto shardShape = layout.getShardShape(operandType);
+    auto cbType = CBType::get(MemRefType::get(
+        shardShape, operandType.getElementType(), nullptr,
+        mlir::tt::ttcore::MemorySpaceAttr::get(
+            generic.getContext(), mlir::tt::ttcore::MemorySpace::DeviceL1)));
+    block.addArgument(cbType, generic.getLoc());
+  }
+}
+
 // Helper function to find the CB block argument that corresponds to a memref
 // operand in a generic op. Returns the CB block argument if found, null
-// otherwise. Assumes that the operand index in the generic op equals the CB
-// block arg index.
-//
-// For DMA-only GenericOps with remote loads: returns the CB associated with
-// the output operand (destination), not the input operand being loaded.
+// otherwise. Materializes CB block args if they don't exist yet.
 static Value findAssociatedCB(Operation *op, Value memrefOperand) {
   GenericOp generic = op->getParentOfType<GenericOp>();
   if (!generic) {
@@ -58,8 +89,6 @@ static Value findAssociatedCB(Operation *op, Value memrefOperand) {
   }
 
   // Find the generic op's thread region that contains this operation
-  // If there's only one region, use it directly. Otherwise, use the utility
-  // function
   Region *genericRegion = nullptr;
   if (generic.getNumRegions() == 1) {
     genericRegion = &generic.getRegion(0);
@@ -71,13 +100,21 @@ static Value findAssociatedCB(Operation *op, Value memrefOperand) {
     return Value();
   }
 
-  // Get the first block of the generic region (thread region block)
+  // Materialize CB block args if not already present.
+  materializeCBBlockArgs(generic, *genericRegion);
+
   Block *threadBlock = &genericRegion->front();
 
-  // The CB block arguments are in the same order as the generic operands
-  // The operand index equals the CB block arg index
-  if (threadBlock->getNumArguments() > operandIndex) {
-    return threadBlock->getArgument(operandIndex);
+  // Find the CB block arg at the operand index. CB args may be offset
+  // by existing semaphore args.
+  unsigned cbIdx = 0;
+  for (BlockArgument arg : threadBlock->getArguments()) {
+    if (mlir::isa<CBType>(arg.getType())) {
+      if (cbIdx == operandIndex) {
+        return arg;
+      }
+      ++cbIdx;
+    }
   }
   return Value();
 }
@@ -174,18 +211,15 @@ static void simplifyLoadStorePairs(ModuleOp moduleOp, IRRewriter &rewriter) {
     });
     TT_assert((loadOperandIt != opOperands.end() &&
                storeOperandIt != opOperands.end()));
-    unsigned loadOperandIndex = loadOperandIt->getOperandNumber();
-    unsigned storeOperandIndex = storeOperandIt->getOperandNumber();
-
-    // Get the thread region block
+    // Ensure CB block args are materialized for this region.
     TT_assert(generic.getNumRegions() == 1u);
     Region *genericRegion = &generic.getRegion(0);
-    Block *threadBlock = &genericRegion->front();
+    materializeCBBlockArgs(generic, *genericRegion);
 
-    // Get CB block arguments (verification guarantees CB count aligns with
-    // operand count)
-    Value inputCB = threadBlock->getArgument(loadOperandIndex);
-    Value outputCB = threadBlock->getArgument(storeOperandIndex);
+    // Get CB block arguments by finding CB-typed args at the operand indices.
+    Value inputCB = findAssociatedCB(loadOp.getOperation(), loadMemref);
+    Value outputCB = findAssociatedCB(storeOp.getOperation(), storeMemref);
+    TT_assert((inputCB && outputCB));
 
     rewriter.setInsertionPoint(loadOp);
 
