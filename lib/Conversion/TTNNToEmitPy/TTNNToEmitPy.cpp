@@ -260,7 +260,7 @@ public:
         emitter.emit(eltwiseUnaryOp.getInput()),
         emitter.emit(static_cast<int>(::ttnn::operations::unary::VecMode::RC),
                      "vector_mode"),
-        /*parameter=*/emitter.emit(false, "fast_and_approximate_mode"),
+        emitter.emit(std::string("ttnn.SigmoidMode.Accurate"), "mode"),
         emitter.emit(eltwiseUnaryOp.getMemoryConfig() |
                          emitter.getMemoryConfig(eltwiseUnaryOp.getResult()),
                      "memory_config"),
