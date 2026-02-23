@@ -5,7 +5,6 @@
 #include "ttmlir/Dialect/TTIR/Transforms/EraseInverseOps/EraseInverseOps.h"
 
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
-#include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 
 namespace mlir::tt::ttir {
 
@@ -67,9 +66,27 @@ public:
 private:
   bool isCommuteUpwardsViable(RMSNormOp op,
                               ReshapeOp reshapeUser) const override {
-    // RMSNorm normalizes along the last dim, so it must be preserved by the
-    // reshape.
-    return utils::preservesDim(reshapeUser, -1);
+    // RMSNorm normalizes along the trailing dims specified by normalized_shape.
+    // The reshape must keep those dims as the actual trailing dims of the
+    // output. preservesDim alone is not enough: it checks whether the dim
+    // value/stride still exists *somewhere*, but rms_norm requires it to be
+    // the last dim. For example, reshape(1x3648x3840 -> 1x3648x3840x1)
+    // "preserves" dim -1 (3840) in the sense that 3840 is still present, but
+    // the actual trailing dim becomes 1, which breaks normalized_shape=[3840].
+    auto inputType = cast<RankedTensorType>(op.getInput().getType());
+    auto outputType = cast<RankedTensorType>(reshapeUser.getType());
+    auto inputShape = inputType.getShape();
+    auto outputShape = outputType.getShape();
+
+    // The trailing dims that rms_norm normalizes over must be identical.
+    ArrayRef<int64_t> normalizedShape = op.getNormalizedShape();
+    int64_t numNormDims = normalizedShape.size();
+    if (numNormDims > static_cast<int64_t>(outputShape.size())) {
+      return false;
+    }
+    auto outputTrailing = outputShape.take_back(numNormDims);
+    auto inputTrailing = inputShape.take_back(numNormDims);
+    return outputTrailing == inputTrailing;
   }
 
   bool isCommuteUpwardsFavorable(RMSNormOp op,
