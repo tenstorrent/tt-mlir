@@ -104,23 +104,13 @@ getPhysicalGridExtent(llvm::ArrayRef<int64_t> virtualGrid,
     volume *= dim;
   }
 
-  // Use the same factorization logic as collapseToPhysicalGrid2D.
-  // Try to find an optimal factorization using findLegalPhysicalGridForVolume
-  // which balances Y and X dimensions by finding factors near sqrt.
   auto result =
       mlir::tt::d2m::utils::findLegalPhysicalGridForVolume(volume, targetGrid);
-  if (!result.empty()) {
-    return result;
-  }
-
-  // Fallback for time-multiplexing: use row-major flatten + reshape.
-  // X dimension fills first (up to targetGrid[1]),
-  // Y dimension extends as needed (up to targetGrid[0]).
-  int64_t physicalY =
-      std::min((volume + targetGrid[1] - 1) / targetGrid[1], targetGrid[0]);
-  int64_t physicalX = std::min(volume, targetGrid[1]);
-
-  return {physicalY, physicalX};
+  TT_assertv(!result.empty(),
+             "Virtual grid volume {} has no valid 2D factorization within "
+             "target grid [{}, {}]",
+             volume, targetGrid[0], targetGrid[1]);
+  return result;
 }
 
 } // namespace ttmlir::d2m::utils::grids
