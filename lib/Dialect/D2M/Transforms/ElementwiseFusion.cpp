@@ -579,8 +579,8 @@ struct FuseD2MElementwiseOpsPattern : public OpRewritePattern<GenericOp> {
     // Build fused op operands, maps, results
     auto [fusedInputs, fusedOutputs, fusedMaps] =
         getFusedOperands(fusedOperand, producer, consumer);
-    auto mergedCaptures = llvm::to_vector(
-        llvm::concat<Value>(consumer.getCaptures(), producer.getCaptures()));
+    auto mergedCaptures = llvm::to_vector(llvm::concat<Value>(
+        consumer.getAdditionalArgs(), producer.getAdditionalArgs()));
 
     auto fusedOp =
         createFusedGeneric(fusedOperand, producer, consumer, fusedInputs,

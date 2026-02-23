@@ -1794,7 +1794,6 @@ public:
     }
 
     if (ttnnMode) {
-      // to do: just erase if arg already in list, and get index
       rewriter.modifyOpInPlace(entry, [&]() {
         argIndex = ArgSpecAttr::appendRuntimeArg(entry, arg);
       });
@@ -1802,7 +1801,6 @@ public:
           op, arg_result_type, index(rewriter, op->getLoc(), argIndex));
 
     } else {
-      // to do: just erase if arg already in list
       rewriter.modifyOpInPlace(entry, [&]() {
         argIndex = ArgSpecAttr::appendCompileTimeArg(entry, arg);
       });

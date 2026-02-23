@@ -222,7 +222,7 @@ public:
     // Create new generic op with N+1 regions.
     auto newGeneric = rewriter.create<GenericOp>(
         generic.getLoc(), generic.getResultTypes(), generic.getInputs(),
-        generic.getOutputs(), generic.getCaptures(), generic.getGrid(),
+        generic.getOutputs(), generic.getAdditionalArgs(), generic.getGrid(),
         generic.getBlockFactors(), generic.getIndexingMaps(),
         generic.getIteratorTypes(), rewriter.getArrayAttr(threads),
         generic.getScratchInputsAttr(),
