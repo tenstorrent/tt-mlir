@@ -1,5 +1,5 @@
 // RUN: ttmlir-opt --ttcore-register-device --ttcore-wrap-device-module --ttnn-d2m-fusing --ttnn-through-d2m-pipeline --ttnn-collaspe-d2m --canonicalize %s | FileCheck %s
-// TTNNToTTIR reverse pass needs to be updated to strip intermediate layouts. Until then, this test compiles but the result is meaningless.
+// TTNNToTTIR reverse pass needs to be updated to strip intermediate layouts. Until then, this test compiles but the result is meaningless. Issue #7160
 // UNSUPPORTED: true
 
 

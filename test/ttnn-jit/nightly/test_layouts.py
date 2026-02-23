@@ -164,7 +164,7 @@ SKIPPED_HEIGHT_SHARDED_CASES = [
 @pytest.mark.parametrize("op", [abs])
 def test_l1_height_sharded_shapes(device, shape, max_grid, op):
     if (shape, max_grid) in SKIPPED_HEIGHT_SHARDED_CASES:
-        pytest.skip("Known failing shape/grid case, to be tracked in a GitHub issue.")
+        pytest.skip("Known failing shape/grid case, Issue #7157.")
     output_memory_config = ttnn.create_sharded_memory_config(
         shape=shape,
         core_grid=ttnn.CoreGrid(x=max_grid[0] + 1, y=max_grid[1] + 1),
@@ -235,7 +235,7 @@ SKIPPED_WIDTH_SHARDED_CASES = [
 @pytest.mark.parametrize("op", [abs])
 def test_l1_width_sharded_shapes(device, shape, max_grid, op):
     if (shape, max_grid) in SKIPPED_WIDTH_SHARDED_CASES:
-        pytest.skip("Known failing shape/grid case, to be tracked in a GitHub issue.")
+        pytest.skip("Known failing shape/grid case, Issue #7157.")
     output_memory_config = ttnn.create_sharded_memory_config(
         shape=shape,
         core_grid=ttnn.CoreGrid(x=max_grid[0] + 1, y=max_grid[1] + 1),
@@ -256,14 +256,7 @@ def test_l1_width_sharded_shapes(device, shape, max_grid, op):
     )
 
 
-@pytest.mark.parametrize(
-    "shape",
-    DRAM_INTERLEAVED_SHAPE_GRIDS,
-    ids=[f"{shape}" for shape in DRAM_INTERLEAVED_SHAPE_GRIDS],
-)
-@pytest.mark.parametrize("op", [abs])
-def test_dram_interleaved_shapes(device, shape, op):
-    max_grid = (0, 0)
+def get_sharded_layout(shape):
     strategy = ttnn.ShardStrategy.BLOCK
     if shape[-2] // shape[-1] >= 8:
         strategy = ttnn.ShardStrategy.HEIGHT
@@ -293,7 +286,20 @@ def test_dram_interleaved_shapes(device, shape, op):
                 grid = [grid_x, grid_y]
                 break
     assert len(grid) == 2
-    print(f"picked grid: {grid} and strategy: {strategy} for shape {shape}")
+
+    return grid, strategy
+
+
+@pytest.mark.parametrize(
+    "shape",
+    DRAM_INTERLEAVED_SHAPE_GRIDS,
+    ids=[f"{shape}" for shape in DRAM_INTERLEAVED_SHAPE_GRIDS],
+)
+@pytest.mark.parametrize("op", [abs])
+def test_dram_interleaved_shapes(device, shape, op):
+    grid, strategy = get_sharded_layout(shape)
+    max_grid = (0, 0)
+
     output_memory_config = ttnn.create_sharded_memory_config(
         shape=shape,
         core_grid=ttnn.CoreGrid(x=grid[0], y=grid[1]),
