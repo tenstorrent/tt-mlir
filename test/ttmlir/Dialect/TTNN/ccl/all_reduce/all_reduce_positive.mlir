@@ -144,6 +144,25 @@ module attributes {} {
 
 // -----
 
+// Verify tiled-shape divisibility selected on dim 2 inserts pad/slice for
+// non-tile-multiple shape before/after reduce_scatter/all_gather.
+module attributes {} {
+  // CHECK-LABEL: all_reduce_default_dims_last_divisible_tiled_dim2_with_pad_slice
+  func.func @all_reduce_default_dims_last_divisible_tiled_dim2_with_pad_slice(%arg0: tensor<1x1x33x65xf32>) -> tensor<1x1x33x65xf32> {
+    %1 = "ttir.all_reduce"(%arg0) <{cluster_axis = 1 : ui32, reduce_type = #ttcore.reduce_type<sum>}> : (tensor<1x1x33x65xf32>) -> tensor<1x1x33x65xf32>
+    // CHECK: "ttnn.pad"
+    // CHECK-SAME: padding = array<i32: 0, 0, 0, 0, 0, 31, 0, 0>
+    // CHECK: "ttnn.reduce_scatter"
+    // CHECK-SAME: scatter_dim = 2 : si32
+    // CHECK: "ttnn.all_gather"
+    // CHECK-SAME: all_gather_dim = 2 : si32
+    // CHECK: "ttnn.slice_static"
+    return %1 : tensor<1x1x33x65xf32>
+  }
+}
+
+// -----
+
 // Verify selectedDim < 0 path: no tiled-count dimension is divisible by
 // cluster device count, so fallback uses all_gather + local sum.
 module attributes {} {
