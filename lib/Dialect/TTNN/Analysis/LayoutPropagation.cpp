@@ -81,12 +81,9 @@ void LayoutPropagation::run() {
                    opIndex, op->getName(), op->getLoc());
       return;
     }
-    // Ops feeding func.return were previously skipped. Now they are
-    // processed normally so their input layouts get optimized (e.g., L1
-    // interleaved reshard from a sharded producer). A to_memory_config to
-    // DRAM is inserted before func.return in applyToIR to keep the IR
-    // consistent with the function's return signature.
-
+    // Ops feeding func.return are processed normally so their input
+    // layouts get optimized. A to_memory_config to DRAM is inserted
+    // before func.return in applyToIR.
     TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
                  "[op {0}] Processing {1} @{2}, legalConfigs={3}",
                  opIndex, op->getName(), op->getLoc(),
@@ -187,22 +184,6 @@ LayoutPropagation::processOp(Operation *op) {
       candidate.config =
           OpConfig(result.actualOutputLayout, hint.opSpecificAttrs);
       candidate.score = scoreCandidate(op, hint, result, anyReshard);
-
-      // Compute total bytes transferred from DRAM across all inputs.
-      uint64_t dramBytes = 0;
-      for (const auto &layout : inputLayouts) {
-        if (layout && !layout.hasL1BufferType()) {
-          uint64_t tensorBytes = layout.getShardSizeInBytes();
-          if (auto grid = layout.getGrid()) {
-            for (auto dim : grid.getShape()) {
-              tensorBytes *= dim;
-            }
-          }
-          dramBytes += tensorBytes;
-        }
-      }
-      candidate.score.inputDramBytes = dramBytes;
-
       candidate.validationResult = result;
       candidate.inputLayouts = inputLayouts;
       candidate.producerCandidateIndices = producerCandidateIndices;
@@ -212,13 +193,12 @@ LayoutPropagation::processOp(Operation *op) {
       TTMLIR_TRACE(
           ttmlir::LogComponent::GreedyOptimizer,
           "    VALID candidate for {0}: hint[{1}] outBuf={2} "
-          "outMem={3} score(L1={4},sharded={5},dramIn={6},"
-          "reshard={7},cores={8},l1use={9})",
+          "outMem={3} score(L1={4},sharded={5},"
+          "reshard={6},cores={7},l1use={8})",
           op->getName(), hintIdx,
           candidate.config.outputLayout.getBufferType(),
           candidate.config.outputLayout.getMemLayout(),
           candidate.score.isL1, candidate.score.isSharded,
-          candidate.score.inputDramBytes,
           candidate.score.requiresReshard, candidate.score.coreCount,
           candidate.score.outputL1Usage);
 
@@ -301,52 +281,26 @@ LayoutPropagation::processOp(Operation *op) {
         }
       }
 
-      // Skip input combinations where two L1-sharded inputs have different
-      // shard types (e.g., width_sharded x block_sharded). This pattern
-      // requires cross-shard NOC routing that can hang on hardware.
-      bool skipMixedSharding = false;
-      {
-        std::optional<TensorMemoryLayout> firstShardType;
-        for (const auto &layout : inputLayouts) {
-          if (!layout || !layout.hasL1BufferType()) {
-            continue;
-          }
-          auto memLayout = layout.getMemLayout();
-          if (!memLayout || !isShardedMemoryLayout(memLayout.getValue())) {
-            continue;
-          }
-          if (!firstShardType) {
-            firstShardType = memLayout.getValue();
-          } else if (*firstShardType != memLayout.getValue()) {
-            skipMixedSharding = true;
-            break;
-          }
+      // Try primary output hints with this input combination.
+      bool gotSharded = false;
+      for (size_t hi = 0; hi < outputHints.hints.size(); ++hi) {
+        if (tryHint(outputHints.hints[hi], hi, inputLayouts, anyReshard,
+                    producerCandidateIndices, reshardLayouts)) {
+          gotSharded = true;
         }
       }
 
-      // Try output hints only if inputs don't have mixed L1-shard types.
-      if (!skipMixedSharding) {
-        // Try primary output hints with this input combination.
-        bool gotSharded = false;
-        for (size_t hi = 0; hi < outputHints.hints.size(); ++hi) {
-          if (tryHint(outputHints.hints[hi], hi, inputLayouts, anyReshard,
-                      producerCandidateIndices, reshardLayouts)) {
-            gotSharded = true;
-          }
-        }
-
-        // Try fallback hints only if primary didn't produce a sharded result.
-        if (!gotSharded && !outputHints.fallbackHints.empty()) {
-          TTMLIR_TRACE(
-              ttmlir::LogComponent::GreedyOptimizer,
-              "    Primary hints non-sharded for {0}, trying {1} fallback "
-              "hints",
-              op->getName(), outputHints.fallbackHints.size());
-          for (size_t fi = 0; fi < outputHints.fallbackHints.size(); ++fi) {
-            tryHint(outputHints.fallbackHints[fi],
-                    outputHints.hints.size() + fi, inputLayouts, anyReshard,
-                    producerCandidateIndices, reshardLayouts);
-          }
+      // Try fallback hints only if primary didn't produce a sharded result.
+      if (!gotSharded && !outputHints.fallbackHints.empty()) {
+        TTMLIR_TRACE(
+            ttmlir::LogComponent::GreedyOptimizer,
+            "    Primary hints non-sharded for {0}, trying {1} fallback "
+            "hints",
+            op->getName(), outputHints.fallbackHints.size());
+        for (size_t fi = 0; fi < outputHints.fallbackHints.size(); ++fi) {
+          tryHint(outputHints.fallbackHints[fi],
+                  outputHints.hints.size() + fi, inputLayouts, anyReshard,
+                  producerCandidateIndices, reshardLayouts);
         }
       }
 
@@ -393,12 +347,11 @@ LayoutPropagation::processOp(Operation *op) {
     TTMLIR_TRACE(
         ttmlir::LogComponent::GreedyOptimizer,
         "  BEAM[{0}] {1}: outBuf={2} outMem={3} "
-        "score(L1={4},sharded={5},dramIn={6},reshard={7},"
-        "cores={8},l1use={9}) inputs=[{10}]",
+        "score(L1={4},sharded={5},reshard={6},"
+        "cores={7},l1use={8}) inputs=[{9}]",
         ci, op->getName(), c.config.outputLayout.getBufferType(),
         c.config.outputLayout.getMemLayout(), c.score.isL1,
-        c.score.isSharded, c.score.inputDramBytes,
-        c.score.requiresReshard, c.score.coreCount,
+        c.score.isSharded, c.score.requiresReshard, c.score.coreCount,
         c.score.outputL1Usage, inputDesc);
   }
 
@@ -462,20 +415,20 @@ LayoutPropagation::getInputCandidateSets(Operation *op) {
       candidatesForOperand.push_back(ic);
     }
 
-    // Reshape/permute/ops that forbid sharded inputs can never consume
-    // sharded inputs. Ensure L1-interleaved is always available as an
-    // input candidate so these ops have a path that keeps data in L1
-    // instead of falling to DRAM.
-    if (producerOp && beamState.count(producerOp) &&
-        (isa<ReshapeOp, PermuteOp>(op) || opForbidsShardedInputs(op))) {
-      bool hasL1Interleaved = llvm::any_of(
-          candidatesForOperand, [](const InputCandidate &ic) {
-            return ic.layout.getBufferType() == BufferType::L1 &&
-                   ic.layout.getMemLayout() &&
-                   ic.layout.getMemLayout().getValue() ==
-                       TensorMemoryLayout::Interleaved;
-          });
-      if (!hasL1Interleaved) {
+    // Add L1-interleaved fallback when all producer candidates are sharded.
+    // Without this, ops that can't consume sharded inputs (reshape, permute,
+    // concatenate_heads) fall to DRAM, and ops that *can* (matmul) lose the
+    // option of an L1-interleaved input that may score better.
+    if (producerOp && beamState.count(producerOp)) {
+      bool allSharded = !candidatesForOperand.empty() &&
+                        llvm::all_of(candidatesForOperand,
+                                     [](const InputCandidate &ic) {
+                                       auto ml = ic.layout.getMemLayout();
+                                       return ml &&
+                                              isShardedMemoryLayout(
+                                                  ml.getValue());
+                                     });
+      if (allSharded) {
         TTNNLayoutAttr l1Interleaved =
             currentLayout.withBufferType(BufferType::L1)
                 .withMemoryLayout(TensorMemoryLayout::Interleaved);
