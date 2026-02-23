@@ -1839,7 +1839,6 @@ Operation::operand_range d2m::GenericOp::getAdditionalArgOperands() {
     }
   }
 
-  
   ValueTypeRange<OperandRange> inputOutputOperandTypes =
       getInputOutputOperands().getTypes();
   auto *firstRegion = getRegions().begin();
