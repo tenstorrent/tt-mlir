@@ -48,28 +48,23 @@ static Value convertToBooleanTensor(Value input, Location loc,
     return input;
   }
 
-  // Create a constant tensor with 0.0 for comparison
   auto elementType = inputType.getElementType();
   assert(elementType.isF32());
-  TypedAttr zeroAttr = rewriter.getF32FloatAttr(0.0f);
 
-  // Create a constant scalar with the zero value
-  auto zeroValue = rewriter.create<arith::ConstantOp>(loc, zeroAttr);
+  // Create broadcastable zero constant.
+  SmallVector<int64_t> broadcastShape(inputType.getRank(), 1);
+  auto broadcastType = RankedTensorType::get(broadcastShape, elementType);
+  DenseElementsAttr zeroAttr =
+      DenseElementsAttr::get(broadcastType, rewriter.getF32FloatAttr(0.0f));
+  auto zeroConst = rewriter.create<tosa::ConstOp>(loc, broadcastType, zeroAttr);
 
-  // Create a splat tensor with the zero value
-  auto zeroSplat =
-      rewriter.create<tensor::SplatOp>(loc, inputType, zeroValue.getResult());
-
-  // For logical operations, non-zero means true
-  // So we need: (input != 0) which we get by computing !(input == 0)
+  // For logical operations, non-zero means true.
+  // So we need: (input != 0) which we get by computing !(input == 0).
   auto boolType =
       RankedTensorType::get(inputType.getShape(), rewriter.getIntegerType(1));
-
-  // Check if input == 0
   auto equalZero =
-      rewriter.create<tosa::EqualOp>(loc, boolType, input, zeroSplat);
-
-  // Then use LogicalNotOp to invert it, giving us (input != 0)
+      rewriter.create<tosa::EqualOp>(loc, boolType, input, zeroConst);
+  // Then use LogicalNotOp to invert it, giving us (input != 0).
   auto notEqualZero =
       rewriter.create<tosa::LogicalNotOp>(loc, boolType, equalZero);
 
@@ -92,26 +87,22 @@ convertToBooleanTensorComparison(Value input, Location loc,
     return input;
   }
 
-  // Create a constant tensor with 0.0 for comparison
   auto elementType = inputType.getElementType();
   assert(elementType.isF32());
-  TypedAttr zeroAttr = rewriter.getF32FloatAttr(0.0f);
 
-  // Create a constant scalar with the zero value
-  auto zeroValue = rewriter.create<arith::ConstantOp>(loc, zeroAttr);
+  // Create broadcastable zero constant.
+  SmallVector<int64_t> broadcastShape(inputType.getRank(), 1);
+  auto broadcastType = RankedTensorType::get(broadcastShape, elementType);
+  DenseElementsAttr zeroAttr =
+      DenseElementsAttr::get(broadcastType, rewriter.getF32FloatAttr(0.0f));
+  auto zeroConst = rewriter.create<tosa::ConstOp>(loc, broadcastType, zeroAttr);
 
-  // Create a splat tensor with the zero value
-  auto zeroSplat =
-      rewriter.create<tensor::SplatOp>(loc, inputType, zeroValue.getResult());
-
-  // For comparison semantics: positive values are true
-  // So we need: (input > 0)
+  // For comparison semantics: positive values are true, so we need: (input >
+  // 0).
   auto boolType =
       RankedTensorType::get(inputType.getShape(), rewriter.getIntegerType(1));
-
-  // Check if input > 0
   auto greaterThanZero =
-      rewriter.create<tosa::GreaterOp>(loc, boolType, input, zeroSplat);
+      rewriter.create<tosa::GreaterOp>(loc, boolType, input, zeroConst);
 
   return greaterThanZero;
 }
@@ -721,22 +712,22 @@ public:
         this->getTypeConverter()->convertType(op.getResult().getType()));
     assert(resultType && "Result type must be a ranked tensor type.");
 
-    // Create a scalar constant for π/2 using arith.constant
+    // Create a scalar constant for π/2 using arith.constant.
     auto elementType = resultType.getElementType();
-    auto piOver2 = rewriter.create<arith::ConstantOp>(
-        op.getLoc(), elementType, rewriter.getFloatAttr(elementType, M_PI_2));
+    auto inputType = cast<RankedTensorType>(input.getType());
 
-    // Create a tensor with the same shape as input filled with π/2
-    auto inputShape = cast<RankedTensorType>(input.getType()).getShape();
-    auto piOver2Tensor = rewriter.create<tensor::SplatOp>(
-        op.getLoc(), RankedTensorType::get(inputShape, elementType),
-        piOver2.getResult());
+    SmallVector<int64_t> broadcastShape(inputType.getRank(), 1);
+    auto broadcastType = RankedTensorType::get(broadcastShape, elementType);
 
-    // Add π/2 to the input
+    DenseElementsAttr piOver2Attr = DenseElementsAttr::get(
+        broadcastType, rewriter.getFloatAttr(elementType, M_PI_2));
+    auto piOver2Const =
+        rewriter.create<tosa::ConstOp>(op.getLoc(), broadcastType, piOver2Attr);
+
+    // Add π/2 to the input.
     auto shifted = rewriter.create<tosa::AddOp>(op.getLoc(), resultType, input,
-                                                piOver2Tensor);
-
-    // Take the sin of the shifted input
+                                                piOver2Const);
+    // Take the sin of the shifted input.
     auto result =
         rewriter.create<tosa::SinOp>(op.getLoc(), resultType, shifted);
 
@@ -1625,10 +1616,13 @@ public:
     auto elementType = resultType.getElementType();
 
     // Create a constant tensor with 1/spatialCount for division.
-    auto divisorAttr = rewriter.getFloatAttr(elementType, 1.0 / spatialCount);
-    auto divisorValue = rewriter.create<arith::ConstantOp>(loc, divisorAttr);
-    auto divisorTensor = rewriter.create<tensor::SplatOp>(
-        loc, resultType, divisorValue.getResult());
+    SmallVector<int64_t> broadcastShape(resultType.getRank(), 1);
+    auto broadcastType = RankedTensorType::get(broadcastShape, elementType);
+
+    DenseElementsAttr divisorAttr = DenseElementsAttr::get(
+        broadcastType, rewriter.getFloatAttr(elementType, 1.0 / spatialCount));
+    auto divisorConst =
+        rewriter.create<tosa::ConstOp>(loc, broadcastType, divisorAttr);
 
     // Create shift tensor for tosa::MulOp (requires i8 tensor).
     auto shiftType = RankedTensorType::get({1}, rewriter.getI8Type());
@@ -1638,7 +1632,7 @@ public:
 
     // Multiply by reciprocal to get average.
     auto result = rewriter.create<tosa::MulOp>(
-        loc, resultType, widthReduceResult.getResult(), divisorTensor, shift);
+        loc, resultType, widthReduceResult.getResult(), divisorConst, shift);
 
     rewriter.replaceOp(op, result.getResult());
     return success();
