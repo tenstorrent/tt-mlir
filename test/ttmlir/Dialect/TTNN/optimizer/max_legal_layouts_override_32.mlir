@@ -3,8 +3,9 @@
 // RUN: FileCheck %s --input-file=output_file.mlir
 module attributes {} {
   func.func @forward(%arg0: tensor<16x32x32x64xbf16>, %arg1: tensor<64x64x3x3xbf16>, %arg2: tensor<1x1x1x64xbf16>) -> tensor<16x32x32x64xbf16> {
-    // CHECK-DAG: #[[CONV_LAYOUT:.*]] = #ttnn.ttnn_layout<{{.*}}#l1>, <height_sharded>>
-    // CHECK: {{.*}} = "ttnn.conv2d"{{.*}}-> tensor<{{.*}}, #[[CONV_LAYOUT]]>
+    // CHECK: #[[L1_:.*]] = #ttnn.buffer_type<l1>
+    // CHECK: #[[LAYOUT_L1:.*]] = #ttnn.ttnn_layout<{{.*}}#[[L1_]]>
+    // CHECK: {{.*}} = "ttnn.conv2d"{{.*}}#[[LAYOUT_L1]]>
     %1 = "ttir.conv2d"(%arg0, %arg1, %arg2)
             <{
                 stride = 1: i32,
