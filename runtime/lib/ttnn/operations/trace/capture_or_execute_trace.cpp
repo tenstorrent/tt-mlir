@@ -37,7 +37,7 @@ static void copyTensor(const ::ttnn::Tensor &srcTensor,
 static void runTraceProgramAndCaptureTrace(
     const ::tt::target::ttnn::CaptureOrExecuteTraceOp *op,
     ProgramContext &context, ::tt::runtime::ttnn::TraceCache &traceCache) {
-
+  LOG_INFO("Executing capture program with ID: ", op->capture_program_id());
   ProgramTensorPool &tensorPool = context.getTensorPool();
   ::tt::runtime::Device deviceHandle = context.getDeviceHandle();
 
@@ -116,6 +116,7 @@ static void runTraceProgramAndCaptureTrace(
 
 static void executeTrace(const ::tt::target::ttnn::CaptureOrExecuteTraceOp *op,
                          ProgramContext &context, TraceData &traceData) {
+  LOG_INFO("Executing trace with trace ID: ", traceData.traceId.get());
   ::tt::runtime::Device deviceHandle = context.getDeviceHandle();
 
   std::vector<::ttnn::Tensor> inputs;
@@ -193,6 +194,9 @@ static void executeTrace(const ::tt::target::ttnn::CaptureOrExecuteTraceOp *op,
 
 void run(const ::tt::target::ttnn::CaptureOrExecuteTraceOp *op,
          ProgramContext &context) {
+  LOG_INFO("Executing CaptureOrExecuteTraceOp with capture program ID: ",
+           op->capture_program_id(), " and execute program ID: ",
+           op->execute_program_id());
   ::tt::runtime::Device deviceHandle = context.getDeviceHandle();
   ::ttnn::MeshDevice &meshDevice =
       deviceHandle.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
