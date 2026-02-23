@@ -24,7 +24,7 @@ module {
     // CHECK: %[[SEM_BACKING:.*]] = "ttmetal.create_buffer"() <{address = [[SEM_ADDRESS:[0-9]+]] : i64}> : () -> memref<8x8x1x1xui32, #ttcore.shard<4x4, 1>, #l1>
     %sem_backing = d2m.empty() : tensor<8x8x1x1xui32, #sem_layout>
 
-    // CHECK: "ttmetal.create_global_semaphore"() <{address = [[SEM_ADDRESS]] : i64, core_range = #ttmetal.core_range<0x0, 8x8>, initial_value = 0 : ui32}> : () -> !ttkernel.global_semaphore
+    // CHECK: "ttmetal.create_global_semaphore"() <{address = [[SEM_ADDRESS]] : i64, core_range = #ttmetal.core_range<0x0, 8x8>, initial_value = 0 : ui32}> : () -> !ttmetal.global_semaphore
     %sem = d2m.create_global_semaphore(%sem_backing) {value = 0 : ui32}
       : tensor<8x8x1x1xui32, #sem_layout> -> !d2m.global_semaphore
 
@@ -43,10 +43,6 @@ module {
     // CHECK: ttmetal.enqueue_program
     // CHECK-SAME: #ttmetal.kernel_args< ct_args = [{{.*}}<global_semaphore[0]>{{.*}}]
     // The below check is to ensure that the semaphore buffer is deallocated after the generic operation (i.e liveness analysis is working).
-    // CHECK: "ttmetal.deallocate_buffer"(%[[SEM_BACKING]])
-    // CHECK: func.func {{.*}} {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [{{.*}}<arg_type = global_semaphore, operand_index = {{[0-9]+}}>{{.*}}]>, {{.*}}}
-    // CHECK: "noc_semaphore_wait"
-    // CHECK: "noc_semaphore_set"
     %result = "d2m.generic"(%arg0_stream, %output_stream, %sem) <{
       block_factors = [],
       grid = #ttcore.grid<1x1>,
@@ -88,8 +84,7 @@ module {
         }
       }
 
-      d2m.semaphore_set %sem, %c1, core[%core0, %core1] mcast[%c1, %c1] : !d2m.global_semaphore
-      d2m.semaphore_wait %sem, %c1 reset %c0 : !d2m.global_semaphore
+      d2m.semaphore_wait %sem, %c1 : !d2m.global_semaphore
 
       d2m.yield %output_stream : (tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout>)
     }) : (tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout>,
@@ -100,6 +95,11 @@ module {
     // CHECK: "ttmetal.reset_global_semaphore"
     d2m.reset_global_semaphore(%sem) {value = 0 : ui32} : !d2m.global_semaphore
 
+    // CHECK: "ttmetal.deallocate_buffer"(%[[SEM_BACKING]])
+
     return %result : tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout>
+
+    // CHECK: func.func {{.*}} {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [{{.*}}<arg_type = global_semaphore, operand_index = {{[0-9]+}}>{{.*}}]>, {{.*}}}
+    // CHECK: "noc_semaphore_wait"
   }
 }
