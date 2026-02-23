@@ -573,6 +573,41 @@ mlir::AffineMap ShardLayoutAttr::getAffineMap() const {
                                                           getContext());
 }
 
+CBBufferLayoutAttr CBBufferLayoutAttr::get(mlir::MLIRContext *context,
+                                           ArrayRef<int64_t> shape,
+                                           uint64_t elementSize,
+                                           uint32_t buffers) {
+  auto strides =
+      ttmlir::utils::calculateStrides(shape, static_cast<int64_t>(elementSize));
+  SmallVector<int64_t> emptyGrid;
+  return get(context, strides, buffers, emptyGrid);
+}
+
+CBBufferLayoutAttr CBBufferLayoutAttr::get(ArrayRef<int64_t> shape,
+                                           Type elementType, uint32_t buffers) {
+  return get(elementType.getContext(), shape, getElementSizeBytes(elementType),
+             buffers);
+}
+
+CBBufferLayoutAttr CBBufferLayoutAttr::get(mlir::MLIRContext *context,
+                                           ArrayRef<int64_t> shape,
+                                           uint64_t elementSize,
+                                           uint32_t buffers,
+                                           ArrayRef<int64_t> gridShape) {
+  auto strides =
+      ttmlir::utils::calculateStrides(shape, static_cast<int64_t>(elementSize));
+  return get(context, strides, buffers, gridShape);
+}
+
+mlir::AffineMap CBBufferLayoutAttr::getAffineMap() const {
+  // Return an identity map so that memrefs with this layout are
+  // cast-compatible with bare memrefs used by downstream ops (e.g.
+  // memref.cast in D2MToTTKernel).  The stride/buffers fields carry the
+  // CB configuration but don't affect the memref's logical indexing.
+  return mlir::AffineMap::getMultiDimIdentityMap(getStride().size(),
+                                                 getContext());
+}
+
 InterleavedLayoutAttr InterleavedLayoutAttr::get(mlir::MLIRContext *context,
                                                  ArrayRef<int64_t> shape,
                                                  uint64_t elementSize) {
@@ -1539,6 +1574,12 @@ size_t DeviceAttr::getShardSizeInBytes(MemRefType memrefType, size_t alignSize,
     if (auto shardLayout = mlir::dyn_cast<ShardLayoutAttr>(devLayout)) {
       numBuffers = (includeBuffers) ? shardLayout.getBuffers() : 1;
     }
+  } else if (auto cbLayout =
+                 mlir::dyn_cast<CBBufferLayoutAttr>(memrefType.getLayout())) {
+    // Core-local CB buffers: full shape is the shard, numBuffers is
+    // programmable.
+    shardShape = memrefType.getShape();
+    numBuffers = (includeBuffers) ? cbLayout.getBuffers() : 1;
   } else {
     // local memrefs have no layout attribute
     numBuffers = 1;

@@ -458,27 +458,21 @@ protected:
                        mlir::Location loc, mlir::TypeRange inputs,
                        mlir::TypeRange outputs, d2m::GenericOp generic,
                        bool enableMulticastInference) {
-    auto fn = [&](Type t) {
-      mlir::RankedTensorType tensorType = mlir::cast<mlir::RankedTensorType>(t);
+    // Compute shard shapes from operand layouts.
+    auto getShardType = [](Type t) -> RankedTensorType {
+      auto tensorType = mlir::cast<mlir::RankedTensorType>(t);
       ttcore::MetalLayoutAttr layout =
           mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
       auto shardShape = layout.getShardShape(tensorType);
-      block->addArgument(d2m::CBType::get(mlir::RankedTensorType::get(
-                             shardShape, tensorType.getElementType())),
-                         loc);
+      return mlir::RankedTensorType::get(shardShape,
+                                         tensorType.getElementType());
     };
-
-    llvm::for_each(mlir::TypeRange(inputs), fn);
-    llvm::for_each(mlir::TypeRange(outputs), fn);
 
     SmallVector<Value> operands;
 
-    // Process input operands - create remote_load operations using result
-    // form.
+    // Process input operands - create tensor.empty + remote_load operations.
     for (size_t i = 0; i < inputs.size(); ++i) {
-      BlockArgument cbArg = block->getArgument(i);
-      auto cbType = mlir::cast<d2m::CBType>(cbArg.getType());
-      Type shardType = cbType.getUnderlying();
+      RankedTensorType shardType = getShardType(inputs[i]);
 
       // Get the indexing map for this operand
       AffineMap indexingMap = generic.getIndexingMap(i);
@@ -498,9 +492,8 @@ protected:
       }
 
       // Create a buffer for the load result
-      auto tensorType = mlir::cast<RankedTensorType>(shardType);
       auto bufferOp = builder.create<tensor::EmptyOp>(
-          loc, tensorType.getShape(), tensorType.getElementType());
+          loc, shardType.getShape(), shardType.getElementType());
       Value buffer = bufferOp.getResult();
 
       Value loadResult;
@@ -530,16 +523,12 @@ protected:
       operands.push_back(loadResult);
     }
 
-    // Process output operands - create tensor.empty operations
+    // Process output operands - create tensor.empty operations.
     for (size_t i = 0; i < outputs.size(); ++i) {
-      auto cbArg = block->getArgument(inputs.size() + i);
-      auto cbType = mlir::cast<d2m::CBType>(cbArg.getType());
-      auto shardType = cbType.getUnderlying();
+      RankedTensorType shardType = getShardType(outputs[i]);
 
-      // Create tensor.empty with identical result type
-      auto tensorType = mlir::cast<RankedTensorType>(shardType);
       auto emptyOp = builder.create<tensor::EmptyOp>(
-          loc, tensorType.getShape(), tensorType.getElementType());
+          loc, shardType.getShape(), shardType.getElementType());
 
       operands.push_back(emptyOp.getResult());
     }
@@ -1606,34 +1595,22 @@ public:
           SmallVector<mlir::utils::IteratorType> linalgIteratorTypes(
               logicalRank, mlir::utils::IteratorType::parallel);
 
-          // Get CB types and shard shapes
-          auto cbInputType = mlir::cast<d2m::CBType>(blockArgs[0].getType());
-          auto cbOutputType = mlir::cast<d2m::CBType>(blockArgs[1].getType());
-          auto inputShardType = cbInputType.getUnderlying();
-          auto outputShardType = cbOutputType.getUnderlying();
+          // blockArgs are tensor.empty results with shard shapes.
+          auto inputShardType = blockArgs[0].getType();
 
-          // Create remote_load for input
+          // Create remote_load for input using the tensor.empty as buffer.
           AffineMap inputIndexingMap = identityMap;
           SmallVector<Value> inputIndices =
               d2m::utils::buildGridIndices(builder, bodyLoc, inputIndexingMap);
-          // Create a buffer for the load result
-          auto inputTensorType = mlir::cast<RankedTensorType>(inputShardType);
-          auto inputBufferOp = builder.create<tensor::EmptyOp>(
-              bodyLoc, inputTensorType.getShape(),
-              inputTensorType.getElementType());
-          Value inputBuffer = inputBufferOp.getResult();
+          Value inputBuffer = blockArgs[0];
           Value input = builder
                             .create<d2m::RemoteLoadOp>(
                                 bodyLoc, inputShardType, inputBuffer,
                                 inputOperand, inputIndices)
                             .getResult();
 
-          // Create tensor.empty for output
-          auto outputTensorType = mlir::cast<RankedTensorType>(outputShardType);
-          auto emptyOp = builder.create<tensor::EmptyOp>(
-              bodyLoc, outputTensorType.getShape(),
-              outputTensorType.getElementType());
-          Value output = emptyOp.getResult();
+          // Use the output tensor.empty directly.
+          Value output = blockArgs[1];
 
           auto linalgGeneric = builder.create<mlir::linalg::GenericOp>(
               bodyLoc, output.getType(), input, output,
