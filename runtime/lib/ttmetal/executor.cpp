@@ -304,7 +304,7 @@ void MCQExecutor::execute(
   ZoneScopedN("CreateGlobalSemaphoreCommand");
   LOG_ASSERT(global_semaphores.find(command->ref()->global_id()) ==
                  global_semaphores.end(),
-             "Global sempahore with id ", command->ref()->global_id(),
+             "Global semaphore with id ", command->ref()->global_id(),
              " already exists.");
   auto global_semaphore = tt::tt_metal::GlobalSemaphore(
       meshDevice, common::toCoreRangeSet(command->core_range_set()),
@@ -319,7 +319,7 @@ void MCQExecutor::execute(
   ZoneScopedN("ResetGlobalSemaphoreCommand");
   LOG_ASSERT(global_semaphores.find(command->ref()->global_id()) !=
                  global_semaphores.end(),
-             "Global sempahore with id ", command->ref()->global_id(),
+             "Global semaphore with id ", command->ref()->global_id(),
              " does not exist.");
   global_semaphores.at(command->ref()->global_id())
       .reset_semaphore_value(command->value());
