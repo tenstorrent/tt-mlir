@@ -282,6 +282,24 @@ def TTIRInferKVCacheArgumentTypes: Pass<"ttir-infer-kv-cache-argument-types", ":
   let dependentDialects = ["mlir::tt::ttcore::TTCoreDialect", "mlir::tt::ttir::TTIRDialect"];
 }
 
+def TTIRDecomposeComplexReshape: Pass<"ttir-decompose-complex-reshape", "::mlir::ModuleOp"> {
+  let summary = "Decompose reshapes that flip trailing 1s into permute + reshape.";
+  let description = [{
+    Detects two kinds of reshape that require a permute for correct data movement:
+
+    1. Singleton transpose: non-1 dims are the same but trailing-1 status differs.
+       Decomposed into at most reshape + swap-last-two-dims permute + reshape.
+         [1, 128] -> [128, 1]:  permute [1, 0]
+         [32, 8, 17] -> [32, 8, 17, 1]:  reshape to [32, 8, 1, 17], permute [0, 1, 3, 2]
+         [64, 1, 1] -> [1, 1, 64]:  reshape to [1, 64, 1], permute [0, 2, 1]
+
+    2. Flatten and swap: non-1 dims differ AND trailing 1s need to become
+       leading 1s. Flattened to (X, 1), swapped to (1, X), then reshaped.
+         [128, 4, 1] -> [1, 512]:  reshape to [512, 1], permute [1, 0]
+         [512, 1] -> [1, 32, 16]:  permute [1, 0] to [1, 512], reshape to [1, 32, 16]
+  }];
+}
+
 def TTIRMultiDeviceTensorAnnotation: Pass<"ttir-multi-device-tensor-annotation", "::mlir::ModuleOp">
 {
   let summary = "TTIR multi-device tensor annotation pass.";
