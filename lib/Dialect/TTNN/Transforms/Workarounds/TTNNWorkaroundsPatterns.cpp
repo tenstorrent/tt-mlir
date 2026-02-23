@@ -9,7 +9,6 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNTraits.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNWorkaroundsPass.h"
-#include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/AllGatherOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ArgMaxOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ConcatOpDecompositionRewritePattern.h"
@@ -39,6 +38,7 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/SplitQueryKeyValueAndSplitHeadsOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/SubtractOpImplicitBroadcastRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/UpsampleOpRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
@@ -395,46 +395,34 @@ public:
     auto sizeOfDevices = meshShape[clusterAxis];
     auto inputShape = inputType.getShape();
     auto inputLayout = utils::getLayoutAttrFromTensor(inputType);
-    llvm::SmallVector<int64_t> shapeForDivisibility(inputShape.begin(),
-                                                     inputShape.end());
+    llvm::SmallVector<int64_t> shapeInTileCounts(inputShape.begin(),
+                                                 inputShape.end());
     if (inputLayout.isTiled()) {
-      auto tilePaddedShape = utils::getTilePaddedShape(shapeForDivisibility);
-      if (!shapeForDivisibility.empty()) {
-        shapeForDivisibility[shapeForDivisibility.size() - 1] =
-            tilePaddedShape[shapeForDivisibility.size() - 1] / TILE_WIDTH;
+      auto tilePaddedShape = utils::getTilePaddedShape(shapeInTileCounts);
+      if (!shapeInTileCounts.empty()) {
+        shapeInTileCounts[shapeInTileCounts.size() - 1] =
+            tilePaddedShape[shapeInTileCounts.size() - 1] / TILE_WIDTH;
       }
-      if (shapeForDivisibility.size() > 1) {
-        shapeForDivisibility[shapeForDivisibility.size() - 2] =
-            tilePaddedShape[shapeForDivisibility.size() - 2] / TILE_HEIGHT;
+      if (shapeInTileCounts.size() > 1) {
+        shapeInTileCounts[shapeInTileCounts.size() - 2] =
+            tilePaddedShape[shapeInTileCounts.size() - 2] / TILE_HEIGHT;
       }
     }
 
-    auto reversedInputShape = llvm::reverse(shapeForDivisibility);
-    auto tensorDimRevIt =
-        llvm::find_if(reversedInputShape, [sizeOfDevices](int64_t dim) {
-          return dim % sizeOfDevices == 0;
-        });
-    const auto *tensorDimDevice = tensorDimRevIt == reversedInputShape.end()
-                                      ? inputShape.end()
-                                      : tensorDimRevIt.base() - 1;
+    int64_t selectedDim = -1;
+    for (int64_t dim = shapeInTileCounts.size() - 1; dim >= 0; --dim) {
+      if (shapeInTileCounts[dim] % sizeOfDevices == 0) {
+        selectedDim = dim;
+        break;
+      }
+    }
 
-    if (tensorDimDevice == inputShape.end()) {
+    if (selectedDim < 0) {
       // If all the dimensions are not evenly divisible by the number of
       // devices in the cluster, use the all-gather + local reduce breakdown
       // approach.
-      // Estimate memory usage of AllGather + LocalReduce breakdown and check
-      // if it exceeds the allowed memory limit. This breakdown requires
-      // significantly more memory than ReduceScatter + AllGather due to
-      // internal padding and temporary buffers. To avoid potential memory
-      // blowup, enforce a size constraint based on DRAM capacity.
-      if (exceedsAllGatherReduceMemLimit(ttcore::getCurrentScopeSystemDesc(op),
-                                         inputType, meshShape[clusterAxis],
-                                         0.05)) {
-        return rewriteAsAllGatherLocalReduce(op, meshShape, rewriter);
-      }
+      return rewriteAsAllGatherLocalReduce(op, meshShape, rewriter);
     }
-
-    int32_t dimension = std::distance(inputShape.begin(), tensorDimDevice);
 
     // TODO(wooseoklee): Once ttnn supports all_reduce op
     // (https://github.com/tenstorrent/tt-metal/issues/13835), we can
@@ -443,8 +431,8 @@ public:
     // Determine the shape of its input tensor. The new tensor
     // shape at the scatter_dim will be tensor_shape[scatter_dim] =
     // original_tensor_shape / num_devices.
-    inputTypeShape[dimension] =
-        inputTypeShape[dimension] / meshShape[clusterAxis];
+    inputTypeShape[selectedDim] =
+        inputTypeShape[selectedDim] / meshShape[clusterAxis];
     auto scatteredInputType =
         ttnn::utils::RankedTensorTypeFactory::create(inputType, inputTypeShape);
 
@@ -452,12 +440,12 @@ public:
     ttnn::ReduceScatterOp reduceScatterOp =
         rewriter.create<ttnn::ReduceScatterOp>(
             ttmlir::utils::appendLocationSuffix(loc, "_reduceScatter"),
-            scatteredInputType, op.getInput(), op.getReduceType(), dimension,
+            scatteredInputType, op.getInput(), op.getReduceType(), selectedDim,
             clusterAxis, nullptr, nullptr, nullptr, nullptr);
 
     // Replace all_reduce op with all_gather op.
     rewriter.replaceOpWithNewOp<ttnn::AllGatherOp>(
-        op, op.getType(), reduceScatterOp.getResult(), dimension, clusterAxis,
+        op, op.getType(), reduceScatterOp.getResult(), selectedDim, clusterAxis,
         nullptr /*sub_device_id*/, nullptr /*memory_config*/,
         nullptr /*num_links*/, nullptr /*topology*/);
     return success();
@@ -529,54 +517,6 @@ private:
       return op.emitOpError() << "invalid is not supported";
     }
     return success();
-  }
-  bool exceedsAllGatherReduceMemLimit(ttcore::SystemDescAttr systemDesc,
-                                      RankedTensorType inputType,
-                                      int64_t numOfDevicesInCluster,
-                                      float memoryLimitFactor = 0.05) const {
-    // Estimate additional memory required when using AllGather + LocalReduce,
-    // compared to the baseline ReduceScatter + AllGather breakdown.
-    //
-    // Let:
-    //   - a = size of input tensor
-    //   - N = number of devices in the cluster
-    //
-    // Memory usage estimation:
-    //   - ReduceScatter + AllGather ≈ (1 + 1/N) * a
-    //   - AllGather + LocalReduce ≈ (N + 2 * ceil_to_32_multiple(N)) * a
-    //
-    // The LocalReduce implementation allocates two extra padded buffers,
-    // hence the 2 * ceil_to_32_multiple(N) term.
-    //
-    // Since we cannot determine the actual available memory at runtime,
-    // we apply a conservative heuristic: if the *additional* memory required
-    // exceeds a fixed fraction of total DRAM size, we reject this breakdown.
-    auto chipDesc = systemDesc.getChipDescs()[0];
-    size_t dramCapacity =
-        chipDesc.getUsableDramChannelSize() * chipDesc.getNumDramChannels();
-    size_t inputTensorSize =
-        inputType.getNumElements() * inputType.getElementTypeBitWidth() / 8;
-
-    // Estimated memory usage for AllGather + LocalReduce
-    // tt-metal transpose the tensor and pad it to tile size. Refer to the
-    // issue: https://github.com/tenstorrent/tt-metal/issues/20540
-    int64_t paddedN = ((numOfDevicesInCluster + 31) / 32) * 32;
-    size_t memAllgatherLocalReduce =
-        (numOfDevicesInCluster + 2 * paddedN) * inputTensorSize;
-
-    // Estimated memory usage for ReduceScatter + AllGather
-    double memReduceScatterAllGather =
-        (1.0 + 1.0 / static_cast<double>(numOfDevicesInCluster)) *
-        inputTensorSize;
-
-    // Additional memory required
-    double overhead = static_cast<double>(memAllgatherLocalReduce) -
-                      memReduceScatterAllGather;
-
-    // Compare against memory limit threshold
-    double threshold = static_cast<double>(dramCapacity) * memoryLimitFactor;
-
-    return overhead <= threshold;
   }
 };
 
