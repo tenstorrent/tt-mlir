@@ -2398,7 +2398,12 @@ createSortOp(FlatbufferObjectCache &cache, SortOp op) {
   bool descending = op.getDescending();
   bool stable = op.getStable();
 
-  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
+  // Could not use template function since SortOp has multiple results with
+  // specific getters
+  auto memoryConfig =
+      op.getMemoryConfig()
+          ? toFlatbuffer(cache, *op.getMemoryConfig())
+          : getMemoryConfigFromTensorTypeIfNeeded(cache, op.getValues());
 
   return ::tt::target::ttnn::CreateSortOpDirect(*cache.fbb, in, dim, descending,
                                                 stable, memoryConfig, &outputs);
