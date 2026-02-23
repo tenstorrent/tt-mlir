@@ -1162,6 +1162,7 @@ mlir::OpFoldResult d2m::ViewLayoutOp::fold(FoldAdaptor adaptor) {
 void d2m::ViewLayoutOp::getCanonicalizationPatterns(
     mlir::RewritePatternSet &patterns, mlir::MLIRContext *) {
   // Fold view(stream) -> stream with composed layout.
+  // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
   patterns.add(+[](ViewLayoutOp op, mlir::PatternRewriter &rewriter) {
     StreamLayoutOp streamOp = op.getInput().getDefiningOp<StreamLayoutOp>();
     if (!streamOp) {
@@ -1193,6 +1194,7 @@ void d2m::ViewLayoutOp::getCanonicalizationPatterns(
         AffineMapAttr::get(composedRemapping), streamOp.getStorage());
     return success();
   });
+  // NOLINTEND(clang-analyzer-core.StackAddressEscape)
 }
 
 //===----------------------------------------------------------------------===//
