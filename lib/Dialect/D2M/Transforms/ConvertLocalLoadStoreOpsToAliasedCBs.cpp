@@ -41,6 +41,38 @@ static bool isLocalOperand(Value operand, Operation *op) {
 // otherwise.
 // Assumes that the operand index in the generic op equals the CB block arg
 // index.
+// Ensure that CB block arguments are materialized for all operands.
+static void materializeCBBlockArgs(GenericOp generic, Region &region) {
+  Block &block = region.front();
+  unsigned numOperands = generic->getNumOperands();
+
+  // Check if CB block args already exist (idempotent).
+  unsigned numExistingCBArgs = 0;
+  for (BlockArgument arg : block.getArguments()) {
+    if (mlir::isa<CBType>(arg.getType())) {
+      ++numExistingCBArgs;
+    }
+  }
+  if (numExistingCBArgs >= numOperands) {
+    return;
+  }
+
+  // Compute CB types from operand layouts and add block args.
+  for (unsigned i = 0; i < numOperands; ++i) {
+    auto operandType = mlir::cast<ShapedType>(generic->getOperand(i).getType());
+    auto layout = mlir::tt::ttcore::getDeviceLayout(operandType);
+    if (!layout) {
+      continue;
+    }
+    auto shardShape = layout.getShardShape(operandType);
+    auto cbType = CBType::get(MemRefType::get(
+        shardShape, operandType.getElementType(), nullptr,
+        mlir::tt::ttcore::MemorySpaceAttr::get(
+            generic.getContext(), mlir::tt::ttcore::MemorySpace::DeviceL1)));
+    block.addArgument(cbType, generic.getLoc());
+  }
+}
+
 static Value findAssociatedCB(Operation *op, Value memrefOperand) {
   GenericOp generic = op->getParentOfType<GenericOp>();
   if (!generic) {
@@ -61,8 +93,6 @@ static Value findAssociatedCB(Operation *op, Value memrefOperand) {
   }
 
   // Find the generic op's thread region that contains this operation
-  // If there's only one region, use it directly. Otherwise, use the utility
-  // function
   Region *genericRegion = nullptr;
   if (generic.getNumRegions() == 1) {
     genericRegion = &generic.getRegion(0);
@@ -74,13 +104,20 @@ static Value findAssociatedCB(Operation *op, Value memrefOperand) {
     return Value();
   }
 
-  // Get the first block of the generic region (thread region block)
+  // Materialize CB block args if not already present.
+  materializeCBBlockArgs(generic, *genericRegion);
+
   Block *threadBlock = &genericRegion->front();
 
-  // The CB block arguments are in the same order as the generic operands.
-  // The operand index equals the CB block arg index (confirmed by user).
-  if (threadBlock->getNumArguments() > *operandIndex) {
-    return threadBlock->getArgument(*operandIndex);
+  // Find the CB block arg at the operand index.
+  unsigned cbIdx = 0;
+  for (BlockArgument arg : threadBlock->getArguments()) {
+    if (mlir::isa<CBType>(arg.getType())) {
+      if (cbIdx == *operandIndex) {
+        return arg;
+      }
+      ++cbIdx;
+    }
   }
 
   return Value();
