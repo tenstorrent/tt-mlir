@@ -835,6 +835,80 @@ def execute_fb(
                 check_rtol,
             )
 
+            # Per-tile (32x32) comparison for debugging mismatches.
+            if golden_tensor_torch.shape == output_tensor_torch.shape and golden_tensor_torch.ndim >= 2:
+                h, w = golden_tensor_torch.shape[-2], golden_tensor_torch.shape[-1]
+                n_ty, n_tx = (h + 31) // 32, (w + 31) // 32
+                flat_golden = golden_tensor_torch.reshape(-1, h, w)
+                flat_output = output_tensor_torch.reshape(-1, h, w)
+                for batch_idx in range(flat_golden.shape[0]):
+                    # Build a grid of max-abs-diff per tile for plotting.
+                    error_grid = np.zeros((n_ty, n_tx), dtype=np.float64)
+                    mismatch_count = 0
+                    for ty_idx in range(n_ty):
+                        for tx_idx in range(n_tx):
+                            ty, tx = ty_idx * 32, tx_idx * 32
+                            g_tile = flat_golden[batch_idx, ty:ty+32, tx:tx+32].float()
+                            o_tile = flat_output[batch_idx, ty:ty+32, tx:tx+32].float()
+                            max_diff = torch.max(torch.abs(g_tile - o_tile)).item()
+                            error_grid[ty_idx, tx_idx] = max_diff
+                            if not torch.allclose(g_tile, o_tile, atol=0.05, rtol=0.05):
+                                mismatch_count += 1
+                                prefix = f"output_{i}" + (f" batch={batch_idx}" if flat_golden.shape[0] > 1 else "")
+                                print(f"  TILE MISMATCH {prefix}  tile_y={ty_idx} tile_x={tx_idx}  "
+                                      f"max_abs_diff={max_diff:.6e}")
+
+                    if mismatch_count > 0:
+                        try:
+                            import matplotlib
+                            matplotlib.use("Agg")
+                            import matplotlib.pyplot as plt
+                            from matplotlib.colors import ListedColormap
+
+                            # Binary grid: 1 = mismatch, 0 = pass.
+                            fail_grid = np.zeros((n_ty, n_tx), dtype=np.float64)
+                            for ty_idx in range(n_ty):
+                                for tx_idx in range(n_tx):
+                                    ty, tx = ty_idx * 32, tx_idx * 32
+                                    g_tile = flat_golden[batch_idx, ty:ty+32, tx:tx+32].float()
+                                    o_tile = flat_output[batch_idx, ty:ty+32, tx:tx+32].float()
+                                    if not torch.allclose(g_tile, o_tile, atol=atol, rtol=rtol):
+                                        fail_grid[ty_idx, tx_idx] = 1.0
+
+                            cmap = ListedColormap(["#d4edda", "#e74c3c"])  # green pass, red fail
+                            fig, ax = plt.subplots(1, 1, figsize=(max(6, n_tx * 0.6), max(4, n_ty * 0.6)))
+                            ax.pcolormesh(
+                                np.arange(n_tx + 1), np.arange(n_ty + 1),
+                                fail_grid, cmap=cmap, vmin=0, vmax=1,
+                                edgecolors="grey", linewidth=0.5,
+                            )
+                            ax.set_xticks(np.arange(n_tx) + 0.5)
+                            ax.set_xticklabels(range(n_tx), fontsize=max(4, 8 - n_tx // 20))
+                            ax.set_yticks(np.arange(n_ty) + 0.5)
+                            ax.set_yticklabels(range(n_ty), fontsize=max(4, 8 - n_ty // 20))
+                            ax.set_xlabel("tile_x")
+                            ax.set_ylabel("tile_y")
+                            ax.invert_yaxis()
+                            batch_label = f" batch={batch_idx}" if flat_golden.shape[0] > 1 else ""
+                            ax.set_title(
+                                f"output_{i}{batch_label}:  "
+                                f"{mismatch_count} / {n_ty * n_tx} tiles FAIL  "
+                                f"(red = mismatch)",
+                                fontsize=10,
+                            )
+                            plot_path = os.path.join(
+                                program_artifact_dir,
+                                f"tile_error_output_{i}_batch{batch_idx}.png",
+                            )
+                            fig.savefig(plot_path, dpi=150, bbox_inches="tight")
+                            plt.close(fig)
+                            print(f"  Tile error heatmap saved to: {plot_path}")
+                        except ImportError:
+                            print("  (matplotlib not available, skipping tile error heatmap)")
+
+            print(f"golden {i}: {golden_tensor_torch}")
+            print(f"output {i}: {output_tensor_torch}")
+
             program_golden_report[f"output_{i}"] = {0: results}
             program_output_tensors[f"device_output_{i}"] = output_tensor_torch
             program_output_tensors[f"golden_output_{i}"] = golden_tensor_torch

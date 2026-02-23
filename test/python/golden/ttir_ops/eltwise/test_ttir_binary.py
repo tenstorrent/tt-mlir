@@ -181,8 +181,8 @@ binary_ops = [
 ]
 
 
-@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
-@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("shape", [(1024, 1024)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
 @pytest.mark.parametrize("test_fn", binary_ops)
 def test_binary_ops(
@@ -207,6 +207,8 @@ def test_binary_ops(
         **get_request_kwargs(request),
         target=target,
         device=device,
+        save_artifacts=True,
+        print_ir=True,
         pipeline_options=pipeline_options,
     )
 
