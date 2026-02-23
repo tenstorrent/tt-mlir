@@ -104,10 +104,6 @@ def _get_device_for_target(
 
     else:
         mesh_options = tt_runtime.runtime.MeshDeviceOptions()
-        system_desc = fbb_as_dict(
-            tt_runtime.binary.load_system_desc_from_path(pytestconfig.option.sys_desc)
-        )["system_desc"]
-        board_id = get_board_id(system_desc)
 
         if pytestconfig.getoption("--disable-eth-dispatch"):
             mesh_options.dispatch_core_type = tt_runtime.runtime.DispatchCoreType.WORKER

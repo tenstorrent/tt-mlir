@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "tt/runtime/detail/common/runtime_context.h"
-#include "tt/runtime/detail/common/common.h"
 #include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/types.h"
 
@@ -19,9 +18,6 @@ RuntimeContext::RuntimeContext() {
   LOG_FATAL(
       "Runtime context cannot be initialized when no runtimes are enabled");
 #endif
-
-  // Probe ETH dispatch capabilities early to avoid race conditions.
-  tt::runtime::common::hasEthernetCores();
 
 #if defined(TT_RUNTIME_ENABLE_TTNN) && (TT_RUNTIME_ENABLE_TTNN == 1)
   currentDeviceRuntime_ = DeviceRuntime::TTNN;

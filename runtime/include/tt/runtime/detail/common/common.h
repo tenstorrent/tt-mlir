@@ -5,10 +5,10 @@
 #ifndef TT_RUNTIME_DETAIL_COMMON_COMMON_H
 #define TT_RUNTIME_DETAIL_COMMON_COMMON_H
 
-#include <mutex>
 #include <optional>
 
 #define FMT_HEADER_ONLY
+#include "tt-metalium/cluster.hpp"
 #include "tt-metalium/host_api.hpp"
 #include "tt-metalium/mesh_device.hpp"
 
@@ -20,54 +20,28 @@
 
 namespace tt::runtime::common {
 
-// Detect if ethernet cores are available on the MeshDevice.
-inline bool hasEthernetCores() {
-  static std::mutex mtx;
-  std::lock_guard<std::mutex> lock(mtx);
-
-  // Avoid repetitive probing.
-  static std::optional<bool> cachedResult = std::nullopt;
-  if (cachedResult.has_value()) {
-    return cachedResult.value();
+inline bool isEthDispatchable() {
+  const auto clusterType = tt::tt_metal::GetClusterType();
+  switch (clusterType) {
+  case tt::tt_metal::ClusterType::N150:
+  case tt::tt_metal::ClusterType::N300:
+  case tt::tt_metal::ClusterType::T3K:
+  case tt::tt_metal::ClusterType::N300_2x2:
+    return true;
+  default:
+    return false;
   }
-
-  // Create a temporary device with WORKER dispatch (safe default) to probe the
-  // hardware capabilities.
-  auto probeMeshDevice = ::tt::tt_metal::distributed::MeshDevice::create(
-      ::tt::tt_metal::distributed::MeshDeviceConfig(
-          /*mesh_shape=*/std::nullopt),
-      DEFAULT_L1_SMALL_SIZE, DEFAULT_TRACE_REGION_SIZE,
-      /*num_command_queues=*/1, ::tt::tt_metal::DispatchCoreType::WORKER);
-
-  bool hasEthCores = false;
-  auto devices = probeMeshDevice->get_devices();
-  for (const ::tt::tt_metal::IDevice *device : devices) {
-    const size_t nEthCores = device->ethernet_cores().size();
-    const size_t nActiveEthCores =
-        device->get_active_ethernet_cores(true).size();
-    if (nEthCores > 0 && nActiveEthCores > 0) {
-      hasEthCores = true;
-      break;
-    }
-  }
-
-  probeMeshDevice->close();
-
-  LOG_DEBUG("Ethernet core detection: ", hasEthCores ? "found" : "not found");
-  cachedResult = hasEthCores;
-  return hasEthCores;
 }
 
 inline ::tt::tt_metal::DispatchCoreType getDispatchCoreType(
     std::optional<::tt::runtime::DispatchCoreType> dispatchCoreType) {
-
+  // Prefer ETH dispatch when possible.
   const auto type =
       dispatchCoreType.value_or(::tt::runtime::DispatchCoreType::Ethernet);
   assert(type == ::tt::runtime::DispatchCoreType::Ethernet ||
          type == ::tt::runtime::DispatchCoreType::Worker);
 
-  const bool ethDispatchable = hasEthernetCores();
-
+  const bool ethDispatchable = isEthDispatchable();
   if (ethDispatchable && type == ::tt::runtime::DispatchCoreType::Ethernet) {
     return ::tt::tt_metal::DispatchCoreType::ETH;
   }

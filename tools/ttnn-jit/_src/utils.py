@@ -5,10 +5,8 @@
 import textwrap
 import inspect
 import importlib
-import ttnn
 from typing import Callable
 from ttmlir.ir import *
-from ttnn_jit._src import DispatchCoreType
 from ttnn_jit._src.tensor_translator import (
     _calculate_tile_shape,
     _get_logical_tensor_shape,
@@ -85,26 +83,6 @@ def get_num_pos_args(func: Callable):
         ]
     )
     return num_pos_args
-
-
-def _get_cluster_type():
-    return ttnn.cluster.get_cluster_type()
-
-
-def get_dispatch_core_type():
-    cluster_type = _get_cluster_type()
-    match cluster_type:
-        case ttnn.cluster.ClusterType.N150:
-            dispatch_core_type = DispatchCoreType.ETH
-        case ttnn.cluster.ClusterType.N300:
-            dispatch_core_type = DispatchCoreType.ETH
-        case ttnn.cluster.ClusterType.P150:
-            dispatch_core_type = DispatchCoreType.WORKER
-        case ttnn.cluster.ClusterType.T3K:
-            dispatch_core_type = DispatchCoreType.ETH
-        case _:
-            raise ValueError(f"Unsupported cluster type: {cluster_type}")
-    return dispatch_core_type
 
 
 def get_maximal_block_sharding_grid(shape, core_grid):
