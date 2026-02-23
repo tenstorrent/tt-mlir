@@ -360,8 +360,6 @@ public:
   // CB comes from original operands (memref types for CB descriptors).
   static IOAndCB extractIOAndCBFromGenericOperand(Value origOperand,
                                                   Value convertedOperand) {
-    convertedOperand.dump();
-    origOperand.dump();
     if (auto streamLayoutOp = mlir::dyn_cast_if_present<d2m::StreamLayoutOp>(
             origOperand.getDefiningOp())) {
       auto castOp = mlir::dyn_cast_if_present<ttir::TTNNMetalLayoutCastOp>(
