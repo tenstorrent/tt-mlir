@@ -710,7 +710,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     // Do some operand-specific analysis.
 
     for (auto [operandIndex, operand] :
-         llvm::enumerate(genericOp.getInputOutputOpOperands())) {
+         llvm::enumerate(genericOp.getInputsAndOutputsMutable())) {
 
       OperandContext operandCtx;
 
@@ -809,7 +809,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       genericCtx.operands.push_back(std::move(operandCtx));
     }
     TT_assert(genericCtx.operands.size() ==
-              genericOp.getInputOutputOperands().size());
+              genericOp.getInputsAndOutputs().size());
 
     // `genericUseClosure` is complete, use it to update
     // `MemrefValueContext::isMemspaceBound`:
@@ -1539,7 +1539,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
   getOperandTileShapes(d2m::GenericOp genericOp) {
     const Type inputElementType =
         mlir::cast<MemRefType>(
-            genericOp.getInputOutputOperands().front().getType())
+            genericOp.getInputsAndOutputs().front().getType())
             .getElementType();
     for (std::size_t operandIndex = 1;
          operandIndex < genericOp.getOutputs().getBeginOperandIndex();
@@ -1552,8 +1552,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     }
 
     const Type outputElementType =
-        mlir::cast<MemRefType>(
-            genericOp.getInputOutputOperands().back().getType())
+        mlir::cast<MemRefType>(genericOp.getInputsAndOutputs().back().getType())
             .getElementType();
 
     return {getEffectiveTileShape(inputElementType),

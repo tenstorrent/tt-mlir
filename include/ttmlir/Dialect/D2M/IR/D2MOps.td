@@ -379,10 +379,8 @@ def D2M_GenericOp
         return llvm::is_contained(scratchAttr.asArrayRef(), inputIndex);
       }
       // Declare methods here - they go in the .h.inc file
-      ::mlir::Operation::operand_range getInputOutputOperands();
-      ::mlir::Operation::operand_range getAdditionalArgOperands();
-      MutableArrayRef<OpOperand> getInputOutputOpOperands();
-      MutableArrayRef<OpOperand> getAdditionalArgOpOperands();
+      ::mlir::Operation::operand_range getInputsAndOutputs();
+      MutableArrayRef<OpOperand> getInputsAndOutputsMutable();
       bool isOutputOperandIdx(unsigned int operandIndex);
     }];
 }
