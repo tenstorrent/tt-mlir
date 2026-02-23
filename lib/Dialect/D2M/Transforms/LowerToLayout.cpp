@@ -109,10 +109,9 @@ namespace {
 // Helper functions for building GenericOp regions with RemoteLoad/RemoteStore
 // ============================================================================
 
-// Extract the underlying shard type from a circular buffer block argument
-static Type getShardTypeFromCB(Value cbBlockArg) {
-  auto cbType = mlir::cast<CBType>(cbBlockArg.getType());
-  return cbType.getUnderlying();
+// Extract the shard type from a tensor.empty value (previously CB block arg).
+static Type getShardTypeFromCB(Value tensorEmpty) {
+  return tensorEmpty.getType();
 }
 
 // Build identity grid indices for a given grid rank

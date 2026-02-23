@@ -939,11 +939,9 @@ public:
       if (mlir::isa<d2m::WaitOp, d2m::ReserveOp>(definingOp)) {
         memref = definingOp->getOperand(0);
       } else if (auto allocOp = mlir::dyn_cast<memref::AllocOp>(definingOp)) {
-        // memref.alloc: find the associated operand by tracing uses, then
-        // find the corresponding CB block argument
         Value assocOperand = GenericOp::findAssocOperand(allocOp);
         if (!assocOperand) {
-          return nullptr;
+          return std::nullopt;
         }
         Value cb = GenericOp::findAssocCBByOperand(allocOp.getOperation(),
                                                    assocOperand);
@@ -968,7 +966,8 @@ public:
     }
 
     auto [iter, _] = copyInfos.try_emplace(outermostInnerComputeLoop);
-    BlockArgument blockArg = lookThroughSubView(loadOrStore.getMemRef());
+    auto operandIndex =
+        lookThroughSubViewToOperandIndex(gOp, loadOrStore.getMemRef());
 
     SmallVector<Value> guardIVs;
     if (blockArg) {
@@ -991,7 +990,8 @@ public:
     }
 
     auto [iter, _] = copyInfos.try_emplace(outermostInnerComputeLoop);
-    BlockArgument blockArg = lookThroughSubView(loadOp.getMemRef());
+    auto operandIndex =
+        lookThroughSubViewToOperandIndex(gOp, loadOp.getMemRef());
 
     SmallVector<Value> guardIVs;
     if (blockArg) {
