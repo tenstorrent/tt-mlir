@@ -60,22 +60,19 @@ static void rewriteCapturedDMAOperands(OpBuilder &builder, GenericOp generic,
 
 static void rewriteAdditionalArgOperands(OpBuilder &builder,
                                          GenericOp generic) {
-  for (auto operand : generic.getCaptureOperands()) {
-    auto capturedOperandIndex = *getCapturedOperandIndex(generic, operand);
-    // we need to insert this where the operands are being used, also ensure it
-    // gets canoncialized (should work since its pure)
-    SmallVector<Operation *> users(operand.getUsers().begin(),
-                                   operand.getUsers().end());
-    for (Operation *user : users) {
-      if (user != generic.getOperation() && generic->isAncestor(user)) {
-        builder.setInsertionPoint(user);
-        Operation *globalOperand = builder.create<GetGlobalOperandOp>(
-            user->getLoc(), operand.getType(), capturedOperandIndex);
-        for (OpOperand &opOperand : user->getOpOperands()) {
-          if (opOperand.get() == operand) {
-            opOperand.set(globalOperand->getResult(0));
-          }
-        }
+  //  Get all uses of additional arg
+  //  operands that are not the generic operation itself
+  for (auto [idx, operand] :
+       llvm::enumerate(generic.getAdditionalArgOperands())) {
+    unsigned capturedOperandIndex = *getCapturedOperandIndex(generic, operand);
+    for (OpOperand &use : llvm::make_early_inc_range(operand.getUses())) {
+      if (use.getOwner() != generic.getOperation() &&
+          generic->isAncestor(use.getOwner())) {
+        builder.setInsertionPoint(use.getOwner());
+        //  And insert a get_global_operand op where the generic operand is being used
+        auto globalOperand = builder.create<GetGlobalOperandOp>(
+            use.getOwner()->getLoc(), operand.getType(), capturedOperandIndex);
+        use.set(globalOperand.getResult());
       }
     }
   }
@@ -132,7 +129,7 @@ public:
       builder.setInsertionPoint(generic);
       auto symbolicGeneric = builder.create<GenericOp>(
           generic->getLoc(), generic.getResultTypes(), generic.getInputs(),
-          generic.getOutputs(), generic.getCaptures(), generic.getGrid(),
+          generic.getOutputs(), generic.getAdditionalArgs(), generic.getGrid(),
           generic.getBlockFactors(), generic.getIndexingMaps(),
           generic.getIteratorTypes(), builder.getArrayAttr(threads),
           generic.getScratchInputsAttr(),

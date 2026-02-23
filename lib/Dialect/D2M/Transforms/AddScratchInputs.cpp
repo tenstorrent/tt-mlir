@@ -176,9 +176,10 @@ static LogicalResult addScratchToGeneric(GenericOp genericOp) {
   // Create the new GenericOp with empty regions.
   auto newGenericOp = builder.create<GenericOp>(
       genericOp.getLoc(), genericOp.getResultTypes(), newInputs,
-      genericOp.getOutputs(), genericOp.getCaptures(), genericOp.getGrid(),
-      genericOp.getBlockFactors(), builder.getArrayAttr(newIndexingMaps),
-      genericOp.getIteratorTypes(), genericOp.getThreads(), scratchInputsAttr,
+      genericOp.getOutputs(), genericOp.getAdditionalArgs(),
+      genericOp.getGrid(), genericOp.getBlockFactors(),
+      builder.getArrayAttr(newIndexingMaps), genericOp.getIteratorTypes(),
+      genericOp.getThreads(), scratchInputsAttr,
       /*numRegions=*/genericOp.getNumRegions());
 
   // Clone regions from old op to new op.

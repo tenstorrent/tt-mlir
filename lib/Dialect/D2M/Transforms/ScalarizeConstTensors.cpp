@@ -306,10 +306,10 @@ static GenericOp rebuildD2MGenericWithoutScalarizedInputs(
   rewriter.setInsertionPoint(genericOp);
   auto newGenericOp = rewriter.create<GenericOp>(
       genericOp.getLoc(), genericOp.getResultTypes(), newGenericInputs,
-      genericOp.getOutputs(), genericOp.getCaptures(), genericOp.getGrid(),
-      genericOp.getBlockFactors(), rewriter.getArrayAttr(newIndexingMaps),
-      genericOp.getIteratorTypes(), genericOp.getThreads(),
-      genericOp.getScratchInputsAttr(),
+      genericOp.getOutputs(), genericOp.getAdditionalArgs(),
+      genericOp.getGrid(), genericOp.getBlockFactors(),
+      rewriter.getArrayAttr(newIndexingMaps), genericOp.getIteratorTypes(),
+      genericOp.getThreads(), genericOp.getScratchInputsAttr(),
       /*regions=*/1);
 
   for (auto [oldRegion, newRegion] :

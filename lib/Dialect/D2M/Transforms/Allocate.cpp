@@ -627,9 +627,9 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       const std::size_t rank = genericOp.getNumDims();
 
       const SmallVector<SmallVector<int64_t>> gridShapes =
-          genericOp.getOperandGridShapes();
+          genericOp.getInputOutputOperandGridShapes();
       const SmallVector<SmallVector<int64_t>> shardShapes =
-          genericOp.getOperandShardShapes();
+          genericOp.getInputOutputOperandShardShapes();
 
       std::tie(gridExtents, shardExtents) = getGridAndShardExtents(genericOp);
       std::tie(inputTileFactors, outputTileFactors) =
@@ -685,7 +685,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     // Do some operand-specific analysis.
 
     for (auto [operandIndex, operand] :
-         llvm::enumerate(genericOp.getNonCaptureOpOperands())) {
+         llvm::enumerate(genericOp.getInputOutputOpOperands())) {
 
       OperandContext operandCtx;
 
@@ -784,7 +784,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       genericCtx.operands.push_back(std::move(operandCtx));
     }
     TT_assert(genericCtx.operands.size() ==
-              genericOp.getNonCaptureOperands().size());
+              genericOp.getInputOutputOperands().size());
 
     // `genericUseClosure` is complete, use it to update
     // `MemrefValueContext::isMemspaceBound`:
@@ -1513,7 +1513,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
   getOperandTileShapes(d2m::GenericOp genericOp) {
     const Type inputElementType =
         mlir::cast<MemRefType>(
-            genericOp.getNonCaptureOperands().front().getType())
+            genericOp.getInputOutputOperands().front().getType())
             .getElementType();
     for (std::size_t operandIndex = 1;
          operandIndex < genericOp.getOutputs().getBeginOperandIndex();
@@ -1527,7 +1527,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
 
     const Type outputElementType =
         mlir::cast<MemRefType>(
-            genericOp.getNonCaptureOperands().back().getType())
+            genericOp.getInputOutputOperands().back().getType())
             .getElementType();
 
     return {getEffectiveTileShape(inputElementType),
@@ -1550,9 +1550,9 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         genericOp.getIndexingMapsValue(), /*reverse=*/false);
 
     return {flatInverseMap.compose(
-                concatToVector(genericOp.getOperandGridShapes())),
+                concatToVector(genericOp.getInputOutputOperandGridShapes())),
             flatInverseMap.compose(
-                concatToVector(genericOp.getOperandShardShapes()))};
+                concatToVector(genericOp.getInputOutputOperandShardShapes()))};
   }
 
   /// Return a bitmask that indicates which of the dims are "participating"

@@ -67,8 +67,7 @@ def TTMetal_CreateBufferOp : TTMetal_Op<"create_buffer", [MemoryEffects<[MemAllo
     let results = (outs AnyNon0RankedMemRef:$result);
 }
 
-// todo(sohaibnadeemTT): add mem effects
-def TTMetal_CreateGlobalSemaphoreOp : TTMetal_Op<"create_global_semaphore"> {
+def TTMetal_CreateGlobalSemaphoreOp : TTMetal_Op<"create_global_semaphore", [MemoryEffects<[MemWrite]>]> {
     let summary = "Create global semaphore op.";
     let description = [{
       Create global semaphore operation
@@ -78,7 +77,7 @@ def TTMetal_CreateGlobalSemaphoreOp : TTMetal_Op<"create_global_semaphore"> {
     let results = (outs TTMetal_GlobalSemaphore:$result);
 }
 
-def TTMetal_ResetGlobalSemaphoreOp : TTMetal_Op<"reset_global_semaphore"> {
+def TTMetal_ResetGlobalSemaphoreOp : TTMetal_Op<"reset_global_semaphore", [MemoryEffects<[MemWrite]>]> {
     let summary = "Reset global semaphore op.";
     let description = [{
       Reset global semaphore operation

@@ -12,12 +12,13 @@ GenericOpBufferAnalysis::analyzeGenericOp(const Constraints &constraints,
   SmallVector<OpConfig> results;
 
   OpConfig result;
-  result.operandBufferSettings.reserve(op.getOperands().size());
+  result.operandBufferSettings.reserve(op.getInputOutputOperands().size());
   result.predictedRuntimeCost = 0.0f;
 
   SmallVector<SmallVector<int64_t>> operandShardShapes =
-      op.getOperandShardShapes(/*convertTileToScalar=*/false);
-  for (auto [operandIndex, operand] : llvm::enumerate(op.getOperands())) {
+      op.getInputOutputOperandShardShapes(/*convertTileToScalar=*/false);
+  for (auto [operandIndex, operand] :
+       llvm::enumerate(op.getInputOutputOperands())) {
 
     BufferSetting bufferSetting;
     bufferSetting.bufferShape = operandShardShapes[operandIndex];

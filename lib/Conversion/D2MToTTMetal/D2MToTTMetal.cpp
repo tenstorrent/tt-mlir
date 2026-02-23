@@ -111,7 +111,7 @@ public:
     llvm::SmallVector<int64_t> cbPorts;
     llvm::SmallVector<Value> global_semaphores;
     int64_t cbPort = 0;
-    for (unsigned i = 0; i < op.getNonCaptureOperands().size(); ++i) {
+    for (unsigned i = 0; i < op.getInputOutputOperands().size(); ++i) {
       auto operand = adaptor.getOperands()[i];
 
       if (auto stream = mlir::dyn_cast_if_present<d2m::StreamLayoutOp>(
@@ -135,9 +135,9 @@ public:
     }
 
     // add additional args that are not ins or outs in then generic op
-    for (unsigned i = 0; i < op.getCaptureOperands().size(); ++i) {
+    for (unsigned i = 0; i < op.getAdditionalArgOperands().size(); ++i) {
       auto operand =
-          adaptor.getOperands()[op.getNonCaptureOperands().size() + i];
+          adaptor.getOperands()[op.getInputOutputOperands().size() + i];
       if (mlir::isa<ttmetal::GlobalSemaphoreType>(operand.getType())) {
         global_semaphores.push_back(operand);
       } else {
@@ -151,7 +151,7 @@ public:
     auto physicalGridShape = op.getPhysicalGridShape();
     SymbolTable symbolTable(op->getParentOfType<ModuleOp>());
     auto kernelConfigs = convertThreadsToKernelConfigs(
-        rewriter, op.getNonCaptureOperands(), threads, physicalGridShape,
+        rewriter, op.getInputOutputOperands(), threads, physicalGridShape,
         symbolTable, mathFidelity_);
     rewriter.replaceOpWithNewOp<ttmetal::EnqueueProgramOp>(
         op, buffers, cbs, global_semaphores, cbPorts, kernelConfigs, nullptr);
