@@ -175,6 +175,61 @@ static bool hasTileMatmul(linalg::GenericOp linalgGenericOp) {
   return hasTileMatmul(linalgGenericOp.getOperation());
 }
 
+// Returns the value of the induction variable at the second loop iteration.
+// Falls back to constant 1 when loop metadata is unavailable.
+static Value getSecondIterationValue(PatternRewriter &rewriter, Location loc,
+                                     Value loopIV) {
+  auto one = rewriter.create<arith::ConstantOp>(
+      loc, rewriter.getIndexType(),
+      rewriter.getIntegerAttr(rewriter.getIndexType(), 1));
+
+  auto ivBlockArg = mlir::dyn_cast<BlockArgument>(loopIV);
+  if (!ivBlockArg) {
+    return one;
+  }
+
+  auto *ownerBlock = ivBlockArg.getOwner();
+  if (!ownerBlock) {
+    return one;
+  }
+
+  auto *ownerOp = ownerBlock->getParentOp();
+  if (!ownerOp) {
+    return one;
+  }
+
+  if (auto scfFor = mlir::dyn_cast<scf::ForOp>(ownerOp)) {
+    return rewriter.create<arith::AddIOp>(loc, scfFor.getLowerBound(),
+                                          scfFor.getStep());
+  }
+
+  if (auto affineFor = mlir::dyn_cast<affine::AffineForOp>(ownerOp)) {
+    Value lb = nullptr;
+    if (affineFor.hasConstantLowerBound()) {
+      lb = rewriter.create<arith::ConstantOp>(
+          loc, rewriter.getIndexType(),
+          rewriter.getIntegerAttr(rewriter.getIndexType(),
+                                  affineFor.getConstantLowerBound()));
+    } else {
+      AffineMap lowerBoundMap = affineFor.getLowerBoundMap();
+      if (lowerBoundMap.getNumResults() == 1) {
+        lb = rewriter.create<affine::AffineApplyOp>(
+            loc, lowerBoundMap, affineFor.getLowerBoundOperands());
+      }
+    }
+
+    if (lb) {
+      Value step = rewriter.create<arith::ConstantOp>(
+          loc, rewriter.getIndexType(),
+          rewriter.getIntegerAttr(rewriter.getIndexType(),
+                                  affineFor.getStepAsInt()));
+      return rewriter.create<arith::AddIOp>(loc, lb, step);
+    }
+  }
+
+  return one;
+}
+
 static bool canReplaceWithMatmulBlock(linalg::GenericOp linalgGenericOp) {
   Value outputMemref = linalgGenericOp.getOutputs()[0];
   ShapedType shapedType = mlir::cast<ShapedType>(outputMemref.getType());
@@ -438,9 +493,6 @@ public:
       WalkResult walkResult =
           block.walk([&](linalg::GenericOp linalgGenericOp) {
             if (!useTileMatmul && hasTileMatmul(linalgGenericOp)) {
-              // In useTileMatmul=false mode, tile_matmul linalg.generic ops
-              // are handled here, including when the parent GenericOp is in
-              // explicit datamovement form.
               if (rewriteTileMatmulAsTileMatmulBlock(
                       rewriter, gOp, *genericRegion, linalgGenericOp,
                       dstCapacity, modified, enableL1Acc)) {
@@ -497,27 +549,12 @@ public:
   // Insert a guarded pack_reconfig_l1_acc(1) enabling L1 accumulation
   // starting from the second iteration of the reduction loop. First iteration
   // packs normally, afterwards pack will accumulate into L1.
-  static void insertPackerL1AccGuard(PatternRewriter &rewriter, GenericOp gOp,
-                                     Location loc, AcquireDstOp acquireDst) {
-    // Find the outermost reduction dim post interchange. This is usually k.
-    auto iteratorTypes = gOp.getIteratorTypesValue();
-    int64_t reductionDim = -1;
-    for (int64_t i = 0; i < static_cast<int64_t>(iteratorTypes.size()); ++i) {
-      if (iteratorTypes[i] == ttcore::IteratorType::Reduction) {
-        reductionDim = i;
-        break;
-      }
-    }
-    assert(reductionDim >= 0 &&
-           "L1 accumulation requires a reduction dimension");
-
+  static void insertPackerL1AccGuard(PatternRewriter &rewriter, Location loc,
+                                     AcquireDstOp acquireDst, Value loopIV) {
     rewriter.setInsertionPointAfter(acquireDst);
-    Value iterIdx = rewriter.create<IterIndexOp>(loc, reductionDim);
-    Value one = rewriter.create<arith::ConstantOp>(
-        loc, rewriter.getIndexType(),
-        rewriter.getIntegerAttr(rewriter.getIndexType(), 1));
+    Value secondIterationValue = getSecondIterationValue(rewriter, loc, loopIV);
     Value cond = rewriter.create<arith::CmpIOp>(loc, arith::CmpIPredicate::eq,
-                                                iterIdx, one);
+                                                loopIV, secondIterationValue);
     auto ifOp = rewriter.create<scf::IfOp>(loc, cond);
     rewriter.setInsertionPointToStart(&ifOp.getThenRegion().front());
     Value enableFlag = rewriter.create<arith::ConstantOp>(
@@ -570,6 +607,21 @@ public:
                          /*insertInsideLoop=*/isScfForLoop);
     Value dst = acquireDst.getResult();
 
+    Value l1AccLoopIV = nullptr;
+    if (enableL1Acc) {
+      SmallVector<Value> loopIVsInScope =
+          collectAncestorLoopIVs(acquireDst.getOperation());
+      // Use the outermost loop currently in scope where acquire_dst is
+      // inserted.
+      if (!loopIVsInScope.empty()) {
+        l1AccLoopIV = loopIVsInScope.front();
+      }
+      if (!l1AccLoopIV) {
+        LDBG() << "Skipping L1 accumulation insertion: no in-scope loop IV";
+        enableL1Acc = false;
+      }
+    }
+
     // 3. Generate data copy loops to/from dst and output cb.
     // When L1 accumulation mode is enabled, skip CB->DST reload copy loop
     // generation but still rewrite original load accesses to use DST indices.
@@ -581,7 +633,7 @@ public:
 
     // 4. When L1 accum is enabled, insert a guarded packer reconfig.
     if (enableL1Acc) {
-      insertPackerL1AccGuard(rewriter, gOp, loc, acquireDst);
+      insertPackerL1AccGuard(rewriter, loc, acquireDst, l1AccLoopIV);
     }
 
     // 5. Fix the passing of intermediate results through the DST.
