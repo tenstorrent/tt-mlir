@@ -391,19 +391,19 @@ createOp(FlatbufferObjectCache &cache, FullOp op) {
   auto shape = op.getShape().getShape().vec();
   auto device =
       op.getDevice() ? cache.at<::tt::target::DeviceRef>(op.getDevice()) : 0;
-  ::tt::target::ttnn::FillValueType fillValueType;
-  ::flatbuffers::Offset<void> fillValue;
+  ::tt::target::ttnn::NumberType numberType;
+  ::flatbuffers::Offset<void> numberValue;
   if (auto fillValueAttr = mlir::dyn_cast<mlir::FloatAttr>(op.getFillValue())) {
-    fillValueType = ::tt::target::ttnn::FillValueType::FP;
-    fillValue = ::tt::target::ttnn::CreateFloatingPointType(
-                    *cache.fbb, fillValueAttr.getValue().convertToFloat())
-                    .Union();
+    numberType = ::tt::target::ttnn::NumberType::FP;
+    numberValue = ::tt::target::ttnn::CreateFloatingPointType(
+                      *cache.fbb, fillValueAttr.getValue().convertToFloat())
+                      .Union();
   } else if (auto fillValueAttr =
                  mlir::dyn_cast<mlir::IntegerAttr>(op.getFillValue())) {
-    fillValueType = ::tt::target::ttnn::FillValueType::I32;
-    fillValue = ::tt::target::ttnn::CreateIntegralType(
-                    *cache.fbb, fillValueAttr.getValue().getSExtValue())
-                    .Union();
+    numberType = ::tt::target::ttnn::NumberType::I32;
+    numberValue = ::tt::target::ttnn::CreateIntegralType(
+                      *cache.fbb, fillValueAttr.getValue().getSExtValue())
+                      .Union();
   } else {
     llvm_unreachable("fill value must be float or integer");
   }
@@ -416,7 +416,7 @@ createOp(FlatbufferObjectCache &cache, FullOp op) {
                                   /*local_shape*/ std::nullopt);
 
   return ::tt::target::ttnn::CreateFullOpDirect(*cache.fbb, device, &shape,
-                                                fillValueType, fillValue, dtype,
+                                                numberType, numberValue, dtype,
                                                 layout, memoryConfig, output);
 }
 
@@ -1657,18 +1657,18 @@ createEltwiseBinaryCompositeScalarOp(FlatbufferObjectCache &cache,
                                      EltwiseBinaryCompositeScalarOp op) {
 
   ::tt::target::ttnn::EltwiseBinaryCompositeScalarOpType type;
-  ::tt::target::ttnn::RhsParams rhsType;
+  ::tt::target::ttnn::NumberType numberType;
   ::flatbuffers::Offset<void> rhsValue;
   if (std::is_same_v<EltwiseBinaryCompositeScalarOp, PowScalarOp>) {
     type = ::tt::target::ttnn::EltwiseBinaryCompositeScalarOpType::PowScalar;
     if (auto floatAttr = mlir::dyn_cast<mlir::FloatAttr>(op.getRhs())) {
-      rhsType = ::tt::target::ttnn::RhsParams::FP;
+      numberType = ::tt::target::ttnn::NumberType::FP;
       rhsValue = ::tt::target::ttnn::CreateFloatingPointType(
                      *cache.fbb, floatAttr.getValue().convertToFloat())
                      .Union();
     } else if (auto integerAttr =
                    mlir::dyn_cast<mlir::IntegerAttr>(op.getRhs())) {
-      rhsType = ::tt::target::ttnn::RhsParams::I32;
+      numberType = ::tt::target::ttnn::NumberType::I32;
       rhsValue = ::tt::target::ttnn::CreateIntegralType(
                      *cache.fbb, integerAttr.getValue().getSExtValue())
                      .Union();
@@ -1689,7 +1689,7 @@ createEltwiseBinaryCompositeScalarOp(FlatbufferObjectCache &cache,
                                   /*local_shape*/ std::nullopt);
 
   return ::tt::target::ttnn::CreateEltwiseBinaryCompositeScalarOp(
-      *cache.fbb, type, lhs, rhsType, rhsValue, memoryConfig, out);
+      *cache.fbb, type, lhs, numberType, rhsValue, memoryConfig, out);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::ExperimentalEltwiseBinaryBackwardOp>
@@ -2054,15 +2054,36 @@ createEltwiseUnaryCompositeOp(FlatbufferObjectCache &cache,
       ::tt::target::ttnn::EltwiseUnaryCompositeOpParams::NONE;
   ::flatbuffers::Offset<void> params = 0;
 
+  // Helper lambda to convert attribute to NumberType union
+  auto attrToNumberType =
+      [&cache](
+          mlir::Attribute attr) -> std::pair<::tt::target::ttnn::NumberType,
+                                             ::flatbuffers::Offset<void>> {
+    if (auto floatAttr = mlir::dyn_cast<mlir::FloatAttr>(attr)) {
+      return {::tt::target::ttnn::NumberType::FP,
+              ::tt::target::ttnn::CreateFloatingPointType(
+                  *cache.fbb, floatAttr.getValue().convertToFloat())
+                  .Union()};
+    }
+    if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(attr)) {
+      return {::tt::target::ttnn::NumberType::I32,
+              ::tt::target::ttnn::CreateIntegralType(
+                  *cache.fbb, intAttr.getValue().getSExtValue())
+                  .Union()};
+    }
+    llvm_unreachable("Unsupported attribute type for clamp");
+  };
+
   if constexpr (std::is_same_v<EltwiseUnaryCompositeOp, CbrtOp>) {
     type = ::tt::target::ttnn::EltwiseUnaryCompositeOpType::Cbrt;
   } else if constexpr (std::is_same_v<EltwiseUnaryCompositeOp, ClampScalarOp>) {
     type = ::tt::target::ttnn::EltwiseUnaryCompositeOpType::ClampScalar;
     paramsType =
         ::tt::target::ttnn::EltwiseUnaryCompositeOpParams::ClampScalarOpParams;
-    auto min = op.getMin().convertToFloat();
-    auto max = op.getMax().convertToFloat();
-    params = ::tt::target::ttnn::CreateClampScalarOpParams(*cache.fbb, min, max)
+    auto [minType, minValue] = attrToNumberType(op.getMin());
+    auto [maxType, maxValue] = attrToNumberType(op.getMax());
+    params = ::tt::target::ttnn::CreateClampScalarOpParams(
+                 *cache.fbb, minType, minValue, maxType, maxValue)
                  .Union();
   } else if constexpr (std::is_same_v<EltwiseUnaryCompositeOp, ClampTensorOp>) {
     type = ::tt::target::ttnn::EltwiseUnaryCompositeOpType::ClampTensor;

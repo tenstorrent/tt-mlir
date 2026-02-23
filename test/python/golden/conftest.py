@@ -2,14 +2,12 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 import pytest
-import _ttmlir_runtime as tt_runtime
 import json
 import re
 import platform
 from functools import reduce
 import operator
 import os
-import torch
 import subprocess
 from typing import Any, Dict, List, Tuple, Optional
 import math
@@ -28,8 +26,12 @@ TT_METAL_RUNTIME_ROOT = Path(
 ).resolve()
 sys.path.append(os.path.join(TT_METAL_RUNTIME_ROOT, "ttnn"))
 
-import utils
+# Import ttnn before torch and _ttmlir_runtime to avoid false nanobind leak
+# warnings caused by CPython module teardown order.
 import ttnn
+import utils
+import _ttmlir_runtime as tt_runtime
+import torch
 
 ALL_BACKENDS = set(["ttnn", "ttmetal", "emitc", "emitpy"])
 ALL_SYSTEMS = set(["n150", "n300", "llmbox", "tg", "p150", "p300"])
@@ -826,3 +828,8 @@ def pytest_sessionfinish(session):
         _current_device_target = None
         _current_device_mesh_shape = None
         _current_fabric_config = None
+
+        # Ensure DeviceGetter singleton is cleared after tests finish and after
+        # any mesh device has been closed.
+        utils.DeviceGetter._instance = None
+        utils.DeviceGetter._mesh_shape = None

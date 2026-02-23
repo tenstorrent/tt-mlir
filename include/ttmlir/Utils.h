@@ -486,6 +486,29 @@ getQuadrupleOfInteger(mlir::Attribute attr) {
   }
 }
 
+inline double attributeToDouble(mlir::Attribute attr) {
+  if (auto floatAttr = mlir::dyn_cast<mlir::FloatAttr>(attr)) {
+    return floatAttr.getValueAsDouble();
+  }
+  if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(attr)) {
+    return static_cast<double>(intAttr.getValue().getSExtValue());
+  }
+  llvm_unreachable("Unsupported attribute type: expected FloatAttr or "
+                   "IntegerAttr");
+}
+
+inline llvm::APFloat attributeToAPFloat(mlir::Attribute attr) {
+  if (auto floatAttr = mlir::dyn_cast<mlir::FloatAttr>(attr)) {
+    return floatAttr.getValue();
+  }
+  if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(attr)) {
+    return llvm::APFloat(
+        static_cast<double>(intAttr.getValue().getSExtValue()));
+  }
+  llvm_unreachable("Unsupported attribute type: expected FloatAttr or "
+                   "IntegerAttr");
+}
+
 namespace detail {
 template <typename, typename = void>
 struct is_leaf_type : std::true_type {};

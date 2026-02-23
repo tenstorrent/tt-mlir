@@ -145,7 +145,7 @@ public:
     // Device lifecycle is managed by OpModelDeviceWrapperPass in the pipeline,
     // but for standalone pass usage (e.g., in tests), the guard opens/closes
     // it.
-    op_model::ScopedSingletonDeviceGuard deviceGuard;
+    op_model::ScopedSingletonDeviceGuard deviceGuard(getOperation());
 
     ModuleOp moduleOp = getOperation();
 
@@ -573,6 +573,8 @@ double calculateDataTypeDistance(ttcore::DataType from, ttcore::DataType to) {
       return {TypeInfo::Category::FLOATING, TypeInfo::Precision::LOW};
     case ttcore::DataType::Float32:
       return {TypeInfo::Category::FLOATING, TypeInfo::Precision::HIGH};
+    case ttcore::DataType::BFP_BFloat8:
+      return {TypeInfo::Category::FLOATING, TypeInfo::Precision::LOW};
     default:
       // For unknown types, assume high precision floating point
       return {TypeInfo::Category::FLOATING, TypeInfo::Precision::HIGH};

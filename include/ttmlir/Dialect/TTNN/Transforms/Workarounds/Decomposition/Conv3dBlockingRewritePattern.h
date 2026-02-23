@@ -7,6 +7,7 @@
 
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Support/LogicalResult.h"
@@ -37,7 +38,7 @@ public:
     }
 
     uint32_t in_channels = srcOp.getInChannels();
-    uint32_t c_in_block = calculateOptimalCInBlock(in_channels);
+    uint32_t c_in_block = utils::calculateOptimalCInBlock(in_channels);
     conv3dConfig = createConv3dConfig(rewriter, c_in_block);
 
     rewriter.modifyOpInPlace(
@@ -47,17 +48,6 @@ public:
   }
 
 private:
-  // Calculate optimal C_in_block based on channel count:
-  // - Not divisible by 16 → 0 (bypass validation, TT-Metal uses full size)
-  // - Divisible by 16 and ≤128 → use as-is
-  // - > 128 → cap at 128 (max efficient blocking)
-  uint32_t calculateOptimalCInBlock(uint32_t in_channels) const {
-    if (in_channels % 16 != 0 || in_channels > 128) {
-      return 0; // Bypass validation
-    }
-    return in_channels;
-  }
-
   std::optional<Conv3dConfigAttr>
   createConv3dConfig(mlir::PatternRewriter &rewriter,
                      uint32_t c_in_block) const {

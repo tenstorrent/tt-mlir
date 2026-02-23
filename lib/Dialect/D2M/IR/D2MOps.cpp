@@ -227,6 +227,68 @@ d2m::MeshShardOp::getBufferType(
 // ToLayoutOp
 //===----------------------------------------------------------------------===//
 
+// Helper: return true if two MetalLayoutAttrs are identical except for OOBVal.
+static bool layoutsMatchExceptOOB(ttcore::MetalLayoutAttr a,
+                                  ttcore::MetalLayoutAttr b) {
+  return a.getLogicalShape() == b.getLogicalShape() &&
+         a.getDimAlignments() == b.getDimAlignments() &&
+         a.getCollapsedIntervals() == b.getCollapsedIntervals() &&
+         a.getMemorySpace() == b.getMemorySpace() &&
+         a.getMemoryLayout() == b.getMemoryLayout() &&
+         a.getIndexAffineMap() == b.getIndexAffineMap();
+}
+
+// Fold away a to_layout whose only effect is changing the OOB fill value.
+// OOB is metadata that controls padding behaviour during LowerToLayout; when
+// two layouts are otherwise identical a to_layout between them is a no-op
+// because the underlying data arrangement is the same.
+struct ToLayoutFoldOOBUndefPattern : public OpRewritePattern<ToLayoutOp> {
+  using OpRewritePattern<ToLayoutOp>::OpRewritePattern;
+
+  ToLayoutFoldOOBUndefPattern(MLIRContext *context)
+      : OpRewritePattern<ToLayoutOp>(context) {
+    setDebugName("d2m.ToLayoutFoldOOBUndefPattern");
+  }
+
+  LogicalResult matchAndRewrite(ToLayoutOp op,
+                                PatternRewriter &rewriter) const final {
+    auto inputType = mlir::dyn_cast<RankedTensorType>(op.getInput().getType());
+    auto outputType =
+        mlir::dyn_cast<RankedTensorType>(op.getOutput().getType());
+    if (!inputType || !outputType) {
+      return failure();
+    }
+
+    auto inputLayout = mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
+        inputType.getEncoding());
+    auto outputLayout = mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
+        outputType.getEncoding());
+    if (!inputLayout || !outputLayout) {
+      return failure();
+    }
+
+    // OOB must actually differ (same OOB is handled by identity fold),
+    // and at least one side must be undef.
+    if (inputLayout.getOobVal() == outputLayout.getOobVal()) {
+      return failure();
+    }
+    if (inputLayout.getOobVal() != ttcore::OOBVal::Undef &&
+        outputLayout.getOobVal() != ttcore::OOBVal::Undef) {
+      return failure();
+    }
+
+    if (inputType.getShape() != outputType.getShape() ||
+        inputType.getElementType() != outputType.getElementType() ||
+        !layoutsMatchExceptOOB(inputLayout, outputLayout)) {
+      return failure();
+    }
+
+    // Layouts match except OOB — the to_layout is a no-op.
+    rewriter.replaceOp(op, op.getInput());
+    return success();
+  }
+};
+
 struct ToLayoutFoldRedundantPattern : public OpRewritePattern<ToLayoutOp> {
   using OpRewritePattern<ToLayoutOp>::OpRewritePattern;
 
@@ -362,6 +424,7 @@ void ToLayoutOp::getCanonicalizationPatterns(mlir::RewritePatternSet &patterns,
   });
 
   patterns.add(std::make_unique<ToLayoutFoldRedundantPattern>(context));
+  patterns.add(std::make_unique<ToLayoutFoldOOBUndefPattern>(context));
 }
 
 bool ToLayoutOp::bufferizesToMemoryRead(
@@ -827,9 +890,9 @@ mlir::LogicalResult StreamLayoutOp::verify() {
       *this, "storage", "result", getStorage().getType(), getResult().getType(),
       /*checkSameElementType*/ true,
       /*checkSameMemorySpace*/ false,
-      /*checkSameRank*/ true,
+      /*checkSameRank*/ false,
       /*checkSameGridShape*/ false,
-      /*checkSameShardShape*/ true);
+      /*checkSameShardShape*/ false);
   if (failed(storageResultVerification)) {
     return storageResultVerification;
   }
@@ -1076,6 +1139,34 @@ mlir::OpFoldResult d2m::ViewLayoutOp::fold(FoldAdaptor adaptor) {
       RankedTensorType::Builder(resultType).setEncoding(newLayout));
 
   return getResult();
+}
+
+void d2m::ViewLayoutOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *) {
+  // Fold view(stream) -> stream with composed layout.
+  patterns.add(+[](ViewLayoutOp op, mlir::PatternRewriter &rewriter) {
+    StreamLayoutOp streamOp = op.getInput().getDefiningOp<StreamLayoutOp>();
+    if (!streamOp) {
+      return failure();
+    }
+
+    auto streamMemref =
+        mlir::dyn_cast<MemRefType>(streamOp.getResult().getType());
+    if (!streamMemref) {
+      return failure();
+    }
+
+    auto viewResultMemref = mlir::cast<MemRefType>(op.getResult().getType());
+    auto composedAttr = rewriter.getAttr<ttcore::ViewLayoutAttr>(
+        streamMemref.getLayout().getAffineMap().compose(
+            viewResultMemref.getLayout().getAffineMap()));
+    auto newMemref = MemRefType::get(
+        viewResultMemref.getShape(), viewResultMemref.getElementType(),
+        composedAttr, viewResultMemref.getMemorySpace());
+    rewriter.replaceOpWithNewOp<StreamLayoutOp>(
+        op, newMemref, streamOp.getInput(), streamOp.getStorage());
+    return success();
+  });
 }
 
 //===----------------------------------------------------------------------===//
