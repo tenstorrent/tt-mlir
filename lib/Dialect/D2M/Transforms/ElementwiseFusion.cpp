@@ -264,7 +264,7 @@ static GenericOp createFusedGeneric(OpOperand *fusedOperand, GenericOp producer,
                                     GenericOp consumer,
                                     SmallVector<Value> &fusedInputs,
                                     SmallVector<Value> &fusedOutputs,
-                                    SmallVector<Value> &mergedCaptures,
+                                    SmallVector<Value> &mergedAdditionalArgs,
                                     SmallVector<AffineMap> &fusedMaps,
                                     PatternRewriter &rewriter) {
   /////////////////////////////////////////////////////////////////////////////
@@ -274,7 +274,7 @@ static GenericOp createFusedGeneric(OpOperand *fusedOperand, GenericOp producer,
 
   auto fusedOp = rewriter.create<GenericOp>(
       consumer.getLoc(), fusedResultTypes, fusedInputs, fusedOutputs,
-      mergedCaptures, consumer.getGrid(), consumer.getBlockFactors(),
+      mergedAdditionalArgs, consumer.getGrid(), consumer.getBlockFactors(),
       rewriter.getAffineMapArrayAttr(fusedMaps), consumer.getIteratorTypes(),
       consumer.getThreads(), consumer.getScratchInputsAttr(), /*regions=*/1);
 

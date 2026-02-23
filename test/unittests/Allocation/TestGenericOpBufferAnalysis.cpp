@@ -110,14 +110,14 @@ GenericOp createGenericOp(mlir::OpBuilder &builder, mlir::MLIRContext &context,
   Value output =
       builder.create<ttir::EmptyOp>(builder.getUnknownLoc(), memrefType3)
           ->getResult(0);
-  ValueRange globalSemaphores = {};
+  ValueRange additionalArgs = {};
 
   SmallVector<Value> inputs = {input1, input2};
   SmallVector<Value> outputs = {output};
 
   // Create the GenericOp.
   auto genericOp = builder.create<mlir::tt::d2m::GenericOp>(
-      builder.getUnknownLoc(), inputs, outputs, globalSemaphores, indexingMaps,
+      builder.getUnknownLoc(), inputs, outputs, additionalArgs, indexingMaps,
       iteratorTypes);
   return genericOp;
 }
