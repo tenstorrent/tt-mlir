@@ -390,12 +390,21 @@ public:
     // Algorithm: iterate through all tensor dimension values and select the
     // last tensor dimension which is divisible by number of devices along the
     // cluster axis on which we are performing the all reduce.
+    // For tiled layout, this divisibility check is done on the tiled shape.
     auto sizeOfDevices = meshShape[clusterAxis];
     auto inputShape = inputType.getShape();
-    auto reversedInputShape = llvm::reverse(inputShape);
+    auto inputLayout = utils::getLayoutAttrFromTensor(inputType);
+    llvm::SmallVector<int64_t> tiledInputShape;
+    ArrayRef<int64_t> shapeForDivisibility = inputShape;
+    if (inputLayout.isTiled()) {
+      tiledInputShape = inputLayout.getTiledShape(inputShape);
+      shapeForDivisibility = tiledInputShape;
+    }
+
+    auto reversedInputShape = llvm::reverse(shapeForDivisibility);
     auto tensorDimRevIt =
         llvm::find_if(reversedInputShape, [sizeOfDevices](int64_t dim) {
-          return dim % sizeOfDevices == 0 && dim % 32 == 0;
+          return dim % sizeOfDevices == 0;
         });
     const auto *tensorDimDevice = tensorDimRevIt == reversedInputShape.end()
                                       ? inputShape.end()
