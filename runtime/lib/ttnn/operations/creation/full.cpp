@@ -52,10 +52,10 @@ void run(const ::tt::target::ttnn::FullOp *op, auto &&fillValue,
 
 void run(const ::tt::target::ttnn::FullOp *op, ProgramContext &context) {
   switch (op->fill_value_type()) {
-  case ::tt::target::ttnn::FillValueType::FP:
+  case ::tt::target::ttnn::NumberType::FP:
     run(op, op->fill_value_as_FP()->value(), context);
     break;
-  case ::tt::target::ttnn::FillValueType::I32:
+  case ::tt::target::ttnn::NumberType::I32:
     run(op, op->fill_value_as_I32()->value(), context);
     break;
   default:
