@@ -248,36 +248,24 @@ TEST_F(OpConstraintValidationTest, UpdateCacheOpWithInvalidUpdateIndexType) {
 }
 
 // Test ValidationStatus::NotImplemented
-// ScatterOp returns ArchitecturalMismatch which maps to NotImplemented
+// AllocOp returns MissingMetalDefinition which maps to NotImplemented
 TEST_F(OpConstraintValidationTest, ValidationStatusNotImplemented) {
-  llvm::SmallVector<int64_t> inputShape = {1, 1, 32, 32};
-  auto layout = createTiledLayout(inputShape, BufferType::L1,
+  llvm::SmallVector<int64_t> tensorShape = {1, 1, 32, 32};
+  auto layout = createTiledLayout(tensorShape, BufferType::L1,
                                   TensorMemoryLayout::Interleaved);
   auto tensorType =
-      mlir::RankedTensorType::get(inputShape, builder.getBF16Type(), layout);
+      mlir::RankedTensorType::get(tensorShape, builder.getBF16Type(), layout);
 
-  auto input = builder.create<OnesOp>(
-      builder.getUnknownLoc(), tensorType,
-      /*device=*/nullptr, ShapeAttr::get(&context, inputShape),
-      /*dtype=*/nullptr, /*layout=*/nullptr, /*memory_config=*/nullptr);
+  auto allocOp = builder.create<AllocOp>(
+      builder.getUnknownLoc(), tensorType, builder.getI64IntegerAttr(0),
+      builder.getI64IntegerAttr(2048),
+      BufferTypeAttr::get(&context, BufferType::L1));
 
-  auto indices = builder.create<OnesOp>(
-      builder.getUnknownLoc(), tensorType,
-      /*device=*/nullptr, ShapeAttr::get(&context, inputShape),
-      /*dtype=*/nullptr, /*layout=*/nullptr, /*memory_config=*/nullptr);
-
-  auto scatterOp = builder.create<ScatterOp>(
-      builder.getUnknownLoc(), tensorType, input.getResult(),
-      indices.getResult(), input.getResult(), builder.getI32IntegerAttr(0),
-      mlir::tt::ttcore::ReduceTypeAttr::get(
-          &context, mlir::tt::ttcore::ReduceType::Invalid),
-      /*memory_config=*/nullptr);
-
-  auto layouts = ttnn::utils::extractInputLayouts(scatterOp);
+  auto layouts = ttnn::utils::extractInputLayouts(allocOp);
   OpConfig config = createTestConfig();
 
   auto result =
-      op_constraint_validation::validateOperation(scatterOp, layouts, config);
+      op_constraint_validation::validateOperation(allocOp, layouts, config);
 
   // Should return NotImplemented
   EXPECT_TRUE(result.isNotImplemented());
