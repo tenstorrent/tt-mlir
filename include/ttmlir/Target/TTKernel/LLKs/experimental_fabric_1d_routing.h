@@ -73,8 +73,6 @@ FORCE_INLINE UnicastRoutingParams get_unicast_params_unidir_ring(
                        topology.routing_directions[topology.axis].first)
                  : static_cast<uint32_t>(
                        topology.routing_directions[topology.axis].second);
-  ASSERT(result.outgoing_direction != eth_chan_directions::COUNT);
-
   result.num_hops =
       is_forward ? static_cast<uint8_t>((dest_idx - my_idx + size) % size)
                  : static_cast<uint8_t>((my_idx - dest_idx + size) % size);
@@ -102,7 +100,6 @@ FORCE_INLINE UnicastRoutingParams get_unicast_params_line(
         topology.routing_directions[topology.axis].second);
     result.num_hops = my_idx - dest_idx;
   }
-  ASSERT(result.outgoing_direction != eth_chan_directions::COUNT);
 
   return result;
 }
@@ -154,7 +151,6 @@ FORCE_INLINE McastRoutingParams get_mcast_params_unidir_ring(
                            topology.routing_directions[topology.axis].first)
                      : static_cast<uint32_t>(
                            topology.routing_directions[topology.axis].second);
-  ASSERT(dir != eth_chan_directions::COUNT);
 
   auto [start_1, range_1, start_2_gap, range_2] =
       get_ring_regions(my_idx, start_idx, end_idx, size, is_forward);
@@ -195,8 +191,6 @@ FORCE_INLINE McastRoutingParams get_mcast_params_line(
       static_cast<uint32_t>(topology.routing_directions[topology.axis].first);
   uint32_t bwd_dir =
       static_cast<uint32_t>(topology.routing_directions[topology.axis].second);
-  ASSERT(fwd_dir != eth_chan_directions::COUNT);
-  ASSERT(bwd_dir != eth_chan_directions::COUNT);
 
   if (range_fwd != 0) {
     result.params_per_direction[fwd_dir].active = true;
