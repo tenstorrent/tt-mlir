@@ -64,7 +64,7 @@ void createTTNNPipelineTTIRPasses(
   pm.addPass(mlir::createInlinerPass());
 
   // Infer kv_cache argument types from cache operations.
-  pm.addPass(mlir::tt::ttir::createTTIRInferKVCacheArgumentTypes());
+  // pm.addPass(mlir::tt::ttir::createTTIRInferKVCacheArgumentTypes());
 
   // Flattening sliding window ops for compatibility with conversion to TTNN
   pm.addPass(mlir::tt::ttir::createTTIRFlattenSlidingWindow());
