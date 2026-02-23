@@ -2373,6 +2373,126 @@ private:
   }
 };
 
+// ============================================================================
+// SplitQKVPermuteToNLPDecode Pattern
+// ============================================================================
+//
+// This pattern fuses a SplitQueryKeyValueAndSplitHeadsOp followed by
+// permute [2,0,1,3] on all three outputs into a single
+// NLPCreateQKVHeadsDecodeOp, which is optimized for the decode case (S=1).
+//
+// Pattern matched:
+//   split_query_key_value_and_split_heads [B,1,hidden]
+//     -> Q[B,H,1,D] -> permute[2,0,1,3] -> [1,B,H,D]
+//     -> K[B,Hkv,1,D] -> permute[2,0,1,3] -> [1,B,Hkv,D]
+//     -> V[B,Hkv,1,D] -> permute[2,0,1,3] -> [1,B,Hkv,D]
+//
+// Replaced with:
+//   reshape [B,1,hidden] -> [1,1,B,hidden]
+//     -> nlp_create_qkv_heads_decode -> Q[1,B,H,D], K[1,B,Hkv,D], V[1,B,Hkv,D]
+//
+class SplitQKVPermuteToNLPDecodePattern
+    : public mlir::OpRewritePattern<SplitQueryKeyValueAndSplitHeadsOp> {
+  using mlir::OpRewritePattern<
+      SplitQueryKeyValueAndSplitHeadsOp>::OpRewritePattern;
+
+public:
+  mlir::LogicalResult
+  matchAndRewrite(SplitQueryKeyValueAndSplitHeadsOp splitOp,
+                  mlir::PatternRewriter &rewriter) const final {
+    // Must use single fused input (no separate KV tensor).
+    if (splitOp.getKvInputTensor()) {
+      return mlir::failure();
+    }
+
+    // transpose_key must be false (decode variant doesn't support it).
+    if (splitOp.getTransposeKey()) {
+      return mlir::failure();
+    }
+
+    // Input must be 3D with S=1 (decode case).
+    auto inputType = splitOp.getInputTensor().getType();
+    auto inputShape = inputType.getShape();
+    if (inputShape.size() != 3 || inputShape[1] != 1) {
+      return mlir::failure();
+    }
+
+    // All three outputs must each have exactly one use: a permute [2,0,1,3].
+    auto qPermuteOp = getPermuteUser(splitOp.getQuery());
+    auto kPermuteOp = getPermuteUser(splitOp.getKey());
+    auto vPermuteOp = getPermuteUser(splitOp.getValue());
+    if (!qPermuteOp || !kPermuteOp || !vPermuteOp) {
+      return mlir::failure();
+    }
+
+    // Extract dimensions.
+    int64_t batchSize = inputShape[0];
+    int64_t hidden = inputShape[2];
+    uint32_t numHeads = splitOp.getNumHeads();
+    uint32_t numKVHeads =
+        splitOp.getNumKvHeads() ? *splitOp.getNumKvHeads() : numHeads;
+
+    rewriter.setInsertionPointAfter(splitOp);
+
+    // Reshape input from [B, 1, hidden] -> [1, 1, B, hidden].
+    SmallVector<int64_t> reshapeShape = {1, 1, batchSize, hidden};
+    SmallVector<int32_t> reshapeShapeI32(reshapeShape.begin(),
+                                         reshapeShape.end());
+    RankedTensorType reshapeType =
+        utils::RankedTensorTypeFactory::create(inputType, reshapeShape);
+    auto reshapeOp = rewriter.create<ReshapeOp>(
+        splitOp.getLoc(), reshapeType, splitOp.getInputTensor(),
+        rewriter.getI32ArrayAttr(reshapeShapeI32), MemoryConfigAttr());
+
+    // Create NLPCreateQKVHeadsDecodeOp.
+    // The decode op always produces L1 height_sharded outputs, so construct
+    // output types with the correct buffer type and memory layout. The permute
+    // ops have the right shapes [1, B, H, D] but wrong memory config (DRAM
+    // interleaved). The sharding policy skips multi-result ops, so we must set
+    // the correct layout here.
+    auto toL1HeightSharded = [](RankedTensorType type) {
+      return utils::RankedTensorTypeFactory::create(
+          utils::RankedTensorTypeFactory::create(type, BufferType::L1),
+          TensorMemoryLayout::HeightSharded);
+    };
+    RankedTensorType qType = toL1HeightSharded(qPermuteOp.getType());
+    RankedTensorType kType = toL1HeightSharded(kPermuteOp.getType());
+    RankedTensorType vType = toL1HeightSharded(vPermuteOp.getType());
+
+    bool isGQA = (numHeads != numKVHeads);
+    auto decodeOp = rewriter.create<NLPCreateQKVHeadsDecodeOp>(
+        splitOp.getLoc(), TypeRange{qType, kType, vType}, reshapeOp.getResult(),
+        /*batch_offset=*/Value(), rewriter.getUI32IntegerAttr(numHeads),
+        isGQA ? rewriter.getUI32IntegerAttr(numKVHeads) : IntegerAttr(),
+        /*overlap_qk_coregrid=*/BoolAttr(),
+        /*slice_size=*/IntegerAttr(), MemoryConfigAttr());
+
+    // Replace permute ops with decode op outputs.
+    rewriter.replaceOp(qPermuteOp, decodeOp.getQuery());
+    rewriter.replaceOp(kPermuteOp, decodeOp.getKey());
+    rewriter.replaceOp(vPermuteOp, decodeOp.getValue());
+
+    return mlir::success();
+  }
+
+private:
+  // Returns the single PermuteOp user of `result` if it has permutation
+  // [2, 0, 1, 3], or nullptr otherwise.
+  PermuteOp getPermuteUser(Value result) const {
+    if (!result.hasOneUse()) {
+      return nullptr;
+    }
+    auto permuteOp = dyn_cast<PermuteOp>(*result.getUsers().begin());
+    if (!permuteOp) {
+      return nullptr;
+    }
+    if (permuteOp.getPermutation() != ArrayRef<int64_t>{2, 0, 1, 3}) {
+      return nullptr;
+    }
+    return permuteOp;
+  }
+};
+
 class TTNNFusingPass : public impl::TTNNFusingBase<TTNNFusingPass> {
 public:
   using impl::TTNNFusingBase<TTNNFusingPass>::TTNNFusingBase;
@@ -2398,6 +2518,7 @@ public:
       patterns.add<SDPAFusing>(&getContext());
       patterns.add<SplitQKVFromSlicesPattern<MatmulOp>>(&getContext());
       patterns.add<SplitQKVFromSlicesPattern<LinearOp>>(&getContext());
+      patterns.add<SplitQKVPermuteToNLPDecodePattern>(&getContext());
     }
 #endif // TTMLIR_ENABLE_OPMODEL
 
