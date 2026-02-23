@@ -63,6 +63,7 @@ SmallVector<int64_t> getPhysicalGridShape(Value tensorOrMemref);
 // and returns its remapping attribute. Returns std::nullopt if the value has
 // no associated remapping.  After the virtual-grid refactor, these remappings
 // are always reblockings — virtual grid info lives on EmptyOp attrs instead.
+// Note: this is not recursive, it only checks immediate defining op.
 std::optional<AffineMap> getAssociatedRemapping(Value val);
 
 // Returns the virtualGridMapping associated with a value, if any.

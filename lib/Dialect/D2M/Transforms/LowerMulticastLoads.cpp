@@ -57,7 +57,7 @@ public:
     if (genericOp.isExplicitDatamovementForm()) {
       return op.emitOpError(
           "High-level multicast form can only be used with regular GenericOp "
-          "form (non-empty indexing_maps, iterator_types, and block_factors).");
+          "form (non-empty iterator_types and block_factors).");
     }
 
     ttcore::GridAttr grid = genericOp.getGrid();
@@ -193,6 +193,7 @@ public:
     if (!grid.getMapping().isEmpty()) {
       // Derive the physical 2D grid and compute the forward map
       // (virtual → physical) to convert virtual multicast shapes.
+      // Note: this might not be adequate for certain TTNN-based mappings.
       ttcore::DeviceAttr device = ttcore::lookupDevice(genericOp);
       auto physGridShape = utils::collapseToPhysicalGrid2D(
           computeGridShape, device.getWorkerGrid().getShape());
