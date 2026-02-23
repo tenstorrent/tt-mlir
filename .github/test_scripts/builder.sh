@@ -10,12 +10,10 @@
 set -e -o pipefail
 
 runttrt=""
-TTRT_ARGS=""
 PYTEST_ARGS=""
 FLATBUFFER=""
 
 [[ "$RUNS_ON" != "n150" ]] && PYTEST_ARGS="$PYTEST_ARGS --require-exact-mesh"
-[[ "$RUNS_ON" == "p150" ]] && TTRT_ARGS="$TTRT_ARGS --disable-eth-dispatch"
 
 for flag in $3; do
     [[ "$flag" == "run-ttrt" ]] && runttrt=1

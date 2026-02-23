@@ -109,9 +109,7 @@ jobs:
       shell: bash
       run: |
         source env/activate
-        if [ "${{ matrix.build.runs-on }}" == "tg" ] || [ "${{ matrix.build.runs-on }}" == "p150" ]; then
-          ttrt query --save-artifacts --disable-eth-dispatch
-        elif [ "${{ matrix.build.runs-on }}" == "builder" ]; then
+        if [ "${{ matrix.build.runs-on }}" == "builder" ]; then
           echo "Running on builder, skipping system descriptor generation"
         else
           ttrt query --save-artifacts
