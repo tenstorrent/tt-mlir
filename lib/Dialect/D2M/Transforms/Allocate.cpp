@@ -15,6 +15,7 @@
 #include "mlir/Analysis/Liveness.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/AffineExpr.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/OpDefinition.h"
@@ -1290,11 +1291,19 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         TT_assert(!genericOp->getRegions().empty());
         Region &region = genericOp->getRegions().front();
         TT_assert(region.hasOneBlock());
-        Block &block = region.getBlocks().front();
-        Type cbArgType = block.getArgument(operandIndex).getType();
-        auto cbType = mlir::dyn_cast<d2m::CBType>(cbArgType);
-        TT_assert(cbType != nullptr);
-        Type cbUnderlyingType = cbType.getUnderlying();
+        Value tensorEmpty =
+            d2m::GenericOp::getOperandTensorEmpty(region, operandIndex);
+        Type cbUnderlyingType;
+        if (tensorEmpty) {
+          cbUnderlyingType = tensorEmpty.getType();
+        } else if (operandIndex < region.getNumArguments()) {
+          // Fallback for explicit CB form: get type from CB block arg.
+          if (auto cbType = mlir::dyn_cast<d2m::CBType>(
+                  region.getArgument(operandIndex).getType())) {
+            cbUnderlyingType = cbType.getUnderlying();
+          }
+        }
+        TT_assert(cbUnderlyingType);
 
         if (!operandCtx.hasStream &&
             (useAlwaysStreamPolicy() ||
@@ -1450,23 +1459,34 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     {
       operand.assign(streamOp.getResult());
 
+<<<<<<< HEAD
       auto streamShape = streamType.getShape();
       TT_assert((streamShape.size() % 2) == 0ul);
       auto shardShape = streamShape.drop_front(streamShape.size() / 2);
       const MemRefType newArgMemRefType = MemRefType::get(
           shardShape, streamType.getElementType(), nullptr, L1Attr);
       const CBType newCBArgType = d2m::CBType::get(newArgMemRefType);
+=======
+      auto newShardShape =
+          mlir::cast<ttcore::DeviceLayoutInterface>(streamType.getLayout())
+              .getShardShape(streamType);
+>>>>>>> dd3634f6b (wip)
 
       for (Region &region : op->getRegions()) {
         TT_assert(region.hasOneBlock());
-        Block &block = region.getBlocks().front();
 
         const auto operandIndex = operandCtx.operand->getOperandNumber();
-        BlockArgument arg = block.getArgument(operandIndex);
-        BlockArgument newArg =
-            block.insertArgument(operandIndex, newCBArgType, arg.getLoc());
-        rewriter.replaceAllUsesWith(arg, newArg);
-        block.eraseArgument(operandIndex + 1);
+        Value oldTensor =
+            d2m::GenericOp::getOperandTensorEmpty(region, operandIndex);
+        if (oldTensor) {
+          // Create a new tensor.empty with the updated shard shape.
+          OpBuilder::InsertionGuard guard(rewriter);
+          rewriter.setInsertionPoint(oldTensor.getDefiningOp());
+          auto newEmptyOp = rewriter.create<mlir::tensor::EmptyOp>(
+              oldTensor.getLoc(), newShardShape, streamType.getElementType());
+          rewriter.replaceAllUsesWith(oldTensor, newEmptyOp.getResult());
+          rewriter.eraseOp(oldTensor.getDefiningOp());
+        }
       }
     }
     rewriter.finalizeOpModification(op);

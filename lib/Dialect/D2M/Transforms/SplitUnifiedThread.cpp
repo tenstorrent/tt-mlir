@@ -65,23 +65,20 @@ public:
     Block *datamovementBlock = &newGeneric.getRegion(0).emplaceBlock();
     Block *computeBlock = &newGeneric.getRegion(1).emplaceBlock();
 
-    // Add arguments to both blocks matching the original region
-    SmallVector<Type> argTypes(originalBlock->getArgumentTypes().begin(),
-                               originalBlock->getArgumentTypes().end());
-    SmallVector<Location> argLocs(argTypes.size(), generic.getLoc());
-    datamovementBlock->addArguments(argTypes, argLocs);
-    computeBlock->addArguments(argTypes, argLocs);
-
-    // Create IR mappings for both regions
+    // Add all block arguments to both new blocks and create mappings.
+    // In the normal pipeline, only semaphore args exist as block args
+    // (CB args have been replaced with tensor.empty ops in the body).
+    // However, for robustness, we handle any block arg types present.
     IRMapping datamovementMapping;
     IRMapping computeMapping;
-
-    // Map block arguments
     for (unsigned i = 0; i < originalBlock->getNumArguments(); ++i) {
-      datamovementMapping.map(originalBlock->getArgument(i),
-                              datamovementBlock->getArgument(i));
-      computeMapping.map(originalBlock->getArgument(i),
-                         computeBlock->getArgument(i));
+      BlockArgument origArg = originalBlock->getArgument(i);
+      auto dmArg =
+          datamovementBlock->addArgument(origArg.getType(), generic.getLoc());
+      auto cmpArg =
+          computeBlock->addArgument(origArg.getType(), generic.getLoc());
+      datamovementMapping.map(origArg, dmArg);
+      computeMapping.map(origArg, cmpArg);
     }
 
     // Clone all operations to both regions (excluding terminators for now)

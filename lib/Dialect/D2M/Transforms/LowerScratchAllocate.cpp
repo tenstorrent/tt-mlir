@@ -103,7 +103,8 @@ private:
     // Get the scratch CB block argument and create get_scratch_from_cb.
     int64_t scratchInputIdx = scratchInputsAttr[0];
     Block &block = region.front();
-    Value scratchCBArg = block.getArgument(scratchInputIdx);
+    Value scratchCBArg =
+        d2m::GenericOp::getOperandTensorEmpty(region, scratchInputIdx);
 
     OpBuilder builder(&block, block.begin());
     auto scratchFromCBOp =
