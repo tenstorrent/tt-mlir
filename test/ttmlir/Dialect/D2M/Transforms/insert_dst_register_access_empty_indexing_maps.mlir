@@ -68,8 +68,12 @@ module {
 #l1_ = #ttcore.memory_space<l1>
 
 module {
-  // CHECK-LABEL: func.func @explicit_indexing_maps_bcast_guard
-  func.func @explicit_indexing_maps_bcast_guard(
+  // CHECK-LABEL: func.func @bcast_init_order
+  // Bcast guards should _not_ be inserted here. Only validate that acquire_dst and tile_bcast
+  // are properly instantiated.
+  // CHECK-NOT: scf.if
+  // CHECK-NOT: arith.cmpi eq
+  func.func @bcast_init_order(
       %in0: memref<2x2x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>,
       %in1: memref<2x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>,
       %out0: memref<2x2x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>) {

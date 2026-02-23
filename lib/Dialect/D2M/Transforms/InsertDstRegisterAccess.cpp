@@ -1085,13 +1085,18 @@ public:
         if (isBcastGuard && copyLoop) {
           rewriter.setInsertionPoint(copyLoop);
         }
-        // Guarded loads live in their own loop nest under that guard.
-        auto guard = createLoadLoopGuard(rewriter, record.loadStore.getLoc(),
-                                         record.guardIVs, isBcastGuard);
-        rewriter.setInsertionPointToStart(&guard.getThenRegion().front());
-        auto [_, guardedMapper] = cloneLoopSkeleton(rewriter, loopNestOrOp);
-        irMapper = guardedMapper;
-        rewriter.setInsertionPointAfter(guard);
+        // Only non-bcast records use guards. Bcast records still keep the
+        // insertion-point workaround above, but no longer create guarded loop
+        // nests.
+        if (!isBcastGuard) {
+          // Guarded loads live in their own loop nest under that guard.
+          auto guard = createLoadLoopGuard(rewriter, record.loadStore.getLoc(),
+                                           record.guardIVs, isBcastGuard);
+          rewriter.setInsertionPointToStart(&guard.getThenRegion().front());
+          auto [_, guardedMapper] = cloneLoopSkeleton(rewriter, loopNestOrOp);
+          irMapper = guardedMapper;
+          rewriter.setInsertionPointAfter(guard);
+        }
       }
 
       // Find insertion point in the cloned loop.

@@ -5,6 +5,8 @@
 
 module {
   // CHECK-LABEL: func.func @bcast_col
+  // CHECK-NOT: scf.if
+  // CHECK-NOT: arith.cmpi eq
   func.func @bcast_col(%in0: memref<3x3x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>,
                        %in1: memref<3x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>,
                        %out0: memref<3x3x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>) {
@@ -52,6 +54,8 @@ module {
   }
 
   // CHECK-LABEL: func.func @bcast_row
+  // CHECK-NOT: scf.if
+  // CHECK-NOT: arith.cmpi eq
   func.func @bcast_row(%in0: memref<3x3x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>,
                        %in1: memref<1x3x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>,
                        %out0: memref<3x3x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>) {
@@ -99,6 +103,8 @@ module {
   }
 
   // CHECK-LABEL: func.func @bcast_scalar
+  // CHECK-NOT: scf.if
+  // CHECK-NOT: arith.cmpi eq
   func.func @bcast_scalar(%in0: memref<3x3x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>,
                           %in1: memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>,
                           %out0: memref<3x3x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>) {
@@ -145,6 +151,8 @@ module {
   }
 
   // CHECK-LABEL: func.func @bcast_dual
+  // CHECK-NOT: scf.if
+  // CHECK-NOT: arith.cmpi eq
   func.func @bcast_dual(%in0: memref<3x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>,
                         %in1: memref<1x3x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>,
                         %out0: memref<3x3x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>) {
@@ -175,9 +183,6 @@ module {
           // CHECK-NEXT: %[[L1_TILE1:.*]] = affine.load
           // CHECK-NEXT: %[[DST_TILE1:.*]] = "d2m.tile_bcast"(%[[L1_TILE1]]) <{bcast_type = #d2m<tile_bcast_type col>}>
           // CHECK-NEXT: affine.store %[[DST_TILE1]], %dst
-
-          // CHECK: affine.for
-          // CHECK-NEXT: affine.for
           // CHECK-NEXT: %[[L1_TILE0:.*]] = affine.load
           // CHECK-NEXT: %[[DST_TILE0:.*]] = "d2m.tile_bcast"(%[[L1_TILE0]]) <{bcast_type = #d2m<tile_bcast_type row>}>
           // CHECK-NEXT: affine.store %[[DST_TILE0]], %dst
