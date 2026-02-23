@@ -92,13 +92,19 @@ createCoreVirtMaps(mlir::MLIRContext *context,
   return {forwardMap, inverseMap};
 }
 
+bool requiresVirtualGrid(llvm::ArrayRef<int64_t> gridShape,
+                         llvm::ArrayRef<int64_t> deviceGridShape) {
+  return gridShape.size() != 2 || gridShape[0] > deviceGridShape[0] ||
+         gridShape[1] > deviceGridShape[1];
+}
+
 llvm::SmallVector<int64_t, 2>
 getPhysicalGridExtent(llvm::ArrayRef<int64_t> virtualGrid,
                       llvm::ArrayRef<int64_t> targetGrid) {
   TT_assertv(targetGrid.size() == 2ul,
              "Target grid must have 2 dimensions (device grid is 2D)");
 
-  // Compute volume of virtual grid
+  // Compute volume of virtual grid.
   int64_t volume = 1;
   for (int64_t dim : virtualGrid) {
     volume *= dim;

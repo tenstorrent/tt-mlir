@@ -5,6 +5,7 @@
 #include "ttmlir/Conversion/D2MToTTMetal/D2MToTTMetal.h"
 
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
+#include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
@@ -164,7 +165,8 @@ public:
                memrefType.getLayout())) &&
            "expected physical device layout (shard or interleaved)");
 
-    auto vgm = op->getAttrOfType<AffineMapAttr>("virtualGridMapping");
+    auto vgm =
+        op->getAttrOfType<AffineMapAttr>(d2m::utils::kVirtualGridMappingAttr);
     rewriter.replaceOpWithNewOp<ttmetal::CreateBufferOp>(
         op, memrefType, address, /*virtualGridMapping=*/vgm);
 

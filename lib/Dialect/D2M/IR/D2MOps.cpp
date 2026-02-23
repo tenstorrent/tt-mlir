@@ -106,7 +106,7 @@ mlir::LogicalResult d2m::EmptyOp::bufferize(
   // Propagate virtualGridMapping as a discardable attribute on memref::AllocOp
   // (we don't own AllocOp so we can't add a declared attribute).
   if (auto vgm = getVirtualGridMappingAttr()) {
-    allocOp->setAttr("virtualGridMapping", vgm);
+    allocOp->setAttr(d2m::utils::kVirtualGridMappingAttr, vgm);
   }
 
   mlir::bufferization::replaceOpWithBufferizedValues(rewriter, *this,

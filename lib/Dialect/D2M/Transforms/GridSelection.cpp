@@ -366,10 +366,8 @@ static void optimizeToLayoutGrid(d2m::ToLayoutOp toLayoutOp,
   mlir::AffineMapAttr virtualGridMapping;
   auto device = ttcore::lookupDevice(toLayoutOp);
   auto workerGridShape = device.getWorkerGrid().getShape();
-  bool isVirtual =
-      optimalGrid.size() > 2 ||
-      (optimalGrid.size() == 2 && (optimalGrid[0] > workerGridShape[0] ||
-                                   optimalGrid[1] > workerGridShape[1]));
+  bool isVirtual = ttmlir::d2m::utils::grids::requiresVirtualGrid(
+      optimalGrid, workerGridShape);
   if (isVirtual) {
     auto physicalGridShape = utils::findLegalPhysicalGridForVolume(
         ttmlir::utils::volume<int64_t>(optimalGrid), targetSquareGridShape);
@@ -756,10 +754,8 @@ updateStreamLayoutOps(ArrayRef<StreamLayoutUpdateInfo> streamLayoutsToUpdate,
     if (!virtualGridMapping) {
       auto device = ttcore::lookupDevice(storageEmpty);
       auto workerGridShape = device.getWorkerGrid().getShape();
-      bool isVirtual =
-          optimalGrid.size() > 2 ||
-          (optimalGrid.size() == 2 && (optimalGrid[0] > workerGridShape[0] ||
-                                       optimalGrid[1] > workerGridShape[1]));
+      bool isVirtual = ttmlir::d2m::utils::grids::requiresVirtualGrid(
+          optimalGrid, workerGridShape);
       if (isVirtual) {
         auto physicalGridShape = utils::findLegalPhysicalGridForVolume(
             ttmlir::utils::volume<int64_t>(optimalGrid), targetSquareGridShape);
@@ -841,10 +837,8 @@ static void updateEmptyOps(ArrayRef<EmptyUpdateInfo> emptyOpsToUpdate,
     if (!virtualGridMapping) {
       auto device = ttcore::lookupDevice(emptyOp);
       auto workerGridShape = device.getWorkerGrid().getShape();
-      bool isVirtual =
-          info.grid.size() > 2 ||
-          (info.grid.size() == 2 && (info.grid[0] > workerGridShape[0] ||
-                                     info.grid[1] > workerGridShape[1]));
+      bool isVirtual = ttmlir::d2m::utils::grids::requiresVirtualGrid(
+          info.grid, workerGridShape);
       if (isVirtual) {
         auto physicalGridShape = utils::findLegalPhysicalGridForVolume(
             ttmlir::utils::volume<int64_t>(info.grid), targetSquareGridShape);

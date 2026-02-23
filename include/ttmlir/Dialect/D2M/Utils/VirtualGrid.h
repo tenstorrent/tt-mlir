@@ -41,6 +41,13 @@ createCoreVirtMaps(mlir::MLIRContext *context,
                    llvm::ArrayRef<int64_t> virtualGrid,
                    llvm::ArrayRef<int64_t> targetGrid);
 
+/// Returns true if the given grid shape requires virtual grid mapping
+/// (core virtualization) to fit on the target device grid.
+/// This is the case when the grid is not 2D, or when any grid dimension
+/// exceeds the corresponding device grid dimension.
+bool requiresVirtualGrid(llvm::ArrayRef<int64_t> gridShape,
+                         llvm::ArrayRef<int64_t> deviceGridShape);
+
 /// Computes the physical grid extent (bounding box) for a virtual grid
 /// mapped onto a target device grid using row-major virtualization.
 /// This uses the same layout as createCoreVirtMaps:

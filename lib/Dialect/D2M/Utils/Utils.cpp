@@ -236,8 +236,8 @@ SmallVector<int64_t> getPhysicalGridShape(Value tensorOrMemref) {
     ttcore::DeviceAttr device = ttcore::lookupDevice(definingOp);
     auto deviceGridShape = device.getWorkerGrid().getShape();
 
-    if (gridShape.size() > 2 || gridShape[0] > deviceGridShape[0] ||
-        gridShape[1] > deviceGridShape[1]) {
+    if (ttmlir::d2m::utils::grids::requiresVirtualGrid(gridShape,
+                                                       deviceGridShape)) {
       return llvm::to_vector<2>(
           collapseToPhysicalGrid2D(gridShape, deviceGridShape));
     }
@@ -273,7 +273,8 @@ std::optional<AffineMap> getVirtualGridMapping(Value val) {
 
     // For ops from other dialects (memref::AllocOp, ttmetal::CreateBufferOp),
     // check for a discardable attribute.
-    if (auto vgm = defOp->getAttrOfType<AffineMapAttr>("virtualGridMapping")) {
+    if (auto vgm =
+            defOp->getAttrOfType<AffineMapAttr>(kVirtualGridMappingAttr)) {
       return vgm.getValue();
     }
   }
@@ -333,8 +334,8 @@ AffineMap getMemoryMap(ttcore::DeviceAttr device, MemRefType memrefType,
     auto deviceGridShape = device.getWorkerGrid().getShape();
 
     bool needsCoreVirtualization =
-        (gridRank != 2) || (gridShape[0] > deviceGridShape[0] ||
-                            gridShape[1] > deviceGridShape[1]);
+        ttmlir::d2m::utils::grids::requiresVirtualGrid(gridShape,
+                                                       deviceGridShape);
 
     if (needsCoreVirtualization) {
       auto physicalGrid = ttmlir::d2m::utils::grids::getPhysicalGridExtent(

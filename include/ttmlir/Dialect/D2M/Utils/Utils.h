@@ -15,6 +15,12 @@ class DeviceAttr;
 
 namespace mlir::tt::d2m::utils {
 
+// Discardable attribute name for propagating virtualGridMapping through ops
+// we don't own (e.g. memref.alloc).  Uses the dialect prefix so MLIR can
+// verify it belongs to D2M.
+constexpr llvm::StringLiteral kVirtualGridMappingAttr =
+    "d2m.virtualGridMapping";
+
 // Return a new RankedTensorType by reblocking its device shape to match a new
 // grid shape.
 RankedTensorType reblockTensor(RankedTensorType oldTensor,

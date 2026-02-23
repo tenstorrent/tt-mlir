@@ -249,9 +249,8 @@ class D2MLowerToLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
       SmallVector<int64_t> tensorGridShape =
           llvm::to_vector(referenceLayout.getGridShape(referenceType));
 
-      bool virtualBounceNeeded = tensorGridShape.size() > 2 ||
-                                 ((tensorGridShape[0] > targetGridShape[0]) ||
-                                  (tensorGridShape[1] > targetGridShape[1]));
+      bool virtualBounceNeeded = ttmlir::d2m::utils::grids::requiresVirtualGrid(
+          tensorGridShape, targetGridShape);
 
       ttcore::MetalLayoutAttr layout;
       if (virtualBounceNeeded) {
@@ -328,9 +327,9 @@ class D2MLowerToLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
       } else {
         auto currentGrid = llvm::to_vector(baseLayout.getGridShape(baseType));
         tensorGrid = currentGrid;
-        needsReblock = needsReblock || tensorGrid.size() > 2 ||
-                       (tensorGrid[0] > targetGridShape[0] ||
-                        tensorGrid[1] > targetGridShape[1]);
+        needsReblock =
+            needsReblock || ttmlir::d2m::utils::grids::requiresVirtualGrid(
+                                tensorGrid, targetGridShape);
         if (needsReblock && reblockVirtualGridShapes) {
           tensorGrid =
               computeVirtualGridBounceShape(tensorGrid, targetGridShape);
@@ -1094,9 +1093,8 @@ public:
 
       // Check if we need to collapse a virtual grid.
       bool needsVirtualGridCollapse =
-          currentGridShape.size() > 2 ||
-          (currentGridShape[0] > targetGridShape_layout[0]) ||
-          (currentGridShape[1] > targetGridShape_layout[1]);
+          ttmlir::d2m::utils::grids::requiresVirtualGrid(
+              currentGridShape, targetGridShape_layout);
 
       if (needsVirtualGridCollapse && currentInfo.isL1()) {
         auto existingRemapping =
