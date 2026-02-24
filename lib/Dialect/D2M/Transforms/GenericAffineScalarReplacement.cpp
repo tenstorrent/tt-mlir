@@ -340,11 +340,11 @@ public:
     getOperation()->walk([&](func::FuncOp funcOp) {
       OpBuilder builder(funcOp.getContext());
 
-      auto &domInfo = getAnalysis<DominanceInfo>();
+      DominanceInfo initialDomInfo(funcOp);
 
       // Internalize generic op inputs that are only referenced locally into
       // local memref.alloc.
-      internalizeFusedGenericIntermediates(funcOp, domInfo, builder);
+      internalizeFusedGenericIntermediates(funcOp, initialDomInfo, builder);
 
       // Move remote_load into direct style so scalrep can forward through SSA.
       convertRemoteLoadToDirectStyle(funcOp);
@@ -354,8 +354,9 @@ public:
       convertBlockOffsetsToTaggedConstants(funcOp.getOperation());
 
       // Run the core affine scalar replacement transform.
-      auto &postDomInfo = getAnalysis<PostDominanceInfo>();
-      auto &aliasAnalysis = getAnalysis<AliasAnalysis>();
+      DominanceInfo domInfo(funcOp);
+      PostDominanceInfo postDomInfo(funcOp);
+      AliasAnalysis aliasAnalysis(funcOp);
       affine::affineScalarReplace(funcOp, domInfo, postDomInfo, aliasAnalysis);
 
       // Restore canonical d2m.block_offset form after affine utility work.
