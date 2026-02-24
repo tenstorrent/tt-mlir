@@ -417,6 +417,12 @@ ToLayoutOp::fold(FoldAdaptor,
   mlir::RankedTensorType outputType =
       dyn_cast<mlir::RankedTensorType>(getOutput().getType());
   if (inputType && outputType && inputType == outputType) {
+    // Don't fold if the input is a stream/view — the remapping it carries
+    // must be materialized by this to_layout, even if the types match.
+    if (getInput().getDefiningOp<StreamLayoutOp>() ||
+        getInput().getDefiningOp<ViewLayoutOp>()) {
+      return mlir::failure();
+    }
     results.push_back(getInput());
     return mlir::success();
   }
@@ -1177,12 +1183,9 @@ void d2m::ViewLayoutOp::getCanonicalizationPatterns(
 
     auto viewResultMemref = mlir::cast<MemRefType>(op.getResult().getType());
 
-    // Compose the stream's remapping with the view's reblock to get the
-    // full mapping from the stream's input to the view's output.
-    mlir::AffineMap viewReblock = ttmlir::utils::calculateReblockMap(
-        streamMemref.getShape(), viewResultMemref.getShape(), op->getContext());
+    // Compose the stream's remapping with the view's remapping.
     mlir::AffineMap composedRemapping =
-        viewReblock.compose(streamOp.getRemapping());
+        streamOp.getRemapping().compose(op.getRemapping());
 
     auto composedAttr = rewriter.getAttr<ttcore::ViewLayoutAttr>(
         static_cast<unsigned>(viewResultMemref.getRank()));
