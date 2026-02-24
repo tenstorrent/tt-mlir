@@ -1,5 +1,6 @@
 if (TTMLIR_ENABLE_OPMODEL)
         add_definitions(-DTTMLIR_ENABLE_OPMODEL)
+        set(OPMODEL_SRCS Fusing/RoPEFusingPattern.cpp)
 endif()
 
 add_mlir_dialect_library(MLIRTTNNTransforms
@@ -17,6 +18,7 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         TTNNEmitPyWorkarounds.cpp
         TTNNConstEvalInputsToSystemMemory.cpp
         TTNNFusing.cpp
+        ${OPMODEL_SRCS}
         TTNNLayout.cpp
         TTNNRecoverStructure.cpp
         TTNNRecoverStructureUtils.cpp
