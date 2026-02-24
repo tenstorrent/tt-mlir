@@ -56,29 +56,33 @@ static GenericOp findProducerGeneric(Value sharedMemref, GenericOp consumer) {
 // Check that the consumer is the sole reader of `sharedMemref` among
 // GenericOps. Also check through view wrappers.
 static bool isSoleReader(Value sharedMemref, GenericOp consumer) {
-  for (Operation *user : sharedMemref.getUsers()) {
-    if (user == consumer.getOperation()) {
+  SmallVector<Value> worklist = {sharedMemref};
+  DenseSet<Value> visited;
+  while (!worklist.empty()) {
+    Value current = worklist.pop_back_val();
+    if (!visited.insert(current).second) {
       continue;
     }
-    if (auto viewOp = mlir::dyn_cast<ViewOpInterface>(user)) {
-      for (Operation *viewUser : viewOp.getResult().getUsers()) {
-        if (viewUser == consumer.getOperation()) {
-          continue;
+
+    for (Operation *user : current.getUsers()) {
+      if (user == consumer.getOperation()) {
+        continue;
+      }
+      if (mlir::isa<ViewOpInterface>(user)) {
+        for (Value result : user->getResults()) {
+          worklist.push_back(result);
         }
-        if (mlir::isa<GenericOp>(viewUser)) {
+        continue;
+      }
+
+      auto otherGeneric = mlir::dyn_cast<GenericOp>(user);
+      if (!otherGeneric) {
+        continue;
+      }
+      for (OpOperand *input : otherGeneric.getDpsInputOperands()) {
+        if (input->get() == current) {
           return false;
         }
-      }
-      continue;
-    }
-    auto otherGeneric = mlir::dyn_cast<GenericOp>(user);
-    if (!otherGeneric) {
-      continue;
-    }
-    for (OpOperand *input : otherGeneric.getDpsInputOperands()) {
-      Value rawInput = unwrapIfViewLike(input->get());
-      if (rawInput == sharedMemref) {
-        return false;
       }
     }
   }
