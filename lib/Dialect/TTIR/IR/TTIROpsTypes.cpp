@@ -23,16 +23,3 @@ void TTIRDialect::registerTypes() {
 #include "ttmlir/Dialect/TTIR/IR/TTIROpsTypeDefs.cpp.inc"
       >();
 }
-
-::mlir::LogicalResult ComplexTensorType::verify(
-    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
-    ::mlir::RankedTensorType realType, ::mlir::RankedTensorType imagType) {
-  if (realType.getShape() != imagType.getShape()) {
-    return emitError() << "real and imaginary parts must have the same shape";
-  }
-  if (realType.getElementType() != imagType.getElementType()) {
-    return emitError()
-           << "real and imaginary parts must have the same element type";
-  }
-  return ::mlir::success();
-}

@@ -29,26 +29,4 @@ def TTIR_Semaphore : TTIR_Type<"Semaphore", "semaphore"> {
     let description = "Semaphore primitive type used in combination with semaphore ops to synchronize cores.";
 }
 
-def TTIR_ComplexTensor : TTIR_Type<"ComplexTensor", "complex_tensor"> {
-    let summary = "TTIR complex tensor type.";
-    let description = [{
-        A complex tensor type represented as a pair of ranked tensors:
-        one for the real component and one for the imaginary component.
-        This is distinct from MLIR's built-in complex type, which operates
-        on scalar element types.
-    }];
-    let parameters = (ins
-        "::mlir::RankedTensorType":$realType,
-        "::mlir::RankedTensorType":$imagType
-    );
-    let assemblyFormat = "`<` $realType `,` $imagType `>`";
-    let genVerifyDecl = 1;
-    let extraClassDeclaration = [{
-        // Convenience: assert real and imag have the same shape/element type.
-        bool isCompatible() const {
-            return getRealType() == getImagType();
-        }
-    }];
-}
-
 #endif  // TTMLIR_TTMLIR_DIALECT_TTIR_IR_TTIROPSTYPES_TD

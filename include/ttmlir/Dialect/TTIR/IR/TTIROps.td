@@ -1786,166 +1786,6 @@ def TTIR_AddOp : TTIR_ElementwiseBinaryOp<"add", [DeclareOpInterfaceMethods<TTIR
     }];
 }
 
-//===----------------------------------------------------------------------===//
-// Complex ops (tensor element type is MLIR builtin ComplexType)
-//===----------------------------------------------------------------------===//
-// complex<Float> is mlir::ComplexType from BuiltinTypes; tensor<...xcomplex<f64>>
-// is RankedTensorType with elementType = ComplexType::get(f64). No separate
-// "ComplexTensor" type in TTIR—just tensor with complex element type.
-
-def TTIR_StablehloComplexOp : TTIR_NamedOp<"stablehlo_complex"> {
-  let summary = "Create a complex tensor from real and imaginary parts.";
-  let description = [{
-    Builds a tensor with complex element type from two tensors holding the real
-    and imaginary components. The result has the same shape as the inputs with
-    element type complex(element_type_of_real).
-
-    Example:
-    ```mlir
-    %c = ttir.complex(%real, %imag) : (tensor<2xf64>, tensor<2xf64>) -> tensor<2xcomplex<f64>>
-    ```
-  }];
-
-  let arguments = (ins AnyRankedTensor:$real, AnyRankedTensor:$imag);
-  let results = (outs AnyRankedTensor:$result);
-
-  let builders = [
-    OpBuilder<(ins "Value":$real, "Value":$imag),
-    [{
-      auto realType = llvm::cast<RankedTensorType>(real.getType());
-      auto complexElemType = mlir::ComplexType::get(realType.getElementType());
-      build($_builder, $_state,
-            RankedTensorType::get(realType.getShape(), complexElemType),
-            real, imag);
-    }]>
-  ];
-  let hasVerifier = 1;
-}
-
-def TTIR_StablehloRealOp : TTIR_NamedOp<"stablehlo_real"> {
-  let summary = "Extract the real part of a complex tensor.";
-  let description = [{
-    Returns a tensor with the same shape as the input and float element type,
-    containing the real part of each complex element.
-
-    Example:
-    ```mlir
-    %r = ttir.real(%c) : tensor<2xcomplex<f64>> -> tensor<2xf64>
-    ```
-  }];
-
-  let arguments = (ins AnyRankedTensor:$input);
-  let results = (outs AnyRankedTensor:$result);
-  let hasVerifier = 1;
-}
-
-def TTIR_StablehloImagOp : TTIR_NamedOp<"stablehlo_imag"> {
-  let summary = "Extract the imaginary part of a complex tensor.";
-  let description = [{
-    Returns a tensor with the same shape as the input and float element type,
-    containing the imaginary part of each complex element.
-
-    Example:
-    ```mlir
-    %i = ttir.imag(%c) : tensor<2xcomplex<f64>> -> tensor<2xf64>
-    ```
-  }];
-
-  let arguments = (ins AnyRankedTensor:$input);
-  let results = (outs AnyRankedTensor:$result);
-  let hasVerifier = 1;
-}
-
-//===----------------------------------------------------------------------===//
-// TTIR Complex ops using TTIR ComplexTensor type
-//===----------------------------------------------------------------------===//
-
-def TTIR_ComplexOp : TTIR_NamedOp<"complex"> {
-  let summary = "Create a TTIR complex tensor from real and imaginary parts.";
-  let description = [{
-    Builds a TTIR complex tensor from two ranked tensors holding the real and
-    imaginary components. The result is of type !ttir.complex_tensor rather
-    than a ranked tensor with a complex element type.
-
-    Example:
-    ```mlir
-    %c = ttir.complex(%real, %imag)
-        : (tensor<2xf32>, tensor<2xf32>)
-          -> !ttir.complex_tensor<real = tensor<2xf32>, imag = tensor<2xf32>>
-    ```
-  }];
-
-  let arguments = (ins AnyRankedTensor:$real, AnyRankedTensor:$imag);
-  let results = (outs TTIR_ComplexTensor:$result);
-
-  let builders = [
-    OpBuilder<(ins "::mlir::Value":$real, "::mlir::Value":$imag),
-    [{
-      auto realType = llvm::cast<::mlir::RankedTensorType>(real.getType());
-      auto imagType = llvm::cast<::mlir::RankedTensorType>(imag.getType());
-      build($_builder, $_state,
-            ::mlir::tt::ttir::ComplexTensorType::get(
-                $_builder.getContext(), realType, imagType),
-            real, imag);
-    }]>
-  ];
-  let hasVerifier = 1;
-}
-
-def TTIR_RealOp : TTIR_NamedOp<"real"> {
-  let summary = "Extract the real part of a TTIR complex tensor.";
-  let description = [{
-    Returns the real component tensor from a TTIR complex tensor. The result
-    has the same shape and element type as the real part of the input.
-
-    Example:
-    ```mlir
-    %r = ttir.real(%c)
-        : !ttir.complex_tensor<real = tensor<2xf32>, imag = tensor<2xf32>> -> tensor<2xf32>
-    ```
-  }];
-
-  let arguments = (ins TTIR_ComplexTensor:$input);
-  let results = (outs AnyRankedTensor:$result);
-
-  let builders = [
-    OpBuilder<(ins "::mlir::Value":$input),
-    [{
-      auto complexType =
-          llvm::cast<::mlir::tt::ttir::ComplexTensorType>(input.getType());
-      build($_builder, $_state, complexType.getRealType(), input);
-    }]>
-  ];
-  // let hasVerifier = 1;
-}
-
-def TTIR_ImagOp : TTIR_NamedOp<"imag"> {
-  let summary = "Extract the imaginary part of a TTIR complex tensor.";
-  let description = [{
-      Returns the imaginary component of a TTIR complex tensor as a ranked tensor
-      of float element type.
-
-      Example:
-  ```mlir
-      %i = ttir.imag(%c)
-          : !ttir.complex_tensor<tensor<2xf32>, tensor<2xf32>> -> tensor<2xf32>
-  ```
-  }];
-
-  let arguments = (ins TTIR_ComplexTensor:$input);
-  let results = (outs AnyRankedTensor:$result);
-
-  let builders = [
-    OpBuilder<(ins "::mlir::Value":$input),
-    [{
-      auto complexType =
-          llvm::cast<::mlir::tt::ttir::ComplexTensorType>(input.getType());
-      build($_builder, $_state, complexType.getImagType(), input);
-    }]>
-  ];
-  // let hasVerifier = 1;
-}
-
 def TTIR_MultiplyOp : TTIR_ElementwiseBinaryOp<"multiply"> {
     let summary = "Elementwise multiplication operation.";
     let description = [{
@@ -5948,4 +5788,121 @@ def TTIR_SplitQueryKeyValueAndSplitHeadsOp: TTIR_NamedOp<"split_query_key_value_
 
     let hasVerifier = 1;
 }
+
+//===----------------------------------------------------------------------===//
+// Complex ops (tensor element type is MLIR builtin ComplexType)
+//===----------------------------------------------------------------------===//
+// complex<Float> is mlir::ComplexType from BuiltinTypes; tensor<...xcomplex<f64>>
+// is RankedTensorType with elementType = ComplexType::get(f64). No separate
+// "ComplexTensor" type in TTIR just tensor with complex element type.
+
+def TTIR_StablehloComplexOp : TTIR_NamedOp<"stablehlo_complex"> {
+  let summary = "Create a complex tensor from real and imaginary parts.";
+  let description = [{
+    Builds a tensor with complex element type from two tensors holding the real
+    and imaginary components. The result has the same shape as the inputs with
+    element type complex(element_type_of_real).
+
+    Example:
+    ```mlir
+    %c = ttir.complex(%real, %imag) : (tensor<2xf64>, tensor<2xf64>) -> tensor<2xcomplex<f64>>
+    ```
+  }];
+
+  let arguments = (ins AnyRankedTensor:$real, AnyRankedTensor:$imag);
+  let results = (outs AnyRankedTensor:$result);
+
+  let builders = [
+    OpBuilder<(ins "Value":$real, "Value":$imag),
+    [{
+      auto realType = llvm::cast<RankedTensorType>(real.getType());
+      auto complexElemType = mlir::ComplexType::get(realType.getElementType());
+      build($_builder, $_state,
+            RankedTensorType::get(realType.getShape(), complexElemType),
+            real, imag);
+    }]>
+  ];
+  let hasVerifier = 1;
+}
+
+def TTIR_StablehloRealOp : TTIR_NamedOp<"stablehlo_real"> {
+  let summary = "Extract the real part of a complex tensor.";
+  let description = [{
+    Returns a tensor with the same shape as the input and float element type,
+    containing the real part of each complex element.
+
+    Example:
+    ```mlir
+    %r = ttir.real(%c) : tensor<2xcomplex<f64>> -> tensor<2xf64>
+    ```
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input);
+  let results = (outs AnyRankedTensor:$result);
+  let hasVerifier = 1;
+}
+
+def TTIR_StablehloImagOp : TTIR_NamedOp<"stablehlo_imag"> {
+  let summary = "Extract the imaginary part of a complex tensor.";
+  let description = [{
+    Returns a tensor with the same shape as the input and float element type,
+    containing the imaginary part of each complex element.
+
+    Example:
+    ```mlir
+    %i = ttir.imag(%c) : tensor<2xcomplex<f64>> -> tensor<2xf64>
+    ```
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input);
+  let results = (outs AnyRankedTensor:$result);
+  let hasVerifier = 1;
+}
+
+//===----------------------------------------------------------------------===//
+// TTIR Complex ops using interleaved tensor
+//===----------------------------------------------------------------------===//
+
+def TTIR_ComplexOp : TTIR_NamedOp<"complex"> {
+  let summary = "Create a TTIR complex tensor from real and imaginary parts.";
+  let description = [{
+    Returns a non-complex tensor which uses the following mapping:
+    complex<f32> - tensor<...xf64>
+    complex<f64> - tensor<...xf128>
+  }];
+
+  let arguments = (ins AnyRankedTensor:$real, AnyRankedTensor:$imag);
+  let results = (outs AnyRankedTensor:$result);
+
+  // let hasVerifier = 1;
+}
+
+def TTIR_RealOp : TTIR_NamedOp<"real"> {
+    let summary = "Extract the real part of an interleaved tensor.";
+    let description = [{
+    Returns the real component tensor from an interleaved tensor which uses the following mapping:
+    complex<f32> - tensor<...xf64>
+    complex<f64> - tensor<...xf128>
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input);
+  let results = (outs AnyRankedTensor:$result);
+
+  // let hasVerifier = 1;
+}
+
+def TTIR_ImagOp : TTIR_NamedOp<"imag"> {
+  let summary = "Extract the imaginary part of an interleaved tensor.";
+  let description = [{
+    Returns the imaginary component tensor from an interleaved tensor which uses the following mapping:
+    complex<f32> - tensor<...xf64>
+    complex<f64> - tensor<...xf128>
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input);
+  let results = (outs AnyRankedTensor:$result);
+
+  // let hasVerifier = 1;
+}
+
 #endif

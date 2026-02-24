@@ -3303,7 +3303,7 @@ def TTNN_ScaledDotProductAttentionOp : TTNN_Op<"scaled_dot_product_attention", [
     let summary = "Scaled dot product attention operation.";
     let description = [{
       Scaled dot product attention.
-      The implementation is FlashAttention-2."
+      The implementation is FlashAttention-2.
 
       Args:
           query (AnyRankedTensor): The query tensor.          [batch x num_heads x query_seq_len x head_size]
