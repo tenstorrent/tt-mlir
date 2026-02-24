@@ -60,7 +60,7 @@ module {
 
     // CHECK: d2m.generic
     // Should remain 1 datamovement + 1 compute since only 1 CB has DMA work
-    // CHECK-SAME: threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]
+    // CHECK-SAME: threads = [#d2m.thread<datamovement, noc = 0>, #d2m.thread<compute>]
     // CHECK-NOT: threads = [#d2m.thread<datamovement>, #d2m.thread<datamovement>
     d2m.generic {block_factors = [], grid = #ttcore.grid<2x4>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]}
         ins(%arg0 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>)
@@ -267,7 +267,7 @@ module {
 
     // CHECK: d2m.generic
     // Should remain 1 datamovement + 1 compute since only 1 CB has DMA work
-    // CHECK-SAME: threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]
+    // CHECK-SAME: threads = [#d2m.thread<datamovement, noc = 1>, #d2m.thread<compute>]
     // CHECK-NOT: threads = [#d2m.thread<datamovement>, #d2m.thread<datamovement>
     d2m.generic {block_factors = [], grid = #ttcore.grid<2x4>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]}
         ins(%arg0 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)
