@@ -7,7 +7,6 @@
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MTraits.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
-#include "ttmlir/Dialect/D2M/Utils/Utils.h"
 
 #include "mlir/Dialect/Affine/Analysis/Utils.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
@@ -390,9 +389,6 @@ static GenericOp tryFusePair(GenericOp producer, GenericOp consumer,
     fusedOp->erase();
     return nullptr;
   }
-
-  // Mark as fused.
-  fusedOp->setAttr(utils::kAffineFusedAttr, builder.getUnitAttr());
 
   return fusedOp;
 }

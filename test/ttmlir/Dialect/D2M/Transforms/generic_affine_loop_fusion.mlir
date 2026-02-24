@@ -16,7 +16,6 @@
 // Both have identical indices and matching loop structure.
 // CHECK-LABEL: func.func @test_basic_fusion
 // CHECK: d2m.generic
-// CHECK-SAME: d2m.affine_fused
 // CHECK: d2m.block_offset
 // Verify producer ops (load from dram stream) precede consumer ops in fused body.
 // CHECK: d2m.remote_load{{.*}}#dram
@@ -194,7 +193,6 @@ func.func @test_no_fusion_multiple_readers(
 // CHECK-LABEL: func.func @test_matmul_add_subset_fusion
 // CHECK: d2m.generic
 // CHECK-SAME: block_factors = [1, 1, 2]
-// CHECK-SAME: d2m.affine_fused
 // CHECK-NOT: d2m.generic
 func.func @test_matmul_add_subset_fusion(
     %lhs: memref<1x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #dram>,
@@ -297,7 +295,6 @@ func.func @test_matmul_add_subset_fusion(
 // CHECK-LABEL: func.func @test_store_load_index_mismatch_ab
 // CHECK: d2m.generic
 // CHECK: d2m.generic
-// CHECK-NOT: d2m.affine_fused
 func.func @test_store_load_index_mismatch_ab(
     %input: memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>) {
   %intermediate = memref.alloc() {alignment = 64 : i64} : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>

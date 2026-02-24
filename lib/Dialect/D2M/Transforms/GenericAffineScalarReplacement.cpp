@@ -4,7 +4,6 @@
 
 #include "GenericAffineUtils.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
-#include "ttmlir/Dialect/D2M/Utils/Utils.h"
 
 #include "mlir/Analysis/AliasAnalysis.h"
 #include "mlir/Dialect/Affine/Utils.h"
@@ -85,10 +84,11 @@ static bool allLoadsStoreDominated(GenericOp genericOp, Value operandVal,
   return true;
 }
 
-static SmallVector<GenericOp> collectFusedGenericOps(func::FuncOp funcOp) {
+static SmallVector<GenericOp> collectEligibleGenericOps(func::FuncOp funcOp) {
   SmallVector<GenericOp> genericOps;
   funcOp.walk([&](GenericOp op) {
-    if (op->hasAttr(utils::kAffineFusedAttr) && !op.isDMAOnlyForm()) {
+    if (op.isUnifiedForm() && op.getOuterAffineBlockingLoopOp() &&
+        !op.isDMAOnlyForm() && !op.hasSkipOpAffineLoopFusionTrait()) {
       genericOps.push_back(op);
     }
   });
@@ -274,7 +274,7 @@ struct ScratchAllocCandidate {
 /// unified region.
 static void replaceGenericIntermediateAllocsWithScratch(func::FuncOp funcOp,
                                                         OpBuilder &builder) {
-  for (GenericOp genericOp : collectFusedGenericOps(funcOp)) {
+  for (GenericOp genericOp : collectEligibleGenericOps(funcOp)) {
     if (genericOp.getRegions().empty() || genericOp.getRegion(0).empty()) {
       continue;
     }
@@ -321,7 +321,7 @@ static void replaceGenericIntermediateAllocsWithScratch(func::FuncOp funcOp,
 static void internalizeFusedGenericIntermediates(func::FuncOp funcOp,
                                                  DominanceInfo &domInfo,
                                                  OpBuilder &builder) {
-  for (GenericOp op : collectFusedGenericOps(funcOp)) {
+  for (GenericOp op : collectEligibleGenericOps(funcOp)) {
     internalizeIntermediateOperands(op, domInfo, builder);
   }
 }

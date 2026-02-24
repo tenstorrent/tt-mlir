@@ -16,9 +16,6 @@ namespace mlir::tt::d2m::utils {
 // The attribute value is an i64 block-factor dimension index.
 constexpr llvm::StringLiteral kBlockingLoopAttr = "d2m.blocking_loop";
 
-// Marker attribute for GenericOps that were created by affine loop fusion.
-constexpr llvm::StringLiteral kAffineFusedAttr = "d2m.affine_fused";
-
 // Return a new RankedTensorType by reblocking its device shape to match a new
 // grid shape.
 RankedTensorType reblockTensor(RankedTensorType oldTensor,

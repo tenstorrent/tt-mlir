@@ -100,7 +100,6 @@ func.func @test_no_forwarding_different_indices(
 //
 // CHECK-LABEL: func.func @test_scalar_replacement_fused_generic
 // CHECK: d2m.generic
-// CHECK-SAME: d2m.affine_fused
 // CHECK: d2m.get_block_factor
 // CHECK: affine.for
 // CHECK: affine.for
@@ -112,7 +111,7 @@ func.func @test_scalar_replacement_fused_generic(
     %input: memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>) {
   %output = memref.alloc() : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>
 
-  d2m.generic {block_factors = [1, 1], d2m.affine_fused, grid = #ttcore.grid<2x4>, indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>], iterator_types = [#ttcore.iterator_type<parallel>, #ttcore.iterator_type<parallel>], threads = [#d2m.thread<unified>]}
+  d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<2x4>, indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>], iterator_types = [#ttcore.iterator_type<parallel>, #ttcore.iterator_type<parallel>], threads = [#d2m.thread<unified>]}
       ins(%input : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>)
       outs(%output : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>) {
   ^unified0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb1: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>):
@@ -148,7 +147,7 @@ func.func @test_multiple_block_index_same_dimension(
     ) {
   %output = memref.alloc() : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>
 
-  d2m.generic {block_factors = [1, 1], d2m.affine_fused, grid = #ttcore.grid<2x4>,
+  d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<2x4>,
     indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>],
     iterator_types = [#ttcore.iterator_type<parallel>, #ttcore.iterator_type<parallel>], threads = [#d2m.thread<unified>]}
       ins(
@@ -204,7 +203,7 @@ func.func @test_intermediate_internalization(
   %intermediate = memref.alloc() : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>
   %output = memref.alloc() : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>
 
-  d2m.generic {block_factors = [1, 1], d2m.affine_fused, grid = #ttcore.grid<2x4>,
+  d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<2x4>,
     indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>],
     iterator_types = [#ttcore.iterator_type<parallel>, #ttcore.iterator_type<parallel>],
     threads = [#d2m.thread<unified>]}
@@ -261,7 +260,7 @@ func.func @test_matmul_add_subset_fusion(
   %alloc = memref.alloc() : memref<2x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>
   %alloc_0 = memref.alloc() : memref<2x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>
 
-  d2m.generic {block_factors = [1, 1, 2], d2m.affine_fused, grid = #ttcore.grid<2x2>,
+  d2m.generic {block_factors = [1, 1, 2], grid = #ttcore.grid<2x2>,
     indexing_maps = [affine_map<(d0, d1, d2) -> (d0, d2)>, affine_map<(d0, d1, d2) -> (d2, d1)>, affine_map<(d0, d1, d2) -> (d0, d1)>, affine_map<(d0, d1, d2) -> (d0, d1)>],
     iterator_types = [#ttcore.iterator_type<parallel>, #ttcore.iterator_type<parallel>, #ttcore.iterator_type<reduction>],
     threads = [#d2m.thread<unified>]}
@@ -318,7 +317,7 @@ func.func @test_block_offset_bridge_roundtrip(
     %input: memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>) {
   %output = memref.alloc() : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>
 
-  d2m.generic {block_factors = [1, 1], d2m.affine_fused, grid = #ttcore.grid<2x4>, indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>], iterator_types = [#ttcore.iterator_type<parallel>, #ttcore.iterator_type<parallel>], threads = [#d2m.thread<unified>]}
+  d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<2x4>, indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>], iterator_types = [#ttcore.iterator_type<parallel>, #ttcore.iterator_type<parallel>], threads = [#d2m.thread<unified>]}
       ins(%input : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>)
       outs(%output : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>) {
   ^unified0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb1: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>):
