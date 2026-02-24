@@ -79,8 +79,11 @@ private:
 
   /// Generate reshard candidate layouts for a tensor type: DRAM interleaved
   /// and L1 interleaved variants derived from the current layout.
+  /// Optional layoutFilter predicate rejects candidates during generation
+  /// so they don't consume the top-8 budget.
   std::vector<TTNNLayoutAttr> generateReshardCandidates(
-      RankedTensorType tensorType, TTNNLayoutAttr currentLayout);
+      RankedTensorType tensorType, TTNNLayoutAttr currentLayout,
+      llvm::function_ref<bool(TTNNLayoutAttr)> layoutFilter = nullptr);
 
   /// Create a DRAM interleaved fallback layout for an op.
   TTNNLayoutAttr getDRAMInterleavedFallback(Operation *op);

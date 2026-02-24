@@ -51,6 +51,15 @@ OutputHints getOutputHints(Operation *op,
 /// Returns false for ops that must always be DRAM (e.g., reshape, permute).
 bool shouldExploreReshards(Operation *op);
 
+/// Returns true if layout has a sharded non-rectangular physical grid.
+/// A grid is non-rectangular if toCoreRangeSet produces >1 core range.
+bool isNonRectangularGrid(TTNNLayoutAttr layout);
+
+/// Returns true if op requires rectangular grid on its inputs.
+/// Workaround for tt-metal bug: rms_norm/layer_norm hang on non-rectangular
+/// width-sharded inputs. https://github.com/tenstorrent/tt-metal/issues/38429
+bool requiresRectangularGridInputs(Operation *op);
+
 //--- Scoring ---
 
 /// Score representing the quality of a layout candidate. Used for ranking.
@@ -66,6 +75,9 @@ struct LayoutScore {
 
   /// Penalize reshard.
   bool requiresReshard = false;
+
+  /// Total bytes transferred from DRAM across all inputs. Lower is better.
+  uint64_t inputDramBytes = 0;
 
   /// Memory footprint from ValidationResult (for tie-breaking).
   uint64_t outputL1Usage = 0;
