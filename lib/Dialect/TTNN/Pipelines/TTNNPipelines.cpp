@@ -4,6 +4,8 @@
 
 #include "ttmlir/Dialect/TTNN/Pipelines/TTNNPipelines.h"
 
+#include <cstdlib>
+
 #include "ttmlir/Conversion/TTIRToTTIRDecomposition/TTIRToTTIRDecomposition.h"
 #include "ttmlir/Conversion/TTIRToTTNN/TTIRToTTNN.h"
 #include "ttmlir/Conversion/TTNNToEmitC/TTNNToEmitC.h"
@@ -526,6 +528,14 @@ void createTTNNPipelineD2MPass(OpPassManager &pm) {
 //
 void createTTIRToTTNNBackendPipeline(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
+
+  // HACK: Allow printing IR after each pass via env var, equivalent to
+  // --mlir-print-ir-after-all in ttmlir-opt. Useful for repro debugging.
+  if (std::getenv("TTMLIR_PRINT_IR_AFTER_ALL")) {
+    auto *fullPM = static_cast<mlir::PassManager *>(&pm);
+    fullPM->getContext()->disableMultithreading();
+    fullPM->enableIRPrinting();
+  }
 
   createTTIRToTTNNDevicePipeline(pm, options);
 
