@@ -4,6 +4,7 @@
 
 #include "GenericAffineUtils.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
+#include "ttmlir/Dialect/D2M/Utils/Utils.h"
 
 #include "mlir/Analysis/AliasAnalysis.h"
 #include "mlir/Dialect/Affine/Utils.h"
@@ -22,9 +23,6 @@ namespace mlir::tt::d2m {
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h.inc"
 
 namespace {
-
-static constexpr llvm::StringLiteral kAffineFusedAttr = "d2m.affine_fused";
-static constexpr llvm::StringLiteral kScratchSlotAttr = "d2m.scratch_slot";
 
 struct IntermediateCandidate {
   unsigned inputIdx;
@@ -91,7 +89,7 @@ static bool allLoadsStoreDominated(GenericOp genericOp, Value operandVal,
 static SmallVector<GenericOp> collectFusedGenericOps(func::FuncOp funcOp) {
   SmallVector<GenericOp> genericOps;
   funcOp.walk([&](GenericOp op) {
-    if (op->hasAttr(kAffineFusedAttr) && !op.isDMAOnlyForm()) {
+    if (op->hasAttr(utils::kAffineFusedAttr) && !op.isDMAOnlyForm()) {
       genericOps.push_back(op);
     }
   });
@@ -99,7 +97,8 @@ static SmallVector<GenericOp> collectFusedGenericOps(func::FuncOp funcOp) {
 }
 
 static SmallVector<IntermediateCandidate>
-collectIntermediateCandidates(GenericOp genericOp, DominanceInfo &domInfo) {
+collectIntermediateOperandCandidates(GenericOp genericOp,
+                                     DominanceInfo &domInfo) {
   if (genericOp.getRegions().empty() || genericOp.getRegion(0).empty()) {
     return {};
   }
@@ -153,7 +152,7 @@ materializeIntermediateAllocs(GenericOp genericOp,
     auto allocOp = builder.create<memref::AllocOp>(
         genericOp.getLoc(), mlir::cast<MemRefType>(operandVal.getType()));
     allocOp->setAttr(
-        kScratchSlotAttr,
+        utils::kScratchSlotAttr,
         builder.getI64IntegerAttr(static_cast<int64_t>(candidate.inputIdx)));
 
     operandVal.replaceUsesWithIf(allocOp.getResult(), [&](OpOperand &use) {
@@ -214,7 +213,7 @@ static void internalizeIntermediateOperands(GenericOp genericOp,
                                             DominanceInfo &domInfo,
                                             OpBuilder &builder) {
   SmallVector<IntermediateCandidate> intermediates =
-      collectIntermediateCandidates(genericOp, domInfo);
+      collectIntermediateOperandCandidates(genericOp, domInfo);
   if (intermediates.empty()) {
     return;
   }
@@ -317,7 +316,8 @@ static int64_t computeNextScratchSlot(GenericOp genericOp) {
       return;
     }
     if (auto allocOp = mlir::dyn_cast<memref::AllocOp>(op)) {
-      if (auto slot = allocOp->getAttrOfType<IntegerAttr>(kScratchSlotAttr)) {
+      if (auto slot =
+              allocOp->getAttrOfType<IntegerAttr>(utils::kScratchSlotAttr)) {
         maxSlot = std::max(maxSlot, slot.getInt());
       }
     }
@@ -346,7 +346,8 @@ static void replaceGenericIntermediateAllocsWithScratch(func::FuncOp funcOp,
         deadAllocs.push_back(allocOp);
         return;
       }
-      if (auto slot = allocOp->getAttrOfType<IntegerAttr>(kScratchSlotAttr)) {
+      if (auto slot =
+              allocOp->getAttrOfType<IntegerAttr>(utils::kScratchSlotAttr)) {
         candidates.push_back({allocOp, slot.getInt()});
         return;
       }
