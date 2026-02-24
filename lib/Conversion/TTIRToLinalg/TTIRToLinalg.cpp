@@ -1821,6 +1821,97 @@ private:
 } // namespace
 
 namespace {
+class EmbeddingOpConversionPattern
+    : public OpConversionPattern<ttir::EmbeddingOp> {
+public:
+  using OpConversionPattern<ttir::EmbeddingOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::EmbeddingOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto loc = op.getLoc();
+    Value input = adaptor.getInput();
+    Value weight = adaptor.getWeight();
+
+    auto inputType = cast<RankedTensorType>(input.getType());
+    auto weightType = cast<RankedTensorType>(weight.getType());
+    auto resultType = cast<RankedTensorType>(
+        getTypeConverter()->convertType(op.getResult().getType()));
+
+    int64_t inputRank = inputType.getRank();
+    int64_t weightRank = weightType.getRank();
+    int64_t resultRank = resultType.getRank();
+
+    // Create empty output tensor.
+    Value initTensor = rewriter.create<tensor::EmptyOp>(
+        loc, resultType.getShape(), resultType.getElementType());
+
+    // Input indexing map: project result dims to input dims.
+    // result(d0, ..., d_{N-1}, d_N, ..., d_{N+E-1}) -> input(d0, ..., d_{N-1})
+    // This lets linalg read input elements via an affine map rather than
+    // scalar tensor.extract, enabling better tiling and vectorization.
+    SmallVector<AffineExpr> inputExprs;
+    for (int64_t i = 0; i < inputRank; ++i) {
+      inputExprs.push_back(rewriter.getAffineDimExpr(i));
+    }
+    AffineMap inputMap =
+        AffineMap::get(resultRank, 0, inputExprs, rewriter.getContext());
+
+    // Identity map for output.
+    AffineMap outputMap =
+        AffineMap::getMultiDimIdentityMap(resultRank, rewriter.getContext());
+    SmallVector<AffineMap> indexingMaps = {inputMap, outputMap};
+
+    // All dimensions are parallel.
+    SmallVector<utils::IteratorType> iteratorTypes(
+        resultRank, utils::IteratorType::parallel);
+
+    auto genericOp = rewriter.create<linalg::GenericOp>(
+        loc, resultType, ValueRange{input}, ValueRange{initTensor},
+        indexingMaps, iteratorTypes,
+        [&](OpBuilder &b, Location loc, ValueRange args) {
+          // args[0] is the input element (index value) read via the affine map.
+          // args[1] is the current output element.
+          Value idxValue = args[0];
+
+          // Convert the index value to index type.
+          Value idx;
+          if (idxValue.getType().isF32()) {
+            Value i32Val =
+                b.create<arith::FPToSIOp>(loc, b.getI32Type(), idxValue);
+            idx = b.create<arith::IndexCastOp>(loc, b.getIndexType(), i32Val);
+          } else {
+            idx =
+                b.create<arith::IndexCastOp>(loc, b.getIndexType(), idxValue);
+          }
+
+          // Build weight indices:
+          // - Leading dims (all 1s in weight) are 0.
+          // - Second-to-last dim is the extracted index.
+          // - Last dim is the last result iteration index.
+          SmallVector<Value> weightIndices;
+          for (int64_t i = 0; i < weightRank - 2; ++i) {
+            weightIndices.push_back(
+                b.create<arith::ConstantIndexOp>(loc, 0));
+          }
+          weightIndices.push_back(idx);
+          weightIndices.push_back(b.create<linalg::IndexOp>(loc,
+                                                             resultRank - 1));
+
+          // Extract the value from weight tensor.
+          Value extracted =
+              b.create<tensor::ExtractOp>(loc, weight, weightIndices);
+
+          b.create<linalg::YieldOp>(loc, extracted);
+        });
+
+    rewriter.replaceOp(op, genericOp.getResult(0));
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class LogicalNotOpConversionPattern
     : public OpConversionPattern<ttir::LogicalNotOp> {
 public:
@@ -3614,6 +3705,7 @@ void populateTTIRToTosaPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                CosOpConversionPattern, MatmulOpConversionPattern,
                LinearOpConversionPattern, ClampScalarOpConversionPattern,
                Relu6OpConversionPattern, GatherOpConversionPattern,
+               EmbeddingOpConversionPattern,
                LogicalNotOpConversionPattern, MaxOpConversionPattern,
                MinOpConversionPattern, SumOpConversionPattern,
                ProdOpConversionPattern, ArgMaxOpConversionPattern,
