@@ -1729,6 +1729,50 @@ public:
   }
 
 private:
+  // Compute the virtualGridMapping for a TTNN legacy layout's shard strategy.
+  // Height/width-sharded layouts imply a linearized virtual grid; block-sharded
+  // and interleaved layouts do not.  This mirrors main's behavior where the
+  // indexAffineMap on MetalLayoutAttr made different shard strategies produce
+  // structurally distinct types.
+  static std::optional<AffineMap>
+  computeLegacyVirtualGridMapping(MLIRContext *ctx,
+                                  ttnn::TTNNLayoutAttr ttnnLayout) {
+    auto memLayout = ttnnLayout.getMemLayout().getValue();
+    bool legacyWithVirtualGrid =
+        memLayout == ttnn::TensorMemoryLayout::HeightSharded ||
+        memLayout == ttnn::TensorMemoryLayout::WidthSharded;
+    if (!legacyWithVirtualGrid) {
+      return std::nullopt;
+    }
+
+    llvm::SmallVector<int64_t> ttnnGridShape(ttnnLayout.getGrid().getShape());
+    llvm::SmallVector<int64_t> virtualGrid;
+    if (memLayout == ttnn::TensorMemoryLayout::HeightSharded) {
+      virtualGrid = {ttnnGridShape[0] * ttnnGridShape[1], 1};
+    } else {
+      virtualGrid = {1, ttnnGridShape[0] * ttnnGridShape[1]};
+    }
+
+    auto [_, inverseMap] = ttmlir::d2m::utils::grids::createCoreVirtMaps(
+        ctx, virtualGrid, ttnnGridShape);
+    return inverseMap;
+  }
+
+  // Set the virtualGridMapping attribute on a TTNNMetalLayoutCastOp when the
+  // TTNN layout implies a virtual grid.  This allows getVirtualGridMapping()
+  // to trace through the cast and discover the mapping.
+  static void propagateVGMToCastOp(MLIRContext *ctx,
+                                   ttir::TTNNMetalLayoutCastOp castOp,
+                                   Attribute encoding) {
+    auto ttnnLayout = mlir::dyn_cast_if_present<ttnn::TTNNLayoutAttr>(encoding);
+    if (!ttnnLayout) {
+      return;
+    }
+    if (auto vgm = computeLegacyVirtualGridMapping(ctx, ttnnLayout)) {
+      castOp.setVirtualGridMappingAttr(AffineMapAttr::get(*vgm));
+    }
+  }
+
   LogicalResult
   rewriteIfTTNNModeEnabled(ttir::ToLayoutOp op, OpAdaptor adaptor,
                            ConversionPatternRewriter &rewriter) const {
@@ -1755,10 +1799,11 @@ private:
     if (mlir::isa_and_nonnull<ttnn::TTNNLayoutAttr>(inputType.getEncoding())) {
       auto inputMetalType =
           getMetalTensorFromTTNNTensor(rewriter, adaptor.getInput());
-      metalInput = rewriter
-                       .create<ttir::TTNNMetalLayoutCastOp>(
-                           op.getLoc(), inputMetalType, adaptor.getInput())
-                       .getResult();
+      auto inputCast = rewriter.create<ttir::TTNNMetalLayoutCastOp>(
+          op.getLoc(), inputMetalType, adaptor.getInput());
+      propagateVGMToCastOp(rewriter.getContext(), inputCast,
+                           inputType.getEncoding());
+      metalInput = inputCast.getResult();
     }
     auto outputMetalType =
         getMetalTensorFromTTNNTensor(rewriter, op.getOutput());
@@ -1769,6 +1814,8 @@ private:
     // Cast TTNN empty to Metal layout.
     auto metalCast = rewriter.create<ttir::TTNNMetalLayoutCastOp>(
         op.getLoc(), outputMetalType, metalEmpty);
+    propagateVGMToCastOp(rewriter.getContext(), metalCast,
+                         outType.getEncoding());
     // Create d2m.to_layout with Metal types.
     auto metalToLayout =
         rewriter.create<d2m::ToLayoutOp>(op.getLoc(), metalInput, metalCast);

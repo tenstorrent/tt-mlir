@@ -11,6 +11,7 @@
 #include "ttmlir/Dialect/D2M/Utils/VirtualGrid.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Affine/Utils.h"
@@ -269,6 +270,14 @@ std::optional<AffineMap> getVirtualGridMapping(Value val) {
     // Trace through d2m.stream_layout to its storage EmptyOp.
     if (auto streamOp = mlir::dyn_cast<StreamLayoutOp>(defOp)) {
       return getVirtualGridMapping(streamOp.getStorage());
+    }
+
+    // Trace through ttir.ttnn_metal_layout_cast to its declared VGM attr.
+    if (auto castOp = mlir::dyn_cast<ttir::TTNNMetalLayoutCastOp>(defOp)) {
+      if (auto vgm = castOp.getVirtualGridMappingAttr()) {
+        return vgm.getValue();
+      }
+      return std::nullopt;
     }
 
     // For ops from other dialects (memref::AllocOp, ttmetal::CreateBufferOp),

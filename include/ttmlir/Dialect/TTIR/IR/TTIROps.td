@@ -130,7 +130,8 @@ def TTIR_TTNNMetalLayoutCastOp : TTIR_Op<"ttnn_metal_layout_cast",
     ```
   }];
 
-  let arguments = (ins AnyRankedTensorOrMemRef:$input);
+  let arguments = (ins AnyRankedTensorOrMemRef:$input,
+                       OptionalAttr<AffineMapAttr>:$virtual_grid_mapping);
   let results   = (outs AnyRankedTensorOrMemRef:$result);
 
   let assemblyFormat = [{

@@ -423,6 +423,16 @@ ToLayoutOp::fold(FoldAdaptor,
         getInput().getDefiningOp<ViewLayoutOp>()) {
       return mlir::failure();
     }
+    // Don't fold when the virtualGridMappings of the input and output
+    // differ.  Different TTNN shard strategies (e.g. height_sharded vs
+    // block_sharded) can map to the same MetalLayoutAttr after the
+    // indexAffineMap refactor, so we compare VGMs to mirror main's
+    // behavior where the indexAffineMap made the types structurally
+    // different.
+    if (utils::getVirtualGridMapping(getInput()) !=
+        utils::getVirtualGridMapping(getOutput())) {
+      return mlir::failure();
+    }
     results.push_back(getInput());
     return mlir::success();
   }
