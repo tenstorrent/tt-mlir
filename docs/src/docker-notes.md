@@ -11,10 +11,10 @@ Components:
 We use docker images to prepare the project environment, install dependencies, tooling and prebuild toolchain.
 Project builds four docker images:
 
-- Base image `tt-mlir-base-ubuntu-22-04` [Dockerfile.base](.github/Dockerfile.base)
-- CI image `tt-mlir-ci-ubuntu-22-04` [Dockerfile.ci](.github/Dockerfile.ci)
-- Base IRD image `tt-mlir-base-ird-ubuntu-22-04`[Dockerfile.ird](.github/Dockerfile.ird)
-- IRD image `tt-mlir-ird-ubuntu-22-04` [Dockerfile.ird](.github/Dockerfile.ird)
+- Base image `tt-mlir-base-ubuntu-24-04` [Dockerfile.base](.github/Dockerfile.base)
+- CI image `tt-mlir-ci-ubuntu-24-04` [Dockerfile.ci](.github/Dockerfile.ci)
+- Base IRD image `tt-mlir-base-ird-ubuntu-24-04`[Dockerfile.ird](.github/Dockerfile.ird)
+- IRD image `tt-mlir-ird-ubuntu-24-04` [Dockerfile.ird](.github/Dockerfile.ird)
 
 Base image starts with a supported base image (Ubuntu 22.04) and installs dependencies for project build. From there, we build the CI image that contains the prebuild toolchain and is used in CI to shorten the build time. The IRD image contains dev tools such as GDB, vim and ssh which are used in IRD environments.
 
@@ -31,7 +31,7 @@ sudo docker run -it -d --rm \
   --device /dev/tenstorrent/0:/dev/tenstorrent/0 \
   -v /dev/hugepages:/dev/hugepages \
   -v /dev/hugepages-1G:/dev/hugepages-1G \
-  ghcr.io/tenstorrent/tt-mlir/tt-mlir-ird-ubuntu-22-04:latest bash
+  ghcr.io/tenstorrent/tt-mlir/tt-mlir-ird-ubuntu-24-04:latest bash
 ```
 
 > Special attention should be paid to flags:
@@ -53,7 +53,7 @@ can specify the docker image to use:
 
 ```bash
 ird reserve \
-  --docker-image ghcr.io/tenstorrent/tt-mlir/tt-mlir-ird-ubuntu-22-04:latest
+  --docker-image ghcr.io/tenstorrent/tt-mlir/tt-mlir-ird-ubuntu-24-04:latest
 ```
 
 See `ird reserve --help` for more information on the `reserve` command. Typical
@@ -66,7 +66,7 @@ ird list-machines
 # reserve a machine
 ird reserve \
   --volumes /localdev/$USER:/localdev/$USER \
-  --docker-image ghcr.io/tenstorrent/tt-mlir/tt-mlir-ird-ubuntu-22-04:latest \
+  --docker-image ghcr.io/tenstorrent/tt-mlir/tt-mlir-ird-ubuntu-24-04:latest \
   --timeout 720 \
   wormhole_b0 \
   --machine [MACHINE_NAME]
@@ -90,10 +90,10 @@ The GitHub Actions workflow [Build and Publish Docker Image](.github/workflows/b
 To test the changes and build the image locally, use the following command:
 
 ```bash
-docker build -f .github/Dockerfile.base -t ghcr.io/tenstorrent/tt-mlir/tt-mlir-base-ubuntu-22-04:latest .
-docker build -f .github/Dockerfile.ci -t ghcr.io/tenstorrent/tt-mlir/tt-mlir-ci-ubuntu-22-04:latest .
-docker build -f .github/Dockerfile.ird --build-arg FROM_IMAGE=base -t ghcr.io/tenstorrent/tt-mlir/tt-mlir-ird-base-ubuntu-22-04:latest .
-docker build -f .github/Dockerfile.ird --build-arg FROM_IMAGE=ci -t ghcr.io/tenstorrent/tt-mlir/tt-mlir-ird-ubuntu-22-04:latest .
+docker build -f .github/Dockerfile.base -t ghcr.io/tenstorrent/tt-mlir/tt-mlir-base-ubuntu-24-04:latest .
+docker build -f .github/Dockerfile.ci -t ghcr.io/tenstorrent/tt-mlir/tt-mlir-ci-ubuntu-24-04:latest .
+docker build -f .github/Dockerfile.ird --build-arg FROM_IMAGE=base -t ghcr.io/tenstorrent/tt-mlir/tt-mlir-ird-base-ubuntu-24-04:latest .
+docker build -f .github/Dockerfile.ird --build-arg FROM_IMAGE=ci -t ghcr.io/tenstorrent/tt-mlir/tt-mlir-ird-ubuntu-24-04:latest .
 ```
 
 ## Using the Image in GitHub Actions Jobs
@@ -102,6 +102,6 @@ The GitHub Actions workflow [Build in Docker](.github/workflows/docker-build.yml
 
 ```yaml
     container:
-      image: ghcr.io/${{ github.repository }}/tt-mlir-ci-ubuntu-22-04:latest
+      image: ghcr.io/${{ github.repository }}/tt-mlir-ci-ubuntu-24-04:latest
       options: --user root
 ```
