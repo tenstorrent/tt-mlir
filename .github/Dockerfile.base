@@ -61,7 +61,7 @@ RUN wget https://apt.llvm.org/llvm.sh && \
     ln -s /usr/bin/clangd-17 /usr/bin/clangd
 
 # Install python packages
-RUN pip install --no-cache-dir cmake \
+RUN pip install --break-system-packages --no-cache-dir cmake \
     sphinx \
     sphinx-markdown-builder
 
