@@ -43,8 +43,8 @@ struct TTIRToTTIRDecompositionPass
     target.addLegalDialect<BuiltinDialect>();
     target.addLegalOp<ttir::EmptyOp>();
     target.addIllegalOp<ttir::StablehloComplexOp>();
-    // target.addIllegalOp<ttir::StablehloRealOp>();
-    // target.addIllegalOp<ttir::StablehloImagOp>();
+    target.addIllegalOp<ttir::StablehloRealOp>();
+    target.addIllegalOp<ttir::StablehloImagOp>();
 
     // Configure which ops to decompose based on the configuration
     switch (decompConfig) {
@@ -150,7 +150,8 @@ struct TTIRToTTIRDecompositionPass
     TypeConverter typeConverter;
     // All types map 1:1.
     typeConverter.addConversion([](Type type) { return type; });
-    // complex<f32> tensors → f64 tensors, complex<f64> tensors → f128 tensors.
+    // tensor<...xcomplex<fN>> → tensor<...x2xfN>: append a trailing dimension
+    // of 2 for [real, imag] components, keeping the element type as fN.
     typeConverter.addConversion(
         [](RankedTensorType type) -> std::optional<Type> {
           auto complexTy =
@@ -163,19 +164,9 @@ struct TTIRToTTIRDecompositionPass
           if (!floatTy) {
             return std::nullopt;
           }
-          MLIRContext *ctx = floatTy.getContext();
-          Type doubleWidthTy;
-          switch (floatTy.getWidth()) {
-          case 32:
-            doubleWidthTy = Float64Type::get(ctx);
-            break;
-          case 64:
-            doubleWidthTy = Float128Type::get(ctx);
-            break;
-          default:
-            return std::nullopt;
-          }
-          return RankedTensorType::get(type.getShape(), doubleWidthTy);
+          SmallVector<int64_t> newShape(type.getShape());
+          newShape.push_back(2);
+          return RankedTensorType::get(newShape, floatTy);
         });
 
     RewritePatternSet patterns(&getContext());

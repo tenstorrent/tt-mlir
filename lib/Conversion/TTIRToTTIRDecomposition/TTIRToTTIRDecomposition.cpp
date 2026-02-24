@@ -2566,6 +2566,35 @@ struct StablehloComplexToComplexPattern
     return success();
   }
 };
+struct StablehloRealToRealPattern
+    : public OpConversionPattern<ttir::StablehloRealOp> {
+  using OpConversionPattern<ttir::StablehloRealOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::StablehloRealOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto resultType = getTypeConverter()->convertType(op.getResult().getType());
+    auto newOp = rewriter.create<ttir::RealOp>(op.getLoc(), resultType,
+                                               adaptor.getInput());
+    rewriter.replaceOp(op, newOp.getResult());
+    return success();
+  }
+};
+
+struct StablehloImagToImagPattern
+    : public OpConversionPattern<ttir::StablehloImagOp> {
+  using OpConversionPattern<ttir::StablehloImagOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::StablehloImagOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto resultType = getTypeConverter()->convertType(op.getResult().getType());
+    auto newOp = rewriter.create<ttir::ImagOp>(op.getLoc(), resultType,
+                                               adaptor.getInput());
+    rewriter.replaceOp(op, newOp.getResult());
+    return success();
+  }
+};
 } // namespace
 
 void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
@@ -2573,6 +2602,8 @@ void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
                                              TypeConverter &typeConverter,
                                              DecompMode decompConfig) {
   patterns.add<StablehloComplexToComplexPattern>(typeConverter, ctx);
+  patterns.add<StablehloRealToRealPattern>(typeConverter, ctx);
+  patterns.add<StablehloImagToImagPattern>(typeConverter, ctx);
   patterns.add<PoolingToFullOp<ttir::MaxPool2dOp>>(typeConverter, ctx);
   patterns.add<PoolingToFullOp<ttir::AvgPool2dOp>>(typeConverter, ctx);
   patterns.add<IndexToSliceConversionPattern>(typeConverter, ctx);

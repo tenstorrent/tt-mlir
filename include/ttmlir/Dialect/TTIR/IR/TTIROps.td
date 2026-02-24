@@ -5860,15 +5860,15 @@ def TTIR_StablehloImagOp : TTIR_NamedOp<"stablehlo_imag"> {
 }
 
 //===----------------------------------------------------------------------===//
-// TTIR Complex ops using interleaved tensor
+// TTIR Complex ops using unsqueezed tensor
 //===----------------------------------------------------------------------===//
 
 def TTIR_ComplexOp : TTIR_NamedOp<"complex"> {
   let summary = "Create a TTIR complex tensor from real and imaginary parts.";
   let description = [{
     Returns a non-complex tensor which uses the following mapping:
-    complex<f32> - tensor<...xf64>
-    complex<f64> - tensor<...xf128>
+    complex<f32> - tensor<...x2xf32>
+    complex<f64> - tensor<...x2xf64>
   }];
 
   let arguments = (ins AnyRankedTensor:$real, AnyRankedTensor:$imag);
@@ -5881,8 +5881,8 @@ def TTIR_RealOp : TTIR_NamedOp<"real"> {
     let summary = "Extract the real part of an interleaved tensor.";
     let description = [{
     Returns the real component tensor from an interleaved tensor which uses the following mapping:
-    complex<f32> - tensor<...xf64>
-    complex<f64> - tensor<...xf128>
+    complex<f32> - tensor<...x2xf32>
+    complex<f64> - tensor<...x2xf64>
   }];
 
   let arguments = (ins AnyRankedTensor:$input);
@@ -5895,8 +5895,8 @@ def TTIR_ImagOp : TTIR_NamedOp<"imag"> {
   let summary = "Extract the imaginary part of an interleaved tensor.";
   let description = [{
     Returns the imaginary component tensor from an interleaved tensor which uses the following mapping:
-    complex<f32> - tensor<...xf64>
-    complex<f64> - tensor<...xf128>
+    complex<f32> - tensor<...x2xf32>
+    complex<f64> - tensor<...x2xf64>
   }];
 
   let arguments = (ins AnyRankedTensor:$input);
