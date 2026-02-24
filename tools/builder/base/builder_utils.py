@@ -9,10 +9,11 @@ import time
 import torch
 from functools import reduce
 import operator
-from typing import Callable, List, Optional, Tuple, Union, Literal, Dict
+from typing import Callable, List, Optional, Tuple, Union, Literal, Dict, Set
 from collections import OrderedDict
 import json
 from dataclasses import dataclass
+from pathlib import Path
 
 from ttmlir.ir import *
 from ttmlir.dialects import func, ttcore, ttnn, ttir
@@ -311,3 +312,32 @@ def get_metal_tensor_layout(
             device_shape[-1] = tiles_per_shard_w
 
     return RankedTensorType.get(device_shape, elemType, layout, Location.unknown(ctx))
+
+
+DEFAULT_UNSUPPORTED_OPS_FILE = Path("unsupported_ops.json")
+
+
+def load_unsupported_ops(path: Path = DEFAULT_UNSUPPORTED_OPS_FILE) -> Dict[str, int]:
+    """Load the accumulated unsupported-op counts from a JSON file."""
+    if path.exists():
+        with open(path) as f:
+            return json.load(f)
+    return {}
+
+
+def save_unsupported_ops(
+    unsupported_op_types: Set,
+    path: Path = DEFAULT_UNSUPPORTED_OPS_FILE,
+):
+    """Merge newly encountered unsupported op types into the persistent JSON file.
+
+    Each key is the MLIR operation name (e.g. ``"ttnn.to_layout"``); the value
+    is a cumulative count of how many test runs have encountered that op as
+    unsupported.
+    """
+    counts = load_unsupported_ops(path)
+    for op_type in unsupported_op_types:
+        op_name = getattr(op_type, "OPERATION_NAME", op_type.__name__)
+        counts[op_name] = counts.get(op_name, 0) + 1
+    with open(path, "w") as f:
+        json.dump(counts, f, indent=2)

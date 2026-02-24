@@ -21,6 +21,7 @@ from builder.base.builder_utils import (
     tag,
     parse,
     split,
+    save_unsupported_ops,
 )
 
 
@@ -930,6 +931,21 @@ class Builder(metaclass=BuilderMeta):
             for i, arg in enumerate(parsed_func.arguments):
                 global_dict[arg] = inputs[i]
 
+            unsupported_parser_ops = set()
+            for block in parsed_func.body:
+                for op in block.operations:
+                    if (
+                        type(op) not in self.opview_to_parser_map
+                        and not isinstance(op, func.ReturnOp)
+                        and not isinstance(op, func.CallOp)
+                        and not isinstance(op, ttir.EmptyOp)
+                    ):
+                        unsupported_parser_ops.add(type(op))
+
+            if len(unsupported_parser_ops) > 0:
+                save_unsupported_ops(unsupported_parser_ops)
+                raise ValueError(f"Unsupported ops: {unsupported_parser_ops}")
+
             global_result = None
             for block in parsed_func.body:
                 for op in block.operations:
@@ -983,6 +999,20 @@ class Builder(metaclass=BuilderMeta):
             global_dict = {}
             for i, arg in enumerate(parsed_func.arguments):
                 global_dict[arg] = inputs[i]
+
+            unsupported_parser_ops = set()
+            for block in parsed_func.body:
+                for op in block.operations:
+                    if (
+                        type(op) not in self.opview_to_parser_map
+                        and not isinstance(op, func.ReturnOp)
+                        and not isinstance(op, func.CallOp)
+                    ):
+                        unsupported_parser_ops.add(type(op))
+
+            if len(unsupported_parser_ops) > 0:
+                save_unsupported_ops(unsupported_parser_ops)
+                raise ValueError(f"Unsupported ops: {unsupported_parser_ops}")
 
             global_result = None
             for block in parsed_func.body:
