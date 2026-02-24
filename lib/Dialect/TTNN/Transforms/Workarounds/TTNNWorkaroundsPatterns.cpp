@@ -368,12 +368,12 @@ private:
 //
 // 1. all_reduce ops are broken down into reduce_scatter and all_gather ops
 // because current support of all_reduce in TTNN is not stable.
-// 2. It doesn't really matter which tensor dimension we do the
-// reduce scatter and the all gather on but they must be equal to each other
-// and within the constraints of the rank of the tensor.
-// 3. We also need to make sure the tensor dimension we select is divisible by
-// the number of devices along the cluster axis dimension we want to perform the
-// all reduce on.
+// 2. We prefer using the last tensor dimensions for reduce_scatter.
+// In transformers, trailing dimensions are typically larger, which gives better
+// utilization.
+// 3. The selected tensor dimension must be divisible by the number of devices
+// along the cluster axis used for all_reduce. For tiled layout, this
+// divisibility is checked in per-dimension tile counts.
 class TTNNAllReduceWorkarounds : public OpRewritePattern<ttnn::AllReduceOp> {
 public:
   using OpRewritePattern<ttnn::AllReduceOp>::OpRewritePattern;
@@ -382,7 +382,6 @@ public:
                                 PatternRewriter &rewriter) const override {
     RankedTensorType inputType =
         mlir::cast<RankedTensorType>(op.getInput().getType());
-    llvm::SmallVector<int64_t> inputTypeShape(inputType.getShape());
     Location loc = op.getLoc();
     uint32_t clusterAxis = op.getClusterAxis();
     auto deviceDesc = ttcore::lookupDevice(op);
@@ -397,12 +396,9 @@ public:
     auto inputLayout = utils::getLayoutAttrFromTensor(inputType);
     llvm::SmallVector<int64_t> shapeInTileCounts(inputShape.begin(),
                                                  inputShape.end());
-    llvm::SmallVector<int64_t> tilePaddedShape(inputShape.begin(),
-                                               inputShape.end());
-    bool hasTilePaddedShape = false;
+    llvm::SmallVector<int64_t> tilePaddedShape;
     if (inputLayout.isTiled()) {
       tilePaddedShape = utils::getTilePaddedShape(shapeInTileCounts);
-      hasTilePaddedShape = true;
       if (!shapeInTileCounts.empty()) {
         shapeInTileCounts[shapeInTileCounts.size() - 1] =
             tilePaddedShape[shapeInTileCounts.size() - 1] / TILE_WIDTH;
@@ -431,10 +427,10 @@ public:
     Value reduceScatterInput = op.getInput();
     RankedTensorType reduceScatterInputType = inputType;
 
-    // selectedDim is chosen using tile counts for tiled layout. If selectedDim
-    // is one of the two tile-sensitive dims and shape is not tile padded yet,
-    // pad first so the subsequent element-space division does not truncate.
-    if (hasTilePaddedShape && selectedDim >= 0 &&
+    // If the input is tiled and selectedDim is one of the tile-sensitive dims,
+    // pad first so the reduce_scatter split produces equal-sized slices on each
+    // device.
+    if (inputLayout.isTiled() &&
         selectedDim >= static_cast<int64_t>(inputShape.size()) - 2 &&
         inputShape[selectedDim] != tilePaddedShape[selectedDim]) {
       llvm::SmallVector<int32_t> padding(inputShape.size() * 2, 0);
@@ -461,40 +457,40 @@ public:
     // (https://github.com/tenstorrent/tt-metal/issues/13835), we can
     // convert directly to ttnn.all_reduce.
 
-    // Determine the shape of its input tensor. The new tensor
-    // shape at the scatter_dim will be tensor_shape[scatter_dim] =
-    // original_tensor_shape / num_devices.
+    // Build reduce_scatter output type.
     llvm::SmallVector<int64_t> reduceScatterShape(
         reduceScatterInputType.getShape().begin(),
         reduceScatterInputType.getShape().end());
     reduceScatterShape[selectedDim] =
         reduceScatterShape[selectedDim] / meshShape[clusterAxis];
-    auto scatteredInputType = ttnn::utils::RankedTensorTypeFactory::create(
+    auto reduceScatterOutputType = ttnn::utils::RankedTensorTypeFactory::create(
         reduceScatterInputType, reduceScatterShape);
 
     // Create a new reducer scatter op.
     ttnn::ReduceScatterOp reduceScatterOp =
         rewriter.create<ttnn::ReduceScatterOp>(
-            ttmlir::utils::appendLocationSuffix(loc, "_reduceScatter"),
-            scatteredInputType, reduceScatterInput, op.getReduceType(),
+            ttmlir::utils::appendLocationSuffix(loc, "_reduce_scatter"),
+            reduceScatterOutputType, reduceScatterInput, op.getReduceType(),
             selectedDim, clusterAxis, nullptr, nullptr, nullptr, nullptr);
 
-    // Reconstruct the pre-reduce_scatter shape with all_gather.
+    // all_gather restores the reduce_scatter input shape.
     auto allGatherOutputType = ttnn::utils::RankedTensorTypeFactory::create(
         reduceScatterInputType, reduceScatterInputType.getShape());
     ttnn::AllGatherOp allGatherOp = rewriter.create<ttnn::AllGatherOp>(
-        op.getLoc(), allGatherOutputType, reduceScatterOp.getResult(),
-        selectedDim, clusterAxis, nullptr /*sub_device_id*/,
-        nullptr /*memory_config*/, nullptr /*num_links*/, nullptr /*topology*/);
+        ttmlir::utils::appendLocationSuffix(loc, "_all_gather"),
+        allGatherOutputType, reduceScatterOp.getResult(), selectedDim,
+        clusterAxis, nullptr /*sub_device_id*/, nullptr /*memory_config*/,
+        nullptr /*num_links*/, nullptr /*topology*/);
 
-    if (reduceScatterInputType != inputType) {
-      // If we padded before reduce_scatter, crop back to the original shape so
-      // this rewrite remains shape-preserving.
+    // If padding was added, crop back to the original shape.
+    if (reduceScatterInputType.getShape() != inputType.getShape()) {
       llvm::SmallVector<int32_t> begins(inputShape.size(), 0);
       llvm::SmallVector<int32_t> ends(inputShape.begin(), inputShape.end());
       llvm::SmallVector<int32_t> steps(inputShape.size(), 1);
       auto sliceOp = rewriter.create<ttnn::SliceStaticOp>(
-          op.getLoc(), op.getType(), allGatherOp.getResult(),
+          ttmlir::utils::appendLocationSuffix(loc,
+                                              "_slice_for_reduce_scatter_pad"),
+          op.getType(), allGatherOp.getResult(),
           rewriter.getI32ArrayAttr(begins), rewriter.getI32ArrayAttr(ends),
           rewriter.getI32ArrayAttr(steps));
       rewriter.replaceOp(op, sliceOp.getResult());
