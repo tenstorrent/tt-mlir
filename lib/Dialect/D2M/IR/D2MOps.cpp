@@ -2081,6 +2081,37 @@ bool d2m::GenericOp::isAffineBlockedForm() {
          llvm::all_of(factorUsed, [](bool used) { return used; });
 }
 
+::mlir::affine::AffineForOp d2m::GenericOp::getOuterAffineBlockingLoopOp() {
+  if (!isAffineBlockedForm()) {
+    return {};
+  }
+
+  TT_assertv(getNumRegions() == 1u,
+             "Expected exactly one region in affine blocked form of GenericOp");
+  affine::AffineForOp outermostBlockingLoopOp;
+  getRegion(0).walk([&](affine::AffineForOp forOp) {
+    if (!forOp->hasAttr("d2m.blocking_loop")) {
+      return WalkResult::advance();
+    }
+
+    auto parentForOp = forOp->getParentOfType<affine::AffineForOp>();
+    if (parentForOp && parentForOp->hasAttr("d2m.blocking_loop")) {
+      return WalkResult::advance();
+    }
+
+    // Fusion requires a unique top-level blocking loop nest root.
+    if (outermostBlockingLoopOp) {
+      outermostBlockingLoopOp = {};
+      return WalkResult::interrupt();
+    }
+
+    outermostBlockingLoopOp = forOp;
+    return WalkResult::advance();
+  });
+
+  return outermostBlockingLoopOp;
+}
+
 mlir::SmallVector<int64_t> d2m::GenericOp::getFullBlockFactors() {
   auto maps = getIndexingMapsValue();
   // Priority doesn't matter here, so reverse can be false.

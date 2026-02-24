@@ -346,18 +346,8 @@ static GenericOp tryFusePair(GenericOp producer, GenericOp consumer,
                              OpOperand *inputOperand, Value sharedMemref,
                              OpBuilder &builder) {
   // Get outermost loops to determine superset/subset.
-  std::optional<Operation *> producerLoopOp =
-      producer.getOutermostBlockingLoopOp();
-  std::optional<Operation *> consumerLoopOp =
-      consumer.getOutermostBlockingLoopOp();
-  if (!producerLoopOp || !consumerLoopOp) {
-    return nullptr;
-  }
-  auto producerLoop =
-      mlir::dyn_cast<affine::AffineForOp>(producerLoopOp.value());
-  auto consumerLoop =
-      mlir::dyn_cast<affine::AffineForOp>(consumerLoopOp.value());
-
+  affine::AffineForOp producerLoop = producer.getOuterAffineBlockingLoopOp();
+  affine::AffineForOp consumerLoop = consumer.getOuterAffineBlockingLoopOp();
   if (!producerLoop || !consumerLoop) {
     return nullptr;
   }
@@ -431,7 +421,7 @@ public:
 
       for (GenericOp consumer : generics) {
         if (!isFusionCandidate(consumer) ||
-            !consumer.getOutermostBlockingLoopOp().has_value()) {
+            !consumer.getOuterAffineBlockingLoopOp()) {
           continue;
         }
 

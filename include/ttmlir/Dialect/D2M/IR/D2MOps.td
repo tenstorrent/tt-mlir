@@ -321,6 +321,7 @@ def D2M_GenericOp
       }
       bool isImplicitBlockedForm();
       bool isAffineBlockedForm();
+      ::mlir::affine::AffineForOp getOuterAffineBlockingLoopOp();
       bool isExplicitDatamovementForm() {
         return getBlockFactors().empty() &&
                getIndexingMaps().empty() &&
