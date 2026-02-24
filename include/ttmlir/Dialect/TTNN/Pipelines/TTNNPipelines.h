@@ -447,8 +447,8 @@ struct TTNNCommonToFlatbufferPipelineOptions
 
 // TTNN common to EmitC Device pipeline options.
 //
-struct TTNNCommonToEmitCDevicePipelineOptions
-    : public PassPipelineOptions<TTNNCommonToEmitCDevicePipelineOptions> {
+struct TTNNCommonToEmitCPipelineOptions
+    : public PassPipelineOptions<TTNNCommonToEmitCPipelineOptions> {
   Option<bool> targetDylib{*this, "target-dylib",
                            llvm::cl::desc("Tailor passes for dylib target."),
                            llvm::cl::init(false)};
@@ -486,8 +486,8 @@ struct TTNNCommonToEmitCDevicePipelineOptions
 
 // TTNN common to EmitPy Device pipeline options.
 //
-struct TTNNCommonToEmitPyDevicePipelineOptions
-    : public PassPipelineOptions<TTNNCommonToEmitPyDevicePipelineOptions> {
+struct TTNNCommonToEmitPyPipelineOptions
+    : public PassPipelineOptions<TTNNCommonToEmitPyPipelineOptions> {
   Option<bool> targetModule{
       *this, "target-module",
       llvm::cl::desc("Tailor passes for Python module target. When enabled, "
@@ -531,11 +531,10 @@ struct TTIRToTTNNFlatbufferPipelineOptions
 // TTIR to EmitC end-to-end pipeline options.
 //
 // Inherits from TTIRToTTNNCommonPipelineOptions and
-// TTNNCommonToEmitCDevicePipelineOptions to reuse the options.
+// TTNNCommonToEmitCPipelineOptions to reuse the options.
 //
-struct TTIRToEmitCPipelineOptions
-    : public TTIRToTTNNCommonPipelineOptions,
-      public TTNNCommonToEmitCDevicePipelineOptions {
+struct TTIRToEmitCPipelineOptions : public TTIRToTTNNCommonPipelineOptions,
+                                    public TTNNCommonToEmitCPipelineOptions {
   TTIRToEmitCPipelineOptions() {
     // TODO(dmilinkovic): Remove once CPU-hoisting is supported on EmitC - issue
     // #6100.
@@ -546,11 +545,11 @@ struct TTIRToEmitCPipelineOptions
 // TTIR to EmitPy pipeline options.
 //
 // Inherits from TTIRToTTNNCommonPipelineOptions and
-// TTNNCommonToEmitPyDevicePipelineOptions to reuse the options.
+// TTNNCommonToEmitPyPipelineOptions to reuse the options.
 //
-struct TTIRToEmitPyPipelineOptions
-    : public TTIRToTTNNCommonPipelineOptions,
-      public TTNNCommonToEmitPyDevicePipelineOptions {};
+struct TTIRToEmitPyPipelineOptions : public TTIRToTTNNCommonPipelineOptions,
+                                     public TTNNCommonToEmitPyPipelineOptions {
+};
 
 // Recover Structure XLA/Torch pipeline options.
 struct RecoverStructureXLATorchPipelineOptions
@@ -570,10 +569,10 @@ void createTTNNCommonToFlatbufferPipeline(
     OpPassManager &pm, const TTNNCommonToFlatbufferPipelineOptions &options);
 
 void createTTNNCommonToEmitCPipeline(
-    OpPassManager &pm, const TTNNCommonToEmitCDevicePipelineOptions &options);
+    OpPassManager &pm, const TTNNCommonToEmitCPipelineOptions &options);
 
 void createTTNNCommonToEmitPyPipeline(
-    OpPassManager &pm, const TTNNCommonToEmitPyDevicePipelineOptions &options);
+    OpPassManager &pm, const TTNNCommonToEmitPyPipelineOptions &options);
 
 //===----------------------------------------------------------------------===//
 // Misc pipelines.

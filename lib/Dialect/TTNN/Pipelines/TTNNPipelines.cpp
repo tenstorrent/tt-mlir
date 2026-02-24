@@ -387,9 +387,6 @@ void createRecoverStructureXLATorchPipeline(
 // In the future, we might want to add some Flatbuffer target-specific passes
 // here as well
 //
-// Device module: stays in TTNN (no further lowering needed).
-// CPU module: TTIR (+ StableHLO) -> LLVM.
-//
 void createTTNNCommonToFlatbufferPipeline(
     OpPassManager &pm, const TTNNCommonToFlatbufferPipelineOptions &options) {
   ttir::createTTIRToLLVMCPUPipeline(pm, options);
@@ -398,7 +395,7 @@ void createTTNNCommonToFlatbufferPipeline(
 // Pipeline which lowers the results of TTIRToTTNNCommonPipeline to EmitC.
 //
 void createTTNNCommonToEmitCPipeline(
-    OpPassManager &pm, const TTNNCommonToEmitCDevicePipelineOptions &options) {
+    OpPassManager &pm, const TTNNCommonToEmitCPipelineOptions &options) {
   // Unwrapping the device module.
   //
   // TODO(dmilinkovic): Should be removed after support for generating
@@ -449,7 +446,7 @@ void createTTNNCommonToEmitCPipeline(
 // Pipeline which lowers the results of TTIRToTTNNCommonPipeline to EmitPy.
 //
 void createTTNNCommonToEmitPyPipeline(
-    OpPassManager &pm, const TTNNCommonToEmitPyDevicePipelineOptions &options) {
+    OpPassManager &pm, const TTNNCommonToEmitPyPipelineOptions &options) {
   auto &devicePm = pm.nest<ttcore::DeviceModuleOp>().nest<mlir::ModuleOp>();
 
   devicePm.addPass(createTTNNAdjustDeallocs());
@@ -609,7 +606,7 @@ void registerTTNNPipelines() {
   // TTNN common to EmitC pipeline.
   //
   mlir::PassPipelineRegistration<
-      mlir::tt::ttnn::TTNNCommonToEmitCDevicePipelineOptions>(
+      mlir::tt::ttnn::TTNNCommonToEmitCPipelineOptions>(
       "ttnn-common-to-emitc-pipeline",
       "Pipeline lowering TTNN common to EmitC.",
       mlir::tt::ttnn::createTTNNCommonToEmitCPipeline);
@@ -617,7 +614,7 @@ void registerTTNNPipelines() {
   // TTNN common to EmitPy pipeline.
   //
   mlir::PassPipelineRegistration<
-      mlir::tt::ttnn::TTNNCommonToEmitPyDevicePipelineOptions>(
+      mlir::tt::ttnn::TTNNCommonToEmitPyPipelineOptions>(
       "ttnn-common-to-emitpy-pipeline",
       "Pipeline lowering TTNN common to EmitPy.",
       mlir::tt::ttnn::createTTNNCommonToEmitPyPipeline);
