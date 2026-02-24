@@ -3110,12 +3110,6 @@ void mlir::tt::ttir::TTNNMetalLayoutCastOp::getCanonicalizationPatterns(
       return failure();
     }
 
-    // Only fold when the outer types match. The round-trip is only a no-op
-    // when the source and destination representations are identical.
-    if (producerOp.getInput().getType() != op.getResult().getType()) {
-      return failure();
-    }
-
     // Don't fold when either cast carries a virtualGridMapping.
     // Different TTNN shard strategies (e.g. height_sharded vs block_sharded)
     // can map to the same MetalLayoutAttr, so a cast with a VGM represents

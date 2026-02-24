@@ -39,7 +39,7 @@ func.func @dram_to_l1_block_sharded(
     // CHECK: %[[GENERIC:.*]] = d2m.generic
     %0 = "ttir.abs"(%arg0) : (tensor<1024x1024xbf16, #ttnn_layout>) -> tensor<1024x1024xbf16, #ttnn_layout>
 
-    // CHECK: %[[EMPTY:.*]] = d2m.empty() : tensor<1024x1024xbf16, #ttnn_layout1>
+    // CHECK: %[[EMPTY:.*]] = d2m.empty() : tensor<1024x1024xbf16, #[[LAYOUT1:.*]]>
     // CHECK: %[[CAST1:.*]] = ttir.ttnn_metal_layout_cast %[[EMPTY]] : tensor<1024x1024xbf16, #ttnn_layout1> -> tensor<8x8x4x4x!ttcore.tile<32x32, bf16>, #layout1>
     %1 = ttir.empty() : tensor<1024x1024xbf16, #ttnn_layout1>
 
@@ -86,7 +86,8 @@ func.func @l1_block_sharded_to_height_sharded(
     %0 = "ttir.abs"(%arg0) : (tensor<512x256xbf16, #ttnn_layout4>) -> tensor<512x256xbf16, #ttnn_layout4>
 
     // CHECK: %[[EMPTY:.*]] = d2m.empty() : tensor<512x256xbf16, #ttnn_layout5>
-    // CHECK: %[[CAST1:.*]] = ttir.ttnn_metal_layout_cast %[[EMPTY]] : tensor<512x256xbf16, #ttnn_layout5> -> tensor<8x1x2x8x!ttcore.tile<32x32, bf16>, #layout3>
+    // CHECK: %[[CAST1:.*]] = ttir.ttnn_metal_layout_cast %[[EMPTY]]{{.*}}: tensor<512x256xbf16, #ttnn_layout5> -> tensor<8x1x2x8x!ttcore.tile<32x32, bf16>, #layout3>
+
     %1 = ttir.empty() : tensor<512x256xbf16, #ttnn_layout5>
 
     // CHECK: %[[TOLAYOUT:.*]] = d2m.to_layout %[[GENERIC]], %[[CAST1]] : tensor<8x8x2x1x!ttcore.tile<32x32, bf16>, #layout3> into tensor<8x1x2x8x!ttcore.tile<32x32, bf16>, #layout3> -> tensor<8x1x2x8x!ttcore.tile<32x32, bf16>, #layout3>
