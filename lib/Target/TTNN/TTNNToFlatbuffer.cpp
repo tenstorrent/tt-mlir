@@ -2539,14 +2539,12 @@ createRepeatInterleaveOp(FlatbufferObjectCache &cache, RepeatInterleaveOp op) {
       cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
 
                                   /*local_shape*/ std::nullopt);
-  std::optional<mlir::tt::ttnn::MemoryConfigAttr> memoryConfig =
-      op.getMemoryConfig();
+  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
   uint32_t repeats = op.getRepeats();
   int32_t dim = op.getDim();
 
   return ::tt::target::ttnn::CreateRepeatInterleaveOp(
-      *cache.fbb, input, out, repeats, dim,
-      memoryConfig ? toFlatbuffer(cache, memoryConfig.value()) : 0);
+      *cache.fbb, input, out, repeats, dim, memoryConfig);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::SoftmaxOp>
