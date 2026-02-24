@@ -746,8 +746,13 @@ memrefGlobalOpToFlatbufferByteVector(FlatbufferObjectCache &cache,
   flatbuffers::Offset<::flatbuffers::Vector<uint8_t>> data;
 
   if (mlir::isa<FloatType>(value.getElementType())) {
-    if (value.getElementType().getIntOrFloatBitWidth() == 32) {
+    unsigned bitWidth = value.getElementType().getIntOrFloatBitWidth();
+    if (bitWidth == 32) {
       data = mlir::tt::toFlatbufferByteVector<float>(cache, initialValueAttr);
+    } else if (bitWidth == 16) {
+      auto bitcasted = initialValueAttr.bitcast(
+          IntegerType::get(initialValueAttr.getContext(), 16));
+      data = mlir::tt::toFlatbufferByteVector<uint16_t>(cache, bitcasted);
     } else {
       assert(false && "unsupported float bit width");
     }

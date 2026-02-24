@@ -156,8 +156,17 @@ d2m::FullOp::bufferize(mlir::RewriterBase &rewriter,
   auto memrefType = mlir::cast<mlir::MemRefType>(
       getBufferType(getResult(), options, state, invocationStack).value());
 
+  auto eltType = getResult().getType().getElementType();
+  mlir::Attribute fillValue = getFillValueAttr();
+  if (auto floatAttr = mlir::dyn_cast<mlir::FloatAttr>(fillValue);
+      floatAttr && floatAttr.getType() != eltType) {
+    fillValue = mlir::FloatAttr::get(eltType, floatAttr.getValueAsDouble());
+  } else if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(fillValue);
+             intAttr && intAttr.getType() != eltType) {
+    fillValue = mlir::IntegerAttr::get(eltType, intAttr.getValue());
+  }
   auto denseAttr =
-      mlir::DenseElementsAttr::get(getResult().getType(), getFillValueAttr());
+      mlir::DenseElementsAttr::get(getResult().getType(), fillValue);
 
   mlir::memref::GlobalOp global = ttcore::createGlobal(
       getOperation()->getParentOfType<ModuleOp>(), memrefType, denseAttr);
