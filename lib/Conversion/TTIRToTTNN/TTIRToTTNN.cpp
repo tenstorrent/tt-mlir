@@ -3058,6 +3058,54 @@ public:
 };
 } // namespace
 
+// ComplexOp: interleave real and imag into a trailing-2 tensor.
+//   tensor<...xfN>, tensor<...xfN> → tensor<...x2xfN>
+// Steps: unsqueeze both inputs to ...x1xfN, then concat on the last dim.
+class ComplexOpConversionPattern : public OpConversionPattern<ttir::ComplexOp> {
+public:
+  using OpConversionPattern<ttir::ComplexOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::ComplexOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    Location loc = op.getLoc();
+
+    // Helper lambda: unsqueeze a value by appending a trailing dim of size 1
+    // via ttnn::ReshapeOp (mirrors SqueezeOpConversionPattern's approach).
+    auto unsqueezeTrailing = [&](Value val) -> Value {
+      auto tensorType = mlir::cast<RankedTensorType>(val.getType());
+      auto shape = tensorType.getShape();
+
+      llvm::SmallVector<int32_t> newShape(shape.begin(), shape.end());
+      newShape.push_back(1);
+
+      auto newTensorType = ttnn::utils::RankedTensorTypeFactory::create(
+          tensorType,
+          llvm::SmallVector<int64_t>(newShape.begin(), newShape.end()));
+
+      return rewriter
+          .create<ttnn::ReshapeOp>(loc, newTensorType, val,
+                                   rewriter.getI32ArrayAttr(newShape),
+                                   /*memory_config=*/nullptr)
+          .getResult();
+    };
+
+    Value unsqueezedReal = unsqueezeTrailing(adaptor.getReal());
+    Value unsqueezedImag = unsqueezeTrailing(adaptor.getImag());
+
+    // Concatenate along the last dimension.
+    auto realType = mlir::cast<RankedTensorType>(unsqueezedReal.getType());
+    int64_t concatDim = realType.getRank() - 1;
+
+    rewriter.replaceOpWithNewOp<ttnn::ConcatOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        ValueRange{unsqueezedReal, unsqueezedImag}, concatDim,
+        /*memory_config=*/nullptr);
+
+    return success();
+  }
+};
+
 namespace mlir::tt {
 
 void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
@@ -3190,7 +3238,8 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            PagedScaledDotProductAttentionDecodeOpConversionPattern,
            SplitQueryKeyValueAndSplitHeadsOpConversionPattern,
            GeluBackwardOpConversionPattern,
-           DropoutOpConversionPattern
+           DropoutOpConversionPattern,
+           ComplexOpConversionPattern
            >(typeConverter, ctx);
   // ANCHOR_END: op_rewriter_pattern_set
   // clang-format on
