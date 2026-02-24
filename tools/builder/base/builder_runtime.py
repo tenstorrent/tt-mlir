@@ -731,9 +731,14 @@ def execute_fb(
         golden_inputs_torch = []
         for i, i_dict in enumerate(input_dict):
             if not disable_golden:
-                golden_inputs_torch.append(
-                    golden_input_output_tensors[program_index][f"input_{i}"][0]
+                tensor = golden_input_output_tensors[program_index][f"input_{i}"][0]
+                expected_dtype = runtime_str_dtype_to_torch_dtype(
+                    i_dict["desc"]["layout"]["memory_desc"]["data_type"]
                 )
+                assert (
+                    tensor.dtype == expected_dtype
+                ), f"Error input golden tensor with dtype {tensor.dtype} does not match expected graph input dtype {expected_dtype}"
+                golden_inputs_torch.append(tensor)
             else:
                 torch_tensor = torch.randn(
                     i_dict["desc"]["shape"],

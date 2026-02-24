@@ -679,6 +679,7 @@ class Builder(metaclass=BuilderMeta):
         index_map: Optional[AffineMap] = None,
         memory_layout=None,  # Will default to ttcore.TensorMemoryLayout.Sharded in the utility
         dim_alignments: Optional[Tuple[int, ...]] = None,
+        dtype: str = "f32",
     ):
         """Create a metal tensor layout using the shared implementation."""
         from builder.base.builder_apis import get_metal_tensor_layout
@@ -702,6 +703,7 @@ class Builder(metaclass=BuilderMeta):
             index_map,
             memory_layout,
             dim_alignments,
+            dtype,
         )
 
     # ----- Operations -----

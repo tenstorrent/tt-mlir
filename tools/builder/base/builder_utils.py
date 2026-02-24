@@ -194,6 +194,7 @@ def get_metal_tensor_layout(
         ttcore.TensorMemoryLayout
     ] = ttcore.TensorMemoryLayout.Sharded,
     dim_alignments: Optional[Tuple[int, ...]] = None,
+    dtype: str = "f32",
 ) -> RankedTensorType:
     """
     Create a metal tensor layout.
@@ -284,11 +285,20 @@ def get_metal_tensor_layout(
         grid_shape, [32, 32] if tiled else [1, 1]
     )
 
-    elemType = F32Type.get(ctx)
+    elemType = {
+        "f32": F32Type.get(ctx),
+        "f16": F16Type.get(ctx),
+        "bf16": BF16Type.get(ctx),
+    }[dtype]
+    ttcoreDType = {
+        "f32": ttcore.DataType.Float32,
+        "f16": ttcore.DataType.Float16,
+        "bf16": ttcore.DataType.BFloat16,
+    }[dtype]
 
     # For tiled layouts, ensure the device shape accounts for tiles.
     if tiled:
-        elemType = ttcore.ir.TileType.get(ctx, 32, 32, ttcore.DataType.Float32)
+        elemType = ttcore.ir.TileType.get(ctx, 32, 32, ttcoreDType)
         if grid is None or grid == (1, 1):
             # For default 1x1 grid, use tile count based on aligned shape.
             # If dim_alignments is specified, use that; otherwise use logical_shape.
