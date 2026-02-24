@@ -24,7 +24,7 @@ DRAM_INTERLEAVED_SHAPES = [
 ]
 
 
-@pytest.mark.skip(reason="Skipping mesh tensor eltwise tests. Issue #7157")
+@pytest.mark.skip(reason="Skipping mesh tensor eltwise tests. Issue #7161")
 @pytest.mark.parametrize("shape", DRAM_INTERLEAVED_SHAPES)
 @pytest.mark.parametrize("dtype", [torch.bfloat16])
 @pytest.mark.parametrize(

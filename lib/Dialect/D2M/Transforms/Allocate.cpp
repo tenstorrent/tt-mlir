@@ -1482,6 +1482,10 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
                                      const OperandContext &operandCtx) {
     TT_debug(!genericOp.isExplicitDatamovementForm());
 
+    if (genericOp.isDMAOnlyForm()) {
+      return false;
+    }
+
     const uint32_t operandIndex = operandCtx.operandIndex();
 
     // Scratch inputs (e.g., mask tiles) don't need streaming - they're
