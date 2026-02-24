@@ -184,6 +184,22 @@ LayoutPropagation::processOp(Operation *op) {
       candidate.config =
           OpConfig(result.actualOutputLayout, hint.opSpecificAttrs);
       candidate.score = scoreCandidate(op, hint, result, anyReshard);
+
+      // Compute total bytes transferred from DRAM across all inputs.
+      uint64_t dramBytes = 0;
+      for (const auto &layout : inputLayouts) {
+        if (layout && !layout.hasL1BufferType()) {
+          uint64_t tensorBytes = layout.getShardSizeInBytes();
+          if (auto grid = layout.getGrid()) {
+            for (auto dim : grid.getShape()) {
+              tensorBytes *= dim;
+            }
+          }
+          dramBytes += tensorBytes;
+        }
+      }
+      candidate.score.inputDramBytes = dramBytes;
+
       candidate.validationResult = result;
       candidate.inputLayouts = inputLayouts;
       candidate.producerCandidateIndices = producerCandidateIndices;
@@ -193,12 +209,13 @@ LayoutPropagation::processOp(Operation *op) {
       TTMLIR_TRACE(
           ttmlir::LogComponent::GreedyOptimizer,
           "    VALID candidate for {0}: hint[{1}] outBuf={2} "
-          "outMem={3} score(L1={4},sharded={5},"
-          "reshard={6},cores={7},l1use={8})",
+          "outMem={3} score(L1={4},sharded={5},dramIn={6},"
+          "reshard={7},cores={8},l1use={9})",
           op->getName(), hintIdx,
           candidate.config.outputLayout.getBufferType(),
           candidate.config.outputLayout.getMemLayout(),
           candidate.score.isL1, candidate.score.isSharded,
+          candidate.score.inputDramBytes,
           candidate.score.requiresReshard, candidate.score.coreCount,
           candidate.score.outputL1Usage);
 
@@ -347,11 +364,12 @@ LayoutPropagation::processOp(Operation *op) {
     TTMLIR_TRACE(
         ttmlir::LogComponent::GreedyOptimizer,
         "  BEAM[{0}] {1}: outBuf={2} outMem={3} "
-        "score(L1={4},sharded={5},reshard={6},"
-        "cores={7},l1use={8}) inputs=[{9}]",
+        "score(L1={4},sharded={5},dramIn={6},reshard={7},"
+        "cores={8},l1use={9}) inputs=[{10}]",
         ci, op->getName(), c.config.outputLayout.getBufferType(),
         c.config.outputLayout.getMemLayout(), c.score.isL1,
-        c.score.isSharded, c.score.requiresReshard, c.score.coreCount,
+        c.score.isSharded, c.score.inputDramBytes,
+        c.score.requiresReshard, c.score.coreCount,
         c.score.outputL1Usage, inputDesc);
   }
 
@@ -469,12 +487,37 @@ LayoutPropagation::getInputCandidateSets(Operation *op) {
       }
     }
 
+    // Filter non-rectangular grid candidates for ops that require rectangular
+    // inputs (rms_norm, layer_norm). Workaround for tt-metal bug where
+    // non-rectangular width-sharded inputs cause hangs.
+    // https://github.com/tenstorrent/tt-metal/issues/38429
+    if (requiresRectangularGridInputs(op)) {
+      candidatesForOperand.erase(
+          std::remove_if(candidatesForOperand.begin(),
+                         candidatesForOperand.end(),
+                         [](const InputCandidate &ic) {
+                           return isNonRectangularGrid(ic.layout);
+                         }),
+          candidatesForOperand.end());
+    }
+
     // Add reshard candidates if applicable.
     // Skip reshards for operands derived from constant/parameter arguments.
     // These will be re-hoisted into const_eval — L1 reshards would make the
     // const_eval return L1, occupying L1 for the lifetime of the tensor.
     bool isFromConstEvalChain = ttcore::valueTracesToConstantArgs(operand);
     if (shouldExploreReshards(op) && !isFromConstEvalChain) {
+      // Build optional layout filter for reshard candidate generation.
+      // For norm ops, reject non-rectangular grids during generation so they
+      // don't consume the top-8 budget.
+      llvm::function_ref<bool(TTNNLayoutAttr)> layoutFilter = nullptr;
+      auto rectFilter = [](TTNNLayoutAttr layout) {
+        return !isNonRectangularGrid(layout);
+      };
+      if (requiresRectangularGridInputs(op)) {
+        layoutFilter = rectFilter;
+      }
+
       // Generate reshard candidates from each unique producer candidate layout.
       // For beam search, the producer may have sharded layouts that differ from
       // the initial IR layout. We explore sharded-to-sharded reshards for each.
@@ -495,7 +538,7 @@ LayoutPropagation::getInputCandidateSets(Operation *op) {
 
       for (const auto &baseLayout : layoutsToExplore) {
         std::vector<TTNNLayoutAttr> reshardCandidates =
-            generateReshardCandidates(tensorType, baseLayout);
+            generateReshardCandidates(tensorType, baseLayout, layoutFilter);
         for (const auto &reshardLayout : reshardCandidates) {
           // Only add if different from already-present candidates.
           bool alreadyPresent = false;
@@ -536,7 +579,8 @@ LayoutPropagation::getInputCandidateSets(Operation *op) {
 
 std::vector<TTNNLayoutAttr>
 LayoutPropagation::generateReshardCandidates(
-    RankedTensorType tensorType, TTNNLayoutAttr currentLayout) {
+    RankedTensorType tensorType, TTNNLayoutAttr currentLayout,
+    llvm::function_ref<bool(TTNNLayoutAttr)> layoutFilter) {
   // Only generate sharded-to-sharded reshard candidates. Resharding from
   // sharded to interleaved (DRAM or L1) almost always hurts performance.
   if (!tensorTypePossibleLayouts) {
@@ -565,7 +609,8 @@ LayoutPropagation::generateReshardCandidates(
       getShardedLayoutsForTensorTypeAndScalarType(
           *tensorTypePossibleLayouts, tensorType, scalarElementType);
 
-  // Filter out the current layout (no-op reshard) and non-sharded (defensive).
+  // Filter out the current layout (no-op reshard), non-sharded (defensive),
+  // and layouts rejected by the optional filter predicate.
   std::vector<TTNNLayoutAttr> filtered;
   for (const auto &layout : allSharded) {
     if (layout == currentLayout) {
@@ -573,6 +618,9 @@ LayoutPropagation::generateReshardCandidates(
     }
     if (!layout.getMemLayout() ||
         !isShardedMemoryLayout(layout.getMemLayout().getValue())) {
+      continue;
+    }
+    if (layoutFilter && !layoutFilter(layout)) {
       continue;
     }
     filtered.push_back(layout);
