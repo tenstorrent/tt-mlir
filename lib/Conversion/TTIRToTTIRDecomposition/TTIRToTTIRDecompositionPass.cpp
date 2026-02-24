@@ -42,7 +42,7 @@ struct TTIRToTTIRDecompositionPass
     target.addLegalDialect<mlir::func::FuncDialect>();
     target.addLegalDialect<BuiltinDialect>();
     target.addLegalOp<ttir::EmptyOp>();
-    // target.addIllegalOp<ttir::StablehloComplexOp>();
+    target.addIllegalOp<ttir::StablehloComplexOp>();
     // target.addIllegalOp<ttir::StablehloRealOp>();
     // target.addIllegalOp<ttir::StablehloImagOp>();
 
@@ -150,10 +150,49 @@ struct TTIRToTTIRDecompositionPass
     TypeConverter typeConverter;
     // All types map 1:1.
     typeConverter.addConversion([](Type type) { return type; });
+    // complex<f32> tensors → f64 tensors, complex<f64> tensors → f128 tensors.
+    typeConverter.addConversion(
+        [](RankedTensorType type) -> std::optional<Type> {
+          auto complexTy =
+              mlir::dyn_cast<mlir::ComplexType>(type.getElementType());
+          if (!complexTy) {
+            return std::nullopt;
+          }
+          auto floatTy =
+              mlir::dyn_cast<mlir::FloatType>(complexTy.getElementType());
+          if (!floatTy) {
+            return std::nullopt;
+          }
+          MLIRContext *ctx = floatTy.getContext();
+          Type doubleWidthTy;
+          switch (floatTy.getWidth()) {
+          case 32:
+            doubleWidthTy = Float64Type::get(ctx);
+            break;
+          case 64:
+            doubleWidthTy = Float128Type::get(ctx);
+            break;
+          default:
+            return std::nullopt;
+          }
+          return RankedTensorType::get(type.getShape(), doubleWidthTy);
+        });
 
     RewritePatternSet patterns(&getContext());
     populateTTIRToTTIRDecompositionPatterns(&getContext(), patterns,
                                             typeConverter, decompConfig);
+
+    // Function type conversions: update func signatures and return ops so that
+    // complex<fN> argument/result types become f2N.
+    populateFunctionOpInterfaceTypeConversionPattern<func::FuncOp>(
+        patterns, typeConverter);
+    target.addDynamicallyLegalOp<func::FuncOp>([&](func::FuncOp op) {
+      return typeConverter.isSignatureLegal(op.getFunctionType()) &&
+             typeConverter.isLegal(&op.getBody());
+    });
+    populateReturnOpTypeConversionPattern(patterns, typeConverter);
+    target.addDynamicallyLegalOp<func::ReturnOp>(
+        [&](func::ReturnOp op) { return typeConverter.isLegal(op); });
 
     // Apply partial conversion
     //

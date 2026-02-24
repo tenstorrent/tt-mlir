@@ -2551,10 +2551,28 @@ struct NegativePadOpDecompositionPattern
 };
 } // namespace
 
+namespace {
+struct StablehloComplexToComplexPattern
+    : public OpConversionPattern<ttir::StablehloComplexOp> {
+  using OpConversionPattern<ttir::StablehloComplexOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::StablehloComplexOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto resultType = getTypeConverter()->convertType(op.getResult().getType());
+    auto newOp = rewriter.create<ttir::ComplexOp>(
+        op.getLoc(), resultType, adaptor.getReal(), adaptor.getImag());
+    rewriter.replaceOp(op, newOp.getResult());
+    return success();
+  }
+};
+} // namespace
+
 void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
                                              RewritePatternSet &patterns,
                                              TypeConverter &typeConverter,
                                              DecompMode decompConfig) {
+  patterns.add<StablehloComplexToComplexPattern>(typeConverter, ctx);
   patterns.add<PoolingToFullOp<ttir::MaxPool2dOp>>(typeConverter, ctx);
   patterns.add<PoolingToFullOp<ttir::AvgPool2dOp>>(typeConverter, ctx);
   patterns.add<IndexToSliceConversionPattern>(typeConverter, ctx);
