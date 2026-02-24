@@ -230,6 +230,154 @@ getScratchAccessMapAndOperands(ScratchLoopInfo &info, MLIRContext *ctx) {
   return {AffineMap::get(dimIdx, 0, exprs, ctx), operands};
 }
 
+/// Fuse outer scf.for loops that enclose scratch_space_loop nests.
+///
+/// When multiple scratch_space_loop nests are siblings with identical outer
+/// scf.for structures (same bounds/steps), this function merges them into a
+/// single shared outer loop. This is critical for scratch buffer correctness:
+/// without fusion, each nest has its own outer loop, and each iteration
+/// overwrites the same scratch positions. The consumer (in a separate nest)
+/// only sees the last iteration's data.
+///
+/// After fusion, all computations share the outer loop, so within each
+/// iteration the producer writes to scratch and the consumer reads from it
+/// before the next iteration overwrites.
+///
+/// Before:
+///   scf.for { scratch_space_loop_1 { producer } }
+///   scf.for { scratch_space_loop_2 { consumer } }
+///
+/// After:
+///   scf.for {
+///     scratch_space_loop_1 { producer }
+///     scratch_space_loop_2 { consumer }
+///   }
+static void fuseOuterScfLoops(SmallVector<affine::AffineForOp> &scratchLoops,
+                              IRRewriter &rewriter) {
+  if (scratchLoops.size() < 2) {
+    return;
+  }
+
+  struct ChainInfo {
+    affine::AffineForOp scratchLoop;
+    SmallVector<scf::ForOp> chain; // outermost first
+  };
+
+  SmallVector<ChainInfo> chains;
+  for (auto sl : scratchLoops) {
+    ChainInfo ci;
+    ci.scratchLoop = sl;
+    Operation *parent = sl->getParentOp();
+    while (auto scfFor = dyn_cast<scf::ForOp>(parent)) {
+      ci.chain.push_back(scfFor);
+      parent = scfFor->getParentOp();
+    }
+    std::reverse(ci.chain.begin(), ci.chain.end());
+    chains.push_back(ci);
+  }
+
+  size_t chainLen = chains[0].chain.size();
+  if (chainLen == 0) {
+    return;
+  }
+  for (auto &ci : chains) {
+    if (ci.chain.size() != chainLen) {
+      return;
+    }
+  }
+
+  // Verify matching bounds/steps at each nesting level.
+  for (size_t level = 0; level < chainLen; ++level) {
+    auto ref = chains[0].chain[level];
+    auto refLb = getConstantIntValue(ref.getLowerBound());
+    auto refUb = getConstantIntValue(ref.getUpperBound());
+    auto refStep = getConstantIntValue(ref.getStep());
+    if (!refLb || !refUb || !refStep) {
+      return;
+    }
+    for (size_t i = 1; i < chains.size(); ++i) {
+      auto other = chains[i].chain[level];
+      auto lb = getConstantIntValue(other.getLowerBound());
+      auto ub = getConstantIntValue(other.getUpperBound());
+      auto step = getConstantIntValue(other.getStep());
+      if (!lb || !ub || !step) {
+        return;
+      }
+      if (*refLb != *lb || *refUb != *ub || *refStep != *step) {
+        return;
+      }
+    }
+  }
+
+  // Move operations between consecutive loop nests to before the first.
+  // These are setup ops (allocs, remote_loads, etc.) that don't depend on
+  // loop IVs and need to dominate the shared loop body.
+  Operation *firstOuter = chains[0].chain[0];
+  for (size_t i = 1; i < chains.size(); ++i) {
+    Operation *thisOuter = chains[i].chain[0];
+    SmallVector<Operation *> toMove;
+    for (auto it = std::next(chains[i - 1].chain[0]->getIterator());
+         &*it != thisOuter; ++it) {
+      toMove.push_back(&*it);
+    }
+    for (auto *op : toMove) {
+      op->moveBefore(firstOuter);
+    }
+  }
+
+  // Create the shared scf.for chain with matching bounds.
+  rewriter.setInsertionPoint(firstOuter);
+  SmallVector<scf::ForOp> shared;
+  for (size_t level = 0; level < chainLen; ++level) {
+    auto &ref = chains[0].chain[level];
+    auto newLoop = rewriter.create<scf::ForOp>(
+        ref.getLoc(), ref.getLowerBound(), ref.getUpperBound(), ref.getStep());
+    shared.push_back(newLoop);
+    rewriter.setInsertionPointToStart(newLoop.getBody());
+  }
+
+  // Move body operations from each old chain into the shared chain.
+  for (auto &ci : chains) {
+    // Replace old IVs with shared IVs at every nesting level.
+    for (size_t level = 0; level < chainLen; ++level) {
+      ci.chain[level].getInductionVar().replaceAllUsesWith(
+          shared[level].getInductionVar());
+    }
+
+    for (size_t level = 0; level < chainLen; ++level) {
+      Block *oldBody = ci.chain[level].getBody();
+      Block *sharedBody = shared[level].getBody();
+      Operation *sharedYield = sharedBody->getTerminator();
+
+      if (level + 1 < chainLen) {
+        // Non-innermost level: move everything except the next-level scf.for
+        // and the yield terminator.
+        SmallVector<Operation *> toMove;
+        for (auto &op : *oldBody) {
+          if (&op != ci.chain[level + 1].getOperation() &&
+              !isa<scf::YieldOp>(&op)) {
+            toMove.push_back(&op);
+          }
+        }
+        for (auto *op : toMove) {
+          op->moveBefore(sharedYield);
+        }
+      } else {
+        // Innermost level: splice everything except the yield.
+        auto &srcOps = oldBody->getOperations();
+        sharedBody->getOperations().splice(sharedYield->getIterator(), srcOps,
+                                           srcOps.begin(),
+                                           std::prev(srcOps.end()));
+      }
+    }
+  }
+
+  // Erase old scf.for chains (outermost erases the entire chain).
+  for (auto &ci : chains) {
+    rewriter.eraseOp(ci.chain[0]);
+  }
+}
+
 /// Main pass implementation
 class D2MSpillAndScratch
     : public impl::D2MSpillAndScratchBase<D2MSpillAndScratch> {
@@ -263,6 +411,12 @@ private:
     if (scratchSpaceLoops.empty()) {
       return success();
     }
+
+    // Step 0.5: Fuse outer scf.for loops across scratch_space_loop nests.
+    // This ensures producer/consumer computations share the outer iteration
+    // space, allowing the scratch buffer to be reused per outer iteration
+    // rather than needing full-shard capacity.
+    fuseOuterScfLoops(scratchSpaceLoops, rewriter);
 
     // Step 1: Convert any scf.for loops inside scratch_space_loops to
     // affine.for. This ensures all loop IVs can be used with affine
