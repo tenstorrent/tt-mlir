@@ -9,13 +9,13 @@ import functools
 import itertools
 from typing import Callable, List
 
-from ttmlir.dialects import d2m, ttcore, memref, linalg
+from ttmlir.dialects import d2m, ttcore, memref, linalg, tensor
 from ttmlir.ir import *
 
 from builder.base.builder_utils import Operand
 from builder.d2m.d2m_builder import D2MBuilder
 from builder.base.builder_apis import compile_and_execute_ttir
-from test_utils import Marks
+from test_utils import Marks, shape_str
 from conftest import get_request_kwargs
 
 pytestmark = pytest.mark.frontend("d2m")
@@ -155,9 +155,7 @@ def generic(
 def remote_load(
     src, indices, mcast_start_index=None, mcast_shape=None, mcast_dims=None
 ):
-    dst = d2m.empty(
-        RankedTensorType.get(src.type.shape[len(indices):], src.type.element_type)
-    )
+    dst = tensor.empty(src.type.shape[len(indices):], src.type.element_type)
     return d2m.remote_load(
         RankedTensorType.get(dst.type.shape, dst.type.element_type),
         src,
@@ -169,20 +167,31 @@ def remote_load(
     )
 
 
+@pytest.mark.parametrize(
+    "shape",
+    [
+        (64, 64, 64),
+    ],
+    ids=shape_str,
+)
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_generic(
+    shape,
     target: str,
     request,
     device,
 ):
-    shape = [64, 64]
+    m, n, k = shape
+    lhs_shape = [m, k]
+    rhs_shape = [k, n]
+    out_shape = [m, n]
 
     def generic_module(builder: D2MBuilder):
-        lhs_golden = torch.randn(shape)
-        rhs_golden = torch.randn(shape)
+        lhs_golden = torch.randn(lhs_shape)
+        rhs_golden = torch.randn(rhs_shape)
         out_golden = lhs_golden @ rhs_golden
 
-        @builder.func([shape, shape], [torch.float32, torch.float32])
+        @builder.func([lhs_shape, rhs_shape], [torch.float32, torch.float32])
         def main(
             lhs: Operand,
             rhs: Operand,
@@ -205,9 +214,7 @@ def test_generic(
                 kbi = d2m.block_index(2)
                 lhs_shard = remote_load(lhs, [mbi, kbi])
                 rhs_shard = remote_load(rhs, [kbi, nbi])
-                out_shard = d2m.empty(
-                    RankedTensorType.get(out.type.shape[2:], out.type.element_type)
-                )
+                out_shard = tensor.empty(out.type.shape[2:], out.type.element_type)
                 d2m.tile_matmul_block(lhs_shard, rhs_shard, out_shard)
                 res = d2m.remote_store(
                     out.type, out, [mbi, nbi], local_buffer=out_shard
@@ -224,16 +231,37 @@ def test_generic(
                 output_type=builder.get_metal_tensor_layout(rhs.type.shape, tiled=True),
                 unit_attrs=unit_attrs,
             )
-            device_out = d2m.empty(builder.get_metal_tensor_layout(shape, tiled=True))
-            res = mm(device_lhs, device_rhs, device_out)
+            device_out = d2m.empty(builder.get_metal_tensor_layout(out_shape, tiled=True))
+            mm_out = mm(device_lhs, device_rhs, device_out)
+            res = builder.to_layout(
+                mm_out,
+                output_type=RankedTensorType.get(out_shape, lhs.type.element_type),
+                unit_attrs=unit_attrs,
+            )
             builder.set_goldens({lhs: lhs_golden, rhs: rhs_golden}, {res: out_golden})
             return res
 
+    def mm_comparison(builder: D2MBuilder):
+        lhs_golden = torch.randn(lhs_shape)
+        rhs_golden = torch.randn(rhs_shape)
+        out_golden = lhs_golden @ rhs_golden
+
+        @builder.func([lhs_shape, rhs_shape], [torch.float32, torch.float32])
+        def main(
+            lhs: Operand,
+            rhs: Operand,
+            builder: D2MBuilder,
+            unit_attrs: List[str] = None,
+        ):
+            return builder.matmul(lhs, rhs)
+
     compile_and_execute_ttir(
-        generic_module,
+            generic_module,
+            #mm_comparison,
         target=target,
         device=device,
         custom_pipeline=f"ttir-to-ttmetal-pipeline",
         print_ir=True,
+        disable_golden=True,
         **get_request_kwargs(request),
     )

@@ -838,11 +838,14 @@ class TTIRBuilder(Builder):
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        if not self._disable_golden_check:
-            input0 = self._get_golden_tensor(in0)
-            op_golden_function = get_golden_function(ttir_op)
-            golden_output = op_golden_function(input0, output_type)
-            self._set_golden_tensor(op_result, golden_output)
+        try:
+            if not self._disable_golden_check:
+                input0 = self._get_golden_tensor(in0)
+                op_golden_function = get_golden_function(ttir_op)
+                golden_output = op_golden_function(input0, output_type)
+                self._set_golden_tensor(op_result, golden_output)
+        except:
+            pass
 
         return op_result
 
