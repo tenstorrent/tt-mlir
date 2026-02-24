@@ -36,18 +36,39 @@ static Value unwrapIfViewLike(Value value) {
 
 // Find a preceding GenericOp that writes to `sharedMemref` as a DPS init.
 static GenericOp findProducerGeneric(Value sharedMemref, GenericOp consumer) {
-  for (Operation *user : sharedMemref.getUsers()) {
-    auto producer = dyn_cast<GenericOp>(user);
+  auto writesToShared = [&](GenericOp producer) {
+    for (OpOperand &init : producer.getDpsInitsMutable()) {
+      if (unwrapIfViewLike(init.get()) == sharedMemref) {
+        return true;
+      }
+    }
+    return false;
+  };
+  auto tryProducer = [&](Operation *op) -> GenericOp {
+    auto producer = mlir::dyn_cast<GenericOp>(op);
     if (!producer || producer == consumer) {
-      continue;
+      return nullptr;
     }
     if (!producer->isBeforeInBlock(consumer)) {
+      return nullptr;
+    }
+    if (!writesToShared(producer)) {
+      return nullptr;
+    }
+    return producer;
+  };
+
+  for (Operation *user : sharedMemref.getUsers()) {
+    if (auto viewOp = mlir::dyn_cast<ViewOpInterface>(user)) {
+      for (Operation *viewUser : viewOp.getResult().getUsers()) {
+        if (GenericOp producer = tryProducer(viewUser)) {
+          return producer;
+        }
+      }
       continue;
     }
-    for (OpOperand &init : producer.getDpsInitsMutable()) {
-      if (init.get() == sharedMemref) {
-        return producer;
-      }
+    if (GenericOp producer = tryProducer(user)) {
+      return producer;
     }
   }
   return nullptr;
@@ -100,11 +121,15 @@ struct FusedOperandInfo {
 static FusedOperandInfo
 buildFusedOperandInfo(GenericOp producer, GenericOp consumer,
                       GenericOp supersetGeneric, GenericOp subsetGeneric,
-                      OpOperand *inputOperand, Value sharedMemref) {
+                      OpOperand *inputOperand, Value sharedInputValue,
+                      unsigned producerSharedInitIdx) {
   FusedOperandInfo info;
 
-  AffineMap supersetSharedMap =
-      supersetGeneric.getIndexingMapForOperand(sharedMemref);
+  AffineMap supersetSharedMap = (supersetGeneric == producer)
+                                    ? supersetGeneric.getIndexingMap(
+                                          producerSharedInitIdx)
+                                    : supersetGeneric.getIndexingMap(
+                                          inputOperand->getOperandNumber());
   AffineMap subsetOutputMap = subsetGeneric.getIndexingMap(
       subsetGeneric.getDpsInitOperand(0)->getOperandNumber());
   AffineMap subsetOutputInv = inversePermutation(subsetOutputMap);
@@ -123,7 +148,7 @@ buildFusedOperandInfo(GenericOp producer, GenericOp consumer,
 
   // Shared intermediate as input.
   info.sharedInputIdx = info.inputs.size();
-  info.inputs.push_back(sharedMemref);
+  info.inputs.push_back(sharedInputValue);
   AffineMap sharedMap =
       consumer.getIndexingMap(inputOperand->getOperandNumber());
   if (consumer == subsetGeneric) {
@@ -348,7 +373,7 @@ static bool runAffineLoopFusion(GenericOp fusedOp,
 // Try to fuse a producer-consumer pair. Returns the fused generic on success.
 static GenericOp tryFusePair(GenericOp producer, GenericOp consumer,
                              OpOperand *inputOperand, Value sharedMemref,
-                             OpBuilder &builder) {
+                             Value sharedInputValue, OpBuilder &builder) {
   // Get outermost loops to determine superset/subset.
   affine::AffineForOp producerLoop = producer.getOuterAffineBlockingLoopOp();
   affine::AffineForOp consumerLoop = consumer.getOuterAffineBlockingLoopOp();
@@ -364,16 +389,23 @@ static GenericOp tryFusePair(GenericOp producer, GenericOp consumer,
       (producerDepth >= consumerDepth) ? producer : consumer;
   GenericOp subsetGeneric =
       (producerDepth >= consumerDepth) ? consumer : producer;
-  std::optional<unsigned> producerSharedInitIdx =
-      producer.getOutputOperandIndex(sharedMemref);
-  if (!producerSharedInitIdx) {
+  OpOperand *producerSharedInitOperand = nullptr;
+  for (OpOperand &init : producer.getDpsInitsMutable()) {
+    if (unwrapIfViewLike(init.get()) == sharedMemref) {
+      producerSharedInitOperand = &init;
+      break;
+    }
+  }
+  if (!producerSharedInitOperand) {
     return nullptr;
   }
+  unsigned producerSharedInitIdx = producerSharedInitOperand->getOperandNumber();
 
   // Build fused generic op signature (inputs, outputs, indexing maps, etc).
   FusedOperandInfo fusedInfo =
       buildFusedOperandInfo(producer, consumer, supersetGeneric, subsetGeneric,
-                            inputOperand, sharedMemref);
+                            inputOperand, sharedInputValue,
+                            producerSharedInitIdx);
 
   // Create fused GenericOp shell.
   builder.setInsertionPoint(consumer);
@@ -386,7 +418,7 @@ static GenericOp tryFusePair(GenericOp producer, GenericOp consumer,
 
   IRMapping irMap = buildFusedBlockArgMapping(producer, consumer, inputOperand,
                                               fusedOp, fusedInfo.sharedInputIdx,
-                                              *producerSharedInitIdx);
+                                              producerSharedInitIdx);
 
   if (!runAffineLoopFusion(fusedOp, producerLoop, consumerLoop, producerDepth,
                            consumerDepth, builder, irMap)) {
@@ -435,8 +467,8 @@ public:
           }
 
           OpBuilder builder(consumer);
-          GenericOp fused =
-              tryFusePair(producer, consumer, inputOperand, rawMemref, builder);
+          GenericOp fused = tryFusePair(producer, consumer, inputOperand,
+                                        rawMemref, inputOperand->get(), builder);
           if (!fused) {
             continue;
           }
