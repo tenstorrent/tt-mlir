@@ -7,6 +7,7 @@
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
+#include "ttmlir/Dialect/D2M/Utils/DMAUtils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 
 #include "mlir/Dialect/SCF/IR/SCF.h"
@@ -43,12 +44,12 @@ collectDMAOps(Block *block,
     if (auto remoteLoad = mlir::dyn_cast<RemoteLoadOp>(&op)) {
       // Get the CB operand and find which block argument it corresponds to.
       Value cb = remoteLoad.getCb();
-      if (auto blockArg = mlir::dyn_cast<BlockArgument>(cb)) {
+      if (auto blockArg = mlir::dyn_cast_or_null<BlockArgument>(cb)) {
         dmaOps.push_back({&op, blockArg.getArgNumber()});
       }
     } else if (auto remoteStore = mlir::dyn_cast<RemoteStoreOp>(&op)) {
       Value cb = remoteStore.getCb();
-      if (auto blockArg = mlir::dyn_cast<BlockArgument>(cb)) {
+      if (auto blockArg = mlir::dyn_cast_or_null<BlockArgument>(cb)) {
         dmaOps.push_back({&op, blockArg.getArgNumber()});
       }
     }
@@ -95,12 +96,12 @@ static bool shouldKeepOpForThread(Operation *op,
                                   const DenseSet<unsigned> &assignedCBs) {
   if (auto remoteLoad = mlir::dyn_cast<RemoteLoadOp>(op)) {
     Value cb = remoteLoad.getCb();
-    if (auto blockArg = mlir::dyn_cast<BlockArgument>(cb)) {
+    if (auto blockArg = mlir::dyn_cast_or_null<BlockArgument>(cb)) {
       return assignedCBs.contains(blockArg.getArgNumber());
     }
   } else if (auto remoteStore = mlir::dyn_cast<RemoteStoreOp>(op)) {
     Value cb = remoteStore.getCb();
-    if (auto blockArg = mlir::dyn_cast<BlockArgument>(cb)) {
+    if (auto blockArg = mlir::dyn_cast_or_null<BlockArgument>(cb)) {
       return assignedCBs.contains(blockArg.getArgNumber());
     }
   }
@@ -170,6 +171,13 @@ public:
       return failure();
     }
     Block *dmBlock = &dmRegion.front();
+
+    // Check that there are no illegal semaphore ops in the datamovement region.
+    // Replicating these across multiple threads would create a race condition
+    // on the shared semaphore.
+    if (failed(utils::checkForIllegalSemaphoreOps(dmBlock))) {
+      return failure();
+    }
 
     // Collect all DMA operations and their CB associations.
     SmallVector<std::pair<Operation *, unsigned>> dmaOps;

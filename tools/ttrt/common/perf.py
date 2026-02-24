@@ -4,23 +4,16 @@
 
 import os
 import json
-import importlib.machinery
 import sys
 import signal
-import io
 import subprocess
-import time
 import socket
-from pkg_resources import get_distribution
 import shutil
-import atexit
 import traceback
-from pathlib import Path
 import csv
 import ast
 
 from ttrt.common.util import *
-from ttrt.common.query import Query
 
 
 class Perf:
@@ -379,7 +372,7 @@ class Perf:
                     try:
                         serv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                         serv.bind((ip, port))
-                        return str(port)
+                        return port
                     except PermissionError as e:
                         pass
                     except OSError as e:
@@ -396,12 +389,12 @@ class Perf:
                         get_available_port() if self["--port"] == 0 else self["--port"]
                     )
 
-                    if not port:
+                    if port is None:
                         raise Exception("No available port found")
                     self.logging.debug(f"selected port={port}")
 
                     env_vars = dict(os.environ)
-                    env_vars["TRACY_PORT"] = port
+                    env_vars["TRACY_PORT"] = str(port)
 
                     if not self["--host-only"]:
                         env_vars["TT_METAL_CLEAR_L1"] = "1"

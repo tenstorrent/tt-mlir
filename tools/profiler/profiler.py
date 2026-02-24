@@ -28,8 +28,15 @@ def trace(log_dir: str, port: int):
     profiler_csv_file_path = (
         TT_METAL_RUNTIME_ROOT + "/generated/profiler/reports/ops_perf_results.csv"
     )
+    os.environ["TRACY_PORT"] = str(port)
+    os.environ["TT_METAL_CLEAR_L1"] = "1"
+    os.environ["TT_METAL_DEVICE_PROFILER"] = "1"
+    os.environ["TTNN_OP_PROFILER"] = "1"
+    os.environ["TT_METAL_DEVICE_PROFILER_DISPATCH"] = "0"
+    os.environ["TT_METAL_PROFILER_CPP_POST_PROCESS"] = "1"
 
-    shutil.rmtree(profiler_logs_dir)
+    if os.path.exists(profiler_logs_dir):
+        shutil.rmtree(profiler_logs_dir)
     os.makedirs(profiler_logs_dir)
 
     tracy_capture_tool_command = (

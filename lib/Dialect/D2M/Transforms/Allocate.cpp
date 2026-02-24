@@ -342,6 +342,10 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
 
     FuncAnalysisData analysis;
 
+    if (failed(validateGenericOpForms(funcOp))) {
+      return failure();
+    }
+
     if (failed(remapGenericRegionAllocs(funcOp))) {
       return failure();
     }
@@ -375,6 +379,27 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     }
 
     return success();
+  }
+
+  /// Validate that all generic ops are in affine blocked form. Generic ops
+  /// in DMA-only or explicit datamovement form are exempt from this check.
+  ///
+  LogicalResult validateGenericOpForms(func::FuncOp funcOp) {
+    LogicalResult result = success();
+
+    funcOp.walk([&](d2m::GenericOp genericOp) {
+      if (genericOp.isDMAOnlyForm() || genericOp.isExplicitDatamovementForm() ||
+          genericOp.isExternalSymbolForm() || !genericOp.isUnifiedForm()) {
+        return;
+      }
+      if (!genericOp.isAffineBlockedForm()) {
+        genericOp.emitOpError("expected generic op to be in affine blocked "
+                              "form before allocation");
+        result = failure();
+      }
+    });
+
+    return result;
   }
 
   /// Walk all GenericOp operations and remap any memref.alloc operations

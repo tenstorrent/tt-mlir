@@ -7,6 +7,53 @@
 
 include "mlir/Pass/PassBase.td"
 
+// Add scratch inputs to d2m.generic ops (post-bufferization)
+def D2MAddScratchInputs : Pass<"d2m-add-scratch-inputs", "::mlir::ModuleOp"> {
+  let summary = "Add scratch input operand to fused d2m.generic ops.";
+  let description = [{
+    This pass adds a scratch memref input to fused `d2m.generic` operations
+    that may need to spill intermediate results. A generic is considered to
+    need scratch when its compute region contains more than one binary FPU op
+    (`d2m.tile_add`, `d2m.tile_sub`, `d2m.tile_mul`).
+
+    The scratch buffer is a 128KB L1 buffer whose tile type matches the first
+    tiled input operand. Its shape is `[grid_dims..., 1, numTiles]`, where
+    `numTiles = 128KB / tile_size_bytes`.
+
+    This pass runs after bufferization (in memref space) and before the
+    D2MAllocate pass. It creates a `memref.alloc` for the scratch buffer
+    before the generic and adds it as an input operand.
+
+    The scratch operand index is recorded in the `scratch_inputs` attribute
+    so that later passes (e.g. `D2MLowerScratchAllocate`) can identify it.
+
+    Example transformation:
+    ```mlir
+    // Before:
+    d2m.generic { ... }
+    ins(%A, %B : memref<...>, memref<...>)
+    outs(%C : memref<...>) {
+    ^bb0(%cb_A, %cb_B, %cb_C):
+      // ...compute body...
+    }
+
+    // After:
+    %scratch = memref.alloc() : memref<1x1x1x32x!tile_f32, #shard, #l1>
+    d2m.generic { ..., scratch_inputs = array<i64: 2>, ... }
+    ins(%A, %B, %scratch : ...) outs(%C : ...) {
+    ^bb0(%cb_A, %cb_B, %cb_scratch, %cb_C):
+      // ...compute body...
+    }
+    ```
+  }];
+
+  let dependentDialects = [
+    "::mlir::tt::d2m::D2MDialect",
+    "::mlir::tt::ttcore::TTCoreDialect",
+    "::mlir::memref::MemRefDialect"
+  ];
+}
+
 // Elementwise fusion of d2m.generic ops on tensors
 def D2MElementwiseFusion : Pass<"d2m-elementwise-fusion", "::mlir::ModuleOp"> {
   let summary = "Fuse chains of compute-only d2m.generic elementwise ops";
@@ -192,6 +239,7 @@ def D2MInsertDstRegisterAccess : Pass<"d2m-insert-dst-register-access", "::mlir:
   let options = [
     Option<"useTileMatmul", "use-tile-matmul", "bool", /*default=*/"false", "Use tile_matmul instead of tile_matmul_block">,
     Option<"maxDstPhysicalSizeTiles", "max-dst-physical-size-tiles", "unsigned", "0", "Override the max dst physical size tiles or 0 if unset.">,
+    Option<"enableL1Acc", "enable-l1-acc", "bool", /*default=*/"false", "Enable accumulating partials in L1 instead of reloading from L1 to DST.">,
   ];
 }
 
@@ -625,6 +673,54 @@ def D2MDecomposeMasking : Pass<"d2m-decompose-masking", "::mlir::ModuleOp"> {
   ];
 }
 
+def D2MDecomposeArange : Pass<"d2m-decompose-arange", "::mlir::ModuleOp"> {
+  let summary = "Decompose arange_block ops into low-level tile operations";
+  let description = [{
+    This pass decomposes high-level `arange_block` operations into low-level
+    tile operations for generating arange values.
+
+    The arange_block op operates at block level (memref of tiles) and generates
+    values: output[i] = start + step * i, where i is the linear index.
+
+    The decomposition:
+    1. Write full linear index tile to scratch CB using FillArangeTileOp
+    2. Loop over output tiles:
+       a. Compute tile_offset = (tile_row * num_tile_cols * 32 + tile_col) * 32
+       b. Load scratch tile for local_index
+       c. Compute global_index = tile_add(tile_offset + local_index)
+       d. Compute result = start + step * global_index using tiled ops
+       e. Store result tile to output
+
+    Example transformation:
+    ```mlir
+    // Before:
+    d2m.arange_block (%full_index_cb, %output) {start = 32, step = 2}
+        : (memref<1x1x!ttcore.tile<32x32, f32>>, memref<1x1x!ttcore.tile<32x32, f32>>)
+
+    // After:
+    d2m::fill_arange_tile to %full_index_alloc
+    scf.for %i = 0 to %num_tile_rows {
+      scf.for %j = 0 to %num_tile_cols {
+        %tile_offset = ... // (i * num_tile_cols + j) * 1024
+        %local_idx = memref.load %full_index_alloc[0, 0]
+        %global_idx = d2m.tile_add %offset_tile, %local_idx
+        %scaled = d2m.tile_mul %global_idx, step_scalar (in this case 2)
+        %result = d2m.tile_add %scaled, start_scalar (in this case 32)
+        memref.store %result, %output[%i, %j]
+      }
+    }
+    ```
+
+    This pass should run after bufferization and before LinalgToAffine.
+  }];
+  let dependentDialects = [
+    "::mlir::tt::d2m::D2MDialect",
+    "::mlir::memref::MemRefDialect",
+    "::mlir::arith::ArithDialect",
+    "::mlir::scf::SCFDialect"
+  ];
+}
+
 def D2MScalarizeConstTensors : Pass<"d2m-scalarize-const-tensors", "::mlir::ModuleOp"> {
   let summary = "Scalarize constant tensor inputs in d2m.generic operations";
   let description = [{
@@ -770,7 +866,23 @@ def D2MGenerateOuterLoops : Pass<"d2m-generate-outer-loops", "::mlir::ModuleOp">
   let description = [{
     This pass generates outer loops for generic operations.
   }];
-  let dependentDialects = ["::mlir::tt::d2m::D2MDialect"];
+  let dependentDialects = ["::mlir::tt::d2m::D2MDialect",
+                           "::mlir::affine::AffineDialect"];
+}
+
+def D2MLowerToExplicitForm : Pass<"d2m-generic-lower-to-explicit-form", "::mlir::ModuleOp"> {
+  let summary = "Lower outer loop bounds to explicit constants.";
+  let description = [{
+    This pass replaces affine.for loops marked with the d2m.blocking_loop attribute
+    that have bounds defined by d2m.get_block_factor ops with scf.for loops that
+    have arith.constant bounds taken from the GenericOp's block_factors attribute.
+
+    All d2m.get_block_factor ops within generic regions are also replaced with
+    their corresponding arith.constant values.
+  }];
+  let dependentDialects = ["::mlir::tt::d2m::D2MDialect",
+                           "::mlir::scf::SCFDialect",
+                           "::mlir::arith::ArithDialect"];
 }
 
 def D2MLowerMulticastLoads : Pass<"d2m-lower-multicast-loads", "::mlir::ModuleOp"> {
@@ -930,4 +1042,56 @@ def D2MConvertLocalLoadStoreOpsToAliasedCBs : Pass<"d2m-convert-local-load-store
   }];
   let dependentDialects = ["::mlir::tt::d2m::D2MDialect"];
 }
+
+def D2MLowerScratchAllocate : Pass<"d2m-lower-scratch-allocate", "::mlir::ModuleOp"> {
+  let summary = "Lower d2m.scratch_allocate ops to memref.subview of the scratch buffer.";
+  let description = [{
+    This pass lowers `d2m.scratch_allocate` operations inside `d2m.generic` ops
+    into rank-reducing `memref.subview` operations of the scratch memref.
+
+    For each `d2m.generic` that has a `scratch_inputs` attribute, the pass:
+    1. Collects all `d2m.scratch_allocate` ops in the compute region and sorts
+       them by `slot` ID for deterministic layout.
+    2. Computes sequential element offsets for each allocation.
+    3. Validates that total allocations fit within the scratch buffer capacity.
+    4. Introduces a `d2m.get_scratch_from_cb` op at the start of the generic
+       and uses its result as the base scratch memref.
+    5. Replaces each `d2m.scratch_allocate` with a rank-reducing
+       `memref.subview` of the scratch memref at the computed offset.
+
+    The scratch buffer has shape `[1, N]` (set by AddScratchInputs). Each
+    `d2m.scratch_allocate` requests a 1D `memref<M x tile>`, which is lowered to
+    `memref.subview [0, offset][1, M][1, 1] : memref<1xN> -> memref<M>`.
+
+    Example transformation:
+    ```mlir
+    // Before:
+    d2m.generic { scratch_inputs = array<i64: 1>, ... }
+    ins(%in, %scratch_buf : ...) outs(%out : ...) {
+    ^bb0(%cb0: ..., %cb1: ..., %cb2: ...):
+      %s0 = d2m.scratch_allocate {slot = 0} : memref<1x!tile_f32, #l1>
+      %s1 = d2m.scratch_allocate {slot = 1} : memref<2x!tile_f32, #l1>
+      memref.store %val, %s0[%c0] : memref<1x!tile_f32, #l1>
+      // ...
+    }
+
+    // After:
+    d2m.generic { scratch_inputs = array<i64: 1>, ... }
+    ins(%in, %scratch_buf : ...) outs(%out : ...) {
+    ^bb0(%cb0: ..., %cb1: ..., %cb2: ...):
+      %scratch = d2m.get_scratch_from_cb %cb1 : ... -> memref<1x32x!tile_f32, #l1>
+      %sv0 = memref.subview %scratch[0, 0][1, 1][1, 1] : memref<1x32x!tile_f32, #l1> to memref<1x!tile_f32, #l1>
+      %sv1 = memref.subview %scratch[0, 1][1, 2][1, 1] : memref<1x32x!tile_f32, #l1> to memref<2x!tile_f32, strided<[1], offset: 1>, #l1>
+      memref.store %val, %sv0[%c0] : memref<1x!tile_f32, #l1>
+      // ...
+    }
+    ```
+  }];
+  let dependentDialects = [
+    "::mlir::tt::d2m::D2MDialect",
+    "::mlir::tt::ttcore::TTCoreDialect",
+    "::mlir::memref::MemRefDialect"
+  ];
+}
+
 #endif

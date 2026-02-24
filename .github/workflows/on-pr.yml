@@ -12,7 +12,7 @@ on:
         required: false
         type: boolean
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [opened, synchronize, reopened]
     branches: [ "main" ]
 
 permissions:
@@ -36,8 +36,8 @@ jobs:
     uses: ./.github/workflows/call-prepare-run.yml
     with:
       builder_build: true
-      build_all: ${{ github.event.pull_request.head.ref == 'uplift' || contains(github.event.pull_request.labels.*.name, 'build_all') }}
-      min_timeout: ${{ contains(github.event.pull_request.labels.*.name, 'build_all') && 180 || 40 }}
+      build_all: ${{ github.event.pull_request.head.ref == 'uplift' || contains(github.event.pull_request.labels.*.name, 'build_all') || contains(github.event.pull_request.labels.*.name, 'uplift') }}
+      min_timeout: ${{ (contains(github.event.pull_request.labels.*.name, 'build_all') || contains(github.event.pull_request.labels.*.name, 'uplift')) && 180 || 40 }}
     secrets: inherit
   release-build:
     needs: [ prepare-run, build-image ]
@@ -105,9 +105,6 @@ jobs:
             gh workflow run ${{ env.WORKFLOW_NAME }} \
               --repo ${{ env.TARGET_REPO }} --ref main \
               --raw-field mlir_override=${{ github.event.pull_request.head.sha }} \
-              --raw-field same_branch=false \
-              --raw-field tt_forge_branch=main \
-              --raw-field test_filter= \
               --raw-field sh-runner=false
 
           else

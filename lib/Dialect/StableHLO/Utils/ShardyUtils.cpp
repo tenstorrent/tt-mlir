@@ -987,89 +987,129 @@ std::optional<mlir::DenseElementsAttr> tryGetPeriodicShardSlice(
 
   auto oldType = mlir::cast<mlir::RankedTensorType>(globalAttr.getType());
   auto globalShape = oldType.getShape();
+  int64_t rank = static_cast<int64_t>(globalShape.size());
 
-  // 1. Identify Sharding Dimension & Count
-  int64_t shardingDim = -1;
-  int64_t numShards = 1;
+  // Collect all sharded dimensions and their shard counts.
+  // Only one axis per dimension is supported (multi-axis-per-dim returns
+  // nullopt).
+  struct ShardedDimInfo {
+    int64_t dimIdx;
+    int64_t numShards;
+  };
+  llvm::SmallVector<ShardedDimInfo> shardedDims;
 
-  // We assume single-axis sharding for this optimization
+  // Build axis-name to size map for lookup.
+  llvm::StringMap<int64_t> axisNameToSize;
+  for (auto meshAxis : meshOp.getMesh().getAxes()) {
+    axisNameToSize[meshAxis.getName()] = meshAxis.getSize();
+  }
+
   llvm::ArrayRef<mlir::sdy::DimensionShardingAttr> dimShardings =
       sharding.getDimShardings();
 
   for (auto [dimIdx, dimSharding] : llvm::enumerate(dimShardings)) {
     auto axisRefs = dimSharding.getAxes();
-    if (!axisRefs.empty()) {
-      shardingDim = dimIdx;
-      auto axisName = axisRefs[0].getName();
+    if (axisRefs.empty()) {
+      continue;
+    }
 
-      for (auto meshAxis : meshOp.getMesh().getAxes()) {
-        if (meshAxis.getName() == axisName) {
-          numShards = meshAxis.getSize();
-          break;
-        }
-      }
-      break;
+    // Multi-axis-per-dim not supported for periodic slicing.
+    if (axisRefs.size() > 1) {
+      return std::nullopt;
+    }
+
+    auto it = axisNameToSize.find(axisRefs[0].getName());
+    if (it == axisNameToSize.end()) {
+      return std::nullopt;
+    }
+
+    int64_t dimShardCount = it->second;
+    if (dimShardCount > 1) {
+      shardedDims.push_back({static_cast<int64_t>(dimIdx), dimShardCount});
     }
   }
 
-  // If no valid sharding found, we cannot proceed
-  if (shardingDim == -1 || numShards <= 1) {
+  if (shardedDims.empty()) {
     return std::nullopt;
   }
 
-  // 2. Pre-calculate Dimensions and Strides
-  int64_t totalDimSize = globalShape[shardingDim];
-  int64_t shardDimSize = totalDimSize / numShards;
-
-  int64_t innerBlockSize = 1;
-  for (int64_t i = shardingDim + 1;
-       i < static_cast<int64_t>(globalShape.size()); ++i) {
-    innerBlockSize *= globalShape[i];
-  }
-
-  int64_t outerCount = 1;
-  for (int64_t i = 0; i < shardingDim; ++i) {
-    outerCount *= globalShape[i];
-  }
-
-  // 3. Verify Periodicity
-  // We check if Shard K (k=1..N) contains the same data as Shard 0
+  // Verify periodicity independently along each sharded dimension.
   auto globalValues = globalAttr.getValues<mlir::Attribute>();
-  int64_t shardStep = shardDimSize * innerBlockSize;
-  int64_t rowSize = totalDimSize * innerBlockSize;
 
-  for (int64_t out = 0; out < outerCount; ++out) {
-    int64_t rowStart = out * rowSize;
+  for (auto &sd : shardedDims) {
+    int64_t shardingDim = sd.dimIdx;
+    int64_t numShards = sd.numShards;
+    int64_t totalDimSize = globalShape[shardingDim];
+    int64_t shardDimSize = totalDimSize / numShards;
 
-    for (int64_t k = 1; k < numShards; ++k) {
-      // Compare Shard 0 vs Shard K block by block
-      for (int64_t s = 0; s < shardDimSize; ++s) {
-        for (int64_t inner = 0; inner < innerBlockSize; ++inner) {
-          int64_t offset0 = rowStart + (s * innerBlockSize) + inner;
-          int64_t offsetK = offset0 + (k * shardStep);
+    if (totalDimSize % numShards != 0) {
+      return std::nullopt;
+    }
 
-          if (globalValues[offset0] != globalValues[offsetK]) {
-            return std::nullopt; // Verification failed: Data is different
+    int64_t innerBlockSize = 1;
+    for (int64_t i = shardingDim + 1; i < rank; ++i) {
+      innerBlockSize *= globalShape[i];
+    }
+
+    int64_t outerCount = 1;
+    for (int64_t i = 0; i < shardingDim; ++i) {
+      outerCount *= globalShape[i];
+    }
+
+    int64_t shardStep = shardDimSize * innerBlockSize;
+    int64_t rowSize = totalDimSize * innerBlockSize;
+
+    for (int64_t out = 0; out < outerCount; ++out) {
+      int64_t rowStart = out * rowSize;
+
+      for (int64_t k = 1; k < numShards; ++k) {
+        for (int64_t s = 0; s < shardDimSize; ++s) {
+          for (int64_t inner = 0; inner < innerBlockSize; ++inner) {
+            int64_t offset0 = rowStart + (s * innerBlockSize) + inner;
+            int64_t offsetK = offset0 + (k * shardStep);
+
+            if (globalValues[offset0] != globalValues[offsetK]) {
+              return std::nullopt;
+            }
           }
         }
       }
     }
   }
 
-  // 4. Construct New Attribute (Slice 0)
-  // Since verification passed, we copy only the data for Shard 0
+  // Extract shard 0 across all sharded dimensions.
+  // For shard 0, local indices map directly to global indices.
+  auto localShape = localType.getShape();
+
+  // Compute global strides (row-major).
+  llvm::SmallVector<int64_t> globalStrides(rank);
+  globalStrides[rank - 1] = 1;
+  for (int64_t i = rank - 2; i >= 0; --i) {
+    globalStrides[i] = globalStrides[i + 1] * globalShape[i + 1];
+  }
+
   std::vector<mlir::Attribute> newValues;
-  newValues.reserve(localType.getNumElements());
+  int64_t numLocalElements = localType.getNumElements();
+  newValues.reserve(numLocalElements);
 
-  for (int64_t out = 0; out < outerCount; ++out) {
-    int64_t rowStart = out * rowSize;
+  // N-dimensional index iterator over the local shape.
+  llvm::SmallVector<int64_t> localIndices(rank, 0);
 
-    // Only iterate over the first shard (s < shardDimSize)
-    for (int64_t s = 0; s < shardDimSize; ++s) {
-      for (int64_t inner = 0; inner < innerBlockSize; ++inner) {
-        int64_t idx = rowStart + (s * innerBlockSize) + inner;
-        newValues.push_back(globalValues[idx]);
+  for (int64_t elem = 0; elem < numLocalElements; ++elem) {
+    int64_t globalFlatIdx = 0;
+    for (int64_t d = 0; d < rank; ++d) {
+      globalFlatIdx += localIndices[d] * globalStrides[d];
+    }
+
+    newValues.push_back(globalValues[globalFlatIdx]);
+
+    // Increment local indices (row-major order, last dim fastest).
+    for (int64_t d = rank - 1; d >= 0; --d) {
+      localIndices[d]++;
+      if (localIndices[d] < localShape[d]) {
+        break;
       }
+      localIndices[d] = 0;
     }
   }
 

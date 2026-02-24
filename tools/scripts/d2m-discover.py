@@ -11,6 +11,9 @@ of size 1 and operations matching an ignore list.
 """
 
 import argparse
+import io
+import os
+import sys
 from collections import defaultdict
 
 import ttmlir
@@ -18,8 +21,14 @@ import ttmlir.util
 from ttmlir.ir import Context, Module, Location, InsertionPoint, Block, Operation
 from ttmlir.dialects import func, ttir
 
+# Default ignorelist file lives alongside this script.
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+_DEFAULT_OP_IGNORELIST_FILE = os.path.join(_SCRIPT_DIR, "op_ignorelist.txt")
+
 # Ignorelist of operation names to ignore when building the graph.
 # Operations matching these names will be excluded from analysis.
+# This is the built-in default; it can be overridden at runtime via
+# --op-ignorelist pointing to a text file (one op name per line).
 OP_IGNORELIST = [
     "func.return",
     # ttcore
@@ -42,6 +51,21 @@ OP_IGNORELIST = [
     "ttir.point_to_point",
     "ttir.all_to_all",
 ]
+
+
+def load_op_ignorelist(filepath):
+    """Load operation ignorelist from a text file.
+
+    The file should contain one operation name per line.
+    Lines starting with # and blank lines are ignored.
+    """
+    ops = []
+    with open(filepath, "r") as f:
+        for line in f:
+            line = line.strip()
+            if line and not line.startswith("#"):
+                ops.append(line)
+    return ops
 
 
 class UnionFind:
@@ -139,7 +163,10 @@ def find_connected_components(module):
     # Recurse into top-level func.func ops and func.func ops inside ttcore.device_module
     for entry in module.body.operations:
         op_name = entry.operation.name
-        if op_name == "func.func" and entry.operation.is_public():
+        if op_name == "func.func" and (
+            "sym_visibility" not in entry.attributes
+            or entry.attributes["sym_visibility"] == "public"
+        ):
             process_func_op(entry, uf, op_map)
         elif op_name == "ttcore.device_module":
             # Recurse into device_module to find nested func.func ops
@@ -167,27 +194,37 @@ def find_connected_components(module):
     return [ops for ops in components.values() if len(ops) > 1]
 
 
-def print_components(components):
-    """Print the discovered connected components."""
+def print_components(components, file=None):
+    """Print the discovered connected components.
+
+    Args:
+        components: List of connected components (each a list of ops).
+        file: File-like object to write to (default: sys.stdout).
+    """
+    out = file or sys.stdout
+
     if not components:
-        print("No connected components of size > 1 found.")
+        print("No connected components of size > 1 found.", file=out)
         return
 
-    print(f"Found {len(components)} connected component(s) of size > 1:\n")
+    print(
+        f"Found {len(components)} connected component(s) of size > 1:\n",
+        file=out,
+    )
 
     unique_ops = set()
 
     for i, ops in enumerate(components, 1):
-        print(f"Component {i} ({len(ops)} operations):")
+        print(f"Component {i} ({len(ops)} operations):", file=out)
         for op in ops:
             loc_str = get_location_str(op.location)
             unique_ops.add(op.name)
-            print(f"  - {op.name} @ {loc_str}")
-        print()
+            print(f"  - {op.name} @ {loc_str}", file=out)
+        print(file=out)
 
-    print("Unique operations across all components:")
+    print("Unique operations across all components:", file=out)
     for op_name in sorted(unique_ops):
-        print(f"  - {op_name}")
+        print(f"  - {op_name}", file=out)
 
 
 def topological_sort(ops):
@@ -229,10 +266,14 @@ def get_op_operands(op):
     """Get input and output operands for an operation (handles DPS convention)."""
     if "operandSegmentSizes" in op.attributes:
         segments = op.attributes["operandSegmentSizes"]
-        assert len(segments) == 2
-        ins, outs = segments
-        assert ins + outs == len(op.operands)
-        return (list(op.operands[:ins]), list(op.operands[ins:]))
+        if len(segments) == 2:
+            # DPS-style: [inputs, inits]
+            ins, outs = segments
+            assert ins + outs == len(op.operands)
+            return (list(op.operands[:ins]), list(op.operands[ins:]))
+        # AttrSizedOperandSegments with 3+ groups (e.g. ttir.rms_norm: input, weight, bias).
+        # All operands are inputs; no DPS inits.
+        return (list(op.operands), [])
     elif ttmlir.util.is_dps(op):
         return (list(op.operands[:-1]), list(op.operands[-1:]))
     return (list(op.operands), [])
@@ -350,18 +391,104 @@ def main():
         action="store_true",
         help="Emit components as standalone func.func ops (outputs MLIR)",
     )
+    parser.add_argument(
+        "--op-ignorelist",
+        type=str,
+        default=None,
+        help=(
+            "Path to a text file with operation names to ignore (one per line). "
+            f"Default: {_DEFAULT_OP_IGNORELIST_FILE}"
+        ),
+    )
+    parser.add_argument(
+        "-o",
+        "--output",
+        type=str,
+        default=None,
+        help="Path to write output to (default: print to stdout)",
+    )
     args = parser.parse_args()
 
+    # --- Logging helper (all progress goes to stderr) ---
+    def log(msg):
+        print(msg, file=sys.stderr, flush=True)
+
+    # --- Validate input ---
+    if not os.path.isfile(args.mlir):
+        log(f"Error: file not found: {args.mlir}")
+        sys.exit(1)
+
+    # --- Banner ---
+    log("=" * 60)
+    log("d2m-discover: Weakly connected component discovery")
+    log("=" * 60)
+    file_size_mb = os.path.getsize(args.mlir) / (1024 * 1024)
+    log(f"  Input file:    {args.mlir} ({file_size_mb:.1f} MB)")
+
+    # Override the global ignorelist if a custom file is provided.
+    global OP_IGNORELIST
+    if args.op_ignorelist:
+        OP_IGNORELIST = load_op_ignorelist(args.op_ignorelist)
+        log(f"  Op ignorelist: {args.op_ignorelist} ({len(OP_IGNORELIST)} ops)")
+    else:
+        log(f"  Op ignorelist: built-in default ({len(OP_IGNORELIST)} ops)")
+
+    mode_label = (
+        "emit-funcs (MLIR snippet output)"
+        if args.emit_funcs
+        else "component overview (text output)"
+    )
+    log(f"  Mode:          {mode_label}")
+    log(f"  Output:        {args.output or 'stdout'}")
+    log("")
+
+    # --- Step 1: Parse ---
+    log("[1/3] Parsing MLIR module ...")
     with Context() as ctx, open(args.mlir, "r") as mlir_fd:
         ctx.allow_unregistered_dialects = True
-        module = Module.parse(mlir_fd.read())
-        components = find_connected_components(module)
+        try:
+            module = Module.parse(mlir_fd.read())
+        except Exception as exc:
+            log(f"  ERROR: Failed to parse MLIR: {exc}")
+            sys.exit(1)
+        log("  Parsed successfully.")
 
+        # --- Step 2: Discover ---
+        log("[2/3] Finding weakly connected components ...")
+        components = find_connected_components(module)
+        total_ops = sum(len(c) for c in components)
+        log(
+            f"  Found {len(components)} component(s) "
+            f"with {total_ops} total operations."
+        )
+
+        # --- Step 3: Generate output ---
+        log("[3/3] Generating output ...")
         if args.emit_funcs:
             out_module = emit_components_as_module(components, ctx)
-            print(out_module)
+            output_text = str(out_module)
+            log(f"  Emitted {len(components)} func.func op(s) as MLIR module.")
         else:
-            print_components(components)
+            buf = io.StringIO()
+            print_components(components, file=buf)
+            output_text = buf.getvalue()
+            log("  Generated component overview text.")
+
+    # --- Write output ---
+    if args.output:
+        try:
+            out_dir = os.path.dirname(args.output)
+            if out_dir:
+                os.makedirs(out_dir, exist_ok=True)
+            with open(args.output, "w") as f:
+                f.write(output_text)
+        except OSError as exc:
+            log(f"  ERROR: Failed to write output: {exc}")
+            sys.exit(1)
+        log(f"\nDone. Output written to: {args.output}")
+    else:
+        print(output_text, end="")
+        log(f"\nDone. Output written to stdout.")
 
 
 if __name__ == "__main__":

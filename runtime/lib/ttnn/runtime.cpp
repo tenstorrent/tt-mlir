@@ -1016,10 +1016,6 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_ToLayoutOp()->out();
     break;
   }
-  case ::tt::target::ttnn::OpType::ToDTypeOp: {
-    tensorRef = opContext.type_as_ToDTypeOp()->out();
-    break;
-  }
   case ::tt::target::ttnn::OpType::TypecastOp: {
     tensorRef = opContext.type_as_TypecastOp()->out();
     break;
@@ -1204,6 +1200,10 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_RMSNormOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::DistributedRMSNormOp: {
+    tensorRef = opContext.type_as_DistributedRMSNormOp()->out();
+    break;
+  }
   case ::tt::target::ttnn::OpType::LayerNormOp: {
     tensorRef = opContext.type_as_LayerNormOp()->out();
     break;
@@ -1222,6 +1222,10 @@ getOpOutputRef(OpContext opContextHandle,
   }
   case ::tt::target::ttnn::OpType::MeshShardOp: {
     tensorRef = opContext.type_as_MeshShardOp()->out();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::MeshPartitionOp: {
+    tensorRef = opContext.type_as_MeshPartitionOp()->out();
     break;
   }
   case ::tt::target::ttnn::OpType::ArangeOp: {
@@ -1393,10 +1397,6 @@ getOpInputRefs(OpContext opContextHandle,
   }
   case ::tt::target::ttnn::OpType::ToLayoutOp: {
     tensorRefs = {opContext.type_as_ToLayoutOp()->in()};
-    break;
-  }
-  case ::tt::target::ttnn::OpType::ToDTypeOp: {
-    tensorRefs = {opContext.type_as_ToDTypeOp()->in()};
     break;
   }
   case ::tt::target::ttnn::OpType::TypecastOp: {
@@ -1600,6 +1600,17 @@ getOpInputRefs(OpContext opContextHandle,
     }
     break;
   }
+  case ::tt::target::ttnn::OpType::DistributedRMSNormOp: {
+    tensorRefs = {opContext.type_as_DistributedRMSNormOp()->input()};
+    if (opContext.type_as_DistributedRMSNormOp()->weight()) {
+      tensorRefs.push_back(opContext.type_as_DistributedRMSNormOp()->weight());
+    }
+    if (opContext.type_as_DistributedRMSNormOp()->residual()) {
+      tensorRefs.push_back(
+          opContext.type_as_DistributedRMSNormOp()->residual());
+    }
+    break;
+  }
   case ::tt::target::ttnn::OpType::LayerNormOp: {
     tensorRefs = {opContext.type_as_LayerNormOp()->input()};
     if (opContext.type_as_LayerNormOp()->weight()) {
@@ -1624,6 +1635,10 @@ getOpInputRefs(OpContext opContextHandle,
   }
   case ::tt::target::ttnn::OpType::MeshShardOp: {
     tensorRefs = {opContext.type_as_MeshShardOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::MeshPartitionOp: {
+    tensorRefs = {opContext.type_as_MeshPartitionOp()->out()};
     break;
   }
   case ::tt::target::ttnn::OpType::UpsampleOp: {

@@ -53,6 +53,7 @@ union OpType {
   CpuOp,
   DeallocateOp,
   DistributeTensorOp,
+  DistributedRMSNormOp,
   DropoutOp,
   EltwiseBinaryCompositeOp,
   EltwiseBinaryCompositeScalarOp,
@@ -82,6 +83,7 @@ union OpType {
   // ANCHOR_END: adding_an_op_matmul_fbs_op_type
   MaxPool2dWithIndicesOp,
   MeshShardOp,
+  MeshPartitionOp,
   MorehCumSumOp,
   NamedFullOp,
   NLPConcatHeadsDecodeOp,
@@ -113,7 +115,6 @@ union OpType {
   SortOp,
   SplitQueryKeyValueAndSplitHeadsOp,
   ToDeviceOp,
-  ToDTypeOp,
   ToLayoutOp,
   ToMemoryConfigOp,
   TransposeOp,

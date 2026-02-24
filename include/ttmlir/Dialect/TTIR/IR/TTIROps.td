@@ -2079,6 +2079,50 @@ def TTIR_RMSNormOp : TTIR_NamedOp<"rms_norm", [AttrSizedOperandSegments]> {
   let hasVerifier = 1;
 }
 
+def TTIR_DistributedRMSNormOp : TTIR_NamedOp<"distributed_rms_norm", [AttrSizedOperandSegments]> {
+  let summary = "Distributed RMS normalization with all-gather operation";
+  let description = [{
+    Fused distributed RMS normalization across mesh devices. Each device
+    computes local RMS statistics (E(x²)), the statistics are all-gathered
+    along cluster_axis to obtain globally-correct values, and each device
+    then normalizes its local shard. The steps are:
+    1. Optional residual addition (input + residual)
+    2. Compute local E(x²) and all-gather statistics across cluster_axis
+    3. RMS normalization: output = input * rsqrt(E(x²) + epsilon) * weight
+
+    Only statistics are communicated across devices — the input data itself
+    is not all-gathered. Each device's output shape equals its input shape.
+
+    This is a multi-device operation that requires the tensor to be sharded
+    across a device mesh.
+
+    Inputs:
+    - `input` (Tensor): The input tensor to be normalized.
+    - `weight` (Optional Tensor): The scale parameter (gamma).
+    - `residual` (Optional Tensor): Residual tensor for fused add before
+        normalization.
+
+    Attributes:
+    - `cluster_axis` specifies which mesh dimension to all-gather the
+        statistics across (0 or 1).
+    - `epsilon` is a small constant added for numerical stability
+        (default: 1e-05).
+
+    Output:
+    - `result` (Tensor): The normalized output tensor (same shape as input).
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       Optional<AnyRankedTensor>:$weight,
+                       Optional<AnyRankedTensor>:$residual,
+                       UI32Attr:$cluster_axis,
+                       DefaultValuedAttr<F32Attr, "1e-05">:$epsilon);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+}
+
 def TTIR_LayerNormOp : TTIR_NamedOp<"layer_norm", [AttrSizedOperandSegments]> {
   let summary = "Layer normalization operation";
   let description = [{
@@ -3061,7 +3105,7 @@ def TTIR_RepeatInterleaveOp : TTIR_NamedOp<"repeat_interleave"> {
     let hasVerifier = 1;
 }
 
-def TTIR_UpdateCacheOp : TTIR_NamedOp<"update_cache"> {
+def TTIR_UpdateCacheOp : TTIR_NamedOp<"update_cache", [TTIR_CacheOpInterface]> {
   let summary = "Cache update operation.";
   let description = [{
     The `update_cache` operation updates a cache tensor with values from an input tensor at specific indices.
@@ -3108,7 +3152,7 @@ def TTIR_UpdateCacheOp : TTIR_NamedOp<"update_cache"> {
   let hasVerifier = 1;
 }
 
-def TTIR_PagedUpdateCacheOp : TTIR_NamedOp<"paged_update_cache"> {
+def TTIR_PagedUpdateCacheOp : TTIR_NamedOp<"paged_update_cache", [TTIR_CacheOpInterface]> {
   let summary = "Paged update cache op.";
   let description = [{
       Inputs:
@@ -3137,7 +3181,7 @@ def TTIR_PagedUpdateCacheOp : TTIR_NamedOp<"paged_update_cache"> {
   let hasVerifier = 1;
 }
 
-def TTIR_FillCacheOp : TTIR_NamedOp<"fill_cache"> {
+def TTIR_FillCacheOp : TTIR_NamedOp<"fill_cache", [TTIR_CacheOpInterface]> {
   let summary = "Cache filling operation.";
   let description = [{
       The `fill_cache` operation fills a cache tensor with values from an input tensor.
@@ -3187,7 +3231,7 @@ def TTIR_FillCacheOp : TTIR_NamedOp<"fill_cache"> {
   }];
 }
 
-def TTIR_PagedFillCacheOp : TTIR_NamedOp<"paged_fill_cache"> {
+def TTIR_PagedFillCacheOp : TTIR_NamedOp<"paged_fill_cache", [TTIR_CacheOpInterface]> {
   let summary = "Paged fill cache op.";
   let description = [{
     Fills the `cache` tensor in-place with values from `input` at `batch_idx_tensor`.
@@ -4405,8 +4449,8 @@ def TTIR_ClampScalarOp : TTIR_NamedOp<"clamp_scalar", [TTIR_ElementwiseUnary]> {
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         F32Attr:$min,
-                         F32Attr:$max);
+                         AnyAttrOf<[F32Attr, I32Attr]>:$min,
+                         AnyAttrOf<[F32Attr, I32Attr]>:$max);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -4628,6 +4672,8 @@ def TTIR_MatmulOp : TTIR_NamedOp<"matmul"> {
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
+
+    let hasCanonicalizer = 1;
 }
 // ANCHOR_END: adding_an_op_matmul_ttir
 
@@ -4781,6 +4827,7 @@ def TTIR_ScatterOp : TTIR_NamedOp<"scatter"> {
   let results = (outs AnyRankedTensor:$result);
 
   let hasVerifier = 1;
+  let hasFolder = 1;
 }
 
 //===----------------------------------------------------------------------===//
@@ -5238,6 +5285,18 @@ def TTIR_CollectivePermuteOp : TTIR_NamedOp<"collective_permute"> {
 
     let results = (outs AnyRankedTensor:$result);
     let hasVerifier = 1;
+}
+
+def TTIR_MeshPartitionOp: TTIR_NamedOp<"mesh_partition"> {
+  let summary = "Mesh partition operation.";
+  let description = [{
+    Mesh partition op.
+  }];
+  let arguments = (ins AnyRankedTensor:$input,
+                       SI32Attr:$dim,
+                       OptionalAttr<UI32Attr>:$cluster_axis);
+  let results = (outs AnyRankedTensor:$result);
+  let hasVerifier = 1;
 }
 
 def TTIR_MeshShardOp: TTIR_Op<"mesh_shard",

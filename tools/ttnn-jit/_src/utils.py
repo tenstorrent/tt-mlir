@@ -5,10 +5,12 @@
 import textwrap
 import inspect
 import importlib
-import ttnn
 from typing import Callable
 from ttmlir.ir import *
-from ttnn_jit._src import DispatchCoreType
+from ttnn_jit._src.tensor_translator import (
+    _calculate_tile_shape,
+    _get_logical_tensor_shape,
+)
 
 
 def discover_dialect_ops(dialect, denylist=None):
@@ -83,21 +85,30 @@ def get_num_pos_args(func: Callable):
     return num_pos_args
 
 
-def _get_cluster_type():
-    return ttnn.cluster.get_cluster_type()
+def get_maximal_block_sharding_grid(shape, core_grid):
+    """Infer a TTNN grid/end coord for block sharding the given logical tensor shape and device core grid
+    Note: core_grid parameter expects index starting at 0, e.g. (7, 7) for an 8x8 grid
+    """
+    logical_shape = _get_logical_tensor_shape(shape)
+    tile_shape = _calculate_tile_shape(logical_shape)
+
+    # modify core_grid to starting index 1
+    core_grid = [dim + 1 for dim in core_grid]
+
+    grid = []
+    for dim, max_grid in zip(tile_shape, reversed(core_grid)):
+        for grid_dim in reversed(range(max_grid)):
+            if dim % (grid_dim + 1) == 0:
+                grid.append(grid_dim)
+                break
+    return list(reversed(grid))
 
 
-def get_dispatch_core_type():
-    cluster_type = _get_cluster_type()
-    match cluster_type:
-        case ttnn.cluster.ClusterType.N150:
-            dispatch_core_type = DispatchCoreType.ETH
-        case ttnn.cluster.ClusterType.N300:
-            dispatch_core_type = DispatchCoreType.ETH
-        case ttnn.cluster.ClusterType.P150:
-            dispatch_core_type = DispatchCoreType.WORKER
-        case ttnn.cluster.ClusterType.T3K:
-            dispatch_core_type = DispatchCoreType.ETH
-        case _:
-            raise ValueError(f"Unsupported cluster type: {cluster_type}")
-    return dispatch_core_type
+def get_core_grid_from_tensor_args(tensor_args):
+    """Get the core grid from the device of the first tensor argument"""
+
+    if not tensor_args:
+        raise ValueError("No tensor arguments provided")
+    tensor_arg = next(iter(tensor_args.values()))
+    device = tensor_arg.device()
+    return (device.core_grid.x - 1, device.core_grid.y - 1)

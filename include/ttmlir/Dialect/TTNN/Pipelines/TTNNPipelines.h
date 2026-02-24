@@ -212,6 +212,15 @@ struct TTIRToTTNNDevicePipelineOptions
       *this, OptionNames::meshShape,
       llvm::cl::desc("Set the multi-device mesh shape.")};
 
+  ListOption<ttcore::Topology> meshTopology{
+      *this, OptionNames::meshTopology,
+      llvm::cl::desc("Set the per-axis topology for the mesh."),
+      llvm::cl::values(
+          clEnumValN(ttcore::Topology::Ring, "ring", "Ring topology"),
+          clEnumValN(ttcore::Topology::Linear, "linear", "Linear topology"),
+          clEnumValN(ttcore::Topology::Disabled, "disabled",
+                     "Disabled topology"))};
+
   Option<bool> rowMajorEnabled{
       *this, "row-major-enabled",
       llvm::cl::desc(

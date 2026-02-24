@@ -619,6 +619,11 @@ toFlatbuffer(FlatbufferObjectCache &cache, KernelArgAttr kernelArg) {
     arg = target::metal::CreateKernelArgSemaphore(*cache.fbb).Union();
     break;
   }
+  case ttkernel::ArgType::NamedArgument: {
+    argType = target::metal::KernelArgType::KernelArgNamedArgument;
+    arg = target::metal::CreateKernelArgNamedArgument(*cache.fbb).Union();
+    break;
+  }
   }
 
   return target::metal::CreateKernelArg(*cache.fbb, argType, arg);

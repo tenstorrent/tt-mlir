@@ -57,7 +57,7 @@ public:
         "TTNNRowMajorLayoutPropagation pass requires OpModel support to be"
         "enabled.");
 #else
-    op_model::ScopedSingletonDeviceGuard deviceGuard;
+    op_model::ScopedSingletonDeviceGuard deviceGuard(getOperation());
 
     ModuleOp moduleOp = getOperation();
     IRRewriter rewriter(&getContext());
@@ -89,7 +89,11 @@ public:
 
 private:
   // Returns true if block argument is an input argument of the function.
+  // KV cache arguments are excluded even though they have Input argument type.
   bool isInputArgument(BlockArgument arg, func::FuncOp func) {
+    if (func.getArgAttr(arg.getArgNumber(), ttcore::g_kvCacheAttrName)) {
+      return false;
+    }
     if (auto typeAttr = func.getArgAttrOfType<ttcore::ArgumentTypeAttr>(
             arg.getArgNumber(), ttcore::ArgumentTypeAttr::name)) {
       auto argType = typeAttr.getValue();
@@ -227,7 +231,7 @@ private:
     // Create layout with TILE (required for on-device typecast) and the
     // original tensor element type. TTNNDecomposeLayouts requires TILE
     // layout for on-device dtype conversion; ROW_MAJOR would force a
-    // host round-trip (from_device → to_dtype → to_device).
+    // host round-trip (from_device → typecast → to_device).
     TTNNLayoutAttr correctedLayout = rmOutputLayout.withElementType(
         tensorElementType, userResultType.getShape());
     TTNNLayoutAttr tileLayout =

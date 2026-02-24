@@ -371,6 +371,22 @@ void populateTTModule(nb::module_ &m) {
         return self.getChipChannels().vec();
       });
 
+  nb::enum_<tt::ttcore::Topology>(m, "Topology")
+      .value("Ring", tt::ttcore::Topology::Ring)
+      .value("Linear", tt::ttcore::Topology::Linear)
+      .value("Disabled", tt::ttcore::Topology::Disabled);
+
+  tt_attribute_class<tt::ttcore::TopologyAttr>(m, "TopologyAttr")
+      .def_static(
+          "get",
+          [](MlirContext ctx, uint32_t topology) {
+            return wrap(tt::ttcore::TopologyAttr::get(
+                unwrap(ctx), static_cast<tt::ttcore::Topology>(topology)));
+          })
+      .def_prop_ro("topology_as_int", [](tt::ttcore::TopologyAttr self) {
+        return static_cast<uint32_t>(self.getValue());
+      });
+
   tt_attribute_class<tt::ttcore::MemorySpaceAttr>(m, "MemorySpaceAttr")
       .def_static("get",
                   [](MlirContext ctx, uint32_t memorySpace) {
@@ -418,12 +434,14 @@ void populateTTModule(nb::module_ &m) {
                   [](MlirContext ctx, std::vector<int64_t> gridShape,
                      MlirAffineMap workerGridMapping, MlirAffineMap l1Map,
                      MlirAffineMap dramMap, std::vector<int64_t> meshShape,
-                     std::vector<unsigned> chipIds) {
+                     std::vector<unsigned> chipIds,
+                     std::vector<tt::ttcore::Topology> meshTopology) {
                     return wrap(tt::ttcore::DeviceAttr::get(
                         unwrap(ctx),
                         tt::ttcore::GridAttr::get(unwrap(ctx), gridShape,
                                                   unwrap(workerGridMapping)),
-                        unwrap(l1Map), unwrap(dramMap), meshShape, chipIds));
+                        unwrap(l1Map), unwrap(dramMap), meshShape, chipIds,
+                        meshTopology));
                   })
       .def("unwrap",
            [](const MlirAttribute &self) {
@@ -440,8 +458,14 @@ void populateTTModule(nb::module_ &m) {
                    [](const tt::ttcore::DeviceAttr &self) {
                      return self.getMeshShape().vec();
                    })
-      .def_prop_ro("chip_ids", [](const tt::ttcore::DeviceAttr &self) {
-        return self.getChipIds().vec();
+      .def_prop_ro("chip_ids",
+                   [](const tt::ttcore::DeviceAttr &self) {
+                     return self.getChipIds().vec();
+                   })
+      .def_prop_ro("mesh_topology", [](const tt::ttcore::DeviceAttr &self) {
+        auto topologies = self.getMeshTopology();
+        return std::vector<tt::ttcore::Topology>(topologies.begin(),
+                                                 topologies.end());
       });
 
   nb::enum_<mlir::tt::ttcore::TensorMemoryLayout>(m, "TensorMemoryLayout")
@@ -551,40 +575,5 @@ void populateTTModule(nb::module_ &m) {
       .def_prop_ro("meshes", [](const tt::ttcore::MeshesAttr &meshes) {
         return meshes.getMeshes().vec();
       });
-
-  nb::enum_<mlir::tt::ttcore::ShardStatus>(m, "ShardStatus")
-      .value("Presharded", mlir::tt::ttcore::ShardStatus::Presharded)
-      .value("Unsharded", mlir::tt::ttcore::ShardStatus::Unsharded);
-
-  tt_attribute_class<tt::ttcore::ShardStatusAttr>(m, "ShardStatusAttr")
-      .def_static(
-          "get",
-          [](MlirContext ctx, mlir::tt::ttcore::ShardStatus shardStatus) {
-            return wrap(
-                tt::ttcore::ShardStatusAttr::get(unwrap(ctx), shardStatus));
-          })
-      .def_prop_ro("value", [](tt::ttcore::ShardStatusAttr self) {
-        return self.getValue();
-      });
-
-  tt_attribute_class<tt::ttcore::RuntimeTensorShardingAttr>(
-      m, "RuntimeTensorShardingAttr")
-      .def_static("get",
-                  [](MlirContext ctx, MlirAttribute shardStatusAttr,
-                     MlirType localShape) {
-                    return wrap(tt::ttcore::RuntimeTensorShardingAttr::get(
-                        unwrap(ctx),
-                        mlir::cast<tt::ttcore::ShardStatusAttr>(
-                            unwrap(shardStatusAttr)),
-                        mlir::cast<RankedTensorType>(unwrap(localShape))));
-                  })
-      .def_prop_ro("shard_status",
-                   [](const tt::ttcore::RuntimeTensorShardingAttr &attr) {
-                     return attr.getShardStatus();
-                   })
-      .def_prop_ro("local_shape",
-                   [](const tt::ttcore::RuntimeTensorShardingAttr &attr) {
-                     return attr.getLocalShape().getShape().vec();
-                   });
 }
 } // namespace mlir::ttmlir::python

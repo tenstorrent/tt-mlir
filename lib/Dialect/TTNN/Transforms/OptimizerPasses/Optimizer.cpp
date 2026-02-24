@@ -211,7 +211,7 @@ public:
     llvm::llvm_unreachable_internal(
         "TTNNOptimizer pass requires OpModel support to be enabled.");
 #else
-    op_model::ScopedSingletonDeviceGuard deviceGuard;
+    op_model::ScopedSingletonDeviceGuard deviceGuard(getOperation());
 
     // Generate legal OP configuration candidates.
     // Perform memory layout analysis.

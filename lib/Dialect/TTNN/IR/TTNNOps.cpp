@@ -1090,46 +1090,8 @@ static ::mlir::LogicalResult verifyQuantizeOpCommon(
 ::llvm::LogicalResult
 mlir::tt::ttnn::TypecastOp::canonicalize(TypecastOp typecastOp,
                                          ::mlir::PatternRewriter &rewriter) {
-  return foldConsecutiveDataCastOps(typecastOp, rewriter);
-}
-
-//===----------------------------------------------------------------------===//
-// ToDTypeOp
-//===----------------------------------------------------------------------===//
-
-// ToDTypeOp verification
-::mlir::LogicalResult mlir::tt::ttnn::ToDTypeOp::verify() {
-  ::mlir::RankedTensorType outputType = getResult().getType();
-  TTNNLayoutAttr outputLayout =
-      mlir::cast<TTNNLayoutAttr>(outputType.getEncoding());
-
-  if (getDtype() != outputLayout.getDataType()) {
-    return emitOpError() << "Output tensor data type "
-                         << DataTypeEnumToString(outputLayout.getDataType())
-                         << " must match the data type of dtype attribute "
-                         << DataTypeEnumToString(getDtype()) << ".";
-  }
-
-  return success();
-}
-
-// ToDTypeOp folder
-::mlir::OpFoldResult mlir::tt::ttnn::ToDTypeOp::fold(FoldAdaptor adaptor) {
-
-  // If the input and output are same, fold to the input.
-  if (getType() == getInput().getType()) {
-    return getInput();
-  }
-
-  return nullptr;
-}
-
-// ToDTypeOp canonicalizer method
-::llvm::LogicalResult
-mlir::tt::ttnn::ToDTypeOp::canonicalize(ToDTypeOp op,
-                                        ::mlir::PatternRewriter &rewriter) {
   // NOLINTNEXTLINE
-  return foldConsecutiveDataCastOps(op, rewriter);
+  return foldConsecutiveDataCastOps(typecastOp, rewriter);
 }
 
 //===----------------------------------------------------------------------===//
@@ -1619,6 +1581,11 @@ static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttnn::ReshapeOp op) {
                        "the rank of the input tensor");
   }
 
+  bool hasNegativePadding =
+      llvm::any_of(getPadding(), [](int32_t padding) { return padding < 0; });
+  if (hasNegativePadding) {
+    return emitOpError("Padding cannot contain negative values");
+  }
   std::vector<int64_t> inferredShapeVec = inputType.getShape().vec();
   llvm::ArrayRef<int32_t> padding = getPadding();
   for (int64_t i = 0; i < inputType.getRank(); i++) {
@@ -2788,6 +2755,57 @@ static ::mlir::LogicalResult verifyTTNNBatchNormOp(OpType op) {
 }
 
 //===----------------------------------------------------------------------===//
+// DistributedRMSNormOp
+//===----------------------------------------------------------------------===//
+::mlir::LogicalResult mlir::tt::ttnn::DistributedRMSNormOp::verify() {
+  RankedTensorType inputType = getInput().getType();
+  RankedTensorType outputType = getResult().getType();
+
+  if (inputType.getShape() != outputType.getShape()) {
+    return emitOpError("output shape must match input shape");
+  }
+
+  // Verify cluster_axis is valid (must be 0 or 1 for 2D mesh).
+  uint32_t clusterAxis = getClusterAxis();
+  if (clusterAxis > 1) {
+    return emitOpError("cluster_axis must be 0 or 1");
+  }
+
+  // Verify epsilon is positive.
+  float epsilon = getEpsilon().convertToFloat();
+  if (epsilon <= 0) {
+    return emitOpError("epsilon must be positive");
+  }
+
+  // Verify residual tensor shape matches input if present.
+  if (getResidual()) {
+    RankedTensorType residualType = getResidual().getType();
+    if (residualType.getShape() != inputType.getShape()) {
+      return emitOpError("residual tensor shape must match input tensor shape");
+    }
+  }
+
+  // Verify weight tensor total elements match input's last dimension.
+  // The weight may be 1D (N,) or 2D (N/tile_w, tile_w) after reshaping for
+  // ROW_MAJOR layout.
+  if (getWeight()) {
+    RankedTensorType weightType = getWeight().getType();
+    int64_t inputLastDim = inputType.getShape().back();
+    int64_t weightElements = 1;
+    for (int64_t dim : weightType.getShape()) {
+      weightElements *= dim;
+    }
+
+    if (weightElements != inputLastDim) {
+      return emitOpError(
+          "weight tensor total elements must match input's last dimension");
+    }
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // LayerNormOp
 //===----------------------------------------------------------------------===//
 ::mlir::LogicalResult mlir::tt::ttnn::LayerNormOp::verify() {
@@ -2986,6 +3004,29 @@ mlir::tt::ttnn::ReduceScatterOp::fold(FoldAdaptor adaptor) {
   }
 
   return {};
+}
+
+//===----------------------------------------------------------------------===//
+// MeshPartitionOp
+//===----------------------------------------------------------------------===//
+::mlir::LogicalResult MeshPartitionOp::verify() {
+  ::mlir::RankedTensorType inputType = getInput().getType();
+  int32_t dim = getDim();
+  if (dim >= inputType.getRank() || dim < -inputType.getRank()) {
+    return emitOpError(
+               "Invalid tensor dimension for mesh partition op. Dimension "
+               "must be >= to input tensor rank or < -input tensor rank, got "
+               "dim = ")
+           << dim;
+  }
+
+  std::optional<uint32_t> clusterAxis = getClusterAxis();
+  if (clusterAxis.has_value() && clusterAxis.value() > 1) {
+    return emitOpError("Cluster axis must be either None, 0 or 1, got " +
+                       std::to_string(clusterAxis.value()));
+  }
+
+  return success();
 }
 
 //===----------------------------------------------------------------------===//

@@ -7,7 +7,7 @@ SHELL ["/bin/bash", "-c"]
 # Re-declare ARGs in this stage to make them available
 ARG TT_METAL_VERSION
 
-RUN dnf install --refresh -y wget python3.11 python3.11-pip python3.11-devel
+RUN dnf install --refresh -y wget python3.12 python3.12-pip python3.12-devel
 
 RUN echo "TT_METAL_VERSION: ${TT_METAL_VERSION}"
 
@@ -38,7 +38,9 @@ WORKDIR $BUILD_DIR/$PROJECT_NAME
 # Show last commit
 RUN git log -1
 
-RUN cmake -B env/build env && \
+
+RUN export CMAKE_BUILD_PARALLEL_LEVEL=12 && \
+    cmake -B env/build env && \
     cmake --build env/build
 
 # Final stage

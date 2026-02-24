@@ -36,6 +36,8 @@ if (NOT DEVICE_RUNTIME_ENABLED)
   add_library(TTRuntimeWorkarounds INTERFACE)
   add_library(TTRuntimeDylibs INTERFACE)
   add_library(TTRuntimeFabricConfig INTERFACE)
+  add_library(TTRuntimeMeshFabricConfig INTERFACE)
+  add_library(TTRuntimeSystemMesh INTERFACE)
   return()
 endif()
 
@@ -80,8 +82,9 @@ target_include_directories(TTRuntimeContext
     ${PROJECT_SOURCE_DIR}/runtime/include
     ${PROJECT_BINARY_DIR}/runtime/include
 )
+target_include_directories(TTRuntimeContext SYSTEM PUBLIC "$<BUILD_INTERFACE:${TTMETAL_INCLUDE_DIRS}>")
+add_dependencies(TTRuntimeContext tt-metal RUNTIME_FBS_GENERATION)
 target_link_libraries(TTRuntimeContext PUBLIC coverage_config)
-add_dependencies(TTRuntimeContext RUNTIME_FBS_GENERATION)
 
 add_library(TTRuntimeSocket STATIC socket.cpp)
 set_property(TARGET TTRuntimeSocket PROPERTY CXX_STANDARD 20)
@@ -135,6 +138,17 @@ target_include_directories(TTRuntimeDylibs
 target_link_libraries(TTRuntimeDylibs PUBLIC coverage_config)
 add_dependencies(TTRuntimeDylibs RUNTIME_FBS_GENERATION)
 
+add_library(TTRuntimeSystemMesh STATIC system_mesh.cpp)
+set_property(TARGET TTRuntimeSystemMesh PROPERTY CXX_STANDARD 20)
+target_include_directories(TTRuntimeSystemMesh
+  PUBLIC
+    ${PROJECT_SOURCE_DIR}/runtime/include
+    ${PROJECT_BINARY_DIR}/runtime/include
+)
+target_include_directories(TTRuntimeSystemMesh SYSTEM PUBLIC "$<BUILD_INTERFACE:${TTMETAL_INCLUDE_DIRS}>")
+add_dependencies(TTRuntimeSystemMesh tt-metal RUNTIME_FBS_GENERATION)
+target_link_libraries(TTRuntimeSystemMesh PUBLIC coverage_config)
+
 add_library(TTRuntimeFabricConfig STATIC fabric_config.cpp)
 set_property(TARGET TTRuntimeFabricConfig PROPERTY CXX_STANDARD 20)
 target_include_directories(TTRuntimeFabricConfig
@@ -145,3 +159,15 @@ target_include_directories(TTRuntimeFabricConfig
 target_include_directories(TTRuntimeFabricConfig SYSTEM PUBLIC "$<BUILD_INTERFACE:${TTMETAL_INCLUDE_DIRS}>")
 add_dependencies(TTRuntimeFabricConfig tt-metal RUNTIME_FBS_GENERATION)
 target_link_libraries(TTRuntimeFabricConfig PUBLIC coverage_config)
+
+add_library(TTRuntimeMeshFabricConfig STATIC mesh_fabric_config.cpp)
+set_property(TARGET TTRuntimeMeshFabricConfig PROPERTY CXX_STANDARD 20)
+target_include_directories(TTRuntimeMeshFabricConfig
+  PUBLIC
+    ${PROJECT_SOURCE_DIR}/runtime/include
+    ${PROJECT_BINARY_DIR}/runtime/include
+    ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common
+)
+target_include_directories(TTRuntimeMeshFabricConfig SYSTEM PUBLIC "$<BUILD_INTERFACE:${TTMETAL_INCLUDE_DIRS}>")
+add_dependencies(TTRuntimeMeshFabricConfig tt-metal RUNTIME_FBS_GENERATION FBS_GENERATION)
+target_link_libraries(TTRuntimeMeshFabricConfig PUBLIC coverage_config)
