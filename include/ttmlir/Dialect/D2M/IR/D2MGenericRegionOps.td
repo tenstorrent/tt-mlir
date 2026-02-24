@@ -2038,7 +2038,7 @@ class D2M_IndexOp<string mnemonic, list<Trait> traits = []> : D2M_GenericRegionO
     let arguments = (ins ConfinedAttr<I64Attr, [IntMinValue<0>]>:$dim);
     let results = (outs Index:$result);
     let assemblyFormat = [{ `(` $dim `)` attr-dict `:` type($result) }];
-    let hasFolder = true;
+    let hasFolder = false;
 
     let builders =
     [
@@ -2105,7 +2105,7 @@ def D2M_CoreIndexOp : D2M_GenericRegionOp<"core_index",
 
     let results = (outs Index:$result);
     let assemblyFormat = [{ `(` $dim `)` attr-dict `:` type($result) }];
-    let hasFolder = true;
+    let hasFolder = false;
 
     let builders =
     [
