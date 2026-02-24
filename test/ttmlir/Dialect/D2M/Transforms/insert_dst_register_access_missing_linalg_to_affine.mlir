@@ -6,10 +6,9 @@
 module {
   func.func @test_missing_linalg_to_affine(%in0: memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<2048x2048, 1>, #l1_>,
                                            %out0: memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<2048x2048, 1>, #l1_>) {
-    d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>,
-                 indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>,
-                                  affine_map<(d0, d1) -> (d0, d1)>],
-                 iterator_types = [#ttcore.iterator_type<parallel>, #ttcore.iterator_type<parallel>],
+    d2m.generic {block_factors = [], grid = #ttcore.grid<1x1>,
+                 indexing_maps = [],
+                 iterator_types = [],
                  threads = [#d2m.thread<unified>]}
         ins(%in0 : memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<2048x2048, 1>, #l1_>)
         outs(%out0 : memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<2048x2048, 1>, #l1_>) {
