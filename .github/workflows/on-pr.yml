@@ -73,6 +73,13 @@ jobs:
       docker_image: ${{ needs.build-image.outputs.docker-image }}
       test_matrix: ${{ needs.prepare-run.outputs.test_matrix }}
       timeout: ${{ fromJson(needs.prepare-run.outputs.test_timeout) }}
+  ttsim-test:
+    needs: [ prepare-run, build-image, release-build ]
+    if: needs.prepare-run.outputs.skip_build != 'true'
+    uses: ./.github/workflows/call-test-ttsim.yml
+    secrets: inherit
+    with:
+      docker_image: ${{ needs.build-image.outputs.docker-image }}
 
   # When a PR runs on the uplift branch trigger the downstream checks
   downstream-checks:
@@ -124,6 +131,7 @@ jobs:
       - build-image
       - release-build
       - test
+      - ttsim-test
       - debug-build
       - lint
       - downstream-checks
