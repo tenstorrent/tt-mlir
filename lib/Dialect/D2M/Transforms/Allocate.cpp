@@ -990,8 +990,8 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
                   }
 
                   if (useAlwaysStreamPolicy() ||
-                      inferStreamRequirement(user, operandCtx.operandIndex()) ||
-                      memspace == MemorySpace::DeviceDRAM) {
+                      inferStreamRequirement(user, operandCtx.operandIndex(),
+                                             memspace)) {
                     TT_debug(operandCtx.bufferType != nullptr);
                     const AllocSizeT bufferSize = ttmlir::utils::alignUp(
                         getStreamBufferSizeBytes(operandCtx.bufferType, device),
@@ -1198,8 +1198,8 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
 
         if (!operandCtx.hasStream &&
             (useAlwaysStreamPolicy() ||
-             inferStreamRequirement(genericOp, operandCtx.operandIndex()) ||
-             remappedMemSpace == MemorySpace::DeviceDRAM)) {
+             inferStreamRequirement(genericOp, operandCtx.operandIndex(),
+                                    remappedMemSpace))) {
 
           // Save the old operand value before stream insertion so we can map
           // from it to the new stream value for updating remote_load/store ops.
@@ -1275,8 +1275,8 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         // Check if a stream was inserted for this operand during this pass
         if (!operandCtx.hasStream &&
             (useAlwaysStreamPolicy() ||
-             inferStreamRequirement(genericOp, operandCtx.operandIndex()) ||
-             operandMemSpace == MemorySpace::DeviceDRAM)) {
+             inferStreamRequirement(genericOp, operandCtx.operandIndex(),
+                                    operandMemSpace))) {
           if (!(operandCtx.isOutput && !allowL1OutputSpilling &&
                 operandMemSpace != MemorySpace::DeviceDRAM)) {
             // Use the pre-stream operand value as the key, since that's what
@@ -1470,13 +1470,20 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
   /// for operand @`operandIndex` based on the available indexing space
   /// information
   static bool inferStreamRequirement(d2m::GenericOp genericOp,
-                                     uint32_t operandIndex) {
+                                     uint32_t operandIndex,
+                                     MemorySpace memspace) {
     TT_debug(!genericOp.isExplicitDatamovementForm());
 
     // Scratch inputs (e.g., mask tiles) don't need streaming - they're
     // allocated locally and written to within the generic op.
     if (genericOp.isScratchInput(operandIndex)) {
       return false;
+    }
+
+    // DRAM operands always need streams because data must physically
+    // move between DRAM and L1 circular buffers.
+    if (memspace == MemorySpace::DeviceDRAM) {
+      return true;
     }
 
     const AffineMap indexingMap = genericOp.getIndexingMap(operandIndex);

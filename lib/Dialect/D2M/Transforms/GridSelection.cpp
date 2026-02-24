@@ -1202,10 +1202,8 @@ static void eraseUnitGridReblockingViews(d2m::GenericOp genericOp) {
 // space, an inferred grid, and an index map to index into the original
 // tensor.
 //
-// A view (not a stream) is used here so that the Allocator pass retains
+// A view layout op  is used here so that the Allocator pass retains
 // ownership of stream insertion and buffer count selection.
-// Using a stream here would cause the Allocator to
-// skip this operand, resulting in single-buffered streams.
 static llvm::SmallVector<llvm::SmallVector<int64_t>>
 insertTTNNDRAMViews(d2m::GenericOp genericOp,
                     ArrayRef<int64_t> targetSquareGridShape) {

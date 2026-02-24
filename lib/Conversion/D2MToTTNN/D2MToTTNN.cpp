@@ -216,8 +216,6 @@ public:
       ttcore::DataType dtype =
           ttcore::elementTypeToDataType(cb_memref.getElementType());
       size_t pageSize = device.getMemrefCBPageSizeBytes(cb_memref);
-      // size_t numPages = device.getMemrefCBNumPages(cb_memref);
-      // size_t totalSize = numPages * pageSize;
       size_t totalSize = device.getMemrefSizeBytes(cb_memref, pageSize, true);
 
       ttnn::KernelCBFormatAttr cbFormat =
