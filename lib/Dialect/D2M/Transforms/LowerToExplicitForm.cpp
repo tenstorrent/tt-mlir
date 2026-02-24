@@ -4,6 +4,7 @@
 
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
+#include "ttmlir/Dialect/D2M/Utils/Utils.h"
 
 #include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
@@ -45,7 +46,8 @@ static void lowerBlockingAffineLoopsToSCF(IRRewriter &rewriter,
 
   // Preserve the d2m.blocking_loop marker attribute (carries block factor
   // index).
-  scfForOp->setAttr("d2m.blocking_loop", forOp->getAttr("d2m.blocking_loop"));
+  scfForOp->setAttr(utils::kBlockingLoopAttr,
+                    forOp->getAttr(utils::kBlockingLoopAttr));
 
   Block *affineBody = forOp.getBody();
   Block *scfBody = scfForOp.getBody();
@@ -185,7 +187,7 @@ public:
       // order.
       SmallVector<affine::AffineForOp> outerLoops;
       generic.walk([&](affine::AffineForOp forOp) {
-        if (forOp->hasAttr("d2m.blocking_loop")) {
+        if (forOp->hasAttr(utils::kBlockingLoopAttr)) {
           outerLoops.push_back(forOp);
         }
       });

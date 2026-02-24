@@ -2033,7 +2033,7 @@ bool d2m::GenericOp::isImplicitBlockedForm() {
   // No affine blocking loops must be present.
   bool hasBlockingLoop = false;
   getRegion(0).walk([&](affine::AffineForOp forOp) {
-    if (forOp->hasAttr("d2m.blocking_loop")) {
+    if (forOp->hasAttr(utils::kBlockingLoopAttr)) {
       hasBlockingLoop = true;
       return WalkResult::interrupt();
     }
@@ -2055,7 +2055,7 @@ bool d2m::GenericOp::isAffineBlockedForm() {
   unsigned loopCount = 0;
 
   getRegion(0).walk([&](affine::AffineForOp forOp) {
-    if (!forOp->hasAttr("d2m.blocking_loop")) {
+    if (!forOp->hasAttr(utils::kBlockingLoopAttr)) {
       return;
     }
     ++loopCount;
@@ -2090,12 +2090,12 @@ bool d2m::GenericOp::isAffineBlockedForm() {
              "Expected exactly one region in affine blocked form of GenericOp");
   affine::AffineForOp outermostBlockingLoopOp;
   getRegion(0).walk([&](affine::AffineForOp forOp) {
-    if (!forOp->hasAttr("d2m.blocking_loop")) {
+    if (!forOp->hasAttr(utils::kBlockingLoopAttr)) {
       return WalkResult::advance();
     }
 
     auto parentForOp = forOp->getParentOfType<affine::AffineForOp>();
-    if (parentForOp && parentForOp->hasAttr("d2m.blocking_loop")) {
+    if (parentForOp && parentForOp->hasAttr(utils::kBlockingLoopAttr)) {
       return WalkResult::advance();
     }
 

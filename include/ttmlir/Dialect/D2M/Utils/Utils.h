@@ -8,8 +8,13 @@
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinTypes.h"
+#include "llvm/ADT/StringRef.h"
 
 namespace mlir::tt::d2m::utils {
+
+// Marker attribute for affine/scf blocking loops in GenericOp regions.
+// The attribute value is an i64 block-factor dimension index.
+constexpr llvm::StringLiteral kBlockingLoopAttr = "d2m.blocking_loop";
 
 // Return a new RankedTensorType by reblocking its device shape to match a new
 // grid shape.
