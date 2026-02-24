@@ -291,8 +291,7 @@ protected:
 
     // For ND tensors (logicalShape.size() > 2), set a placeholder virtual grid
     // mapping on the EmptyOp.  These mappings will be replaced when
-    // GridSelection optimizes the grid.  Mirrors main's behavior of baking
-    // the coreVirtMap into MetalLayoutAttr for ND shapes.
+    // GridSelection optimizes the grid.
     if (logicalShape.size() > 2) {
       auto [forwardMap, inverseMap] =
           ttmlir::d2m::utils::grids::createCoreVirtMaps(rewriter.getContext(),
@@ -1730,10 +1729,8 @@ public:
 
 private:
   // Compute the virtualGridMapping for a TTNN legacy layout's shard strategy.
-  // Height/width-sharded layouts imply a linearized virtual grid; block-sharded
-  // and interleaved layouts do not.  This mirrors main's behavior where the
-  // indexAffineMap on MetalLayoutAttr made different shard strategies produce
-  // structurally distinct types.
+  // This is needed to propagate the virtualGridMapping through
+  // TTNNMetalLayoutCastOps.
   static std::optional<AffineMap>
   computeLegacyVirtualGridMapping(MLIRContext *ctx,
                                   ttnn::TTNNLayoutAttr ttnnLayout) {
