@@ -134,6 +134,7 @@ jobs:
       - build-image
       - release-build
       - test
+      - ttsim-test
       - debug-build
       - lint
       - downstream-checks
