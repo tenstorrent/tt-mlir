@@ -125,11 +125,10 @@ buildFusedOperandInfo(GenericOp producer, GenericOp consumer,
                       unsigned producerSharedInitIdx) {
   FusedOperandInfo info;
 
-  AffineMap supersetSharedMap = (supersetGeneric == producer)
-                                    ? supersetGeneric.getIndexingMap(
-                                          producerSharedInitIdx)
-                                    : supersetGeneric.getIndexingMap(
-                                          inputOperand->getOperandNumber());
+  AffineMap supersetSharedMap =
+      (supersetGeneric == producer)
+          ? supersetGeneric.getIndexingMap(producerSharedInitIdx)
+          : supersetGeneric.getIndexingMap(inputOperand->getOperandNumber());
   AffineMap subsetOutputMap = subsetGeneric.getIndexingMap(
       subsetGeneric.getDpsInitOperand(0)->getOperandNumber());
   AffineMap subsetOutputInv = inversePermutation(subsetOutputMap);
@@ -399,13 +398,13 @@ static GenericOp tryFusePair(GenericOp producer, GenericOp consumer,
   if (!producerSharedInitOperand) {
     return nullptr;
   }
-  unsigned producerSharedInitIdx = producerSharedInitOperand->getOperandNumber();
+  unsigned producerSharedInitIdx =
+      producerSharedInitOperand->getOperandNumber();
 
   // Build fused generic op signature (inputs, outputs, indexing maps, etc).
-  FusedOperandInfo fusedInfo =
-      buildFusedOperandInfo(producer, consumer, supersetGeneric, subsetGeneric,
-                            inputOperand, sharedInputValue,
-                            producerSharedInitIdx);
+  FusedOperandInfo fusedInfo = buildFusedOperandInfo(
+      producer, consumer, supersetGeneric, subsetGeneric, inputOperand,
+      sharedInputValue, producerSharedInitIdx);
 
   // Create fused GenericOp shell.
   builder.setInsertionPoint(consumer);
@@ -467,8 +466,9 @@ public:
           }
 
           OpBuilder builder(consumer);
-          GenericOp fused = tryFusePair(producer, consumer, inputOperand,
-                                        rawMemref, inputOperand->get(), builder);
+          GenericOp fused =
+              tryFusePair(producer, consumer, inputOperand, rawMemref,
+                          inputOperand->get(), builder);
           if (!fused) {
             continue;
           }
