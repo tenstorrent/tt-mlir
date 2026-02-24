@@ -19,10 +19,10 @@ class MeshDevice;
 } // namespace tt::tt_metal::distributed
 
 namespace mlir::tt::ttnn {
-// TTIR to TTNN Device pipeline options.
+// TTIR to TTNN common pipeline options.
 //
-struct TTIRToTTNNDevicePipelineOptions
-    : public PassPipelineOptions<TTIRToTTNNDevicePipelineOptions> {
+struct TTIRToTTNNCommonPipelineOptions
+    : public PassPipelineOptions<TTIRToTTNNCommonPipelineOptions> {
   // Optimization level controls multiple optimization passes.
   // Level 0 (default): All optimizer passes disabled.
   // Level 1: All optimizer passes enabled. Memory layout analysis is disabled.
@@ -440,10 +440,15 @@ struct TTIRToTTNNDevicePipelineOptions
   }
 };
 
-// TTNN to EmitC Device pipeline options.
+// TTNN common to Flatbuffer pipeline options.
 //
-struct TTNNToEmitCDevicePipelineOptions
-    : public PassPipelineOptions<TTNNToEmitCDevicePipelineOptions> {
+struct TTNNCommonToFlatbufferPipelineOptions
+    : public ttir::TTIRToLLVMCPUPipelineOptions {};
+
+// TTNN common to EmitC Device pipeline options.
+//
+struct TTNNCommonToEmitCPipelineOptions
+    : public PassPipelineOptions<TTNNCommonToEmitCPipelineOptions> {
   Option<bool> targetDylib{*this, "target-dylib",
                            llvm::cl::desc("Tailor passes for dylib target."),
                            llvm::cl::init(false)};
@@ -479,10 +484,10 @@ struct TTNNToEmitCDevicePipelineOptions
       llvm::cl::desc("Prefix for input tensor files"), llvm::cl::init("arg")};
 };
 
-// TTNN to EmitPy Device pipeline options.
+// TTNN common to EmitPy Device pipeline options.
 //
-struct TTNNToEmitPyDevicePipelineOptions
-    : public PassPipelineOptions<TTNNToEmitPyDevicePipelineOptions> {
+struct TTNNCommonToEmitPyPipelineOptions
+    : public PassPipelineOptions<TTNNCommonToEmitPyPipelineOptions> {
   Option<bool> targetModule{
       *this, "target-module",
       llvm::cl::desc("Tailor passes for Python module target. When enabled, "
@@ -514,22 +519,22 @@ struct TTNNToEmitPyDevicePipelineOptions
       llvm::cl::init(false)};
 };
 
-// TTIR to TTNN backend pipeline options.
+// TTIR to TTNN flatbuffer pipeline options.
 //
-// Inherits from TTIRToTTNNDevicePipelineOptions and
+// Inherits from TTIRToTTNNCommonPipelineOptions and
 // TTIRToLLVMCPUPipelineOptions to reuse the options.
 //
-struct TTIRToTTNNBackendPipelineOptions
-    : public TTIRToTTNNDevicePipelineOptions,
-      public ttir::TTIRToLLVMCPUPipelineOptions {};
+struct TTIRToTTNNFlatbufferPipelineOptions
+    : public TTIRToTTNNCommonPipelineOptions,
+      public TTNNCommonToFlatbufferPipelineOptions {};
 
 // TTIR to EmitC end-to-end pipeline options.
 //
-// Inherits from TTIRToTTNNDevicePipelineOptions and
-// TTNNToEmitCDevicePipelineOptions to reuse the options.
+// Inherits from TTIRToTTNNCommonPipelineOptions and
+// TTNNCommonToEmitCPipelineOptions to reuse the options.
 //
-struct TTIRToEmitCPipelineOptions : public TTIRToTTNNDevicePipelineOptions,
-                                    public TTNNToEmitCDevicePipelineOptions {
+struct TTIRToEmitCPipelineOptions : public TTIRToTTNNCommonPipelineOptions,
+                                    public TTNNCommonToEmitCPipelineOptions {
   TTIRToEmitCPipelineOptions() {
     // TODO(dmilinkovic): Remove once CPU-hoisting is supported on EmitC - issue
     // #6100.
@@ -539,11 +544,11 @@ struct TTIRToEmitCPipelineOptions : public TTIRToTTNNDevicePipelineOptions,
 
 // TTIR to EmitPy pipeline options.
 //
-// Inherits from TTIRToTTNNDevicePipelineOptions and
-// TTNNToEmitPyDevicePipelineOptions to reuse the options.
+// Inherits from TTIRToTTNNCommonPipelineOptions and
+// TTNNCommonToEmitPyPipelineOptions to reuse the options.
 //
-struct TTIRToEmitPyPipelineOptions : public TTIRToTTNNDevicePipelineOptions,
-                                     public TTNNToEmitPyDevicePipelineOptions {
+struct TTIRToEmitPyPipelineOptions : public TTIRToTTNNCommonPipelineOptions,
+                                     public TTNNCommonToEmitPyPipelineOptions {
 };
 
 // Recover Structure XLA/Torch pipeline options.
@@ -552,26 +557,44 @@ struct RecoverStructureXLATorchPipelineOptions
   // Add any future options here if needed
 };
 
+// ===----------------------------------------------------------------------===//
+// TTNN lowering pipelines - one common pipeline and multiple target-specific
+// pipelines that build on top of the common pipeline.
+// ===----------------------------------------------------------------------===//
+
+void createTTIRToTTNNCommonPipeline(
+    OpPassManager &pm, const TTIRToTTNNCommonPipelineOptions &options);
+
+void createTTNNCommonToFlatbufferPipeline(
+    OpPassManager &pm, const TTNNCommonToFlatbufferPipelineOptions &options);
+
+void createTTNNCommonToEmitCPipeline(
+    OpPassManager &pm, const TTNNCommonToEmitCPipelineOptions &options);
+
+void createTTNNCommonToEmitPyPipeline(
+    OpPassManager &pm, const TTNNCommonToEmitPyPipelineOptions &options);
+
+//===----------------------------------------------------------------------===//
+// Misc pipelines.
+//===----------------------------------------------------------------------===//
+
+void createRecoverStructureXLATorchPipeline(
+    OpPassManager &pm, const RecoverStructureXLATorchPipelineOptions &options);
+
+void createTTNNPipelineD2MPass(OpPassManager &pm);
+
 //===----------------------------------------------------------------------===//
 // End-to-end pipelines, which lower TTIR to various TTNN targets.
 //===----------------------------------------------------------------------===//
 
-void createTTIRToTTNNBackendPipeline(
-    OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options);
+void createTTIRToTTNNFlatbufferPipeline(
+    OpPassManager &pm, const TTIRToTTNNFlatbufferPipelineOptions &options);
 
 void createTTIRToEmitCPipeline(OpPassManager &pm,
                                const TTIRToEmitCPipelineOptions &options);
 
 void createTTIRToEmitPyPipeline(OpPassManager &pm,
                                 const TTIRToEmitPyPipelineOptions &options);
-
-void createTTNNToEmitPyPipeline(
-    OpPassManager &pm, const TTNNToEmitPyDevicePipelineOptions &options);
-
-void createRecoverStructureXLATorchPipeline(
-    OpPassManager &pm, const RecoverStructureXLATorchPipelineOptions &options);
-
-void createTTNNPipelineD2MPass(OpPassManager &pm);
 
 void registerTTNNPipelines();
 } // namespace mlir::tt::ttnn
