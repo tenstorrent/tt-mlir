@@ -2985,6 +2985,18 @@ createProgramDescriptor(FlatbufferObjectCache &cache, ProgramAttr programAttr,
                    computeKernelAttr.getBfp8PackPrecise(),
                    computeKernelAttr.getMathApproxMode())
                    .Union();
+    } else if (auto dmKernelAttr =
+                   llvm::dyn_cast<DataMovementKernelAttr>(kernelAttr);
+               dmKernelAttr) {
+      auto processor = static_cast<::tt::target::ttnn::DataMovementType>(
+          dmKernelAttr.getProcessor());
+      auto noc = toFlatbuffer(cache, dmKernelAttr.getNocIndex());
+      auto nocMode =
+          static_cast<::tt::target::ttnn::NocMode>(dmKernelAttr.getNocMode());
+      configType = ::tt::target::ttnn::KernelConfig::DataMovementKernelConfig;
+      config = ::tt::target::ttnn::CreateDataMovementKernelConfig(
+                   *cache.fbb, processor, noc, nocMode)
+                   .Union();
     } else if (auto readKernelAttr = llvm::dyn_cast<ReadKernelAttr>(kernelAttr);
                readKernelAttr) {
       configType = ::tt::target::ttnn::KernelConfig::ReaderKernelConfig;

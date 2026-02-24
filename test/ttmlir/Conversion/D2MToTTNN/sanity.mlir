@@ -54,10 +54,12 @@ module {
           -> memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #ttcore.memory_space<l1>>
 
     // CHECK: "ttnn.generic"(%[[T1]], %[[T2]])
-    // CHECK-SAME: #ttnn.read_kernel<symbol_ref = @read_kernel
+    // CHECK-SAME: #ttnn.data_movement_kernel<symbol_ref = @read_kernel
+    // CHECK-SAME: processor = riscv1, noc_index = noc0, noc_mode = dedicated_noc
     // CHECK-SAME: ct_args = [#ttnn.kernel_arg_cb_buffer_index<0>, #ttnn.kernel_arg_semaphore_at<0>, #ttnn.kernel_arg_semaphore_at<1>]
     // CHECK-SAME: common_rt_args = [#ttnn.kernel_arg_address_of_tensor<0>]
-    // CHECK-SAME: #ttnn.write_kernel<symbol_ref = @write_kernel
+    // CHECK-SAME: #ttnn.data_movement_kernel<symbol_ref = @write_kernel
+    // CHECK-SAME: processor = riscv0, noc_index = noc1, noc_mode = dedicated_noc
     // CHECK-SAME: ct_args = [#ttnn.kernel_arg_cb_buffer_index<1>, #ttnn.kernel_arg_semaphore_at<2>, #ttnn.kernel_arg_semaphore_at<3>]
     // CHECK-SAME: common_rt_args = [#ttnn.kernel_arg_address_of_tensor<1>]
     // CHECK-SAME: #ttnn.compute_kernel<symbol_ref = @compute_kernel0
