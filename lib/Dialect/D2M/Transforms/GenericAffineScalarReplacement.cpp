@@ -135,6 +135,9 @@ collectIntermediateOperandCandidates(GenericOp genericOp,
   return intermediates;
 }
 
+// Materialize intermediate memref.alloc ops to replace operands. Intermediates
+// are later converted to use d2m.scratch_allocate ops after scalrep is
+// complete.
 static void
 materializeIntermediateAllocs(GenericOp genericOp,
                               ArrayRef<IntermediateCandidate> intermediates,
