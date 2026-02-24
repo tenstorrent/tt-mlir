@@ -433,26 +433,37 @@ LayoutPropagation::getInputCandidateSets(Operation *op) {
       candidatesForOperand.push_back(ic);
     }
 
-    // Add L1-interleaved fallback when all producer candidates are sharded.
-    // Without this, ops that can't consume sharded inputs (reshape, permute,
-    // concatenate_heads) fall to DRAM, and ops that *can* (matmul) lose the
-    // option of an L1-interleaved input that may score better.
+    // Add L1-interleaved fallback when the producer beam contains any L1
+    // sharded candidates but no L1-interleaved candidate. This gives
+    // consumers that cannot accept sharded inputs (reshape, permute,
+    // concatenate_heads) an L1 path instead of falling all the way to DRAM.
+    // Back-points to the best (first) L1 sharded producer candidate so the
+    // backward pass preserves the producer's L1 sharded config.
     if (producerOp && beamState.count(producerOp)) {
-      bool allSharded = !candidatesForOperand.empty() &&
-                        llvm::all_of(candidatesForOperand,
-                                     [](const InputCandidate &ic) {
-                                       auto ml = ic.layout.getMemLayout();
-                                       return ml &&
-                                              isShardedMemoryLayout(
-                                                  ml.getValue());
-                                     });
-      if (allSharded) {
+      bool hasL1Sharded = false;
+      bool hasL1Interleaved = false;
+      size_t bestL1ShardedProducerIdx = 0;
+      for (const auto &candidate : candidatesForOperand) {
+        if (candidate.layout.hasL1BufferType()) {
+          auto ml = candidate.layout.getMemLayout();
+          if (ml && isShardedMemoryLayout(ml.getValue())) {
+            if (!hasL1Sharded) {
+              bestL1ShardedProducerIdx = candidate.producerCandidateIndex;
+            }
+            hasL1Sharded = true;
+          } else {
+            hasL1Interleaved = true;
+          }
+        }
+      }
+
+      if (hasL1Sharded && !hasL1Interleaved) {
         TTNNLayoutAttr l1Interleaved =
             currentLayout.withBufferType(BufferType::L1)
                 .withMemoryLayout(TensorMemoryLayout::Interleaved);
         InputCandidate ic;
         ic.layout = l1Interleaved;
-        ic.producerCandidateIndex = 0;
+        ic.producerCandidateIndex = bestL1ShardedProducerIdx;
         ic.isReshard = true;
         candidatesForOperand.push_back(ic);
 
