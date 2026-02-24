@@ -51,12 +51,12 @@ static Value convertToBooleanTensor(Value input, Location loc,
   auto elementType = inputType.getElementType();
   assert(elementType.isF32());
 
-  // Create broadcastable zero constant.
-  SmallVector<int64_t> broadcastShape(inputType.getRank(), 1);
-  auto broadcastType = RankedTensorType::get(broadcastShape, elementType);
+  // Create zero constant.
+  SmallVector<int64_t> zeroShape(inputType.getRank(), 1);
+  auto zeroType = RankedTensorType::get(zeroShape, elementType);
   DenseElementsAttr zeroAttr =
-      DenseElementsAttr::get(broadcastType, rewriter.getF32FloatAttr(0.0f));
-  auto zeroConst = rewriter.create<tosa::ConstOp>(loc, broadcastType, zeroAttr);
+      DenseElementsAttr::get(zeroType, rewriter.getF32FloatAttr(0.0f));
+  auto zeroConst = rewriter.create<tosa::ConstOp>(loc, zeroType, zeroAttr);
 
   // For logical operations, non-zero means true.
   // So we need: (input != 0) which we get by computing !(input == 0).
@@ -90,12 +90,12 @@ convertToBooleanTensorComparison(Value input, Location loc,
   auto elementType = inputType.getElementType();
   assert(elementType.isF32());
 
-  // Create broadcastable zero constant.
-  SmallVector<int64_t> broadcastShape(inputType.getRank(), 1);
-  auto broadcastType = RankedTensorType::get(broadcastShape, elementType);
+  // Create zero constant.
+  SmallVector<int64_t> zeroShape(inputType.getRank(), 1);
+  auto zeroType = RankedTensorType::get(zeroShape, elementType);
   DenseElementsAttr zeroAttr =
-      DenseElementsAttr::get(broadcastType, rewriter.getF32FloatAttr(0.0f));
-  auto zeroConst = rewriter.create<tosa::ConstOp>(loc, broadcastType, zeroAttr);
+      DenseElementsAttr::get(zeroType, rewriter.getF32FloatAttr(0.0f));
+  auto zeroConst = rewriter.create<tosa::ConstOp>(loc, zeroType, zeroAttr);
 
   // For comparison semantics: positive values are true, so we need: (input >
   // 0).
@@ -712,17 +712,17 @@ public:
         this->getTypeConverter()->convertType(op.getResult().getType()));
     assert(resultType && "Result type must be a ranked tensor type.");
 
-    // Create a scalar constant for π/2 using arith.constant.
     auto elementType = resultType.getElementType();
     auto inputType = cast<RankedTensorType>(input.getType());
 
-    SmallVector<int64_t> broadcastShape(inputType.getRank(), 1);
-    auto broadcastType = RankedTensorType::get(broadcastShape, elementType);
+    // Create a scalar constant for π/2 using arith.constant.
+    SmallVector<int64_t> piOver2Shape(inputType.getRank(), 1);
+    auto piOver2Type = RankedTensorType::get(piOver2Shape, elementType);
 
     DenseElementsAttr piOver2Attr = DenseElementsAttr::get(
-        broadcastType, rewriter.getFloatAttr(elementType, M_PI_2));
+        piOver2Type, rewriter.getFloatAttr(elementType, M_PI_2));
     auto piOver2Const =
-        rewriter.create<tosa::ConstOp>(op.getLoc(), broadcastType, piOver2Attr);
+        rewriter.create<tosa::ConstOp>(op.getLoc(), piOver2Type, piOver2Attr);
 
     // Add π/2 to the input.
     auto shifted = rewriter.create<tosa::AddOp>(op.getLoc(), resultType, input,
@@ -1616,13 +1616,13 @@ public:
     auto elementType = resultType.getElementType();
 
     // Create a constant tensor with 1/spatialCount for division.
-    SmallVector<int64_t> broadcastShape(resultType.getRank(), 1);
-    auto broadcastType = RankedTensorType::get(broadcastShape, elementType);
+    SmallVector<int64_t> divisorShape(resultType.getRank(), 1);
+    auto divisorType = RankedTensorType::get(divisorShape, elementType);
 
     DenseElementsAttr divisorAttr = DenseElementsAttr::get(
-        broadcastType, rewriter.getFloatAttr(elementType, 1.0 / spatialCount));
+        divisorType, rewriter.getFloatAttr(elementType, 1.0 / spatialCount));
     auto divisorConst =
-        rewriter.create<tosa::ConstOp>(loc, broadcastType, divisorAttr);
+        rewriter.create<tosa::ConstOp>(loc, divisorType, divisorAttr);
 
     // Create shift tensor for tosa::MulOp (requires i8 tensor).
     auto shiftType = RankedTensorType::get({1}, rewriter.getI8Type());
@@ -2136,7 +2136,7 @@ public:
     // dims) or has exactly 1 entry.
     auto dimArg = op.getDimArg();
     assert((!dimArg || dimArg->size() <= 1) &&
-           "Multi-dim argmax should have been decomposed");
+           "Multi-dim argmax should have been decomposed.");
 
     SmallVector<int64_t> reduceDims = getDimsFromAttribute(op, rank);
     bool keepDim = getKeepDimFromAttribute(op);
