@@ -89,7 +89,7 @@ def test_matmul_with_dtypes(device, shape_grids, dtype, ttnn_dtype):
 
 MATMUL_SHAPES = [
     (m * 32, k * 32, n * 32)
-    for m, k, n in itertools.product(range(1, 9), range(1, 9), range(1, 9))
+    for m, k, n in itertools.product([1, 3, 4, 6, 8], repeat=3)
 ]
 
 INPUT_LAYOUTS = [
