@@ -244,17 +244,30 @@ public:
       cbWorkloads[cbIdx]++;
     }
 
-    // If only one CB has work, no need to split.
-    if (cbWorkloads.size() <= 1) {
-      return failure();
-    }
-
     // Determine number of threads to use.
     unsigned numThreadsToUse = std::min(
         static_cast<unsigned>(cbWorkloads.size()), numDatamovementThreads);
 
-    // If we'd only have one thread, no split needed.
-    if (numThreadsToUse <= 1) {
+    // Not enough CBs to warrant splitting but still need to assign nocIndex on
+    // the existing single DM thread before returning failure.
+    if (numThreadsToUse <= 1 || cbWorkloads.size() <= 1) {
+      auto origAttr =
+          mlir::cast<ThreadAttr>(generic.getThreadsAttr().getValue()[0]);
+      if (origAttr.getNocIndex() != -1) {
+        return failure();
+      }
+
+      bool hasDRAMRead = llvm::any_of(dmaOps, [](const auto &entry) {
+        auto load = mlir::dyn_cast_or_null<RemoteLoadOp>(entry.first);
+        return load && ttcore::getMemorySpace(load.getMemref()) ==
+                           ttcore::MemorySpace::DeviceDRAM;
+      });
+
+      int nocIndex = hasDRAMRead ? 0 : 1;
+      generic.setThreadsAttr(rewriter.getArrayAttr(
+          {rewriter.getAttr<ThreadAttr>(ThreadType::Datamovement,
+                                        origAttr.getKernelSymbol(), nocIndex),
+           generic.getThreadsAttr().getValue()[1]}));
       return failure();
     }
 

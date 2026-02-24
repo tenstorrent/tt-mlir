@@ -175,7 +175,6 @@ public:
       }
       case d2m::ThreadType::Datamovement: {
         int32_t nocIdx = threadAttr.getNocIndex();
-        TT_assert((nocIdx == 0 || nocIdx == 1));
         if (nocIdx == 0) {
           kernelConfigs[i] = builder.getAttr<ttnn::ReadKernelAttr>(
               kernelSymbol, coreRangeSet, kernelCRTArgs, kernelCTArgs);
