@@ -132,6 +132,7 @@ public:
                           const SymbolTable &symbolTable,
                           ttmetal::MathFidelity mathFidelity) {
     SmallVector<mlir::Attribute> kernelConfigs(threads.size());
+    int unassignedNocCounter = 0;
     for (const auto [i, thread] : llvm::enumerate(threads)) {
       const d2m::ThreadAttr threadAttr = mlir::cast<d2m::ThreadAttr>(thread);
 
@@ -175,13 +176,17 @@ public:
       }
       case d2m::ThreadType::Datamovement: {
         int32_t nocIdx = threadAttr.getNocIndex();
-        if (nocIdx == 0) {
-          kernelConfigs[i] = builder.getAttr<ttnn::ReadKernelAttr>(
-              kernelSymbol, coreRangeSet, kernelCRTArgs, kernelCTArgs);
-        } else {
-          kernelConfigs[i] = builder.getAttr<ttnn::WriteKernelAttr>(
-              kernelSymbol, coreRangeSet, kernelCRTArgs, kernelCTArgs);
+        // For unassigned NOCs, alternate between NOC0 and NOC1.
+        if (nocIdx < 0) {
+          nocIdx = unassignedNocCounter++ % 2;
         }
+        auto nocIndex =
+            nocIdx == 0 ? ttnn::NocIndex::Noc0 : ttnn::NocIndex::Noc1;
+        auto processor = nocIdx == 0 ? ttnn::DataMovementProcessor::RiscV1
+                                     : ttnn::DataMovementProcessor::RiscV0;
+        kernelConfigs[i] = builder.getAttr<ttnn::DataMovementKernelAttr>(
+            kernelSymbol, coreRangeSet, processor, nocIndex,
+            ttnn::NocMode::DedicatedNoc, kernelCRTArgs, kernelCTArgs);
         break;
       }
       case d2m::ThreadType::Unified: {

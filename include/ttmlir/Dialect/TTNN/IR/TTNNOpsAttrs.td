@@ -1087,6 +1087,39 @@ def TTNN_ReadKernelAttr: TTNN_Attr<"ReadKernel", "read_kernel", [TTNN_KernelInte
   let genVerifyDecl = 1;
 }
 
+def TTNN_DataMovementKernelAttr: TTNN_Attr<"DataMovementKernel", "data_movement_kernel", [TTNN_KernelInterface]> {
+  let summary = "Data movement kernel";
+  let description = [{
+    Data movement kernel config descriptor for TTNN generic operation.
+  }];
+
+  let parameters = (ins "SymbolRefAttr":$symbol_ref,
+                        TTNN_CoreRangeSetAttr:$core_ranges,
+                        "DataMovementProcessor":$processor,
+                        "NocIndex":$noc_index,
+                        "NocMode":$noc_mode,
+                        OptionalArrayRefParameter<"mlir::Attribute">:$common_rt_args,
+                        OptionalArrayRefParameter<"CoreRuntimeArgsAttr">:$rt_args,
+                        OptionalArrayRefParameter<"mlir::Attribute">:$ct_args);
+
+  let builders = [
+    AttrBuilder<(ins "SymbolRefAttr":$symbol_ref,
+                     "CoreRangeSetAttr":$core_ranges,
+                     "DataMovementProcessor":$processor,
+                     "NocIndex":$noc_index,
+                     "NocMode":$noc_mode,
+                     "::llvm::ArrayRef<mlir::Attribute>":$common_rt_args,
+                     "::llvm::ArrayRef<mlir::Attribute>":$ct_args), [{
+      return $_get($_ctxt, symbol_ref, core_ranges, processor, noc_index, noc_mode, common_rt_args, ::llvm::ArrayRef<CoreRuntimeArgsAttr>{}, ct_args);
+    }]>
+  ];
+
+  let assemblyFormat = "`<` struct($symbol_ref, $core_ranges, $processor, $noc_index, $noc_mode) `,` `ct_args` `=` `[` (`]`) : ($ct_args^ `]`)?  `,` `common_rt_args` `=` `[` (`]`) : ($common_rt_args^ `]`)? `,` `rt_args` `=` `[` (`]`) : ($rt_args^ `]`)? `>`";
+
+  // let genVerifyDecl = 1;
+
+}
+
 def TTNN_WriteKernelAttr: TTNN_Attr<"WriteKernel", "write_kernel", [TTNN_KernelInterface]> {
   let summary = "Write kernel";
   let description = [{

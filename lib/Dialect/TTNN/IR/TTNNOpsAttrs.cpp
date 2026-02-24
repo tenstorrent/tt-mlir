@@ -1142,7 +1142,8 @@ DeviceComputeKernelConfigAttr::withDstFullSyncEn(bool value) const {
   for (auto kernel : kernels) {
     if (!llvm::isa<mlir::tt::ttnn::ComputeKernelAttr,
                    mlir::tt::ttnn::ReadKernelAttr,
-                   mlir::tt::ttnn::WriteKernelAttr>(kernel)) {
+                   mlir::tt::ttnn::WriteKernelAttr,
+                   mlir::tt::ttnn::DataMovementKernelAttr>(kernel)) {
       return emitError() << "Unexpected kernel";
     }
   }
