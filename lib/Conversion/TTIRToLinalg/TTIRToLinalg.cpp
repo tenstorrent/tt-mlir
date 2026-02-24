@@ -1881,8 +1881,7 @@ public:
                 b.create<arith::FPToSIOp>(loc, b.getI32Type(), idxValue);
             idx = b.create<arith::IndexCastOp>(loc, b.getIndexType(), i32Val);
           } else {
-            idx =
-                b.create<arith::IndexCastOp>(loc, b.getIndexType(), idxValue);
+            idx = b.create<arith::IndexCastOp>(loc, b.getIndexType(), idxValue);
           }
 
           // Build weight indices:
@@ -1891,12 +1890,11 @@ public:
           // - Last dim is the last result iteration index.
           SmallVector<Value> weightIndices;
           for (int64_t i = 0; i < weightRank - 2; ++i) {
-            weightIndices.push_back(
-                b.create<arith::ConstantIndexOp>(loc, 0));
+            weightIndices.push_back(b.create<arith::ConstantIndexOp>(loc, 0));
           }
           weightIndices.push_back(idx);
-          weightIndices.push_back(b.create<linalg::IndexOp>(loc,
-                                                             resultRank - 1));
+          weightIndices.push_back(
+              b.create<linalg::IndexOp>(loc, resultRank - 1));
 
           // Extract the value from weight tensor.
           Value extracted =
@@ -3705,15 +3703,14 @@ void populateTTIRToTosaPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                CosOpConversionPattern, MatmulOpConversionPattern,
                LinearOpConversionPattern, ClampScalarOpConversionPattern,
                Relu6OpConversionPattern, GatherOpConversionPattern,
-               EmbeddingOpConversionPattern,
-               LogicalNotOpConversionPattern, MaxOpConversionPattern,
-               MinOpConversionPattern, SumOpConversionPattern,
-               ProdOpConversionPattern, ArgMaxOpConversionPattern,
-               MeanOpConversionPattern, LayerNormOpConversionPattern,
-               SqueezeOpConversionPattern, UnsqueezeOpConversionPattern,
-               MaxPool2dOpConversionPattern, AvgPool2dOpConversionPattern,
-               GlobalAvgPool2dOpConversionPattern, Conv2dOpConversionPattern>(
-      typeConverter, ctx);
+               EmbeddingOpConversionPattern, LogicalNotOpConversionPattern,
+               MaxOpConversionPattern, MinOpConversionPattern,
+               SumOpConversionPattern, ProdOpConversionPattern,
+               ArgMaxOpConversionPattern, MeanOpConversionPattern,
+               LayerNormOpConversionPattern, SqueezeOpConversionPattern,
+               UnsqueezeOpConversionPattern, MaxPool2dOpConversionPattern,
+               AvgPool2dOpConversionPattern, GlobalAvgPool2dOpConversionPattern,
+               Conv2dOpConversionPattern>(typeConverter, ctx);
 
   // Special operations
   patterns.add<WhereOpConversionPattern, ReshapeOpConversionPattern,
