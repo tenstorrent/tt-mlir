@@ -85,13 +85,11 @@ public:
         }
         // This must stay in-sync with ChipDescAttr::getDstLogicalSizeTiles().
         constexpr bool dstFullSyncEn = false;
-        // Use Fp32 unpack mode for fp32 data, except for untilize kernels
-        // whose llk_unpack_untilize path is incompatible with
-        // UnpackToDestEn=true (causes hardware deadlock).
-        bool isUntilize =
-            kernelContainsOp<ttkernel::ExperimentalUntilizeBlockOp>(
-                symbolTable, thread.getKernelSymbol());
-        UnpackToDestMode mode = (fp32DestAccum && !isUntilize)
+        // Enable fp32 unpack mode for typecast kernels.
+        // TODO: Enable fp32 unpack mode in the general case.
+        bool isTypecast = kernelContainsOp<ttkernel::TypecastTileOp>(
+            symbolTable, thread.getKernelSymbol());
+        UnpackToDestMode mode = (fp32DestAccum && isTypecast)
                                     ? UnpackToDestMode::Fp32
                                     : UnpackToDestMode::Default;
         std::vector<UnpackToDestMode> unpackModes{mode};
