@@ -866,7 +866,23 @@ def D2MGenerateOuterLoops : Pass<"d2m-generate-outer-loops", "::mlir::ModuleOp">
   let description = [{
     This pass generates outer loops for generic operations.
   }];
-  let dependentDialects = ["::mlir::tt::d2m::D2MDialect"];
+  let dependentDialects = ["::mlir::tt::d2m::D2MDialect",
+                           "::mlir::affine::AffineDialect"];
+}
+
+def D2MLowerToExplicitForm : Pass<"d2m-generic-lower-to-explicit-form", "::mlir::ModuleOp"> {
+  let summary = "Lower outer loop bounds to explicit constants.";
+  let description = [{
+    This pass replaces affine.for loops marked with the d2m.blocking_loop attribute
+    that have bounds defined by d2m.get_block_factor ops with scf.for loops that
+    have arith.constant bounds taken from the GenericOp's block_factors attribute.
+
+    All d2m.get_block_factor ops within generic regions are also replaced with
+    their corresponding arith.constant values.
+  }];
+  let dependentDialects = ["::mlir::tt::d2m::D2MDialect",
+                           "::mlir::scf::SCFDialect",
+                           "::mlir::arith::ArithDialect"];
 }
 
 def D2MLowerMulticastLoads : Pass<"d2m-lower-multicast-loads", "::mlir::ModuleOp"> {
