@@ -1929,7 +1929,7 @@ TEST_F(OpModelBase, SplitQueryKeyValueAndSplitHeadsOpInterface) {
 
 TEST_F(OpModelBase, ScaledDotProductAttentionDecodeOpInterface) {
   int64_t batchSize = 1;
-  int64_t numHeads = 1;
+  int64_t numHeads = 2;
   int64_t kvLen = 128;
   int64_t headSize = 32;
 
