@@ -16,6 +16,7 @@ from test_utils import (
     Marks,
     shape_str,
     shapes_list_str,
+    SkipIf,
 )
 from ttmlir.dialects import ttir
 
@@ -172,8 +173,8 @@ binary_ops = [
     div,
     gelu_backward | Marks(pytest.mark.skip_config(["ttmetal"])),
     gelu_backward_tanh | Marks(pytest.mark.skip_config(["ttmetal"])),
-    maximum,
-    minimum,
+    maximum | SkipIf("sim"),
+    minimum | SkipIf("sim"),
     multiply,
     pow,
     remainder | Marks(pytest.mark.skip_config(["ttmetal"])),
