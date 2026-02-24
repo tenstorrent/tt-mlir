@@ -135,12 +135,16 @@ def generic(
             )
             assert len(generic.regions[0].blocks) == 0
             generic.regions[0].blocks.append()
+            print(dir(generic.attributes))
             block = generic.regions[0].blocks[0]
             ctx = generic.context
             loc = generic.location
+            generic.attributes["d2m.explicit_par"] = UnitAttr.get(ctx)
             grid_rank = len(grid)
             for arg in args:
-                arg_type = RankedTensorType.get(arg.type.shape[grid_rank:], arg.type.element_type)
+                arg_type = RankedTensorType.get(
+                    arg.type.shape[grid_rank:], arg.type.element_type
+                )
                 block.add_argument(d2m.ir.CBType.get(ctx, arg_type), loc)
             with InsertionPoint(block):
                 f(*args, **kwargs)
@@ -155,7 +159,7 @@ def generic(
 def remote_load(
     src, indices, mcast_start_index=None, mcast_shape=None, mcast_dims=None
 ):
-    dst = tensor.empty(src.type.shape[len(indices):], src.type.element_type)
+    dst = tensor.empty(src.type.shape[len(indices) :], src.type.element_type)
     return d2m.remote_load(
         RankedTensorType.get(dst.type.shape, dst.type.element_type),
         src,
@@ -163,28 +167,72 @@ def remote_load(
         mcast_start_index=mcast_start_index,
         mcast_shape=mcast_shape,
         mcast_dims=mcast_dims,
-        local_buffer=dst
+        local_buffer=dst,
     )
 
 
 @pytest.mark.parametrize(
-    "shape",
+    "grid",
     [
-        (64, 64, 64),
+        (8, 8),
     ],
-    ids=shape_str,
+)
+@pytest.mark.parametrize(
+    "block_shape,block_factors",
+    [
+        ((64, 64, 64), (1, 1, 8)),
+    ],
+)
+@pytest.mark.parametrize(
+    "interchange",
+    [
+        "mnk",
+    ],
 )
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_generic(
-    shape,
+    grid,
+    block_shape,
+    block_factors,
+    interchange,
     target: str,
     request,
     device,
 ):
-    m, n, k = shape
+    block_m, block_n, block_k = block_shape
+    m = block_m * grid[0] * block_factors[0]
+    n = block_n * grid[1] * block_factors[1]
+    k = block_k * block_factors[2]
+
     lhs_shape = [m, k]
     rhs_shape = [k, n]
     out_shape = [m, n]
+
+    lhs_grid = [grid[0], block_factors[2]]
+    rhs_grid = [block_factors[2], grid[1]]
+
+    lhs_block_shape = [block_m // 32, block_k // 32]
+    rhs_block_shape = [block_k // 32, block_n // 32]
+    out_block_shape = [block_m // 32, block_n // 32]
+
+    indexing_maps, iterator_types = {
+        "mnk": (
+            [
+                lambda m, n, k: (m, k),
+                lambda m, n, k: (k, n),
+                lambda m, n, k: (m, n),
+            ],
+            ["parallel", "parallel", "reduction"],
+        ),
+        "kmn": (
+            [
+                lambda k, m, n: (m, k),
+                lambda k, m, n: (k, n),
+                lambda k, m, n: (m, n),
+            ],
+            ["reduction", "parallel", "parallel"],
+        ),
+    }[interchange]
 
     def generic_module(builder: D2MBuilder):
         lhs_golden = torch.randn(lhs_shape)
@@ -199,14 +247,10 @@ def test_generic(
             unit_attrs: List[str] = None,
         ):
             @generic(
-                grid=(1, 1),
-                block_factors=[1, 1, 1],
-                indexing_maps=[
-                    lambda m, n, k: (m, k),
-                    lambda m, n, k: (k, n),
-                    lambda m, n, k: (m, n),
-                ],
-                iterator_types=["parallel", "parallel", "reduction"],
+                grid=grid,
+                block_factors=block_factors,
+                indexing_maps=indexing_maps,
+                iterator_types=iterator_types,
             )
             def mm(lhs, rhs, out):
                 mbi = d2m.block_index(0)
@@ -214,7 +258,7 @@ def test_generic(
                 kbi = d2m.block_index(2)
                 lhs_shard = remote_load(lhs, [mbi, kbi])
                 rhs_shard = remote_load(rhs, [kbi, nbi])
-                out_shard = tensor.empty(out.type.shape[2:], out.type.element_type)
+                out_shard = tensor.empty(out_block_shape, out.type.element_type)
                 d2m.tile_matmul_block(lhs_shard, rhs_shard, out_shard)
                 res = d2m.remote_store(
                     out.type, out, [mbi, nbi], local_buffer=out_shard
@@ -223,15 +267,17 @@ def test_generic(
 
             device_lhs = builder.to_layout(
                 lhs,
-                output_type=builder.get_metal_tensor_layout(lhs.type.shape, tiled=True),
+                output_type=builder.get_metal_tensor_layout(lhs.type.shape, grid=lhs_grid, tiled=True),
                 unit_attrs=unit_attrs,
             )
             device_rhs = builder.to_layout(
                 rhs,
-                output_type=builder.get_metal_tensor_layout(rhs.type.shape, tiled=True),
+                output_type=builder.get_metal_tensor_layout(rhs.type.shape, grid=rhs_grid, tiled=True),
                 unit_attrs=unit_attrs,
             )
-            device_out = d2m.empty(builder.get_metal_tensor_layout(out_shape, tiled=True))
+            device_out = d2m.empty(
+                builder.get_metal_tensor_layout(out_shape, grid=grid, tiled=True)
+            )
             mm_out = mm(device_lhs, device_rhs, device_out)
             res = builder.to_layout(
                 mm_out,
@@ -256,12 +302,11 @@ def test_generic(
             return builder.matmul(lhs, rhs)
 
     compile_and_execute_ttir(
-            generic_module,
-            #mm_comparison,
+        generic_module,
+        # mm_comparison,
         target=target,
         device=device,
         custom_pipeline=f"ttir-to-ttmetal-pipeline",
         print_ir=True,
-        disable_golden=True,
         **get_request_kwargs(request),
     )

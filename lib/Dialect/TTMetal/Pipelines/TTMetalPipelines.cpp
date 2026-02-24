@@ -115,7 +115,7 @@ void createTTIRToTTMetalFrontendPipeline(
     gridOptOptions.ttnnMode = options.ttnnMode;
   }
   pm.addPass(d2m::createD2MMaterializeViewReturns());
-  //pm.addPass(d2m::createD2MGridSelection(gridOptOptions));
+  pm.addPass(d2m::createD2MGridSelection(gridOptOptions));
   pm.addPass(createCanonicalizerPassWithOptions(options));
   pm.addPass(d2m::createD2MLowerToLayout());
   pm.addPass(d2m::createD2MMaterializeViewReturns());
