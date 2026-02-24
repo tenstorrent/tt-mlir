@@ -14,7 +14,6 @@
 #include "mlir/IR/Dominance.h"
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
-#include "llvm/ADT/DenseSet.h"
 
 #define DEBUG_TYPE "D2MGenericAffineScalarReplacement"
 
@@ -154,9 +153,6 @@ materializeIntermediateAllocs(GenericOp genericOp,
     builder.setInsertionPointToStart(&body);
     auto allocOp = builder.create<memref::AllocOp>(
         genericOp.getLoc(), mlir::cast<MemRefType>(operandVal.getType()));
-    allocOp->setAttr(
-        utils::kScratchSlotAttr,
-        builder.getI64IntegerAttr(static_cast<int64_t>(candidate.inputIdx)));
 
     operandVal.replaceUsesWithIf(allocOp.getResult(), [&](OpOperand &use) {
       return genericOp->isAncestor(use.getOwner());
@@ -269,70 +265,12 @@ static void convertRemoteLoadToDPSStyle(func::FuncOp funcOp) {
   });
 }
 
-/// Return true if the value participates in any remote load/store path
-/// reachable through simple memref view/cast forwarding ops.
-static bool isRelatedToRemoteLoadStore(Value value) {
-  SmallVector<Value> worklist{value};
-  llvm::DenseSet<Value> visited;
-  visited.insert(value);
-
-  while (!worklist.empty()) {
-    Value current = worklist.pop_back_val();
-    for (OpOperand &use : current.getUses()) {
-      Operation *user = use.getOwner();
-      if (auto loadOp = mlir::dyn_cast<RemoteLoadOp>(user)) {
-        if (loadOp.getMemref() == current ||
-            loadOp.getLocalBuffer() == current) {
-          return true;
-        }
-      }
-      if (auto storeOp = mlir::dyn_cast<RemoteStoreOp>(user)) {
-        if (storeOp.getMemref() == current ||
-            storeOp.getLocalBuffer() == current) {
-          return true;
-        }
-      }
-
-      if (mlir::isa<memref::CastOp, memref::SubViewOp,
-                    memref::ReinterpretCastOp, memref::ViewOp>(user)) {
-        for (Value result : user->getResults()) {
-          if (visited.insert(result).second) {
-            worklist.push_back(result);
-          }
-        }
-      }
-    }
-  }
-  return false;
-}
-
 struct ScratchAllocCandidate {
   memref::AllocOp allocOp;
-  int64_t slot;
 };
 
-static int64_t computeNextScratchSlot(GenericOp genericOp) {
-  int64_t maxSlot = -1;
-  genericOp.walk([&](Operation *op) {
-    if (auto scratchOp = mlir::dyn_cast<ScratchAllocateOp>(op)) {
-      maxSlot = std::max(maxSlot, static_cast<int64_t>(scratchOp.getSlot()));
-      return;
-    }
-    if (auto allocOp = mlir::dyn_cast<memref::AllocOp>(op)) {
-      if (auto slot =
-              allocOp->getAttrOfType<IntegerAttr>(utils::kScratchSlotAttr)) {
-        maxSlot = std::max(maxSlot, slot.getInt());
-      }
-    }
-  });
-  return maxSlot + 1;
-}
-
 /// Replace generic-local intermediate memref.alloc ops with
-/// d2m.scratch_allocate. Internalized intermediates (tagged with
-/// d2m.scratch_slot) are always lowered. Additionally, untagged generic-local
-/// intermediates that are not related to any remote load/store are lowered as
-/// scratch allocations. Scratch allocs are inserted at the top of the generic
+/// d2m.scratch_allocate. Scratch allocs are inserted at the top of the generic
 /// unified region.
 static void replaceGenericIntermediateAllocsWithScratch(func::FuncOp funcOp,
                                                         OpBuilder &builder) {
@@ -341,7 +279,6 @@ static void replaceGenericIntermediateAllocsWithScratch(func::FuncOp funcOp,
       continue;
     }
 
-    int64_t nextSlot = computeNextScratchSlot(genericOp);
     SmallVector<ScratchAllocCandidate> candidates;
     SmallVector<memref::AllocOp> deadAllocs;
     genericOp.getRegion(0).walk([&](memref::AllocOp allocOp) {
@@ -349,14 +286,7 @@ static void replaceGenericIntermediateAllocsWithScratch(func::FuncOp funcOp,
         deadAllocs.push_back(allocOp);
         return;
       }
-      if (auto slot =
-              allocOp->getAttrOfType<IntegerAttr>(utils::kScratchSlotAttr)) {
-        candidates.push_back({allocOp, slot.getInt()});
-        return;
-      }
-      if (!isRelatedToRemoteLoadStore(allocOp.getResult())) {
-        candidates.push_back({allocOp, nextSlot++});
-      }
+      candidates.push_back({allocOp});
     });
 
     if (candidates.empty() && deadAllocs.empty()) {
@@ -370,7 +300,7 @@ static void replaceGenericIntermediateAllocsWithScratch(func::FuncOp funcOp,
       builder.setInsertionPointToStart(&body);
       auto scratchOp = builder.create<ScratchAllocateOp>(
           candidate.allocOp.getLoc(), candidate.allocOp.getType(),
-          builder.getI64IntegerAttr(candidate.slot));
+          builder.getI64IntegerAttr(0));
       replacementValues.push_back(scratchOp.getResult());
     }
 

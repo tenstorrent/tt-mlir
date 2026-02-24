@@ -19,9 +19,6 @@ constexpr llvm::StringLiteral kBlockingLoopAttr = "d2m.blocking_loop";
 // Marker attribute for GenericOps that were created by affine loop fusion.
 constexpr llvm::StringLiteral kAffineFusedAttr = "d2m.affine_fused";
 
-// Attribute storing the scratch slot index for intermediate allocs.
-constexpr llvm::StringLiteral kScratchSlotAttr = "d2m.scratch_slot";
-
 // Return a new RankedTensorType by reblocking its device shape to match a new
 // grid shape.
 RankedTensorType reblockTensor(RankedTensorType oldTensor,
