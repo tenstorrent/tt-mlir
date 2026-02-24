@@ -1285,6 +1285,9 @@ public:
       if (genericOp.isExplicitDatamovementForm()) {
         return;
       }
+      if (genericOp->hasAttr("d2m.explicit_par")) {
+        return;
+      }
       assignGrids(genericOp, targetGridShape, targetSquareGridShape);
     });
   }

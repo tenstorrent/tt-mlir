@@ -1945,17 +1945,17 @@ class D2MMeshShardOpRewriter : public OpConversionPattern<ttir::MeshShardOp> {
   }
 };
 
-
 namespace {
 class D2MMatmulBlockToLinalgGeneric final
     : public mlir::OpConversionPattern<d2m::TileMatmulBlockOp>,
       D2MNamedRewriterCommon {
 public:
   D2MMatmulBlockToLinalgGeneric(const TypeConverter &typeConverter,
-                      mlir::MLIRContext *ctx,
-                      ttcore::MemorySpace defaultInputMemSpace,
-                      ttcore::MemorySpace defaultOutputMemSpace, bool ttnnMode,
-                      bool collapseTensors, bool enableMulticastInference)
+                                mlir::MLIRContext *ctx,
+                                ttcore::MemorySpace defaultInputMemSpace,
+                                ttcore::MemorySpace defaultOutputMemSpace,
+                                bool ttnnMode, bool collapseTensors,
+                                bool enableMulticastInference)
       : OpConversionPattern<d2m::TileMatmulBlockOp>(typeConverter, ctx),
         D2MNamedRewriterCommon(defaultInputMemSpace, defaultOutputMemSpace,
                                ttnnMode, collapseTensors,
