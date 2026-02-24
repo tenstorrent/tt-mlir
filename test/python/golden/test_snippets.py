@@ -112,6 +112,9 @@ def test_model_snippet_compile_execute(
     output_root = kwargs.get("output_root", ".")
     save_artifacts = kwargs.get("save_artifacts", False)
 
+    print_ir = kwargs.get("print_ir", False)
+    skip_exec = kwargs.get("skip_exec", False)
+
     snippet_info = MODEL_MLIR_SNIPPETS[snippet_id]
     mlir_content = snippet_info["content"]
     func_name = snippet_info["func_name"]
@@ -142,8 +145,13 @@ def test_model_snippet_compile_execute(
         artifact_dir=artifact_dir,
         target=target,
         save_artifacts=save_artifacts,
+        print_ir=print_ir,
     )
     print("Compilation successful")
+
+    if skip_exec:
+        print("Skipping execution (--skip-exec)")
+        return
 
     # Execute using the standard runtime helper
     execute_fb(
