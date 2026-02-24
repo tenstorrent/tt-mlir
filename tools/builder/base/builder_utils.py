@@ -195,6 +195,7 @@ def get_metal_tensor_layout(
         ttcore.TensorMemoryLayout
     ] = ttcore.TensorMemoryLayout.Sharded,
     dim_alignments: Optional[Tuple[int, ...]] = None,
+    dtype: str = "f32",
 ) -> RankedTensorType:
     """
     Create a metal tensor layout.

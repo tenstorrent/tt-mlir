@@ -189,12 +189,14 @@ def remote_load(
         "mnk",
     ],
 )
+@pytest.mark.parametrize("dtype", ["bf16"])
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_generic(
     grid,
     block_shape,
     block_factors,
     interchange,
+    dtype,
     target: str,
     request,
     device,
@@ -234,12 +236,17 @@ def test_generic(
         ),
     }[interchange]
 
+    torch_dtype = {
+        "f32": torch.float,
+        "bf16": torch.bfloat16,
+    }[dtype]
+
     def generic_module(builder: D2MBuilder):
-        lhs_golden = torch.randn(lhs_shape)
-        rhs_golden = torch.randn(rhs_shape)
+        lhs_golden = torch.randn(lhs_shape, dtype=torch_dtype)
+        rhs_golden = torch.randn(rhs_shape, dtype=torch_dtype)
         out_golden = lhs_golden @ rhs_golden
 
-        @builder.func([lhs_shape, rhs_shape], [torch.float32, torch.float32])
+        @builder.func([lhs_shape, rhs_shape], [torch_dtype, torch_dtype])
         def main(
             lhs: Operand,
             rhs: Operand,
@@ -267,16 +274,22 @@ def test_generic(
 
             device_lhs = builder.to_layout(
                 lhs,
-                output_type=builder.get_metal_tensor_layout(lhs.type.shape, grid=lhs_grid, tiled=True),
+                output_type=builder.get_metal_tensor_layout(
+                    lhs.type.shape, grid=lhs_grid, tiled=True, dtype=dtype
+                ),
                 unit_attrs=unit_attrs,
             )
             device_rhs = builder.to_layout(
                 rhs,
-                output_type=builder.get_metal_tensor_layout(rhs.type.shape, grid=rhs_grid, tiled=True),
+                output_type=builder.get_metal_tensor_layout(
+                    rhs.type.shape, grid=rhs_grid, tiled=True, dtype=dtype
+                ),
                 unit_attrs=unit_attrs,
             )
             device_out = d2m.empty(
-                builder.get_metal_tensor_layout(out_shape, grid=grid, tiled=True)
+                builder.get_metal_tensor_layout(
+                    out_shape, grid=grid, tiled=True, dtype=dtype
+                )
             )
             mm_out = mm(device_lhs, device_rhs, device_out)
             res = builder.to_layout(
