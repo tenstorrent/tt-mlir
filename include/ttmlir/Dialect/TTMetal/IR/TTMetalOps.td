@@ -27,7 +27,7 @@ def TTMetal_EnqueueProgramOp : TTMetal_Op<"enqueue_program", [MemoryEffects<[Mem
       Enqueue program operation
     }];
 
-    let arguments = (ins Variadic<AnyNon0RankedMemRef>:$args,
+    let arguments = (ins Variadic<AnyType>:$args,
                          Variadic<AnyNon0RankedMemRef>:$cbs,
                          DenseI64ArrayAttr:$cb_ports,
                          TTMetal_KernelConfigArrayAttr:$kernelConfigs,
