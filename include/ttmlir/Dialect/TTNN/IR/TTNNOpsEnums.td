@@ -345,6 +345,7 @@ def TTNN_KernelCoreType : I32EnumAttr<"KernelCoreType", "TT KernelCoreType",
   let cppNamespace = "::mlir::tt::ttnn";
 }
 
+// RISCV0 = BRISC, RISCV1 = NCRISC
 def TTNN_DataMovementProcessorRiscV0 : I32EnumAttrCase<"RiscV0", 0, "riscv0">;
 def TTNN_DataMovementProcessorRiscV1 : I32EnumAttrCase<"RiscV1", 1, "riscv1">;
 
