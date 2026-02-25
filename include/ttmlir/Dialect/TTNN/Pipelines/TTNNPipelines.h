@@ -426,7 +426,7 @@ struct TTIRToTTNNDevicePipelineOptions
       llvm::cl::desc(
           "Use the greedy layout propagation optimizer instead of the "
           "default chain-based TTNNOptimizer."),
-      llvm::cl::init(false)};
+      llvm::cl::init(true)};
 
   // Resolve options controlled by optimization_level.
   void resolveOptimizationLevelOptions() const {
@@ -440,12 +440,10 @@ struct TTIRToTTNNDevicePipelineOptions
     // Only apply optimization_level if user didn't explicitly set the option.
     // Use getNumOccurrences() to detect explicit user settings.
     if (optimizerPassEnabled.getNumOccurrences() == 0) {
-      // enable-greedy-optimizer implies enable-optimizer.
-      optimizerPassEnabled = (optimizationLevel >= 1) || enableGreedyOptimizer;
+      optimizerPassEnabled = (optimizationLevel >= 1);
     }
     if (enableFusingConv2dWithMultiplyPattern.getNumOccurrences() == 0) {
-      enableFusingConv2dWithMultiplyPattern =
-          (optimizationLevel >= 1) || enableGreedyOptimizer;
+      enableFusingConv2dWithMultiplyPattern = (optimizationLevel >= 1);
     }
     if (memoryLayoutAnalysisEnabled.getNumOccurrences() == 0) {
       memoryLayoutAnalysisEnabled = (optimizationLevel >= 2);
