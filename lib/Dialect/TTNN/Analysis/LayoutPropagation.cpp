@@ -90,14 +90,14 @@ void LayoutPropagation::run() {
     beamState[op] = processOp(op);
 
     if (!beamState[op].empty()) {
-      const auto &best = beamState[op][0];
-      TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
-                   "[op {0}] -> chosen: bufType={1}, memLayout={2}, "
-                   "coreCount={3}, isSharded={4}, isL1={5}, reshard={6}",
-                   opIndex, best.config.outputLayout.getBufferType(),
-                   best.config.outputLayout.getMemLayout(),
-                   best.score.coreCount, best.score.isSharded, best.score.isL1,
-                   best.score.requiresReshard);
+      TTMLIR_DEBUG(
+          ttmlir::LogComponent::GreedyOptimizer,
+          "[op {0}] -> chosen: bufType={1}, memLayout={2}, "
+          "coreCount={3}, isSharded={4}, isL1={5}, reshard={6}",
+          opIndex, beamState[op][0].config.outputLayout.getBufferType(),
+          beamState[op][0].config.outputLayout.getMemLayout(),
+          beamState[op][0].score.coreCount, beamState[op][0].score.isSharded,
+          beamState[op][0].score.isL1, beamState[op][0].score.requiresReshard);
     }
     ++opIndex;
   });
@@ -128,16 +128,11 @@ LayoutPropagation::processOp(Operation *op) {
   OutputHints outputHints = getOutputHints(op, configs);
 
   // Log search space dimensions.
-  size_t crossProductSize = outputHints.hints.size();
-  for (const auto &ics : inputCandidateSets) {
-    crossProductSize *= ics.size();
-  }
   TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
                "  processOp {0}: inputSets={1}, outputHints={2}, "
-               "fallbackHints={3}, crossProduct={4}",
+               "fallbackHints={3}",
                op->getName(), inputCandidateSets.size(),
-               outputHints.hints.size(), outputHints.fallbackHints.size(),
-               crossProductSize);
+               outputHints.hints.size(), outputHints.fallbackHints.size());
 
   // Log output hints detail.
   for (size_t hi = 0; hi < outputHints.hints.size(); ++hi) {
@@ -483,7 +478,6 @@ LayoutPropagation::getInputCandidateSets(Operation *op) {
             currentLayout.withBufferType(BufferType::L1)
                 .withMemoryLayout(TensorMemoryLayout::Interleaved);
         // Add one L1-interleaved candidate per L1-sharded producer beam index.
-        size_t prevSize = candidatesForOperand.size();
         for (size_t pIdx = 0; pIdx < producerBeam->size(); ++pIdx) {
           if (candidatesForOperand.size() >= kMaxInputCandidatesPerOperand) {
             break;
@@ -508,8 +502,8 @@ LayoutPropagation::getInputCandidateSets(Operation *op) {
 
         TTMLIR_TRACE(
             ttmlir::LogComponent::GreedyOptimizer,
-            "  operand: added {0} L1-interleaved reshard candidates for {1}",
-            candidatesForOperand.size() - prevSize, op->getName());
+            "  operand: added L1-interleaved reshard candidates for {0}",
+            op->getName());
       }
     }
 

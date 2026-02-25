@@ -326,7 +326,7 @@ void L1SpillManagement<MemoryTracker>::run() {
                "  Schedule size: {1} ops",
                l1BudgetPerCore, schedule.size());
 
-  int64_t spillCount = 0;
+  [[maybe_unused]] int64_t spillCount = 0;
 
   // Step 3: Belady's algorithm sweep with validation-based eviction.
   for (int64_t pos = 0; pos < static_cast<int64_t>(schedule.size()); ++pos) {
