@@ -31,8 +31,6 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/PointToPointOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/RMSNormConfigRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ReduceScatterOpRewritePattern.h"
-#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/RepeatReshapeEltwiseSliceRewritePattern.h"
-#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/RepeatSliceReshapeRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/RotaryEmbeddingOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ScaledDotProductAttentionPadTileDimsRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ScatterOpRewritePattern.h"
@@ -571,8 +569,6 @@ public:
           workarounds::decomposition::ConcatOpDecompositionRewritePattern,
           workarounds::decomposition::ConcatOpReshapeRewritePattern,
           workarounds::decomposition::TTNNReduceScatterWorkarounds,
-          workarounds::decomposition::RepeatReshapeEltwiseSliceRewritePattern,
-          workarounds::decomposition::RepeatSliceReshapeRewritePattern,
           workarounds::decomposition::TTNNScatterWorkarounds,
           workarounds::decomposition::TTNNAllGatherWorkarounds,
           workarounds::decomposition::CumSumOpDimRewritePattern,

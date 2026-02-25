@@ -2183,6 +2183,533 @@ mlir::OpFoldResult mlir::tt::ttir::SliceStaticOp::fold(FoldAdaptor adaptor) {
 }
 
 //===----------------------------------------------------------------------===//
+// SliceStaticOp Canonicalization Patterns
+//===----------------------------------------------------------------------===//
+//
+// Fused pattern: when a slice_static reduces exactly one dimension to size 1
+// and the sole user is a reshape that squeezes that dimension, we hoist the
+// combined slice+reshape above the producer.  All intermediates adopt the
+// squeezed "target shape", keeping inner dimensions tile-aligned on TT
+// hardware (avoids 32x padding for size-1 dims in the last two positions).
+//
+// The canonicalizer applies the pattern repeatedly until convergence:
+//
+//   BEFORE (large intermediate tensors cause DRAM OOM):
+//     reshape(1x6x2560 → 1x1x6x2560)
+//     broadcast([1,49920,1,1]) → 1x49920x6x2560
+//     add(%, other)            → 1x49920x6x2560
+//     slice(dim2:[1:2])        → 1x49920x1x2560
+//     reshape                  → 1x49920x2560
+//
+//   AFTER (all intermediates use the tile-aligned target shape):
+//     slice(1x6x2560, dim1:[1:2]) → 1x1x2560
+//     broadcast([1,49920,1])      → 1x49920x2560
+//     add(%, slice+reshape(other))→ 1x49920x2560
+//
+// For reshape → repeat → reshape → slice → reshape chains:
+//
+//   BEFORE:
+//     reshape(1x32x30720 → 1x32x1x6x5120)
+//     repeat(dim2:1560x) → 1x32x1560x6x5120    ← peak memory
+//     reshape            → 1x49920x6x5120
+//     slice(dim2:[1:2])  → 1x49920x1x5120
+//     reshape            → 49920x5120
+//
+//   AFTER (slice hoisted above reshape then repeat):
+//     reshape(1x32x30720 → 1x32x1x6x5120)
+//     slice(dim3:[1:2])  → 1x32x1x1x5120
+//     repeat(dim2:1560x) → 1x32x1560x1x5120     ← 6x smaller peak
+//     reshape            → 49920x5120
+
+namespace {
+
+// Hoist a fused slice+reshape(squeeze) above the slice's producer.
+// Handles four cases:
+//   A) Producer is an elementwise op → push slice+reshape onto all operands
+//   B) Producer is a broadcast       → fold slice into broadcast input,
+//                                       drop the squeezed dim from factors
+//   C) Producer is a reshape         → map slicedDim to pre-reshape dim,
+//                                       move slice before reshape
+//   D) Producer is a repeat          → commute slice before repeat when
+//                                       the sliced dim is not the repeated dim
+struct HoistSliceReshapeAboveProducer
+    : public mlir::OpRewritePattern<mlir::tt::ttir::SliceStaticOp> {
+  using OpRewritePattern::OpRewritePattern;
+
+  HoistSliceReshapeAboveProducer(mlir::MLIRContext *ctx,
+                                 mlir::PatternBenefit benefit = 2)
+      : OpRewritePattern(ctx, benefit) {}
+
+  mlir::LogicalResult
+  matchAndRewrite(mlir::tt::ttir::SliceStaticOp sliceOp,
+                  mlir::PatternRewriter &rewriter) const override {
+    auto sliceInType =
+        mlir::cast<mlir::RankedTensorType>(sliceOp.getInput().getType());
+    llvm::ArrayRef<int64_t> sliceInShape = sliceInType.getShape();
+    int64_t rank = sliceInShape.size();
+
+    mlir::ArrayAttr begins = sliceOp.getBeginsAttr();
+    mlir::ArrayAttr ends = sliceOp.getEndsAttr();
+    mlir::ArrayAttr steps = sliceOp.getStepAttr();
+
+    // Find the single dim that slice reduces to 1 (must not already be 1).
+    int64_t slicedDim = -1;
+    for (int64_t d = 0; d < rank; ++d) {
+      int32_t b = mlir::cast<mlir::IntegerAttr>(begins[d]).getInt();
+      int32_t e = mlir::cast<mlir::IntegerAttr>(ends[d]).getInt();
+      int32_t s = mlir::cast<mlir::IntegerAttr>(steps[d]).getInt();
+      int64_t sliceSize = (static_cast<int64_t>(e) - b + s - 1) / s;
+      if (sliceSize < sliceInShape[d]) {
+        if (sliceSize != 1 || slicedDim != -1)
+          return mlir::failure();
+        slicedDim = d;
+      }
+    }
+    if (slicedDim == -1)
+      return mlir::failure();
+
+    // Sole user must be a reshape whose output eliminates the slicedDim.
+    // The reshape may also merge other dims (not just squeeze).
+    if (!sliceOp.getResult().hasOneUse())
+      return mlir::failure();
+    auto reshapeUser = mlir::dyn_cast<mlir::tt::ttir::ReshapeOp>(
+        *sliceOp.getResult().getUsers().begin());
+    if (!reshapeUser)
+      return mlir::failure();
+
+    mlir::RankedTensorType targetType = reshapeUser.getResult().getType();
+    llvm::ArrayRef<int64_t> targetShape = targetType.getShape();
+    llvm::ArrayRef<int64_t> sliceOutShape =
+        sliceOp.getResult().getType().getShape();
+
+    // Map sliceOutShape → targetShape to find which dims are squeezed.
+    // Each target dim maps to one or more consecutive source dims whose
+    // product equals the target dim. A source dim is "squeezed" only if
+    // it is size 1 AND is consumed as part of a multi-dim merge group
+    // (not when it maps 1:1 to a target dim of size 1).
+    llvm::SmallVector<int64_t> squeezedDims;
+    {
+      int64_t srcIdx = 0;
+      for (int64_t tIdx = 0;
+           tIdx < static_cast<int64_t>(targetShape.size()); ++tIdx) {
+        int64_t target = targetShape[tIdx];
+        int64_t product = 1;
+        int64_t startSrc = srcIdx;
+        while (srcIdx < rank && product < target) {
+          product *= sliceOutShape[srcIdx];
+          ++srcIdx;
+        }
+        // When target=1, the while loop exits immediately (1 < 1 = false).
+        // Try to consume one matching size-1 source dim for 1:1 mapping.
+        if (srcIdx == startSrc && target == 1 &&
+            srcIdx < rank && sliceOutShape[srcIdx] == 1) {
+          product *= sliceOutShape[srcIdx];
+          ++srcIdx;
+        }
+        if (product != target)
+          return mlir::failure();
+        int64_t numConsumed = srcIdx - startSrc;
+        // If multiple source dims were consumed for this target dim,
+        // any size-1 source dims in the group are squeezed (merged away).
+        if (numConsumed > 1) {
+          for (int64_t d = startSrc; d < srcIdx; ++d) {
+            if (sliceOutShape[d] == 1)
+              squeezedDims.push_back(d);
+          }
+        }
+        // If exactly one source dim maps to the target dim, it's not
+        // squeezed (even if size 1 → 1:1 mapping is preserved).
+      }
+      // Remaining source dims must all be size-1 (trailing squeezed).
+      while (srcIdx < rank) {
+        if (sliceOutShape[srcIdx] != 1)
+          return mlir::failure();
+        squeezedDims.push_back(srcIdx);
+        ++srcIdx;
+      }
+    }
+    if (!llvm::is_contained(squeezedDims, slicedDim))
+      return mlir::failure();
+
+    // Volume check.
+    int64_t inVol = 1, targetVol = 1;
+    for (int64_t d : sliceInShape)
+      inVol *= d;
+    for (int64_t d : targetShape)
+      targetVol *= d;
+    if (targetVol >= inVol)
+      return mlir::failure();
+
+    mlir::Operation *producer = sliceOp.getInput().getDefiningOp();
+    if (!producer || producer->getNumResults() != 1)
+      return mlir::failure();
+
+    // Helper: build target-shaped RankedTensorType with given element type.
+    auto makeTargetType = [&](mlir::Type elemType) {
+      return mlir::RankedTensorType::get(targetShape, elemType);
+    };
+
+    // Helper: create slice+reshape for an operand (reduce to target shape).
+    auto createSliceReshape = [&](mlir::Value operand) -> mlir::Value {
+      auto operandType =
+          mlir::cast<mlir::RankedTensorType>(operand.getType());
+      auto slicedType = mlir::RankedTensorType::get(
+          sliceOutShape, operandType.getElementType());
+      auto sliced = rewriter.create<mlir::tt::ttir::SliceStaticOp>(
+          sliceOp.getLoc(), slicedType, operand, begins, ends, steps);
+      llvm::SmallVector<int32_t> shapeI32;
+      for (int64_t s : targetShape)
+        shapeI32.push_back(static_cast<int32_t>(s));
+      return rewriter
+          .create<mlir::tt::ttir::ReshapeOp>(
+              reshapeUser.getLoc(),
+              makeTargetType(operandType.getElementType()), sliced,
+              rewriter.getI32ArrayAttr(shapeI32))
+          .getResult();
+    };
+
+    // --- Case A: producer is an elementwise op ---
+    auto producerType =
+        mlir::cast<mlir::RankedTensorType>(producer->getResult(0).getType());
+    bool isEltwise = true;
+    for (mlir::Value operand : producer->getOperands()) {
+      auto opType =
+          mlir::dyn_cast<mlir::RankedTensorType>(operand.getType());
+      if (!opType || opType.getShape() != producerType.getShape()) {
+        isEltwise = false;
+        break;
+      }
+    }
+
+    if (isEltwise) {
+      llvm::SmallVector<mlir::Value> newOperands;
+      for (mlir::Value operand : producer->getOperands())
+        newOperands.push_back(createSliceReshape(operand));
+
+      mlir::OperationState state(producer->getLoc(), producer->getName());
+      state.addOperands(newOperands);
+      state.addTypes(makeTargetType(producerType.getElementType()));
+      state.addAttributes(producer->getAttrs());
+      mlir::Operation *newOp = rewriter.create(state);
+      rewriter.replaceOp(reshapeUser, newOp->getResult(0));
+      return mlir::success();
+    }
+
+    // --- Case B: producer is a broadcast ---
+    if (auto broadcastOp =
+            mlir::dyn_cast<mlir::tt::ttir::BroadcastOp>(producer)) {
+      llvm::ArrayRef<int64_t> bcastDims =
+          broadcastOp.getBroadcastDimensions();
+      mlir::Value bcastInput = broadcastOp.getInput();
+      auto bcastInputType =
+          mlir::cast<mlir::RankedTensorType>(bcastInput.getType());
+      llvm::ArrayRef<int64_t> bcastInputShape = bcastInputType.getShape();
+
+      // Build slice params for the broadcast input.
+      llvm::SmallVector<int32_t> inputBegins, inputEnds, inputSteps;
+      llvm::SmallVector<int64_t> inputSlicedShape;
+      bool needsSlice = false;
+      for (int64_t d = 0; d < rank; ++d) {
+        int32_t b = mlir::cast<mlir::IntegerAttr>(begins[d]).getInt();
+        int32_t e = mlir::cast<mlir::IntegerAttr>(ends[d]).getInt();
+        int32_t s = mlir::cast<mlir::IntegerAttr>(steps[d]).getInt();
+        if (d == slicedDim && bcastDims[d] == 1) {
+          inputBegins.push_back(b);
+          inputEnds.push_back(e);
+          inputSteps.push_back(s);
+          inputSlicedShape.push_back(1);
+          needsSlice = true;
+        } else {
+          inputBegins.push_back(0);
+          inputEnds.push_back(static_cast<int32_t>(bcastInputShape[d]));
+          inputSteps.push_back(1);
+          inputSlicedShape.push_back(bcastInputShape[d]);
+        }
+      }
+
+      mlir::Value current = bcastInput;
+      if (needsSlice) {
+        auto slicedType = mlir::RankedTensorType::get(
+            inputSlicedShape, bcastInputType.getElementType());
+        current = rewriter.create<mlir::tt::ttir::SliceStaticOp>(
+            sliceOp.getLoc(), slicedType, bcastInput,
+            rewriter.getI32ArrayAttr(inputBegins),
+            rewriter.getI32ArrayAttr(inputEnds),
+            rewriter.getI32ArrayAttr(inputSteps));
+      }
+
+      // Remove all squeezed dims from input shape and broadcast factors.
+      llvm::SmallVector<int64_t> newInputShape, newBcastFactors;
+      for (int64_t d = 0; d < rank; ++d) {
+        if (llvm::is_contained(squeezedDims, d))
+          continue;
+        newInputShape.push_back(inputSlicedShape[d]);
+        newBcastFactors.push_back(bcastDims[d]);
+      }
+
+      // Compute total broadcast factor.
+      int64_t totalBcastFactor = 1;
+      for (int64_t f : newBcastFactors) {
+        if (f > 1)
+          totalBcastFactor *= f;
+      }
+
+      mlir::Type elemType = bcastInputType.getElementType();
+
+      // Collapse to 2D [outerDim, innerDim] for tile alignment:
+      // broadcast on dim 0 keeps -2,-1 both tile-friendly.
+      int64_t innerDim = newInputShape.back();
+      int64_t outerDim = 1;
+      for (int64_t s : newInputShape)
+        outerDim *= s;
+      outerDim /= innerDim;
+
+      auto flatType = mlir::RankedTensorType::get(
+          {outerDim, innerDim}, elemType);
+      auto flatReshape = rewriter.create<mlir::tt::ttir::ReshapeOp>(
+          sliceOp.getLoc(), flatType, current,
+          rewriter.getI32ArrayAttr(
+              {static_cast<int32_t>(outerDim),
+               static_cast<int32_t>(innerDim)}));
+
+      // Repeat on dim 0 of the 2D tensor (repeat works on any dim,
+      // unlike broadcast which requires singleton input dims).
+      int64_t bcastOuterDim = outerDim * totalBcastFactor;
+      auto bcastOutType = mlir::RankedTensorType::get(
+          {bcastOuterDim, innerDim}, elemType);
+      auto newBroadcast = rewriter.create<mlir::tt::ttir::RepeatOp>(
+          broadcastOp.getLoc(), bcastOutType, flatReshape,
+          llvm::SmallVector<int64_t>{totalBcastFactor, 1});
+
+      // Reshape to targetShape if needed.
+      if (targetShape.size() == 2 &&
+          targetShape[0] == bcastOuterDim &&
+          targetShape[1] == innerDim) {
+        rewriter.replaceOp(reshapeUser, newBroadcast.getResult());
+      } else {
+        llvm::SmallVector<int32_t> targetShapeI32;
+        for (int64_t s : targetShape)
+          targetShapeI32.push_back(static_cast<int32_t>(s));
+        auto finalReshape = rewriter.create<mlir::tt::ttir::ReshapeOp>(
+            reshapeUser.getLoc(), targetType, newBroadcast.getResult(),
+            rewriter.getI32ArrayAttr(targetShapeI32));
+        rewriter.replaceOp(reshapeUser, finalReshape.getResult());
+      }
+      return mlir::success();
+    }
+
+    // --- Case C: producer is a reshape ---
+    // Move slice before the reshape by mapping slicedDim to the pre-reshape
+    // dimension space. Produces an intermediate squeeze reshape so the
+    // canonicalizer can re-match and apply Case D (repeat) in a later pass.
+    if (auto reshapeProducer =
+            mlir::dyn_cast<mlir::tt::ttir::ReshapeOp>(producer)) {
+      auto preType = mlir::cast<mlir::RankedTensorType>(
+          reshapeProducer.getInput().getType());
+      llvm::ArrayRef<int64_t> preShape = preType.getShape();
+      int64_t preRank = preShape.size();
+
+      // Map slicedDim from post-reshape to pre-reshape by walking both
+      // shapes and accumulating volume. The sliced dim must correspond
+      // to exactly one pre-reshape dim (not part of a merge/split).
+      int64_t preIdx = 0;
+      int64_t mappedDim = -1;
+      for (int64_t postIdx = 0; postIdx < rank; ++postIdx) {
+        int64_t postDimSize = sliceInShape[postIdx];
+        int64_t preVol = 1;
+        int64_t startPreIdx = preIdx;
+        while (preVol < postDimSize && preIdx < preRank) {
+          preVol *= preShape[preIdx];
+          ++preIdx;
+        }
+        if (preVol != postDimSize)
+          return mlir::failure();
+        if (postIdx == slicedDim) {
+          if (preIdx - startPreIdx != 1)
+            return mlir::failure();
+          mappedDim = startPreIdx;
+        }
+      }
+      if (mappedDim == -1 || preIdx != preRank)
+        return mlir::failure();
+
+      // Build slice params for the pre-reshape tensor.
+      int32_t sliceBegin =
+          mlir::cast<mlir::IntegerAttr>(begins[slicedDim]).getInt();
+      int32_t sliceEnd =
+          mlir::cast<mlir::IntegerAttr>(ends[slicedDim]).getInt();
+      int32_t sliceStep =
+          mlir::cast<mlir::IntegerAttr>(steps[slicedDim]).getInt();
+
+      llvm::SmallVector<int32_t> newBegins, newEnds, newSteps;
+      llvm::SmallVector<int64_t> slicedPreShape;
+      for (int64_t d = 0; d < preRank; ++d) {
+        if (d == mappedDim) {
+          newBegins.push_back(sliceBegin);
+          newEnds.push_back(sliceEnd);
+          newSteps.push_back(sliceStep);
+          slicedPreShape.push_back(1);
+        } else {
+          newBegins.push_back(0);
+          newEnds.push_back(static_cast<int32_t>(preShape[d]));
+          newSteps.push_back(1);
+          slicedPreShape.push_back(preShape[d]);
+        }
+      }
+
+      mlir::Type elemType = preType.getElementType();
+      auto newSliceType =
+          mlir::RankedTensorType::get(slicedPreShape, elemType);
+      auto newSlice = rewriter.create<mlir::tt::ttir::SliceStaticOp>(
+          sliceOp.getLoc(), newSliceType, reshapeProducer.getInput(),
+          rewriter.getI32ArrayAttr(newBegins),
+          rewriter.getI32ArrayAttr(newEnds),
+          rewriter.getI32ArrayAttr(newSteps));
+
+      // Squeeze only mappedDim so the canonicalizer can re-match this
+      // new slice → squeeze pair and apply further hoisting (Case D).
+      llvm::SmallVector<int64_t> squeezedPreShape;
+      for (int64_t d = 0; d < preRank; ++d) {
+        if (d == mappedDim)
+          continue;
+        squeezedPreShape.push_back(slicedPreShape[d]);
+      }
+
+      auto squeezedPreType =
+          mlir::RankedTensorType::get(squeezedPreShape, elemType);
+      llvm::SmallVector<int32_t> squeezedPreShapeI32;
+      for (int64_t s : squeezedPreShape)
+        squeezedPreShapeI32.push_back(static_cast<int32_t>(s));
+      auto squeezeReshape = rewriter.create<mlir::tt::ttir::ReshapeOp>(
+          reshapeUser.getLoc(), squeezedPreType, newSlice,
+          rewriter.getI32ArrayAttr(squeezedPreShapeI32));
+
+      // If squeeze alone reaches targetShape, done. Otherwise add a
+      // second reshape for any remaining dim merges.
+      llvm::SmallVector<int64_t> targetVec(targetShape.begin(),
+                                           targetShape.end());
+      if (squeezedPreShape == targetVec) {
+        rewriter.replaceOp(reshapeUser, squeezeReshape.getResult());
+      } else {
+        llvm::SmallVector<int32_t> targetShapeI32;
+        for (int64_t s : targetShape)
+          targetShapeI32.push_back(static_cast<int32_t>(s));
+        auto finalReshape = rewriter.create<mlir::tt::ttir::ReshapeOp>(
+            reshapeUser.getLoc(), targetType, squeezeReshape,
+            rewriter.getI32ArrayAttr(targetShapeI32));
+        rewriter.replaceOp(reshapeUser, finalReshape.getResult());
+      }
+      return mlir::success();
+    }
+
+    // --- Case D: producer is a repeat ---
+    // When the sliced dim is not the repeated dim, slice and repeat commute.
+    // Move slice before repeat to reduce peak intermediate tensor size.
+    if (auto repeatOp =
+            mlir::dyn_cast<mlir::tt::ttir::RepeatOp>(producer)) {
+      llvm::ArrayRef<int64_t> repeatDims = repeatOp.getRepeatDimensions();
+
+      if (repeatDims[slicedDim] != 1)
+        return mlir::failure();
+
+      mlir::Value repeatInput = repeatOp.getInput();
+      auto repeatInputType =
+          mlir::cast<mlir::RankedTensorType>(repeatInput.getType());
+      llvm::ArrayRef<int64_t> repeatInputShape =
+          repeatInputType.getShape();
+
+      // Build slice params adjusted for repeat input shape.
+      llvm::SmallVector<int32_t> newBegins, newEnds, newSteps;
+      llvm::SmallVector<int64_t> slicedInputShape;
+      for (int64_t d = 0; d < rank; ++d) {
+        if (d == slicedDim) {
+          newBegins.push_back(
+              mlir::cast<mlir::IntegerAttr>(begins[d]).getInt());
+          newEnds.push_back(
+              mlir::cast<mlir::IntegerAttr>(ends[d]).getInt());
+          newSteps.push_back(
+              mlir::cast<mlir::IntegerAttr>(steps[d]).getInt());
+          slicedInputShape.push_back(1);
+        } else {
+          newBegins.push_back(0);
+          newEnds.push_back(
+              static_cast<int32_t>(repeatInputShape[d]));
+          newSteps.push_back(1);
+          slicedInputShape.push_back(repeatInputShape[d]);
+        }
+      }
+
+      mlir::Type elemType = repeatInputType.getElementType();
+      auto newSliceType =
+          mlir::RankedTensorType::get(slicedInputShape, elemType);
+      auto newSlice = rewriter.create<mlir::tt::ttir::SliceStaticOp>(
+          sliceOp.getLoc(), newSliceType, repeatInput,
+          rewriter.getI32ArrayAttr(newBegins),
+          rewriter.getI32ArrayAttr(newEnds),
+          rewriter.getI32ArrayAttr(newSteps));
+
+      // Compute total repeat count from all factors on size-1 dims.
+      int64_t totalRepeat = 1;
+      for (int64_t d = 0; d < rank; ++d) {
+        if (repeatDims[d] > 1)
+          totalRepeat *= repeatDims[d];
+      }
+
+      // Collapse sliced input to 2D [outerDim, innerDim] for tile
+      // alignment: repeat on dim 0 keeps -2,-1 both tile-friendly.
+      //   slice → 1x32x1x5120 → reshape → 32x5120
+      //   repeat([1560, 1]) → 49920x5120  (both dims tile-aligned)
+      int64_t innerDim = slicedInputShape.back();
+      int64_t outerDim = 1;
+      for (int64_t d : slicedInputShape)
+        outerDim *= d;
+      outerDim /= innerDim;
+
+      auto flatType = mlir::RankedTensorType::get(
+          {outerDim, innerDim}, elemType);
+      auto flatReshape = rewriter.create<mlir::tt::ttir::ReshapeOp>(
+          sliceOp.getLoc(), flatType, newSlice.getResult(),
+          rewriter.getI32ArrayAttr(
+              {static_cast<int32_t>(outerDim),
+               static_cast<int32_t>(innerDim)}));
+
+      // Repeat on dim 0 of the 2D tensor.
+      int64_t repeatOuterDim = outerDim * totalRepeat;
+      auto repeatOutType = mlir::RankedTensorType::get(
+          {repeatOuterDim, innerDim}, elemType);
+      auto newRepeat = rewriter.create<mlir::tt::ttir::RepeatOp>(
+          repeatOp.getLoc(), repeatOutType, flatReshape.getResult(),
+          llvm::SmallVector<int64_t>{totalRepeat, 1});
+
+      // Reshape to targetShape.
+      if (targetShape.size() == 2 &&
+          targetShape[0] == repeatOuterDim &&
+          targetShape[1] == innerDim) {
+        rewriter.replaceOp(reshapeUser, newRepeat.getResult());
+      } else {
+        llvm::SmallVector<int32_t> targetShapeI32;
+        for (int64_t s : targetShape)
+          targetShapeI32.push_back(static_cast<int32_t>(s));
+        auto newReshape = rewriter.create<mlir::tt::ttir::ReshapeOp>(
+            reshapeUser.getLoc(), targetType, newRepeat.getResult(),
+            rewriter.getI32ArrayAttr(targetShapeI32));
+        rewriter.replaceOp(reshapeUser, newReshape.getResult());
+      }
+      return mlir::success();
+    }
+
+    return mlir::failure();
+  }
+};
+
+} // namespace
+
+void mlir::tt::ttir::SliceStaticOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &results, mlir::MLIRContext *context) {
+  results.add<HoistSliceReshapeAboveProducer>(context);
+}
+
+//===----------------------------------------------------------------------===//
 // SliceDynamicOp
 //===----------------------------------------------------------------------===//
 
