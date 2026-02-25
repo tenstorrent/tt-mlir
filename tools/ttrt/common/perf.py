@@ -519,7 +519,8 @@ class Perf:
 
                     # copy all relevant files into perf folder for this test
                     perf_folder_path = self.artifacts.get_binary_perf_folder_path(bin)
-                    self.file_manager.create_directory(perf_folder_path)
+                    if not self.file_manager.check_directory_exists(perf_folder_path):
+                        self.file_manager.create_directory(perf_folder_path)
                     self.file_manager.copy_file(perf_folder_path, tracy_file_path)
                     self.file_manager.copy_file(
                         perf_folder_path, tracy_ops_times_file_path
