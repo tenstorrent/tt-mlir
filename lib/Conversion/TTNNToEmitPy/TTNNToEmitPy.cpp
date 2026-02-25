@@ -1580,6 +1580,63 @@ public:
 };
 } // namespace
 
+// Conv3d op conversion pattern
+//
+namespace {
+class Conv3dOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<mlir::tt::ttnn::Conv3dOp> {
+
+private:
+  std::string getPrefixSearchPattern() const override { return "ttnn.conv3d"; }
+
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn.experimental.conv3d";
+  }
+
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::Conv3dOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::Conv3dOp srcOp,
+                  mlir::tt::ttnn::Conv3dOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::Conv3dOp> emitter(
+        srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
+
+    // Default output dtype follows runtime conv3d behavior.
+    auto dtypeAttr = srcOp.getDtypeAttr();
+    auto outputDtype =
+        dtypeAttr ? dtypeAttr.getValue() : ttcore::DataType::BFloat16;
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput(), "input_tensor"),
+        emitter.emit(srcOp.getWeight(), "weight_tensor"),
+        emitter.emit(srcOp.getConv3dConfig() ,"config"),
+        emitter.emit(srcOp.getBias(), "bias_tensor"),
+        emitter.emit(outputDtype, "dtype"),
+        emitter.emit(srcOp.getOutChannels(), "output_channels"),
+        emitter.emit<std::array<uint32_t, 3>>(srcOp.getKernelSizeAttr(),
+                                              "kernel_size"),
+        emitter.emit<std::array<uint32_t, 3>>(srcOp.getStrideAttr(), "stride"),
+        emitter.emit<std::array<uint32_t, 3>>(srcOp.getPaddingAttr(), "padding"),
+        emitter.emit<std::array<uint32_t, 3>>(
+            rewriter.getDenseI32ArrayAttr({1, 1, 1}), "dilation"),
+        emitter.emit(srcOp.getPaddingMode(), "padding_mode"),
+        emitter.emit(srcOp.getGroups(), "groups"),
+        emitter.emit(std::nullopt | emitter.getMemoryConfig(srcOp.getResult()),
+                     "memory_config"),
+        emitter.emitComputeKernelConfig(srcOp.getComputeConfig(), "compute_kernel_config"),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // GlobalAvgPool2dOp conversion pattern
 //
 namespace {
@@ -3385,7 +3442,7 @@ public:
                          emitter.getMemoryConfig(srcOp.getResult()),
                      "memory_config"),
         emitter.emit(std::nullopt, "program_config"),
-        emitter.emit(srcOp.getComputeConfig(), "compute_kernel_config"),
+        emitter.emitComputeKernelConfig(srcOp.getComputeConfig(), "compute_kernel_config"),
     };
 
     emitter.replaceOp(*this, args);
@@ -3436,7 +3493,7 @@ public:
         emitter.emit(globalSemaphoreOp.getResult(0), "", 2),
         emitter.emit(srcOp.getStats(), "stats"),
         emitter.emitSubDeviceId(srcOp.getSubDeviceId(), "subdevice_id"),
-        emitter.emit(srcOp.getComputeConfig(), "compute_kernel_config"),
+        emitter.emitComputeKernelConfig()(srcOp.getComputeConfig(), "compute_kernel_config"),
         emitter.emit(srcOp.getMemoryConfig() |
                          emitter.getMemoryConfig(srcOp.getResult()),
                      "memory_config"),
@@ -4020,7 +4077,8 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
 
   // Convolution ops
   //
-  patterns.add<Conv2dOpConversionPattern, ConvTranspose2dOpConversionPattern,
+  patterns.add<Conv2dOpConversionPattern, Conv3dOpConversionPattern,
+               ConvTranspose2dOpConversionPattern,
                PrepareConv2dWeightsOpConversionPattern,
                PrepareConv2dBiasOpConversionPattern,
                PrepareConvTranspose2dWeightsOpConversionPattern,

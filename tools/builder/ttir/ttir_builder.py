@@ -11644,6 +11644,119 @@ class TTIRBuilder(Builder):
 
         return conv2d_module, conv2d_builder
 
+    @tag(ttir.Conv3dOp)
+    def conv3d(
+        self,
+        in0: Operand,
+        weight: Operand,
+        bias: Optional[Operand],
+        stride: Union[int, List[int]],
+        padding: Union[int, List[int]],
+        groups: int,
+        padding_mode: str = "zeros",
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        """
+        Creates ``ttir.conv3d``.
+
+        Applies a 3D convolution over an input tensor in NDHWC layout.
+        """
+        ttir_op = self.get_opview_from_method(TTIRBuilder.conv3d)
+
+        if not bias:
+            bias = None
+
+        stride_attr = (
+            IntegerAttr.get(IntegerType.get_signless(32), stride)
+            if isinstance(stride, int)
+            else DenseI32ArrayAttr.get(stride)
+        )
+        padding_attr = (
+            IntegerAttr.get(IntegerType.get_signless(32), padding)
+            if isinstance(padding, int)
+            else DenseI32ArrayAttr.get(padding)
+        )
+        groups_attr = IntegerAttr.get(IntegerType.get_signless(32), groups)
+        padding_mode_attr = StringAttr.get(padding_mode)
+
+        batch_dim_attr = IntegerAttr.get(IntegerType.get_signless(64), 0)
+        depth_dim_attr = IntegerAttr.get(IntegerType.get_signless(64), 1)
+        height_dim_attr = IntegerAttr.get(IntegerType.get_signless(64), 2)
+        width_dim_attr = IntegerAttr.get(IntegerType.get_signless(64), 3)
+        channel_dim_attr = IntegerAttr.get(IntegerType.get_signless(64), 4)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        input0 = self._get_golden_tensor(in0)
+        weight0 = self._get_golden_tensor(weight)
+        bias0 = self._get_golden_tensor(bias) if bias is not None else None
+
+        # TTIR conv3d input is NDHWC and weights are OI(DHW). PyTorch expects
+        # NCDHW and OI(DHW), so we only transpose input/output layouts.
+        torch_input = input0.permute(0, 4, 1, 2, 3)
+        torch_weight = weight0
+
+        if isinstance(stride, int):
+            torch_stride = (stride, stride, stride)
+        else:
+            torch_stride = tuple(stride)
+
+        if isinstance(padding, int):
+            torch_padding = (padding, padding, padding)
+        else:
+            torch_padding = tuple(padding)
+
+        torch_bias = None if bias0 is None else bias0.reshape(-1)
+
+        golden_output = torch.nn.functional.conv3d(
+            torch_input,
+            torch_weight,
+            bias=torch_bias,
+            stride=torch_stride,
+            padding=torch_padding,
+            dilation=(1, 1, 1),
+            groups=groups,
+        ).permute(0, 2, 3, 4, 1)
+
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir_op(
+            result,
+            in0,
+            weight,
+            stride_attr,
+            padding_attr,
+            groups_attr,
+            bias=bias,
+            batch_dim=batch_dim_attr,
+            depth_dim=depth_dim_attr,
+            height_dim=height_dim_attr,
+            width_dim=width_dim_attr,
+            channel_dim=channel_dim_attr,
+            padding_mode=padding_mode_attr,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
     @tag(ttir.ConvTranspose2dOp)
     def conv_transpose2d(
         self,

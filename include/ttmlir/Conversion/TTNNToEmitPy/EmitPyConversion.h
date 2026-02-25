@@ -17,6 +17,7 @@
 #include "llvm/ADT/TypeSwitch.h"
 
 #include <iomanip>
+#include <string>
 #include <type_traits>
 
 // This namespace contains mock definitions of TTNN types for the purpose of
@@ -81,6 +82,7 @@ struct MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig;
 } // namespace operations
 
 // Compute kernel config types
+struct BlackholeComputeKernelConfig;
 struct WormholeComputeKernelConfig;
 
 // Math fidelity enum (mock for EmitPy conversion)
@@ -90,6 +92,10 @@ struct MathFidelity;
 namespace prim {
 struct LayerNormShardedMultiCoreProgramConfig;
 } // namespace prim
+
+namespace experimental::prim {
+struct Conv3dConfig;
+} // namespace experimental::prim
 
 } // namespace ttnn
 
@@ -139,6 +145,11 @@ struct TypeName<::ttnn::operations::conv::conv2d::Conv2dSliceConfig> {
 };
 
 template <>
+struct TypeName<::ttnn::experimental::prim::Conv3dConfig> {
+  inline static const std::string value = "ttnn.Conv3dConfig";
+};
+
+template <>
 struct TypeName<::ttnn::operations::matmul::MatmulMultiCoreReuseProgramConfig> {
   inline static const std::string value =
       "ttnn.MatmulMultiCoreReuseProgramConfig";
@@ -168,6 +179,11 @@ struct TypeName<::ttnn::operations::matmul::
 template <>
 struct TypeName<::ttnn::WormholeComputeKernelConfig> {
   inline static const std::string value = "ttnn.WormholeComputeKernelConfig";
+};
+
+template <>
+struct TypeName<::ttnn::BlackholeComputeKernelConfig> {
+  inline static const std::string value = "ttnn.BlackholeComputeKernelConfig";
 };
 
 template <>
@@ -1470,6 +1486,69 @@ struct EmitPyTypeConverter<::ttnn::operations::conv::conv2d::Conv2dConfig> {
 };
 
 template <>
+struct EmitPyTypeConverter<::ttnn::experimental::prim::Conv3dConfig> {
+  static std::optional<std::string> convert(mlir::Attribute attr) {
+    if (auto conv3dConfigAttr =
+            mlir::dyn_cast_if_present<ttnn::Conv3dConfigAttr>(attr)) {
+      return convert(conv3dConfigAttr);
+    }
+    // Ensure Conv3dConfig is always materialized so runtime receives a valid
+    // config object even when Conv3dConfigAttr is absent.
+    return convert(ttnn::Conv3dConfigAttr{});
+  }
+
+  static std::string convert(ttnn::Conv3dConfigAttr attr) {
+    std::string buf;
+    llvm::raw_string_ostream rso(buf);
+
+    bool firstElement = true;
+    rso << TypeNameV<::ttnn::experimental::prim::Conv3dConfig> << "(";
+    if (attr) {
+      if (attr.getWeightsDtype()) {
+        rso << (firstElement ? "" : ", ") << "weights_dtype="
+            << EmitPyTypeConverter<::ttnn::DataType>::convert(
+                   *attr.getWeightsDtype());
+        firstElement = false;
+      }
+      if (attr.getTOutBlock()) {
+        rso << (firstElement ? "" : ", ") << "T_out_block="
+            << *attr.getTOutBlock();
+        firstElement = false;
+      }
+      if (attr.getWOutBlock()) {
+        rso << (firstElement ? "" : ", ") << "W_out_block="
+            << *attr.getWOutBlock();
+        firstElement = false;
+      }
+      if (attr.getHOutBlock()) {
+        rso << (firstElement ? "" : ", ") << "H_out_block="
+            << *attr.getHOutBlock();
+        firstElement = false;
+      }
+      if (attr.getCOutBlock()) {
+        rso << (firstElement ? "" : ", ") << "C_out_block="
+            << *attr.getCOutBlock();
+        firstElement = false;
+      }
+      if (attr.getCInBlock()) {
+        rso << (firstElement ? "" : ", ") << "C_in_block="
+            << *attr.getCInBlock();
+        firstElement = false;
+      }
+      if (attr.getComputeWithStorageGridSize()) {
+        auto gridAttr = *attr.getComputeWithStorageGridSize();
+        rso << (firstElement ? "" : ", ")
+            << "compute_with_storage_grid_size=ttnn.CoreCoord("
+            << gridAttr.getShape()[0] << ", " << gridAttr.getShape()[1] << ")";
+      }
+    }
+
+    rso << ")";
+    return buf;
+  }
+};
+
+template <>
 struct EmitPyTypeConverter<
     ::ttnn::operations::conv::conv2d::Conv2dSliceConfig> {
   static std::optional<std::string> convert(mlir::Attribute attr) {
@@ -1736,71 +1815,105 @@ struct EmitPyTypeConverter<::ttnn::MathFidelity> {
   }
 };
 
-// Specialization for DeviceComputeKernelConfig (as WormholeComputeKernelConfig)
+template <typename ComputeKernelConfigTy>
+static std::optional<std::string> convertDeviceComputeKernelConfig(
+    ttnn::DeviceComputeKernelConfigAttr attr) {
+  if (!attr) {
+    return std::nullopt;
+  }
+
+  std::string buf;
+  llvm::raw_string_ostream rso(buf);
+  rso << TypeNameV<ComputeKernelConfigTy> << "(";
+
+  bool first = true;
+
+  // math_fidelity
+  if (auto mathFidelity = attr.getMathFidelity()) {
+    if (!first) {
+      rso << ", ";
+    }
+    first = false;
+    rso << "math_fidelity="
+        << EmitPyTypeConverter<::ttnn::MathFidelity>::convert(*mathFidelity);
+  }
+
+  // math_approx_mode
+  if (auto mathApproxMode = attr.getMathApproxMode()) {
+    if (!first) {
+      rso << ", ";
+    }
+    first = false;
+    rso << "math_approx_mode=" << (mathApproxMode.getValue() ? "True" : "False");
+  }
+
+  // fp32_dest_acc_en
+  if (auto fp32DestAccEn = attr.getFp32DestAccEn()) {
+    if (!first) {
+      rso << ", ";
+    }
+    first = false;
+    rso << "fp32_dest_acc_en=" << (fp32DestAccEn.getValue() ? "True" : "False");
+  }
+
+  // packer_l1_acc
+  if (auto packerL1Acc = attr.getPackerL1Acc()) {
+    if (!first) {
+      rso << ", ";
+    }
+    first = false;
+    rso << "packer_l1_acc=" << (packerL1Acc.getValue() ? "True" : "False");
+  }
+
+  // dst_full_sync_en
+  if (auto dstFullSyncEn = attr.getDstFullSyncEn()) {
+    if (!first) {
+      rso << ", ";
+    }
+    rso << "dst_full_sync_en=" << (dstFullSyncEn.getValue() ? "True" : "False");
+  }
+
+  rso << ")";
+  return buf;
+}
+
+// Specialization for Wormhole DeviceComputeKernelConfig.
 template <>
 struct EmitPyTypeConverter<::ttnn::WormholeComputeKernelConfig> {
   static std::optional<std::string>
+  convert(mlir::Attribute attr) {
+    if (auto computeKernelConfigAttr =
+            mlir::dyn_cast_if_present<ttnn::DeviceComputeKernelConfigAttr>(
+                attr)) {
+      return convert(computeKernelConfigAttr);
+    }
+    return {};
+  }
+
+  static std::optional<std::string>
   convert(ttnn::DeviceComputeKernelConfigAttr attr) {
-    if (!attr) {
-      return std::nullopt;
+    return convertDeviceComputeKernelConfig<::ttnn::WormholeComputeKernelConfig>(
+        attr);
+  }
+};
+
+// Specialization for Blackhole DeviceComputeKernelConfig.
+template <>
+struct EmitPyTypeConverter<::ttnn::BlackholeComputeKernelConfig> {
+  static std::optional<std::string>
+  convert(mlir::Attribute attr) {
+    if (auto computeKernelConfigAttr =
+            mlir::dyn_cast_if_present<ttnn::DeviceComputeKernelConfigAttr>(
+                attr)) {
+      return convert(computeKernelConfigAttr);
     }
+    return {};
+  }
 
-    std::string buf;
-    llvm::raw_string_ostream rso(buf);
-    rso << TypeNameV<::ttnn::WormholeComputeKernelConfig> << "(";
-
-    bool first = true;
-
-    // math_fidelity
-    if (auto mathFidelity = attr.getMathFidelity()) {
-      if (!first) {
-        rso << ", ";
-      }
-      first = false;
-      rso << "math_fidelity="
-          << EmitPyTypeConverter<::ttnn::MathFidelity>::convert(*mathFidelity);
-    }
-
-    // math_approx_mode
-    if (auto mathApproxMode = attr.getMathApproxMode()) {
-      if (!first) {
-        rso << ", ";
-      }
-      first = false;
-      rso << "math_approx_mode="
-          << (mathApproxMode.getValue() ? "True" : "False");
-    }
-
-    // fp32_dest_acc_en
-    if (auto fp32DestAccEn = attr.getFp32DestAccEn()) {
-      if (!first) {
-        rso << ", ";
-      }
-      first = false;
-      rso << "fp32_dest_acc_en="
-          << (fp32DestAccEn.getValue() ? "True" : "False");
-    }
-
-    // packer_l1_acc
-    if (auto packerL1Acc = attr.getPackerL1Acc()) {
-      if (!first) {
-        rso << ", ";
-      }
-      first = false;
-      rso << "packer_l1_acc=" << (packerL1Acc.getValue() ? "True" : "False");
-    }
-
-    // dst_full_sync_en
-    if (auto dstFullSyncEn = attr.getDstFullSyncEn()) {
-      if (!first) {
-        rso << ", ";
-      }
-      rso << "dst_full_sync_en="
-          << (dstFullSyncEn.getValue() ? "True" : "False");
-    }
-
-    rso << ")";
-    return buf;
+  static std::optional<std::string>
+  convert(ttnn::DeviceComputeKernelConfigAttr attr) {
+    return convertDeviceComputeKernelConfig<::ttnn::BlackholeComputeKernelConfig>(
+        attr);
   }
 };
 
@@ -1915,6 +2028,11 @@ struct TTNNTarget<tt::ttnn::UnaryWithParamAttr> {
 template <>
 struct TTNNTarget<mlir::tt::ttnn::Conv2dConfigAttr> {
   using type = ::ttnn::operations::conv::conv2d::Conv2dConfig;
+};
+
+template <>
+struct TTNNTarget<mlir::tt::ttnn::Conv3dConfigAttr> {
+  using type = ::ttnn::experimental::prim::Conv3dConfig;
 };
 
 template <>
@@ -2110,6 +2228,33 @@ public:
     llvm::interleaveComma(dims, rso);
     rso << "])";
     return rso.str();
+  }
+
+  std::string
+  emitComputeKernelConfig(std::optional<ttnn::DeviceComputeKernelConfigAttr> attr, std::string attrName = "") {
+    if (!attr) {
+      return emit(std::nullopt, attrName);
+    }
+    return emitComputeKernelConfig(*attr, attrName);
+  }
+
+  std::string
+  emitComputeKernelConfig(ttnn::DeviceComputeKernelConfigAttr attr, std::string attrName = "") {
+    auto moduleOp = op->template getParentOfType<mlir::ModuleOp>();
+    auto systemDesc = moduleOp
+                          ? moduleOp->template getAttrOfType<ttcore::SystemDescAttr>(
+                                ttcore::SystemDescAttr::name)
+                          : ttcore::SystemDescAttr();
+    assert(systemDesc && "expected system desc to be present on the module");
+    assert(!systemDesc.getChipDescs().empty() && "expected at least one chip desc");
+    auto arch = systemDesc.getChipDesc(0).getArch().getValue();
+    if (arch == ttcore::Arch::Blackhole) {
+      return *emit<::ttnn::BlackholeComputeKernelConfig>(attr, attrName);
+    }
+    if (arch == ttcore::Arch::WormholeB0) {
+      return *emit<::ttnn::WormholeComputeKernelConfig>(attr, attrName);
+    }
+    llvm_unreachable("unsupported architecture");
   }
 
   // Handles the case when a source type is convertible to `mlir::Attribute` and
