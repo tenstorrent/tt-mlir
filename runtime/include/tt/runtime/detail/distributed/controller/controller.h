@@ -7,6 +7,7 @@
 
 #include "tt/runtime/detail/common/socket.h"
 #include "tt/runtime/detail/distributed/flatbuffer/flatbuffer.h"
+#include "tt/runtime/runtime.h"
 #include "tt/runtime/detail/distributed/types/spsc_queue.h"
 #include "tt/runtime/types.h"
 #include <thread>
@@ -96,6 +97,9 @@ public:
   void setFabricConfig(const ::tt::runtime::FabricConfig &fabricConfig);
 
   size_t getNumAvailableDevices();
+
+  ::tt::runtime::MeshFabricConfig
+  computeMeshFabricConfig(const std::vector<uint32_t> &meshShape);
 
   ::tt::runtime::Device
   openMeshDevice(const ::tt::runtime::MeshDeviceOptions &options = {});
@@ -313,6 +317,10 @@ private:
       const std::vector<SizedBuffer> &responseBuffers,
       std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse);
   void handleClearProgramCacheResponse(
+      const std::vector<SizedBuffer> &responseBuffers,
+      std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse);
+
+  void handleComputeMeshFabricConfigResponse(
       const std::vector<SizedBuffer> &responseBuffers,
       std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse);
 

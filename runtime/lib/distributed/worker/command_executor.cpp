@@ -4,6 +4,7 @@
 
 #include "tt/runtime/detail/distributed/worker/command_executor.h"
 #include "tt/runtime/detail/common/logger.h"
+#include "tt/runtime/detail/common/mesh_fabric_config.h"
 #include "tt/runtime/detail/common/runtime_context.h"
 #include "tt/runtime/detail/common/socket.h"
 #include "tt/runtime/detail/distributed/worker/response_factory.h"
@@ -699,6 +700,29 @@ void CommandExecutor::execute(uint64_t commandId,
   responseQueue_.push(std::move(responseBuilder));
 }
 
+void CommandExecutor::execute(
+    uint64_t commandId,
+    const fb::ComputeMeshFabricConfigCommand *command) {
+
+  std::vector<uint32_t> meshShape(command->mesh_shape()->begin(),
+                                  command->mesh_shape()->end());
+
+  ::tt::runtime::SystemDesc systemDesc =
+      ::tt::runtime::system_desc::getCurrentSystemDesc();
+
+  ::tt::runtime::MeshFabricConfig fabricConfig =
+      ::tt::runtime::common::computeMeshFabricConfig(systemDesc.get(),
+                                                     meshShape);
+
+  std::unique_ptr<::flatbuffers::FlatBufferBuilder> responseBuilder =
+      std::make_unique<::flatbuffers::FlatBufferBuilder>();
+  ResponseFactory::buildComputeMeshFabricConfigResponse(*responseBuilder,
+                                                        commandId,
+                                                        fabricConfig);
+
+  responseQueue_.push(std::move(responseBuilder));
+}
+
 void CommandExecutor::executeCommand(const fb::Command *command) {
   switch (command->type_type()) {
   case fb::CommandType::ConfigureRuntimeContextCommand: {
@@ -806,6 +830,10 @@ void CommandExecutor::executeCommand(const fb::Command *command) {
   case fb::CommandType::ClearProgramCacheCommand: {
     return execute(command->command_id(),
                    command->type_as_ClearProgramCacheCommand());
+  }
+  case fb::CommandType::ComputeMeshFabricConfigCommand: {
+    return execute(command->command_id(),
+                   command->type_as_ComputeMeshFabricConfigCommand());
   }
   case fb::CommandType::NONE: {
     LOG_FATAL("Unhandled command type: ",

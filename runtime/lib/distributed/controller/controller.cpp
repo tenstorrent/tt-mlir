@@ -305,6 +305,34 @@ size_t Controller::getNumAvailableDevices() {
   return *numDevicesHandle;
 }
 
+::tt::runtime::MeshFabricConfig Controller::computeMeshFabricConfig(
+    const std::vector<uint32_t> &meshShape) {
+  auto commandBuilder = std::make_unique<::flatbuffers::FlatBufferBuilder>();
+
+  uint64_t commandId =
+      CommandFactory::buildComputeMeshFabricConfigCommand(*commandBuilder,
+                                                         meshShape);
+
+  auto awaitingHandles = std::make_unique<std::vector<std::shared_ptr<void>>>();
+  auto fabricConfigHandle =
+      std::make_shared<::tt::runtime::MeshFabricConfig>();
+  awaitingHandles->push_back(
+      std::static_pointer_cast<void>(fabricConfigHandle));
+
+  auto awaitingPromise = std::make_unique<std::promise<void>>();
+  std::future<void> awaitingFuture = awaitingPromise->get_future();
+
+  pushToCommandAndResponseQueues(
+      commandId, fb::CommandType::ComputeMeshFabricConfigCommand,
+      std::move(commandBuilder), std::move(awaitingHandles),
+      std::move(awaitingPromise));
+
+  awaitingFuture.wait();
+
+  return *fabricConfigHandle;
+}
+
+
 ::tt::runtime::Device
 Controller::openMeshDevice(const ::tt::runtime::MeshDeviceOptions &options) {
 
@@ -1481,6 +1509,47 @@ void Controller::handleClearProgramCacheResponse(
   debug::assertNoAwaitingState(*awaitingResponse, "ClearProgramCache");
 }
 
+void Controller::handleComputeMeshFabricConfigResponse(
+    const std::vector<SizedBuffer> &responseBuffers,
+    std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse) {
+
+  debug::checkResponsesIdentical(responseBuffers);
+
+  debug::checkResponseTypes(
+      responseBuffers,
+      fb::ResponseType::ComputeMeshFabricConfigResponse);
+
+  const fb::ComputeMeshFabricConfigResponse *response =
+      getResponse(responseBuffers.front())
+          ->type_as_ComputeMeshFabricConfigResponse();
+
+  ::tt::runtime::MeshFabricConfig result;
+  result.globalConfig = response->global_config();
+  if (response->per_axis_config()) {
+    for (auto axisConfig : *response->per_axis_config()) {
+      result.perAxisConfig.push_back(
+          static_cast<::tt::runtime::FabricConfig>(axisConfig));
+    }
+  }
+
+  auto [awaitingHandles, awaitingPromise] =
+      awaitingResponse->popAwaitingState();
+
+  DEBUG_ASSERT(awaitingHandles && awaitingHandles->size() == 1,
+               "ComputeMeshFabricConfig: Awaiting handles must be populated "
+               "and contain exactly one handle");
+
+  DEBUG_ASSERT(awaitingPromise, "Awaiting promise must be populated");
+
+  auto fabricConfigHandle =
+      std::static_pointer_cast<::tt::runtime::MeshFabricConfig>(
+          awaitingHandles->at(0));
+  *fabricConfigHandle = result;
+
+  awaitingPromise->set_value();
+}
+
+
 void Controller::handleResponse(
     const std::vector<SizedBuffer> &responseBuffers,
     std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse) {
@@ -1591,6 +1660,10 @@ void Controller::handleResponse(
   case fb::CommandType::ClearProgramCacheCommand: {
     return handleClearProgramCacheResponse(responseBuffers,
                                            std::move(awaitingResponse));
+  }
+  case fb::CommandType::ComputeMeshFabricConfigCommand: {
+    return handleComputeMeshFabricConfigResponse(responseBuffers,
+                                                 std::move(awaitingResponse));
   }
   case fb::CommandType::NONE: {
     LOG_FATAL("Unhandled response type for command type: ",

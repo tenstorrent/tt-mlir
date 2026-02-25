@@ -278,6 +278,26 @@ void ResponseFactory::buildClearProgramCacheResponse(
   BUILD_RESPONSE(ClearProgramCache, fbb, commandId);
 }
 
+
+void ResponseFactory::buildComputeMeshFabricConfigResponse(
+    ::flatbuffers::FlatBufferBuilder &fbb, uint64_t commandId,
+    const ::tt::runtime::MeshFabricConfig &fabricConfig) {
+  LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
+
+  auto perAxisVec = fbb.CreateVector(
+      reinterpret_cast<const fb::FabricConfig *>(
+          fabricConfig.perAxisConfig.data()),
+      fabricConfig.perAxisConfig.size());
+
+  auto responseType = fb::ResponseType::ComputeMeshFabricConfigResponse;
+  auto responseOffset = fb::CreateComputeMeshFabricConfigResponse(
+      fbb, fabricConfig.globalConfig, perAxisVec);
+  auto response = fb::CreateResponse(fbb, commandId, responseType,
+                                     responseOffset.Union());
+  fb::FinishResponseBuffer(fbb, response);
+  debug::verifyFlatbuffer(fbb, verifyFn);
+}
+
 #undef BUILD_RESPONSE_IMPL
 #undef BUILD_RESPONSE
 #undef BUILD_RESPONSE_DIRECT

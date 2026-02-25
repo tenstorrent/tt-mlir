@@ -82,6 +82,13 @@ size_t getNumAvailableDevices() {
   return ControllerSingleton::get().getNumAvailableDevices();
 }
 
+::tt::runtime::MeshFabricConfig
+computeMeshFabricConfig(const std::vector<uint32_t> &meshShape) {
+  assertControllerLaunched();
+  return ControllerSingleton::get().computeMeshFabricConfig(meshShape);
+}
+
+
 ::tt::runtime::Device
 openMeshDevice(const ::tt::runtime::MeshDeviceOptions &options) {
   assertControllerLaunched();

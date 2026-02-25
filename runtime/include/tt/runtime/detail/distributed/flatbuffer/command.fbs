@@ -162,6 +162,10 @@ table ClearProgramCacheCommand{
   device: tt.target.DeviceRef;
 }
 
+table ComputeMeshFabricConfigCommand {
+  mesh_shape: [uint32];
+}
+
 union CommandType {
   ConfigureRuntimeContextCommand,
   SetMemoryLogLevelCommand,
@@ -191,6 +195,7 @@ union CommandType {
   HasLayoutCommand,
   IsProgramCacheEnabledCommand,
   ClearProgramCacheCommand,
+  ComputeMeshFabricConfigCommand,
 }
 
 table Command {

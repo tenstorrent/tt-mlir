@@ -503,6 +503,19 @@ uint64_t CommandFactory::buildClearProgramCacheCommand(
   return commandId;
 }
 
+
+uint64_t CommandFactory::buildComputeMeshFabricConfigCommand(
+    ::flatbuffers::FlatBufferBuilder &fbb,
+    const std::vector<uint32_t> &meshShape) {
+
+  LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
+
+  uint64_t commandId =
+      BUILD_COMMAND_DIRECT(ComputeMeshFabricConfig, fbb, &meshShape);
+
+  return commandId;
+}
+
 #undef BUILD_COMMAND_IMPL
 #undef BUILD_COMMAND
 #undef BUILD_COMMAND_DIRECT

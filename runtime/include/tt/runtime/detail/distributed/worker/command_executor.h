@@ -180,6 +180,10 @@ private:
           const ::tt::runtime::distributed::flatbuffer::ClearProgramCacheCommand
               *command);
 
+  void execute(uint64_t commandId,
+               const ::tt::runtime::distributed::flatbuffer::
+                   ComputeMeshFabricConfigCommand *command);
+
   void executeCommand(
       const ::tt::runtime::distributed::flatbuffer::Command *command);
 };

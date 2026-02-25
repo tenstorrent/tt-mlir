@@ -6,6 +6,7 @@
 #define TT_RUNTIME_DETAIL_DISTRIBUTED_WORKER_RESPONSE_FACTORY_H
 
 #include "flatbuffers/flatbuffers.h"
+#include "tt/runtime/runtime.h"
 #include "tt/runtime/types.h"
 #include <string_view>
 
@@ -123,6 +124,10 @@ public:
   static void
   buildClearProgramCacheResponse(::flatbuffers::FlatBufferBuilder &fbb,
                                  uint64_t commandId);
+
+  static void buildComputeMeshFabricConfigResponse(
+      ::flatbuffers::FlatBufferBuilder &fbb, uint64_t commandId,
+      const ::tt::runtime::MeshFabricConfig &fabricConfig);
 };
 
 } // namespace tt::runtime::distributed::worker

@@ -6,6 +6,7 @@
 #define TT_RUNTIME_DETAIL_DISTRIBUTED_DISTRIBUTED_H
 
 #include "tt/runtime/types.h"
+#include "tt/runtime/runtime.h"
 
 namespace tt::runtime::distributed {
 
@@ -22,6 +23,9 @@ SystemDesc getCurrentSystemDesc(
 void setFabricConfig(const ::tt::runtime::FabricConfig &fabricConfig);
 
 size_t getNumAvailableDevices();
+
+::tt::runtime::MeshFabricConfig
+computeMeshFabricConfig(const std::vector<uint32_t> &meshShape);
 
 ::tt::runtime::Device openMeshDevice(const MeshDeviceOptions &options = {});
 

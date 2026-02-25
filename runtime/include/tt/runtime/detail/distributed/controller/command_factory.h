@@ -147,6 +147,10 @@ public:
                                         const ::tt::runtime::Tensor &tensor,
                                         const ::tt::runtime::Layout &layout);
   static uint64_t buildShutdownCommand(::flatbuffers::FlatBufferBuilder &fbb);
+
+  static uint64_t buildComputeMeshFabricConfigCommand(
+      ::flatbuffers::FlatBufferBuilder &fbb,
+      const std::vector<uint32_t> &meshShape);
 };
 
 } // namespace tt::runtime::distributed::controller
