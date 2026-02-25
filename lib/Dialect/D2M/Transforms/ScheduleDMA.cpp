@@ -59,8 +59,9 @@ collectDMAOps(Block *block,
   }
 }
 
-// Assign NoC indices to thread assignments based on DRAM access patterns.
-// DRAM readers get NoC 0, DRAM writers get NoC 1.
+// Assign NoC indices to the two DM thread assignments based on DRAM access
+// patterns.  A DRAM reader gets NoC 0, a DRAM writer gets NoC 1.  If a thread
+// does both, the read takes priority (Noc0).
 static void assignNocIndices(
     SmallVectorImpl<DMAThreadAssignment> &assignments,
     const SmallVectorImpl<std::pair<Operation *, unsigned>> &dmaOps) {
@@ -80,30 +81,26 @@ static void assignNocIndices(
     }
   }
 
-  // Assign Noc0 for DRAM readers and Noc1 for DRAM writers.
-  unsigned nocCount[2] = {0, 0};
-  for (auto &assignment : assignments) {
-    if (llvm::any_of(assignment.assignedCBs, [&](unsigned cbIdx) {
-          return dramReadCBs.contains(cbIdx);
-        })) {
-      assignment.nocIndex = 0;
-      nocCount[0]++;
-    } else if (llvm::any_of(assignment.assignedCBs, [&](unsigned cbIdx) {
-                 return dramWriteCBs.contains(cbIdx);
-               })) {
-      assignment.nocIndex = 1;
-      nocCount[1]++;
-    }
-  }
+  auto &thread0 = assignments[0];
+  auto &thread1 = assignments[1];
 
-  // For unassigned threads, assign to the NoC with fewer assignments.
-  for (auto &assignment : assignments) {
-    if (assignment.nocIndex < 0) {
-      int32_t pick = nocCount[0] <= nocCount[1] ? 0 : 1;
-      assignment.nocIndex = pick;
-      nocCount[pick]++;
-    }
-  }
+  auto hasCBIn = [](const DMAThreadAssignment &a, const DenseSet<unsigned> &s) {
+    return llvm::any_of(a.assignedCBs,
+                        [&](unsigned cb) { return s.contains(cb); });
+  };
+
+  bool thread0ReadsDRAM = hasCBIn(thread0, dramReadCBs);
+  bool thread1ReadsDRAM = hasCBIn(thread1, dramReadCBs);
+
+  // DRAM reader gets NoC 0, writer gets NoC 1.  Reader takes priority.
+  // Swap from above default assignment only when thread 1 is
+  // the sole DRAM reader, or thread0 is sole DRAM writer.
+  bool swap =
+      (!thread0ReadsDRAM && thread1ReadsDRAM) ||
+      (!thread0ReadsDRAM && !thread1ReadsDRAM &&
+       hasCBIn(thread0, dramWriteCBs) && !hasCBIn(thread1, dramWriteCBs));
+  thread0.nocIndex = swap ? 1 : 0;
+  thread1.nocIndex = swap ? 0 : 1;
 }
 
 // Assign CBs to threads to balance workload.
