@@ -124,8 +124,7 @@ bool isNonRectangularGrid(TTNNLayoutAttr layout) {
   if (!grid) {
     return false;
   }
-  auto crs =
-      ttcore::utils::toCoreRangeSet(grid.getShape(), grid.getMapping());
+  auto crs = ttcore::utils::toCoreRangeSet(grid.getShape(), grid.getMapping());
   return crs.size() > 1;
 }
 
@@ -135,9 +134,8 @@ bool requiresRectangularGridInputs(Operation *op) {
 
 bool shouldExploreReshards(Operation *op) {
   return llvm::TypeSwitch<Operation *, bool>(op)
-      .Case<ReshapeOp, PermuteOp, ConcatenateHeadsOp>([](auto) {
-        return false;
-      })
+      .Case<ReshapeOp, PermuteOp, ConcatenateHeadsOp>(
+          [](auto) { return false; })
       .Default([](Operation *) { return true; });
 }
 
@@ -188,7 +186,7 @@ scoreCandidate(Operation *op, const OpConfig &config,
   score.requiresReshard = requiresReshard;
   score.outputL1Usage = result.outputL1Usage;
 
-  TTNNLayoutAttr layout = result.actualOutputLayout;
+  TTNNLayoutAttr layout = result.getFirstActualOutputLayout();
   if (!layout) {
     // No layout returned; treat as DRAM fallback.
     return score;

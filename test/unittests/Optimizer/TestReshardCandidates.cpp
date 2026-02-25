@@ -41,7 +41,8 @@ public:
     module = mlir::ModuleOp::create(builder.getUnknownLoc());
     builder.setInsertionPointToStart(&module->getBodyRegion().front());
     mlir::tt::ttcore::registerDevice(module.get());
-    mlir::tt::ttnn::op_model::SingletonDeviceContext::getInstance().openDevice();
+    mlir::tt::ttnn::op_model::SingletonDeviceContext::getInstance()
+        .openDevice();
 
     setL1UsageCap(1.0f);
   }
@@ -70,7 +71,7 @@ public:
         &context, tensorShape, elementType, bufferType,
         mlir::tt::ttcore::GridAttr::get(&context, gridShape),
         mlir::tt::ttnn::TensorMemoryLayoutAttr::get(&context,
-                                                     tensorMemoryLayout));
+                                                    tensorMemoryLayout));
   }
 
   TTNNLayoutAttr
@@ -131,26 +132,23 @@ public:
     auto &pageLayoutArr = scalarMap[elementType];
 
     // Populate the Tiled + Sharded slot.
-    size_t tiledIdx =
-        static_cast<size_t>(TensorPageLayout::Tiled);
-    size_t shardedIdx =
-        static_cast<size_t>(TensorMemoryLayoutIndex::Sharded);
+    size_t tiledIdx = static_cast<size_t>(TensorPageLayout::Tiled);
+    size_t shardedIdx = static_cast<size_t>(TensorMemoryLayoutIndex::Sharded);
 
     for (const auto &[memLayout, gridShape] : shardSpecs) {
-      auto layout = TTNNLayoutAttr::get(
-          &context, shape, elementType, BufferType::L1,
-          ttcore::GridAttr::get(&context, gridShape),
-          TensorMemoryLayoutAttr::get(&context, memLayout));
+      auto layout =
+          TTNNLayoutAttr::get(&context, shape, elementType, BufferType::L1,
+                              ttcore::GridAttr::get(&context, gridShape),
+                              TensorMemoryLayoutAttr::get(&context, memLayout));
       pageLayoutArr[tiledIdx][shardedIdx].push_back(layout);
     }
 
     return layoutsMap;
   }
 
-  mlir::func::FuncOp
-  createFuncOp(llvm::ArrayRef<mlir::Type> inputTypes,
-               llvm::ArrayRef<mlir::Type> outputTypes,
-               llvm::StringRef name = "test") {
+  mlir::func::FuncOp createFuncOp(llvm::ArrayRef<mlir::Type> inputTypes,
+                                  llvm::ArrayRef<mlir::Type> outputTypes,
+                                  llvm::StringRef name = "test") {
     auto funcType = builder.getType<mlir::FunctionType>(
         mlir::TypeRange(inputTypes), mlir::TypeRange(outputTypes));
     func = builder.create<mlir::func::FuncOp>(builder.getUnknownLoc(), name,
@@ -178,8 +176,8 @@ TEST_F(ReshardCandidatesTest, WithTensorLayoutsMap_DoesNotCrash) {
   mlir::Value arg0 = func.getBody().front().getArgument(0);
   mlir::Value arg1 = func.getBody().front().getArgument(1);
 
-  auto addOp = builder.create<AddOp>(builder.getUnknownLoc(), tensorType, arg0,
-                                     arg1);
+  auto addOp =
+      builder.create<AddOp>(builder.getUnknownLoc(), tensorType, arg0, arg1);
   auto reluOp = builder.create<ReluOp>(builder.getUnknownLoc(), tensorType,
                                        addOp.getResult());
   auto mulOp = builder.create<MultiplyOp>(builder.getUnknownLoc(), tensorType,
@@ -193,8 +191,7 @@ TEST_F(ReshardCandidatesTest, WithTensorLayoutsMap_DoesNotCrash) {
   legalConfigs[mulOp.getOperation()] = createElementwiseLegalConfigs(shape);
 
   // Build the tensor type layouts map with sharded candidates.
-  auto bareType =
-      mlir::RankedTensorType::get(shape, builder.getBF16Type());
+  auto bareType = mlir::RankedTensorType::get(shape, builder.getBF16Type());
   TensorTypeLayoutsMap tensorLayouts =
       buildTensorTypeLayoutsMap(bareType, shape);
 
@@ -215,8 +212,8 @@ TEST_F(ReshardCandidatesTest, NullTensorLayouts_NoReshardCandidates) {
   mlir::Value arg0 = func.getBody().front().getArgument(0);
   mlir::Value arg1 = func.getBody().front().getArgument(1);
 
-  auto addOp = builder.create<AddOp>(builder.getUnknownLoc(), tensorType, arg0,
-                                     arg1);
+  auto addOp =
+      builder.create<AddOp>(builder.getUnknownLoc(), tensorType, arg0, arg1);
   auto reluOp = builder.create<ReluOp>(builder.getUnknownLoc(), tensorType,
                                        addOp.getResult());
   builder.create<mlir::func::ReturnOp>(builder.getUnknownLoc(),
@@ -258,25 +255,23 @@ TEST_F(ReshardCandidatesTest, BeamCandidatesWithTensorLayouts_MoreThanWithout) {
 
     static int counter = 0;
     std::string name = "test_" + std::to_string(counter++);
-    auto localFunc =
-        builder.create<mlir::func::FuncOp>(
-            builder.getUnknownLoc(), name,
-            builder.getType<mlir::FunctionType>(
-                mlir::TypeRange({tensorType, tensorType}),
-                mlir::TypeRange({tensorType})));
+    auto localFunc = builder.create<mlir::func::FuncOp>(
+        builder.getUnknownLoc(), name,
+        builder.getType<mlir::FunctionType>(
+            mlir::TypeRange({tensorType, tensorType}),
+            mlir::TypeRange({tensorType})));
     mlir::Block *block = localFunc.addEntryBlock();
     builder.setInsertionPointToStart(block);
 
     mlir::Value arg0 = block->getArgument(0);
     mlir::Value arg1 = block->getArgument(1);
 
-    auto addOp = builder.create<AddOp>(builder.getUnknownLoc(), tensorType,
-                                       arg0, arg1);
+    auto addOp =
+        builder.create<AddOp>(builder.getUnknownLoc(), tensorType, arg0, arg1);
     auto reluOp = builder.create<ReluOp>(builder.getUnknownLoc(), tensorType,
                                          addOp.getResult());
-    auto mulOp = builder.create<MultiplyOp>(builder.getUnknownLoc(),
-                                            tensorType, reluOp.getResult(),
-                                            arg1);
+    auto mulOp = builder.create<MultiplyOp>(builder.getUnknownLoc(), tensorType,
+                                            reluOp.getResult(), arg1);
     builder.create<mlir::func::ReturnOp>(builder.getUnknownLoc(),
                                          mulOp.getResult());
 
@@ -324,25 +319,23 @@ TEST_F(ReshardCandidatesTest, ReshardExploration_K1vsK8) {
 
     static int counter = 100;
     std::string name = "k_test_" + std::to_string(counter++);
-    auto localFunc =
-        builder.create<mlir::func::FuncOp>(
-            builder.getUnknownLoc(), name,
-            builder.getType<mlir::FunctionType>(
-                mlir::TypeRange({tensorType, tensorType}),
-                mlir::TypeRange({tensorType})));
+    auto localFunc = builder.create<mlir::func::FuncOp>(
+        builder.getUnknownLoc(), name,
+        builder.getType<mlir::FunctionType>(
+            mlir::TypeRange({tensorType, tensorType}),
+            mlir::TypeRange({tensorType})));
     mlir::Block *block = localFunc.addEntryBlock();
     builder.setInsertionPointToStart(block);
 
     mlir::Value arg0 = block->getArgument(0);
     mlir::Value arg1 = block->getArgument(1);
 
-    auto addOp = builder.create<AddOp>(builder.getUnknownLoc(), tensorType,
-                                       arg0, arg1);
+    auto addOp =
+        builder.create<AddOp>(builder.getUnknownLoc(), tensorType, arg0, arg1);
     auto reluOp = builder.create<ReluOp>(builder.getUnknownLoc(), tensorType,
                                          addOp.getResult());
-    auto mulOp = builder.create<MultiplyOp>(builder.getUnknownLoc(),
-                                            tensorType, reluOp.getResult(),
-                                            arg1);
+    auto mulOp = builder.create<MultiplyOp>(builder.getUnknownLoc(), tensorType,
+                                            reluOp.getResult(), arg1);
     builder.create<mlir::func::ReturnOp>(builder.getUnknownLoc(),
                                          mulOp.getResult());
 

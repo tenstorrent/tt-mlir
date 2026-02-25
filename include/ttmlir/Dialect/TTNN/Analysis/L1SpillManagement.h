@@ -86,16 +86,16 @@ private:
 
   /// Update op's IR to reflect demoted layout (result type, DPS operand,
   /// L1 usage attr).
-  void applyDemotedConfig(
-      Operation *op,
-      const op_constraint_validation::ValidationResult &result);
+  void
+  applyDemotedConfig(Operation *op,
+                     const op_constraint_validation::ValidationResult &result);
 
   /// After spilling a victim to DRAM, re-validate consumers via worklist.
   /// Cascades through already-processed ops (pos < currentPos) until no more
   /// IR changes occur. Ops after currentPos are handled by the main loop.
-  void revalidateConsumers(
-      Operation *changedOp, int64_t currentPos,
-      const llvm::DenseMap<Operation *, int64_t> &positionMap);
+  void
+  revalidateConsumers(Operation *changedOp, int64_t currentPos,
+                      const llvm::DenseMap<Operation *, int64_t> &positionMap);
 
   /// For each op output that has an L1 usage annotation, compute the schedule
   /// position of its last consumer.
