@@ -443,10 +443,13 @@ public:
           mlir::cast<mlir::ShapedType>(output.getType());
       auto shardLayout = mlir::dyn_cast<ttcore::ShardLayoutAttr>(
           ttcore::getDeviceLayout(outputType));
-      TT_assertv(shardLayout, "Expected shardLayoutAttr for the output of a "
-                              "generic op with a virtual grid.");
 
-      auto physicalGridShape = d2m::utils::getPhysicalGridShape(output);
+      llvm::SmallVector<int64_t> physicalGridShape;
+      if (shardLayout) {
+        physicalGridShape = d2m::utils::getPhysicalGridShape(output);
+      } else {
+        physicalGridShape = d2m::utils::getPhysicalGridShape(op.getInputs()[0]);
+      }
       // TTNN grids are (Width, Height), while D2M grids are (Height, Width).
       endCoreRange = {physicalGridShape[1] - 1, physicalGridShape[0] - 1};
     } else {
