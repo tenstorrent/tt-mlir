@@ -92,7 +92,10 @@ inline void _write_col_mask_to_l1_(volatile T *ptr, uint32_t validCols,
 
 // Fill a tile in DST with a constant scalar value.
 // Uses the standard fill_tile API from compute_kernel_api.
+template <DataFormat df = DataFormat::Float32>
 ALWI void tile_fill(uint32_t dst_index, float value) {
+  static_assert(df == DataFormat::Float32 || df == DataFormat::Float16_b,
+                "tile_fill: unsupported DataFormat");
   MATH((ckernel::fill_tile(dst_index, value)));
 }
 
@@ -119,6 +122,9 @@ ALWI void write_row_mask_tile(uint32_t validRows, uint32_t cb_id) {
     volatile tt_l1_ptr uint16_t *ptr =
         reinterpret_cast<volatile tt_l1_ptr uint16_t *>(write_addr);
     _write_row_mask_to_l1_(ptr, validRows, ONE_BF16);
+  } else {
+    static_assert(df == DataFormat::Float32 || df == DataFormat::Float16_b,
+                  "write_row_mask_tile: unsupported DataFormat");
   }
 #endif
 }
@@ -135,6 +141,9 @@ ALWI void write_col_mask_tile(uint32_t validCols, uint32_t cb_id) {
     volatile tt_l1_ptr uint16_t *ptr =
         reinterpret_cast<volatile tt_l1_ptr uint16_t *>(write_addr);
     _write_col_mask_to_l1_(ptr, validCols, ONE_BF16);
+  } else {
+    static_assert(df == DataFormat::Float32 || df == DataFormat::Float16_b,
+                  "write_col_mask_tile: unsupported DataFormat");
   }
 #endif
 }

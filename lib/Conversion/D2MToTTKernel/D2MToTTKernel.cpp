@@ -1197,11 +1197,6 @@ public:
     Value fillValue = adaptor.getValue();
     Location loc = op->getLoc();
 
-    if (!fillValue.getType().isF32()) {
-      fillValue =
-          rewriter.create<arith::ExtFOp>(loc, rewriter.getF32Type(), fillValue);
-    }
-
     rewriter.create<ttkernel::ExperimentalTileFillOp>(loc, dstIdx, fillValue);
 
     // Replace the op with its DST index so users (like TileWhereOp) get the
