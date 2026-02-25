@@ -448,8 +448,7 @@ struct TTIRToTTNNDevicePipelineOptions
     // Use getNumOccurrences() to detect explicit user settings.
     if (optimizerPassEnabled.getNumOccurrences() == 0) {
       // enable-greedy-optimizer implies enable-optimizer.
-      optimizerPassEnabled =
-          (optimizationLevel >= 1) || enableGreedyOptimizer;
+      optimizerPassEnabled = (optimizationLevel >= 1) || enableGreedyOptimizer;
     }
     if (enableFusingConv2dWithMultiplyPattern.getNumOccurrences() == 0) {
       enableFusingConv2dWithMultiplyPattern =
