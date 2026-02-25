@@ -71,11 +71,39 @@ PythonModelRunner::PythonModelRunner() {
   if (existingModule == nullptr) {
     if (pythonWasAlreadyInitialized) {
       // Python was already initialized by an external process, so we couldn't
-      // use PyImport_AppendInittab(). Manually create and register the module.
-      PyObject *m = PyInit__tt_alchemist_python_runner();
+      // use PyImport_AppendInittab(). nanobind uses multi-phase module init
+      // (PEP 489), so PyInit_ returns a PyModuleDef*, not a ready module.
+      // We must create a proper module and run its exec slots so that
+      // nanobind's nb_module_exec initializes the shared nb_internals pointer.
+      PyObject *def = PyInit__tt_alchemist_python_runner();
+      if (def == nullptr) {
+        nb::raise_python_error();
+      }
+
+      PyObject *importlib = PyImport_ImportModule("importlib.util");
+      if (importlib == nullptr) {
+        nb::raise_python_error();
+      }
+      PyObject *spec = PyObject_CallMethod(
+          importlib, "spec_from_loader", "sO",
+          "_tt_alchemist_python_runner", Py_None);
+      Py_DECREF(importlib);
+      if (spec == nullptr) {
+        nb::raise_python_error();
+      }
+
+      PyObject *m = PyModule_FromDefAndSpec(
+          reinterpret_cast<PyModuleDef *>(def), spec);
+      Py_DECREF(spec);
       if (m == nullptr) {
         nb::raise_python_error();
       }
+
+      if (PyModule_ExecDef(m, reinterpret_cast<PyModuleDef *>(def)) < 0) {
+        Py_DECREF(m);
+        nb::raise_python_error();
+      }
+
       if (PyDict_SetItemString(sysModules, "_tt_alchemist_python_runner", m) <
           0) {
         Py_DECREF(m);
@@ -104,7 +132,7 @@ void PythonModelRunner::addToSysPath(const std::string &path) {
   nb::gil_scoped_acquire acquire;
   nb::object sysPathObj = nb::module_::import_("sys").attr("path");
   nb::list sysPathList = nb::cast<nb::list>(sysPathObj);
-  sysPathList.append(path);
+  sysPathList.insert(0, nb::cast(path));
 }
 
 void PythonModelRunner::loadModule(const std::string &moduleName,
@@ -133,8 +161,19 @@ PythonModelRunner::forward(const std::vector<tt::runtime::Tensor> &inputs,
 
   ::ttnn::MeshDevice &meshDevice =
       device.as<::ttnn::MeshDevice>(tt::runtime::DeviceRuntime::TTNN);
-  nb::object result = pImpl->forwardFunc(
-      pyInputs, nb::cast(&meshDevice, nb::rv_policy::reference));
+  nb::object pyDevice = nb::cast(&meshDevice, nb::rv_policy::reference);
+
+  // Pre-set the device singleton in utils.DeviceGetter so that any internal
+  // DeviceGetter.get_device() calls (e.g. from const-eval functions) reuse the
+  // externally-provided device instead of trying to open a new one.
+  try {
+    nb::module_ utils = nb::module_::import_("utils");
+    utils.attr("DeviceGetter").attr("set_external_device")(pyDevice);
+  } catch (...) {
+    // utils module may not be available — OK to skip.
+  }
+
+  nb::object result = pImpl->forwardFunc(pyInputs, pyDevice);
 
   // Convert TTNN outputs back to runtime tensors for the C++ API.
   std::vector<tt::runtime::Tensor> outputs;
