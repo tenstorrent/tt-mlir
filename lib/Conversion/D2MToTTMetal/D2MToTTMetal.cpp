@@ -86,9 +86,9 @@ public:
         constexpr bool dstFullSyncEn = false;
         // Enable fp32 unpack mode for typecast kernels.
         // TODO(ckaravasilisTT): Enable fp32 unpack mode in the general case.
-        bool isTypecast = kernelContainsOp<ttkernel::TypecastTileOp>(
-            symbolTable, thread.getKernelSymbol());
-        UnpackToDestMode mode = (fp32DestAccum && isTypecast)
+        /*bool isTypecast = kernelContainsOp<ttkernel::TypecastTileOp>(
+            symbolTable, thread.getKernelSymbol());*/
+        UnpackToDestMode mode = (fp32DestAccum) // && isTypecast)
                                     ? UnpackToDestMode::Fp32
                                     : UnpackToDestMode::Default;
         std::vector<UnpackToDestMode> unpackModes{mode};

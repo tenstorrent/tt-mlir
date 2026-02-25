@@ -73,6 +73,8 @@ public:
                                         /*isStandard=*/false);
       builder->create<emitc::IncludeOp>(loc, "api/compute/untilize.h",
                                         /*isStandard=*/false);
+      builder->create<emitc::IncludeOp>(loc, "api/compute/pack_untilize.h",
+                                        /*isStandard=*/false);
       builder->create<emitc::IncludeOp>(loc, "api/compute/transpose_wh.h",
                                         /*isStandard=*/false);
       builder->create<emitc::IncludeOp>(loc, "api/compute/eltwise_binary.h",
