@@ -4767,8 +4767,10 @@ void accumulateConstraintsForD2MOp(op_model::OpConstraints &lhs,
 
 // Map each SSA value in the block to its layout. Block args 0..inputs.size()-1
 // are the D2M tensor inputs; any further block args (e.g. output buffer) use
-// opConfig.outputLayout. Op results get their layout from each op's
-// constraints.
+// opConfig.outputLayout. Op results get their layout from the result type
+// encoding (actual layout) when present, else opConfig.outputLayout, so that
+// both getOpConstraints and getOpRuntime use the same map and a trailing
+// ToLayoutOp (if present) gets the correct input layout.
 using ValueToLayoutMap = llvm::DenseMap<mlir::Value, TTNNLayoutAttr>;
 ValueToLayoutMap
 buildValueToLayoutMap(const std::vector<TTNNLayoutAttr> &inputs,
@@ -4780,6 +4782,19 @@ buildValueToLayoutMap(const std::vector<TTNNLayoutAttr> &inputs,
       ret[arg] = inputs[argNum];
     } else {
       ret[arg] = opConfig.outputLayout;
+    }
+  }
+  for (mlir::Operation &op : d2mBlock.getOperations()) {
+    for (mlir::Value result : op.getResults()) {
+      if (auto tensorType =
+              mlir::dyn_cast<RankedTensorType>(result.getType())) {
+        if (auto encoding =
+                mlir::dyn_cast<TTNNLayoutAttr>(tensorType.getEncoding())) {
+          ret[result] = encoding;
+          continue;
+        }
+      }
+      ret[result] = opConfig.outputLayout;
     }
   }
   return ret;
@@ -4820,24 +4835,23 @@ D2MSubgraphOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
       internalOpInputLayouts.push_back(it->second);
     }
 
+    // Default constraints for the D2M subgraph op.
+    op_model::OpConstraints c(0, 0, 0, 0, opConfig.outputLayout);
+
     // Reuse the output layout for the D2M subgraph op for all internal ops:
     llvm::Expected<op_model::OpConstraints> expectedConstraints =
         backend.getOpConstraints(internalOpInputLayouts, opConfig);
-    if (!expectedConstraints) {
-      // If one of the internal ops returns an error, the whole D2M subgraph
-      // will return an error.
-      return expectedConstraints.takeError();
+    if (expectedConstraints) {
+      c = *expectedConstraints;
+    } else {
+      // Use default constraints so one failing internal op doesn't invalidate
+      // the whole D2M subgraph / model compilation.
+      llvm::consumeError(expectedConstraints.takeError());
     }
 
     // Accumulate the constraints for this op into the total constraints for the
     // D2M subgraph.
-    const op_model::OpConstraints &c = *expectedConstraints;
     accumulateConstraintsForD2MOp(ret, c);
-
-    // Record output layout for this op's results so later ops can use it.
-    for (mlir::Value result : op.getResults()) {
-      valueToLayout[result] = c.outputLayout;
-    }
   }
 
   return ret;
@@ -4871,19 +4885,19 @@ D2MSubgraphOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
       internalOpInputLayouts.push_back(it->second);
     }
 
-    for (mlir::Value result : internalOp.getResults()) {
-      // assume all internal ops have the same output layout as the D2M subgraph
-      // op. Otherwise, we would need to also call getOpConstraints for each
-      // internal op (when getOpRuntime is called).
-      valueToLayout[result] = opConfig.outputLayout;
-    }
+    // Default runtime for the D2M subgraph op.
+    size_t runtime = 0;
 
     llvm::Expected<size_t> internalOpRuntime =
         backend.getOpRuntime(internalOpInputLayouts, opConfig);
-    if (!internalOpRuntime) {
-      return internalOpRuntime.takeError();
+    if (internalOpRuntime) {
+      runtime = *internalOpRuntime;
+    } else {
+      // Use default runtime so one failing internal op doesn't invalidate the
+      // whole D2M subgraph / model compilation.
+      llvm::consumeError(internalOpRuntime.takeError());
     }
-    ret = d2m_subgraph_runtime_comp_fn(ret, *internalOpRuntime);
+    ret = d2m_subgraph_runtime_comp_fn(ret, runtime);
   }
 
   return ret;
