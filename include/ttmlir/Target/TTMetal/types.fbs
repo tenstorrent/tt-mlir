@@ -72,6 +72,11 @@ table GlobalSemaphoreRef {
   address: uint64;
 }
 
+union ArgRef {
+  BufferRef,
+  GlobalSemaphoreRef
+}
+
 table CBRef {
   port: uint32;
   buffer_ref: BufferRef;

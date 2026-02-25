@@ -1756,38 +1756,13 @@ public:
     size_t argIndex;
     Type arg_result_type;
 
-    // There should be exactly one generic operation that uses this kernel
-    // function
-    auto uses =
-        SymbolTable::getSymbolUses(entry, op->getParentOfType<ModuleOp>());
-    assert(llvm::range_size(*uses) == 1);
-    auto genericOp = mlir::dyn_cast<d2m::GenericOp>(uses->begin()->getUser());
-    assert(genericOp);
-
-    // Build mapping between operand index and index for specific type arg to
-    // use next
-    llvm::SmallDenseMap<unsigned, unsigned> global_semaphore_index_mapping;
-    llvm::SmallDenseMap<unsigned, unsigned> buffer_address_index_mapping;
-    for (auto [i, operand] : llvm::enumerate(genericOp.getOperands())) {
-      if (mlir::isa<d2m::GlobalSemaphoreType>(operand.getType())) {
-        global_semaphore_index_mapping[i] =
-            global_semaphore_index_mapping.size();
-      } else if (mlir::isa<MemRefType>(operand.getType())) {
-        buffer_address_index_mapping[i] = buffer_address_index_mapping.size();
-      } else {
-        llvm_unreachable("unexpected operand type");
-      }
-    }
-
     if (mlir::isa<MemRefType>(op.getResult().getType())) {
-      arg = rewriter.getAttr<ArgAttr>(
-          ArgType::BufferAddress,
-          buffer_address_index_mapping[op.getOperandIndex()]);
+      arg = rewriter.getAttr<ArgAttr>(ArgType::BufferAddress,
+                                      op.getOperandIndex());
       arg_result_type = rewriter.getI32Type();
     } else if (mlir::isa<d2m::GlobalSemaphoreType>(op.getResult().getType())) {
-      arg = rewriter.getAttr<ArgAttr>(
-          ArgType::GlobalSemaphore,
-          global_semaphore_index_mapping[op.getOperandIndex()]);
+      arg = rewriter.getAttr<ArgAttr>(ArgType::GlobalSemaphore,
+                                      op.getOperandIndex());
       arg_result_type = ttkernel::L1AddrType::get(rewriter.getContext());
     } else {
       assert(false && "unexpected arg type to GetGlobalOperandOp");

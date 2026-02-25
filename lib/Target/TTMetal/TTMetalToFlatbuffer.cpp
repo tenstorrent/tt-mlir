@@ -863,10 +863,19 @@ std::shared_ptr<void> translateTTMetalToFlatbuffer(
       } else if (auto enqueueProgramOp =
                      dyn_cast_if_present<tt::ttmetal::EnqueueProgramOp>(op);
                  enqueueProgramOp) {
-        std::vector<flatbuffers::Offset<target::metal::BufferRef>> buffers;
-        buffers.reserve(enqueueProgramOp.getBuffers().size());
-        for (auto buffer : enqueueProgramOp.getBuffers()) {
-          buffers.push_back(cache.at<target::metal::BufferRef>(buffer));
+        std::vector<target::metal::ArgRef> argTypes;
+        std::vector<flatbuffers::Offset<void>> args;
+        argTypes.reserve(enqueueProgramOp.getArgs().size());
+        args.reserve(enqueueProgramOp.getArgs().size());
+        for (auto arg : enqueueProgramOp.getArgs()) {
+          if (mlir::isa<MemRefType>(arg.getType())) {
+            argTypes.push_back(target::metal::ArgRef::BufferRef);
+            args.push_back(cache.at<target::metal::BufferRef>(arg).Union());
+          } else if (mlir::isa<GlobalSemaphoreType>(arg.getType())) {
+            argTypes.push_back(target::metal::ArgRef::GlobalSemaphoreRef);
+            args.push_back(
+                cache.at<target::metal::GlobalSemaphoreRef>(arg).Union());
+          }
         }
 
         std::vector<flatbuffers::Offset<target::metal::CBRef>> cbs;
@@ -875,15 +884,6 @@ std::shared_ptr<void> translateTTMetalToFlatbuffer(
                                          enqueueProgramOp.getCbs())) {
           auto buffer = cache.at<target::metal::BufferRef>(cb);
           cbs.push_back(target::metal::CreateCBRef(*cache.fbb, port, buffer));
-        }
-
-        std::vector<flatbuffers::Offset<target::metal::GlobalSemaphoreRef>>
-            global_semaphores;
-        global_semaphores.reserve(
-            enqueueProgramOp.getGlobalSemaphores().size());
-        for (auto global_semaphore : enqueueProgramOp.getGlobalSemaphores()) {
-          global_semaphores.push_back(
-              cache.at<target::metal::GlobalSemaphoreRef>(global_semaphore));
         }
 
         std::vector<flatbuffers::Offset<target::metal::KernelConfig>>
@@ -904,7 +904,7 @@ std::shared_ptr<void> translateTTMetalToFlatbuffer(
 
         cqBuilder.appendCommand(
             target::metal::CreateEnqueueProgramCommandDirect(
-                fbb, &buffers, &cbs, &global_semaphores,
+                fbb, &argTypes, &args, &cbs,
                 target::metal::CreateProgramDescDirect(fbb, &kernelConfigs),
                 fabricConnectionConfig),
             op);

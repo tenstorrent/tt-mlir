@@ -305,11 +305,10 @@ void MCQExecutor::execute(
                  global_semaphores.end(),
              "Global semaphore with id ", command->ref()->global_id(),
              " already exists.");
+  // todo(sohaibnadeem): add address parameter once metal API is added
   auto global_semaphore = tt::tt_metal::GlobalSemaphore(
       meshDevice, common::toCoreRangeSet(command->core_range_set()),
-      command->initial_value(), tt_metal::BufferType::L1,
-      deviceAddressValidator(command->ref()->address(),
-                             target::BufferType::L1));
+      command->initial_value(), tt_metal::BufferType::L1);
   global_semaphores.emplace(command->ref()->global_id(),
                             std::move(global_semaphore));
 }
@@ -351,16 +350,16 @@ void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
 
       tt_metal::KernelHandle handle = createKernel(
           program, kernelSourceString, coreRangeSet,
-          createKernelConfig(kernelConfig, command->buffers(), meshBuffers,
-                             command->global_semaphores(), global_semaphores,
-                             command->cbs(), deviceAddressValidator,
-                             createSemaphore),
+          createKernelConfig(kernelConfig, command->arg_refs_type(),
+                             command->arg_refs(), meshBuffers,
+                             global_semaphores, command->cbs(),
+                             deviceAddressValidator, createSemaphore),
           currentProgramName, debugInfo, kernelConfig->debug_info()->c_str(),
           kernelConfig->loc() ? kernelConfig->loc()->c_str() : nullptr);
 
       std::vector<uint32_t> rtArgsVec = processRuntimeArgs(
-          kernelConfig->args()->rt_args(), command->buffers(), meshBuffers,
-          command->global_semaphores(), global_semaphores, command->cbs(),
+          kernelConfig->args()->rt_args(), command->arg_refs_type(),
+          command->arg_refs(), meshBuffers, global_semaphores, command->cbs(),
           deviceAddressValidator, createSemaphore);
 
       if (command->fabric_connection_config() &&

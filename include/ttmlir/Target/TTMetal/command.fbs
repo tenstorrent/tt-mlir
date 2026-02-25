@@ -14,9 +14,8 @@ table ReturnCommand {
 }
 
 table EnqueueProgramCommand {
-  buffers: [BufferRef];
+  arg_refs: [ArgRef];
   cbs: [CBRef];
-  global_semaphores: [GlobalSemaphoreRef];
   program: ProgramDesc;
   fabric_connection_config: tt.target.FabricConnectionConfig;
 }

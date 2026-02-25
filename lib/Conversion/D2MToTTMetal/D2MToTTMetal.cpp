@@ -106,11 +106,10 @@ public:
   LogicalResult
   matchAndRewrite(d2m::GenericOp op, d2m::GenericOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    llvm::SmallVector<Value> buffers;
     llvm::SmallVector<Value> remappedBuffers;
     llvm::SmallVector<Value> cbs;
     llvm::SmallVector<int64_t> cbPorts;
-    llvm::SmallVector<Value> global_semaphores;
+    llvm::SmallVector<Value> args;
     int64_t cbPort = 0;
     for (unsigned i = 0; i < op.getInputsAndOutputs().size(); ++i) {
       auto operand = adaptor.getOperands()[i];
@@ -118,17 +117,17 @@ public:
       if (auto stream = mlir::dyn_cast_if_present<d2m::StreamLayoutOp>(
               operand.getDefiningOp());
           stream) {
-        buffers.push_back(stream.getInput());
+        args.push_back(stream.getInput());
         remappedBuffers.push_back(rewriter.getRemappedValue(stream.getInput()));
         cbs.push_back(stream.getStorage());
       } else if (auto view = mlir::dyn_cast_if_present<d2m::ViewLayoutOp>(
                      operand.getDefiningOp());
                  view) {
-        buffers.push_back(view.getInput());
+        args.push_back(view.getInput());
         remappedBuffers.push_back(rewriter.getRemappedValue(view.getInput()));
         cbs.push_back(view.getInput());
       } else {
-        buffers.push_back(operand);
+        args.push_back(operand);
         remappedBuffers.push_back(rewriter.getRemappedValue(operand));
         cbs.push_back(operand);
       }
@@ -139,7 +138,7 @@ public:
     for (unsigned i = 0; i < op.getAdditionalArgs().size(); ++i) {
       auto operand = adaptor.getOperands()[op.getInputsAndOutputs().size() + i];
       if (mlir::isa<ttmetal::GlobalSemaphoreType>(operand.getType())) {
-        global_semaphores.push_back(operand);
+        args.push_back(operand);
       } else {
         op.emitOpError("unexpected capture operand type: ")
             << operand.getType();
@@ -154,7 +153,7 @@ public:
         rewriter, op.getInputsAndOutputs(), threads, physicalGridShape,
         symbolTable, mathFidelity_);
     rewriter.replaceOpWithNewOp<ttmetal::EnqueueProgramOp>(
-        op, buffers, cbs, global_semaphores, cbPorts, kernelConfigs, nullptr);
+        op, args, cbs, cbPorts, kernelConfigs, nullptr);
     return success();
   };
 
