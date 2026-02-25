@@ -150,6 +150,23 @@ static void executeTrace(const ::tt::target::ttnn::CaptureOrExecuteTraceOp *op,
       LOG_ASSERT(inputTensorWrapper.getTensor().storage_type() ==
                      ::ttnn::StorageType::DEVICE &&
                  "Non-regular inputs must already be on device.");
+
+      // Verify that both tensors have the same allocated address
+      // Since these are device tensors that persist in trace slots,
+      // they should point to the same device memory location
+      auto *inputBuffer = inputTensorWrapper.getTensor().buffer();
+      auto *slotBuffer = inputSlotWrapper.getTensor().buffer();
+      if (inputBuffer && slotBuffer) {
+        auto inputAddress = inputBuffer->address();
+        auto slotAddress = slotBuffer->address();
+        LOG_ASSERT(inputAddress == slotAddress,
+                   "Device trace slots for non-regular inputs must have the "
+                   "same allocated address. Input address: ", inputAddress,
+                   ", Slot address: ", slotAddress);
+        LOG_DEBUG("Verified matching buffer addresses for constant input ", i,
+                  " at address: ", inputAddress);
+      }
+      
       LOG_DEBUG("Skipping copy for constant input ", i,
                 " since it is already on device and trace input slot is "
                 "persisted across traces. Version: ",
