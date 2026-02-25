@@ -36,6 +36,7 @@ extract_output_tensor(const std::tuple<Tensor, Tensor, Tensor> &result) {
 #include "ttnn/graph/graph_query_op_constraints.hpp"
 #include "ttnn/graph/graph_query_op_runtime.hpp"
 #include "ttnn/graph/graph_trace_utils.hpp"
+#include "ttnn/operations/ccl/mesh_partition/mesh_partition.hpp"
 #include "ttnn/operations/conv/conv2d/conv2d.hpp"
 #include "ttnn/operations/conv/conv2d/prepare_conv2d_weights.hpp"
 #include "ttnn/operations/conv/conv_transpose2d/conv_transpose2d.hpp"
