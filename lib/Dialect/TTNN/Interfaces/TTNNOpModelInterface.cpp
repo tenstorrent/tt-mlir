@@ -4835,12 +4835,18 @@ D2MSubgraphOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
       internalOpInputLayouts.push_back(it->second);
     }
 
-    // Default constraints for the D2M subgraph op.
-    op_model::OpConstraints c(0, 0, 0, 0, opConfig.outputLayout);
+    // Use this op's actual output layout (from the map), not the D2M's
+    // top-level layout, so the constraint API is asked for the layout this op
+    // produces.
+    assert(op.getNumResults() > 0 && "OpModel op expected to have results");
+    TTNNLayoutAttr internalOpOutputLayout =
+        valueToLayout.lookup(op.getResult(0));
+    OpConfig internalOpConfig(internalOpOutputLayout);
 
-    // Reuse the output layout for the D2M subgraph op for all internal ops:
+    op_model::OpConstraints c(0, 0, 0, 0, internalOpOutputLayout);
+
     llvm::Expected<op_model::OpConstraints> expectedConstraints =
-        backend.getOpConstraints(internalOpInputLayouts, opConfig);
+        backend.getOpConstraints(internalOpInputLayouts, internalOpConfig);
     if (expectedConstraints) {
       c = *expectedConstraints;
     } else {
@@ -4885,11 +4891,16 @@ D2MSubgraphOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
       internalOpInputLayouts.push_back(it->second);
     }
 
-    // Default runtime for the D2M subgraph op.
-    size_t runtime = 0;
+    // Use this op's actual output layout (from the map), not the D2M's
+    // top-level layout, so the runtime API is costed for the layout this op
+    // produces.
+    assert(internalOp.getNumResults() > 0 &&
+           "OpModel op expected to have results");
+    OpConfig internalOpConfig(valueToLayout.lookup(internalOp.getResult(0)));
 
+    size_t runtime = 0;
     llvm::Expected<size_t> internalOpRuntime =
-        backend.getOpRuntime(internalOpInputLayouts, opConfig);
+        backend.getOpRuntime(internalOpInputLayouts, internalOpConfig);
     if (internalOpRuntime) {
       runtime = *internalOpRuntime;
     } else {

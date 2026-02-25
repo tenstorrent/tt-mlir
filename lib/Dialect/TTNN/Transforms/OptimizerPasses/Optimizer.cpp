@@ -94,6 +94,9 @@ void applyChosenLayoutToD2MSubgraphOp(D2MSubgraphOp dispatchOp,
           dispatchOp.getContext(), tensorMemoryLayoutAttr,
           BufferTypeAttr::get(dispatchOp.getContext(), bufferType),
           utils::createShardSpecIfNeeded(layoutAttr, deviceGrid)));
+    } else {
+      llvm::report_fatal_error(
+          "Expected EmptyOp for D2MSubgraphOp output buffer");
     }
   }
 
