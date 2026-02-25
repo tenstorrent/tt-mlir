@@ -22,6 +22,9 @@ from builder.base.builder_utils import (
     parse,
     split,
     save_unsupported_ops,
+    DEFAULT_UNSUPPORTED_PARSER_OPS_FILE,
+    DEFAULT_UNSUPPORTED_SPLIT_OPS_FILE,
+    DEFAULT_UNSUPPORTED_BUILDER_OPS_FILE,
 )
 
 
@@ -932,20 +935,38 @@ class Builder(metaclass=BuilderMeta):
                 global_dict[arg] = inputs[i]
 
             unsupported_parser_ops = set()
+            unsupported_split_ops = set()
+            unsupported_builder_ops = set()
             for block in parsed_func.body:
                 for op in block.operations:
                     if (
-                        type(op) not in self.opview_to_parser_map
-                        and not isinstance(op, func.ReturnOp)
+                        not isinstance(op, func.ReturnOp)
                         and not isinstance(op, func.CallOp)
                         and not isinstance(op, ttir.EmptyOp)
                     ):
-                        unsupported_parser_ops.add(type(op))
+                        if type(op) not in self.opview_to_parser_map:
+                            unsupported_parser_ops.add(type(op))
+                        if type(op) not in self.opview_to_split_map:
+                            unsupported_split_ops.add(type(op))
+                        if type(op) not in self.opview_to_builder_map:
+                            unsupported_builder_ops.add(type(op))
 
+            if len(unsupported_split_ops) > 0:
+                save_unsupported_ops(
+                    unsupported_split_ops, DEFAULT_UNSUPPORTED_SPLIT_OPS_FILE
+                )
+            if len(unsupported_builder_ops) > 0:
+                save_unsupported_ops(
+                    unsupported_builder_ops, DEFAULT_UNSUPPORTED_BUILDER_OPS_FILE
+                )
             if len(unsupported_parser_ops) > 0:
-                save_unsupported_ops(unsupported_parser_ops)
-                raise ValueError(f"Unsupported ops: {unsupported_parser_ops}")
-
+                save_unsupported_ops(
+                    unsupported_parser_ops, DEFAULT_UNSUPPORTED_PARSER_OPS_FILE
+                )
+            
+            if len(unsupported_split_ops) > 0 or len(unsupported_builder_ops) > 0 or len(unsupported_parser_ops) > 0:
+                raise ValueError(f"Unsupported ops: {unsupported_split_ops} {unsupported_builder_ops} {unsupported_parser_ops}")
+            
             global_result = None
             for block in parsed_func.body:
                 for op in block.operations:
@@ -1001,18 +1022,37 @@ class Builder(metaclass=BuilderMeta):
                 global_dict[arg] = inputs[i]
 
             unsupported_parser_ops = set()
+            unsupported_split_ops = set()
+            unsupported_builder_ops = set()
             for block in parsed_func.body:
                 for op in block.operations:
                     if (
-                        type(op) not in self.opview_to_parser_map
-                        and not isinstance(op, func.ReturnOp)
+                        not isinstance(op, func.ReturnOp)
                         and not isinstance(op, func.CallOp)
+                        and not isinstance(op, ttir.EmptyOp)
                     ):
-                        unsupported_parser_ops.add(type(op))
+                        if type(op) not in self.opview_to_parser_map:
+                            unsupported_parser_ops.add(type(op))
+                        if type(op) not in self.opview_to_split_map:
+                            unsupported_split_ops.add(type(op))
+                        if type(op) not in self.opview_to_builder_map:
+                            unsupported_builder_ops.add(type(op))
 
+            if len(unsupported_split_ops) > 0:
+                save_unsupported_ops(
+                    unsupported_split_ops, DEFAULT_UNSUPPORTED_SPLIT_OPS_FILE
+                )
+            if len(unsupported_builder_ops) > 0:
+                save_unsupported_ops(
+                    unsupported_builder_ops, DEFAULT_UNSUPPORTED_BUILDER_OPS_FILE
+                )
             if len(unsupported_parser_ops) > 0:
-                save_unsupported_ops(unsupported_parser_ops)
-                raise ValueError(f"Unsupported ops: {unsupported_parser_ops}")
+                save_unsupported_ops(
+                    unsupported_parser_ops, DEFAULT_UNSUPPORTED_PARSER_OPS_FILE
+                )
+            
+            if len(unsupported_split_ops) > 0 or len(unsupported_builder_ops) > 0 or len(unsupported_parser_ops) > 0:
+                raise ValueError(f"Unsupported ops: {unsupported_split_ops} {unsupported_builder_ops} {unsupported_parser_ops}")
 
             global_result = None
             for block in parsed_func.body:

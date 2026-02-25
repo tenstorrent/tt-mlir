@@ -314,10 +314,12 @@ def get_metal_tensor_layout(
     return RankedTensorType.get(device_shape, elemType, layout, Location.unknown(ctx))
 
 
-DEFAULT_UNSUPPORTED_OPS_FILE = Path("unsupported_ops.json")
+DEFAULT_UNSUPPORTED_PARSER_OPS_FILE = Path("unsupported_parser_ops.json")
+DEFAULT_UNSUPPORTED_SPLIT_OPS_FILE = Path("unsupported_split_ops.json")
+DEFAULT_UNSUPPORTED_BUILDER_OPS_FILE = Path("unsupported_builder_ops.json")
 
 
-def load_unsupported_ops(path: Path = DEFAULT_UNSUPPORTED_OPS_FILE) -> Dict[str, int]:
+def load_unsupported_ops(path: Path) -> Dict[str, int]:
     """Load the accumulated unsupported-op counts from a JSON file."""
     if path.exists():
         with open(path) as f:
@@ -327,7 +329,7 @@ def load_unsupported_ops(path: Path = DEFAULT_UNSUPPORTED_OPS_FILE) -> Dict[str,
 
 def save_unsupported_ops(
     unsupported_op_types: Set,
-    path: Path = DEFAULT_UNSUPPORTED_OPS_FILE,
+    path: Path,
 ):
     """Merge newly encountered unsupported op types into the persistent JSON file.
 
