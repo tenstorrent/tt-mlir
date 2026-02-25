@@ -13,6 +13,18 @@ else()
 endif()
 message(STATUS "Setting tt-metal CPM cache to: ${CPM_SOURCE_CACHE}")
 
+# Point all find_package(nanobind) calls to tt-metal's CPM-vendored nanobind so
+# that every nanobind-static library in this project shares the same ABI
+# (NB_INTERNALS_VERSION) as _ttnn.so.  Without this, a pip-installed nanobind
+# with a different ABI version causes segfaults in nb_type_c2p at runtime.
+file(GLOB _NB_CMAKE_DIRS "${CPM_SOURCE_CACHE}/nanobind/*/cmake")
+if(_NB_CMAKE_DIRS)
+  list(GET _NB_CMAKE_DIRS 0 _NB_CMAKE_DIR)
+  set(nanobind_DIR "${_NB_CMAKE_DIR}" CACHE PATH
+    "nanobind cmake config (pinned to tt-metal's version for ABI compat)" FORCE)
+  message(STATUS "Pinning nanobind to tt-metal's version: ${nanobind_DIR}")
+endif()
+
 set(TTMETAL_BUILD_DIR ${TTMLIR_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/build_${CMAKE_BUILD_TYPE})
 set(TTMETAL_BUILD_SYMLINK ${TTMLIR_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/build)
 # tt-metal uses GNUInstallDirs which sets CMAKE_INSTALL_LIBDIR to "lib" or "lib64" based on the system
