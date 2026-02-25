@@ -150,40 +150,10 @@ struct TTIRToTTIRDecompositionPass
     TypeConverter typeConverter;
     // All types map 1:1.
     typeConverter.addConversion([](Type type) { return type; });
-    // tensor<...xcomplex<fN>> → tensor<...x2xfN>: append a trailing dimension
-    // of 2 for [real, imag] components, keeping the element type as fN.
-    typeConverter.addConversion(
-        [](RankedTensorType type) -> std::optional<Type> {
-          auto complexTy =
-              mlir::dyn_cast<mlir::ComplexType>(type.getElementType());
-          if (!complexTy) {
-            return std::nullopt;
-          }
-          auto floatTy =
-              mlir::dyn_cast<mlir::FloatType>(complexTy.getElementType());
-          if (!floatTy) {
-            return std::nullopt;
-          }
-          SmallVector<int64_t> newShape(type.getShape());
-          newShape.push_back(2);
-          return RankedTensorType::get(newShape, floatTy);
-        });
 
     RewritePatternSet patterns(&getContext());
     populateTTIRToTTIRDecompositionPatterns(&getContext(), patterns,
                                             typeConverter, decompConfig);
-
-    // Function type conversions: update func signatures and return ops so that
-    // complex<fN> argument/result types become f2N.
-    populateFunctionOpInterfaceTypeConversionPattern<func::FuncOp>(
-        patterns, typeConverter);
-    target.addDynamicallyLegalOp<func::FuncOp>([&](func::FuncOp op) {
-      return typeConverter.isSignatureLegal(op.getFunctionType()) &&
-             typeConverter.isLegal(&op.getBody());
-    });
-    populateReturnOpTypeConversionPattern(patterns, typeConverter);
-    target.addDynamicallyLegalOp<func::ReturnOp>(
-        [&](func::ReturnOp op) { return typeConverter.isLegal(op); });
 
     // Apply partial conversion
     //
