@@ -12,23 +12,42 @@ set(PYTHON_RUNNER_LIBRARY_NAME tt-alchemist-python-runner)
 # target. nanobind additionally expects FindPython-provided variables/targets.
 find_package(Python REQUIRED COMPONENTS Interpreter Development.Module Development.Embed)
 
+# Ensure nanobind_build_library() is available (no-op if already found).
+find_package(nanobind CONFIG REQUIRED)
+
 # Use the same nanobind that tt-metal uses for ABI compatibility with the ttnn
 # Python module.  NB_INTERNALS_VERSION must match; otherwise each library gets
-# its own nb_internals and cross-library type lookups (e.g. ttnn::Tensor) fail.
+# its own nb_internals and cross-library type lookups (e.g. ttnn::Tensor) fail
+# at runtime with a segfault in nb_type_c2p.
+#
+# The pip-installed nanobind may be a different version (e.g. 2.11.0 / ABI v18)
+# than what tt-metal vendors via CPM (e.g. 2.10.2 / ABI v17).  We build a
+# separate nanobind-static library from tt-metal's source to guarantee the same
+# ABI as _ttnn.so.
 if(DEFINED ENV{CPM_SOURCE_CACHE})
   set(_CPM_CACHE $ENV{CPM_SOURCE_CACHE})
 else()
   set(_CPM_CACHE "${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/.cpmcache")
 endif()
-file(GLOB _NANOBIND_CMAKE_DIR "${_CPM_CACHE}/nanobind/*/cmake")
-if(_NANOBIND_CMAKE_DIR)
-  list(GET _NANOBIND_CMAKE_DIR 0 _NANOBIND_CMAKE_DIR)
-  set(nanobind_DIR "${_NANOBIND_CMAKE_DIR}")
-  message(STATUS "PythonModelRunner: using tt-metal's nanobind for ABI compat: ${nanobind_DIR}")
+# CPM uses content-hashed directory names; glob for the nanobind source dir.
+file(GLOB _NB_DIRS "${_CPM_CACHE}/nanobind/*")
+list(FILTER _NB_DIRS EXCLUDE REGEX "cmake\\.lock$")
+if(_NB_DIRS)
+  list(GET _NB_DIRS 0 _NB_TTMETAL_DIR)
+  # Temporarily swap NB_DIR (CACHE INTERNAL set by nanobind-config.cmake) so
+  # nanobind_build_library compiles from tt-metal's nanobind source tree.
+  set(_ORIG_NB_DIR "${NB_DIR}")
+  set(NB_DIR "${_NB_TTMETAL_DIR}" CACHE INTERNAL "" FORCE)
+  message(STATUS "PythonModelRunner: building nanobind-static-compat from ${NB_DIR}")
+  nanobind_build_library(nanobind-static-compat)
+  set(NB_DIR "${_ORIG_NB_DIR}" CACHE INTERNAL "" FORCE)
+  set(_NB_TARGET nanobind-static-compat)
+else()
+  message(WARNING "PythonModelRunner: tt-metal nanobind not found in CPM cache, "
+                  "falling back to default nanobind-static (ABI may mismatch)")
+  nanobind_build_library(nanobind-static)
+  set(_NB_TARGET nanobind-static)
 endif()
-
-find_package(nanobind CONFIG REQUIRED)
-nanobind_build_library(nanobind-static)
 
 add_library(${PYTHON_RUNNER_LIBRARY_NAME}
   SHARED
@@ -56,7 +75,7 @@ target_link_libraries(${PYTHON_RUNNER_LIBRARY_NAME}
   PUBLIC
     TTMLIRRuntime
   PRIVATE
-    nanobind-static
+    ${_NB_TARGET}
     Python::Python
     ${TTMETAL_LIBRARY_PATH}
     "LINKER:${TTNN_LIBRARY_PATH}"
