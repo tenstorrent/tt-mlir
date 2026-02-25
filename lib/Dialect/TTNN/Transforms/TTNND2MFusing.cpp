@@ -40,7 +40,7 @@ public:
 
   llvm::ArrayRef<FusionGroup> getFusionGroups() const { return fusionGroups; }
 
-  static bool isElementwiseOp(Operation *op) {
+  static bool isAllowedToBeFused(Operation *op) {
     if (!op) {
       return false;
     }
@@ -61,17 +61,21 @@ public:
       return true;
     }
 
+    if (mlir::isa<ClampTensorOp, ClampScalarOp>(op)) {
+      return true;
+    }
+
     return false;
   }
 
 private:
   static bool isFusionGroupExit(Operation *op) {
-    if (!isElementwiseOp(op)) {
+    if (!isAllowedToBeFused(op)) {
       return false;
     }
     for (Value result : op->getResults()) {
       for (Operation *user : result.getUsers()) {
-        if (isElementwiseOp(user)) {
+        if (isAllowedToBeFused(user)) {
           return false;
         }
       }
@@ -129,7 +133,7 @@ private:
 
       for (Value operand : cur->getOperands()) {
         Operation *producer = operand.getDefiningOp();
-        if (!producer || !isElementwiseOp(producer) ||
+        if (!producer || !isAllowedToBeFused(producer) ||
             visitedOps.contains(producer) || fusionSet.contains(producer)) {
           continue;
         }
