@@ -297,15 +297,16 @@ def get_sharded_layout(shape):
 )
 @pytest.mark.parametrize("op", [abs])
 def test_dram_interleaved_shapes(device, shape, op):
-    grid, strategy = get_sharded_layout(shape)
+    # grid, strategy = get_sharded_layout(shape)
     max_grid = (0, 0)
 
-    output_memory_config = ttnn.create_sharded_memory_config(
-        shape=shape,
-        core_grid=ttnn.CoreGrid(x=grid[0], y=grid[1]),
-        strategy=strategy,
-        use_height_and_width_as_shard_shape=False,
-    )
+    # output_memory_config = ttnn.create_sharded_memory_config(
+    #     shape=shape,
+    #     core_grid=ttnn.CoreGrid(x=grid[0], y=grid[1]),
+    #     strategy=strategy,
+    #     use_height_and_width_as_shard_shape=False,
+    # )
+    output_memory_config = ttnn.DRAM_MEMORY_CONFIG
     run_op_test(
         device,
         shape,
