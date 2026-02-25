@@ -50,7 +50,6 @@ def test_allocate_matmul(m: int, k: int, n: int, target: str, request, device):
     )
 
 
-@pytest.mark.skip_config(["p150"], ["p300"])
 @pytest.mark.parametrize("m", [8])
 @pytest.mark.parametrize("n", [8])
 @pytest.mark.parametrize("dim_arg", [[0], [1]])
