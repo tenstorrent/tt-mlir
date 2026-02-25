@@ -59,42 +59,52 @@ collectDMAOps(Block *block,
   }
 }
 
+// Collect CB indices that access DRAM via remote load/store.
+static void getDRAMAccessCBs(
+    const SmallVectorImpl<std::pair<Operation *, unsigned>> &dmaOps,
+    SmallVectorImpl<unsigned> &readCBs, SmallVectorImpl<unsigned> &writeCBs) {
+  for (const auto &[op, cbIdx] : dmaOps) {
+    if (auto load = mlir::dyn_cast<RemoteLoadOp>(op)) {
+      if (ttcore::getMemorySpace(load.getMemref()) ==
+          ttcore::MemorySpace::DeviceDRAM) {
+        readCBs.push_back(cbIdx);
+      }
+    } else if (auto store = mlir::dyn_cast<RemoteStoreOp>(op)) {
+      if (ttcore::getMemorySpace(store.getMemref()) ==
+          ttcore::MemorySpace::DeviceDRAM) {
+        writeCBs.push_back(cbIdx);
+      }
+    }
+  }
+}
+
 // Assign NoC indices to the two DM thread assignments based on DRAM access
 // patterns.  A DRAM reader gets NoC 0, a DRAM writer gets NoC 1.  If a thread
 // does both, the read takes priority (Noc0).
 static void assignNocIndices(
     SmallVectorImpl<DMAThreadAssignment> &assignments,
     const SmallVectorImpl<std::pair<Operation *, unsigned>> &dmaOps) {
-  DenseSet<unsigned> dramReadCBs;
-  DenseSet<unsigned> dramWriteCBs;
-  for (const auto &[op, cbIdx] : dmaOps) {
-    if (auto remoteLoad = mlir::dyn_cast<RemoteLoadOp>(op)) {
-      if (ttcore::getMemorySpace(remoteLoad.getMemref()) ==
-          ttcore::MemorySpace::DeviceDRAM) {
-        dramReadCBs.insert(cbIdx);
-      }
-    } else if (auto remoteStore = mlir::dyn_cast<RemoteStoreOp>(op)) {
-      if (ttcore::getMemorySpace(remoteStore.getMemref()) ==
-          ttcore::MemorySpace::DeviceDRAM) {
-        dramWriteCBs.insert(cbIdx);
-      }
-    }
-  }
+  assert(assignments.size() == 2 && "Expected exactly 2 DM threads");
+
+  SmallVector<unsigned, 2> dramReadCBs, dramWriteCBs;
+  getDRAMAccessCBs(dmaOps, dramReadCBs, dramWriteCBs);
 
   auto &thread0 = assignments[0];
   auto &thread1 = assignments[1];
 
-  auto hasCBIn = [](const DMAThreadAssignment &a, const DenseSet<unsigned> &s) {
-    return llvm::any_of(a.assignedCBs,
-                        [&](unsigned cb) { return s.contains(cb); });
+  auto hasCBIn = [](const DMAThreadAssignment &a,
+                    const SmallVectorImpl<unsigned> &cbs) {
+    return llvm::any_of(a.assignedCBs, [&](unsigned cb) {
+      return llvm::is_contained(cbs, cb);
+    });
   };
 
   bool thread0ReadsDRAM = hasCBIn(thread0, dramReadCBs);
   bool thread1ReadsDRAM = hasCBIn(thread1, dramReadCBs);
 
   // DRAM reader gets NoC 0, writer gets NoC 1.  Reader takes priority.
-  // Swap from above default assignment only when thread 1 is
-  // the sole DRAM reader, or thread0 is sole DRAM writer.
+  // Swap from default (thread0=NoC0, thread1=NoC1) only when thread 1 is
+  // the sole DRAM reader, or thread 0 is the sole DRAM writer.
   bool swap =
       (!thread0ReadsDRAM && thread1ReadsDRAM) ||
       (!thread0ReadsDRAM && !thread1ReadsDRAM &&
@@ -248,22 +258,12 @@ public:
     // Not enough CBs to warrant splitting but still need to assign nocIndex on
     // the existing single DM thread before returning failure.
     if (numThreadsToUse <= 1 || cbWorkloads.size() <= 1) {
-      auto origAttr =
-          mlir::cast<ThreadAttr>(generic.getThreadsAttr().getValue()[0]);
-      if (origAttr.getNocIndex() != -1) {
-        return failure();
-      }
-
-      bool hasDRAMRead = llvm::any_of(dmaOps, [](const auto &entry) {
-        auto load = mlir::dyn_cast_or_null<RemoteLoadOp>(entry.first);
-        return load && ttcore::getMemorySpace(load.getMemref()) ==
-                           ttcore::MemorySpace::DeviceDRAM;
-      });
-
-      int nocIndex = hasDRAMRead ? 0 : 1;
+      SmallVector<unsigned, 2> dramReadCBs, dramWriteCBs;
+      getDRAMAccessCBs(dmaOps, dramReadCBs, dramWriteCBs);
+      int nocIndex = !dramWriteCBs.empty() ? 1 : 0;
       generic.setThreadsAttr(rewriter.getArrayAttr(
-          {rewriter.getAttr<ThreadAttr>(ThreadType::Datamovement,
-                                        origAttr.getKernelSymbol(), nocIndex),
+          {rewriter.getAttr<ThreadAttr>(ThreadType::Datamovement, nullptr,
+                                        nocIndex),
            generic.getThreadsAttr().getValue()[1]}));
       return failure();
     }
