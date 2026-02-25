@@ -74,8 +74,7 @@ private:
     size_t producerCandidateIndex = 0;
     bool isReshard = false;
   };
-  std::vector<std::vector<InputCandidate>> getInputCandidateSets(
-      Operation *op);
+  std::vector<std::vector<InputCandidate>> getInputCandidateSets(Operation *op);
 
   /// Generate reshard candidate layouts for a tensor type: DRAM interleaved
   /// and L1 interleaved variants derived from the current layout.
@@ -97,7 +96,7 @@ private:
 
   /// Insert ToLayoutOp for a reshard edge.
   void insertReshardOp(Operation *consumerOp, size_t operandIndex,
-                        TTNNLayoutAttr reshardLayout);
+                       TTNNLayoutAttr reshardLayout);
 
   /// Update function return types to match modified IR.
   void updateFunctionReturnTypes();
@@ -109,6 +108,12 @@ private:
   /// Resolve fork point: pick the producer candidate that minimizes
   /// total reshard count across all consumers.
   size_t resolveForForkPoint(Operation *forkOp);
+
+  /// Validate that a reshard (ToMemoryConfigOp) from producerOutputLayout to
+  /// reshardLayout is feasible via backend constraint validation.
+  bool validateReshard(Operation *consumerOp, Operation *producerOp,
+                       TTNNLayoutAttr producerOutputLayout,
+                       TTNNLayoutAttr reshardLayout);
 
   /// Map from tensor-operand index (used in producerCandidateIndices) back to
   /// the actual defining op. Skips non-tensor operands.

@@ -35,8 +35,7 @@ public:
   TTNNGreedyL1SpillManagementBase()
       : ::mlir::OperationPass<::mlir::ModuleOp>(
             ::mlir::TypeID::get<DerivedT>()) {}
-  TTNNGreedyL1SpillManagementBase(
-      const TTNNGreedyL1SpillManagementBase &other)
+  TTNNGreedyL1SpillManagementBase(const TTNNGreedyL1SpillManagementBase &other)
       : ::mlir::OperationPass<::mlir::ModuleOp>(other) {}
   TTNNGreedyL1SpillManagementBase &
   operator=(const TTNNGreedyL1SpillManagementBase &) = delete;
@@ -71,14 +70,12 @@ public:
     return std::make_unique<DerivedT>(*static_cast<const DerivedT *>(this));
   }
 
-  void
-  getDependentDialects(::mlir::DialectRegistry &registry) const override {}
+  void getDependentDialects(::mlir::DialectRegistry &registry) const override {}
 
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(
       TTNNGreedyL1SpillManagementBase<DerivedT>)
 
-  TTNNGreedyL1SpillManagementBase(
-      TTNNGreedyL1SpillManagementOptions options)
+  TTNNGreedyL1SpillManagementBase(TTNNGreedyL1SpillManagementOptions options)
       : TTNNGreedyL1SpillManagementBase() {
     // Future: initialize options from the struct.
   }
@@ -91,8 +88,7 @@ private:
     return std::make_unique<DerivedT>();
   }
 
-  friend std::unique_ptr<::mlir::Pass>
-  createTTNNGreedyL1SpillManagement(
+  friend std::unique_ptr<::mlir::Pass> createTTNNGreedyL1SpillManagement(
       TTNNGreedyL1SpillManagementOptions options) {
     return std::make_unique<DerivedT>(std::move(options));
   }
@@ -104,8 +100,7 @@ std::unique_ptr<::mlir::Pass> createTTNNGreedyL1SpillManagement() {
 }
 
 std::unique_ptr<::mlir::Pass>
-createTTNNGreedyL1SpillManagement(
-    TTNNGreedyL1SpillManagementOptions options) {
+createTTNNGreedyL1SpillManagement(TTNNGreedyL1SpillManagementOptions options) {
   return impl::createTTNNGreedyL1SpillManagement(std::move(options));
 }
 
@@ -124,14 +119,13 @@ public:
         ttcore::lookupDevice(moduleOp).getWorkerGrid();
     ttcore::ChipDescAttr chipDesc = ttcore::getOpChipDescAttr(moduleOp);
     float tensorL1UsageCap = utils::getTensorL1UsageCap(moduleOp);
-    uint64_t l1BudgetPerCore = static_cast<uint64_t>(
-        tensorL1UsageCap * chipDesc.getUsableL1Size());
+    uint64_t l1BudgetPerCore =
+        static_cast<uint64_t>(tensorL1UsageCap * chipDesc.getUsableL1Size());
 
     TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
                  "L1 spill management: budget per core = {0} bytes "
                  "(usable = {1}, cap = {2})",
-                 l1BudgetPerCore, chipDesc.getUsableL1Size(),
-                 tensorL1UsageCap);
+                 l1BudgetPerCore, chipDesc.getUsableL1Size(), tensorL1UsageCap);
 
     moduleOp->walk([&](func::FuncOp func) {
       if (!ttmlir::utils::isForwardDeviceFunc(func)) {
@@ -139,7 +133,7 @@ public:
       }
 
       L1SpillManagement<SumL1MemoryTracker> spill(func, deviceGrid,
-                                                    l1BudgetPerCore);
+                                                  l1BudgetPerCore);
       spill.run();
     });
   }

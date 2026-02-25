@@ -120,9 +120,8 @@ void createTTNNPipelineAnalysisPasses(
           [propagationOptions, validationOptions](OpPassManager &innerPm) {
             innerPm.addPass(
                 mlir::tt::ttnn::createTTNNRowMajorLayoutPropagation());
-            innerPm.addPass(
-                mlir::tt::ttnn::createTTNNGreedyLayoutPropagation(
-                    propagationOptions));
+            innerPm.addPass(mlir::tt::ttnn::createTTNNGreedyLayoutPropagation(
+                propagationOptions));
             innerPm.addPass(
                 mlir::tt::ttnn::createTTNNGreedyL1SpillManagement());
             innerPm.addPass(mlir::createCanonicalizerPass());

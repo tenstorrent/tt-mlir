@@ -7,10 +7,12 @@
 
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/OpModel/TTNN/TTNNOpModel.h"
 
 #include "mlir/IR/Operation.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/StringRef.h"
+#include "llvm/Support/Error.h"
 
 namespace mlir::tt::ttnn {
 
@@ -127,6 +129,29 @@ validateWithMultipleAttributes(Operation *op,
                                llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
                                llvm::ArrayRef<OpConfig> opConfigs,
                                llvm::ArrayRef<OpConfig> referenceConfigs);
+
+// Validate an OpConstraints result against the L1 memory budget derived from
+// the given context operation (used to look up device attributes and module-
+// level tensorL1UsageCap).  This is the shared L1 budget check used by both
+// the Operation*-based validateOperation and the template overload below.
+ValidationResult
+checkConstraintsResult(Operation *contextOp,
+                       llvm::Expected<op_model::OpConstraints> constraints,
+                       uint64_t additionalL1Usage = 0);
+
+// Op-less validation: calls OpModel<OpType>::getOpConstraints directly with
+// the forwarded arguments, then validates the result against the L1 memory
+// budget.  |contextOp| is any operation in the module (e.g. the consumer) and
+// is used only to look up device/module attributes — it is NOT the operation
+// being validated.
+template <typename OpType, typename... Args>
+ValidationResult validateOperation(Operation *contextOp,
+                                   uint64_t additionalL1Usage, Args &&...args) {
+  auto constraints =
+      op_model::OpModel<OpType>::getOpConstraints(std::forward<Args>(args)...);
+  return checkConstraintsResult(contextOp, std::move(constraints),
+                                additionalL1Usage);
+}
 
 } // namespace op_constraint_validation
 

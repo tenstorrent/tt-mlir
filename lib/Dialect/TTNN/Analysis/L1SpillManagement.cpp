@@ -27,9 +27,10 @@ namespace mlir::tt::ttnn {
 // SumL1MemoryTracker
 //===----------------------------------------------------------------------===//
 
-op_constraint_validation::ValidationResult SumL1MemoryTracker::validate(
-    Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
-    const OpConfig &config) const {
+op_constraint_validation::ValidationResult
+SumL1MemoryTracker::validate(Operation *op,
+                             llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
+                             const OpConfig &config) const {
   return op_constraint_validation::validateOperation(op, inputLayouts, config,
                                                      currentOccupied);
 }
@@ -63,8 +64,9 @@ uint64_t SumL1MemoryTracker::getTensorSize(Operation *op) const {
 //===----------------------------------------------------------------------===//
 
 template <typename MemoryTracker>
-L1SpillManagement<MemoryTracker>::L1SpillManagement(
-    func::FuncOp func, ttcore::GridAttr deviceGrid, uint64_t l1BudgetPerCore)
+L1SpillManagement<MemoryTracker>::L1SpillManagement(func::FuncOp func,
+                                                    ttcore::GridAttr deviceGrid,
+                                                    uint64_t l1BudgetPerCore)
     : func(func), deviceGrid(deviceGrid), l1BudgetPerCore(l1BudgetPerCore) {}
 
 //===----------------------------------------------------------------------===//
@@ -72,8 +74,8 @@ L1SpillManagement<MemoryTracker>::L1SpillManagement(
 //===----------------------------------------------------------------------===//
 
 template <typename MemoryTracker>
-OpConfig L1SpillManagement<MemoryTracker>::extractOpConfigFromIR(
-    Operation *op) {
+OpConfig
+L1SpillManagement<MemoryTracker>::extractOpConfigFromIR(Operation *op) {
   auto tensorType = mlir::cast<RankedTensorType>(op->getResult(0).getType());
   auto layout = mlir::cast<TTNNLayoutAttr>(tensorType.getEncoding());
   OpConfig config(layout);
@@ -109,9 +111,8 @@ template <typename MemoryTracker>
 OpConfig
 L1SpillManagement<MemoryTracker>::makeL1InterleavedConfig(Operation *op) {
   OpConfig config = extractOpConfigFromIR(op);
-  config.outputLayout =
-      config.outputLayout.withBufferType(BufferType::L1)
-          .withMemoryLayout(TensorMemoryLayout::Interleaved);
+  config.outputLayout = config.outputLayout.withBufferType(BufferType::L1)
+                            .withMemoryLayout(TensorMemoryLayout::Interleaved);
   return config;
 }
 
@@ -142,8 +143,7 @@ Operation *L1SpillManagement<MemoryTracker>::evictFarthestUse() {
 
 template <typename MemoryTracker>
 void L1SpillManagement<MemoryTracker>::applyDemotedConfig(
-    Operation *op,
-    const op_constraint_validation::ValidationResult &result) {
+    Operation *op, const op_constraint_validation::ValidationResult &result) {
   TTNNLayoutAttr chosenLayout = result.actualOutputLayout;
   if (!chosenLayout) {
     return;
@@ -342,8 +342,8 @@ void L1SpillManagement<MemoryTracker>::run() {
           memoryTracker.removeTensor(liveOp);
           liveOps.erase(liveOp);
           TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
-                       "  [pos={0}] DEAD: {1}, L1 now {2}/{3}",
-                       pos, ttmlir::opToString(liveOp),
+                       "  [pos={0}] DEAD: {1}, L1 now {2}/{3}", pos,
+                       ttmlir::opToString(liveOp),
                        memoryTracker.getOccupiedL1(), l1BudgetPerCore);
         }
         continue;
@@ -358,8 +358,7 @@ void L1SpillManagement<MemoryTracker>::run() {
     }
 
     uint64_t opL1Usage = l1Attr.getValue().getZExtValue();
-    int64_t opLastUse =
-        lastUsePositions.count(op) ? lastUsePositions[op] : pos;
+    int64_t opLastUse = lastUsePositions.count(op) ? lastUsePositions[op] : pos;
 
     TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
                  "  [pos={0}] PROCESS: {1}\n"
@@ -386,8 +385,8 @@ void L1SpillManagement<MemoryTracker>::run() {
 
     if (result.isSuccess()) {
       // Validation passed — add to live set.
-      uint64_t l1Size = result.outputL1Usage > 0 ? result.outputL1Usage
-                                                  : opL1Usage;
+      uint64_t l1Size =
+          result.outputL1Usage > 0 ? result.outputL1Usage : opL1Usage;
       memoryTracker.addTensor(op, l1Size);
       liveOps.insert(op);
       liveSet.push({opLastUse, op});
@@ -438,8 +437,7 @@ void L1SpillManagement<MemoryTracker>::run() {
       }
 
       TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
-                   "    EVICT: {0} (L1: {1} bytes)",
-                   ttmlir::opToString(victim),
+                   "    EVICT: {0} (L1: {1} bytes)", ttmlir::opToString(victim),
                    memoryTracker.getTensorSize(victim));
 
       spillToDram(victim);
@@ -455,8 +453,8 @@ void L1SpillManagement<MemoryTracker>::run() {
     }
 
     if (result.isSuccess()) {
-      uint64_t l1Size = result.outputL1Usage > 0 ? result.outputL1Usage
-                                                  : opL1Usage;
+      uint64_t l1Size =
+          result.outputL1Usage > 0 ? result.outputL1Usage : opL1Usage;
       memoryTracker.addTensor(op, l1Size);
       liveOps.insert(op);
       liveSet.push({opLastUse, op});
@@ -545,8 +543,7 @@ void L1SpillManagement<MemoryTracker>::spillToDram(Operation *op) {
 
   OpBuilder builder(op->getContext());
   builder.setInsertionPointAfter(op);
-  Location loc =
-      ttmlir::utils::appendLocationSuffix(op->getLoc(), "_spill");
+  Location loc = ttmlir::utils::appendLocationSuffix(op->getLoc(), "_spill");
 
   // Save all uses, insert ToMemoryConfigOp, reconnect uses.
   llvm::SmallVector<std::pair<Operation *, unsigned>> uses;

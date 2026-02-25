@@ -703,7 +703,7 @@ getPrepareConv2dBiasOpOutputTensorSpec(
   auto prepareConv2dBiasOpQuery = [=]() {
     ::ttnn::Conv2dConfig localConfig;
     if (!conv2dConfigConverted.has_value()) {
-      localConfig = ::ttnn::operations::conv::conv2d::Conv2dConfig();
+      localConfig = ::ttnn::prim::Conv2dConfig();
     } else {
       localConfig = *conv2dConfigConverted;
     }
