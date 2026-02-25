@@ -42,7 +42,7 @@ Encodings are created based on the following logic:
    - Reductions (Sum, Mean, Max, Min)
    - TMs (Permute, Transpose, Reshape)
 """
-CREATE_INTERMEDIATE_LAYOUT = True
+CREATE_INTERMEDIATE_LAYOUT = False
 
 
 class ResultWrapper:

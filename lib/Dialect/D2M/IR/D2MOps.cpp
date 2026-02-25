@@ -68,11 +68,12 @@ mlir::LogicalResult d2m::EmptyOp::bufferize(
   }
 
   // Don't bufferize if tensor has a ttnn_layout; lowering to ttnn generic.
-  if (options.allowUnknownOps &&
-      (mlir::isa<ttnn::TTNNLayoutAttr>(getResult().getType().getEncoding()) ||
-       mlir::isa<ttnn::TTNNNDLayoutAttr>(
-           getResult().getType().getEncoding()))) {
-    return success();
+  if (options.allowUnknownOps) {
+    auto encoding = getResult().getType().getEncoding();
+    if (encoding && (mlir::isa<ttnn::TTNNLayoutAttr>(encoding) ||
+                     mlir::isa<ttnn::TTNNNDLayoutAttr>(encoding))) {
+      return success();
+    }
   }
   ::llvm::SmallVector<mlir::Value> invocationStack;
   mlir::bufferization::replaceOpWithNewBufferizedOp<memref::AllocOp>(
@@ -117,9 +118,12 @@ d2m::FullOp::bufferize(mlir::RewriterBase &rewriter,
                        mlir::bufferization::BufferizationState &state) {
   ::llvm::SmallVector<mlir::Value> invocationStack;
   // Same as d2m::empty, don't bufferize if tensor has a ttnn_layout.
-  if (options.allowUnknownOps &&
-      mlir::isa<ttnn::TTNNLayoutAttr>(getResult().getType().getEncoding())) {
-    return mlir::success();
+  if (options.allowUnknownOps) {
+    auto encoding = getResult().getType().getEncoding();
+    if (encoding && (mlir::isa<ttnn::TTNNLayoutAttr>(encoding) ||
+                     mlir::isa<ttnn::TTNNNDLayoutAttr>(encoding))) {
+      return mlir::success();
+    }
   }
   auto memrefType = mlir::cast<mlir::MemRefType>(
       getBufferType(getResult(), options, state, invocationStack).value());
@@ -1065,22 +1069,24 @@ d2m::ViewLayoutOp::getBufferType(
   return ttcore::getBufferType(value.getType(), /*isView=*/true);
 }
 
+AffineMap d2m::ViewLayoutOp::getResultAffineMap() {
+  if (auto resultType = mlir::dyn_cast<MemRefType>(getType())) {
+    ttcore::ViewLayoutAttr resultView =
+        mlir::cast<ttcore::ViewLayoutAttr>(resultType.getLayout());
+    return resultView.getAffineMap();
+  }
+  return mlir::cast<ttcore::MetalLayoutAttr>(
+             mlir::cast<RankedTensorType>(getType()).getEncoding())
+      .getIndexAffineMap();
+}
+
 bool d2m::ViewLayoutOp::isReblockOnly() {
   mlir::AffineMap reblockMap = ttmlir::utils::calculateReblockMap(
       mlir::cast<mlir::ShapedType>(getInput().getType()).getShape(),
       mlir::cast<mlir::ShapedType>(getResult().getType()).getShape(),
       getContext());
 
-  if (auto resultType = mlir::dyn_cast<MemRefType>(getType())) {
-    ttcore::ViewLayoutAttr resultView =
-        mlir::cast<ttcore::ViewLayoutAttr>(resultType.getLayout());
-    return resultView.getAffineMap() == reblockMap;
-  }
-
-  auto resultLayout = mlir::cast<ttcore::MetalLayoutAttr>(
-      mlir::cast<RankedTensorType>(getType()).getEncoding());
-
-  return resultLayout.getIndexAffineMap() == reblockMap;
+  return getResultAffineMap() == reblockMap;
 }
 
 mlir::OpFoldResult d2m::ViewLayoutOp::fold(FoldAdaptor adaptor) {
@@ -1130,6 +1136,7 @@ mlir::OpFoldResult d2m::ViewLayoutOp::fold(FoldAdaptor adaptor) {
       mlir::cast<mlir::ShapedType>(consecutiveView.getInput().getType())
           .getShape(),
       mlir::cast<mlir::ShapedType>(getType()).getShape(), getContext());
+
   auto resultType = mlir::cast<RankedTensorType>(getType());
   auto resultLayout =
       mlir::cast<ttcore::MetalLayoutAttr>(resultType.getEncoding());
