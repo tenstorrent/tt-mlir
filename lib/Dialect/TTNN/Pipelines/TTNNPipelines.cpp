@@ -249,6 +249,9 @@ void createTTIRToTTNNDevicePipeline(
   {
     auto &devicePm = pm.nest<ttcore::DeviceModuleOp>().nest<mlir::ModuleOp>();
 
+    // todo(@ddilbazTT): remove this once I figur out elemtn support.
+    devicePm.addPass(mlir::tt::createTTIRToTTIRDecompositionPass());
+
     // Element type normalization should be applied only to the ops in the
     // Device Module, since we aren't restricted with element types on CPU.
     ttir::ElementTypeNormalizationOptions elementTypeNormalizationOptions;

@@ -144,11 +144,3 @@ func.func @constant_bf16() -> tensor<32x32xbf16> {
   %0 = "ttir.constant"() <{value = dense<1.0> : tensor<32x32xbf16>}> : () -> tensor<32x32xbf16>
   return %0 : tensor<32x32xbf16>
 }
-
-func.func @constant_complex_f32() -> tensor<1x2xcomplex<f32>> {
-  // CHECK: "ttir.constant"
-  // CHECK-SAME: value = dense<{{.*}}> : tensor<1x2x2xf32>
-  // CHECK-SAME: -> tensor<1x2x2xf32>
-  %0 = "ttir.constant"() <{value = dense<(1.0, 0.0)> : tensor<1x2xcomplex<f32>>}> : () -> tensor<1x2xcomplex<f32>>
-  return %0 : tensor<1x2xcomplex<f32>>
-}

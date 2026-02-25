@@ -7,7 +7,6 @@
 #include "ttmlir/Dialect/TTIR/Utils/UniformTypeRewriter.h"
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 
-#include "mlir/Dialect/Func/Transforms/FuncConversions.h"
 #include "mlir/Dialect/Quant/IR/QuantTypes.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
@@ -26,20 +25,6 @@ public:
           // Skip quantized types - don't modify them.
           if (mlir::isa<quant::QuantizedType>(elementType)) {
             return type;
-          }
-
-          // Handle complex types: complex<fN> → trailing dim of size 2 with fN
-          // element type.
-          if (auto complexTy = mlir::dyn_cast<mlir::ComplexType>(elementType)) {
-            auto floatTy =
-                mlir::dyn_cast<mlir::FloatType>(complexTy.getElementType());
-            if (!floatTy) {
-              return std::nullopt;
-            }
-            SmallVector<int64_t> newShape(type.getShape());
-            newShape.push_back(2);
-            return mlir::RankedTensorType::get(newShape, floatTy,
-                                               type.getEncoding());
           }
 
           elementType =
@@ -104,9 +89,6 @@ private:
     if (mlir::isa<FloatType>(elementType)) {
       return rebuildFloatAttr(attr, newType);
     }
-    if (mlir::isa<mlir::ComplexType>(elementType)) {
-      return rebuildComplexAttr(attr, newType);
-    }
 
     return nullptr;
   }
@@ -147,30 +129,6 @@ private:
     } else {
       floatValues.assign(attr.getValues<mlir::APFloat>().begin(),
                          attr.getValues<mlir::APFloat>().end());
-    }
-
-    return mlir::DenseElementsAttr::get(newType, floatValues);
-  }
-
-  mlir::ElementsAttr rebuildComplexAttr(mlir::ElementsAttr attr,
-                                        mlir::ShapedType newType) const {
-    auto complexTy = mlir::cast<mlir::ComplexType>(attr.getElementType());
-    auto floatTy = mlir::cast<mlir::FloatType>(complexTy.getElementType());
-    unsigned bitWidth = floatTy.getWidth();
-
-    llvm::SmallVector<mlir::APFloat> floatValues;
-    if (bitWidth == 32) {
-      for (auto v : attr.getValues<std::complex<float>>()) {
-        floatValues.emplace_back(v.real());
-        floatValues.emplace_back(v.imag());
-      }
-    } else if (bitWidth == 64) {
-      for (auto v : attr.getValues<std::complex<double>>()) {
-        floatValues.emplace_back(v.real());
-        floatValues.emplace_back(v.imag());
-      }
-    } else {
-      return nullptr;
     }
 
     return mlir::DenseElementsAttr::get(newType, floatValues);
@@ -275,29 +233,13 @@ struct ElementTypeNormalization
       return;
     }
 
-    mlir::ConversionTarget target(getContext());
-    target.addDynamicallyLegalOp<func::FuncOp>([&](func::FuncOp op) {
-      return converter.isSignatureLegal(op.getFunctionType()) &&
-             converter.isLegal(&op.getBody());
-    });
-    target.addDynamicallyLegalOp<func::ReturnOp>(
-        [&](func::ReturnOp op) { return converter.isLegal(op); });
-    target.markUnknownOpDynamicallyLegal([&](mlir::Operation *op) {
-      return converter.isLegal(
-          op); // or use your existing UniformTypeRewriter logic
-    });
-
     mlir::RewritePatternSet patterns(&getContext());
     GreedyRewriteConfig config;
     config.enableFolding(false);
     patterns.add<UniformTypeRewriter>(converter, &getContext());
     patterns.add<ConstantOpAttrRewriter>(converter, &getContext());
-    populateFunctionOpInterfaceTypeConversionPattern<func::FuncOp>(patterns,
-                                                                   converter);
-    populateReturnOpTypeConversionPattern(patterns, converter);
-
-    if (failed(mlir::applyPartialConversion(getOperation(), target,
-                                            std::move(patterns)))) {
+    if (failed(mlir::applyPatternsGreedily(getOperation(), std::move(patterns),
+                                           config))) {
       signalPassFailure();
       return;
     }
@@ -338,12 +280,6 @@ private:
   ElementTypeConverter converter;
 
   bool isLegal(mlir::Type type) const {
-    // Complex tensors are legal input — they'll be converted.
-    if (auto rankedTy = mlir::dyn_cast<mlir::RankedTensorType>(type)) {
-      if (mlir::isa<mlir::ComplexType>(rankedTy.getElementType())) {
-        return true;
-      }
-    }
     return converter.convertType(type) != nullptr;
   }
 
