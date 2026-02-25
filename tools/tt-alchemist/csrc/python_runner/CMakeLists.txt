@@ -12,6 +12,21 @@ set(PYTHON_RUNNER_LIBRARY_NAME tt-alchemist-python-runner)
 # target. nanobind additionally expects FindPython-provided variables/targets.
 find_package(Python REQUIRED COMPONENTS Interpreter Development.Module Development.Embed)
 
+# Use the same nanobind that tt-metal uses for ABI compatibility with the ttnn
+# Python module.  NB_INTERNALS_VERSION must match; otherwise each library gets
+# its own nb_internals and cross-library type lookups (e.g. ttnn::Tensor) fail.
+if(DEFINED ENV{CPM_SOURCE_CACHE})
+  set(_CPM_CACHE $ENV{CPM_SOURCE_CACHE})
+else()
+  set(_CPM_CACHE "${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/.cpmcache")
+endif()
+file(GLOB _NANOBIND_CMAKE_DIR "${_CPM_CACHE}/nanobind/*/cmake")
+if(_NANOBIND_CMAKE_DIR)
+  list(GET _NANOBIND_CMAKE_DIR 0 _NANOBIND_CMAKE_DIR)
+  set(nanobind_DIR "${_NANOBIND_CMAKE_DIR}")
+  message(STATUS "PythonModelRunner: using tt-metal's nanobind for ABI compat: ${nanobind_DIR}")
+endif()
+
 find_package(nanobind CONFIG REQUIRED)
 nanobind_build_library(nanobind-static)
 
