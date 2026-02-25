@@ -195,9 +195,6 @@ SmallVector<int64_t> getPhysicalGridShape(Value tensorOrMemref) {
   // (virtualGridMapping attr) rather than on views or the layout attribute.
   // Check for an explicit virtualGridMapping first.
   if (auto vgm = utils::getVirtualGridMapping(tensorOrMemref)) {
-    // The virtualGridMapping is the inverse map (physical → virtual).
-    // Derive the physical grid shape from the virtual grid shape using
-    // the shared getPhysicalGridExtent utility.
     ttcore::DeviceLayoutInterface layout =
         ttcore::getDeviceLayout(tensorOrMemref);
     TT_assert(layout);
@@ -206,6 +203,12 @@ SmallVector<int64_t> getPhysicalGridShape(Value tensorOrMemref) {
     if (auto *definingOp = tensorOrMemref.getDefiningOp()) {
       ttcore::DeviceAttr device = ttcore::lookupDevice(definingOp);
       auto workerGridShape = device.getWorkerGrid().getShape();
+      // If the grid fits directly on the device, the physical grid shape
+      // equals the virtual grid shape — no volume factorization needed.
+      if (!ttmlir::d2m::utils::grids::requiresVirtualGrid(gridShape,
+                                                          workerGridShape)) {
+        return SmallVector<int64_t>(gridShape.begin(), gridShape.end());
+      }
       return ttmlir::d2m::utils::grids::getPhysicalGridExtent(gridShape,
                                                               workerGridShape);
     }
@@ -260,6 +263,20 @@ std::optional<AffineMap> getVirtualGridMapping(Value val) {
     // Trace through d2m.to_layout to its output EmptyOp.
     if (auto toLayoutOp = mlir::dyn_cast<ToLayoutOp>(defOp)) {
       return getVirtualGridMapping(toLayoutOp.getOutput());
+    }
+
+    // Trace through d2m.generic results to the corresponding output operand.
+    // VGMs live on EmptyOps, so we need to explicitly trace from the result
+    // to the output operand that produced it.
+    if (auto genericOp = mlir::dyn_cast<GenericOp>(defOp)) {
+      // Find which result index this value corresponds to.
+      for (auto [idx, result] : llvm::enumerate(genericOp.getResults())) {
+        if (result == val) {
+          Value outputOperand = genericOp.getOutputs()[idx];
+          return getVirtualGridMapping(outputOperand);
+        }
+      }
+      return std::nullopt;
     }
 
     // Trace through d2m.view_layout to its input.

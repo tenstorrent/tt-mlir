@@ -205,13 +205,13 @@ static void simplifyLoadStorePairs(ModuleOp moduleOp, IRRewriter &rewriter) {
     bool isRemoteStore = isRemoteOperand(storeMemref, storeOp.getOperation());
 
     TT_assert(!(isRemoteLoad && isRemoteStore));
-    if (isRemoteLoad) {
+    if (!isRemoteStore) {
       // Create the explicit CB form of remote_load (no localBuffer, has CB
       // operand)
       rewriter.create<RemoteLoadOp>(loc, loadMemref, loadOp.getIndices(),
                                     outputCB, loadOp.getMcastStartIndex(),
                                     loadOp.getMcastShape());
-    } else if (isRemoteStore) {
+    } else {
       rewriter.create<RemoteStoreOp>(loc, storeMemref, loadOp.getIndices(),
                                      inputCB);
     }

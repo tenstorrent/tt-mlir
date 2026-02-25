@@ -1244,9 +1244,13 @@ void d2m::GenericOp::build(mlir::OpBuilder &builder,
       if (auto vgm = utils::getVirtualGridMapping(output)) {
         SmallVector<int64_t> physGridShape =
             d2m::utils::getPhysicalGridShape(output);
-        auto [_, invMap] = ttmlir::d2m::utils::grids::createCoreVirtMaps(
-            builder.getContext(), gridShape, physGridShape);
-        grid = builder.getAttr<ttcore::GridAttr>(gridShape, invMap);
+        // Only add virtualization to the grid when the physical grid shape
+        // differs from the logical grid shape.
+        if (!llvm::equal(gridShape, physGridShape)) {
+          auto [_, invMap] = ttmlir::d2m::utils::grids::createCoreVirtMaps(
+              builder.getContext(), gridShape, physGridShape);
+          grid = builder.getAttr<ttcore::GridAttr>(gridShape, invMap);
+        }
       }
 
       // 2. Check for a 2D→2D permutation reblocking on a ViewLayoutOp.

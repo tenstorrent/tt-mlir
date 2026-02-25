@@ -951,10 +951,9 @@ public:
       auto targetRemapping = utils::getAssociatedRemapping(op.getOutput());
       bool remappingsDiffer = currentRemapping != targetRemapping;
 
-      // Compare virtualGridMappings: different TTNN shard strategies (e.g.
-      // height_sharded vs block_sharded) can produce identical MetalLayoutAttr
-      // types but still require a mapping change to preserve the shard strategy
-      // through the pipeline.
+      // Compare virtualGridMappings: different shard strategies (e.g.
+      // height_sharded vs block_sharded) produce different VGMs even when
+      // all other layout properties match.
       auto currentVGM = utils::getVirtualGridMapping(currentValue);
       auto targetVGM = utils::getVirtualGridMapping(op.getOutput());
       bool vgmsDiffer = currentVGM != targetVGM;
