@@ -15,10 +15,10 @@ namespace {
 
 // Classify a line of devices based on their connectivity:
 //   DISABLED       — fewer than 2 devices, or any adjacent link is missing.
-//   FABRIC_1D      — all adjacent pairs connected, no wraparound.
-//   FABRIC_1D_RING — all adjacent pairs connected AND last wraps to first.
-//
-// If any adjacent link is broken the line cannot form even a linear topology.
+//   FABRIC_1D      — all adjacent pairs connected; no wraparound or only 2
+//                     devices.
+//   FABRIC_1D_RING — 3+ devices, all adjacent pairs connected AND last wraps
+//                     to first.
 FabricConfig
 classifyLine(const std::vector<uint32_t> &line,
              const std::set<std::pair<uint32_t, uint32_t>> &connections) {
@@ -39,6 +39,10 @@ classifyLine(const std::vector<uint32_t> &line,
                   " are not connected, disabling line.");
       return FabricConfig::DISABLED;
     }
+  }
+
+  if (line.size() == 2) {
+    return FabricConfig::FABRIC_1D;
   }
 
   if (!areConnected(line.front(), line.back())) {

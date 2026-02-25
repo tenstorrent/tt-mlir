@@ -38,68 +38,68 @@ TEST(ComputeMeshFabricConfig, TwoDevices1x2NoConnection) {
   EXPECT_EQ(result.globalConfig, FabricConfig::DISABLED);
 }
 
-// --- Two devices, connected: row ring, col DISABLED (single-element) ---
+// --- Two devices, connected: row line ---
 
-TEST(ComputeMeshFabricConfig, TwoDevices1x2WithWrap) {
+TEST(ComputeMeshFabricConfig, TwoDevices1x2Connected) {
   auto result = computeMeshFabricConfig({makeChannel(0, 1)}, {1, 2}, {0, 1});
 
   ASSERT_EQ(result.perAxisConfig.size(), 2u);
-  EXPECT_EQ(result.perAxisConfig[0], FabricConfig::FABRIC_1D_RING);
+  EXPECT_EQ(result.perAxisConfig[0], FabricConfig::FABRIC_1D);
   EXPECT_EQ(result.perAxisConfig[1], FabricConfig::DISABLED);
-  EXPECT_EQ(result.globalConfig, FabricConfig::FABRIC_1D_RING);
+  EXPECT_EQ(result.globalConfig, FabricConfig::FABRIC_1D);
 }
 
-// --- 2x1 column, connected: row DISABLED (single-element) ---
+// --- 2x1 column, connected: col line ---
 
-TEST(ComputeMeshFabricConfig, TwoDevices2x1WithWrap) {
+TEST(ComputeMeshFabricConfig, TwoDevices2x1Connected) {
   auto result = computeMeshFabricConfig({makeChannel(0, 1)}, {2, 1}, {0, 1});
 
   ASSERT_EQ(result.perAxisConfig.size(), 2u);
   EXPECT_EQ(result.perAxisConfig[0], FabricConfig::DISABLED);
-  EXPECT_EQ(result.perAxisConfig[1], FabricConfig::FABRIC_1D_RING);
-  EXPECT_EQ(result.globalConfig, FabricConfig::FABRIC_1D_RING);
+  EXPECT_EQ(result.perAxisConfig[1], FabricConfig::FABRIC_1D);
+  EXPECT_EQ(result.globalConfig, FabricConfig::FABRIC_1D);
 }
 
-// --- 2x2, all wraparound: both axes ring ---
+// --- 2x2, all connected: both axes line ---
 
-TEST(ComputeMeshFabricConfig, FourDevices2x2AllRing) {
+TEST(ComputeMeshFabricConfig, FourDevices2x2AllConnected) {
   // Mesh layout (logical):
   //   0  1
   //   2  3
-  // Row wraparound: 0<->1, 2<->3
-  // Col wraparound: 0<->2, 1<->3
+  // Row connections: 0<->1, 2<->3
+  // Col connections: 0<->2, 1<->3
   auto result = computeMeshFabricConfig({makeChannel(0, 1), makeChannel(2, 3),
                                          makeChannel(0, 2), makeChannel(1, 3)},
                                         {2, 2}, {0, 1, 2, 3});
 
   ASSERT_EQ(result.perAxisConfig.size(), 2u);
-  EXPECT_EQ(result.perAxisConfig[0], FabricConfig::FABRIC_1D_RING);
-  EXPECT_EQ(result.perAxisConfig[1], FabricConfig::FABRIC_1D_RING);
-  EXPECT_EQ(result.globalConfig, FabricConfig::FABRIC_1D_RING);
+  EXPECT_EQ(result.perAxisConfig[0], FabricConfig::FABRIC_1D);
+  EXPECT_EQ(result.perAxisConfig[1], FabricConfig::FABRIC_1D);
+  EXPECT_EQ(result.globalConfig, FabricConfig::FABRIC_1D);
 }
 
-// --- 2x2, only rows ring: col axis DISABLED ---
+// --- 2x2, only rows connected: row line, col axis DISABLED ---
 
-TEST(ComputeMeshFabricConfig, FourDevices2x2OnlyRowsRing) {
+TEST(ComputeMeshFabricConfig, FourDevices2x2OnlyRowsConnected) {
   auto result = computeMeshFabricConfig({makeChannel(0, 1), makeChannel(2, 3)},
                                         {2, 2}, {0, 1, 2, 3});
 
   ASSERT_EQ(result.perAxisConfig.size(), 2u);
-  EXPECT_EQ(result.perAxisConfig[0], FabricConfig::FABRIC_1D_RING);
+  EXPECT_EQ(result.perAxisConfig[0], FabricConfig::FABRIC_1D);
   EXPECT_EQ(result.perAxisConfig[1], FabricConfig::DISABLED);
-  EXPECT_EQ(result.globalConfig, FabricConfig::FABRIC_1D_RING);
+  EXPECT_EQ(result.globalConfig, FabricConfig::FABRIC_1D);
 }
 
-// --- 2x2, only cols ring: row axis DISABLED ---
+// --- 2x2, only cols connected: col line, row axis DISABLED ---
 
-TEST(ComputeMeshFabricConfig, FourDevices2x2OnlyColsRing) {
+TEST(ComputeMeshFabricConfig, FourDevices2x2OnlyColsConnected) {
   auto result = computeMeshFabricConfig({makeChannel(0, 2), makeChannel(1, 3)},
                                         {2, 2}, {0, 1, 2, 3});
 
   ASSERT_EQ(result.perAxisConfig.size(), 2u);
   EXPECT_EQ(result.perAxisConfig[0], FabricConfig::DISABLED);
-  EXPECT_EQ(result.perAxisConfig[1], FabricConfig::FABRIC_1D_RING);
-  EXPECT_EQ(result.globalConfig, FabricConfig::FABRIC_1D_RING);
+  EXPECT_EQ(result.perAxisConfig[1], FabricConfig::FABRIC_1D);
+  EXPECT_EQ(result.globalConfig, FabricConfig::FABRIC_1D);
 }
 
 // --- 2x2, no connections: both axes DISABLED ---
@@ -120,23 +120,23 @@ TEST(ComputeMeshFabricConfig, NonIdentityMapping2x2) {
   // Mesh layout (physical):
   //   3  1
   //   2  0
-  // Row wraparound needs: 3<->1, 2<->0
-  // Col wraparound needs: 3<->2, 1<->0
-  // Provide only row wraparound.
+  // Row connections: 3<->1, 2<->0
+  // Col connections: 3<->2, 1<->0
+  // Provide only row connections.
   auto result = computeMeshFabricConfig({makeChannel(1, 3), makeChannel(0, 2)},
                                         {2, 2}, {3, 1, 2, 0});
 
   ASSERT_EQ(result.perAxisConfig.size(), 2u);
-  EXPECT_EQ(result.perAxisConfig[0], FabricConfig::FABRIC_1D_RING);
+  EXPECT_EQ(result.perAxisConfig[0], FabricConfig::FABRIC_1D);
   EXPECT_EQ(result.perAxisConfig[1], FabricConfig::DISABLED);
-  EXPECT_EQ(result.globalConfig, FabricConfig::FABRIC_1D_RING);
+  EXPECT_EQ(result.globalConfig, FabricConfig::FABRIC_1D);
 }
 
 // --- Partial row: one row connected, other not → row axis DISABLED ---
 
 TEST(ComputeMeshFabricConfig, FourDevices2x2PartialRow) {
-  // Row 0: 0<->1 connected (ring). Row 1: 2<->3 NOT connected (disabled).
-  // Axis = min(RING, DISABLED) = DISABLED.
+  // Row 0: 0<->1 connected (line). Row 1: 2<->3 NOT connected (disabled).
+  // Axis = min(LINE, DISABLED) = DISABLED.
   auto result =
       computeMeshFabricConfig({makeChannel(0, 1)}, {2, 2}, {0, 1, 2, 3});
 
@@ -152,9 +152,9 @@ TEST(ComputeMeshFabricConfig, ReversedChannelOrder) {
   auto result = computeMeshFabricConfig({makeChannel(1, 0)}, {1, 2}, {0, 1});
 
   ASSERT_EQ(result.perAxisConfig.size(), 2u);
-  EXPECT_EQ(result.perAxisConfig[0], FabricConfig::FABRIC_1D_RING);
+  EXPECT_EQ(result.perAxisConfig[0], FabricConfig::FABRIC_1D);
   EXPECT_EQ(result.perAxisConfig[1], FabricConfig::DISABLED);
-  EXPECT_EQ(result.globalConfig, FabricConfig::FABRIC_1D_RING);
+  EXPECT_EQ(result.globalConfig, FabricConfig::FABRIC_1D);
 }
 
 // --- 1x4 ring: all adjacent + wraparound ---
