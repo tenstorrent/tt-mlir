@@ -216,7 +216,7 @@ void createTTNNPipelineDeallocPass(
 // lowering, and then lowers them to TTNN dialect.
 //
 // CPU module does get modified in this pipeline, but only by
-// adding more TTIR ops to it (CPUHoistTransform passes).
+// adding more TTIR ops to it (CPU hoisting passes).
 //
 void createTTIRToTTNNDevicePipeline(
     OpPassManager &pm, const TTIRToTTNNDevicePipelineOptions &options) {

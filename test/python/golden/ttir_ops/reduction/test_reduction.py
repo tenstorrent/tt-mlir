@@ -114,10 +114,7 @@ def test_reduction_ops(
 
 
 reduction_op_cpu_hoisted_names = [
-    "argmax"
-    | Marks(
-        pytest.mark.xfail(reason="Not supported in CPU hoisted mode, see issue #5809")
-    ),
+    "argmax",
     "max",
     "mean",
     "min",
