@@ -71,11 +71,39 @@ PythonModelRunner::PythonModelRunner() {
   if (existingModule == nullptr) {
     if (pythonWasAlreadyInitialized) {
       // Python was already initialized by an external process, so we couldn't
-      // use PyImport_AppendInittab(). Manually create and register the module.
-      PyObject *m = PyInit__tt_alchemist_python_runner();
+      // use PyImport_AppendInittab(). nanobind uses multi-phase module init
+      // (PEP 489), so PyInit_ returns a PyModuleDef*, not a ready module.
+      // We must create a proper module and run its exec slots so that
+      // nanobind's nb_module_exec initializes the shared nb_internals pointer.
+      PyObject *def = PyInit__tt_alchemist_python_runner();
+      if (def == nullptr) {
+        nb::raise_python_error();
+      }
+
+      PyObject *importlib = PyImport_ImportModule("importlib.util");
+      if (importlib == nullptr) {
+        nb::raise_python_error();
+      }
+      PyObject *spec = PyObject_CallMethod(
+          importlib, "spec_from_loader", "sO",
+          "_tt_alchemist_python_runner", Py_None);
+      Py_DECREF(importlib);
+      if (spec == nullptr) {
+        nb::raise_python_error();
+      }
+
+      PyObject *m = PyModule_FromDefAndSpec(
+          reinterpret_cast<PyModuleDef *>(def), spec);
+      Py_DECREF(spec);
       if (m == nullptr) {
         nb::raise_python_error();
       }
+
+      if (PyModule_ExecDef(m, reinterpret_cast<PyModuleDef *>(def)) < 0) {
+        Py_DECREF(m);
+        nb::raise_python_error();
+      }
+
       if (PyDict_SetItemString(sysModules, "_tt_alchemist_python_runner", m) <
           0) {
         Py_DECREF(m);
