@@ -45,6 +45,17 @@ void createStableHLOPipeline(OpPassManager &pm,
   analyzeMeshOptions.automaticArgAnalysis = options.automaticArgAnalysis;
   pm.addPass(createAnalyzeMeshPass(analyzeMeshOptions));
 
+  // Optionally search for optimal sharding configuration by evaluating CCL
+  // costs across all candidate shardings.
+  if (options.enableShardingSearch) {
+    ShardingSearchPassOptions searchOptions;
+    searchOptions.meshShape = llvm::to_vector(options.meshShape);
+    searchOptions.systemDescPath = options.systemDescPath;
+    searchOptions.dumpVariants = options.dumpVariants;
+    searchOptions.dumpDir = options.dumpDir;
+    pm.addPass(createShardingSearchPass(searchOptions));
+  }
+
   pm.addPass(createDecoupleConstFanoutPass());
 
   // Convert tuple-returning custom_call ops to multi-result ops so that

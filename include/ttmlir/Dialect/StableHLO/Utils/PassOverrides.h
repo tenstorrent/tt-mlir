@@ -15,6 +15,11 @@ struct OptionNames {
   static constexpr llvm::StringRef resultPresharded = "result-presharded";
   static constexpr llvm::StringRef automaticArgAnalysis =
       "automatic-arg-analysis";
+  static constexpr llvm::StringRef enableShardingSearch =
+      "enable-sharding-search";
+  static constexpr llvm::StringRef systemDescPath = "system-desc-path";
+  static constexpr llvm::StringRef dumpVariants = "dump-variants";
+  static constexpr llvm::StringRef dumpDir = "dump-dir";
 };
 
 #endif // TTMLIR_ENABLE_STABLEHLO

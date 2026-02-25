@@ -39,6 +39,29 @@ struct StableHLOPipelineOptions
       *this, OptionNames::automaticArgAnalysis,
       llvm::cl::desc("Automatically determine argument shardings.")};
 
+  Option<bool> enableShardingSearch{
+      *this, OptionNames::enableShardingSearch,
+      llvm::cl::desc("Enable sharding search for optimal CCL cost."),
+      llvm::cl::init(false)};
+
+  Option<std::string> systemDescPath{
+      *this, OptionNames::systemDescPath,
+      llvm::cl::desc(
+          "Path to system descriptor for TTNN backend (used by sharding "
+          "search)."),
+      llvm::cl::init("")};
+
+  Option<bool> dumpVariants{
+      *this, OptionNames::dumpVariants,
+      llvm::cl::desc("Dump each sharding variant IR to disk for inspection."),
+      llvm::cl::init(false)};
+
+  Option<std::string> dumpDir{
+      *this, OptionNames::dumpDir,
+      llvm::cl::desc("Directory to dump variants into (default: current "
+                     "directory)."),
+      llvm::cl::init("")};
+
   Option<ttcore::TTArgumentTypeMap, ttcore::ArgumentTypeMapParser>
       argumentTypeMap{
           *this, ttcore::OptionNames::argumentTypes,
