@@ -20,6 +20,7 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         TTNNFusing.cpp
         ${OPMODEL_SRCS}
         TTNNLayout.cpp
+        TTNNConfigureCCLOps.cpp
         TTNNRecoverStructure.cpp
         TTNNRecoverStructureUtils.cpp
         TTNNSetComputeKernelConfig.cpp
