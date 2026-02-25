@@ -991,7 +991,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
 
                   if (useAlwaysStreamPolicy() ||
                       inferStreamRequirement(user, operandCtx.operandIndex(),
-                                             memspace)) {
+                                             placementMemspace)) {
                     TT_debug(operandCtx.bufferType != nullptr);
                     const AllocSizeT bufferSize = ttmlir::utils::alignUp(
                         getStreamBufferSizeBytes(operandCtx.bufferType, device),

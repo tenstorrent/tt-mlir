@@ -1240,8 +1240,6 @@ insertTTNNDRAMViews(d2m::GenericOp genericOp,
       continue;
     }
 
-    llvm::SmallVector<int64_t> unshardedShape =
-        baseMetalLayout.getPhysicalShape(ttcore::TileType::getDefaultShape());
     // TTNN DRAM interleaved tensors are represented as having a 1x1 grid.
     llvm::SmallVector<int64_t> unitGridShape{1, 1};
     llvm::SmallVector<int64_t> unShardedShapeWithGrid =
