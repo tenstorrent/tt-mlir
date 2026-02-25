@@ -89,12 +89,8 @@ struct LayoutScore {
   bool operator>=(const LayoutScore &other) const {
     return *this > other || *this == other;
   }
-  bool operator<=(const LayoutScore &other) const {
-    return other >= *this;
-  }
-  bool operator!=(const LayoutScore &other) const {
-    return !(*this == other);
-  }
+  bool operator<=(const LayoutScore &other) const { return other >= *this; }
+  bool operator!=(const LayoutScore &other) const { return !(*this == other); }
 };
 
 /// A single candidate in the beam. Used for both K=1 (greedy) and K>1 (beam
@@ -123,9 +119,10 @@ struct BeamCandidate {
 };
 
 /// Score a backend validation result. Per-op customization via TypeSwitch.
-LayoutScore scoreCandidate(Operation *op, const OpConfig &config,
-                           const op_constraint_validation::ValidationResult &result,
-                           bool requiresReshard);
+LayoutScore
+scoreCandidate(Operation *op, const OpConfig &config,
+               const op_constraint_validation::ValidationResult &result,
+               bool requiresReshard);
 
 } // namespace mlir::tt::ttnn
 

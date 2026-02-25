@@ -49,8 +49,7 @@ public:
   TTNNGreedyLayoutPropagationBase()
       : ::mlir::OperationPass<::mlir::ModuleOp>(
             ::mlir::TypeID::get<DerivedT>()) {}
-  TTNNGreedyLayoutPropagationBase(
-      const TTNNGreedyLayoutPropagationBase &other)
+  TTNNGreedyLayoutPropagationBase(const TTNNGreedyLayoutPropagationBase &other)
       : ::mlir::OperationPass<::mlir::ModuleOp>(other) {}
   TTNNGreedyLayoutPropagationBase &
   operator=(const TTNNGreedyLayoutPropagationBase &) = delete;
@@ -85,14 +84,12 @@ public:
     return std::make_unique<DerivedT>(*static_cast<const DerivedT *>(this));
   }
 
-  void
-  getDependentDialects(::mlir::DialectRegistry &registry) const override {}
+  void getDependentDialects(::mlir::DialectRegistry &registry) const override {}
 
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(
       TTNNGreedyLayoutPropagationBase<DerivedT>)
 
-  TTNNGreedyLayoutPropagationBase(
-      TTNNGreedyLayoutPropagationOptions options)
+  TTNNGreedyLayoutPropagationBase(TTNNGreedyLayoutPropagationOptions options)
       : TTNNGreedyLayoutPropagationBase() {
     maxLegalLayouts = std::move(options.maxLegalLayouts);
     rowMajorEnabled = std::move(options.rowMajorEnabled);
@@ -143,8 +140,7 @@ private:
     return std::make_unique<DerivedT>();
   }
 
-  friend std::unique_ptr<::mlir::Pass>
-  createTTNNGreedyLayoutPropagation(
+  friend std::unique_ptr<::mlir::Pass> createTTNNGreedyLayoutPropagation(
       TTNNGreedyLayoutPropagationOptions options) {
     return std::make_unique<DerivedT>(std::move(options));
   }
@@ -156,8 +152,7 @@ std::unique_ptr<::mlir::Pass> createTTNNGreedyLayoutPropagation() {
 }
 
 std::unique_ptr<::mlir::Pass>
-createTTNNGreedyLayoutPropagation(
-    TTNNGreedyLayoutPropagationOptions options) {
+createTTNNGreedyLayoutPropagation(TTNNGreedyLayoutPropagationOptions options) {
   return impl::createTTNNGreedyLayoutPropagation(std::move(options));
 }
 
@@ -174,9 +169,8 @@ public:
         "TTNNGreedyLayoutPropagation pass requires OpModel support to be "
         "enabled.");
 #else
-    op_model::ScopedSingletonDeviceGuard deviceGuard;
-
     ModuleOp moduleOp = getOperation();
+    op_model::ScopedSingletonDeviceGuard deviceGuard(moduleOp);
 
     // Get the max grid size from the system description.
     ttcore::GridAttr deviceGrid =
@@ -235,8 +229,8 @@ public:
         LegalOpLayoutAnalysis legalOpLayoutAnalysis =
             getChildAnalysis<LegalOpLayoutAnalysis>(op);
         legalOpLayoutAnalysis.init(LegalOpLayoutAnalysisInput(
-            &tensorLayouts->getSecond(), maxLegalLayouts,
-            &overrideOutputLayout, rowMajorEnabled));
+            &tensorLayouts->getSecond(), maxLegalLayouts, &overrideOutputLayout,
+            rowMajorEnabled));
 
         LegalOpConfigAnalysis legalOpConfigAnalysis =
             getChildAnalysis<LegalOpConfigAnalysis>(op);

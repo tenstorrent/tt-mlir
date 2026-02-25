@@ -8,7 +8,6 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
-#include "ttmlir/OpModel/TTNN/TTNNOpModel.h"
 #include "ttmlir/OpModel/TTNN/TTNNOutputTensorInference.h"
 #include "ttmlir/Utils.h"
 

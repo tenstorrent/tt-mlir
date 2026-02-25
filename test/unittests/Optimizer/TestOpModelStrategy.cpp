@@ -87,7 +87,7 @@ public:
 
   // Create a simple AddOp for testing.
   AddOp createMockAddOp(const llvm::ArrayRef<int64_t> &inputShape = {1, 1, 32,
-                                                                      32}) {
+                                                                     32}) {
     auto layout = createL1InterleavedLayout(inputShape);
     auto tensorType =
         mlir::RankedTensorType::get(inputShape, builder.getBF16Type(), layout);
@@ -107,11 +107,9 @@ public:
   }
 
   // Create a ReshapeOp for testing.
-  ReshapeOp
-  createMockReshapeOp(const llvm::ArrayRef<int64_t> &inputShape = {1, 1, 32,
-                                                                    32},
-                      const llvm::ArrayRef<int64_t> &outputShape = {1, 32,
-                                                                    32}) {
+  ReshapeOp createMockReshapeOp(
+      const llvm::ArrayRef<int64_t> &inputShape = {1, 1, 32, 32},
+      const llvm::ArrayRef<int64_t> &outputShape = {1, 32, 32}) {
     auto inputLayout = createL1InterleavedLayout(inputShape);
     auto inputTensorType = mlir::RankedTensorType::get(
         inputShape, builder.getBF16Type(), inputLayout);
@@ -127,23 +125,23 @@ public:
 
     llvm::SmallVector<int32_t> outputShapeI32(outputShape.begin(),
                                               outputShape.end());
-    return builder.create<ReshapeOp>(
-        builder.getUnknownLoc(), outputTensorType, input.getResult(),
-        builder.getI32ArrayAttr(outputShapeI32),
-        /*memory_config=*/nullptr);
+    return builder.create<ReshapeOp>(builder.getUnknownLoc(), outputTensorType,
+                                     input.getResult(),
+                                     builder.getI32ArrayAttr(outputShapeI32),
+                                     /*memory_config=*/nullptr);
   }
 
   // Create a MatmulOp for testing.
-  MatmulOp createMockMatmulOp(
-      const llvm::ArrayRef<int64_t> &lhsShape = {1, 1, 32, 64},
-      const llvm::ArrayRef<int64_t> &rhsShape = {1, 1, 64, 32}) {
+  MatmulOp
+  createMockMatmulOp(const llvm::ArrayRef<int64_t> &lhsShape = {1, 1, 32, 64},
+                     const llvm::ArrayRef<int64_t> &rhsShape = {1, 1, 64, 32}) {
     auto lhsLayout = createL1InterleavedLayout(lhsShape);
-    auto lhsTensorType = mlir::RankedTensorType::get(
-        lhsShape, builder.getBF16Type(), lhsLayout);
+    auto lhsTensorType =
+        mlir::RankedTensorType::get(lhsShape, builder.getBF16Type(), lhsLayout);
 
     auto rhsLayout = createL1InterleavedLayout(rhsShape);
-    auto rhsTensorType = mlir::RankedTensorType::get(
-        rhsShape, builder.getBF16Type(), rhsLayout);
+    auto rhsTensorType =
+        mlir::RankedTensorType::get(rhsShape, builder.getBF16Type(), rhsLayout);
 
     llvm::SmallVector<int64_t> outputShape = {lhsShape[0], lhsShape[1],
                                               lhsShape[2], rhsShape[3]};
@@ -171,9 +169,8 @@ public:
   }
 
   // Create legal configs for an elementwise op (DRAM + L1-interleaved).
-  std::vector<OpConfig>
-  createElementwiseLegalConfigs(const llvm::ArrayRef<int64_t> &shape = {
-                                    1, 1, 32, 32}) {
+  std::vector<OpConfig> createElementwiseLegalConfigs(
+      const llvm::ArrayRef<int64_t> &shape = {1, 1, 32, 32}) {
     std::vector<OpConfig> configs;
     configs.emplace_back(createDRAMInterleavedLayout(shape));
     configs.emplace_back(createL1InterleavedLayout(shape));
@@ -238,8 +235,9 @@ TEST_F(OpModelStrategyTest, MatmulOpFiltersL1Interleaved) {
 
   // No hint should be L1-interleaved.
   for (const auto &hint : hints.hints) {
-    if (hint.outputLayout && hint.outputLayout.getBufferType() == BufferType::L1
-        && hint.outputLayout.getMemLayout() &&
+    if (hint.outputLayout &&
+        hint.outputLayout.getBufferType() == BufferType::L1 &&
+        hint.outputLayout.getMemLayout() &&
         hint.outputLayout.getMemLayout().getValue() ==
             TensorMemoryLayout::Interleaved) {
       FAIL() << "Matmul hints should not contain L1-interleaved configs";
