@@ -59,58 +59,69 @@ collectDMAOps(Block *block,
   }
 }
 
-// Collect CB indices that access DRAM via remote load/store.
-static void getDRAMAccessCBs(
-    const SmallVectorImpl<std::pair<Operation *, unsigned>> &dmaOps,
-    SmallVectorImpl<unsigned> &readCBs, SmallVectorImpl<unsigned> &writeCBs) {
-  for (const auto &[op, cbIdx] : dmaOps) {
-    if (auto load = mlir::dyn_cast<RemoteLoadOp>(op)) {
-      if (ttcore::getMemorySpace(load.getMemref()) ==
-          ttcore::MemorySpace::DeviceDRAM) {
-        readCBs.push_back(cbIdx);
-      }
-    } else if (auto store = mlir::dyn_cast<RemoteStoreOp>(op)) {
-      if (ttcore::getMemorySpace(store.getMemref()) ==
-          ttcore::MemorySpace::DeviceDRAM) {
-        writeCBs.push_back(cbIdx);
-      }
-    }
-  }
-}
+// Score for deciding which thread gets which NoC.
+// Priority is given to the thread that has the larger mcast shards.
+// Unicast reads take priority over unicast writes.
+struct NocScore {
+  int64_t mcastShardSize = 0;
+  int64_t unicastBias = 0;
 
-// Assign NoC indices to the two DM thread assignments based on DRAM access
-// patterns.  A DRAM reader gets NoC 0, a DRAM writer gets NoC 1.  If a thread
-// does both, the read takes priority (Noc0).
+  bool operator>(const NocScore &other) const {
+    if (mcastShardSize != other.mcastShardSize) {
+      return mcastShardSize > other.mcastShardSize;
+    }
+    return unicastBias > other.unicastBias;
+  }
+};
+
+// The thread with the higher NocScore gets NoC0.
+// Default is thread0 gets NoC0, thread1 gets NoC1.
 static void assignNocIndices(
     SmallVectorImpl<DMAThreadAssignment> &assignments,
     const SmallVectorImpl<std::pair<Operation *, unsigned>> &dmaOps) {
-  assert(assignments.size() == 2 && "Expected exactly 2 DM threads");
+  TT_assertv(int(assignments.size()) == 2, "Expect exactly 2 DM threads");
 
-  SmallVector<unsigned, 2> dramReadCBs, dramWriteCBs;
-  getDRAMAccessCBs(dmaOps, dramReadCBs, dramWriteCBs);
+  NocScore scores[2];
+  for (const auto &[op, cbIdx] : dmaOps) {
+    for (int t = 0; t < 2; ++t) {
+      if (!assignments[t].assignedCBs.contains(cbIdx)) {
+        continue;
+      }
 
-  auto &thread0 = assignments[0];
-  auto &thread1 = assignments[1];
-
-  auto hasCBIn = [](const DMAThreadAssignment &a,
-                    const SmallVectorImpl<unsigned> &cbs) {
-    return llvm::any_of(a.assignedCBs, [&](unsigned cb) {
-      return llvm::is_contained(cbs, cb);
-    });
-  };
-
-  bool thread0ReadsDRAM = hasCBIn(thread0, dramReadCBs);
-  bool thread1ReadsDRAM = hasCBIn(thread1, dramReadCBs);
-
-  // DRAM reader gets NoC 0, writer gets NoC 1.  Reader takes priority.
-  // Swap from default (thread0=NoC0, thread1=NoC1) only when thread 1 is
-  // the sole DRAM reader, or thread 0 is the sole DRAM writer.
-  bool swap =
-      (!thread0ReadsDRAM && thread1ReadsDRAM) ||
-      (!thread0ReadsDRAM && !thread1ReadsDRAM &&
-       hasCBIn(thread0, dramWriteCBs) && !hasCBIn(thread1, dramWriteCBs));
-  thread0.nocIndex = swap ? 1 : 0;
-  thread1.nocIndex = swap ? 0 : 1;
+      if (auto load = mlir::dyn_cast<RemoteLoadOp>(op)) {
+        if (ttcore::getMemorySpace(load.getMemref()) !=
+            ttcore::MemorySpace::DeviceDRAM) {
+          continue;
+        }
+        if (load.isMcast()) {
+          auto layout = ttcore::getDeviceLayout(load.getMemref());
+          if (layout) {
+            auto shardShape = SmallVector<int64_t>(
+                layout.getShardShape(load.getShapedType()));
+            if (auto tileType = mlir::dyn_cast<ttcore::TileType>(
+                    load.getShapedType().getElementType())) {
+              shardShape = tileType.getScalarShape(shardShape);
+            }
+            int64_t size = 1;
+            for (int64_t dim : shardShape) {
+              size *= dim;
+            }
+            scores[t].mcastShardSize = std::max(scores[t].mcastShardSize, size);
+          }
+        } else {
+          scores[t].unicastBias += 2;
+        }
+      } else if (auto store = mlir::dyn_cast<RemoteStoreOp>(op)) {
+        if (ttcore::getMemorySpace(store.getMemref()) ==
+            ttcore::MemorySpace::DeviceDRAM) {
+          scores[t].unicastBias -= 1;
+        }
+      }
+    }
+  }
+  bool swap = scores[1] > scores[0];
+  assignments[0].nocIndex = swap ? 1 : 0;
+  assignments[1].nocIndex = swap ? 0 : 1;
 }
 
 // Assign CBs to threads to balance workload.
@@ -258,9 +269,12 @@ public:
     // Not enough CBs to warrant splitting but still need to assign nocIndex on
     // the existing single DM thread before returning failure.
     if (numThreadsToUse <= 1 || cbWorkloads.size() <= 1) {
-      SmallVector<unsigned, 2> dramReadCBs, dramWriteCBs;
-      getDRAMAccessCBs(dmaOps, dramReadCBs, dramWriteCBs);
-      int nocIndex = !dramWriteCBs.empty() ? 1 : 0;
+      bool writesDRAM = llvm::any_of(dmaOps, [](const auto &entry) {
+        auto store = mlir::dyn_cast<RemoteStoreOp>(entry.first);
+        return store && ttcore::getMemorySpace(store.getMemref()) ==
+                            ttcore::MemorySpace::DeviceDRAM;
+      });
+      int nocIndex = writesDRAM ? 1 : 0;
       generic.setThreadsAttr(rewriter.getArrayAttr(
           {rewriter.getAttr<ThreadAttr>(ThreadType::Datamovement, nullptr,
                                         nocIndex),
