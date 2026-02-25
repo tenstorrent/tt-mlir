@@ -14,6 +14,7 @@
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
+#include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
@@ -226,6 +227,68 @@ d2m::MeshShardOp::getBufferType(
 // ToLayoutOp
 //===----------------------------------------------------------------------===//
 
+// Helper: return true if two MetalLayoutAttrs are identical except for OOBVal.
+static bool layoutsMatchExceptOOB(ttcore::MetalLayoutAttr a,
+                                  ttcore::MetalLayoutAttr b) {
+  return a.getLogicalShape() == b.getLogicalShape() &&
+         a.getDimAlignments() == b.getDimAlignments() &&
+         a.getCollapsedIntervals() == b.getCollapsedIntervals() &&
+         a.getMemorySpace() == b.getMemorySpace() &&
+         a.getMemoryLayout() == b.getMemoryLayout() &&
+         a.getIndexAffineMap() == b.getIndexAffineMap();
+}
+
+// Fold away a to_layout whose only effect is changing the OOB fill value.
+// OOB is metadata that controls padding behaviour during LowerToLayout; when
+// two layouts are otherwise identical a to_layout between them is a no-op
+// because the underlying data arrangement is the same.
+struct ToLayoutFoldOOBUndefPattern : public OpRewritePattern<ToLayoutOp> {
+  using OpRewritePattern<ToLayoutOp>::OpRewritePattern;
+
+  ToLayoutFoldOOBUndefPattern(MLIRContext *context)
+      : OpRewritePattern<ToLayoutOp>(context) {
+    setDebugName("d2m.ToLayoutFoldOOBUndefPattern");
+  }
+
+  LogicalResult matchAndRewrite(ToLayoutOp op,
+                                PatternRewriter &rewriter) const final {
+    auto inputType = mlir::dyn_cast<RankedTensorType>(op.getInput().getType());
+    auto outputType =
+        mlir::dyn_cast<RankedTensorType>(op.getOutput().getType());
+    if (!inputType || !outputType) {
+      return failure();
+    }
+
+    auto inputLayout = mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
+        inputType.getEncoding());
+    auto outputLayout = mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
+        outputType.getEncoding());
+    if (!inputLayout || !outputLayout) {
+      return failure();
+    }
+
+    // OOB must actually differ (same OOB is handled by identity fold),
+    // and at least one side must be undef.
+    if (inputLayout.getOobVal() == outputLayout.getOobVal()) {
+      return failure();
+    }
+    if (inputLayout.getOobVal() != ttcore::OOBVal::Undef &&
+        outputLayout.getOobVal() != ttcore::OOBVal::Undef) {
+      return failure();
+    }
+
+    if (inputType.getShape() != outputType.getShape() ||
+        inputType.getElementType() != outputType.getElementType() ||
+        !layoutsMatchExceptOOB(inputLayout, outputLayout)) {
+      return failure();
+    }
+
+    // Layouts match except OOB — the to_layout is a no-op.
+    rewriter.replaceOp(op, op.getInput());
+    return success();
+  }
+};
+
 struct ToLayoutFoldRedundantPattern : public OpRewritePattern<ToLayoutOp> {
   using OpRewritePattern<ToLayoutOp>::OpRewritePattern;
 
@@ -361,6 +424,7 @@ void ToLayoutOp::getCanonicalizationPatterns(mlir::RewritePatternSet &patterns,
   });
 
   patterns.add(std::make_unique<ToLayoutFoldRedundantPattern>(context));
+  patterns.add(std::make_unique<ToLayoutFoldOOBUndefPattern>(context));
 }
 
 bool ToLayoutOp::bufferizesToMemoryRead(
@@ -826,9 +890,9 @@ mlir::LogicalResult StreamLayoutOp::verify() {
       *this, "storage", "result", getStorage().getType(), getResult().getType(),
       /*checkSameElementType*/ true,
       /*checkSameMemorySpace*/ false,
-      /*checkSameRank*/ true,
+      /*checkSameRank*/ false,
       /*checkSameGridShape*/ false,
-      /*checkSameShardShape*/ true);
+      /*checkSameShardShape*/ false);
   if (failed(storageResultVerification)) {
     return storageResultVerification;
   }
@@ -1075,6 +1139,34 @@ mlir::OpFoldResult d2m::ViewLayoutOp::fold(FoldAdaptor adaptor) {
       RankedTensorType::Builder(resultType).setEncoding(newLayout));
 
   return getResult();
+}
+
+void d2m::ViewLayoutOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *) {
+  // Fold view(stream) -> stream with composed layout.
+  patterns.add(+[](ViewLayoutOp op, mlir::PatternRewriter &rewriter) {
+    StreamLayoutOp streamOp = op.getInput().getDefiningOp<StreamLayoutOp>();
+    if (!streamOp) {
+      return failure();
+    }
+
+    auto streamMemref =
+        mlir::dyn_cast<MemRefType>(streamOp.getResult().getType());
+    if (!streamMemref) {
+      return failure();
+    }
+
+    auto viewResultMemref = mlir::cast<MemRefType>(op.getResult().getType());
+    auto composedAttr = rewriter.getAttr<ttcore::ViewLayoutAttr>(
+        streamMemref.getLayout().getAffineMap().compose(
+            viewResultMemref.getLayout().getAffineMap()));
+    auto newMemref = MemRefType::get(
+        viewResultMemref.getShape(), viewResultMemref.getElementType(),
+        composedAttr, viewResultMemref.getMemorySpace());
+    rewriter.replaceOpWithNewOp<StreamLayoutOp>(
+        op, newMemref, streamOp.getInput(), streamOp.getStorage());
+    return success();
+  });
 }
 
 //===----------------------------------------------------------------------===//
@@ -1850,6 +1942,10 @@ unsigned d2m::GenericOp::getNumDims() {
   return getIndexingMap(0).getNumDims();
 }
 
+unsigned d2m::GenericOp::getNumBlockFactors() {
+  return static_cast<unsigned>(getBlockFactors().size());
+}
+
 mlir::AffineMap d2m::GenericOp::getIndexingMap(int64_t operandIndex) {
   TT_debugv(!isExplicitDatamovementForm(),
             "Attempting to access indexing map while in explicit "
@@ -1870,6 +1966,15 @@ AffineMap d2m::GenericOp::getOutputIndexingMap() {
   TT_assertv(getNumDpsInits() == 1,
              "getOutputIndexingMap expects exactly one output operand");
   return getIndexingMapForOperand(getOutputs().front());
+}
+
+std::optional<unsigned> d2m::GenericOp::getOutputOperandIndex(Value operand) {
+  for (OpOperand &output : getOutputsMutable()) {
+    if (output.get() == operand) {
+      return output.getOperandNumber();
+    }
+  }
+  return std::nullopt;
 }
 
 mlir::SmallVector<int64_t> d2m::GenericOp::getOutputGridDimPositions() {
@@ -1905,6 +2010,75 @@ mlir::SmallVector<int64_t> d2m::GenericOp::getBlockFactorsValue() {
   return llvm::map_to_vector(getBlockFactors(), [](Attribute a) {
     return mlir::cast<IntegerAttr>(a).getInt();
   });
+}
+
+/// Returns true if the generic op has non-empty block_factors, indexing_maps,
+/// and iterator_types attributes, and a single unified region.
+static bool hasBlockingAttributes(d2m::GenericOp genericOp) {
+  if (genericOp.getBlockFactors().empty() ||
+      genericOp.getIndexingMaps().empty() ||
+      genericOp.getIteratorTypes().empty()) {
+    return false;
+  }
+
+  return genericOp.getNumRegions() == 1 &&
+         genericOp.getRegionThreadType(0) == ThreadType::Unified;
+}
+
+bool d2m::GenericOp::isImplicitBlockedForm() {
+  if (!hasBlockingAttributes(*this)) {
+    return false;
+  }
+
+  // No affine blocking loops must be present.
+  bool hasBlockingLoop = false;
+  getRegion(0).walk([&](affine::AffineForOp forOp) {
+    if (forOp->hasAttr("d2m.blocking_loop")) {
+      hasBlockingLoop = true;
+      return WalkResult::interrupt();
+    }
+    return WalkResult::advance();
+  });
+
+  return !hasBlockingLoop;
+}
+
+bool d2m::GenericOp::isAffineBlockedForm() {
+  if (!hasBlockingAttributes(*this)) {
+    return false;
+  }
+
+  // Each block factor dimension must have a corresponding affine.for loop
+  // whose upper bound is defined by a get_block_factor() op.
+  unsigned numBlockFactors = static_cast<unsigned>(getBlockFactors().size());
+  SmallVector<bool> factorUsed(numBlockFactors, false);
+  unsigned loopCount = 0;
+
+  getRegion(0).walk([&](affine::AffineForOp forOp) {
+    if (!forOp->hasAttr("d2m.blocking_loop")) {
+      return;
+    }
+    ++loopCount;
+
+    auto ubOperands = forOp.getUpperBoundOperands();
+    if (ubOperands.size() != 1) {
+      return;
+    }
+
+    auto getBlockFactorOp =
+        dyn_cast_or_null<GetBlockFactorOp>(ubOperands[0].getDefiningOp());
+    if (!getBlockFactorOp) {
+      return;
+    }
+
+    int64_t dim = getBlockFactorOp.getDim();
+    if (dim >= 0 && static_cast<unsigned>(dim) < numBlockFactors) {
+      factorUsed[static_cast<unsigned>(dim)] = true;
+    }
+  });
+
+  return loopCount == numBlockFactors &&
+         llvm::all_of(factorUsed, [](bool used) { return used; });
 }
 
 mlir::SmallVector<int64_t> d2m::GenericOp::getFullBlockFactors() {
@@ -2187,7 +2361,7 @@ bool d2m::GenericOp::hasCompatibleBlocking(GenericOp b) {
          this->getBlockFactors() == b.getBlockFactors();
 }
 
-/// Returns true if op or any of the operations nested within it's regions have
+/// Returns true if op or any of the operations nested within its regions have
 /// the D2MSkipOpEltwiseFusionTrait.
 bool d2m::GenericOp::hasSkipOpEltwiseFusionTrait() {
   bool skipFusion = false;
@@ -2374,7 +2548,7 @@ Value d2m::GenericOp::findAssocCBByOperand(Operation *op, Value operand) {
     return Value();
   }
 
-  // Find which operand index this corresponds to
+  // Find which operand index this corresponds to.
   unsigned operandIndex = UINT_MAX;
   for (unsigned i = 0; i < generic->getNumOperands(); ++i) {
     if (generic->getOperand(i) == operand) {

@@ -54,15 +54,6 @@ namespace mlir::tt::ttir {
 //===----------------------------------------------------------------------===//
 
 #ifdef TTMLIR_ENABLE_STABLEHLO
-// We should explicitly allow-list any StableHLO ops that we want to hoist to
-// CPU here. Before adding an op here, make sure that the op is supported in
-// StableHLO to TOSA/Linalg conversion.
-// Note: when allow-listing an op, explicit template instantiation should be
-// added to HoistCPUOps.cpp.
-auto createHoistAllowlistedStablehloOpsPass() {
-  return ttir::createCPUHoistForOpsTransform<stablehlo::DynamicUpdateSliceOp,
-                                             stablehlo::EinsumOp>();
-}
 
 void createStableHLOToTTIRPipeline(
     OpPassManager &pm, const StableHLOToTTIRPipelineOptions &options) {
@@ -86,8 +77,8 @@ void createStableHLOToTTIRPipeline(
     // Wrap all ops in DeviceModule.
     pm.addPass(ttcore::createTTCoreWrapDeviceModulePass());
 
-    // Fallback allow-listed SHLO ops to the CPU module.
-    pm.addPass(createHoistAllowlistedStablehloOpsPass());
+    // Fallback non-lowerable SHLO ops to the CPU module.
+    pm.addPass(ttir::createCPUHoistNonLowerableSHLOOpsTransform());
 
     // Run StableHLOToTTIR pass again on the DeviceModule to produce a failure
     // if any unsupported ops have not been hoisted.

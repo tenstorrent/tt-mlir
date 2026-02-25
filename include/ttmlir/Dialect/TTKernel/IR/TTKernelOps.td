@@ -122,6 +122,19 @@ def TTKernel_PackTileOp : TTKernel_Op<"pack_tile"> {
     }];
 }
 
+def TTKernel_PackReconfigL1AccOp : TTKernel_Op<"pack_reconfig_l1_acc"> {
+    let summary = "Reconfigure packer to L1 accumulation mode.";
+    let description = [{
+      Reconfigures the packer to accumulate when packing from DST to L1.
+    }];
+
+    let arguments = (ins I32:$l1_acc_en);
+
+    let assemblyFormat = [{
+      `(` $l1_acc_en `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
 def TTKernel_CopyTileInitOp : TTKernel_InitOp<"copy_tile_init"> {
     let summary = "Perform the init for copy tile. This does not reconfigure the unpacker data types.";
     let description = [{
