@@ -13,17 +13,24 @@ else()
 endif()
 message(STATUS "Setting tt-metal CPM cache to: ${CPM_SOURCE_CACHE}")
 
-# Point all find_package(nanobind) calls to tt-metal's CPM-vendored nanobind so
-# that every nanobind-static library in this project shares the same ABI
-# (NB_INTERNALS_VERSION) as _ttnn.so.  Without this, a pip-installed nanobind
-# with a different ABI version causes segfaults in nb_type_c2p at runtime.
-file(GLOB _NB_CMAKE_DIRS "${CPM_SOURCE_CACHE}/nanobind/*/cmake")
-if(_NB_CMAKE_DIRS)
-  list(GET _NB_CMAKE_DIRS 0 _NB_CMAKE_DIR)
-  set(nanobind_DIR "${_NB_CMAKE_DIR}" CACHE PATH
-    "nanobind cmake config (pinned to tt-metal's version for ABI compat)" FORCE)
-  message(STATUS "Pinning nanobind to tt-metal's version: ${nanobind_DIR}")
-endif()
+# Pin nanobind to the same version tt-metal uses (v2.10.2) so that every
+# nanobind-static library in this project shares the same ABI
+# (NB_INTERNALS_VERSION) as _ttnn.so.  A pip-installed nanobind with a
+# different ABI version causes segfaults in nb_type_c2p at runtime.
+# This must happen at configure time (before any find_package(nanobind) call),
+# so we use FetchContent rather than relying on tt-metal's CPM cache which is
+# only populated during the build step.
+include(FetchContent)
+FetchContent_Declare(
+  nanobind
+  GIT_REPOSITORY https://github.com/wjakob/nanobind.git
+  GIT_TAG        c5a3a378aa61d104c82ca053cb1e367782cd3618  # v2.10.2 - must match tt-metal
+  GIT_SHALLOW    TRUE
+)
+FetchContent_Populate(nanobind)
+set(nanobind_DIR "${nanobind_SOURCE_DIR}/cmake" CACHE PATH
+  "nanobind cmake config (pinned to match tt-metal for ABI compat)" FORCE)
+message(STATUS "Pinning nanobind to v2.10.2 for ABI compat: ${nanobind_DIR}")
 
 set(TTMETAL_BUILD_DIR ${TTMLIR_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/build_${CMAKE_BUILD_TYPE})
 set(TTMETAL_BUILD_SYMLINK ${TTMLIR_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/build)
