@@ -1116,7 +1116,7 @@ def TTNN_DataMovementKernelAttr: TTNN_Attr<"DataMovementKernel", "data_movement_
 
   let assemblyFormat = "`<` struct($symbol_ref, $core_ranges, $processor, $noc_index, $noc_mode) `,` `ct_args` `=` `[` (`]`) : ($ct_args^ `]`)?  `,` `common_rt_args` `=` `[` (`]`) : ($common_rt_args^ `]`)? `,` `rt_args` `=` `[` (`]`) : ($rt_args^ `]`)? `>`";
 
-  // let genVerifyDecl = 1;
+  let genVerifyDecl = 1;
 
 }
 

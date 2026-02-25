@@ -1280,6 +1280,24 @@ DeviceComputeKernelConfigAttr::withDstFullSyncEn(bool value) const {
   return ::llvm::success();
 }
 
+::llvm::LogicalResult DataMovementKernelAttr::verify(
+    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+    SymbolRefAttr symbolRef, CoreRangeSetAttr coreRanges,
+    DataMovementProcessor processor, NocIndex nocIndex, NocMode nocMode,
+    llvm::ArrayRef<mlir::Attribute> commonRtArgs,
+    llvm::ArrayRef<CoreRuntimeArgsAttr> rtArgs,
+    llvm::ArrayRef<mlir::Attribute> ctArgs) {
+  if (nocMode == NocMode::DynamicNoc) {
+    return emitError() << "dynamic noc mode is not supported";
+  }
+  if (failed(verifyCommonRuntimeArgs(emitError, commonRtArgs)) ||
+      failed(verifyRuntimeArgs(emitError, rtArgs)) ||
+      failed(verifyCompileTimeArgs(emitError, ctArgs))) {
+    return ::llvm::failure();
+  }
+  return ::llvm::success();
+}
+
 // Transform TTNNLayoutAttr with a different layout while preserving the
 // element type.
 //

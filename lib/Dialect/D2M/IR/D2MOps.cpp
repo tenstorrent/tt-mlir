@@ -1699,6 +1699,28 @@ MutableArrayRef<OpOperand> d2m::GenericOp::getInputsAndOutputsMutable() {
     return emitOpError("number of regions must match the number of threads");
   }
 
+  // Can only have one dm thread per NoC.
+  bool nocUsed[2] = {false, false};
+  for (auto thread : getThreads()) {
+    auto threadAttr = mlir::cast<ThreadAttr>(thread);
+    if (threadAttr.getThreadType() != ThreadType::Datamovement) {
+      continue;
+    }
+    int32_t nocIndex = threadAttr.getNocIndex();
+    if (nocIndex < 0) {
+      continue;
+    }
+    if (nocIndex > 1) {
+      return emitOpError("invalid noc index ")
+             << nocIndex << ", must be 0 or 1";
+    }
+    if (nocUsed[nocIndex]) {
+      return emitOpError("multiple datamovement threads assigned to noc ")
+             << nocIndex;
+    }
+    nocUsed[nocIndex] = true;
+  }
+
   // Output grid shape must equal the GenericOp grid shape.
   auto opGridShape = getGrid().getShape();
   for (auto output : getOutputs()) {
