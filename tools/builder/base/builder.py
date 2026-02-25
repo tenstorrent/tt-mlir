@@ -963,10 +963,16 @@ class Builder(metaclass=BuilderMeta):
                 save_unsupported_ops(
                     unsupported_parser_ops, DEFAULT_UNSUPPORTED_PARSER_OPS_FILE
                 )
-            
-            if len(unsupported_split_ops) > 0 or len(unsupported_builder_ops) > 0 or len(unsupported_parser_ops) > 0:
-                raise ValueError(f"Unsupported ops: {unsupported_split_ops} {unsupported_builder_ops} {unsupported_parser_ops}")
-            
+
+            if (
+                len(unsupported_split_ops) > 0
+                or len(unsupported_builder_ops) > 0
+                or len(unsupported_parser_ops) > 0
+            ):
+                raise ValueError(
+                    f"Unsupported ops: {unsupported_split_ops} {unsupported_builder_ops} {unsupported_parser_ops}"
+                )
+
             global_result = None
             for block in parsed_func.body:
                 for op in block.operations:
@@ -1050,9 +1056,15 @@ class Builder(metaclass=BuilderMeta):
                 save_unsupported_ops(
                     unsupported_parser_ops, DEFAULT_UNSUPPORTED_PARSER_OPS_FILE
                 )
-            
-            if len(unsupported_split_ops) > 0 or len(unsupported_builder_ops) > 0 or len(unsupported_parser_ops) > 0:
-                raise ValueError(f"Unsupported ops: {unsupported_split_ops} {unsupported_builder_ops} {unsupported_parser_ops}")
+
+            if (
+                len(unsupported_split_ops) > 0
+                or len(unsupported_builder_ops) > 0
+                or len(unsupported_parser_ops) > 0
+            ):
+                raise ValueError(
+                    f"Unsupported ops: {unsupported_split_ops} {unsupported_builder_ops} {unsupported_parser_ops}"
+                )
 
             global_result = None
             for block in parsed_func.body:
