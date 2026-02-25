@@ -86,7 +86,7 @@ public:
         // This must stay in-sync with ChipDescAttr::getDstLogicalSizeTiles().
         constexpr bool dstFullSyncEn = false;
         // Enable fp32 unpack mode for typecast kernels.
-        // TODO: Enable fp32 unpack mode in the general case.
+        // TODO(ckaravasilisTT): Enable fp32 unpack mode in the general case.
         bool isTypecast = kernelContainsOp<ttkernel::TypecastTileOp>(
             symbolTable, thread.getKernelSymbol());
         UnpackToDestMode mode = (fp32DestAccum && isTypecast)
