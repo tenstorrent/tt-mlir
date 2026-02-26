@@ -11,11 +11,26 @@ table AnnotateOp {
 
 table BreakpointOp {
   operand: tt.target.ttnn.TensorRef;
-  result: tt.target.ttnn.TensorRef;
+}
+
+table PrintOp {
+  operand: tt.target.ttnn.TensorRef;
+  message: string;
 }
 
 table MemorySnapshotOp {
   operand: tt.target.ttnn.TensorRef;
-  result: tt.target.ttnn.TensorRef;
   file_path: string;
+}
+
+table RegionStartOp {
+  operand: tt.target.ttnn.TensorRef;
+  result: tt.target.ttnn.TensorRef;
+  region_id: string;
+}
+
+table RegionEndOp {
+  operand: tt.target.ttnn.TensorRef;
+  result: tt.target.ttnn.TensorRef;
+  region_id: string;
 }
