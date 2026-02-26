@@ -31,6 +31,7 @@
 
 namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_TTNNCREATEINPUTGENERATORS
+#define GEN_PASS_DEF_TTNNCREATEMAINFORTEST
 #define GEN_PASS_DEF_TTNNLOADINPUTTENSORS
 #define GEN_PASS_DEF_TTNNDEALLOCATE
 #define GEN_PASS_DEF_TTNNTUPLIFYTENSORS
@@ -533,6 +534,150 @@ private:
         loc, tensorType, filePathAttr, device);
 
     return loadTensorOp;
+  }
+};
+
+class TTNNCreateMainForTest
+    : public impl::TTNNCreateMainForTestBase<TTNNCreateMainForTest> {
+
+public:
+  using impl::TTNNCreateMainForTestBase<
+      TTNNCreateMainForTest>::TTNNCreateMainForTestBase;
+
+  void runOnOperation() final {
+    ModuleOp moduleOp = getOperation();
+    IRRewriter rewriter(&getContext());
+
+    assert(moduleOp->getRegions().size() == 1);
+    assert(moduleOp->getRegion(0).hasOneBlock());
+
+    Block *block = moduleOp.getBody(0);
+
+    // Find the forward function (_main after tuplification).
+    //
+    func::FuncOp forwardFuncOp = nullptr;
+    block->walk([&](func::FuncOp funcOp) {
+      if (ttmlir::utils::isForwardDeviceFunc(funcOp)) {
+        forwardFuncOp = funcOp;
+        return mlir::WalkResult::interrupt();
+      }
+      return mlir::WalkResult::advance();
+    });
+
+    if (!forwardFuncOp) {
+      return;
+    }
+
+    // The forward function should take a single tuple input after
+    // tuplification.
+    //
+    FunctionType forwardFuncType = forwardFuncOp.getFunctionType();
+    if (forwardFuncType.getInputs().empty()) {
+      return;
+    }
+
+    createMainForTestFunction(rewriter, moduleOp, forwardFuncOp);
+  }
+
+private:
+  void createMainForTestFunction(IRRewriter &rewriter, ModuleOp moduleOp,
+                                 func::FuncOp forwardFuncOp) {
+    MLIRContext *ctx = rewriter.getContext();
+    Location loc = forwardFuncOp.getLoc();
+
+    FunctionType forwardFuncType = forwardFuncOp.getFunctionType();
+
+    // Create function type: same inputs as forward func + device arg.
+    //
+    DeviceType deviceType = DeviceType::get(ctx);
+    SmallVector<Type> inputTypes(forwardFuncType.getInputs().begin(),
+                                 forwardFuncType.getInputs().end());
+    inputTypes.push_back(deviceType);
+
+    FunctionType mainForTestFuncType = FunctionType::get(
+        ctx, inputTypes, forwardFuncType.getResults());
+
+    // Create the function at end of module.
+    //
+    Block *block = moduleOp.getBody(0);
+    rewriter.setInsertionPointToEnd(block);
+
+    func::FuncOp mainForTestOp = rewriter.create<func::FuncOp>(
+        loc, "main_for_test", mainForTestFuncType);
+
+    // Set emitpy.name attributes for parameters.
+    //
+    mainForTestOp.setArgAttr(0, "emitpy.name",
+                             rewriter.getStringAttr("input"));
+    mainForTestOp.setArgAttr(inputTypes.size() - 1, "emitpy.name",
+                             rewriter.getStringAttr("device"));
+
+    // Add entry block.
+    //
+    rewriter.modifyOpInPlace(mainForTestOp, [&]() {
+      rewriter.setInsertionPointToStart(mainForTestOp.addEntryBlock());
+    });
+
+    // Get the input tuple and device arguments.
+    //
+    Value inputTuple = mainForTestOp.getArgument(0);
+    Value deviceArg = mainForTestOp.getArgument(inputTypes.size() - 1);
+
+    // The input should be a single tuple of tensors. Extract each tensor,
+    // move to device if needed, and pack into a new tuple.
+    //
+    assert(forwardFuncType.getInputs().size() == 1 &&
+           "Expected forward function to have a single tuple input!");
+
+    TupleType inputTupleType =
+        mlir::cast<TupleType>(forwardFuncType.getInputs()[0]);
+
+    SmallVector<Value> preparedTensors;
+    for (size_t i = 0; i < inputTupleType.getTypes().size(); i++) {
+      Type tensorType = inputTupleType.getType(i);
+      RankedTensorType rankedTensorType =
+          mlir::cast<RankedTensorType>(tensorType);
+
+      // Extract tensor from tuple.
+      //
+      ttcore::GetTupleElementOp getElem =
+          rewriter.create<ttcore::GetTupleElementOp>(loc, inputTuple, i);
+
+      TTNNLayoutAttr layoutAttr =
+          mlir::cast<TTNNLayoutAttr>(rankedTensorType.getEncoding());
+
+      if (layoutAttr.isDeviceBufferType()) {
+        // Create MemoryConfigAttr from the layout's memory configuration.
+        //
+        MemoryConfigAttr memConfigAttr = MemoryConfigAttr::get(
+            ctx, layoutAttr.getMemLayout(),
+            BufferTypeAttr::get(ctx, layoutAttr.getBufferType()),
+            /*shardSpec=*/std::nullopt);
+
+        // Move tensor to device with the expected memory config.
+        //
+        Value deviceTensor = rewriter.create<ttnn::ToDeviceOp>(
+            loc, rankedTensorType, getElem, deviceArg, memConfigAttr);
+        preparedTensors.push_back(deviceTensor);
+      } else {
+        preparedTensors.push_back(getElem);
+      }
+    }
+
+    // Create a new tuple from prepared tensors.
+    //
+    SmallVector<Type> tupleResultTypes = {inputTupleType};
+    ttcore::TupleOp newTuple =
+        rewriter.create<ttcore::TupleOp>(loc, tupleResultTypes, preparedTensors);
+
+    // Call the forward function.
+    //
+    func::CallOp callOp = rewriter.create<func::CallOp>(
+        loc, forwardFuncOp, newTuple->getResults());
+
+    // Return the results.
+    //
+    rewriter.create<func::ReturnOp>(loc, callOp->getResults());
   }
 };
 

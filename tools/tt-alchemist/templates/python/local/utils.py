@@ -9,15 +9,26 @@ from functools import wraps
 class DeviceGetter:
     _instance = None
     _mesh_shape = None
+    _external = False
     l1_small_size = 1 << 15
 
     def __init__(self):
         raise RuntimeError("This is Singleton, invoke get_device() instead.")
 
     def __del__(self):
-        if self._instance is not None:
+        if self._instance is not None and not self._external:
             ttnn.close_mesh_device(self._instance)
             ttnn.set_fabric_config(ttnn.FabricConfig.DISABLED)
+
+    @classmethod
+    def set_external_device(cls, device):
+        """Pre-set the device singleton with an externally-managed device.
+
+        When set, get_device() returns this device without creating a new one.
+        The device will NOT be closed by DeviceGetter since it is not owned.
+        """
+        cls._instance = device
+        cls._external = True
 
     @classmethod
     def get_device(cls, mesh_shape):
@@ -40,11 +51,13 @@ class DeviceGetter:
             )
             print(f"Device: {cls._instance}")
 
-        # Compare requested mesh_shape with _mesh_shape used to initialize the device
-        if tuple(cls._mesh_shape) != tuple(mesh_shape):
-            raise ValueError(
-                f"Device already initialized with mesh_shape={cls._mesh_shape}, but got mesh_shape={mesh_shape}"
-            )
+        # Skip mesh_shape validation for externally-provided devices.
+        if not cls._external:
+            # Compare requested mesh_shape with _mesh_shape used to initialize the device
+            if tuple(cls._mesh_shape) != tuple(mesh_shape):
+                raise ValueError(
+                    f"Device already initialized with mesh_shape={cls._mesh_shape}, but got mesh_shape={mesh_shape}"
+                )
 
         return cls._instance
 

@@ -136,6 +136,38 @@ def TTNNLoadInputTensors: Pass<"ttnn-load-input-tensors", "::mlir::ModuleOp"> {
   ];
 }
 
+def TTNNCreateMainForTest: Pass<"ttnn-create-main-for-test", "::mlir::ModuleOp"> {
+  let summary = "Create main_for_test wrapper for frontend-driven execution.";
+  let description = [{
+    This pass creates a `main_for_test` function that wraps the forward function
+    (`_main`) for use by frontend execution drivers like PythonModelRunner.
+
+    The generated function accepts the same input tuple as the forward function
+    plus a device argument. It moves each input tensor to the device with the
+    appropriate memory configuration, then calls the forward function.
+
+    Given a forward function after tuplification and input loading:
+
+    ```mlir
+    func.func @_main(%arg0: tuple<tensor<32x32xbf16>>) -> tuple<tensor<32x32xbf16>> { ... }
+    func.func @load_inputs_for__main() -> tuple<tensor<32x32xbf16>> { ... }
+    func.func @main() -> i32 { ... }
+    ```
+
+    The pass will add:
+
+    ```mlir
+    func.func @main_for_test(%arg0: tuple<tensor<32x32xbf16>>, %arg1: !ttnn.device) -> tuple<tensor<32x32xbf16>> {
+      %0 = ttcore.get_tuple_element %arg0[0] : ...
+      %1 = "ttnn.to_device"(%0, %arg1) {memory_config = ...} : ...
+      %2 = ttcore.tuple %1 : ...
+      %3 = call @_main(%2) : ...
+      return %3 : ...
+    }
+    ```
+  }];
+}
+
 def TTNNTuplifyTensors: Pass<"ttnn-tuplify-tensors", "::mlir::ModuleOp"> {
   let summary = "Tuplify tensors in all funcs within a module.";
   let description = [{
