@@ -227,11 +227,11 @@ shouldImplementAsVirtualGrid(RankedTensorType tensorType,
   return lowGridUtilization;
 }
 
-static std::pair<llvm::SmallVector<int64_t>, bool>
-computeOptimalGrid(mlir::RankedTensorType tensorType,
-                   ArrayRef<int64_t> physicalShape,
-                   ArrayRef<int64_t> targetSquareGridShape) {
-  if (shouldImplementAsVirtualGrid(tensorType, physicalShape,
+static std::pair<llvm::SmallVector<int64_t>, bool> computeOptimalGrid(
+    mlir::RankedTensorType tensorType, ArrayRef<int64_t> physicalShape,
+    ArrayRef<int64_t> targetSquareGridShape, bool forceVirtualGrid = false) {
+  if (forceVirtualGrid ||
+      shouldImplementAsVirtualGrid(tensorType, physicalShape,
                                    targetSquareGridShape)) {
     auto virtualGrid =
         computeOptimalVirtualGrid(physicalShape, targetSquareGridShape);
@@ -604,9 +604,10 @@ analyzeOperandsAndComputeGrids(d2m::GenericOp genericOp,
     llvm::SmallVector<int64_t> physShape = computePhysicalShape(
         operandLayout, operandType, targetSquareGridShape, builder);
 
-    // Interleaved tensors do not support virtual grids
-    auto [optimalGrid, isVirtualGrid] =
-        computeOptimalGrid(operandType, physShape, targetSquareGridShape);
+    bool forceVirtualGrid =
+        genericOp->hasAttr("d2m::experimental::force_virtual_grid_layout");
+    auto [optimalGrid, isVirtualGrid] = computeOptimalGrid(
+        operandType, physShape, targetSquareGridShape, forceVirtualGrid);
 
     optimalOperandGrids.push_back(optimalGrid);
 
@@ -629,8 +630,11 @@ analyzeOperandsAndComputeGrids(d2m::GenericOp genericOp,
 
           llvm::SmallVector<int64_t> inputPhysShape = computePhysicalShape(
               inputLayout, inputType, targetSquareGridShape, builder);
-          auto [inputOptimalGrid, isVirtualGrid] = computeOptimalGrid(
-              inputType, inputPhysShape, targetSquareGridShape);
+          bool forceVirtualGrid =
+              genericOp->hasAttr("experimental::force_virtual_grid");
+          auto [inputOptimalGrid, isVirtualGrid] =
+              computeOptimalGrid(inputType, inputPhysShape,
+                                 targetSquareGridShape, forceVirtualGrid);
 
           toLayoutsToUpdate.push_back(
               {toLayoutOp, inputOptimalGrid, isVirtualGrid});
@@ -1089,9 +1093,11 @@ computeTTNNGenericGridShapes(GenericOp genericOp,
       auto physicalShape =
           computePhysicalShape(baseMetalLayout, metalTensorType,
                                constrainedTargetGridShape, builder);
+      bool forceVirtualGrid =
+          genericOp->hasAttr("experimental::force_virtual_grid");
       optimalOperandGrids[operandIdx] =
           computeOptimalGrid(metalTensorType, physicalShape,
-                             constrainedTargetGridShape)
+                             constrainedTargetGridShape, forceVirtualGrid)
               .first;
     }
   }

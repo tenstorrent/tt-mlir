@@ -815,6 +815,13 @@ private:
         loc, inputs, outputs, rewriter.getAffineMapArrayAttr(indexingMaps),
         rewriter.getArrayAttr(iteratorTypes));
 
+    // Propagate d2m::experimental::force_virtual_grid_layout attribute if
+    // present
+    if (auto attr =
+            op->getAttr("d2m::experimental::force_virtual_grid_layout")) {
+      generic->setAttr("d2m::experimental::force_virtual_grid_layout", attr);
+    }
+
     // Create one bb in 'generic''s region and set its arguments.
     auto insertPoint = rewriter.saveInsertionPoint();
     rewriter.startOpModification(generic);
@@ -979,6 +986,13 @@ private:
     auto generic = rewriter.create<d2m::GenericOp>(
         loc, inputs, outputs, rewriter.getAffineMapArrayAttr(indexingMaps),
         rewriter.getArrayAttr(iteratorTypes));
+
+    // Propagate d2m::experimental::force_virtual_grid_layout attribute if
+    // present
+    if (auto attr =
+            op->getAttr("d2m::experimental::force_virtual_grid_layout")) {
+      generic->setAttr("d2m::experimental::force_virtual_grid_layout", attr);
+    }
 
     // Create one bb in 'generic''s region and set its arguments.
     auto insertPoint = rewriter.saveInsertionPoint();
@@ -1265,6 +1279,13 @@ private:
     auto generic = rewriter.create<d2m::GenericOp>(
         loc, inputs, outputs, rewriter.getAffineMapArrayAttr(indexingMaps),
         rewriter.getArrayAttr(iteratorTypes));
+
+    // Propagate d2m::experimental::force_virtual_grid_layout attribute if
+    // present
+    if (auto attr =
+            op->getAttr("d2m::experimental::force_virtual_grid_layout")) {
+      generic->setAttr("d2m::experimental::force_virtual_grid_layout", attr);
+    }
 
     // Create one bb in 'generic''s region and set its arguments.
     auto insertPoint = rewriter.saveInsertionPoint();
@@ -1642,6 +1663,13 @@ public:
 
           builder.create<d2m::YieldOp>(bodyLoc, storeResult);
         });
+
+    // Propagate d2m::experimental::force_virtual_grid_layout attribute if
+    // present
+    if (auto attr =
+            op->getAttr("d2m::experimental::force_virtual_grid_layout")) {
+      generic->setAttr("d2m::experimental::force_virtual_grid_layout", attr);
+    }
 
     rewriter.replaceOp(op, unLayoutResult(rewriter, generic->getResult(0),
                                           op->getResult(0).getType()));
