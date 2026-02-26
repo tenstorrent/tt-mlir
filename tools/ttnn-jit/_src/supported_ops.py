@@ -49,6 +49,7 @@ unary_ops = [
     "logical_not",
     "bitwise_not",
     "reciprocal",
+    "clamp",
 ]
 
 # Binary operations - two input tensors or tensor + scalar
@@ -96,20 +97,8 @@ data_movement_ops = [
     "gather",
 ]
 
-# Unary operations with parameters - operations that need special handling
-unary_parametric_ops = [
-    "clamp",
-]
-
 # All supported operations (excluding composite ops that need expansion)
-all_ops = set(
-    unary_ops
-    + binary_ops
-    + reduction_ops
-    + tm_ops
-    + data_movement_ops
-    + unary_parametric_ops
-)
+all_ops = set(unary_ops + binary_ops + reduction_ops + tm_ops + data_movement_ops)
 
 
 def is_supported(op_name: str) -> bool:

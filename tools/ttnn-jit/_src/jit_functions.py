@@ -1220,8 +1220,7 @@ class ClampOpHandler(UnaryOpHandler):
     _F32_MAX = 3.4028235e38
 
     def __init__(self, jit_ctx):
-        BaseOpHandler.__init__(self, jit_ctx)
-        self.op_name = "clamp"
+        super().__init__(jit_ctx, "clamp")
 
     def _normalize_scalar_value(self, value):
         """Normalize Python scalar for MLIR attribute/tensor creation."""
@@ -1354,10 +1353,15 @@ class TTNNJitNamespaceUpdater:
     def register_all_operations(self, jit_ctx):
         """Register all operations in the namespace."""
         ######################## Unary operations ########################
+        # Skip ops that have dedicated/special handlers
+        special_unary_ops = {"clamp"}
+
         self._unary_handlers = {
-            op_name: UnaryOpHandler(jit_ctx, op_name) for op_name in unary_ops
+            op_name: UnaryOpHandler(jit_ctx, op_name)
+            for op_name in unary_ops
+            if op_name not in special_unary_ops
         }
-        for op_name in unary_ops:
+        for op_name in self._unary_handlers:
             setattr(
                 self,
                 op_name,
