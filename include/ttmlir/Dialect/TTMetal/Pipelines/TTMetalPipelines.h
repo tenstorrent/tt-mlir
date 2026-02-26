@@ -190,6 +190,14 @@ struct TTIRToTTMetalPipelineOptions
   Option<bool> enableL1Acc{*this, "enable-l1-acc",
                            llvm::cl::desc("Enable L1 accumulation."),
                            llvm::cl::init(false)};
+
+  // Option to enable affine loop fusion and scalar replacement passes in the
+  // middleend.
+  Option<bool> enableAffineLoopFusionAndScalarReplacement{
+      *this, "enable-affine-loop-fusion-and-scalar-replacement",
+      llvm::cl::desc(
+          "Enable affine loop fusion and scalar replacement passes."),
+      llvm::cl::init(false)};
 };
 
 void createTTIRBufferizationPipeline(

@@ -2033,7 +2033,7 @@ bool d2m::GenericOp::isImplicitBlockedForm() {
   // No affine blocking loops must be present.
   bool hasBlockingLoop = false;
   getRegion(0).walk([&](affine::AffineForOp forOp) {
-    if (forOp->hasAttr("d2m.blocking_loop")) {
+    if (forOp->hasAttr(utils::kBlockingLoopAttr)) {
       hasBlockingLoop = true;
       return WalkResult::interrupt();
     }
@@ -2055,7 +2055,7 @@ bool d2m::GenericOp::isAffineBlockedForm() {
   unsigned loopCount = 0;
 
   getRegion(0).walk([&](affine::AffineForOp forOp) {
-    if (!forOp->hasAttr("d2m.blocking_loop")) {
+    if (!forOp->hasAttr(utils::kBlockingLoopAttr)) {
       return;
     }
     ++loopCount;
@@ -2079,6 +2079,37 @@ bool d2m::GenericOp::isAffineBlockedForm() {
 
   return loopCount == numBlockFactors &&
          llvm::all_of(factorUsed, [](bool used) { return used; });
+}
+
+::mlir::affine::AffineForOp d2m::GenericOp::getOuterAffineBlockingLoopOp() {
+  if (!isAffineBlockedForm()) {
+    return {};
+  }
+
+  TT_assertv(getNumRegions() == 1u,
+             "Expected exactly one region in affine blocked form of GenericOp");
+  affine::AffineForOp outermostBlockingLoopOp;
+  getRegion(0).walk([&](affine::AffineForOp forOp) {
+    if (!forOp->hasAttr(utils::kBlockingLoopAttr)) {
+      return WalkResult::advance();
+    }
+
+    auto parentForOp = forOp->getParentOfType<affine::AffineForOp>();
+    if (parentForOp && parentForOp->hasAttr(utils::kBlockingLoopAttr)) {
+      return WalkResult::advance();
+    }
+
+    // Fusion requires a unique top-level blocking loop nest root.
+    if (outermostBlockingLoopOp) {
+      outermostBlockingLoopOp = {};
+      return WalkResult::interrupt();
+    }
+
+    outermostBlockingLoopOp = forOp;
+    return WalkResult::advance();
+  });
+
+  return outermostBlockingLoopOp;
 }
 
 mlir::SmallVector<int64_t> d2m::GenericOp::getFullBlockFactors() {
@@ -2368,6 +2399,19 @@ bool d2m::GenericOp::hasSkipOpEltwiseFusionTrait() {
 
   walk([&](Operation *op) {
     skipFusion |= op->hasTrait<D2MSkipOpEltwiseFusionTrait>();
+    return skipFusion ? WalkResult::interrupt() : WalkResult::advance();
+  });
+
+  return skipFusion;
+}
+
+/// Returns true if op or any of the operations nested within its regions have
+/// the D2MSkipOpAffineLoopFusionTrait.
+bool d2m::GenericOp::hasSkipOpAffineLoopFusionTrait() {
+  bool skipFusion = false;
+
+  walk([&](Operation *op) {
+    skipFusion |= op->hasTrait<D2MSkipOpAffineLoopFusionTrait>();
     return skipFusion ? WalkResult::interrupt() : WalkResult::advance();
   });
 
