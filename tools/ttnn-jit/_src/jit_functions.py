@@ -1257,15 +1257,9 @@ class ClampOpHandler(UnaryOpHandler):
         operands = self._get_operands(args[:1])
         input_operand = operands[0]
 
-        # Check if input is a scalar - clamp requires tensor operands
-        if isinstance(input_operand, (int, float, bool)):
-            raise TypeError("clamp requires a tensor operand, not a scalar")
-
-        # Extract min and max - support both positional and keyword args
         min_val = kwargs.get("min", None)
         max_val = kwargs.get("max", None)
 
-        # If not in kwargs, check positional args
         if min_val is None and len(args) >= 2:
             min_val = args[1]
         if max_val is None and len(args) >= 3:
@@ -1277,7 +1271,7 @@ class ClampOpHandler(UnaryOpHandler):
         # Infer result type
         result_type = self._infer_result_type(input_operand)
 
-        # Determine if we need scalar or tensor variant
+        # Determine whether to use clamp_scalar or clamp_tensor
         min_is_scalar = min_val is None or self._is_scalar(min_val)
         max_is_scalar = max_val is None or self._is_scalar(max_val)
 
