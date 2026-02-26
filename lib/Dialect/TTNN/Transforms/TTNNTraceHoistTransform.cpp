@@ -2,7 +2,6 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
@@ -89,19 +88,6 @@ private:
       }
     }
     return false;
-  }
-
-  // KV cache tensors are device-native and updated in-place by cache
-  // operations. They should not get empty slots allocated or be round-tripped
-  // through host during trace capture.
-  bool isKVCache(func::FuncOp op, size_t argIndex) {
-    return op.getArgAttr(argIndex, ttcore::g_kvCacheAttrName) != nullptr;
-  }
-
-  // Returns true if the argument should be used directly without allocating an
-  // empty slot or transferring through host during trace capture.
-  bool shouldUseArgDirectly(func::FuncOp op, size_t argIndex) {
-    return isConstantOrParameter(op, argIndex) || isKVCache(op, argIndex);
   }
 
   // Collect all inputs and outputs outside the operation set to hoist
@@ -372,9 +358,8 @@ private:
             "Input type must be a ranked tensor type");
       }
 
-      // Don't create empty slots for constants/parameters/kv_cache.
-      // These are used directly without host round-trip.
-      if (shouldUseArgDirectly(runAndCaptureTraceFunc, i)) {
+      // Don't create empty slots for constants/parameters
+      if (isConstantOrParameter(runAndCaptureTraceFunc, i)) {
         inputSlots.push_back(runAndCaptureTraceFunc.getArgument(i));
         continue;
       }
@@ -402,8 +387,8 @@ private:
 
     // move inputs to host and copy into input slots
     for (size_t i = 0; i < inputSlots.size(); i++) {
-      // Skip inputs that are constants/parameters/kv_cache
-      if (shouldUseArgDirectly(runAndCaptureTraceFunc, i)) {
+      // Skip inputs that are constants/parameters
+      if (isConstantOrParameter(runAndCaptureTraceFunc, i)) {
         continue;
       }
       mlir::Value input = runAndCaptureTraceFunc.getArgument(i);

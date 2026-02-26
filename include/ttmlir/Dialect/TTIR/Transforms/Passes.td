@@ -290,20 +290,6 @@ def TTIRFoldConstantReshapeBroadcast: Pass<"ttir-fold-constant-reshape-broadcast
   let dependentDialects = ["mlir::tt::ttcore::TTCoreDialect", "mlir::tt::ttir::TTIRDialect"];
 }
 
-def TTIRInferKVCacheArgumentTypes: Pass<"ttir-infer-kv-cache-argument-types", "::mlir::ModuleOp">
-{
-  let summary = "Infer KV cache arguments from cache operations.";
-  let description = [{
-    This pass identifies function arguments used as cache inputs to FillCacheOp,
-    UpdateCacheOp, PagedFillCacheOp, or PagedUpdateCacheOp and marks them with
-    the ttcore.kv_cache unit attribute.
-
-    This is used to distinguish KV cache arguments from regular input arguments
-    and avoid e.g. forcing to Row Major layout.
-  }];
-
-  let dependentDialects = ["mlir::tt::ttcore::TTCoreDialect", "mlir::tt::ttir::TTIRDialect"];
-}
 
 def TTIRDecomposeComplexReshape: Pass<"ttir-decompose-complex-reshape", "::mlir::ModuleOp"> {
   let summary = "Decompose reshapes that flip trailing 1s into permute + reshape.";

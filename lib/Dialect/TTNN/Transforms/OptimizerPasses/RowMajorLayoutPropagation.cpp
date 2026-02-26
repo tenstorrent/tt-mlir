@@ -89,11 +89,7 @@ public:
 
 private:
   // Returns true if block argument is an input argument of the function.
-  // KV cache arguments are excluded even though they have Input argument type.
   bool isInputArgument(BlockArgument arg, func::FuncOp func) {
-    if (func.getArgAttr(arg.getArgNumber(), ttcore::g_kvCacheAttrName)) {
-      return false;
-    }
     if (auto typeAttr = func.getArgAttrOfType<ttcore::ArgumentTypeAttr>(
             arg.getArgNumber(), ttcore::ArgumentTypeAttr::name)) {
       auto argType = typeAttr.getValue();
