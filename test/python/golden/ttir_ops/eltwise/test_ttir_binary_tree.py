@@ -16,12 +16,12 @@ from test_utils import shape_str
 pytestmark = pytest.mark.frontend("ttir")
 
 
-@pytest.mark.parametrize("shape", [(1024, 1024)], ids=shape_str)
-@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize(
+    "shape", [(1024, 1024), (2048, 2048), (1024, 1536)], ids=shape_str
+)
+@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32], ids=["bf16", "f32"])
 @pytest.mark.parametrize("target", ["ttmetal"])
-def test_binary_tree(
-    shape: Shape, dtype: torch.dtype, target: str, request, device
-):
+def test_binary_tree(shape: Shape, dtype: torch.dtype, target: str, request, device):
     """Test a binary tree of adds: add(add(arg0, arg1), add(arg2, arg3))"""
 
     def module(builder: TTIRBuilder):
@@ -33,10 +33,12 @@ def test_binary_tree(
             in3: Operand,
             builder: TTIRBuilder,
         ) -> Operand:
-            # builder.set_goldens(inputs={in0: torch.ones(shape, dtype=dtype), in1: torch.ones(shape, dtype=dtype), in2: torch.ones(shape, dtype=dtype), in3: torch.ones(shape, dtype=dtype)})
             left = builder.add(in0, in1)
             right = builder.add(in2, in3)
             return builder.add(left, right)
+
+    if shape == (2048, 2048) and dtype == torch.float32:
+        pytest.xfail("Too big to fit in L1, see issue #7216")
 
     compile_and_execute_ttir(
         module,
