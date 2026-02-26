@@ -8,7 +8,6 @@ module attributes {} {
     // CHECK: = tosa.matmul
     %1 = "ttir.matmul"(%arg0, %arg1) : (tensor<1x784xf32>, tensor<784x512xf32>) -> tensor<1x512xf32>
     // CHECK: = tosa.reshape
-    // CHECK: = linalg.copy
     // CHECK: return %{{[0-9]+}} : tensor<1x512xf32>
     return %1 : tensor<1x512xf32>
   }

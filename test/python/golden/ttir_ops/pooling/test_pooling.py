@@ -77,27 +77,11 @@ def test_max_pool2d(
     [
         ([3, 3], [1, 1], [1, 1], [0, 0, 0, 0], False),
         ([3, 3], [2, 2], [1, 1], [0, 0, 0, 0], False),
-        pytest.param(
-            [3, 3],
-            [2, 2],
-            [2, 2],
-            [0, 0, 0, 0],
-            False,
-            marks=pytest.mark.skip(
-                reason="Dilation > 1 crashes in TTIRToLinalg with assertion"
-            ),
-        ),
-        pytest.param(
-            [3, 3],
-            [2, 2],
-            [2, 2],
-            [1, 1, 1, 1],
-            False,
-            marks=pytest.mark.skip(
-                reason="Dilation > 1 crashes in TTIRToLinalg with assertion"
-            ),
-        ),
+        ([3, 3], [2, 2], [2, 2], [0, 0, 0, 0], False),
+        ([3, 3], [2, 2], [2, 2], [1, 1, 1, 1], False),
         ([3, 3], [2, 2], [1, 1], [1, 1, 1, 1], True),
+        ([3, 3], [2, 2], [1, 1], [0, 0, 0, 0], True),
+        ([3, 3], [2, 2], [2, 2], [1, 1, 1, 1], True),
     ],
 )
 @pytest.mark.parametrize("target", ["ttnn"])
@@ -206,6 +190,8 @@ def test_avg_pool2d(
         ([3, 3], [2, 2], [1, 1], [0, 0, 0, 0], False, True),
         ([4, 4], [2, 2], [1, 1], [2, 2, 2, 2], False, True),
         ([3, 3], [2, 2], [1, 1], [1, 1, 1, 1], True, True),
+        ([3, 3], [2, 2], [1, 1], [0, 0, 0, 0], True, True),
+        ([3, 3], [2, 2], [1, 1], [1, 1, 1, 1], True, False),
         ([4, 4], [2, 2], [1, 1], [2, 2, 2, 2], False, False),
         ([8, 8], [1, 1], [1, 1], [7, 7, 7, 7], False, True),
     ],
