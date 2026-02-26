@@ -1209,7 +1209,7 @@ class EmbeddingOpHandler(BaseOpHandler):
         return self._finalize_result(op_result, args)
 
 
-class ClampOpHandler(UnaryOpHandler):
+class ClampOpHandler(BaseOpHandler):
     """Handler for clamp operation.
 
     Supports two modes:
@@ -1220,7 +1220,21 @@ class ClampOpHandler(UnaryOpHandler):
     _F32_MAX = 3.4028235e38
 
     def __init__(self, jit_ctx):
-        super().__init__(jit_ctx, "clamp")
+        super().__init__(jit_ctx)
+        self.op_name = "clamp"
+
+    def _infer_output_layout(self, operand):
+        """Infer output layout for clamp operation - preserves input encoding."""
+        return operand.type.encoding if CREATE_INTERMEDIATE_LAYOUT else None
+
+    def _infer_result_type(self, operand):
+        """Infer result type from operand, preserving encoding (layout unchanged)."""
+        element_type = operand.type.element_type
+        shape = list(operand.type.shape)
+        encoding = self._infer_output_layout(operand)
+
+        with Location.unknown(self.jit_ctx.ctx):
+            return RankedTensorType.get(shape, element_type, encoding)
 
     def _normalize_scalar_value(self, value):
         """Normalize Python scalar for MLIR attribute/tensor creation."""
@@ -1249,7 +1263,7 @@ class ClampOpHandler(UnaryOpHandler):
         """Create clamp operation.
 
         Signature: ttnn.clamp(input, min=..., max=...) or ttnn.clamp(input, min_val, max_val)
-        Supports both keyword and positional arguments for flexibility.
+        Supports both keyword and positional arguments.
         """
         if len(args) < 1:
             raise ValueError("clamp requires at least 1 argument (input tensor)")
@@ -1279,7 +1293,6 @@ class ClampOpHandler(UnaryOpHandler):
             # Use ttir.clamp_scalar
             element_type = input_operand.type.element_type
 
-            # Convert to attributes, using very large values if None
             if min_val is None:
                 min_val = float("-inf")
             if max_val is None:
