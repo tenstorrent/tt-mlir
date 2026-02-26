@@ -49,6 +49,69 @@
 namespace mlir::tt::ttir {
 
 //===----------------------------------------------------------------------===//
+// Complex Operations
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttir::StablehloComplexOp::verify() {
+  auto realType = llvm::cast<RankedTensorType>(getReal().getType());
+  auto imagType = llvm::cast<RankedTensorType>(getImag().getType());
+  auto resultType = llvm::cast<RankedTensorType>(getResult().getType());
+
+  if (realType.getShape() != imagType.getShape()) {
+    return emitOpError("real and imag must have the same shape");
+  }
+  if (!realType.getElementType().isIntOrFloat()) {
+    return emitOpError("real must have integer or float element type");
+  }
+  if (imagType.getElementType() != realType.getElementType()) {
+    return emitOpError("real and imag must have the same element type");
+  }
+  if (resultType.getShape() != realType.getShape()) {
+    return emitOpError("result shape must match real/imag shape");
+  }
+  auto complexElem =
+      mlir::dyn_cast<mlir::ComplexType>(resultType.getElementType());
+  if (!complexElem ||
+      complexElem.getElementType() != realType.getElementType()) {
+    return emitOpError(
+        "result element type must be complex(element_type) matching real");
+  }
+  return success();
+}
+
+::mlir::LogicalResult mlir::tt::ttir::StablehloRealOp::verify() {
+  auto inputType = llvm::cast<RankedTensorType>(getInput().getType());
+  auto resultType = llvm::cast<RankedTensorType>(getResult().getType());
+  if (!mlir::isa<mlir::ComplexType>(inputType.getElementType())) {
+    return emitOpError("input must have complex element type");
+  }
+  auto complexElem = mlir::cast<mlir::ComplexType>(inputType.getElementType());
+  if (resultType.getShape() != inputType.getShape() ||
+      resultType.getElementType() != complexElem.getElementType()) {
+    return emitOpError(
+        "result must have same shape as input and float element type "
+        "matching the complex's element type");
+  }
+  return success();
+}
+
+::mlir::LogicalResult mlir::tt::ttir::StablehloImagOp::verify() {
+  auto inputType = llvm::cast<RankedTensorType>(getInput().getType());
+  auto resultType = llvm::cast<RankedTensorType>(getResult().getType());
+  if (!mlir::isa<mlir::ComplexType>(inputType.getElementType())) {
+    return emitOpError("input must have complex element type");
+  }
+  auto complexElem = mlir::cast<mlir::ComplexType>(inputType.getElementType());
+  if (resultType.getShape() != inputType.getShape() ||
+      resultType.getElementType() != complexElem.getElementType()) {
+    return emitOpError(
+        "result must have same shape as input and float element type "
+        "matching the complex's element type");
+  }
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // AddOp
 //===----------------------------------------------------------------------===//
 
@@ -600,8 +663,10 @@ void mlir::tt::ttir::ConstantOp::getCanonicalizationPatterns(
                        "DenseResourceElementsAttr or DenseElementsAttr.");
   }
 
-  if (!getValue().getElementType().isIntOrFloat()) {
-    return emitOpError("value attribute must be of int or float type.");
+  if (!getValue().getElementType().isIntOrFloat() &&
+      !mlir::isa<mlir::ComplexType>(getValue().getElementType())) {
+    return emitOpError(
+        "value attribute must be of int, float, or complex type.");
   }
 
   return success();

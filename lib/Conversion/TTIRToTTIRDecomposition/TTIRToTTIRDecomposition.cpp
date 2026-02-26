@@ -2551,10 +2551,139 @@ struct NegativePadOpDecompositionPattern
 };
 } // namespace
 
+namespace {
+struct StablehloComplexToComplexPattern
+    : public OpConversionPattern<ttir::StablehloComplexOp> {
+  using OpConversionPattern<ttir::StablehloComplexOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::StablehloComplexOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto resultType = getTypeConverter()->convertType(op.getResult().getType());
+    auto newOp = rewriter.create<ttir::ComplexOp>(
+        op.getLoc(), resultType, adaptor.getReal(), adaptor.getImag());
+    rewriter.replaceOp(op, newOp.getResult());
+    return success();
+  }
+};
+struct StablehloRealToRealPattern
+    : public OpConversionPattern<ttir::StablehloRealOp> {
+  using OpConversionPattern<ttir::StablehloRealOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::StablehloRealOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto resultType = getTypeConverter()->convertType(op.getResult().getType());
+    auto newOp = rewriter.create<ttir::RealOp>(op.getLoc(), resultType,
+                                               adaptor.getInput());
+    rewriter.replaceOp(op, newOp.getResult());
+    return success();
+  }
+};
+
+struct StablehloImagToImagPattern
+    : public OpConversionPattern<ttir::StablehloImagOp> {
+  using OpConversionPattern<ttir::StablehloImagOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::StablehloImagOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto resultType = getTypeConverter()->convertType(op.getResult().getType());
+    auto newOp = rewriter.create<ttir::ImagOp>(op.getLoc(), resultType,
+                                               adaptor.getInput());
+    rewriter.replaceOp(op, newOp.getResult());
+    return success();
+  }
+};
+} // namespace
+
+// ComplexOp decomposition: tensor<...xfN>, tensor<...xfN> → tensor<...x2xfN>
+// Unsqueeze both inputs to ...x1xfN, then concat on the new last dim.
+namespace {
+struct ComplexOpDecompositionPattern
+    : public OpConversionPattern<ttir::ComplexOp> {
+  using OpConversionPattern<ttir::ComplexOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::ComplexOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto inputType = mlir::cast<RankedTensorType>(adaptor.getReal().getType());
+
+    // Unsqueeze shape: append trailing dim of 1 → [..., 1]
+    SmallVector<int64_t> unsqueezedShape(inputType.getShape());
+    unsqueezedShape.push_back(1);
+    auto unsqueezedType =
+        RankedTensorType::get(unsqueezedShape, inputType.getElementType());
+    auto unsqueezeDim = rewriter.getI32IntegerAttr(inputType.getRank());
+
+    auto unsqueezedReal = rewriter.create<ttir::UnsqueezeOp>(
+        op.getLoc(), unsqueezedType, adaptor.getReal(), unsqueezeDim);
+    auto unsqueezedImag = rewriter.create<ttir::UnsqueezeOp>(
+        op.getLoc(), unsqueezedType, adaptor.getImag(), unsqueezeDim);
+
+    // Concat on the new last dim → [..., 2]
+    rewriter.replaceOpWithNewOp<ttir::ConcatOp>(
+        op, op.getResult().getType(),
+        ValueRange{unsqueezedReal, unsqueezedImag}, unsqueezeDim);
+    return success();
+  }
+};
+} // namespace
+
+// RealOp / ImagOp decomposition: tensor<...x2xfN> → tensor<...xfN>
+// Slice last dim to [...x1xfN], then squeeze to [...xfN].
+namespace {
+template <typename TTIROp, int SliceIndex>
+struct ComplexExtractDecompositionPattern : public OpConversionPattern<TTIROp> {
+  using OpConversionPattern<TTIROp>::OpConversionPattern;
+  using OpAdaptor = typename TTIROp::Adaptor;
+
+  LogicalResult
+  matchAndRewrite(TTIROp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto inputType = mlir::cast<RankedTensorType>(adaptor.getInput().getType());
+    int64_t rank = inputType.getRank();
+
+    // Slice attrs: full range on all dims, last dim [SliceIndex, SliceIndex+1]
+    SmallVector<int32_t> begins(rank, 0);
+    SmallVector<int32_t> ends;
+    SmallVector<int32_t> steps(rank, 1);
+    for (int64_t i = 0; i < rank; ++i) {
+      if (i == rank - 1) {
+        begins[i] = SliceIndex;
+        ends.push_back(SliceIndex + 1);
+      } else {
+        ends.push_back(static_cast<int32_t>(inputType.getDimSize(i)));
+      }
+    }
+
+    // Sliced type: same shape but last dim = 1
+    SmallVector<int64_t> slicedShape(inputType.getShape());
+    slicedShape.back() = 1;
+    auto slicedType =
+        RankedTensorType::get(slicedShape, inputType.getElementType());
+
+    auto sliceOp = rewriter.create<ttir::SliceStaticOp>(
+        op.getLoc(), slicedType, adaptor.getInput(),
+        rewriter.getI32ArrayAttr(begins), rewriter.getI32ArrayAttr(ends),
+        rewriter.getI32ArrayAttr(steps));
+
+    // Squeeze the trailing 1 dim
+    rewriter.replaceOpWithNewOp<ttir::SqueezeOp>(
+        op, op.getResult().getType(), sliceOp.getResult(),
+        rewriter.getI32IntegerAttr(rank - 1));
+    return success();
+  }
+};
+} // namespace
+
 void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
                                              RewritePatternSet &patterns,
                                              TypeConverter &typeConverter,
                                              DecompMode decompConfig) {
+  patterns.add<StablehloComplexToComplexPattern>(typeConverter, ctx);
+  patterns.add<StablehloRealToRealPattern>(typeConverter, ctx);
+  patterns.add<StablehloImagToImagPattern>(typeConverter, ctx);
   patterns.add<PoolingToFullOp<ttir::MaxPool2dOp>>(typeConverter, ctx);
   patterns.add<PoolingToFullOp<ttir::AvgPool2dOp>>(typeConverter, ctx);
   patterns.add<IndexToSliceConversionPattern>(typeConverter, ctx);
