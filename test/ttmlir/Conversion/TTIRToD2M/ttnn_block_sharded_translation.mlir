@@ -2,6 +2,7 @@
 // RUN: FileCheck %s --input-file=%t.mlir
 
 #l1 = #ttnn.buffer_type<l1>
+#dram = #ttnn.buffer_type<dram>
 
 // CHECK: #layout = #ttcore.metal_layout<logical_shape = 32x32, dim_alignments = 32x32, collapsed_intervals
 // CHECK-SAME: l1
@@ -43,6 +44,10 @@
 #ttnn_layout11 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 256 + d1 * 32 + d2, d3), <8x8>, memref<1x1x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<l1>>, <block_sharded>>
 // 1x8x32x256 on 1x1
 #ttnn_layout12 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 256 + d1 * 32 + d2, d3), <1x1>, memref<8x8x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<l1>>, <block_sharded>>
+
+// Interleaved DRAM - Rank 2 layout
+// 32x2880 on 1x1
+#ttnn_layout13 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x90x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<dram>>, <interleaved>>
 
 module {
   // CHECK-LABEL: func.func @test_lower_block_sharded_l1
@@ -271,5 +276,26 @@ func.func @test_lower_block_sharded_l1_12(
   %1 = "ttir.abs"(%arg0)  : (tensor<1x8x32x256xbf16, #ttnn_layout12>) -> (tensor<1x8x32x256xbf16, #ttnn_layout12>)
   // CHECK: return %[[CAST2]] : tensor<1x8x32x256xbf16, #ttnn_layout12>
   return %1 : tensor<1x8x32x256xbf16, #ttnn_layout12>
+  }
+
+// CHECK-LABEL: func.func @test_lower_dram_interleaved_32x2880
+func.func @test_lower_dram_interleaved_32x2880(
+  %arg0: tensor<32x2880xbf16, #ttnn_layout13>, %out: tensor<32x2880xbf16, #ttnn_layout13>
+) -> tensor<32x2880xbf16, #ttnn_layout13> {
+  // CHECK: %[[EMPTY0:.*]] = d2m.empty() : tensor<32x2880xbf16, #ttnn_layout13>
+  // CHECK: %[[CAST0:.*]] = ttir.ttnn_metal_layout_cast %arg0 : tensor<32x2880xbf16, #ttnn_layout13> -> tensor<1x1x1x90x!ttcore.tile<32x32, bf16>, #[[DRAM_LAYOUT:layout[0-9]+]]>
+  // CHECK: %[[STORAGE0:.*]] = d2m.empty() : tensor<1x6x1x15x!ttcore.tile<32x32, bf16>, #[[DRAM_STORAGE_LAYOUT:layout[0-9]+]]>
+  // CHECK: %[[STREAM0:.*]] = "d2m.stream_layout"(%[[CAST0]], %[[STORAGE0]]) : (tensor<1x1x1x90x!ttcore.tile<32x32, bf16>, #[[DRAM_LAYOUT]]>, tensor<1x6x1x15x!ttcore.tile<32x32, bf16>, #[[DRAM_STORAGE_LAYOUT]]>) -> tensor<1x6x1x15x!ttcore.tile<32x32, bf16>, #[[DRAM_STREAM_LAYOUT:layout[0-9]+]]>
+  // CHECK: %[[CAST1:.*]] = ttir.ttnn_metal_layout_cast %[[EMPTY0]] : tensor<32x2880xbf16, #ttnn_layout13> -> tensor<1x1x1x90x!ttcore.tile<32x32, bf16>, #[[DRAM_LAYOUT]]>
+  // CHECK: %[[STORAGE1:.*]] = d2m.empty() : tensor<1x6x1x15x!ttcore.tile<32x32, bf16>, #[[DRAM_STORAGE_LAYOUT]]>
+  // CHECK: %[[STREAM1:.*]] = "d2m.stream_layout"(%[[CAST1]], %[[STORAGE1]]) : (tensor<1x1x1x90x!ttcore.tile<32x32, bf16>, #[[DRAM_LAYOUT]]>, tensor<1x6x1x15x!ttcore.tile<32x32, bf16>, #[[DRAM_STORAGE_LAYOUT]]>) -> tensor<1x6x1x15x!ttcore.tile<32x32, bf16>, #[[DRAM_STREAM_LAYOUT]]>
+  // CHECK: %[[RESULT:.*]] = d2m.generic{{.*}}
+  // CHECK: ins(%[[STREAM0]] : tensor<1x6x1x15x!ttcore.tile<32x32, bf16>, #[[DRAM_STREAM_LAYOUT]]>)
+  // CHECK: outs(%[[STREAM1]] : tensor<1x6x1x15x!ttcore.tile<32x32, bf16>, #[[DRAM_STREAM_LAYOUT]]>)
+  // CHECK-DAG: d2m.tile_abs
+  // CHECK: %[[CAST2:.*]] = ttir.ttnn_metal_layout_cast %[[RESULT]] : tensor<1x6x1x15x!ttcore.tile<32x32, bf16>, #[[DRAM_STREAM_LAYOUT]]> -> tensor<32x2880xbf16, #ttnn_layout13>
+  %1 = "ttir.abs"(%arg0) : (tensor<32x2880xbf16, #ttnn_layout13>) -> (tensor<32x2880xbf16, #ttnn_layout13>)
+  // CHECK: return %[[CAST2]] : tensor<32x2880xbf16, #ttnn_layout13>
+  return %1 : tensor<32x2880xbf16, #ttnn_layout13>
   }
 }
