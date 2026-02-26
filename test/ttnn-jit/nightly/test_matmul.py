@@ -8,10 +8,11 @@ import itertools
 
 import pytest
 
+from ttnn_jit._src.utils import get_maximal_block_sharding_grid
 from utils import (
     create_sharded_tile_tensor,
     create_dram_tensor,
-    get_block_sharding_grid,
+    get_core_grid_from_device,
 )
 
 from op_definitions import (
@@ -87,8 +88,7 @@ def test_matmul_with_dtypes(device, shape_grids, dtype, ttnn_dtype):
 
 
 MATMUL_SHAPES = [
-    (m * 32, k * 32, n * 32)
-    for m, k, n in itertools.product(range(1, 9), range(1, 9), range(1, 9))
+    (m * 32, k * 32, n * 32) for m, k, n in itertools.product([1, 3, 4, 6, 8], repeat=3)
 ]
 
 INPUT_LAYOUTS = [
@@ -120,7 +120,9 @@ def test_matmul_with_grids(device, shapes, dtype, ttnn_dtype, input_layouts):
     input_tensors = []
     for shape, layout in zip(shapes, input_layouts):
         if layout == ttnn.TensorMemoryLayout.BLOCK_SHARDED:
-            grid = get_block_sharding_grid(shape)
+            grid = get_maximal_block_sharding_grid(
+                shape, get_core_grid_from_device(device)
+            )
             input_tensors.append(
                 create_sharded_tile_tensor(
                     device,

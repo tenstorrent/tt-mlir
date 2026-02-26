@@ -357,7 +357,11 @@ public:
                   ConversionPatternRewriter &rewriter) const final {
     if (auto inner =
             op.getOperand().getDefiningOp<ttir::TTNNMetalLayoutCastOp>()) {
-      rewriter.replaceOp(op, inner.getOperand());
+      // Don't collapse back-to-back casts when either carries a VGM —
+      // the round-trip represents a meaningful shard strategy change.
+      if (!inner.getVirtualGridMapping() && !op.getVirtualGridMapping()) {
+        rewriter.replaceOp(op, inner.getOperand());
+      }
     } else if (auto inner =
                    op.getOperand().getDefiningOp<d2m::StreamLayoutOp>()) {
       // Match the pattern cast(stream(cast(output_tensor))) and rewrite as just

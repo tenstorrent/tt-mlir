@@ -1200,6 +1200,10 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_RMSNormOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::DistributedRMSNormOp: {
+    tensorRef = opContext.type_as_DistributedRMSNormOp()->out();
+    break;
+  }
   case ::tt::target::ttnn::OpType::LayerNormOp: {
     tensorRef = opContext.type_as_LayerNormOp()->out();
     break;
@@ -1593,6 +1597,17 @@ getOpInputRefs(OpContext opContextHandle,
     }
     if (opContext.type_as_RMSNormOp()->bias()) {
       tensorRefs.push_back(opContext.type_as_RMSNormOp()->bias());
+    }
+    break;
+  }
+  case ::tt::target::ttnn::OpType::DistributedRMSNormOp: {
+    tensorRefs = {opContext.type_as_DistributedRMSNormOp()->input()};
+    if (opContext.type_as_DistributedRMSNormOp()->weight()) {
+      tensorRefs.push_back(opContext.type_as_DistributedRMSNormOp()->weight());
+    }
+    if (opContext.type_as_DistributedRMSNormOp()->residual()) {
+      tensorRefs.push_back(
+          opContext.type_as_DistributedRMSNormOp()->residual());
     }
     break;
   }

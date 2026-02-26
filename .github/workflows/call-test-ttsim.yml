@@ -1,0 +1,172 @@
+name: TTSim Golden Tests
+
+on:
+  workflow_call:
+    inputs:
+      docker_image:
+        description: "Docker image for the test"
+        required: true
+        type: string
+      build_image_name:
+        description: "Release build flavor to reuse artifacts from"
+        required: false
+        type: string
+        default: "speedy"
+      ttsim-version:
+        description: "TTSim release tag"
+        required: false
+        type: string
+        default: "v1.3.4"
+      timeout:
+        description: "Timeout in minutes for the TTSim test job"
+        required: false
+        type: number
+        default: 30
+
+permissions:
+  checks: write
+  packages: write
+
+jobs:
+  ttsim-golden:
+    name: "TTSim golden (wormhole_b0)"
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.timeout }}
+    container:
+      image: ${{ inputs.docker_image }}
+    env:
+      ARCH_NAME: wormhole_b0
+      SOC_DESC: wormhole_b0_80_arch.yaml
+      TT_METAL_SIMULATOR_HOME: ${{ github.workspace }}/sim
+      TT_METAL_SIMULATOR: ${{ github.workspace }}/sim/libttsim.so
+      TT_METAL_SLOW_DISPATCH_MODE: 1
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ github.workspace }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set reusable strings
+        id: strings
+        run: |
+          echo "work-dir=$(pwd)" >> "$GITHUB_OUTPUT"
+          echo "build-output-dir=$(pwd)/build" >> "$GITHUB_OUTPUT"
+          echo "install-output-dir=$(pwd)/install" >> "$GITHUB_OUTPUT"
+
+      - name: Git safe dir
+        run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
+
+      - name: Use install artifacts
+        uses: tenstorrent/tt-forge/.github/actions/download-artifact@main
+        with:
+          name: install-artifacts-${{ inputs.build_image_name }}
+          path: install
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download ttrt run wheels
+        uses: actions/download-artifact@v4
+        with:
+          name: ttrt-whl-${{ inputs.build_image_name }}
+
+      - name: Install ttrt run wheels
+        run: |
+          source env/activate
+          pip show ttrt > /dev/null 2>&1 && pip uninstall -y ttrt || true
+          pip install ttrt*.whl --upgrade
+
+      - name: Download build artifacts
+        uses: tenstorrent/tt-forge/.github/actions/download-artifact@main
+        with:
+          name: build-artifacts-${{ inputs.build_image_name }}
+          path: build
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute TTSim asset name
+        id: ttsim-asset
+        run: echo "asset_name=libttsim_wh.so" >> "$GITHUB_OUTPUT"
+
+      - name: Download TTSim binary
+        uses: robinraju/release-downloader@daf26c55d821e836577a15f77d86ddc078948b05 # v1.12
+        with:
+          repository: tenstorrent/ttsim
+          tag: ${{ inputs.ttsim-version }}
+          fileName: ${{ steps.ttsim-asset.outputs.asset_name }}
+          out-file-path: /tmp/ttsim
+
+      - name: Install TTSim
+        run: |
+          set -euo pipefail
+          export WORK_DIR="${{ steps.strings.outputs.work-dir }}"
+          export INSTALL_DIR="${{ steps.strings.outputs.install-output-dir }}"
+          export TT_METAL_HOME="$WORK_DIR/third_party/tt-metal/src/tt-metal"
+          mkdir -p "$TT_METAL_SIMULATOR_HOME"
+          mv "/tmp/ttsim/${{ steps.ttsim-asset.outputs.asset_name }}" "$TT_METAL_SIMULATOR_HOME/libttsim.so"
+
+          soc_desc_path=""
+          for candidate in \
+            "$TT_METAL_HOME/tt_metal/soc_descriptors/$SOC_DESC" \
+            "$INSTALL_DIR/tt-metal/tt_metal/soc_descriptors/$SOC_DESC"; do
+            if [[ -f "$candidate" ]]; then
+              soc_desc_path="$candidate"
+              break
+            fi
+          done
+
+          if [[ -z "$soc_desc_path" ]]; then
+            echo "Unable to locate SoC descriptor: $SOC_DESC"
+            echo "Searched under TT_METAL_HOME=$TT_METAL_HOME and INSTALL_DIR=$INSTALL_DIR"
+            exit 1
+          fi
+
+          cp "$soc_desc_path" "$TT_METAL_SIMULATOR_HOME/soc_descriptor.yaml"
+
+      - name: Generate simulator system descriptor
+        run: |
+          source env/activate
+          export LD_LIBRARY_PATH="${{ steps.strings.outputs.install-output-dir }}/lib:${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
+          ttrt query --save-artifacts
+
+      - name: Run golden pytest on TTSim
+        run: |
+          source env/activate
+          export WORK_DIR="${{ steps.strings.outputs.work-dir }}"
+          export BUILD_DIR="${{ steps.strings.outputs.build-output-dir }}"
+          export INSTALL_DIR="${{ steps.strings.outputs.install-output-dir }}"
+          export TT_MLIR_HOME="$WORK_DIR"
+          export TT_METAL_RUNTIME_ROOT="$INSTALL_DIR/tt-metal"
+          export TT_METAL_HOME="$WORK_DIR/third_party/tt-metal/src/tt-metal"
+          export LD_LIBRARY_PATH="$INSTALL_DIR/lib:${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
+          export SYSTEM_DESC_PATH="${GITHUB_WORKSPACE}/ttrt-artifacts/system_desc.ttsys"
+          mkdir -p test_reports
+          pytest -ssv "test/python/golden/ttir_ops/eltwise/test_ttir_unary.py::test_unary_ops" \
+            -k "ttmetal" \
+            --sys-desc "$SYSTEM_DESC_PATH" \
+            --junit-xml="test_reports/ttsim_unary.xml"
+          pytest -ssv "test/python/golden/ttir_ops/eltwise/test_ttir_binary.py::test_binary_ops" \
+            -k "ttmetal" \
+            --sys-desc "$SYSTEM_DESC_PATH" \
+            --junit-xml="test_reports/ttsim_binary.xml"
+          pytest -ssv "test/python/golden/test_metal_matmul.py::test_matmul_ttnn_shapes_double_buffered" \
+            --sys-desc "$SYSTEM_DESC_PATH" \
+            --junit-xml="test_reports/ttsim_matmul.xml"
+
+      - name: Upload TTSim test report xml
+        if: success() || failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports-ttsim
+          path: test_reports
+          if-no-files-found: ignore
+
+      - name: Show TTSim test report
+        continue-on-error: true
+        if: success() || failure()
+        uses: mikepenz/action-junit-report@v5
+        with:
+          report_paths: test_reports/ttsim_*.xml
+          check_name: TTSim golden tests
+          job_summary: false

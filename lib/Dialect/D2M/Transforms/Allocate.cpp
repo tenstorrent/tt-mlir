@@ -342,6 +342,10 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
 
     FuncAnalysisData analysis;
 
+    if (failed(validateGenericOpForms(funcOp))) {
+      return failure();
+    }
+
     if (failed(remapGenericRegionAllocs(funcOp))) {
       return failure();
     }
@@ -375,6 +379,27 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     }
 
     return success();
+  }
+
+  /// Validate that all generic ops are in affine blocked form. Generic ops
+  /// in DMA-only or explicit datamovement form are exempt from this check.
+  ///
+  LogicalResult validateGenericOpForms(func::FuncOp funcOp) {
+    LogicalResult result = success();
+
+    funcOp.walk([&](d2m::GenericOp genericOp) {
+      if (genericOp.isDMAOnlyForm() || genericOp.isExplicitDatamovementForm() ||
+          genericOp.isExternalSymbolForm() || !genericOp.isUnifiedForm()) {
+        return;
+      }
+      if (!genericOp.isAffineBlockedForm()) {
+        genericOp.emitOpError("expected generic op to be in affine blocked "
+                              "form before allocation");
+        result = failure();
+      }
+    });
+
+    return result;
   }
 
   /// Walk all GenericOp operations and remap any memref.alloc operations
@@ -1385,16 +1410,17 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
 
     auto streamOp = rewriter.create<d2m::StreamLayoutOp>(
         op.getLoc(), /* result */ streamType, /* input */ operand.get(),
-        /* storage */ bufferAllocOp);
+        AffineMapAttr::get(reblockingMap), /* storage */ bufferAllocOp);
 
     rewriter.startOpModification(op);
     {
       operand.assign(streamOp.getResult());
 
+      auto streamShape = streamType.getShape();
+      TT_assert((streamShape.size() % 2) == 0ul);
+      auto shardShape = streamShape.drop_front(streamShape.size() / 2);
       const MemRefType newArgMemRefType = MemRefType::get(
-          mlir::cast<ttcore::DeviceLayoutInterface>(streamType.getLayout())
-              .getShardShape(streamType),
-          streamType.getElementType(), nullptr, L1Attr);
+          shardShape, streamType.getElementType(), nullptr, L1Attr);
       const CBType newCBArgType = d2m::CBType::get(newArgMemRefType);
 
       for (Region &region : op->getRegions()) {
@@ -1505,7 +1531,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
                                   Type elementType,
                                   ttcore::MemorySpaceAttr memSpaceAttr) {
     const auto streamLayout =
-        ttcore::ViewLayoutAttr::get(map.getContext(), map);
+        ttcore::ViewLayoutAttr::get(map.getContext(), fullShape.size());
 
     return MemRefType::get(fullShape, elementType, streamLayout, memSpaceAttr);
   }

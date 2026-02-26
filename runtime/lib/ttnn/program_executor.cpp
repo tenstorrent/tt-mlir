@@ -65,6 +65,7 @@
 #include "operations/mlir_native/func_call.h"
 #include "operations/moreh/moreh_cumsum.h"
 #include "operations/normalization/batch_norm.h"
+#include "operations/normalization/distributed_rms_norm.h"
 #include "operations/normalization/layer_norm.h"
 #include "operations/normalization/rms_norm.h"
 #include "operations/normalization/softmax.h"
@@ -351,6 +352,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::RMSNormOp: {
     return operations::rms_norm::run(op->type_as_RMSNormOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::DistributedRMSNormOp: {
+    return operations::distributed_rms_norm::run(
+        op->type_as_DistributedRMSNormOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::LayerNormOp: {
     return operations::layer_norm::run(op->type_as_LayerNormOp(), getContext());

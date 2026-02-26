@@ -2,14 +2,12 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 import pytest
-import _ttmlir_runtime as tt_runtime
 import json
 import re
 import platform
 from functools import reduce
 import operator
 import os
-import torch
 import subprocess
 from typing import Any, Dict, List, Tuple, Optional
 import math
@@ -28,8 +26,12 @@ TT_METAL_RUNTIME_ROOT = Path(
 ).resolve()
 sys.path.append(os.path.join(TT_METAL_RUNTIME_ROOT, "ttnn"))
 
-import utils
+# Import ttnn before torch and _ttmlir_runtime to avoid false nanobind leak
+# warnings caused by CPython module teardown order.
 import ttnn
+import utils
+import _ttmlir_runtime as tt_runtime
+import torch
 
 ALL_BACKENDS = set(["ttnn", "ttmetal", "emitc", "emitpy"])
 ALL_SYSTEMS = set(["n150", "n300", "llmbox", "tg", "p150", "p300"])
@@ -102,18 +104,9 @@ def _get_device_for_target(
 
     else:
         mesh_options = tt_runtime.runtime.MeshDeviceOptions()
-        system_desc = fbb_as_dict(
-            tt_runtime.binary.load_system_desc_from_path(pytestconfig.option.sys_desc)
-        )["system_desc"]
-        board_id = get_board_id(system_desc)
 
-        if pytestconfig.getoption("--disable-eth-dispatch") or board_id in [
-            "p150",
-            "p300",
-        ]:
+        if pytestconfig.getoption("--disable-eth-dispatch"):
             mesh_options.dispatch_core_type = tt_runtime.runtime.DispatchCoreType.WORKER
-        else:
-            mesh_options.dispatch_core_type = tt_runtime.runtime.DispatchCoreType.ETH
 
         # Start with a small mesh shape that should work for most tests
         # Tests requiring larger meshes will be handled appropriately
@@ -284,7 +277,7 @@ def pytest_addoption(parser):
     parser.addoption(
         "--disable-eth-dispatch",
         action="store_true",
-        help="disable putting dispatch on ethernet cores - place it on worker cores instead; necessary on blackhole",
+        help="disable putting dispatch on ethernet cores - place it on worker cores instead",
     )
     parser.addoption(
         "--dump-kernels",
@@ -826,3 +819,8 @@ def pytest_sessionfinish(session):
         _current_device_target = None
         _current_device_mesh_shape = None
         _current_fabric_config = None
+
+        # Ensure DeviceGetter singleton is cleared after tests finish and after
+        # any mesh device has been closed.
+        utils.DeviceGetter._instance = None
+        utils.DeviceGetter._mesh_shape = None

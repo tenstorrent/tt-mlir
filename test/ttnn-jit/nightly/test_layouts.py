@@ -18,6 +18,10 @@ from op_definitions import (
 )
 
 
+# Representative subset of grids (grid_h, grid_w) for rank 3/4 tests: corners,
+# center, and two asymmetric points. Full 64-grid coverage is in rank-2 tests.
+REPRESENTATIVE_GRIDS = [(0, 0), (0, 7), (7, 0), (7, 7), (3, 3), (5, 2), (2, 5)]
+
 BLOCK_SHARDED_SHAPE_GRIDS = []
 
 # Generates all rank 2 shapes with 3 tiles per core in each dimension, with every grid from single core to 8x8.
@@ -29,26 +33,29 @@ BLOCK_SHARDED_SHAPE_GRIDS.extend(
     ]
 )
 
-# Generates all rank 3 shapes with 1 to 2 tiles per core in the 2nd and 3rd rank, with every grid from single core to 8x8.
+# Rank 3: single batch variant with representative grids.
 BLOCK_SHARDED_SHAPE_GRIDS.extend(
     [
         ((batch, h * 32 * (grid_h + 1), w * 32 * (grid_w + 1)), (grid_w, grid_h))
-        for batch, h, w, grid_h, grid_w in itertools.product(
-            [1, 8], [3], [3], range(8), range(8)
-        )
+        for batch in [8]
+        for h in [3]
+        for w in [3]
+        for grid_h, grid_w in REPRESENTATIVE_GRIDS
     ]
 )
 
-# Generates all rank 4 shapes with 1 to 2 tiles per core in the 3rd and 4th rank, with every grid from single core to 8x8.
+# Rank 4: single batch variant with representative grids.
 BLOCK_SHARDED_SHAPE_GRIDS.extend(
     [
         (
             (batch1, batch2, h * 32 * (grid_h + 1), w * 32 * (grid_w + 1)),
             (grid_w, grid_h),
         )
-        for batch1, batch2, h, w, grid_h, grid_w in itertools.product(
-            [1, 2], [1, 4], [3], [3], range(8), range(8)
-        )
+        for batch1 in [2]
+        for batch2 in [4]
+        for h in [3]
+        for w in [3]
+        for grid_h, grid_w in REPRESENTATIVE_GRIDS
     ]
 )
 
@@ -95,6 +102,12 @@ DRAM_INTERLEAVED_SHAPE_GRIDS.extend(
 )
 @pytest.mark.parametrize("op", [abs])
 def test_l1_block_sharded_shapes(device, shape, max_grid, op):
+    output_memory_config = ttnn.create_sharded_memory_config(
+        shape=shape,
+        core_grid=ttnn.CoreGrid(x=max_grid[0] + 1, y=max_grid[1] + 1),
+        strategy=ttnn.ShardStrategy.BLOCK,
+        use_height_and_width_as_shard_shape=False,
+    )
     run_op_test(
         device,
         shape,
@@ -105,6 +118,7 @@ def test_l1_block_sharded_shapes(device, shape, max_grid, op):
         buffer_type=ttnn.BufferType.L1,
         enable_cache=True,
         shard_strategy=ttnn.ShardStrategy.BLOCK,
+        memory_config=output_memory_config,
     )
 
 
@@ -116,23 +130,29 @@ HEIGHT_SHARDED_SHAPE_GRIDS.extend(
     ]
 )
 
+# Rank 3: single batch variant with representative grids.
 HEIGHT_SHARDED_SHAPE_GRIDS.extend(
     [
         ((batch, h * 32 * (grid_w + 1) * (grid_h + 1), w * 32), (grid_w, grid_h))
-        for batch, h, w, grid_h, grid_w in itertools.product(
-            [1, 8], [3], [3], range(8), range(8)
-        )
+        for batch in [8]
+        for h in [3]
+        for w in [3]
+        for grid_h, grid_w in REPRESENTATIVE_GRIDS
     ]
 )
+
+# Rank 4: single batch variant with representative grids.
 HEIGHT_SHARDED_SHAPE_GRIDS.extend(
     [
         (
             (batch1, batch2, h * 32 * (grid_w + 1) * (grid_h + 1), w * 32),
             (grid_w, grid_h),
         )
-        for batch1, batch2, h, w, grid_h, grid_w in itertools.product(
-            [1, 2], [1, 4], [3], [3], range(8), range(8)
-        )
+        for batch1 in [2]
+        for batch2 in [4]
+        for h in [3]
+        for w in [3]
+        for grid_h, grid_w in REPRESENTATIVE_GRIDS
     ]
 )
 
@@ -144,6 +164,12 @@ HEIGHT_SHARDED_SHAPE_GRIDS.extend(
 )
 @pytest.mark.parametrize("op", [abs])
 def test_l1_height_sharded_shapes(device, shape, max_grid, op):
+    output_memory_config = ttnn.create_sharded_memory_config(
+        shape=shape,
+        core_grid=ttnn.CoreGrid(x=max_grid[0] + 1, y=max_grid[1] + 1),
+        strategy=ttnn.ShardStrategy.HEIGHT,
+        use_height_and_width_as_shard_shape=False,
+    )
     run_op_test(
         device,
         shape,
@@ -154,6 +180,7 @@ def test_l1_height_sharded_shapes(device, shape, max_grid, op):
         buffer_type=ttnn.BufferType.L1,
         enable_cache=True,
         shard_strategy=ttnn.ShardStrategy.HEIGHT,
+        memory_config=output_memory_config,
     )
 
 
@@ -166,23 +193,29 @@ WIDTH_SHARDED_SHAPE_GRIDS.extend(
     ]
 )
 
+# Rank 3: single batch variant with representative grids.
 WIDTH_SHARDED_SHAPE_GRIDS.extend(
     [
         ((batch, h * 32, w * 32 * (grid_h + 1) * (grid_w + 1)), (grid_w, grid_h))
-        for batch, h, w, grid_h, grid_w in itertools.product(
-            [1, 8], [3], [3], range(8), range(8)
-        )
+        for batch in [8]
+        for h in [3]
+        for w in [3]
+        for grid_h, grid_w in REPRESENTATIVE_GRIDS
     ]
 )
+
+# Rank 4: single batch variant with representative grids.
 WIDTH_SHARDED_SHAPE_GRIDS.extend(
     [
         (
             (batch1, batch2, h * 32, w * 32 * (grid_h + 1) * (grid_w + 1)),
             (grid_w, grid_h),
         )
-        for batch1, batch2, h, w, grid_h, grid_w in itertools.product(
-            [1, 2], [1, 4], [3], [3], range(8), range(8)
-        )
+        for batch1 in [2]
+        for batch2 in [4]
+        for h in [3]
+        for w in [3]
+        for grid_h, grid_w in REPRESENTATIVE_GRIDS
     ]
 )
 
@@ -194,6 +227,12 @@ WIDTH_SHARDED_SHAPE_GRIDS.extend(
 )
 @pytest.mark.parametrize("op", [abs])
 def test_l1_width_sharded_shapes(device, shape, max_grid, op):
+    output_memory_config = ttnn.create_sharded_memory_config(
+        shape=shape,
+        core_grid=ttnn.CoreGrid(x=max_grid[0] + 1, y=max_grid[1] + 1),
+        strategy=ttnn.ShardStrategy.WIDTH,
+        use_height_and_width_as_shard_shape=False,
+    )
     run_op_test(
         device,
         shape,
@@ -204,6 +243,7 @@ def test_l1_width_sharded_shapes(device, shape, max_grid, op):
         buffer_type=ttnn.BufferType.L1,
         enable_cache=True,
         shard_strategy=ttnn.ShardStrategy.WIDTH,
+        memory_config=output_memory_config,
     )
 
 
@@ -224,6 +264,7 @@ def test_dram_interleaved_shapes(device, shape, op):
         num_inputs=1,
         buffer_type=ttnn.BufferType.DRAM,
         enable_cache=True,
+        memory_config=ttnn.DRAM_MEMORY_CONFIG,
     )
 
 

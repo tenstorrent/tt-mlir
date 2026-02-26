@@ -5,6 +5,7 @@
 #ifdef TTMLIR_ENABLE_OPMODEL
 
 #include "ttmlir/Dialect/TTNN/Transforms/DevicePassesWrapper.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
 
@@ -51,7 +52,9 @@ public:
     if (externalDevice) {
       op_model::SingletonDeviceContext::setExternalDevice(externalDevice);
     } else {
-      op_model::SingletonDeviceContext::getInstance().openDevice();
+      op_model::SingletonDeviceContext::setSystemDesc(
+          ttcore::getCurrentScopeSystemDesc(getOperation()));
+      op_model::SingletonDeviceContext::getInstance().openMockDevice();
     }
 
     // Set tensorL1UsageCap as a module attribute so it's accessible to nested

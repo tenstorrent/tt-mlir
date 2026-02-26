@@ -292,7 +292,8 @@ void DMAWriteOp::getEffects(
     mcastDimIndices.push_back(indexAttr.getInt());
   }
 
-  // Verify that memref references a generic op operand when inside a generic
+  // Verify that memref references a generic op operand or scratch allocation
+  // when inside a generic.
   if (auto genericOp = getOperation()->getParentOfType<GenericOp>()) {
     Value memrefOperand = getMemref();
     std::optional<unsigned> operandIndex;
@@ -302,10 +303,12 @@ void DMAWriteOp::getEffects(
         break;
       }
     }
-    if (!operandIndex) {
+    // Also allow scratch allocations.
+    if (!operandIndex &&
+        !isa_and_nonnull<ScratchAllocateOp>(memrefOperand.getDefiningOp())) {
       return emitOpError(
           "memref operand must reference one of the parent generic op's "
-          "operands directly");
+          "operands or a scratch allocation");
     }
 
     // Forbid high-level mcast form in explicit datamovement form
@@ -467,7 +470,8 @@ void WriteColMaskTileOp::getEffects(
            << getIndices().size() << " indices but expected " << gridRank;
   }
 
-  // Verify that memref references a generic op operand when inside a generic
+  // Verify that memref references a generic op operand or scratch allocation
+  // when inside a generic.
   if (auto genericOp = getOperation()->getParentOfType<GenericOp>()) {
     Value memrefOperand = getMemref();
     bool foundInOperands = false;
@@ -477,10 +481,12 @@ void WriteColMaskTileOp::getEffects(
         break;
       }
     }
-    if (!foundInOperands) {
+    // Also allow scratch allocations
+    if (!foundInOperands &&
+        !isa_and_nonnull<ScratchAllocateOp>(memrefOperand.getDefiningOp())) {
       return emitOpError(
           "memref operand must reference one of the parent generic op's "
-          "operands directly");
+          "operands or a scratch allocation");
     }
   }
 
@@ -1242,10 +1248,6 @@ void IterIndexOp::inferResultRanges(
                  getIndexRange(0, std::numeric_limits<uint32_t>::max()));
 }
 
-mlir::OpFoldResult IterIndexOp::fold(FoldAdaptor adaptor) {
-  return adaptor.getDimAttr();
-}
-
 //===----------------------------------------------------------------------===//
 // BlockIndexOp
 //===----------------------------------------------------------------------===//
@@ -1263,8 +1265,38 @@ void BlockIndexOp::inferResultRanges(
                  getIndexRange(0, std::numeric_limits<uint32_t>::max()));
 }
 
-mlir::OpFoldResult BlockIndexOp::fold(FoldAdaptor adaptor) {
-  return adaptor.getDimAttr();
+//===----------------------------------------------------------------------===//
+// BlockOffsetOp
+//===----------------------------------------------------------------------===//
+
+void BlockOffsetOp::getAsmResultNames(
+    function_ref<void(Value, StringRef)> setNameFn) {
+  int64_t dim = getDim();
+  setNameFn(getResult(), "block_offset" + std::to_string(dim));
+}
+
+void BlockOffsetOp::inferResultRanges(
+    ::llvm::ArrayRef<::mlir::ConstantIntRanges> argRanges,
+    mlir::SetIntRangeFn setResultRange) {
+  setResultRange(getResult(),
+                 getIndexRange(0, std::numeric_limits<uint32_t>::max()));
+}
+
+//===----------------------------------------------------------------------===//
+// GetBlockFactorOp
+//===----------------------------------------------------------------------===//
+
+void GetBlockFactorOp::getAsmResultNames(
+    function_ref<void(Value, StringRef)> setNameFn) {
+  int64_t dim = getDim();
+  setNameFn(getResult(), "block_factor" + std::to_string(dim));
+}
+
+void GetBlockFactorOp::inferResultRanges(
+    ::llvm::ArrayRef<::mlir::ConstantIntRanges> argRanges,
+    mlir::SetIntRangeFn setResultRange) {
+  setResultRange(getResult(),
+                 getIndexRange(0, std::numeric_limits<uint32_t>::max()));
 }
 
 void CoreIndexOp::getAsmResultNames(
@@ -1278,16 +1310,6 @@ void CoreIndexOp::inferResultRanges(
     mlir::SetIntRangeFn setResultRange) {
   setResultRange(getResult(),
                  getIndexRange(0, std::numeric_limits<uint32_t>::max()));
-}
-
-mlir::OpFoldResult CoreIndexOp::fold(FoldAdaptor adaptor) {
-  // Only fold to the constant `dim` when no virtualization map is present.
-  // If a map is present, the result depends on runtime core coordinates and
-  // must not be folded.
-  if (adaptor.getPhysToVirtMapAttr()) {
-    return {};
-  }
-  return adaptor.getDimAttr();
 }
 
 // TileMatmulBlockOp verification

@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import pytest
+import torch
 from conftest import get_request_kwargs
 
 from builder.base.builder_apis import compile_and_execute_ttir
@@ -50,14 +51,21 @@ def test_allocate_matmul(m: int, k: int, n: int, target: str, request, device):
     )
 
 
-@pytest.mark.skip_config(["p150"], ["p300"])
 @pytest.mark.parametrize("m", [8])
 @pytest.mark.parametrize("n", [8])
 @pytest.mark.parametrize("dim_arg", [[0], [1]])
 @pytest.mark.parametrize("keep_dim", [True])
 @pytest.mark.parametrize("target", ["ttmetal"])
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
 def test_allocate_max(
-    m: int, n: int, dim_arg: int, keep_dim: bool, target: str, request, device
+    m: int,
+    n: int,
+    dim_arg: int,
+    keep_dim: bool,
+    target: str,
+    dtype: torch.dtype,
+    request,
+    device,
 ):
     tile_size = 32
     shape = (
@@ -72,7 +80,7 @@ def test_allocate_max(
     ]
 
     compile_and_execute_ttir(
-        create_reduction_inputs(shape, "max", dim_arg, keep_dim),
+        create_reduction_inputs(shape, "max", dim_arg, keep_dim, dtype),
         target=target,
         device=device,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",

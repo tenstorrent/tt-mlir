@@ -6,6 +6,7 @@
 #define TTMLIR_DIALECT_TTCORE_TRANSFORMS_PASSES_H
 
 #include "mlir/Pass/Pass.h"
+#include "ttmlir/Dialect/TTCore/IR/TopologyParser.h"
 
 namespace mlir::tt::ttcore {
 
