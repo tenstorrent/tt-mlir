@@ -182,7 +182,7 @@ mlir::LogicalResult d2m::CreateGlobalSemaphoreOp::bufferize(
                          << ") for create_global_semaphore op";
   }
 
-  // check the shard shape is 1x1.
+  // Check that the shard shape is 1x1.
   auto shardShape = ttcore::getShardShape(getInput());
   if (shardShape != llvm::ArrayRef<int64_t>({1, 1})) {
     return emitOpError()
@@ -190,7 +190,7 @@ mlir::LogicalResult d2m::CreateGlobalSemaphoreOp::bufferize(
            << ") does not match 1x1 for create_global_semaphore op";
   }
 
-  // check element type is ui32.
+  // Check that the element type is ui32.
   auto expectedType = mlir::IntegerType::get(getOperation()->getContext(), 32,
                                              mlir::IntegerType::Unsigned);
   if (mlir::cast<ShapedType>(getInput().getType()).getElementType() !=

@@ -134,7 +134,7 @@ public:
       cbPorts.push_back(cbPort++);
     }
 
-    // add additional args that are not ins or outs in then generic op
+    // Add additional args that are not ins or outs in the generic op.
     for (unsigned i = 0; i < op.getAdditionalArgs().size(); ++i) {
       auto operand = adaptor.getOperands()[op.getInputsAndOutputs().size() + i];
       if (mlir::isa<ttmetal::GlobalSemaphoreType>(operand.getType())) {
@@ -326,10 +326,10 @@ public:
         allocOp &&
         "No memref alloc found for CreateGlobalSemaphoreOp's input, failing.");
 
-    // get address from memref consumed and pass it to create global semaphore
-    // op
+    // Get address from memref consumed and pass it to create global semaphore
+    // op.
     auto address = allocOp->getAttrOfType<IntegerAttr>("address");
-    // get core range from memref shape
+    // Get core range from memref shape.
     auto coreRange = ttmetal::CoreRangeAttr::getPhysicalCoreRange(
         rewriter.getContext(), ttcore::getGridShape(op.getInput()));
     rewriter.replaceOpWithNewOp<ttmetal::CreateGlobalSemaphoreOp>(
