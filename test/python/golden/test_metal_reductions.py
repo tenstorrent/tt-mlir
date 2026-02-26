@@ -2,6 +2,8 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+import math
+
 import pytest
 import torch
 from typing import List
@@ -17,17 +19,29 @@ pytestmark = pytest.mark.frontend("ttir")
 torch.manual_seed(0)
 
 
-def create_reductions_constrained_inputs(input_shape, reduce_type, dim_arg, keep_dim):
+def _sum_atol(shape, dtype):
+    per_elem_tol = 0.01 if dtype == torch.bfloat16 else 0.0005
+    return math.prod(shape) * per_elem_tol
+
+
+def _max_atol(dtype):
+    return 0.01 if dtype == torch.bfloat16 else 0.0
+
+
+def create_reductions_constrained_inputs(
+    input_shape, reduce_type, dim_arg, keep_dim, dtype
+):
     def module(builder: TTIRBuilder):
-        @builder.func([input_shape], [torch.float32])
+        @builder.func([input_shape], [dtype])
         def reductions_constrained_inputs(
             in0: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None
         ):
-            in_tensor = torch.randn(input_shape, dtype=torch.float32)
-            # Simulate TF32 truncation in the golden computation
-            # TF32 has 10 bits mantissa vs FP32's 23 bits = ~3 decimal digits precision
-            scale = 2**13  # Roughly equivalent to TF32 precision
-            in_tensor = (in_tensor * scale).round() / scale
+            in_tensor = torch.randn(input_shape, dtype=dtype)
+            if dtype == torch.float32:
+                # Simulate TF32 truncation in the golden computation
+                # TF32 has 10 bits mantissa vs FP32's 23 bits = ~3 decimal digits precision
+                scale = 2**13  # Roughly equivalent to TF32 precision
+                in_tensor = (in_tensor * scale).round() / scale
             builder.set_goldens(inputs={in0: in_tensor})
             if reduce_type == "sum":
                 return builder.sum(in0, dim_arg=dim_arg, keep_dim=keep_dim)
@@ -44,12 +58,14 @@ def create_reductions_constrained_inputs(input_shape, reduce_type, dim_arg, keep
 @pytest.mark.parametrize("dim_arg", [[0], [1], [0, 1]])
 @pytest.mark.parametrize("keep_dim", [True])
 @pytest.mark.parametrize("target", ["ttmetal"])
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
 def test_sum(
     m: int,
     n: int,
     dim_arg: List[int],
     keep_dim: bool,
     target: str,
+    dtype: torch.dtype,
     request,
     device,
 ):
@@ -60,11 +76,11 @@ def test_sum(
     )
 
     compile_and_execute_ttir(
-        create_reductions_constrained_inputs(shape, "sum", dim_arg, keep_dim),
+        create_reductions_constrained_inputs(shape, "sum", dim_arg, keep_dim, dtype),
         target=target,
         **get_request_kwargs(request),
         device=device,
-        atol=shape[0] * shape[1] * 0.0005,  # 5e-4
+        atol=_sum_atol(shape, dtype),
     )
 
 
@@ -74,6 +90,7 @@ def test_sum(
 @pytest.mark.parametrize("dim_arg", [[1], [2], [1, 2]])
 @pytest.mark.parametrize("keep_dim", [True])
 @pytest.mark.parametrize("target", ["ttmetal"])
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
 def test_sum_3d(
     b: int,
     m: int,
@@ -81,6 +98,7 @@ def test_sum_3d(
     dim_arg: List[int],
     keep_dim: bool,
     target: str,
+    dtype: torch.dtype,
     request,
     device,
 ):
@@ -92,11 +110,11 @@ def test_sum_3d(
     )
 
     compile_and_execute_ttir(
-        create_reductions_constrained_inputs(shape, "sum", dim_arg, keep_dim),
+        create_reductions_constrained_inputs(shape, "sum", dim_arg, keep_dim, dtype),
         target=target,
         **get_request_kwargs(request),
         device=device,
-        atol=shape[0] * shape[1] * shape[2] * 0.0005,  # 5e-4
+        atol=_sum_atol(shape, dtype),
     )
 
 
@@ -107,6 +125,7 @@ def test_sum_3d(
 @pytest.mark.parametrize("dim_arg", [[2], [3], [2, 3]])
 @pytest.mark.parametrize("keep_dim", [True])
 @pytest.mark.parametrize("target", ["ttmetal"])
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
 def test_sum_4d(
     a: int,
     b: int,
@@ -115,6 +134,7 @@ def test_sum_4d(
     dim_arg: List[int],
     keep_dim: bool,
     target: str,
+    dtype: torch.dtype,
     request,
     device,
 ):
@@ -127,11 +147,11 @@ def test_sum_4d(
     )
 
     compile_and_execute_ttir(
-        create_reductions_constrained_inputs(shape, "sum", dim_arg, keep_dim),
+        create_reductions_constrained_inputs(shape, "sum", dim_arg, keep_dim, dtype),
         target=target,
         **get_request_kwargs(request),
         device=device,
-        atol=shape[0] * shape[1] * shape[2] * shape[3] * 0.0005,  # 5e-4
+        atol=_sum_atol(shape, dtype),
     )
 
 
@@ -140,8 +160,16 @@ def test_sum_4d(
 @pytest.mark.parametrize("dim_arg", [[0], [1]])
 @pytest.mark.parametrize("keep_dim", [True])
 @pytest.mark.parametrize("target", ["ttmetal"])
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
 def test_max(
-    m: int, n: int, dim_arg: int, keep_dim: bool, target: str, request, device
+    m: int,
+    n: int,
+    dim_arg: List[int],
+    keep_dim: bool,
+    target: str,
+    dtype: torch.dtype,
+    request,
+    device,
 ):
     tile_size = 32
     shape = (
@@ -150,10 +178,11 @@ def test_max(
     )
 
     compile_and_execute_ttir(
-        create_reductions_constrained_inputs(shape, "max", dim_arg, keep_dim),
+        create_reductions_constrained_inputs(shape, "max", dim_arg, keep_dim, dtype),
         target=target,
         **get_request_kwargs(request),
         device=device,
+        atol=_max_atol(dtype),
     )
 
 
@@ -169,20 +198,22 @@ def test_max(
 @pytest.mark.parametrize("dim_arg", [[0], [1], [0, 1]])
 @pytest.mark.parametrize("keep_dim", [True])
 @pytest.mark.parametrize("target", ["ttmetal"])
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
 def test_sum_unaligned(
     shape: tuple,
     dim_arg: List[int],
     keep_dim: bool,
     target: str,
+    dtype: torch.dtype,
     request,
     device,
 ):
     compile_and_execute_ttir(
-        create_reductions_constrained_inputs(shape, "sum", dim_arg, keep_dim),
+        create_reductions_constrained_inputs(shape, "sum", dim_arg, keep_dim, dtype),
         target=target,
         **get_request_kwargs(request),
         device=device,
-        atol=shape[0] * shape[1] * 0.0005,
+        atol=_sum_atol(shape, dtype),
     )
 
 
@@ -193,17 +224,20 @@ def test_sum_unaligned(
 @pytest.mark.parametrize("dim_arg", [[0], [1]])
 @pytest.mark.parametrize("keep_dim", [True])
 @pytest.mark.parametrize("target", ["ttmetal"])
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
 def test_max_unaligned(
     shape: tuple,
     dim_arg: List[int],
     keep_dim: bool,
     target: str,
+    dtype: torch.dtype,
     request,
     device,
 ):
     compile_and_execute_ttir(
-        create_reductions_constrained_inputs(shape, "max", dim_arg, keep_dim),
+        create_reductions_constrained_inputs(shape, "max", dim_arg, keep_dim, dtype),
         target=target,
         **get_request_kwargs(request),
         device=device,
+        atol=_max_atol(dtype),
     )
