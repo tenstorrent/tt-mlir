@@ -1151,7 +1151,6 @@ computeTTNNGenericGridShapes(GenericOp genericOp,
 
       optimalOperandGrids[operandIdx] = computeOptimalGrid(
           metalTensorType, physicalShape, constrainedTargetGridShape);
-
     }
   }
 
