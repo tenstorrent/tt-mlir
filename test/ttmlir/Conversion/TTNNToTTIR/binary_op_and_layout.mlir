@@ -21,11 +21,11 @@ module {
         // CHECK: %[[memConfig2:.*]] = "ttnn.to_memory_config"(%arg1) <{memory_config = #ttnn.memory_config<#l1, <block_sharded>, #ttnn.shard_spec<<[#ttnn.core_range<(0,0), (0,0)>]>, <32x32>, <row_major>>>}> : (tensor<32x32xf32, #ttnn_layout>) -> tensor<32x32xf32, #ttnn_layout1>
         // CHECK: %[[TTNNResult:.*]] = d2m.empty() : tensor<32x32xf32, #ttnn_layout1>
         // CHECK: %[[cast1:.*]] = ttir.ttnn_metal_layout_cast %[[memConfig1]] : tensor<32x32xf32, #ttnn_layout1> -> tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>
-        // CHECK: %[[view1:.*]] = d2m.view_layout %[[cast1]] : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout> -> tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>
+        // CHECK: %[[view1:.*]] = d2m.view_layout %[[cast1]]{{.*}}remapping = #map{{.*}} : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout> -> tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>
         // CHECK: %[[cast2:.*]] = ttir.ttnn_metal_layout_cast %[[memConfig2]] : tensor<32x32xf32, #ttnn_layout1> -> tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>
-        // CHECK: %[[view2:.*]] = d2m.view_layout %[[cast2]] : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout> -> tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>
+        // CHECK: %[[view2:.*]] = d2m.view_layout %[[cast2]]{{.*}}remapping = #map{{.*}} : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout> -> tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>
         // CHECK: %[[cast3:.*]] = ttir.ttnn_metal_layout_cast %[[TTNNResult]] : tensor<32x32xf32, #ttnn_layout1> -> tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>
-        // CHECK: %[[view3:.*]] = d2m.view_layout %[[cast3]] : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout> -> tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>
+        // CHECK: %[[view3:.*]] = d2m.view_layout %[[cast3]]{{.*}}remapping = #map{{.*}} : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout> -> tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>
         // CHECK: %[[MetalResult:.*]] = d2m.generic{{.*}}
         // CHECK: ins(%[[view1]], %[[view2]] : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>, tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>)
         // CHECK: outs(%[[view3]] : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>)

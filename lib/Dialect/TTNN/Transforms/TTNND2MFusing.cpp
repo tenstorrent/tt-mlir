@@ -222,7 +222,21 @@ private:
     }
 
     Operation *firstOp = fusionGroup.front();
-    rewriter.setInsertionPoint(firstOp);
+    // Place the subgraph after the last op that defines any input, so all
+    // inputs dominate the subgraph.
+    Operation *lastInputDefiner = nullptr;
+    for (Value v : inputs) {
+      Operation *defOp = v.getDefiningOp();
+      if (defOp &&
+          (!lastInputDefiner || lastInputDefiner->isBeforeInBlock(defOp))) {
+        lastInputDefiner = defOp;
+      }
+    }
+    if (lastInputDefiner) {
+      rewriter.setInsertionPointAfter(lastInputDefiner);
+    } else {
+      rewriter.setInsertionPoint(firstOp);
+    }
     Location loc = firstOp->getLoc();
 
     // Get device for creating empty output buffers for DPS.
@@ -234,6 +248,7 @@ private:
 
     llvm::SmallVector<Type> outputTypes;
     llvm::SmallVector<Value> outputBuffers;
+    Operation *lastEmptyOp = nullptr;
     for (Value v : outputs) {
       auto tensorType = mlir::cast<RankedTensorType>(v.getType());
       outputTypes.push_back(tensorType);
@@ -251,6 +266,7 @@ private:
           loc, tensorType, device, shapeAttr, dtypeAttr, tensorLayoutAttr,
           memoryConfigAttr);
       outputBuffers.push_back(emptyOp.getResult());
+      lastEmptyOp = emptyOp.getOperation();
     }
 
     auto funcType = rewriter.getFunctionType(inputTypes, outputTypes);
@@ -287,7 +303,15 @@ private:
                     [&](Value v) { return mapping.lookup(v); });
     rewriter.create<func::ReturnOp>(loc, returnValues);
 
-    rewriter.setInsertionPoint(firstOp);
+    // Place subgraph after all its operands: after last input definer and after
+    // the empty output buffers we just created (so output buffers dominate).
+    if (lastEmptyOp) {
+      rewriter.setInsertionPointAfter(lastEmptyOp);
+    } else if (lastInputDefiner) {
+      rewriter.setInsertionPointAfter(lastInputDefiner);
+    } else {
+      rewriter.setInsertionPoint(firstOp);
+    }
     auto dispatchOp = rewriter.create<D2MSubgraphOp>(
         loc, outputTypes, inputs.getArrayRef(), outputBuffers,
         SymbolRefAttr::get(rewriter.getContext(), funcName));

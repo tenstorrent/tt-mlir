@@ -5,6 +5,7 @@
 #include "ttmlir/Conversion/D2MToTTMetal/D2MToTTMetal.h"
 
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
+#include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
@@ -160,12 +161,14 @@ public:
            "No memref memory space found, failing.");
     auto memrefType = op.getMemref().getType();
 
-    auto layout = mlir::dyn_cast_if_present<ttcore::DeviceLayoutInterface>(
-        memrefType.getLayout());
-    assert(layout && layout.isPhysical() && "expected physical device layout");
+    assert((mlir::isa<ttcore::ShardLayoutAttr, ttcore::InterleavedLayoutAttr>(
+               memrefType.getLayout())) &&
+           "expected physical device layout (shard or interleaved)");
 
-    rewriter.replaceOpWithNewOp<ttmetal::CreateBufferOp>(op, memrefType,
-                                                         address);
+    auto vgm =
+        op->getAttrOfType<AffineMapAttr>(d2m::utils::kVirtualGridMappingAttr);
+    rewriter.replaceOpWithNewOp<ttmetal::CreateBufferOp>(
+        op, memrefType, address, /*virtualGridMapping=*/vgm);
 
     return success();
   };
