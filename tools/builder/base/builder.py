@@ -48,12 +48,10 @@ class Builder(metaclass=BuilderMeta):
         mesh_dict: Union[
             List[OrderedDict[str, int]], OrderedDict[str, int]
         ] = OrderedDict([("x", 1), ("y", 1)]),
-        disable_golden_check: bool = False,
     ):
         self._ctx = ctx
         self._loc = location
         self._global_id = -1
-        self._disable_golden_check = disable_golden_check
         self._force_graph_level_check = False
 
         # Keep a list of inputs and outputs in order so we know how to store them in golden map.
@@ -178,9 +176,6 @@ class Builder(metaclass=BuilderMeta):
         # { program_index: {loc: {device_id: GoldenMapTensor} } }
         input_output_golden_info: Dict[int, Dict[str, Dict[int, GoldenMapTensor]]] = {}
         intermediate_golden_info: Dict[str, Dict[int, GoldenMapTensor]] = {}
-
-        if self._disable_golden_check:
-            return input_output_golden_info, intermediate_golden_info
 
         # If no specific golden is marked to be stored, store all goldens.
         if len(self._goldens_to_store) == 0:
@@ -1165,24 +1160,22 @@ class Builder(metaclass=BuilderMeta):
 
             @func.func(*fn_input_types, name=fn.__name__)
             def decorated_func(*inputs):
-                if not self._disable_golden_check:
-                    input_goldens: Dict[Operand, GoldenMapTensor] = {}
-                    for index, (operand, dtype) in enumerate(zip(inputs, input_types)):
-                        input_goldens[operand] = self._generate_golden_tensor(
-                            operand, dtype
-                        )
-                    self._set_goldens(input_goldens)
+                input_goldens: Dict[Operand, GoldenMapTensor] = {}
+                for index, (operand, dtype) in enumerate(zip(inputs, input_types)):
+                    input_goldens[operand] = self._generate_golden_tensor(
+                        operand, dtype
+                    )
+                self._set_goldens(input_goldens)
                 ordered_inputs.extend(inputs)
 
                 result = fn(*inputs, self)
 
                 outputs = result if hasattr(result, "__iter__") else [result]
 
-                if not self._disable_golden_check:
-                    output_goldens: Dict[Operand, GoldenMapTensor] = {}
-                    for op in outputs:
-                        output_goldens[op] = self._get_golden_tensor(op)
-                    self._set_goldens(output_goldens)
+                output_goldens: Dict[Operand, GoldenMapTensor] = {}
+                for op in outputs:
+                    output_goldens[op] = self._get_golden_tensor(op)
+                self._set_goldens(output_goldens)
                 ordered_outputs.extend(outputs)
 
                 return process_multi_return_result(result)
@@ -1251,11 +1244,10 @@ class Builder(metaclass=BuilderMeta):
         )
         op_result = op.result
 
-        if not self._disable_golden_check:
-            input0 = self._get_golden_tensor(operand)
-            op_golden_function = get_golden_function(debug_op)
-            golden_output = op_golden_function(input0, annotation_attr)
-            self._set_golden_tensor(op_result, golden_output)
+        input0 = self._get_golden_tensor(operand)
+        op_golden_function = get_golden_function(debug_op)
+        golden_output = op_golden_function(input0, annotation_attr)
+        self._set_golden_tensor(op_result, golden_output)
 
         return op_result
 
@@ -1355,11 +1347,10 @@ class Builder(metaclass=BuilderMeta):
         )
         op_result = op.result
 
-        if not self._disable_golden_check:
-            input0 = self._get_golden_tensor(operand)
-            op_golden_function = get_golden_function(debug_op)
-            golden_output = op_golden_function(input0, region_id_attr)
-            self._set_golden_tensor(op_result, golden_output)
+        input0 = self._get_golden_tensor(operand)
+        op_golden_function = get_golden_function(debug_op)
+        golden_output = op_golden_function(input0, region_id_attr)
+        self._set_golden_tensor(op_result, golden_output)
 
         return op_result
 
@@ -1385,10 +1376,9 @@ class Builder(metaclass=BuilderMeta):
         )
         op_result = op.result
 
-        if not self._disable_golden_check:
-            input0 = self._get_golden_tensor(operand)
-            op_golden_function = get_golden_function(debug_op)
-            golden_output = op_golden_function(input0, region_id_attr)
-            self._set_golden_tensor(op_result, golden_output)
+        input0 = self._get_golden_tensor(operand)
+        op_golden_function = get_golden_function(debug_op)
+        golden_output = op_golden_function(input0, region_id_attr)
+        self._set_golden_tensor(op_result, golden_output)
 
         return op_result
