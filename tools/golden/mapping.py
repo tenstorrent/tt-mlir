@@ -5928,15 +5928,16 @@ def debug_annotate_golden(
     return input_tensor.clone()
 
 
-def debug_breakpoint_golden(
+def debug_region_start_golden(
     input_tensor: GoldenMapTensor,
+    region_id_attr: StringAttr,
 ) -> GoldenMapTensor:
     return input_tensor.clone()
 
 
-def debug_memory_snapshot_golden(
+def debug_region_end_golden(
     input_tensor: GoldenMapTensor,
-    file_path_attr: StringAttr,
+    region_id_attr: StringAttr,
 ) -> GoldenMapTensor:
     return input_tensor.clone()
 
@@ -6234,8 +6235,8 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttnn.ClampTensorOp: ttnn_clamp_tensor_golden,
     # ----- DEBUG OPS -----
     debug.AnnotateOp: debug_annotate_golden,
-    debug.BreakpointOp: debug_breakpoint_golden,
-    debug.MemorySnapshotOp: debug_memory_snapshot_golden,
+    debug.RegionStartOp: debug_region_start_golden,
+    debug.RegionEndOp: debug_region_end_golden,
 }
 
 
