@@ -80,6 +80,7 @@ static void assignNocIndices(
     SmallVectorImpl<DMAThreadAssignment> &assignments,
     const SmallVectorImpl<std::pair<Operation *, unsigned>> &dmaOps) {
   TT_assertv(int(assignments.size()) == 2, "Expect exactly 2 DM threads");
+  auto deviceAttr = ttcore::lookupDevice(dmaOps.front().first);
 
   NocScore scores[2];
   for (const auto &[op, cbIdx] : dmaOps) {
@@ -88,30 +89,25 @@ static void assignNocIndices(
         continue;
       }
 
-      if (auto load = mlir::dyn_cast<RemoteLoadOp>(op)) {
+      if (auto load = mlir::dyn_cast_or_null<RemoteLoadOp>(op)) {
         if (ttcore::getMemorySpace(load.getMemref()) !=
             ttcore::MemorySpace::DeviceDRAM) {
           continue;
         }
         if (load.isMcast()) {
+          TT_assertv(scores[t].mcastShardSize == 0,
+                     "There can only be one mcast load per thread.");
           auto layout = ttcore::getDeviceLayout(load.getMemref());
           if (layout) {
-            auto shardShape = SmallVector<int64_t>(
-                layout.getShardShape(load.getShapedType()));
-            if (auto tileType = mlir::dyn_cast<ttcore::TileType>(
-                    load.getShapedType().getElementType())) {
-              shardShape = tileType.getScalarShape(shardShape);
-            }
-            int64_t size = 1;
-            for (int64_t dim : shardShape) {
-              size *= dim;
-            }
-            scores[t].mcastShardSize = std::max(scores[t].mcastShardSize, size);
+            auto memrefType =
+                mlir::cast<MemRefType>(load.getMemref().getType());
+            scores[t].mcastShardSize =
+                deviceAttr.getShardSizeInBytes(memrefType, 1, false);
           }
         } else {
           scores[t].unicastBias += 2;
         }
-      } else if (auto store = mlir::dyn_cast<RemoteStoreOp>(op)) {
+      } else if (auto store = mlir::dyn_cast_or_null<RemoteStoreOp>(op)) {
         if (ttcore::getMemorySpace(store.getMemref()) ==
             ttcore::MemorySpace::DeviceDRAM) {
           scores[t].unicastBias -= 1;
@@ -270,7 +266,7 @@ public:
     // the existing single DM thread before returning failure.
     if (numThreadsToUse <= 1 || cbWorkloads.size() <= 1) {
       bool writesDRAM = llvm::any_of(dmaOps, [](const auto &entry) {
-        auto store = mlir::dyn_cast<RemoteStoreOp>(entry.first);
+        auto store = mlir::dyn_cast_or_null<RemoteStoreOp>(entry.first);
         return store && ttcore::getMemorySpace(store.getMemref()) ==
                             ttcore::MemorySpace::DeviceDRAM;
       });
