@@ -1129,9 +1129,30 @@ computeTTNNGenericGridShapes(GenericOp genericOp,
         }
       }
 
-      auto physicalShape =
-          computePhysicalShape(baseMetalLayout, metalTensorType,
-                               constrainedTargetGridShape, builder);
+      llvm::SmallVector<int64_t> physicalShape;
+      // If operand is DRAM interleaved operand that is the result of a
+      // ttnn->metal cast, we must generate a view of the underlying ttnn tensor
+      // _without_ padding, as the underlying tensor also is unpadded.
+      bool isNonPaddableTTNNDRAMOperand =
+          operand.getDefiningOp<ttir::TTNNMetalLayoutCastOp>() &&
+          baseMetalLayout.getMemorySpace() == ttcore::MemorySpace::DeviceDRAM &&
+          baseMetalLayout.getMemoryLayout() ==
+              ttcore::TensorMemoryLayout::Interleaved;
+      if (isNonPaddableTTNNDRAMOperand) {
+        llvm::SmallVector<int64_t> tileShape;
+        if (auto tileType = mlir::dyn_cast<ttcore::TileType>(
+                metalTensorType.getElementType())) {
+          tileShape = llvm::to_vector(tileType.getShape());
+        } else {
+          tileShape = llvm::to_vector(ttcore::TileType::getDefaultShape());
+        }
+        physicalShape = baseMetalLayout.getPhysicalShape(tileShape);
+      } else {
+        physicalShape =
+            computePhysicalShape(baseMetalLayout, metalTensorType,
+                                 constrainedTargetGridShape, builder);
+      }
+
       optimalOperandGrids[operandIdx] = computeOptimalGrid(
           metalTensorType, physicalShape, constrainedTargetGridShape);
     }
