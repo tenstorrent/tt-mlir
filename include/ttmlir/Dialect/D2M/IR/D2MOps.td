@@ -43,6 +43,7 @@ def D2M_ViewLayoutOp
 
   let extraClassDeclaration = [{
     bool isReblockOnly();
+    AffineMap getResultAffineMap();
   }];
 
   let hasVerifier = 1;
@@ -379,8 +380,7 @@ def D2M_GenericOp
 
 def D2M_EmptyOp
     : D2M_Op<
-          "empty", [MemoryEffects<[MemAlloc]>,
-                    DeclareOpInterfaceMethods<
+          "empty", [Pure, DeclareOpInterfaceMethods<
                         BufferizableOpInterface,
                         ["bufferizesToMemoryRead", "bufferizesToMemoryWrite",
                          "bufferize", "getAliasingValues", "getBufferType"]>]> {

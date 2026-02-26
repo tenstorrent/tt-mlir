@@ -109,6 +109,7 @@ void createTTIRToTTMetalFrontendPipeline(
   {
     gridOptOptions.overrideDeviceShape =
         llvm::to_vector(options.overrideDeviceShape);
+    gridOptOptions.ttnnMode = options.ttnnMode;
   }
   pm.addPass(d2m::createD2MMaterializeViewReturns());
   pm.addPass(d2m::createD2MGridSelection(gridOptOptions));

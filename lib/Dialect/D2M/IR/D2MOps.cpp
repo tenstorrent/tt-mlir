@@ -92,11 +92,12 @@ mlir::LogicalResult d2m::EmptyOp::bufferize(
   }
 
   // Don't bufferize if tensor has a ttnn_layout; lowering to ttnn generic.
-  if (options.allowUnknownOps &&
-      (mlir::isa<ttnn::TTNNLayoutAttr>(getResult().getType().getEncoding()) ||
-       mlir::isa<ttnn::TTNNNDLayoutAttr>(
-           getResult().getType().getEncoding()))) {
-    return success();
+  if (options.allowUnknownOps) {
+    auto encoding = getResult().getType().getEncoding();
+    if (encoding && (mlir::isa<ttnn::TTNNLayoutAttr>(encoding) ||
+                     mlir::isa<ttnn::TTNNNDLayoutAttr>(encoding))) {
+      return success();
+    }
   }
   ::llvm::SmallVector<mlir::Value> invocationStack;
   auto bufferType = mlir::cast<MemRefType>(
@@ -149,9 +150,12 @@ d2m::FullOp::bufferize(mlir::RewriterBase &rewriter,
                        mlir::bufferization::BufferizationState &state) {
   ::llvm::SmallVector<mlir::Value> invocationStack;
   // Same as d2m::empty, don't bufferize if tensor has a ttnn_layout.
-  if (options.allowUnknownOps &&
-      mlir::isa<ttnn::TTNNLayoutAttr>(getResult().getType().getEncoding())) {
-    return mlir::success();
+  if (options.allowUnknownOps) {
+    auto encoding = getResult().getType().getEncoding();
+    if (encoding && (mlir::isa<ttnn::TTNNLayoutAttr>(encoding) ||
+                     mlir::isa<ttnn::TTNNNDLayoutAttr>(encoding))) {
+      return mlir::success();
+    }
   }
   auto memrefType = mlir::cast<mlir::MemRefType>(
       getBufferType(getResult(), options, state, invocationStack).value());

@@ -3,6 +3,29 @@
 
 #l1 = #ttnn.buffer_type<l1>
 
+// CHECK: #layout = #ttcore.metal_layout<logical_shape = 512x2048, dim_alignments = 32x32, collapsed_intervals
+// CHECK-SAME: dram, interleaved, index_map = map(0)>
+// CHECK: #layout1 = #ttcore.metal_layout<logical_shape = 512x2048, dim_alignments = 32x32, collapsed_intervals
+// CHECK-SAME: l1, sharded, index_map = map(0)>
+// CHECK: #layout2 = #ttcore.metal_layout<logical_shape = 512x2048, dim_alignments = 32x32, collapsed_intervals
+// CHECK-SAME: dram, interleaved, index_map = (d0, d1, d2, d3) ->
+// CHECK: #layout3 = #ttcore.metal_layout<logical_shape = 512x2048, dim_alignments = 32x32, collapsed_intervals
+// CHECK-SAME: l1, sharded, index_map = (d0, d1, d2, d3) ->
+// CHECK: #layout4 = #ttcore.metal_layout<logical_shape = 128x160, dim_alignments = 32x32, collapsed_intervals
+// CHECK-SAME: l1, sharded, index_map = map(0)>
+// CHECK: #layout5 = #ttcore.metal_layout<logical_shape = 160x96, dim_alignments = 32x32, collapsed_intervals
+// CHECK-SAME: dram, interleaved, index_map = map(0)>
+// CHECK: #layout6 = #ttcore.metal_layout<logical_shape = 160x96, dim_alignments = 32x32, collapsed_intervals
+// CHECK-SAME: l1, sharded, index_map = map(0)>
+// CHECK: #layout7 = #ttcore.metal_layout<logical_shape = 160x96, dim_alignments = 32x32, collapsed_intervals
+// CHECK-SAME: dram, interleaved, index_map = (d0, d1, d2, d3) ->
+// CHECK: #layout8 = #ttcore.metal_layout<logical_shape = 128x96, dim_alignments = 32x32, collapsed_intervals
+// CHECK-SAME: l1, sharded, index_map = map(0)>
+// CHECK: #layout9 = #ttcore.metal_layout<logical_shape = 128x160, dim_alignments = 32x32, collapsed_intervals
+// CHECK-SAME: dram, interleaved, index_map = map(0)>
+// CHECK: #layout10 = #ttcore.metal_layout<logical_shape = 128x160, dim_alignments = 32x32, collapsed_intervals
+// CHECK-SAME: dram, interleaved, index_map = (d0, d1, d2, d3) ->
+
 #ttnn_layout_dram = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<32x32x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<dram>>, <interleaved>>
 #ttnn_layout_l1 =   #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <2x2>, memref<32x32x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<l1>>, <block_sharded>>
 
@@ -18,11 +41,13 @@ module {
 // CHECK-LABEL: func.func @test_mixed_operands_eltwise_unary_l1_dram
 func.func @test_mixed_operands_eltwise_unary_l1_dram(%arg0: tensor<512x2048xbf16, #ttnn_layout_dram>) -> tensor<512x2048xbf16, #ttnn_layout_l1> {
 
-  // CHECK: %[[dramstream:.*]] = "d2m.stream_layout"(%cast{{.*}}, %{{.*}})
-  // CHECK: %[[l1cast:.*]] = ttir.ttnn_metal_layout_cast {{.*}} -> tensor<2x2x8x32x!ttcore.tile<32x32, bf16>
-  // CHECK: %{{.*}} = d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<2x2>
-  // CHECK: ins(%[[dramstream]] : tensor<2x2x8x32x!ttcore.tile<32x32, bf16>
-  // CHECK: outs(%[[l1cast]] : tensor<2x2x8x32x!ttcore.tile<32x32, bf16>
+  // CHECK: %[[CAST0:.*]] = ttir.ttnn_metal_layout_cast %arg0 {{.*}} -> tensor<1x1x16x64x!ttcore.tile<32x32, bf16>, #layout>
+  // CHECK: %[[STREAM:.*]] = "d2m.stream_layout"(%[[CAST0]], %{{.*}}) : (tensor<1x1x16x64x!ttcore.tile<32x32, bf16>, #layout>, tensor<8x8x2x8x!ttcore.tile<32x32, bf16>, #layout1>) -> tensor<8x8x2x8x!ttcore.tile<32x32, bf16>, #layout2>
+  // CHECK: %[[CAST1:.*]] = ttir.ttnn_metal_layout_cast %{{.*}} -> tensor<2x2x8x32x!ttcore.tile<32x32, bf16>, #layout1>
+  // CHECK: %[[VIEW:.*]] = d2m.view_layout %[[CAST1]] : tensor<2x2x8x32x!ttcore.tile<32x32, bf16>, #layout1> -> tensor<8x8x2x8x!ttcore.tile<32x32, bf16>, #layout3>
+  // CHECK: %{{.*}} = d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<8x8>
+  // CHECK: ins(%[[STREAM]] : tensor<8x8x2x8x!ttcore.tile<32x32, bf16>, #layout2>)
+  // CHECK: outs(%[[VIEW]] : tensor<8x8x2x8x!ttcore.tile<32x32, bf16>, #layout3>)
   %1 = "ttir.abs"(%arg0)  : (tensor<512x2048xbf16, #ttnn_layout_dram>) -> (tensor<512x2048xbf16, #ttnn_layout_l1>)
 
   return %1 : tensor<512x2048xbf16, #ttnn_layout_l1>
@@ -34,8 +59,8 @@ func.func @test_mixed_operands_eltwise_unary_dram_dram(%arg0: tensor<512x2048xbf
   // CHECK: %[[instream:.*]] = "d2m.stream_layout"(%cast{{.*}}, %{{.*}}) <{remapping = #map{{.*}}}> : (tensor<1x1x16x64x!ttcore.tile<32x32, bf16>, #layout{{.*}}>, tensor<8x8x2x8x!ttcore.tile<32x32, bf16>, #layout{{.*}}>) -> tensor<8x8x2x8x!ttcore.tile<32x32, bf16>, #layout{{.*}}>
   // CHECK: %[[outstream:.*]] = "d2m.stream_layout"(%cast{{.*}}, %{{.*}}) <{remapping = #map{{.*}}}> : (tensor<1x1x16x64x!ttcore.tile<32x32, bf16>, #layout{{.*}}>, tensor<8x8x2x8x!ttcore.tile<32x32, bf16>, #layout{{.*}}>) -> tensor<8x8x2x8x!ttcore.tile<32x32, bf16>, #layout{{.*}}>
   // CHECK: %{{.*}} = d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<8x8>
-  // CHECK:     ins(%[[instream]] : tensor<8x8x2x8x!ttcore.tile<32x32, bf16>,
-  // CHECK:     outs(%[[outstream]] : tensor<8x8x2x8x!ttcore.tile<32x32, bf16>,
+  // CHECK: ins(%[[STREAM0]] : tensor<8x8x2x8x!ttcore.tile<32x32, bf16>, #layout2>)
+  // CHECK: outs(%[[STREAM1]] : tensor<8x8x2x8x!ttcore.tile<32x32, bf16>, #layout2>)
   %1 = "ttir.abs"(%arg0)  : (tensor<512x2048xbf16, #ttnn_layout_dram>) -> (tensor<512x2048xbf16, #ttnn_layout_dram>)
 
   return %1 : tensor<512x2048xbf16, #ttnn_layout_dram>
