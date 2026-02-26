@@ -228,7 +228,9 @@ def D2M_GenericOp
     }];
 
   let arguments = (ins Variadic<AnyRankedTensorOrMemRef>:$inputs,
-      Variadic<AnyRankedTensorOrMemRef>:$outputs, TTCore_GridAttr:$grid,
+      Variadic<AnyRankedTensorOrMemRef>:$outputs,
+      Variadic<AnyType>:$additionalArgs,
+      TTCore_GridAttr:$grid,
       I64ArrayAttr:$block_factors, AffineMapArrayAttr:$indexing_maps,
       TTCore_IteratorTypeArrayAttr:$iterator_types,
       D2M_ThreadArrayAttr:$threads,
@@ -238,26 +240,27 @@ def D2M_GenericOp
 
   let assemblyFormat = [{ attr-dict `\n`
     ` ` ` ` ` ` ` ` `ins` `(` $inputs (`:` type($inputs)^)? `)` `\n`
-    ` ` ` ` ` ` ` ` `outs` `(` $outputs  `:` type($outputs) `)` ` `  $regions (`:`  type($results)^ )?
+    ` ` ` ` ` ` ` ` `outs` `(` $outputs  `:` type($outputs) `)` `\n`
+    (` ` ` ` ` ` ` ` `additionalArgs` `(` $additionalArgs `:` type($additionalArgs)^ `)` `\n`)? $regions (`:`  type($results)^ )?
     }];
 
   let hasVerifier = 1;
   let hasCanonicalizer = 1;
 
   let builders =
-      [OpBuilder<(ins "ValueRange":$inputs, "ValueRange":$outputs,
+      [OpBuilder<(ins "ValueRange":$inputs, "ValueRange":$outputs, "ValueRange":$additionalArgs,
            "ArrayAttr":$indexingMaps, "ArrayAttr":$iteratorTypes,
            CArg<"ThreadType", "ThreadType::Compute">:$singleThreadType,
            CArg<"ttcore::GridAttr", "nullptr">:$grid,
            CArg<"ArrayRef<int64_t>", "{}">:$blockFactors)>,
-       OpBuilder<(ins "ValueRange":$inputs, "ValueRange":$outputs,
+       OpBuilder<(ins "ValueRange":$inputs, "ValueRange":$outputs, "ValueRange":$additionalArgs,
            "ArrayAttr":$indexingMaps, "ArrayAttr":$iteratorTypes,
            "llvm::function_ref<void(OpBuilder&, Location, "
            "ValueRange)>":$singleThreadRegionBuilder,
            CArg<"ThreadType", "ThreadType::Compute">:$singleThreadType,
            CArg<"ttcore::GridAttr", "nullptr">:$grid,
            CArg<"ArrayRef<int64_t>", "{}">:$blockFactors)>,
-       OpBuilder<(ins "ValueRange":$inputs, "ValueRange":$outputs,
+       OpBuilder<(ins "ValueRange":$inputs, "ValueRange":$outputs, "ValueRange":$additionalArgs,
            "llvm::function_ref<void(OpBuilder&, Location, "
            "ValueRange)>":$singleThreadRegionBuilder,
            CArg<"ThreadType", "ThreadType::Compute">:$singleThreadType,
@@ -268,6 +271,7 @@ def D2M_GenericOp
     let builders = [
       OpBuilder<(ins "ValueRange": $inputs,
                      "ValueRange": $outputs,
+                     "ValueRange": $additionalArgs,
                      "ArrayAttr": $indexingMaps,
                      "ArrayAttr": $iteratorTypes,
                      CArg<"ThreadType", "ThreadType::Unified">: $singleThreadType,
@@ -275,6 +279,7 @@ def D2M_GenericOp
                      CArg<"ArrayRef<int64_t>", "{}">: $blockFactors)>,
       OpBuilder<(ins "ValueRange": $inputs,
                      "ValueRange": $outputs,
+                     "ValueRange": $additionalArgs,
                      "ArrayAttr": $indexingMaps,
                      "ArrayAttr": $iteratorTypes,
                      "llvm::function_ref<void(OpBuilder&, Location, ValueRange)>": $singleThreadRegionBuilder,
@@ -283,6 +288,7 @@ def D2M_GenericOp
                      CArg<"ArrayRef<int64_t>", "{}">: $blockFactors)>,
       OpBuilder<(ins "ValueRange": $inputs,
                      "ValueRange": $outputs,
+                     "ValueRange": $additionalArgs,
                      "llvm::function_ref<void(OpBuilder&, Location, ValueRange)>": $singleThreadRegionBuilder,
                      CArg<"ThreadType", "ThreadType::Unified">: $singleThreadType,
                      CArg<"ttcore::GridAttr", "nullptr">: $grid,
@@ -336,7 +342,7 @@ def D2M_GenericOp
                getRegionThreadType(0) == ThreadType::Unified;
       }
       bool isExternalSymbolForm() { return getRegions().empty(); }
-      SmallVector<SmallVector<int64_t>> getOperandGridShapes();
+      SmallVector<SmallVector<int64_t>> getInputOutputOperandGridShapes();
       SmallVector<int64_t> getLoopBounds();
       SmallVector<AffineMap> getIndexingMapsValue();
       SmallVector<int64_t> getBlockFactorsValue();
@@ -345,7 +351,7 @@ def D2M_GenericOp
       SmallVector<int64_t> getParticipatingLoopDims(int64_t operandIndex);
       SmallVector<int64_t> getNonParticipatingLoopDims(int64_t operandIndex);
       SmallVector<int64_t> getPhysicalGridShape();
-      SmallVector<SmallVector<int64_t>> getOperandShardShapes(bool convertTileToScalar = false);
+      SmallVector<SmallVector<int64_t>> getInputOutputOperandShardShapes(bool convertTileToScalar = false);
       std::optional<SmallVector<int64_t>> computeGridDimConstraints(std::function<bool(ttcore::MetalLayoutAttr, bool)> operandFilterPredicate);
       unsigned getNumLoops();
       unsigned getNumDims();
@@ -372,6 +378,10 @@ def D2M_GenericOp
         if (!scratchAttr) return false;
         return llvm::is_contained(scratchAttr.asArrayRef(), inputIndex);
       }
+      // Declare methods here - they go in the .h.inc file
+      ::mlir::Operation::operand_range getInputsAndOutputs();
+      MutableArrayRef<OpOperand> getInputsAndOutputsMutable();
+      bool isOutputOperandIdx(unsigned int operandIndex);
     }];
 }
 
@@ -407,6 +417,36 @@ def D2M_EmptyOp
     }]>];
 
   let assemblyFormat = "`(` `)` attr-dict `:` type($result)";
+}
+
+def D2M_CreateGlobalSemaphoreOp : D2M_Op<"create_global_semaphore",
+    [DeclareOpInterfaceMethods<BufferizableOpInterface,
+      ["bufferizesToMemoryRead", "bufferizesToMemoryWrite",
+       "getAliasingValues", "bufferize"]>]> {
+  let summary = "Global semaphore allocation operation (D2M).";
+
+  let description = [{
+    Create an uninitialized global semaphore with the specified core range.
+  }];
+
+  let arguments = (ins AnyRankedTensorOrMemRef:$input, OptionalAttr<UI32Attr>:$value);
+  let results = (outs D2M_GlobalSemaphore:$result);
+
+  let assemblyFormat = "`(` $input `)` attr-dict `:` type($input) `->` type($result)";
+  let hasVerifier = 1;
+}
+
+def D2M_ResetGlobalSemaphoreOp : D2M_Op<"reset_global_semaphore"> {
+  let summary = "Global semaphore reset operation (D2M).";
+
+  let description = [{
+    Reset global semaphore to a specific value. This operation blocks until the value has been set.
+  }];
+
+  let arguments = (ins D2M_GlobalSemaphore:$semaphore, UI32Attr:$value);
+  let results = (outs);
+
+  let assemblyFormat = [{ `(` $semaphore `)` attr-dict `:` type($semaphore) }];
 }
 
 def D2M_FullOp

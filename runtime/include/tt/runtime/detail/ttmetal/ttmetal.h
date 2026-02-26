@@ -9,6 +9,7 @@
 #include "tt-metalium/circular_buffer.hpp"
 #include "tt-metalium/distributed_host_buffer.hpp"
 #include "tt-metalium/event.hpp"
+#include "tt-metalium/global_semaphore.hpp"
 #include "tt-metalium/hal.hpp"
 #include "tt-metalium/host_api.hpp"
 #include "tt-metalium/memory_reporter.hpp"

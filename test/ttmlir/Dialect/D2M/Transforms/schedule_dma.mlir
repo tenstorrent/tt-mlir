@@ -389,7 +389,7 @@ module {
         scf.for %arg3 = %c0 to %c1 step %c1 {
           %0 = arith.addi %core0, %arg2 : index
           %1 = arith.addi %core1, %arg3 : index
-          d2m.semaphore_wait %sem0, %c1
+          d2m.semaphore_wait %sem0, %c1: !d2m.semaphore
           d2m.remote_load %arg0[%0, %1] into %cb0 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram> into !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
           d2m.remote_load %arg1[%0, %1] into %cb1 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram> into !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
         } {d2m.blocking_loop = 1}
