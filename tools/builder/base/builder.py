@@ -89,8 +89,8 @@ class Builder(metaclass=BuilderMeta):
         self._operand_deallocations: Dict[Operand, List[Union[OpView, Operand]]] = {}
 
         self._deallocated_goldens_dir = "./deallocated_goldens"
-        if os.path.exists(self._deallocated_goldens_dir):
-            shutil.rmtree(self._deallocated_goldens_dir)
+        # if os.path.exists(self._deallocated_goldens_dir):
+        #    shutil.rmtree(self._deallocated_goldens_dir)
         os.makedirs(self._deallocated_goldens_dir, exist_ok=True)
         self._deallocated_goldens: Dict[Operand, str] = {}
 
@@ -200,6 +200,7 @@ class Builder(metaclass=BuilderMeta):
         if self._disable_golden_check:
             return input_output_golden_info, intermediate_golden_info
 
+        """
         # If split_on_demand is enabled, return file paths instead of golden tensors
         if self._split_on_demand:
             # Map locations to file paths for deallocated goldens
@@ -212,6 +213,7 @@ class Builder(metaclass=BuilderMeta):
             # Return empty golden info and file path map
             # Note: Return type stays the same for compatibility, but values are file paths as strings
             return input_output_golden_info, file_path_map
+        """
 
         # If no specific golden is marked to be stored, store all goldens.
         if len(self._goldens_to_store) == 0:
@@ -1109,17 +1111,34 @@ class Builder(metaclass=BuilderMeta):
                             op_golden_dictionary,
                         ) = self._build_op_from_parsed_op(op, global_dict)
                         global_dict.update(op_golden_dictionary)
+                        print(global_dict, op_golden_dictionary)
 
                         if self._split_on_demand:
-                            # self.splits.append(self.split_op(parsed_op))
-
                             # Check if this operation has operands to deallocate
                             if op in self._op_deallocations:
-                                print("FOUND")
                                 operands_to_deallocate = self._op_deallocations[op]
-                                print("operands_to_deallocate", operands_to_deallocate)
-                                print(len(self._goldens))
-                                for operand in operands_to_deallocate:
+                                for old_operand in operands_to_deallocate:
+                                    # print(global_dict, old_operand)
+                                    new_operand = global_dict[old_operand]
+
+                                    # Generate a unique filename for this operand *TEMP*
+                                    operand_id = id(new_operand)
+                                    operand_loc = (
+                                        str(new_operand.location)
+                                        .replace("/", "_")
+                                        .replace(":", "_")
+                                    )
+                                    filename = f"golden_{operand_id}_{operand_loc}"
+                                    filepath = os.path.join(
+                                        self._deallocated_goldens_dir, filename
+                                    )
+
+                                    print("Deallocating operand:", operand)
+                                    golden = self._get_golden_tensor(new_operand)
+                                    golden.deallocate(filepath)
+
+                                    """
+
                                     # Map to the new operand in global_dict if it exists
                                     actual_operand = global_dict.get(operand, operand)
 
@@ -1155,8 +1174,7 @@ class Builder(metaclass=BuilderMeta):
                                         print(
                                             f"Deallocated golden for operand {operand_loc} to {filepath}"
                                         )
-
-                                print(len(self._goldens))
+                                        """
 
             outputs = (
                 global_result

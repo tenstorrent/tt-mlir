@@ -2500,8 +2500,10 @@ class TTIRBuilder(Builder):
                     if not self._disable_golden_check:
                         input0 = self._get_golden_tensor(old_op.input)
                         op_golden_function = get_golden_function(ttir_op)
-                        golden_output = op_golden_function(input0, result.element_type)
-                        cos_builder._set_golden_tensor(new_op_result, golden_output)
+                        # golden_output = op_golden_function(input0, result.element_type)
+                        cos_builder._set_golden_tensor(
+                            new_op_result, self._goldens[old_op.result]
+                        )
                         cos_builder._set_golden_tensor(in0, input0)
                         ordered_inputs.append(in0)
                         ordered_outputs.append(new_op_result)
@@ -7806,10 +7808,12 @@ class TTIRBuilder(Builder):
                         op_golden_function = get_golden_function(ttir_op)
                         input0 = self._get_golden_tensor(old_op.lhs)
                         input1 = self._get_golden_tensor(old_op.rhs)
-                        golden_output = op_golden_function(
-                            input0, input1, result.element_type
+                        # golden_output = op_golden_function(
+                        #    input0, input1, result.element_type
+                        # )
+                        add_builder._set_golden_tensor(
+                            new_op_result, self._goldens[old_op.result]
                         )
-                        add_builder._set_golden_tensor(new_op_result, golden_output)
                         add_builder._set_golden_tensor(lhs, input0)
                         add_builder._set_golden_tensor(rhs, input1)
                         ordered_inputs.extend([lhs, rhs])
