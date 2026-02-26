@@ -10,8 +10,7 @@
 #metal_layout = #ttcore.metal_layout<
   logical_shape = 32x32,
   dim_alignments = 32x32,
-  collapsed_intervals = dense<[[0, -1]]> : tensor<1x2xi64>, undef, l1, sharded,
-  index_map = map(0)
+  collapsed_intervals = dense<[[0, -1]]> : tensor<1x2xi64>, undef, l1, sharded
   >
 
 module {

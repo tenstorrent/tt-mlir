@@ -29,15 +29,17 @@ def D2M_ViewLayoutOp
   let description = [{
     Create a representational view of a tensor/memref with a different layout.
     This is a no-op for codegen; consumers are expected to compose layouts.
+
+    The `remapping` attr describes the exact remapping this op represents.
   }];
 
   let arguments = (ins AnyRankedTensorOrMemRef:$input,
+      AffineMapAttr:$remapping,
       DefaultValuedAttr<BoolAttr, "false">:$reinterpretLayout);
   let results = (outs AnyRankedTensorOrMemRef:$result);
 
   let assemblyFormat = [{
-    $input attr-dict `:` type($input) `->` type($result)
-  }];
+    $input `remapping` `=` $remapping attr-dict `:` type($input) `->` type($result)  }];
 
   let extraClassDeclaration = [{
     bool isReblockOnly();
@@ -193,10 +195,13 @@ def D2M_StreamLayoutOp
   let description = [{
     Represent a streaming relationship between a source tensor/memref and a
     storage buffer, producing a view result.
+
+    The `remapping` attr describes the exact remapping this op represents.
   }];
 
   let arguments = (ins AnyRankedTensorOrMemRef:$input,
-      AnyRankedTensorOrMemRef:$storage);
+                       AffineMapAttr:$remapping,
+                       AnyRankedTensorOrMemRef:$storage);
   let results = (outs AnyRankedTensorOrMemRef:$result);
 
   let hasVerifier = 1;
@@ -382,14 +387,19 @@ def D2M_EmptyOp
   let summary = "Empty tensor allocation operation (D2M).";
   let description = [{
     Create an uninitialized tensor with the specified shape, element type and encoding.
+
+    Optionally, the `virtualGridMapping` attribute can store the affine
+    map from physical to virtual grid coordinates for this tensor as well.
   }];
 
+  let arguments = (ins OptionalAttr<AffineMapAttr>:$virtualGridMapping);
   let results = (outs AnyRankedTensor:$result);
 
   let builders = [OpBuilder<(ins "ArrayRef<int64_t>":$shape,
                                 "Type":$elementType, "Attribute":$encoding),
                             [{
-      build($_builder, $_state, RankedTensorType::get(shape, elementType, encoding));
+      build($_builder, $_state, RankedTensorType::get(shape, elementType, encoding),
+            /*virtualGridMapping=*/nullptr);
     }]>,
                   OpBuilder<
                       (ins "ArrayRef<int64_t>":$shape, "Type":$elementType), [{

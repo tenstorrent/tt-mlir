@@ -2221,7 +2221,7 @@ def TTKernel_ExperimentalTileFillOp : TTKernel_SFPUOp<"experimental::tile_fill",
       blocking and is only available on the compute engine.
     }];
 
-    let arguments = (ins IndexLike:$dst_index, F32:$value);
+    let arguments = (ins IndexLike:$dst_index, AnyFloat:$value);
 
     let assemblyFormat = [{
       `(` $dst_index `,` $value `)` attr-dict `:` functional-type(operands, results)

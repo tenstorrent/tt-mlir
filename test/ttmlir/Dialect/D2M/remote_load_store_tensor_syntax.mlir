@@ -13,10 +13,10 @@
 
 // Metal layout for remote source tensor: 2x4 grid with 2x4 shard
 // logical_shape = 4x8 (2*2 x 4*2), grid = 2x4, shard = 2x4
-#remote_layout = #ttcore.metal_layout<logical_shape = 4x8, dim_alignments = 2x4, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, dram, sharded, index_map = map(0)>
+#remote_layout = #ttcore.metal_layout<logical_shape = 4x8, dim_alignments = 2x4, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, dram, sharded>
 
 // Metal layout for local tensor: just logical dimensions without sharding
-#local_layout = #ttcore.metal_layout<logical_shape = 2x4, dim_alignments = 2x4, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded, index_map = map(0)>
+#local_layout = #ttcore.metal_layout<logical_shape = 2x4, dim_alignments = 2x4, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
 
 // BUFFERIZE: #[[DRAM:.*]] = #ttcore.memory_space<dram>
 

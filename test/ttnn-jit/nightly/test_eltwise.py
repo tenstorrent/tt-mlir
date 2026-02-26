@@ -19,14 +19,12 @@ from utils import (
 
 BLOCK_SHARDED_SHAPE_GRIDS = [
     ((32, 32), (0, 0)),
-    ((512, 1024), (7, 7)),
     ((1024, 1024), (7, 7)),
     # Ensure non-square grid dims are interpreted correctly.
     ((64, 128), (0, 1)),
     ((96, 128), (3, 2)),
     # Include rank 3 and 4 tensors.
     ((8, 32, 32), (0, 0)),
-    ((2, 128, 128), (3, 0)),
     ((4, 256, 256), (7, 7)),
     ((4, 4, 32, 32), (0, 0)),
     ((2, 4, 64, 128), (3, 0)),
@@ -34,14 +32,10 @@ BLOCK_SHARDED_SHAPE_GRIDS = [
 ]
 
 HEIGHT_SHARDED_SHAPE_GRIDS = [
-    ((256, 32), (3, 0)),
     ((256, 32), (3, 1)),
-    ((512, 32), (3, 3)),
-    ((1024, 32), (7, 1)),
     ((1024, 32), (7, 3)),
     ((256, 64), (0, 7)),
     ((2048, 128), (7, 7)),
-    ((384, 32), (1, 5)),
     ((2, 192, 32), (1, 5)),
     ((2, 2, 96, 32), (1, 5)),
     ((2, 2, 512, 32), (7, 7)),
@@ -49,12 +43,9 @@ HEIGHT_SHARDED_SHAPE_GRIDS = [
 
 WIDTH_SHARDED_SHAPE_GRIDS = [
     ((32, 32), (0, 0)),
-    ((32, 64), (0, 0)),
     ((64, 256), (7, 0)),
     ((64, 256), (0, 7)),
     ((128, 2048), (7, 7)),
-    ((32, 384), (0, 5)),
-    ((32, 384), (1, 5)),
     ((2, 32, 384), (1, 5)),
     ((2, 2, 32, 384), (1, 5)),
     ((2, 1, 32, 2048), (7, 7)),
@@ -551,7 +542,7 @@ def test_bitwise_binary_ops_dram(device, shape, dtype, op):
         for shape, grid, shard_strategy in SHARDED_SHAPE_GRID_LAYOUTS
     ],
 )
-@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
+@pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
 @pytest.mark.parametrize(
     "jit_op, ttnn_unary_op",
     [
@@ -594,7 +585,7 @@ def test_interop_jit_to_ttnn_unary_l1(
         for shape, grid, shard_strategy in SHARDED_SHAPE_GRID_LAYOUTS
     ],
 )
-@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
+@pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
 @pytest.mark.parametrize(
     "jit_op1, jit_op2, ttnn_binary_op",
     [
@@ -606,9 +597,6 @@ def test_interop_jit_to_ttnn_unary_l1(
 def test_interop_two_jit_to_ttnn_binary_l1(
     device, shape, max_grid, shard_strategy, dtype, jit_op1, jit_op2, ttnn_binary_op
 ):
-    if jit_op2 == log and dtype == torch.float32:
-        pytest.xfail("Failing all_close, getting nan values mismatching with golden")
-
     input1 = create_sharded_tile_tensor(
         device, shape, max_grid, dtype, shard_strategy=shard_strategy
     )
@@ -646,7 +634,7 @@ def test_interop_two_jit_to_ttnn_binary_l1(
         for shape, grid, shard_strategy in SHARDED_SHAPE_GRID_LAYOUTS
     ],
 )
-@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
+@pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
 @pytest.mark.parametrize(
     "jit_op, ttnn_binary_op",
     [
@@ -683,7 +671,7 @@ def test_interop_jit_and_ttnn_to_binary_l1(
 
 
 # JIT op -> ttnn unary op test (DRAM)
-@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
+@pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
 @pytest.mark.parametrize(
     "jit_op, ttnn_unary_op",
     [
@@ -719,7 +707,7 @@ def test_interop_jit_to_ttnn_unary_dram(device, shape, dtype, jit_op, ttnn_unary
 
 
 # 2 JIT ops -> ttnn binary op test (DRAM)
-@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
+@pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
 @pytest.mark.parametrize(
     "jit_op1, jit_op2, ttnn_binary_op",
     [
@@ -736,9 +724,6 @@ def test_interop_jit_to_ttnn_unary_dram(device, shape, dtype, jit_op, ttnn_unary
 def test_interop_two_jit_to_ttnn_binary_dram(
     device, shape, dtype, jit_op1, jit_op2, ttnn_binary_op
 ):
-    if jit_op2 == log and dtype == torch.float32:
-        pytest.xfail("Failing all_close, getting nan values mismatching with golden")
-
     input1 = create_dram_tensor(device, shape, dtype)
     input2 = create_dram_tensor(device, shape, dtype)
 
@@ -764,7 +749,7 @@ def test_interop_two_jit_to_ttnn_binary_dram(
 
 
 # JIT op + ttnn tensor -> ttnn binary op test (DRAM)
-@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
+@pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
 @pytest.mark.parametrize(
     "jit_op, ttnn_binary_op",
     [

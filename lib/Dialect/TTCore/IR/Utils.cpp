@@ -210,24 +210,13 @@ static MemRefType getMemRefType(Type type, bool isView,
   // tensor's memory layout strategy.
   MemRefLayoutAttrInterface layoutAttr;
   if (isView) {
-    const unsigned rank = static_cast<unsigned>(fullMemrefShape.size());
-    mlir::AffineMap map = layout.getIndexAffineMapOrIdentity(rank);
-    assert(map &&
-           "expected tensor encoding to provide a concrete index_map for view");
-    layoutAttr = ViewLayoutAttr::get(ctx, map);
+    layoutAttr = ViewLayoutAttr::get(ctx, tensorType.getRank());
   } else {
     SmallVector<int64_t> shardStride = layout.getShardStride(tensorType);
     if (layout.getMemoryLayout() == TensorMemoryLayout::Sharded) {
       SmallVector<int64_t> shardStride = layout.getShardStride(tensorType);
-
-      auto indexMap = layout.getIndexAffineMap();
-      if (!indexMap || indexMap.isIdentity() || indexMap.getNumResults() == 0) {
-        layoutAttr = ttcore::ShardLayoutAttr::get(ctx, shardStride,
-                                                  /*buffered=*/1);
-      } else {
-        layoutAttr = ttcore::ShardLayoutAttr::get(ctx, shardStride,
-                                                  /*buffered=*/1, indexMap);
-      }
+      layoutAttr = ttcore::ShardLayoutAttr::get(ctx, shardStride,
+                                                /*buffered=*/1);
 
     } else if (layout.getMemoryLayout() == TensorMemoryLayout::Interleaved) {
       layoutAttr = InterleavedLayoutAttr::get(ctx, shardStride);

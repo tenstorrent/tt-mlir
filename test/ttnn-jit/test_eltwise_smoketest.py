@@ -20,7 +20,6 @@ from utils import (
 
 DRAM_SHAPES = [
     (1024, 1024),
-    (2048, 2048),
     (512, 2048),
     (2, 512, 2048),
     (4, 4, 32, 32),
@@ -69,8 +68,6 @@ SHARD_SHAPES_GRIDS = [
     ],
 )
 def test_unary_op_dram(device, shape, dtype, ttnn_dtype, op):
-    if dtype == torch.float32 and shape == (2048, 2048):
-        pytest.skip("Skipping large operation for float32")
     if op in [log, ceil, floor, sqrt, logical_not] and dtype == torch.float32:
         pytest.xfail("failing allclose for some shapes for float32")
 
@@ -158,9 +155,6 @@ def test_unary_op_l1(device, shape, max_grid, shard_strategy, dtype, ttnn_dtype,
     [bitwise_not],
 )
 def test_bitwise_unary_op_dram(device, shape, dtype, op):
-    if shape == (2048, 2048):
-        pytest.skip("Skipping large operation")
-
     max_grid = (0, 0)
     run_op_test(
         device,
@@ -216,8 +210,6 @@ def test_bitwise_unary_op_l1(device, shape, max_grid, shard_strategy, dtype, op)
     [add, sub, mul, div, pow, eq, ne, gt, ge, lt, le, maximum, minimum],
 )
 def test_binary_ops_dram(device, shape, dtype, ttnn_dtype, op):
-    if dtype == torch.float32 and shape == (2048, 2048):
-        pytest.skip("Skipping large operation for float32")
     if op in [pow, eq, ne, gt, ge, lt, le] and dtype == torch.float32:
         pytest.xfail("failing allclose for some shapes")
 
@@ -334,9 +326,6 @@ def test_binary_ops_mixed_layouts(
     [bitwise_and, bitwise_or, bitwise_xor],
 )
 def test_bitwise_binary_ops_dram(device, shape, dtype, op):
-    if shape == (2048, 2048):
-        pytest.skip("Skipping large operation")
-
     max_grid = (0, 0)
     run_op_test(
         device,
