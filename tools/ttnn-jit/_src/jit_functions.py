@@ -1251,7 +1251,9 @@ class ClampOpHandler(BaseOpHandler):
             if isinstance(element_type, (F32Type, F64Type, BF16Type)):
                 return FloatAttr.get(F32Type.get(self.jit_ctx.ctx), float(value))
             elif isinstance(element_type, IntegerType):
-                return IntegerAttr.get(element_type, int(value))
+                return IntegerAttr.get(
+                    IntegerType.get_signless(32, self.jit_ctx.ctx), int(value)
+                )
             else:
                 raise ValueError(f"Unsupported element type for clamp: {element_type}")
 
