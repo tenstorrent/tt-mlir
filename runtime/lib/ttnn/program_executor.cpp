@@ -9,6 +9,7 @@
 #include "operations/ccl/all_gather.h"
 #include "operations/ccl/all_reduce.h"
 #include "operations/ccl/distribute_tensor.h"
+#include "operations/ccl/mesh_partition.h"
 #include "operations/ccl/mesh_shard.h"
 #include "operations/ccl/point_to_point.h"
 #include "operations/ccl/reduce_scatter.h"
@@ -64,6 +65,7 @@
 #include "operations/mlir_native/func_call.h"
 #include "operations/moreh/moreh_cumsum.h"
 #include "operations/normalization/batch_norm.h"
+#include "operations/normalization/distributed_rms_norm.h"
 #include "operations/normalization/layer_norm.h"
 #include "operations/normalization/rms_norm.h"
 #include "operations/normalization/softmax.h"
@@ -351,6 +353,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::RMSNormOp: {
     return operations::rms_norm::run(op->type_as_RMSNormOp(), getContext());
   }
+  case ::tt::target::ttnn::OpType::DistributedRMSNormOp: {
+    return operations::distributed_rms_norm::run(
+        op->type_as_DistributedRMSNormOp(), getContext());
+  }
   case ::tt::target::ttnn::OpType::LayerNormOp: {
     return operations::layer_norm::run(op->type_as_LayerNormOp(), getContext());
   }
@@ -407,6 +413,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::ReduceScatterOp: {
     return operations::ccl::run(op->type_as_ReduceScatterOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::MeshPartitionOp: {
+    return operations::ccl::run(op->type_as_MeshPartitionOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::MeshShardOp: {
     return operations::ccl::run(op->type_as_MeshShardOp(), getContext());

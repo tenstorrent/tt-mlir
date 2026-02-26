@@ -216,7 +216,7 @@ def get_metal_tensor_layout(
     grid : Optional[Tuple[int, int]]
         Grid shape for sharding
     index_map : Optional[AffineMap]
-        Optional affine map for layout transformation
+        Deprecated. Remapping is now carried by view/stream ops, not layouts.
     dim_alignments : Optional[Tuple[int, ...]]
         Optional explicit dimension alignments. When specified, the tensor
         will be padded to these alignments regardless of tile size. Useful
@@ -244,9 +244,6 @@ def get_metal_tensor_layout(
         intervals_np = np.array([[0, rank - 1]], dtype=np.int64)
         collapse_intervals = DenseElementsAttr.get(intervals_np)
 
-        if index_map is None:
-            index_map = AffineMap.get_identity(2 * rank, ctx)
-
         layout = ttcore.ir.MetalLayoutAttr.get(
             ctx,
             logical_shape,
@@ -255,20 +252,10 @@ def get_metal_tensor_layout(
             memory_layout,
             collapse_intervals,
             list(dim_alignments),
-            index_map,
-        )
-    elif index_map is None:
-        layout = ttcore.ir.MetalLayoutAttr.get(
-            ctx, logical_shape, oobVal, memorySpace, memory_layout
         )
     else:
         layout = ttcore.ir.MetalLayoutAttr.get(
-            ctx,
-            logical_shape,
-            oobVal,
-            memorySpace,
-            memory_layout,
-            index_map,
+            ctx, logical_shape, oobVal, memorySpace, memory_layout
         )
 
     shard_shape = []

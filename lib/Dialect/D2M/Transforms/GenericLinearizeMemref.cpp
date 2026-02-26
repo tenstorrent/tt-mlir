@@ -4,6 +4,7 @@
 
 #include "ttmlir/AffineMapUtils.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
+#include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
@@ -55,8 +56,9 @@ public:
     }
 
     auto shape = memref.getShape();
-    auto linearMap = linearizeAffineMap(
-        rewriter.getContext(), memref.getLayout().getAffineMap(), shape);
+    auto layoutMap = d2m::utils::resolveEffectiveAffineMap(val, memref);
+    auto linearMap =
+        linearizeAffineMap(rewriter.getContext(), layoutMap, shape);
 
     // Create or get collapsed memref
     memref::CollapseShapeOp linearizedArg = collapseOps->lookup(val);

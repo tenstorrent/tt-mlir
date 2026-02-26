@@ -4,7 +4,10 @@
 
 #include "ttmlir/AffineMapUtils.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
+#include "ttmlir/Dialect/D2M/Utils/VirtualGrid.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
+#include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/IR/AffineMap.h"
@@ -54,7 +57,7 @@ public:
     if (genericOp.isExplicitDatamovementForm()) {
       return op.emitOpError(
           "High-level multicast form can only be used with regular GenericOp "
-          "form (non-empty indexing_maps, iterator_types, and block_factors).");
+          "form (non-empty iterator_types and block_factors).");
     }
 
     ttcore::GridAttr grid = genericOp.getGrid();
@@ -182,16 +185,23 @@ public:
     TT_assert(mcastShapeInt64.size() == computeGridShape.size());
 
     // Convert virtual multicast shape to physical shape if virtualization is
-    // present.
+    // present.  After the index-map refactor, virtualization maps live on
+    // ops (GenericOp grid attr) rather than on the layout attribute.  Check
+    // the GenericOp's grid for a non-empty inverse mapping, which indicates
+    // the compute grid is virtual.
     TT_assert(genericOp.getOutputs().size() >= 1u);
-    Value outputOperand = genericOp.getOutputs().front();
-    auto outputShardLayout = mlir::cast<ttcore::ShardLayoutAttr>(
-        ttcore::getDeviceLayout(outputOperand));
-    if (!outputShardLayout.getCoreVirtualizationMap().isEmpty()) {
-      // We project out the shard layout dims and results from the indexing
-      // map before applying since we are only concerned with the grid
-      // dimensions.
-      auto coreVirtMap = outputShardLayout.getCoreVirtualizationMap();
+    if (!grid.getMapping().isEmpty()) {
+      // Derive the physical 2D grid and compute the forward map
+      // (virtual → physical) to convert virtual multicast shapes.
+      // Note: this might not be adequate for certain TTNN-based mappings.
+      ttcore::DeviceAttr device = ttcore::lookupDevice(genericOp);
+      auto physGridShape = utils::collapseToPhysicalGrid2D(
+          computeGridShape, device.getWorkerGrid().getShape());
+      auto [coreVirtMap, _] = ttmlir::d2m::utils::grids::createCoreVirtMaps(
+          rewriter.getContext(), computeGridShape, physGridShape);
+
+      // Project out the shard layout dims and results from the forward
+      // map since we are only concerned with the grid dimensions.
       auto dimsToRemove = coreVirtMap.getNumResults() - mcastShapeInt64.size();
       llvm::SmallBitVector projectedDims(coreVirtMap.getNumDims());
       projectedDims.set(dimsToRemove, coreVirtMap.getNumDims());

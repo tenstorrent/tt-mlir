@@ -16,6 +16,7 @@ from test_utils import (
     Marks,
     shape_str,
     shapes_list_str,
+    SkipIf,
 )
 from ttmlir.dialects import ttir
 
@@ -172,8 +173,8 @@ binary_ops = [
     div,
     gelu_backward | Marks(pytest.mark.skip_config(["ttmetal"])),
     gelu_backward_tanh | Marks(pytest.mark.skip_config(["ttmetal"])),
-    maximum,
-    minimum,
+    maximum | SkipIf("sim"),
+    minimum | SkipIf("sim"),
     multiply,
     pow,
     remainder | Marks(pytest.mark.skip_config(["ttmetal"])),
@@ -877,6 +878,61 @@ def test_implicit_bcast_inner_2D(
             )
             in_F1 = builder.add(in_C1, in_R1, unit_attrs=unit_attrs)
             return builder.add(in_F1, in_S0, unit_attrs=unit_attrs)
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+    )
+
+
+@pytest.mark.parametrize(
+    "shapes",
+    [
+        [(1, 2, 1, 32), (1, 1, 1, 32)],
+        [(1, 16, 1, 32), (1, 1, 1, 32)],
+        [(1, 1, 1, 32), (1, 2, 1, 32)],  # broadcast dim1
+        [(2, 2, 1, 32), (1, 2, 1, 32)],  # broadcast dim0
+        # 3D shape
+        [(1, 16, 32), (1, 16, 32)],
+        # 5D shape
+        [(1, 1, 1, 32, 32), (1, 1, 8, 32, 32)],
+        # Larger tensors
+        [(1, 2, 64, 64), (1, 1, 64, 64)],
+        [(1, 4, 64, 128), (1, 1, 64, 128)],
+        [(1, 1, 8, 64, 64), (1, 1, 1, 64, 64)],
+        # broadcast on row/col dims
+        [(1, 2, 32, 32), (1, 2, 1, 32)],
+        [(1, 4, 64, 128), (1, 4, 1, 128)],
+        [(1, 1, 32, 32), (1, 1, 32, 1)],
+    ],
+    ids=shapes_list_str,
+)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttmetal"])
+@pytest.mark.parametrize(
+    "test_fn",
+    [add, subtract, multiply],
+    ids=["add", "subtract", "multiply"],
+)
+def test_binary_ops_broadcast_shard_dims(
+    test_fn: Callable,
+    shapes: List[Shape],
+    dtype: torch.dtype,
+    target: str,
+    request,
+    device,
+):
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, [dtype, dtype])
+        def binary_broadcast(
+            in0: Operand,
+            in1: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return test_fn(in0, in1, builder, unit_attrs=unit_attrs)
 
     compile_and_execute_ttir(
         module,

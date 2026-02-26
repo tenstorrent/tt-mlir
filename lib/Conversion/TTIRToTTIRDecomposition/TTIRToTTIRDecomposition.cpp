@@ -678,98 +678,6 @@ private:
 };
 } // namespace
 
-//===----------------------------------------------------------------------===//
-// Embedding to Gather Pattern
-//===----------------------------------------------------------------------===//
-
-namespace {
-// Converts ttir.embedding to ttir.gather for CPU fallback path.
-// This allows us not to use tensor.gather which lacks bufferization support in
-// upstream MLIR.
-struct EmbeddingToGatherConversionPattern
-    : public OpConversionPattern<ttir::EmbeddingOp> {
-  using OpConversionPattern<ttir::EmbeddingOp>::OpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(ttir::EmbeddingOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    Value input = adaptor.getInput();
-    Value weight = adaptor.getWeight();
-
-    auto inputType = mlir::cast<RankedTensorType>(input.getType());
-    auto weightType = mlir::cast<RankedTensorType>(weight.getType());
-    auto resultType = mlir::cast<RankedTensorType>(
-        getTypeConverter()->convertType(op.getResult().getType()));
-
-    // Cast indices to integer type if needed (gather requires integer indices).
-    if (!inputType.getElementType().isIntOrIndex()) {
-      auto newInputType =
-          RankedTensorType::get(inputType.getShape(), rewriter.getI64Type());
-      input =
-          rewriter.create<ttir::TypecastOp>(op.getLoc(), newInputType, input);
-      inputType = mlir::cast<RankedTensorType>(input.getType());
-    }
-
-    auto indicesShape = inputType.getShape();
-    int64_t indicesRank = indicesShape.size();
-    auto weightShape = weightType.getShape();
-    int64_t weightRank = weightType.getRank();
-
-    // Weight is "effectively 2D" with shape (1, 1, ..., 1, vocab_size,
-    // embedding_dim). The embedding dimension is always the last dimension.
-    int64_t embeddingDim = weightShape[weightRank - 1];
-    int64_t vocabDimIndex = weightRank - 2;
-
-    // Add trailing dimension of size 1 to indices for index_vector_dim.
-    SmallVector<int64_t> newIndicesShape(indicesShape.begin(),
-                                         indicesShape.end());
-    newIndicesShape.push_back(1);
-    auto reshapedIndicesType =
-        RankedTensorType::get(newIndicesShape, inputType.getElementType());
-
-    SmallVector<int32_t> newIndicesShapeI32(newIndicesShape.begin(),
-                                            newIndicesShape.end());
-    Value reshapedIndices = rewriter.create<ttir::ReshapeOp>(
-        op.getLoc(), reshapedIndicesType, input,
-        rewriter.getI32ArrayAttr(newIndicesShapeI32));
-
-    // Build gather attributes:
-    // - offset_dims: the embedding dimension appears at position indicesRank
-    // - collapsed_slice_dims: all dimensions except the last (embedding dim)
-    // - start_index_map: points to the vocab dimension (second-to-last)
-    // - index_vector_dim: indicesRank (the trailing singleton dimension)
-    // - slice_sizes: [1, 1, ..., 1, embedding_dim] matching weight rank
-    SmallVector<int64_t> offsetDims{indicesRank};
-    SmallVector<int64_t> collapsedSliceDims;
-    for (int64_t i = 0; i < weightRank - 1; ++i) {
-      collapsedSliceDims.push_back(i);
-    }
-    SmallVector<int64_t> operandBatchingDims{};
-    SmallVector<int64_t> startIndicesBatchingDims{};
-    SmallVector<int64_t> startIndexMap{vocabDimIndex};
-    int64_t indexVectorDim = indicesRank;
-    SmallVector<int64_t> sliceSizes(weightRank, 1);
-    sliceSizes[weightRank - 1] = embeddingDim;
-
-    auto gatherOp = rewriter.create<ttir::GatherOp>(
-        op.getLoc(), resultType,
-        /*input=*/weight,
-        /*start_indices=*/reshapedIndices,
-        /*offset_dims=*/offsetDims,
-        /*collapsed_slice_dims=*/collapsedSliceDims,
-        /*operand_batching_dims=*/operandBatchingDims,
-        /*start_indices_batching_dims=*/startIndicesBatchingDims,
-        /*start_index_map=*/startIndexMap,
-        /*index_vector_dim=*/indexVectorDim,
-        /*slice_sizes=*/sliceSizes,
-        /*indices_are_sorted=*/false);
-
-    rewriter.replaceOp(op, gatherOp);
-    return success();
-  }
-};
-} // namespace
-
 namespace {
 
 // Pattern detection - Analyze gather indices to detect replicate padding:
@@ -2568,6 +2476,81 @@ private:
 };
 } // namespace
 
+namespace {
+struct NegativePadOpDecompositionPattern
+    : public OpConversionPattern<ttir::PadOp> {
+  using OpConversionPattern<ttir::PadOp>::OpConversionPattern;
+
+  // Decomposes ttir.pad operation with negative padding into: ttir.slice_static
+  // and ttir.pad with positive padding issue in tt-metal
+  // https://github.com/tenstorrent/tt-metal/issues/37475
+
+  LogicalResult
+  matchAndRewrite(ttir::PadOp op, ttir::PadOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    ArrayRef<int32_t> padding = adaptor.getPadding();
+    bool needSlice = llvm::any_of(padding, [](int32_t p) { return p < 0; });
+    bool needPad = llvm::any_of(padding, [](int32_t p) { return p > 0; });
+
+    Value input = adaptor.getInput();
+    auto inputType = cast<RankedTensorType>(adaptor.getInput().getType());
+    auto inputShape = inputType.getShape();
+
+    if (!needSlice) {
+      return failure();
+    }
+
+    SmallVector<int32_t> sliceBegins(inputShape.size(), 0);
+    SmallVector<int32_t> sliceEnds(inputShape.begin(), inputShape.end());
+    SmallVector<int32_t> sliceSteps(inputShape.size(), 1);
+
+    // Adjust slice parameters for dimensions with negative padding.
+    for (size_t i = 0; i < inputShape.size(); i++) {
+      int64_t padLow = padding[2 * i];
+      int64_t padHigh = padding[2 * i + 1];
+
+      if (padLow < 0) {
+        sliceBegins[i] = std::abs(padLow);
+      }
+      if (padHigh < 0) {
+        sliceEnds[i] = inputShape[i] - std::abs(padHigh);
+      }
+    }
+
+    // Compute the slice result type.
+    RankedTensorType sliceResultType;
+    // Intermediate type: sliced shape.
+    SmallVector<int64_t> slicedShape;
+    for (size_t i = 0; i < inputShape.size(); i++) {
+      slicedShape.push_back(sliceEnds[i] - sliceBegins[i]);
+    }
+    sliceResultType =
+        RankedTensorType::get(slicedShape, inputType.getElementType());
+
+    ttir::SliceStaticOp sliceOp = rewriter.create<ttir::SliceStaticOp>(
+        op.getLoc(), sliceResultType, input,
+        rewriter.getI32ArrayAttr(sliceBegins),
+        rewriter.getI32ArrayAttr(sliceEnds),
+        rewriter.getI32ArrayAttr(sliceSteps));
+    input = sliceOp.getResult();
+
+    if (needPad) {
+      // Build padding with negative values zeroed out.
+      SmallVector<int32_t> posPadding = llvm::to_vector(
+          llvm::map_range(padding, [](int32_t p) { return std::max(p, 0); }));
+
+      ttir::PadOp padOp = rewriter.create<ttir::PadOp>(
+          op.getLoc(), op.getType(), input,
+          rewriter.getDenseI32ArrayAttr(posPadding), adaptor.getValue());
+      input = padOp.getResult();
+    }
+
+    rewriter.replaceOp(op, input);
+    return success();
+  }
+};
+} // namespace
+
 void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
                                              RewritePatternSet &patterns,
                                              TypeConverter &typeConverter,
@@ -2589,9 +2572,9 @@ void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
   patterns.add<ReductionProdPattern>(typeConverter, ctx);
   patterns.add<ReverseOpConversionPattern>(typeConverter, ctx);
   patterns.add<ArgMaxPattern>(typeConverter, ctx);
-  patterns.add<EmbeddingToGatherConversionPattern>(typeConverter, ctx);
   patterns.add<SplitQueryKeyValueAndSplitHeadsDecompositionPattern>(
       typeConverter, ctx);
+  patterns.add<NegativePadOpDecompositionPattern>(typeConverter, ctx);
 
   // Configure which ReductionPattern to add base on the configuration
   switch (decompConfig) {

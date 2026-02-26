@@ -97,6 +97,17 @@ datatypeToDataformatEnumNameOpaqueAttr(Builder &builder,
   return builder.getType<emitc::OpaqueAttr>(expression.c_str());
 }
 
+static emitc::OpaqueAttr floatTypeToDataformatOpaqueAttr(Builder &builder,
+                                                         Type type) {
+  if (type.isF32()) {
+    return builder.getType<emitc::OpaqueAttr>("DataFormat::Float32");
+  }
+  if (type.isBF16()) {
+    return builder.getType<emitc::OpaqueAttr>("DataFormat::Float16_b");
+  }
+  llvm_unreachable("Unsupported float type for DataFormat conversion");
+}
+
 static emitc::OpaqueAttr
 datatypeToDataformatEnumValueOpaqueAttr(Builder &builder,
                                         ttcore::DataType dtype) {
@@ -112,6 +123,8 @@ class TTKernelToEmitCTypeConverter : public TypeConverter {
 public:
   TTKernelToEmitCTypeConverter(MLIRContext *ctx) {
     addConversion([](Type type) { return type; });
+    addConversion(
+        [ctx](BFloat16Type type) -> Type { return Float32Type::get(ctx); });
     addConversion([ctx](mlir::tt::ttkernel::NocAddrType type) -> Type {
       return Builder(ctx).getI64Type();
     });
@@ -154,6 +167,27 @@ public:
           return emitc::OpaqueType::get(
               ctx, "experimental::FabricConnectionManager");
         });
+  }
+};
+} // namespace
+
+namespace {
+class ArithConstantBF16ToF32Rewriter
+    : public OpConversionPattern<arith::ConstantOp> {
+public:
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(arith::ConstantOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    auto floatAttr = dyn_cast<FloatAttr>(op.getValue());
+    if (!floatAttr || !floatAttr.getType().isBF16()) {
+      return rewriter.notifyMatchFailure(op, "not a bf16 float constant");
+    }
+    double val = floatAttr.getValueAsDouble();
+    auto f32Attr = rewriter.getF32FloatAttr(static_cast<float>(val));
+    rewriter.replaceOpWithNewOp<arith::ConstantOp>(op, f32Attr);
+    return success();
   }
 };
 } // namespace
@@ -324,6 +358,21 @@ public:
       SmallVector<Attribute, 1> template_args;
       template_args.push_back(
           datatypeToDataformatEnumNameOpaqueAttr(builder, op.getDtype()));
+      return ArrayAttr::get(op.getContext(), template_args);
+    } else if constexpr (
+        std::is_same_v<SourceOp, ttkernel::ExperimentalWriteRowMaskTileOp> ||
+        std::is_same_v<SourceOp, ttkernel::ExperimentalWriteColMaskTileOp>) {
+      auto cbType = mlir::cast<ttkernel::CBType>(op.getCb().getType());
+      auto tileType = mlir::cast<ttcore::TileType>(cbType.getElementType());
+      SmallVector<Attribute, 1> template_args;
+      template_args.push_back(datatypeToDataformatEnumNameOpaqueAttr(
+          builder, tileType.getDataType()));
+      return ArrayAttr::get(op.getContext(), template_args);
+    } else if constexpr (std::is_same_v<SourceOp,
+                                        ttkernel::ExperimentalTileFillOp>) {
+      SmallVector<Attribute, 1> template_args;
+      template_args.push_back(
+          floatTypeToDataformatOpaqueAttr(builder, op.getValue().getType()));
       return ArrayAttr::get(op.getContext(), template_args);
     }
     return ArrayAttr();
@@ -883,6 +932,26 @@ public:
   }
 };
 
+// PackReconfigL1AccOp must be wrapped in the PACK((...)) macro to ensure it
+// only executes on the TRISC_PACK thread.
+class TTKernelToEmitCPackReconfigL1AccToEmitCRewriter
+    : public OpConversionPattern<ttkernel::PackReconfigL1AccOp> {
+public:
+  using OpConversionPattern<ttkernel::PackReconfigL1AccOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttkernel::PackReconfigL1AccOp op,
+                  ttkernel::PackReconfigL1AccOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    rewriter.create<emitc::VerbatimOp>(
+        op->getLoc(),
+        rewriter.getStringAttr("PACK((llk_pack_reconfig_l1_acc({})));"),
+        ValueRange{adaptor.getL1AccEn()});
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+
 // Arith MaxUIOp doesn't have an emitc lowering. We can lower it to a call to
 // std::max.
 class ArithMaxUIRewriter : public OpConversionPattern<arith::MaxUIOp> {
@@ -968,6 +1037,9 @@ public:
     TTKernelToEmitCTypeConverter typeConverter(funcOp.getContext());
     RewritePatternSet patterns(funcOp.getContext());
 
+    patterns.add<ArithConstantBF16ToF32Rewriter>(typeConverter,
+                                                 funcOp.getContext(),
+                                                 /*benefit=*/2);
     populateArithToEmitCPatterns(typeConverter, patterns);
     populateSCFToEmitCConversionPatterns(patterns, typeConverter);
     populateMemRefToEmitCTypeConversion(typeConverter);
@@ -1014,6 +1086,7 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::CopyTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::CopyTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::PackTileOp>,
+        TTKernelToEmitCPackReconfigL1AccToEmitCRewriter,
 
         // FPU Ops
         TTKernelToEmitCOpaqueRewriter<ttkernel::UnaryOpInitCommonOp>,
@@ -1142,6 +1215,7 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::ExperimentalTileFillOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ExperimentalWriteRowMaskTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ExperimentalWriteColMaskTileOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::ExperimentalFillArangeTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::UnaryBcastInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::UnaryBcastTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::WhereTileInitOp>,

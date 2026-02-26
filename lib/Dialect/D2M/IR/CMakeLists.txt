@@ -18,6 +18,7 @@ add_mlir_dialect_library(MLIRD2MDialect
         D2MOpsInterfacesIncGen
 
         LINK_LIBS PUBLIC
+        MLIRAffineDialect
         MLIRTTCoreDialect
         MLIRIR
         MLIRD2MUtils

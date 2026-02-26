@@ -4,7 +4,7 @@
 # debugging tool for TT-MLIR models.
 #
 # This Dockerfile:
-#   - Installs all required system dependencies (clang 17, Python 3.11, build tools)
+#   - Installs all required system dependencies (clang 17, Python 3.12, build tools)
 #   - Clones and builds tt-mlir from the main branch
 #   - Builds the tt-explorer web application
 #   - Configures entrypoint to serve explorer on port 8080
@@ -24,7 +24,7 @@ SHELL ["/bin/bash", "-c"]
 ENV DEBIAN_FRONTEND=noninteractive
 WORKDIR /tmp/build
 
-# Install base dependencies and Python 3.11
+# Install base dependencies and Python 3.12
 RUN <<EOT
 set -e
 apt-get update
@@ -57,7 +57,7 @@ apt-get install -y \
 
 add-apt-repository ppa:deadsnakes/ppa
 apt-get update
-apt-get install -y python3.11 python3.11-dev python3.11-venv python3.11-distutils
+apt-get install -y python3.12 python3.12-dev python3.12-venv
 
 apt-get clean
 rm -rf /var/lib/apt/lists/*
@@ -79,11 +79,18 @@ rm -rf /var/lib/apt/lists/*
 EOT
 
 # Download and run TT-Metal dependencies installer
+ARG TT_METAL_COMMIT
 RUN <<EOT
 set -e
-wget https://raw.githubusercontent.com/tenstorrent/tt-metal/refs/heads/main/install_dependencies.sh
-wget https://raw.githubusercontent.com/tenstorrent/tt-metal/refs/heads/main/tt_metal/sfpi-version
-wget https://raw.githubusercontent.com/tenstorrent/tt-metal/refs/heads/main/tt_metal/sfpi-info.sh
+if [ -z "${TT_METAL_COMMIT}" ]; then
+    echo "ERROR: TT_METAL_COMMIT build arg is required"
+    exit 1
+fi
+echo "Using tt-metal commit: ${TT_METAL_COMMIT}"
+
+wget https://raw.githubusercontent.com/tenstorrent/tt-metal/${TT_METAL_COMMIT}/install_dependencies.sh
+wget https://raw.githubusercontent.com/tenstorrent/tt-metal/${TT_METAL_COMMIT}/tt_metal/sfpi-version
+wget https://raw.githubusercontent.com/tenstorrent/tt-metal/${TT_METAL_COMMIT}/tt_metal/sfpi-info.sh
 chmod u+x install_dependencies.sh sfpi-info.sh
 bash install_dependencies.sh --docker
 rm install_dependencies.sh

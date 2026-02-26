@@ -8,6 +8,7 @@
 include "ttmlir/Dialect/TTKernel/IR/TTKernelBase.td"
 include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.td"
 include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.td"
+include "mlir/Interfaces/InferIntRangeInterface.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
 include "mlir/Interfaces/DestinationStyleOpInterface.td"
 include "mlir/Interfaces/ControlFlowInterfaces.td"
@@ -118,6 +119,19 @@ def TTKernel_PackTileOp : TTKernel_Op<"pack_tile"> {
 
     let assemblyFormat = [{
       `(` $dst_index `,` $out_cb `,` $out_index `,` $out_of_order`)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_PackReconfigL1AccOp : TTKernel_Op<"pack_reconfig_l1_acc"> {
+    let summary = "Reconfigure packer to L1 accumulation mode.";
+    let description = [{
+      Reconfigures the packer to accumulate when packing from DST to L1.
+    }];
+
+    let arguments = (ins I32:$l1_acc_en);
+
+    let assemblyFormat = [{
+      `(` $l1_acc_en `)` attr-dict `:` functional-type(operands, results)
     }];
 }
 
@@ -2207,7 +2221,7 @@ def TTKernel_ExperimentalTileFillOp : TTKernel_SFPUOp<"experimental::tile_fill",
       blocking and is only available on the compute engine.
     }];
 
-    let arguments = (ins IndexLike:$dst_index, F32:$value);
+    let arguments = (ins IndexLike:$dst_index, AnyFloat:$value);
 
     let assemblyFormat = [{
       `(` $dst_index `,` $value `)` attr-dict `:` functional-type(operands, results)
@@ -2244,6 +2258,27 @@ def TTKernel_ExperimentalWriteColMaskTileOp : TTKernel_Op<"experimental::write_c
     }];
 }
 
+
+def TTKernel_ExperimentalFillArangeTileOp : TTKernel_Op<"experimental::fill_arange_tile"> {
+    let summary = "Experimental Write Full Linear Index Tile Op";
+    let description = [{
+      Writes a full linear index tile pattern to a CB, where element[i,j] = i * 32 + j
+      (linear index as float, 0-1023). This is used for arange operations to generate
+      index tiles directly in L1 memory.
+
+      The resulting tile looks like:
+      [[  0,   1,   2, ...,  31],
+       [ 32,  33,  34, ...,  63],
+       ...
+       [992, 993, 994, ..., 1023]]
+    }];
+
+    let arguments = (ins TTKernel_CB:$cb);
+
+    let assemblyFormat = [{
+      `(` $cb `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
 
 def TTKernel_UntilizeInitOp : TTKernel_Op<"untilize_init"> {
     let summary = "UntilizeInitOp call.";
@@ -2867,7 +2902,8 @@ def TTKernel_MyYOp : TTKernel_Op<"my_y", [Pure]> {
     }];
 }
 
-def TTKernel_MyLogicalXOp : TTKernel_Op<"my_logical_x_", [Pure]> {
+def TTKernel_MyLogicalXOp : TTKernel_Op<"my_logical_x_",
+  [Pure, DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
     let summary = "MyLogicalX";
     let description = [{
       Lowers to the tt-metal supported my_logical_x_ global. This represents the logical X coordinate of the current core.
@@ -2881,7 +2917,8 @@ def TTKernel_MyLogicalXOp : TTKernel_Op<"my_logical_x_", [Pure]> {
     }];
 }
 
-def TTKernel_MyLogicalYOp : TTKernel_Op<"my_logical_y_", [Pure]> {
+def TTKernel_MyLogicalYOp : TTKernel_Op<"my_logical_y_",
+  [Pure, DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
     let summary = "MyLogicalY";
     let description = [{
       Lowers to the tt-metal supported my_logical_y_ global. This represents the logical Y coordinate of the current core.

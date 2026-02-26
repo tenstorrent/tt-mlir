@@ -530,6 +530,46 @@ def test_unary_ops(
     )
 
 
+@pytest.mark.parametrize("shape", [(256, 256)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
+@pytest.mark.parametrize("dimension", [1, 0], ids=["dim1", "dim0"])
+@pytest.mark.parametrize("descending", [True, False])
+@pytest.mark.parametrize("is_stable", [True, False])
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_sort(
+    shape: Shape,
+    dtype: torch.dtype,
+    dimension: int,
+    descending: bool,
+    is_stable: bool,
+    target: str,
+    request,
+    device,
+):
+    def module(builder: StableHLOBuilder):
+        @builder.func([shape], [dtype])
+        def sort(
+            in0: Operand,
+            builder: StableHLOBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            builder.set_graph_level_check(True)
+            return builder.sort(
+                in0,
+                dimension=dimension,
+                is_stable=is_stable,
+                descending=descending,
+                unit_attrs=unit_attrs,
+            )
+
+    compile_and_execute_shlo(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+    )
+
+
 @pytest.mark.parametrize("shape", [(64, 128), (32, 64, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn"])

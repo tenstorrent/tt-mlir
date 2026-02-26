@@ -311,6 +311,37 @@ public:
 };
 } // namespace
 
+namespace {
+class D2MSetL1AccumulateRewriter
+    : public OpConversionPattern<d2m::SetL1AccumulateOp> {
+public:
+  using OpConversionPattern<d2m::SetL1AccumulateOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::SetL1AccumulateOp op,
+                  d2m::SetL1AccumulateOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    rewriter.replaceOpWithNewOp<ttkernel::PackReconfigL1AccOp>(
+        op, adaptor.getEnable());
+
+    // Insert an unconditional disable before return.
+    // Packer config state persists across program launches.
+    auto func = op->getParentOfType<func::FuncOp>();
+    if (func) {
+      func.walk([&](func::ReturnOp returnOp) {
+        OpBuilder builder(returnOp);
+        Value zero = builder.create<arith::ConstantOp>(
+            returnOp.getLoc(), builder.getI32Type(),
+            builder.getI32IntegerAttr(0));
+        builder.create<ttkernel::PackReconfigL1AccOp>(returnOp.getLoc(), zero);
+      });
+    }
+
+    return success();
+  };
+};
+} // namespace
+
 // Helper to compute linear index from multi-dimensional indices.
 // For shape <d0, d1, d2, ...> and indices [i0, i1, i2, ...]:
 // linear = i0 * (d1*d2*...) + i1 * (d2*d3*...) + ... + i_last.
@@ -1057,13 +1088,16 @@ private:
     // Get the Cb for the non-Dst operand
     Value cb;
     Value cbTileIdx;
+    Value dstOperandIdx;
     if (reuseType == BinaryDestReuseType::DestToSrcA) {
       // LHS from Dst, RHS from Cb
       cb = getCB(rewriter, op.getRhs());
       cbTileIdx = adaptor.getRhs();
+      dstOperandIdx = adaptor.getLhs();
     } else {
       cb = getCB(rewriter, op.getLhs());
       cbTileIdx = adaptor.getLhs();
+      dstOperandIdx = adaptor.getRhs();
     }
 
     auto outCB = getOutCB(rewriter, op);
@@ -1078,6 +1112,14 @@ private:
     rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
 
     auto eltwiseType = getEltwiseBinaryType();
+
+    // binary_dest_reuse is an in-place operation. If the DST
+    // operand comes from a different slot, copy it first to the output slot.
+    if (dstOperandIdx != dstIdx) {
+      rewriter.create<ttkernel::CopyDestValuesInitOp>(loc);
+      rewriter.create<ttkernel::CopyDestValuesOp>(loc, dstOperandIdx, dstIdx);
+    }
+
     rewriter.create<ttkernel::BinaryDestReuseTilesInitOp>(loc, cb, eltwiseType,
                                                           reuseType);
     rewriter.create<ttkernel::BinaryDestReuseTilesOp>(
@@ -1203,6 +1245,21 @@ public:
     }
     rewriter.create<ttkernel::ExperimentalWriteColMaskTileOp>(
         loc, validCols, adaptor.getOutput());
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+class D2MExperimentalFillArangeTileRewriter
+    : public OpConversionPattern<d2m::FillArangeTileOp> {
+public:
+  using OpConversionPattern<d2m::FillArangeTileOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::FillArangeTileOp op,
+                  d2m::FillArangeTileOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    rewriter.create<ttkernel::ExperimentalFillArangeTileOp>(
+        op->getLoc(), adaptor.getOutput());
     rewriter.eraseOp(op);
     return success();
   }
@@ -1549,12 +1606,12 @@ public:
           // Dests are one less because the sender core is not included
           rewriter.create<ttkernel::NocAsyncWriteMulticastOp>(
               op.getLoc(), srcL1Start, mcastAddr, transferSize,
-              numDestsMinusOne, nullptr, nullptr, nullptr);
+              numDestsMinusOne, rewriter.getBoolAttr(true), nullptr, nullptr);
         } else {
           // If src != dst, we loopback mcast
           rewriter.create<ttkernel::NocAsyncWriteMulticastLoopbackSrcOp>(
               op.getLoc(), srcL1Start, mcastAddr, transferSize, numDests,
-              nullptr, nullptr, nullptr);
+              rewriter.getBoolAttr(true), nullptr, nullptr);
         }
       } else {
         // Local L1 to Local L1 local data movement lowering
@@ -1583,11 +1640,14 @@ public:
     // Add attribute marking whether the DMA wait is for a read or write
     // operation This will be used when loweing the wait ops because the current
     // DMA op will be replaced with a NullTx.
+    // Mcast writes do not require a write barrier.
     auto dmaWaitOps = associatedDMAWaits->get(op);
+    StringRef waitAttr = op.isMcast()
+                             ? "ttkernel.lowering.associated_noc_mcast_write"
+                             : "ttkernel.lowering.associated_noc_write";
     for (auto dmaWaitOp : dmaWaitOps) {
       rewriter.modifyOpInPlace(dmaWaitOp, [&]() {
-        dmaWaitOp->setDiscardableAttr("ttkernel.lowering.associated_noc_write",
-                                      rewriter.getUnitAttr());
+        dmaWaitOp->setDiscardableAttr(waitAttr, rewriter.getUnitAttr());
       });
     }
 
@@ -1659,7 +1719,9 @@ public:
         op->getDiscardableAttr("ttkernel.lowering.associated_noc_read");
     auto isWrite =
         op->getDiscardableAttr("ttkernel.lowering.associated_noc_write");
-    assert(isRead || isWrite);
+    auto isMcastWrite =
+        op->getDiscardableAttr("ttkernel.lowering.associated_noc_mcast_write");
+    assert(isRead || isWrite || isMcastWrite);
 
     if (isRead) {
       rewriter.create<ttkernel::NocAsyncReadBarrierOp>(op.getLoc());
@@ -2022,9 +2084,11 @@ void populateD2MToTTKernelPatterns(
                ttkernel::D2MTileFillRewriter,
                ttkernel::D2MWriteRowMaskTileRewriter,
                ttkernel::D2MWriteColMaskTileRewriter,
+               ttkernel::D2MExperimentalFillArangeTileRewriter,
                ttkernel::D2MTileTransposeRewriter,
                ttkernel::D2MDstReinterpretCastRewriter,
                ttkernel::AcquireDstRewriter,
+               ttkernel::D2MSetL1AccumulateRewriter,
                ttkernel::MemrefLoadRewriter,
                ttkernel::MemrefStoreRewriter,
                ttkernel::D2MCBOpRewriter<d2m::WaitOp, ttkernel::CBWaitFrontOp, ttkernel::CBPopFrontOp>,

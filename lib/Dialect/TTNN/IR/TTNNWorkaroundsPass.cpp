@@ -263,6 +263,20 @@ TTNNOperandsWorkaroundsFactory::createMeshShardOpOperandsWorkarounds(
       .addOutputOperandWorkaround(sysMemWorkaround);
 }
 
+// Factory method to create a set of workarounds for mesh partition op operands.
+// The input and output tensors associated with the op should always be in
+// row-major layout.
+// TODO (hshah): Remove once
+// https://github.com/tenstorrent/tt-metal/issues/37676 is fixed.
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createMeshPartitionOpOperandsWorkarounds() {
+  wa::TTNNOperandWorkarounds rowMajorWorkaround;
+  rowMajorWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
+  return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addInputOperandWorkaround(rowMajorWorkaround)
+      .addOutputOperandWorkaround(rowMajorWorkaround);
+}
+
 // Factory method to create a set of workaround for concat operation operands.
 // tt-metal applies padding (before concatenation) to the input tensors if the
 // layout is tile and the shape is not divisible by tile size along concatenated
@@ -689,7 +703,6 @@ TTNNOperandsWorkaroundsFactory::createArgMaxOpOperandsWorkarounds() {
 }
 
 // Factory method to create a set of workarounds for Pad op operands.
-// tt-metal only supports float32 and bfloat16 data types.
 // tt-metal does not support front padding for tile layout.
 // https://github.com/tenstorrent/tt-metal/issues/10987
 TTNNOperandsWorkarounds
@@ -709,10 +722,6 @@ TTNNOperandsWorkaroundsFactory::createPadOpOperandsWorkarounds(
 
   if (isFrontPadding && layoutAttr.isTiled()) {
     operandWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
-  }
-  if (isa<IntegerType>(input.getType().getElementType())) {
-    operandWorkaround.tensorDataTypeWorkaround =
-        mlir::tt::ttcore::DataType::BFloat16;
   }
   return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
       .addInputOperandWorkaround(operandWorkaround)
@@ -924,5 +933,26 @@ TTNNOperandsWorkaroundsFactory::createConvOpOperandsWorkarounds(
 template TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createConvOpOperandsWorkarounds(
     ttnn::ConvTranspose2dOp op);
+
+// TT-Metal's Conv3d requires BFloat16 inputs.
+// Tracked in: https://github.com/tenstorrent/tt-metal/issues/35436
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createConv3dOpOperandsWorkarounds(
+    ttnn::Conv3dOp op) {
+  TTNNOperandWorkarounds bf16Workaround;
+  bf16Workaround.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
+
+  auto workaround =
+      wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+          .addInputOperandWorkaround(bf16Workaround)
+          .addInputOperandWorkaround(bf16Workaround)
+          .addOutputOperandWorkaround(bf16Workaround);
+
+  if (op.getBias()) {
+    workaround = workaround.addInputOperandWorkaround(bf16Workaround);
+  }
+
+  return workaround;
+}
 
 } // namespace mlir::tt::ttnn::wa

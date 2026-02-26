@@ -141,6 +141,11 @@ llvm::Expected<OpConstraints> getOpConstraints(MLIRContext *context,
 
 template <class Callable>
 llvm::Expected<size_t> getOpRuntime(Callable &callable) {
+  if (SingletonDeviceContext::getInstance().isMockDevice()) {
+    return llvm::createStringError(
+        "getOpRuntime is not supported in mock device mode");
+  }
+
   ::ttnn::graph::RuntimeQueryResponse query;
   try {
     query = callable();
@@ -593,12 +598,11 @@ llvm::Expected<::ttnn::TensorSpec> getPrepareConv2dWeightsOpOutputTensorSpec(
   std::optional<::tt::tt_metal::DataType> outputDtype =
       detail::getNullableDataType(weightLayout);
 
-  std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig>
-      conv2dConfigConverted = conversion::getConv2dConfig(conv2dConfig);
+  std::optional<::ttnn::Conv2dConfig> conv2dConfigConverted =
+      conversion::getConv2dConfig(conv2dConfig);
 
-  std::optional<::ttnn::operations::conv::conv2d::Conv2dSliceConfig>
-      sliceConfigConverted =
-          conversion::getConv2dSliceConfig(conv2dSliceConfig);
+  std::optional<::ttnn::Conv2dSliceConfig> sliceConfigConverted =
+      conversion::getConv2dSliceConfig(conv2dSliceConfig);
 
   // Create query closure
   auto prepareConv2dWeightsOpQuery = [=]() {
@@ -632,7 +636,7 @@ llvm::Expected<::ttnn::TensorSpec> getPrepareConv2dWeightsOpOutputTensorSpec(
         conv2dConfigConverted,
         /* compute_config_ */ std::nullopt,
         /* dram_slice_config_ */
-        std::optional<::ttnn::operations::conv::conv2d::Conv2dSliceConfig>{},
+        std::optional<::ttnn::Conv2dSliceConfig>{},
         /* mirror_kernel */ true);
   };
 
@@ -693,13 +697,13 @@ getPrepareConv2dBiasOpOutputTensorSpec(
   std::optional<::tt::tt_metal::DataType> outputDtype =
       detail::getNullableDataType(biasLayout);
 
-  std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig>
-      conv2dConfigConverted = conversion::getConv2dConfig(conv2dConfig);
+  std::optional<::ttnn::Conv2dConfig> conv2dConfigConverted =
+      conversion::getConv2dConfig(conv2dConfig);
 
   auto prepareConv2dBiasOpQuery = [=]() {
-    ::ttnn::operations::conv::conv2d::Conv2dConfig localConfig;
+    ::ttnn::Conv2dConfig localConfig;
     if (!conv2dConfigConverted.has_value()) {
-      localConfig = ::ttnn::operations::conv::conv2d::Conv2dConfig();
+      localConfig = ::ttnn::Conv2dConfig();
       // Weights dtype needs to be set for prepare_conv_bias.
       localConfig.weights_dtype = weightsDtype;
     } else {
@@ -734,7 +738,7 @@ getPrepareConv2dBiasOpOutputTensorSpec(
         groups, device, *inputDtype, outputDtype, conv2dConfigConverted,
         /*compute_config_=*/std::nullopt,
         /* dram_slice_config_ */
-        std::optional<::ttnn::operations::conv::conv2d::Conv2dSliceConfig>{});
+        std::optional<::ttnn::Conv2dSliceConfig>{});
   };
 
   auto output =
@@ -1557,7 +1561,10 @@ llvm::Expected<OpConstraints> ReductionOpModel<OpTy>::getOpConstraints(
   auto query = [=]() {
     return ::ttnn::graph::query_op_constraints(
         detail::getOpSymbol<OpTy>(), device, inputSpec, dimArgConverted,
-        keepDim, detail::getNullableMemoryConfig(outputLayout));
+        keepDim, detail::getNullableMemoryConfig(outputLayout),
+        /*compute_kernel_config=*/std::nullopt,
+        /*scalar=*/1.0f, /*correction=*/true,
+        /*sub_core_grids=*/std::nullopt);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
@@ -1595,7 +1602,10 @@ llvm::Expected<size_t> ReductionOpModel<OpTy>::getOpRuntime(
   auto query = [=]() {
     return ::ttnn::graph::query_op_runtime(
         detail::getOpSymbol<OpTy>(), device, inputSpec, dimArgConverted,
-        keepDim, detail::getNullableMemoryConfig(outputLayout));
+        keepDim, detail::getNullableMemoryConfig(outputLayout),
+        /*compute_kernel_config=*/std::nullopt,
+        /*scalar=*/1.0f, /*correction=*/true,
+        /*sub_core_grids=*/std::nullopt);
   };
 
   return operation::getOpRuntime(query);
@@ -3797,8 +3807,11 @@ llvm::Expected<OpConstraints> OpModel<ProdOp>::getOpConstraints(
 
   // Create query closure
   auto prodOpQuery = [=]() {
+    auto prodFn = static_cast<::ttnn::Tensor (*)(
+        const ::ttnn::Tensor &, std::optional<int64_t>, bool,
+        const std::optional<::ttnn::MemoryConfig> &)>(&::ttnn::prod);
     return ::ttnn::graph::query_op_constraints(
-        ::ttnn::prod, device, inputSpec, dim, keepDim,
+        prodFn, device, inputSpec, dim, keepDim,
         detail::getNullableMemoryConfig(outputLayout));
   };
 
@@ -4804,16 +4817,15 @@ llvm::Expected<OpConstraints> OpModel<Conv2dOp>::getOpConstraints(
   std::optional<::tt::tt_metal::DataType> outputDtype =
       detail::getNullableDataType(outputLayout);
 
-  std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig>
-      conv2dConfigConverted = conversion::getConv2dConfig(conv2dConfig);
+  std::optional<::ttnn::Conv2dConfig> conv2dConfigConverted =
+      conversion::getConv2dConfig(conv2dConfig);
 
   std::optional<::ttnn::DeviceComputeKernelConfig>
       deviceComputeKernelConfigConverted =
           conversion::getDeviceComputeKernelConfig(deviceComputeKernelConfig);
 
-  std::optional<::ttnn::operations::conv::conv2d::Conv2dSliceConfig>
-      sliceConfigConverted =
-          conversion::getConv2dSliceConfig(conv2dSliceConfig);
+  std::optional<::ttnn::Conv2dSliceConfig> sliceConfigConverted =
+      conversion::getConv2dSliceConfig(conv2dSliceConfig);
 
   // Create query closure
   auto conv2dOpQuery = [=]() {
@@ -4827,7 +4839,9 @@ llvm::Expected<OpConstraints> OpModel<Conv2dOp>::getOpConstraints(
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
         groups, outputDtype, biasSpec, conv2dConfigConverted,
         deviceComputeKernelConfigConverted,
-        detail::getNullableMemoryConfig(outputLayout), sliceConfigConverted);
+        detail::getNullableMemoryConfig(outputLayout), sliceConfigConverted,
+        /*return_output_dim=*/false,
+        /*return_weights_and_bias=*/false);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
@@ -4896,9 +4910,8 @@ llvm::Expected<size_t> OpModel<Conv2dOp>::getOpRuntime(
   std::optional<::ttnn::DeviceComputeKernelConfig>
       deviceComputeKernelConfigConverted =
           conversion::getDeviceComputeKernelConfig(deviceComputeKernelConfig);
-  std::optional<::ttnn::operations::conv::conv2d::Conv2dSliceConfig>
-      sliceConfigConverted =
-          conversion::getConv2dSliceConfig(conv2dSliceConfig);
+  std::optional<::ttnn::Conv2dSliceConfig> sliceConfigConverted =
+      conversion::getConv2dSliceConfig(conv2dSliceConfig);
   // Create query closure
   auto conv2dOpQuery = [=]() {
     return ::ttnn::graph::query_op_runtime(
@@ -4911,7 +4924,9 @@ llvm::Expected<size_t> OpModel<Conv2dOp>::getOpRuntime(
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
         groups, outputDtype, biasSpec, conv2dConfigConverted,
         deviceComputeKernelConfigConverted,
-        detail::getNullableMemoryConfig(outputLayout), sliceConfigConverted);
+        detail::getNullableMemoryConfig(outputLayout), sliceConfigConverted,
+        /*return_output_dim=*/false,
+        /*return_weights_and_bias=*/false);
   };
 
   return operation::getOpRuntime(conv2dOpQuery);
@@ -5189,11 +5204,10 @@ llvm::Expected<OpConstraints> OpModel<ConvTranspose2dOp>::getOpConstraints(
   std::optional<::tt::tt_metal::DataType> outputDtype =
       detail::getNullableDataType(outputLayout);
 
-  std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig>
-      conv2dConfigConverted = conversion::getConv2dConfig(conv2dConfig);
-  std::optional<::ttnn::operations::conv::conv2d::Conv2dSliceConfig>
-      conv2dSliceConfigConverted =
-          conversion::getConv2dSliceConfig(conv2dSliceConfig);
+  std::optional<::ttnn::Conv2dConfig> conv2dConfigConverted =
+      conversion::getConv2dConfig(conv2dConfig);
+  std::optional<::ttnn::Conv2dSliceConfig> conv2dSliceConfigConverted =
+      conversion::getConv2dSliceConfig(conv2dSliceConfig);
 
   // Create query closure
   auto convTranspose2dOpQuery = [=]() {
@@ -5208,7 +5222,10 @@ llvm::Expected<OpConstraints> OpModel<ConvTranspose2dOp>::getOpConstraints(
         groups, outputDtype, biasSpec, conv2dConfigConverted,
         /* compute_config */ std::nullopt,
         detail::getNullableMemoryConfig(outputLayout),
-        conv2dSliceConfigConverted);
+        conv2dSliceConfigConverted,
+        /*mirror_kernel=*/true,
+        /*return_output_dim=*/false,
+        /*return_weights_and_bias=*/false);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
@@ -5272,11 +5289,10 @@ llvm::Expected<size_t> OpModel<ConvTranspose2dOp>::getOpRuntime(
   std::optional<::tt::tt_metal::DataType> outputDtype =
       detail::getNullableDataType(outputLayout);
 
-  std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig>
-      conv2dConfigConverted = conversion::getConv2dConfig(conv2dConfig);
-  std::optional<::ttnn::operations::conv::conv2d::Conv2dSliceConfig>
-      conv2dSliceConfigConverted =
-          conversion::getConv2dSliceConfig(conv2dSliceConfig);
+  std::optional<::ttnn::Conv2dConfig> conv2dConfigConverted =
+      conversion::getConv2dConfig(conv2dConfig);
+  std::optional<::ttnn::Conv2dSliceConfig> conv2dSliceConfigConverted =
+      conversion::getConv2dSliceConfig(conv2dSliceConfig);
 
   // Create query closure
   auto convTranspose2dOpQuery = [=]() {
@@ -5291,7 +5307,10 @@ llvm::Expected<size_t> OpModel<ConvTranspose2dOp>::getOpRuntime(
         groups, outputDtype, biasSpec, conv2dConfigConverted,
         /* compute_config */ std::nullopt,
         detail::getNullableMemoryConfig(outputLayout),
-        conv2dSliceConfigConverted);
+        conv2dSliceConfigConverted,
+        /*mirror_kernel=*/true,
+        /*return_output_dim=*/false,
+        /*return_weights_and_bias=*/false);
   };
 
   return operation::getOpRuntime(convTranspose2dOpQuery);
@@ -5334,9 +5353,8 @@ llvm::Expected<OpConstraints> OpModel<PrepareConv2dWeightsOp>::getOpConstraints(
     convertedOutputDtype = conversion::getDataType(outputDtype.value());
   }
 
-  std::optional<::ttnn::operations::conv::conv2d::Conv2dSliceConfig>
-      sliceConfigConverted =
-          conversion::getConv2dSliceConfig(conv2dSliceConfig);
+  std::optional<::ttnn::Conv2dSliceConfig> sliceConfigConverted =
+      conversion::getConv2dSliceConfig(conv2dSliceConfig);
 
   auto prepareConv2dWeightsQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
@@ -5395,8 +5413,7 @@ llvm::Expected<OpConstraints> OpModel<PrepareConv2dBiasOp>::getOpConstraints(
     convertedOutputDtype = conversion::getDataType(outputDtype.value());
   }
 
-  std::optional<::ttnn::operations::conv::conv2d::Conv2dSliceConfig>
-      sliceConfig = std::nullopt;
+  std::optional<::ttnn::Conv2dSliceConfig> sliceConfig = std::nullopt;
 
   auto prepareConv2dWeightsQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
@@ -6313,7 +6330,7 @@ llvm::Expected<OpConstraints> OpModel<LayerNormOp>::getOpConstraints(
         weightSpec, biasSpec, residualInputSpec,
         detail::getNullableMemoryConfig(outputLayout),
         /*program_config=*/std::nullopt,
-        /*compute_kernel_config=*/std::nullopt);
+        /*compute_kernel_config=*/std::nullopt, /*recip_tensor=*/std::nullopt);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
@@ -6355,7 +6372,7 @@ llvm::Expected<size_t> OpModel<LayerNormOp>::getOpRuntime(
         weightSpec, biasSpec, residualInputSpec,
         detail::getNullableMemoryConfig(outputLayout),
         /*program_config=*/std::nullopt,
-        /*compute_kernel_config=*/std::nullopt);
+        /*compute_kernel_config=*/std::nullopt, /*recip_tensor=*/std::nullopt);
   };
 
   return operation::getOpRuntime(layerNormQuery);
@@ -6634,7 +6651,8 @@ llvm::Expected<OpConstraints> OpModel<UpsampleOp>::getOpConstraints(
   auto upsampleQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
         ::ttnn::upsample, device, inputSpec, convertedScaleFactor,
-        std::string(mode), detail::getNullableMemoryConfig(outputLayout));
+        std::string(mode), detail::getNullableMemoryConfig(outputLayout),
+        /*compute_kernel_config=*/std::nullopt);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
@@ -6681,7 +6699,8 @@ llvm::Expected<size_t> OpModel<UpsampleOp>::getOpRuntime(
   auto upsampleQuery = [=]() {
     return ::ttnn::graph::query_op_runtime(
         ::ttnn::upsample, device, inputSpec, convertedScaleFactor,
-        std::string(mode), detail::getNullableMemoryConfig(outputLayout));
+        std::string(mode), detail::getNullableMemoryConfig(outputLayout),
+        /*compute_kernel_config=*/std::nullopt);
   };
 
   return operation::getOpRuntime(upsampleQuery);
@@ -7116,7 +7135,8 @@ OpModel<mlir::tt::ttnn::DropoutOp>::getOpConstraints(
   auto dropoutOpQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
         ::ttnn::experimental::dropout, device, inputSpec, probVal, scaleVal,
-        seed, usePerDeviceSeed);
+        seed, usePerDeviceSeed, detail::getNullableMemoryConfig(outputLayout),
+        std::nullopt);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
@@ -7146,9 +7166,10 @@ llvm::Expected<size_t> OpModel<mlir::tt::ttnn::DropoutOp>::getOpRuntime(
 
   // Create query closure
   auto dropoutOpQuery = [=]() {
-    return ::ttnn::graph::query_op_runtime(::ttnn::experimental::dropout,
-                                           device, inputSpec, probVal, scaleVal,
-                                           seed, usePerDeviceSeed);
+    return ::ttnn::graph::query_op_runtime(
+        ::ttnn::experimental::dropout, device, inputSpec, probVal, scaleVal,
+        seed, usePerDeviceSeed, detail::getNullableMemoryConfig(outputLayout),
+        std::nullopt);
   };
 
   return operation::getOpRuntime(dropoutOpQuery);

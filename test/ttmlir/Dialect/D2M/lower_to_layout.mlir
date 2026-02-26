@@ -1,8 +1,8 @@
 // RUN: ttmlir-opt --ttcore-register-device --d2m-lower-to-layout --d2m-materialize-view-returns -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
-#layout = #ttcore.metal_layout<logical_shape = 1024x1024, dim_alignments = 256x256, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded, index_map = (d0, d1, d2, d3) -> (d0, d1, d2, d3)>
-#layout2 = #ttcore.metal_layout<logical_shape = 256x768, dim_alignments = 32x256, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded, index_map = (d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#layout = #ttcore.metal_layout<logical_shape = 1024x1024, dim_alignments = 256x256, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
+#layout2 = #ttcore.metal_layout<logical_shape = 256x768, dim_alignments = 32x256, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
 
 // Test that verifies the NEW behavior: distribute to 8x8 grid first, then tilize
 func.func @tilize(%arg0: tensor<1024x1024xf32>) -> tensor<8x8x4x4x!ttcore.tile<32x32, f32>, #layout> {
@@ -115,8 +115,8 @@ func.func @old_behavior_example(%arg0: tensor<1024x1024xf32>) -> tensor<8x8x4x4x
 }
 
 // Test padding changes - different dim_alignments causing different device tensor shapes
-#layout_pad32 = #ttcore.metal_layout<logical_shape = 96x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded, index_map = (d0, d1, d2, d3) -> (d0, d1, d2, d3)>
-#layout_pad64 = #ttcore.metal_layout<logical_shape = 96x128, dim_alignments = 64x64, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded, index_map = (d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#layout_pad32 = #ttcore.metal_layout<logical_shape = 96x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
+#layout_pad64 = #ttcore.metal_layout<logical_shape = 96x128, dim_alignments = 64x64, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
 
 func.func @padding_change(%arg0: tensor<2x4x32x32xf32, #layout_pad32>) -> tensor<2x2x64x64xf32, #layout_pad64> {
   %0 = d2m.empty() : tensor<2x2x64x64xf32, #layout_pad64>
@@ -136,8 +136,8 @@ func.func @padding_change(%arg0: tensor<2x4x32x32xf32, #layout_pad32>) -> tensor
 }
 
 // Test compound transformations - grid reblock + padding change simultaneously
-#layout_src_compound = #ttcore.metal_layout<logical_shape = 64x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded, index_map = (d0, d1, d2, d3) -> (d0, d1, d2, d3)>
-#layout_dst_compound = #ttcore.metal_layout<logical_shape = 64x128, dim_alignments = 64x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded, index_map = (d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#layout_src_compound = #ttcore.metal_layout<logical_shape = 64x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
+#layout_dst_compound = #ttcore.metal_layout<logical_shape = 64x128, dim_alignments = 64x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
 
 func.func @compound_reblock_pad(%arg0: tensor<4x2x32x32xf32, #layout_src_compound>) -> tensor<2x4x64x32xf32, #layout_dst_compound> {
   %0 = d2m.empty() : tensor<2x4x64x32xf32, #layout_dst_compound>
@@ -159,7 +159,7 @@ func.func @compound_reblock_pad(%arg0: tensor<4x2x32x32xf32, #layout_src_compoun
 // Test masking with non-undef OOBVal and padding
 // logical_shape = 50x50 doesn't align to dim_alignments = 32x32, so padding exists
 // OOBVal = zero (not undef) should trigger masking
-#layout_mask = #ttcore.metal_layout<logical_shape = 50x50, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, zero, l1, sharded, index_map = (d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#layout_mask = #ttcore.metal_layout<logical_shape = 50x50, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, zero, l1, sharded>
 
 func.func @tilize_with_masking(%arg0: tensor<50x50xf32>) -> tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_mask> {
   %0 = d2m.empty() : tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_mask>
@@ -176,15 +176,37 @@ func.func @tilize_with_masking(%arg0: tensor<50x50xf32>) -> tensor<1x1x2x2x!ttco
   return %1 : tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_mask>
 }
 
-// Test chained views with pre-existing index_map
-#layout_base_view = #ttcore.metal_layout<logical_shape = 64x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded, index_map = (d0, d1, d2, d3) -> (d0, d1, d2, d3)>
-#layout_with_view = #ttcore.metal_layout<logical_shape = 64x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded, index_map = (d0, d1, d2, d3) -> (d1, d0, d2, d3)>
+// Test masking with non-undef OOBVal and >2D grid (no collapse).
+// This exercises the case where collapsed_intervals is empty, producing >2
+// physical dimensions.  The mask scratch tensors must have the same grid rank
+// as the main operands; a prior bug only appended [1,1] shard dims (always
+// producing a 2D-grid mask) which crashed the verifier when gridRank > 2.
+#layout_mask_4d = #ttcore.metal_layout<logical_shape = 2x2x50x50, dim_alignments = 1x1x32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, zero, l1, sharded>
+
+func.func @masking_no_collapse_4d(%arg0: tensor<2x2x50x50xf32>) -> tensor<1x1x1x1x2x2x2x2x!ttcore.tile<32x32, f32>, #layout_mask_4d> {
+  %0 = d2m.empty() : tensor<1x1x1x1x2x2x2x2x!ttcore.tile<32x32, f32>, #layout_mask_4d>
+
+  // CHECK-LABEL: @masking_no_collapse_4d
+  // Tilize then mask with zero OOBVal on a >2D grid (no collapse)
+  // CHECK: d2m.tile_tilize_block
+  // CHECK: d2m.block_mask
+  // CHECK-SAME: <zero>
+
+  %1 = d2m.to_layout %arg0, %0 : tensor<2x2x50x50xf32> into tensor<1x1x1x1x2x2x2x2x!ttcore.tile<32x32, f32>, #layout_mask_4d>
+    -> tensor<1x1x1x1x2x2x2x2x!ttcore.tile<32x32, f32>, #layout_mask_4d>
+
+  return %1 : tensor<1x1x1x1x2x2x2x2x!ttcore.tile<32x32, f32>, #layout_mask_4d>
+}
+
+// Test chained views with grid reshaping
+#layout_base_view = #ttcore.metal_layout<logical_shape = 64x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
+#layout_with_view = #ttcore.metal_layout<logical_shape = 64x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
 
 func.func @chained_view(%arg0: tensor<2x4x32x32xf32, #layout_base_view>) -> tensor<4x2x32x32xf32, #layout_with_view> {
   %0 = d2m.empty() : tensor<4x2x32x32xf32, #layout_with_view>
 
   // CHECK-LABEL: @chained_view
-  // View chaining (no grid change, just index_map addition) emits view_layout + generic with load+store pair
+  // View chaining (grid reshaping) emits view_layout + generic with load+store pair
   // CHECK: %[[VIEW:.*]] = d2m.view_layout
   // CHECK: d2m.generic
   // CHECK-SAME: threads = [#d2m.thread<unified>]
@@ -199,7 +221,7 @@ func.func @chained_view(%arg0: tensor<2x4x32x32xf32, #layout_base_view>) -> tens
 
 // Always use interleaved DRAM bounce for tensors on virtual grids
 
-#layout_virtual_dram_aligned = #ttcore.metal_layout<logical_shape = 4x32x32, dim_alignments = 1x32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded, index_map = (d0, d1, d2, d3, d4, d5) -> (d0, d1, d3, d4, d5)>
+#layout_virtual_dram_aligned = #ttcore.metal_layout<logical_shape = 4x32x32, dim_alignments = 1x32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded>
 
 func.func @test_virtual_dram_bounce_aligned(%arg0: tensor<4x32x32xf32>) -> tensor<4x1x1x1x32x32xf32, #layout_virtual_dram_aligned> {
   // CHECK-LABEL: @test_virtual_dram_bounce_aligned
@@ -210,7 +232,7 @@ func.func @test_virtual_dram_bounce_aligned(%arg0: tensor<4x32x32xf32>) -> tenso
   return %1 : tensor<4x1x1x1x32x32xf32, #layout_virtual_dram_aligned>
 }
 
-#layout_virtual_dram_unaligned = #ttcore.metal_layout<logical_shape = 4x128x32, dim_alignments = 1x32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded, index_map = (d0, d1, d2, d3, d4, d5) -> (((d1 + d2) floordiv 4 + d0) mod 4, (d1 + d2) mod 4, d3, d4, d5)>
+#layout_virtual_dram_unaligned = #ttcore.metal_layout<logical_shape = 4x128x32, dim_alignments = 1x32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded>
 
 func.func @test_virtual_dram_bounce_unaligned(%arg0: tensor<4x128x32xf32>) -> tensor<4x4x1x1x32x32xf32, #layout_virtual_dram_unaligned> {
   // CHECK-LABEL: @test_virtual_dram_bounce_unaligned

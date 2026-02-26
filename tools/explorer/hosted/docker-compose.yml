@@ -18,6 +18,8 @@ services:
     build:
       context: ..
       dockerfile: Dockerfile.explorer
+      args:
+        TT_METAL_COMMIT: ${TT_METAL_COMMIT}
     container_name: tt-explorer-app
     restart: unless-stopped
     command: ["-u", "0.0.0.0", "-x"]

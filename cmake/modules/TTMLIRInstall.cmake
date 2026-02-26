@@ -16,6 +16,7 @@ set(ttmlir_export_targets
   # TTIR dialect
   MLIRTTIRDialect
   MLIRTTIREraseInverseOps
+  MLIRTTIRHoistCPUOps
   MLIRTTIRTransforms
   TTMLIRTTIRUtils
 

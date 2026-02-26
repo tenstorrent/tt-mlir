@@ -4,18 +4,7 @@
 
 import os
 import json
-import importlib.machinery
-import sys
-import signal
-import os
-import io
 import subprocess
-import time
-import socket
-from pkg_resources import get_distribution
-import shutil
-import atexit
-import pytest
 
 TT_MLIR_HOME = os.environ.get("TT_MLIR_HOME", "")
 

@@ -387,7 +387,7 @@ def _get_output_memory_space_and_layout(op_name, input_layouts):
         )
 
 
-def create_output_tensor(ctx, op_name, input_types):
+def create_output_tensor(ctx, op_name, input_types, create_encoding=True):
     if op_name not in OUTPUT_TENSOR_DERIVATION_REQUIRED:
         return input_types[0]
 
@@ -399,8 +399,12 @@ def create_output_tensor(ctx, op_name, input_types):
     mem_space, memory_layout = _get_output_memory_space_and_layout(
         op_name, input_layouts
     )
-    layout = _create_tensor_layout_with_shape(
-        ctx, input_layouts[0], shape, grid_shape, mem_space, memory_layout
+    layout = (
+        _create_tensor_layout_with_shape(
+            ctx, input_layouts[0], shape, grid_shape, mem_space, memory_layout
+        )
+        if create_encoding
+        else None
     )
     with Location.unknown(ctx):
         output_type = RankedTensorType.get(shape, input_types[0].element_type, layout)

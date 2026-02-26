@@ -36,8 +36,8 @@ jobs:
     uses: ./.github/workflows/call-prepare-run.yml
     with:
       builder_build: true
-      build_all: ${{ github.event.pull_request.head.ref == 'uplift' || contains(github.event.pull_request.labels.*.name, 'build_all') }}
-      min_timeout: ${{ contains(github.event.pull_request.labels.*.name, 'build_all') && 180 || 40 }}
+      build_all: ${{ github.event.pull_request.head.ref == 'uplift' || contains(github.event.pull_request.labels.*.name, 'build_all') || contains(github.event.pull_request.labels.*.name, 'uplift') }}
+      min_timeout: ${{ (contains(github.event.pull_request.labels.*.name, 'build_all') || contains(github.event.pull_request.labels.*.name, 'uplift')) && 180 || 40 }}
     secrets: inherit
   release-build:
     needs: [ prepare-run, build-image ]
@@ -73,6 +73,13 @@ jobs:
       docker_image: ${{ needs.build-image.outputs.docker-image }}
       test_matrix: ${{ needs.prepare-run.outputs.test_matrix }}
       timeout: ${{ fromJson(needs.prepare-run.outputs.test_timeout) }}
+  ttsim-test:
+    needs: [ prepare-run, build-image, release-build ]
+    if: needs.prepare-run.outputs.skip_build != 'true'
+    uses: ./.github/workflows/call-test-ttsim.yml
+    secrets: inherit
+    with:
+      docker_image: ${{ needs.build-image.outputs.docker-image }}
 
   # When a PR runs on the uplift branch trigger the downstream checks
   downstream-checks:
@@ -105,9 +112,6 @@ jobs:
             gh workflow run ${{ env.WORKFLOW_NAME }} \
               --repo ${{ env.TARGET_REPO }} --ref main \
               --raw-field mlir_override=${{ github.event.pull_request.head.sha }} \
-              --raw-field same_branch=false \
-              --raw-field tt_forge_branch=main \
-              --raw-field test_filter= \
               --raw-field sh-runner=false
 
           else
@@ -127,6 +131,7 @@ jobs:
       - build-image
       - release-build
       - test
+      - ttsim-test
       - debug-build
       - lint
       - downstream-checks
