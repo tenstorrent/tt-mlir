@@ -234,6 +234,8 @@ def get_request_kwargs(request):
     Dict[str, Any]
         A dictionary containing request-related arguments.
     """
+    from builder.base.builder_utils import Logger
+
     kwargs = {
         "test_base": request.node.name,
         "output_root": request.config.getoption("--path"),
@@ -257,6 +259,9 @@ def get_request_kwargs(request):
         kwargs["check_pcc"] = False
     if request.config.getoption("--dump-memory"):
         kwargs["dump_memory"] = True
+
+    kwargs["logger"] = Logger(request.config.getoption("--builder-log-file"))
+
     return kwargs
 
 
@@ -272,6 +277,12 @@ def pytest_addoption(parser):
         action="store",
         default="ttrt-artifacts/system_desc.ttsys",
         help="Path to system descriptor",
+    )
+    parser.addoption(
+        "--builder-log-file",
+        action="store",
+        default="",
+        help="Path to log file for builder module logging",
     )
     parser.addoption(
         "--require-exact-mesh",

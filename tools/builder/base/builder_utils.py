@@ -123,9 +123,15 @@ def process_multi_return_result(result):
 
 
 def create_custom_ttir_pipeline_fn(
-    pipeline: str, verify: bool = True, print_ir: Union[bool, str] = False
+    pipeline: str, verify: bool = True, print_ir: Union[bool, str] = False, logger=None
 ) -> Callable:
     def wrapper(module, device_register_options):
+        if logger is None:
+            logger_instance = Logger("")
+        else:
+            logger_instance = logger
+        log = logger_instance.get_logger()
+
         register_device = "ttcore-register-device"
         if device_register_options:
             register_device = f"{register_device}{{{device_register_options}}}"
@@ -134,7 +140,7 @@ def create_custom_ttir_pipeline_fn(
         with module.context:
             pm = PassManager.parse(pipeline_str)
             pm.enable_verifier(verify)
-            print("Running custom pipeline:", pm)
+            log.info(f"Running custom pipeline: {pm}")
             if print_ir:
                 print_ir_path = print_ir if isinstance(print_ir, str) else None
                 pm.enable_ir_printing(tree_printing_dir_path=print_ir_path)
@@ -152,6 +158,7 @@ def run_ttir_pipeline(
     system_desc_path: Optional[str] = None,
     mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
     argument_types_string: Optional[str] = None,
+    logger=None,
 ):
     if pipeline_options is None:
         pipeline_options = []
@@ -311,3 +318,51 @@ def get_metal_tensor_layout(
             device_shape[-1] = tiles_per_shard_w
 
     return RankedTensorType.get(device_shape, elemType, layout, Location.unknown(ctx))
+
+
+class Logger:
+    def __init__(self, file_name=""):
+        import logging
+        import sys
+
+        self.logging = logging
+        self.file_name = file_name
+        LEVEL = self.logging.INFO
+
+        if "BUILDER_LOGGER_LEVEL" in os.environ:
+            if os.environ["BUILDER_LOGGER_LEVEL"] == "CRITICAL":
+                LEVEL = self.logging.CRITICAL
+            elif os.environ["BUILDER_LOGGER_LEVEL"] == "ERROR":
+                LEVEL = self.logging.ERROR
+            elif os.environ["BUILDER_LOGGER_LEVEL"] == "WARNING":
+                LEVEL = self.logging.WARNING
+            elif os.environ["BUILDER_LOGGER_LEVEL"] == "DEBUG":
+                LEVEL = self.logging.DEBUG
+
+        # Create a unique logger instance for this Logger object
+        logger_name = f"builder_logger_{id(self)}"
+        self.logger = self.logging.getLogger(logger_name)
+        self.logger.setLevel(LEVEL)
+
+        # Remove any existing handlers to avoid duplicates
+        self.logger.handlers.clear()
+
+        # Create formatter
+        formatter = self.logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
+
+        if self.file_name:
+            # File handler for logging to file
+            file_handler = self.logging.FileHandler(self.file_name, mode="w")
+            file_handler.setLevel(LEVEL)
+            file_handler.setFormatter(formatter)
+            self.logger.addHandler(file_handler)
+            self.logger.info(f"Logging to file: {self.file_name}")
+        else:
+            # Stream handler for logging to console
+            console_handler = self.logging.StreamHandler(sys.stdout)
+            console_handler.setLevel(LEVEL)
+            console_handler.setFormatter(formatter)
+            self.logger.addHandler(console_handler)
+
+    def get_logger(self):
+        return self.logger

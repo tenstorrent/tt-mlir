@@ -89,6 +89,7 @@ def _compile_and_execute(
             save_artifacts=compile_kwargs.get("save_artifacts", False),
             artifact_dir=compile_kwargs.get("artifact_dir", "."),
             dump_memory=dump_memory,
+            logger=compile_kwargs.get("logger", None),
         )
 
     elif target == "emitpy":
@@ -104,6 +105,7 @@ def _compile_and_execute(
             input_output_goldens=input_output_goldens,
             save_artifacts=compile_kwargs.get("save_artifacts", False),
             artifact_dir=compile_kwargs.get("artifact_dir", "."),
+            logger=compile_kwargs.get("logger", None),
         )
 
     elif target == "emitc":
@@ -123,6 +125,7 @@ def _compile_and_execute(
             input_output_goldens=input_output_goldens,
             save_artifacts=compile_kwargs.get("save_artifacts", False),
             artifact_dir=compile_kwargs.get("artifact_dir", "."),
+            logger=compile_kwargs.get("logger", None),
         )
 
 
@@ -150,6 +153,7 @@ def build_module(
     mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
     save_artifacts: bool = False,
     artifact_dir: str = ".",
+    logger=None,
 ) -> Tuple[Module, Union[TTIRBuilder, StableHLOBuilder, TTNNBuilder, D2MBuilder]]:
     """
     Build an MLIR `Module` from a Python emission function using the chosen builder.
@@ -193,11 +197,15 @@ def build_module(
     elif builder_type == "d2m":
         builder = D2MBuilder(ctx, loc, mesh_name, mesh_dict)
 
+    if logger is None:
+        logger = Logger("")
+    log = logger.get_logger()
+
     with ctx, loc:
         new_module = _compile(mod, builder)
 
-        print(f"`{mod.__name__}` successfully transformed into a MLIR module.")
-        print(new_module)
+        log.info(f"`{mod.__name__}` successfully transformed into a MLIR module.")
+        log.debug(str(new_module))
 
         if save_artifacts:
             os.makedirs(artifact_dir, exist_ok=True)
@@ -232,6 +240,7 @@ def compile_and_execute_d2m(
     check_rtol: bool = False,
     enable_intermediate_verification: bool = False,
     dump_memory: bool = False,
+    logger=None,
 ) -> str:
     """
     Compiles and executes a D2MBuilder function through the complete pipeline.
@@ -315,6 +324,7 @@ def compile_and_execute_d2m(
         check_rtol=check_rtol,
         enable_intermediate_verification=enable_intermediate_verification,
         dump_memory=dump_memory,
+        logger=logger,
     )
 
 
@@ -344,6 +354,7 @@ def compile_and_execute_shlo(
     check_rtol: bool = False,
     enable_intermediate_verification: bool = False,
     dump_memory: bool = False,
+    logger=None,
 ) -> str:
     """
     Compiles and executes a StableHLO function through the complete pipeline.
@@ -433,6 +444,7 @@ def compile_and_execute_shlo(
         check_rtol=check_rtol,
         enable_intermediate_verification=enable_intermediate_verification,
         dump_memory=dump_memory,
+        logger=logger,
     )
 
 
@@ -460,6 +472,7 @@ def compile_and_execute_ttnn(
     check_rtol: bool = False,
     enable_intermediate_verification: bool = False,
     dump_memory: bool = False,
+    logger=None,
 ) -> str:
     """
     Compiles and executes a TTNNBuilder function through the complete pipeline.
@@ -546,6 +559,7 @@ def compile_and_execute_ttnn(
         check_rtol=check_rtol,
         enable_intermediate_verification=enable_intermediate_verification,
         dump_memory=dump_memory,
+        logger=logger,
     )
 
 
@@ -573,6 +587,7 @@ def compile_and_execute_ttir(
     check_rtol: bool = False,
     enable_intermediate_verification: bool = False,
     dump_memory: bool = False,
+    logger=None,
 ) -> str:
     """
     Compiles and executes a TTIR function through the complete pipeline.
@@ -656,6 +671,7 @@ def compile_and_execute_ttir(
         check_rtol=check_rtol,
         enable_intermediate_verification=enable_intermediate_verification,
         dump_memory=dump_memory,
+        logger=logger,
     )
 
 
@@ -671,6 +687,7 @@ def compile_ttir_to_flatbuffer(
     custom_pipeline: Optional[Union[Callable, str]] = None,
     pipeline_options: Optional[List[str]] = None,
     print_ir: Union[bool, str] = False,
+    logger=None,
 ) -> str:
     """
     Compiles a TTIRBuilder function `fn` to TTIR MLIR -> TT{Metal,NN} MLIR -> Flatbuffer.
@@ -761,6 +778,7 @@ def compile_ttir_to_flatbuffer(
             mesh_dict=mesh_dict,
             save_artifacts=save_artifacts,
             artifact_dir=artifact_dir,
+            logger=logger,
         )
     except Exception as e:
         raise TTBuilderCompileException(e)
@@ -777,6 +795,7 @@ def compile_ttir_to_flatbuffer(
         custom_pipeline=custom_pipeline,
         pipeline_options=pipeline_options,
         print_ir=print_ir,
+        logger=logger,
     )
 
 
@@ -980,6 +999,7 @@ def compile_stablehlo_to_flatbuffer(
     shlo_pipeline_options: Optional[List[str]] = None,
     shlo_to_ttir_pipeline_options: Optional[List[str]] = None,
     print_ir: Union[bool, str] = False,
+    logger=None,
 ) -> str:
     """
     Compiles a StableHLO function to flatbuffer format.
@@ -1066,16 +1086,21 @@ def compile_stablehlo_to_flatbuffer(
             mesh_dict=mesh_dict,
             save_artifacts=save_artifacts,
             artifact_dir=artifact_dir,
+            logger=logger,
         )
     except Exception as e:
         raise TTBuilderCompileException(e)
+
+    if logger is None:
+        logger = Logger("")
+    log = logger.get_logger()
 
     # We need to generate golden dictionary before pipeline run because pipeline run modifies the graph in place.
     input_output_goldens, intermediate_goldens = builder.golden_map
 
     stablehlo_pipeline(module, " ".join(shlo_pipeline_options), print_ir=print_ir)
-    print(f"`{fn.__name__}` successfully ran stablehlo-pipeline.")
-    print(module)
+    log.info(f"`{fn.__name__}` successfully ran stablehlo-pipeline.")
+    log.debug(str(module))
 
     if save_artifacts:
         filename = os.path.join(artifact_dir, "stablehlo_compiled.mlir")
@@ -1085,8 +1110,8 @@ def compile_stablehlo_to_flatbuffer(
     stablehlo_to_ttir_pipeline(
         module, " ".join(shlo_to_ttir_pipeline_options), print_ir=print_ir
     )
-    print(f"`{fn.__name__}` successfully transformed into a TTIR MLIR module.")
-    print(module)
+    log.info(f"`{fn.__name__}` successfully transformed into a TTIR MLIR module.")
+    log.debug(str(module))
 
     if save_artifacts:
         filename = os.path.join(artifact_dir, "ttir_compiled.mlir")
@@ -1107,6 +1132,7 @@ def compile_stablehlo_to_flatbuffer(
         print_ir=print_ir,
         input_output_goldens=input_output_goldens,
         intermediate_goldens=intermediate_goldens,
+        logger=logger,
     )
 
 
@@ -1126,6 +1152,7 @@ def compile_ttir_module_to_flatbuffer(
         Dict[int, Dict[str, Dict[int, GoldenMapTensor]]]
     ] = None,
     intermediate_goldens: Optional[Dict[str, Dict[int, GoldenMapTensor]]] = None,
+    logger=None,
 ):
     """
     Compiles a TTIR MLIR module to flatbuffer format.
@@ -1203,7 +1230,7 @@ def compile_ttir_module_to_flatbuffer(
 
     if type(custom_pipeline) is str:
         custom_pipeline = create_custom_ttir_pipeline_fn(
-            custom_pipeline, print_ir=print_ir
+            custom_pipeline, print_ir=print_ir, logger=logger
         )
 
     pipeline_fn: Callable
@@ -1236,7 +1263,7 @@ def compile_ttir_module_to_flatbuffer(
         target_extension = "ttm"
     elif target == "emitc":
         ttir_to_ttnn_emitc_pipeline = create_custom_ttir_pipeline_fn(
-            "ttir-to-emitc-pipeline", print_ir=print_ir
+            "ttir-to-emitc-pipeline", print_ir=print_ir, logger=logger
         )
         pipeline_fn = (
             custom_pipeline if custom_pipeline else ttir_to_ttnn_emitc_pipeline
@@ -1271,11 +1298,16 @@ def compile_ttir_module_to_flatbuffer(
             system_desc_path=system_desc_path,
             mesh_dict=mesh_dict,
             argument_types_string=argument_types_string,
+            logger=logger,
         )
     except Exception as e:
         raise TTBuilderCompileException(e)
 
-    print(f"{target} pipeline ran successfully.")
+    if logger:
+        log = logger.get_logger()
+        log.info(f"{target} pipeline ran successfully.")
+    else:
+        print(f"{target} pipeline ran successfully.")
 
     # Compile TT{Metal,NN} MLIR -> flatbuffer
     try:
@@ -1291,7 +1323,10 @@ def compile_ttir_module_to_flatbuffer(
         with open(output_file_bin, "w") as f:
             f.write(compiled_bin)
     if save_artifacts:
-        print(f"Writing compiled flatbuffer to {output_file_bin}")
+        if logger:
+            log.info(f"Writing compiled flatbuffer to {output_file_bin}")
+        else:
+            print(f"Writing compiled flatbuffer to {output_file_bin}")
         os.makedirs(artifact_dir, exist_ok=True)
         if target == "emitpy":
             with open(output_file_bin, "w") as f:

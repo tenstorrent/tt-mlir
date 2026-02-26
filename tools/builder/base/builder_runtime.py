@@ -413,6 +413,7 @@ class CallbackRuntimeConfig:
         artifact_dir: str = ".",
         verify_intermediates: bool = False,
         save_memory: bool = False,
+        logger=None,
     ):
         self.device = device
         self.pcc = pcc
@@ -429,6 +430,7 @@ class CallbackRuntimeConfig:
         self.save_memory = save_memory
         self.golden_report = {}
         self.memory_report = []
+        self.logger = logger
 
     def start_new_program(self, artifact_dir):
         self.artifact_dir = artifact_dir
@@ -631,6 +633,7 @@ def execute_fb(
     save_artifacts: bool = False,
     artifact_dir: str = ".",
     dump_memory: bool = False,
+    logger=None,
 ):
     """
     Execute a flatbuffer binary on device and compare device outputs against goldens.
@@ -669,12 +672,26 @@ def execute_fb(
         Root directory for artifacts.
     dump_memory : bool
         Dump a per-op memory report into the artifact_dir.
+    logger : Optional[Logger]
+        Logger instance for logging execution information.
 
     Returns
     -------
     Tuple[Dict[str, Dict], Dict[str, Dict]]
         golden_report, output_tensors
     """
+    if logger is None:
+        logger = Logger("")
+    log = logger.get_logger()
+
+    log.info("Starting execute_fb")
+    log.info(
+        f"Parameters: pcc={pcc}, atol={atol}, rtol={rtol}, disable_golden={disable_golden}"
+    )
+    log.info(
+        f"artifact_dir={artifact_dir}, save_artifacts={save_artifacts}, dump_memory={dump_memory}"
+    )
+
     fbb = tt_runtime.binary.load_binary_from_capsule(compiled_bin)
     program_indices = range(fbb.get_num_programs())
     golden_input_output_tensors = convert_golden_input_output_to_torch(
@@ -691,6 +708,9 @@ def execute_fb(
     if input_output_goldens is None:
         disable_golden = True
 
+    log.info(f"Loaded binary with {len(program_indices)} programs")
+    log.info(f"verify_intermediates={verify_intermediates}, bypass_ops={bypass_ops}")
+
     callback_runtime_config = CallbackRuntimeConfig(
         device=device,
         pcc=pcc,
@@ -705,6 +725,7 @@ def execute_fb(
         artifact_dir=artifact_dir,
         verify_intermediates=verify_intermediates,
         save_memory=dump_memory,
+        logger=logger,
     )
 
     if verify_intermediates or dump_memory:
@@ -716,6 +737,8 @@ def execute_fb(
     for program_index in program_indices:
         if fbb.is_program_private(program_index):
             continue
+
+        log.info(f"Processing program {program_index}")
 
         program_artifact_dir = os.path.join(artifact_dir, f"program_{program_index}")
         if save_artifacts or dump_memory:
@@ -777,6 +800,7 @@ def execute_fb(
 
         start_submit = time.perf_counter_ns()
         try:
+            log.info(f"Submitting program {program_index} to device")
             runtime_outputs = tt_runtime.runtime.submit(
                 device,
                 fbb,
@@ -784,12 +808,18 @@ def execute_fb(
                 converted_inputs,
             )
             tt_runtime.runtime.wait(runtime_outputs)
+            log.info(f"Program {program_index} execution completed")
         except Exception as e:
+            log.error(f"Program {program_index} execution failed: {e}")
             raise TTBuilderRuntimeException(e)
         finally:
             tt_runtime.runtime.unregister_hooks()
         end_submit = time.perf_counter_ns()
         e2e_duration_nanoseconds_submit = end_submit - start_submit
+
+        log.info(
+            f"Program {program_index} submit duration: {e2e_duration_nanoseconds_submit / 1e6:.2f} ms"
+        )
 
         e2e_duration_nanoseconds_output = 0
         for i, runtime_output_tensor in enumerate(runtime_outputs):
@@ -885,6 +915,7 @@ def execute_py(
     check_rtol: bool = False,
     save_artifacts: bool = False,
     artifact_dir: str = ".",
+    logger=None,
 ):
     """
     Execute an EmitPy Dylib and compare device outputs against goldens.
@@ -913,12 +944,24 @@ def execute_py(
         Save output tensors and golden reports to `artifact_dir`.
     artifact_dir : str
         Root directory for artifacts.
+    logger : Optional[Logger]
+        Logger instance for logging execution information.
 
     Returns
     -------
     Tuple[Dict[str, Dict], Dict[str, Dict]]
         golden_report, output_tensors
     """
+    if logger is None:
+        logger = Logger("")
+    log = logger.get_logger()
+
+    log.info("Starting execute_py")
+    log.info(
+        f"Parameters: pcc={pcc}, atol={atol}, rtol={rtol}, disable_golden={disable_golden}"
+    )
+    log.info(f"artifact_dir={artifact_dir}, save_artifacts={save_artifacts}")
+
     import importlib.util
     import types
 
@@ -960,12 +1003,16 @@ def execute_py(
             ):
                 program_names.append(node.name)
 
+        log.info(f"Found {len(program_names)} programs: {program_names}")
+
         module_name = program_names[0] if program_names else "emitpy_module"
         module = types.ModuleType(module_name)
         sys.modules[module_name] = module
         exec(compile(compiled_bin, filename=module_name, mode="exec"), module.__dict__)
 
         for program_index, program_name in enumerate(program_names):
+            log.info(f"Executing program {program_index}: {program_name}")
+
             program_golden_report = {}
             program_output_tensors = {}
             create_program_inputs = "create_inputs_for_" + program_name
@@ -1065,6 +1112,7 @@ def execute_cpp(
     check_rtol: bool = False,
     save_artifacts: bool = False,
     artifact_dir: str = ".",
+    logger=None,
 ):
     """
     Compile EmitC C++ file to a shared object, execute, and compare outputs.
@@ -1095,12 +1143,25 @@ def execute_cpp(
         Save output tensors and golden reports to `artifact_dir`.
     artifact_dir : str
         Root directory for artifacts.
+    logger : Optional[Logger]
+        Logger instance for logging execution information.
 
     Returns
     -------
     Tuple[Dict[str, Dict], Dict[str, Dict]]
         golden_report, output_tensors
     """
+    if logger is None:
+        logger = Logger("")
+    log = logger.get_logger()
+
+    log.info("Starting execute_cpp")
+    log.info(f"cpp_path={cpp_path}")
+    log.info(
+        f"Parameters: pcc={pcc}, atol={atol}, rtol={rtol}, disable_golden={disable_golden}"
+    )
+    log.info(f"artifact_dir={artifact_dir}, save_artifacts={save_artifacts}")
+
     # Add ttnn-standalone to sys.path for emitc compilation
     TT_MLIR_HOME = Path(os.environ.get("TT_MLIR_HOME", os.getcwd())).resolve()
     ttnn_standalone_path = os.path.join(TT_MLIR_HOME, "tools/ttnn-standalone")
@@ -1127,12 +1188,14 @@ def execute_cpp(
         metal_lib_dir = str(metal_lib_candidates[0])
 
     output_dir = os.path.dirname(cpp_path)
+    log.info(f"Compiling EmitC to shared object: {cpp_path} -> {output_dir}")
     compile_emitc_to_so(
         cpp_path,
         output_dir,
         metal_lib_dir=metal_lib_dir,
     )
     so_path = cpp_path.replace(".cpp", ".so")
+    log.info(f"Shared object created: {so_path}")
 
     if input_output_goldens is None:
         disable_golden = True
@@ -1148,7 +1211,13 @@ def execute_cpp(
             emitc_dylib_handle, so_path
         )
 
+        log.info(
+            f"Found {len(program_names)} programs in shared object: {program_names}"
+        )
+
         for program_index, program_name in enumerate(program_names):
+            log.info(f"Executing program {program_index}: {program_name}")
+
             program_golden_report = {}
             program_output_tensors = {}
 
