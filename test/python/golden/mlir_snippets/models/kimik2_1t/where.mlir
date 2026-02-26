@@ -4,8 +4,8 @@ module {
     return %0 : tensor<192xi64>
   }
 
-  func.func @where_1(%arg0: tensor<1x128x32x192xi1>, %arg1: tensor<1x128x32x192xbf16>, %arg2: tensor<1x128x32x192xbf16>) -> tensor<1x128x32x192xbf16> {
-    %0 = "ttir.where"(%arg0, %arg1, %arg2) : (tensor<1x128x32x192xi1>, tensor<1x128x32x192xbf16>, tensor<1x128x32x192xbf16>) -> tensor<1x128x32x192xbf16>
+  func.func @where_1(%arg0: tensor<1x1x1x192xi1>, %arg1: tensor<1x128x32x192xbf16>, %arg2: tensor<1x128x32x192xbf16>) -> tensor<1x128x32x192xbf16> {
+    %0 = "ttir.where"(%arg0, %arg1, %arg2) : (tensor<1x1x1x192xi1>, tensor<1x128x32x192xbf16>, tensor<1x128x32x192xbf16>) -> tensor<1x128x32x192xbf16>
     return %0 : tensor<1x128x32x192xbf16>
   }
 
