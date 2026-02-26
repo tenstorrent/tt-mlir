@@ -21,8 +21,13 @@ MLIR_PATH = os.path.join(
 )
 
 
-def test_d2m_fusion_with_optimizer(request, device):
-    """E2E: TTIR with D2M fusing (optimization-level=1, enable-d2m-fusing-pass) -> flatbuffer -> run."""
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_d2m_fusion_with_optimizer(request, target):
+    """E2E: TTIR with D2M fusing (optimization-level=1, enable-d2m-fusing-pass) -> flatbuffer -> run.
+
+    Compilation runs with no device open so the pipeline can use mock/simulator
+    context for opmodel; device is opened only after compile for execute_fb.
+    """
     if not os.path.exists(MLIR_PATH):
         pytest.skip(f"MLIR not found: {MLIR_PATH}")
 
@@ -49,15 +54,19 @@ def test_d2m_fusion_with_optimizer(request, device):
         builder,
         system_desc_path=system_desc_path,
         artifact_dir=artifact_dir,
-        target="ttnn",
+        target=target,
         save_artifacts=save_artifacts,
         pipeline_options=[
             "optimization-level=1",
             "enable-d2m-fusing-pass=true",
         ],
     )
+    # Open device only after compile so the pipeline can use mock context for opmodel.
+    # If this is not done, we'll get this error: "Cannot switch to real hardware while 1 device(s) are active."
+    device = request.getfixturevalue("device")
     execute_fb(
         compiled_bin,
         input_output_goldens=input_output_goldens,
+        intermediate_goldens=intermediate_goldens,
         device=device,
     )
