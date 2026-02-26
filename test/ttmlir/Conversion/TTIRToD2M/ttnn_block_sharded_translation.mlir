@@ -2,7 +2,6 @@
 // RUN: FileCheck %s --input-file=%t.mlir
 
 #l1 = #ttnn.buffer_type<l1>
-#dram = #ttnn.buffer_type<dram>
 
 // CHECK: #layout = #ttcore.metal_layout<logical_shape = 32x32, dim_alignments = 32x32, collapsed_intervals
 // CHECK-SAME: l1
@@ -273,5 +272,4 @@ func.func @test_lower_block_sharded_l1_12(
   // CHECK: return %[[CAST2]] : tensor<1x8x32x256xbf16, #ttnn_layout12>
   return %1 : tensor<1x8x32x256xbf16, #ttnn_layout12>
   }
-
 }
