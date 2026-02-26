@@ -203,12 +203,10 @@ SmallVector<int64_t> getPhysicalGridShape(Value tensorOrMemref) {
     if (auto *definingOp = tensorOrMemref.getDefiningOp()) {
       ttcore::DeviceAttr device = ttcore::lookupDevice(definingOp);
       auto workerGridShape = device.getWorkerGrid().getShape();
-      // If the grid fits directly on the device, the physical grid shape
-      // equals the virtual grid shape — no volume factorization needed.
-      if (!ttmlir::d2m::utils::grids::requiresVirtualGrid(gridShape,
-                                                          workerGridShape)) {
-        return SmallVector<int64_t>(gridShape.begin(), gridShape.end());
-      }
+      // The presence of a VGM means this grid IS virtual — always derive
+      // the physical grid from it, even if the virtual grid dimensions
+      // happen to fit within device bounds (e.g., height_sharded 8x1 on
+      // an 8x8 device still needs VGM because its physical cores are 2x4).
       return ttmlir::d2m::utils::grids::getPhysicalGridExtent(gridShape,
                                                               workerGridShape);
     }

@@ -3153,8 +3153,8 @@ mlir::LogicalResult mlir::tt::ttir::TTNNMetalLayoutCastOp::bufferize(
     if (failed(maybeInputBuf)) {
       return maybeInputBuf;
     }
-    rewriter.replaceOpWithNewOp<TTNNMetalLayoutCastOp>(*this, outputTensor,
-                                                       *maybeInputBuf);
+    rewriter.replaceOpWithNewOp<TTNNMetalLayoutCastOp>(
+        *this, outputTensor, *maybeInputBuf, getVirtualGridMappingAttr());
   } else if (mlir::isa<mlir::tt::ttcore::MetalLayoutAttr>(outputEncoding)) {
     // ttnn_layout -> metal_layout becomes ttnn_layout -> memref
     bool isTTNNLayout =
@@ -3169,7 +3169,8 @@ mlir::LogicalResult mlir::tt::ttir::TTNNMetalLayoutCastOp::bufferize(
     }
     MemRefType outputMemrefType = mlir::cast<mlir::MemRefType>(*bufferType);
     mlir::bufferization::replaceOpWithNewBufferizedOp<TTNNMetalLayoutCastOp>(
-        rewriter, *this, outputMemrefType, getInput());
+        rewriter, *this, outputMemrefType, getInput(),
+        getVirtualGridMappingAttr());
 
   } else {
     return emitOpError("Neither input or output uses metal_layout");

@@ -8,6 +8,7 @@
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/Analysis/Allocation/Planner.h"
 #include "ttmlir/Dialect/D2M/Analysis/Allocation/Utils.h"
+#include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Utils.h"
@@ -1150,10 +1151,10 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
 
     llvm::DenseSet<Operation *> visited;
     for (const auto &[genericOp, genericCtx] : analysis.generics) {
-      if (genericCtx.isDMAOnly) {
-        // Generics in "DMA only" form do not use streams.
-        continue;
-      }
+      // Note: DMA-only generics are not skipped here. When VGMs differ
+      // between input and output operands, inferStreamRequirement will have
+      // requested a stream during planning, and we must insert it here to
+      // preserve data movement semantics.
       if (genericCtx.isExplicitDatamovement) {
         // Generics in "explicit datamovement" form manage their own
         // streams which should already be present in the incoming IR.
@@ -1272,18 +1273,18 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         TT_assert(cbType != nullptr);
         Type cbUnderlyingType = cbType.getUnderlying();
 
-        // Check if a stream was inserted for this operand during this pass
-        if (!operandCtx.hasStream &&
-            (useAlwaysStreamPolicy() ||
-             inferStreamRequirement(genericOp, operandCtx.operandIndex(),
-                                    operandMemSpace))) {
-          if (!(operandCtx.isOutput && !allowL1OutputSpilling &&
-                operandMemSpace != MemorySpace::DeviceDRAM)) {
+        // Check if a stream was inserted for this operand during this pass.
+        // Use preStreamOperandValues (populated during insertion above) rather
+        // than re-calling inferStreamRequirement, because the operand value
+        // may have changed post-insertion (e.g., VGM tracing through a new
+        // StreamLayoutOp reaches the storage alloc instead of the original
+        // defining op).
+        auto preStreamIt =
+            preStreamOperandValues.find(operandCtx.operandIndex());
+        if (preStreamIt != preStreamOperandValues.end()) {
+          if (!(operandCtx.isOutput && !allowL1OutputSpilling)) {
             // Use the pre-stream operand value as the key, since that's what
             // remote_load/store ops reference.
-            auto preStreamIt =
-                preStreamOperandValues.find(operandCtx.operandIndex());
-            TT_assert(preStreamIt != preStreamOperandValues.end());
             Value oldOperandValue = preStreamIt->second;
             operandReplaceMap[oldOperandValue] = operandCtx.operand->get();
             operandCBTypeMap[oldOperandValue] = cbUnderlyingType;
@@ -1501,6 +1502,41 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         return true;
       }
     };
+
+    // Check if this input operand has a different virtual grid mapping than
+    // the output. Different VGMs indicate a shard strategy change (e.g.,
+    // height_sharded -> block_sharded) that requires actual data movement
+    // even when the MetalLayoutAttr types are identical.
+    //
+    // Skip this check for DRAM operands: DRAM is already treated as "remote"
+    // by simplifyLoadStorePairs, so the copy's data movement is preserved
+    // without needing a stream.
+    unsigned numInputs = genericOp.getNumDpsInputs();
+    if (operandIndex < numInputs) {
+      Value inputOperand = genericOp->getOperand(operandIndex);
+
+      // Check if input is in DRAM — if so, no stream needed for VGM reasons.
+      bool inputIsDRAM = false;
+      if (auto memref = mlir::dyn_cast<MemRefType>(inputOperand.getType())) {
+        if (auto memSpaceAttr =
+                mlir::dyn_cast_if_present<ttcore::MemorySpaceAttr>(
+                    memref.getMemorySpace())) {
+          inputIsDRAM =
+              memSpaceAttr.getValue() == ttcore::MemorySpace::DeviceDRAM;
+        }
+      }
+
+      if (!inputIsDRAM) {
+        auto inputVGM = d2m::utils::getVirtualGridMapping(inputOperand);
+        for (unsigned i = numInputs; i < genericOp->getNumOperands(); ++i) {
+          auto outputVGM =
+              d2m::utils::getVirtualGridMapping(genericOp->getOperand(i));
+          if (inputVGM != outputVGM) {
+            return true;
+          }
+        }
+      }
+    }
 
     return false;
   }

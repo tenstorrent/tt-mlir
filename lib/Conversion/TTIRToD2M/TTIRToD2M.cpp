@@ -221,6 +221,30 @@ protected:
       auto metalCastOp = rewriter.create<ttir::TTNNMetalLayoutCastOp>(
           value.getLoc(), metalTensorType, value);
 
+      // Propagate virtualGridMapping for height/width sharded TTNN layouts
+      // so that downstream passes (GenericOp::build, flatbuffer emission)
+      // can discover the virtual-to-physical core mapping.
+      auto inputEncoding =
+          mlir::cast<RankedTensorType>(value.getType()).getEncoding();
+      if (auto ttnnLayout =
+              mlir::dyn_cast_if_present<ttnn::TTNNLayoutAttr>(inputEncoding)) {
+        auto memLayout = ttnnLayout.getMemLayout().getValue();
+        if (memLayout == ttnn::TensorMemoryLayout::HeightSharded ||
+            memLayout == ttnn::TensorMemoryLayout::WidthSharded) {
+          llvm::SmallVector<int64_t> ttnnGridShape(
+              ttnnLayout.getGrid().getShape());
+          llvm::SmallVector<int64_t> virtualGrid;
+          if (memLayout == ttnn::TensorMemoryLayout::HeightSharded) {
+            virtualGrid = {ttnnGridShape[0] * ttnnGridShape[1], 1};
+          } else {
+            virtualGrid = {1, ttnnGridShape[0] * ttnnGridShape[1]};
+          }
+          auto [_, inverseMap] = ttmlir::d2m::utils::grids::createCoreVirtMaps(
+              rewriter.getContext(), virtualGrid, ttnnGridShape);
+          metalCastOp.setVirtualGridMappingAttr(AffineMapAttr::get(inverseMap));
+        }
+      }
+
       ttcore::MemorySpace metalTensorMemSpace =
           mlir::cast<ttcore::MetalLayoutAttr>(metalTensorType.getEncoding())
               .getMemorySpace();
