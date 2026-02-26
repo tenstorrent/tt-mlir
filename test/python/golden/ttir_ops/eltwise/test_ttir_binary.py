@@ -220,8 +220,6 @@ def test_binary_ops(
         **get_request_kwargs(request),
         target=target,
         device=device,
-        save_artifacts=True,
-        print_ir=True,
         pipeline_options=pipeline_options,
     )
 

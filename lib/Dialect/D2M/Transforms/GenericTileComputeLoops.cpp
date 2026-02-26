@@ -182,22 +182,6 @@ struct D2MGenericComputeRewriter : public OpRewritePattern<linalg::GenericOp> {
 
   LogicalResult matchAndRewrite(linalg::GenericOp op,
                                 PatternRewriter &rewriter) const final {
-    // Current limita'tion: we only check the output's shape during DST
-    // subblocking optimization, ignoring other operands that might reside in
-    // the DST and so could lead to overflows.
-    //
-    // Be conservative: disable loop subblocking if any of the compute op loads
-    // more than one DST operand, or isn't in-place w.r.t. DST operands.
-    bool optimizeSubblocking = true;
-    // op.getRegion().walk([&](OperandLoadStoreRegisterOpInterface computeOp) {
-    //   optimizeSubblocking = optimizeSubblocking &&
-    //   computeOp.getDstRegInPlace(); optimizeSubblocking =
-    //       optimizeSubblocking &&
-    //       (computeOp.getOperandsLoadFromDstRegister().size() == 1);
-    //   return optimizeSubblocking ? WalkResult::advance()
-    //                              : WalkResult::interrupt();
-    // });
-
     TT_assert(op.getRegion().hasOneBlock());
     TT_assertv(op.getOutputs().size() == 1u,
                "Only one output tensor is supported");
@@ -209,16 +193,14 @@ struct D2MGenericComputeRewriter : public OpRewritePattern<linalg::GenericOp> {
         ttcore::getOpChipDescAttr(op).getDstLogicalSizeTiles(
             largestDstType, false, maxDstPhysicalSizeTiles);
 
-    // Phase 1 always tiles to 2x DST capacity (creates outer scratch_space_loop
-    // with 2 iterations)
+    // Phase 1 always tiles to 2x DST capacity (when two-phase tiling is
+    // enabled)
     SmallVector<int64_t> subblockSizes(outputTensor.getShape().size(),
                                        enableTwoPhaseDestTiling ? 2 : 1);
     unsigned dstCapacity = baseDstCapacity * (enableTwoPhaseDestTiling ? 2 : 1);
-    if (optimizeSubblocking) {
-      subblockSizes = calculateOptimalSubblockSizes(
-          op.getIndexingMapsArray(), op.getInputs(), outputTensor.getShape(),
-          dstCapacity);
-    }
+    subblockSizes =
+        calculateOptimalSubblockSizes(op.getIndexingMapsArray(), op.getInputs(),
+                                      outputTensor.getShape(), dstCapacity);
 
     linalg::LinalgTilingOptions tilingOptions;
     tilingOptions.setTileSizes(subblockSizes);
@@ -233,15 +215,12 @@ struct D2MGenericComputeRewriter : public OpRewritePattern<linalg::GenericOp> {
       return failure();
     }
 
-    llvm::errs() << "phase 1 tiledGeneric: \n";
-    tiledGeneric.value().op->dump();
-
     // Phase 2: If two-phase tiling is enabled, tile the inner linalg.generic
     // based on the compute op type:
     // - FPU/SFPU unary: tile to 1×DST (1 inner iteration, 2 total)
     // - SFPU binary: tile to 1/2×DST (2 inner iterations, 4 total)
     // - SFPU ternary: tile to 1/4×DST (4 inner iterations, 8 total)
-    if (enableTwoPhaseDestTiling && optimizeSubblocking) {
+    if (enableTwoPhaseDestTiling) {
       auto innerOp =
           dyn_cast<linalg::GenericOp>(tiledGeneric.value().op.getOperation());
       if (!innerOp) {

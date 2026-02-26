@@ -163,7 +163,7 @@ def TileOrScalar : AnyTypeOf<[TTCore_Tile, AnyFloat, AnyInteger]>;
 def D2M_TileAddOp : D2M_GenericRegionComputeFPUOrSFPUBinary<"tile_add", [Pure]> {
     let summary = "D2M Tile Add Op";
     let description = [{
-        The `tile_add` operation adds two tiles element-wise on the FPU,
+        The `tile_add` operation adds two tiles element-wise on the FPU (or SFPU if one of the operands is a float32),
         or adds a scalar value to each element in the input tile if rhs is a scalar (SFPU path).
     }];
 
@@ -173,10 +173,10 @@ def D2M_TileAddOp : D2M_GenericRegionComputeFPUOrSFPUBinary<"tile_add", [Pure]> 
     let hasFolder = 1;
 }
 
-def D2M_TileSubOp : D2M_GenericRegionComputeFPUOrSFPUBinary<"tile_sub", [Pure, D2M_SkipOpEltwiseFusionTrait]> {
+def D2M_TileSubOp : D2M_GenericRegionComputeFPUOrSFPUBinary<"tile_sub", [Pure]> {
     let summary = "D2M Tile Sub Op";
     let description = [{
-        The `tile_sub` operation subtracts two tiles element-wise on the FPU,
+        The `tile_sub` operation subtracts two tiles element-wise on the FPU (or SFPU if one of the operands is a float32),
         or subtracts a scalar value from each element in the input tile if rhs is a scalar (SFPU path).
     }];
 
@@ -186,10 +186,10 @@ def D2M_TileSubOp : D2M_GenericRegionComputeFPUOrSFPUBinary<"tile_sub", [Pure, D
     let hasFolder = 1;
 }
 
-def D2M_TileMulOp : D2M_GenericRegionComputeFPUOrSFPUBinary<"tile_mul", [Pure, D2M_SkipOpEltwiseFusionTrait]> {
+def D2M_TileMulOp : D2M_GenericRegionComputeFPUOrSFPUBinary<"tile_mul", [Pure]> {
     let summary = "D2M Tile Mul Op";
     let description = [{
-        The `tile_mul` operation multiplies two tiles element-wise on the FPU,
+        The `tile_mul` operation multiplies two tiles element-wise on the FPU (or SFPU if one of the operands is a float32),
         or multiplies each element in the input tile by a scalar value if rhs is a scalar (SFPU path).
     }];
 
@@ -1778,7 +1778,6 @@ class D2M_CBOp<string mnemonic, list<Trait> traits = []> : D2M_GenericRegionOp<m
         mlir::Value value, const mlir::bufferization::BufferizationOptions &,
         const mlir::bufferization::BufferizationState &,
         ::llvm::SmallVector<mlir::Value> &) {
-      getOperation()->dump();
       llvm_unreachable("intentionally unimplemented, this op can only accept block arguments which should have already been converted");
     }
 
