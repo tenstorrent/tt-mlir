@@ -177,6 +177,14 @@ module attributes {} {
     // CHECK-SAME: value = dense_resource<dense_attr>
     return %0 : tensor<1x2xf64>
   }
+  func.func @test_constant_complex() -> tensor<1x2xcomplex<f32>> {
+    // CHECK: "ttnn.constant"
+    // CHECK-SAME: value = dense
+    // CHECK-SAME: [2.000000e+00, 0.000000e+00], [3.000000e+00, 0.000000e+00]
+    // CHECK-SAME: -> tensor<1x2x2xf32
+    %0 = "ttir.constant"() <{value = dense<[ [(2.0, 0.0), (3.0, 0.0)]]> : tensor<1x2xcomplex<f32>>}> : () -> tensor<1x2xcomplex<f32>>
+    return %0 : tensor<1x2xcomplex<f32>>
+  }
 }
 {-#
     dialect_resources: {

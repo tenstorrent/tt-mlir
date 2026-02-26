@@ -2677,10 +2677,45 @@ struct ComplexExtractDecompositionPattern : public OpConversionPattern<TTIROp> {
 };
 } // namespace
 
+// ConstantOp with complex element type:
+//   tensor<...xcomplex<fN>>  →  tensor<...x2xfN>
+// Extract real and imag APFloat components from the dense attr and interleave
+// them (real[i], imag[i]) into a new DenseElementsAttr with the converted type.
+namespace {
+struct ConstantComplexConversionPattern
+    : public OpConversionPattern<ttir::ConstantOp> {
+  using OpConversionPattern<ttir::ConstantOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::ConstantOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto resultType = mlir::cast<RankedTensorType>(op.getResult().getType());
+    if (!mlir::isa<mlir::ComplexType>(resultType.getElementType())) {
+      return rewriter.notifyMatchFailure(op, "not a complex element type");
+    }
+
+    auto newType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(resultType));
+    auto denseAttr = mlir::cast<DenseElementsAttr>(op.getValue());
+
+    SmallVector<APFloat> floatValues;
+    for (auto complexVal : denseAttr.getValues<std::complex<APFloat>>()) {
+      floatValues.push_back(complexVal.real());
+      floatValues.push_back(complexVal.imag());
+    }
+
+    auto newAttr = DenseElementsAttr::get(newType, floatValues);
+    rewriter.replaceOpWithNewOp<ttir::ConstantOp>(op, newType, newAttr);
+    return success();
+  }
+};
+} // namespace
+
 void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
                                              RewritePatternSet &patterns,
                                              TypeConverter &typeConverter,
                                              DecompMode decompConfig) {
+  patterns.add<ConstantComplexConversionPattern>(typeConverter, ctx);
   patterns.add<StablehloComplexToComplexPattern>(typeConverter, ctx);
   patterns.add<StablehloRealToRealPattern>(typeConverter, ctx);
   patterns.add<StablehloImagToImagPattern>(typeConverter, ctx);

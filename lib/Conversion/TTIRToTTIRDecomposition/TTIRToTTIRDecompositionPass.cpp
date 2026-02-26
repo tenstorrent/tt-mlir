@@ -42,6 +42,10 @@ struct TTIRToTTIRDecompositionPass
     target.addLegalDialect<mlir::func::FuncDialect>();
     target.addLegalDialect<BuiltinDialect>();
     target.addLegalOp<ttir::EmptyOp>();
+    target.addDynamicallyLegalOp<ttir::ConstantOp>([](ttir::ConstantOp op) {
+      auto resultType = mlir::cast<RankedTensorType>(op.getResult().getType());
+      return !mlir::isa<mlir::ComplexType>(resultType.getElementType());
+    });
     target.addIllegalOp<ttir::StablehloComplexOp>();
     target.addIllegalOp<ttir::StablehloRealOp>();
     target.addIllegalOp<ttir::StablehloImagOp>();
