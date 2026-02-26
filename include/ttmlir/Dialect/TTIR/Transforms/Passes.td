@@ -323,6 +323,26 @@ def TTIRDecomposeComplexReshape: Pass<"ttir-decompose-complex-reshape", "::mlir:
   }];
 }
 
+def TTIRReductionForceKeepDim: Pass<"ttir-reduction-force-keep-dim", "::mlir::ModuleOp">
+{
+  let summary = "Force all reductions to use keep_dim=true.";
+  let description = [{
+    This pass converts all reduction operations with keep_dim=false to
+    keep_dim=true, inserting a reshape after the reduction to restore the
+    original output shape.
+
+    Example:
+      Before:
+        %0 = "ttir.sum"(%input) {dim_arg = [1], keep_dim = false} : (tensor<2x3x4xf32>) -> tensor<2x4xf32>
+
+      After:
+        %0 = "ttir.sum"(%input) {dim_arg = [1], keep_dim = true} : (tensor<2x3x4xf32>) -> tensor<2x1x4xf32>
+        %1 = "ttir.reshape"(%0) <{shape = [2, 4]}> : (tensor<2x1x4xf32>) -> tensor<2x4xf32>
+  }];
+
+  let dependentDialects = ["mlir::tt::ttir::TTIRDialect"];
+}
+
 def TTIRMultiDeviceTensorAnnotation: Pass<"ttir-multi-device-tensor-annotation", "::mlir::ModuleOp">
 {
   let summary = "TTIR multi-device tensor annotation pass.";
