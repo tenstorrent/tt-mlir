@@ -7399,7 +7399,8 @@ llvm::Expected<OpConstraints> OpModel<TopKOp>::getOpConstraints(
     return ::ttnn::graph::query_op_constraints(
         ::ttnn::topk, device, inputSpec, static_cast<uint32_t>(k),
         static_cast<int8_t>(dim), largest, sorted,
-        detail::getNullableMemoryConfig(outputLayout));
+        detail::getNullableMemoryConfig(outputLayout), std::nullopt,
+        std::nullopt, std::nullopt);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
@@ -7429,7 +7430,8 @@ llvm::Expected<size_t> OpModel<TopKOp>::getOpRuntime(
     return ::ttnn::graph::query_op_runtime(
         ::ttnn::topk, device, inputSpec, static_cast<uint32_t>(k),
         static_cast<int8_t>(dim), largest, sorted,
-        detail::getNullableMemoryConfig(outputLayout));
+        detail::getNullableMemoryConfig(outputLayout), std::nullopt,
+        std::nullopt, std::nullopt);
   };
 
   return operation::getOpRuntime(topKQuery);

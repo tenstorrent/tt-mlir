@@ -6508,7 +6508,7 @@ public:
 } // namespace
 
 namespace {
-// Patter to convert mhlo.topk to ttir.topk
+// Pattern to convert mhlo.topk to ttir.topk
 class StableHLOTopKOpMHLOConversionPattern
     : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
   using OpConversionPattern<mlir::stablehlo::CustomCallOp>::OpConversionPattern;

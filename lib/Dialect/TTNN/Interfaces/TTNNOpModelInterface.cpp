@@ -4866,7 +4866,7 @@ D2MSubgraphOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 llvm::Expected<size_t>
 D2MSubgraphOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
                             const OpConfig &opConfig) {
-    auto func = getD2MMainFunc();
+  auto func = getD2MMainFunc();
   assert(func && "D2MSubgraphOp must have a D2M function");
   auto &body = func.getBody();
   assert(body.hasOneBlock() && "D2M function must have one block");

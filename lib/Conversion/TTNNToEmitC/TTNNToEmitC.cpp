@@ -4514,7 +4514,8 @@ public:
         emitter.emit(srcOp.getDim()),
         emitter.emit(srcOp.getLargest()),
         emitter.emit(srcOp.getSorted()),
-        srcOp.getMemoryConfig() | emitter.getMemoryConfig(srcOp.getValues()),
+        emitter.emit(srcOp.getMemoryConfig()) |
+            emitter.getMemoryConfig(srcOp.getValues()),
     };
 
     emitter.replaceOp(*this, args);
