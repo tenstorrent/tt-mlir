@@ -6530,7 +6530,7 @@ public:
     }
     auto input = adaptor.getOperands()[0];
     IntegerAttr dimAttr = IntegerAttr::get(rewriter.getIntegerType(32), -1);
-    auto sortedAttr = BoolAttr::get(rewriter.getContext(), true);
+    auto sortedAttr = BoolAttr::get(rewriter.getContext(), false);
 
     auto dictAttr = mlir::dyn_cast_or_null<mlir::DictionaryAttr>(
         srcOp->getDiscardableAttr("mhlo.attributes"));
