@@ -1904,3 +1904,106 @@ def test_broadcast_ops(
         target=target,
         device=device,
     )
+
+
+################ Quantization Operations Tests ###############
+
+
+def module_uniform_quantize(builder: StableHLOBuilder):
+    @builder.func([(32, 32)], [torch.float32])
+    def uniform_quantize(
+        in0: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.uniform_quantize(
+            in0, scale=0.1, zero_point=128, dtype=torch.qint8, unit_attrs=unit_attrs
+        )
+
+
+def module_uniform_dequantize(builder: StableHLOBuilder):
+    @builder.func([(32, 32)], [torch.qint8])
+    def uniform_dequantize(
+        in0: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.uniform_dequantize(in0, unit_attrs=unit_attrs)
+
+
+@pytest.mark.parametrize(
+    "shape,scale,zero_point",
+    [
+        ((16, 16), 0.1, 128),
+        ((32, 32), 0.05, 0),
+        ((8, 8, 8), 0.01, 64),
+    ],
+    ids=["2d_basic", "2d_zero_centered", "3d_tensor"],
+)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_uniform_quantize(
+    shape: Shape,
+    scale: float,
+    zero_point: int,
+    dtype: torch.dtype,
+    target: str,
+    request,
+    device,
+):
+    """Test uniform_quantize operation with various shapes and quantization params"""
+
+    def module(builder: StableHLOBuilder):
+        @builder.func([shape], [dtype])
+        def uniform_quantize(
+            in0: Operand,
+            builder: StableHLOBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            builder.set_graph_level_check(True)
+            return builder.uniform_quantize(
+                in0, scale=scale, zero_point=zero_point, dtype=torch.qint8
+            )
+
+    compile_and_execute_shlo(
+        module,
+        test_base=request.node.name,
+        target=target,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        device=device,
+    )
+
+
+@pytest.mark.parametrize("shape", [(16, 16), (32, 32), (8, 8, 8)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.qint8], ids=["qint8"])
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_uniform_dequantize(
+    shape: Shape,
+    dtype: torch.dtype,
+    target: str,
+    request,
+    device,
+):
+    """Test uniform_dequantize operation with various shapes"""
+
+    def module(builder: StableHLOBuilder):
+        @builder.func([shape], [dtype])
+        def uniform_dequantize(
+            in0: Operand,
+            builder: StableHLOBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            builder.set_graph_level_check(True)
+            return builder.uniform_dequantize(in0)
+
+    compile_and_execute_shlo(
+        module,
+        test_base=request.node.name,
+        target=target,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        device=device,
+    )

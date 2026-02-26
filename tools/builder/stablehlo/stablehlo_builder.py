@@ -7567,6 +7567,346 @@ class StableHLOBuilder(Builder):
 
         return convolution_module, convolution_builder
 
+    ############### stablehlo.UniformDequantizeOp ###############
+
+    @tag(stablehlo.UniformDequantizeOp)
+    def uniform_dequantize(
+        self,
+        in0: Operand,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        """
+        Creates ``stablehlo.uniform_dequantize``.
+
+        *Dequantize a quantized tensor to a floating-point tensor.*
+
+        Performs element-wise conversion of quantized tensor `operand` to a
+        floating-point tensor `result` according to the quantization parameters
+        defined by the `operand` type.
+
+        More formally, `result = dequantize(operand)`.
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input quantized tensor
+        loc : *Optional[str]*
+            Optional location string for debugging
+        unit_attrs : *Optional[List[str]]*
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpResult*)
+            Dequantized floating-point tensor
+        """
+        stablehlo_op = self.get_opview_from_method(StableHLOBuilder.uniform_dequantize)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        # Get input golden tensor
+        input0 = self._get_golden_tensor(in0)
+
+        # Get output type from input's expressed type
+        op_golden_function = get_golden_function(stablehlo_op)
+        golden_output = op_golden_function(input0)
+        result_type = self._create_ranked_tensor_type(
+            golden_output.shape, golden_output.dtype
+        )
+
+        op = stablehlo_op(
+            result_type,
+            in0,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(stablehlo.UniformDequantizeOp)
+    def uniform_dequantize_parser(
+        self,
+        old_op: stablehlo.UniformDequantizeOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        stablehlo_op = self.get_opview_from_parser(
+            StableHLOBuilder.uniform_dequantize_parser
+        )
+        in0 = global_dict[old_op.operand]
+
+        result_type = old_op.result.type
+
+        new_op = stablehlo_op(
+            result_type,
+            in0,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            op_golden_function = get_golden_function(stablehlo_op)
+            golden_output = op_golden_function(input0)
+            self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(stablehlo.UniformDequantizeOp)
+    def uniform_dequantize_split(
+        self,
+        old_op: stablehlo.UniformDequantizeOp,
+    ) -> Tuple[Module, StableHLOBuilder]:
+        stablehlo_op = self.get_opview_from_split(
+            StableHLOBuilder.uniform_dequantize_split
+        )
+
+        old_context = old_op.context
+        old_loc = Location.unknown(old_context)
+        result_type = old_op.result.type
+
+        with old_context, old_loc:
+            dequant_module = Module.create()
+            dequant_builder = StableHLOBuilder(old_context, old_loc)
+            op_input_types = [old_op.operand.type]
+
+            with InsertionPoint(dequant_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="uniform_dequantize_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+
+                    new_op = stablehlo_op(result_type, in0, loc=old_op.location)
+                    new_op_result = new_op.result
+
+                    if not self._disable_golden_check:
+                        input0 = dequant_builder._get_golden_tensor(in0)
+                        op_golden_function = get_golden_function(stablehlo_op)
+                        golden_output = op_golden_function(input0)
+                        dequant_builder._set_golden_tensor(new_op_result, golden_output)
+                        dequant_builder._set_golden_tensor(in0, input0)
+                        ordered_inputs.append(in0)
+                        ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                dequant_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return dequant_module, dequant_builder
+
+    ############### stablehlo.UniformQuantizeOp ###############
+
+    @tag(stablehlo.UniformQuantizeOp)
+    def uniform_quantize(
+        self,
+        in0: Operand,
+        scale: float,
+        zero_point: int,
+        dtype: torch.dtype,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        """
+        Creates ``stablehlo.uniform_quantize``.
+
+        *Quantize a floating-point tensor to a quantized tensor.*
+
+        Performs element-wise conversion of floating-point tensor or quantized
+        tensor `operand` to a quantized tensor `result` according to the
+        quantization parameters defined by the `result` type.
+
+        More formally,
+        * If `is_float(operand)`:
+          * `result = quantize(operand, type(result))`.
+        * If `is_quantized(operand)`:
+          * `result = requantize(operand, type(result))`.
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input floating-point or quantized tensor
+        scale : float
+            Scale factor for quantization
+        zero_point : int
+            Zero point for quantization
+        dtype : torch.dtype
+            Target quantized data type (e.g., torch.int8)
+        loc : *Optional[str]*
+            Optional location string for debugging
+        unit_attrs : *Optional[List[str]]*
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpResult*)
+            Quantized tensor
+        """
+        stablehlo_op = self.get_opview_from_method(StableHLOBuilder.uniform_quantize)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        # Get input golden tensor
+        input0 = self._get_golden_tensor(in0)
+
+        # Compute golden output
+        op_golden_function = get_golden_function(stablehlo_op)
+        golden_output = op_golden_function(input0, scale, zero_point, dtype)
+
+        # Create quantized result type
+        result_type = self._get_type_from_torch_dtype(
+            dtype=dtype, scale=scale, zero_point=zero_point
+        )
+        result_tensor_type = self._create_ranked_tensor_type(
+            input0.shape, result_type
+        )
+
+        op = stablehlo_op(
+            result_tensor_type,
+            in0,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(stablehlo.UniformQuantizeOp)
+    def uniform_quantize_parser(
+        self,
+        old_op: stablehlo.UniformQuantizeOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        stablehlo_op = self.get_opview_from_parser(
+            StableHLOBuilder.uniform_quantize_parser
+        )
+        in0 = global_dict[old_op.operand]
+
+        result_type = old_op.result.type
+
+        new_op = stablehlo_op(result_type, in0, loc=old_op.location)
+        new_op_result = new_op.result
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            # Extract quantization params from result type for golden
+            op_golden_function = get_golden_function(stablehlo_op)
+            # Get scale, zero_point, dtype from the quantized result type
+            quant_type = result_type.element_type
+            if hasattr(quant_type, 'scale'):
+                scale = float(quant_type.scale)
+                zero_point = int(quant_type.zero_point)
+                # Determine dtype from storage type
+                storage_type = quant_type.storage_type
+                if storage_type.width == 8 and storage_type.isSigned:
+                    dtype = torch.qint8
+                elif storage_type.width == 8 and not storage_type.isSigned:
+                    dtype = torch.quint8
+                elif storage_type.width == 32:
+                    dtype = torch.qint32
+                else:
+                    dtype = torch.qint8  # default
+                golden_output = op_golden_function(input0, scale, zero_point, dtype)
+                self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(stablehlo.UniformQuantizeOp)
+    def uniform_quantize_split(
+        self,
+        old_op: stablehlo.UniformQuantizeOp,
+    ) -> Tuple[Module, StableHLOBuilder]:
+        stablehlo_op = self.get_opview_from_split(
+            StableHLOBuilder.uniform_quantize_split
+        )
+
+        old_context = old_op.context
+        old_loc = Location.unknown(old_context)
+        result_type = old_op.result.type
+
+        with old_context, old_loc:
+            quant_module = Module.create()
+            quant_builder = StableHLOBuilder(old_context, old_loc)
+            op_input_types = [old_op.operand.type]
+
+            with InsertionPoint(quant_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="uniform_quantize_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+
+                    new_op = stablehlo_op(result_type, in0, loc=old_op.location)
+                    new_op_result = new_op.result
+
+                    if not self._disable_golden_check:
+                        input0 = quant_builder._get_golden_tensor(in0)
+                        op_golden_function = get_golden_function(stablehlo_op)
+                        # Extract quantization params from result type
+                        quant_type = result_type.element_type
+                        if hasattr(quant_type, 'scale'):
+                            scale = float(quant_type.scale)
+                            zero_point = int(quant_type.zero_point)
+                            storage_type = quant_type.storage_type
+                            if storage_type.width == 8 and storage_type.isSigned:
+                                dtype = torch.qint8
+                            elif storage_type.width == 8 and not storage_type.isSigned:
+                                dtype = torch.quint8
+                            elif storage_type.width == 32:
+                                dtype = torch.qint32
+                            else:
+                                dtype = torch.qint8
+                            golden_output = op_golden_function(
+                                input0, scale, zero_point, dtype
+                            )
+                            quant_builder._set_golden_tensor(
+                                new_op_result, golden_output
+                            )
+                            quant_builder._set_golden_tensor(in0, input0)
+                            ordered_inputs.append(in0)
+                            ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                quant_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return quant_module, quant_builder
+
     def dot_general(
         self,
         in0: Operand,
