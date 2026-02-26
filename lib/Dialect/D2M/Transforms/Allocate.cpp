@@ -735,10 +735,8 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
           asOperand(operandCtx.root), memrefType, operandCtx.hasStream);
 
       Value operandValue = operandCtx.operand->get();
-      const bool isIgnoredOutput =
-          operandCtx.isOutput && !allowL1OutputSpilling;
 
-      if (isIgnoredOutput) {
+      if (isOperandExemptFromStreaming(operandCtx)) {
         // For now, disabled `allow-l1-output-spilling` also means
         // "don't insert streams but allow them in the incoming IR".
       } else {
@@ -1004,8 +1002,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
                   // DRAM outputs always need streams to write data back from
                   // L1 circular buffers to DRAM.
 
-                  if (operandCtx.isOutput && !allowL1OutputSpilling &&
-                      memspace != MemorySpace::DeviceDRAM) {
+                  if (isOperandExemptFromStreaming(operandCtx)) {
                     continue;
                   }
 
@@ -1210,8 +1207,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
               });
         }
 
-        if (operandCtx.isOutput && !allowL1OutputSpilling &&
-            remappedMemSpace != MemorySpace::DeviceDRAM) {
+        if (isOperandExemptFromStreaming(operandCtx)) {
           continue;
         }
 
@@ -1298,10 +1294,9 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
 
         if (!operandCtx.hasStream &&
             (useAlwaysStreamPolicy() ||
-             inferStreamRequirement(genericOp, operandCtx.operandIndex(),
+             inferStreamRequirement(genericOp, operandCtx,
                                     operandMemSpace))) {
-          if (!(operandCtx.isOutput && !allowL1OutputSpilling &&
-                operandMemSpace != MemorySpace::DeviceDRAM)) {
+          if (!isOperandExemptFromStreaming(operandCtx)) {
             auto preStreamIt =
                 preStreamOperandValues.find(operandCtx.operandIndex());
             if (preStreamIt != preStreamOperandValues.end()) {
@@ -1488,13 +1483,44 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     }
   }
 
+  /// Walk the operand's def chain and check if any ViewLayoutOp has a
+  /// non-identity affine map.
+  /// @return `true` if any ViewLayoutOp in the chain has a non-identity map.
+  static bool isNonTrivialView(const OperandContext &operandCtx) {
+    for (Operation *op : operandCtx.defChain) {
+      if (auto view = llvm::dyn_cast<d2m::ViewLayoutOp>(op)) {
+        if (!view.getRemapping().isIdentity()) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  /// @return `true` if `operandCtx` is an output that is exempt from stream
+  /// insertion. Currently, this is true for outputs when L1 output spilling is
+  /// disabled and the output is not a non-trivial view.
+  bool isOperandExemptFromStreaming(const OperandContext &operandCtx) {
+    if (isNonTrivialView(operandCtx)) {
+      return false;
+    }
+    return operandCtx.isOutput && !allowL1OutputSpilling  &&
+    ttcore::getMemorySpace(operandCtx.bufferType) != ttcore::MemorySpace::DeviceDRAM;
+  }
+
   /// @return `true` if `genericOp` requires a stream
   /// for operand @`operandIndex` based on the available indexing space
   /// information
   static bool inferStreamRequirement(d2m::GenericOp genericOp,
-                                     uint32_t operandIndex,
+                                     const OperandContext &operandCtx,
                                      MemorySpace memspace) {
     TT_debug(!genericOp.isExplicitDatamovementForm());
+
+    if (genericOp.isDMAOnlyForm()) {
+      return false;
+    }
+
+    const uint32_t operandIndex = operandCtx.operandIndex();
 
     // Scratch inputs (e.g., mask tiles) don't need streaming - they're
     // allocated locally and written to within the generic op.
@@ -1523,6 +1549,11 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         return true;
       }
     };
+
+    // Non-trivial views need a stream to represent the implied data movement.
+    if (isNonTrivialView(operandCtx)) {
+      return true;
+    }
 
     return false;
   }
