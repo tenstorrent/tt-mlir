@@ -14,10 +14,21 @@ table ReturnCommand {
 }
 
 table EnqueueProgramCommand {
-  buffers: [BufferRef];
+  arg_refs: [ArgRef];
   cbs: [CBRef];
   program: ProgramDesc;
   fabric_connection_config: tt.target.FabricConnectionConfig;
+}
+
+table CreateGlobalSemaphoreCommand {
+  ref: GlobalSemaphoreRef;
+  initial_value: uint32 = null;
+  core_range_set: [Dim2dRange];
+}
+
+table ResetGlobalSemaphoreCommand {
+  ref: GlobalSemaphoreRef;
+  value: uint32;
 }
 
 table EnqueueWriteBufferCommand {
@@ -82,6 +93,8 @@ union CommandType {
   EnqueueReadBufferCommand,
   CreateBufferCommand,
   DeallocateBufferCommand,
+  CreateGlobalSemaphoreCommand,
+  ResetGlobalSemaphoreCommand,
   EnqueueRecordEventCommand,
   EnqueueWaitForEventCommand,
   EventSynchronizeCommand,

@@ -58,6 +58,25 @@ static void rewriteCapturedDMAOperands(OpBuilder &builder, GenericOp generic,
   }
 }
 
+static void rewriteAdditionalArgOperands(OpBuilder &builder,
+                                         GenericOp generic) {
+  //  Get all uses of additional arg
+  //  operands that are not the generic operation itself.
+  for (auto [idx, operand] : llvm::enumerate(generic.getAdditionalArgs())) {
+    unsigned capturedOperandIndex = *getCapturedOperandIndex(generic, operand);
+    for (OpOperand &use : llvm::make_early_inc_range(operand.getUses())) {
+      if (use.getOwner() != generic.getOperation() &&
+          generic->isAncestor(use.getOwner())) {
+        builder.setInsertionPoint(use.getOwner());
+        //  And insert a get_global_operand op where the generic operand is being used.
+        auto globalOperand = builder.create<GetGlobalOperandOp>(
+            use.getOwner()->getLoc(), operand.getType(), capturedOperandIndex);
+        use.set(globalOperand.getResult());
+      }
+    }
+  }
+}
+
 namespace {
 class D2MGenericRegionsToFuncs
     : public impl::D2MGenericRegionsToFuncsBase<D2MGenericRegionsToFuncs> {
@@ -73,6 +92,7 @@ public:
       generic.walk([&](DMAOpInterface dma) {
         rewriteCapturedDMAOperands(builder, generic, dma);
       });
+      rewriteAdditionalArgOperands(builder, generic);
 
       SmallVector<Attribute> threads;
       for (Region &region : generic.getRegions()) {
@@ -108,9 +128,10 @@ public:
       builder.setInsertionPoint(generic);
       auto symbolicGeneric = builder.create<GenericOp>(
           generic->getLoc(), generic.getResultTypes(), generic.getInputs(),
-          generic.getOutputs(), generic.getGrid(), generic.getBlockFactors(),
-          generic.getIndexingMaps(), generic.getIteratorTypes(),
-          builder.getArrayAttr(threads), generic.getScratchInputsAttr(),
+          generic.getOutputs(), generic.getAdditionalArgs(), generic.getGrid(),
+          generic.getBlockFactors(), generic.getIndexingMaps(),
+          generic.getIteratorTypes(), builder.getArrayAttr(threads),
+          generic.getScratchInputsAttr(),
           /*numRegions*/ 0);
 
       generic.replaceAllUsesWith(symbolicGeneric);

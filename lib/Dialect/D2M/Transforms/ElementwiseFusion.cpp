@@ -264,6 +264,7 @@ static GenericOp createFusedGeneric(OpOperand *fusedOperand, GenericOp producer,
                                     GenericOp consumer,
                                     SmallVector<Value> &fusedInputs,
                                     SmallVector<Value> &fusedOutputs,
+                                    SmallVector<Value> &mergedAdditionalArgs,
                                     SmallVector<AffineMap> &fusedMaps,
                                     PatternRewriter &rewriter) {
   /////////////////////////////////////////////////////////////////////////////
@@ -273,7 +274,7 @@ static GenericOp createFusedGeneric(OpOperand *fusedOperand, GenericOp producer,
 
   auto fusedOp = rewriter.create<GenericOp>(
       consumer.getLoc(), fusedResultTypes, fusedInputs, fusedOutputs,
-      consumer.getGrid(), consumer.getBlockFactors(),
+      mergedAdditionalArgs, consumer.getGrid(), consumer.getBlockFactors(),
       rewriter.getAffineMapArrayAttr(fusedMaps), consumer.getIteratorTypes(),
       consumer.getThreads(), consumer.getScratchInputsAttr(), /*regions=*/1);
 
@@ -578,10 +579,12 @@ struct FuseD2MElementwiseOpsPattern : public OpRewritePattern<GenericOp> {
     // Build fused op operands, maps, results
     auto [fusedInputs, fusedOutputs, fusedMaps] =
         getFusedOperands(fusedOperand, producer, consumer);
+    auto mergedCaptures = llvm::to_vector(llvm::concat<Value>(
+        consumer.getAdditionalArgs(), producer.getAdditionalArgs()));
 
     auto fusedOp =
         createFusedGeneric(fusedOperand, producer, consumer, fusedInputs,
-                           fusedOutputs, fusedMaps, rewriter);
+                           fusedOutputs, mergedCaptures, fusedMaps, rewriter);
 
     // Replace uses: from producer and consumer results to fused results.
     int resIdx = 0;

@@ -806,7 +806,8 @@ private:
 
     // Create 'd2m.generic' accepting 'op's operands.
     auto generic = rewriter.create<d2m::GenericOp>(
-        loc, inputs, outputs, rewriter.getAffineMapArrayAttr(indexingMaps),
+        loc, inputs, outputs, /*additionalArgs=*/ValueRange(),
+        rewriter.getAffineMapArrayAttr(indexingMaps),
         rewriter.getArrayAttr(iteratorTypes));
 
     // Create one bb in 'generic''s region and set its arguments.
@@ -971,7 +972,8 @@ private:
 
     // Create 'd2m.generic' accepting extended operands.
     auto generic = rewriter.create<d2m::GenericOp>(
-        loc, inputs, outputs, rewriter.getAffineMapArrayAttr(indexingMaps),
+        loc, inputs, outputs, /*additionalArgs=*/ValueRange(),
+        rewriter.getAffineMapArrayAttr(indexingMaps),
         rewriter.getArrayAttr(iteratorTypes));
 
     // Create one bb in 'generic''s region and set its arguments.
@@ -1257,7 +1259,8 @@ private:
 
     // Create 'd2m.generic' accepting 'op's operands.
     auto generic = rewriter.create<d2m::GenericOp>(
-        loc, inputs, outputs, rewriter.getAffineMapArrayAttr(indexingMaps),
+        loc, inputs, outputs, /*additionalArgs=*/ValueRange(),
+        rewriter.getAffineMapArrayAttr(indexingMaps),
         rewriter.getArrayAttr(iteratorTypes));
 
     // Create one bb in 'generic''s region and set its arguments.
@@ -1573,7 +1576,7 @@ public:
     Value outputOperand = outputs[0];
 
     auto generic = rewriter.create<d2m::GenericOp>(
-        loc, inputs, outputs,
+        loc, inputs, outputs, /*additionalArgs=*/ValueRange(),
         [&, inputOperand, outputOperand](OpBuilder &builder, Location bodyLoc,
                                          ValueRange blockArgs) {
           assert(blockArgs.size() == 2);
@@ -1946,7 +1949,7 @@ public:
 
     SmallVector<Value> genericInputs = {indexTileTensor};
     auto generic = rewriter.create<d2m::GenericOp>(
-        loc, genericInputs, outputs,
+        loc, genericInputs, outputs, /*additionalArgs=*/ValueRange(),
         rewriter.getAffineMapArrayAttr(indexingMaps),
         rewriter.getArrayAttr(iteratorTypes));
 
