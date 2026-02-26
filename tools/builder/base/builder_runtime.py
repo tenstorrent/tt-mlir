@@ -839,8 +839,9 @@ def execute_fb(
                 ),
             )
             num_shards = 1
-            if fbb.file_identifier != "TTM0":
-                num_shards = tt_runtime.runtime.get_num_shards(runtime_outputs[i])
+            # if fbb.file_identifier != "TTM0":
+            num_shards = tt_runtime.runtime.get_num_shards(runtime_outputs[i])
+            print("NUMSHARDS", num_shards)
             outputs_torch.append(
                 {shard_id: torch_tensor for shard_id in range(num_shards)}
             )

@@ -105,9 +105,7 @@ uint32_t getNumShards(Tensor tensor) {
   return DISPATCH_TO_CURRENT_RUNTIME(
       RetType,
       [&]() -> RetType { return ::tt::runtime::ttnn::getNumShards(tensor); },
-      [&]() -> RetType {
-        fatalNotImplemented("getNumShards", DeviceRuntime::TTMetal);
-      },
+      [&]() -> RetType { return ::tt::runtime::ttmetal::getNumShards(tensor); },
       [&]() -> RetType {
         fatalNotImplemented("getNumShards", HostRuntime::Distributed);
       });

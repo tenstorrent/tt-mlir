@@ -511,6 +511,23 @@ void wait(const std::vector<Tensor> &tensors, std::optional<uint8_t> cqId) {
   }
 }
 
+uint32_t getNumShards(Tensor tensor) {
+  return std::visit(
+      utils::overloaded{
+          [&](const TensorDesc &) -> uint32_t { return 1; },
+          [&](const HostBuffer &) -> uint32_t { return 1; },
+          [&](const DistributedHostBuffer &buffer) -> uint32_t {
+            // Count populated shards.
+            return static_cast<uint32_t>(buffer->shard_coords().size());
+          },
+          [&](const MeshBuffer &buffer) -> uint32_t {
+            // MeshBuffer spans the full mesh shape.
+            return static_cast<uint32_t>(buffer->device()->shape().mesh_size());
+          },
+      },
+      tensor.as<MetalTensor>(DeviceRuntime::TTMetal));
+}
+
 std::vector<Tensor> toHost(Tensor tensor, bool untilize, bool blocking) {
   ::tt::runtime::ttmetal::wait(tensor);
   std::visit(utils::overloaded{
