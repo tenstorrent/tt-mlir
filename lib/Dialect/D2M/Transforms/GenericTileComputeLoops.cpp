@@ -264,70 +264,65 @@ struct D2MGenericComputeRewriter : public OpRewritePattern<linalg::GenericOp> {
 
       linalg::LinalgTilingOptions phase2TilingOptions;
       phase2TilingOptions.setTileSizes(phase2SubblockSizes);
-      // Note: AffineLoops has known issues where TiledLinalgOp::loops may be
-      // empty and the inner linalg shape may not be reduced. Using SCF loops
-      // instead ensures correct tiling behavior. The scf.for IVs will later be
-      // converted to affine-compatible indices as needed.
+      // Note: linalg::LinalgTilingLoopType::AffineLoops has known issues where
+      // TiledLinalgOp::loops may be empty and the inner linalg shape may not
+      // be reduced. Using SCF loops and converting to affine immediately after
+      // ensures correct tiling behavior with affine-compatible IVs.
       FailureOr<linalg::TiledLinalgOp> phase2TiledGeneric =
           linalg::tileLinalgOp(rewriter, innerOp, phase2TilingOptions);
       if (failed(phase2TiledGeneric)) {
         return failure();
       }
 
-      // Erase the intermediate linalg.generic from phase 1 - it has been
-      // replaced by the tiled version from phase 2.
       rewriter.eraseOp(innerOp);
 
-      // Tag the outermost loop from phase 2 tiling with d2m.scratch_space_loop
-      // attribute for downstream passes (e.g., fission, scratch allocation).
-      // Also convert the SCF loop to an affine loop so its IV can be used with
-      // affine.store/load operations.
+      // Convert all phase 2 SCF loops to affine.for so their IVs are usable
+      // with affine.store/load in downstream scratch allocation. Tag the
+      // outermost loop with d2m.scratch_space_loop for downstream passes.
       if (!phase2TiledGeneric.value().loops.empty()) {
-        Operation *outermostScfLoop = phase2TiledGeneric.value().loops.front();
-        auto scfForOp = dyn_cast<scf::ForOp>(outermostScfLoop);
+        affine::AffineForOp outermostAffineLoop;
 
-        // Check if the scf.for has constant bounds
-        std::optional<int64_t> lbOpt, ubOpt, stepOpt;
-        if (scfForOp) {
-          lbOpt = getConstantIntValue(scfForOp.getLowerBound());
-          ubOpt = getConstantIntValue(scfForOp.getUpperBound());
-          stepOpt = getConstantIntValue(scfForOp.getStep());
-        }
+        for (Operation *loopOp : phase2TiledGeneric.value().loops) {
+          auto scfForOp = dyn_cast<scf::ForOp>(loopOp);
+          if (!scfForOp) {
+            continue;
+          }
 
-        if (scfForOp && lbOpt && ubOpt && stepOpt) {
-          // Convert scf.for to affine.for since it has constant bounds
-          int64_t lb = *lbOpt;
-          int64_t ub = *ubOpt;
-          int64_t step = *stepOpt;
+          auto lb = getConstantIntValue(scfForOp.getLowerBound());
+          auto ub = getConstantIntValue(scfForOp.getUpperBound());
+          auto step = getConstantIntValue(scfForOp.getStep());
+          if (!lb || !ub || !step) {
+            continue;
+          }
 
           rewriter.setInsertionPoint(scfForOp);
           auto affineForOp = rewriter.create<affine::AffineForOp>(
-              scfForOp.getLoc(), lb, ub, step);
+              scfForOp.getLoc(), *lb, *ub, *step);
 
-          // Move the body from scf.for to affine.for
           Block *scfBody = scfForOp.getBody();
           Block *affineBody = affineForOp.getBody();
 
-          // Replace uses of scf IV with affine IV
           scfBody->getArgument(0).replaceAllUsesWith(
-              affineBody->getArgument(0));
+              affineForOp.getInductionVar());
 
-          // Move operations (except terminator) from scf body to affine body
           auto &scfOps = scfBody->getOperations();
           auto &affineOps = affineBody->getOperations();
           affineOps.splice(affineOps.begin(), scfOps, scfOps.begin(),
                            std::prev(scfOps.end()));
 
-          // Set the scratch_space_loop attribute on the new affine.for
-          affineForOp->setAttr("d2m.scratch_space_loop",
-                               rewriter.getUnitAttr());
-
-          // Erase the old scf.for
           rewriter.eraseOp(scfForOp);
+
+          if (!outermostAffineLoop) {
+            outermostAffineLoop = affineForOp;
+          }
+        }
+
+        if (outermostAffineLoop) {
+          outermostAffineLoop->setAttr("d2m.scratch_space_loop",
+                                       rewriter.getUnitAttr());
         } else {
-          // Fallback: just set the attribute on the SCF loop
-          outermostScfLoop->setAttr("d2m.scratch_space_loop",
-                                    rewriter.getUnitAttr());
+          phase2TiledGeneric.value().loops.front()->setAttr(
+              "d2m.scratch_space_loop", rewriter.getUnitAttr());
         }
       }
 
