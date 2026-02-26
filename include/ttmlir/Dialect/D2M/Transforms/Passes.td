@@ -117,14 +117,14 @@ def D2MSFPUTileLoopFission : Pass<"d2m-sfpu-tile-loop-fission", "::mlir::ModuleO
 def D2MGenericTileComputeLoops : Pass<"d2m-generic-tile-compute-loops", "::mlir::ModuleOp"> {
   let summary = "Tile linalg.generic compute loops to fit DST register capacity.";
   let description = [{
-    This pass tiles linalg.generic compute loops according to DST register constraints.
+    This pass tiles linalg.generic compute loops according to fusion and DST register constraints.
 
     When `enableTwoPhaseDestTiling` is false (default):
       - Tiles to fit within 1×DST capacity (single-phase tiling)
 
     When `enableTwoPhaseDestTiling` is true:
-      - Phase 1: Tiles to fit within 2×DST capacity (outer loops)
-      - Phase 2: Tiles the inner linalg.generic to 1×DST (inner loop iterates 2×)
+      - Phase 1: Tiles to fit within 2×DST capacity
+      - Phase 2: Tiles the inner linalg.generic to 1×DST
 
     This two-phase approach is used for FPU fusion with L1 scratch spilling, where
     the inner loop processes 1×DST chunks and intermediate results are spilled
@@ -146,11 +146,11 @@ def D2MGenericTileComputeLoops : Pass<"d2m-generic-tile-compute-loops", "::mlir:
 }
 
 def D2MSpillAndScratch : Pass<"d2m-spill-and-scratch", "::mlir::ModuleOp"> {
-  let summary = "Replace intermediate allocations with scratch buffers for FPU fusion.";
+  let summary = "Replace intermediate allocations with scratch buffers for fusion.";
   let description = [{
     This pass transforms compute regions with multiple `d2m.scratch_space_loop` loop
-    nests to use scratch buffers for intermediate results instead of full-sized
-    L1 allocations. This enables efficient pipelining by keeping only a few iterations
+    nests to use scratch buffers for intermediate results.
+    This enables efficient pipelining by keeping only a few iterations
     worth of intermediate data alive at a time.
 
     The pass performs:
@@ -165,7 +165,6 @@ def D2MSpillAndScratch : Pass<"d2m-spill-and-scratch", "::mlir::ModuleOp"> {
        - Computes scratch buffer shape from loop structure:
          [scratch_space_iterations, inner_dim0, inner_dim1, ...]
        - Creates a `d2m.scratch_allocate` op with the computed shape
-       - The shape is NOT hardcoded but derived from the actual loop bounds
 
     4. **Store/Load Rewriting**: Updates stores and loads to use scratch buffer
        with full indices including the scratch_space_loop iterator:
