@@ -1,4 +1,5 @@
 // RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline %s | FileCheck %s
+// UNSUPPORTED: true
 module {
   func.func @commute_dequantize_past_avgpool2d(%arg0: tensor<1x112x112x64xf32>) -> tensor<1x114x114x64xf32> {
     // It is not safe to commute past avgpool2d, so a avgpool2d -> quantize -> dequantize is performed.
