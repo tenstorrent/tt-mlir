@@ -118,48 +118,13 @@ def all_close_check(result, golden_result, atol=1e-1, rtol=1e-1, debug=True):
     return all_close
 
 
-def create_torch_tensor(shape, dtype, value_range=None):
-    """Create a torch tensor of given `shape` and `dtype`.
-
-    If `value_range` is provided (tuple/list of two numbers), generated values
-    will be uniformly sampled in that inclusive range for floats and complex,
-    and integers sampled in [low, high] for integer dtypes.
-    """
-    if value_range is not None:
-        if not (
-            isinstance(value_range, (list, tuple))
-            and len(value_range) == 2
-            and all(isinstance(x, (int, float)) for x in value_range)
-        ):
-            raise ValueError(
-                "value_range must be a list or tuple of two numbers (low, high)"
-            )
+def create_torch_tensor(shape, dtype):
     if not (dtype.is_floating_point or dtype.is_complex):
-        # Integer tensor
-        if value_range is not None:
-            low, high = int(value_range[0]), int(value_range[1])
-            # torch.randint high is exclusive
-            torch_tensor = torch.randint(low, high + 1, shape, dtype=dtype)
-        else:
-            # recreate spatial coverage of fp [0,1] in randn and give some overflow headroom
-            high_val = torch.iinfo(dtype).max // 2
-            torch_tensor = torch.randint(high_val, shape, dtype=dtype)
+        # Integer tensor: recreate spatial coverage of fp [0,1] in randn and give some overflow headroom
+        high_val = torch.iinfo(dtype).max // 2
+        torch_tensor = torch.randint(high_val, shape, dtype=dtype)
     else:
-        # Floating-point or complex
-        if value_range is not None:
-            low, high = float(value_range[0]), float(value_range[1])
-            if dtype.is_complex:
-                # create real and imag parts and combine
-                real_dtype = (
-                    torch.float32 if dtype == torch.complex64 else torch.float64
-                )
-                real = torch.empty(shape, dtype=real_dtype).uniform_(low, high)
-                imag = torch.empty(shape, dtype=real_dtype).uniform_(low, high)
-                torch_tensor = torch.complex(real, imag).to(dtype)
-            else:
-                torch_tensor = torch.empty(shape, dtype=dtype).uniform_(low, high)
-        else:
-            torch_tensor = torch.randn(shape, dtype=dtype)
+        torch_tensor = torch.randn(shape, dtype=dtype)
     return torch_tensor
 
 
@@ -170,10 +135,9 @@ def create_sharded_tile_tensor(
     dtype,
     shard_strategy=ttnn.ShardStrategy.BLOCK,
     ttnn_dtype=None,
-    value_range=None,
     input_transform=None,
 ):
-    torch_tensor = create_torch_tensor(shape, dtype, value_range=value_range)
+    torch_tensor = create_torch_tensor(shape, dtype)
     if input_transform is not None:
         torch_tensor = input_transform(torch_tensor)
 
@@ -200,10 +164,9 @@ def create_dram_tensor(
     dtype,
     ttnn_dtype=None,
     mesh_mapper=None,
-    value_range=None,
     input_transform=None,
 ):
-    torch_tensor = create_torch_tensor(shape, dtype, value_range=value_range)
+    torch_tensor = create_torch_tensor(shape, dtype)
     if input_transform is not None:
         torch_tensor = input_transform(torch_tensor)
     return ttnn.from_torch(
@@ -232,7 +195,6 @@ def run_op_test(
     check_allclose=False,
     pcc_threshold=0.99,
     math_fidelity=ttnn.MathFidelity.HiFi4,
-    value_range=None,
     memory_config=None,
 ):
     """
@@ -267,7 +229,6 @@ def run_op_test(
                 dtype,
                 shard_strategy,
                 ttnn_dtype,
-                value_range=value_range,
                 input_transform=input_transform,
             )
             for _ in range(num_inputs)
@@ -280,7 +241,6 @@ def run_op_test(
                 dtype,
                 ttnn_dtype,
                 mesh_mapper=None,
-                value_range=value_range,
                 input_transform=input_transform,
             )
             for _ in range(num_inputs)
