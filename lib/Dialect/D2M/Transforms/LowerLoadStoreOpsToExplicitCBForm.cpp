@@ -21,14 +21,24 @@ namespace mlir::tt::d2m {
 namespace {
 
 // Helper function to check if an operand is remote (i.e., comes from a view op
-// such as view_layout or stream_layout)
+// such as view_layout or stream_layout, or resides in DRAM)
 static bool isRemoteOperand(Value operand, Operation *op) {
   Operation *defOp = operand.getDefiningOp();
   if (!defOp) {
     return false;
   }
   // Remote operands are those that come from ops implementing ViewOpInterface
-  return mlir::isa<ViewOpInterface>(defOp);
+  if (mlir::isa<ViewOpInterface>(defOp)) {
+    return true;
+  }
+  // Also treat DRAM operands as remote even without a view wrapper
+  if (auto memref = mlir::dyn_cast<MemRefType>(operand.getType())) {
+    if (auto memSpaceAttr = mlir::dyn_cast_if_present<ttcore::MemorySpaceAttr>(
+            memref.getMemorySpace())) {
+      return memSpaceAttr.getValue() == ttcore::MemorySpace::DeviceDRAM;
+    }
+  }
+  return false;
 }
 
 // Helper function to find the CB block argument that corresponds to a memref
@@ -193,14 +203,15 @@ static void simplifyLoadStorePairs(ModuleOp moduleOp, IRRewriter &rewriter) {
     // Case B: Store to remote (output has view layout) -> store from input CB
     bool isRemoteLoad = isRemoteOperand(loadMemref, loadOp.getOperation());
     bool isRemoteStore = isRemoteOperand(storeMemref, storeOp.getOperation());
+
     TT_assert(!(isRemoteLoad && isRemoteStore));
-    if (isRemoteLoad) {
+    if (!isRemoteStore) {
       // Create the explicit CB form of remote_load (no localBuffer, has CB
       // operand)
       rewriter.create<RemoteLoadOp>(loc, loadMemref, loadOp.getIndices(),
                                     outputCB, loadOp.getMcastStartIndex(),
                                     loadOp.getMcastShape());
-    } else if (isRemoteStore) {
+    } else {
       rewriter.create<RemoteStoreOp>(loc, storeMemref, loadOp.getIndices(),
                                      inputCB);
     }

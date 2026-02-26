@@ -7,6 +7,7 @@
 #include "ttmlir/AffineMapUtils.h"
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Target/Common/Target.h"
 #include "ttmlir/Target/Common/system_desc_bfbs_hash_generated.h"
 #include "ttmlir/Utils.h"
@@ -548,7 +549,7 @@ ShardLayoutAttr ShardLayoutAttr::get(mlir::MLIRContext *context,
   return get(
       context,
       ttmlir::utils::calculateStrides(shape, static_cast<int64_t>(elementSize)),
-      buffers, AffineMap::get(context));
+      buffers);
 }
 
 ShardLayoutAttr ShardLayoutAttr::get(ArrayRef<int64_t> shape, Type elementType,
@@ -565,12 +566,6 @@ ShardLayoutAttr ShardLayoutAttr::get(mlir::MemRefType memrefType,
     shape = layout.getShardShape(memrefType);
   }
   return get(shape, memrefType.getElementType(), buffers);
-}
-
-ShardLayoutAttr ShardLayoutAttr::get(mlir::MLIRContext *context,
-                                     ArrayRef<int64_t> strides,
-                                     uint32_t buffers) {
-  return get(context, strides, buffers, AffineMap::get(context));
 }
 
 mlir::AffineMap ShardLayoutAttr::getAffineMap() const {
@@ -602,10 +597,6 @@ InterleavedLayoutAttr InterleavedLayoutAttr::get(mlir::MemRefType memrefType) {
 mlir::AffineMap InterleavedLayoutAttr::getAffineMap() const {
   return ttmlir::utils::generateAffineMapFromShardStrides(getStride(),
                                                           getContext());
-}
-
-ViewLayoutAttr ViewLayoutAttr::compose(ViewLayoutAttr g) const {
-  return get(getContext(), getAffineMap().compose(g.getAffineMap()));
 }
 
 mlir::AffineMap HostLayoutAttr::getAffineMap() const {
@@ -819,24 +810,6 @@ static llvm::SmallVector<int64_t> applyCollapsedIntervalsAndAlignments(
   return resultShape;
 }
 
-MetalLayoutAttr MetalLayoutAttr::compose(AffineMap affineMap) const {
-  if (getIndexAffineMap().isEmpty()) {
-    return withIndexAffineMap(affineMap);
-  }
-
-  return ttcore::MetalLayoutAttr::get(
-      getContext(), getLogicalShape(), getDimAlignments(),
-      getCollapsedIntervals(), getOobVal(), getMemorySpace(), getMemoryLayout(),
-      getIndexAffineMap().compose(affineMap));
-}
-
-MetalLayoutAttr MetalLayoutAttr::withIndexAffineMap(AffineMap affineMap) const {
-  return ttcore::MetalLayoutAttr::get(
-      getContext(), getLogicalShape(), getDimAlignments(),
-      getCollapsedIntervals(), getOobVal(), getMemorySpace(), getMemoryLayout(),
-      affineMap.isIdentity() ? AffineMap::get(getContext()) : affineMap);
-}
-
 llvm::SmallVector<int64_t>
 MetalLayoutAttr::getPhysicalShape(ArrayRef<int64_t> tileShape) const {
   llvm::SmallVector<int64_t> normalizedIntervals = getNormalizedIntervals();
@@ -928,15 +901,6 @@ llvm::SmallVector<int64_t> MetalLayoutAttr::normalizeAndFlattenIntervals(
 llvm::SmallVector<int64_t> MetalLayoutAttr::getNormalizedIntervals() const {
   return normalizeAndFlattenIntervals(getCollapsedIntervals(),
                                       getLogicalShape().size());
-}
-
-mlir::AffineMap
-MetalLayoutAttr::getIndexAffineMapOrIdentity(unsigned rank) const {
-  mlir::AffineMap map = getIndexAffineMap();
-  if (!map || map.getNumResults() == 0) {
-    return mlir::AffineMap::getMultiDimIdentityMap(rank, getContext());
-  }
-  return map;
 }
 
 // Compute basic tile-based dimension alignments for the last two dimensions of
@@ -1132,25 +1096,14 @@ createDefaultCollapsedIntervalsAndAlignments(::mlir::MLIRContext *context,
   return {collapsedIntervals, dimAlignmentsVec};
 }
 
-// Getter with no intervals or alignments, we calculate them both.
-MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
-                                     ArrayRef<int64_t> logicalShape,
-                                     OOBVal oobVal, MemorySpace memorySpace,
-                                     TensorMemoryLayout memoryLayout,
-                                     mlir::AffineMap indexAffineMap) {
-
-  auto [collapsedIntervals, dimAlignmentsVec] =
-      createDefaultCollapsedIntervalsAndAlignments(context, logicalShape);
-  return get(context, logicalShape, dimAlignmentsVec, collapsedIntervals,
-             oobVal, memorySpace, memoryLayout, indexAffineMap);
-}
-
 MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
                                      ArrayRef<int64_t> logicalShape,
                                      OOBVal oobVal, MemorySpace memorySpace,
                                      TensorMemoryLayout memoryLayout) {
-  return get(context, logicalShape, oobVal, memorySpace, memoryLayout,
-             mlir::AffineMap::get(context));
+  auto [collapsedIntervals, dimAlignmentsVec] =
+      createDefaultCollapsedIntervalsAndAlignments(context, logicalShape);
+  return get(context, logicalShape, dimAlignmentsVec, collapsedIntervals,
+             oobVal, memorySpace, memoryLayout);
 }
 
 // Getter with explicit collapsedIntervals, we calculate the alignments.
@@ -1159,24 +1112,12 @@ MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
                                      OOBVal oobVal, MemorySpace memorySpace,
                                      TensorMemoryLayout memoryLayout,
                                      DenseIntElementsAttr collapsedIntervals) {
-  return get(context, logicalShape, oobVal, memorySpace, memoryLayout,
-             collapsedIntervals, mlir::AffineMap::get(context));
-}
-
-// Getter with explicit collapsedIntervals, we calculate the alignments.
-MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
-                                     ArrayRef<int64_t> logicalShape,
-                                     OOBVal oobVal, MemorySpace memorySpace,
-                                     TensorMemoryLayout memoryLayout,
-                                     DenseIntElementsAttr collapsedIntervals,
-                                     mlir::AffineMap indexAffineMap) {
   llvm::SmallVector<int64_t> normalizedIntervals =
       normalizeAndFlattenIntervals(collapsedIntervals, logicalShape.size());
   llvm::SmallVector<int64_t> dimAlignmentsVec =
       computeTileAlignments(logicalShape, normalizedIntervals);
-
   return get(context, logicalShape, dimAlignmentsVec, collapsedIntervals,
-             oobVal, memorySpace, memoryLayout, indexAffineMap);
+             oobVal, memorySpace, memoryLayout);
 }
 
 // Getter with explicit collapsedIntervals and dimAlignments.
@@ -1187,7 +1128,7 @@ MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
                                      DenseIntElementsAttr collapsedIntervals,
                                      ArrayRef<int64_t> dimAlignments) {
   return get(context, logicalShape, dimAlignments, collapsedIntervals, oobVal,
-             memorySpace, memoryLayout, mlir::AffineMap::get(context));
+             memorySpace, memoryLayout);
 }
 
 mlir::MemRefType
@@ -1206,24 +1147,12 @@ MetalLayoutAttr::getMemRefType(mlir::RankedTensorType tensorType) {
       MemorySpaceAttr::get(tensorType.getContext(), layout.getMemorySpace()));
 }
 
-MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
-                                     ArrayRef<int64_t> logicalShape,
-                                     OOBVal oobVal, MemorySpace memorySpace,
-                                     TensorMemoryLayout memoryLayout,
-                                     DenseIntElementsAttr collapsedIntervals,
-                                     ArrayRef<int64_t> dimAlignments,
-                                     mlir::AffineMap indexAffineMap) {
-  return get(context, logicalShape, dimAlignments, collapsedIntervals, oobVal,
-             memorySpace, memoryLayout, indexAffineMap);
-}
-
 ::mlir::LogicalResult MetalLayoutAttr::verify(
     ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
     ::llvm::ArrayRef<int64_t> logicalShape,
     ::llvm::ArrayRef<int64_t> dimAlignments,
     DenseIntElementsAttr collapsedIntervals, OOBVal oobVal,
-    MemorySpace memorySpace, TensorMemoryLayout memoryLayout,
-    ::mlir::AffineMap indexAffineMap) {
+    MemorySpace memorySpace, TensorMemoryLayout memoryLayout) {
 
   int64_t logicalRank = logicalShape.size();
 
@@ -1590,103 +1519,6 @@ inline mlir::AffineMap prependResult(mlir::AffineMap map,
     return map;
   }
   return map.insertResult(result, 0);
-}
-
-mlir::AffineMap DeviceAttr::getMemoryMap(MemRefType memrefType, size_t pageSize,
-                                         std::optional<AffineMap> view,
-                                         size_t baseOffset) const {
-  MemorySpace memorySpace =
-      mlir::cast<MemorySpaceAttr>(memrefType.getMemorySpace()).getValue();
-  AffineMap affineMap = memrefType.getLayout().getAffineMap();
-
-  if (auto shardLayout =
-          mlir::dyn_cast<ShardLayoutAttr>(memrefType.getLayout())) {
-
-    // Core virtualization map must be composed before other maps.
-    if (auto coreVirtMap = shardLayout.getCoreVirtualizationMap();
-        !coreVirtMap.isEmpty()) {
-
-      if (affineMap.getNumDims() > coreVirtMap.getNumResults()) {
-        auto dimsToRemove =
-            affineMap.getNumDims() - coreVirtMap.getNumResults();
-        llvm::SmallBitVector projectedDims(affineMap.getNumDims());
-        projectedDims.set(0, dimsToRemove);
-
-        affineMap = getProjectedMap(affineMap, projectedDims);
-        affineMap = affineMap.dropResults(projectedDims);
-      }
-
-      affineMap = affineMap.compose(coreVirtMap);
-    }
-    if (view) {
-      affineMap = affineMap.compose(*view);
-    }
-
-    switch (memorySpace) {
-    case MemorySpace::DeviceL1: {
-      SmallVector<int64_t> symbols = {static_cast<int64_t>(baseOffset)};
-      auto resolvedL1Map =
-          ttmlir::utils::replaceAffineMapSymbols(getL1Map(), symbols);
-      return resolvedL1Map.compose(affineMap);
-    }
-    case MemorySpace::DeviceDRAM: {
-      // The DRAM page size is 1<->1 mapped to underlying memref shard size;
-      // pageSize argument is ignored.
-      pageSize = getMemrefSizeBytes(memrefType);
-      assert(pageSize > 0 && "expected positive page size");
-      SmallVector<int64_t> symbols(memrefType.getShape());
-      symbols.push_back(static_cast<int64_t>(pageSize));
-      symbols.push_back(static_cast<int64_t>(baseOffset));
-      symbols.push_back(getElementSizeBytes(memrefType.getElementType()));
-      return ttmlir::utils::replaceAffineMapSymbols(getDramMap(), symbols)
-          .compose(affineMap);
-    }
-    default: {
-      llvm_unreachable("Unsupported memory space");
-    }
-    }
-  } else if (mlir::isa<ttcore::InterleavedLayoutAttr>(memrefType.getLayout())) {
-
-    if (view) {
-      affineMap = affineMap.compose(*view);
-    }
-
-    assert(memorySpace == MemorySpace::DeviceDRAM &&
-           "interleavedLayoutAttr only supported for deviceDRAM memory space");
-
-    auto interleavedLayout =
-        mlir::cast<ttcore::InterleavedLayoutAttr>(memrefType.getLayout());
-
-    // interleaved layout is either single tile or stride of outermost dim
-    int64_t elementSizeBytes = getElementSizeBytes(memrefType.getElementType());
-    pageSize = mlir::isa<ttcore::TileType>(memrefType.getElementType())
-                   ? elementSizeBytes
-                   : interleavedLayout.getStride().front();
-
-    // interleaved layout for DRAM is constrained to have unit grid dims,
-    // similar to TTNNLayoutAttr convention
-    assert(ttmlir::utils::volume(interleavedLayout.getGridShape(memrefType)) ==
-               1 &&
-           "All dims in grid shape for DRAM interleaved memref must be 1 (i.e. "
-           "1x1x...x1) ");
-
-    SmallVector<int64_t> symbols(memrefType.getShape());
-    symbols.push_back(static_cast<int64_t>(pageSize));
-    symbols.push_back(static_cast<int64_t>(baseOffset));
-    symbols.push_back(elementSizeBytes);
-
-    return ttmlir::utils::replaceAffineMapSymbols(getDramMap(), symbols)
-        .compose(affineMap);
-  } else {
-    llvm_unreachable("Unsupported memory layout");
-  }
-}
-
-mlir::AffineMap
-DeviceAttr::getMemoryMap(std::pair<MemRefType, AffineMap> memrefAndView,
-                         size_t pageSize, size_t baseOffset) const {
-  return getMemoryMap(memrefAndView.first, pageSize, memrefAndView.second,
-                      baseOffset);
 }
 
 size_t DeviceAttr::getShardSizeInBytes(MemRefType memrefType, size_t alignSize,

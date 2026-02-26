@@ -5,7 +5,7 @@
 // and users manage grids manually, so the pass should not attempt to
 // assign or optimize grids.
 
-#layout = #ttcore.metal_layout<logical_shape = 64x64, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded, index_map = map(0)>
+#layout = #ttcore.metal_layout<logical_shape = 64x64, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
 
 // CHECK-LABEL: func.func @skip_grid_selection_explicit_datamovement
 func.func @skip_grid_selection_explicit_datamovement(
@@ -13,7 +13,7 @@ func.func @skip_grid_selection_explicit_datamovement(
   %arg1: tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout>
 ) -> tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout> {
   %0 = "d2m.empty"() : () -> tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout>
-  %stream = "d2m.stream_layout"(%arg0, %0) : (tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout>, tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout>) -> tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout>
+  %stream = "d2m.stream_layout"(%arg0, %0) <{remapping = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>}> : (tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout>, tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout>) -> tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout>
 
   // CHECK: d2m.generic
   // CHECK-SAME: grid = #ttcore.grid<1x1>
