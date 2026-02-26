@@ -285,7 +285,7 @@ void ResponseFactory::buildComputeMeshFabricConfigResponse(
   LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
 
   auto perAxisVec = fbb.CreateVector(
-      reinterpret_cast<const fb::FabricConfig *>(
+      reinterpret_cast<const ::tt::runtime::FabricConfig *>(
           fabricConfig.perAxisConfig.data()),
       fabricConfig.perAxisConfig.size());
 
