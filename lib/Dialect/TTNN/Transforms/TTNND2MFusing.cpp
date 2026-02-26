@@ -61,7 +61,7 @@ public:
       return true;
     }
 
-    if (mlir::isa<ClampTensorOp, ClampScalarOp>(op)) {
+    if (mlir::isa<ClampTensorOp>(op)) {
       return true;
     }
 
