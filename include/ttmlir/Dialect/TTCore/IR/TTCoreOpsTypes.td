@@ -484,7 +484,8 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_
     static llvm::SmallVector<int64_t> computeGridAwareDimAlignments(
       ArrayRef<int64_t> logicalShape,
       ArrayRef<int64_t> deviceGridShape,
-      ArrayRef<int64_t> normalizedIntervals);
+      ArrayRef<int64_t> normalizedIntervals,
+      bool forceGridAlignment = false);
 
     llvm::SmallVector<int64_t> getDeviceShape(ArrayRef<int64_t> gridShape, ArrayRef<int64_t> tileShape) const;
 

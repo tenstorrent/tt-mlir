@@ -4,19 +4,19 @@
 // We want to ensure dim_alignments round up to 256 (on 8x8) if the physical shape is > 8 after tilizing.
 // Otherwise it should just be tile size (32).
 
-// CHECK-DAG: #[[LAYOUT_SMALL:.*]] = #ttcore.metal_layout<logical_shape = 64x64, dim_alignments = 32x32, {{.*}}>
-// CHECK-DAG: #[[LAYOUT_MEDIUM:.*]] = #ttcore.metal_layout<logical_shape = 128x96, dim_alignments = 32x32, {{.*}}>
+// CHECK-DAG: #[[LAYOUT_SMALL:.*]] = #ttcore.metal_layout<logical_shape = 64x64, dim_alignments = 64x64, {{.*}}>
+// CHECK-DAG: #[[LAYOUT_MEDIUM:.*]] = #ttcore.metal_layout<logical_shape = 128x96, dim_alignments = 128x96, {{.*}}>
 // CHECK-DAG: #[[LAYOUT_LARGE:.*]] = #ttcore.metal_layout<logical_shape = 512x512, dim_alignments = 256x256, {{.*}}>
-// CHECK-DAG: #[[LAYOUT_LARGE_H:.*]] = #ttcore.metal_layout<logical_shape = 512x128, dim_alignments = 256x32, {{.*}}>
-// CHECK-DAG: #[[LAYOUT_LARGE_W:.*]] = #ttcore.metal_layout<logical_shape = 128x512, dim_alignments = 32x256, {{.*}}>
-// CHECK-DAG: #[[LAYOUT_3D:.*]] = #ttcore.metal_layout<logical_shape = 2x128x96, dim_alignments = 1x32x32, {{.*}}>
-// CHECK-DAG: #[[LAYOUT_4D:.*]] = #ttcore.metal_layout<logical_shape = 2x2x64x64, dim_alignments = 1x1x32x32, {{.*}}>
-// CHECK-DAG: #[[LAYOUT_BOUNDARY:.*]] = #ttcore.metal_layout<logical_shape = 256x32, dim_alignments = 32x32, {{.*}}>
-// CHECK-DAG: #[[LAYOUT_UNDER:.*]] = #ttcore.metal_layout<logical_shape = 255x32, dim_alignments = 32x32, {{.*}}>
+// CHECK-DAG: #[[LAYOUT_LARGE_H:.*]] = #ttcore.metal_layout<logical_shape = 512x128, dim_alignments = 256x128, {{.*}}>
+// CHECK-DAG: #[[LAYOUT_LARGE_W:.*]] = #ttcore.metal_layout<logical_shape = 128x512, dim_alignments = 128x256, {{.*}}>
+// CHECK-DAG: #[[LAYOUT_3D:.*]] = #ttcore.metal_layout<logical_shape = 2x128x96, dim_alignments = 256x32x96, {{.*}}>
+// CHECK-DAG: #[[LAYOUT_4D:.*]] = #ttcore.metal_layout<logical_shape = 2x2x64x64, dim_alignments = 256x1x32x64, {{.*}}>
+// CHECK-DAG: #[[LAYOUT_BOUNDARY:.*]] = #ttcore.metal_layout<logical_shape = 256x32, dim_alignments = 256x32, {{.*}}>
+// CHECK-DAG: #[[LAYOUT_UNDER:.*]] = #ttcore.metal_layout<logical_shape = 255x32, dim_alignments = 256x32, {{.*}}>
 // CHECK-DAG: #[[LAYOUT_ABOVE:.*]] = #ttcore.metal_layout<logical_shape = 257x32, dim_alignments = 256x32, {{.*}}>
-// CHECK-DAG: #[[LAYOUT_NONALIGNED_2D:.*]] = #ttcore.metal_layout<logical_shape = 100x100, dim_alignments = 32x32, {{.*}}>
+// CHECK-DAG: #[[LAYOUT_NONALIGNED_2D:.*]] = #ttcore.metal_layout<logical_shape = 100x100, dim_alignments = 128x128, {{.*}}>
 // CHECK-DAG: #[[LAYOUT_NONALIGNED_3D_LARGE_H:.*]] = #ttcore.metal_layout<logical_shape = 5x37x11, dim_alignments = 256x32x32, {{.*}}>
-// CHECK-DAG: #[[LAYOUT_NONALIGNED_3D_LARGE_W:.*]] = #ttcore.metal_layout<logical_shape = 3x61x419, dim_alignments = 1x32x256, {{.*}}>
+// CHECK-DAG: #[[LAYOUT_NONALIGNED_3D_LARGE_W:.*]] = #ttcore.metal_layout<logical_shape = 3x61x419, dim_alignments = 192x32x256, {{.*}}>
 // CHECK-DAG: #[[LAYOUT_NONALIGNED_4D:.*]] = #ttcore.metal_layout<logical_shape = 1x19x1x1, dim_alignments = 256x1x32x32, {{.*}}>
 
 module {

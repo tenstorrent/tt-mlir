@@ -978,7 +978,7 @@ public:
           auto untilizedType = typeBuilder.modifyDeviceType(
               currentInfo.type, *currentInfo.layout, targetGridShape,
               ttcore::MemorySpace::DeviceL1,
-              /*newTensorGrid=*/{}, scalarType,
+              /*newTensorGrid=*/{}, scalarType, {},
               /* reblockVirtualGridShapes */ true);
           auto untilizedEmpty = createEmpty(untilizedType);
           currentValue = lowerFormatConversionGeneric(
