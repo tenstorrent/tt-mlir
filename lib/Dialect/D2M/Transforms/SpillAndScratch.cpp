@@ -39,52 +39,6 @@ struct IntermediateAllocInfo {
   SmallVector<affine::AffineLoadOp> loads;   // Loads from this alloc
 };
 
-/// Convert an scf.for with constant bounds to affine.for in-place.
-/// Returns the new affine.for, or nullptr if conversion is not possible.
-static affine::AffineForOp convertScfForToAffineFor(scf::ForOp scfFor,
-                                                    IRRewriter &rewriter) {
-  auto lb = getConstantIntValue(scfFor.getLowerBound());
-  auto ub = getConstantIntValue(scfFor.getUpperBound());
-  auto step = getConstantIntValue(scfFor.getStep());
-  if (!lb || !ub || !step) {
-    return nullptr;
-  }
-
-  rewriter.setInsertionPoint(scfFor);
-  auto affineFor =
-      rewriter.create<affine::AffineForOp>(scfFor.getLoc(), *lb, *ub, *step);
-
-  // Move the body from scf.for to affine.for.
-  Block *scfBody = scfFor.getBody();
-  Block *affineBody = affineFor.getBody();
-
-  // Replace uses of scf IV with affine IV.
-  scfBody->getArgument(0).replaceAllUsesWith(affineFor.getInductionVar());
-
-  // Move operations (except terminator) from scf body to affine body.
-  auto &scfOps = scfBody->getOperations();
-  auto &affineOps = affineBody->getOperations();
-  affineOps.splice(affineOps.begin(), scfOps, scfOps.begin(),
-                   std::prev(scfOps.end()));
-
-  // Erase the old scf.for.
-  rewriter.eraseOp(scfFor);
-
-  return affineFor;
-}
-
-/// Convert all scf.for loops inside a scratch_space_loop to affine.for.
-/// This ensures all loop IVs can be used with affine.store/load operations.
-static void convertGapScfLoopsToAffine(affine::AffineForOp scratchLoop,
-                                       IRRewriter &rewriter) {
-  SmallVector<scf::ForOp> scfLoops;
-  scratchLoop.walk([&](scf::ForOp scfFor) { scfLoops.push_back(scfFor); });
-
-  for (auto scfFor : scfLoops) {
-    convertScfForToAffineFor(scfFor, rewriter);
-  }
-}
-
 /// Find the innermost affine.for loop with d2m.linalg_root attribute.
 static affine::AffineForOp findLinalgRootLoop(affine::AffineForOp scratchLoop) {
   affine::AffineForOp result = nullptr;
@@ -418,14 +372,7 @@ private:
     // rather than needing full-shard capacity.
     fuseOuterScfLoops(scratchSpaceLoops, rewriter);
 
-    // Step 1: Convert any scf.for loops inside scratch_space_loops to
-    // affine.for. This ensures all loop IVs can be used with affine
-    // store/load ops for scratch access.
-    for (auto scratchLoop : scratchSpaceLoops) {
-      convertGapScfLoopsToAffine(scratchLoop, rewriter);
-    }
-
-    // Step 2: Now collect full loop info (after gap conversion).
+    // Step 1: Collect full loop info.
     SmallVector<ScratchLoopInfo> scratchLoops;
     for (auto scratchLoop : scratchSpaceLoops) {
       ScratchLoopInfo info;
@@ -574,10 +521,6 @@ private:
     for (auto &info : scratchLoops) {
       info.scratchLoop->setAttr("d2m.scratch_inserted",
                                 UnitAttr::get(&getContext()));
-      info.scratchLoop->setAttr(
-          "d2m.num_scratch_buffers",
-          IntegerAttr::get(IntegerType::get(&getContext(), 64),
-                           intermediates.size()));
     }
 
     return success();
