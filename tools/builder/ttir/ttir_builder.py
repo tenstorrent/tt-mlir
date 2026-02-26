@@ -13562,6 +13562,7 @@ class TTIRBuilder(Builder):
                 break
 
             ttir_builder = TTIRBuilder(ctx, loc, mesh_name, mesh_shape)
+            ttir_builder._split_on_demand = split_on_demand
             new_module = ttir_builder.parse_root_module(root_module, golden_inputs)
 
         return new_module, ttir_builder
@@ -13573,7 +13574,10 @@ class TTIRBuilder(Builder):
         parsed_op: Operation,
     ) -> Tuple[Module, TTIRBuilder]:
         split_function = self.get_split_from_opview(type(parsed_op))
-        return split_function(self, parsed_op)
+        x = split_function(self, parsed_op)
+        print("SPLIT")
+        print(x)
+        return x
 
     @staticmethod
     def split_module(

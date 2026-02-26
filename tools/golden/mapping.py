@@ -121,6 +121,12 @@ class GoldenMapTensor:
         else:
             return torch.float32
 
+    def deallocate(self, directory: str, name: str):
+        for device_id, shard in self._shard_map.items():
+            filename = f"{directory}/{name}_device{device_id}.pt"
+            torch.save(shard.cpu(), filename)
+            print(f"Deallocated shard for device {device_id} saved to {filename}.")
+
     def golden_map_tensor_as_torch_tensors(self) -> Dict[int, torch.Tensor]:
         """
         Return shard tensors as plain torch.Tensor per device, ensuring:

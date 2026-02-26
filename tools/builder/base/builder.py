@@ -8,6 +8,9 @@ from typing import List, Optional, Union, Tuple, Callable, Dict, Any
 import torch
 from enum import Enum, auto
 import re
+import os
+import shutil
+import pickle
 from collections import OrderedDict
 
 from ttmlir.ir import *
@@ -75,6 +78,21 @@ class Builder(metaclass=BuilderMeta):
 
         # List of op locations to bypass golden comparison.
         self._bypass_ops: List[str] = []
+
+        self._split_on_demand = False
+        self.splits = []
+
+        # Dict of ops and operands to deallocate after each op
+        self._op_deallocations: Dict[
+            Union[OpView, Operand], List[Union[OpView, Operand]]
+        ] = {}
+        self._operand_deallocations: Dict[Operand, List[Union[OpView, Operand]]] = {}
+
+        self._deallocated_goldens_dir = "./deallocated_goldens"
+        if os.path.exists(self._deallocated_goldens_dir):
+            shutil.rmtree(self._deallocated_goldens_dir)
+        os.makedirs(self._deallocated_goldens_dir, exist_ok=True)
+        self._deallocated_goldens: Dict[Operand, str] = {}
 
         # Set torch seed for reproducibility.
         torch.manual_seed(0)
@@ -181,6 +199,19 @@ class Builder(metaclass=BuilderMeta):
 
         if self._disable_golden_check:
             return input_output_golden_info, intermediate_golden_info
+
+        # If split_on_demand is enabled, return file paths instead of golden tensors
+        if self._split_on_demand:
+            # Map locations to file paths for deallocated goldens
+            file_path_map: Dict[str, str] = {}
+            for operand, filepath in self._deallocated_goldens.items():
+                loc = self._operand_to_loc.get(operand, None)
+                if loc:
+                    file_path_map[loc] = filepath
+
+            # Return empty golden info and file path map
+            # Note: Return type stays the same for compatibility, but values are file paths as strings
+            return input_output_golden_info, file_path_map
 
         # If no specific golden is marked to be stored, store all goldens.
         if len(self._goldens_to_store) == 0:
@@ -796,7 +827,47 @@ class Builder(metaclass=BuilderMeta):
             )
         ]
 
-    # def
+    def read_module(self, module):
+        """
+        Parse the given module and build the _operand_deallocations and _op_deallocations mappings.
+        - _operand_deallocations: maps each operand to the last operation that uses it
+        - _op_deallocations: maps each operation to the list of operands that can be deallocated after it
+        """
+        print("read_module")
+        # Track the last operation that uses each operand
+        operand_last_use: Dict[Operand, Operation] = {}
+
+        def process_operation(op: Operation):
+            """Recursively process an operation and its nested regions."""
+            # Record this operation as the last use of each of its operands
+            for operand in op.operands:
+                operand_last_use[operand] = op
+
+            # Process nested regions (for ops like func.FuncOp, DeviceModuleOp, etc.)
+            for region in op.regions:
+                for block in region.blocks:
+                    for nested_op in block.operations:
+                        process_operation(nested_op)
+
+        # Process all top-level operations in the module
+        for entry in module.body.operations:
+            process_operation(entry)
+
+        # Build the _operand_deallocations mapping
+        # Map each operand to a list containing its last use operation
+        for operand, last_op in operand_last_use.items():
+            print(last_op)
+            print(operand)
+            if operand not in self._operand_deallocations:
+                self._operand_deallocations[operand] = []
+            self._operand_deallocations[operand].append(last_op)
+
+        # Build the _op_deallocations mapping (inverse of _operand_deallocations)
+        # Map each operation to the list of operands that should be deallocated after it
+        for operand, last_op in operand_last_use.items():
+            if last_op not in self._op_deallocations:
+                self._op_deallocations[last_op] = []
+            self._op_deallocations[last_op].append(operand)
 
     def parse_root_module(
         self, parsed_root_module: Module, golden_inputs: Dict[str, [List[torch.tensor]]]
@@ -846,6 +917,10 @@ class Builder(metaclass=BuilderMeta):
                 self._cpu_module_insertion_point = cloned_op.regions[0].blocks[0]
 
             for entry in parsed_root_module.body.operations:
+                print("parse_root_module ENTRY:", entry)
+                if self._split_on_demand:
+                    self.read_module(parsed_root_module)
+
                 if isinstance(entry, ttcore.DeviceModuleOp):
                     device_module_op = ttcore.DeviceModuleOp()
                     region = device_module_op.regions[0]
@@ -859,7 +934,10 @@ class Builder(metaclass=BuilderMeta):
                 elif isinstance(entry, func.FuncOp):
                     if entry.name.value in self._nested_funcs:
                         continue
-                    self.parse_func(entry, golden_inputs)
+                    if not self._split_on_demand:
+                        self.parse_func(entry, golden_inputs)
+                    else:
+                        self.parse_and_split_func(entry, golden_inputs)
 
         return new_root_module
 
@@ -947,6 +1025,138 @@ class Builder(metaclass=BuilderMeta):
                             op_golden_dictionary,
                         ) = self._build_op_from_parsed_op(op, global_dict)
                         global_dict.update(op_golden_dictionary)
+
+            outputs = (
+                global_result
+                if hasattr(global_result, "__iter__")
+                else (global_result,)
+            )
+            output_goldens: Dict[Operand, GoldenMapTensor] = {}
+            for op in outputs:
+                output_goldens[op] = self._get_golden_tensor(op)
+            self._set_goldens(output_goldens)
+            ordered_outputs.extend(outputs)
+
+            return process_multi_return_result(global_result)
+
+        new_func_op = decorated_func.func_op
+        self._func_ops_generated[new_func_op] = [ordered_inputs, ordered_outputs]
+        return new_func_op
+
+    def parse_and_split_func(
+        self, parsed_func: func.FuncOp, golden_inputs: Dict[str, [List[torch.tensor]]]
+    ):
+        fn_input_types = self.get_input_types(parsed_func)
+
+        parsed_func_golden_inputs = []
+        if parsed_func.name.value in golden_inputs.keys():
+            parsed_func_golden_inputs = golden_inputs[parsed_func.name.value]
+        else:
+            for ttype in fn_input_types:
+                shape = ttype.shape
+                dtype = self._get_torch_dtype_from_type(ttype.element_type)
+
+                if dtype.is_floating_point or dtype.is_complex:
+                    if len(shape) == 0:
+                        golden_input = torch.randn(1, dtype=dtype).squeeze()
+                    else:
+                        golden_input = torch.randn(*shape, dtype=dtype)
+                    parsed_func_golden_inputs.append(golden_input)
+                elif dtype == torch.bool:
+                    if len(shape) == 0:
+                        golden_input = torch.randint(0, 2, (), dtype=dtype)
+                    else:
+                        golden_input = torch.randint(0, 2, shape, dtype=dtype)
+                    parsed_func_golden_inputs.append(golden_input)
+                else:
+                    if len(shape) == 0:
+                        golden_input = torch.randint(0, 256, (), dtype=dtype)
+                    else:
+                        golden_input = torch.randint(0, 256, shape, dtype=dtype)
+                    parsed_func_golden_inputs.append(golden_input)
+
+        ordered_inputs = []
+        ordered_outputs = []
+
+        @func.func(*fn_input_types, name=parsed_func.name.value)
+        def decorated_func(*inputs):
+            golden_dict = {}
+            for operand, torch_golden in zip(inputs, parsed_func_golden_inputs):
+                golden_dict[operand] = torch_golden
+
+            input_goldens: Dict[
+                Operand, GoldenMapTensor
+            ] = self._create_builder_golden_from_torch_tensor(golden_dict)
+            self._set_goldens(input_goldens)
+            ordered_inputs.extend(inputs)
+
+            global_dict = {}
+            for i, arg in enumerate(parsed_func.arguments):
+                global_dict[arg] = inputs[i]
+
+            global_result = None
+            for block in parsed_func.body:
+                for op in block.operations:
+                    if isinstance(op, func.ReturnOp):
+                        global_result = tuple(
+                            global_dict[operand] for operand in op.operands
+                        )
+                    elif isinstance(op, ttir.EmptyOp):
+                        continue
+                    else:
+                        (
+                            parsed_op,
+                            op_golden_dictionary,
+                        ) = self._build_op_from_parsed_op(op, global_dict)
+                        global_dict.update(op_golden_dictionary)
+
+                        if self._split_on_demand:
+                            # self.splits.append(self.split_op(parsed_op))
+
+                            # Check if this operation has operands to deallocate
+                            if op in self._op_deallocations:
+                                print("FOUND")
+                                operands_to_deallocate = self._op_deallocations[op]
+                                print("operands_to_deallocate", operands_to_deallocate)
+                                print(len(self._goldens))
+                                for operand in operands_to_deallocate:
+                                    # Map to the new operand in global_dict if it exists
+                                    actual_operand = global_dict.get(operand, operand)
+
+                                    # Save golden to disk if it exists
+                                    if actual_operand in self._goldens:
+                                        golden_tensor = self._goldens[actual_operand]
+
+                                        # Generate a unique filename for this operand
+                                        operand_id = id(actual_operand)
+                                        operand_loc = (
+                                            str(actual_operand.location)
+                                            .replace("/", "_")
+                                            .replace(":", "_")
+                                        )
+                                        filename = (
+                                            f"golden_{operand_id}_{operand_loc}.pkl"
+                                        )
+                                        filepath = os.path.join(
+                                            self._deallocated_goldens_dir, filename
+                                        )
+
+                                        # Save the golden tensor to disk
+                                        with open(filepath, "wb") as f:
+                                            pickle.dump(golden_tensor, f)
+
+                                        # Track where we saved it
+                                        self._deallocated_goldens[
+                                            actual_operand
+                                        ] = filepath
+
+                                        # Delete from memory
+                                        del self._goldens[actual_operand]
+                                        print(
+                                            f"Deallocated golden for operand {operand_loc} to {filepath}"
+                                        )
+
+                                print(len(self._goldens))
 
             outputs = (
                 global_result
