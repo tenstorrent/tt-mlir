@@ -11,7 +11,8 @@ from loguru import logger
 @pytest.fixture(scope="function")
 def device():
     # Only care about single device, multi-device will use mesh_device fixture
-    if ttnn.cluster.get_cluster_type() == ttnn.cluster.ClusterType.P150:
+    blackhole_clusters = [ttnn.cluster.ClusterType.P100, ttnn.cluster.ClusterType.P150]
+    if ttnn.cluster.get_cluster_type() in blackhole_clusters:
         dispatch_core_type = ttnn.DispatchCoreType.WORKER
     else:
         dispatch_core_type = ttnn.DispatchCoreType.ETH

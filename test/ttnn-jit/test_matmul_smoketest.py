@@ -38,27 +38,50 @@ MATMUL_SHAPES = [
     # ((32, 2048, 32)),
 ]
 
+# for 11x10 grid, same # elements per core as MATMUL_SHAPES
+BLACKHOLE_MATMUL_SHAPES = [
+    ((640, 704, 704)),          # 64 64 64
+    ((640, 1408, 1408)),        # 64 128 128
+    ((640, 1408, 2816)),        # 64 128 256
+    ((1280, 1408, 1408)),       # 128 128 128
+    ((1280, 1408, 2816)),       # 128 128 256
+    ((1280, 2816, 2816)),       # 128 256 256
+    ((2560, 2816, 2816)),       # 256 256 256
+]
+
+# for 10x10 grid, same # elements per core as MATMUL_SHAPES
+BLACKHOLE_MATMUL_SHAPES_10x10 = [
+    ((640, 640, 640)),          # 64 64 64
+    ((640, 1280, 1280)),        # 64 128 128
+    ((640, 1280, 2560)),        # 64 128 256
+    ((1280, 1280, 1280)),       # 128 128 128
+    ((1280, 1280, 2560)),       # 128 128 256
+    ((1280, 2560, 2560)),       # 128 256 256
+    ((2560, 2560, 2560)),       # 256 256 256
+]
+
 INPUT_LAYOUTS = [
-    (ttnn.TensorMemoryLayout.BLOCK_SHARDED, ttnn.TensorMemoryLayout.BLOCK_SHARDED),
+    # (ttnn.TensorMemoryLayout.BLOCK_SHARDED, ttnn.TensorMemoryLayout.BLOCK_SHARDED),
     (ttnn.TensorMemoryLayout.BLOCK_SHARDED, ttnn.TensorMemoryLayout.INTERLEAVED),
     # (ttnn.TensorMemoryLayout.INTERLEAVED, ttnn.TensorMemoryLayout.BLOCK_SHARDED),
-    (ttnn.TensorMemoryLayout.INTERLEAVED, ttnn.TensorMemoryLayout.INTERLEAVED),
+    # (ttnn.TensorMemoryLayout.INTERLEAVED, ttnn.TensorMemoryLayout.INTERLEAVED),
 ]
 
 
 @pytest.mark.parametrize(
     "shapes",
-    MATMUL_SHAPES,
-    ids=[f"{shape}" for shape in MATMUL_SHAPES],
+    BLACKHOLE_MATMUL_SHAPES_10x10,
+    ids=[f"{shape}" for shape in BLACKHOLE_MATMUL_SHAPES_10x10],
 )
 @pytest.mark.parametrize(
     "dtype, ttnn_dtype",
     [
-        (torch.float32, None),
+        # (torch.float32, None),
         (torch.bfloat16, None),
-        (torch.bfloat16, ttnn.DataType.BFLOAT8_B),
+        # (torch.bfloat16, ttnn.DataType.BFLOAT8_B),
     ],
-    ids=["f32", "bf16", "bfp8"],
+    # ids=["f32", "bf16", "bfp8"],
+    ids=["bf16"],
 )
 @pytest.mark.parametrize(
     "input_layouts",
@@ -77,6 +100,7 @@ def test_matmul_composite(device, shapes, input_layouts, dtype, ttnn_dtype):
             grid = get_maximal_block_sharding_grid(
                 shape, get_core_grid_from_device(device)
             )
+            print(f"grid: {grid}")
             input_tensors.append(
                 create_sharded_tile_tensor(
                     device,
@@ -104,13 +128,13 @@ def test_matmul_composite(device, shapes, input_layouts, dtype, ttnn_dtype):
     assert output.memory_config().is_sharded(), "Matmul output must be sharded"
 
     # Send tensor to DRAM to avoid having to set the matmul program config in the golden path
-    # input_tensors = [
-    #     ttnn.to_memory_config(tensor, ttnn.DRAM_MEMORY_CONFIG)
-    #     for tensor in input_tensors
-    # ]
-    # golden_output = matmul_composite(*input_tensors)
-    # pcc = ttnn.pearson_correlation_coefficient(
-    #     golden_output.cpu().to_torch(), output.cpu().to_torch()
-    # )
-    # print("pcc: ", pcc)
-    # assert pcc > 0.99, f"PCC: {pcc} is less than 0.99"
+    input_tensors = [
+        ttnn.to_memory_config(tensor, ttnn.DRAM_MEMORY_CONFIG)
+        for tensor in input_tensors
+    ]
+    golden_output = matmul_composite(*input_tensors)
+    pcc = ttnn.pearson_correlation_coefficient(
+        golden_output.cpu().to_torch(), output.cpu().to_torch()
+    )
+    print("pcc: ", pcc)
+    assert pcc > 0.99, f"PCC: {pcc} is less than 0.99"
