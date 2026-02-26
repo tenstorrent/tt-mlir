@@ -119,8 +119,9 @@ std::string MultiProcessArgs::toArgString() const {
 
   oss << " ";
 
-  // TCP interface path, tt-run specific (replacement for mca btl_tcp_if_include, no longer supported by ttrun)
-  if(tcpInterface_.has_value()) {
+  // TCP interface path, tt-run specific (replacement for mca
+  // btl_tcp_if_include, no longer supported by ttrun)
+  if (tcpInterface_.has_value()) {
     oss << " ";
     oss << "--tcp-interface " << tcpInterface_.value();
   }
