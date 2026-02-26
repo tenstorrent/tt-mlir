@@ -6,7 +6,6 @@ add_mlir_dialect_library(MLIRTTIRTransforms
         FoldConstantReshapeBroadcast.cpp
         HoistCPUOps.cpp
         ElementTypeNormalization.cpp
-        InferKVCacheArgumentTypes.cpp
         MoveReshapeToConstant.cpp
         Quantization.cpp
         QuantDequantConversion.cpp

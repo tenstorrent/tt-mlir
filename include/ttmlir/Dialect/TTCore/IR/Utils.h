@@ -17,8 +17,6 @@
 
 namespace mlir::tt::ttcore {
 
-constexpr inline llvm::StringLiteral g_kvCacheAttrName = "ttcore.kv_cache";
-
 class DeviceOp;
 class DeviceAttr;
 class SystemDescAttr;
