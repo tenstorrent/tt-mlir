@@ -16,7 +16,7 @@ from ttmlir.passes import (
     ttkernel_to_cpp_file,
 )
 
-from ttnn_jit._src.utils import cleanup_source_code, get_dispatch_core_type
+from ttnn_jit._src.utils import cleanup_source_code
 from ttnn_jit._src.dispatch_op import run_binary, run_binary_from_capsule
 from ttnn_jit._src import JitCache
 from ttnn_jit._src.ir_generator import generate_ir
@@ -24,6 +24,7 @@ from ttnn_jit._src import (
     get_current_system_desc,
     create_runtime_device_from_ttnn,
 )
+from ttnn_jit._src.memory_analyzer import MemoryAnalyzer
 
 
 class JitFunction:
@@ -73,18 +74,15 @@ class JitFunction:
         Uses the MLIR runtime bindings directly, replicating the logic from
         ttrt query --save-artifacts.
         """
-        dispatch_core_type = get_dispatch_core_type()
         try:
             # Use input tensor device to query if available.
             if ttnn_device:
                 runtime_device = create_runtime_device_from_ttnn(ttnn_device)
-                system_desc = get_current_system_desc(
-                    dispatch_core_type, runtime_device
-                )
+                system_desc = get_current_system_desc(mesh_device=runtime_device)
                 if self.debug:
                     print(f"System descriptor queried using existing device.")
             else:
-                system_desc = get_current_system_desc(dispatch_core_type)
+                system_desc = get_current_system_desc()
                 if self.debug:
                     print(f"System descriptor queried by creating new device")
 
@@ -104,10 +102,10 @@ class JitFunction:
 
     def __call__(self, *args, **kwargs):
         """Execute the JIT-compiled function."""
+        device = args[0].device() if args else None
+        assert device is not None, "Device is required"
         if not self.system_desc_path:
-            self.system_desc_path = self._query_and_save_system_desc(
-                args[0].device() if args else None
-            )
+            self.system_desc_path = self._query_and_save_system_desc(device)
 
         sig = self._validate_arguments(args, kwargs)
         param_names = list(sig.parameters.keys())
@@ -118,7 +116,7 @@ class JitFunction:
             fb_binary = self.cache.get(*args)
             return run_binary(fb_binary, args)
 
-        ir = generate_ir(
+        ir, output_type = generate_ir(
             self.func,
             self.debug,
             self.memory_config,
@@ -126,7 +124,13 @@ class JitFunction:
             **kwargs,
         )
 
+        # Analyze memory: get available L1/DRAM ranges and output tensor requirements
+        memory_analyzer = MemoryAnalyzer(device, output_type)
+        if self.debug:
+            memory_analyzer.print_stats()
+
         options = f"system-desc-path={self.system_desc_path} ttnn-mode=true set-math-fidelity={self.math_fidelity.name}"
+        options += memory_analyzer.get_l1_range_str()
         if self.compile_only:
             ttnn_to_ttmetal_pipeline(ir, options)
             print("---- IR Dump after ttnn_to_ttmetal_pipeline ----")

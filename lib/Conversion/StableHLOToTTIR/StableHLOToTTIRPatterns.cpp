@@ -3653,7 +3653,8 @@ public:
       if (auto constOp =
               initValue_.getDefiningOp<mlir::stablehlo::ConstantOp>()) {
         auto valAttr = mlir::cast<DenseFPElementsAttr>(constOp.getValue());
-        fillValue = valAttr.getValues<APFloat>()[0].convertToFloat();
+        fillValue = static_cast<float>(
+            valAttr.getValues<APFloat>()[0].convertToDouble());
       } else {
         llvm::report_fatal_error("initValue_ must be a stablehlo.constant");
       }
@@ -5200,7 +5201,7 @@ private:
     RankedTensorType updateType =
         mlir::cast<RankedTensorType>(op.getUpdates()[0].getType());
     RankedTensorType indexType = indexTensor.getType();
-    ArrayRef<int64_t> indexShape = indexType.getShape();
+    llvm::SmallVector<int64_t> indexShape(indexType.getShape());
     ArrayRef<int64_t> updateShape = updateType.getShape();
 
     if (indexShape.size() < updateShape.size()) {

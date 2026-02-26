@@ -3,14 +3,17 @@
 # SPDX-License-Identifier: Apache-2.0
 import pytest
 import torch
-from typing import List, Optional
+from typing import List, Optional, Tuple
+from collections import OrderedDict
 from conftest import x86_only, get_request_kwargs
 from builder.base.builder_utils import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_apis import compile_and_execute_ttir
+from builder.base.builder_enums import MeshShardDirection, MeshShardType
 from test_utils import (
     shapes_list_str,
     shape_str,
+    make_shard_shape,
 )
 
 pytestmark = pytest.mark.frontend("ttir")
@@ -299,6 +302,134 @@ def test_hoisted_layer_norm(
 
     compile_and_execute_ttir(
         module,
+        **get_request_kwargs(request),
+        device=device,
+        target=target,
+    )
+
+
+# Distributed RMS norm tests
+
+
+@pytest.mark.parametrize(
+    "shape",
+    [
+        (1, 1, 32, 128),
+        (1, 1, 32, 512),
+        (1, 1, 32, 4096),
+        (1, 1, 32, 8192),
+    ],
+    ids=shape_str,
+)
+@pytest.mark.parametrize("has_weight", [True])
+@pytest.mark.parametrize("has_residual", [True, False])
+@pytest.mark.parametrize("mesh_shape", [(1, 2)], ids=shape_str)
+@pytest.mark.parametrize("cluster_axis", [1])
+@pytest.mark.parametrize("target", ["ttnn", "emitpy"])
+def test_distributed_rms_norm(
+    shape: Shape,
+    has_weight: bool,
+    has_residual: bool,
+    mesh_shape: Tuple[int, int],
+    cluster_axis: int,
+    target: str,
+    request,
+    device,
+):
+    """
+    Test distributed RMS normalization with all-gather across mesh devices.
+
+    This test verifies the fused operation that combines:
+    1. Optional residual addition
+    2. RMS normalization
+    3. All-gather collective communication
+    """
+    # Determine input shapes
+    shapes = [shape]
+    weight_shape = (shape[-1],)  # Weight matches last dimension
+    if has_weight:
+        shapes.append(weight_shape)
+    if has_residual:
+        shapes.append(shape)
+
+    # Shard dimensions for width sharding (dim 3)
+    shard_dims = [-1, 3]
+
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, [torch.bfloat16] * len(shapes))
+        def distributed_rms_norm_test(*inputs, unit_attrs: Optional[List[str]] = None):
+            builder = inputs[-1]
+
+            # Extract inputs
+            in0 = inputs[0]
+            weight = None
+            residual = None
+            input_idx = 1
+
+            if has_weight:
+                weight = inputs[input_idx]
+                input_idx += 1
+            if has_residual:
+                residual = inputs[input_idx]
+
+            # Shard input across devices
+            shard_shape_input = make_shard_shape(len(shape), shard_dims, mesh_shape)
+            sharded_input = builder.mesh_shard(
+                in0,
+                shard_direction=MeshShardDirection.FullToShard.value,
+                shard_type=MeshShardType.Devices.value,
+                shard_shape=shard_shape_input,
+                shard_dims=shard_dims,
+            )
+
+            # Shard weight by last dim if present
+            sharded_weight = None
+            if weight is not None:
+                weight_shard_dims = [-1, 0]
+                weight_shard_shape = make_shard_shape(
+                    len(weight_shape), weight_shard_dims, mesh_shape
+                )
+                sharded_weight = builder.mesh_shard(
+                    weight,
+                    shard_direction=MeshShardDirection.FullToShard.value,
+                    shard_type=MeshShardType.Devices.value,
+                    shard_shape=weight_shard_shape,
+                    shard_dims=weight_shard_dims,
+                )
+
+            # Shard residual if present
+            sharded_residual = None
+            if residual is not None:
+                sharded_residual = builder.mesh_shard(
+                    residual,
+                    shard_direction=MeshShardDirection.FullToShard.value,
+                    shard_type=MeshShardType.Devices.value,
+                    shard_shape=shard_shape_input,
+                    shard_dims=shard_dims,
+                )
+
+            result = builder.distributed_rms_norm(
+                sharded_input,
+                cluster_axis=cluster_axis,
+                weight=sharded_weight,
+                residual=sharded_residual,
+                epsilon=1e-5,
+            )
+
+            gathered = builder.mesh_shard(
+                result,
+                shard_direction=MeshShardDirection.ShardToFull.value,
+                shard_type=MeshShardType.Devices.value,
+                shard_shape=shard_shape_input,
+                shard_dims=shard_dims,
+            )
+
+            return gathered
+
+    compile_and_execute_ttir(
+        module,
+        mesh_name="mesh",
+        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         **get_request_kwargs(request),
         device=device,
         target=target,

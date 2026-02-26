@@ -21,9 +21,9 @@
 #mapR = affine_map<(d0, d1, d2) -> (d2, d1)>
 #mapO = affine_map<(d0, d1, d2) -> (d0, d1)>
 
-#layout_a = #ttcore.metal_layout<logical_shape = 64x96, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded, index_map = map(0)>
-#layout_b = #ttcore.metal_layout<logical_shape = 96x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded, index_map = map(0)>
-#layout_c = #ttcore.metal_layout<logical_shape = 64x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded, index_map = map(0)>
+#layout_a = #ttcore.metal_layout<logical_shape = 64x96, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
+#layout_b = #ttcore.metal_layout<logical_shape = 96x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
+#layout_c = #ttcore.metal_layout<logical_shape = 64x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
 
 // CHECK-LABEL: func.func @explicit_datamovement_matmul_mcast
 func.func @explicit_datamovement_matmul_mcast(
@@ -34,13 +34,13 @@ func.func @explicit_datamovement_matmul_mcast(
 
   // Wrap inputs and output in stream_layout operations
   %input_a_storage = d2m.empty() : tensor<2x3x2x2x!ttcore.tile<32x32, f32>, #layout_a>
-  %arg0_stream = "d2m.stream_layout"(%arg0, %input_a_storage) : (tensor<2x3x2x2x!ttcore.tile<32x32, f32>, #layout_a>, tensor<2x3x2x2x!ttcore.tile<32x32, f32>, #layout_a>) -> tensor<2x3x2x2x!ttcore.tile<32x32, f32>, #layout_a>
+  %arg0_stream = "d2m.stream_layout"(%arg0, %input_a_storage) <{remapping = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>}> : (tensor<2x3x2x2x!ttcore.tile<32x32, f32>, #layout_a>, tensor<2x3x2x2x!ttcore.tile<32x32, f32>, #layout_a>) -> tensor<2x3x2x2x!ttcore.tile<32x32, f32>, #layout_a>
 
   %input_b_storage = d2m.empty() : tensor<3x4x2x2x!ttcore.tile<32x32, f32>, #layout_b>
-  %arg1_stream = "d2m.stream_layout"(%arg1, %input_b_storage) : (tensor<3x4x2x2x!ttcore.tile<32x32, f32>, #layout_b>, tensor<3x4x2x2x!ttcore.tile<32x32, f32>, #layout_b>) -> tensor<3x4x2x2x!ttcore.tile<32x32, f32>, #layout_b>
+  %arg1_stream = "d2m.stream_layout"(%arg1, %input_b_storage) <{remapping = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>}> : (tensor<3x4x2x2x!ttcore.tile<32x32, f32>, #layout_b>, tensor<3x4x2x2x!ttcore.tile<32x32, f32>, #layout_b>) -> tensor<3x4x2x2x!ttcore.tile<32x32, f32>, #layout_b>
 
   %output_storage = d2m.empty() : tensor<2x4x2x2x!ttcore.tile<32x32, f32>, #layout_c>
-  %output_stream = "d2m.stream_layout"(%output, %output_storage) : (tensor<2x4x2x2x!ttcore.tile<32x32, f32>, #layout_c>, tensor<2x4x2x2x!ttcore.tile<32x32, f32>, #layout_c>) -> tensor<2x4x2x2x!ttcore.tile<32x32, f32>, #layout_c>
+  %output_stream = "d2m.stream_layout"(%output, %output_storage) <{remapping = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>}> : (tensor<2x4x2x2x!ttcore.tile<32x32, f32>, #layout_c>, tensor<2x4x2x2x!ttcore.tile<32x32, f32>, #layout_c>) -> tensor<2x4x2x2x!ttcore.tile<32x32, f32>, #layout_c>
 
   // CHECK: d2m.generic
   // CHECK-SAME: block_factors = []

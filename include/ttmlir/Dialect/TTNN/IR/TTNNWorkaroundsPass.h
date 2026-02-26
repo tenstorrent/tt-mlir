@@ -21,6 +21,7 @@ class SortOp;
 class SliceDynamicOp;
 class SliceStaticOp;
 class RotaryEmbeddingOp;
+class Conv3dOp;
 } // namespace mlir::tt::ttnn
 
 namespace mlir::tt::ttnn::wa {
@@ -248,6 +249,12 @@ public:
   static TTNNOperandsWorkarounds
   createMeshShardOpOperandsWorkarounds(ttcore::MeshShardType shardType);
 
+  // Create workarounds for mesh partition op operands. The input and output
+  // tensors are always in row-major layout.
+  // TODO (hshah): Remove once
+  // https://github.com/tenstorrent/tt-metal/issues/37676 is fixed.
+  static TTNNOperandsWorkarounds createMeshPartitionOpOperandsWorkarounds();
+
   // Create workarounds for scatter op operands.
   static TTNNOperandsWorkarounds
   createScatterOpOperandsWorkarounds(mlir::Operation *op);
@@ -312,6 +319,10 @@ public:
   // Create workarounds for conv2d/convtranspose2d op.
   template <typename T>
   static TTNNOperandsWorkarounds createConvOpOperandsWorkarounds(T op);
+
+  // Create workarounds for conv3d op to force BFloat16 data type.
+  static TTNNOperandsWorkarounds
+  createConv3dOpOperandsWorkarounds(ttnn::Conv3dOp op);
 
   // Create workarounds for reduction op operands.
   static TTNNOperandsWorkarounds

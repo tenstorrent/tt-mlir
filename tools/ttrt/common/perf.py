@@ -4,23 +4,16 @@
 
 import os
 import json
-import importlib.machinery
 import sys
 import signal
-import io
 import subprocess
-import time
 import socket
-from pkg_resources import get_distribution
 import shutil
-import atexit
 import traceback
-from pathlib import Path
 import csv
 import ast
 
 from ttrt.common.util import *
-from ttrt.common.query import Query
 
 
 class Perf:
@@ -526,6 +519,8 @@ class Perf:
 
                     # copy all relevant files into perf folder for this test
                     perf_folder_path = self.artifacts.get_binary_perf_folder_path(bin)
+                    if not self.file_manager.check_directory_exists(perf_folder_path):
+                        self.file_manager.create_directory(perf_folder_path)
                     self.file_manager.copy_file(perf_folder_path, tracy_file_path)
                     self.file_manager.copy_file(
                         perf_folder_path, tracy_ops_times_file_path

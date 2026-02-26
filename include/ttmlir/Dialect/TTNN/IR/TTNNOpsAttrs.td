@@ -566,6 +566,31 @@ def TTNN_SDPAProgramConfigAttr : TTNN_Attr<"SDPAProgramConfig", "sdpa_program_co
   let assemblyFormat = "`<` struct(params) `>`";
 }
 
+def TTNN_LayerNormShardedMultiCoreProgramConfigAttr
+    : TTNN_Attr<"LayerNormShardedMultiCoreProgramConfig",
+                "layernorm_sharded_multicore_program_config"> {
+  let summary = "TTNN LayerNorm Sharded Multi-Core Program Config";
+  let description = [{
+    Configuration for sharded multi-core layer norm / RMS norm operations.
+
+    Parameters:
+    - `compute_with_storage_grid_size`: The core grid dimensions (x, y) used
+      for computation and storage.
+    - `subblock_w`: Width of the sub-block (typically 1 for norm ops).
+    - `block_h`: Height of each block in tiles (shard_height / tile_height).
+    - `block_w`: Width of each block in tiles (shard_width / tile_width).
+    - `inplace`: Whether the operation is performed in-place.
+  }];
+
+  let parameters = (ins "CoreCoordAttr":$compute_with_storage_grid_size,
+                        "uint64_t":$subblock_w,
+                        "uint64_t":$block_h,
+                        "uint64_t":$block_w,
+                        "bool":$inplace);
+
+  let assemblyFormat = "`<` struct(params) `>`";
+}
+
 def TTNN_Conv2dConfigAttr : TTNN_Attr<"Conv2dConfig", "conv2d_config"> {
   let summary = "TTNN Conv2dConfig attribute";
   let description = [{
@@ -948,6 +973,17 @@ def TTNN_KernelArgSemaphoreAtAttr : TTNN_Attr<"KernelArgSemaphoreAt", "kernel_ar
 
   let parameters = (ins "size_t":$semaphore_index);
   let assemblyFormat = "`<` $semaphore_index `>`";
+}
+
+def TTNN_KernelArgNamedArgAttr : TTNN_Attr<"KernelArgNamedArg", "kernel_named_arg"> {
+  let summary = "Named kernel argument";
+  let description = [{
+    TTNN generic kernel argument for a named argument in kernel. For example this could be
+    used to pass in dynamic loop bounds for M, N, K in a matmul kernel.
+  }];
+
+  let parameters = (ins "StringAttr":$name, "uint32_t":$value);
+  let assemblyFormat = "`<` struct(params) `>`";
 }
 
 def TTNN_CoreRuntimeArgsAttr : TTNN_Attr<"CoreRuntimeArgs", "core_runtime_args"> {

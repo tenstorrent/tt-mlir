@@ -141,6 +141,19 @@ UnaryWithParamAttr getActivationAttr(MLIRContext *ctx,
 // Returns {gridX, gridY} representing the physical core grid extent.
 std::pair<int64_t, int64_t> getPhysicalGridDimensions(TTNNLayoutAttr layout);
 
+// Calculate optimal C_in_block for Conv3d based on channel count.
+// Finds the largest block size in [32, 128] (step 32) that evenly divides
+// in_channels. Returns 0 when no valid block size exists (TT-Metal will
+// use the full channel count).
+inline uint32_t calculateOptimalCInBlock(uint32_t in_channels) {
+  for (uint32_t i = 128; i >= 32; i -= 32) {
+    if (in_channels % i == 0) {
+      return i;
+    }
+  }
+  return 0;
+}
+
 } // namespace mlir::tt::ttnn::utils
 
 #endif // TTMLIR_DIALECT_TTNN_UTILS_UTILS_H

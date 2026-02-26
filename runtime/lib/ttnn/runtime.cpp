@@ -1200,6 +1200,10 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_RMSNormOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::DistributedRMSNormOp: {
+    tensorRef = opContext.type_as_DistributedRMSNormOp()->out();
+    break;
+  }
   case ::tt::target::ttnn::OpType::LayerNormOp: {
     tensorRef = opContext.type_as_LayerNormOp()->out();
     break;
@@ -1218,6 +1222,10 @@ getOpOutputRef(OpContext opContextHandle,
   }
   case ::tt::target::ttnn::OpType::MeshShardOp: {
     tensorRef = opContext.type_as_MeshShardOp()->out();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::MeshPartitionOp: {
+    tensorRef = opContext.type_as_MeshPartitionOp()->out();
     break;
   }
   case ::tt::target::ttnn::OpType::ArangeOp: {
@@ -1307,7 +1315,10 @@ getOpOutputRef(OpContext opContextHandle,
   case ::tt::target::ttnn::OpType::CaptureOrExecuteTraceOp:
   case ::tt::target::ttnn::OpType::NLPCreateQKVHeadsDecodeOp:
   case ::tt::target::ttnn::OpType::SplitQueryKeyValueAndSplitHeadsOp:
-  case ::tt::target::ttnn::OpType::DumpTensorOp: {
+  case ::tt::target::ttnn::OpType::DumpTensorOp:
+  case ::tt::target::ttnn::OpType::BreakpointOp:
+  case ::tt::target::ttnn::OpType::PrintOp:
+  case ::tt::target::ttnn::OpType::MemorySnapshotOp: {
     LOG_WARNING("getting output tensor is not supported for ",
                 ::tt::target::ttnn::EnumNamesOpType()[static_cast<size_t>(
                     opContext.type_type())]);
@@ -1330,12 +1341,12 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_AnnotateOp()->result();
     break;
   }
-  case ::tt::target::ttnn::OpType::BreakpointOp: {
-    tensorRef = opContext.type_as_BreakpointOp()->result();
+  case ::tt::target::ttnn::OpType::RegionStartOp: {
+    tensorRef = opContext.type_as_RegionStartOp()->result();
     break;
   }
-  case ::tt::target::ttnn::OpType::MemorySnapshotOp: {
-    tensorRef = opContext.type_as_MemorySnapshotOp()->result();
+  case ::tt::target::ttnn::OpType::RegionEndOp: {
+    tensorRef = opContext.type_as_RegionEndOp()->result();
     break;
   }
   case ::tt::target::ttnn::OpType::NONE: {
@@ -1592,6 +1603,17 @@ getOpInputRefs(OpContext opContextHandle,
     }
     break;
   }
+  case ::tt::target::ttnn::OpType::DistributedRMSNormOp: {
+    tensorRefs = {opContext.type_as_DistributedRMSNormOp()->input()};
+    if (opContext.type_as_DistributedRMSNormOp()->weight()) {
+      tensorRefs.push_back(opContext.type_as_DistributedRMSNormOp()->weight());
+    }
+    if (opContext.type_as_DistributedRMSNormOp()->residual()) {
+      tensorRefs.push_back(
+          opContext.type_as_DistributedRMSNormOp()->residual());
+    }
+    break;
+  }
   case ::tt::target::ttnn::OpType::LayerNormOp: {
     tensorRefs = {opContext.type_as_LayerNormOp()->input()};
     if (opContext.type_as_LayerNormOp()->weight()) {
@@ -1616,6 +1638,10 @@ getOpInputRefs(OpContext opContextHandle,
   }
   case ::tt::target::ttnn::OpType::MeshShardOp: {
     tensorRefs = {opContext.type_as_MeshShardOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::MeshPartitionOp: {
+    tensorRefs = {opContext.type_as_MeshPartitionOp()->out()};
     break;
   }
   case ::tt::target::ttnn::OpType::UpsampleOp: {
@@ -1797,8 +1823,20 @@ getOpInputRefs(OpContext opContextHandle,
     tensorRefs = {opContext.type_as_AnnotateOp()->operand()};
     break;
   }
+  case ::tt::target::ttnn::OpType::RegionStartOp: {
+    tensorRefs = {opContext.type_as_RegionStartOp()->operand()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::RegionEndOp: {
+    tensorRefs = {opContext.type_as_RegionEndOp()->operand()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::BreakpointOp: {
     tensorRefs = {opContext.type_as_BreakpointOp()->operand()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::PrintOp: {
+    tensorRefs = {opContext.type_as_PrintOp()->operand()};
     break;
   }
   case ::tt::target::ttnn::OpType::MemorySnapshotOp: {

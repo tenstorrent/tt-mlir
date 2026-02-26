@@ -35,13 +35,199 @@ struct OperationTypes {
   bool hasMarkedAffineLoops = false;
 };
 
-static bool hasTileMatmul(linalg::GenericOp linalgGenericOp) {
-  bool hasTileMatmul = false;
-  linalgGenericOp->walk([&](d2m::TileMatmulOp) {
-    hasTileMatmul = true;
+// Collect loop IVs from ancestor loops that are in scope at `op`.
+static SmallVector<Value> collectAncestorLoopIVs(Operation *op) {
+  SmallVector<Value> loopIVs;
+  Operation *current = op->getParentOp();
+  while (current && !mlir::isa<d2m::GenericOp>(current)) {
+    if (auto scfFor = mlir::dyn_cast<scf::ForOp>(current)) {
+      loopIVs.push_back(scfFor.getInductionVar());
+    } else if (auto affineFor = mlir::dyn_cast<affine::AffineForOp>(current)) {
+      loopIVs.push_back(affineFor.getInductionVar());
+    }
+    current = current->getParentOp();
+  }
+  std::reverse(loopIVs.begin(), loopIVs.end());
+  return loopIVs;
+}
+
+static bool valueDependsOnIV(Value value, Value iv, DenseSet<Value> &visited) {
+  if (value == iv) {
+    return true;
+  }
+  if (!visited.insert(value).second) {
+    return false;
+  }
+
+  Operation *definingOp = value.getDefiningOp();
+  if (!definingOp) {
+    return false;
+  }
+
+  for (Value operand : definingOp->getOperands()) {
+    if (valueDependsOnIV(operand, iv, visited)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+static bool valueDependsOnIV(Value value, Value iv) {
+  DenseSet<Value> visited;
+  return valueDependsOnIV(value, iv, visited);
+}
+
+// Returns the subset of map operands that are actually referenced by the affine
+// map expressions. An operand is considered used if it appears as a dimension
+// or symbol in any of the map's result expressions.
+static SmallVector<Value> getUsedAffineMapOperands(AffineMap map,
+                                                   ValueRange mapOperands) {
+  SmallVector<bool> usedOperands(mapOperands.size(), false);
+  for (AffineExpr resultExpr : map.getResults()) {
+    resultExpr.walk([&](AffineExpr expr) {
+      if (auto dimExpr = mlir::dyn_cast<AffineDimExpr>(expr)) {
+        unsigned pos = dimExpr.getPosition();
+        if (pos < usedOperands.size()) {
+          usedOperands[pos] = true;
+        }
+      } else if (auto symbolExpr = mlir::dyn_cast<AffineSymbolExpr>(expr)) {
+        unsigned pos = map.getNumDims() + symbolExpr.getPosition();
+        if (pos < usedOperands.size()) {
+          usedOperands[pos] = true;
+        }
+      }
+    });
+  }
+
+  SmallVector<Value> usedMapOperands;
+  for (auto [idx, isUsed] : llvm::enumerate(usedOperands)) {
+    if (isUsed) {
+      usedMapOperands.push_back(mapOperands[idx]);
+    }
+  }
+  return usedMapOperands;
+}
+
+// accessDependsOnIV overloads here determine if various load/store ops depend
+// on a particular loop induction variable.
+static bool accessDependsOnIV(affine::AffineLoadOp loadOp, Value iv) {
+  if (valueDependsOnIV(loadOp.getMemRef(), iv)) {
+    return true;
+  }
+  // Determine subset of affine load indices that load is actually affected by.
+  SmallVector<Value> mapOperands =
+      getUsedAffineMapOperands(loadOp.getAffineMap(), loadOp.getMapOperands());
+  return llvm::any_of(mapOperands,
+                      [&](Value v) { return valueDependsOnIV(v, iv); });
+}
+
+static bool accessDependsOnIV(affine::AffineStoreOp storeOp, Value iv) {
+  if (valueDependsOnIV(storeOp.getMemRef(), iv)) {
+    return true;
+  }
+  // Determine subset of affine store indices that load is actually affected by.
+  SmallVector<Value> mapOperands = getUsedAffineMapOperands(
+      storeOp.getAffineMap(), storeOp.getMapOperands());
+  return llvm::any_of(mapOperands,
+                      [&](Value v) { return valueDependsOnIV(v, iv); });
+}
+
+static bool accessDependsOnIV(memref::LoadOp loadOp, Value iv) {
+  if (valueDependsOnIV(loadOp.getMemRef(), iv)) {
+    return true;
+  }
+  return llvm::any_of(loadOp.getIndices(),
+                      [&](Value idx) { return valueDependsOnIV(idx, iv); });
+}
+
+static bool accessDependsOnIV(memref::StoreOp storeOp, Value iv) {
+  if (valueDependsOnIV(storeOp.getMemRef(), iv)) {
+    return true;
+  }
+  return llvm::any_of(storeOp.getIndices(),
+                      [&](Value idx) { return valueDependsOnIV(idx, iv); });
+}
+
+// Collects all loop IVs in scope for a load/store op, and returns the
+// subset of IVs that actually affect the load/store op.
+template <typename LoadOrStoreTy>
+static SmallVector<Value> getGuardLoopIVs(LoadOrStoreTy loadOrStore,
+                                          Operation *contextOp) {
+  SmallVector<Value> guardIVs;
+  for (Value loopIV : collectAncestorLoopIVs(contextOp)) {
+    if (!accessDependsOnIV(loadOrStore, loopIV)) {
+      guardIVs.push_back(loopIV);
+    }
+  }
+  return guardIVs;
+}
+
+static bool hasTileMatmul(Operation *op) {
+  bool found = false;
+  op->walk([&](d2m::TileMatmulOp) {
+    found = true;
     return WalkResult::interrupt();
   });
-  return hasTileMatmul;
+  return found;
+}
+
+static bool hasTileMatmul(linalg::GenericOp linalgGenericOp) {
+  return hasTileMatmul(linalgGenericOp.getOperation());
+}
+
+// Returns the value of the induction variable at the second loop iteration.
+// Falls back to constant 1 when loop metadata is unavailable.
+static Value getSecondIterationValue(PatternRewriter &rewriter, Location loc,
+                                     Value loopIV) {
+  auto one = rewriter.create<arith::ConstantOp>(
+      loc, rewriter.getIndexType(),
+      rewriter.getIntegerAttr(rewriter.getIndexType(), 1));
+
+  auto ivBlockArg = mlir::dyn_cast<BlockArgument>(loopIV);
+  if (!ivBlockArg) {
+    return one;
+  }
+
+  auto *ownerBlock = ivBlockArg.getOwner();
+  if (!ownerBlock) {
+    return one;
+  }
+
+  auto *ownerOp = ownerBlock->getParentOp();
+  if (!ownerOp) {
+    return one;
+  }
+
+  if (auto scfFor = mlir::dyn_cast<scf::ForOp>(ownerOp)) {
+    return rewriter.create<arith::AddIOp>(loc, scfFor.getLowerBound(),
+                                          scfFor.getStep());
+  }
+
+  if (auto affineFor = mlir::dyn_cast<affine::AffineForOp>(ownerOp)) {
+    Value lb = nullptr;
+    if (affineFor.hasConstantLowerBound()) {
+      lb = rewriter.create<arith::ConstantOp>(
+          loc, rewriter.getIndexType(),
+          rewriter.getIntegerAttr(rewriter.getIndexType(),
+                                  affineFor.getConstantLowerBound()));
+    } else {
+      AffineMap lowerBoundMap = affineFor.getLowerBoundMap();
+      if (lowerBoundMap.getNumResults() == 1) {
+        lb = rewriter.create<affine::AffineApplyOp>(
+            loc, lowerBoundMap, affineFor.getLowerBoundOperands());
+      }
+    }
+
+    if (lb) {
+      Value step = rewriter.create<arith::ConstantOp>(
+          loc, rewriter.getIndexType(),
+          rewriter.getIntegerAttr(rewriter.getIndexType(),
+                                  affineFor.getStepAsInt()));
+      return rewriter.create<arith::AddIOp>(loc, lb, step);
+    }
+  }
+
+  return one;
 }
 
 static bool canReplaceWithMatmulBlock(linalg::GenericOp linalgGenericOp) {
@@ -77,9 +263,11 @@ struct D2MInsertDstRegisterAccessRewriter final
     : public OpRewritePattern<GenericOp> {
 public:
   D2MInsertDstRegisterAccessRewriter(mlir::MLIRContext *ctx, bool useTileMatmul,
-                                     unsigned maxDstPhysicalSizeTiles)
+                                     unsigned maxDstPhysicalSizeTiles,
+                                     bool enableL1Acc)
       : OpRewritePattern<GenericOp>(ctx), useTileMatmul(useTileMatmul),
-        maxDstPhysicalSizeTiles(maxDstPhysicalSizeTiles) {};
+        maxDstPhysicalSizeTiles(maxDstPhysicalSizeTiles),
+        enableL1Acc(enableL1Acc) {};
 
   // Records a CB<->DST affine.load/store op, which DST slice it accesses, and
   // some special considerations for looping over the tensor shard while doing
@@ -90,13 +278,13 @@ public:
     LoadOrStoreTy loadStore = nullptr;
     std::optional<d2m::TileBcastOp> bcast = std::nullopt;
     int dstSlice = -1;
-    std::set<int64_t> guardDims = {};
+    SmallVector<Value> guardIVs = {};
 
     LoadStoreRecord(LoadOrStoreTy loadStore,
                     std::optional<d2m::TileBcastOp> bcast, int dstSlice,
-                    const std::set<int64_t> &guardDims)
+                    ArrayRef<Value> guardIVs)
         : loadStore(loadStore), bcast(bcast), dstSlice(dstSlice),
-          guardDims(guardDims) {}
+          guardIVs(guardIVs.begin(), guardIVs.end()) {}
   };
 
   // Stores all DST<->CB loads/stores that are under the same loop nest.
@@ -104,31 +292,28 @@ public:
   // (for scheduled path with scf.for loops).
   struct CopyInfo {
     void record(affine::AffineLoadOp load, int dstSlice,
-                const std::set<int64_t> &guardDims) {
-      loads.emplace_back(load, std::nullopt, dstSlice, guardDims);
+                ArrayRef<Value> guardIVs) {
+      loads.emplace_back(load, std::nullopt, dstSlice, guardIVs);
     }
 
     void record(affine::AffineLoadOp load, d2m::TileBcastOp bcast, int dstSlice,
-                const std::set<int64_t> &guardDims) {
-      loads.emplace_back(load, bcast, dstSlice, guardDims);
+                ArrayRef<Value> guardIVs) {
+      loads.emplace_back(load, bcast, dstSlice, guardIVs);
     }
 
-    void record(affine::AffineStoreOp store, int dstSlice,
-                const std::set<int64_t> &) {
+    void record(affine::AffineStoreOp store, int dstSlice, ArrayRef<Value>) {
       // Guards are only useful for load loops atm.
-      stores.emplace_back(store, std::nullopt, dstSlice, std::set<int64_t>{});
+      stores.emplace_back(store, std::nullopt, dstSlice, ArrayRef<Value>{});
     }
 
     // Memref ops for scheduled path (scf.for loops).
-    void record(memref::LoadOp load, int dstSlice,
-                const std::set<int64_t> &guardDims) {
-      memrefLoads.emplace_back(load, std::nullopt, dstSlice, guardDims);
+    void record(memref::LoadOp load, int dstSlice, ArrayRef<Value> guardIVs) {
+      memrefLoads.emplace_back(load, std::nullopt, dstSlice, guardIVs);
     }
 
-    void record(memref::StoreOp store, int dstSlice,
-                const std::set<int64_t> &) {
+    void record(memref::StoreOp store, int dstSlice, ArrayRef<Value>) {
       memrefStores.emplace_back(store, std::nullopt, dstSlice,
-                                std::set<int64_t>{});
+                                ArrayRef<Value>{});
     }
 
     SmallVector<LoadStoreRecord<affine::AffineLoadOp>> loads;
@@ -308,17 +493,12 @@ public:
       WalkResult walkResult =
           block.walk([&](linalg::GenericOp linalgGenericOp) {
             if (!useTileMatmul && hasTileMatmul(linalgGenericOp)) {
-              // Only use tile matmul block rewrite when not in explicit
-              // datamovement form. Explicit datamovement form should fall
-              // through to regular linalg-to-affine conversion.
-              if (!gOp.isExplicitDatamovementForm()) {
-                if (rewriteTileMatmulAsTileMatmulBlock(
-                        rewriter, gOp, *genericRegion, linalgGenericOp,
-                        dstCapacity, modified)) {
-                  return WalkResult::interrupt();
-                }
-                return WalkResult::advance();
+              if (rewriteTileMatmulAsTileMatmulBlock(
+                      rewriter, gOp, *genericRegion, linalgGenericOp,
+                      dstCapacity, modified, enableL1Acc)) {
+                return WalkResult::interrupt();
               }
+              return WalkResult::advance();
             }
 
             // This should not happen - all other linalg ops should have been
@@ -352,9 +532,12 @@ public:
           // Remove the marker attribute after identifying the loop.
           loopOp->removeAttr("d2m.linalg_root");
 
+          // Only enable packer L1 accumulation for matmul_tile loops
+          bool packerL1Acc = enableL1Acc && hasTileMatmul(loopOp);
+
           // Insert DST register access for this loop nest.
           modified |= insertDstRegisterAccess(rewriter, gOp, *loopRegion,
-                                              dstCapacity, loopOp);
+                                              dstCapacity, loopOp, packerL1Acc);
         }
 
         return WalkResult::advance();
@@ -363,10 +546,27 @@ public:
     return success(modified);
   }
 
+  // Insert a guarded pack_reconfig_l1_acc(1) enabling L1 accumulation
+  // starting from the second iteration of the reduction loop. First iteration
+  // packs normally, afterwards pack will accumulate into L1.
+  static void insertPackerL1AccGuard(PatternRewriter &rewriter, Location loc,
+                                     AcquireDstOp acquireDst, Value loopIV) {
+    rewriter.setInsertionPointAfter(acquireDst);
+    Value secondIterationValue = getSecondIterationValue(rewriter, loc, loopIV);
+    Value cond = rewriter.create<arith::CmpIOp>(loc, arith::CmpIPredicate::eq,
+                                                loopIV, secondIterationValue);
+    auto ifOp = rewriter.create<scf::IfOp>(loc, cond);
+    rewriter.setInsertionPointToStart(&ifOp.getThenRegion().front());
+    Value enableFlag = rewriter.create<arith::ConstantOp>(
+        loc, rewriter.getI32Type(), rewriter.getI32IntegerAttr(1));
+    rewriter.create<SetL1AccumulateOp>(loc, enableFlag);
+  }
+
   static bool
   insertDstRegisterAccess(PatternRewriter &rewriter, GenericOp gOp,
                           Region &region, unsigned dstCapacity,
-                          Operation *outermostInnerComputeLoop = nullptr) {
+                          Operation *outermostInnerComputeLoop = nullptr,
+                          bool enableL1Acc = false) {
     assert(region.getBlocks().size() == 1);
     if (hasAcquireDstOp(region)) {
       return false;
@@ -407,14 +607,36 @@ public:
                          /*insertInsideLoop=*/isScfForLoop);
     Value dst = acquireDst.getResult();
 
-    // 3. Generate data copy loops to/from dst and output cb.
-    if (isScheduled) {
-      dataCopyGenerateScheduled(rewriter, loc, dst, copyInfos);
-    } else {
-      dataCopyGenerate(rewriter, loc, dst, copyInfos);
+    Value l1AccLoopIV = nullptr;
+    if (enableL1Acc) {
+      SmallVector<Value> loopIVsInScope =
+          collectAncestorLoopIVs(acquireDst.getOperation());
+      // Use the outermost loop currently in scope where acquire_dst is
+      // inserted.
+      if (!loopIVsInScope.empty()) {
+        l1AccLoopIV = loopIVsInScope.front();
+      }
+      if (!l1AccLoopIV) {
+        LDBG() << "Skipping L1 accumulation insertion: no in-scope loop IV";
+        enableL1Acc = false;
+      }
     }
 
-    // 4. Fix the passing of intermediate results through the DST.
+    // 3. Generate data copy loops to/from dst and output cb.
+    // When L1 accumulation mode is enabled, skip CB->DST reload copy loop
+    // generation but still rewrite original load accesses to use DST indices.
+    if (isScheduled) {
+      dataCopyGenerateScheduled(rewriter, loc, dst, copyInfos, enableL1Acc);
+    } else {
+      dataCopyGenerate(rewriter, loc, dst, copyInfos, enableL1Acc);
+    }
+
+    // 4. When L1 accum is enabled, insert a guarded packer reconfig.
+    if (enableL1Acc) {
+      insertPackerL1AccGuard(rewriter, loc, acquireDst, l1AccLoopIV);
+    }
+
+    // 5. Fix the passing of intermediate results through the DST.
     fixDstIntermediateResults(rewriter, loc, dst, dstIntermediates);
 
     return true;
@@ -469,17 +691,17 @@ public:
     };
 
     for (auto [loopNest, copyInfo] : copyInfos) {
-      for (auto &[loadOp, bcastOp, idx, guardDims] : copyInfo.loads) {
+      for (auto &[loadOp, bcastOp, idx, guardIVs] : copyInfo.loads) {
         updateInfo(loadOp.getMemRefType(), idx);
       }
-      for (auto &[storeOp, bcastOp, idx, guardDims] : copyInfo.stores) {
+      for (auto &[storeOp, bcastOp, idx, guardIVs] : copyInfo.stores) {
         updateInfo(storeOp.getMemRefType(), idx);
       }
       // Also process memref ops (scheduled path).
-      for (auto &[loadOp, bcastOp, idx, guardDims] : copyInfo.memrefLoads) {
+      for (auto &[loadOp, bcastOp, idx, guardIVs] : copyInfo.memrefLoads) {
         updateInfo(loadOp.getMemRefType(), idx);
       }
-      for (auto &[storeOp, bcastOp, idx, guardDims] : copyInfo.memrefStores) {
+      for (auto &[storeOp, bcastOp, idx, guardIVs] : copyInfo.memrefStores) {
         updateInfo(storeOp.getMemRefType(), idx);
       }
     }
@@ -639,6 +861,9 @@ public:
   }
 
   static BlockArgument lookThroughSubView(Value memref) {
+    if (!memref) {
+      return nullptr;
+    }
     while (auto subView = mlir::dyn_cast_or_null<memref::SubViewOp>(
                memref.getDefiningOp())) {
       memref = subView.getSource();
@@ -655,10 +880,13 @@ public:
         }
         Value cb = GenericOp::findAssocCBByOperand(allocOp.getOperation(),
                                                    assocOperand);
-        return mlir::dyn_cast<BlockArgument>(cb);
+        if (!cb) {
+          return nullptr;
+        }
+        return mlir::dyn_cast_or_null<BlockArgument>(cb);
       }
     }
-    return mlir::dyn_cast<BlockArgument>(memref);
+    return mlir::dyn_cast_or_null<BlockArgument>(memref);
   }
 
   // Collect a single load or store and determine its loop guard.
@@ -675,20 +903,12 @@ public:
     auto [iter, _] = copyInfos.try_emplace(outermostInnerComputeLoop);
     BlockArgument blockArg = lookThroughSubView(loadOrStore.getMemRef());
 
-    std::set<int64_t> guardDims = {};
-    if (blockArg && !gOp.isExplicitDatamovementForm() &&
-        !gOp.isScratchInput(blockArg.getArgNumber())) {
-      auto nonParticipatingLoopDims =
-          gOp.getNonParticipatingLoopDims(blockArg.getArgNumber());
-      auto iteratorTypes = gOp.getIteratorTypesValue();
-
-      for (int64_t dim : nonParticipatingLoopDims) {
-        TT_assert(iteratorTypes[dim] == ttcore::IteratorType::Reduction);
-        guardDims.insert(dim);
-      }
+    SmallVector<Value> guardIVs;
+    if (blockArg) {
+      guardIVs = getGuardLoopIVs(loadOrStore, outermostInnerComputeLoop);
     }
 
-    iter->second.record(loadOrStore, dstSlice, guardDims);
+    iter->second.record(loadOrStore, dstSlice, guardIVs);
   }
 
   // Collect a load-bcast pair.
@@ -706,19 +926,12 @@ public:
     auto [iter, _] = copyInfos.try_emplace(outermostInnerComputeLoop);
     BlockArgument blockArg = lookThroughSubView(loadOp.getMemRef());
 
-    std::set<int64_t> guardDims = {};
-    if (blockArg && !gOp.isExplicitDatamovementForm()) {
-      auto nonParticipatingLoopDims =
-          gOp.getNonParticipatingLoopDims(blockArg.getArgNumber());
-      auto iteratorTypes = gOp.getIteratorTypesValue();
-
-      for (int64_t dim : nonParticipatingLoopDims) {
-        TT_assert(iteratorTypes[dim] == ttcore::IteratorType::Parallel);
-        guardDims.insert(dim);
-      }
+    SmallVector<Value> guardIVs;
+    if (blockArg) {
+      guardIVs = getGuardLoopIVs(loadOp, outermostInnerComputeLoop);
     }
 
-    iter->second.record(loadOp, bcastOp, dstSlice, guardDims);
+    iter->second.record(loadOp, bcastOp, dstSlice, guardIVs);
   }
 
   /*
@@ -731,7 +944,8 @@ public:
   */
   static bool rewriteTileMatmulAsTileMatmulBlock(
       PatternRewriter &rewriter, GenericOp gOp, Region &region,
-      linalg::GenericOp linalgGenericOp, unsigned dstCapacity, bool &modified) {
+      linalg::GenericOp linalgGenericOp, unsigned dstCapacity, bool &modified,
+      bool enableL1AccumMode) {
     assert(linalgGenericOp.getInputs().size() == 2 &&
            "Expected exactly 2 input for tile matmul");
     assert(linalgGenericOp.getOutputs().size() == 1 &&
@@ -752,7 +966,8 @@ public:
     rewriter.eraseOp(linalgGenericOp);
     modified |= insertDstRegisterAccess(
         rewriter, gOp, region, dstCapacity,
-        !linalgLoops.value().empty() ? linalgLoops.value().front() : nullptr);
+        !linalgLoops.value().empty() ? linalgLoops.value().front() : nullptr,
+        enableL1AccumMode);
 
     if (replaceWithMatmulBlock) {
       Operation *outerLoop = linalgLoops.value()[0];
@@ -771,9 +986,12 @@ public:
   }
 
   // Consumes the recorded load/store info to generate two data copy loops: one
-  // for loads and one for stores.
+  // for loads and one for stores. When enableL1Acc is true, skip the
+  // copy loop for loads but still rewrite original load accesses to use
+  // DST indices.
   static void dataCopyGenerate(PatternRewriter &rewriter, Location loc,
-                               Value dst, const CopyInfoMap &copyInfos) {
+                               Value dst, const CopyInfoMap &copyInfos,
+                               bool enableL1Acc = false) {
     for (const auto &[loopNestOrOp, copyInfo] : copyInfos) {
       // Save this insertion point as loopNestOrOp may be replaced.
       rewriter.setInsertionPointAfter(loopNestOrOp);
@@ -824,7 +1042,8 @@ public:
 
       createCopyLoop<affine::AffineLoadOp>(rewriter, loopNestOrOp,
                                            copyInfo.loads, loadAccessGenerator,
-                                           loadAccessRewriter);
+                                           loadAccessRewriter,
+                                           /*enableL1Acc=*/enableL1Acc);
 
       // Step 2: generate affine copy loop for stores.
       rewriter.restoreInsertionPoint(insertionPointAfterLoopNest);
@@ -886,9 +1105,9 @@ public:
   // - Accum: skip the CB->DST reload unless any of the reduction dims is not
   //   at the 1st iter. So the accumulation starts with an all-zeros DST tile.
   static scf::IfOp createLoadLoopGuard(PatternRewriter &rewriter, Location loc,
-                                       const std::set<int64_t> &guardDims,
+                                       ValueRange guardIVs,
                                        const bool isBcastGuard) {
-    if (guardDims.empty()) {
+    if (guardIVs.empty()) {
       return nullptr;
     }
 
@@ -911,10 +1130,9 @@ public:
         loc, rewriter.getIndexType(),
         rewriter.getIntegerAttr(rewriter.getIndexType(), 0));
 
-    for (int64_t idx : guardDims) {
-      Value iterIdx = rewriter.create<d2m::IterIndexOp>(loc, idx);
+    for (Value guardIV : guardIVs) {
       Value cmp =
-          rewriter.create<arith::CmpIOp>(loc, cmpPredicate, iterIdx, zero);
+          rewriter.create<arith::CmpIOp>(loc, cmpPredicate, guardIV, zero);
       // Aggregation:
       if (isBcastGuard) {
         // - Bcast: load if ALL(&&) bcast dims ARE at the 1st iter.
@@ -937,7 +1155,8 @@ public:
           dstAccessGenerator,
       llvm::function_ref<void(PatternRewriter &, LoadStoreRecord<LoadOrStoreTy>,
                               AffineMap, ValueRange)>
-          dstAccessRewriter) {
+          dstAccessRewriter,
+      bool enableL1Acc = false) {
     if (loadStoreRecords.empty()) {
       return;
     }
@@ -962,50 +1181,65 @@ public:
       return {skeleton, mapper};
     };
 
-    auto [copyLoop, copyLoopMapper] = cloneLoopSkeleton(rewriter, loopNestOrOp);
+    // When enableL1Acc is true skip copy loop generation but still rewrite
+    // original accesses to use DST.
+    Operation *copyLoop = nullptr;
+    mlir::IRMapping copyLoopMapper;
+    if (!enableL1Acc) {
+      std::tie(copyLoop, copyLoopMapper) =
+          cloneLoopSkeleton(rewriter, loopNestOrOp);
+    }
 
     for (auto record : loadStoreRecords) {
-      mlir::IRMapping irMapper = copyLoopMapper;
-      if (!record.guardDims.empty()) {
-        const bool isBcastGuard = record.bcast.has_value();
-        // TODO(wenbinlyuTT): #6516 WA to put all bcast inits to the top of the
-        // compute tiling loops.
-        if (isBcastGuard && copyLoop) {
-          rewriter.setInsertionPoint(copyLoop);
-        }
-        // Guarded loads live in their own loop nest under that guard.
-        auto guard = createLoadLoopGuard(rewriter, record.loadStore.getLoc(),
-                                         record.guardDims, isBcastGuard);
-        rewriter.setInsertionPointToStart(&guard.getThenRegion().front());
-        auto [_, guardedMapper] = cloneLoopSkeleton(rewriter, loopNestOrOp);
-        irMapper = guardedMapper;
-        rewriter.setInsertionPointAfter(guard);
-      }
-
-      // Find insertion point in the cloned loop.
-      Block *fromScope = record.loadStore->getBlock();
-      Block *toScope = irMapper.lookupOrNull(fromScope);
-      if (toScope) {
-        Operation *terminator = toScope->getTerminator();
-        if (terminator) {
-          rewriter.setInsertionPoint(terminator);
-        } else {
-          rewriter.setInsertionPointToEnd(toScope);
-        }
-      }
-
       auto loadStoreLoc = record.loadStore.getLoc();
       auto loadStoreIndices = record.loadStore.getIndices();
       auto loadStoreMap = record.loadStore.getMap();
       auto loadStoreMemRefType = record.loadStore.getMemRefType();
 
-      // Generate the data copy loop for the load store.
-      {
-        auto [l1AccessMap, l1AccessIndices, dstAccessMap, dstAccessIndices] =
-            buildIndices(rewriter, loadStoreLoc, irMapper, loadStoreIndices,
-                         record.dstSlice, loadStoreMap, loadStoreMemRefType);
-        dstAccessGenerator(rewriter, record, l1AccessMap, l1AccessIndices,
-                           dstAccessMap, dstAccessIndices);
+      if (!enableL1Acc) {
+        mlir::IRMapping irMapper = copyLoopMapper;
+        if (!record.guardIVs.empty()) {
+          const bool isBcastGuard = record.bcast.has_value();
+          // TODO(wenbinlyuTT): #6516 WA to put all bcast inits to the top of
+          // the compute tiling loops.
+          if (isBcastGuard && copyLoop) {
+            rewriter.setInsertionPoint(copyLoop);
+          }
+          // Only non-bcast records use guards. Bcast records still keep the
+          // insertion-point workaround above, but no longer create guarded loop
+          // nests.
+          if (!isBcastGuard) {
+            // Guarded loads live in their own loop nest under that guard.
+            auto guard =
+                createLoadLoopGuard(rewriter, record.loadStore.getLoc(),
+                                    record.guardIVs, isBcastGuard);
+            rewriter.setInsertionPointToStart(&guard.getThenRegion().front());
+            auto [_, guardedMapper] = cloneLoopSkeleton(rewriter, loopNestOrOp);
+            irMapper = guardedMapper;
+            rewriter.setInsertionPointAfter(guard);
+          }
+        }
+
+        // Find insertion point in the cloned loop.
+        Block *fromScope = record.loadStore->getBlock();
+        Block *toScope = irMapper.lookupOrNull(fromScope);
+        if (toScope) {
+          Operation *terminator = toScope->getTerminator();
+          if (terminator) {
+            rewriter.setInsertionPoint(terminator);
+          } else {
+            rewriter.setInsertionPointToEnd(toScope);
+          }
+        }
+
+        // Generate the data copy loop for the load store.
+        {
+          auto [l1AccessMap, l1AccessIndices, dstAccessMap, dstAccessIndices] =
+              buildIndices(rewriter, loadStoreLoc, irMapper, loadStoreIndices,
+                           record.dstSlice, loadStoreMap, loadStoreMemRefType);
+          dstAccessGenerator(rewriter, record, l1AccessMap, l1AccessIndices,
+                             dstAccessMap, dstAccessIndices);
+        }
       }
 
       // Replace the original load store with one from dst.
@@ -1231,7 +1465,7 @@ public:
       });
     }
 
-    for (auto [loadStore, bcast, dstSliceIndex, guardDims] : loadStoreOps) {
+    for (auto [loadStore, bcast, dstSliceIndex, guardIVs] : loadStoreOps) {
       Block *fromScope = loadStore->getBlock();
       Block *toScope = irMapper.lookupOrNull(fromScope);
       if (toScope) {
@@ -1278,7 +1512,8 @@ public:
           loadStoreDstAccessGenerator,
       llvm::function_ref<void(PatternRewriter &, LoadStoreOpTy, AffineMap,
                               ValueRange)>
-          dstAccessReplacement) {
+          dstAccessReplacement,
+      bool enableL1Acc = false) {
     if (loadStoreOps.empty()) {
       return;
     }
@@ -1287,7 +1522,7 @@ public:
     // We insert the dst copy logic directly at the point where the original
     // load/store occurs, keeping everything in the same loop.
 
-    for (auto [loadStore, bcast, dstSliceIndex, guardDims] : loadStoreOps) {
+    for (auto [loadStore, bcast, dstSliceIndex, guardIVs] : loadStoreOps) {
       // Use an empty IR mapper since we're working in the original loop
       // context.
       mlir::IRMapping emptyIRMapper;
@@ -1302,12 +1537,12 @@ public:
       // are inserted BEFORE it.
       rewriter.setInsertionPoint(loadStore);
 
-      // Generate the copy operation: for loads, this stores the load result
-      // into dst; for stores, this would load from dst to store elsewhere.
-      // This creates: affine.load %subview → affine.store to %dst
-      loadStoreDstAccessGenerator(
-          rewriter, loadStore.getLoc(), loadStore.getMemRef(), l1AccessMap,
-          l1AccessIndices, dstAccessMap, dstAccessIndices);
+      // When enableL1Acc skip copy generation.
+      if (!enableL1Acc) {
+        loadStoreDstAccessGenerator(
+            rewriter, loadStore.getLoc(), loadStore.getMemRef(), l1AccessMap,
+            l1AccessIndices, dstAccessMap, dstAccessIndices);
+      }
 
       // Now replace the original load/store (which is now positioned after
       // the newly inserted operations) with one that accesses dst instead.
@@ -1473,16 +1708,16 @@ public:
       // Each simple copy needs its own DST slot for the iteration.
       // Allocate a slot from the stack to avoid conflicts with other ops.
       int dstSlice = dstStackAllocator.allocate();
-      iter->second.record(load, dstSlice, std::set<int64_t>{});
-      iter->second.record(store, dstSlice, std::set<int64_t>{});
+      iter->second.record(load, dstSlice, ArrayRef<Value>{});
+      iter->second.record(store, dstSlice, ArrayRef<Value>{});
     });
 
     return {copyInfos, dstIntermediates};
   }
 
   static void dataCopyGenerateScheduled(PatternRewriter &rewriter, Location loc,
-                                        Value dst,
-                                        const CopyInfoMap &copyInfos) {
+                                        Value dst, const CopyInfoMap &copyInfos,
+                                        bool enableL1Acc = false) {
     for (const auto &[loopNestOrOp, copyInfo] : copyInfos) {
       // Save this insertion point as loopNestOrOp may be replaced.
       rewriter.setInsertionPointAfter(loopNestOrOp);
@@ -1508,10 +1743,11 @@ public:
               AffineMap dstAccessMap, ValueRange dstAccessIndices) {
             rewriter.replaceOpWithNewOp<affine::AffineLoadOp>(
                 op, dst, dstAccessMap, dstAccessIndices);
-          });
+          },
+          /*enableL1Acc=*/enableL1Acc);
 
       // Process memref loads (scheduled path with scf.for loops).
-      for (auto [loadOp, bcast, dstSliceIndex, guardDims] :
+      for (auto [loadOp, bcast, dstSliceIndex, guardIVs] :
            copyInfo.memrefLoads) {
         AffineMap dstAccessMap =
             AffineMap::getConstantMap(dstSliceIndex, rewriter.getContext());
@@ -1519,12 +1755,15 @@ public:
         // Set insertion point at the original load.
         rewriter.setInsertionPoint(loadOp);
 
-        // Generate CB->DST copy: memref.load cb -> affine.store dst
-        auto cbLoad = rewriter.create<memref::LoadOp>(
-            loadOp.getLoc(), loadOp.getMemRef(), loadOp.getIndices());
-        rewriter.create<affine::AffineStoreOp>(loadOp.getLoc(),
-                                               cbLoad.getResult(), dst,
-                                               dstAccessMap, ValueRange{});
+        // When L1 accumulation is enabled, skip CB->DST copy but still
+        // rewrite the original load to use DST.
+        if (!enableL1Acc) {
+          auto cbLoad = rewriter.create<memref::LoadOp>(
+              loadOp.getLoc(), loadOp.getMemRef(), loadOp.getIndices());
+          rewriter.create<affine::AffineStoreOp>(loadOp.getLoc(),
+                                                 cbLoad.getResult(), dst,
+                                                 dstAccessMap, ValueRange{});
+        }
 
         // Replace original load with DST load.
         auto dstLoad = rewriter.create<affine::AffineLoadOp>(
@@ -1578,7 +1817,7 @@ public:
           });
 
       // Process memref stores (scheduled path with scf.for loops).
-      for (auto [storeOp, bcast, dstSliceIndex, guardDims] :
+      for (auto [storeOp, bcast, dstSliceIndex, guardIVs] :
            copyInfo.memrefStores) {
         AffineMap dstAccessMap =
             AffineMap::getConstantMap(dstSliceIndex, rewriter.getContext());
@@ -1622,6 +1861,7 @@ public:
 
   bool useTileMatmul = false;
   unsigned maxDstPhysicalSizeTiles = 0;
+  bool enableL1Acc = false;
 };
 } // namespace
 
@@ -1659,7 +1899,7 @@ public:
     RewritePatternSet patterns(ctx);
 
     patterns.add<D2MInsertDstRegisterAccessRewriter>(
-        ctx, useTileMatmul, maxDstPhysicalSizeTiles.getValue());
+        ctx, useTileMatmul, maxDstPhysicalSizeTiles.getValue(), enableL1Acc);
 
     if (failed(applyPatternsGreedily(moduleOp, std::move(patterns)))) {
       signalPassFailure();

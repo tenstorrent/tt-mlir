@@ -258,7 +258,7 @@ class Run:
             type=bool,
             default=False,
             choices=[True, False],
-            help="disable putting dispatch on ethernet cores - place it on worker cores instead; necessary on blackhole",
+            help="disable putting dispatch on ethernet cores - place it on worker cores instead",
         )
         Run.register_arg(
             name="--ignore-version",
@@ -563,19 +563,17 @@ class Run:
             ttrt.runtime.set_compatible_device_runtime(binaries[0].fbb)
             current_runtime = ttrt.runtime.get_current_device_runtime()
             self.logging.debug(f"opening devices={self.query.device_ids}")
-            dispatch_core_type = ttrt.runtime.DispatchCoreType.ETH
-
-            if self["--disable-eth-dispatch"]:
-                dispatch_core_type = ttrt.runtime.DispatchCoreType.WORKER
 
             if "--init" in sys.argv:
                 self["--enable-golden"] = False
 
             num_devices = len(self.query.device_ids)
             mesh_options = ttrt.runtime.MeshDeviceOptions()
-            mesh_options.dispatch_core_type = dispatch_core_type
             mesh_options.enable_program_cache = self["--enable-program-cache"]
             mesh_options.trace_region_size = self["--trace-region-size"]
+
+            if self["--disable-eth-dispatch"]:
+                mesh_options.dispatch_core_type = ttrt.runtime.DispatchCoreType.WORKER
 
             # Initialize `device` to `None` for error handling in case device opening fails
             device = None

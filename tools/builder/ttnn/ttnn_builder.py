@@ -4587,6 +4587,50 @@ class TTNNBuilder(Builder):
 
         return new_op, {old_op.result: new_op_result}
 
+    ############### ttnn.DumpTensorOp ###############
+
+    @tag(ttnn.DumpTensorOp)
+    def dump_tensor(
+        self,
+        in0: Operand,
+        file_path: str,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> None:
+        ttnn_op = self.get_opview_from_method(TTNNBuilder.dump_tensor)
+        file_path_attr = StringAttr.get(file_path)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        ttnn_op(
+            file_path_attr,
+            in0,
+            loc=loc,
+        )
+
+        return
+
+    @parse(ttnn.DumpTensorOp)
+    def dump_tensor_parser(
+        self,
+        old_op: ttnn.DumpTensorOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttnn_op = self.get_opview_from_parser(TTNNBuilder.dump_tensor_parser)
+        in0 = global_dict[old_op.input]
+
+        ttnn_op(
+            old_op.file_path,
+            in0,
+            loc=old_op.location,
+        )
+
+        return None, {}
+
     def _op_proxy_l1_sharded_executed_op_with_dram_final_output(
         self,
         op_function: Callable,

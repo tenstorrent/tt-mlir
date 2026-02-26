@@ -1,5 +1,6 @@
 if (TTMLIR_ENABLE_OPMODEL)
         add_definitions(-DTTMLIR_ENABLE_OPMODEL)
+        set(OPMODEL_SRCS Fusing/RoPEFusingPattern.cpp)
 endif()
 
 add_mlir_dialect_library(MLIRTTNNTransforms
@@ -17,7 +18,9 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         TTNNEmitPyWorkarounds.cpp
         TTNNConstEvalInputsToSystemMemory.cpp
         TTNNFusing.cpp
+        ${OPMODEL_SRCS}
         TTNNLayout.cpp
+        TTNNConfigureCCLOps.cpp
         TTNNRecoverStructure.cpp
         TTNNRecoverStructureUtils.cpp
         TTNNSetComputeKernelConfig.cpp
@@ -45,9 +48,13 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         Workarounds/Decomposition/ScaledDotProductAttentionPadTileDimsRewritePattern.cpp
         Workarounds/Decomposition/UpsampleOpRewritePattern.cpp
         Workarounds/Decomposition/RMSNormConfigRewritePattern.cpp
+        Workarounds/Decomposition/DistributedRMSNormWidthShardInputRewritePattern.cpp
         Workarounds/Decomposition/RotaryEmbeddingOpRewritePattern.cpp
         Workarounds/Decomposition/SubtractOpImplicitBroadcastRewritePattern.cpp
         Workarounds/Decomposition/ExplicateOperandBroadcastsRewritePattern.cpp
+        Workarounds/Decomposition/Conv3dPadOutputChannelsRewritePattern.cpp
+        Workarounds/Decomposition/Conv3dDepthPaddingRewritePattern.cpp
+        Workarounds/Decomposition/PadHighDimRewritePattern.cpp
         Workarounds/TTNNWorkaroundsPatterns.cpp
 
         ADDITIONAL_HEADER_DIRS

@@ -315,14 +315,14 @@ class EmitC:
                     testProcess.communicate()
 
                 # Open a device of default shape
-                dispatch_core_type = ttrt.runtime.DispatchCoreType.ETH
-
-                if self["--disable-eth-dispatch"]:
-                    dispatch_core_type = ttrt.runtime.DispatchCoreType.WORKER
                 mesh_options = ttrt.runtime.MeshDeviceOptions()
-                mesh_options.dispatch_core_type = dispatch_core_type
                 mesh_options.enable_program_cache = self["--enable-program-cache"]
                 mesh_options.trace_region_size = self["--trace-region-size"]
+
+                if self["--disable-eth-dispatch"]:
+                    mesh_options.dispatch_core_type = (
+                        ttrt.runtime.DispatchCoreType.WORKER
+                    )
 
                 if compare_to_ttnn:
                     # Open a device of shape (x,y), where (x,y) is the mesh shape supplied by the flatbuffer

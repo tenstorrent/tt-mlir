@@ -16,8 +16,8 @@ static void runReductionOp(
         const ::ttnn::Tensor &,
         const std::optional<std::variant<int, ::ttsl::SmallVector<int>>> &,
         const bool, const std::optional<::ttnn::MemoryConfig> &,
-        const std::optional<::ttnn::DeviceComputeKernelConfig> &, float)>
-        &ttnnOp) {
+        const std::optional<::ttnn::DeviceComputeKernelConfig> &, float, bool,
+        const std::optional<::ttnn::CoreRangeSet> &)> &ttnnOp) {
 
   std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
       ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
@@ -42,7 +42,8 @@ static void runReductionOp(
 
   ::ttnn::Tensor out = ttnnOp(
       in, dimArg, op->keep_dim(), outputMemoryConfig /* memory_config_arg */,
-      computeConfig /* compute_kernel_config */, 1.0f /* scalar */);
+      computeConfig /* compute_kernel_config */, 1.0f /* scalar */,
+      true /* correction */, std::nullopt /* sub_core_grids */);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }

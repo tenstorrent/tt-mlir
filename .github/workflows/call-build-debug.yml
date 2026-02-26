@@ -26,7 +26,6 @@ jobs:
     steps:
 
     - name: Maximize space
-      if: matrix.build.runs-on == 'ubuntu-latest'
       uses: tenstorrent/tt-github-actions/.github/actions/maximize_space@main
 
     - uses: actions/checkout@v4
@@ -75,6 +74,8 @@ jobs:
 
     - name: Build
       id: build
+      env:
+        CMAKE_BUILD_PARALLEL_LEVEL: "16"
       shell: bash
       run: |
         source env/activate

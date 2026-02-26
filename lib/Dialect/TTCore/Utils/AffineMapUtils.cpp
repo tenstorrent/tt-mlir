@@ -255,15 +255,6 @@ mlir::AffineMap buildDeviceToLogicalMap(MetalLayoutAttr layout,
   // Compose: device → physical → logical.
   auto deviceToLogical = physicalToLogical.compose(deviceToPhysical);
 
-  // If the layout has an existing index map (view), compose through it.
-  // The index map transforms device coordinates before the standard
-  // device→physical→logical transformation.
-  auto existingIndexMap = layout.getIndexAffineMap();
-  if (existingIndexMap && !existingIndexMap.isEmpty()) {
-    // Compose: modified_device → device → physical → logical.
-    deviceToLogical = deviceToLogical.compose(existingIndexMap);
-  }
-
   return deviceToLogical;
 }
 
@@ -346,7 +337,7 @@ mlir::AffineMap buildLayoutTransformMap(MetalLayoutAttr fromLayout,
   logicalToFromDevice = mlir::simplifyAffineMap(logicalToFromDevice);
 
   // NOTE: Do NOT compose the INPUT index_map here. The index_map (core
-  // virtualization map) will be composed later in DeviceAttr::getMemoryMap
+  // virtualization map) will be composed later in d2m::utils::getMemoryMap
   // when generating the actual DMA. Composing it here would apply it twice,
   // causing incorrect virtual-to-physical coordinate translation.
 

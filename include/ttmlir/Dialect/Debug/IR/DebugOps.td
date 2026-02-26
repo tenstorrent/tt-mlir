@@ -31,11 +31,10 @@ include "mlir/IR/CommonTypeConstraints.td"
 //===----------------------------------------------------------------------===//
 
 class Debug_BaseOp<string mnemonic, list<Trait> traits = []> :
-    Debug_Op<mnemonic, [Pure, SameOperandsAndResultType]> {
+    Debug_Op<mnemonic, [Pure, SameOperandsAndResultType] # traits> {
 
     let summary = "Base class for debug op.";
     let description = [{
-      Each debug op inherits from this base op.
       Ensures that the operations that produce the `operand` are executed before any
       operations that depend on the `result` and prevents compiler transformations
       from moving operations across the barrier. Other than that, the operation is
@@ -64,34 +63,30 @@ def Debug_AnnotateOp : Debug_BaseOp<"annotate", []> {
   );
 }
 
-def Debug_BreakpointOp : Debug_BaseOp<"breakpoint", []> {
+def Debug_BreakpointOp : Op<Debug_Dialect, "breakpoint", [MemoryEffects<[MemWrite]>]> {
   let summary = "Breakpoint operation";
   let description = [{
     Inserts a breakpoint in runtime execution.
 
     Example:
     ```mlir
-    %1 = "debug.breakpoint"(%0) : (tensor<32x32xf32>) -> tensor<32x32xf32>
+    "debug.breakpoint"(%0) : (tensor<32x32xf32>) -> ()
     ```
   }];
 
   let arguments = (ins
     AnyRankedTensor:$operand
   );
-
-  let results = (outs
-    AnyRankedTensor:$result
-  );
 }
 
-def Debug_PrintOp : Debug_BaseOp<"print", []> {
+def Debug_PrintOp : Op<Debug_Dialect, "print", [MemoryEffects<[MemWrite]>]> {
   let summary = "Print operation";
   let description = [{
     Print a message during runtime.
 
     Example:
     ```mlir
-    %1 = "debug.print"(%0) <{message = "This is from KV cache"}> : (tensor<32x32xf32>) -> tensor<32x32xf32>
+    "debug.print"(%0) <{message = "execution has reached here"}> : (tensor<32x32xf32>) -> ()
     ```
   }];
 
@@ -99,20 +94,16 @@ def Debug_PrintOp : Debug_BaseOp<"print", []> {
     AnyRankedTensor:$operand,
     StrAttr:$message
   );
-
-  let results = (outs
-    AnyRankedTensor:$result
-  );
 }
 
-def Debug_DumpOp : Debug_BaseOp<"dump", []> {
+def Debug_DumpOp : Op<Debug_Dialect, "dump", [MemoryEffects<[MemWrite]>]> {
   let summary = "Dump operation";
   let description = [{
     Save a tensor to disk.
 
     Example:
     ```mlir
-    %1 = "debug.dump"(%0) <{file_path = "system_tensor.tensorbin"}> : (tensor<32x32xf32>) -> tensor<32x32xf32>
+    "debug.dump"(%0) <{file_path = "add0_dump.tensorbin"}> : (tensor<32x32xf32>) -> ()
     ```
   }];
 
@@ -120,11 +111,67 @@ def Debug_DumpOp : Debug_BaseOp<"dump", []> {
     AnyRankedTensor:$operand,
     StrAttr:$file_path
   );
+}
+
+def Debug_MemorySnapshotOp : Op<Debug_Dialect, "memory_snapshot", [MemoryEffects<[MemWrite]>]> {
+  let summary = "Memory snapshot operation";
+  let description = [{
+    Capture memory state of device.
+
+    Example:
+    ```mlir
+    "debug.memory_snapshot"(%0) <{file_path = "memory_dump.txt"}> : (tensor<32x32xf32>) -> ()
+    ```
+  }];
+
+  let arguments = (ins
+    AnyRankedTensor:$operand,
+    StrAttr:$file_path
+  );
+}
+
+def Debug_RegionStartOp : Debug_Op<"region_start",
+  [Pure, SameOperandsAndResultType]> {
+  let summary = "Region start operation";
+  let description = [{
+    Mark the start of a region.
+
+    Example:
+    ```mlir
+    %1 = "debug.region_start"(%0) <{region_id = "embedding_region"}> : (tensor<32x32xf32>) -> tensor<32x32xf32>
+    ```
+  }];
+
+  let arguments = (ins
+    AnyRankedTensor:$operand,
+    StrAttr:$region_id
+  );
 
   let results = (outs
     AnyRankedTensor:$result
   );
+}
 
+def Debug_RegionEndOp : Debug_Op<"region_end",
+  [Pure, SameOperandsAndResultType]> {
+  let summary = "Region end operation";
+  let description = [{
+    Mark the end of a region.
+
+    Example:
+    ```mlir
+    %3 = "debug.region_end"(%2) <{region_id = "embedding_region"}> : (tensor<32x32xf32>) -> tensor<32x32xf32>
+    ```
+  }];
+
+  let arguments = (ins
+    AnyRankedTensor:$operand,
+    StrAttr:$region_id
+  );
+
+  let results = (outs
+    AnyRankedTensor:$result
+  );
 }
 
 def Debug_OverwriteOp : Debug_BaseOp<"overwrite",
@@ -214,50 +261,6 @@ def Debug_EndTraceOp : Debug_Op<"end_trace",
   );
 }
 
-def Debug_RegionStartOp : Debug_Op<"region_start",
-  [Pure, SameOperandsAndResultType]> {
-  let summary = "Region start operation";
-  let description = [{
-    Mark the start of a region.
-
-    Example:
-    ```mlir
-    %0 = debug.region_start %arg0 <{region_id = "region0"}> : tensor<32x32xf32>
-    ```
-  }];
-
-  let arguments = (ins
-    AnyRankedTensor:$operand,
-    StrAttr:$region_id
-  );
-
-  let results = (outs
-    AnyRankedTensor:$result
-  );
-}
-
-def Debug_RegionEndOp : Debug_Op<"region_end",
-  [Pure, SameOperandsAndResultType]> {
-  let summary = "Region end operation";
-  let description = [{
-    Mark the end of a region.
-
-    Example:
-    ```mlir
-    %1 = debug.region_end %0 <{region_id = "region0"}> : tensor<32x32xf32>, tensor<32x32xf32>
-    ```
-  }];
-
-  let arguments = (ins
-    AnyRankedTensor:$operand,
-    StrAttr:$region_id
-  );
-
-  let results = (outs
-    AnyRankedTensor:$result
-  );
-}
-
 def Debug_ProfilerStartOp : Debug_Op<"profiler_start",
   [Pure, SameOperandsAndResultType]> {
   let summary = "Profiler start operation";
@@ -295,28 +298,6 @@ def Debug_ProfilerEndOp : Debug_Op<"profiler_end",
   let arguments = (ins
     AnyRankedTensor:$operand,
     StrAttr:$scope_id
-  );
-
-  let results = (outs
-    AnyRankedTensor:$result
-  );
-}
-
-def Debug_MemorySnapshotOp : Debug_Op<"memory_snapshot",
-  [Pure, SameOperandsAndResultType]> {
-  let summary = "Memory snapshot operation";
-  let description = [{
-    Capture memory state of device.
-
-    Example:
-    ```mlir
-    %1 = "debug.memory_snapshot"(%0) <{file_path = "/path/to/memory/file.json"}> : (tensor<32x32xf32>) -> tensor<32x32xf32>
-    ```
-  }];
-
-  let arguments = (ins
-    AnyRankedTensor:$operand,
-    StrAttr:$file_path
   );
 
   let results = (outs

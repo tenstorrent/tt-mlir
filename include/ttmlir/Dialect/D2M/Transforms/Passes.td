@@ -239,6 +239,7 @@ def D2MInsertDstRegisterAccess : Pass<"d2m-insert-dst-register-access", "::mlir:
   let options = [
     Option<"useTileMatmul", "use-tile-matmul", "bool", /*default=*/"false", "Use tile_matmul instead of tile_matmul_block">,
     Option<"maxDstPhysicalSizeTiles", "max-dst-physical-size-tiles", "unsigned", "0", "Override the max dst physical size tiles or 0 if unset.">,
+    Option<"enableL1Acc", "enable-l1-acc", "bool", /*default=*/"false", "Enable accumulating partials in L1 instead of reloading from L1 to DST.">,
   ];
 }
 
@@ -672,6 +673,54 @@ def D2MDecomposeMasking : Pass<"d2m-decompose-masking", "::mlir::ModuleOp"> {
   ];
 }
 
+def D2MDecomposeArange : Pass<"d2m-decompose-arange", "::mlir::ModuleOp"> {
+  let summary = "Decompose arange_block ops into low-level tile operations";
+  let description = [{
+    This pass decomposes high-level `arange_block` operations into low-level
+    tile operations for generating arange values.
+
+    The arange_block op operates at block level (memref of tiles) and generates
+    values: output[i] = start + step * i, where i is the linear index.
+
+    The decomposition:
+    1. Write full linear index tile to scratch CB using FillArangeTileOp
+    2. Loop over output tiles:
+       a. Compute tile_offset = (tile_row * num_tile_cols * 32 + tile_col) * 32
+       b. Load scratch tile for local_index
+       c. Compute global_index = tile_add(tile_offset + local_index)
+       d. Compute result = start + step * global_index using tiled ops
+       e. Store result tile to output
+
+    Example transformation:
+    ```mlir
+    // Before:
+    d2m.arange_block (%full_index_cb, %output) {start = 32, step = 2}
+        : (memref<1x1x!ttcore.tile<32x32, f32>>, memref<1x1x!ttcore.tile<32x32, f32>>)
+
+    // After:
+    d2m::fill_arange_tile to %full_index_alloc
+    scf.for %i = 0 to %num_tile_rows {
+      scf.for %j = 0 to %num_tile_cols {
+        %tile_offset = ... // (i * num_tile_cols + j) * 1024
+        %local_idx = memref.load %full_index_alloc[0, 0]
+        %global_idx = d2m.tile_add %offset_tile, %local_idx
+        %scaled = d2m.tile_mul %global_idx, step_scalar (in this case 2)
+        %result = d2m.tile_add %scaled, start_scalar (in this case 32)
+        memref.store %result, %output[%i, %j]
+      }
+    }
+    ```
+
+    This pass should run after bufferization and before LinalgToAffine.
+  }];
+  let dependentDialects = [
+    "::mlir::tt::d2m::D2MDialect",
+    "::mlir::memref::MemRefDialect",
+    "::mlir::arith::ArithDialect",
+    "::mlir::scf::SCFDialect"
+  ];
+}
+
 def D2MScalarizeConstTensors : Pass<"d2m-scalarize-const-tensors", "::mlir::ModuleOp"> {
   let summary = "Scalarize constant tensor inputs in d2m.generic operations";
   let description = [{
@@ -817,7 +866,23 @@ def D2MGenerateOuterLoops : Pass<"d2m-generate-outer-loops", "::mlir::ModuleOp">
   let description = [{
     This pass generates outer loops for generic operations.
   }];
-  let dependentDialects = ["::mlir::tt::d2m::D2MDialect"];
+  let dependentDialects = ["::mlir::tt::d2m::D2MDialect",
+                           "::mlir::affine::AffineDialect"];
+}
+
+def D2MLowerToExplicitForm : Pass<"d2m-generic-lower-to-explicit-form", "::mlir::ModuleOp"> {
+  let summary = "Lower outer loop bounds to explicit constants.";
+  let description = [{
+    This pass replaces affine.for loops marked with the d2m.blocking_loop attribute
+    that have bounds defined by d2m.get_block_factor ops with scf.for loops that
+    have arith.constant bounds taken from the GenericOp's block_factors attribute.
+
+    All d2m.get_block_factor ops within generic regions are also replaced with
+    their corresponding arith.constant values.
+  }];
+  let dependentDialects = ["::mlir::tt::d2m::D2MDialect",
+                           "::mlir::scf::SCFDialect",
+                           "::mlir::arith::ArithDialect"];
 }
 
 def D2MLowerMulticastLoads : Pass<"d2m-lower-multicast-loads", "::mlir::ModuleOp"> {
