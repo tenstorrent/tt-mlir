@@ -30,7 +30,6 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/LogicalResult.h"
 
-#include "mlir/IR/Value.h"
 #include <array>
 
 namespace mlir::tt {
@@ -807,7 +806,7 @@ private:
 
     // Create 'd2m.generic' accepting 'op's operands.
     auto generic = rewriter.create<d2m::GenericOp>(
-        loc, inputs, outputs, ValueRange(),
+        loc, inputs, outputs, /*additionalArgs=*/ValueRange(),
         rewriter.getAffineMapArrayAttr(indexingMaps),
         rewriter.getArrayAttr(iteratorTypes));
 
@@ -973,7 +972,7 @@ private:
 
     // Create 'd2m.generic' accepting extended operands.
     auto generic = rewriter.create<d2m::GenericOp>(
-        loc, inputs, outputs, ValueRange(),
+        loc, inputs, outputs, /*additionalArgs=*/ValueRange(),
         rewriter.getAffineMapArrayAttr(indexingMaps),
         rewriter.getArrayAttr(iteratorTypes));
 
@@ -1260,7 +1259,7 @@ private:
 
     // Create 'd2m.generic' accepting 'op's operands.
     auto generic = rewriter.create<d2m::GenericOp>(
-        loc, inputs, outputs, ValueRange(),
+        loc, inputs, outputs, /*additionalArgs=*/ValueRange(),
         rewriter.getAffineMapArrayAttr(indexingMaps),
         rewriter.getArrayAttr(iteratorTypes));
 
@@ -1577,7 +1576,7 @@ public:
     Value outputOperand = outputs[0];
 
     auto generic = rewriter.create<d2m::GenericOp>(
-        loc, inputs, outputs, ValueRange(),
+        loc, inputs, outputs, /*additionalArgs=*/ValueRange(),
         [&, inputOperand, outputOperand](OpBuilder &builder, Location bodyLoc,
                                          ValueRange blockArgs) {
           assert(blockArgs.size() == 2);
@@ -1950,7 +1949,7 @@ public:
 
     SmallVector<Value> genericInputs = {indexTileTensor};
     auto generic = rewriter.create<d2m::GenericOp>(
-        loc, genericInputs, outputs, ValueRange(),
+        loc, genericInputs, outputs, /*additionalArgs=*/ValueRange(),
         rewriter.getAffineMapArrayAttr(indexingMaps),
         rewriter.getArrayAttr(iteratorTypes));
 

@@ -421,8 +421,8 @@ std::vector<std::uint32_t> processKernelArgs(
     }
     case target::metal::KernelArgType::KernelArgBufferAddress: {
       const auto *arg = kernelArg->arg_as_KernelArgBufferAddress();
-      assert(argRefsType->Get(arg->operand_idx()) ==
-             target::metal::ArgRef::BufferRef);
+      LOG_ASSERT(argRefsType->Get(arg->operand_idx()) ==
+                 target::metal::ArgRef::BufferRef);
       const target::metal::BufferRef *buffer =
           reinterpret_cast<const target::metal::BufferRef *>(
               argRefs->Get(arg->operand_idx()));
@@ -454,8 +454,8 @@ std::vector<std::uint32_t> processKernelArgs(
     }
     case target::metal::KernelArgType::KernelArgGlobalSemaphore: {
       const auto *arg = kernelArg->arg_as_KernelArgGlobalSemaphore();
-      assert(argRefsType->Get(arg->operand_idx()) ==
-             target::metal::ArgRef::GlobalSemaphoreRef);
+      LOG_ASSERT(argRefsType->Get(arg->operand_idx()) ==
+                 target::metal::ArgRef::GlobalSemaphoreRef);
       const tt::target::metal::GlobalSemaphoreRef *global_semaphore_operand =
           reinterpret_cast<const target::metal::GlobalSemaphoreRef *>(
               argRefs->Get(arg->operand_idx()));

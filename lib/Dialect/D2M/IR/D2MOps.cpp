@@ -156,7 +156,7 @@ mlir::LogicalResult d2m::CreateGlobalSemaphoreOp::bufferize(
     const mlir::bufferization::BufferizationOptions &options,
     mlir::bufferization::BufferizationState &state) {
   // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
-  // Only bufferize the input
+  // Only bufferize the input.
   auto maybeInput =
       mlir::bufferization::getBuffer(rewriter, getInput(), options, state);
   if (failed(maybeInput)) {
@@ -171,7 +171,7 @@ mlir::LogicalResult d2m::CreateGlobalSemaphoreOp::bufferize(
 
 ::mlir::LogicalResult d2m::CreateGlobalSemaphoreOp::verify() {
   // Verify that the grid shape of the input tensor matches the device grid
-  // shape
+  // shape.
   ttcore::DeviceAttr device = ttcore::lookupDevice(getOperation());
   auto deviceGridShape = device.getWorkerGrid().getShape();
   auto tensorGridShape = ttcore::getGridShape(getInput());
@@ -182,7 +182,7 @@ mlir::LogicalResult d2m::CreateGlobalSemaphoreOp::bufferize(
                          << ") for create_global_semaphore op";
   }
 
-  // check the shard shape is 1x1
+  // check the shard shape is 1x1.
   auto shardShape = ttcore::getShardShape(getInput());
   if (shardShape != llvm::ArrayRef<int64_t>({1, 1})) {
     return emitOpError()
@@ -190,7 +190,7 @@ mlir::LogicalResult d2m::CreateGlobalSemaphoreOp::bufferize(
            << ") does not match 1x1 for create_global_semaphore op";
   }
 
-  // check element type is ui32
+  // check element type is ui32.
   auto expectedType = mlir::IntegerType::get(getOperation()->getContext(), 32,
                                              mlir::IntegerType::Unsigned);
   if (mlir::cast<ShapedType>(getInput().getType()).getElementType() !=
@@ -1769,7 +1769,7 @@ MutableArrayRef<OpOperand> d2m::GenericOp::getInputsAndOutputsMutable() {
   SmallVector<AffineMap> indexingMaps = getIndexingMapsValue();
   if (hasGrid && !indexingMaps.empty()) {
     // Validate that all operands have device layouts before calling
-    // getInputOutputOperandGridShapes(), which assumes layouts are present
+    // getInputOutputOperandGridShapes(), which assumes layouts are present.
     for (Value operand : getInputsAndOutputs()) {
       auto result =
           llvm::TypeSwitch<Type, LogicalResult>(operand.getType())

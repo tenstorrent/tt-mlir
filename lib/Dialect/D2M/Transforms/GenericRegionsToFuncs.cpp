@@ -61,14 +61,14 @@ static void rewriteCapturedDMAOperands(OpBuilder &builder, GenericOp generic,
 static void rewriteAdditionalArgOperands(OpBuilder &builder,
                                          GenericOp generic) {
   //  Get all uses of additional arg
-  //  operands that are not the generic operation itself
+  //  operands that are not the generic operation itself.
   for (auto [idx, operand] : llvm::enumerate(generic.getAdditionalArgs())) {
     unsigned capturedOperandIndex = *getCapturedOperandIndex(generic, operand);
     for (OpOperand &use : llvm::make_early_inc_range(operand.getUses())) {
       if (use.getOwner() != generic.getOperation() &&
           generic->isAncestor(use.getOwner())) {
         builder.setInsertionPoint(use.getOwner());
-        //  And insert a get_global_operand op where the generic operand is being used
+        //  And insert a get_global_operand op where the generic operand is being used.
         auto globalOperand = builder.create<GetGlobalOperandOp>(
             use.getOwner()->getLoc(), operand.getType(), capturedOperandIndex);
         use.set(globalOperand.getResult());

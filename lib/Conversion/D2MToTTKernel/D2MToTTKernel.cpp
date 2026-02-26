@@ -1765,7 +1765,7 @@ public:
                                       op.getOperandIndex());
       arg_result_type = ttkernel::L1AddrType::get(rewriter.getContext());
     } else {
-      assert(false && "unexpected arg type to GetGlobalOperandOp");
+      llvm_unreachable("unexpected arg type to GetGlobalOperandOp");
     }
 
     if (ttnnMode) {

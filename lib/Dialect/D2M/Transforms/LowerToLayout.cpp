@@ -470,7 +470,7 @@ public:
 
       return rewriter
           .create<GenericOp>(
-              loc, viewOp, output, ValueRange(),
+              loc, viewOp, output, /*additionalArgs=*/ValueRange(),
               [&](OpBuilder &builder, Location innerLoc, ValueRange blockArgs) {
                 // Load from input, store to output (load+store pair for proper
                 // CB association)
@@ -602,7 +602,7 @@ public:
     auto result =
         rewriter
             .create<GenericOp>(
-                loc, viewInput, viewOutput, ValueRange(),
+                loc, viewInput, viewOutput, /*additionalArgs=*/ValueRange(),
                 [&](OpBuilder &builder, Location innerLoc,
                     ValueRange blockArgs) {
                   Type inputShardType = getShardTypeFromCB(blockArgs[0]);
@@ -632,7 +632,7 @@ public:
 
     return rewriter
         .create<GenericOp>(
-            loc, input, output, ValueRange(),
+            loc, input, output, /*additionalArgs=*/ValueRange(),
             [=](OpBuilder &builder, Location innerLoc, ValueRange blockArgs) {
               auto [src, dst, indices] =
                   buildIdentityLoadStore(builder, innerLoc, blockArgs[0],
@@ -746,8 +746,8 @@ public:
         rewriter.getArrayAttr(SmallVector<Attribute>(shardRank, parallel));
 
     auto genericOp = rewriter.create<GenericOp>(
-        loc, ValueRange(allInputs), ValueRange(allOutputs), ValueRange(),
-        indexingMapsAttr, iteratorTypesAttr,
+        loc, ValueRange(allInputs), ValueRange(allOutputs),
+        /*additionalArgs=*/ValueRange(), indexingMapsAttr, iteratorTypesAttr,
         [&](OpBuilder &builder, Location innerLoc, ValueRange blockArgs) {
           // blockArgs: [inputCB, rowMaskCB, colMaskCB, outputCB].
           Type inputShardType = getShardTypeFromCB(blockArgs[0]);
