@@ -23,8 +23,11 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/ValueRange.h"
 #include "mlir/Transforms/DialectConversion.h"
+#include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
+
+#include <optional>
 
 namespace mlir::tt {
 
@@ -160,20 +163,24 @@ public:
       : OpConversionPattern<d2m::GenericOp>(context),
         mathFidelity(mathFidelity) {}
 
-  static mlir::Attribute convertKernelArg(Builder &builder,
-                                          const ttkernel::ArgAttr &arg) {
+  static mlir::Attribute convertKernelArg(
+      Builder &builder, const ttkernel::ArgAttr &arg,
+      std::optional<ArrayRef<size_t>> operandToGlobalIOIndex = std::nullopt,
+      size_t cbOffset = 0, size_t semaphoreOffset = 0) {
     switch (arg.getArgType()) {
     case ttkernel::ArgType::BufferAddress: {
-      return builder.getAttr<ttnn::KernelArgAddressOfTensorAttr>(
-          arg.getOperandIndex());
+      size_t idx = operandToGlobalIOIndex
+                       ? (*operandToGlobalIOIndex)[arg.getOperandIndex()]
+                       : arg.getOperandIndex();
+      return builder.getAttr<ttnn::KernelArgAddressOfTensorAttr>(idx);
     }
     case ttkernel::ArgType::CBPort: {
       return builder.getAttr<ttnn::KernelArgCBBufferIndexAttr>(
-          arg.getOperandIndex());
+          arg.getOperandIndex() + cbOffset);
     }
     case ttkernel::ArgType::Semaphore: {
       return builder.getAttr<ttnn::KernelArgSemaphoreAtAttr>(
-          arg.getOperandIndex());
+          arg.getOperandIndex() + semaphoreOffset);
     }
     case ttkernel::ArgType::NamedArgument: {
       return builder.getAttr<ttnn::KernelArgNamedArgAttr>(
@@ -189,7 +196,8 @@ public:
   static SmallVector<ttnn::KernelSemaphoreAttr>
   createSemaphoreDescriptors(Builder &builder, const ArrayAttr &threads,
                              const ttnn::CoreRangeSetAttr &coreRangeSet,
-                             const SymbolTable &symbolTable) {
+                             const SymbolTable &symbolTable,
+                             size_t semaphoreStartIndex = 0) {
     llvm::DenseSet<size_t> seenSemaphoreIndices;
 
     for (Attribute threadAttr : threads) {
@@ -224,18 +232,19 @@ public:
     SmallVector<ttnn::KernelSemaphoreAttr> semaphoreDescriptors(numSemaphores);
     for (size_t i = 0; i < numSemaphores; ++i) {
       semaphoreDescriptors[i] = builder.getAttr<ttnn::KernelSemaphoreAttr>(
-          /*id=*/i, ttnn::KernelCoreType::Worker, coreRangeSet,
-          /*initial_value=*/0);
+          /*id=*/semaphoreStartIndex + i, ttnn::KernelCoreType::Worker,
+          coreRangeSet, /*initial_value=*/0);
     }
 
     return semaphoreDescriptors;
   }
 
-  static SmallVector<mlir::Attribute>
-  createKernelDescriptors(Builder &builder, const ArrayAttr &threads,
-                          const ttnn::CoreRangeSetAttr &coreRangeSet,
-                          const SymbolTable &symbolTable,
-                          ttmetal::MathFidelity mathFidelity) {
+  static SmallVector<mlir::Attribute> createKernelDescriptors(
+      Builder &builder, const ArrayAttr &threads,
+      const ttnn::CoreRangeSetAttr &coreRangeSet,
+      const SymbolTable &symbolTable, ttmetal::MathFidelity mathFidelity,
+      std::optional<ArrayRef<size_t>> operandToGlobalIOIndex = std::nullopt,
+      size_t cbOffset = 0, size_t semaphoreOffset = 0) {
     SmallVector<mlir::Attribute> kernelConfigs(threads.size());
     int unassignedNocCounter = 0;
     for (const auto [i, thread] : llvm::enumerate(threads)) {
@@ -256,11 +265,13 @@ public:
       auto ctArgs = kernelSpec.getCtArgs();
       llvm::SmallVector<mlir::Attribute> kernelCTArgs(ctArgs.size());
       llvm::SmallVector<mlir::Attribute> kernelCRTArgs(crtArgs.size());
-      for (const auto [i, arg] : llvm::enumerate(crtArgs)) {
-        kernelCRTArgs[i] = convertKernelArg(builder, arg);
+      for (const auto [j, arg] : llvm::enumerate(crtArgs)) {
+        kernelCRTArgs[j] = convertKernelArg(
+            builder, arg, operandToGlobalIOIndex, cbOffset, semaphoreOffset);
       }
-      for (const auto [i, arg] : llvm::enumerate(ctArgs)) {
-        kernelCTArgs[i] = convertKernelArg(builder, arg);
+      for (const auto [j, arg] : llvm::enumerate(ctArgs)) {
+        kernelCTArgs[j] = convertKernelArg(builder, arg, operandToGlobalIOIndex,
+                                           cbOffset, semaphoreOffset);
       }
 
       // Create KernelDescriptor.
@@ -304,10 +315,11 @@ public:
     return kernelConfigs;
   }
 
-  static SmallVector<ttnn::KernelCBAttr>
-  createCBDescriptors(Builder &builder, const llvm::SmallVector<Value> &cbs,
-                      const ttcore::DeviceAttr &device,
-                      const ttnn::CoreRangeSetAttr &coreRangeSet) {
+  static SmallVector<ttnn::KernelCBAttr> createCBDescriptors(
+      Builder &builder, const llvm::SmallVector<Value> &cbs,
+      const ttcore::DeviceAttr &device,
+      const ttnn::CoreRangeSetAttr &coreRangeSet, size_t cbStartIndex = 0,
+      std::optional<ArrayRef<size_t>> globalIOIndexForEachCB = std::nullopt) {
     if (cbs.empty()) {
       llvm_unreachable("Expected circular buffers.");
     }
@@ -325,7 +337,7 @@ public:
       size_t totalSize = device.getMemrefSizeBytes(cb_memref, pageSize, true);
 
       ttnn::KernelCBFormatAttr cbFormat =
-          ttnn::KernelCBFormatAttr::get(ctx, i, dtype, pageSize);
+          ttnn::KernelCBFormatAttr::get(ctx, cbStartIndex + i, dtype, pageSize);
 
       ttnn::KernelCBGlobalBufferAddressOfTensorAttr globalCBIndexOfTensor;
 
@@ -343,9 +355,11 @@ public:
            isAliasedOutput) &&
           ttcore::getMemorySpace(cb_memref) !=
               ttcore::MemorySpace::DeviceDRAM) {
-
+        size_t tensorIndex =
+            globalIOIndexForEachCB ? (*globalIOIndexForEachCB)[i] : i;
         globalCBIndexOfTensor =
-            ttnn::KernelCBGlobalBufferAddressOfTensorAttr::get(ctx, i);
+            ttnn::KernelCBGlobalBufferAddressOfTensorAttr::get(ctx,
+                                                               tensorIndex);
       }
       cbDescriptors[i] = ttnn::KernelCBAttr::get(
           ctx, totalSize, coreRangeSet, {cbFormat}, globalCBIndexOfTensor);
@@ -428,6 +442,14 @@ public:
             op, "waiting for memref.alloc operands to be converted");
       }
     }
+    // Generic ops inside spatial ops should be handled by the spatial rewriter
+    // first.
+    if (op->getParentRegion() &&
+        isa<d2m::SpatialOp>(op->getParentRegion()->getParentOp())) {
+      return rewriter.notifyMatchFailure(
+          op, "generic op is inside a spatial op and should be handled by the "
+              "spatial rewriter first");
+    }
 
     MLIRContext *ctx = rewriter.getContext();
     auto device = ttcore::lookupDevice(op->getParentOp());
@@ -503,6 +525,162 @@ public:
         op, ios, additionalArgs, program, ttnn::MemoryConfigAttr());
     return success();
   };
+
+private:
+  ttmetal::MathFidelity mathFidelity;
+};
+
+static ttnn::CoreRangeSetAttr
+ttcoreRangeToTTNNCoreRangeSet(MLIRContext *ctx, ttcore::CoreRangeAttr range) {
+  auto start = range.getStartCoord();
+  auto end = range.getEndCoord();
+  auto startCoord = ttnn::CoreCoordAttr::get(ctx, start.getX(), start.getY());
+  auto endCoord = ttnn::CoreCoordAttr::get(ctx, end.getX(), end.getY());
+  auto coreRange = ttnn::CoreRangeAttr::get(ctx, startCoord, endCoord);
+  return ttnn::CoreRangeSetAttr::get(ctx, coreRange);
+}
+
+static std::pair<SmallVector<Value>, ttnn::ProgramAttr>
+buildUnifiedProgramFromGenerics(
+    Builder &builder, ConversionPatternRewriter &rewriter,
+    d2m::SpatialOp spatialOp, ArrayRef<d2m::GenericOp> generics,
+    ArrayRef<ttnn::CoreRangeSetAttr> regionCoreRangeSets,
+    const ttcore::DeviceAttr &device, SymbolTable &symbolTable,
+    ttmetal::MathFidelity mathFidelity) {
+  MLIRContext *ctx = builder.getContext();
+  llvm::SmallDenseMap<Value, size_t> valueToGlobalIOIndex;
+  SmallVector<Value> globalIos;
+
+  for (Value v : spatialOp.getInputs()) {
+    Value io = D2MGenericRewriter::extractIOAndCBFromGenericOperand(
+                   v, rewriter.getRemappedValue(v))
+                   .io;
+    if (valueToGlobalIOIndex.try_emplace(io, globalIos.size()).second) {
+      globalIos.push_back(io);
+    }
+  }
+  for (Value v : spatialOp.getOutputs()) {
+    Value io = D2MGenericRewriter::extractIOAndCBFromGenericOperand(
+                   v, rewriter.getRemappedValue(v))
+                   .io;
+    if (valueToGlobalIOIndex.try_emplace(io, globalIos.size()).second) {
+      globalIos.push_back(io);
+    }
+  }
+
+  SmallVector<SmallVector<size_t>> perGenericIOIndices(generics.size());
+  for (const auto [gIdx, g] : llvm::enumerate(generics)) {
+    auto &indices = perGenericIOIndices[gIdx];
+    auto operands = g->getOperands();
+    indices.reserve(operands.size());
+    for (Value operand : operands) {
+      Value io = D2MGenericRewriter::extractIOAndCBFromGenericOperand(
+                     operand, rewriter.getRemappedValue(operand))
+                     .io;
+      indices.push_back(valueToGlobalIOIndex.find(io)->second);
+    }
+  }
+
+  SmallVector<ttnn::KernelCBAttr> allCBs;
+  SmallVector<ttnn::KernelSemaphoreAttr> allSemaphores;
+  SmallVector<Attribute> allKernels;
+  size_t cbNext = 0;
+  size_t semNext = 0;
+
+  for (const auto [gIdx, g] : llvm::enumerate(generics)) {
+    auto operands = g->getOperands();
+    llvm::SmallVector<Value> ios(operands.size());
+    llvm::SmallVector<Value> cbs(operands.size());
+    for (auto [i, operand] : llvm::enumerate(operands)) {
+      auto [io, cb] = D2MGenericRewriter::extractIOAndCBFromGenericOperand(
+          operand, rewriter.getRemappedValue(operand));
+      ios[i] = io;
+      cbs[i] = cb;
+    }
+
+    size_t cbOffset = cbNext;
+    ArrayRef<size_t> globalIOForCBs = perGenericIOIndices[gIdx];
+    auto cbDescs = D2MGenericRewriter::createCBDescriptors(
+        builder, cbs, device, regionCoreRangeSets[gIdx], cbOffset,
+        globalIOForCBs);
+    allCBs.append(cbDescs.begin(), cbDescs.end());
+    cbNext = allCBs.size();
+
+    size_t semOffset = semNext;
+    auto threads = g->getAttrOfType<ArrayAttr>("threads");
+    auto semDescs = D2MGenericRewriter::createSemaphoreDescriptors(
+        builder, threads, regionCoreRangeSets[gIdx], symbolTable, semOffset);
+    allSemaphores.append(semDescs.begin(), semDescs.end());
+    semNext = allSemaphores.size();
+
+    ArrayRef<size_t> ioMap = perGenericIOIndices[gIdx];
+    auto kernelDescs = D2MGenericRewriter::createKernelDescriptors(
+        builder, threads, regionCoreRangeSets[gIdx], symbolTable, mathFidelity,
+        ioMap, cbOffset, semOffset);
+    allKernels.append(kernelDescs.begin(), kernelDescs.end());
+  }
+
+  ttnn::ProgramAttr program =
+      ttnn::ProgramAttr::get(ctx, allKernels, allCBs, allSemaphores);
+  return {std::move(globalIos), program};
+}
+
+class D2MSpatialRewriter : public OpConversionPattern<d2m::SpatialOp> {
+public:
+  D2MSpatialRewriter(MLIRContext *context, ttmetal::MathFidelity mathFidelity)
+      : OpConversionPattern<d2m::SpatialOp>(context),
+        mathFidelity(mathFidelity) {}
+
+  LogicalResult
+  matchAndRewrite(d2m::SpatialOp op, d2m::SpatialOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    if (op.getNumRegions() == 0) {
+      return rewriter.notifyMatchFailure(op, "no regions");
+    }
+
+    SmallVector<d2m::GenericOp> generics;
+    generics.reserve(op.getNumRegions());
+    for (Region &r : op.getRegions()) {
+      auto genericOps = r.front().getOps<d2m::GenericOp>();
+      if (!llvm::hasSingleElement(genericOps)) {
+        return rewriter.notifyMatchFailure(
+            op, "each region must contain exactly one d2m.generic op");
+      }
+      generics.push_back(*genericOps.begin());
+    }
+
+    auto device = ttcore::lookupDevice(op->getParentOp());
+    if (!device) {
+      return rewriter.notifyMatchFailure(op, "no device");
+    }
+
+    auto gridRanges = op.getGridRanges().getCoreRanges();
+    SmallVector<ttnn::CoreRangeSetAttr> regionCoreRangeSets;
+    regionCoreRangeSets.reserve(gridRanges.size());
+    for (ttcore::CoreRangeAttr range : gridRanges) {
+      regionCoreRangeSets.push_back(
+          ttcoreRangeToTTNNCoreRangeSet(rewriter.getContext(), range));
+    }
+
+    SymbolTable symbolTable(op->getParentOfType<ModuleOp>());
+    auto [globalIos, program] = buildUnifiedProgramFromGenerics(
+        rewriter, rewriter, op, generics, regionCoreRangeSets, device,
+        symbolTable, mathFidelity);
+
+    llvm::SmallVector<Value> additionalArgs;
+    for (d2m::GenericOp g : generics) {
+      for (Value arg : g.getAdditionalArgs()) {
+        // ToDo : Need to handle the case where the additional arg is a global
+        // semaphore and they are shared across the generic ops in the spatial
+        // op.
+        additionalArgs.push_back(rewriter.getRemappedValue(arg));
+      }
+    }
+
+    rewriter.replaceOpWithNewOp<ttnn::GenericOp>(
+        op, globalIos, additionalArgs, program, ttnn::MemoryConfigAttr());
+    return success();
+  }
 
 private:
   ttmetal::MathFidelity mathFidelity;
@@ -862,6 +1040,7 @@ void populateD2MToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                                TypeConverter &typeConverter,
                                ttmetal::MathFidelity mathFidelity) {
   patterns.add<MemrefAllocRewriter>(ctx);
+  patterns.add<D2MSpatialRewriter>(ctx, mathFidelity);
   patterns.add<D2MGenericRewriter>(ctx, mathFidelity);
   patterns
       .add<TTNNMetalLayoutCastRewriter, D2MEmptyRewriter, D2MFullRewriter,
