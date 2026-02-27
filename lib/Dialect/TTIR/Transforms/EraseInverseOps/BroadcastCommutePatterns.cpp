@@ -147,7 +147,7 @@ getNewReshapeAndBroadcastDims(ArrayRef<int64_t> originalShape,
   //
   // IMPORTANT: If at any point the size of finalShape at some index i is
   // greater than the size of the current partition, this would imply that
-  //            the reshape has placed broacasted and original data along the
+  //            the reshape has placed broadcasted and original data along the
   //            same axis. And so, the reshape cannot commute through the
   //            broadcast.
 

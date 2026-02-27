@@ -24,7 +24,7 @@ public:
   llvm::SmallVector<mlir::Operation *> getSchedulableOps();
 
   // Method to check if an operation is either a TTIR op or a
-  // TTNN scheduleable op.
+  // TTNN schedulable op.
   bool isTTSchedulableOp(mlir::Operation *op);
 
   // Method to check if an operation can be scheduled

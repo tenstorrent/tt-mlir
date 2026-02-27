@@ -78,7 +78,7 @@ void BFInterleavedPolicy::run() {
         }
 
         // Check if the scheduling of the op is consuming the least amount of L1
-        // memory among all the scheduleable ops.
+        // memory among all the schedulable ops.
         //
         changeInL1Usage = allocOfL1Mem - deallocOfL1Mem;
         if (changeInL1Usage < minimalChangeInL1Usage) {

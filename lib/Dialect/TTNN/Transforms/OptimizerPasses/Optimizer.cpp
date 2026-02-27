@@ -612,7 +612,7 @@ public:
                 BufferTypeAttr::get(op->getContext(), bufferType),
                 utils::createShardSpecIfNeeded(layoutAttr, deviceGrid)));
           }
-          // TODO(mtopalovic): Temp workaround for generic ToLayoutOp. Allign
+          // TODO(mtopalovic): Temp workaround for generic ToLayoutOp. Align
           // MemoryConfigAttr with layout attribute of its output tensor. This
           // redundant info should be removed or made consistent as part of temp
           // ToLayoutOp decomposition pass.

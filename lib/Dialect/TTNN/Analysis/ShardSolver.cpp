@@ -188,7 +188,7 @@ bool ShardSolver::resolveStep() {
           // TODO(rpavlovicTT) After we inserted reshard in
           // preprocessFirstOp we dont need to try every producerId here, right?
 
-          // If the producer cannot accomodate this path, continue.
+          // If the producer cannot accommodate this path, continue.
           // Also if this is not the OpConfig we selected, continue.
           if (!producerBitset->test(producerId)) {
             continue;
