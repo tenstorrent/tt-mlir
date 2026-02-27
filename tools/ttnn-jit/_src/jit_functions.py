@@ -4,6 +4,7 @@
 
 from abc import ABC, abstractmethod
 from functools import partial
+import math
 
 from ttmlir.dialects import ttir, arith
 from ttmlir.ir import (
@@ -1208,6 +1209,149 @@ class EmbeddingOpHandler(BaseOpHandler):
         return self._finalize_result(op_result, args)
 
 
+class ClampOpHandler(BaseOpHandler):
+    """Handler for clamp operation.
+
+    Supports two modes:
+    1. Scalar bounds: ttnn.clamp(input, min=2.0, max=5.0) -> ttir.clamp_scalar
+    2. Tensor bounds: ttnn.clamp(input, min=min_tensor, max=max_tensor) -> ttir.clamp_tensor
+    """
+
+    _F32_MAX = 3.4028235e38
+
+    def __init__(self, jit_ctx):
+        super().__init__(jit_ctx)
+        self.op_name = "clamp"
+
+    def _infer_output_layout(self, operand):
+        """Infer output layout for clamp operation - preserves input encoding."""
+        return operand.type.encoding if CREATE_INTERMEDIATE_LAYOUT else None
+
+    def _infer_result_type(self, operand):
+        """Infer result type from operand, preserving encoding (layout unchanged)."""
+        element_type = operand.type.element_type
+        shape = list(operand.type.shape)
+        encoding = self._infer_output_layout(operand)
+
+        with Location.unknown(self.jit_ctx.ctx):
+            return RankedTensorType.get(shape, element_type, encoding)
+
+    def _normalize_scalar_value(self, value):
+        """Normalize Python scalar for MLIR attribute/tensor creation."""
+        if isinstance(value, float) and math.isinf(value):
+            return math.copysign(self._F32_MAX, value)
+        return value
+
+    def _convert_scalar_to_attr(self, value, element_type):
+        """Convert Python scalar to MLIR attribute matching element type."""
+        value = self._normalize_scalar_value(value)
+
+        # Convert to appropriate MLIR attribute
+        with Location.unknown(self.jit_ctx.ctx):
+            if isinstance(element_type, (F32Type, F64Type, BF16Type)):
+                return FloatAttr.get(F32Type.get(self.jit_ctx.ctx), float(value))
+            elif isinstance(element_type, IntegerType):
+                return IntegerAttr.get(
+                    IntegerType.get_signless(32, self.jit_ctx.ctx), int(value)
+                )
+            else:
+                raise ValueError(f"Unsupported element type for clamp: {element_type}")
+
+    def _is_scalar(self, value):
+        """Check if value is a scalar (not a tensor)."""
+        return isinstance(value, (int, float, bool))
+
+    def create_operation(self, *args, **kwargs):
+        """Create clamp operation.
+
+        Signature: ttnn.clamp(input, min=..., max=...) or ttnn.clamp(input, min_val, max_val)
+        Supports both keyword and positional arguments.
+        """
+        if len(args) < 1:
+            raise ValueError("clamp requires at least 1 argument (input tensor)")
+
+        operands = self._get_operands(args[:1])
+        input_operand = operands[0]
+
+        min_val = kwargs.get("min", None)
+        max_val = kwargs.get("max", None)
+
+        if min_val is None and len(args) >= 2:
+            min_val = args[1]
+        if max_val is None and len(args) >= 3:
+            max_val = args[2]
+
+        if min_val is None and max_val is None:
+            raise ValueError("clamp requires at least one of 'min' or 'max' arguments")
+
+        # Infer result type
+        result_type = self._infer_result_type(input_operand)
+
+        # Determine whether to use clamp_scalar or clamp_tensor
+        min_is_scalar = min_val is None or self._is_scalar(min_val)
+        max_is_scalar = max_val is None or self._is_scalar(max_val)
+
+        if min_is_scalar and max_is_scalar:
+            # Use ttir.clamp_scalar
+            element_type = input_operand.type.element_type
+
+            if min_val is None:
+                min_val = float("-inf")
+            if max_val is None:
+                max_val = float("inf")
+
+            min_attr = self._convert_scalar_to_attr(min_val, element_type)
+            max_attr = self._convert_scalar_to_attr(max_val, element_type)
+
+            with InsertionPoint(self.jit_ctx.func_bb), Location.unknown(
+                self.jit_ctx.ctx
+            ):
+                op_result = ttir.clamp_scalar(
+                    result=result_type,
+                    input=input_operand,
+                    min=min_attr,
+                    max=max_attr,
+                )
+        else:
+            # Use ttir.clamp_tensor
+            # Resolve min and max operands
+            if min_val is None:
+                # Create a tensor filled with -inf
+                min_operand = self._create_scalar_tensor_constant(
+                    self._normalize_scalar_value(float("-inf")), input_operand
+                )
+            elif self._is_scalar(min_val):
+                min_operand = self._create_scalar_tensor_constant(
+                    self._normalize_scalar_value(min_val), input_operand
+                )
+            else:
+                min_operand = self._resolve_operand(min_val, 1, self.jit_ctx)
+
+            if max_val is None:
+                # Create a tensor filled with inf
+                max_operand = self._create_scalar_tensor_constant(
+                    self._normalize_scalar_value(float("inf")), input_operand
+                )
+            elif self._is_scalar(max_val):
+                max_operand = self._create_scalar_tensor_constant(
+                    self._normalize_scalar_value(max_val), input_operand
+                )
+            else:
+                max_operand = self._resolve_operand(max_val, 2, self.jit_ctx)
+
+            with InsertionPoint(self.jit_ctx.func_bb), Location.unknown(
+                self.jit_ctx.ctx
+            ):
+                op_result = ttir.clamp_tensor(
+                    result=result_type,
+                    input=input_operand,
+                    min=min_operand,
+                    max=max_operand,
+                )
+
+        return self._finalize_result(op_result, args)
+
+
 class TTNNJitNamespaceUpdater:
     """Namespace updater that provides jit functions for tracing mode."""
 
@@ -1218,10 +1362,15 @@ class TTNNJitNamespaceUpdater:
     def register_all_operations(self, jit_ctx):
         """Register all operations in the namespace."""
         ######################## Unary operations ########################
+        # Skip ops that have dedicated/special handlers
+        special_unary_ops = {"clamp"}
+
         self._unary_handlers = {
-            op_name: UnaryOpHandler(jit_ctx, op_name) for op_name in unary_ops
+            op_name: UnaryOpHandler(jit_ctx, op_name)
+            for op_name in unary_ops
+            if op_name not in special_unary_ops
         }
-        for op_name in unary_ops:
+        for op_name in self._unary_handlers:
             setattr(
                 self,
                 op_name,
@@ -1290,6 +1439,10 @@ class TTNNJitNamespaceUpdater:
         ######################## Gather operation ########################
         self._gather_handler = GatherOpHandler(jit_ctx)
         self.gather = partial(self._call_handler, self._gather_handler)
+
+        ######################## Clamp operation ########################
+        self._clamp_handler = ClampOpHandler(jit_ctx)
+        self.clamp = partial(self._call_handler, self._clamp_handler)
 
     def _call_handler(self, handler, *args, **kwargs):
         """Call the handler's create_operation method."""
