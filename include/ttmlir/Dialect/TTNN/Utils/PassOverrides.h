@@ -164,7 +164,7 @@ public:
   bool parse(llvm::cl::Option &opt, StringRef argName, StringRef arg,
              llvm::StringMap<Conv2dConfigOverrideParams> &value);
 
-  // Return override-conv2d-config string represenation.
+  // Return override-conv2d-config string representation.
   //
   static std::string
   toString(const llvm::StringMap<Conv2dConfigOverrideParams> &);

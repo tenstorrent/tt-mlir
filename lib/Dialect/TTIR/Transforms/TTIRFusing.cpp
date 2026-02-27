@@ -849,7 +849,7 @@ private:
   }
 
   // There are two cases we want to handle here:
-  // 1. Input scale is a constant tensor that only neeeds reshaping
+  // 1. Input scale is a constant tensor that only needs reshaping
   // 2. Input scale is a broadcast operation that needs reshaping
   //
   // In case of 1 we just add reshape operation to the scale tensor such that

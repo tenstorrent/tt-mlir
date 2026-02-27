@@ -89,7 +89,7 @@ public:
     }
   }
 
-  // Consider the follwing IR pseudocode:
+  // Consider the following IR pseudocode:
   // %0 = permute(%arg0) <{permutation = array<i64: 1, 0>}>
   // %1 = permute(%arg1) <{permutation = array<i64: 1, 0>}>
   // %2 = concat(%0, %1) <{dim = 1 : si32}>
@@ -194,7 +194,7 @@ public:
   using TTIRCommuteOpRewritePattern<
       ReshapeOp, ConcatOp, commuteDirection>::TTIRCommuteOpRewritePattern;
 
-  // Consider the follwing IR pseudocode:
+  // Consider the following IR pseudocode:
   // arg0 shape: [1, 64, 64, 1]
   // arg1 shape: [1, 64, 64, 1]
   // %0 = concat(%arg0, %arg1) <{dim = 3 : si32}>

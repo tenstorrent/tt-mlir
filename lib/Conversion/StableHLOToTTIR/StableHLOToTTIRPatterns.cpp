@@ -4476,7 +4476,7 @@ public:
         mlir::cast<RankedTensorType>(updates.getType());
 
     // If the cachePositions tensor has more than one element we assume it
-    // represents a set of aranged indices (0, cachePositions.size), so we
+    // represents a set of arranged indices (0, cachePositions.size), so we
     // replace it with FillCacheOp. If the tensor has only one element, we
     // assume it represents the update index for UpateCacheOp.
     if (cacheUpdateInputShape[0] != 1) {
@@ -5138,7 +5138,7 @@ private:
       }
 
       // Create constant tensor with shape [expandedNumIndices, 1].
-      // (to match the shape of individial slices generated in the next
+      // (to match the shape of individual slices generated in the next
       // step of the algorithm, since they are all pushed to indexSlices)
       RankedTensorType finalOffsetType =
           RankedTensorType::get({expandedNumIndices, 1}, indexElementType);
@@ -5350,7 +5350,7 @@ public:
 
     // Step 4: SortType-specific lowering.
 
-    // SortType::kValueOnly - Replace values output and ingnore indices output.
+    // SortType::kValueOnly - Replace values output and ignore indices output.
     if (sortType == SortType::kValueOnly) {
       rewriter.replaceOp(srcOp, sortOp.getValues());
       return success();
@@ -6463,7 +6463,7 @@ public:
         isCausal = false;
       } else {
         return rewriter.notifyMatchFailure(
-            srcOp, "is_causal attribute must be true or false. Recived \"" +
+            srcOp, "is_causal attribute must be true or false. Received \"" +
                        isCausalSringAttr.getValue() + "\".");
       }
     }
@@ -6477,7 +6477,7 @@ public:
       if (!llvm::to_float(scaleStringAttr.getValue(), _scale)) {
         return rewriter.notifyMatchFailure(
             srcOp,
-            "scale attribute string must be convertible to float. Recived \"" +
+            "scale attribute string must be convertible to float. Received \"" +
                 scaleStringAttr.getValue() + "\".");
       }
       scale = _scale;

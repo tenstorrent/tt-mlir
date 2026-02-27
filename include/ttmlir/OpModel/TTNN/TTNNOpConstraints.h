@@ -12,7 +12,7 @@ namespace mlir::tt::ttnn::op_model {
 /*
  * OpConstraints struct is used to store the constraints of an operation.
  * It is returned by the getOpConstraints method of the OpModel interface.
- * Note: The reason for seperating the definition of this struct from
+ * Note: The reason for separating the definition of this struct from
  * TTNNOpModel.h is to avoid coupling TTNNOpModelInterface to all the code in
  * TTNNOpModel.h.
  */

@@ -316,7 +316,7 @@ def TTCore_HostLayoutAttr : TTCore_Attr<"HostLayout", "host_layout", [MemRefLayo
     This allows host memrefs to reflect the padded footprint required by the
     device while preserving the original logical shape, enabling I/O for
     unaligned densly-packed shapes (e.g., non-multiples of 32×32 tiles). The
-    correct element placement in data copys between padded and unpadded host
+    correct element placement in data copies between padded and unpadded host
     memrefs is ensured by the strided-memcpy of the runtime's `memref.copy`
     implementation.
 
@@ -364,7 +364,7 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_
         during conversion from logical_shape to physical tensor shape.
       - **Padding**: store the desired alignments s.t. padding can be simply encoded;
       dim_alignments field represents alignment along each logical dim during collapse.
-      - **Memref translation**: ensure we have all necessary info s.t. we can trivally
+      - **Memref translation**: ensure we have all necessary info s.t. we can trivially
         lower a tensor into a memref without any intermediate passes.
 
     For a logical tensor of shape [H, W] distributed across a grid [GY, GX], the tensor shape would be:
@@ -392,7 +392,7 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_
     ArrayRefParameter<"int64_t">:$dim_alignments,
 
     // Dim collapse info; must be encoded as 2D array of pairs, where each pair represent a half-open range. Negative indexing is supported.
-    AttrParameter<"DenseIntElementsAttr", "Intervals of dims to collpase">:$collapsed_intervals,
+    AttrParameter<"DenseIntElementsAttr", "Intervals of dims to collapse">:$collapsed_intervals,
 
     // Out of bounds value.
     AttrParameter<"OOBVal", "Out of bounds fill value">:$oob_val,
@@ -518,7 +518,7 @@ def TTCore_DeviceAttr : TTCore_Attr<"Device", "device", []> {
       //
       size_t getShardSizeInBytes(MemRefType memrefType, size_t alignSize, bool includeBuffers) const;
 
-      // Returns the circular buffer page size in bytes of the given memref type. The general heursitic is:
+      // Returns the circular buffer page size in bytes of the given memref type. The general heuristic is:
       //   - If element type is tile type, return the size of the tile type.
       //   - If element type is scalar type, return the size of a tile type with underlying scalar type.
       size_t getMemrefCBPageSizeBytes(MemRefType memrefType) const;
@@ -640,7 +640,7 @@ def TTCore_RuntimeTensorShardingAttr : TTCore_Attr<"RuntimeTensorSharding", "run
     Holds the runtime sharding information for this tensor.
     This includes whether the tensor is presharded/unsharded and its per device shape.
     This attribute is required for graphs coming from torch-xla/jax where the inputs/outputs to the graph can be presharded.
-    Any tool built ontop of mlir runtime needs to know how to generate the inputs (unsharded or presharded) and this attribute encapsulate that information.
+    Any tool built on top of mlir runtime needs to know how to generate the inputs (unsharded or presharded) and this attribute encapsulate that information.
   }];
   let parameters = (ins
     "ShardStatusAttr":$shardStatus,

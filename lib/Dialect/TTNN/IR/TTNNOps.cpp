@@ -1842,7 +1842,7 @@ static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttnn::ReshapeOp op) {
   ::mlir::RankedTensorType weightType = getWeight().getType();
   ::mlir::RankedTensorType outputType = getResult().getType();
 
-  // Intput tensor must be at most 2D tensor.
+  // Input tensor must be at most 2D tensor.
   if (inputType.getRank() > 2) {
     return emitOpError("input must be at most a 2D tensor, got ")
            << inputType.getRank() << "D ranked tensor";

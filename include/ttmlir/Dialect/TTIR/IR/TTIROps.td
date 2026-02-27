@@ -5333,7 +5333,7 @@ def TTIR_MeshShardOp: TTIR_Op<"mesh_shard",
         %6 = "ttir.mesh_shard"(%4) <
           {..., shard_direction = #ttcore.shard_direction<shard_to_full>,
                 shard_shape = array<i64: 2, 1>,
-                shard_dims = arrray<i64: 1, -1>,
+                shard_dims = array<i64: 1, -1>,
                 shard_type = #ttcore.shard_type<devices>}> : (tensor<4096x16384xf32>, ...) -> tensor<8192x16384xf32>
     }];
 

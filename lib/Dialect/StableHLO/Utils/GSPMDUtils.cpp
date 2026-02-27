@@ -382,7 +382,7 @@ determineGSPMDShardingDims(llvm::SmallVector<int64_t> &shardShape,
                            llvm::SmallVector<int64_t> &deviceIds,
                            bool lastTileDimReplicate) {
   // This code is based on following assumption.
-  // 1. Hardware mesh is two dimenion such as 2x4, 1x2, ...
+  // 1. Hardware mesh is two dimension such as 2x4, 1x2, ...
   // 2. Hardware mesh only supports either line or mesh config
   // e.g., t3k 1x8 or 2x4
   SmallVector<int64_t> orgShardShape = shardShape;

@@ -334,7 +334,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     // The IR is allowed to contain "standalone" allocs that don't feed into
     // generic ops (TODO(vroubtsov) these won't become CBs, so can this
     // assumption be removed?). Conversely, generic ops are allowed to have
-    // their operands rooted at memrefs that are not allocated withing `funcOp`,
+    // their operands rooted at memrefs that are not allocated within `funcOp`,
     // e.g. passed in as func arguments. Therefore, the two
     // sets of memref values, (a) those allocated within `funcOp` and (b) those
     // defining generic op operands are incomparable (neither is a subset of the
@@ -1722,7 +1722,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
   static int64_t getMemrefSizeBytes(MemRefType bufferType,
                                     ttcore::DeviceAttr device) {
     // A tighter size calculation is possible for memrefs that don't map to
-    // CBs which we don't attempt here except to ignore `buffers` multipler.
+    // CBs which we don't attempt here except to ignore `buffers` multiplier.
     return device.getMemrefSizeBytes(bufferType, 0, false);
   }
 

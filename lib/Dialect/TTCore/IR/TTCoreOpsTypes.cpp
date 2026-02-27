@@ -1351,7 +1351,7 @@ static GridAttr createWorkerGrid(::mlir::MLIRContext *context,
   assert(virtualGrid.size() == meshShape.size());
 
   // Special case the inner 2 dimensions of the device indexing to support
-  // horizonally/vertically stacked virtual grids.  For these cases we need an
+  // horizontally/vertically stacked virtual grids.  For these cases we need an
   // affine expression that rolls over the device index when we reach the end of
   // single-chip boundaries.
   int meshStride = 1;

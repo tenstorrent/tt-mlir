@@ -363,7 +363,7 @@ private:
           auto it = opToOpPyLoc.find(op);
           if (it == opToOpPyLoc.end()) {
             TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure,
-                         "DIDNT FIND OP IN OPTOOPPYLOC");
+                         "DIDN'T FIND OP IN OPTOOPPYLOC");
             signalPassFailure();
           }
 

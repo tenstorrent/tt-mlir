@@ -213,7 +213,7 @@ def TTNN_NDShardSpecAttr : TTNN_Attr<"NDShardSpec", "nd_shard_spec"> {
     - The strategy for distributing shards across the grid (round robin 1D, or grid 2D)
 
     NDShardSpecAttr is used within MemoryConfigAttr to specify sharding information for ND sharded tensors
-    stored in L1 memory. ND sharded tensors that are not expressable in legacy are considered
+    stored in L1 memory. ND sharded tensors that are not expressible in legacy are considered
     block sharded by convention.
 
     This attribute is optional in the MemoryConfigAttr and should only be present
@@ -958,7 +958,7 @@ def TTNN_KernelArgCBBufferIndexAttr : TTNN_Attr<"KernelArgCBBufferIndex", "kerne
 def TTNN_KernelArgAddressOfTensorAttr : TTNN_Attr<"KernelArgAddressOfTensor", "kernel_arg_address_of_tensor"> {
   let summary = "Address of tensor argument";
   let description = [{
-    TTNN generic kernel argument for address of tensor at postion in operation tensors array.
+    TTNN generic kernel argument for address of tensor at position in operation tensors array.
   }];
 
   let parameters = (ins "size_t":$tensor_index);

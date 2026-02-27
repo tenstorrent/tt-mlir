@@ -582,7 +582,7 @@ private:
   bool shouldForceInputSystemMemory(BlockArgument arg) const {
     func::FuncOp owningFunc = cast<func::FuncOp>(arg.getOwner()->getParentOp());
 
-    // For block arguments which are maked as conv2d weights leave them on host.
+    // For block arguments which are marked as conv2d weights leave them on host.
     uint32_t argIdx = arg.getArgNumber();
     if (owningFunc.getArgAttr(argIdx, ttmlir::utils::g_conv2dWeightAttrName)) {
       return true;
