@@ -270,19 +270,9 @@ std::optional<AffineMap> getVirtualGridInverseMapping(Value val) {
       return std::nullopt;
     }
 
-    // Trace through d2m.view_layout to its input.
-    if (auto viewOp = mlir::dyn_cast<ViewLayoutOp>(defOp)) {
+    // Trace through view/stream ops via ViewOpInterface.
+    if (auto viewOp = mlir::dyn_cast<ViewOpInterface>(defOp)) {
       return getVirtualGridInverseMapping(viewOp.getInput());
-    }
-
-    // Trace through d2m.stream_layout: try storage first (where the
-    // physical buffer lives), then fall back to the input (which may carry
-    // VGM from a TTNNMetalLayoutCastOp).
-    if (auto streamOp = mlir::dyn_cast<StreamLayoutOp>(defOp)) {
-      if (auto vgm = getVirtualGridInverseMapping(streamOp.getStorage())) {
-        return vgm;
-      }
-      return getVirtualGridInverseMapping(streamOp.getInput());
     }
 
     // Trace through ttir.ttnn_metal_layout_cast to its declared VGM attr.
@@ -328,15 +318,9 @@ std::optional<AffineMap> getVirtualGridForwardMapping(Value val) {
       return std::nullopt;
     }
 
-    if (auto viewOp = mlir::dyn_cast<ViewLayoutOp>(defOp)) {
+    // Trace through view/stream ops via ViewOpInterface.
+    if (auto viewOp = mlir::dyn_cast<ViewOpInterface>(defOp)) {
       return getVirtualGridForwardMapping(viewOp.getInput());
-    }
-
-    // Trace through d2m.stream_layout to its input (matching applyViews).
-    // The storage may have a reblocked shape with different rank, so we
-    // trace to the input to stay consistent with the base memref type.
-    if (auto streamOp = mlir::dyn_cast<StreamLayoutOp>(defOp)) {
-      return getVirtualGridForwardMapping(streamOp.getInput());
     }
 
     if (auto castOp = mlir::dyn_cast<ttir::TTNNMetalLayoutCastOp>(defOp)) {
