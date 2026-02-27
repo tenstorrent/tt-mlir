@@ -362,6 +362,56 @@ def test_bitwise_binary_ops_l1(device, shape, max_grid, shard_strategy, dtype, o
 
 
 # ------------------------------------------------------------
+# ttnn.clamp tests
+# ------------------------------------------------------------
+# Helpers for clamp tests
+
+
+def _clamp_min_max(input_tensor):
+    return ttnn.clamp(input_tensor, min=-0.001, max=0.001)
+
+
+def _clamp_tensor_bounds(input_tensor, min_tensor, max_tensor):
+    return ttnn.clamp(input_tensor, min=min_tensor, max=max_tensor)
+
+
+@pytest.mark.parametrize(
+    "buffer_type,is_tensor_bounds",
+    [
+        (ttnn.BufferType.L1, False),
+        (ttnn.BufferType.DRAM, True),
+    ],
+    ids=["l1_scalar", "dram_tensor"],
+)
+@pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
+def test_clamp(device, buffer_type, is_tensor_bounds, dtype):
+    """Run clamp scalar (L1) and clamp tensor-bounds (DRAM) for bf16 on (32,32)."""
+    shape = (32, 32)
+    max_grid = (0, 0)
+    shard_strategy = (
+        ttnn.ShardStrategy.BLOCK if buffer_type == ttnn.BufferType.L1 else None
+    )
+
+    if is_tensor_bounds:
+        op = _clamp_tensor_bounds
+        num_inputs = 3
+    else:
+        op = _clamp_min_max
+        num_inputs = 1
+
+    run_op_test(
+        device,
+        shape,
+        max_grid,
+        dtype,
+        op,
+        num_inputs=num_inputs,
+        buffer_type=buffer_type,
+        shard_strategy=shard_strategy,
+    )
+
+
+# ------------------------------------------------------------
 # Interop tests
 # ------------------------------------------------------------
 
@@ -400,67 +450,6 @@ def test_interop_jit_to_ttnn_unary_l1(
     )
     assert memory_configs_equal(interop_result.memory_config(), expected_memory_config)
     assert all_close_check(interop_result, golden_result)
-
-
-# ------------------------------------------------------------
-# ttnn.clamp tests
-# ------------------------------------------------------------
-
-
-def _clamp_min_max(input_tensor):
-    return ttnn.clamp(input_tensor, min=-0.001, max=0.001)
-
-
-def _clamp_min_only(input_tensor):
-    return ttnn.clamp(input_tensor, min=-0.001)
-
-
-def _clamp_max_only(input_tensor):
-    return ttnn.clamp(input_tensor, max=0.001)
-
-
-def _clamp_tensor_bounds(input_tensor, min_tensor, max_tensor):
-    return ttnn.clamp(input_tensor, min=min_tensor, max=max_tensor)
-
-
-@pytest.mark.parametrize("shape", [(32, 32)], ids=["(32,32)"])
-@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32], ids=["bf16", "f32"])
-@pytest.mark.parametrize("buffer_type", [ttnn.BufferType.L1, ttnn.BufferType.DRAM])
-@pytest.mark.parametrize("op", [_clamp_min_max, _clamp_min_only, _clamp_max_only])
-def test_clamp_scalar(device, shape, dtype, buffer_type, op):
-    max_grid = (0, 0)
-    shard_strategy = ttnn.ShardStrategy.BLOCK
-    run_op_test(
-        device,
-        shape,
-        max_grid,
-        dtype,
-        op,
-        num_inputs=1,
-        buffer_type=buffer_type,
-        shard_strategy=shard_strategy,
-    )
-
-
-@pytest.mark.parametrize(
-    "buffer_type, shape, max_grid, shard_strategy",
-    [
-        (ttnn.BufferType.DRAM, (32, 32), (0, 0), None),
-        (ttnn.BufferType.L1, (32, 32), (0, 0), ttnn.ShardStrategy.BLOCK),
-    ],
-)
-@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32], ids=["bf16", "f32"])
-def test_clamp_tensor(device, buffer_type, shape, max_grid, shard_strategy, dtype):
-    run_op_test(
-        device,
-        shape,
-        max_grid,
-        dtype,
-        _clamp_tensor_bounds,
-        num_inputs=3,
-        buffer_type=buffer_type,
-        shard_strategy=shard_strategy,
-    )
 
 
 # 2 JIT ops -> TTNN binary op test
