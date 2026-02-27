@@ -801,6 +801,7 @@ void applyFallbackTransformations(
   // The layout attribute must match the first result type's layout.
   TTNNLayoutAttr firstActualOutputLayout =
       result.checkAndGetFirstActualOutputLayout();
+
   if (configs[0].outputLayout &&
       firstActualOutputLayout != configs[0].outputLayout) {
     if (TTNNLayoutOpInterface opWithLayoutIF =
@@ -808,6 +809,13 @@ void applyFallbackTransformations(
       opWithLayoutIF.setLayoutAttr(LayoutAttr::get(
           operation->getContext(), firstActualOutputLayout.getLayout()));
     }
+  }
+  // Update the data type attribute for ops that have one (e.g., ttnn.constant).
+  // The data type attribute must match the first result type's data type.
+  if (TTNNDtypeOpInterface dtypeOp =
+          mlir::dyn_cast<TTNNDtypeOpInterface>(operation)) {
+    dtypeOp.setDtypeAttr(ttcore::DataTypeAttr::get(
+        operation->getContext(), firstActualOutputLayout.getDataType()));
   }
 }
 
