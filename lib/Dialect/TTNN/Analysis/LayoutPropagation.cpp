@@ -29,10 +29,19 @@ namespace mlir::tt::ttnn {
 LayoutPropagation::LayoutPropagation(
     func::FuncOp func, ttcore::GridAttr deviceGrid,
     const llvm::DenseMap<Operation *, std::vector<OpConfig>> &legalConfigs,
-    const TensorTypeLayoutsMap *tensorTypePossibleLayouts, size_t beamWidth)
+    const TensorTypeLayoutsMap *tensorTypePossibleLayouts, size_t beamWidth,
+    std::unique_ptr<LayoutPropagationObserver> observer)
     : func(func), deviceGrid(deviceGrid), legalConfigs(legalConfigs),
       tensorTypePossibleLayouts(tensorTypePossibleLayouts),
-      beamWidth(beamWidth) {}
+      beamWidth(beamWidth) {
+  if (observer) {
+    observer_ = std::move(observer);
+  } else {
+    observer_ = std::make_unique<LayoutPropagationObserver>();
+  }
+}
+
+LayoutPropagation::~LayoutPropagation() = default;
 
 /// Returns true for ops that cannot consume sharded L1 inputs.
 /// These ops either hang or produce incorrect results with sharded input.
@@ -45,6 +54,8 @@ void LayoutPropagation::run() {
   TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
                "LayoutPropagation::run() starting for func {0}",
                func.getName());
+
+  observer_->onStart(func.getName(), beamWidth);
 
   size_t opIndex = 0;
   // Forward pass: propagate layouts in topological (IR) order.
@@ -102,6 +113,34 @@ void LayoutPropagation::run() {
     ++opIndex;
   });
 
+  // Collect in-place (zero-result) ops for decision trace completeness.
+  func->walk([&](Operation *op) {
+    if (op->getNumResults() != 0) {
+      return;
+    }
+    LayoutPropagationObserver::InplaceOpInfo info;
+    info.op = op;
+    bool hasTrackedProducer = false;
+    for (auto [idx, operand] : llvm::enumerate(op->getOperands())) {
+      if (!mlir::isa<RankedTensorType>(operand.getType())) {
+        continue;
+      }
+      auto tensorType = mlir::cast<RankedTensorType>(operand.getType());
+      auto layout =
+          mlir::dyn_cast_or_null<TTNNLayoutAttr>(tensorType.getEncoding());
+      Operation *producer = operand.getDefiningOp();
+      info.operands.push_back({idx, layout, producer});
+      if (producer && beamState.count(producer)) {
+        hasTrackedProducer = true;
+      }
+    }
+    if (!hasTrackedProducer) {
+      return;
+    }
+    observer_->onInplaceOp(info);
+    ++opIndex;
+  });
+
   TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
                "LayoutPropagation: processed {0} ops with beamWidth={1}",
                opIndex, beamWidth);
@@ -110,6 +149,57 @@ void LayoutPropagation::run() {
   if (beamWidth > 1) {
     consolidateBeam();
   }
+
+  // Record final choices and edges via the observer.
+  {
+    size_t finalIdx = 0;
+    func->walk([&](Operation *op) {
+      if (!beamState.count(op) || beamState[op].empty()) {
+        return;
+      }
+      size_t chosenIdx = finalChoice.count(op) ? finalChoice[op] : 0;
+      if (chosenIdx >= beamState[op].size()) {
+        chosenIdx = 0;
+      }
+      observer_->onFinalChoice(op, finalIdx, beamState[op][chosenIdx]);
+      ++finalIdx;
+    });
+  }
+
+  // Walk tensor operands to emit edges.
+  {
+    func->walk([&](Operation *consumerOp) {
+      if (!beamState.count(consumerOp) || beamState[consumerOp].empty()) {
+        return;
+      }
+      size_t chosenIdx =
+          finalChoice.count(consumerOp) ? finalChoice[consumerOp] : 0;
+      if (chosenIdx >= beamState[consumerOp].size()) {
+        chosenIdx = 0;
+      }
+      const BeamCandidate &chosen = beamState[consumerOp][chosenIdx];
+
+      size_t tensorOperandIdx = 0;
+      for (auto operand : consumerOp->getOperands()) {
+        if (!mlir::isa<RankedTensorType>(operand.getType())) {
+          continue;
+        }
+        Operation *producerOp = operand.getDefiningOp();
+        if (producerOp && beamState.count(producerOp)) {
+          bool hasReshard = chosen.reshardLayouts.count(tensorOperandIdx) > 0;
+          TTNNLayoutAttr reshardLayout;
+          if (hasReshard) {
+            reshardLayout = chosen.reshardLayouts.lookup(tensorOperandIdx);
+          }
+          observer_->onEdge(producerOp, consumerOp, tensorOperandIdx,
+                            hasReshard, reshardLayout);
+        }
+        ++tensorOperandIdx;
+      }
+    });
+  }
+
+  observer_->onEnd(opIndex);
 
   // Apply resolved configs to IR.
   applyToIR();
@@ -126,6 +216,15 @@ LayoutPropagation::processOp(Operation *op) {
   assert(it != legalConfigs.end());
   const std::vector<OpConfig> &configs = it->second;
   OutputHints outputHints = getOutputHints(op, configs);
+
+  // Compute cross-product size for observer.
+  size_t crossProduct =
+      outputHints.hints.size() + outputHints.fallbackHints.size();
+  for (const auto &set : inputCandidateSets) {
+    crossProduct *= set.size();
+  }
+
+  observer_->onOpSetup(op, inputCandidateSets, outputHints, crossProduct);
 
   // Log search space dimensions.
   TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
@@ -197,7 +296,6 @@ LayoutPropagation::processOp(Operation *op) {
       candidate.inputLayouts = inputLayouts;
       candidate.producerCandidateIndices = producerCandidateIndices;
       candidate.reshardLayouts = reshardLayouts;
-      candidates.push_back(std::move(candidate));
 
       TTMLIR_TRACE(
           ttmlir::LogComponent::GreedyOptimizer,
@@ -210,6 +308,10 @@ LayoutPropagation::processOp(Operation *op) {
           candidate.score.requiresReshard, candidate.score.coreCount,
           candidate.score.outputL1Usage);
 
+      observer_->onEvaluation(op, hint, hintIdx, inputLayouts, /*valid=*/true,
+                              &candidate, /*failureReason=*/"");
+
+      candidates.push_back(std::move(candidate));
       return isSharded(result.actualOutputLayout);
     }
 
@@ -239,6 +341,10 @@ LayoutPropagation::processOp(Operation *op) {
                  "outBuf={2} outMem={3} inputs=[{4}] reshard={5}",
                  op->getName(), hintIdx, hintBuf, hintMem, inputDesc,
                  anyReshard);
+
+    observer_->onEvaluation(op, hint, hintIdx, inputLayouts, /*valid=*/false,
+                            /*candidate=*/nullptr, result.errorMessage);
+
     return false;
   };
 
@@ -362,6 +468,8 @@ LayoutPropagation::processOp(Operation *op) {
                  c.score.outputL1Usage, inputDesc);
   }
 
+  bool usedDramFallback = false;
+
   // Fallback: if no valid candidate found, use DRAM interleaved.
   if (candidates.empty()) {
     TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
@@ -376,7 +484,11 @@ LayoutPropagation::processOp(Operation *op) {
       fallback.score = LayoutScore(); // Lowest possible score.
       candidates.push_back(std::move(fallback));
     }
+
+    usedDramFallback = true;
   }
+
+  observer_->onBeamResult(op, candidates, usedDramFallback);
 
   return candidates;
 }
@@ -422,7 +534,7 @@ LayoutPropagation::getInputCandidateSets(Operation *op) {
     constexpr size_t kMaxInputCandidatesPerOperand = 64;
 
     // Get the producer op's resolved layout from beam state.
-    // Cache the lookup — reused many times below.
+    // Cache the lookup -- reused many times below.
     Operation *producerOp = operand.getDefiningOp();
     const llvm::SmallVector<BeamCandidate, 0> *producerBeam = nullptr;
     if (producerOp) {
@@ -545,7 +657,7 @@ LayoutPropagation::getInputCandidateSets(Operation *op) {
 
     // Add reshard candidates if applicable.
     // Skip reshards for operands derived from constant/parameter arguments.
-    // These will be re-hoisted into const_eval — L1 reshards would make the
+    // These will be re-hoisted into const_eval -- L1 reshards would make the
     // const_eval return L1, occupying L1 for the lifetime of the tensor.
     bool isFromConstEvalChain = ttcore::valueTracesToConstantArgs(operand);
     if (shouldExploreReshards(op) && !isFromConstEvalChain) {
@@ -608,7 +720,7 @@ LayoutPropagation::getInputCandidateSets(Operation *op) {
       }
 
       // Fan out: for each unique reshard layout, create one candidate per
-      // producer beam index (K×K evaluation).
+      // producer beam index (KxK evaluation).
       size_t producerBeamSize = producerBeam ? producerBeam->size() : 1;
       for (const auto &reshardLayout : uniqueReshardLayouts) {
         if (candidatesForOperand.size() >= kMaxInputCandidatesPerOperand) {
@@ -632,7 +744,7 @@ LayoutPropagation::getInputCandidateSets(Operation *op) {
           }
           // TODO: Reshard candidates for func args / unresolved producers are
           // emitted without validation since there is no beam state to provide
-          // a producerOutputLayout. This matches pre-K×K behavior.
+          // a producerOutputLayout. This matches pre-KxK behavior.
           InputCandidate ic;
           ic.layout = reshardLayout;
           ic.producerCandidateIndex = pIdx;
@@ -645,7 +757,7 @@ LayoutPropagation::getInputCandidateSets(Operation *op) {
     // Cap per-operand candidate count to prevent cross-product explosion.
     // Non-reshard candidates (from producer beam) come first and are preserved;
     // reshard candidates at the tail get trimmed.
-    // Worst case: 2 operands × 64 = 4096 cross-product combos, scored and
+    // Worst case: 2 operands x 64 = 4096 cross-product combos, scored and
     // trimmed to beam K=8.
     if (candidatesForOperand.size() > kMaxInputCandidatesPerOperand) {
       candidatesForOperand.resize(kMaxInputCandidatesPerOperand);
@@ -659,6 +771,7 @@ LayoutPropagation::getInputCandidateSets(Operation *op) {
         producerBeam ? producerBeam->size() : 0,
         candidatesForOperand.size() -
             (producerBeam ? std::min(producerBeam->size(), beamWidth) : 1));
+
     result.push_back(std::move(candidatesForOperand));
   }
 
@@ -837,6 +950,15 @@ void LayoutPropagation::consolidateBeam() {
           TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
                        "consolidateBeam: fork at {0} resolved to candidate {1}",
                        producer->getName(), finalChoice[producer]);
+
+          // Collect consumers for the observer.
+          llvm::SmallVector<Operation *> consumers;
+          for (Operation *user : producer->getResult(0).getUsers()) {
+            if (beamState.count(user)) {
+              consumers.push_back(user);
+            }
+          }
+          observer_->onForkResolved(producer, finalChoice[producer], consumers);
 
           // Patch reshardLayouts for consumers that assumed a different
           // producer candidate. Without this, applyToIR won't insert a

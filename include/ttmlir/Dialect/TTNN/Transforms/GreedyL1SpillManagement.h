@@ -7,13 +7,17 @@
 
 #include "mlir/Pass/PassRegistry.h"
 
+#include <string>
+
 namespace mlir::tt::ttnn {
 
 //===----------------------------------------------------------------------===//
 // TTNNGreedyL1SpillManagement
 //===----------------------------------------------------------------------===//
 struct TTNNGreedyL1SpillManagementOptions {
-  // Future: spill strategy selection, L1 cap override, etc.
+  bool enableDecisionTrace = false;
+  std::string decisionTraceDir = "ttrt-artifacts/decision_trace";
+
   TTNNGreedyL1SpillManagementOptions() = default;
 };
 

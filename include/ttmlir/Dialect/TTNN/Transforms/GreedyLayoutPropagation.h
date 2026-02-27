@@ -9,6 +9,8 @@
 
 #include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
 
+#include <string>
+
 namespace mlir::tt::ttnn {
 
 struct TTIRToTTNNDevicePipelineOptions;
@@ -26,6 +28,8 @@ struct TTNNGreedyLayoutPropagationOptions {
       llvm::StringMap<OutputLayoutOverrideParams>();
   llvm::StringMap<Conv2dConfigOverrideParams> overrideConv2dConfig =
       llvm::StringMap<Conv2dConfigOverrideParams>();
+  bool enableDecisionTrace = false;
+  std::string decisionTraceDir = "ttrt-artifacts/decision_trace";
 
   TTNNGreedyLayoutPropagationOptions() = default;
 };

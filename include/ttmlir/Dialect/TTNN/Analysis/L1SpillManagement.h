@@ -6,6 +6,7 @@
 #define TTMLIR_DIALECT_TTNN_ANALYSIS_L1SPILLMANAGEMENT_H
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTNN/Analysis/L1SpillObserver.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/Validation/OpConstraintValidation.h"
 
@@ -15,6 +16,7 @@
 #include "llvm/ADT/SmallVector.h"
 
 #include <cstdint>
+#include <memory>
 #include <queue>
 
 namespace mlir::tt::ttnn {
@@ -55,16 +57,23 @@ template <typename MemoryTracker = SumL1MemoryTracker>
 class L1SpillManagement {
 public:
   L1SpillManagement(func::FuncOp func, ttcore::GridAttr deviceGrid,
-                    uint64_t l1BudgetPerCore);
+                    uint64_t l1BudgetPerCore,
+                    std::unique_ptr<L1SpillObserver> observer = nullptr);
 
   /// Run Belady's algorithm with validation-based eviction and apply spills
   /// directly to the IR.
   void run();
 
+  /// Access the observer (always non-null; NullObject when tracing disabled).
+  L1SpillObserver *getObserver() { return observer_.get(); }
+
 private:
   func::FuncOp func;
   ttcore::GridAttr deviceGrid;
   uint64_t l1BudgetPerCore;
+
+  /// Observer (NullObject pattern: always non-null).
+  std::unique_ptr<L1SpillObserver> observer_;
 
   /// Pluggable memory state tracker.
   MemoryTracker memoryTracker;

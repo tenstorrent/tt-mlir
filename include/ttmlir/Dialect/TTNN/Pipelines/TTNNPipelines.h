@@ -428,6 +428,18 @@ struct TTIRToTTNNDevicePipelineOptions
           "default chain-based TTNNOptimizer."),
       llvm::cl::init(true)};
 
+  // Enable decision trace JSON output from the greedy optimizer passes.
+  Option<bool> enableDecisionTrace{
+      *this, "enable-decision-trace",
+      llvm::cl::desc("Enable greedy optimizer decision trace output."),
+      llvm::cl::init(false)};
+
+  // Output directory for decision trace JSON files.
+  Option<std::string> decisionTraceDir{
+      *this, "decision-trace-dir",
+      llvm::cl::desc("Output directory for decision trace JSON files."),
+      llvm::cl::init("ttrt-artifacts/decision_trace")};
+
   // Resolve options controlled by optimization_level.
   void resolveOptimizationLevelOptions() const {
     // Validate optimization_level is in valid range.

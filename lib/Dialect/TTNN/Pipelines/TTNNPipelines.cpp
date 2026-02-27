@@ -115,15 +115,22 @@ void createTTNNPipelineAnalysisPasses(
       propagationOptions.insertMemReconfig = options.insertMemReconfig;
       propagationOptions.overrideOutputLayout = options.overrideOutputLayout;
       propagationOptions.overrideConv2dConfig = options.overrideConv2dConfig;
+      propagationOptions.enableDecisionTrace = options.enableDecisionTrace;
+      propagationOptions.decisionTraceDir = options.decisionTraceDir;
+
+      TTNNGreedyL1SpillManagementOptions spillOptions;
+      spillOptions.enableDecisionTrace = options.enableDecisionTrace;
+      spillOptions.decisionTraceDir = options.decisionTraceDir;
 
       pm.addPass(createDevicePassesWrapper(
-          [propagationOptions, validationOptions](OpPassManager &innerPm) {
+          [propagationOptions, spillOptions,
+           validationOptions](OpPassManager &innerPm) {
             innerPm.addPass(
                 mlir::tt::ttnn::createTTNNRowMajorLayoutPropagation());
             innerPm.addPass(mlir::tt::ttnn::createTTNNGreedyLayoutPropagation(
                 propagationOptions));
-            innerPm.addPass(
-                mlir::tt::ttnn::createTTNNGreedyL1SpillManagement());
+            innerPm.addPass(mlir::tt::ttnn::createTTNNGreedyL1SpillManagement(
+                spillOptions));
             innerPm.addPass(mlir::createCanonicalizerPass());
             innerPm.addPass(
                 mlir::tt::ttnn::createTTNNOperationValidationAndFallback(

@@ -6,6 +6,7 @@
 #define TTMLIR_DIALECT_TTNN_ANALYSIS_LAYOUTPROPAGATION_H
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTNN/Analysis/LayoutPropagationObserver.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpModelStrategy.h"
 #include "ttmlir/Dialect/TTNN/Analysis/TensorLayouts.h"
@@ -16,6 +17,7 @@
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallVector.h"
 
+#include <memory>
 #include <vector>
 
 namespace mlir::tt::ttnn {
@@ -27,11 +29,18 @@ namespace mlir::tt::ttnn {
 /// propagation, it applies all decisions directly to the IR.
 class LayoutPropagation {
 public:
+  /// An input candidate for one operand (public for observer access).
+  using InputCandidate = LayoutPropagationObserver::InputCandidate;
+
   LayoutPropagation(
       func::FuncOp func, ttcore::GridAttr deviceGrid,
       const llvm::DenseMap<Operation *, std::vector<OpConfig>> &legalConfigs,
       const TensorTypeLayoutsMap *tensorTypePossibleLayouts = nullptr,
-      size_t beamWidth = 8);
+      size_t beamWidth = 8,
+      std::unique_ptr<LayoutPropagationObserver> observer = nullptr);
+
+  /// Destructor defined in .cpp (observer is forward-declared).
+  ~LayoutPropagation();
 
   /// Run layout propagation and apply all changes directly to the IR.
   void run();
@@ -45,6 +54,9 @@ public:
     return finalChoice;
   }
   size_t getBeamWidth() const { return beamWidth; }
+
+  /// Access the observer (always non-null; NullObject when tracing disabled).
+  LayoutPropagationObserver *getObserver() { return observer_.get(); }
 
 private:
   func::FuncOp func;
@@ -62,6 +74,10 @@ private:
   /// Maps op -> index into beamState[op]. For K=1, always 0.
   llvm::DenseMap<Operation *, size_t> finalChoice;
 
+  /// Observer (NullObject pattern: always non-null, no-op when tracing
+  /// disabled).
+  std::unique_ptr<LayoutPropagationObserver> observer_;
+
   /// Process a single op. Returns top-K candidates sorted by score descending.
   llvm::SmallVector<BeamCandidate, 0> processOp(Operation *op);
 
@@ -69,11 +85,6 @@ private:
   /// For greedy (K=1): each operand gets {resolved_producer_layout}
   ///   + reshard candidates (if shouldExploreReshards).
   /// Returns one vector per operand.
-  struct InputCandidate {
-    TTNNLayoutAttr layout;
-    size_t producerCandidateIndex = 0;
-    bool isReshard = false;
-  };
   std::vector<std::vector<InputCandidate>> getInputCandidateSets(Operation *op);
 
   /// Generate reshard candidate layouts for a tensor type: DRAM interleaved

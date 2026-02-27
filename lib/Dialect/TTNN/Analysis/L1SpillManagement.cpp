@@ -64,10 +64,16 @@ uint64_t SumL1MemoryTracker::getTensorSize(Operation *op) const {
 //===----------------------------------------------------------------------===//
 
 template <typename MemoryTracker>
-L1SpillManagement<MemoryTracker>::L1SpillManagement(func::FuncOp func,
-                                                    ttcore::GridAttr deviceGrid,
-                                                    uint64_t l1BudgetPerCore)
-    : func(func), deviceGrid(deviceGrid), l1BudgetPerCore(l1BudgetPerCore) {}
+L1SpillManagement<MemoryTracker>::L1SpillManagement(
+    func::FuncOp func, ttcore::GridAttr deviceGrid, uint64_t l1BudgetPerCore,
+    std::unique_ptr<L1SpillObserver> observer)
+    : func(func), deviceGrid(deviceGrid), l1BudgetPerCore(l1BudgetPerCore) {
+  if (observer) {
+    observer_ = std::move(observer);
+  } else {
+    observer_ = std::make_unique<L1SpillObserver>();
+  }
+}
 
 //===----------------------------------------------------------------------===//
 // extractOpConfigFromIR
@@ -266,8 +272,11 @@ void L1SpillManagement<MemoryTracker>::revalidateConsumers(
       auto config = extractOpConfigFromIR(consumer);
       auto result = memoryTracker.validate(consumer, inputLayouts, config);
 
-      if (result.isSuccess() &&
-          result.actualOutputLayout != config.outputLayout) {
+      bool outputChanged = result.isSuccess() &&
+                           result.actualOutputLayout != config.outputLayout;
+      observer_->onRevalidationCascade(changed, consumer, outputChanged);
+
+      if (outputChanged) {
         // Backend returned a different output layout for this consumer.
         // Update consumer's IR to match.
         applyDemotedConfig(consumer, result);
@@ -282,7 +291,7 @@ void L1SpillManagement<MemoryTracker>::revalidateConsumers(
                      "-- cascading to its consumers",
                      ttmlir::opToString(consumer));
 
-        // Consumer's output changed — cascade to its consumers.
+        // Consumer's output changed -- cascade to its consumers.
         worklist.push_back(consumer);
       }
     }
@@ -332,6 +341,8 @@ void L1SpillManagement<MemoryTracker>::run() {
                "  Schedule size: {1} ops",
                l1BudgetPerCore, schedule.size());
 
+  observer_->onSpillStart(func.getName(), l1BudgetPerCore, schedule.size());
+
   [[maybe_unused]] int64_t spillCount = 0;
 
   // Step 3: Belady's algorithm sweep with validation-based eviction.
@@ -343,6 +354,7 @@ void L1SpillManagement<MemoryTracker>::run() {
       for (Operation *deadOp : it->second) {
         if (liveOps.erase(deadOp)) {
           memoryTracker.removeTensor(deadOp);
+          observer_->onDeadRemoval(deadOp, pos, memoryTracker.getOccupiedL1());
           TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
                        "  [pos={0}] DEAD: {1}, L1 now {2}/{3}", pos,
                        ttmlir::opToString(deadOp),
@@ -384,12 +396,14 @@ void L1SpillManagement<MemoryTracker>::run() {
     }
 
     if (result.isSuccess()) {
-      // Validation passed — add to live set.
+      // Validation passed -- add to live set.
       uint64_t l1Size =
           result.outputL1Usage > 0 ? result.outputL1Usage : opL1Usage;
       memoryTracker.addTensor(op, l1Size);
       liveOps.insert(op);
       liveSet.push({opLastUse, op});
+      observer_->onLiveAdded(op, pos, l1Size, opLastUse,
+                             memoryTracker.getOccupiedL1());
 
       TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
                    "    ADDED: L1 now {0}/{1} ({2} tensors)",
@@ -412,7 +426,8 @@ void L1SpillManagement<MemoryTracker>::run() {
       continue;
     }
 
-    // OOM — try demoting current op, then evict if needed.
+    // OOM -- try demoting current op, then evict if needed.
+    observer_->onOOM(op, pos, memoryTracker.getOccupiedL1());
     TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
                  "    OOM: validation failed, trying demotion/eviction");
 
@@ -429,6 +444,8 @@ void L1SpillManagement<MemoryTracker>::run() {
           memoryTracker.validate(op, inputLayouts, l1InterleavedConfig);
 
       if (demoteResult.isSuccess()) {
+        observer_->onDemotion(op, pos, /*success=*/true,
+                              demoteResult.outputL1Usage);
         TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
                      "    DEMOTED to L1 interleaved: outputL1Usage={0}",
                      demoteResult.outputL1Usage);
@@ -439,6 +456,7 @@ void L1SpillManagement<MemoryTracker>::run() {
         liveSet.push({opLastUse, op});
         continue;
       }
+      observer_->onDemotion(op, pos, /*success=*/false, 0);
     }
 
     // Stage 2: Evict from live set (Belady: farthest last-use first).
@@ -450,9 +468,11 @@ void L1SpillManagement<MemoryTracker>::run() {
         break;
       }
 
+      uint64_t freedBytes = memoryTracker.getTensorSize(victim);
       TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
                    "    EVICT: {0} (L1: {1} bytes)", ttmlir::opToString(victim),
-                   memoryTracker.getTensorSize(victim));
+                   freedBytes);
+      observer_->onEviction(victim, pos, freedBytes);
 
       spillToDram(victim);
       memoryTracker.removeTensor(victim);
@@ -472,13 +492,16 @@ void L1SpillManagement<MemoryTracker>::run() {
       memoryTracker.addTensor(op, l1Size);
       liveOps.insert(op);
       liveSet.push({opLastUse, op});
+      observer_->onLiveAdded(op, pos, l1Size, opLastUse,
+                             memoryTracker.getOccupiedL1());
 
       TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
                    "    ADDED (after eviction): L1 now {0}/{1} ({2} tensors)",
                    memoryTracker.getOccupiedL1(), l1BudgetPerCore,
                    liveOps.size());
     } else {
-      // Op exceeds budget alone — spill self to DRAM.
+      // Op exceeds budget alone -- spill self to DRAM.
+      observer_->onSelfSpill(op, pos);
       TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
                    "    SPILL SELF: op exceeds budget alone");
       spillToDram(op);
@@ -487,6 +510,8 @@ void L1SpillManagement<MemoryTracker>::run() {
   }
 
   // Print final memory view summary.
+  observer_->onSpillEnd(spillCount, memoryTracker.getOccupiedL1(),
+                        liveOps.size());
   TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
                "=== L1 Spill Summary ===\n"
                "  Total spills: {0}\n"
