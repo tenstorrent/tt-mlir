@@ -13214,8 +13214,7 @@ class TTIRBuilder(Builder):
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        if not self._disable_golden_check:
-            self._set_golden_tensor(op_values, golden_values)
+        self._set_golden_tensor(op_values, golden_values)
 
         return op_values
 
@@ -13244,13 +13243,12 @@ class TTIRBuilder(Builder):
         )
         new_op_result = new_op.result
 
-        if not self._disable_golden_check:
-            input = self._get_golden_tensor(input_tensor)
-            op_golden_function = get_golden_function(ttir_op)
-            golden_output = op_golden_function(
-                input, k_attr, dim_attr, largest_attr, sorted_attr, result.element_type
-            )
-            self._set_golden_tensor(new_op_result, golden_output)
+        input = self._get_golden_tensor(input_tensor)
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(
+            input, k_attr, dim_attr, largest_attr, sorted_attr, result.element_type
+        )
+        self._set_golden_tensor(new_op_result, golden_output)
 
         op_map_dictionary = {}
         op_map_dictionary[old_op.result] = new_op_result
@@ -13292,21 +13290,13 @@ class TTIRBuilder(Builder):
                     )
                     new_op_result = new_op.result
 
-                    if not self._disable_golden_check:
-                        op_golden_function = get_golden_function(ttir_op)
-                        input0 = self._get_golden_tensor(old_op.input)
-                        golden_output = op_golden_function(
-                            input0,
-                            old_op.k,
-                            old_op.dim,
-                            old_op.largest,
-                            old_op.sorted,
-                            result.element_type,
-                        )
-                        topk_builder._set_golden_tensor(new_op_result, golden_output)
-                        topk_builder._set_golden_tensor(in0, input0)
-                        ordered_inputs.append(in0)
-                        ordered_outputs.append(new_op_result)
+                    input0 = self._get_golden_tensor(old_op.input)
+                    topk_builder._set_golden_tensor(
+                        new_op_result, self._goldens[old_op.result]
+                    )
+                    topk_builder._set_golden_tensor(in0, input0)
+                    ordered_inputs.append(in0)
+                    ordered_outputs.append(new_op_result)
 
                     return new_op
 
