@@ -135,15 +135,9 @@ def create_torch_tensor(shape, dtype, value_range=None):
                 "value_range must be a list or tuple of two numbers (low, high)"
             )
     if not (dtype.is_floating_point or dtype.is_complex):
-        # Integer tensor
-        if value_range is not None:
-            low, high = int(value_range[0]), int(value_range[1])
-            # torch.randint high is exclusive
-            torch_tensor = torch.randint(low, high + 1, shape, dtype=dtype)
-        else:
-            # recreate spatial coverage of fp [0,1] in randn and give some overflow headroom
-            high_val = torch.iinfo(dtype).max // 2
-            torch_tensor = torch.randint(high_val, shape, dtype=dtype)
+        # recreate spatial coverage of fp [0,1] in randn and give some overflow headroom
+        high_val = torch.iinfo(dtype).max // 2
+        torch_tensor = torch.randint(high_val, shape, dtype=dtype)
     else:
         # Floating-point or complex
         if value_range is not None:
@@ -275,13 +269,7 @@ def run_op_test(
     else:
         inputs = [
             create_dram_tensor(
-                device,
-                shape,
-                dtype,
-                ttnn_dtype,
-                mesh_mapper=None,
-                value_range=value_range,
-                input_transform=input_transform,
+                device, shape, dtype, ttnn_dtype, input_transform=input_transform
             )
             for _ in range(num_inputs)
         ]
