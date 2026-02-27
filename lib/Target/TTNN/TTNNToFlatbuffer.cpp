@@ -391,19 +391,19 @@ createOp(FlatbufferObjectCache &cache, FullOp op) {
   auto shape = op.getShape().getShape().vec();
   auto device =
       op.getDevice() ? cache.at<::tt::target::DeviceRef>(op.getDevice()) : 0;
-  ::tt::target::ttnn::FillValueType fillValueType;
-  ::flatbuffers::Offset<void> fillValue;
+  ::tt::target::ttnn::NumberType numberType;
+  ::flatbuffers::Offset<void> numberValue;
   if (auto fillValueAttr = mlir::dyn_cast<mlir::FloatAttr>(op.getFillValue())) {
-    fillValueType = ::tt::target::ttnn::FillValueType::FP;
-    fillValue = ::tt::target::ttnn::CreateFloatingPointType(
-                    *cache.fbb, fillValueAttr.getValue().convertToFloat())
-                    .Union();
+    numberType = ::tt::target::ttnn::NumberType::FP;
+    numberValue = ::tt::target::ttnn::CreateFloatingPointType(
+                      *cache.fbb, fillValueAttr.getValue().convertToFloat())
+                      .Union();
   } else if (auto fillValueAttr =
                  mlir::dyn_cast<mlir::IntegerAttr>(op.getFillValue())) {
-    fillValueType = ::tt::target::ttnn::FillValueType::I32;
-    fillValue = ::tt::target::ttnn::CreateIntegralType(
-                    *cache.fbb, fillValueAttr.getValue().getSExtValue())
-                    .Union();
+    numberType = ::tt::target::ttnn::NumberType::I32;
+    numberValue = ::tt::target::ttnn::CreateIntegralType(
+                      *cache.fbb, fillValueAttr.getValue().getSExtValue())
+                      .Union();
   } else {
     llvm_unreachable("fill value must be float or integer");
   }
@@ -416,7 +416,7 @@ createOp(FlatbufferObjectCache &cache, FullOp op) {
                                   /*local_shape*/ std::nullopt);
 
   return ::tt::target::ttnn::CreateFullOpDirect(*cache.fbb, device, &shape,
-                                                fillValueType, fillValue, dtype,
+                                                numberType, numberValue, dtype,
                                                 layout, memoryConfig, output);
 }
 
@@ -1657,18 +1657,18 @@ createEltwiseBinaryCompositeScalarOp(FlatbufferObjectCache &cache,
                                      EltwiseBinaryCompositeScalarOp op) {
 
   ::tt::target::ttnn::EltwiseBinaryCompositeScalarOpType type;
-  ::tt::target::ttnn::RhsParams rhsType;
+  ::tt::target::ttnn::NumberType numberType;
   ::flatbuffers::Offset<void> rhsValue;
   if (std::is_same_v<EltwiseBinaryCompositeScalarOp, PowScalarOp>) {
     type = ::tt::target::ttnn::EltwiseBinaryCompositeScalarOpType::PowScalar;
     if (auto floatAttr = mlir::dyn_cast<mlir::FloatAttr>(op.getRhs())) {
-      rhsType = ::tt::target::ttnn::RhsParams::FP;
+      numberType = ::tt::target::ttnn::NumberType::FP;
       rhsValue = ::tt::target::ttnn::CreateFloatingPointType(
                      *cache.fbb, floatAttr.getValue().convertToFloat())
                      .Union();
     } else if (auto integerAttr =
                    mlir::dyn_cast<mlir::IntegerAttr>(op.getRhs())) {
-      rhsType = ::tt::target::ttnn::RhsParams::I32;
+      numberType = ::tt::target::ttnn::NumberType::I32;
       rhsValue = ::tt::target::ttnn::CreateIntegralType(
                      *cache.fbb, integerAttr.getValue().getSExtValue())
                      .Union();
@@ -1689,7 +1689,7 @@ createEltwiseBinaryCompositeScalarOp(FlatbufferObjectCache &cache,
                                   /*local_shape*/ std::nullopt);
 
   return ::tt::target::ttnn::CreateEltwiseBinaryCompositeScalarOp(
-      *cache.fbb, type, lhs, rhsType, rhsValue, memoryConfig, out);
+      *cache.fbb, type, lhs, numberType, rhsValue, memoryConfig, out);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::ExperimentalEltwiseBinaryBackwardOp>
@@ -2054,15 +2054,36 @@ createEltwiseUnaryCompositeOp(FlatbufferObjectCache &cache,
       ::tt::target::ttnn::EltwiseUnaryCompositeOpParams::NONE;
   ::flatbuffers::Offset<void> params = 0;
 
+  // Helper lambda to convert attribute to NumberType union
+  auto attrToNumberType =
+      [&cache](
+          mlir::Attribute attr) -> std::pair<::tt::target::ttnn::NumberType,
+                                             ::flatbuffers::Offset<void>> {
+    if (auto floatAttr = mlir::dyn_cast<mlir::FloatAttr>(attr)) {
+      return {::tt::target::ttnn::NumberType::FP,
+              ::tt::target::ttnn::CreateFloatingPointType(
+                  *cache.fbb, floatAttr.getValue().convertToFloat())
+                  .Union()};
+    }
+    if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(attr)) {
+      return {::tt::target::ttnn::NumberType::I32,
+              ::tt::target::ttnn::CreateIntegralType(
+                  *cache.fbb, intAttr.getValue().getSExtValue())
+                  .Union()};
+    }
+    llvm_unreachable("Unsupported attribute type for clamp");
+  };
+
   if constexpr (std::is_same_v<EltwiseUnaryCompositeOp, CbrtOp>) {
     type = ::tt::target::ttnn::EltwiseUnaryCompositeOpType::Cbrt;
   } else if constexpr (std::is_same_v<EltwiseUnaryCompositeOp, ClampScalarOp>) {
     type = ::tt::target::ttnn::EltwiseUnaryCompositeOpType::ClampScalar;
     paramsType =
         ::tt::target::ttnn::EltwiseUnaryCompositeOpParams::ClampScalarOpParams;
-    auto min = op.getMin().convertToFloat();
-    auto max = op.getMax().convertToFloat();
-    params = ::tt::target::ttnn::CreateClampScalarOpParams(*cache.fbb, min, max)
+    auto [minType, minValue] = attrToNumberType(op.getMin());
+    auto [maxType, maxValue] = attrToNumberType(op.getMax());
+    params = ::tt::target::ttnn::CreateClampScalarOpParams(
+                 *cache.fbb, minType, minValue, maxType, maxValue)
                  .Union();
   } else if constexpr (std::is_same_v<EltwiseUnaryCompositeOp, ClampTensorOp>) {
     type = ::tt::target::ttnn::EltwiseUnaryCompositeOpType::ClampTensor;
@@ -3375,26 +3396,79 @@ createOp(FlatbufferObjectCache &cache, debug::AnnotateOp op) {
 createOp(FlatbufferObjectCache &cache, debug::BreakpointOp op) {
   auto operand = cache.at<::tt::target::ttnn::TensorRef>(
       getOperandThroughDPSOps(op.getOperand()));
-  auto result =
-      cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
 
-                                  /*local_shape*/ std::nullopt);
+  return ::tt::target::ttnn::CreateBreakpointOp(*cache.fbb, operand);
+}
 
-  return ::tt::target::ttnn::CreateBreakpointOp(*cache.fbb, operand, result);
+::flatbuffers::Offset<::tt::target::ttnn::PrintOp>
+createOp(FlatbufferObjectCache &cache, debug::PrintOp op) {
+  auto operand = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getOperand()));
+  auto message = toFlatbuffer(cache, op.getMessage());
+
+  return ::tt::target::ttnn::CreatePrintOp(*cache.fbb, operand, message);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::MemorySnapshotOp>
 createOp(FlatbufferObjectCache &cache, debug::MemorySnapshotOp op) {
   auto operand = cache.at<::tt::target::ttnn::TensorRef>(
       getOperandThroughDPSOps(op.getOperand()));
+  auto filePath = toFlatbuffer(cache, op.getFilePath());
+
+  return ::tt::target::ttnn::CreateMemorySnapshotOp(*cache.fbb, operand,
+                                                    filePath);
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::RegionStartOp>
+createOp(FlatbufferObjectCache &cache, debug::RegionStartOp op) {
+  auto operand = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getOperand()));
   auto result =
       cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
 
                                   /*local_shape*/ std::nullopt);
-  auto filePath = toFlatbuffer(cache, op.getFilePath());
+  auto regionId = toFlatbuffer(cache, op.getRegionId());
 
-  return ::tt::target::ttnn::CreateMemorySnapshotOp(*cache.fbb, operand, result,
-                                                    filePath);
+  return ::tt::target::ttnn::CreateRegionStartOp(*cache.fbb, operand, result,
+                                                 regionId);
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::RegionEndOp>
+createOp(FlatbufferObjectCache &cache, debug::RegionEndOp op) {
+  auto operand = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getOperand()));
+  auto result =
+      cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
+
+                                  /*local_shape*/ std::nullopt);
+  auto regionId = toFlatbuffer(cache, op.getRegionId());
+
+  return ::tt::target::ttnn::CreateRegionEndOp(*cache.fbb, operand, result,
+                                               regionId);
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::TopKOp>
+createOp(FlatbufferObjectCache &cache, TopKOp op) {
+  auto in = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInputTensor()));
+
+  // Collect output tensors
+  std::vector<::flatbuffers::Offset<::tt::target::ttnn::TensorRef>> outputs;
+  for (auto result : op.getResults()) {
+    outputs.push_back(cache.getOrCreateNoSharding(
+        result, tensorValueToFlatbuffer, /*local_shape*/ std::nullopt));
+  }
+
+  int32_t k = op.getK();
+  int32_t dim = op.getDim();
+  bool largest = op.getLargest();
+  bool sorted = op.getSorted();
+  std::optional<mlir::tt::ttnn::MemoryConfigAttr> memoryConfig =
+      op.getMemoryConfig();
+
+  return ::tt::target::ttnn::CreateTopKOpDirect(
+      *cache.fbb, in, k, dim, largest, sorted,
+      (memoryConfig ? toFlatbuffer(cache, memoryConfig.value()) : 0), &outputs);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::Operation>
@@ -4081,10 +4155,26 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createOp(cache, breakpointOp), debugString,
                            locInfo);
   }
+  if (auto printOp = dyn_cast<debug::PrintOp>(op); printOp) {
+    return createOperation(cache, createOp(cache, printOp), debugString,
+                           locInfo);
+  }
   if (auto memorySnapshotOp = dyn_cast<debug::MemorySnapshotOp>(op);
       memorySnapshotOp) {
     return createOperation(cache, createOp(cache, memorySnapshotOp),
                            debugString, locInfo);
+  }
+  if (auto regionStartOp = dyn_cast<debug::RegionStartOp>(op); regionStartOp) {
+    return createOperation(cache, createOp(cache, regionStartOp), debugString,
+                           locInfo);
+  }
+  if (auto regionEndOp = dyn_cast<debug::RegionEndOp>(op); regionEndOp) {
+    return createOperation(cache, createOp(cache, regionEndOp), debugString,
+                           locInfo);
+  }
+  if (auto topKOp = dyn_cast<TopKOp>(op); topKOp) {
+    return createOperation(cache, createOp(cache, topKOp), debugString,
+                           locInfo);
   }
 
   llvm_unreachable("unhandled op in emitTTNNOperation");

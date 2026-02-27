@@ -40,18 +40,18 @@ module {
     // CHECK-NOT: memref.alloc()
     // CHECK-NOT: d2m.stream_layout
     %storage_in = memref.alloc() : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #ttcore.memory_space<l1>>
-    %stream_input  = "d2m.stream_layout" (%metal_input_l1, %storage_in)
+    %stream_input  = "d2m.stream_layout" (%metal_input_l1, %storage_in) <{remapping = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>}>
           : (memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #ttcore.memory_space<l1>>,
              memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #ttcore.memory_space<l1>>)
-          -> memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #ttcore.memory_space<l1>>
+          -> memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #ttcore.memory_space<l1>>
 
     // CHECK-NOT: memref.alloc()
     // CHECK-NOT: d2m.stream_layout
     %storage_out = memref.alloc() : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #ttcore.memory_space<l1>>
-    %stream_output  = "d2m.stream_layout" (%metal_output_l1, %storage_out)
+    %stream_output  = "d2m.stream_layout" (%metal_output_l1, %storage_out) <{remapping = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>}>
           : (memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #ttcore.memory_space<l1>>,
              memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #ttcore.memory_space<l1>>)
-          -> memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #ttcore.memory_space<l1>>
+          -> memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #ttcore.memory_space<l1>>
 
     // CHECK: "ttnn.generic"(%[[T1]], %[[T2]])
     // CHECK-SAME: #ttnn.read_kernel<symbol_ref = @read_kernel
@@ -65,8 +65,8 @@ module {
     // CHECK-SAME: common_rt_args = []
     // CHECK-SAME: page_size = 4096
     d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement, @read_kernel>, #d2m.thread<datamovement, @write_kernel>, #d2m.thread<compute, @compute_kernel0>]}
-        ins(%stream_input : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #ttcore.memory_space<l1>>)
-        outs(%stream_output : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #ttcore.memory_space<l1>>)
+        ins(%stream_input : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #ttcore.memory_space<l1>>)
+        outs(%stream_output : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #ttcore.memory_space<l1>>)
 
     // CHECK: "ttnn.generic"(%[[T1]], %[[T2]])
     // CHECK-SAME: buffer = #ttnn.kernel_cb_global_buffer_address_of_tensor<0>>

@@ -21,6 +21,7 @@ class SortOp;
 class SliceDynamicOp;
 class SliceStaticOp;
 class RotaryEmbeddingOp;
+class Conv3dOp;
 } // namespace mlir::tt::ttnn
 
 namespace mlir::tt::ttnn::wa {
@@ -258,11 +259,6 @@ public:
   static TTNNOperandsWorkarounds
   createScatterOpOperandsWorkarounds(mlir::Operation *op);
 
-  // Create workarounds for concat op operands.
-  static TTNNOperandsWorkarounds
-  createConcatOpOperandsWorkarounds(mlir::Operation::operand_range inputs,
-                                    int64_t numOperands, int32_t dim);
-
   // Create workarounds for static slice op operands.
   static TTNNOperandsWorkarounds
   createSliceStaticOpOperandsWorkarounds(ttnn::SliceStaticOp op);
@@ -318,6 +314,10 @@ public:
   // Create workarounds for conv2d/convtranspose2d op.
   template <typename T>
   static TTNNOperandsWorkarounds createConvOpOperandsWorkarounds(T op);
+
+  // Create workarounds for conv3d op to force BFloat16 data type.
+  static TTNNOperandsWorkarounds
+  createConv3dOpOperandsWorkarounds(ttnn::Conv3dOp op);
 
   // Create workarounds for reduction op operands.
   static TTNNOperandsWorkarounds

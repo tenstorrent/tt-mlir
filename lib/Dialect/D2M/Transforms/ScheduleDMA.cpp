@@ -44,12 +44,12 @@ collectDMAOps(Block *block,
     if (auto remoteLoad = mlir::dyn_cast<RemoteLoadOp>(&op)) {
       // Get the CB operand and find which block argument it corresponds to.
       Value cb = remoteLoad.getCb();
-      if (auto blockArg = mlir::dyn_cast<BlockArgument>(cb)) {
+      if (auto blockArg = mlir::dyn_cast_or_null<BlockArgument>(cb)) {
         dmaOps.push_back({&op, blockArg.getArgNumber()});
       }
     } else if (auto remoteStore = mlir::dyn_cast<RemoteStoreOp>(&op)) {
       Value cb = remoteStore.getCb();
-      if (auto blockArg = mlir::dyn_cast<BlockArgument>(cb)) {
+      if (auto blockArg = mlir::dyn_cast_or_null<BlockArgument>(cb)) {
         dmaOps.push_back({&op, blockArg.getArgNumber()});
       }
     }
@@ -96,12 +96,12 @@ static bool shouldKeepOpForThread(Operation *op,
                                   const DenseSet<unsigned> &assignedCBs) {
   if (auto remoteLoad = mlir::dyn_cast<RemoteLoadOp>(op)) {
     Value cb = remoteLoad.getCb();
-    if (auto blockArg = mlir::dyn_cast<BlockArgument>(cb)) {
+    if (auto blockArg = mlir::dyn_cast_or_null<BlockArgument>(cb)) {
       return assignedCBs.contains(blockArg.getArgNumber());
     }
   } else if (auto remoteStore = mlir::dyn_cast<RemoteStoreOp>(op)) {
     Value cb = remoteStore.getCb();
-    if (auto blockArg = mlir::dyn_cast<BlockArgument>(cb)) {
+    if (auto blockArg = mlir::dyn_cast_or_null<BlockArgument>(cb)) {
       return assignedCBs.contains(blockArg.getArgNumber());
     }
   }
@@ -222,9 +222,10 @@ public:
     // Create new generic op with N+1 regions.
     auto newGeneric = rewriter.create<GenericOp>(
         generic.getLoc(), generic.getResultTypes(), generic.getInputs(),
-        generic.getOutputs(), generic.getGrid(), generic.getBlockFactors(),
-        generic.getIndexingMaps(), generic.getIteratorTypes(),
-        rewriter.getArrayAttr(threads), generic.getScratchInputsAttr(),
+        generic.getOutputs(), generic.getAdditionalArgs(), generic.getGrid(),
+        generic.getBlockFactors(), generic.getIndexingMaps(),
+        generic.getIteratorTypes(), rewriter.getArrayAttr(threads),
+        generic.getScratchInputsAttr(),
         /*numRegions*/ numThreadsToUse + 1);
 
     // Get the original DM block's argument types.

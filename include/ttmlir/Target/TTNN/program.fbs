@@ -126,7 +126,11 @@ union OpType {
   LoadTensorOp,
   AnnotateOp,
   BreakpointOp,
+  PrintOp,
   MemorySnapshotOp,
+  RegionStartOp,
+  RegionEndOp,
+  TopKOp,
 }
 
 table Operation {

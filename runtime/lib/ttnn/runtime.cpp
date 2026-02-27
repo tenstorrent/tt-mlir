@@ -1315,7 +1315,11 @@ getOpOutputRef(OpContext opContextHandle,
   case ::tt::target::ttnn::OpType::CaptureOrExecuteTraceOp:
   case ::tt::target::ttnn::OpType::NLPCreateQKVHeadsDecodeOp:
   case ::tt::target::ttnn::OpType::SplitQueryKeyValueAndSplitHeadsOp:
-  case ::tt::target::ttnn::OpType::DumpTensorOp: {
+  case ::tt::target::ttnn::OpType::DumpTensorOp:
+  case ::tt::target::ttnn::OpType::TopKOp:
+  case ::tt::target::ttnn::OpType::BreakpointOp:
+  case ::tt::target::ttnn::OpType::PrintOp:
+  case ::tt::target::ttnn::OpType::MemorySnapshotOp: {
     LOG_WARNING("getting output tensor is not supported for ",
                 ::tt::target::ttnn::EnumNamesOpType()[static_cast<size_t>(
                     opContext.type_type())]);
@@ -1338,12 +1342,12 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_AnnotateOp()->result();
     break;
   }
-  case ::tt::target::ttnn::OpType::BreakpointOp: {
-    tensorRef = opContext.type_as_BreakpointOp()->result();
+  case ::tt::target::ttnn::OpType::RegionStartOp: {
+    tensorRef = opContext.type_as_RegionStartOp()->result();
     break;
   }
-  case ::tt::target::ttnn::OpType::MemorySnapshotOp: {
-    tensorRef = opContext.type_as_MemorySnapshotOp()->result();
+  case ::tt::target::ttnn::OpType::RegionEndOp: {
+    tensorRef = opContext.type_as_RegionEndOp()->result();
     break;
   }
   case ::tt::target::ttnn::OpType::NONE: {
@@ -1474,6 +1478,10 @@ getOpInputRefs(OpContext opContextHandle,
   }
   case ::tt::target::ttnn::OpType::ReductionOp: {
     tensorRefs = {opContext.type_as_ReductionOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::TopKOp: {
+    tensorRefs = {opContext.type_as_TopKOp()->input_tensor()};
     break;
   }
   case ::tt::target::ttnn::OpType::EmbeddingOp: {
@@ -1820,8 +1828,20 @@ getOpInputRefs(OpContext opContextHandle,
     tensorRefs = {opContext.type_as_AnnotateOp()->operand()};
     break;
   }
+  case ::tt::target::ttnn::OpType::RegionStartOp: {
+    tensorRefs = {opContext.type_as_RegionStartOp()->operand()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::RegionEndOp: {
+    tensorRefs = {opContext.type_as_RegionEndOp()->operand()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::BreakpointOp: {
     tensorRefs = {opContext.type_as_BreakpointOp()->operand()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::PrintOp: {
+    tensorRefs = {opContext.type_as_PrintOp()->operand()};
     break;
   }
   case ::tt::target::ttnn::OpType::MemorySnapshotOp: {

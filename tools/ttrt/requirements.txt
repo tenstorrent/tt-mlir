@@ -1,1 +1,3 @@
-torch==2.7.0 --index-url https://download.pytorch.org/whl/cpu
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.9.1+cpu
+nanobind==2.10.2

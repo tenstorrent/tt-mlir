@@ -8,6 +8,7 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
+#include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/EmitC/IR/EmitC.h"
@@ -378,12 +379,37 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
 
     ttnn_to_emitc::EmitCTTNNEmitter<SourceOp> emitter(srcOp, adaptor, rewriter);
-    llvm::SmallVector<mlir::Attribute> args{
-        emitter.emit(srcOp.getInput()),
-        emitter.emit(srcOp.getMin()),
-        emitter.emit(srcOp.getMax()),
-        emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
-    };
+
+    llvm::SmallVector<mlir::Attribute> args;
+    args.push_back(emitter.emit(srcOp.getInput()));
+
+    if constexpr (std::is_same_v<SourceOp, mlir::tt::ttnn::ClampScalarOp>) {
+      // Emit int or float attribute based on output element type
+      auto outputType =
+          mlir::cast<mlir::RankedTensorType>(srcOp.getResult().getType());
+      auto elementType = outputType.getElementType();
+
+      if (mlir::isa<mlir::IntegerType>(elementType)) {
+        args.push_back(emitter.emit(
+            mlir::cast<mlir::IntegerAttr>(srcOp.getMin()).getInt()));
+        args.push_back(emitter.emit(
+            mlir::cast<mlir::IntegerAttr>(srcOp.getMax()).getInt()));
+      } else {
+        args.push_back(emitter.emit(mlir::cast<mlir::FloatAttr>(srcOp.getMin())
+                                        .getValue()
+                                        .convertToFloat()));
+        args.push_back(emitter.emit(mlir::cast<mlir::FloatAttr>(srcOp.getMax())
+                                        .getValue()
+                                        .convertToFloat()));
+      }
+    } else {
+      // ClampTensorOp uses tensor values
+      args.push_back(emitter.emit(srcOp.getMin()));
+      args.push_back(emitter.emit(srcOp.getMax()));
+    }
+
+    args.push_back(emitter.emit(std::nullopt) |
+                   emitter.getMemoryConfig(srcOp.getResult()));
 
     emitter.replaceOp(*this, args);
 
@@ -4468,6 +4494,36 @@ public:
 };
 } // namespace
 
+namespace {
+class TTNNToEmitCTopKOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::TopKOp> {
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::TopKOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::TopKOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::TopKOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInputTensor()),
+        emitter.emit(srcOp.getK()),
+        emitter.emit(srcOp.getDim()),
+        emitter.emit(srcOp.getLargest()),
+        emitter.emit(srcOp.getSorted()),
+        emitter.emit(srcOp.getMemoryConfig()) |
+            emitter.getMemoryConfig(srcOp.getValues()),
+    };
+
+    emitter.replaceOp(*this, args);
+    return success();
+  }
+};
+} // namespace
+
 namespace mlir::tt {
 
 // ANCHOR: op_rewriter_pattern_set_emitc
@@ -4595,13 +4651,13 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
 
   // Tensor manipulation ops
   //
-  patterns
-      .add<TransposeOpConversionPattern, ConcatOpConversionPattern,
-           ReshapeOpConversionPattern, RepeatOpConversionPattern,
-           RepeatInterleaveOpConversionPattern, SliceStaticOpConversionPattern,
-           SliceDynamicOpConversionPattern, SortOpConversionPattern,
-           PermuteOpConversionPattern, PadOpConversionPattern>(typeConverter,
-                                                               ctx);
+  patterns.add<TransposeOpConversionPattern, ConcatOpConversionPattern,
+               ReshapeOpConversionPattern, RepeatOpConversionPattern,
+               RepeatInterleaveOpConversionPattern,
+               SliceStaticOpConversionPattern, SliceDynamicOpConversionPattern,
+               SortOpConversionPattern, PermuteOpConversionPattern,
+               PadOpConversionPattern, TTNNToEmitCTopKOpConversionPattern>(
+      typeConverter, ctx);
 
   // Quantization ops.
   //

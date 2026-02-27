@@ -239,6 +239,7 @@ def D2MInsertDstRegisterAccess : Pass<"d2m-insert-dst-register-access", "::mlir:
   let options = [
     Option<"useTileMatmul", "use-tile-matmul", "bool", /*default=*/"false", "Use tile_matmul instead of tile_matmul_block">,
     Option<"maxDstPhysicalSizeTiles", "max-dst-physical-size-tiles", "unsigned", "0", "Override the max dst physical size tiles or 0 if unset.">,
+    Option<"enableL1Acc", "enable-l1-acc", "bool", /*default=*/"false", "Enable accumulating partials in L1 instead of reloading from L1 to DST.">,
   ];
 }
 
@@ -865,7 +866,23 @@ def D2MGenerateOuterLoops : Pass<"d2m-generate-outer-loops", "::mlir::ModuleOp">
   let description = [{
     This pass generates outer loops for generic operations.
   }];
-  let dependentDialects = ["::mlir::tt::d2m::D2MDialect"];
+  let dependentDialects = ["::mlir::tt::d2m::D2MDialect",
+                           "::mlir::affine::AffineDialect"];
+}
+
+def D2MLowerToExplicitForm : Pass<"d2m-generic-lower-to-explicit-form", "::mlir::ModuleOp"> {
+  let summary = "Lower outer loop bounds to explicit constants.";
+  let description = [{
+    This pass replaces affine.for loops marked with the d2m.blocking_loop attribute
+    that have bounds defined by d2m.get_block_factor ops with scf.for loops that
+    have arith.constant bounds taken from the GenericOp's block_factors attribute.
+
+    All d2m.get_block_factor ops within generic regions are also replaced with
+    their corresponding arith.constant values.
+  }];
+  let dependentDialects = ["::mlir::tt::d2m::D2MDialect",
+                           "::mlir::scf::SCFDialect",
+                           "::mlir::arith::ArithDialect"];
 }
 
 def D2MLowerMulticastLoads : Pass<"d2m-lower-multicast-loads", "::mlir::ModuleOp"> {

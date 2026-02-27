@@ -122,6 +122,19 @@ def TTKernel_PackTileOp : TTKernel_Op<"pack_tile"> {
     }];
 }
 
+def TTKernel_PackReconfigL1AccOp : TTKernel_Op<"pack_reconfig_l1_acc"> {
+    let summary = "Reconfigure packer to L1 accumulation mode.";
+    let description = [{
+      Reconfigures the packer to accumulate when packing from DST to L1.
+    }];
+
+    let arguments = (ins I32:$l1_acc_en);
+
+    let assemblyFormat = [{
+      `(` $l1_acc_en `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
 def TTKernel_CopyTileInitOp : TTKernel_InitOp<"copy_tile_init"> {
     let summary = "Perform the init for copy tile. This does not reconfigure the unpacker data types.";
     let description = [{
@@ -2208,7 +2221,7 @@ def TTKernel_ExperimentalTileFillOp : TTKernel_SFPUOp<"experimental::tile_fill",
       blocking and is only available on the compute engine.
     }];
 
-    let arguments = (ins IndexLike:$dst_index, F32:$value);
+    let arguments = (ins IndexLike:$dst_index, AnyFloat:$value);
 
     let assemblyFormat = [{
       `(` $dst_index `,` $value `)` attr-dict `:` functional-type(operands, results)
@@ -2710,7 +2723,7 @@ def TTKernel_NocSemaphoreSetMulticastOp : TTKernel_Op<"noc_semaphore_set_multica
       *noc_semaphore_set_multicast_loopback_src* can be used.
     }];
 
-    let arguments = (ins TTKernel_Semaphore:$src_local_l1_addr,
+    let arguments = (ins AnyTypeOf<[TTKernel_L1Addr, TTKernel_Semaphore]>:$src_local_l1_addr,
                          TTKernel_NocAddr:$dst_noc_addr_multicast,
                          I32:$num_dests,
                          OptionalAttr<BoolAttr>:$linked,
@@ -2739,7 +2752,7 @@ def TTKernel_NocSemaphoreSetMulticastLoopbackOp : TTKernel_Op<"noc_semaphore_set
       regular non multicast operations such as *noc_async_write* in this case.
     }];
 
-    let arguments = (ins TTKernel_Semaphore:$src_local_l1_addr,
+    let arguments = (ins AnyTypeOf<[TTKernel_L1Addr, TTKernel_Semaphore]>:$src_local_l1_addr,
                          TTKernel_NocAddr:$dst_noc_addr_multicast,
                          I32:$num_dests,
                          OptionalAttr<BoolAttr>:$linked);
@@ -2990,6 +3003,21 @@ def TTKernel_FabricMulticastWriteOp : TTKernel_Op<"experimental::fabric_mcast_fa
 
   let assemblyFormat = [{
     `(` $fabric_connection_manager `,` $dst_mesh_id `,` $dst_dev_id_start `,` $dst_dev_id_end `,` $dst_addr `,` $src_addr `,` $len_bytes `)` attr-dict `:` functional-type(operands, results)
+  }];
+}
+
+def TTKernel_FabricSemIncOp : TTKernel_Op<"experimental::fabric_sem_inc"> {
+
+  let summary = "FabricSemIncOp";
+  let description = [{
+    FabricSemIncOp. This operation increments a semaphore on a remote device.
+  }];
+
+  let arguments = (ins TTKernel_FabricConnectionManager:$fabric_connection_manager, I16:$dst_mesh_id, I16:$dst_dev_id, TTKernel_NocAddr:$semaphore_addr, IndexLike:$incr);
+  let results = (outs);
+
+  let assemblyFormat = [{
+    `(` $fabric_connection_manager `,` $dst_mesh_id `,` $dst_dev_id `,` $semaphore_addr `,` $incr `)` attr-dict `:` functional-type(operands, results)
   }];
 }
 

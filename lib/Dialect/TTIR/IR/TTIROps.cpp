@@ -202,17 +202,28 @@ void mlir::tt::ttir::ClampScalarOp::getCanonicalizationPatterns(
       return mlir::failure();
     }
 
-    // Get the min/max values from both ops
-    auto producerMin = producerOp.getMin();
-    auto producerMax = producerOp.getMax();
-    auto consumerMin = op.getMin();
-    auto consumerMax = op.getMax();
+    auto newMinVal =
+        llvm::maximum(ttmlir::utils::attributeToAPFloat(producerOp.getMin()),
+                      ttmlir::utils::attributeToAPFloat(op.getMin()));
+    auto newMaxVal =
+        llvm::minimum(ttmlir::utils::attributeToAPFloat(producerOp.getMax()),
+                      ttmlir::utils::attributeToAPFloat(op.getMax()));
 
-    // Calculate the tightest bounds
-    auto newMin = std::max(producerMin, consumerMin);
-    auto newMax = std::min(producerMax, consumerMax);
+    mlir::Attribute newMin, newMax;
+    if (mlir::isa<mlir::FloatAttr>(op.getMin())) {
+      newMin = mlir::FloatAttr::get(
+          mlir::cast<mlir::FloatAttr>(op.getMin()).getType(), newMinVal);
+      newMax = mlir::FloatAttr::get(
+          mlir::cast<mlir::FloatAttr>(op.getMax()).getType(), newMaxVal);
+    } else {
+      newMin = mlir::IntegerAttr::get(
+          mlir::cast<mlir::IntegerAttr>(op.getMin()).getType(),
+          static_cast<int32_t>(newMinVal.convertToDouble()));
+      newMax = mlir::IntegerAttr::get(
+          mlir::cast<mlir::IntegerAttr>(op.getMax()).getType(),
+          static_cast<int32_t>(newMaxVal.convertToDouble()));
+    }
 
-    // Replace with a single ClampScalarOp with the new bounds
     rewriter.replaceOpWithNewOp<ClampScalarOp>(
         op, op.getResult().getType(), producerOp.getInput(), newMin, newMax);
     return mlir::success();
@@ -221,10 +232,10 @@ void mlir::tt::ttir::ClampScalarOp::getCanonicalizationPatterns(
   // Fold clamp with min=0 and max=6 to relu6
   patterns.add(+[](mlir::tt::ttir::ClampScalarOp op,
                    mlir::PatternRewriter &rewriter) {
-    auto minVal = op.getMin();
-    auto maxVal = op.getMax();
+    double minVal = ttmlir::utils::attributeToDouble(op.getMin());
+    double maxVal = ttmlir::utils::attributeToDouble(op.getMax());
 
-    if (minVal.convertToFloat() == 0.0f && maxVal.convertToFloat() == 6.0f) {
+    if (minVal == 0.0 && maxVal == 6.0) {
       rewriter.replaceOpWithNewOp<ttir::Relu6Op>(op, op.getResult().getType(),
                                                  op.getInput());
       return mlir::success();
@@ -338,7 +349,7 @@ void mlir::tt::ttir::ClampScalarOp::getCanonicalizationPatterns(
 }
 
 // Helper function to extract constant value.
-static mlir::FloatAttr getConstantValue(mlir::Value value) {
+static mlir::Attribute getConstantValue(mlir::Value value) {
   mlir::Operation *op = value.getDefiningOp();
   while (mlir::isa_and_present<mlir::tt::ttir::BroadcastOp,
                                mlir::tt::ttir::ReshapeOp,
@@ -357,9 +368,7 @@ static mlir::FloatAttr getConstantValue(mlir::Value value) {
     return floatAttr;
   }
   if (auto integerAttr = mlir::dyn_cast<mlir::IntegerAttr>(fillValueAttr)) {
-    return mlir::FloatAttr::get(
-        mlir::Float32Type::get(integerAttr.getContext()),
-        static_cast<double>(integerAttr.getValue().getSExtValue()));
+    return integerAttr;
   }
   return {};
 }
@@ -367,43 +376,71 @@ static mlir::FloatAttr getConstantValue(mlir::Value value) {
 // ClampTensorOp canonicalization
 void mlir::tt::ttir::ClampTensorOp::getCanonicalizationPatterns(
     mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
-  patterns.add(
-      +[](mlir::tt::ttir::ClampTensorOp op, mlir::PatternRewriter &rewriter) {
-        RankedTensorType outputType = op.getResult().getType();
+  patterns.add(+[](mlir::tt::ttir::ClampTensorOp op,
+                   mlir::PatternRewriter &rewriter) {
+    RankedTensorType outputType = op.getResult().getType();
 
-        FloatAttr minValue = getConstantValue(op.getMin());
-        FloatAttr maxValue = getConstantValue(op.getMax());
-        if (minValue && maxValue) {
-          rewriter.replaceOpWithNewOp<ttir::ClampScalarOp>(
-              op, outputType, op.getInput(), minValue, maxValue);
+    Attribute minValue = getConstantValue(op.getMin());
+    Attribute maxValue = getConstantValue(op.getMax());
+    if (minValue && maxValue) {
+      // Cast min and max attributes to match the output element type
+      Type elementType = outputType.getElementType();
 
-          return success();
-        }
+      Attribute castedMin, castedMax;
+      if (auto floatType = mlir::dyn_cast<mlir::FloatType>(elementType)) {
+        // For float types, convert to double then create attribute
+        // This ensures proper conversion regardless of source type
+        double minVal = ttmlir::utils::attributeToDouble(minValue);
+        double maxVal = ttmlir::utils::attributeToDouble(maxValue);
+        castedMin = rewriter.getFloatAttr(
+            mlir::Float32Type::get(rewriter.getContext()), minVal);
+        castedMax = rewriter.getFloatAttr(
+            mlir::Float32Type::get(rewriter.getContext()), maxVal);
+      } else {
+        // For integer types, convert via APFloat for proper rounding
+        llvm::APFloat minAPFloat = ttmlir::utils::attributeToAPFloat(minValue);
+        llvm::APFloat maxAPFloat = ttmlir::utils::attributeToAPFloat(maxValue);
+        bool ignored;
+        llvm::APSInt minInt(32, false);
+        llvm::APSInt maxInt(32, false);
+        minAPFloat.convertToInteger(minInt, llvm::APFloat::rmTowardZero,
+                                    &ignored);
+        maxAPFloat.convertToInteger(maxInt, llvm::APFloat::rmTowardZero,
+                                    &ignored);
+        castedMin = rewriter.getI32IntegerAttr(minInt.getExtValue());
+        castedMax = rewriter.getI32IntegerAttr(maxInt.getExtValue());
+      }
 
-        if (outputType.getShape() == op.getMin().getType().getShape() &&
-            outputType.getShape() == op.getMax().getType().getShape()) {
-          return failure();
-        }
+      rewriter.replaceOpWithNewOp<ttir::ClampScalarOp>(
+          op, outputType, op.getInput(), castedMin, castedMax);
 
-        Location loc = op->getLoc();
-        mlir::Value minTensor;
-        LogicalResult legalityResult = ttir::utils::broadcastValue(
-            rewriter, op.getMin(), outputType, minTensor, loc,
-            /*frontUnsqueeze=*/false);
-        assert(legalityResult.succeeded() &&
-               "Min attribute cannot be broadcasted to provided dimensions.");
+      return success();
+    }
 
-        mlir::Value maxTensor;
-        legalityResult = ttir::utils::broadcastValue(rewriter, op.getMax(),
-                                                     outputType, maxTensor, loc,
-                                                     /*frontUnsqueeze=*/false);
-        assert(legalityResult.succeeded() &&
-               "Max attribute cannot be broadcasted to provided dimensions.");
+    if (outputType.getShape() == op.getMin().getType().getShape() &&
+        outputType.getShape() == op.getMax().getType().getShape()) {
+      return failure();
+    }
 
-        rewriter.replaceOpWithNewOp<ttir::ClampTensorOp>(
-            op, outputType, op.getInput(), minTensor, maxTensor);
-        return success();
-      });
+    Location loc = op->getLoc();
+    mlir::Value minTensor;
+    LogicalResult legalityResult = ttir::utils::broadcastValue(
+        rewriter, op.getMin(), outputType, minTensor, loc,
+        /*frontUnsqueeze=*/false);
+    assert(legalityResult.succeeded() &&
+           "Min attribute cannot be broadcasted to provided dimensions.");
+
+    mlir::Value maxTensor;
+    legalityResult = ttir::utils::broadcastValue(rewriter, op.getMax(),
+                                                 outputType, maxTensor, loc,
+                                                 /*frontUnsqueeze=*/false);
+    assert(legalityResult.succeeded() &&
+           "Max attribute cannot be broadcasted to provided dimensions.");
+
+    rewriter.replaceOpWithNewOp<ttir::ClampTensorOp>(
+        op, outputType, op.getInput(), minTensor, maxTensor);
+    return success();
+  });
 }
 
 //===----------------------------------------------------------------------===//
@@ -3037,18 +3074,18 @@ void mlir::tt::ttir::TTNNMetalLayoutCastOp::getAsmResultNames(
 
 void mlir::tt::ttir::TTNNMetalLayoutCastOp::getCanonicalizationPatterns(
     mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
-  // Eliminate back-to-back casts of the same tensor.
-
-  // Because of the verifier, we are guaranteed that casts are always
-  // ttnn->metal or metal->ttnn. Therefore, if the producer of the input is a
-  // cast, we necessarily have one of:
-  //   1. metal_0->ttnn->metal_1
-  //   2. ttnn_0->metal->ttnn_1
-  // The cast is purely representational and no layout change is performed.
-  // At op creation time it is guaranteed that the input and output are the same
-  // tensor in the same underlying layout. Therefore we can be sure that:
-  //   metal_0 == metal_1 in 1
-  //   ttnn_0 == ttnn_1 in 2
+  // Eliminate back-to-back casts that form a no-op round-trip.
+  //
+  // Casts are always ttnn->metal or metal->ttnn (enforced by the verifier).
+  // If the producer of the input is also a cast, we have one of:
+  //   1. metal_0 -> ttnn -> metal_1
+  //   2. ttnn_0  -> metal -> ttnn_1
+  //
+  // We can only fold when the outer types match (metal_0 == metal_1 or
+  // ttnn_0 == ttnn_1).  Different TTNN shard strategies (e.g. height_sharded
+  // vs block_sharded) can map to the same MetalLayoutAttr, so an intervening
+  // d2m.to_layout that was folded away may leave back-to-back casts whose
+  // outer types differ.
 
   patterns.add(+[](TTNNMetalLayoutCastOp op, mlir::PatternRewriter &rewriter) {
     TTNNMetalLayoutCastOp producerOp =
@@ -3070,6 +3107,14 @@ void mlir::tt::ttir::TTNNMetalLayoutCastOp::getCanonicalizationPatterns(
 
     if (!producerInputTensor || !producerOutputTensor || !consumerInputTensor ||
         !consumerOutputTensor) {
+      return failure();
+    }
+
+    // Don't fold when either cast carries a virtualGridMapping.
+    // Different TTNN shard strategies (e.g. height_sharded vs block_sharded)
+    // can map to the same MetalLayoutAttr, so a cast with a VGM represents
+    // a meaningful shard strategy that must be preserved.
+    if (producerOp.getVirtualGridMapping() || op.getVirtualGridMapping()) {
       return failure();
     }
 
@@ -4813,6 +4858,34 @@ verifyReduceOp(llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
 ::mlir::LogicalResult mlir::tt::ttir::ArgMaxOp::verify() {
   return verifyReduceOp([&]() { return emitOpError(); }, getInput().getType(),
                         getDimArg(), getKeepDim(), getType().getShape());
+}
+
+//===----------------------------------------------------------------------===//
+// TopKOp
+//===----------------------------------------------------------------------===//
+
+// TopKOp verification
+::mlir::LogicalResult mlir::tt::ttir::TopKOp::verify() {
+  RankedTensorType inputType = getInputTensor().getType();
+  int64_t inputRank = inputType.getRank();
+  int32_t dim = getDim();
+  int32_t K = getK();
+
+  // Normalize dim to check if it's effectively the last dimension
+  int normalizedDim = dim < 0 ? dim + inputRank : dim;
+  if (normalizedDim < 0 || normalizedDim >= inputRank) {
+    return emitOpError() << "specified dimension should be between "
+                         << -inputRank << " and " << (inputRank - 1)
+                         << ", but got: " << dim;
+  }
+
+  if (K <= 0 || K > inputType.getDimSize(normalizedDim)) {
+    return emitOpError() << "K should be between 1 and the size of the "
+                            "specified dimension ("
+                         << normalizedDim << "), but got: " << K;
+  }
+
+  return success();
 }
 
 //===----------------------------------------------------------------------===//

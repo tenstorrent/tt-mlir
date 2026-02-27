@@ -78,11 +78,16 @@ table KernelArgNamedArgument {
   value: uint32;
 }
 
+table KernelArgGlobalSemaphore {
+  operand_idx: uint32;
+}
+
 union KernelArgType {
   KernelArgCBPort,
   KernelArgBufferAddress,
   KernelArgSemaphore,
   KernelArgNamedArgument,
+  KernelArgGlobalSemaphore,
 }
 
 table KernelArg {

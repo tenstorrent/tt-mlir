@@ -1318,17 +1318,6 @@ def TTNN_ConcatOp : TTNN_Op<"concat", [TTNN_MemoryConfigOpInterface]> {
 
     let results = (outs AnyRankedTensor:$result);
 
-    let extraClassDeclaration = [{
-      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
-        ::mlir::Operation::operand_range inputs = getInputs();
-        int64_t numOperands = getOperands().size();
-        int32_t dim = getDim();
-        return
-          wa::TTNNOperandsWorkaroundsFactory::createConcatOpOperandsWorkarounds(
-                                                        inputs, numOperands, dim);
-      }
-    }];
-
     let hasVerifier = 1;
 }
 
@@ -1837,6 +1826,12 @@ def TTNN_Conv3dOp : TTNN_Op<"conv3d", [TTNN_DtypeOpInterface, TTNN_ComputeKernel
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::createConv3dOpOperandsWorkarounds(*this);
+      }
+    }];
 }
 
 def TTNN_ConvTranspose2dOp : TTNN_Op<"conv_transpose2d", [TTNN_DtypeOpInterface, TTNN_ComputeKernelConfigOpInterface]> {
@@ -2250,8 +2245,8 @@ def TTNN_ClampScalarOp : TTNN_Op<"clamp_scalar", [TTNN_MemoryConfigOpInterface]>
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         F32Attr:$min,
-                         F32Attr:$max,
+                         AnyAttrOf<[F32Attr, I32Attr]>:$min,
+                         AnyAttrOf<[F32Attr, I32Attr]>:$max,
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
     let results = (outs AnyRankedTensor:$result);
@@ -2261,6 +2256,18 @@ def TTNN_ClampScalarOp : TTNN_Op<"clamp_scalar", [TTNN_MemoryConfigOpInterface]>
     let builders =
     [
       OpBuilder<(ins "Type": $resultType, "Value": $input, "::llvm::APFloat": $min, "::llvm::APFloat": $max),
+      [{
+        auto minAttr = $_builder.getF32FloatAttr(min.convertToFloat());
+        auto maxAttr = $_builder.getF32FloatAttr(max.convertToFloat());
+        build($_builder, $_state, resultType, input, minAttr, maxAttr, /* memory_config */ nullptr);
+      }]>,
+      OpBuilder<(ins "Type": $resultType, "Value": $input, "::mlir::IntegerAttr": $min, "::mlir::IntegerAttr": $max),
+      [{
+        auto minAttr = $_builder.getI32IntegerAttr(min.getInt());
+        auto maxAttr = $_builder.getI32IntegerAttr(max.getInt());
+        build($_builder, $_state, resultType, input, minAttr, maxAttr, /* memory_config */ nullptr);
+      }]>,
+      OpBuilder<(ins "Type": $resultType, "Value": $input, "::mlir::Attribute": $min, "::mlir::Attribute": $max),
       [{
         build($_builder, $_state, resultType, input, min, max, /* memory_config */ nullptr);
       }]>
@@ -3455,5 +3462,28 @@ def TTNN_AggregateTensorOp : TTNN_Op<"aggregate_tensor"> {
   );
 
   let results = (outs AnyRankedTensor:$result);
+}
+
+def TTNN_TopKOp : TTNN_Op<"topk", [TTNN_MemoryConfigOpInterface]> {
+  let summary = "Top-K selection operation.";
+  let description = [{
+    Returns the `k` largest or `k` smallest elements of the `input_tensor` along a given dimension `dim`.
+    If `dim` is not provided, the last dimension of the input_tensor is used.
+    If `largest` is True, the `k` largest elements are returned. Otherwise, the `k` smallest elements are returned.
+    The boolean option `sorted` if True, will make sure that the returned `k` elements are sorted.
+    the `memory_config` parameter is optional which represents the memory configuration for the operation.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input_tensor,
+                       I32Attr:$k,
+                       DefaultValuedAttr<I32Attr, "-1">:$dim,
+                       DefaultValuedAttr<BoolAttr, "true">:$largest,
+                       DefaultValuedAttr<BoolAttr, "false">:$sorted,
+                       OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+  let results = (outs AnyRankedTensor:$values,
+                      AnyRankedTensor:$indices);
+
+  let hasVerifier = 1;
 }
 #endif

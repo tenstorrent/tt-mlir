@@ -40,7 +40,7 @@ RUN git log -1
 
 
 RUN export CMAKE_BUILD_PARALLEL_LEVEL=12 && \
-    cmake -B env/build env && \
+    cmake -B env/build env -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ && \
     cmake --build env/build
 
 # Final stage

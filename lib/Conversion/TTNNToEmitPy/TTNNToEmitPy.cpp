@@ -9,6 +9,7 @@
 #include "ttmlir/Dialect/EmitPy/IR/EmitPyTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
+#include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Value.h"
@@ -98,14 +99,36 @@ public:
 
     ttnn_to_emitpy::EmitPyTTNNEmitter<SourceOp> emitter(
         srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
-    llvm::SmallVector<mlir::Attribute> args{
-        emitter.emit(srcOp.getInput()),
-        emitter.emit(srcOp.getMin()),
-        emitter.emit(srcOp.getMax()),
-        emitter.emit(srcOp.getMemoryConfig() |
-                         emitter.getMemoryConfig(srcOp.getResult()),
-                     "memory_config"),
-    };
+
+    llvm::SmallVector<mlir::Attribute> args;
+    args.push_back(emitter.emit(srcOp.getInput()));
+
+    if constexpr (std::is_same_v<SourceOp, mlir::tt::ttnn::ClampScalarOp>) {
+      // Emit int or float attribute based on output element type
+      auto outputType =
+          mlir::cast<mlir::RankedTensorType>(srcOp.getResult().getType());
+      auto elementType = outputType.getElementType();
+
+      if (mlir::isa<mlir::IntegerType>(elementType)) {
+        args.push_back(emitter.emit(
+            mlir::cast<mlir::IntegerAttr>(srcOp.getMin()).getInt()));
+        args.push_back(emitter.emit(
+            mlir::cast<mlir::IntegerAttr>(srcOp.getMax()).getInt()));
+      } else {
+        args.push_back(emitter.emit(
+            mlir::cast<mlir::FloatAttr>(srcOp.getMin()).getValueAsDouble()));
+        args.push_back(emitter.emit(
+            mlir::cast<mlir::FloatAttr>(srcOp.getMax()).getValueAsDouble()));
+      }
+    } else {
+      // ClampTensorOp uses tensor values
+      args.push_back(emitter.emit(srcOp.getMin()));
+      args.push_back(emitter.emit(srcOp.getMax()));
+    }
+
+    args.push_back(emitter.emit(srcOp.getMemoryConfig() |
+                                    emitter.getMemoryConfig(srcOp.getResult()),
+                                "memory_config"));
 
     emitter.replaceOp(*this, args);
 
@@ -3832,6 +3855,38 @@ public:
 };
 } // namespace
 
+// TopK op conversion pattern
+//
+namespace {
+class TopKOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<tt::ttnn::TopKOp> {
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      tt::ttnn::TopKOp>::TTNNToEmitPyBaseOpConversionPattern;
+  LogicalResult
+  matchAndRewrite(tt::ttnn::TopKOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<tt::ttnn::TopKOp> emitter(
+        srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInputTensor()),
+        emitter.emit(srcOp.getK()),
+        emitter.template emit<int32_t>(srcOp.getDim()),
+        emitter.emit(srcOp.getLargest()),
+        emitter.emit(srcOp.getSorted()),
+        emitter.emit(std::nullopt | emitter.getMemoryConfig(srcOp.getValues()),
+                     "memory_config"),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 namespace mlir::tt {
 
 void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
@@ -4050,7 +4105,8 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                PointToPointOpConversionPattern,
                MeshShardOpConversionPattern,
                DistributeTensorOpConversionPattern,
-               AggregateTensorOpConversionPattern
+               AggregateTensorOpConversionPattern,
+               TopKOpConversionPattern
               >(typeConverter, ctx, enableGoldenMode);
   // clang-format on
 

@@ -13,11 +13,16 @@
 #include "ttmlir/Dialect/TTNN/Interfaces/TTNNOpModelInterface.cpp.inc"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/OpModel/TTNN/TTNNOpModel.h"
+#include "ttmlir/Utils.h"
 
+#include "mlir/IR/Block.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/Operation.h"
+#include "mlir/IR/Value.h"
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/Support/Error.h"
 
+#include <algorithm>
 #include <cassert>
 #include <cstdint>
 #include <optional>
@@ -3961,7 +3966,8 @@ ClampScalarOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<ClampScalarOp>::getOpConstraints, *this, deviceGrid,
-      inputShape, inputs[0], getMin(), getMax(), opConfig.outputLayout);
+      inputShape, inputs[0], ttmlir::utils::attributeToAPFloat(getMin()),
+      ttmlir::utils::attributeToAPFloat(getMax()), opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -3973,7 +3979,8 @@ ClampScalarOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<ClampScalarOp>::getOpRuntime, *this, inputShape,
-      inputs[0], getMin(), getMax(), opConfig.outputLayout);
+      inputs[0], ttmlir::utils::attributeToAPFloat(getMin()),
+      ttmlir::utils::attributeToAPFloat(getMax()), opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//
@@ -4735,19 +4742,207 @@ AggregateTensorOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 //===----------------------------------------------------------------------===//
 // D2MSubgraphOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
+// define what's the compare function for the constraints. Right now, we take
+// the max memory usage of any internal op of the D2M subgraph.
+static const auto d2m_subgraph_constraints_comp_fn = [](size_t a, size_t b) {
+  return std::max(a, b);
+};
 
+// The runtime is assumed to be the sum of the runtimes of the internal ops.
+static const auto d2m_subgraph_runtime_comp_fn = [](size_t a, size_t b) {
+  return a + b;
+};
+
+void accumulateConstraintsForD2MOp(op_model::OpConstraints &lhs,
+                                   const op_model::OpConstraints &rhs) {
+  lhs.cbL1PeakSize =
+      d2m_subgraph_constraints_comp_fn(lhs.cbL1PeakSize, rhs.cbL1PeakSize);
+  lhs.tensorL1PeakSize = d2m_subgraph_constraints_comp_fn(lhs.tensorL1PeakSize,
+                                                          rhs.tensorL1PeakSize);
+  lhs.peakL1MemorySize = d2m_subgraph_constraints_comp_fn(lhs.peakL1MemorySize,
+                                                          rhs.peakL1MemorySize);
+  lhs.outputL1BufferSize = d2m_subgraph_constraints_comp_fn(
+      lhs.outputL1BufferSize, rhs.outputL1BufferSize);
+}
+
+// Map each SSA value in the block to its layout. Block args 0..inputs.size()-1
+// are the D2M tensor inputs; any further block args (e.g. output buffer) use
+// opConfig.outputLayout. Op results get their layout from the result type
+// encoding (actual layout) when present, else opConfig.outputLayout, so that
+// both getOpConstraints and getOpRuntime use the same map and a trailing
+// ToLayoutOp (if present) gets the correct input layout.
+using ValueToLayoutMap = llvm::DenseMap<mlir::Value, TTNNLayoutAttr>;
+ValueToLayoutMap
+buildValueToLayoutMap(const std::vector<TTNNLayoutAttr> &inputs,
+                      mlir::Block &d2mBlock, const OpConfig &opConfig) {
+  ValueToLayoutMap ret;
+  for (mlir::BlockArgument arg : d2mBlock.getArguments()) {
+    unsigned argNum = arg.getArgNumber();
+    if (argNum < inputs.size()) {
+      ret[arg] = inputs[argNum];
+    } else {
+      ret[arg] = opConfig.outputLayout;
+    }
+  }
+  for (mlir::Operation &op : d2mBlock.getOperations()) {
+    for (mlir::Value result : op.getResults()) {
+      if (auto tensorType =
+              mlir::dyn_cast<RankedTensorType>(result.getType())) {
+        if (auto encoding =
+                mlir::dyn_cast<TTNNLayoutAttr>(tensorType.getEncoding())) {
+          ret[result] = encoding;
+          continue;
+        }
+      }
+      ret[result] = opConfig.outputLayout;
+    }
+  }
+  return ret;
+}
+
+// D2M has no tt-metal op; the op dispatches to a D2M-compiled subgraph. We
+// walk the function body, call getOpConstraints for each internal op with
+// the correct input layouts (from D2M inputs or from preceding op outputs),
+// and return the element-wise max of their constraints.
 llvm::Expected<op_model::OpConstraints>
 D2MSubgraphOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                                 const OpConfig &opConfig) {
-  return issueErrorForGetOpConstraints(
-      getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
+  auto func = getD2MMainFunc();
+  assert(func && "D2MSubgraphOp must have a D2M function");
+  auto &body = func.getBody();
+  assert(body.hasOneBlock() && "D2M function must have one block");
+  auto &block = body.front();
+
+  ValueToLayoutMap valueToLayout =
+      buildValueToLayoutMap(inputs, block, opConfig);
+
+  op_model::OpConstraints ret(0, 0, 0, 0, opConfig.outputLayout);
+
+  for (mlir::Operation &op : block.getOperations()) {
+    auto backend = mlir::dyn_cast<OpModel>(&op);
+    if (!backend) {
+      // the constraint API for this op is not implemented:
+      continue;
+    }
+
+    // Build input layouts for this op: block args -> inputs[i], op results ->
+    // layout we stored when we processed the defining op.
+    std::vector<TTNNLayoutAttr> internalOpInputLayouts;
+    for (mlir::Value operand : op.getOperands()) {
+      auto it = valueToLayout.find(operand);
+      assert(it != valueToLayout.end() &&
+             "D2M internal op operand must have a known layout");
+      internalOpInputLayouts.push_back(it->second);
+    }
+
+    // Use this op's actual output layout (from the map), not the D2M's
+    // top-level layout, so the constraint API is asked for the layout this op
+    // produces.
+    assert(op.getNumResults() > 0 && "OpModel op expected to have results");
+    TTNNLayoutAttr internalOpOutputLayout =
+        valueToLayout.lookup(op.getResult(0));
+    OpConfig internalOpConfig(internalOpOutputLayout);
+
+    op_model::OpConstraints c(0, 0, 0, 0, internalOpOutputLayout);
+
+    llvm::Expected<op_model::OpConstraints> expectedConstraints =
+        backend.getOpConstraints(internalOpInputLayouts, internalOpConfig);
+    if (expectedConstraints) {
+      c = *expectedConstraints;
+    } else {
+      // Use default constraints so one failing internal op doesn't invalidate
+      // the whole D2M subgraph / model compilation.
+      llvm::consumeError(expectedConstraints.takeError());
+    }
+
+    // Accumulate the constraints for this op into the total constraints for the
+    // D2M subgraph.
+    accumulateConstraintsForD2MOp(ret, c);
+  }
+
+  return ret;
 }
 
 llvm::Expected<size_t>
 D2MSubgraphOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
                             const OpConfig &opConfig) {
-  return issueErrorForGetOpRuntime(
-      getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
+  auto func = getD2MMainFunc();
+  assert(func && "D2MSubgraphOp must have a D2M function");
+  auto &body = func.getBody();
+  assert(body.hasOneBlock() && "D2M function must have one block");
+  auto &block = body.front();
+
+  ValueToLayoutMap valueToLayout =
+      buildValueToLayoutMap(inputs, block, opConfig);
+
+  size_t ret = 0;
+
+  for (mlir::Operation &internalOp : block.getOperations()) {
+    auto backend = mlir::dyn_cast<OpModel>(&internalOp);
+    if (!backend) {
+      continue;
+    }
+
+    std::vector<TTNNLayoutAttr> internalOpInputLayouts;
+    for (mlir::Value operand : internalOp.getOperands()) {
+      auto it = valueToLayout.find(operand);
+      assert(it != valueToLayout.end() &&
+             "D2M internal op operand must have a known layout");
+      internalOpInputLayouts.push_back(it->second);
+    }
+
+    // Use this op's actual output layout (from the map), not the D2M's
+    // top-level layout, so the runtime API is costed for the layout this op
+    // produces.
+    assert(internalOp.getNumResults() > 0 &&
+           "OpModel op expected to have results");
+    OpConfig internalOpConfig(valueToLayout.lookup(internalOp.getResult(0)));
+
+    size_t runtime = 0;
+    llvm::Expected<size_t> internalOpRuntime =
+        backend.getOpRuntime(internalOpInputLayouts, internalOpConfig);
+    if (internalOpRuntime) {
+      runtime = *internalOpRuntime;
+    } else {
+      // Use default runtime so one failing internal op doesn't invalidate the
+      // whole D2M subgraph / model compilation.
+      llvm::consumeError(internalOpRuntime.takeError());
+    }
+    ret = d2m_subgraph_runtime_comp_fn(ret, runtime);
+  }
+
+  return ret;
 }
 
+//===----------------------------------------------------------------------===//
+// TopKOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+TopKOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                         const OpConfig &opConfig) {
+  assert(inputs.size() == 1);
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(getOperation()).getWorkerGrid();
+  const auto inputShape = getInputTensor().getType().getShape();
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<mlir::tt::ttnn::TopKOp>::getOpConstraints, *this,
+      deviceGrid, inputShape, inputs[0], getK(), getDim(), getLargest(),
+      getSorted(), opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+TopKOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                     const OpConfig &opConfig) {
+  assert(inputs.size() == 1);
+  const auto inputShape = getInputTensor().getType().getShape();
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<mlir::tt::ttnn::TopKOp>::getOpRuntime, *this,
+      inputShape, inputs[0], getK(), getDim(), getLargest(), getSorted(),
+      opConfig.outputLayout);
+}
 } // namespace mlir::tt::ttnn

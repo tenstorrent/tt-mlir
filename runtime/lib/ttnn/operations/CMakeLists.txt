@@ -80,6 +80,7 @@ set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/reduction/argmax.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/reduction/prod.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/reduction/reduction.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/reduction/topk.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/tensor_serialization/dump_tensor.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/tensor_serialization/load_tensor.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/trace/begin_trace_capture.cpp

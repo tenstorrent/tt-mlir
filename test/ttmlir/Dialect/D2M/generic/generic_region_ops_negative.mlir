@@ -12,7 +12,7 @@ func.func @reduce_dim_arg(%arg0: tensor<64x128xf32>, %arg1: tensor<64x128xf32>) 
       indexing_maps = [#map, #map, #map],
       iterator_types = [#parallel, #parallel],
       threads = [#d2m.thread<compute>],
-      operandSegmentSizes = array<i32: 2, 1>
+      operandSegmentSizes = array<i32: 2, 1, 0>
       }> ({
       ^bb0(%cb0: !d2m.cb<tensor<2x4x!ttcore.tile<32x32, f32>, #l1_alias>>,
           %cb1: !d2m.cb<tensor<2x4x!ttcore.tile<32x32, f32>, #l1_alias>>,
