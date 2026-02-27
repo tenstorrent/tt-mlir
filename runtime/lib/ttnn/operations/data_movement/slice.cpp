@@ -12,6 +12,40 @@
 #include <cstdint>
 
 namespace tt::runtime::ttnn::operations::data_movement {
+
+// Workaround for tt-metal#38016: ttnn::slice on height-sharded tensors may
+// return the wrong logical shape when the sliced output maps to the same tiled
+// layout as the input. Fix by using the low-level Tensor::reshape to update
+// the logical shape while preserving the padded shape and underlying buffer.
+static ::ttnn::Tensor
+fixSliceOutputShape(::ttnn::Tensor &&out,
+                    const ::tt::target::ttnn::SliceOp *op) {
+  const auto *expectedShapeFb = op->out()->desc()->shape();
+  auto actualShape = out.logical_shape();
+  bool shapeMismatch = (actualShape.size() != expectedShapeFb->size());
+  if (!shapeMismatch) {
+    for (size_t i = 0; i < actualShape.size(); ++i) {
+      if (actualShape[i] !=
+          static_cast<uint32_t>((*expectedShapeFb)[i])) {
+        shapeMismatch = true;
+        break;
+      }
+    }
+  }
+  if (shapeMismatch) {
+    tt::tt_metal::Shape::Container newLogical;
+    for (size_t i = 0; i < expectedShapeFb->size(); ++i) {
+      newLogical.push_back(static_cast<uint32_t>((*expectedShapeFb)[i]));
+    }
+    // Keep the padded shape (tile-aligned) from the actual output; only fix
+    // the logical shape so downstream ops see the correct unpadded dims.
+    return out.reshape(
+        tt::tt_metal::Shape(newLogical),
+        out.padded_shape());
+  }
+  return std::move(out);
+}
+
 static void runSliceStaticOp(const ::tt::target::ttnn::SliceOp *op,
                              ProgramTensorPool &tensorPool) {
   const ::ttnn::Tensor &in = tensorPool.getTTNNTensorAndValidate(op->in());
@@ -34,6 +68,8 @@ static void runSliceStaticOp(const ::tt::target::ttnn::SliceOp *op,
 
   ::ttnn::Tensor out =
       ::ttnn::slice(in, beginsSpan, endsSpan, stepSpan, memoryConfig);
+
+  out = fixSliceOutputShape(std::move(out), op);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
