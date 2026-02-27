@@ -482,7 +482,7 @@ class TTCompilerBase(PyKernelAstBase):
                 case _:
                     raise NotImplementedError(f"BoolOp {node.op} not supported")
 
-        # Atleast 2 Ops must exist in BoolOp
+        # At least 2 Ops must exist in BoolOp
         chained_op = _match_bool_op(values[0], values[1])
 
         # Chain all of the remaining values

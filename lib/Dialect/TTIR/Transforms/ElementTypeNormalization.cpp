@@ -139,7 +139,7 @@ private:
 // In future it will be extended to support other types as well.
 //
 // This pattern converts types of operations in the function body and
-// inserts materialization operations at the begining of the function body
+// inserts materialization operations at the beginning of the function body
 // and at the end of the function body just before the return operation.
 // This way we ensure that input and output types of original function
 // are preserved while the body is converted to use TTMLIR types.

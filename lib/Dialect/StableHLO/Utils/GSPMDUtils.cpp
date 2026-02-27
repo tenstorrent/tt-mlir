@@ -412,7 +412,7 @@ determineGSPMDShardingDims(llvm::SmallVector<int64_t> &shardShape,
       llvm::copy_if(orgShardShape, std::back_inserter(meshShape),
                     [](int64_t s) { return s != int64_t{1}; });
       if (!deviceIds.empty() && deviceIds[0] + 1 != deviceIds[1]) {
-        // transposed shardShape if devicIds are not consecutive, so reverse the
+        // transposed shardShape if deviceIds are not consecutive, so reverse the
         // meshShape. [4,2] leads to [2,4]
         std::reverse(meshShape.begin(), meshShape.end());
         reverseOrder = true;

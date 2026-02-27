@@ -170,10 +170,10 @@ def test_rotary_embedding(
                 (1, 1, 64),  # cos input
                 (1, 1, 64),  # sin input
             ],
-            # Mark as fail becase of https://github.com/tenstorrent/tt-metal/issues/31567
+            # Mark as fail because of https://github.com/tenstorrent/tt-metal/issues/31567
             # I will follow up with decomposition to slice tensor until there is
             # some resolution from metal team.
-            # Issue for decompositon https://github.com/tenstorrent/tt-mlir/issues/5621
+            # Issue for decomposition https://github.com/tenstorrent/tt-mlir/issues/5621
             marks=pytest.mark.xfail,
         ),
     ],

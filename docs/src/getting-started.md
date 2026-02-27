@@ -79,7 +79,7 @@ This section explains how to manually build the environment so you can use tt-ml
 
 1. Navigate into the **tt-mlir** folder.
 
-2. The environment gets installed into a toolchain directory, which is by default set to `/opt/ttmlir-toolchain`, but can be overrideen by setting (and persisting in your environment) the environment variable `TTMLIR_TOOLCHAIN_DIR`. You need to manually create the toolchain directory as follows:
+2. The environment gets installed into a toolchain directory, which is by default set to `/opt/ttmlir-toolchain`, but can be overridden by setting (and persisting in your environment) the environment variable `TTMLIR_TOOLCHAIN_DIR`. You need to manually create the toolchain directory as follows:
 
 ```bash
 export TTMLIR_TOOLCHAIN_DIR=/opt/ttmlir-toolchain/

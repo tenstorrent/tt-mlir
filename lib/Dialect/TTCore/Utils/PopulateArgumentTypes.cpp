@@ -56,7 +56,7 @@ bool ArgumentTypeMapParser::parse(
                    << funcName << "\"" << "\n";
       return true;
     }
-    // If this enrty is  "func1=input,param" then argNames would hold ["input",
+    // If this entry is  "func1=input,param" then argNames would hold ["input",
     // "param"] now.
 
     // Parse the argument type names into their respective enums.
@@ -286,7 +286,7 @@ private:
   void applyFuncArgumentType(func::FuncOp func, uint32_t argIdx,
                              ArgumentType argType) {
     // The current argument may already have attributes, so we need to add
-    // the argument type to that DictonaryAttr rather than overwrite it.
+    // the argument type to that DictionaryAttr rather than overwrite it.
     SmallVector<mlir::NamedAttribute> newArgAttrs;
     if (auto currentArgAttrDict = func.getArgAttrDict(argIdx)) {
       if (currentArgAttrDict.contains(ArgumentTypeAttr::name)) {

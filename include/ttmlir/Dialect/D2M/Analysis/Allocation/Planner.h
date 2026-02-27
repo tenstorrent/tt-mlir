@@ -31,7 +31,7 @@ namespace mlir::tt::d2m::allocation {
 ///
 /// The caller can mark some problem variables as "bound", in which case
 /// the planner will consider them pinned to a particular space but will still
-/// include their memory offsets in the allocatin/defragmentation part of its
+/// include their memory offsets in the allocation/defragmentation part of its
 /// task.
 ///
 class Planner : public PlannerImpl {
