@@ -314,6 +314,12 @@ void L1SpillManagement<MemoryTracker>::run() {
   llvm::DenseMap<Operation *, int64_t> lastUsePositions =
       computeLastUsePositions(schedule);
 
+  // Build death schedule: position -> ops whose last use is at that position.
+  llvm::DenseMap<int64_t, llvm::SmallVector<Operation *>> deathSchedule;
+  for (auto &[op, lastUse] : lastUsePositions) {
+    deathSchedule[lastUse].push_back(op);
+  }
+
   // Build position map for revalidateConsumers.
   llvm::DenseMap<Operation *, int64_t> positionMap;
   for (int64_t i = 0; i < static_cast<int64_t>(schedule.size()); ++i) {
@@ -332,23 +338,17 @@ void L1SpillManagement<MemoryTracker>::run() {
   for (int64_t pos = 0; pos < static_cast<int64_t>(schedule.size()); ++pos) {
     Operation *op = schedule[pos];
 
-    // Remove dead tensors (lastUse < pos) from the live set.
-    // We use lazy deletion: check top of heap and pop if dead.
-    while (!liveSet.empty()) {
-      auto [lastUse, liveOp] = liveSet.top();
-      if (!liveOps.count(liveOp) || lastUse < pos) {
-        liveSet.pop();
-        if (liveOps.count(liveOp) && lastUse < pos) {
-          memoryTracker.removeTensor(liveOp);
-          liveOps.erase(liveOp);
+    // Remove tensors whose last use was the previous position.
+    if (auto it = deathSchedule.find(pos - 1); it != deathSchedule.end()) {
+      for (Operation *deadOp : it->second) {
+        if (liveOps.erase(deadOp)) {
+          memoryTracker.removeTensor(deadOp);
           TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
                        "  [pos={0}] DEAD: {1}, L1 now {2}/{3}", pos,
-                       ttmlir::opToString(liveOp),
+                       ttmlir::opToString(deadOp),
                        memoryTracker.getOccupiedL1(), l1BudgetPerCore);
         }
-        continue;
       }
-      break;
     }
 
     // Skip ops without L1 output annotation.
