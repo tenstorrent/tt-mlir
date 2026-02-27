@@ -416,7 +416,7 @@ public:
         return rewriteAsAllGatherLocalReduce(op, meshShape, rewriter);
       }
     }
-
+    return rewriteAsAllGatherLocalReduce(op, meshShape, rewriter);
     int32_t dimension = std::distance(inputShape.begin(), tensorDimDevice);
 
     // TODO(wooseoklee): Once ttnn supports all_reduce op
