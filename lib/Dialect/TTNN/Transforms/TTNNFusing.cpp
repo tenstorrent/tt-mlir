@@ -13,9 +13,7 @@
 #include "llvm/ADT/SmallVector.h"
 
 #ifdef TTMLIR_ENABLE_OPMODEL
-#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Fusing/RoPEFusingPattern.h"
-#include "ttmlir/Dialect/TTNN/Utils/OptimizerUtils.h"
 #include "ttmlir/Dialect/TTNN/Validation/OpConstraintValidation.h"
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
 #endif
@@ -1126,7 +1124,7 @@ private:
 // ============================================================================
 //
 // Matches the decode-phase concat-heads pattern that appears after
-// scaled_dot_product_attention_decode in transformer models:
+// scaled_dot_product_attention_decode in LLMs:
 //
 //   permute([1, 2, 0, 3])  :  [S, B, H, D] -> [B, H, S, D]
 //   reshape                 :  [B, H, S, D] -> [B, H*D]  (or similar collapse)
@@ -1157,51 +1155,6 @@ class NLPConcatHeadsDecodeFusing : public mlir::OpRewritePattern<ReshapeOp> {
       v = defOp->getOperand(0);
     }
     return v;
-  }
-
-  // Create a ToLayoutOp that converts the input to height-sharded L1 layout.
-  // The nlp_concat_heads_decode metal op requires sharded input. The virtual
-  // grid is [batchSize, 1] so each batch element is assigned to its own row
-  // of cores.
-  static Value createHeightShardedInput(Value input, RankedTensorType inputType,
-                                        int64_t batchSize,
-                                        PatternRewriter &rewriter,
-                                        Location loc) {
-    auto inputElementType = inputType.getElementType();
-    if (auto tileType = mlir::dyn_cast<ttcore::TileType>(inputElementType)) {
-      inputElementType = tileType.getElementType();
-    }
-
-    auto physicalGrid = ttcore::getCurrentScopeSystemDesc(input.getDefiningOp())
-                            .getChipDescs()[0]
-                            .getGrid();
-
-    auto affineMap =
-        optimizer_utils::createSingleDeviceVirtualToPhysicalAffineMap(
-            rewriter.getContext(), TensorMemoryLayout::HeightSharded,
-            physicalGrid);
-
-    SmallVector<int64_t> virtualGridSize = {batchSize, 1};
-    auto grid = ttcore::GridAttr::get(rewriter.getContext(), virtualGridSize,
-                                      affineMap);
-
-    auto memLayoutAttr = TensorMemoryLayoutAttr::get(
-        rewriter.getContext(), TensorMemoryLayout::HeightSharded);
-
-    auto shardedLayout =
-        TTNNLayoutAttr::get(rewriter.getContext(), inputType.getShape(),
-                            ttcore::TileType::get(inputElementType),
-                            BufferType::L1, grid, memLayoutAttr);
-
-    auto shardedInputType = inputType.cloneWithEncoding(shardedLayout);
-    auto memoryConfig = MemoryConfigAttr::get(shardedLayout, grid);
-
-    return rewriter.create<ToLayoutOp>(
-        loc, shardedInputType, input, Layout::Tile,
-        ttcore::DataTypeAttr::get(
-            rewriter.getContext(),
-            ttcore::elementTypeToDataType(inputElementType)),
-        memoryConfig);
   }
 
 public:
@@ -1242,8 +1195,8 @@ public:
 
     // Step 4: Insert a ToLayoutOp to convert input to height-sharded L1
     // layout. The metal op requires sharded input.
-    Value shardedInput = createHeightShardedInput(input, inputType, batchSize,
-                                                  rewriter, reshapeOp.getLoc());
+    Value shardedInput = utils::createHeightShardedToLayout(
+        input, inputType, batchSize, rewriter, reshapeOp.getLoc());
     auto shardedInputType =
         mlir::cast<RankedTensorType>(shardedInput.getType());
 
