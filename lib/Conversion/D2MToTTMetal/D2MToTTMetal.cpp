@@ -181,8 +181,11 @@ public:
 
     auto vgm =
         op->getAttrOfType<AffineMapAttr>(d2m::utils::kVirtualGridMappingAttr);
+    auto fwd = op->getAttrOfType<AffineMapAttr>(
+        d2m::utils::kVirtualGridForwardMappingAttr);
     rewriter.replaceOpWithNewOp<ttmetal::CreateBufferOp>(
-        op, memrefType, address, /*virtualGridMapping=*/vgm);
+        op, memrefType, address, /*virtualGridMapping=*/vgm,
+        /*virtualGridForwardMapping=*/fwd);
 
     return success();
   };

@@ -116,24 +116,9 @@ static AffineMap canonicalStridedMap(MLIRContext *context,
 static AffineMap getMemoryMap(ttcore::DeviceAttr device, Value input,
                               bool isRemote) {
   if (isRemote) {
-    Operation *definingOp = input.getDefiningOp();
-    if (!definingOp) {
-      // If there's no defining op (e.g., block argument), use the memref type
-      // directly
-      MemRefType memrefType = mlir::cast<MemRefType>(input.getType());
-      return d2m::utils::getMemoryMap(
-          device,
-          std::make_pair(memrefType,
-                         AffineMap::getMultiDimIdentityMap(
-                             memrefType.getRank(), memrefType.getContext())),
-          0 /* use default page size*/);
-    }
-    // View remapping is now stored on the defining op. Pass it through to the
-    // device map so it is composed in the same order as before (before the
-    // device address map is applied).
-    auto [baseMemref, viewMap] = mlir::tt::d2m::applyViews(definingOp);
-    return d2m::utils::getMemoryMap(device, baseMemref, /*pageSize=*/0,
-                                    viewMap);
+    // The Value overload in d2m::utils handles view tracing (applyViews) and
+    // VGM lookup (getVirtualGridForwardMapping) internally.
+    return d2m::utils::getMemoryMap(device, input, /*pageSize=*/0);
   }
 
   // For local memrefs (including CB values), get the underlying memref type

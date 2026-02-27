@@ -185,21 +185,25 @@ public:
     TT_assert(mcastShapeInt64.size() == computeGridShape.size());
 
     // Convert virtual multicast shape to physical shape if virtualization is
-    // present.  After the index-map refactor, virtualization maps live on
-    // ops (GenericOp grid attr) rather than on the layout attribute.  Check
-    // the GenericOp's grid for a non-empty inverse mapping, which indicates
-    // the compute grid is virtual.
+    // present.  Use the stored forward map from the output EmptyOp when
+    // available, otherwise fall back to re-deriving from grid shape.
     TT_assert(genericOp.getOutputs().size() >= 1u);
-    if (!grid.getMapping().isEmpty()) {
-      // Derive the physical 2D grid and compute the forward map
-      // (virtual → physical) to convert virtual multicast shapes.
-      // Note: this might not be adequate for certain TTNN-based mappings.
+    Value output = genericOp.getOutputs()[0];
+    auto storedFwd = utils::getVirtualGridForwardMapping(output);
+    AffineMap coreVirtMap;
+    if (storedFwd) {
+      coreVirtMap = *storedFwd;
+    } else if (!grid.getMapping().isEmpty()) {
+      // Fallback: derive forward map from grid shape.
       ttcore::DeviceAttr device = ttcore::lookupDevice(genericOp);
       auto physGridShape = utils::collapseToPhysicalGrid2D(
           computeGridShape, device.getWorkerGrid().getShape());
-      auto [coreVirtMap, _] = ttmlir::d2m::utils::grids::createCoreVirtMaps(
+      auto [fwd, _] = ttmlir::d2m::utils::grids::createCoreVirtMaps(
           rewriter.getContext(), computeGridShape, physGridShape);
+      coreVirtMap = fwd;
+    }
 
+    if (coreVirtMap) {
       // Project out the shard layout dims and results from the forward
       // map since we are only concerned with the grid dimensions.
       auto dimsToRemove = coreVirtMap.getNumResults() - mcastShapeInt64.size();

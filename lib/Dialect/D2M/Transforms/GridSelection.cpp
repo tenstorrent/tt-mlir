@@ -360,10 +360,11 @@ static void optimizeToLayoutGrid(d2m::ToLayoutOp toLayoutOp,
   builder.setInsertionPoint(emptyOp);
 
   // Determine if the chosen grid is virtual (exceeds 2D device bounds or is
-  // ND). On main, this was the isVirtualGrid bool threaded from
-  // computeOptimalGrid. Block sharding always produces 2D grids within device
-  // bounds, so any grid exceeding bounds or >2D came from the virtual path.
+  // ND). Note: VGM is NOT propagated from the to_layout's input here — the
+  // output EmptyOp has its own grid/shard strategy. VGM for DMA addresses
+  // is traced through the stream's input at DMA lowering time.
   mlir::AffineMapAttr virtualGridMapping;
+  mlir::AffineMapAttr virtualGridForwardMapping;
   auto device = ttcore::lookupDevice(toLayoutOp);
   auto workerGridShape = device.getWorkerGrid().getShape();
   bool isVirtual = ttmlir::d2m::utils::grids::requiresVirtualGrid(
@@ -380,10 +381,12 @@ static void optimizeToLayoutGrid(d2m::ToLayoutOp toLayoutOp,
         ttmlir::d2m::utils::grids::createCoreVirtMaps(
             builder.getContext(), optimalGrid, physicalGridShape);
     virtualGridMapping = AffineMapAttr::get(inverseMap);
+    virtualGridForwardMapping = AffineMapAttr::get(forwardMap);
   }
 
   auto newEmptyOp = builder.create<d2m::EmptyOp>(
-      emptyOp.getLoc(), newTensorType, virtualGridMapping);
+      emptyOp.getLoc(), newTensorType, virtualGridMapping,
+      virtualGridForwardMapping);
 
   builder.setInsertionPoint(toLayoutOp);
   auto newToLayoutOp = builder.create<d2m::ToLayoutOp>(
@@ -752,6 +755,8 @@ updateStreamLayoutOps(ArrayRef<StreamLayoutUpdateInfo> streamLayoutsToUpdate,
     // a new one if the storage grid is virtual.
     mlir::AffineMapAttr virtualGridMapping =
         storageEmpty.getVirtualGridMappingAttr();
+    mlir::AffineMapAttr virtualGridForwardMapping =
+        storageEmpty.getVirtualGridForwardMappingAttr();
     if (!virtualGridMapping) {
       auto device = ttcore::lookupDevice(storageEmpty);
       auto workerGridShape = device.getWorkerGrid().getShape();
@@ -766,13 +771,14 @@ updateStreamLayoutOps(ArrayRef<StreamLayoutUpdateInfo> streamLayoutsToUpdate,
             ttmlir::d2m::utils::grids::createCoreVirtMaps(
                 builder.getContext(), optimalGrid, physicalGridShape);
         virtualGridMapping = AffineMapAttr::get(inverseMap);
+        virtualGridForwardMapping = AffineMapAttr::get(forwardMap);
       }
     }
 
     auto newStorageEmpty = builder.create<d2m::EmptyOp>(
         storageEmpty.getLoc(),
         RankedTensorType::get(newStorageShape, elementType, newStorageLayout),
-        virtualGridMapping);
+        virtualGridMapping, virtualGridForwardMapping);
 
     auto outputStreamType =
         mlir::cast<RankedTensorType>(streamLayout.getResult().getType());
@@ -835,6 +841,8 @@ static void updateEmptyOps(ArrayRef<EmptyUpdateInfo> emptyOpsToUpdate,
     // a new one if the grid is virtual.
     mlir::AffineMapAttr virtualGridMapping =
         emptyOp.getVirtualGridMappingAttr();
+    mlir::AffineMapAttr virtualGridForwardMapping =
+        emptyOp.getVirtualGridForwardMappingAttr();
     if (!virtualGridMapping) {
       auto device = ttcore::lookupDevice(emptyOp);
       auto workerGridShape = device.getWorkerGrid().getShape();
@@ -849,11 +857,13 @@ static void updateEmptyOps(ArrayRef<EmptyUpdateInfo> emptyOpsToUpdate,
             ttmlir::d2m::utils::grids::createCoreVirtMaps(
                 builder.getContext(), info.grid, physicalGridShape);
         virtualGridMapping = AffineMapAttr::get(inverseMap);
+        virtualGridForwardMapping = AffineMapAttr::get(forwardMap);
       }
     }
 
     auto newEmptyOp = builder.create<d2m::EmptyOp>(
-        emptyOp.getLoc(), newTensorType, virtualGridMapping);
+        emptyOp.getLoc(), newTensorType, virtualGridMapping,
+        virtualGridForwardMapping);
     emptyOp.getResult().replaceAllUsesWith(newEmptyOp.getResult());
     emptyOp.erase();
   }

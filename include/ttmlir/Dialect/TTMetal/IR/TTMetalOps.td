@@ -61,13 +61,16 @@ def TTMetal_CreateBufferOp : TTMetal_Op<"create_buffer", [MemoryEffects<[MemAllo
     let description = [{
       Create buffer operation.
 
-      When this buffer uses a virtual grid, the `virtualGridMapping` attribute
-      stores the inverse affine map from physical to virtual grid coordinates.
-      This is propagated from d2m.empty through bufferization.
+      When this buffer uses a virtual grid, `virtualGridMapping` stores the
+      inverse affine map (physical to virtual grid coordinates) and
+      `virtualGridForwardMapping` stores the forward affine map (virtual to
+      physical grid coordinates).  Both are propagated from d2m.empty through
+      bufferization.
     }];
 
     let arguments = (ins I64Attr:$address,
-                         OptionalAttr<AffineMapAttr>:$virtualGridMapping);
+                         OptionalAttr<AffineMapAttr>:$virtualGridMapping,
+                         OptionalAttr<AffineMapAttr>:$virtualGridForwardMapping);
     let results = (outs AnyNon0RankedMemRef:$result);
 }
 
