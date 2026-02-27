@@ -1743,5 +1743,23 @@ struct OpModel<mlir::tt::ttnn::AssignOp> {
                std::optional<mlir::tt::ttcore::DataType> outputDtype);
 };
 
+//===----------------------------------------------------------------------===//
+// TopKOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<TopKOp> {
+  static llvm::Expected<OpConstraints>
+  getOpConstraints(ttcore::GridAttr deviceGrid,
+                   llvm::ArrayRef<int64_t> inputShape,
+                   TTNNLayoutAttr inputLayout, int k, int dim, bool largest,
+                   bool sorted, TTNNLayoutAttr outputLayout);
+
+  static llvm::Expected<size_t> getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+                                             TTNNLayoutAttr inputLayout, int k,
+                                             int dim, bool largest, bool sorted,
+                                             TTNNLayoutAttr outputLayout);
+};
+
 } // namespace mlir::tt::ttnn::op_model
 #endif // TTMLIR_OPMODEL_TTNN_TTNNOPMODEL_H

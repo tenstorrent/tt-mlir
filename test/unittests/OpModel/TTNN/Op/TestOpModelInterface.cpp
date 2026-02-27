@@ -1644,6 +1644,44 @@ TEST_F(OpModelBase, morehCumSumOp) {
   }
 }
 
+TEST_F(OpModelBase, TopKOp) {
+  // create TopKOp
+  llvm::SmallVector<int64_t> tensorShapeA = {64, 64};
+  int32_t k = 16;
+  llvm::SmallVector<int64_t> tensorShapeO = {64, k};
+
+  auto input = createEmptyTensor(tensorShapeA);
+  auto topKValues = createEmptyTensor(tensorShapeO);
+  auto indices = createEmptyTensor(tensorShapeO);
+  // TopKOp returns 2 tensors: top k values and their indices
+  auto topK = builder.create<TopKOp>(
+      builder.getUnknownLoc(),
+      mlir::TypeRange{topKValues.getType(),
+                      indices.getType()}, // 2 result types
+      input, k, /*dim=*/-1, /*largest=*/false, /*sorted=*/true, nullptr);
+
+  // test TopK Op interface
+  auto constraintsExp = getOpConstraints(topK.getOperation());
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
+    EXPECT_GT(cbSize, 0);
+    EXPECT_GE(l1PeakSize, 0);
+    EXPECT_GT(outputSize, 0);
+  } else {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  auto runtimeExp = getOpRuntime(topK.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
 TEST_F(OpModelBase, ConcatenateHeadsOpInterface) {
   // create ConcatenateHeadsOp
   // Input shape: [batch_size, num_heads, sequence_size, head_size]
