@@ -57,10 +57,6 @@ def test_reduction_ops(
     request,
     device,
 ):
-    if target == "emitc":
-        pytest.skip(
-            "EmitC tests are hanging in CI. Disabled temporarily for investigation."
-        )
 
     if (
         reduction_op_name == "max"
