@@ -1763,14 +1763,8 @@ MutableArrayRef<OpOperand> d2m::GenericOp::getInputsAndOutputsMutable() {
       SmallVector<int64_t> impliedVirtShape =
           ttmlir::utils::evalShape(invMapNoDevice, physicalGridShape);
 
-      SmallVector<int64_t> outputGridShape;
-      if (auto memrefType = mlir::dyn_cast<MemRefType>(output.getType())) {
-        auto shape = memrefType.getShape();
-        TT_assert((shape.size() % 2) == 0ul);
-        outputGridShape.assign(shape.begin(), shape.begin() + shape.size() / 2);
-      } else {
-        outputGridShape = llvm::to_vector(ttcore::getGridShape(output));
-      }
+      SmallVector<int64_t> outputGridShape =
+          llvm::to_vector(ttcore::getGridShape(output));
 
       if (outputGridShape != impliedVirtShape) {
         return emitOpError("output grid shape does not match implied virtual "
