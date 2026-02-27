@@ -277,53 +277,6 @@ TTNNOperandsWorkaroundsFactory::createMeshPartitionOpOperandsWorkarounds() {
       .addOutputOperandWorkaround(rowMajorWorkaround);
 }
 
-// Factory method to create a set of workaround for concat operation operands.
-// tt-metal applies padding (before concatenation) to the input tensors if the
-// layout is tile and the shape is not divisible by tile size along concatenated
-// dimension for any input tensor. Padding can only be applied for float or
-// bfloat16 tensors.
-TTNNOperandsWorkarounds
-TTNNOperandsWorkaroundsFactory::createConcatOpOperandsWorkarounds(
-    mlir::Operation::operand_range inputs, int64_t numOperands, int32_t dim) {
-  mlir::RankedTensorType inputType =
-      mlir::cast<RankedTensorType>(inputs.front().getType());
-  ttnn::TTNNLayoutAttr layoutAttr =
-      mlir::cast<ttnn::TTNNLayoutAttr>(inputType.getEncoding());
-  mlir::Type elementType = inputType.getElementType();
-
-  // Check if the op is using tile layout.
-  bool isDataTypeWARequired = layoutAttr.isTiled();
-  // Check if the tensor data type is neither float32 nor bfloat16.
-  isDataTypeWARequired &= (!elementType.isF32() && !elementType.isBF16());
-  // Check if shape (for any input tensor) along concatenated dimension is not
-  // divisible by tileHeight (Assuming TileWidth and TileHeigh are same).
-  int32_t tileWidth = 1;
-  int32_t tileHeight = 1;
-  if (isDataTypeWARequired) {
-    ttcore::TileType tile =
-        mlir::cast<ttcore::TileType>(layoutAttr.getMemref().getElementType());
-    tileWidth = tile.getWidth();
-    tileHeight = tile.getHeight();
-  }
-  assert(tileHeight == tileWidth);
-  isDataTypeWARequired &= llvm::any_of(inputs, [&](mlir::Value value) {
-    RankedTensorType inputTensor =
-        mlir::dyn_cast<RankedTensorType>(value.getType());
-    return inputTensor.getShape()[dim] % tileHeight != 0;
-  });
-
-  TTNNOperandWorkarounds bf16Workaround;
-  if (isDataTypeWARequired) {
-    bf16Workaround.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
-  }
-  auto workaround =
-      TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds();
-  for (int64_t count = 0; count < numOperands; ++count) {
-    workaround.addInputOperandWorkaround(bf16Workaround);
-  }
-  return workaround.addOutputOperandWorkaround(bf16Workaround);
-}
-
 // Factory method to create a set of workarounds for slice op input operands.
 // ttnn::SliceStaticOp requires uint32 on input if the slice is strided
 // and input is < uint32.
