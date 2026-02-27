@@ -1904,3 +1904,143 @@ def test_broadcast_ops(
         target=target,
         device=device,
     )
+
+
+@pytest.mark.parametrize(
+    "input_shape, indices_shape, update_shape, update_window_dims, inserted_window_dims, input_batching_dims, scatter_indices_batching_dims, scatter_dims_to_operand_dims, index_vector_dim, indices_are_sorted, unique_indices, dtypes",
+    [
+        # Single-dimensional scatter cases (based on test examples)
+        (
+            [1, 3, 320, 320],
+            [1, 1],
+            [1, 3, 32, 32],
+            [1, 2, 3],
+            [0],
+            [],
+            [],
+            [0],
+            1,
+            False,
+            False,
+            [torch.float32, torch.int32, torch.float32],
+        ),
+        (
+            [32, 32],
+            [1, 1],
+            [1, 32],
+            [1],
+            [0],
+            [],
+            [],
+            [0],
+            1,
+            False,
+            False,
+            [torch.int32, torch.int32, torch.int32],
+        ),
+        (
+            [1000, 32],
+            [1, 1],
+            [1, 32],
+            [1],
+            [0],
+            [],
+            [],
+            [0],
+            1,
+            False,
+            False,
+            [torch.float32, torch.int64, torch.float32],
+        ),
+        # Multi-dimensional scatter cases (empty update_window_dims required)
+        (
+            [71, 32],
+            [71, 4, 2],
+            [71, 4],
+            [],
+            [0, 1],
+            [],
+            [],
+            [0, 1],
+            2,
+            False,
+            False,
+            [torch.bfloat16, torch.int64, torch.bfloat16],
+        ),
+        (
+            [10, 20],
+            [5, 2, 2],
+            [5, 2],
+            [],
+            [0, 1],
+            [],
+            [],
+            [0, 1],
+            2,
+            True,
+            True,
+            [torch.float32, torch.int32, torch.float32],
+        ),
+    ],
+)
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_scatter(
+    input_shape,
+    indices_shape,
+    update_shape,
+    update_window_dims,
+    inserted_window_dims,
+    input_batching_dims,
+    scatter_indices_batching_dims,
+    scatter_dims_to_operand_dims,
+    index_vector_dim,
+    indices_are_sorted,
+    unique_indices,
+    dtypes,
+    target: str,
+    request,
+    device,
+):
+    def module(builder: StableHLOBuilder):
+        @builder.func(
+            [
+                input_shape,
+                indices_shape,
+                update_shape,
+                update_window_dims,
+                inserted_window_dims,
+                input_batching_dims,
+                scatter_indices_batching_dims,
+                scatter_dims_to_operand_dims,
+                index_vector_dim,
+                indices_are_sorted,
+                unique_indices,
+            ],
+            dtypes,
+        )
+        def scatter(
+            input: Operand, indices: Operand, update: Operand, builder: StableHLOBuilder
+        ):
+            builder.set_graph_level_check(True)
+            return builder.scatter(
+                [input],
+                indices,
+                [update],
+                update_window_dims,
+                inserted_window_dims,
+                input_batching_dims,
+                scatter_indices_batching_dims,
+                scatter_dims_to_operand_dims,
+                index_vector_dim,
+                indices_are_sorted=indices_are_sorted,
+                unique_indices=unique_indices,
+            )
+
+    compile_and_execute_shlo(
+        module,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        device=device,
+    )

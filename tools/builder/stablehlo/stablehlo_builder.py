@@ -7567,6 +7567,248 @@ class StableHLOBuilder(Builder):
 
         return convolution_module, convolution_builder
 
+    ############### stablehlo.ScatterOp ###############
+
+    @tag(stablehlo.ScatterOp)
+    def scatter(
+        self,
+        inputs: List[Operand],
+        scatter_indices: Operand,
+        updates: List[Operand],
+        update_window_dims: List[int],
+        inserted_window_dims: List[int],
+        input_batching_dims: List[int],
+        scatter_indices_batching_dims: List[int],
+        scatter_dims_to_operand_dims: List[int],
+        index_vector_dim: int,
+        indices_are_sorted: bool = False,
+        unique_indices: bool = False,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> Tuple[OpResult, ...]:
+        stablehlo_op = self.get_opview_from_method(StableHLOBuilder.scatter)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        # Create scatter dimension numbers attribute
+        scatter_dimension_numbers_attr = stablehlo.ScatterDimensionNumbers.get(
+            update_window_dims,
+            inserted_window_dims,
+            input_batching_dims,
+            scatter_indices_batching_dims,
+            scatter_dims_to_operand_dims,
+            index_vector_dim,
+        )
+        indices_are_sorted_attr = BoolAttr.get(indices_are_sorted)
+        unique_indices_attr = BoolAttr.get(unique_indices)
+
+        # Result types are the same as input types
+        results = [inp.type for inp in inputs]
+
+        op = stablehlo_op(
+            results,
+            inputs,
+            scatter_indices,
+            updates,
+            scatter_dimension_numbers_attr,
+            indices_are_sorted=indices_are_sorted_attr,
+            unique_indices=unique_indices_attr,
+            loc=loc,
+        )
+
+        # Create default update computation (addition)
+        # The computation takes 2*len(inputs) arguments (pairs from each input)
+        element_types = [RankedTensorType(inp.type).element_type for inp in inputs]
+        scalar_types = [
+            RankedTensorType.get([], elem_type) for elem_type in element_types
+        ]
+
+        # The update computation takes pairs: (old_value, update_value) for each input
+        computation_arg_types = []
+        for scalar_type in scalar_types:
+            computation_arg_types.extend([scalar_type, scalar_type])
+
+        block = Block.create_at_start(op.update_computation, computation_arg_types)
+
+        with InsertionPoint(block):
+            results = []
+            for i in range(len(inputs)):
+                old_val = block.arguments[2 * i]
+                update_val = block.arguments[2 * i + 1]
+
+                add_result = stablehlo.AddOp(old_val, update_val, loc=loc).result
+                results.append(add_result)
+
+            stablehlo.ReturnOp(results, loc=loc)
+
+        if sharding_attr is not None:
+            op.operation.attributes["sdy.sharding"] = sharding_attr
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            input_tensors = [self._get_golden_tensor(input) for input in inputs]
+            indices_tensor = self._get_golden_tensor(scatter_indices)
+            update_tensors = [self._get_golden_tensor(update) for update in updates]
+
+            op_golden_function = get_golden_function(stablehlo_op)
+            golden_outputs = op_golden_function(
+                input_tensors,
+                indices_tensor,
+                update_tensors,
+                scatter_dimension_numbers_attr,
+                indices_are_sorted=indices_are_sorted_attr,
+                unique_indices=unique_indices_attr,
+            )
+
+            for i, result in enumerate(op.results):
+                self._set_golden_tensor(result, golden_outputs[i])
+
+        return tuple(op.results)
+
+    @parse(stablehlo.ScatterOp)
+    def scatter_parser(
+        self,
+        old_op: stablehlo.ScatterOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        stablehlo_op = self.get_opview_from_parser(StableHLOBuilder.scatter_parser)
+        inputs = [global_dict[operand] for operand in old_op.inputs]
+        scatter_indices = global_dict[old_op.scatter_indices]
+        updates = [global_dict[operand] for operand in old_op.updates]
+        scatter_dimension_numbers_attr = old_op.scatter_dimension_numbers
+        indices_are_sorted_attr = old_op.indices_are_sorted
+        unique_indices_attr = old_op.unique_indices
+
+        results = [result.type for result in old_op.results]
+
+        new_op = stablehlo_op(
+            results,
+            inputs,
+            scatter_indices,
+            updates,
+            scatter_dimension_numbers_attr,
+            indices_are_sorted=indices_are_sorted_attr,
+            unique_indices=unique_indices_attr,
+            loc=old_op.location,
+        )
+
+        if not self._disable_golden_check:
+            input_tensors = [self._get_golden_tensor(inp) for inp in inputs]
+            indices_tensor = self._get_golden_tensor(scatter_indices)
+            update_tensors = [self._get_golden_tensor(upd) for upd in updates]
+
+            op_golden_function = get_golden_function(stablehlo_op)
+            golden_outputs = op_golden_function(
+                input_tensors,
+                indices_tensor,
+                update_tensors,
+                scatter_dimension_numbers_attr,
+                indices_are_sorted=indices_are_sorted_attr,
+                unique_indices=unique_indices_attr,
+            )
+
+            for i, result in enumerate(new_op.results):
+                self._set_golden_tensor(result, golden_outputs[i])
+
+        op_map_dictionary = {}
+        for i, result in enumerate(old_op.results):
+            op_map_dictionary[result] = new_op.results[i]
+        return new_op, op_map_dictionary
+
+    @split(stablehlo.ScatterOp)
+    def scatter_split(
+        self,
+        old_op: stablehlo.ScatterOp,
+    ) -> Tuple[Module, StableHLOBuilder]:
+        stablehlo_op = self.get_opview_from_split(StableHLOBuilder.scatter_split)
+
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
+            scatter_module = Module.create()
+            scatter_builder = StableHLOBuilder(old_ctx, old_loc)
+            input_types = [operand.type for operand in old_op.inputs]
+            indices_type = [old_op.scatter_indices.type]
+            updates_types = [operand.type for operand in old_op.updates]
+            op_input_types = input_types + indices_type + updates_types
+
+            with InsertionPoint(scatter_module.body):
+
+                @func.func(*op_input_types, name="scatter_module")
+                def decorated_func(*all_inputs):
+                    n_inputs = len(input_types)
+                    n_updates = len(updates_types)
+
+                    inputs = all_inputs[:n_inputs]
+                    scatter_indices = all_inputs[n_inputs]
+                    updates = all_inputs[n_inputs + 1 : n_inputs + 1 + n_updates]
+
+                    scatter_dimension_numbers_attr = old_op.scatter_dimension_numbers
+                    indices_are_sorted_attr = old_op.indices_are_sorted
+                    unique_indices_attr = old_op.unique_indices
+                    results = [result.type for result in old_op.results]
+
+                    new_op = stablehlo_op(
+                        results,
+                        inputs,
+                        scatter_indices,
+                        updates,
+                        scatter_dimension_numbers_attr,
+                        indices_are_sorted=indices_are_sorted_attr,
+                        unique_indices=unique_indices_attr,
+                        loc=old_loc,
+                    )
+
+                    if not scatter_builder._disable_golden_check:
+                        input_tensors = [
+                            scatter_builder._get_golden_tensor(inp) for inp in inputs
+                        ]
+                        indices_tensor = scatter_builder._get_golden_tensor(
+                            scatter_indices
+                        )
+                        update_tensors = [
+                            scatter_builder._get_golden_tensor(upd) for upd in updates
+                        ]
+
+                        op_golden_function = get_golden_function(stablehlo_op)
+                        golden_outputs = op_golden_function(
+                            input_tensors,
+                            indices_tensor,
+                            update_tensors,
+                            scatter_dimension_numbers_attr,
+                            indices_are_sorted=indices_are_sorted_attr,
+                            unique_indices=unique_indices_attr,
+                        )
+
+                        for i, result in enumerate(new_op.results):
+                            scatter_builder._set_golden_tensor(
+                                result, golden_outputs[i]
+                            )
+                        scatter_builder._set_output_ordering(list(new_op.results))
+                        for i, inp in enumerate(all_inputs):
+                            if i < n_inputs:
+                                scatter_builder._set_golden_tensor(
+                                    inp, input_tensors[i]
+                                )
+                            elif i == n_inputs:
+                                scatter_builder._set_golden_tensor(inp, indices_tensor)
+                            else:
+                                scatter_builder._set_golden_tensor(
+                                    inp, update_tensors[i - n_inputs - 1]
+                                )
+                        scatter_builder._set_input_ordering(list(all_inputs))
+
+                    return tuple(new_op.results)
+
+        return scatter_module, scatter_builder
+
     def dot_general(
         self,
         in0: Operand,
