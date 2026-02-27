@@ -3397,6 +3397,54 @@ mlir::OpFoldResult mlir::tt::ttnn::PermuteOp::fold(FoldAdaptor adaptor) {
   return nullptr;
 }
 
+// PermuteOp canonicalizes to ReshapeOp when only size-1 dims are permuted.
+void mlir::tt::ttnn::PermuteOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext * /*context*/) {
+
+  patterns.add(+[](PermuteOp op,
+                   mlir::PatternRewriter &rewriter) -> mlir::LogicalResult {
+    // Require ranked tensors so we can reason about shapes.
+    auto inputType = op.getInput().getType();
+    auto resultType = op.getResult().getType();
+
+    auto inShape = inputType.getShape();
+    auto outShape = resultType.getShape();
+    auto permutation = op.getPermutation();
+
+    // Collect indices of non-1 dims in the original order.
+    llvm::SmallVector<int64_t> origNonOne;
+    for (int64_t i = 0, e = inShape.size(); i < e; ++i) {
+      if (inShape[i] != 1) {
+        origNonOne.push_back(i);
+      }
+    }
+
+    // Collect indices of non-1 dims in the permuted order.
+    llvm::SmallVector<int64_t> permNonOne;
+    for (int64_t idx : permutation) {
+      if (inShape[idx] != 1) {
+        permNonOne.push_back(idx);
+      }
+    }
+
+    // If non-1 dims change relative order, this is a real permute.
+    if (!llvm::equal(origNonOne, permNonOne)) {
+      return mlir::failure();
+    }
+
+    // Only singleton dims are moved: we can safely rewrite as reshape.
+    llvm::SmallVector<int32_t> newShape(outShape.begin(), outShape.end());
+
+    auto shapeAttr = rewriter.getI32ArrayAttr(newShape);
+    auto memCfg = op.getMemoryConfigAttr();
+
+    rewriter.replaceOpWithNewOp<mlir::tt::ttnn::ReshapeOp>(
+        op, resultType, op.getInput(), shapeAttr, memCfg);
+
+    return mlir::success();
+  });
+}
+
 //===----------------------------------------------------------------------===//
 // UpsampleOp
 //===----------------------------------------------------------------------===//
