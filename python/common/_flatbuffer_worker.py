@@ -30,13 +30,16 @@ def main():
         run_instance = API.Run(args={"binary": flatbuffer_path})
         return_code, _ = run_instance()
 
-        with open(result_path, "w") as f:
-            json.dump({"status": "success", "return_code": return_code}, f)
+        if return_code != 0:
+            with open(result_path, "w") as f:
+                json.dump({"status": "error", "error": f"{return_code}"}, f)
+        else:
+            with open(result_path, "w") as f:
+                json.dump({"status": "success", "return_code": return_code}, f)
 
     except Exception as e:
         with open(result_path, "w") as f:
             json.dump({"status": "error", "error": str(e)}, f)
-        sys.exit(1)
 
 
 if __name__ == "__main__":

@@ -317,13 +317,30 @@ def run_subprocess_worker(
 
     try:
         cmd = [sys.executable, str(runner_path)] + list(args) + [result_path]
-        subprocess.run(cmd, timeout=timeout, check=False)
+        proc = subprocess.run(
+            cmd, timeout=timeout, check=False, capture_output=True, text=True
+        )
+
+        if os.path.getsize(result_path) == 0:
+            raise RuntimeError(
+                f"Worker `{runner_script}` crashed without writing results. "
+                f"Exit code: {proc.returncode}. Stderr: {proc.stderr}"
+            )
 
         with open(result_path) as f:
             result = json.load(f)
 
+        result["stderr"] = proc.stderr
+
+    except subprocess.TimeoutExpired as e:
+        stderr = e.stderr.decode() if isinstance(e.stderr, bytes) else (e.stderr or "")
+        raise RuntimeError(
+            f"Worker `{runner_script}` timed out after {timeout}s. Stderr: {stderr}"
+        ) from e
+    except RuntimeError:
+        raise
     except Exception as e:
-        raise RuntimeError(f"Worker failed: {runner_script}") from e
+        raise RuntimeError(f"Worker `{runner_script}` failed: {e}") from e
     finally:
         try:
             os.unlink(result_path)

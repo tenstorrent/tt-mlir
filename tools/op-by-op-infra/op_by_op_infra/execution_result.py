@@ -44,6 +44,8 @@ class ExecutionResult:
     # Flag indicating successful run on device.
     # False if execution_phase < EXECUTED_FLATBUFFER or ttrt run returned code != 0.
     device_run_passed: bool = False
+    # Error message from the step that failed. None if all steps succeeded.
+    error_message: Optional[str] = None
 
     # Timestamp taken when execution was started.
     execution_started: datetime = datetime.now()
@@ -113,16 +115,12 @@ def convert_to_pydantic_model(result: ExecutionResult) -> OpTest:
         for output in result.last_generated_module.outputs
     ]
 
-    # TODO This is the point we lose track of ExecutionPhase since we are missing a
-    # field in which we can store it.
-    error_msg = (
-        None
-        if result.device_run_passed
-        else (
-            f"Couldn't execute op {result.last_generated_module.origin_op_name}. "
-            f"Last step successfully finished: {result.execution_phase.name}."
-        )
-    )
+    if result.device_run_passed:
+        error_msg = None
+    elif result.error_message:
+        error_msg = result.error_message
+    else:
+        error_msg = f"Last step successfully finished: {result.execution_phase.name}."
 
     pydantic_model = OpTest(
         test_start_ts=result.execution_started,

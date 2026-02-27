@@ -248,8 +248,8 @@ class MLIRModuleExecutor:
                 self._mark_execution_step(
                     ExecutionPhase.EXECUTED_FLATBUFFER, run_passed=True
                 )
-        except RuntimeError:
-            pass
+        except RuntimeError as e:
+            self._execution_result.error_message = str(e)
         return self._execution_result.device_run_passed
 
     def _execute(self) -> ExecutionResult:

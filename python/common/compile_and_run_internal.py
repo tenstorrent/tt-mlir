@@ -183,6 +183,41 @@ def run_flatbuffer_execution_process(
     )
 
     if result["status"] == "error":
-        raise RuntimeError("Flatbuffer execution failed")
+        error = result.get("error", "Unknown error")
+        stderr = _extract_error_from_stderr(result.get("stderr", ""))
+        msg = f"{error}\n{stderr}".strip() if stderr else error
+        raise RuntimeError(f"{msg}")
 
     return result["return_code"]
+
+
+def _extract_error_from_stderr(stderr: str) -> str:
+    """Extracts ERROR lines and following info blocks from stderr.
+
+    Keeps ERROR log lines and the non-backtrace, non-log context that follows
+    them.
+    """
+    if not stderr:
+        return ""
+
+    lines = stderr.splitlines()
+    extracted = []
+    capturing_info = False
+
+    for line in lines:
+        if "- ERROR -" in line:
+            extracted.append(line)
+            capturing_info = True
+        elif capturing_info:
+            stripped = line.strip()
+            if (
+                stripped.startswith("---")
+                or stripped == "backtrace:"
+                or "- INFO -" in line
+                or "- WARNING -" in line
+            ):
+                capturing_info = False
+            elif stripped:
+                extracted.append(line)
+
+    return "\n".join(extracted)
