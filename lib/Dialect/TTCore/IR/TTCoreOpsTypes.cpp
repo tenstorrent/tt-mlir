@@ -690,6 +690,12 @@ mlir::AffineMap collapsedLinearAffineMap(
   auto map = mlir::AffineMap::getMinorIdentityMap(shape.size(),
                                                   numResultsClamped, context);
 
+  if (ttmlir::utils::volume(shape) == 0u) {
+    while (map.getNumResults() < gridShape.size()) {
+      map = map.insertResult(getAffineConstantExpr(0, context), 0);
+    }
+    return mlir::simplifyAffineMap(map);
+  }
   std::int64_t minimumDim = static_cast<std::int64_t>(shape.size());
   for (auto [begin, end] : collapseIntervals) {
     if (begin < 0) {
