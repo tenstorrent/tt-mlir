@@ -1,7 +1,7 @@
 # Runtime Stitching
 
 Runtime stitching adds the ability for the runtime to stitch together multiple,
-indepently compiled programs together at runtime, ie. without compiler knowledge of
+independently compiled programs together at runtime, ie. without compiler knowledge of
 how the binary programs will be composed.
 
 ## Motivation

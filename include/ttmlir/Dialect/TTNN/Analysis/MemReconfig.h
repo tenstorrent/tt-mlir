@@ -52,7 +52,7 @@ private:
   // Index of the selected reshard output config bit in the map.
   int32_t selectedReshardOutputConfigBitIndex = -1;
 
-  // Indicates if the reconfiguration is overriden by the user.
+  // Indicates if the reconfiguration is overridden by the user.
   bool overridenReconfig = false;
 
   friend llvm::raw_ostream &

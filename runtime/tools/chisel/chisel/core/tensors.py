@@ -80,5 +80,5 @@ class TensorPool(dict):
             # HACK: Torch dont support saving uint16, uint32, uint64 https://github.com/pytorch/pytorch/issues/58734
             if value.data.dtype in [torch.uint16, torch.uint32, torch.uint64]:
                 return
-            # TODO: potentialy enable to not override existing files
+            # TODO: potentially enable to not override existing files
             torch.save(value.data, self.output_dir / f"{key}.pt")

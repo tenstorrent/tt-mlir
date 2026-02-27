@@ -3289,7 +3289,7 @@ bool mlir::tt::ttir::TTNNMetalLayoutCastOp::bufferizesToMemoryWrite(
 
   // Insert the input A and B inner dimensions in expected output shape
   // Consider the case where input A and B are vectors. In that case,
-  // the dimension 1 is ommited from the output shape.
+  // the dimension 1 is omitted from the output shape.
   if (inputAType.getRank() > 1) {
     expectedOutputShape.push_back(inputAShape[inputAShape.size() - 2]);
   }
@@ -3476,7 +3476,7 @@ void mlir::tt::ttir::LinearOp::getCanonicalizationPatterns(
 
   // Insert the input A and B inner dimensions in expected output shape
   // Consider the case where input A and B are vectors. In that case,
-  // the dimension 1 is ommited from the output shape.
+  // the dimension 1 is omitted from the output shape.
   if (inputAType.getRank() > 1) {
     expectedOutputShape.push_back(inputAShape[inputAShape.size() - 2]);
   }

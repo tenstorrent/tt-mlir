@@ -230,7 +230,7 @@ class ProcessManager:
                 self.stop()
                 raise RuntimeError(f"Worker `{task.name}` timed out")
             else:
-                # Something that wasn't caught by try-except occured, like a segfault,
+                # Something that wasn't caught by try-except occurred, like a segfault,
                 # that killed the process. Raise proper python error that can be handled
                 # in try-except somewhere above in call stack.
                 raise RuntimeError(f"Worker `{task.name}` crashed unexpectedly.")

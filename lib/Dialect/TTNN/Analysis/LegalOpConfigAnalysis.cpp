@@ -118,7 +118,7 @@ applyConv2dConfigOverrides(ConvOpT op,
   TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
                "Conv2d config after overrides: {}", conv2dConfigAttr);
 
-  // Set overriden conv2d config for all OpConfigs.
+  // Set overridden conv2d config for all OpConfigs.
   for (OpConfig &opConfig : analysisResult) {
     assert(opConfig.isAttrUninitialized() &&
            "OpConfig should not have a config set before applying overrides");

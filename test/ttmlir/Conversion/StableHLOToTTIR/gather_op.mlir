@@ -32,7 +32,7 @@ module @jit_gather attributes {} {
     // CHECK-SAME: start_indices_batching_dims = array<i64>
     // CHECK-SAME: (tensor<32128x512xbf16>, tensor<1x15xi64>) -> tensor<1x15x512xbf16>
     %0 = "stablehlo.gather"(%arg0, %arg1) <{dimension_numbers = #stablehlo.gather<offset_dims = [2], collapsed_slice_dims = [0], start_index_map = [0], index_vector_dim = 2>, indices_are_sorted = false, slice_sizes = array<i64: 1, 512>}> : (tensor<32128x512xbf16>, tensor<1x15xi64>) -> tensor<1x15x512xbf16>
-    // CEHCK: return %[[VAL]] : tensor<1x15x512xbf16>
+    // CHECK: return %[[VAL]] : tensor<1x15x512xbf16>
     return %0 : tensor<1x15x512xbf16>
   }
 }

@@ -94,7 +94,7 @@ pytest.mark.skip_config(config, ... reason=None): skip test if all of the specif
 The `skip_config` mark here is a little nuanced. By passing in a list of
 strings representing targets and/or systems (e.g. `["ttmetal", "p150"]`) this
 mark will intelligently skip tests with that configuration. The example given
-will skip tests lowered to `ttmetal` iff we are runing on a `p150` (i.e.
+will skip tests lowered to `ttmetal` iff we are running on a `p150` (i.e.
 blackhole). This functionality will be expanded to include other axes of test
 configuration, but target and system are sufficient for our needs at the
 moment.

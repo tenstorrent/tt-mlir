@@ -8,7 +8,7 @@
 module @jit_reduce_minimum attributes {} {
   func.func public @test_reduce_minimum_4to0dim(%arg0: tensor<128x64x32x96xf32>, %cst_0: tensor<f32>) -> tensor<f32> {
     // CHECK: "ttnn.min"
-    // CEHCK-SAME: dim_arg = [0 : i32, 1 : i32, 2 : i32, 3 : i32]
+    // CHECK-SAME: dim_arg = [0 : i32, 1 : i32, 2 : i32, 3 : i32]
     // CHECK-SAME: keep_dim = false
     // CHECK-SAME: tensor<128x64x32x96xf32,
     // CHECK-SAME: -> tensor<f32,
@@ -49,7 +49,7 @@ module @jit_reduce_minimum attributes {} {
 
   func.func public @test_reduce_minimum_3to0dim(%arg0: tensor<128x64x96xf32>, %cst_0: tensor<f32>) -> tensor<f32> {
     // CHECK: "ttnn.min"
-    // CEHCK-SAME: dim_arg = [0 : i32, 1 : i32, 2 : i32]
+    // CHECK-SAME: dim_arg = [0 : i32, 1 : i32, 2 : i32]
     // CHECK-SAME: keep_dim = false
     // CHECK-SAME: tensor<128x64x96xf32,
     // CHECK-SAME: -> tensor<f32,
@@ -69,7 +69,7 @@ module @jit_reduce_minimum attributes {} {
 
   func.func public @test_reduce_minimum_2to0dim(%arg0: tensor<128x64xf32>, %cst_0: tensor<f32>) -> tensor<f32> {
     // CHECK: "ttnn.min"
-    // CEHCK-SAME: dim_arg = [0 : i32, 1 : i32]
+    // CHECK-SAME: dim_arg = [0 : i32, 1 : i32]
     // CHECK-SAME: keep_dim = false
     // CHECK-SAME: tensor<128x64xf32,
     // CHECK-SAME: -> tensor<f32,
@@ -79,7 +79,7 @@ module @jit_reduce_minimum attributes {} {
 
   func.func public @test_reduce_minimum_1to0dim(%arg0: tensor<128xf32>, %cst_0: tensor<f32>) -> tensor<f32> {
     // CHECK: "ttnn.min"
-    // CEHCK-SAME: dim_arg = [0 : i32]
+    // CHECK-SAME: dim_arg = [0 : i32]
     // CHECK-SAME: keep_dim = false
     // CHECK-SAME: tensor<128xf32,
     // CHECK-SAME: -> tensor<f32,

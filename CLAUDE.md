@@ -29,4 +29,4 @@ targets tt-metal.
   Usually required to have run `ttrt query --save-artifacts` first and then to
   set the environment variable `SYSTEM_DESC_PATH=$(pwd)/ttrt-artifacts/system_desc.ttsys`.
 - `ttrt run ...`: Runs a compiler generated flatbuffer on silicon.  Can either
-  point to a flabuffer file or a directory containing flatbuffers.
+  point to a flatbuffer file or a directory containing flatbuffers.

@@ -462,7 +462,7 @@ public:
           memoryLayoutAnalysis.getResult().spillToL1InterleavedOps;
     }
 
-    // Manually overriden resharding edges should be added to the
+    // Manually overridden resharding edges should be added to the
     // memReconfigEntryMap.
     //
     for (const auto &edge : overrideReshardEdges) {
@@ -757,7 +757,7 @@ public:
 
 private:
   void assertOverridesValid() {
-    // Check if each overriden op exists in the graph.
+    // Check if each overridden op exists in the graph.
     // Check if each conv2d config override is applied only to conv2d op.
     //
     llvm::StringMap<bool> overridenOpExists;
