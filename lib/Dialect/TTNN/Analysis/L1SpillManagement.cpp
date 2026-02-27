@@ -398,6 +398,20 @@ void L1SpillManagement<MemoryTracker>::run() {
       continue;
     }
 
+    // Backend constraint error: demote directly to DRAM. Evicting other
+    // tensors cannot fix a constraint mismatch on this op. This is a safety
+    // net — the reshard fix in consolidateBeam should prevent this path.
+    if (result.isMetalBackendError()) {
+      TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+                   "    WARNING: Backend constraint error at pos {0} for {1}: "
+                   "{2}. Demoting to DRAM (may indicate a layout propagation "
+                   "bug).",
+                   pos, ttmlir::opToString(op), result.errorMessage);
+      spillToDram(op);
+      ++spillCount;
+      continue;
+    }
+
     // OOM — try demoting current op, then evict if needed.
     TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
                  "    OOM: validation failed, trying demotion/eviction");
