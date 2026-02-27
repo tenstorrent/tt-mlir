@@ -28,7 +28,7 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         TTNNToPython.cpp
         TTNNTraceHoistTransform.cpp
         TTNNUniqueLocs.cpp
-        TTNNWeightBFP8Conversion.cpp
+        TTNNWeightDtypeConversion.cpp
         Workarounds/Decomposition/AllGatherOpRewritePattern.cpp
         Workarounds/Decomposition/ArgMaxOpRewritePattern.cpp
         Workarounds/Decomposition/PagedUpdateCacheOpRewritePattern.cpp

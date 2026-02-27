@@ -284,10 +284,12 @@ void createTTIRToTTNNDevicePipeline(
     createTTNNFusingPass(devicePm, options);
 
     createTTNNPipelineWorkaroundPass(devicePm, options);
-    // Add BFP8 weight conversion pass before analysis passes.
+    // Add weight dtype conversion pass before analysis passes.
     // Analysis passes need to know data formats to decide on shardings.
-    if (options.experimentalBfp8Weights) {
-      devicePm.addPass(createTTNNWeightBFP8Conversion());
+    if (!options.experimentalWeightDtype.empty()) {
+      TTNNWeightDtypeConversionOptions convOpts;
+      convOpts.targetDtype = options.experimentalWeightDtype;
+      devicePm.addPass(createTTNNWeightDtypeConversion(convOpts));
     }
 
     // Apply ComputeKernelConfig settings before analysis passes.

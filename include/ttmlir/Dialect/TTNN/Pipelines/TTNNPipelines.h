@@ -355,12 +355,12 @@ struct TTIRToTTNNDevicePipelineOptions
       llvm::cl::desc("Enables conversion from bfloat16 to bfp8_b."),
       llvm::cl::init(false)};
 
-  Option<bool> experimentalBfp8Weights{
-      *this, "experimental-bfp8-weights",
-      llvm::cl::desc(
-          "Experimental: Enables conversion of weight tensors in "
-          "matrix multiplication and convolution operations to bfp8_b."),
-      llvm::cl::init(false)};
+  Option<std::string> experimentalWeightDtype{
+      *this, "experimental-weight-dtype",
+      llvm::cl::desc("Experimental: Target dtype for weight conversion in "
+                     "matrix multiplication and linear operations "
+                     "(e.g. bfp_bf8, bfp_bf4). Empty string disables."),
+      llvm::cl::init("")};
 
   // ComputeKernelConfig options
   // Note: computeCfgMathFidelity default value is HiFi4
