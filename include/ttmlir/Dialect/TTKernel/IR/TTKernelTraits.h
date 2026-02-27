@@ -44,6 +44,11 @@ public:
 };
 
 template <typename ConcreteType>
+class TTKernelDstAccumulatingOpTrait
+    : public mlir::OpTrait::TraitBase<ConcreteType,
+                                      TTKernelDstAccumulatingOpTrait> {};
+
+template <typename ConcreteType>
 class TTKernelDeviceZoneOpTrait
     : public mlir::OpTrait::TraitBase<ConcreteType, TTKernelDeviceZoneOpTrait> {
 };

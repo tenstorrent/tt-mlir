@@ -55,6 +55,8 @@ def TTKernel_BinaryOpTrait : TTKernel_Trait<"TTKernelBinaryOpTrait", []>;
 
 def TTKernel_TernaryOpTrait : TTKernel_Trait<"TTKernelTernaryOpTrait", []>;
 
+def TTKernel_DstAccumulatingOpTrait : TTKernel_Trait<"TTKernelDstAccumulatingOpTrait", []>;
+
 def TTKernel_DeviceZoneOpTrait : TTKernel_Trait<"TTKernelDeviceZoneOpTrait", []>;
 
 def TTKernel_TridNocOpTrait : TTKernel_Trait<"TTKernelTridNocOpTrait", []>;
