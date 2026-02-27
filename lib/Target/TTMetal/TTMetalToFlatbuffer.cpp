@@ -592,6 +592,13 @@ tensorValueToFlatbuffer(FlatbufferObjectCache &cache, Value value) {
   return target::metal::CreateTensorRef(*cache.fbb, size, tensorDesc);
 }
 
+static flatbuffers::Offset<target::metal::GlobalSemaphoreRef>
+globalSemaphoreValueToFlatbuffer(FlatbufferObjectCache &cache, Value value,
+                                 uint64_t address) {
+  return target::metal::CreateGlobalSemaphoreRef(*cache.fbb,
+                                                 cache.nextGlobalId(), address);
+}
+
 static flatbuffers::Offset<target::metal::KernelArg>
 toFlatbuffer(FlatbufferObjectCache &cache, KernelArgAttr kernelArg) {
   target::metal::KernelArgType argType;
@@ -619,6 +626,13 @@ toFlatbuffer(FlatbufferObjectCache &cache, KernelArgAttr kernelArg) {
   case ttkernel::ArgType::NamedArgument: {
     argType = target::metal::KernelArgType::KernelArgNamedArgument;
     arg = target::metal::CreateKernelArgNamedArgument(*cache.fbb).Union();
+    break;
+  }
+  case ttkernel::ArgType::GlobalSemaphore: {
+    argType = target::metal::KernelArgType::KernelArgGlobalSemaphore;
+    arg = target::metal::CreateKernelArgGlobalSemaphore(
+              *cache.fbb, kernelArg.getOperandIndex())
+              .Union();
     break;
   }
   }
@@ -849,10 +863,19 @@ std::shared_ptr<void> translateTTMetalToFlatbuffer(
       } else if (auto enqueueProgramOp =
                      dyn_cast_if_present<tt::ttmetal::EnqueueProgramOp>(op);
                  enqueueProgramOp) {
-        std::vector<flatbuffers::Offset<target::metal::BufferRef>> buffers;
-        buffers.reserve(enqueueProgramOp.getBuffers().size());
-        for (auto buffer : enqueueProgramOp.getBuffers()) {
-          buffers.push_back(cache.at<target::metal::BufferRef>(buffer));
+        std::vector<target::metal::ArgRef> argTypes;
+        std::vector<flatbuffers::Offset<void>> args;
+        argTypes.reserve(enqueueProgramOp.getArgs().size());
+        args.reserve(enqueueProgramOp.getArgs().size());
+        for (auto arg : enqueueProgramOp.getArgs()) {
+          if (mlir::isa<MemRefType>(arg.getType())) {
+            argTypes.push_back(target::metal::ArgRef::BufferRef);
+            args.push_back(cache.at<target::metal::BufferRef>(arg).Union());
+          } else if (mlir::isa<GlobalSemaphoreType>(arg.getType())) {
+            argTypes.push_back(target::metal::ArgRef::GlobalSemaphoreRef);
+            args.push_back(
+                cache.at<target::metal::GlobalSemaphoreRef>(arg).Union());
+          }
         }
 
         std::vector<flatbuffers::Offset<target::metal::CBRef>> cbs;
@@ -881,7 +904,7 @@ std::shared_ptr<void> translateTTMetalToFlatbuffer(
 
         cqBuilder.appendCommand(
             target::metal::CreateEnqueueProgramCommandDirect(
-                fbb, &buffers, &cbs,
+                fbb, &argTypes, &args, &cbs,
                 target::metal::CreateProgramDescDirect(fbb, &kernelConfigs),
                 fabricConnectionConfig),
             op);
@@ -1016,6 +1039,32 @@ std::shared_ptr<void> translateTTMetalToFlatbuffer(
                 meshShardType, meshShardDirection,
                 cache.fbb->CreateVector<int64_t>(meshShardOp.getShardShape()),
                 cache.fbb->CreateVector<int64_t>(meshShardOp.getShardDims())),
+            op);
+      } else if (auto createGlobalSemaphoreOp =
+                     dyn_cast_if_present<tt::ttmetal::CreateGlobalSemaphoreOp>(
+                         op);
+                 createGlobalSemaphoreOp) {
+        std::vector<target::Dim2dRange> coreRangeSet = {toFlatbuffer(
+            mlir::cast<CoreRangeAttr>(createGlobalSemaphoreOp.getCoreRange()))};
+
+        cqBuilder.appendCommand(
+            target::metal::CreateCreateGlobalSemaphoreCommandDirect(
+                fbb,
+                cache.getOrCreate(createGlobalSemaphoreOp.getResult(),
+                                  globalSemaphoreValueToFlatbuffer,
+                                  createGlobalSemaphoreOp.getAddress()),
+                createGlobalSemaphoreOp.getInitialValue(), &coreRangeSet),
+            op);
+      } else if (auto resetGlobalSemaphoreOp =
+                     dyn_cast_if_present<tt::ttmetal::ResetGlobalSemaphoreOp>(
+                         op);
+                 resetGlobalSemaphoreOp) {
+        cqBuilder.appendCommand(
+            target::metal::CreateResetGlobalSemaphoreCommand(
+                fbb,
+                cache.at<target::metal::GlobalSemaphoreRef>(
+                    resetGlobalSemaphoreOp.getSemaphore()),
+                resetGlobalSemaphoreOp.getValue()),
             op);
       } else if (auto funcOp = dyn_cast_if_present<func::FuncOp>(op); funcOp) {
         // Unqualified walk will visit the root op itself last, we should

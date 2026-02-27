@@ -57,6 +57,14 @@ def extract_functions_from_mlir(mlir_content: str) -> List[Tuple[str, str]]:
     return functions
 
 
+# Model IDs (path under mlir_snippets/models without .mlir) to exclude from
+# discovery here; they are tested in test_d2m_fusion_with_optimizer.py instead.
+SNIPPETS_TO_SKIP = {
+    "gpt_oss_20b/gate_up",
+    "gpt_oss_20b/rope_embedding",
+}
+
+
 # Discover all MLIR files and extract each function as a separate snippet.
 def discover_model_mlir_snippets() -> Dict[str, Dict[str, str]]:
     models_dir = os.path.join(os.path.dirname(__file__), "mlir_snippets/models")
@@ -71,7 +79,8 @@ def discover_model_mlir_snippets() -> Dict[str, Dict[str, str]]:
                 file_path = os.path.join(root, filename)
                 rel_path = os.path.relpath(file_path, models_dir)
                 model_id = rel_path.replace(".mlir", "")
-
+                if model_id in SNIPPETS_TO_SKIP:
+                    continue
                 with open(file_path, "r") as f:
                     content = f.read().strip()
 
@@ -112,6 +121,9 @@ def test_model_snippet_compile_execute(
     output_root = kwargs.get("output_root", ".")
     save_artifacts = kwargs.get("save_artifacts", False)
 
+    print_ir = kwargs.get("print_ir", False)
+    skip_exec = kwargs.get("skip_exec", False)
+
     snippet_info = MODEL_MLIR_SNIPPETS[snippet_id]
     mlir_content = snippet_info["content"]
     func_name = snippet_info["func_name"]
@@ -142,8 +154,13 @@ def test_model_snippet_compile_execute(
         artifact_dir=artifact_dir,
         target=target,
         save_artifacts=save_artifacts,
+        print_ir=print_ir,
     )
     print("Compilation successful")
+
+    if skip_exec:
+        print("Skipping execution (--skip-exec)")
+        return
 
     # Execute using the standard runtime helper
     execute_fb(

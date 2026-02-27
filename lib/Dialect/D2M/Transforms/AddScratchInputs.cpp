@@ -176,7 +176,8 @@ static LogicalResult addScratchToGeneric(GenericOp genericOp) {
   // Create the new GenericOp with empty regions.
   auto newGenericOp = builder.create<GenericOp>(
       genericOp.getLoc(), genericOp.getResultTypes(), newInputs,
-      genericOp.getOutputs(), genericOp.getGrid(), genericOp.getBlockFactors(),
+      genericOp.getOutputs(), genericOp.getAdditionalArgs(),
+      genericOp.getGrid(), genericOp.getBlockFactors(),
       builder.getArrayAttr(newIndexingMaps), genericOp.getIteratorTypes(),
       genericOp.getThreads(), scratchInputsAttr,
       /*numRegions=*/genericOp.getNumRegions());

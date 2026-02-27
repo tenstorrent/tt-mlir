@@ -8,6 +8,7 @@
 #include "ttmlir/Dialect/D2M/Analysis/CBProducerConsumer.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOpsInterfaces.h"
+#include "ttmlir/Dialect/D2M/IR/D2MOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h"
 #include "ttmlir/Utils.h"
@@ -1751,21 +1752,35 @@ public:
                   d2m::GetGlobalOperandOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
     func::FuncOp entry = op->getParentOfType<func::FuncOp>();
-    auto arg =
-        rewriter.getAttr<ArgAttr>(ArgType::BufferAddress, op.getOperandIndex());
+    ArgAttr arg;
     size_t argIndex;
+    Type arg_result_type;
+
+    if (mlir::isa<MemRefType>(op.getResult().getType())) {
+      arg = rewriter.getAttr<ArgAttr>(ArgType::BufferAddress,
+                                      op.getOperandIndex());
+      arg_result_type = rewriter.getI32Type();
+    } else if (mlir::isa<d2m::GlobalSemaphoreType>(op.getResult().getType())) {
+      arg = rewriter.getAttr<ArgAttr>(ArgType::GlobalSemaphore,
+                                      op.getOperandIndex());
+      arg_result_type = ttkernel::L1AddrType::get(rewriter.getContext());
+    } else {
+      llvm_unreachable("unexpected arg type to GetGlobalOperandOp");
+    }
+
     if (ttnnMode) {
       rewriter.modifyOpInPlace(entry, [&]() {
         argIndex = ArgSpecAttr::appendRuntimeArg(entry, arg);
       });
       rewriter.replaceOpWithNewOp<ttkernel::GetCommonArgValOp>(
-          op, rewriter.getI32Type(), index(rewriter, op->getLoc(), argIndex));
+          op, arg_result_type, index(rewriter, op->getLoc(), argIndex));
+
     } else {
       rewriter.modifyOpInPlace(entry, [&]() {
         argIndex = ArgSpecAttr::appendCompileTimeArg(entry, arg);
       });
       rewriter.replaceOpWithNewOp<ttkernel::GetCompileArgValOp>(
-          op, rewriter.getI32Type(), argIndex);
+          op, arg_result_type, argIndex);
     }
     return success();
   }
@@ -1988,6 +2003,7 @@ public:
                   ConversionPatternRewriter &rewriter) const final {
 
     Value semaphoreAddr = adaptor.getSemaphore();
+
     auto semaphorePtr =
         rewriter.create<ttkernel::CastToL1PtrOp>(op.getLoc(), semaphoreAddr);
 

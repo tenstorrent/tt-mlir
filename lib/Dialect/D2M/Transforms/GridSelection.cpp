@@ -484,7 +484,8 @@ normalizeOperandGridsForGeneric(
     return {};
   }
 
-  TT_assert(optimalOperandGrids.size() == genericOp.getNumOperands());
+  TT_assert(optimalOperandGrids.size() ==
+            genericOp.getInputsAndOutputs().size());
 
   // First, normalize input operand grids for operands that share loop
   // dimensions. For example, in a matmul, the two inputs share the reduction
@@ -494,7 +495,7 @@ normalizeOperandGridsForGeneric(
   llvm::SmallVector<llvm::SmallVector<int64_t>> normalizedOperandGrids(
       optimalOperandGrids.begin(), optimalOperandGrids.end());
 
-  uint64_t numInputs = genericOp.getNumDpsInputs();
+  uint64_t numInputs = genericOp.getInputs().size();
   // Map: loopDim -> list of (operandIndex, operandDimIdx) pairs that reference
   // this loop dimension in their indexing maps.
   llvm::DenseMap<int64_t, llvm::SmallVector<std::pair<uint64_t, uint64_t>>>
@@ -558,7 +559,7 @@ normalizeOperandGridsForGeneric(
   // dimension, the corresponding grid extents must agree.
   if (outputConstraints) {
     for (auto [operandIndex, operand] :
-         llvm::enumerate(genericOp->getOpOperands())) {
+         llvm::enumerate(genericOp.getInputsAndOutputsMutable())) {
       if (genericOp.isDpsInit(&operand)) {
         continue;
       }
@@ -602,7 +603,7 @@ analyzeOperandsAndComputeGrids(d2m::GenericOp genericOp,
   llvm::SmallVector<StreamLayoutUpdateInfo> streamLayoutsToUpdate;
   llvm::SmallVector<EmptyUpdateInfo> emptyOpsToUpdate;
 
-  for (Value operand : genericOp.getOperands()) {
+  for (Value operand : genericOp.getInputsAndOutputs()) {
     auto operandType = mlir::cast<mlir::RankedTensorType>(operand.getType());
     auto operandLayout =
         mlir::dyn_cast<ttcore::MetalLayoutAttr>(operandType.getEncoding());
@@ -870,13 +871,14 @@ recreateGenericOp(d2m::GenericOp genericOp,
     return;
   }
 
-  TT_assert(optimalOperandGrids.size() == genericOp.getNumOperands());
+  TT_assert(optimalOperandGrids.size() ==
+            genericOp.getInputsAndOutputs().size());
 
   OpBuilder builder(genericOp);
   llvm::SmallVector<Value> newOperands;
 
   for (const auto &[optimalGrid, operand] :
-       llvm::zip(optimalOperandGrids, genericOp->getOpOperands())) {
+       llvm::zip(optimalOperandGrids, genericOp.getInputsAndOutputsMutable())) {
 
     auto definingView = operand.get().getDefiningOp<d2m::ViewLayoutOp>();
     if (!definingView) {
@@ -885,16 +887,22 @@ recreateGenericOp(d2m::GenericOp genericOp,
     }
 
     if (genericOp.isDpsInit(&operand) && definingView) {
-      // This is a workaround to avoid type checking errors during/after
-      // canonicalization.  There is an offline proposal being discussed to
-      // address this more holistically.  The short of it is that we need to
-      // just reach through the view to get to the original to_layout operand so
-      // that view_layout folding doesn't need to be applied in the first place.
-      // View layout folding can cause the index_map inside of the metal_layout
-      // to differ from the generic op's result type, leading to type-checking
-      // errors.
-      newOperands.push_back(definingView.getInput());
-      continue;
+      auto inputType =
+          mlir::cast<RankedTensorType>(definingView.getInput().getType());
+      auto metalLayout =
+          mlir::cast<ttcore::MetalLayoutAttr>(inputType.getEncoding());
+      if (metalLayout.getMemorySpace() != ttcore::MemorySpace::DeviceDRAM) {
+        // This is a workaround to avoid type checking errors during/after
+        // canonicalization.  There is an offline proposal being discussed to
+        // address this more holistically.  The short of it is that we need to
+        // just reach through the view to get to the original to_layout operand
+        // so that view_layout folding doesn't need to be applied in the first
+        // place. View layout folding can cause the index_map inside of the
+        // metal_layout to differ from the generic op's result type, leading to
+        // type-checking errors.
+        newOperands.push_back(definingView.getInput());
+        continue;
+      }
     }
 
     auto tensorType =
@@ -909,7 +917,7 @@ recreateGenericOp(d2m::GenericOp genericOp,
   }
 
   {
-    auto numInputs = genericOp.getNumDpsInputs();
+    auto numInputs = genericOp.getInputs().size();
 
     llvm::SmallVector<Value> newInputs(newOperands.begin(),
                                        newOperands.begin() + numInputs);
@@ -917,17 +925,18 @@ recreateGenericOp(d2m::GenericOp genericOp,
                                         newOperands.end());
 
     Region &oldRegion = genericOp.getRegion(0);
+    auto newAdditionalArgs = genericOp.getAdditionalArgs();
 
     auto newGenericOp = builder.create<d2m::GenericOp>(
-        genericOp.getLoc(), newInputs, newOutputs, genericOp.getIndexingMaps(),
-        genericOp.getIteratorTypes(),
+        genericOp.getLoc(), newInputs, newOutputs, newAdditionalArgs,
+        genericOp.getIndexingMaps(), genericOp.getIteratorTypes(),
         [&](OpBuilder &b, Location loc, ValueRange blockArgs) {
           IRMapping mapping;
 
           // Map old operands to new operands for ops that capture external
           // values (e.g., DMAs that reference views outside the region).
           for (auto [oldOp, newOp] :
-               llvm::zip(genericOp.getOperands(), newOperands)) {
+               llvm::zip(genericOp.getInputsAndOutputs(), newOperands)) {
             mapping.map(oldOp, newOp);
           }
 
@@ -1052,7 +1061,7 @@ recreateGenericOp(d2m::GenericOp genericOp,
 }
 
 static bool hasTTNNOperands(d2m::GenericOp genericOp) {
-  for (Value operand : genericOp.getOperands()) {
+  for (Value operand : genericOp.getInputsAndOutputs()) {
     if (operand.getDefiningOp<ttir::TTNNMetalLayoutCastOp>()) {
       return true;
     }
@@ -1070,8 +1079,8 @@ static llvm::SmallVector<llvm::SmallVector<int64_t>>
 computeTTNNGenericGridShapes(GenericOp genericOp,
                              ArrayRef<int64_t> targetSquareGridShape) {
 
-  auto optimalOperandGrids =
-      llvm::SmallVector<llvm::SmallVector<int64_t>>(genericOp.getNumOperands());
+  auto optimalOperandGrids = llvm::SmallVector<llvm::SmallVector<int64_t>>(
+      genericOp.getInputsAndOutputs().size());
 
   // Determine dim size constraints based on L1 operands. L1 operands are
   // assumed fixed and already legal; DRAM operand streams are aligned to match
@@ -1097,7 +1106,8 @@ computeTTNNGenericGridShapes(GenericOp genericOp,
 
   // Set all grid shapes according to constraints
   OpBuilder builder(genericOp->getContext());
-  for (auto [operandIdx, operand] : llvm::enumerate(genericOp.getOperands())) {
+  for (auto [operandIdx, operand] :
+       llvm::enumerate(genericOp.getInputsAndOutputs())) {
 
     auto constrainedDims = getConstrainedDims(operandIdx);
     // if all dims are constrained, use the constrained dims.
@@ -1125,9 +1135,30 @@ computeTTNNGenericGridShapes(GenericOp genericOp,
         }
       }
 
-      auto physicalShape =
-          computePhysicalShape(baseMetalLayout, metalTensorType,
-                               constrainedTargetGridShape, builder);
+      llvm::SmallVector<int64_t> physicalShape;
+      // If operand is DRAM interleaved operand that is the result of a
+      // ttnn->metal cast, we must generate a view of the underlying ttnn tensor
+      // _without_ padding, as the underlying tensor also is unpadded.
+      bool isNonPaddableTTNNDRAMOperand =
+          operand.getDefiningOp<ttir::TTNNMetalLayoutCastOp>() &&
+          baseMetalLayout.getMemorySpace() == ttcore::MemorySpace::DeviceDRAM &&
+          baseMetalLayout.getMemoryLayout() ==
+              ttcore::TensorMemoryLayout::Interleaved;
+      if (isNonPaddableTTNNDRAMOperand) {
+        llvm::SmallVector<int64_t> tileShape;
+        if (auto tileType = mlir::dyn_cast<ttcore::TileType>(
+                metalTensorType.getElementType())) {
+          tileShape = llvm::to_vector(tileType.getShape());
+        } else {
+          tileShape = llvm::to_vector(ttcore::TileType::getDefaultShape());
+        }
+        physicalShape = baseMetalLayout.getPhysicalShape(tileShape);
+      } else {
+        physicalShape =
+            computePhysicalShape(baseMetalLayout, metalTensorType,
+                                 constrainedTargetGridShape, builder);
+      }
+
       optimalOperandGrids[operandIdx] = computeOptimalGrid(
           metalTensorType, physicalShape, constrainedTargetGridShape);
     }
@@ -1140,7 +1171,7 @@ computeTTNNGenericGridShapes(GenericOp genericOp,
 // passing each view's input as the new operands.
 static void eraseUnitGridReblockingViews(d2m::GenericOp genericOp) {
   // Use vector here to avoid invalidating iterator with erasures.
-  auto operands = llvm::to_vector(genericOp.getOperands());
+  auto operands = llvm::to_vector(genericOp.getInputsAndOutputs());
   for (Value operand : operands) {
     if (auto viewOp = operand.getDefiningOp<d2m::ViewLayoutOp>()) {
       auto originalOperand = viewOp.getInput();
@@ -1156,9 +1187,8 @@ static void eraseUnitGridReblockingViews(d2m::GenericOp genericOp) {
 // have TTNN DRAM interleaved tensors as operands and:
 // 1. Compute the "optimal" grid for the tensor as if it were a regular Metal
 // sharded tensor.
-// 2. Insert a stream layout op with a mock storage tensor to represent the
-// tensor with the "optimal" grid.
-// 3. Update the genericOp to use the stream output as an operand.
+// 2. Insert a view layout op to represent the tensor with the "optimal" grid.
+// 3. Update the genericOp to use the view output as an operand.
 //
 // Note the cast op is NOT erased as it represents the canonical layout mapping
 // between TTNN and Metal layouts.
@@ -1172,12 +1202,11 @@ static void eraseUnitGridReblockingViews(d2m::GenericOp genericOp) {
 // space, an inferred grid, and an index map to index into the original
 // tensor.
 //
-// 3. A storage tensor required by the stream_layout op to represent the
-// mapping of tensor 1 to tensor 2. This tensor has the inferred grid and L1
-// memory space.
+// A view layout op  is used here so that the Allocator pass retains
+// ownership of stream insertion and buffer count selection.
 static llvm::SmallVector<llvm::SmallVector<int64_t>>
-insertTTNNDRAMStreams(d2m::GenericOp genericOp,
-                      ArrayRef<int64_t> targetSquareGridShape) {
+insertTTNNDRAMViews(d2m::GenericOp genericOp,
+                    ArrayRef<int64_t> targetSquareGridShape) {
 
   eraseUnitGridReblockingViews(genericOp);
 
@@ -1185,7 +1214,8 @@ insertTTNNDRAMStreams(d2m::GenericOp genericOp,
       computeTTNNGenericGridShapes(genericOp, targetSquareGridShape);
 
   OpBuilder builder(genericOp->getContext());
-  for (auto [operandIdx, operand] : llvm::enumerate(genericOp.getOperands())) {
+  for (auto [operandIdx, operand] :
+       llvm::enumerate(genericOp.getInputsAndOutputs())) {
     auto metalTensor = mlir::cast<mlir::RankedTensorType>(operand.getType());
     auto baseMetalLayout =
         mlir::cast<ttcore::MetalLayoutAttr>(metalTensor.getEncoding());
@@ -1210,8 +1240,6 @@ insertTTNNDRAMStreams(d2m::GenericOp genericOp,
       continue;
     }
 
-    llvm::SmallVector<int64_t> unshardedShape =
-        baseMetalLayout.getPhysicalShape(ttcore::TileType::getDefaultShape());
     // TTNN DRAM interleaved tensors are represented as having a 1x1 grid.
     llvm::SmallVector<int64_t> unitGridShape{1, 1};
     llvm::SmallVector<int64_t> unShardedShapeWithGrid =
@@ -1224,34 +1252,20 @@ insertTTNNDRAMStreams(d2m::GenericOp genericOp,
 
     auto reblockMap = ttmlir::utils::calculateReblockMap(
         unShardedShapeWithGrid, fakeShardedShape, builder.getContext());
-    auto streamOutputLayout = ttcore::MetalLayoutAttr::get(
+    auto viewOutputLayout = ttcore::MetalLayoutAttr::get(
         builder.getContext(), baseMetalLayout.getLogicalShape(),
         baseMetalLayout.getOobVal(), ttcore::MemorySpace::DeviceDRAM,
         ttcore::TensorMemoryLayout::Interleaved,
         baseMetalLayout.getCollapsedIntervals(),
         baseMetalLayout.getDimAlignments());
 
-    auto streamOutputTensor = mlir::RankedTensorType::get(
-        fakeShardedShape, metalTensor.getElementType(), streamOutputLayout);
-
-    auto storageLayout = ttcore::MetalLayoutAttr::get(
-        builder.getContext(), baseMetalLayout.getLogicalShape(),
-        baseMetalLayout.getOobVal(), ttcore::MemorySpace::DeviceL1,
-        ttcore::TensorMemoryLayout::Sharded,
-        baseMetalLayout.getCollapsedIntervals(),
-        baseMetalLayout.getDimAlignments());
-
-    auto storageTensor = mlir::RankedTensorType::get(
-        fakeShardedShape, metalTensor.getElementType(), storageLayout);
+    auto viewOutputTensor = mlir::RankedTensorType::get(
+        fakeShardedShape, metalTensor.getElementType(), viewOutputLayout);
 
     builder.setInsertionPointAfter(castOp);
-    auto storageOp =
-        builder.create<d2m::EmptyOp>(castOp.getLoc(), storageTensor,
-                                     /*virtualGridMapping=*/nullptr);
-    auto streamOp = builder.create<d2m::StreamLayoutOp>(
-        castOp.getLoc(), streamOutputTensor, castOp.getResult(),
-        AffineMapAttr::get(reblockMap), storageOp);
-    castOp.getResult().replaceAllUsesExcept(streamOp.getResult(), streamOp);
+    auto viewOp = builder.create<d2m::ViewLayoutOp>(
+        castOp.getLoc(), viewOutputTensor, castOp.getResult(), reblockMap);
+    castOp.getResult().replaceAllUsesExcept(viewOp.getResult(), viewOp);
   }
 
   TT_assertv(llvm::all_of(optimalOperandGrids,
@@ -1286,8 +1300,7 @@ static void assignGrids(d2m::GenericOp genericOp,
 
     updateEmptyOps(emptyOpsToUpdate, targetGridShape, targetSquareGridShape);
   } else {
-    optimalOperandGrids =
-        insertTTNNDRAMStreams(genericOp, targetSquareGridShape);
+    optimalOperandGrids = insertTTNNDRAMViews(genericOp, targetSquareGridShape);
   }
 
   recreateGenericOp(genericOp, optimalOperandGrids);
