@@ -743,6 +743,12 @@ void applyFallbackTransformations(
           operation->getContext(), result.actualOutputLayout.getLayout()));
     }
 
+    if (TTNNDtypeOpInterface dtypeOp =
+            mlir::dyn_cast<TTNNDtypeOpInterface>(operation)) {
+      dtypeOp.setDtypeAttr(ttcore::DataTypeAttr::get(
+          operation->getContext(), result.actualOutputLayout.getDataType()));
+    }
+
     // Step 2: Add revert ToLayoutOp to convert back to expected layout for
     // consumers
     applyOutputLayoutRevert(operation, result.actualOutputLayout,
