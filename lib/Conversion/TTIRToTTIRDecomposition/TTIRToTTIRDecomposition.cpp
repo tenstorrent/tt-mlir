@@ -1480,7 +1480,19 @@ normalizeToNCHW(mlir::Value input, uint64_t featureIndex,
   } else if (rank < 4) {
     llvm::SmallVector<int64_t> reshapedShape(currentShape.begin(),
                                              currentShape.end());
-    reshapedShape.append(4 - rank, 1);
+    // For rank-3 tensors [N, C, S], if S is tile-aligned (according to the
+    // default tile width), split it into [N, C, S/tileWidth, tileWidth]
+    // rather than appending a trailing 1 ([N, C, S, 1]) to maintain a
+    // fully-packed tile layout.
+    auto defaultTileShape = ttcore::TileType::getDefaultShape();
+    int64_t tileWidth = defaultTileShape[1];
+    if (rank == 3 && tileWidth != 0 && reshapedShape.back() % tileWidth == 0) {
+      int64_t S = reshapedShape.back();
+      reshapedShape.back() = S / tileWidth;
+      reshapedShape.push_back(tileWidth);
+    } else {
+      reshapedShape.append(4 - rank, 1);
+    }
     llvm::SmallVector<int32_t> reshapedShapeI32(reshapedShape.begin(),
                                                 reshapedShape.end());
     newInput = rewriter.create<mlir::tt::ttir::ReshapeOp>(
