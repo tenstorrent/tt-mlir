@@ -559,9 +559,15 @@ void ToLayoutOp::getCanonicalizationPatterns(mlir::RewritePatternSet &patterns,
     if (!emptyOp) {
       return failure();
     }
-    rewriter.replaceOpWithNewOp<EmptyOp>(op, op.getOutput().getType(),
-                                         /*virtualGridInverseMapping=*/nullptr,
-                                         /*virtualGridForwardMapping=*/nullptr);
+    // Propagate VGM attributes from the output operand's EmptyOp.
+    AffineMapAttr invMap = nullptr;
+    AffineMapAttr fwdMap = nullptr;
+    if (auto outputEmpty = op.getOutput().getDefiningOp<EmptyOp>()) {
+      invMap = outputEmpty.getVirtualGridInverseMappingAttr();
+      fwdMap = outputEmpty.getVirtualGridForwardMappingAttr();
+    }
+    rewriter.replaceOpWithNewOp<EmptyOp>(op, op.getOutput().getType(), invMap,
+                                         fwdMap);
     return success();
   });
 
@@ -1358,14 +1364,26 @@ void d2m::GenericOp::build(mlir::OpBuilder &builder,
       }
 
       // 3. Fallback: if the logical grid differs from the physical grid
-      //    (e.g. ND grids) and no explicit mapping was found, derive one.
+      //    (e.g. ND grids) and no explicit mapping was found, derive one
+      //    and store the VGM attrs on the output so verifier invariants hold.
       if (!grid) {
         SmallVector<int64_t> physGridShape =
             d2m::utils::getPhysicalGridShape(output);
         if (!llvm::equal(gridShape, physGridShape)) {
-          auto [_, invMap] = ttmlir::d2m::utils::grids::createCoreVirtMaps(
+          auto [fwdMap, invMap] = ttmlir::d2m::utils::grids::createCoreVirtMaps(
               builder.getContext(), gridShape, physGridShape);
           grid = builder.getAttr<ttcore::GridAttr>(gridShape, invMap);
+          if (auto emptyOp = output.getDefiningOp<d2m::EmptyOp>()) {
+            emptyOp.setVirtualGridInverseMappingAttr(
+                AffineMapAttr::get(invMap));
+            emptyOp.setVirtualGridForwardMappingAttr(
+                AffineMapAttr::get(fwdMap));
+          } else if (Operation *defOp = output.getDefiningOp()) {
+            defOp->setAttr(d2m::utils::kVirtualGridInverseMappingAttr,
+                           AffineMapAttr::get(invMap));
+            defOp->setAttr(d2m::utils::kVirtualGridForwardMappingAttr,
+                           AffineMapAttr::get(fwdMap));
+          }
         }
       }
 
