@@ -12,6 +12,9 @@
 namespace mlir::tt::ttcore {
 class DeviceAttr;
 } // namespace mlir::tt::ttcore
+namespace mlir::tt::d2m {
+class GenericOp;
+} // namespace mlir::tt::d2m
 
 namespace mlir::tt::d2m::utils {
 
@@ -23,6 +26,19 @@ constexpr llvm::StringLiteral kVirtualGridInverseMappingAttr =
     "d2m.virtualGridInverseMapping";
 constexpr llvm::StringLiteral kVirtualGridForwardMappingAttr =
     "d2m.virtualGridForwardMapping";
+
+struct DSTPackingInfo {
+  int64_t num_tiles_per_flip = 0;
+  int64_t num_dst_flips = 0;
+  int64_t num_outer_loop_iters = 0;
+};
+
+using DSTPackingResult = std::pair<Value, DSTPackingInfo>;
+
+// Analyze linalg.generic ops in a unified d2m.generic region and compute the
+// maximal legal number of tiles per DST flip per op destination.
+SmallVector<DSTPackingResult>
+analyzeGenericForDSTPacking(d2m::GenericOp generic);
 
 // Return a new RankedTensorType by reblocking its device shape to match a new
 // grid shape.

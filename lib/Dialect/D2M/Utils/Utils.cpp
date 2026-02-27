@@ -14,14 +14,307 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Utils.h"
 
+#include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Affine/Utils.h"
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/AffineExpr.h"
 
 #include <cassert>
 #include <cmath>
 #include <cstdint>
+#include <limits>
 
 namespace mlir::tt::d2m::utils {
+
+namespace {
+
+enum class DstExecutionClass { FPU, SFPU };
+
+static Region *getUnifiedRegionOrEmitError(d2m::GenericOp generic) {
+  Region *unifiedRegion = nullptr;
+  for (unsigned regionIndex = 0; regionIndex < generic.getNumRegions();
+       ++regionIndex) {
+    if (generic.getRegionThreadType(regionIndex) != ThreadType::Unified) {
+      continue;
+    }
+    if (unifiedRegion != nullptr) {
+      generic.emitOpError("expected at most one unified region");
+      return nullptr;
+    }
+    unifiedRegion = &generic.getRegion(regionIndex);
+  }
+
+  if (unifiedRegion == nullptr) {
+    generic.emitOpError("expected a unified region for DST packing analysis");
+  }
+  return unifiedRegion;
+}
+
+static scf::ForOp getImmediateParentBlockingLoop(linalg::GenericOp op) {
+  Operation *parentOp = op->getParentOp();
+  if (parentOp == nullptr) {
+    return nullptr;
+  }
+
+  if (auto parentScfFor = mlir::dyn_cast<scf::ForOp>(parentOp)) {
+    if (parentScfFor->hasAttr("d2m.blocking_loop")) {
+      return parentScfFor;
+    }
+  }
+  return nullptr;
+}
+
+static std::optional<int64_t> getShardSizeInTiles(Value outputValue) {
+  auto shapedType = mlir::dyn_cast<ShapedType>(outputValue.getType());
+  if (!shapedType || !shapedType.hasStaticShape()) {
+    return std::nullopt;
+  }
+
+  int64_t shardSizeTiles = 1;
+  for (int64_t dim : shapedType.getShape()) {
+    shardSizeTiles *= dim;
+  }
+  return shardSizeTiles;
+}
+
+static DstExecutionClass classifyComputeOp(Operation *op) {
+  if (mlir::isa<TileMatmulOp, TileReduceMaxOp, TileReduceSumOp>(op)) {
+    return DstExecutionClass::FPU;
+  }
+
+  if (mlir::isa<TileAddOp, TileSubOp, TileMulOp>(op)) {
+    TT_assertv(op->getNumOperands() == 2u,
+               "expected binary op for tile add/sub/mul");
+    Type rhsType = op->getOperand(1).getType();
+    if (mlir::isa<ttcore::TileType>(rhsType)) {
+      return DstExecutionClass::FPU;
+    }
+    return DstExecutionClass::SFPU;
+  }
+
+  return DstExecutionClass::SFPU;
+}
+
+static DstExecutionClass classifyLinalgExecutionClass(linalg::GenericOp op) {
+  bool sawComputeOp = false;
+  DstExecutionClass execClass = DstExecutionClass::FPU;
+
+  op.getRegion().walk([&](Operation *nestedOp) {
+    if (auto computeOp =
+            mlir::dyn_cast<OperandLoadStoreRegisterOpInterface>(nestedOp)) {
+      (void)computeOp;
+      sawComputeOp = true;
+      if (classifyComputeOp(nestedOp) == DstExecutionClass::SFPU) {
+        execClass = DstExecutionClass::SFPU;
+        return WalkResult::interrupt();
+      }
+    }
+    return WalkResult::advance();
+  });
+
+  if (!sawComputeOp) {
+    return DstExecutionClass::SFPU;
+  }
+  return execClass;
+}
+
+static std::optional<int64_t> getMaxDstTilesForLinalgOp(linalg::GenericOp op) {
+  TT_assertv(op.getOutputs().size() == 1u,
+             "expected exactly one linalg.generic output");
+  auto outputShapedType =
+      mlir::dyn_cast<ShapedType>(op.getOutputs().front().getType());
+  if (!outputShapedType) {
+    return std::nullopt;
+  }
+
+  Type elementType = outputShapedType.getElementType();
+  if (auto tileType = mlir::dyn_cast<ttcore::TileType>(elementType)) {
+    elementType = tileType.getElementType();
+  }
+
+  const bool isFp32 =
+      ttcore::getNumberOfBits(ttcore::elementTypeToDataType(elementType)) == 32;
+
+  int64_t maxDstTiles =
+      classifyLinalgExecutionClass(op) == DstExecutionClass::FPU ? 8 : 4;
+  if (isFp32) {
+    maxDstTiles /= 2;
+  }
+  return maxDstTiles;
+}
+
+static std::optional<int64_t> getLargestLegalChunkSize(int64_t shardSizeTiles,
+                                                       int64_t maxDstTiles) {
+  int64_t largestCandidate = std::min(maxDstTiles, shardSizeTiles / 2);
+  for (int64_t numTilesPerFlip = largestCandidate; numTilesPerFlip >= 1;
+       --numTilesPerFlip) {
+    if ((2 * numTilesPerFlip) > shardSizeTiles) {
+      continue;
+    }
+    if ((shardSizeTiles % numTilesPerFlip) != 0) {
+      continue;
+    }
+    return numTilesPerFlip;
+  }
+  return std::nullopt;
+}
+
+static std::optional<int64_t>
+getMinimalNumDstFlipsForOuterLoopFactorization(int64_t numDstFlips) {
+  if (numDstFlips < 2) {
+    return std::nullopt;
+  }
+  for (int64_t candidate = 2; candidate <= numDstFlips; ++candidate) {
+    if ((numDstFlips % candidate) == 0) {
+      return candidate;
+    }
+  }
+  return std::nullopt;
+}
+
+static std::optional<int64_t>
+getLargestCommonNumOuterLoopIters(ArrayRef<int64_t> numDstFlipsPerOp) {
+  if (numDstFlipsPerOp.empty()) {
+    return std::nullopt;
+  }
+
+  int64_t maxCandidate = std::numeric_limits<int64_t>::max();
+  for (int64_t numDstFlips : numDstFlipsPerOp) {
+    // Enforce num_dst_flips >= 2, i.e.
+    // num_outer_loop_iters <= num_dst_flips / 2.
+    maxCandidate = std::min(maxCandidate, numDstFlips / 2);
+  }
+  if (maxCandidate < 1) {
+    return std::nullopt;
+  }
+
+  for (int64_t candidate = maxCandidate; candidate >= 1; --candidate) {
+    bool dividesAll = llvm::all_of(numDstFlipsPerOp, [&](int64_t numDstFlips) {
+      return (numDstFlips % candidate) == 0;
+    });
+    if (dividesAll) {
+      return candidate;
+    }
+  }
+  return std::nullopt;
+}
+
+struct PendingDSTPackingResult {
+  Value outputValue;
+  int64_t numTilesPerFlip = 0;
+  int64_t numDstFlips = 0;
+};
+
+} // namespace
+
+SmallVector<DSTPackingResult>
+analyzeGenericForDSTPacking(d2m::GenericOp generic) {
+  SmallVector<DSTPackingResult> results;
+  SmallVector<PendingDSTPackingResult> pendingResults;
+  SmallVector<int64_t> numDstFlipsPerOp;
+
+  Region *unifiedRegion = getUnifiedRegionOrEmitError(generic);
+  if (unifiedRegion == nullptr) {
+    return {};
+  }
+
+  SmallVector<linalg::GenericOp> linalgOps;
+  unifiedRegion->walk([&](linalg::GenericOp op) { linalgOps.push_back(op); });
+
+  scf::ForOp commonImmediateParentBlockingLoop = nullptr;
+  for (linalg::GenericOp linalgOp : linalgOps) {
+    scf::ForOp immediateParentBlockingLoop =
+        getImmediateParentBlockingLoop(linalgOp);
+    if (immediateParentBlockingLoop == nullptr) {
+      linalgOp.emitOpError(
+          "expected immediate parent to be an scf.for with d2m.blocking_loop");
+      return {};
+    }
+
+    if (commonImmediateParentBlockingLoop == nullptr) {
+      commonImmediateParentBlockingLoop = immediateParentBlockingLoop;
+    } else if (commonImmediateParentBlockingLoop !=
+               immediateParentBlockingLoop) {
+      linalgOp.emitOpError(
+          "expected all linalg.generic ops to have the same immediate parent "
+          "scf.for blocking loop");
+      return {};
+    }
+
+    if (linalgOp.getOutputs().size() != 1u) {
+      linalgOp.emitOpError("expected exactly one output");
+      return {};
+    }
+
+    Value outputValue = linalgOp.getOutputs().front();
+
+    std::optional<int64_t> shardSizeTiles = getShardSizeInTiles(outputValue);
+    if (!shardSizeTiles) {
+      linalgOp.emitOpError(
+          "expected static shaped output to compute shard size");
+      return {};
+    }
+
+    std::optional<int64_t> maxDstTiles = getMaxDstTilesForLinalgOp(linalgOp);
+    if (!maxDstTiles) {
+      linalgOp.emitOpError("failed to compute max DST tile capacity");
+      return {};
+    }
+
+    std::optional<int64_t> numTilesPerFlip =
+        getLargestLegalChunkSize(*shardSizeTiles, *maxDstTiles);
+    if (!numTilesPerFlip) {
+      linalgOp.emitOpError("failed to find legal tiles per DST flip");
+      return {};
+    }
+
+    int64_t numDstFlips = *shardSizeTiles / *numTilesPerFlip;
+    if (numDstFlips <= 0) {
+      linalgOp.emitOpError("expected positive DST flip count");
+      return {};
+    }
+    std::optional<int64_t> minNumDstFlips =
+        getMinimalNumDstFlipsForOuterLoopFactorization(numDstFlips);
+    if (!minNumDstFlips) {
+      linalgOp.emitOpError("failed to satisfy num_dst_flips >= 2");
+      return {};
+    }
+
+    pendingResults.push_back(
+        PendingDSTPackingResult{outputValue, *numTilesPerFlip, numDstFlips});
+    numDstFlipsPerOp.push_back(numDstFlips);
+  }
+
+  if (pendingResults.empty()) {
+    return {};
+  }
+
+  std::optional<int64_t> commonNumOuterLoopIters =
+      getLargestCommonNumOuterLoopIters(numDstFlipsPerOp);
+  if (!commonNumOuterLoopIters) {
+    generic.emitOpError(
+        "failed to infer common num_outer_loop_iters with num_dst_flips >= 2 "
+        "for all "
+        "linalg.generic ops");
+    return {};
+  }
+
+  for (const PendingDSTPackingResult &pending : pendingResults) {
+    int64_t numDstFlips = pending.numDstFlips / *commonNumOuterLoopIters;
+    if ((pending.numDstFlips % *commonNumOuterLoopIters) != 0 ||
+        numDstFlips < 2) {
+      generic.emitOpError("failed to satisfy common num_outer_loop_iters and "
+                          "num_dst_flips >= 2");
+      return {};
+    }
+    results.push_back({pending.outputValue,
+                       DSTPackingInfo{pending.numTilesPerFlip, numDstFlips,
+                                      *commonNumOuterLoopIters}});
+  }
+
+  return results;
+}
 
 llvm::SmallVector<int64_t>
 getSquareTargetGrid(mlir::ArrayRef<int64_t> targetGridShape) {
