@@ -84,6 +84,9 @@ void createTTNNPipelineTTIRPasses(
     pm.addPass(mlir::tt::ttir::createTTIRFusing(fusingOptions));
   }
   pm.addPass(mlir::tt::ttir::createTTIRFoldFullToScalar());
+
+  pm.addPass(mlir::createCanonicalizerPass());
+  pm.addPass(mlir::createCSEPass());
 }
 
 void createTTNNPipelineAnalysisPasses(
