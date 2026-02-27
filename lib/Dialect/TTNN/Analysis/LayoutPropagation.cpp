@@ -742,9 +742,10 @@ LayoutPropagation::getInputCandidateSets(Operation *op) {
               continue;
             }
           }
-          // TODO: Reshard candidates for func args / unresolved producers are
-          // emitted without validation since there is no beam state to provide
-          // a producerOutputLayout. This matches pre-KxK behavior.
+          // TODO(rpavlovicTT): Reshard candidates for func args / unresolved
+          // producers are emitted without validation since there is no beam
+          // state to provide a producerOutputLayout. This matches pre-KxK
+          // behavior.
           InputCandidate ic;
           ic.layout = reshardLayout;
           ic.producerCandidateIndex = pIdx;
