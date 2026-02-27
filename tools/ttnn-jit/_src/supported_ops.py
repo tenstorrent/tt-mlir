@@ -49,6 +49,7 @@ unary_ops = [
     "logical_not",
     "bitwise_not",
     "reciprocal",
+    "clamp",
 ]
 
 # Binary operations - two input tensors or tensor + scalar
