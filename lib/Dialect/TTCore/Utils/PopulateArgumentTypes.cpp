@@ -52,7 +52,7 @@ bool ArgumentTypeMapParser::parse(
 
     // if an entry is something like "func1=" or "func1=," then it's invalid.
     if (argNames.empty()) {
-      llvm::errs() << "Provided empty argument list for funtion name: \""
+      llvm::errs() << "Provided empty argument list for function name: \""
                    << funcName << "\"" << "\n";
       return true;
     }

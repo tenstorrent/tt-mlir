@@ -156,12 +156,12 @@ void GreedyL1InterleavedPolicy::run() {
     //
     llvm::DenseMap<Operation *, OpMemSpec> OpMemSpecMap;
     mlir::tt::scheduler::Scheduler scheduler(&func);
-    llvm::SmallVector<Operation *> scheduleableOps;
+    llvm::SmallVector<Operation *> schedulableOps;
 
     while (scheduler.hasUnscheduledOps()) {
-      scheduleableOps = scheduler.getSchedulableOps();
+      schedulableOps = scheduler.getSchedulableOps();
 
-      for (Operation *op : scheduleableOps) {
+      for (Operation *op : schedulableOps) {
         // Schedule the op.
         //
         scheduler.scheduleOp(op);

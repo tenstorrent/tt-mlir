@@ -42,18 +42,18 @@ public:
     return static_cast<size_t>(selectedReshardOutputConfigBitIndex);
   }
 
-  void setOverridenReconfig(bool overridenReconfig) {
-    this->overridenReconfig = overridenReconfig;
+  void setOverriddenReconfig(bool overriddenReconfig) {
+    this->overriddenReconfig = overriddenReconfig;
   }
 
-  bool hasOverridenReconfig() const { return overridenReconfig; }
+  bool hasOverriddenReconfig() const { return overriddenReconfig; }
 
 private:
   // Index of the selected reshard output config bit in the map.
   int32_t selectedReshardOutputConfigBitIndex = -1;
 
   // Indicates if the reconfiguration is overridden by the user.
-  bool overridenReconfig = false;
+  bool overriddenReconfig = false;
 
   friend llvm::raw_ostream &
   operator<<(llvm::raw_ostream &os, const MemReconfigEntry &memReconfigEntry);
@@ -70,7 +70,7 @@ inline llvm::raw_ostream &operator<<(llvm::raw_ostream &os,
   }
   os << "SelectedReshardOutputConfigBitIndex: "
      << memReconfigEntry.selectedReshardOutputConfigBitIndex << "\n";
-  os << "OverridenReconfig: " << memReconfigEntry.hasOverridenReconfig()
+  os << "OverriddenReconfig: " << memReconfigEntry.hasOverriddenReconfig()
      << "\n";
   return os;
 }

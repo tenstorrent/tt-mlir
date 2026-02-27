@@ -468,7 +468,7 @@ public:
     for (const auto &edge : overrideReshardEdges) {
       if (memReconfigEntryMap.count(edge) == 0) {
         auto newEntry = MemReconfigEntry();
-        newEntry.setOverridenReconfig(true);
+        newEntry.setOverriddenReconfig(true);
         memReconfigEntryMap.try_emplace(edge, newEntry);
       }
     }
@@ -760,16 +760,16 @@ private:
     // Check if each overridden op exists in the graph.
     // Check if each conv2d config override is applied only to conv2d op.
     //
-    llvm::StringMap<bool> overridenOpExists;
+    llvm::StringMap<bool> overriddenOpExists;
     llvm::StringMap<bool> overrideConv2dOp;
     for (const auto &[opLoc, _] : overrideOutputLayout) {
-      overridenOpExists[opLoc] = false;
+      overriddenOpExists[opLoc] = false;
     }
     for (const auto &[opLoc, _] : insertMemReconfig) {
-      overridenOpExists[opLoc] = false;
+      overriddenOpExists[opLoc] = false;
     }
     for (const auto &[opLoc, _] : overrideConv2dConfig) {
-      overridenOpExists[opLoc] = false;
+      overriddenOpExists[opLoc] = false;
       overrideConv2dOp[opLoc] = false;
     }
 
@@ -780,8 +780,8 @@ private:
       }
 
       StringRef opLocName = mlir::cast<NameLoc>(op->getLoc()).getName();
-      if (overridenOpExists.contains(opLocName)) {
-        overridenOpExists[opLocName] = true;
+      if (overriddenOpExists.contains(opLocName)) {
+        overriddenOpExists[opLocName] = true;
       }
       if (!isa<ttnn::Conv2dOp>(op) && overrideConv2dOp.contains(opLocName)) {
         op->emitRemark() << "Trying to override non-conv2d op: '"
@@ -791,8 +791,8 @@ private:
       }
     });
 
-    for (const auto &[opLoc, opOverridenAndExists] : overridenOpExists) {
-      if (!opOverridenAndExists) {
+    for (const auto &[opLoc, opOverriddenAndExists] : overriddenOpExists) {
+      if (!opOverriddenAndExists) {
         llvm::report_fatal_error("Trying to override non-existing op: " +
                                  opLoc + ". Check logs for details");
       }
@@ -850,8 +850,8 @@ private:
       Operation *producerOp = edge.producerOp;
       Operation *consumerOp = edge.consumerOp;
 
-      const bool overridenReconfig = memReconfigEntry.hasOverridenReconfig();
-      assert(overridenReconfig ||
+      const bool overriddenReconfig = memReconfigEntry.hasOverriddenReconfig();
+      assert(overriddenReconfig ||
              memReconfigEntry.hasSelectedReshardOutputConfigBitIndex());
 
       // If there's no producer, tensor is defined by the consumer op input
@@ -871,7 +871,7 @@ private:
       // Pick first layout from the list of layouts or consumer output layout if
       // this is the case of an override.
       TTNNLayoutAttr reshardOpLayout = nullptr;
-      if (overridenReconfig) {
+      if (overriddenReconfig) {
         reshardOpLayout = mlir::cast<TTNNLayoutAttr>(
             mlir::cast<RankedTensorType>(consumerOp->getResult(0).getType())
                 .getEncoding());
