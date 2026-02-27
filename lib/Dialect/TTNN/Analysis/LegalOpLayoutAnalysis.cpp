@@ -67,8 +67,8 @@ bool LegalOpLayoutAnalysis::applyOverrides() {
   OutputLayoutOverrideParams layoutOverride = overrideIt->getValue();
 
   // If all layout parameters are set (except data type), we can skip analysis
-  // and create the overridden layout. Otherwise, we need to perform analysis and
-  // apply partial overrides.
+  // and create the overridden layout. Otherwise, we need to perform analysis
+  // and apply partial overrides.
   if (!layoutOverride.fullLayoutOverride()) {
     return false;
   }
