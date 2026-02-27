@@ -6,6 +6,7 @@
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
+#include "ttmlir/Dialect/TTNN/Analysis/DecisionTrace.h"
 #include "ttmlir/Dialect/TTNN/Analysis/L1SpillManagement.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/FunctionTypes.h"
@@ -77,11 +78,19 @@ public:
 
   TTNNGreedyL1SpillManagementBase(TTNNGreedyL1SpillManagementOptions options)
       : TTNNGreedyL1SpillManagementBase() {
-    // Future: initialize options from the struct.
+    enableDecisionTrace = std::move(options.enableDecisionTrace);
+    decisionTraceDir = std::move(options.decisionTraceDir);
   }
 
 protected:
-  // Future: add pass options here.
+  ::mlir::Pass::Option<bool> enableDecisionTrace{
+      *this, "enable-decision-trace",
+      ::llvm::cl::desc("Enable decision trace JSON output."),
+      ::llvm::cl::init(false)};
+  ::mlir::Pass::Option<std::string> decisionTraceDir{
+      *this, "decision-trace-dir",
+      ::llvm::cl::desc("Directory for decision trace JSON output."),
+      ::llvm::cl::init("ttrt-artifacts/decision_trace")};
 
 private:
   friend std::unique_ptr<::mlir::Pass> createTTNNGreedyL1SpillManagement() {
@@ -132,9 +141,29 @@ public:
         return;
       }
 
+      // Create observer if tracing is enabled.
+      std::unique_ptr<L1SpillObserver> observer;
+      if (enableDecisionTrace) {
+        observer = std::make_unique<DecisionTraceObserver>();
+      }
+
       L1SpillManagement<SumL1MemoryTracker> spill(func, deviceGrid,
-                                                  l1BudgetPerCore);
+                                                   l1BudgetPerCore,
+                                                   std::move(observer));
       spill.run();
+
+      // Merge spill management data into the existing decision trace JSON.
+      if (enableDecisionTrace) {
+        if (const DecisionTrace *dt =
+                spill.getObserver()->getDecisionTrace()) {
+          if (DecisionTrace::mergeSpillTrace(decisionTraceDir, func.getName(),
+                                             *dt)) {
+            TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
+                         "Merged spill management trace into {0}/{1}",
+                         decisionTraceDir, func.getName());
+          }
+        }
+      }
     });
   }
 };
