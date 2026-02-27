@@ -321,20 +321,27 @@ def _get_virtual_grid_shape(layout):
         )
 
 
-def _infer_block_sharding_grid(shape):
-    """Infer a (height, width) grid shape for block sharding the given logical tensor shape"""
-    assert len(shape) == 2, f"Only 2D shapes are supported"
+def _infer_block_sharding_grid(shape, core_grid):
+    """Infer a [height, width] grid shape (1-indexed) for block sharding.
+
+    Args:
+        shape: 2D tensor shape
+        core_grid: device core grid as 0-indexed end coords (x, y)
+    """
+    assert len(shape) == 2, "Only 2D shapes are supported"
     tile_shape = _calculate_tile_shape(shape)
+    max_height = core_grid[1] + 1
+    max_width = core_grid[0] + 1
     grid = []
-    for dim in tile_shape:
-        for grid_dim in reversed(range(1, 9)):
+    for dim, max_grid in zip(tile_shape, [max_height, max_width]):
+        for grid_dim in reversed(range(1, max_grid + 1)):
             if dim % grid_dim == 0:
                 grid.append(grid_dim)
                 break
     return grid
 
 
-def _get_output_grid_shape(op_name, output_shape, input_layouts):
+def _get_output_grid_shape(op_name, output_shape, input_layouts, core_grid=None):
     if op_name == "matmul":
         in0_grid = _get_virtual_grid_shape(input_layouts[0])
         in1_grid = _get_virtual_grid_shape(input_layouts[1])
@@ -343,7 +350,11 @@ def _get_output_grid_shape(op_name, output_shape, input_layouts):
         ):
             return [in0_grid[0], in1_grid[1]]
         else:
-            return _infer_block_sharding_grid(output_shape)
+            assert core_grid is not None, (
+                "core_grid is required to infer matmul output grid "
+                "when an input is DRAM interleaved"
+            )
+            return _infer_block_sharding_grid(output_shape, core_grid)
     else:
         return _get_virtual_grid_shape(input_layouts[0])
 
@@ -387,7 +398,9 @@ def _get_output_memory_space_and_layout(op_name, input_layouts):
         )
 
 
-def create_output_tensor(ctx, op_name, input_types, create_encoding=True):
+def create_output_tensor(
+    ctx, op_name, input_types, create_encoding=True, core_grid=None
+):
     if op_name not in OUTPUT_TENSOR_DERIVATION_REQUIRED:
         return input_types[0]
 
@@ -395,7 +408,7 @@ def create_output_tensor(ctx, op_name, input_types, create_encoding=True):
         ttnn.ir.TTNNLayoutAttr.maybe_downcast(tensor.encoding) for tensor in input_types
     ]
     shape = _get_output_shape(op_name, [tensor.shape for tensor in input_types])
-    grid_shape = _get_output_grid_shape(op_name, shape, input_layouts)
+    grid_shape = _get_output_grid_shape(op_name, shape, input_layouts, core_grid)
     mem_space, memory_layout = _get_output_memory_space_and_layout(
         op_name, input_layouts
     )
