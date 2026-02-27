@@ -25,8 +25,7 @@ fixSliceOutputShape(::ttnn::Tensor &&out,
   bool shapeMismatch = (actualShape.size() != expectedShapeFb->size());
   if (!shapeMismatch) {
     for (size_t i = 0; i < actualShape.size(); ++i) {
-      if (actualShape[i] !=
-          static_cast<uint32_t>((*expectedShapeFb)[i])) {
+      if (actualShape[i] != static_cast<uint32_t>((*expectedShapeFb)[i])) {
         shapeMismatch = true;
         break;
       }
@@ -39,9 +38,7 @@ fixSliceOutputShape(::ttnn::Tensor &&out,
     }
     // Keep the padded shape (tile-aligned) from the actual output; only fix
     // the logical shape so downstream ops see the correct unpadded dims.
-    return out.reshape(
-        tt::tt_metal::Shape(newLogical),
-        out.padded_shape());
+    return out.reshape(tt::tt_metal::Shape(newLogical), out.padded_shape());
   }
   return std::move(out);
 }
