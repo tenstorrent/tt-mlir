@@ -11,18 +11,20 @@
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 namespace mlir::tt::ttnn {
-#define GEN_PASS_DEF_TTNNWEIGHTBFP8CONVERSION
+#define GEN_PASS_DEF_TTNNWEIGHTDTYPECONVERSION
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h.inc"
 
 namespace {
 
-// Template pattern to rewrite Matmul/Linear operations to use BFP8 weights.
-// This pattern matches ops where the weight (B operand) is bf16/f32,
-// and inserts a typecast operation to convert it to BFP8.
+// Template pattern to rewrite Matmul/Linear operations to use a specified
+// weight dtype. This pattern matches ops where the weight (B operand) is
+// bf16/f32, and inserts a typecast operation to convert it to the target dtype.
 template <typename OpTy>
-class MatmulLinearBFP8WeightsPattern : public mlir::OpRewritePattern<OpTy> {
+class WeightDtypeConversionPattern : public mlir::OpRewritePattern<OpTy> {
 public:
-  using mlir::OpRewritePattern<OpTy>::OpRewritePattern;
+  WeightDtypeConversionPattern(mlir::MLIRContext *ctx,
+                               ttcore::DataType targetDtype)
+      : mlir::OpRewritePattern<OpTy>(ctx), targetDtype(targetDtype) {}
 
   mlir::LogicalResult
   matchAndRewrite(OpTy op, mlir::PatternRewriter &rewriter) const override {
@@ -36,10 +38,10 @@ public:
 
     auto weightType = weight.getType();
 
-    // Check if weight is already BFP8 or is convertible (bf16/f32).
+    // Check if weight is already the target dtype or is convertible (bf16/f32).
     mlir::Type elType = weightType.getElementType();
     if (auto tileType = mlir::dyn_cast<ttcore::TileType>(elType)) {
-      if (tileType.getDataType() == ttcore::DataType::BFP_BFloat8) {
+      if (tileType.getDataType() == targetDtype) {
         return mlir::failure(); // Already converted.
       }
       // Check if it's bf16 or f32 tile type.
@@ -54,18 +56,14 @@ public:
       }
     }
 
-    // Create BFP8 data type.
-    auto bfp8DataType = ttcore::DataType::BFP_BFloat8;
+    // Create new tensor type with target element type.
+    auto newWeightType =
+        ttnn::utils::RankedTensorTypeFactory::create(weightType, targetDtype);
 
-    // Create new tensor type with BFP8 element type using
-    // RankedTensorTypeFactory.
-    auto bfp8WeightType =
-        ttnn::utils::RankedTensorTypeFactory::create(weightType, bfp8DataType);
-
-    // Insert typecast operation to convert weight to BFP8.
+    // Insert typecast operation to convert weight to target dtype.
     auto typecastOp = rewriter.create<TypecastOp>(
-        op.getLoc(), bfp8WeightType, weight,
-        ttcore::DataTypeAttr::get(rewriter.getContext(), bfp8DataType));
+        op.getLoc(), newWeightType, weight,
+        ttcore::DataTypeAttr::get(rewriter.getContext(), targetDtype));
 
     // Update op to use the typecast result.
     rewriter.modifyOpInPlace(op, [&]() {
@@ -74,18 +72,36 @@ public:
 
     return mlir::success();
   }
+
+private:
+  ttcore::DataType targetDtype;
 };
 
-class TTNNWeightBFP8ConversionPass
-    : public impl::TTNNWeightBFP8ConversionBase<TTNNWeightBFP8ConversionPass> {
+class TTNNWeightDtypeConversionPass
+    : public impl::TTNNWeightDtypeConversionBase<
+          TTNNWeightDtypeConversionPass> {
 public:
-  using impl::TTNNWeightBFP8ConversionBase<
-      TTNNWeightBFP8ConversionPass>::TTNNWeightBFP8ConversionBase;
+  using impl::TTNNWeightDtypeConversionBase<
+      TTNNWeightDtypeConversionPass>::TTNNWeightDtypeConversionBase;
 
   void runOnOperation() final {
+    if (targetDtype.empty()) {
+      getOperation()->emitError(
+          "target-dtype must be specified for weight dtype conversion pass");
+      signalPassFailure();
+      return;
+    }
+
+    auto dtype = ttcore::DataTypeStringToEnum(targetDtype);
+    if (!dtype) {
+      getOperation()->emitError("Invalid target-dtype: " + targetDtype);
+      signalPassFailure();
+      return;
+    }
+
     mlir::RewritePatternSet patterns(&getContext());
-    patterns.add<MatmulLinearBFP8WeightsPattern<MatmulOp>,
-                 MatmulLinearBFP8WeightsPattern<LinearOp>>(&getContext());
+    patterns.add<WeightDtypeConversionPattern<MatmulOp>,
+                 WeightDtypeConversionPattern<LinearOp>>(&getContext(), *dtype);
 
     if (failed(
             mlir::applyPatternsGreedily(getOperation(), std::move(patterns)))) {

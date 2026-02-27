@@ -373,18 +373,23 @@ def TTNNAdjustDeallocs: Pass<"ttnn-adjust-deallocs", "::mlir::ModuleOp"> {
   }];
 }
 
-def TTNNWeightBFP8Conversion: Pass<"ttnn-weight-bfp8-conversion", "::mlir::ModuleOp"> {
-  let summary = "Convert weight tensors to BFP8 format in matmul and linear operations.";
+def TTNNWeightDtypeConversion: Pass<"ttnn-weight-dtype-conversion", "::mlir::ModuleOp"> {
+  let summary = "Convert weight tensors to a specified dtype in matmul and linear operations.";
   let description = [{
     This pass converts weight tensors in matrix multiplication and linear
-    operations to BFP8 format while keeping activations and outputs in
-    high precision (bf16/f32).
+    operations to a specified data type while keeping activations and outputs
+    in high precision (bf16/f32).
 
     For matmul/linear operations:
-      - Inserts ttnn.typecast operations to convert weights to BFP8
+      - Inserts ttnn.typecast operations to convert weights to the target dtype
       - Only converts weights that trace back to constant/parameter arguments
       - Keeps activation inputs and outputs in their original precision
   }];
+
+  list<Option> options = [
+    Option<"targetDtype", "target-dtype", "std::string", /*default=*/"\"\"",
+           "Target data type for weight conversion (e.g. bfp_bf8, bfp_bf4).">,
+  ];
 }
 
 def TTNNConstEvalInputsToSystemMemory : Pass<"ttnn-force-const-eval-to-system-memory", "::mlir::ModuleOp"> {
