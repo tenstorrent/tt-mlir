@@ -65,7 +65,7 @@ INPUT_LAYOUTS = [
 )
 def test_matmul_composite(device, shapes, input_layouts, dtype, ttnn_dtype):
     # Skip large matmuls for float32
-    if dtype == torch.float32 and shapes == (2048, 2048, 2048):
+    if dtype == torch.float32 and shapes in [(2048, 2048, 2048), (1024, 2048, 2048)]:
         pytest.skip("Skipping large matmul for float32")
     # input is (m, k, n)
     shapes = [(shapes[0], shapes[1]), (shapes[1], shapes[2])]

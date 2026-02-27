@@ -216,24 +216,21 @@ public:
       ttcore::DataType dtype =
           ttcore::elementTypeToDataType(cb_memref.getElementType());
       size_t pageSize = device.getMemrefCBPageSizeBytes(cb_memref);
-      size_t numPages = device.getMemrefCBNumPages(cb_memref);
+      size_t totalSize = device.getMemrefSizeBytes(cb_memref, pageSize, true);
 
       ttnn::KernelCBFormatAttr cbFormat =
           ttnn::KernelCBFormatAttr::get(ctx, i, dtype, pageSize);
 
       ttnn::KernelCBGlobalBufferAddressOfTensorAttr globalCBIndexOfTensor;
-      if (auto castOp = mlir::dyn_cast_if_present<ttir::TTNNMetalLayoutCastOp>(
-              cb.getDefiningOp())) {
-        // Input is not streamed, thus buffer must be aliased.
-        TT_assertv(ttcore::getMemorySpace(cb_memref) ==
-                       ttcore::MemorySpace::DeviceL1,
-                   "Can only alias L1 buffers.");
+      if (mlir::isa_and_present<ttir::TTNNMetalLayoutCastOp>(
+              cb.getDefiningOp()) &&
+          ttcore::getMemorySpace(cb_memref) !=
+              ttcore::MemorySpace::DeviceDRAM) {
         globalCBIndexOfTensor =
             ttnn::KernelCBGlobalBufferAddressOfTensorAttr::get(ctx, i);
       }
-      cbDescriptors[i] =
-          ttnn::KernelCBAttr::get(ctx, numPages * pageSize, coreRangeSet,
-                                  {cbFormat}, globalCBIndexOfTensor);
+      cbDescriptors[i] = ttnn::KernelCBAttr::get(
+          ctx, totalSize, coreRangeSet, {cbFormat}, globalCBIndexOfTensor);
     }
 
     return cbDescriptors;

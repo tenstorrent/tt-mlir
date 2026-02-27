@@ -227,7 +227,7 @@ protected:
       if (metalTensorMemSpace == ttcore::MemorySpace::DeviceL1) {
         // Reblock L1 operand to unit grid to align with other operands while
         // preserving original TTNN tensor shape. These views will be removed in
-        // GridSelection by insertTTNNDRAMStreams().
+        // GridSelection by insertTTNNDRAMViews().
         llvm::SmallVector<int64_t> unitGrid(
             metalTensorType.getShape().size() / 2, 1);
         auto [newTensorShape, reblockMap] =

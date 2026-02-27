@@ -977,8 +977,11 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
 
                   // The goal is to have streams for all operands (other than
                   // exempt outputs) that don't have them already.
+                  // DRAM outputs always need streams to write data back from
+                  // L1 circular buffers to DRAM.
 
-                  if (operandCtx.isOutput && !allowL1OutputSpilling) {
+                  if (operandCtx.isOutput && !allowL1OutputSpilling &&
+                      memspace != MemorySpace::DeviceDRAM) {
                     continue;
                   }
 
@@ -987,7 +990,8 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
                   }
 
                   if (useAlwaysStreamPolicy() ||
-                      inferStreamRequirement(user, operandCtx.operandIndex())) {
+                      inferStreamRequirement(user, operandCtx.operandIndex(),
+                                             placementMemspace)) {
                     TT_debug(operandCtx.bufferType != nullptr);
                     const AllocSizeT bufferSize = ttmlir::utils::alignUp(
                         getStreamBufferSizeBytes(operandCtx.bufferType, device),
@@ -1182,16 +1186,20 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
               });
         }
 
-        if (operandCtx.isOutput && !allowL1OutputSpilling) {
+        if (operandCtx.isOutput && !allowL1OutputSpilling &&
+            remappedMemSpace != MemorySpace::DeviceDRAM) {
           continue;
         }
 
         // After filtering for special forms of generics ("DMA only", etc)
         // we're left with the default goal of always having operand streams.
+        // DRAM operands always need streams regardless of indexing map
+        // patterns, because data must physically move between DRAM and L1.
 
         if (!operandCtx.hasStream &&
             (useAlwaysStreamPolicy() ||
-             inferStreamRequirement(genericOp, operandCtx.operandIndex()))) {
+             inferStreamRequirement(genericOp, operandCtx.operandIndex(),
+                                    remappedMemSpace))) {
 
           // Save the old operand value before stream insertion so we can map
           // from it to the new stream value for updating remote_load/store ops.
@@ -1250,6 +1258,10 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       for (const OperandContext &operandCtx : genericCtx.operands) {
         const auto operandIndex = operandCtx.operand->getOperandNumber();
 
+        const auto *memrefIt2 = analysis.memrefs.find(operandCtx.root);
+        TT_debug(memrefIt2 != analysis.memrefs.end());
+        const MemorySpace operandMemSpace = *memrefIt2->second.remappedMemSpace;
+
         // Get the CB argument type for this operand
         TT_assert(!genericOp->getRegions().empty());
         Region &region = genericOp->getRegions().front();
@@ -1263,8 +1275,10 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         // Check if a stream was inserted for this operand during this pass
         if (!operandCtx.hasStream &&
             (useAlwaysStreamPolicy() ||
-             inferStreamRequirement(genericOp, operandCtx.operandIndex()))) {
-          if (!(operandCtx.isOutput && !allowL1OutputSpilling)) {
+             inferStreamRequirement(genericOp, operandCtx.operandIndex(),
+                                    operandMemSpace))) {
+          if (!(operandCtx.isOutput && !allowL1OutputSpilling &&
+                operandMemSpace != MemorySpace::DeviceDRAM)) {
             // Use the pre-stream operand value as the key, since that's what
             // remote_load/store ops reference.
             auto preStreamIt =
@@ -1456,13 +1470,20 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
   /// for operand @`operandIndex` based on the available indexing space
   /// information
   static bool inferStreamRequirement(d2m::GenericOp genericOp,
-                                     uint32_t operandIndex) {
+                                     uint32_t operandIndex,
+                                     MemorySpace memspace) {
     TT_debug(!genericOp.isExplicitDatamovementForm());
 
     // Scratch inputs (e.g., mask tiles) don't need streaming - they're
     // allocated locally and written to within the generic op.
     if (genericOp.isScratchInput(operandIndex)) {
       return false;
+    }
+
+    // DRAM operands always need streams because data must physically
+    // move between DRAM and L1 circular buffers.
+    if (memspace == MemorySpace::DeviceDRAM) {
+      return true;
     }
 
     const AffineMap indexingMap = genericOp.getIndexingMap(operandIndex);

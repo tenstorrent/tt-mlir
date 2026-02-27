@@ -14,10 +14,14 @@
 #ttnn_layout4 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <8x8>, memref<2x1x!ttcore.tile<32x32, bf16>, #l1>, <block_sharded>, exactGrid = true>
 
 
+// CHECK: #layout = #ttcore.metal_layout<logical_shape = 1024x1024, dim_alignments = 32x32, collapsed_intervals
+// CHECK-SAME: dram, interleaved>
 // CHECK: #layout1 = #ttcore.metal_layout<logical_shape = 1024x1024, dim_alignments = 32x32, collapsed_intervals
+// CHECK-SAME: l1, sharded>
 // CHECK: #layout2 = #ttcore.metal_layout<logical_shape = 2048x2048, dim_alignments = 32x32, collapsed_intervals
+// CHECK-SAME: l1, sharded>
 // CHECK: #layout3 = #ttcore.metal_layout<logical_shape = 512x256, dim_alignments = 32x32, collapsed_intervals
-
+// CHECK-SAME: l1, sharded>
 
 // Output Layouts
 // 1024x1024 on 8x8 L1 Block Sharded
@@ -39,7 +43,7 @@ func.func @dram_to_l1_block_sharded(
     // CHECK: %[[GENERIC:.*]] = d2m.generic
     %0 = "ttir.abs"(%arg0) : (tensor<1024x1024xbf16, #ttnn_layout>) -> tensor<1024x1024xbf16, #ttnn_layout>
 
-    // CHECK: %[[EMPTY:.*]] = d2m.empty() : tensor<1024x1024xbf16, #[[LAYOUT1:.*]]>
+    // CHECK: %[[EMPTY:.*]] = d2m.empty() : tensor<1024x1024xbf16, #ttnn_layout1>
     // CHECK: %[[CAST1:.*]] = ttir.ttnn_metal_layout_cast %[[EMPTY]] : tensor<1024x1024xbf16, #ttnn_layout1> -> tensor<8x8x4x4x!ttcore.tile<32x32, bf16>, #layout1>
     %1 = ttir.empty() : tensor<1024x1024xbf16, #ttnn_layout1>
 
