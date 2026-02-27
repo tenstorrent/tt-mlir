@@ -1,7 +1,7 @@
 // RUN: ttmlir-opt --ttir-fusing="ttnn-enable-conv2d-with-multiply-pattern=true" %s -o %t.mlir
 // RUN: FileCheck %s --input-file=%t.mlir
 
-// Batch norm should be decomposed only if it is following conv2d that doesn't have outher users
+// Batch norm should be decomposed only if it is following conv2d that doesn't have other users
 module {
     // CHECK-LABEL: func.func @conv_batch_norm
     func.func @conv_batch_norm(%arg0: tensor<1x32x32x64xbf16>, %arg1: tensor<64x64x3x3xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>}, %arg2: tensor<1x1x1x64xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>}, %arg3: tensor<64xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>}, %arg4: tensor<64xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>}, %arg5: tensor<64xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>}, %arg6: tensor<64xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>}) -> tensor<1x30x30x64xbf16> {

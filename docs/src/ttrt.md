@@ -627,7 +627,7 @@ def pre_op_callback_runtime_config(binary, program_context, op_context):
 import ttrt.runtime
 
 loc = ttrt.runtime.get_op_loc_info(op_context) : get the location of the op as a string which is used as the key when indexing the golden tensors stored in the flatbuffer
-op_debug_str = ttrt.runtime.get_op_debug_str(op_context) : get the op debug str (contains op metadata inculding op type, attributes, input tensor shapes and dtypes, memref with layout and buffer type, and loc)
+op_debug_str = ttrt.runtime.get_op_debug_str(op_context) : get the op debug str (contains op metadata including op type, attributes, input tensor shapes and dtypes, memref with layout and buffer type, and loc)
 op_golden_tensor = ttrt.runtime.get_debug_info_golden(binary, loc) : get the golden tensor from the binary as a ttrt.binary GoldenTensor object
 op_output_tensor = ttrt.runtime.get_op_output_tensor(op_context, program_context) : get the currently running output tensor from device as a ttrt.runtime Tensor object, if this is called in a preOp function or the op doesn't output a tensor, an empty tensor will be returned.
 ```

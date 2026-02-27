@@ -371,7 +371,7 @@ def test_eltwise_fuse_converging_unary_branches(
 # TODO(mbagherbeikTT): figure out why a 4 input add fails without setting goldens
 # so we can use the helper functions and not have to manually copy paste
 # the same code for different tests. Or any way of setting goldens easily in
-# the tree and ladder buidlers
+# the tree and ladder builders
 @pytest.mark.parametrize("grid", gridParams)
 @pytest.mark.parametrize("shape", [(128, 128)])
 @pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])

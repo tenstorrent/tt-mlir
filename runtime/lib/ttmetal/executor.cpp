@@ -558,10 +558,10 @@ void MCQExecutor::execute(const target::metal::FinishCommand *) {
 void MCQExecutor::execute(const target::metal::MeshShardCommand *command) {
   LOG_ASSERT(command->src()->desc()->buffer_detail_type() ==
                  tt::target::metal::BufferDetail::SystemBuffer,
-             "MeshShardCommand requries system memory as input");
+             "MeshShardCommand requires system memory as input");
   LOG_ASSERT(command->dst()->desc()->buffer_detail_type() ==
                  tt::target::metal::BufferDetail::SystemBuffer,
-             "MeshShardCommand requries system memory as output");
+             "MeshShardCommand requires system memory as output");
   const auto dstDataType = command->dst()->desc()->data_type();
   const auto *fbTensorShape = command->src()->desc()->shape();
   const std::vector<size_t> tensorShape(fbTensorShape->begin(),

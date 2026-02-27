@@ -421,7 +421,7 @@ class OpWrapper:
 
 class TTNNOpWrapper(OpWrapper):
     """
-    Aux op wrapper for TTNN ops carrying additional ttcore.device op which will be embeded
+    Aux op wrapper for TTNN ops carrying additional ttcore.device op which will be embedded
     in inner-most module above the wrapped op itself.
 
     See docstring for `as_module_str` and `TTNNModuleWrapper`.
@@ -512,7 +512,7 @@ class ModuleWrapper:
     """
     Convenience wrapper around MLIR module.
 
-    Provides posibility to keep track of the op from which module was generated, useful
+    Provides possibility to keep track of the op from which module was generated, useful
     in op by op processing pipeline.
     """
 
