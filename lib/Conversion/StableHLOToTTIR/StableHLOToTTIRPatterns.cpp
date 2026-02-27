@@ -6838,6 +6838,113 @@ static void addScaledDotProductAttentionDecodeOpConversionPattern(
       typeConverter, ctx);
 }
 
+namespace {
+// This pattern recognizes and converts stablehlo.custom_call @tt.sparse_matmul
+// to ttir.sparse_matmul.
+class StableHLOToTTIRSparseMatmulOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
+  using OpConversionPattern<mlir::stablehlo::CustomCallOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CustomCallOp srcOp,
+                  mlir::stablehlo::CustomCallOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    StringAttr funcName = adaptor.getCallTargetNameAttr();
+    if (funcName != "tt.sparse_matmul") {
+      return failure();
+    }
+
+    mlir::DictionaryAttr frontendAttributes =
+        mlir::dyn_cast_or_null<mlir::DictionaryAttr>(
+            srcOp->getDiscardableAttr("mhlo.frontend_attributes"));
+    if (!frontendAttributes) {
+      return rewriter.notifyMatchFailure(
+          srcOp,
+          "SparseMatmul op must have mhlo.frontend_attributes attribute.");
+    }
+
+    // Parse is_input_a_sparse attribute
+    auto isInputASparseStringAttr =
+        frontendAttributes.getAs<mlir::StringAttr>("is_input_a_sparse");
+    bool isInputASparse = false;
+    if (isInputASparseStringAttr) {
+      if (isInputASparseStringAttr.getValue().lower() == "true") {
+        isInputASparse = true;
+      } else if (isInputASparseStringAttr.getValue().lower() == "false") {
+        isInputASparse = false;
+      } else {
+        return rewriter.notifyMatchFailure(
+            srcOp,
+            "is_input_a_sparse attribute must be true or false. Received \"" +
+                isInputASparseStringAttr.getValue() + "\".");
+      }
+    }
+
+    // Parse is_input_b_sparse attribute
+    auto isInputBSparseStringAttr =
+        frontendAttributes.getAs<mlir::StringAttr>("is_input_b_sparse");
+    bool isInputBSparse = true;
+    if (isInputBSparseStringAttr) {
+      if (isInputBSparseStringAttr.getValue().lower() == "true") {
+        isInputBSparse = true;
+      } else if (isInputBSparseStringAttr.getValue().lower() == "false") {
+        isInputBSparse = false;
+      } else {
+        return rewriter.notifyMatchFailure(
+            srcOp,
+            "is_input_b_sparse attribute must be true or false. Received \"" +
+                isInputBSparseStringAttr.getValue() + "\".");
+      }
+    }
+
+    BoolAttr isInputASparseAttr = rewriter.getBoolAttr(isInputASparse);
+    BoolAttr isInputBSparseAttr = rewriter.getBoolAttr(isInputBSparse);
+
+    // Parse nnz attribute (optional)
+    auto nnzStringAttr = frontendAttributes.getAs<mlir::StringAttr>("nnz");
+    IntegerAttr nnzAttr = nullptr;
+    if (nnzStringAttr) {
+      int64_t nnz;
+      if (nnzStringAttr.getValue().getAsInteger(10, nnz)) {
+        return rewriter.notifyMatchFailure(
+            srcOp,
+            "nnz attribute string must be convertible to integer. Received \"" +
+                nnzStringAttr.getValue() + "\".");
+      }
+      nnzAttr = rewriter.getI64IntegerAttr(nnz);
+    }
+
+    // Get operands
+    if (adaptor.getOperands().size() != 3) {
+      return rewriter.notifyMatchFailure(
+          srcOp,
+          "SparseMatmul op expects exactly 3 operands (a, b, sparsity).");
+    }
+
+    Value inputA = adaptor.getOperands()[0];
+    Value inputB = adaptor.getOperands()[1];
+    Value sparsity = adaptor.getOperands()[2];
+
+    RankedTensorType outputType = cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult(0).getType()));
+
+    rewriter.replaceOpWithNewOp<ttir::SparseMatmulOp>(
+        srcOp, outputType, inputA, inputB, sparsity, isInputASparseAttr,
+        isInputBSparseAttr, nnzAttr);
+
+    return success();
+  }
+};
+} // namespace
+
+static void addSparseMatmulOpConversionPattern(MLIRContext *ctx,
+                                               RewritePatternSet &patterns,
+                                               TypeConverter &typeConverter) {
+  patterns.add<StableHLOToTTIRSparseMatmulOpConversionPattern>(typeConverter,
+                                                               ctx);
+}
+
 namespace mlir::tt {
 
 void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
@@ -6877,6 +6984,7 @@ void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
   addOptimizationBarrierOpConversionPattern(ctx, patterns, typeConverter);
   addScaledDotProductAttentionDecodeOpConversionPattern(ctx, patterns,
                                                         typeConverter);
+  addSparseMatmulOpConversionPattern(ctx, patterns, typeConverter);
 }
 
 } // namespace mlir::tt

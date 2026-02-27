@@ -591,6 +591,45 @@ createOp(FlatbufferObjectCache &cache, MatmulOp op) {
 }
 // ANCHOR_END: adding_an_op_matmul_serialize_to_binary
 
+::flatbuffers::Offset<::tt::target::ttnn::SparseMatmulOp>
+createOp(FlatbufferObjectCache &cache, SparseMatmulOp op) {
+  auto a = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getA()));
+  auto b = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getB()));
+  auto sparsity = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getSparsity()));
+  auto output = cache.getOrCreateNoSharding(
+      op.getResult(), tensorValueToFlatbuffer, std::nullopt);
+
+  ::flatbuffers::Offset<
+      ::tt::target::ttnn::MatmulMultiCoreReuseMultiCast1DProgramConfig>
+      programConfig = 0;
+  if (auto config = op.getProgramConfig()) {
+    programConfig = toFlatbuffer(cache, config.value());
+  }
+
+  ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig> memoryConfig = 0;
+  if (auto memConfig = op.getMemoryConfig()) {
+    memoryConfig = toFlatbuffer(cache, memConfig.value());
+  }
+
+  ::flatbuffers::Optional<::tt::target::DataType> dtype =
+      toFlatbuffer(cache, op.getDtype());
+
+  std::optional<
+      ::flatbuffers::Offset<::tt::target::ttnn::DeviceComputeKernelConfig>>
+      computeConfig = toFlatbuffer(cache, op.getComputeConfig());
+
+  int64_t nnz = op.getNnz().value_or(0);
+
+  return ::tt::target::ttnn::CreateSparseMatmulOp(
+      *cache.fbb, a, b, sparsity, output, op.getIsInputASparse(),
+      op.getIsInputBSparse(), nnz, programConfig, memoryConfig,
+      dtype.value_or(::tt::target::DataType::BFloat16),
+      computeConfig.value_or(0));
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::FuncCallOp>
 createOp(FlatbufferObjectCache &cache, func::CallOp op,
          const llvm::StringMap<uint32_t> &programIndexMap) {
@@ -3766,6 +3805,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto matmulOp = dyn_cast<MatmulOp>(op); matmulOp) {
     return createOperation(cache, createOp(cache, matmulOp), debugString,
+                           locInfo);
+  }
+  if (auto sparseMatmulOp = dyn_cast<SparseMatmulOp>(op); sparseMatmulOp) {
+    return createOperation(cache, createOp(cache, sparseMatmulOp), debugString,
                            locInfo);
   }
   if (auto morehCumSumOp = dyn_cast<MorehCumSumOp>(op); morehCumSumOp) {
