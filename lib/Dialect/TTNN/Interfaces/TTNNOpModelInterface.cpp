@@ -4816,7 +4816,7 @@ D2MSubgraphOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   ValueToLayoutMap valueToLayout =
       buildValueToLayoutMap(inputs, block, opConfig);
 
-  op_model::OpConstraints ret(0, 0, 0, 0, opConfig.outputLayout);
+  op_model::OpConstraints ret(0, 0, 0, 0, {opConfig.outputLayout});
 
   for (mlir::Operation &op : block.getOperations()) {
     auto backend = mlir::dyn_cast<OpModel>(&op);
@@ -4843,7 +4843,7 @@ D2MSubgraphOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
         valueToLayout.lookup(op.getResult(0));
     OpConfig internalOpConfig(internalOpOutputLayout);
 
-    op_model::OpConstraints c(0, 0, 0, 0, internalOpOutputLayout);
+    op_model::OpConstraints c(0, 0, 0, 0, {internalOpOutputLayout});
 
     llvm::Expected<op_model::OpConstraints> expectedConstraints =
         backend.getOpConstraints(internalOpInputLayouts, internalOpConfig);
