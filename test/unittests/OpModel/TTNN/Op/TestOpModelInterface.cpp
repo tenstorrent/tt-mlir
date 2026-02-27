@@ -189,6 +189,7 @@ TEST_P(UnaryOpModelTest, TestOpInterfaceNullOutput) {
   EXPECT_GE(outputSize, 0);
 
   ASSERT_FALSE(outputLayouts.empty());
+  ASSERT_TRUE(outputLayouts[0]);
   EXPECT_EQ(outputLayouts[0].getLayout(), Layout::Tile);
   EXPECT_TRUE(outputLayouts[0].hasInterleavedL1TensorMemoryLayout());
 }

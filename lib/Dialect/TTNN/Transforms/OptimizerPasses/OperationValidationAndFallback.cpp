@@ -21,7 +21,6 @@
 #include "mlir/Support/WalkResult.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/TypeSwitch.h"
-
 #include "llvm/ADT/STLExtras.h"
 
 #include <cassert>
@@ -100,6 +99,11 @@ void applyFallbackTransformations(
 void applyInputOperandChange(Operation *operation, size_t operandIndex,
                              TTNNLayoutAttr currentLayoutAttr,
                              TTNNLayoutAttr targetLayoutAttr);
+
+void applyOutputLayoutChange(
+    Operation *operation, size_t resultIndex,
+    const op_constraint_validation::ValidationResult &result,
+    const OpConfig &config);
 
 void applyOutputLayoutRevert(Operation *operation, size_t resultIndex,
                              TTNNLayoutAttr actualOutputLayout,
@@ -709,6 +713,58 @@ testFallbackCombination(Operation *op, const OpConfig &originalConfig,
                                                      testConfig);
 }
 
+// Apply output layout change for a single result if the backend produced a
+// different layout than expected.
+void applyOutputLayoutChange(
+    Operation *operation, size_t resultIndex,
+    const op_constraint_validation::ValidationResult &result,
+    const OpConfig &config) {
+
+  if (!config.outputLayout) {
+    // This config doesn't have an expected output layout, skip it.
+    return;
+  }
+
+  assert(
+      result.actualOutputLayouts.size() > resultIndex &&
+      "Validation result must contain actual output layout for each output.");
+
+  // Handle output layout changes only if backend produced different layout
+  if (result.actualOutputLayouts[resultIndex] == config.outputLayout) {
+    return;
+  }
+
+  if (result.actualOutputLayouts[resultIndex].getLayout() ==
+          config.outputLayout.getLayout() &&
+      result.actualOutputLayouts[resultIndex].getDataType() ==
+          config.outputLayout.getDataType() &&
+      result.actualOutputLayouts[resultIndex].getBufferType() ==
+          config.outputLayout.getBufferType() &&
+      result.actualOutputLayouts[resultIndex].getMemLayout() ==
+          config.outputLayout.getMemLayout()) {
+    // This may happen if GridAttr is different, which should not matter for
+    // any memory layout other than Sharded. Since fallbacks do not go into
+    // Sharded memory layout, we can avoid this case for now.
+    return;
+  }
+
+  // Step 1: Update operation's result type to what backend actually produced
+  auto oldResultType = mlir::dyn_cast<RankedTensorType>(
+      operation->getResult(resultIndex).getType());
+  assert(oldResultType && "Operation result type must be RankedTensorType");
+  auto newResultType = RankedTensorType::get(
+      oldResultType.getShape(),
+      result.actualOutputLayouts[resultIndex].getScalarElementType(),
+      result.actualOutputLayouts[resultIndex]);
+  operation->getResult(resultIndex).setType(newResultType);
+
+  // Step 2: Add revert ToLayoutOp to convert back to expected layout for
+  // consumers
+  applyOutputLayoutRevert(operation, resultIndex,
+                          result.actualOutputLayouts[resultIndex],
+                          config.outputLayout);
+}
+
 // Apply fallback transformations to the operation
 void applyFallbackTransformations(
     Operation *operation, const std::vector<TTNNLayoutAttr> &originalLayouts,
@@ -738,58 +794,19 @@ void applyFallbackTransformations(
   }
 
   for (size_t i = 0; i < configs.size(); ++i) {
-    if (!configs[i].outputLayout) {
-      // This config doesn't have an expected output layout, skip it.
-      continue;
-    }
-
-    assert(
-        result.actualOutputLayouts.size() > i &&
-        "Validation result must contain actual output layout for each output.");
-    // Handle output layout changes if backend produced different layout
-    if (result.actualOutputLayouts[i] != configs[i].outputLayout) {
-
-      if (result.actualOutputLayouts[i].getLayout() ==
-              configs[i].outputLayout.getLayout() &&
-          result.actualOutputLayouts[i].getDataType() ==
-              configs[i].outputLayout.getDataType() &&
-          result.actualOutputLayouts[i].getBufferType() ==
-              configs[i].outputLayout.getBufferType() &&
-          result.actualOutputLayouts[i].getMemLayout() ==
-              configs[i].outputLayout.getMemLayout()) {
-        // This may happen if GridAttr is different, which should not matter for
-        // any memory layout other than Sharded. Since fallbacks do not go into
-        // Sharded memory layout, we can avoid this case for now.
-        continue;
-      }
-
-      // Step 1: Update operation's result type to what backend actually
-      // produced
-      auto oldResultType =
-          mlir::dyn_cast<RankedTensorType>(operation->getResult(i).getType());
-      assert(oldResultType && "Operation result type must be RankedTensorType");
-      auto newResultType = RankedTensorType::get(
-          oldResultType.getShape(),
-          result.actualOutputLayouts[i].getScalarElementType(),
-          result.actualOutputLayouts[i]);
-      operation->getResult(i).setType(newResultType);
-
-      // Step 2: Add revert ToLayoutOp to convert back to expected layout for
-      // consumers
-      applyOutputLayoutRevert(operation, i, result.actualOutputLayouts[i],
-                              configs[i].outputLayout);
-    }
+    applyOutputLayoutChange(operation, i, result, configs[i]);
   }
 
   // Update the layout attribute for ops that have one (e.g., creation ops).
   // The layout attribute must match the first result type's layout.
+  TTNNLayoutAttr firstActualOutputLayout =
+      result.checkAndGetFirstActualOutputLayout();
   if (configs[0].outputLayout &&
-      result.checkAndGetFirstActualOutputLayout() != configs[0].outputLayout) {
+      firstActualOutputLayout != configs[0].outputLayout) {
     if (TTNNLayoutOpInterface opWithLayoutIF =
             mlir::dyn_cast<TTNNLayoutOpInterface>(operation)) {
       opWithLayoutIF.setLayoutAttr(LayoutAttr::get(
-          operation->getContext(),
-          result.checkAndGetFirstActualOutputLayout().getLayout()));
+          operation->getContext(), firstActualOutputLayout.getLayout()));
     }
   }
 }
