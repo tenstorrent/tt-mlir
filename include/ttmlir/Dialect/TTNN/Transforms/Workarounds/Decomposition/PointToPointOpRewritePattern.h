@@ -15,7 +15,7 @@ namespace mlir::tt::ttnn::workarounds::decomposition {
 // ttnn::PointToPointOp does not support transporting tensors across 2D mesh
 // coordinates. For example, ttnn.point_to_point(tensor, [0, 0], [1, 1]) is not
 // supported. It only allows to transport across MeshCoordinate where Row or
-// Columm are the same. For example, ttnn.point_to_point(tensor, [0, 0], [0, 1])
+// Column are the same. For example, ttnn.point_to_point(tensor, [0, 0], [0, 1])
 // is supported because Row is the same. This rewrite pattern decomposes the
 // PointToPointOp into a sequence of PointToPointOps where the Row or Column are
 // the same. For example, ttnn.point_to_point(tensor, [0, 0], [1, 1]) will be

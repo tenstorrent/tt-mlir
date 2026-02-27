@@ -12,7 +12,7 @@
 #ttnn_layout4 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 1024 + d1 * 1024 + d2, d3), <1x1>, memref<32x2x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>>
 #ttnn_layout5 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 928 + d1 * 928 + d2, d3), <1x1>, memref<29x2x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>>
 module {
-  // Here we want to test that we cant fuse relu into conv2d because conv2d already has activation.
+  // Here we want to test that we cannot fuse relu into conv2d because conv2d already has activation.
 
   // CHECK-LABEL: func.func @conv2d_relu_chain
   func.func @conv2d_relu_chain(%arg0: tensor<1x32x32x64xbf16, #ttnn_layout>, %arg1: tensor<64x64x3x3xbf16, #ttnn_layout1>, %arg2: tensor<1x1x1x64xbf16, #ttnn_layout2>) -> tensor<1x30x30x64xbf16, #ttnn_layout3> {

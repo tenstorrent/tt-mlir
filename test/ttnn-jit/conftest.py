@@ -100,7 +100,7 @@ def mesh_device(request, device_params):
 
     If `request.param` is an integer, it specifies the number of devices to use (up to available devices).
     If `request.param` is a tuple, it defines the 2D grid dimensions (rows, columns) for TG, e.g., (8, 4) creates
-    a devish mesh grid of 8 rows and 4 columns, totaling 32 devices. The total number of devices should not exceed available devices.
+    a device mesh grid of 8 rows and 4 columns, totaling 32 devices. The total number of devices should not exceed available devices.
 
     Args:
         request: Pytest request object.
