@@ -115,9 +115,47 @@ static bool analyzeBoundary(const llvm::SmallVector<mlir::Operation *> &ops,
     return isOpBefore(defA, defB);
   };
 
+  // Build a map from captured value to its original composite operand index
+  // using annotations set during flattening.
+  llvm::DenseMap<mlir::Value, int64_t> captureArgIndex;
+  for (auto *op : sorted) {
+    auto argIndicesAttr = op->getAttrOfType<mlir::DenseI64ArrayAttr>(
+        utils::kReoutlineArgOperandIndicesAttr);
+    if (!argIndicesAttr) {
+      continue;
+    }
+    llvm::ArrayRef<int64_t> argIndices = argIndicesAttr.asArrayRef();
+    for (auto [j, idx] : llvm::enumerate(argIndices)) {
+      if (idx >= 0) {
+        mlir::Value operand = op->getOperand(j);
+        if (captureSet.contains(operand)) {
+          auto it = captureArgIndex.find(operand);
+          if (it == captureArgIndex.end() || idx < it->second) {
+            captureArgIndex[operand] = idx;
+          }
+        }
+      }
+    }
+  }
+
+  // Sort captures by original arg index, with unknowns falling back to block
+  // position.
   captures.assign(captureSet.begin(), captureSet.end());
+  llvm::sort(captures, [&](mlir::Value a, mlir::Value b) {
+    auto itA = captureArgIndex.find(a);
+    auto itB = captureArgIndex.find(b);
+    bool hasA = (itA != captureArgIndex.end());
+    bool hasB = (itB != captureArgIndex.end());
+    if (hasA && hasB) {
+      return itA->second < itB->second;
+    }
+    if (hasA != hasB) {
+      return hasA; // known args before unknowns
+    }
+    return orderByBlockPos(a, b); // both unknown: fallback
+  });
+
   escapes.assign(escapeSet.begin(), escapeSet.end());
-  llvm::sort(captures, orderByBlockPos);
   llvm::sort(escapes, orderByBlockPos);
 
   return true;

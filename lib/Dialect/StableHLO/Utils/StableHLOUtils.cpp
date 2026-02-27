@@ -57,6 +57,9 @@ mlir::func::FuncOp createPrivateFunction(
     if (cloned->hasAttr(utils::kReoutlineSeedAttr)) {
       cloned->removeAttr(utils::kReoutlineSeedAttr);
     }
+    if (cloned->hasAttr(utils::kReoutlineArgOperandIndicesAttr)) {
+      cloned->removeAttr(utils::kReoutlineArgOperandIndicesAttr);
+    }
   }
 
   // Emit return with remapped escape values.
