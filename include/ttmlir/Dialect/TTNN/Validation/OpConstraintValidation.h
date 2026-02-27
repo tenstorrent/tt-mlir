@@ -91,6 +91,9 @@ struct ValidationResult {
     return status == ValidationStatus::NotImplemented;
   }
   bool isError() const { return status != ValidationStatus::Success; }
+  bool isMetalBackendError() const {
+    return status == ValidationStatus::MetalBackendError;
+  }
 };
 
 // Simple validation with all layouts.

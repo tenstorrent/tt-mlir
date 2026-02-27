@@ -837,6 +837,46 @@ void LayoutPropagation::consolidateBeam() {
           TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
                        "consolidateBeam: fork at {0} resolved to candidate {1}",
                        producer->getName(), finalChoice[producer]);
+
+          // Patch reshardLayouts for consumers that assumed a different
+          // producer candidate. Without this, applyToIR won't insert a
+          // ToMemoryConfigOp and the consumer gets a mismatched input layout.
+          size_t chosenK = finalChoice[producer];
+          for (Operation *user : producer->getResult(0).getUsers()) {
+            if (!beamState.count(user)) {
+              continue;
+            }
+
+            size_t userChosenIdx =
+                finalChoice.count(user) ? finalChoice[user] : 0;
+            if (userChosenIdx >= beamState[user].size()) {
+              continue;
+            }
+            BeamCandidate &userChosen = beamState[user][userChosenIdx];
+
+            // Find which tensor operand connects to this fork producer.
+            for (size_t opIdx = 0;
+                 opIdx < userChosen.producerCandidateIndices.size(); ++opIdx) {
+              if (getProducerForOperandIdx(user, opIdx) != producer) {
+                continue;
+              }
+
+              size_t assumedK = userChosen.producerCandidateIndices[opIdx];
+              if (assumedK == chosenK) {
+                break; // Consumer already aligned, no reshard needed.
+              }
+
+              // Consumer assumed a different producer candidate.
+              // Record a reshard so applyToIR inserts a ToMemoryConfigOp.
+              userChosen.reshardLayouts[opIdx] = userChosen.inputLayouts[opIdx];
+              TTMLIR_TRACE(
+                  ttmlir::LogComponent::GreedyOptimizer,
+                  "consolidateBeam: fork reshard needed for {0} operand "
+                  "{1} (assumed producer candidate {2}, chosen {3})",
+                  user->getName(), opIdx, assumedK, chosenK);
+              break;
+            }
+          }
         }
       } else {
         // Single consumer: follow back pointer directly.
