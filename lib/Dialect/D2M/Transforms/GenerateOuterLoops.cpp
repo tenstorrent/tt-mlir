@@ -135,7 +135,7 @@ public:
     // (needed by LowerLoadStoreOpsToDMA for stream index computation).
     auto loopedGeneric = rewriter.create<GenericOp>(
         generic->getLoc(), generic.getResultTypes(), generic.getInputs(),
-        generic.getOutputs(), generic.getGrid(),
+        generic.getOutputs(), generic.getAdditionalArgs(), generic.getGrid(),
         /* block_factors */ generic.getBlockFactors(),
         /* indexing_maps */ generic.getIndexingMaps(),
         /* iterator_types */ generic.getIteratorTypes(), generic.getThreads(),

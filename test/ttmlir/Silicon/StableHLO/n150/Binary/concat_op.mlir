@@ -72,26 +72,14 @@ module @jit_concat attributes {} {
     return %0 : tensor<32x32x32x96xf32>
   }
 
-  func.func public @test_concat_datatype_workaround(%arg0: tensor<2x53xi64>, %arg1: tensor<2x1xi64>) -> tensor<2x54xi64> {
-    // CHECK-LABEL: func.func public @test_concat_datatype_workaround
-    // CHECK: %[[ARG0:[0-9]+]] = "ttnn.typecast"
-    // CHECK-SAME: dtype = #ttcore.supportedDataTypes<bf16>
-    // CHECK-SAME: tensor<2x53xsi32
-    // CHECK-SAME: -> tensor<2x53xbf16
-    // CHECK: %[[ARG1:[0-9]+]] = "ttnn.typecast"
-    // CHECK-SAME: dtype = #ttcore.supportedDataTypes<bf16>
-    // CHECK-SAME: tensor<2x1xsi32
-    // CHECK-SAME: -> tensor<2x1xbf16
-    // CHECK: %[[CONCAT:[0-9]+]] = "ttnn.concat"(%[[ARG0]], %[[ARG1]])
+  func.func public @test_concat_integer(%arg0: tensor<2x53xi64>, %arg1: tensor<2x1xi64>) -> tensor<2x54xi64> {
+    // CHECK-LABEL: func.func public @test_concat_integer
+    // CHECK: "ttnn.concat"(%arg0, %arg1)
     // CHECK-SAME: dim = 1 : si32
-    // CHECK-SAME: tensor<2x53xbf16
-    // CHECK-SAME: tensor<2x1xbf16
-    // CHECK-SAME: -> tensor<2x54xbf16
-    %0 = stablehlo.concatenate %arg0, %arg1, dim = 1 : (tensor<2x53xi64>, tensor<2x1xi64>) -> tensor<2x54xi64>
-    // CHECK: "ttnn.typecast"(%[[CONCAT]])
-    // CHECK-SAME: dtype = #ttcore.supportedDataTypes<si32>
-    // CHECK-SAME: tensor<2x54xbf16
+    // CHECK-SAME: tensor<2x53xsi32
+    // CHECK-SAME: tensor<2x1xsi32
     // CHECK-SAME: -> tensor<2x54xsi32
+    %0 = stablehlo.concatenate %arg0, %arg1, dim = 1 : (tensor<2x53xi64>, tensor<2x1xi64>) -> tensor<2x54xi64>
     return %0 : tensor<2x54xi64>
   }
 

@@ -449,6 +449,11 @@ private:
     if (ttmlir::utils::isConstEvalFunc(funcOp)) {
       return;
     }
+    // Skip kernel functions: load_cached only supports tensor results, but
+    // kernel const-eval may return !emitc.size_t, i32, etc.
+    if (ttmlir::utils::isKernelFunc(funcOp)) {
+      return;
+    }
     // Run the analysis to identify const-eval subgraphs
     ConstEvalAnalyze analyzer(funcOp);
     ConstEvalAnalysisResults analysisResults = analyzer.getAnalysisResults();
