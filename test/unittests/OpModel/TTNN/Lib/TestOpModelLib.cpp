@@ -1573,6 +1573,45 @@ TEST_F(OpModelTest, Sort) {
   llvm::consumeError(runtimeExp.takeError());
 }
 
+TEST_F(OpModelTest, TopK) {
+  const llvm::SmallVector<int64_t> tensorShape = {workerCoresN300,
+                                                  workerCoresN300};
+  const auto workerGrid = CreateWorkerGrid(gridShapeHwN300);
+  const TTNNLayoutAttr layoutDRAM = CreateTiledLayout(
+      tensorShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr layoutL1Interleaved = CreateTiledLayout(
+      tensorShape, BufferType::L1, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr layoutL1WSharded = CreateTiledLayout(
+      tensorShape, BufferType::L1, TensorMemoryLayout::WidthSharded);
+
+  auto legalExp = Device::getDeviceConstraints(workerGrid);
+  EXPECT_TRUE(static_cast<bool>(legalExp));
+
+  auto constraintsExp = op_model::OpModel<TopKOp>::getOpConstraints(
+      CreateWorkerGrid(), tensorShape, layoutDRAM, 4, -1, true, true,
+      layoutDRAM);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  OpConstraints &opCstr = constraintsExp.get();
+  EXPECT_GT(opCstr.cbL1PeakSize, 0);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 0);
+
+  constraintsExp = op_model::OpModel<TopKOp>::getOpConstraints(
+      CreateWorkerGrid(), tensorShape, layoutDRAM, 4, -1, true, true,
+      layoutL1Interleaved);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  opCstr = constraintsExp.get();
+  EXPECT_GT(opCstr.cbL1PeakSize, 0);
+  EXPECT_GT(opCstr.tensorL1PeakSize, 0);
+  EXPECT_GT(opCstr.outputL1BufferSize, 0);
+
+  constraintsExp = op_model::OpModel<TopKOp>::getOpConstraints(
+      CreateWorkerGrid(), tensorShape, layoutL1Interleaved, 4, -1, true, true,
+      layoutL1WSharded);
+  EXPECT_FALSE(static_cast<bool>(constraintsExp));
+  llvm::consumeError(constraintsExp.takeError());
+}
+
 TEST_F(OpModelTest, MaxPool2dWithIndices) {
   const llvm::SmallVector<int64_t> inputShape = {1, 1, 128 * 128, 32};
   const auto workerGrid = CreateWorkerGrid(gridShapeHwN300);
