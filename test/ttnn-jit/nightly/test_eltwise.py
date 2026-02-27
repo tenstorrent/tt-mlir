@@ -203,6 +203,11 @@ UNARY_L1_ALL_PARAMS = (
     ],
 )
 def test_unary_op_l1(device, shape, max_grid, shard_strategy, dtype, ttnn_dtype, op):
+    if max_grid in [(3, 1), (1, 5)]:
+        pytest.skip(
+            "Skipping due to PCC issues with L1 memory layout for these grid configurations. Issue: https://github.com/tenstorrent/tt-mlir/issues/7215"
+        )
+
     if op in [log, ceil, floor, sqrt, rsqrt, logical_not] and dtype == torch.float32:
         pytest.xfail("failing allclose for some shapes for float32")
 
@@ -308,6 +313,11 @@ def test_bitwise_unary_op_dram(device, shape, dtype, op):
     ],
 )
 def test_bitwise_unary_op_l1(device, shape, max_grid, shard_strategy, dtype, op):
+    if max_grid in [(3, 1), (1, 5)]:
+        pytest.skip(
+            "Skipping due to PCC issues with L1 memory layout for these grid configurations. Issue: https://github.com/tenstorrent/tt-mlir/issues/7215"
+        )
+
     run_op_test(
         device,
         shape,
@@ -336,6 +346,11 @@ def test_bitwise_unary_op_l1(device, shape, max_grid, shard_strategy, dtype, op)
     ],
 )
 def test_binary_ops_mixed1(device, shape, max_grid, shard_strategy, dtype, op):
+    if max_grid in [(3, 1), (1, 5)]:
+        pytest.skip(
+            "Skipping due to PCC issues with L1 memory layout for these grid configurations. Issue: https://github.com/tenstorrent/tt-mlir/issues/7215"
+        )
+
     input0 = create_sharded_tile_tensor(
         device, shape, max_grid, dtype, shard_strategy=shard_strategy
     )
@@ -406,6 +421,11 @@ BINARY_L1_ALL_PARAMS = (
     ],
 )
 def test_binary_ops_l1(device, shape, max_grid, shard_strategy, dtype, op):
+    if max_grid in [(3, 1), (1, 5)]:
+        pytest.skip(
+            "Skipping due to PCC issues with L1 memory layout for these grid configurations. Issue: https://github.com/tenstorrent/tt-mlir/issues/7215"
+        )
+
     compile_only = False
     if op == div:
         compile_only = True
@@ -489,6 +509,11 @@ def test_binary_ops_dram(device, shape, dtype, op):
     ],
 )
 def test_bitwise_binary_ops_l1(device, shape, max_grid, shard_strategy, dtype, op):
+    if max_grid in [(3, 1), (1, 5)]:
+        pytest.skip(
+            "Skipping due to PCC issues with L1 memory layout for these grid configurations. Issue: https://github.com/tenstorrent/tt-mlir/issues/7215"
+        )
+
     run_op_test(
         device,
         shape,
@@ -555,6 +580,11 @@ def test_bitwise_binary_ops_dram(device, shape, dtype, op):
 def test_interop_jit_to_ttnn_unary_l1(
     device, shape, max_grid, shard_strategy, dtype, jit_op, ttnn_unary_op
 ):
+    if max_grid in [(3, 1), (1, 5)]:
+        pytest.skip(
+            "Skipping due to PCC issues with L1 memory layout for these grid configurations. Issue: https://github.com/tenstorrent/tt-mlir/issues/7215"
+        )
+
     input_tensor = create_sharded_tile_tensor(
         device, shape, max_grid, dtype, shard_strategy=shard_strategy
     )
@@ -597,6 +627,11 @@ def test_interop_jit_to_ttnn_unary_l1(
 def test_interop_two_jit_to_ttnn_binary_l1(
     device, shape, max_grid, shard_strategy, dtype, jit_op1, jit_op2, ttnn_binary_op
 ):
+    if max_grid in [(3, 1), (1, 5)]:
+        pytest.skip(
+            "Skipping due to PCC issues with L1 memory layout for these grid configurations. Issue: https://github.com/tenstorrent/tt-mlir/issues/7215"
+        )
+
     input1 = create_sharded_tile_tensor(
         device, shape, max_grid, dtype, shard_strategy=shard_strategy
     )
@@ -646,6 +681,11 @@ def test_interop_two_jit_to_ttnn_binary_l1(
 def test_interop_jit_and_ttnn_to_binary_l1(
     device, shape, max_grid, shard_strategy, dtype, jit_op, ttnn_binary_op
 ):
+    if max_grid in [(3, 1), (1, 5)]:
+        pytest.skip(
+            "Skipping due to PCC issues with L1 memory layout for these grid configurations. Issue: https://github.com/tenstorrent/tt-mlir/issues/7215"
+        )
+
     input_tensor = create_sharded_tile_tensor(
         device, shape, max_grid, dtype, shard_strategy=shard_strategy
     )

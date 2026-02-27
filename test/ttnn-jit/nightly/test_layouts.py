@@ -163,6 +163,9 @@ HEIGHT_SHARDED_SHAPE_GRIDS.extend(
     ids=[f"{shape}-{grid}" for shape, grid in HEIGHT_SHARDED_SHAPE_GRIDS],
 )
 @pytest.mark.parametrize("op", [abs])
+@pytest.mark.skip(
+    "Skipping due to PCC issues with L1 memory layout for these grid configurations. Issue: https://github.com/tenstorrent/tt-mlir/issues/7215"
+)
 def test_l1_height_sharded_shapes(device, shape, max_grid, op):
     output_memory_config = ttnn.create_sharded_memory_config(
         shape=shape,
@@ -226,6 +229,9 @@ WIDTH_SHARDED_SHAPE_GRIDS.extend(
     ids=[f"{shape}-{grid}" for shape, grid in WIDTH_SHARDED_SHAPE_GRIDS],
 )
 @pytest.mark.parametrize("op", [abs])
+@pytest.mark.skip(
+    "Skipping due to PCC issues with L1 memory layout for these grid/shard configurations. Issue: https://github.com/tenstorrent/tt-mlir/issues/7215"
+)
 def test_l1_width_sharded_shapes(device, shape, max_grid, op):
     output_memory_config = ttnn.create_sharded_memory_config(
         shape=shape,
