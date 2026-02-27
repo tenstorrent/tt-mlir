@@ -6,8 +6,30 @@
 #define TTMLIR_DIALECT_TTIR_IR_TTIRTRAITS_H
 
 #include "mlir/IR/OpDefinition.h"
+#include "mlir/Interfaces/SideEffectInterfaces.h"
 
 namespace mlir::tt::ttir {
+
+// Trait for TTIR creation ops that models allocation semantics.
+// Each result is marked as MemAlloc, which:
+// - Prevents CSE from merging identical creation ops (each is a distinct
+//   allocation)
+// - Allows DCE to remove unused creation ops (allocation of unused results is
+//   trivially dead)
+template <typename ConcreteType>
+class CreationOpAllocTrait
+    : public MemoryEffectOpInterface::Trait<ConcreteType> {
+public:
+  void
+  getEffects(SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
+                 &effects) {
+    for (OpResult result : this->getOperation()->getResults()) {
+      effects.emplace_back(MemoryEffects::Allocate::get(), result,
+                           SideEffects::DefaultResource::get());
+    }
+  }
+};
+
 namespace impl {
 bool verifyInvolution(mlir::Operation *op);
 bool verifyIdempotence(mlir::Operation *op);
