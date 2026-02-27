@@ -8,7 +8,6 @@
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/Analysis/Allocation/Planner.h"
 #include "ttmlir/Dialect/D2M/Analysis/Allocation/Utils.h"
-#include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Utils.h"
@@ -1500,41 +1499,6 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         return true;
       }
     };
-
-    // Check if this input operand has a different virtual grid mapping than
-    // the output. Different VGMs indicate a shard strategy change (e.g.,
-    // height_sharded -> block_sharded) that requires actual data movement
-    // even when the MetalLayoutAttr types are identical.
-    //
-    // Skip this check for DRAM operands: DRAM is already treated as "remote"
-    // by simplifyLoadStorePairs, so the copy's data movement is preserved
-    // without needing a stream.
-    unsigned numInputs = genericOp.getNumDpsInputs();
-    if (operandIndex < numInputs) {
-      Value inputOperand = genericOp->getOperand(operandIndex);
-
-      // Check if input is in DRAM — if so, no stream needed for VGM reasons.
-      bool inputIsDRAM = false;
-      if (auto memref = mlir::dyn_cast<MemRefType>(inputOperand.getType())) {
-        if (auto memSpaceAttr =
-                mlir::dyn_cast_if_present<ttcore::MemorySpaceAttr>(
-                    memref.getMemorySpace())) {
-          inputIsDRAM =
-              memSpaceAttr.getValue() == ttcore::MemorySpace::DeviceDRAM;
-        }
-      }
-
-      if (!inputIsDRAM) {
-        auto inputVGM = d2m::utils::getVirtualGridInverseMapping(inputOperand);
-        for (unsigned i = numInputs; i < genericOp->getNumOperands(); ++i) {
-          auto outputVGM = d2m::utils::getVirtualGridInverseMapping(
-              genericOp->getOperand(i));
-          if (inputVGM != outputVGM) {
-            return true;
-          }
-        }
-      }
-    }
 
     return false;
   }
