@@ -24,7 +24,6 @@
 #include "llvm/ADT/TypeSwitch.h"
 
 #include <algorithm>
-#include <numeric>
 #include <optional>
 
 //===---------------------------------------------------------------------===//
@@ -158,6 +157,15 @@ struct MemrefValueContext {
 
 using OperandDefChain = llvm::SmallVector<Operation *, 4>;
 
+// The single root discovered by `analyzeOperandDefChain`.
+// Normal operands produce one; composite views produce one per input tensor.
+struct ChainRoot {
+  Value root = nullptr;
+  MemRefType type = nullptr;
+  bool hasStream = false;
+  OperandDefChain defChain;
+};
+
 struct OperandContext {
   // Link to the operand in the incoming IR.
   OpOperand *operand = nullptr;
@@ -170,9 +178,10 @@ struct OperandContext {
   // The Value (either a memref.alloc or a block arg) that is
   // the source of this operand's data, possibly through a view/cast chain.
   Value root;
-  // This collects the set of ops defining an operand all the way to its
-  // root `memref::AllocOp` or block arg.
-  OperandDefChain defChain;
+  // This collects the set of ops defining an operand all the way to its root
+  // `memref::AllocOp` or block arg. If the operand is composite then all chains
+  // and roots are collected separately.
+  SmallVector<ChainRoot> chainRoots;
   // `true` is if this corresponds to a generic op output.
   bool isOutput = false;
   // `true` if this operand already has a stream in the incoming IR.
@@ -507,7 +516,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       analysis.sequencing.positionMap.emplace_back(op);
 
       if (llvm::isa<memref::AllocOp, d2m::ViewLayoutOp, d2m::StreamLayoutOp,
-                    d2m::CreateGlobalSemaphoreOp>(op)) {
+                    d2m::CompositeViewOp, d2m::CreateGlobalSemaphoreOp>(op)) {
         // Skip memref.alloc operations that have a genericOp as parent
         if (llvm::isa<memref::AllocOp>(op) &&
             op->getParentOfType<d2m::GenericOp>()) {
@@ -717,17 +726,28 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       operandCtx.operand = &operand;
       operandCtx.isOutput = genericOp.isOutputOperandIdx(operandIndex);
 
-      // Find `operand`s "root" memref and the op chain that links to it.
-      // This sets `operandCtx.root`, `operandCtx.hasStream`, and
-      // `operandCtx.defChain` and updates this memref's slot in
-      // `analysis.memrefs`.
+      // Find the operand's root memref(s) and the op chain(s) that links to
+      // them.
+      SmallVector<ChainRoot> chainRoots =
+          analyzeOperandDefChain(genericOp, operand.get());
+      TT_assert(!chainRoots.empty());
+      operandCtx.chainRoots = chainRoots;
 
-      MemRefType memrefType = nullptr;
-      std::tie(operandCtx.root, memrefType, operandCtx.hasStream) =
-          analyzeOperandDefChain(genericOp, operand.get(), operandCtx.defChain);
-      TT_ALLOC_DEBUG(
-          "\tadding memref value ctx: root {}, memref type {}, has stream: {}",
-          asOperand(operandCtx.root), memrefType, operandCtx.hasStream);
+      // Use the first root as the primary root for the OperandContext.
+      operandCtx.root = chainRoots.front().root;
+      operandCtx.hasStream = llvm::any_of(
+          chainRoots, [](const ChainRoot &r) { return r.hasStream; });
+
+      if (TT_DEBUG_ENABLED()) {
+        for ([[maybe_unused]] const auto &[rootIdx, chainRoot] :
+             llvm::enumerate(chainRoots)) {
+          TT_ALLOC_DEBUG(
+              "\tadding memref value ctx (root #{}/{}): root {}, memref type "
+              "{}, has stream: {}",
+              rootIdx, chainRoots.size(), asOperand(chainRoot.root),
+              chainRoot.type, chainRoot.hasStream);
+        }
+      }
 
       Value operandValue = operandCtx.operand->get();
       const bool isIgnoredOutput =
@@ -751,20 +771,22 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         }
       }
 
-      MemrefValueContext &memrefCtx = addMemrefValueContext(
-          rewriter, analysis, operandCtx.root, memrefType, device);
+      // Register ALL roots in analysis.memrefs and genericUseClosure.
+      for (const ChainRoot &chainRoot : chainRoots) {
+        MemrefValueContext &rootMemrefCtx = addMemrefValueContext(
+            rewriter, analysis, chainRoot.root, chainRoot.type, device);
 
-      memrefCtx.genericUsers.insert(genericOp);
-      memrefCtx.isMemspaceBound |= genericCtx.isExplicitDatamovement;
-      memrefCtx.usedForOutput |= operandCtx.isOutput;
+        rootMemrefCtx.genericUsers.insert(genericOp);
+        rootMemrefCtx.isMemspaceBound |= genericCtx.isExplicitDatamovement;
+        rootMemrefCtx.usedForOutput |= operandCtx.isOutput;
 
-      if (memref::AllocOp allocOp =
-              operandCtx.root.getDefiningOp<memref::AllocOp>()) {
-        // Update the union set of all `allocOp` generic users.
-        OperationSet &allocOpGenericUsers = genericUseClosure[allocOp];
-        allocOpGenericUsers.insert(genericOp.getOperation());
-        allocOpGenericUsers.insert(operandCtx.defChain.begin(),
-                                   operandCtx.defChain.end());
+        if (memref::AllocOp allocOp =
+                chainRoot.root.getDefiningOp<memref::AllocOp>()) {
+          OperationSet &allocOpGenericUsers = genericUseClosure[allocOp];
+          allocOpGenericUsers.insert(genericOp.getOperation());
+          allocOpGenericUsers.insert(chainRoot.defChain.begin(),
+                                     chainRoot.defChain.end());
+        }
       }
 
       if (haveIterationSpaceInfo) {
@@ -805,7 +827,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       }
 
       // Finally, insert `operandCtx` into `genericCtx`.
-
+      // Even for composite view it's one OperandContext per GenericOp operand.
       genericCtx.operands.push_back(std::move(operandCtx));
     }
     TT_assert(genericCtx.operands.size() ==
@@ -971,7 +993,10 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
                 // different operand positions; each position will have its own
                 // stream.
                 for (OperandContext &operandCtx : genericCtx.operands) {
-                  if (operandCtx.root != memref) {
+                  if (llvm::none_of(operandCtx.chainRoots,
+                                    [&](const ChainRoot &chainRoot) {
+                                      return chainRoot.root == memref;
+                                    })) {
                     continue;
                   }
 
@@ -1165,26 +1190,40 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       llvm::DenseMap<int32_t, Value> preStreamOperandValues;
 
       for (const OperandContext &operandCtx : genericCtx.operands) {
-        const auto *memrefIt = analysis.memrefs.find(operandCtx.root);
-        TT_debug(memrefIt != analysis.memrefs.end());
-        const MemrefValueContext &memrefCtx = memrefIt->second;
+        std::optional<MemorySpace> remappedMemSpace;
+        for (const ChainRoot &chainRoot : operandCtx.chainRoots) {
+          const auto *memrefIt = analysis.memrefs.find(chainRoot.root);
+          TT_debug(memrefIt != analysis.memrefs.end());
+          const MemrefValueContext &memrefCtx = memrefIt->second;
 
-        const MemorySpace remappedMemSpace = *memrefCtx.remappedMemSpace;
-
-        for (Operation *opOnChain : operandCtx.defChain) {
-          if (!visited.insert(opOnChain).second) {
-            // Assigning final memspace is idempotent, but no need to do this
-            // repeatedly.
-            continue;
+          TT_assert(memrefCtx.remappedMemSpace.has_value());
+          const MemorySpace rootRemappedMemSpace = *memrefCtx.remappedMemSpace;
+          if (!remappedMemSpace.has_value()) {
+            remappedMemSpace = rootRemappedMemSpace;
+          } else {
+            TT_assert(*remappedMemSpace == rootRemappedMemSpace);
           }
-          llvm::TypeSwitch<Operation *, void>(opOnChain)
-              .Case([&](memref::AllocOp op) {
-                remap(rewriter, op, remappedMemSpace);
-              })
-              .Case([&](d2m::ViewLayoutOp op) {
-                remap(rewriter, op, remappedMemSpace);
-              });
+
+          for (Operation *opOnChain : chainRoot.defChain) {
+            if (!visited.insert(opOnChain).second) {
+              // Assigning final memspace is idempotent, but no need to do this
+              // repeatedly.
+              continue;
+            }
+            llvm::TypeSwitch<Operation *, void>(opOnChain)
+                .Case([&](memref::AllocOp op) {
+                  remap(rewriter, op, rootRemappedMemSpace);
+                })
+                .Case([&](d2m::ViewLayoutOp op) {
+                  remap(rewriter, op, rootRemappedMemSpace);
+                })
+                .Case([&](d2m::CompositeViewOp op) {
+                  remap(rewriter, op, rootRemappedMemSpace);
+                });
+          }
         }
+        TT_assert(remappedMemSpace.has_value());
+        const MemorySpace finalRemappedMemSpace = *remappedMemSpace;
 
         if (operandCtx.isOutput && !allowL1OutputSpilling &&
             remappedMemSpace != MemorySpace::DeviceDRAM) {
@@ -1212,17 +1251,18 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
 
           auto &operand = *operandCtx.operand;
 
-          const PlannerSpace finalPlacement = asPlannerSpace(remappedMemSpace);
+          const PlannerSpace finalPlacement =
+              asPlannerSpace(finalRemappedMemSpace);
           TT_debugv(operandCtx.reqIndex[ordinal(finalPlacement)] >= 0,
                     "operand @{}", operandCtx.operandIndex());
           const Planner::Request &req =
               L1solution.request(operandCtx.reqIndex[ordinal(finalPlacement)]);
 
-          if (failed(insertStream(rewriter, operand, genericOp, req, operandCtx,
-                                  (remappedMemSpace == MemorySpace::DeviceDRAM
-                                       ? DRAMAttr
-                                       : L1Attr),
-                                  L1memInfo, analysis.sequencing))) {
+          if (failed(insertStream(
+                  rewriter, operand, genericOp, req, operandCtx,
+                  (finalRemappedMemSpace == MemorySpace::DeviceDRAM ? DRAMAttr
+                                                                    : L1Attr),
+                  L1memInfo, analysis.sequencing))) {
             return failure();
           }
         }
@@ -1654,18 +1694,18 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
   /// `view/stream_layout`s.
   ///
   /// Besides the above, determine a few more things:
-  ///  1. the "root" `Value` that terminates the chain (used as a unique key for
-  ///  the chain);
+  ///  1. the ChainRoot values that terminates each chain (used as a unique key
+  ///  for the chain);
   ///  2. whether the op chain contains a `stream_layout` op;
-  ///  3. the "effective memref type" to associate with the root Value (either
-  ///  the actual type of this Value or the type it is being cast to by a ttnn
+  ///  3. the "effective memref type" to associate with the ChainRoot (either
+  ///  the actual type of its Value or the type it is being cast to by a ttnn
   ///  bridge cast).
   ///
-  static std::tuple<Value, MemRefType, bool>
-  analyzeOperandDefChain(d2m::GenericOp genericOp, Value operand,
-                         SmallVector<Operation *, 4> &chain) {
+  static SmallVector<ChainRoot> analyzeOperandDefChain(d2m::GenericOp genericOp,
+                                                       Value operand) {
     [[maybe_unused]] AsOperandPrinter asOperand{genericOp->getParentOp()};
 
+    OperandDefChain chain;
     MemRefType type = nullptr;
     bool containsStream = false;
 
@@ -1676,17 +1716,13 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       chain.emplace_back(definingOp);
 
       if (auto op = llvm::dyn_cast<memref::AllocOp>(definingOp)) {
-        if (type == nullptr) {
-          type = mlir::cast<MemRefType>(op->getResultTypes().front());
-        }
-        break;
+        type = mlir::cast<MemRefType>(op->getResultTypes().front());
+        return {{value, type, containsStream, chain}};
       }
       if (auto op = llvm::dyn_cast<ttir::TTNNMetalLayoutCastOp>(definingOp)) {
         value = op.getInput();
-        if (type == nullptr) {
-          type = mlir::cast<MemRefType>(op->getResultTypes().front());
-        }
-        break;
+        type = mlir::cast<MemRefType>(op->getResultTypes().front());
+        return {{value, type, containsStream, chain}};
       }
 
       if (auto op = llvm::dyn_cast<d2m::ViewLayoutOp>(definingOp)) {
@@ -1694,6 +1730,28 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       } else if (auto op = llvm::dyn_cast<d2m::StreamLayoutOp>(definingOp)) {
         value = op.getInput();
         containsStream = true;
+      } else if (auto op = llvm::dyn_cast<d2m::CompositeViewOp>(definingOp)) {
+        // Recurse into each input of the composite view to collect all the
+        // chains & roots. Prefix each child chain with the current chain to
+        // preserve per-root context.
+        SmallVector<ChainRoot> allRoots;
+        for (Value input : op.getCompositeInputs()) {
+          SmallVector<ChainRoot> inputRoots =
+              analyzeOperandDefChain(genericOp, input);
+          for (ChainRoot &inputRoot : inputRoots) {
+            inputRoot.hasStream |= containsStream;
+
+            OperandDefChain prefixedChain;
+            prefixedChain.reserve(chain.size() + inputRoot.defChain.size());
+            prefixedChain.append(chain.begin(), chain.end());
+            prefixedChain.append(inputRoot.defChain.begin(),
+                                 inputRoot.defChain.end());
+            inputRoot.defChain = std::move(prefixedChain);
+
+            allRoots.push_back(std::move(inputRoot));
+          }
+        }
+        return allRoots;
       } else if (auto op =
                      llvm::dyn_cast<d2m::CreateGlobalSemaphoreOp>(definingOp)) {
         value = op.getInput();
@@ -1714,7 +1772,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       type = mlir::cast<MemRefType>(arg.getType());
     }
 
-    return {value, type, containsStream};
+    return {{value, type, containsStream, chain}};
   }
 
   // Factor out defaults passed into DeviceAttr::getMemrefSizeBytes()
@@ -1785,6 +1843,16 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     rewriter.modifyOpInPlace(op, [&]() { memref.setType(newType); });
   }
 
+  /// @return 'op' with given memory space override
+  static void remap(RewriterBase &rewriter, d2m::CompositeViewOp op,
+                    MemorySpace memspace) {
+    auto memref = op->getResult(0);
+    MemRefType memrefType = llvm::cast<MemRefType>(memref.getType());
+    MemRefType newType = remap(rewriter, memrefType, memspace);
+
+    rewriter.modifyOpInPlace(op, [&]() { memref.setType(newType); });
+  }
+
   // Recursive helper for `analyzeAllocOps(func::FuncOp funcOp...)`.
   // Note: the overall traversal cost can be reduced by memoizing
   // final maxLast values and/or visiting Values in a reverse topological
@@ -1798,7 +1866,8 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     for (Operation *user : op->getResult(0).getUsers()) {
       if (graph.contains(user)) {
         if (llvm::isa<d2m::ViewLayoutOp, d2m::StreamLayoutOp,
-                      d2m::CreateGlobalSemaphoreOp>(user)) {
+                      d2m::CompositeViewOp, d2m::CreateGlobalSemaphoreOp>(
+                user)) {
           last = std::max(last, resolve(user, graph));
         }
       }
