@@ -120,7 +120,7 @@ def all_close_check(result, golden_result, atol=1e-1, rtol=1e-1, debug=True):
 
 def create_torch_tensor(shape, dtype):
     if not (dtype.is_floating_point or dtype.is_complex):
-        # Integer tensor: recreate spatial coverage of fp [0,1] in randn and give some overflow headroom
+        # recreate spatial coverage of fp [0,1] in randn and give some overflow headroom
         high_val = torch.iinfo(dtype).max // 2
         torch_tensor = torch.randint(high_val, shape, dtype=dtype)
     else:
@@ -236,12 +236,7 @@ def run_op_test(
     else:
         inputs = [
             create_dram_tensor(
-                device,
-                shape,
-                dtype,
-                ttnn_dtype,
-                mesh_mapper=None,
-                input_transform=input_transform,
+                device, shape, dtype, ttnn_dtype, input_transform=input_transform
             )
             for _ in range(num_inputs)
         ]

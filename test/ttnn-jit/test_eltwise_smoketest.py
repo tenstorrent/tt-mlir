@@ -376,7 +376,7 @@ def _clamp_tensor_bounds(input_tensor, min_tensor, max_tensor):
 
 
 @pytest.mark.parametrize(
-    "buffer_type,is_tensor_bounds",
+    "buffer_type, use_tensor_bounds",
     [
         (ttnn.BufferType.L1, False),
         (ttnn.BufferType.DRAM, True),
@@ -384,15 +384,14 @@ def _clamp_tensor_bounds(input_tensor, min_tensor, max_tensor):
     ids=["l1_scalar", "dram_tensor"],
 )
 @pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
-def test_clamp(device, buffer_type, is_tensor_bounds, dtype):
-    """Run clamp scalar (L1) and clamp tensor-bounds (DRAM) for bf16 on (32,32)."""
+def test_clamp(device, buffer_type, use_tensor_bounds, dtype):
     shape = (32, 32)
     max_grid = (0, 0)
     shard_strategy = (
         ttnn.ShardStrategy.BLOCK if buffer_type == ttnn.BufferType.L1 else None
     )
 
-    if is_tensor_bounds:
+    if use_tensor_bounds:
         op = _clamp_tensor_bounds
         num_inputs = 3
     else:
