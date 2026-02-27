@@ -19,8 +19,8 @@ namespace mlir::tt::d2m::utils {
 // virtualGridForwardMapping (forward) through ops we don't own (e.g.
 // memref.alloc).  Uses the dialect prefix so MLIR can verify they belong to
 // D2M.
-constexpr llvm::StringLiteral kVirtualGridMappingAttr =
-    "d2m.virtualGridMapping";
+constexpr llvm::StringLiteral kVirtualGridInverseMappingAttr =
+    "d2m.virtualGridInverseMapping";
 constexpr llvm::StringLiteral kVirtualGridForwardMappingAttr =
     "d2m.virtualGridForwardMapping";
 
@@ -73,11 +73,11 @@ std::optional<AffineMap> getAssociatedRemapping(Value val);
 // with a value, if any.  Traces through the def-use chain (ToLayoutOp →
 // EmptyOp, StreamLayoutOp → storage EmptyOp, etc.) to find the underlying
 // EmptyOp/AllocOp/CreateBufferOp and returns its virtualGridMapping attribute.
-std::optional<AffineMap> getVirtualGridMapping(Value val);
+std::optional<AffineMap> getVirtualGridInverseMapping(Value val);
 
 // Returns the virtualGridForwardMapping (forward map, virtual→physical)
 // associated with a value, if any.  Traces the same def-use chain as
-// getVirtualGridMapping but returns the forward map attribute.
+// getVirtualGridInverseMapping but returns the forward map attribute.
 std::optional<AffineMap> getVirtualGridForwardMapping(Value val);
 
 // Returns the effective affine map for a memref-typed value by resolving
@@ -94,8 +94,7 @@ AffineMap getMemoryMap(ttcore::DeviceAttr device, MemRefType memrefType,
                        size_t baseOffset = 0);
 
 // Overload that accepts a Value so it can check whether the value carries a
-// virtual grid mapping (via getVirtualGridMapping) instead of re-deriving
-// virtualization status from the grid shape.
+// virtual grid mapping (via getVirtualGridInverseMapping).
 AffineMap getMemoryMap(ttcore::DeviceAttr device, Value memrefValue,
                        size_t pageSize,
                        std::optional<AffineMap> view = std::nullopt,

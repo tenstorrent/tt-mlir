@@ -139,8 +139,8 @@ module attributes {ttcore.system_desc = #system_desc} {
   // Test explicit form remote_store (already uses CB directly) - should create reserve and track for push
   // CHECK-LABEL: func.func @test_explicit_form_remote_store
   // CHECK: d2m.reserve %cb1
-  // CHECK: d2m.remote_store %{{.*}}[%{{.*}}, %{{.*}}] from %cb1
   // CHECK: d2m.push %cb1
+  // CHECK: d2m.remote_store %{{.*}}[%{{.*}}, %{{.*}}] from %cb1
   func.func @test_explicit_form_remote_store(%arg0: memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>,
                                               %arg1: memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>) {
     %cb_alloc = memref.alloc() {address = 5120 : i64, alignment = 16 : i64} : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>

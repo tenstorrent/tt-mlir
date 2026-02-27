@@ -398,12 +398,12 @@ def D2M_EmptyOp
   let description = [{
     Create an uninitialized tensor with the specified shape, element type and encoding.
 
-    Optionally, the `virtualGridMapping` attribute stores the inverse affine
+    Optionally, the `virtualGridInverseMapping` attribute stores the inverse affine
     map (physical to virtual grid coordinates) and `virtualGridForwardMapping`
     stores the forward affine map (virtual to physical grid coordinates).
   }];
 
-  let arguments = (ins OptionalAttr<AffineMapAttr>:$virtualGridMapping,
+  let arguments = (ins OptionalAttr<AffineMapAttr>:$virtualGridInverseMapping,
                        OptionalAttr<AffineMapAttr>:$virtualGridForwardMapping);
   let results = (outs AnyRankedTensor:$result);
 
@@ -411,7 +411,7 @@ def D2M_EmptyOp
                                 "Type":$elementType, "Attribute":$encoding),
                             [{
       build($_builder, $_state, RankedTensorType::get(shape, elementType, encoding),
-            /*virtualGridMapping=*/nullptr, /*virtualGridForwardMapping=*/nullptr);
+            /*virtualGridInverseMapping=*/nullptr, /*virtualGridForwardMapping=*/nullptr);
     }]>,
                   OpBuilder<
                       (ins "ArrayRef<int64_t>":$shape, "Type":$elementType), [{

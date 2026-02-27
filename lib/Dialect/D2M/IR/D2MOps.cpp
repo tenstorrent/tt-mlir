@@ -105,11 +105,11 @@ mlir::LogicalResult d2m::EmptyOp::bufferize(
       *getBufferType(getResult(), options, state, invocationStack));
   auto allocOp = rewriter.create<memref::AllocOp>(getLoc(), bufferType);
 
-  // Propagate virtualGridMapping (inverse) and virtualGridForwardMapping
+  // Propagate virtualGridInverseMapping (inverse) and virtualGridForwardMapping
   // (forward) as discardable attributes on memref::AllocOp (we don't own
   // AllocOp so we can't add declared attributes).
-  if (auto vgm = getVirtualGridMappingAttr()) {
-    allocOp->setAttr(d2m::utils::kVirtualGridMappingAttr, vgm);
+  if (auto vgm = getVirtualGridInverseMappingAttr()) {
+    allocOp->setAttr(d2m::utils::kVirtualGridInverseMappingAttr, vgm);
   }
   if (auto fwd = getVirtualGridForwardMappingAttr()) {
     allocOp->setAttr(d2m::utils::kVirtualGridForwardMappingAttr, fwd);
@@ -516,14 +516,14 @@ ToLayoutOp::fold(FoldAdaptor,
         getInput().getDefiningOp<ViewLayoutOp>()) {
       return mlir::failure();
     }
-    // Don't fold when the virtualGridMappings of the input and output
+    // Don't fold when the virtualGridInverseMappings of the input and output
     // differ.  Different TTNN shard strategies (e.g. height_sharded vs
     // block_sharded) can map to the same MetalLayoutAttr after the
     // indexAffineMap refactor, so we compare VGMs to mirror main's
     // behavior where the indexAffineMap made the types structurally
     // different.
-    if (utils::getVirtualGridMapping(getInput()) !=
-        utils::getVirtualGridMapping(getOutput())) {
+    if (utils::getVirtualGridInverseMapping(getInput()) !=
+        utils::getVirtualGridInverseMapping(getOutput())) {
       return mlir::failure();
     }
     results.push_back(getInput());
@@ -560,7 +560,7 @@ void ToLayoutOp::getCanonicalizationPatterns(mlir::RewritePatternSet &patterns,
       return failure();
     }
     rewriter.replaceOpWithNewOp<EmptyOp>(op, op.getOutput().getType(),
-                                         /*virtualGridMapping=*/nullptr,
+                                         /*virtualGridInverseMapping=*/nullptr,
                                          /*virtualGridForwardMapping=*/nullptr);
     return success();
   });
@@ -1328,10 +1328,10 @@ void d2m::GenericOp::build(mlir::OpBuilder &builder,
     auto metalLayout = mlir::dyn_cast<ttcore::MetalLayoutAttr>(layout);
 
     if (metalLayout) {
-      // 1. Check for an explicit virtualGridMapping (inverse map) on the
+      // 1. Check for an explicit virtualGridInverseMapping (inverse map) on the
       //    output's EmptyOp.  Use the stored map directly — it encodes the
       //    correct physical grid from the TTNN layout.
-      if (auto invMap = utils::getVirtualGridMapping(output)) {
+      if (auto invMap = utils::getVirtualGridInverseMapping(output)) {
         grid = builder.getAttr<ttcore::GridAttr>(gridShape, *invMap);
       }
 

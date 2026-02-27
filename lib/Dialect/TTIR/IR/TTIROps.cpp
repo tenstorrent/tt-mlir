@@ -3110,11 +3110,12 @@ void mlir::tt::ttir::TTNNMetalLayoutCastOp::getCanonicalizationPatterns(
       return failure();
     }
 
-    // Don't fold when either cast carries a virtualGridMapping.
+    // Don't fold when either cast carries a virtualGridInverseMapping.
     // Different TTNN shard strategies (e.g. height_sharded vs block_sharded)
     // can map to the same MetalLayoutAttr, so a cast with a VGM represents
     // a meaningful shard strategy that must be preserved.
-    if (producerOp.getVirtualGridMapping() || op.getVirtualGridMapping()) {
+    if (producerOp.getVirtualGridInverseMapping() ||
+        op.getVirtualGridInverseMapping()) {
       return failure();
     }
 
@@ -3154,7 +3155,7 @@ mlir::LogicalResult mlir::tt::ttir::TTNNMetalLayoutCastOp::bufferize(
       return maybeInputBuf;
     }
     rewriter.replaceOpWithNewOp<TTNNMetalLayoutCastOp>(
-        *this, outputTensor, *maybeInputBuf, getVirtualGridMappingAttr(),
+        *this, outputTensor, *maybeInputBuf, getVirtualGridInverseMappingAttr(),
         getVirtualGridForwardMappingAttr());
   } else if (mlir::isa<mlir::tt::ttcore::MetalLayoutAttr>(outputEncoding)) {
     // ttnn_layout -> metal_layout becomes ttnn_layout -> memref
@@ -3171,7 +3172,7 @@ mlir::LogicalResult mlir::tt::ttir::TTNNMetalLayoutCastOp::bufferize(
     MemRefType outputMemrefType = mlir::cast<mlir::MemRefType>(*bufferType);
     mlir::bufferization::replaceOpWithNewBufferizedOp<TTNNMetalLayoutCastOp>(
         rewriter, *this, outputMemrefType, getInput(),
-        getVirtualGridMappingAttr(), getVirtualGridForwardMappingAttr());
+        getVirtualGridInverseMappingAttr(), getVirtualGridForwardMappingAttr());
 
   } else {
     return emitOpError("Neither input or output uses metal_layout");

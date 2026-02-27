@@ -1151,10 +1151,10 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
 
     llvm::DenseSet<Operation *> visited;
     for (const auto &[genericOp, genericCtx] : analysis.generics) {
-      // Note: DMA-only generics are not skipped here. When VGMs differ
-      // between input and output operands, inferStreamRequirement will have
-      // requested a stream during planning, and we must insert it here to
-      // preserve data movement semantics.
+      if (genericCtx.isDMAOnly) {
+        // Generics in "DMA only" form do not use streams.
+        continue;
+      }
       if (genericCtx.isExplicitDatamovement) {
         // Generics in "explicit datamovement" form manage their own
         // streams which should already be present in the incoming IR.
@@ -1273,21 +1273,19 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         TT_assert(cbType != nullptr);
         Type cbUnderlyingType = cbType.getUnderlying();
 
-        // Check if a stream was inserted for this operand during this pass.
-        // Use preStreamOperandValues (populated during insertion above) rather
-        // than re-calling inferStreamRequirement, because the operand value
-        // may have changed post-insertion (e.g., VGM tracing through a new
-        // StreamLayoutOp reaches the storage alloc instead of the original
-        // defining op).
-        auto preStreamIt =
-            preStreamOperandValues.find(operandCtx.operandIndex());
-        if (preStreamIt != preStreamOperandValues.end()) {
-          if (!(operandCtx.isOutput && !allowL1OutputSpilling)) {
-            // Use the pre-stream operand value as the key, since that's what
-            // remote_load/store ops reference.
-            Value oldOperandValue = preStreamIt->second;
-            operandReplaceMap[oldOperandValue] = operandCtx.operand->get();
-            operandCBTypeMap[oldOperandValue] = cbUnderlyingType;
+        if (!operandCtx.hasStream &&
+            (useAlwaysStreamPolicy() ||
+             inferStreamRequirement(genericOp, operandCtx.operandIndex(),
+                                    operandMemSpace))) {
+          if (!(operandCtx.isOutput && !allowL1OutputSpilling &&
+                operandMemSpace != MemorySpace::DeviceDRAM)) {
+            auto preStreamIt =
+                preStreamOperandValues.find(operandCtx.operandIndex());
+            if (preStreamIt != preStreamOperandValues.end()) {
+              Value oldOperandValue = preStreamIt->second;
+              operandReplaceMap[oldOperandValue] = operandCtx.operand->get();
+              operandCBTypeMap[oldOperandValue] = cbUnderlyingType;
+            }
           }
         } else if (operandCtx.hasStream) {
           // Stream already existed, but may have been
@@ -1527,10 +1525,10 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       }
 
       if (!inputIsDRAM) {
-        auto inputVGM = d2m::utils::getVirtualGridMapping(inputOperand);
+        auto inputVGM = d2m::utils::getVirtualGridInverseMapping(inputOperand);
         for (unsigned i = numInputs; i < genericOp->getNumOperands(); ++i) {
-          auto outputVGM =
-              d2m::utils::getVirtualGridMapping(genericOp->getOperand(i));
+          auto outputVGM = d2m::utils::getVirtualGridInverseMapping(
+              genericOp->getOperand(i));
           if (inputVGM != outputVGM) {
             return true;
           }

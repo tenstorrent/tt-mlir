@@ -242,7 +242,8 @@ protected:
           auto [forwardMap, inverseMap] =
               ttmlir::d2m::utils::grids::createCoreVirtMaps(
                   rewriter.getContext(), virtualGrid, ttnnGridShape);
-          metalCastOp.setVirtualGridMappingAttr(AffineMapAttr::get(inverseMap));
+          metalCastOp.setVirtualGridInverseMappingAttr(
+              AffineMapAttr::get(inverseMap));
           metalCastOp.setVirtualGridForwardMappingAttr(
               AffineMapAttr::get(forwardMap));
         }
@@ -323,7 +324,7 @@ protected:
       auto [forwardMap, inverseMap] =
           ttmlir::d2m::utils::grids::createCoreVirtMaps(rewriter.getContext(),
                                                         simpleGrid, {1, 1});
-      emptyOp.setVirtualGridMappingAttr(AffineMapAttr::get(inverseMap));
+      emptyOp.setVirtualGridInverseMappingAttr(AffineMapAttr::get(inverseMap));
       emptyOp.setVirtualGridForwardMappingAttr(AffineMapAttr::get(forwardMap));
     }
 
@@ -379,7 +380,7 @@ protected:
     }
     auto output =
         rewriter.create<d2m::EmptyOp>(fromValue.getLoc(), toResultType,
-                                      /*virtualGridMapping=*/nullptr,
+                                      /*virtualGridInverseMapping=*/nullptr,
                                       /*virtualGridForwardMapping=*/nullptr);
     return rewriter.create<d2m::ToLayoutOp>(fromValue.getLoc(), fromValue,
                                             output);
@@ -1760,9 +1761,10 @@ public:
   }
 
 private:
-  // Compute the virtualGridMapping (inverse) and virtualGridForwardMapping
-  // (forward) for a TTNN legacy layout's shard strategy.  Returns both maps
-  // as a pair, or nullopt if the layout does not imply a virtual grid.
+  // Compute the virtualGridInverseMapping (inverse) and
+  // virtualGridForwardMapping (forward) for a TTNN legacy layout's shard
+  // strategy.  Returns both maps as a pair, or nullopt if the layout does not
+  // imply a virtual grid.
   static std::optional<std::pair<AffineMap, AffineMap>>
   computeLegacyVirtualGridMaps(MLIRContext *ctx,
                                ttnn::TTNNLayoutAttr ttnnLayout) {
@@ -1788,7 +1790,7 @@ private:
     return std::make_pair(forwardMap, inverseMap);
   }
 
-  // Set both virtualGridMapping (inverse) and virtualGridForwardMapping
+  // Set both virtualGridInverseMapping (inverse) and virtualGridForwardMapping
   // (forward) on a TTNNMetalLayoutCastOp when the TTNN layout implies a
   // virtual grid.
   static void propagateVGMToCastOp(MLIRContext *ctx,
@@ -1800,7 +1802,7 @@ private:
     }
     if (auto maps = computeLegacyVirtualGridMaps(ctx, ttnnLayout)) {
       auto [forwardMap, inverseMap] = *maps;
-      castOp.setVirtualGridMappingAttr(AffineMapAttr::get(inverseMap));
+      castOp.setVirtualGridInverseMappingAttr(AffineMapAttr::get(inverseMap));
       castOp.setVirtualGridForwardMappingAttr(AffineMapAttr::get(forwardMap));
     }
   }
@@ -2091,7 +2093,7 @@ public:
 
     auto storage =
         rewriter.create<d2m::EmptyOp>(op.getLoc(), outputs[0].getType(),
-                                      /*virtualGridMapping=*/nullptr,
+                                      /*virtualGridInverseMapping=*/nullptr,
                                       /*virtualGridForwardMapping=*/nullptr);
     auto view = rewriter.create<d2m::StreamLayoutOp>(
         op.getLoc(), newOutTy, inputs[0], deviceMap, storage.getResult());
