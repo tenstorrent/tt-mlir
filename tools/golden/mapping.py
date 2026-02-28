@@ -5364,6 +5364,32 @@ def stablehlo_convolution_golden(
     return result.to(output_dtype)
 
 
+def stablehlo_rng_golden(
+    low_attr: DenseElementsAttr,
+    high_attr: DenseElementsAttr,
+    shape_attr: DenseElementsAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    """Generate random tensor for StableHLO RngOp (uniform distribution).
+
+    Args:
+        low_attr: DenseElementsAttr for lower bound of uniform distribution
+        high_attr: DenseElementsAttr for upper bound of uniform distribution
+        shape_attr: DenseElementsAttr for output tensor shape
+        output_type_mlir: MLIR element type for output dtype conversion
+
+    Returns:
+        GoldenMapTensor with uniformly distributed random values in [low, high)
+    """
+    low = float(unpack_mlir_attr(low_attr))
+    high = float(unpack_mlir_attr(high_attr))
+    shape = unpack_mlir_attr(shape_attr).tolist()
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    base = torch.rand(shape, dtype=torch.bfloat16)
+    rand_tensor = (base * (high - low) + low).to(output_dtype)
+    return GoldenMapTensor({0: rand_tensor}, (1, 1))
+
+
 ################ SDY Op Golden Functions ###############
 
 
@@ -6132,6 +6158,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     stablehlo.DynamicSliceOp: dynamic_slice_golden,
     stablehlo.DynamicUpdateSliceOp: stablehlo_dynamic_update_slice_golden,
     stablehlo.ConvolutionOp: stablehlo_convolution_golden,
+    stablehlo.RngOp: stablehlo_rng_golden,
     stablehlo.SortOp: stablehlo_sort_golden,
     # StableHLO tensor manipulation operations
     stablehlo.TransposeOp: stablehlo_transpose_golden,
