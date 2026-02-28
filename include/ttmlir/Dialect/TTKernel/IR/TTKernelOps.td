@@ -2198,6 +2198,72 @@ def TTKernel_ExperimentalUntilizeBlockOp : TTKernel_Op<"experimental::untilize_b
     }];
 }
 
+def TTKernel_PackUntilizeInitOp : TTKernel_Op<"pack_untilize_init"> {
+    let summary = "PackUntilizeInitOp call.";
+    let description = [{
+      Initializes UNPACK, MATH, and PACK threads for the pack untilize
+      operation.  Maps to the official tt-metal
+      `pack_untilize_init<block_ct_dim, full_ct_dim>(icb, ocb)` API.
+      block_ct_dim is the number of column tiles processed per DST pass,
+      full_ct_dim is the total number of column tiles. For correctness,
+      `block_ct_dim` must divide `full_ct_dim`, and `block_ct_dim` must fit
+      in DST capacity for the target data type. Both default to 1.
+      This op is expected to be paired with
+      `experimental::pack_untilize_block` and finalized by
+      `pack_untilize_uninit`.
+    }];
+
+    let arguments = (ins TTKernel_CB:$cbIn, TTKernel_CB:$cbOut,
+                         DefaultValuedAttr<I32Attr, "1">:$blockCtDim,
+                         DefaultValuedAttr<I32Attr, "1">:$fullCtDim);
+
+    let hasVerifier = 1;
+
+    let assemblyFormat = [{
+      `(` $cbIn `,` $cbOut `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_PackUntilizeUninitOp : TTKernel_Op<"pack_untilize_uninit"> {
+    let summary = "PackUntilizeUninitOp call.";
+    let description = [{
+      Uninitializes the pack untilize operation.  Maps to the official tt-metal
+      `pack_untilize_uninit(ocb)` API.
+    }];
+
+    let arguments = (ins TTKernel_CB:$cbOut);
+
+    let assemblyFormat = [{
+      `(` $cbOut `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_ExperimentalPackUntilizeBlockOp : TTKernel_Op<"experimental::pack_untilize_block"> {
+    let summary = "Experimental PackUntilizeBlockOp call.";
+    let description = [{
+      Custom pack untilize block LLK that takes the dimensions of the block.
+      Uses `pack_untilize_init` for initialization and calls
+      `pack_untilize_block<block_ct_dim, full_ct_dim>(icb, ocb, block_r, block_c)`.
+      `block_ct_dim` is the number of column tiles processed per DST pass
+      (constrained by DST capacity), and `full_ct_dim` is the total number of
+      column tiles in the untilized row.
+      For correctness, `block_ct_dim` must divide `full_ct_dim`, and
+      `block_c` is expected to be compatible with the chosen `block_ct_dim`
+      (the implementation processes `block_c / block_ct_dim` column blocks).
+      Use this op in the sequence:
+      `pack_untilize_init -> experimental::pack_untilize_block -> pack_untilize_uninit`.
+    }];
+
+    let arguments = (ins TTKernel_CB:$cbIn, TTKernel_CB:$cbOut, I32:$blockR, I32:$blockC,
+                         I32Attr:$blockCtDim, I32Attr:$fullCtDim);
+
+    let hasVerifier = 1;
+
+    let assemblyFormat = [{
+      `(` $cbIn `,` $cbOut `,` $blockR `,` $blockC `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
 def TTKernel_ExperimentalTileFillOp : TTKernel_SFPUOp<"experimental::tile_fill", [TTKernel_UnaryOpTrait]> {
     let summary = "Experimental Tile Fill Op";
     let description = [{

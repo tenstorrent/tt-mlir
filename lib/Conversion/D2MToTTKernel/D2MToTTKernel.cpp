@@ -1172,14 +1172,38 @@ public:
     if constexpr (std::is_same_v<BlockOp,
                                  ttkernel::ExperimentalTilizeBlockOp>) {
       rewriter.create<ttkernel::TilizeInitOp>(op->getLoc(), src, blockC, dst);
+      rewriter.create<BlockOp>(op->getLoc(), src, dst, blockR, blockC);
     } else if constexpr (std::is_same_v<
-                             BlockOp, ttkernel::ExperimentalUntilizeBlockOp>) {
-      rewriter.create<ttkernel::UntilizeInitOp>(op->getLoc(), src);
+                             BlockOp,
+                             ttkernel::ExperimentalPackUntilizeBlockOp>) {
+      const int64_t fullCtDim = collapsed2DShape[1];
+
+      auto chipDesc = ttcore::getOpChipDescAttr(op);
+      auto tileType = mlir::cast<ttcore::TileType>(
+          preLinearizedMemrefType.getElementType());
+      auto scalarType = ttcore::dataTypeToElementType(rewriter.getContext(),
+                                                      tileType.getDataType());
+      const int64_t dstCapacity =
+          chipDesc.getDstLogicalSizeTiles(scalarType, /*fullSyncEn=*/false);
+
+      // block_ct_dim must divide full_ct_dim and fit in DST.
+      int64_t blockCtDim = std::min(dstCapacity, fullCtDim);
+      while (blockCtDim > 1 && fullCtDim % blockCtDim != 0) {
+        blockCtDim--;
+      }
+      auto blockCtDimAttr =
+          rewriter.getI32IntegerAttr(static_cast<int32_t>(blockCtDim));
+      auto fullCtDimAttr =
+          rewriter.getI32IntegerAttr(static_cast<int32_t>(fullCtDim));
+
+      rewriter.create<ttkernel::PackUntilizeInitOp>(
+          op->getLoc(), src, dst, blockCtDimAttr, fullCtDimAttr);
+      rewriter.create<BlockOp>(op->getLoc(), src, dst, blockR, blockC,
+                               blockCtDimAttr, fullCtDimAttr);
+      rewriter.create<ttkernel::PackUntilizeUninitOp>(op->getLoc(), dst);
     } else {
       llvm_unreachable("unsupported tilize/untilize op");
     }
-
-    rewriter.create<BlockOp>(op->getLoc(), src, dst, blockR, blockC);
 
     rewriter.eraseOp(op);
 
@@ -2097,7 +2121,7 @@ void populateD2MToTTKernelPatterns(
                ttkernel::D2MSFPUOpsRewriter<d2m::TileWhereOp>,
 
                ttkernel::D2MTilizeUntilizeRewriter<d2m::TileTilizeBlockOp, ttkernel::ExperimentalTilizeBlockOp>,
-               ttkernel::D2MTilizeUntilizeRewriter<d2m::TileUntilizeBlockOp, ttkernel::ExperimentalUntilizeBlockOp>,
+               ttkernel::D2MTilizeUntilizeRewriter<d2m::TileUntilizeBlockOp, ttkernel::ExperimentalPackUntilizeBlockOp>,
                ttkernel::D2MTileFillRewriter,
                ttkernel::D2MWriteRowMaskTileRewriter,
                ttkernel::D2MWriteColMaskTileRewriter,
