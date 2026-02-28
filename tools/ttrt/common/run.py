@@ -832,16 +832,22 @@ class Run:
                                     end_get_output - start_get_output
                                 )
 
-                                # (todo: tapspatel) Temporary workaround for getting multi-device tensors back to host.
-                                # Currently, ttrt.runtime.to_host will return back a list of tensors, outputs[i] is a single multi-device tensor (with multiple device shards).
-                                if (
-                                    self["--print-input-output-tensors"]
-                                    or self["--enable-golden"]
-                                ):
-                                    ttrt.runtime.memcpy(
-                                        outputs[i],
-                                        output_host,
+                                if len(output_host) > 1:
+                                    raise Exception(
+                                        f"Failed: ttrt doesn't support presharded outputs: https://github.com/tenstorrent/tt-mlir/issues/7275"
                                     )
+                                output_host = output_host[0]
+
+                                combined_output_tensor = output_host
+                                if bin.extension != ".ttm":
+                                    combined_output_tensor = ttrt.runtime.create_multi_device_host_tensor_from_shards(
+                                        [output_host], {}, (1, 1)
+                                    )
+
+                                ttrt.runtime.memcpy(
+                                    outputs[i],
+                                    combined_output_tensor,
+                                )
                                 ttrt.runtime.deallocate_tensor(
                                     runtime_output_tensor, force=True
                                 )
