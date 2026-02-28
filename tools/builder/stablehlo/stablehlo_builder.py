@@ -4337,7 +4337,7 @@ class StableHLOBuilder(Builder):
             golden_output = op_golden_function(
                 input0,
                 input1,
-                comparison_direction,
+                direction_attr,
                 op.result.type.element_type,
             )
             self._set_golden_tensor(op_result, golden_output)
@@ -4392,7 +4392,7 @@ class StableHLOBuilder(Builder):
             golden_output = op_golden_function(
                 input0,
                 input1,
-                direction_str,
+                new_direction_attr,
                 new_op_result.type.element_type,
             )
             self._set_golden_tensor(new_op_result, golden_output)
@@ -4467,7 +4467,7 @@ class StableHLOBuilder(Builder):
                         golden_output = op_golden_function(
                             input0,
                             input1,
-                            direction_str,
+                            new_direction_attr,
                             new_op_result.type.element_type,
                         )
                         compare_builder._set_golden_tensor(new_op_result, golden_output)

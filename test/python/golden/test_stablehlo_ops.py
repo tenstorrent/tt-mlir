@@ -524,7 +524,7 @@ def test_compare_ops(test_fn: Callable, target: str, request, device):
         **get_request_kwargs(request),
         target=target,
         device=device,
-        pcc=-1.0,
+        check_pcc=False,
     )
 
 

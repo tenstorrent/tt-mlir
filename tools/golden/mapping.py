@@ -4918,13 +4918,13 @@ _STABLEHLO_COMPARE_DISPATCH = {
 def stablehlo_compare_golden(
     lhs_tensor: GoldenMapTensor,
     rhs_tensor: GoldenMapTensor,
-    comparison_direction: str,
+    direction_attr,
     output_type_mlir: Type,
 ) -> GoldenMapTensor:
-    direction = comparison_direction.upper()
+    direction = str(direction_attr).upper()
     compare_fn = _STABLEHLO_COMPARE_DISPATCH.get(direction)
     if compare_fn is None:
-        raise ValueError(f"Unsupported comparison direction: {comparison_direction}")
+        raise ValueError(f"Unsupported comparison direction: {direction_attr}")
     output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
     return compare_fn(lhs_tensor, rhs_tensor).to(output_dtype)
 
