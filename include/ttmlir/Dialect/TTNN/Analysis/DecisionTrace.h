@@ -197,10 +197,9 @@ class DecisionTraceObserver : public LayoutPropagationObserver,
 public:
   // LayoutPropagationObserver overrides.
   void onStart(llvm::StringRef funcName, size_t beamWidth) override;
-  void onOpSetup(
-      Operation *op,
-      const std::vector<std::vector<InputCandidate>> &inputSets,
-      const OutputHints &hints, size_t crossProductSize) override;
+  void onOpSetup(Operation *op,
+                 const std::vector<std::vector<InputCandidate>> &inputSets,
+                 const OutputHints &hints, size_t crossProductSize) override;
   void onEvaluation(Operation *op, const OpConfig &hint, size_t hintIdx,
                     llvm::ArrayRef<TTNNLayoutAttr> inputLayouts, bool valid,
                     const BeamCandidate *candidate,
@@ -226,8 +225,7 @@ public:
   void onOOM(Operation *op, int64_t pos, uint64_t occupiedL1) override;
   void onDemotion(Operation *op, int64_t pos, bool success,
                   uint64_t newL1Usage) override;
-  void onEviction(Operation *victim, int64_t pos,
-                  uint64_t freedBytes) override;
+  void onEviction(Operation *victim, int64_t pos, uint64_t freedBytes) override;
   void onSelfSpill(Operation *op, int64_t pos) override;
   void onRevalidationCascade(Operation *changed, Operation *consumer,
                              bool outputChanged) override;
