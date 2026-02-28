@@ -851,7 +851,7 @@ private:
     const OpsToCreate &opsToCreate = info.opsToCreate;
 
     // If we need to untilize and the output data type can be untilized on
-    // device typcast and untilize on device
+    // device typecast and untilize on device
     if (info.shouldUntilize() && canUntilizeDataTypeOnDevice(output.dataType)) {
       currentInput = this->createDataTypeCastingOpIfNeeded(op, rewriter,
                                                            currentInput, info);

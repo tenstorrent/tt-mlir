@@ -113,7 +113,7 @@ executeConstraintQuery(Callable &callable) {
  * @param name The name of the operation to query constraints for.
  * @param context The MLIRContext to use for creating the TTNNLayoutAttr for the
  * output tensor
- * @param deviceGrid The worker grid of the device the op is targetted for.
+ * @param deviceGrid The worker grid of the device the op is targeted for.
  * Required for creating the output tensor layout
  * @param callable A callable object that performs the query.
  * @return A tuple containing query results or a string error.
@@ -559,7 +559,7 @@ createMetalHostTensor(llvm::ArrayRef<int64_t> shape,
 
 // Returns the output tensor spec of the prepared weights for a conv2d op.
 // Transform the standard OIHW weights layout to the ttnn convolution internal
-// layout that is desired. The output shape is dependant on the conv2d config
+// layout that is desired. The output shape is dependent on the conv2d config
 // and input memory config.
 llvm::Expected<::ttnn::TensorSpec> getPrepareConv2dWeightsOpOutputTensorSpec(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
@@ -6958,7 +6958,7 @@ OpModel<mlir::tt::ttnn::EmptyOp>::getOpConstraints(
 //===----------------------------------------------------------------------===//
 // sgholamiTT: There are two reasons why receiving the start, end, and step as
 // attributes is better than as integers:
-//   1. That is the only valid way to aquire a pointer to MLIRContext.
+//   1. That is the only valid way to acquire a pointer to MLIRContext.
 //   2. Using getInt() member function of ::mlir::IntegerAttr is safer and more
 //      mlir idiomatic than static_cast<int64_t>(start).
 llvm::Expected<OpConstraints>

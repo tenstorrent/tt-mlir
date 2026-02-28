@@ -1524,7 +1524,7 @@ def experimental_build_stablehlo_module(
             func_op = module.body.operations[-1]
             func_op.attributes["topology"] = topology_attr
 
-        print(f"`{fn.__name__}` sucessfully transformed into a MLIR module.")
+        print(f"`{fn.__name__}` successfully transformed into a MLIR module.")
         base = fn.__name__ if base is None else base
         filename = get_target_path(
             output_root, "stablehlo-builder-artifacts", "stablehlo.mlir", base

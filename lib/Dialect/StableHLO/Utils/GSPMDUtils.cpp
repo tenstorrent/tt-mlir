@@ -382,7 +382,7 @@ determineGSPMDShardingDims(llvm::SmallVector<int64_t> &shardShape,
                            llvm::SmallVector<int64_t> &deviceIds,
                            bool lastTileDimReplicate) {
   // This code is based on following assumption.
-  // 1. Hardware mesh is two dimenion such as 2x4, 1x2, ...
+  // 1. Hardware mesh is two dimension such as 2x4, 1x2, ...
   // 2. Hardware mesh only supports either line or mesh config
   // e.g., t3k 1x8 or 2x4
   SmallVector<int64_t> orgShardShape = shardShape;
@@ -412,8 +412,8 @@ determineGSPMDShardingDims(llvm::SmallVector<int64_t> &shardShape,
       llvm::copy_if(orgShardShape, std::back_inserter(meshShape),
                     [](int64_t s) { return s != int64_t{1}; });
       if (!deviceIds.empty() && deviceIds[0] + 1 != deviceIds[1]) {
-        // transposed shardShape if devicIds are not consecutive, so reverse the
-        // meshShape. [4,2] leads to [2,4]
+        // transposed shardShape if deviceIds are not consecutive, so reverse
+        // the meshShape. [4,2] leads to [2,4]
         std::reverse(meshShape.begin(), meshShape.end());
         reverseOrder = true;
       }

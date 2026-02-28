@@ -31,7 +31,7 @@ namespace mlir::tt::d2m::allocation {
 ///
 /// The caller can mark some problem variables as "bound", in which case
 /// the planner will consider them pinned to a particular space but will still
-/// include their memory offsets in the allocatin/defragmentation part of its
+/// include their memory offsets in the allocation/defragmentation part of its
 /// task.
 ///
 class Planner : public PlannerImpl {
@@ -67,7 +67,7 @@ public:
   /// `Space::Scratch` to `Space::Spill` and an "optimal" assignment of offsets
   /// for those requests that remain in `Space::Scratch` post-spill. The current
   /// implementation will heuristically choose which variables to spill until
-  /// the problem is solveable as if by `allocate()` within the `memUsageLimit`
+  /// the problem is solvable as if by `allocate()` within the `memUsageLimit`
   /// budget.
   /// This call will mutate `problem` in place and the final solution is only
   /// valid if it is feasible, i.e `SpillStats::memUsage <= memUsageLimit`.

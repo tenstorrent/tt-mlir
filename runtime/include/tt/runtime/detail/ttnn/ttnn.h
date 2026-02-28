@@ -265,7 +265,7 @@ retrieveTensorFromPool(CallbackContext programContextHandle,
                        tt::runtime::TensorRef tensorRef, bool untilize);
 
 // Update tensor to which tensorRef refers
-// Prefered to be owned tensor to avoid unexpected behavior in case of
+// Preferred to be owned tensor to avoid unexpected behavior in case of
 // deallocation
 void updateTensorInPool(CallbackContext programContextHandle,
                         TensorRef tensorRef, Tensor srcTensor);

@@ -156,12 +156,12 @@ void GreedyL1InterleavedPolicy::run() {
     //
     llvm::DenseMap<Operation *, OpMemSpec> OpMemSpecMap;
     mlir::tt::scheduler::Scheduler scheduler(&func);
-    llvm::SmallVector<Operation *> scheduleableOps;
+    llvm::SmallVector<Operation *> schedulableOps;
 
     while (scheduler.hasUnscheduledOps()) {
-      scheduleableOps = scheduler.getSchedulableOps();
+      schedulableOps = scheduler.getSchedulableOps();
 
-      for (Operation *op : scheduleableOps) {
+      for (Operation *op : schedulableOps) {
         // Schedule the op.
         //
         scheduler.scheduleOp(op);
@@ -290,7 +290,7 @@ void GreedyL1InterleavedPolicy::run() {
     constructSchedule(func);
 
     // Build, Resolve and Complete the L1 chain.
-    // This implementation is only here unitl we are able to merge
+    // This implementation is only here until we are able to merge
     // L1ChainConfigs.
     // TODO(fbajraktari): Fix this hack.
     //
@@ -314,7 +314,7 @@ bool GreedyL1InterleavedPolicy::isAnalyzable(Operation *op) {
   // Skip operations that are not analyzed by the LegalLayoutAnalysis.
   //
   if (legalConfigs.count(op) > 0) {
-    // Skip operations that are filterd out by the MemoryLayoutAnalysis.
+    // Skip operations that are filtered out by the MemoryLayoutAnalysis.
     //
     return legalConfigs[op].size() > 0;
   }

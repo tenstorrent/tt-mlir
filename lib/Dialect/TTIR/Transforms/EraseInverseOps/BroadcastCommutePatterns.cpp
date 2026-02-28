@@ -45,7 +45,7 @@ getNewReshapeAndBroadcastDims(ArrayRef<int64_t> originalShape,
                "Broadcast dimensions should always be 1 when the input shape "
                "is > 1");
 
-    // Create new "original" partiton OR fuse volume of this dimension with
+    // Create new "original" partition OR fuse volume of this dimension with
     // current "original" partition.
     if (broadcastDims[i] == 1 && originalShape[i] > 1) {
       if (currentPartition.size == -1) {
@@ -58,7 +58,7 @@ getNewReshapeAndBroadcastDims(ArrayRef<int64_t> originalShape,
         currentPartition = {originalShape[i], true};
       }
     }
-    // Create new "broadcasted" partiton OR fuse volume of this dimension with
+    // Create new "broadcasted" partition OR fuse volume of this dimension with
     // current "broadcasted" partition.
     else if (broadcastDims[i] > 1) {
       if (currentPartition.size == -1) {
@@ -147,7 +147,7 @@ getNewReshapeAndBroadcastDims(ArrayRef<int64_t> originalShape,
   //
   // IMPORTANT: If at any point the size of finalShape at some index i is
   // greater than the size of the current partition, this would imply that
-  //            the reshape has placed broacasted and original data along the
+  //            the reshape has placed broadcasted and original data along the
   //            same axis. And so, the reshape cannot commute through the
   //            broadcast.
 

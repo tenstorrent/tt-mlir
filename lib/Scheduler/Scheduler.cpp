@@ -15,9 +15,9 @@
 
 namespace mlir::tt::scheduler {
 
-// TTNN op is scheduleable if it is not an EmptyOp or GetDeviceOp.
+// TTNN op is schedulable if it is not an EmptyOp or GetDeviceOp.
 // This includes in-place ops (like paged_update_cache) that have no results.
-static bool isTTNNScheduleableOp(mlir::Operation *op) {
+static bool isTTNNSchedulableOp(mlir::Operation *op) {
   return isa<ttnn::TTNNDialect>(op->getDialect()) &&
          !llvm::isa<ttnn::EmptyOp>(op) && !llvm::isa<ttnn::GetDeviceOp>(op);
 }
@@ -28,7 +28,7 @@ static bool isTTIRSchedulableOp(mlir::Operation *op) {
 }
 
 bool Scheduler::isTTSchedulableOp(mlir::Operation *op) {
-  return isTTNNScheduleableOp(op) || isTTIRSchedulableOp(op);
+  return isTTNNSchedulableOp(op) || isTTIRSchedulableOp(op);
 }
 
 // Init the dependencies map of all ops which are TTIR ops

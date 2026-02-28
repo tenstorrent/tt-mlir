@@ -720,7 +720,7 @@ def D2M_TileUntilizeBlockOp : D2M_GenericRegionComputeOp<"tile_untilize_block",
   ]> {
     let summary = "D2M Tile Untilize Block Op";
     let description = [{
-        The `tile_untilize_block` operation untilizes the input tilized memref block and outputs the memref contianing the row major data.
+        The `tile_untilize_block` operation untilizes the input tilized memref block and outputs the memref containing the row major data.
     }];
 
     let arguments = (ins AnyRankedTensorOrMemRef:$input,
@@ -994,7 +994,7 @@ def D2M_DMAReadOp : D2M_GenericRegionDatamovementOp<"dma_read",
       This op performs a fully indexed DMA read operation from src memref to dst memref, where src and dst indices are fully resolved
       (all view and memspace-specific affine maps applied). It corresponds 1:1 to a single concrete DMA read operation. The dst memref _must_ be local!
 
-      This operation only supports unicast (mulicast are write-only).
+      This operation only supports unicast (multicast are write-only).
 
       ```mlir
       %tx = d2m.dma_read %src[%gridy, %gridx, %shardy, %shardx], %dst[%gridy, %gridx, %shardy, %shardx], %size
@@ -1558,7 +1558,7 @@ def D2M_SemaphoreIncOp : D2M_SemaphoreUpdateOp<"semaphore_inc"> {}
 def D2M_SemaphoreWaitOp : D2M_GenericRegionOp<"semaphore_wait", [MemoryEffects<[MemRead, MemWrite]>]> {
     let summary = "D2M Semaphore Set Op.";
     let description = [{
-      Wait for the semaphore value to reach the specified value. Optionall supply a reset value as a shorthand syntax.
+      Wait for the semaphore value to reach the specified value. Optionally supply a reset value as a shorthand syntax.
 
       ```mlir
       d2m.semaphore_wait %sem1, %c1 reset %c0

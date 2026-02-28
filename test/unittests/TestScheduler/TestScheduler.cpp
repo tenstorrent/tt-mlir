@@ -127,12 +127,12 @@ TEST_F(SchedulerBase, FixedSchedule) {
   // Run scheduler to get the schedule
   mlir::tt::scheduler::Scheduler scheduler(&func);
   for (std::size_t i = 0; i < NumberOfOps; i++) {
-    llvm::SmallVector<mlir::Operation *> scheduleableOps =
+    llvm::SmallVector<mlir::Operation *> schedulableOps =
         scheduler.getSchedulableOps();
-    ASSERT_EQ(scheduleableOps.size(), 1);
+    ASSERT_EQ(schedulableOps.size(), 1);
     ASSERT_TRUE(scheduler.hasUnscheduledOps());
     ;
-    scheduler.scheduleOp(scheduleableOps[0]);
+    scheduler.scheduleOp(schedulableOps[0]);
   }
 
   ASSERT_FALSE(scheduler.hasUnscheduledOps());
@@ -158,12 +158,12 @@ TEST_F(SchedulerBase, SingleOp) {
 
   mlir::tt::scheduler::Scheduler scheduler(&func);
   ASSERT_TRUE(scheduler.hasUnscheduledOps());
-  llvm::SmallVector<mlir::Operation *> scheduleableOps =
+  llvm::SmallVector<mlir::Operation *> schedulableOps =
       scheduler.getSchedulableOps();
-  ASSERT_EQ(scheduleableOps.size(), 1);
-  scheduler.scheduleOp(scheduleableOps[0]);
+  ASSERT_EQ(schedulableOps.size(), 1);
+  scheduler.scheduleOp(schedulableOps[0]);
   ASSERT_FALSE(scheduler.hasUnscheduledOps());
-  ASSERT_EQ(scheduleableOps[0], op.getOperation());
+  ASSERT_EQ(schedulableOps[0], op.getOperation());
 }
 
 // Test the scheduler with a fork in the graph
@@ -203,23 +203,23 @@ TEST_F(SchedulerBase, VerifyFork) {
   ops.push_back(op);
 
   mlir::tt::scheduler::Scheduler scheduler(&func);
-  llvm::SmallVector<mlir::Operation *> scheduleableOps =
+  llvm::SmallVector<mlir::Operation *> schedulableOps =
       scheduler.getSchedulableOps();
-  ASSERT_EQ(scheduleableOps.size(), 1);
+  ASSERT_EQ(schedulableOps.size(), 1);
 
-  scheduler.scheduleOp(scheduleableOps[0]);
-  scheduleableOps = scheduler.getSchedulableOps();
-  ASSERT_EQ(scheduleableOps.size(), 2);
+  scheduler.scheduleOp(schedulableOps[0]);
+  schedulableOps = scheduler.getSchedulableOps();
+  ASSERT_EQ(schedulableOps.size(), 2);
 
-  scheduler.scheduleOp(scheduleableOps[0]);
-  scheduleableOps = scheduler.getSchedulableOps();
-  ASSERT_EQ(scheduleableOps.size(), 1);
+  scheduler.scheduleOp(schedulableOps[0]);
+  schedulableOps = scheduler.getSchedulableOps();
+  ASSERT_EQ(schedulableOps.size(), 1);
 
-  scheduler.scheduleOp(scheduleableOps[0]);
-  scheduleableOps = scheduler.getSchedulableOps();
-  ASSERT_EQ(scheduleableOps.size(), 1);
+  scheduler.scheduleOp(schedulableOps[0]);
+  schedulableOps = scheduler.getSchedulableOps();
+  ASSERT_EQ(schedulableOps.size(), 1);
 
-  scheduler.scheduleOp(scheduleableOps[0]);
+  scheduler.scheduleOp(schedulableOps[0]);
   ASSERT_FALSE(scheduler.hasUnscheduledOps());
 }
 
@@ -267,16 +267,16 @@ TEST_F(SchedulerBase, SplitQueryKeyValueAndSplitHeadsOp) {
       builder.getUnknownLoc(), outputType, splitOp.getValue(), arg0);
 
   mlir::tt::scheduler::Scheduler scheduler(&func);
-  llvm::SmallVector<mlir::Operation *> scheduleableOps =
+  llvm::SmallVector<mlir::Operation *> schedulableOps =
       scheduler.getSchedulableOps();
-  ASSERT_EQ(scheduleableOps.size(), 1);
-  ASSERT_EQ(scheduleableOps[0], splitOp.getOperation());
+  ASSERT_EQ(schedulableOps.size(), 1);
+  ASSERT_EQ(schedulableOps[0], splitOp.getOperation());
 
-  scheduler.scheduleOp(scheduleableOps[0]);
-  scheduleableOps = scheduler.getSchedulableOps();
-  ASSERT_EQ(scheduleableOps.size(), 3);
+  scheduler.scheduleOp(schedulableOps[0]);
+  schedulableOps = scheduler.getSchedulableOps();
+  ASSERT_EQ(schedulableOps.size(), 3);
 
-  ASSERT_EQ(scheduleableOps[0], queryConsumerOp.getOperation());
-  ASSERT_EQ(scheduleableOps[1], keyConsumerOp.getOperation());
-  ASSERT_EQ(scheduleableOps[2], valueConsumerOp.getOperation());
+  ASSERT_EQ(schedulableOps[0], queryConsumerOp.getOperation());
+  ASSERT_EQ(schedulableOps[1], keyConsumerOp.getOperation());
+  ASSERT_EQ(schedulableOps[2], valueConsumerOp.getOperation());
 }

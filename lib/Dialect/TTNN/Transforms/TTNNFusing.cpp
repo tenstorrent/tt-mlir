@@ -105,7 +105,7 @@ private:
       return true;
     }
 
-    // Since window flattening will add rehape after conv we need to check
+    // Since window flattening will add reshape after conv we need to check
     // if there is reshape right after conv2d.
     if (!ttmlir::utils::allUsersOfType<ReshapeOp>(srcOp)) {
       return false;

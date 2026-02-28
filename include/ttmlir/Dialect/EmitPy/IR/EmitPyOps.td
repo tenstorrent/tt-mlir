@@ -450,7 +450,7 @@ def EmitPy_AssignGlobalOp : EmitPy_Op<"assign_global",
     [DeclareOpInterfaceMethods<SymbolUserOpInterface>]> {
   let summary = "Assign a value to a global variable";
   let description = [{
-    The `emitpy.assign_global` assignes the value to an existing named global variable.
+    The `emitpy.assign_global` assigns the value to an existing named global variable.
 
     Example:
 

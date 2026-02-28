@@ -367,7 +367,7 @@ class Read:
     def load_binaries_from_path(self, binary_path):
         """
         Load binaries from the specified path and perform preprocessing and constraint checks.
-        This function can be invoked to skip full execution pipeline, and use independant functions.
+        This function can be invoked to skip full execution pipeline, and use independent functions.
         Args:
             binary_path (str): The file path to the binary (or directory of Binaries) to be loaded.
         Raises:

@@ -36,7 +36,7 @@ The overall system integrates these components:
 > - "TTRT", with an arrow labeled "HTTPS Server Call" to the next node.
 > - "Tracy Results", with an arrow labeled "Performance Trace" to the "UI" node on the next group.
 >
-> Rectangular group labeled "Client Side", below "Host side" and left of unlabeled group, with interconected nodes by arrows, and with some arrows going to the previous group.
+> Rectangular group labeled "Client Side", below "Host side" and left of unlabeled group, with interconnected nodes by arrows, and with some arrows going to the previous group.
 > The nodes are:
 >
 > - "Model Explorer", with an arrow labeled "HTTPS API (Overrides, MLIR -> JSON, etc...)" to and from the "TT-Adapter" node on the previous group, and an arrow labeled "Overrides (legal configurations)" to and from the next node.

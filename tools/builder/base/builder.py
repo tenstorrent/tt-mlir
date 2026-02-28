@@ -61,7 +61,7 @@ class Builder(metaclass=BuilderMeta):
         # func_op: [[ordered_inputs], [ordered_outputs]]
         self._func_ops_generated: Dict[func.FuncOp, List[List[Operand]]] = {}
 
-        # Explicity set goldens to store. If empty, store all goldens.
+        # Explicitly set goldens to store. If empty, store all goldens.
         self._goldens_to_store: List[Operand] = []
 
         # Map from operand to its golden tensor.

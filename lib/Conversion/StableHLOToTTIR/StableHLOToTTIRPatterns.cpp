@@ -325,7 +325,7 @@ private:
 
     // stablehlo.reduce op generates two results; the first output is maximum
     // value which is not consumed in subsequent graph and the second out is the
-    // index of maximum value which is consumend in subsequent graph. On other
+    // index of maximum value which is consumed in subsequent graph. On other
     // hand ttir.argmax generates one result only.
     // So 'rewriter.replaceOpWithNewOp' will not work due to difference in
     // number of outputs.
@@ -352,7 +352,7 @@ private:
   //   b. second init value is 0
   // 3. Two results generated; the first result is maximum value which is not
   //    consumed in subsequent graph and the second result is index of maximum
-  //    value which is consumend in subsequent graph.
+  //    value which is consumed in subsequent graph.
   // 4. One block in reducer body.
   // 5. Pattern match the ops of reducer body; tt-torch and tt-xla generates
   //    different pattern. So pattern matching is performed separately.
@@ -1398,7 +1398,7 @@ protected:
 
   // This function will generate the transpose indices needed to convert a
   // convolution input to a desired layout. The reason for the separate
-  // function is to encapsulate the logic for constructuring the inputLayout.
+  // function is to encapsulate the logic for constructing the inputLayout.
   static llvm::SmallVector<int64_t>
   generateConvPermutation(mlir::stablehlo::ConvolutionOp op,
                           llvm::ArrayRef<int64_t> ttnnConvolutionLayout) {
@@ -1421,7 +1421,7 @@ protected:
 
   // This function will generate the transpose indices needed to convert a
   // convolution input to a desired layout. The reason for the separate
-  // function is to encapsulate the logic for constructuring the kernelLayout.
+  // function is to encapsulate the logic for constructing the kernelLayout.
   static llvm::SmallVector<int64_t> generateConvKernelPermutation(
       mlir::stablehlo::ConvolutionOp op,
       llvm::ArrayRef<int64_t> ttnnConvolutionKernelLayout) {
@@ -3924,7 +3924,7 @@ public:
 
     if (auto srcChannelHandleAttr = adaptor.getChannelHandleAttr()) {
       // channelType is supposed to be DEVICE_TO_DEVICE or Invalid for CCL ops.
-      // Currently, we ensure if it is DEVICE_TO_DEVICE commmuincaiton.
+      // Currently, we ensure if it is DEVICE_TO_DEVICE communication.
       // Consider preserving this information in the future if the attribute
       // is non-DEVICE_TO_DEVICE values.
       auto channelType =
@@ -3998,7 +3998,7 @@ public:
 
     if (auto srcChannelHandleAttr = adaptor.getChannelHandleAttr()) {
       // channelType is supposed to be DEVICE_TO_DEVICE or Invalid for CCL ops.
-      // Currently, we ensure if it is DEVICE_TO_DEVICE commmuincaiton.
+      // Currently, we ensure if it is DEVICE_TO_DEVICE communication.
       // Consider preserving this information in the future if the attribute
       // is non-DEVICE_TO_DEVICE values.
       auto channelType =
@@ -4098,7 +4098,7 @@ public:
 
     if (auto srcChannelHandleAttr = adaptor.getChannelHandleAttr()) {
       // channelType is supposed to be DEVICE_TO_DEVICE or Invalid for CCL ops.
-      // Currently, we ensure if it is DEVICE_TO_DEVICE commmuincaiton.
+      // Currently, we ensure if it is DEVICE_TO_DEVICE communication.
       // Consider preserving this information in the future if the attribute
       // is non-DEVICE_TO_DEVICE values.
       auto channelType =
@@ -4476,7 +4476,7 @@ public:
         mlir::cast<RankedTensorType>(updates.getType());
 
     // If the cachePositions tensor has more than one element we assume it
-    // represents a set of aranged indices (0, cachePositions.size), so we
+    // represents a set of arranged indices (0, cachePositions.size), so we
     // replace it with FillCacheOp. If the tensor has only one element, we
     // assume it represents the update index for UpateCacheOp.
     if (cacheUpdateInputShape[0] != 1) {
@@ -5138,7 +5138,7 @@ private:
       }
 
       // Create constant tensor with shape [expandedNumIndices, 1].
-      // (to match the shape of individial slices generated in the next
+      // (to match the shape of individual slices generated in the next
       // step of the algorithm, since they are all pushed to indexSlices)
       RankedTensorType finalOffsetType =
           RankedTensorType::get({expandedNumIndices, 1}, indexElementType);
@@ -5350,7 +5350,7 @@ public:
 
     // Step 4: SortType-specific lowering.
 
-    // SortType::kValueOnly - Replace values output and ingnore indices output.
+    // SortType::kValueOnly - Replace values output and ignore indices output.
     if (sortType == SortType::kValueOnly) {
       rewriter.replaceOp(srcOp, sortOp.getValues());
       return success();
@@ -6463,7 +6463,7 @@ public:
         isCausal = false;
       } else {
         return rewriter.notifyMatchFailure(
-            srcOp, "is_causal attribute must be true or false. Recived \"" +
+            srcOp, "is_causal attribute must be true or false. Received \"" +
                        isCausalSringAttr.getValue() + "\".");
       }
     }
@@ -6477,7 +6477,7 @@ public:
       if (!llvm::to_float(scaleStringAttr.getValue(), _scale)) {
         return rewriter.notifyMatchFailure(
             srcOp,
-            "scale attribute string must be convertible to float. Recived \"" +
+            "scale attribute string must be convertible to float. Received \"" +
                 scaleStringAttr.getValue() + "\".");
       }
       scale = _scale;

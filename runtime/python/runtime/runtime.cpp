@@ -561,7 +561,7 @@ void registerRuntimeBindings(nb::module_ &m) {
       nb::arg("tensor_handle"),
       R"(
     Overwrite the data associated with an existing tensor reference.
-    Prefered to be owned tensor to avoid unexpected behavior in case of
+    Preferred to be owned tensor to avoid unexpected behavior in case of
     deallocation.
 
     Parameters

@@ -599,7 +599,7 @@ result_code, results = run_instance()
 The full set of `ttrt.runtime` exposed APIs and types can be found in `runtime/python/runtime/runtime.cpp`, however only the ones intended to be used for runtime customization through callback hooks are outlined here.
 
 ### Callback hooks
-MLIR Runtime exposes a feature to register python callback functions. Any two python fuctions can be provided - the first function will be executed before every op in MLIR Runtime, the second after every op. The following steps describe how to extend your application to register python functions. Callback functions are already implemented by default for pbd debugger implementation and gathering memory and golden check data as outlined in the `run` API section.
+MLIR Runtime exposes a feature to register python callback functions. Any two python functions can be provided - the first function will be executed before every op in MLIR Runtime, the second after every op. The following steps describe how to extend your application to register python functions. Callback functions are already implemented by default for pbd debugger implementation and gathering memory and golden check data as outlined in the `run` API section.
 
 1. Pybind DebugHooks C++ class, specifically `tt::runtime::debug::Hooks::get`. See `runtime/python/runtime/runtime.cpp` for an example of how `ttrt` pybinds it.
 ```bash
@@ -607,7 +607,7 @@ tt::runtime::debug::Hooks
 tt::runtime::debug::Hooks::get
 ```
 
-2. Register callback functions in your python script. The following is registering the two callback functions written in `tools/ttrt/common/callback.py`. The Debug Hooks get function has been pybinded to `ttrt.runtime.DebugHooks.get`
+2. Register callback functions in your python script. The following is registering the two callback functions written in `tools/ttrt/common/callback.py`. The Debug Hooks get function has been exposed via pybind to `ttrt.runtime.DebugHooks.get`
 ```bash
 import ttrt.runtime
 
@@ -627,7 +627,7 @@ def pre_op_callback_runtime_config(binary, program_context, op_context):
 import ttrt.runtime
 
 loc = ttrt.runtime.get_op_loc_info(op_context) : get the location of the op as a string which is used as the key when indexing the golden tensors stored in the flatbuffer
-op_debug_str = ttrt.runtime.get_op_debug_str(op_context) : get the op debug str (contains op metadata inculding op type, attributes, input tensor shapes and dtypes, memref with layout and buffer type, and loc)
+op_debug_str = ttrt.runtime.get_op_debug_str(op_context) : get the op debug str (contains op metadata including op type, attributes, input tensor shapes and dtypes, memref with layout and buffer type, and loc)
 op_golden_tensor = ttrt.runtime.get_debug_info_golden(binary, loc) : get the golden tensor from the binary as a ttrt.binary GoldenTensor object
 op_output_tensor = ttrt.runtime.get_op_output_tensor(op_context, program_context) : get the currently running output tensor from device as a ttrt.runtime Tensor object, if this is called in a preOp function or the op doesn't output a tensor, an empty tensor will be returned.
 ```

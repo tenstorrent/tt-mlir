@@ -2,7 +2,7 @@
 // RUN: FileCheck %s --input-file=%t.mlir
 // RUN: ttmlir-translate --ttnn-to-flatbuffer -o %t.ttnn %t.mlir
 
-// This is common pattern throught Resnet. We have conv2d with constant weight, followed by multiply with constant input. This will be commuted through conv2d.
+// This is common pattern throughout Resnet. We have conv2d with constant weight, followed by multiply with constant input. This will be commuted through conv2d.
 // Then we fuse add into conv2d with bias and lastly we fuse conv2d and relu into conv2d with activation.
 
 module {

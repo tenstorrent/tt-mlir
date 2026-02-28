@@ -78,7 +78,7 @@ void BFInterleavedPolicy::run() {
         }
 
         // Check if the scheduling of the op is consuming the least amount of L1
-        // memory among all the scheduleable ops.
+        // memory among all the schedulable ops.
         //
         changeInL1Usage = allocOfL1Mem - deallocOfL1Mem;
         if (changeInL1Usage < minimalChangeInL1Usage) {
@@ -173,7 +173,7 @@ bool BFInterleavedPolicy::isAnalyzable(Operation *op) {
   // Skip operations that are not analyzed by the LegalGridAnalysis.
   //
   if (legalConfigs.count(op) > 0) {
-    // Skip operations that are filterd out by the MemoryLayoutAnalysis.
+    // Skip operations that are filtered out by the MemoryLayoutAnalysis.
     //
     return legalConfigs[op].size() > 0;
   }

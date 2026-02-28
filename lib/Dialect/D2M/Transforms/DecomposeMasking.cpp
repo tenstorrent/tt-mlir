@@ -171,7 +171,7 @@ struct DecomposeBlockMaskPattern : OpRewritePattern<BlockMaskOp> {
     int64_t lastValidRow = (logicalRows - 1) / kTileHeight;
     int64_t lastValidCol = (logicalCols - 1) / kTileWidth;
 
-    // Computehow many elements are valid in the last partial tile to generate
+    // Compute how many elements are valid in the last partial tile to generate
     // bitmask.
     int64_t validRowsInLastTile = logicalRows % kTileHeight;
     if (validRowsInLastTile == 0) {

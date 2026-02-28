@@ -150,7 +150,7 @@ class TTNNBuilder(Builder):
         """
         TTNN tensors require that encoding information is present.
         This method creates a TTNN tensor with encoding information.
-        For simplicity we will always create DRAM/Interlaved tiled tensor.
+        For simplicity we will always create DRAM/Interleaved tiled tensor.
         """
         if isinstance(element_type, torch.dtype):
             element_type = self._get_type_from_torch_dtype(element_type)
@@ -173,7 +173,7 @@ class TTNNBuilder(Builder):
         """
         TTNN tensors require that encoding information is present.
         This method creates a TTNN tensor with encoding information.
-        For simplicity we will always create DRAM/Interlaved tiled tensor.
+        For simplicity we will always create DRAM/Interleaved tiled tensor.
         """
         with self._ctx, self._loc:
             ttnn_layout_attr = self.create_tensor_encoding(shape, element_type)
