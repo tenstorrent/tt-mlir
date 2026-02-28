@@ -50,7 +50,7 @@ public:
       ArrayRef<int64_t> physicalGridShape, const SymbolTable &symbolTable,
       ttmetal::MathFidelity mathFidelity) {
     SmallVector<Attribute> kernelConfigs;
-    uint32_t nocIndex = 0;
+    int unassignedNocCounter = 0;
 
     auto coreRange = ttmetal::CoreRangeAttr::getPhysicalCoreRange(
         builder.getContext(), physicalGridShape);
@@ -80,14 +80,13 @@ public:
         break;
       }
       case d2m::ThreadType::Datamovement: {
-        // The following assert just does a simple check for now, but in the
-        // future you could have non-overlapping grids which would make this
-        // calculation invalid.
-        assert(nocIndex < 2);
+        int32_t nocIdx = thread.getNocIndex();
+        if (nocIdx < 0) {
+          nocIdx = unassignedNocCounter++ % 2;
+        }
         kernelConfig = builder.getAttr<ttmetal::NocConfigAttr>(
             thread.getKernelSymbol(), coreRange, kernelArgs,
-            *symbolizeNocIndex(nocIndex));
-        ++nocIndex;
+            *symbolizeNocIndex(nocIdx));
         break;
       }
       case d2m::ThreadType::Unified: {

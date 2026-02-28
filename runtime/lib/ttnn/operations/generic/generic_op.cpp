@@ -63,12 +63,12 @@ createCBDescriptor(const ::tt::target::ttnn::KernelCBDescriptor &cbDesc,
   return cbDescriptor;
 }
 
-static_assert(static_cast<uint8_t>(::tt::target::ttnn::Noc::Noc0) ==
+static_assert(static_cast<uint8_t>(::tt::target::NocIndex::Noc0) ==
               static_cast<uint8_t>(::tt::tt_metal::NOC::NOC_0));
-static_assert(static_cast<uint8_t>(::tt::target::ttnn::Noc::Noc1) ==
+static_assert(static_cast<uint8_t>(::tt::target::NocIndex::Noc1) ==
               static_cast<uint8_t>(::tt::tt_metal::NOC::NOC_1));
 inline constexpr ::tt::tt_metal::NOC
-convertNoc(const tt::target::ttnn::Noc &noc) {
+convertNoc(const tt::target::NocIndex &noc) {
   return static_cast<::tt::tt_metal::NOC>(noc);
 }
 

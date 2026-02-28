@@ -95,19 +95,20 @@ public:
       rewriteAdditionalArgOperands(builder, generic);
 
       SmallVector<Attribute> threads;
+      auto origThreads = generic.getThreadsAttr().getValue();
       for (Region &region : generic.getRegions()) {
         builder.setInsertionPoint(moduleOp.getBody(),
                                   moduleOp.getBody()->end());
-        ThreadType threadType =
-            generic.getRegionThreadType(region.getRegionNumber());
+        auto origThreadAttr =
+            mlir::cast<ThreadAttr>(origThreads[region.getRegionNumber()]);
+        ThreadType threadType = origThreadAttr.getThreadType();
+        int32_t nocIndex = origThreadAttr.getNocIndex();
         std::string symbolName =
-            stringifyEnum(generic.getRegionThreadType(region.getRegionNumber()))
-                .str() +
-            "_kernel" + Twine(unique++).str();
+            stringifyEnum(threadType).str() + "_kernel" + Twine(unique++).str();
         auto threadAttrWithSym = builder.getAttr<ThreadAttr>(
-            threadType, builder.getAttr<SymbolRefAttr>(symbolName));
+            threadType, builder.getAttr<SymbolRefAttr>(symbolName), nocIndex);
         auto threadAttrWithoutSym =
-            builder.getAttr<ThreadAttr>(threadType, nullptr);
+            builder.getAttr<ThreadAttr>(threadType, nullptr, nocIndex);
         Location loc = region.getNumArguments() > 0
                            ? region.getArgument(0).getLoc()
                            : generic.getLoc();

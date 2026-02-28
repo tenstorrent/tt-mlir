@@ -3,11 +3,6 @@ include "ttmlir/Target/TTNN/types.fbs";
 
 namespace tt.target.ttnn;
 
-enum Noc : uint8 {
-  Noc0,
-  Noc1,
-}
-
 enum NocMode : uint8 {
   DM_DEDICATED_NOC,
   DM_DYNAMIC_NOC,
@@ -56,7 +51,7 @@ table ComputeKernelConfig {
 
 table DataMovementKernelConfig {
   processor: DataMovementType = RISCV_0;
-  noc: Noc = Noc0;
+  noc: tt.target.NocIndex = Noc0;
   noc_mode: NocMode = DM_DEDICATED_NOC;
 }
 

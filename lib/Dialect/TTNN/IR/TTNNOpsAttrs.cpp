@@ -1142,7 +1142,8 @@ DeviceComputeKernelConfigAttr::withDstFullSyncEn(bool value) const {
   for (auto kernel : kernels) {
     if (!llvm::isa<mlir::tt::ttnn::ComputeKernelAttr,
                    mlir::tt::ttnn::ReadKernelAttr,
-                   mlir::tt::ttnn::WriteKernelAttr>(kernel)) {
+                   mlir::tt::ttnn::WriteKernelAttr,
+                   mlir::tt::ttnn::DataMovementKernelAttr>(kernel)) {
       return emitError() << "Unexpected kernel";
     }
   }
@@ -1276,6 +1277,24 @@ DeviceComputeKernelConfigAttr::withDstFullSyncEn(bool value) const {
     return ::llvm::failure();
   }
 
+  return ::llvm::success();
+}
+
+::llvm::LogicalResult DataMovementKernelAttr::verify(
+    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+    SymbolRefAttr symbolRef, CoreRangeSetAttr coreRanges,
+    DataMovementProcessor processor, NocIndex nocIndex, NocMode nocMode,
+    llvm::ArrayRef<mlir::Attribute> commonRtArgs,
+    llvm::ArrayRef<CoreRuntimeArgsAttr> rtArgs,
+    llvm::ArrayRef<mlir::Attribute> ctArgs) {
+  if (nocMode == NocMode::DynamicNoc) {
+    return emitError() << "dynamic noc mode is not supported";
+  }
+  if (failed(verifyCommonRuntimeArgs(emitError, commonRtArgs)) ||
+      failed(verifyRuntimeArgs(emitError, rtArgs)) ||
+      failed(verifyCompileTimeArgs(emitError, ctArgs))) {
+    return ::llvm::failure();
+  }
   return ::llvm::success();
 }
 
