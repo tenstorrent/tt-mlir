@@ -100,6 +100,12 @@ MultiProcessArgs::withControllerHostname(std::string_view hostname) {
   return *this;
 }
 
+MultiProcessArgs &
+MultiProcessArgs::withTcpInterface(std::string_view interfaceName) {
+  tcpInterface_ = std::string(interfaceName);
+  return *this;
+}
+
 std::optional<std::string> MultiProcessArgs::getControllerHostname() const {
   return controllerHostname_;
 }
@@ -112,6 +118,16 @@ std::string MultiProcessArgs::toArgString() const {
   oss << "--rank-binding " << rankBindingPath_;
 
   oss << " ";
+
+  // TCP interface path, tt-run specific (replacement for mca
+  // btl_tcp_if_include, no longer supported by ttrun)
+  if (tcpInterface_.has_value()) {
+    oss << " ";
+    oss << "--tcp-interface " << tcpInterface_.value();
+  }
+
+  oss << " ";
+
   oss << "--mpi-args \"";
 
   // Hosts
