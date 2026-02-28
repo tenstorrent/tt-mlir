@@ -91,6 +91,22 @@ OutputHints getOutputHints(Operation *op,
         auto nonShardedConfigs = filterNonSharded(legalConfigs);
         return OutputHints{nonShardedConfigs, {}, /*attemptL1Sharding=*/false};
       })
+      // SDPA decode: tt-metal requires K/V in DRAM, Q either
+      // height-sharded or DRAM, output either height-sharded or DRAM
+      // (GQA further restricts output to DRAM-only).  In practice the
+      // only valid output is DRAM-interleaved via the NULL hint —
+      // every sharded output hint is rejected. Use NULL hint only,
+      // no fallbacks.
+      .Case<ScaledDotProductAttentionDecodeOp,
+            PagedScaledDotProductAttentionDecodeOp>([&](auto) {
+        return OutputHints{{OpConfig(TTNNLayoutAttr())}, {}};
+      })
+      .Case<WhereOp>([&](auto) {
+        return OutputHints{{OpConfig(TTNNLayoutAttr())}, {}};
+      })
+      .Case<TypecastOp>([&](auto) {
+        return OutputHints{{OpConfig(TTNNLayoutAttr())}, {}};
+      })
       .Default([&](Operation *) {
         // Primary: NULL hint only -- let the backend decide output from inputs.
         // Fallback: sharded configs -- tried only when NULL yields non-sharded
