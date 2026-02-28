@@ -71,6 +71,14 @@ def _get_device_for_target(
     the `_current_device`, `_current_device_target`, `_current_device_mesh_shape` & `_current_fabric_config` caches
     """
     global _current_device, _current_device_target, _current_device_mesh_shape, _current_fabric_config
+    print(
+        _current_device,
+        _current_device_target,
+        _current_device_mesh_shape,
+        _current_fabric_config,
+        target,
+        pytestconfig,
+    )
 
     if _current_device is not None:
 
@@ -82,7 +90,9 @@ def _get_device_for_target(
         ):
             return _current_device
         elif _current_device_target == "emitpy":
+            print("CLOSING EMITPY DEVICE")
             ttnn.close_mesh_device(_current_device)
+            print("EMITPY DEVICE CLOSED")
         else:  # Cache miss, need to teardown
             print(
                 f"Found new target {target} with mesh shape {mesh_shape} and fabric config {fabric_config}, closing device for {_current_device_target} with {_current_device_mesh_shape} and {_current_fabric_config}"
@@ -115,7 +125,9 @@ def _get_device_for_target(
         device_runtime_enum = None
 
         if target in ["ttnn", "emitc"]:
+            print("111")
             device_runtime_enum = tt_runtime.runtime.DeviceRuntime.TTNN
+            print("222")
         elif target == "ttmetal":
             device_runtime_enum = tt_runtime.runtime.DeviceRuntime.TTMetal
         else:
@@ -139,20 +151,6 @@ def _get_device_for_target(
     _current_device_mesh_shape = mesh_shape
     _current_fabric_config = fabric_config
     return _current_device
-
-
-def clear_device_cache():
-    """Clear the cached device so the next test will open a fresh device.
-
-    Call this after device.close() when a test explicitly closes the device
-    so that the next test does not receive a stale (closed) handle and can
-    open a new device (e.g. after compile with mock opmodel).
-    """
-    global _current_device, _current_device_target, _current_device_mesh_shape, _current_fabric_config
-    _current_device = None
-    _current_device_target = None
-    _current_device_mesh_shape = None
-    _current_fabric_config = None
 
 
 def _get_current_environment():

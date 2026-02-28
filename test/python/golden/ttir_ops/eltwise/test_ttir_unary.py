@@ -269,11 +269,6 @@ def test_unary_ops(
     ]:
         pytest.skip("int32 unary op is not supported yet for this operation")
 
-    if target == "emitc":
-        pytest.skip(
-            "EmitC tests are hanging in CI after switching targets (emitPy->emitC). Disabling them to unblock the uplift. See issue: https://github.com/tenstorrent/tt-mlir/issues/7282"
-        )
-
     def module(builder: TTIRBuilder):
         @builder.func([shape], [dtype])
         def unary_op(
@@ -359,11 +354,6 @@ def test_unary_ops_with_float_param(
     request,
     device,
 ):
-    if target == "emitc":
-        pytest.skip(
-            "EmitC tests are hanging in CI after switching targets (emitPy->emitC). Disabling them to unblock the uplift. See issue: https://github.com/tenstorrent/tt-mlir/issues/7282"
-        )
-
     def module(builder: TTIRBuilder):
         @builder.func([shape], [dtype])
         def unary_ops_with_float_param(
