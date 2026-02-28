@@ -3162,6 +3162,27 @@ def ttir_bitwise_and_golden(
     return torch.bitwise_and(input_tensor, other_tensor).to(output_dtype)
 
 
+def ttir_bitwise_or_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.bitwise_or(input_tensor, other_tensor).to(output_dtype)
+
+
+def ttir_bitwise_xor_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.bitwise_xor(input_tensor, other_tensor).to(output_dtype)
+
+
+def ttir_bitwise_not_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.bitwise_not(input_tensor).to(output_dtype)
+
+
 def ttir_minimum_golden(
     input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
 ) -> GoldenMapTensor:
@@ -5995,9 +6016,9 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.WhereOp: ttir_where_golden,
     # Bitwise operations
     ttir.BitwiseAndOp: ttir_bitwise_and_golden,
-    ttir.BitwiseOrOp: torch.bitwise_or,
-    ttir.BitwiseXorOp: torch.bitwise_xor,
-    ttir.BitwiseNotOp: torch.bitwise_not,
+    ttir.BitwiseOrOp: ttir_bitwise_or_golden,
+    ttir.BitwiseXorOp: ttir_bitwise_xor_golden,
+    ttir.BitwiseNotOp: ttir_bitwise_not_golden,
     # Reduction operations
     ttir.SumOp: ttir_sum_golden,
     ttir.MeanOp: mean_golden,

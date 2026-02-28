@@ -3218,6 +3218,99 @@ class TTIRBuilder(Builder):
 
         return bitwise_and_module, bitwise_and_builder
 
+    ############### ttir.BitwiseNotOp ###############
+
+    @parse(ttir.BitwiseNotOp)
+    def bitwise_not_parser(
+        self,
+        old_op: ttir.BitwiseNotOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.bitwise_not_parser)
+        in0 = global_dict[old_op.input]
+        result = old_op.result.type
+
+        new_op = ttir_op(
+            result,
+            in0,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            op_golden_function = get_golden_function(ttir_op)
+            golden_output = op_golden_function(input0, result.element_type)
+            self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    ############### ttir.BitwiseOrOp ###############
+
+    @parse(ttir.BitwiseOrOp)
+    def bitwise_or_parser(
+        self,
+        old_op: ttir.BitwiseOrOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.bitwise_or_parser)
+        in0 = global_dict[old_op.lhs]
+        in1 = global_dict[old_op.rhs]
+        result = old_op.result.type
+
+        new_op = ttir_op(
+            result,
+            in0,
+            in1,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            input1 = self._get_golden_tensor(in1)
+            op_golden_function = get_golden_function(ttir_op)
+            golden_output = op_golden_function(input0, input1, result.element_type)
+            self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    ############### ttir.BitwiseXorOp ###############
+
+    @parse(ttir.BitwiseXorOp)
+    def bitwise_xor_parser(
+        self,
+        old_op: ttir.BitwiseXorOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.bitwise_xor_parser)
+        in0 = global_dict[old_op.lhs]
+        in1 = global_dict[old_op.rhs]
+        result = old_op.result.type
+
+        new_op = ttir_op(
+            result,
+            in0,
+            in1,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            input1 = self._get_golden_tensor(in1)
+            op_golden_function = get_golden_function(ttir_op)
+            golden_output = op_golden_function(input0, input1, result.element_type)
+            self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
     ############### ttir.PowOp ###############
 
     @tag(ttir.PowOp)
@@ -5452,6 +5545,70 @@ class TTIRBuilder(Builder):
                 ]
 
         return logical_not_module, logical_not_builder
+
+    ############### ttir.LogicalAndOp ###############
+
+    @parse(ttir.LogicalAndOp)
+    def logical_and_parser(
+        self,
+        old_op: ttir.LogicalAndOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.logical_and_parser)
+        in0 = global_dict[old_op.lhs]
+        in1 = global_dict[old_op.rhs]
+        result = old_op.result.type
+
+        new_op = ttir_op(
+            result,
+            in0,
+            in1,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            input1 = self._get_golden_tensor(in1)
+            op_golden_function = get_golden_function(ttir_op)
+            golden_output = op_golden_function(input0, input1)
+            self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    ############### ttir.LogicalOrOp ###############
+
+    @parse(ttir.LogicalOrOp)
+    def logical_or_parser(
+        self,
+        old_op: ttir.LogicalOrOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.logical_or_parser)
+        in0 = global_dict[old_op.lhs]
+        in1 = global_dict[old_op.rhs]
+        result = old_op.result.type
+
+        new_op = ttir_op(
+            result,
+            in0,
+            in1,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            input1 = self._get_golden_tensor(in1)
+            op_golden_function = get_golden_function(ttir_op)
+            golden_output = op_golden_function(input0, input1)
+            self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
 
     ############### ttir.LogOp ###############
 
