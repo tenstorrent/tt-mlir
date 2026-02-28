@@ -183,7 +183,9 @@ binary_ops = [
 
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
-@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize(
+    "dtype", [torch.float32, torch.bfloat16, torch.int32], ids=["f32", "bf16", "i32"]
+)
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
 @pytest.mark.parametrize("test_fn", binary_ops)
 def test_binary_ops(
@@ -195,6 +197,14 @@ def test_binary_ops(
         pytest.xfail(
             "FP32 pow fails due to tt-metal untilize NaN handling. "
             "See: https://github.com/tenstorrent/tt-metal/pull/33904"
+        )
+    if dtype == torch.int32 and target != "ttmetal":
+        pytest.skip("unsupported/not guaranteed to work")
+    if test_fn.__name__ == "pow" and dtype == torch.int32 and target == "ttmetal":
+        pytest.xfail("TODO(dloke): int32 pow is not supported on ttmetal yet")
+    if test_fn.__name__ == "div" and dtype == torch.int32 and target == "ttmetal":
+        pytest.xfail(
+            "TODO(dloke): int32 div is not supported on ttmetal yet, need to support floor or truncate division"
         )
 
     def module(builder: TTIRBuilder):
@@ -253,7 +263,9 @@ def create_logical_op_goldens(
 
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
-@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize(
+    "dtype", [torch.float32, torch.bfloat16, torch.int32], ids=["f32", "bf16", "i32"]
+)
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
 @pytest.mark.parametrize("test_fn", logical_ops)
 def test_logical_ops(
@@ -639,9 +651,6 @@ def test_comparison_ops(
     request,
     device,
 ):
-    if target == "ttmetal" and dtype == torch.int32:
-        pytest.skip("ttmetal does not support int32 comparison ops")
-
     def module(builder: TTIRBuilder):
         @builder.func([shape, shape], [dtype, dtype])
         def comparison_ops(

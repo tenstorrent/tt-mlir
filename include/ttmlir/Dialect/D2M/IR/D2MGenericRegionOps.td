@@ -569,8 +569,10 @@ def D2M_TileClampScalarOp : D2M_GenericRegionComputeUnaryDstOp<"tile_clamp_scala
         the range [min, max] specified by scalar attributes.
     }];
 
-    let arguments = (ins TTCore_Tile:$input, F32Attr:$min, F32Attr:$max);
+    let arguments = (ins TTCore_Tile:$input, AnyAttrOf<[F32Attr, I32Attr]>:$min, AnyAttrOf<[F32Attr, I32Attr]>:$max);
     let results = (outs TTCore_Tile:$result);
+
+    let hasVerifier = 1;
 }
 
 def D2M_TileWhereOp : D2M_GenericRegionComputeTernaryDstOp<"tile_where", D2M_TileComputeOpTraitBundle>{

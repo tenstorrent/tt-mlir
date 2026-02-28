@@ -62,7 +62,9 @@ ternary_ops = [
 
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
-@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
+@pytest.mark.parametrize(
+    "dtype", [torch.float32, torch.bfloat16, torch.int32], ids=["f32", "bf16", "i32"]
+)
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
 @pytest.mark.parametrize("test_fn", ternary_ops)
 def test_ternary_ops(
@@ -154,14 +156,17 @@ def test_ternary_eltwise_ops_implicit_broadcast(
 
 @pytest.mark.parametrize("shape", [(64, 128)], ids=shape_str)
 @pytest.mark.parametrize("max_arg,min_arg", [(0.8, -0.5)])
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
-def test_clamp_scalar(shape: Shape, max_arg, min_arg, target: str, request, device):
+def test_clamp_scalar(
+    shape: Shape, max_arg, min_arg, dtype: torch.dtype, target: str, request, device
+):
     def module_clamp_scalar(builder: TTIRBuilder):
-        @builder.func([shape], [torch.float32])
+        @builder.func([shape], [dtype])
         def clamp_scalar(
             in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
         ):
-            input_tensor = torch.rand(shape, dtype=torch.float32) * 2 - 1
+            input_tensor = torch.rand(shape, dtype=dtype) * 2 - 1
             builder.set_goldens(inputs={in0: input_tensor})
             return builder.clamp_scalar(
                 in0, max_arg=max_arg, min_arg=min_arg, unit_attrs=unit_attrs
@@ -183,7 +188,7 @@ def test_clamp_scalar(shape: Shape, max_arg, min_arg, target: str, request, devi
     [(3, 0)],
     ids=["i32"],
 )
-@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 def test_clamp_scalar_i32(shape: Shape, max_arg, min_arg, target: str, request, device):
     def module_clamp_scalar(builder: TTIRBuilder):
         @builder.func([shape], [torch.int32])

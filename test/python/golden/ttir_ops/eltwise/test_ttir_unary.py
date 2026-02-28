@@ -230,7 +230,7 @@ unary_ops = [
     is_finite | Marks(pytest.mark.skip_config(["ttmetal"])),
     log,
     log1p | Marks(pytest.mark.skip_config(["ttmetal"])),
-    logical_not,  # TODO (wenbinlyuTT): test int32 once untilize issue is fixed
+    logical_not,
     mish | Marks(pytest.mark.skip_config(["ttmetal"])),
     neg,
     reciprocal,
@@ -251,7 +251,7 @@ unary_ops = [
 unary_ops_dtypes = [
     torch.float32,
     torch.bfloat16,
-    torch.int32 | Marks(pytest.mark.skip_config(["ttmetal"])),
+    torch.int32,
 ]
 
 
@@ -266,6 +266,7 @@ def test_unary_ops(
         abs,
         neg,
         relu,
+        logical_not,
     ]:
         pytest.skip("int32 unary op is not supported yet for this operation")
 
