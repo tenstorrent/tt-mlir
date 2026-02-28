@@ -30,6 +30,7 @@ struct TTNNGreedyLayoutPropagationOptions {
       llvm::StringMap<Conv2dConfigOverrideParams>();
   bool enableDecisionTrace = false;
   std::string decisionTraceDir = "ttrt-artifacts/decision_trace";
+  bool enableCompileTimeStats = false;
 
   TTNNGreedyLayoutPropagationOptions() = default;
 };

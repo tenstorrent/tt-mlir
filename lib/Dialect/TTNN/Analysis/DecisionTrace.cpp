@@ -109,9 +109,8 @@ static llvm::json::Value beamEntryToJSON(const BeamEntryRecord &b) {
   llvm::json::Object obj;
   obj["rank"] = static_cast<int64_t>(b.rank);
   obj["outputLayout"] = b.outputLayout;
-  obj["score"] =
-      scoreToJSON(b.isL1, b.isSharded, b.inputDramBytes, b.requiresReshard,
-                  b.coreCount, b.outputL1Usage);
+  obj["score"] = scoreToJSON(b.isL1, b.isSharded, b.inputDramBytes,
+                             b.requiresReshard, b.coreCount, b.outputL1Usage);
   return llvm::json::Value(std::move(obj));
 }
 
@@ -171,8 +170,7 @@ static llvm::json::Value edgeToJSON(const EdgeRecord &e) {
   return llvm::json::Value(std::move(obj));
 }
 
-static llvm::json::Value
-forkResolutionToJSON(const ForkResolutionRecord &f) {
+static llvm::json::Value forkResolutionToJSON(const ForkResolutionRecord &f) {
   llvm::json::Object obj;
   obj["opName"] = f.opName;
   obj["opLocation"] = f.opLocation;
@@ -273,7 +271,7 @@ bool DecisionTrace::writeToFile(llvm::StringRef path) const {
   if (!parentDir.empty()) {
     if (auto ec = llvm::sys::fs::create_directories(parentDir)) {
       llvm::errs() << "DecisionTrace: failed to create directory " << parentDir
-                    << ": " << ec.message() << "\n";
+                   << ": " << ec.message() << "\n";
       return false;
     }
   }
@@ -282,7 +280,7 @@ bool DecisionTrace::writeToFile(llvm::StringRef path) const {
   llvm::raw_fd_ostream os(path, ec);
   if (ec) {
     llvm::errs() << "DecisionTrace: failed to open " << path << ": "
-                  << ec.message() << "\n";
+                 << ec.message() << "\n";
     return false;
   }
 
@@ -378,8 +376,7 @@ void DecisionTraceObserver::onStart(llvm::StringRef funcName,
 }
 
 void DecisionTraceObserver::onOpSetup(
-    Operation *op,
-    const std::vector<std::vector<InputCandidate>> &inputSets,
+    Operation *op, const std::vector<std::vector<InputCandidate>> &inputSets,
     const OutputHints &hints, size_t crossProductSize) {
   OpDecisionRecord record;
   record.opName = op->getName().getStringRef().str();
@@ -590,8 +587,7 @@ void DecisionTraceObserver::onInplaceOp(const InplaceOpInfo &info) {
 //===----------------------------------------------------------------------===//
 
 void DecisionTraceObserver::onSpillStart(llvm::StringRef funcName,
-                                         uint64_t budget,
-                                         size_t scheduleSize) {
+                                         uint64_t budget, size_t scheduleSize) {
   trace.spillManagement.budget = budget;
   trace.spillManagement.scheduleSize = scheduleSize;
   spillOccupiedBefore = 0;
@@ -639,8 +635,8 @@ void DecisionTraceObserver::onOOM(Operation *op, int64_t pos,
   spillOccupiedBefore = occupiedL1;
 }
 
-void DecisionTraceObserver::onDemotion(Operation *op, int64_t pos,
-                                       bool success, uint64_t newL1Usage) {
+void DecisionTraceObserver::onDemotion(Operation *op, int64_t pos, bool success,
+                                       uint64_t newL1Usage) {
   SpillEventRecord event;
   event.position = static_cast<size_t>(pos);
   event.opName = ttmlir::opToString(op);
