@@ -4462,9 +4462,16 @@ public:
 
     auto cacheUpdateInputType =
         mlir::cast<RankedTensorType>((*CachePositions).getType());
-    auto cacheUpdateInputShape = cacheUpdateInputType.getShape();
+    SmallVector<int64_t> cacheUpdateInputShape(cacheUpdateInputType.getShape());
+
+    // Flatten to 1D if needed
     if (cacheUpdateInputShape.size() != 1) {
-      return mlir::failure();
+      int64_t volume = ttmlir::utils::product(cacheUpdateInputShape.begin(),
+                                              cacheUpdateInputShape.end());
+      CachePositions = ttir::utils::createReshapeOp(
+          rewriter, scatterOp.getLoc(), *CachePositions,
+          SmallVector<int64_t>{volume});
+      cacheUpdateInputShape = SmallVector<int64_t>{volume};
     }
 
     Value cache = scatterOp.getInputs()[0];
@@ -4479,7 +4486,10 @@ public:
     // represents a set of aranged indices (0, cachePositions.size), so we
     // replace it with FillCacheOp. If the tensor has only one element, we
     // assume it represents the update index for UpateCacheOp.
-    if (cacheUpdateInputShape[0] != 1) {
+    int64_t cachePositionsSize = ttmlir::utils::product(
+        cacheUpdateInputShape.begin(), cacheUpdateInputShape.end());
+
+    if (cachePositionsSize != 1) {
       // Fill cache requires that each batch is filled separately. So, we will
       // insert a FillCacheOp for each batch. This requires slicing out each
       // batch.
@@ -4607,7 +4617,6 @@ private:
           inputShape[3] == updateShape[3])) {
       return std::nullopt;
     }
-
     int cacheUpdateSize = updateShape[2];
 
     bool effectively1D = isEffectively1D(scatterIdxShape);
@@ -4615,39 +4624,47 @@ private:
         ttmlir::utils::volume(scatterIdxShape) != cacheUpdateSize) {
       return std::nullopt;
     }
-
     bool isIndexGrid =
         (scatterIdxShape.size() == 5 && scatterIdxShape[0] == inputShape[0] &&
          scatterIdxShape[1] == inputShape[1] &&
          scatterIdxShape[2] == cacheUpdateSize &&
          scatterIdxShape[3] == inputShape[3] && scatterIdxShape[4] == 4);
-
     // Check that scatter indices is either a 1D cache positions tensor or a 5D
     // index grid.
     if (!effectively1D && !isIndexGrid) {
       return std::nullopt;
     }
 
-    // The cachePositions tensor is expected to be a 1D blockargument tensor
-    // with the same size as the cache update size.
+    // For effectively 1D scatter indices (handles block args, constants, and
+    // intermediate ops like reshape), return directly.
+    if (effectively1D) {
+      return scatterIndices;
+    }
+
+    // For the 5D index grid case, trace back through the use-def chain to find
+    // the underlying cache positions tensor.
     auto useDefChain = ttmlir::utils::getUseDefChain(scatterIndices);
-    auto blockArgs =
-        ttmlir::utils::filterBlockArguments(useDefChain.getArrayRef());
-    for (auto blockArg : blockArgs) {
-      // Check if the block argument is a cachePositions input.
-      auto argTensorShape =
-          mlir::cast<RankedTensorType>(blockArg.getType()).getShape();
-      effectively1D = isEffectively1D(argTensorShape);
-      if (!effectively1D) {
+    std::optional<mlir::Value> fallback = std::nullopt;
+    for (auto value : useDefChain) {
+      auto tensorType = mlir::dyn_cast<RankedTensorType>(value.getType());
+      if (!tensorType) {
         continue;
       }
-      if (ttmlir::utils::volume(argTensorShape) == cacheUpdateSize) {
-        // We found the cachePositions input tensor.
-        return blockArg;
+      auto shape = tensorType.getShape();
+      if (!isEffectively1D(shape) ||
+          ttmlir::utils::volume(shape) != cacheUpdateSize) {
+        continue;
+      }
+      // Prefer block arguments as they represent dynamic runtime inputs.
+      if (mlir::isa<mlir::BlockArgument>(value)) {
+        return value;
+      }
+      if (!fallback) {
+        fallback = value;
       }
     }
 
-    return std::nullopt;
+    return fallback;
   }
 
   static bool isEffectively1D(ArrayRef<int64_t> shape) {
