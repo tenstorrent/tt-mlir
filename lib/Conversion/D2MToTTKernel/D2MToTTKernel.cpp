@@ -1439,6 +1439,25 @@ static Value castCBTypeAsAddress(OpBuilder &rewriter, Location loc, Value cb) {
       ->getResult(0);
 }
 
+/// Check if a memref has DRAM interleaved layout
+static bool isDRAMInterleaved(MemRefType memref) {
+  auto layout = mlir::dyn_cast<ttcore::MetalLayoutAttr>(memref.getLayout());
+  if (!layout) {
+    return false;
+  }
+  return layout.getMemorySpace() == ttcore::MemorySpace::DeviceDRAM &&
+         layout.getMemoryLayout() == ttcore::TensorMemoryLayout::Interleaved;
+}
+
+/// Get page size in bytes for a memref element type
+static int64_t getPageSizeBytes(Type elementType) {
+  if (auto tileType = mlir::dyn_cast<ttcore::TileType>(elementType)) {
+    return tileType.getSizeBytes();
+  }
+  // For non-tile types, use element size
+  return ttcore::getElementSizeBytes(elementType);
+}
+
 static Value buildNocAddress(OpBuilder &rewriter, Location loc, Value cb,
                              ValueRange index, ttcore::ChipDescAttr chipDesc,
                              ttcore::MemorySpace memspace) {
@@ -1498,13 +1517,8 @@ public:
                   ConversionPatternRewriter &rewriter) const final {
 
     auto chipDesc = ttcore::getOpChipDescAttr(op);
+    auto srcMemRefType = op.getSrcMemRefType();
 
-    // NOTE: All reads must be from remote locations in DMAReadOp
-    // local->local transfers are lowered as nocAsyncWrites, which require
-    // write barriers.
-    auto srcNocAddr =
-        buildNocAddress(rewriter, op.getLoc(), adaptor.getSrc(),
-                        op.getSrcIndices(), chipDesc, op.getSrcMemorySpace());
     auto dstCBMapping = cbProducerConsumer->get(op.getDst());
     TT_assertv((dstCBMapping == d2m::ThreadCBOrientation::Producer ||
                 dstCBMapping == d2m::ThreadCBOrientation::Default),
@@ -1513,9 +1527,36 @@ public:
     Value dstL1Addr = buildL1Address<ttkernel::GetWritePtrOp>(
         rewriter, op.getLoc(), adaptor.getDst(), op.getDstIndices());
 
-    auto size = i32(rewriter, op->getLoc(), op.getSizeBytes());
-    rewriter.create<ttkernel::NocAsyncReadOp>(op.getLoc(), srcNocAddr,
-                                              dstL1Addr, size);
+    if (isDRAMInterleaved(srcMemRefType)) {
+      auto baseAddr =
+          castCBTypeAsAddress(rewriter, op.getLoc(), adaptor.getSrc());
+      auto pageSize = i32(rewriter, op.getLoc(),
+                          getPageSizeBytes(srcMemRefType.getElementType()));
+      auto dataFormat = rewriter.create<ttkernel::GetDataFormatOp>(
+          op.getLoc(), adaptor.getDst());
+      auto isDRAM = rewriter.create<arith::ConstantOp>(
+          op.getLoc(), rewriter.getI1Type(), rewriter.getBoolAttr(true));
+
+      auto addrGen = rewriter.create<ttkernel::GetInterleavedAddrGenFastOp>(
+          op.getLoc(), isDRAM, baseAddr, pageSize, dataFormat);
+
+      // For interleaved, index[1] is the tile ID
+      auto tileId = rewriter.create<arith::IndexCastOp>(
+          op.getLoc(), rewriter.getI32Type(), op.getSrcIndices()[1]);
+
+      rewriter.create<ttkernel::NocAsyncReadTileOp>(op.getLoc(), tileId, addrGen,
+                                                    dstL1Addr);
+    } else {
+      // NOTE: All reads must be from remote locations in DMAReadOp
+      // local->local transfers are lowered as nocAsyncWrites, which require
+      // write barriers.
+      auto srcNocAddr =
+          buildNocAddress(rewriter, op.getLoc(), adaptor.getSrc(),
+                          op.getSrcIndices(), chipDesc, op.getSrcMemorySpace());
+      auto size = i32(rewriter, op->getLoc(), op.getSizeBytes());
+      rewriter.create<ttkernel::NocAsyncReadOp>(op.getLoc(), srcNocAddr,
+                                                dstL1Addr, size);
+    }
 
     // Add attribute marking whether the DMA wait is for a read or write
     // operation This will be used when loweing the wait ops because the current
@@ -1630,12 +1671,35 @@ public:
     } else if (op.isDstRemote()) {
       auto srcL1Addr = buildL1Address<ttkernel::GetReadPtrOp>(
           rewriter, op.getLoc(), adaptor.getSrc(), op.getSrcIndices());
-      auto dstNocAddr =
-          buildNocAddress(rewriter, op.getLoc(), adaptor.getDst(),
-                          op.getDstIndices(), chipDesc, op.getDstMemorySpace());
-      auto size = i32(rewriter, op->getLoc(), op.getSizeBytes());
-      rewriter.create<ttkernel::NocAsyncWriteOp>(op.getLoc(), srcL1Addr,
-                                                 dstNocAddr, size);
+      auto dstMemRefType = op.getDstMemRefType();
+
+      if (isDRAMInterleaved(dstMemRefType)) {
+        auto baseAddr =
+            castCBTypeAsAddress(rewriter, op.getLoc(), adaptor.getDst());
+        auto pageSize = i32(rewriter, op.getLoc(),
+                            getPageSizeBytes(dstMemRefType.getElementType()));
+        auto dataFormat = rewriter.create<ttkernel::GetDataFormatOp>(
+            op.getLoc(), adaptor.getSrc());
+        auto isDRAM = rewriter.create<arith::ConstantOp>(
+            op.getLoc(), rewriter.getI1Type(), rewriter.getBoolAttr(true));
+
+        auto addrGen = rewriter.create<ttkernel::GetInterleavedAddrGenFastOp>(
+            op.getLoc(), isDRAM, baseAddr, pageSize, dataFormat);
+
+        // For interleaved, index[1] is the tile ID
+        auto tileId = rewriter.create<arith::IndexCastOp>(
+            op.getLoc(), rewriter.getI32Type(), op.getDstIndices()[1]);
+
+        rewriter.create<ttkernel::NocAsyncWriteTileOp>(op.getLoc(), tileId,
+                                                       addrGen, srcL1Addr);
+      } else {
+        auto dstNocAddr =
+            buildNocAddress(rewriter, op.getLoc(), adaptor.getDst(),
+                            op.getDstIndices(), chipDesc, op.getDstMemorySpace());
+        auto size = i32(rewriter, op->getLoc(), op.getSizeBytes());
+        rewriter.create<ttkernel::NocAsyncWriteOp>(op.getLoc(), srcL1Addr,
+                                                   dstNocAddr, size);
+      }
     }
 
     // Add attribute marking whether the DMA wait is for a read or write
