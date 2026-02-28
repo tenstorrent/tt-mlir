@@ -4285,6 +4285,207 @@ class StableHLOBuilder(Builder):
 
         return min_module, min_builder
 
+    ############### stablehlo.CompareOp ###############
+
+    @tag(stablehlo.CompareOp)
+    def compare(
+        self,
+        in0: Operand,
+        in1: Operand,
+        comparison_direction: str,
+        compare_type: Optional[str] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpResult:
+        stablehlo_op = self.get_opview_from_method(StableHLOBuilder.compare)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        direction_attr = stablehlo.ComparisonDirectionAttr.get(
+            comparison_direction, self._ctx
+        )
+        kwargs: Dict[str, Any] = {}
+        if compare_type is not None:
+            kwargs["compare_type"] = stablehlo.ComparisonTypeAttr.get(
+                compare_type, self._ctx
+            )
+
+        op = stablehlo_op(
+            in0,
+            in1,
+            direction_attr,
+            **kwargs,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if sharding_attr is not None:
+            op.operation.attributes["sdy.sharding"] = sharding_attr
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            input1 = self._get_golden_tensor(in1)
+            op_golden_function = get_golden_function(stablehlo_op)
+            golden_output = op_golden_function(
+                input0,
+                input1,
+                direction_attr,
+                op.result.type.element_type,
+            )
+            self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(stablehlo.CompareOp)
+    def compare_parser(
+        self,
+        old_op: stablehlo.CompareOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        stablehlo_op = self.get_opview_from_parser(StableHLOBuilder.compare_parser)
+        lhs = global_dict[old_op.lhs]
+        rhs = global_dict[old_op.rhs]
+
+        direction_attr = old_op.comparison_direction
+        if hasattr(direction_attr, "value"):
+            direction_str = str(direction_attr.value)
+        else:
+            direction_str = str(direction_attr)
+
+        new_direction_attr = stablehlo.ComparisonDirectionAttr.get(
+            direction_str, self._ctx
+        )
+        kwargs: Dict[str, Any] = {}
+        old_compare_type = getattr(old_op, "compare_type", None)
+        if old_compare_type is None:
+            old_compare_type = old_op.operation.attributes.get("compare_type")
+        if old_compare_type is not None:
+            if hasattr(old_compare_type, "value"):
+                type_str = str(old_compare_type.value)
+            else:
+                type_str = str(old_compare_type)
+            kwargs["compare_type"] = stablehlo.ComparisonTypeAttr.get(
+                type_str, self._ctx
+            )
+
+        new_op = stablehlo_op(
+            lhs,
+            rhs,
+            new_direction_attr,
+            **kwargs,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(lhs)
+            input1 = self._get_golden_tensor(rhs)
+            op_golden_function = get_golden_function(stablehlo_op)
+            golden_output = op_golden_function(
+                input0,
+                input1,
+                new_direction_attr,
+                new_op_result.type.element_type,
+            )
+            self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(stablehlo.CompareOp)
+    def compare_split(
+        self,
+        old_op: stablehlo.CompareOp,
+    ) -> Tuple[Module, StableHLOBuilder]:
+        stablehlo_op = self.get_opview_from_split(StableHLOBuilder.compare_split)
+
+        direction_attr = old_op.comparison_direction
+        if hasattr(direction_attr, "value"):
+            direction_str = str(direction_attr.value)
+        else:
+            direction_str = str(direction_attr)
+
+        old_compare_type = getattr(old_op, "compare_type", None)
+        if old_compare_type is None:
+            old_compare_type = old_op.operation.attributes.get("compare_type")
+
+        old_context = old_op.context
+        old_loc = Location.unknown(old_context)
+        with old_context, old_loc:
+            compare_module = Module.create()
+            compare_builder = StableHLOBuilder(old_context, old_loc)
+            op_input_types = [
+                old_op.lhs.type,
+                old_op.rhs.type,
+            ]
+
+            with InsertionPoint(compare_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="compare_module")
+                def decorated_func(*inputs):
+                    lhs = inputs[0]
+                    rhs = inputs[1]
+
+                    new_direction_attr = stablehlo.ComparisonDirectionAttr.get(
+                        direction_str, compare_builder._ctx
+                    )
+                    split_kwargs: Dict[str, Any] = {}
+                    if old_compare_type is not None:
+                        if hasattr(old_compare_type, "value"):
+                            type_str = str(old_compare_type.value)
+                        else:
+                            type_str = str(old_compare_type)
+                        split_kwargs["compare_type"] = stablehlo.ComparisonTypeAttr.get(
+                            type_str, compare_builder._ctx
+                        )
+
+                    new_op = stablehlo_op(
+                        lhs,
+                        rhs,
+                        new_direction_attr,
+                        **split_kwargs,
+                        loc=old_op.location,
+                    )
+                    new_op_result = new_op.result
+
+                    if not self._disable_golden_check:
+                        op_golden_function = get_golden_function(stablehlo_op)
+                        input0 = self._get_golden_tensor(old_op.lhs)
+                        input1 = self._get_golden_tensor(old_op.rhs)
+                        golden_output = op_golden_function(
+                            input0,
+                            input1,
+                            new_direction_attr,
+                            new_op_result.type.element_type,
+                        )
+                        compare_builder._set_golden_tensor(new_op_result, golden_output)
+                        compare_builder._set_golden_tensor(lhs, input0)
+                        compare_builder._set_golden_tensor(rhs, input1)
+                        ordered_inputs.extend([lhs, rhs])
+                        ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                compare_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return compare_module, compare_builder
+
     ############### stablehlo.MulOp ###############
 
     @tag(stablehlo.MulOp)

@@ -385,6 +385,78 @@ def module_subtract(builder: StableHLOBuilder):
         return builder.subtract(in0, in1, unit_attrs=unit_attrs)
 
 
+def module_compare_eq(builder: StableHLOBuilder):
+    @builder.func([(128, 128), (128, 128)], [torch.float32, torch.float32])
+    def compare_eq(
+        in0: Operand,
+        in1: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.compare(in0, in1, "EQ", unit_attrs=unit_attrs)
+
+
+def module_compare_ne(builder: StableHLOBuilder):
+    @builder.func([(128, 128), (128, 128)], [torch.float32, torch.float32])
+    def compare_ne(
+        in0: Operand,
+        in1: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.compare(in0, in1, "NE", unit_attrs=unit_attrs)
+
+
+def module_compare_ge(builder: StableHLOBuilder):
+    @builder.func([(128, 128), (128, 128)], [torch.float32, torch.float32])
+    def compare_ge(
+        in0: Operand,
+        in1: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.compare(in0, in1, "GE", unit_attrs=unit_attrs)
+
+
+def module_compare_gt(builder: StableHLOBuilder):
+    @builder.func([(128, 128), (128, 128)], [torch.float32, torch.float32])
+    def compare_gt(
+        in0: Operand,
+        in1: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.compare(in0, in1, "GT", unit_attrs=unit_attrs)
+
+
+def module_compare_le(builder: StableHLOBuilder):
+    @builder.func([(128, 128), (128, 128)], [torch.float32, torch.float32])
+    def compare_le(
+        in0: Operand,
+        in1: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.compare(in0, in1, "LE", unit_attrs=unit_attrs)
+
+
+def module_compare_lt(builder: StableHLOBuilder):
+    @builder.func([(128, 128), (128, 128)], [torch.float32, torch.float32])
+    def compare_lt(
+        in0: Operand,
+        in1: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.compare(in0, in1, "LT", unit_attrs=unit_attrs)
+
+
 def module_broadcast_in_dim(builder: StableHLOBuilder):
     @builder.func([(128, 128), (128, 128)], [torch.float32, torch.float32])
     def broadcast_in_dim(
@@ -431,6 +503,28 @@ def test_binary_ops(test_fn: Callable, target: str, request, device):
         **get_request_kwargs(request),
         target=target,
         device=device,
+    )
+
+
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize(
+    "test_fn",
+    [
+        module_compare_eq | Marks(pytest.mark.skip_config(["ttmetal"])),
+        module_compare_ne | Marks(pytest.mark.skip_config(["ttmetal"])),
+        module_compare_ge | Marks(pytest.mark.skip_config(["ttmetal"])),
+        module_compare_gt | Marks(pytest.mark.skip_config(["ttmetal"])),
+        module_compare_le | Marks(pytest.mark.skip_config(["ttmetal"])),
+        module_compare_lt | Marks(pytest.mark.skip_config(["ttmetal"])),
+    ],
+)
+def test_compare_ops(test_fn: Callable, target: str, request, device):
+    compile_and_execute_shlo(
+        test_fn,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+        check_pcc=False,
     )
 
 

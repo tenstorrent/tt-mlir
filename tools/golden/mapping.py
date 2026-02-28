@@ -4905,6 +4905,30 @@ def stablehlo_shift_right_logical_golden(
     return shifted.to(output_dtype)
 
 
+_STABLEHLO_COMPARE_DISPATCH = {
+    "EQ": torch.eq,
+    "NE": torch.ne,
+    "GE": torch.ge,
+    "GT": torch.gt,
+    "LE": torch.le,
+    "LT": torch.lt,
+}
+
+
+def stablehlo_compare_golden(
+    lhs_tensor: GoldenMapTensor,
+    rhs_tensor: GoldenMapTensor,
+    direction_attr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    direction = str(direction_attr).upper()
+    compare_fn = _STABLEHLO_COMPARE_DISPATCH.get(direction)
+    if compare_fn is None:
+        raise ValueError(f"Unsupported comparison direction: {direction_attr}")
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return compare_fn(lhs_tensor, rhs_tensor).to(output_dtype)
+
+
 # The following golden implementation is taken from the op spec: https://openxla.org/stablehlo/spec#dynamic_update_slice
 def stablehlo_dynamic_update_slice_golden(
     input_tensor: GoldenMapTensor,
@@ -6133,6 +6157,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     stablehlo.DynamicUpdateSliceOp: stablehlo_dynamic_update_slice_golden,
     stablehlo.ConvolutionOp: stablehlo_convolution_golden,
     stablehlo.SortOp: stablehlo_sort_golden,
+    stablehlo.CompareOp: stablehlo_compare_golden,
     # StableHLO tensor manipulation operations
     stablehlo.TransposeOp: stablehlo_transpose_golden,
     stablehlo.SelectOp: stablehlo_select_golden,
