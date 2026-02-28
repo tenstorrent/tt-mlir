@@ -951,11 +951,11 @@ public:
       auto targetRemapping = utils::getAssociatedRemapping(op.getOutput());
       bool remappingsDiffer = currentRemapping != targetRemapping;
 
-      // Compare virtualGridMappings: different shard strategies (e.g.
+      // Compare virtualGridInverseMappings: different shard strategies (e.g.
       // height_sharded vs block_sharded) produce different VGMs even when
       // all other layout properties match.
-      auto currentVGM = utils::getVirtualGridMapping(currentValue);
-      auto targetVGM = utils::getVirtualGridMapping(op.getOutput());
+      auto currentVGM = utils::getVirtualGridInverseMapping(currentValue);
+      auto targetVGM = utils::getVirtualGridInverseMapping(op.getOutput());
       bool vgmsDiffer = currentVGM != targetVGM;
 
       bool needsMappingChange =
