@@ -38,6 +38,33 @@ namespace mlir::tt::ttnn::op_model {
 #ifdef TTMLIR_ENABLE_OPMODEL
 namespace operation {
 
+/// RAII helper to temporarily suppress tt-metal logs queries.
+struct MetalLogLevelGuard {
+  MetalLogLevelGuard(spdlog::level::level_enum logLevel,
+                     ::tt::LogType loggerType)
+      : loggerType_(loggerType) {
+    // Save current log level for given tt-metal logger type and set new log
+    // level
+    auto logger = ::tt::LoggerRegistry::instance().get(loggerType);
+    savedLevel_ = logger->level();
+    logger->set_level(logLevel);
+  }
+
+  ~MetalLogLevelGuard() {
+    // Restore original log level
+    ::tt::LoggerRegistry::instance().get(loggerType_)->set_level(savedLevel_);
+  }
+
+  MetalLogLevelGuard(const MetalLogLevelGuard &) = delete;
+  MetalLogLevelGuard &operator=(const MetalLogLevelGuard &) = delete;
+  MetalLogLevelGuard(MetalLogLevelGuard &&) = delete;
+  MetalLogLevelGuard &operator=(MetalLogLevelGuard &&) = delete;
+
+private:
+  spdlog::level::level_enum savedLevel_;
+  ::tt::LogType loggerType_;
+};
+
 /// RAII helper to preserve and restore the program cache state.
 struct ProgramCacheState {
   ::tt::tt_metal::distributed::MeshDevice *device_ = nullptr;
@@ -71,8 +98,9 @@ executeConstraintQuery(Callable &callable) {
   ::ttnn::graph::ConstraintQueryResponse query;
   try {
     auto *device = SingletonDeviceContext::getInstance().getDevice();
-    ::ttnn::graph::detail::LogLevelGuard log_guard(
-        spdlog::level::level_enum::off);
+    MetalLogLevelGuard logGuard(
+        spdlog::level::critical,
+        ::tt::LogMetal); // Suppress Metal logs during constraint query
     ProgramCacheState pcState(device);
     device->disable_and_clear_program_cache();
     query = callable();
