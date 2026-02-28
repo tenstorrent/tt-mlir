@@ -5911,6 +5911,46 @@ def ttnn_mish_golden(
     return torch.nn.functional.mish(input_tensor).to(output_dtype)
 
 
+def ttnn_mean_golden(
+    input_tensor: GoldenMapTensor,
+    dim_arg_attr: Optional[DenseI32ArrayAttr],
+    keep_dim_attr: BoolAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    keep_dim = unpack_mlir_attr(keep_dim_attr)
+    dim_arg = list(unpack_mlir_attr(dim_arg_attr)) if dim_arg_attr is not None else None
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    if dim_arg is not None:
+        return torch.mean(input_tensor, dim=dim_arg, keepdim=keep_dim).to(output_dtype)
+    else:
+        return torch.mean(input_tensor, keepdim=keep_dim).to(output_dtype)
+
+
+def ttnn_sum_golden(
+    input_tensor: GoldenMapTensor,
+    dim_arg_attr: Optional[DenseI32ArrayAttr],
+    keep_dim_attr: BoolAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    keep_dim = unpack_mlir_attr(keep_dim_attr)
+    dim_arg = list(unpack_mlir_attr(dim_arg_attr)) if dim_arg_attr is not None else None
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    if dim_arg is not None:
+        return torch.sum(input_tensor, dim=dim_arg, keepdim=keep_dim).to(output_dtype)
+    else:
+        return torch.sum(input_tensor, keepdim=keep_dim).to(output_dtype)
+
+
+def ttnn_softmax_golden(
+    input_tensor: GoldenMapTensor,
+    dimension_attr: IntegerAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    dimension = unpack_mlir_attr(dimension_attr)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.nn.functional.softmax(input_tensor, dim=dimension).to(output_dtype)
+
+
 ################ Debug Op Golden Functions ###############
 
 
@@ -6217,6 +6257,10 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttnn.LinearOp: ttnn_linear_golden,
     ttnn.LayerNormOp: ttnn_layer_norm_golden,
     ttnn.RMSNormOp: rms_norm_golden,
+    # Reduction operations
+    ttnn.MeanOp: ttnn_mean_golden,
+    ttnn.SumOp: ttnn_sum_golden,
+    ttnn.SoftmaxOp: ttnn_softmax_golden,
     # Tensor manipulation
     ttnn.ConcatOp: ttnn_concat_golden,
     ttnn.RepeatOp: ttnn_repeat_golden,
