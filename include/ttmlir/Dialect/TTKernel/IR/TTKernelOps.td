@@ -259,7 +259,7 @@ def TTKernel_MatmulInitShortOp : TTKernel_InitOp<"mm_init_short"> {
     }];
 }
 
-def TTKernel_MatmulTilesOp : TTKernel_FPUOp<"matmul_tiles", [TTKernel_TernaryOpTrait]> {
+def TTKernel_MatmulTilesOp : TTKernel_FPUOp<"matmul_tiles", [TTKernel_TernaryOpTrait, TTKernel_DstAccumulatingOpTrait]> {
     let summary = "Matmul tiles operation";
     let description = [{
       Performs tile-sized matrix multiplication *C=A\*B* between the tiles in two
@@ -297,7 +297,7 @@ def TTKernel_MatmulBlockInitShortOp : TTKernel_InitOp<"mm_block_init_short"> {
     let arguments = (ins TTKernel_CB:$in0_cb, TTKernel_CB:$in1_cb, I32:$transpose,  I32:$ct_dim, I32:$rt_dim, I32:$kt_dim);
 }
 
-def TTKernel_ExperimentalMatmulBlockOp : TTKernel_FPUOp<"experimental::matmul_block", [TTKernel_TernaryOpTrait]> {
+def TTKernel_ExperimentalMatmulBlockOp : TTKernel_FPUOp<"experimental::matmul_block", [TTKernel_TernaryOpTrait, TTKernel_DstAccumulatingOpTrait]> {
     let summary = "Matmul tiles operation";
     let description = [{
       Performs block-sized matrix multiplication *C=A\*B* between the blocks in two
@@ -518,7 +518,7 @@ def TTKernel_ReduceUninitOp : TTKernel_InitOp<"reduce_uninit"> {
     }];
 }
 
-def TTKernel_ReduceTileOp : TTKernel_FPUOp<"reduce_tile", [TTKernel_TernaryOpTrait]> {
+def TTKernel_ReduceTileOp : TTKernel_FPUOp<"reduce_tile", [TTKernel_TernaryOpTrait, TTKernel_DstAccumulatingOpTrait]> {
     let summary = "Reduce operation";
     let description = [{
       Performs a reduction operation *B = reduce(A)* using reduce_func for

@@ -9,6 +9,7 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
+#include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOps.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -45,6 +46,53 @@ public:
     return builder.getAttr<ttmetal::KernelArgsAttr>(rtArgs, ctArgs);
   }
 
+  // Enable fp32 destination mode only for kernels that both consume 32-bit CB
+  // operands and contain DST-accumulating ops.
+  static bool requiresFp32DestAccum(const SymbolTable &symbolTable,
+                                    SymbolRefAttr kernelSymbol,
+                                    mlir::ValueRange inputOutputOperands) {
+    auto kernelFunc =
+        symbolTable.lookup<func::FuncOp>(kernelSymbol.getRootReference());
+    if (!kernelFunc) {
+      return false;
+    }
+    // check if the kernel has a DST-accumulating operation.
+    bool hasDstAccumulatingOp = false;
+    kernelFunc.walk([&](Operation *op) {
+      if (!op->hasTrait<ttkernel::TTKernelDstAccumulatingOpTrait>()) {
+        return WalkResult::advance();
+      }
+      hasDstAccumulatingOp = true;
+      return WalkResult::interrupt();
+    });
+    if (!hasDstAccumulatingOp) {
+      return false;
+    }
+
+    auto kernelSpec = kernelFunc->getAttrOfType<ttkernel::ArgSpecAttr>(
+        ttkernel::ArgSpecAttr::name);
+    if (!kernelSpec) {
+      return false;
+    }
+    // search operands for 32-bit CB operands.
+    for (ttkernel::ArgAttr ctArg : kernelSpec.getCtArgs()) {
+      if (ctArg.getArgType() != ttkernel::ArgType::CBPort) {
+        continue;
+      }
+      size_t operandIndex = ctArg.getOperandIndex();
+      if (operandIndex >= inputOutputOperands.size()) {
+        continue;
+      }
+      ttcore::DataType dataType =
+          ttcore::elementTypeToDataType(ttcore::getOperandInnerElementType(
+              inputOutputOperands[operandIndex]));
+      if (ttcore::getNumberOfBits(dataType) == 32u) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   static ArrayAttr convertThreadsToKernelConfigs(
       Builder &builder, mlir::ValueRange inputOutputOperands, ArrayAttr threads,
       ArrayRef<int64_t> physicalGridShape, const SymbolTable &symbolTable,
@@ -62,15 +110,8 @@ public:
       Attribute kernelConfig = nullptr;
       switch (thread.getThreadType()) {
       case d2m::ThreadType::Compute: {
-        bool fp32DestAccum = false;
-        for (size_t i = 0; i < inputOutputOperands.size(); ++i) {
-          ttcore::DataType dataType = ttcore::elementTypeToDataType(
-              ttcore::getOperandInnerElementType(inputOutputOperands[i]));
-
-          if (getNumberOfBits(dataType) == 32) {
-            fp32DestAccum = true;
-          }
-        }
+        bool fp32DestAccum = requiresFp32DestAccum(
+            symbolTable, thread.getKernelSymbol(), inputOutputOperands);
         // This must stay in-sync with ChipDescAttr::getDstLogicalSizeTiles().
         constexpr bool dstFullSyncEn = false;
         std::vector<UnpackToDestMode> unpackModes{UnpackToDestMode::Default};
