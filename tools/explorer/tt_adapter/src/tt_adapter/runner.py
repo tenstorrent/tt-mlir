@@ -502,6 +502,11 @@ class ModelRunner:
         self.progress = 100
 
     def run(self, model_path, compile_options, settings):
+        if not ttrt_loader.is_execution_enabled or not settings.get(
+            "enable_execution", True
+        ):
+            raise RuntimeError("Execution disabled")
+
         # Check if a run is already in progress
         if self.is_busy():
             raise RuntimeError(
