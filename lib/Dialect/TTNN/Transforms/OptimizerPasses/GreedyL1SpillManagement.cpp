@@ -147,15 +147,13 @@ public:
         observer = std::make_unique<DecisionTraceObserver>();
       }
 
-      L1SpillManagement<SumL1MemoryTracker> spill(func, deviceGrid,
-                                                   l1BudgetPerCore,
-                                                   std::move(observer));
+      L1SpillManagement<SumL1MemoryTracker> spill(
+          func, deviceGrid, l1BudgetPerCore, std::move(observer));
       spill.run();
 
       // Merge spill management data into the existing decision trace JSON.
       if (enableDecisionTrace) {
-        if (const DecisionTrace *dt =
-                spill.getObserver()->getDecisionTrace()) {
+        if (const DecisionTrace *dt = spill.getObserver()->getDecisionTrace()) {
           if (DecisionTrace::mergeSpillTrace(decisionTraceDir, func.getName(),
                                              *dt)) {
             TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
