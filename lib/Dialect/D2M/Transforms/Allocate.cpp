@@ -146,6 +146,9 @@ struct MemrefValueContext {
   // `true` iff this value acts as the output of at least one
   // generic op.
   bool usedForOutput = false;
+  // `true` iff this value is used as a scratch input to at least one
+  // generic op. Scratch inputs are required to remain in DeviceL1.
+  bool usedAsScratchInput = false;
   // `Planner`s spill outcome for this decision variable.
   // TODO(vroubtsov) replace with PlannerSpace var?
   std::optional<MemorySpace> remappedMemSpace;
@@ -269,6 +272,8 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     s << "\tnum-stream-buffers: " << obj.numStreamBuffers << "\n";
     s << "\tallow-l1-output-spilling: " << obj.allowL1OutputSpilling << "\n";
     s << "\tstream-insert-policy: " << obj.streamInsertPolicy << "\n";
+    s << "\tforce-spill-to-dram-if-legal: " << obj.forceSpillToDramIfLegal
+      << "\n";
     s << "\tavailable-l1-addr-range: "
       << asSeq(llvm::to_vector(obj.availableL1AddrRange)) << "\n";
     s << "\ttest-assume-l1-capacity: " << obj.testAssumeL1Capacity << "\n";
@@ -757,6 +762,10 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       memrefCtx.genericUsers.insert(genericOp);
       memrefCtx.isMemspaceBound |= genericCtx.isExplicitDatamovement;
       memrefCtx.usedForOutput |= operandCtx.isOutput;
+      if (!operandCtx.isOutput && genericOp.isScratchInput(operandIndex)) {
+        memrefCtx.usedAsScratchInput = true;
+        memrefCtx.isMemspaceBound = true;
+      }
 
       if (memref::AllocOp allocOp =
               operandCtx.root.getDefiningOp<memref::AllocOp>()) {
@@ -867,11 +876,12 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       for ([[maybe_unused]] auto &[value, valueCtx] : analysis.memrefs) {
         TT_ALLOC_TRACE("\t{}:\t[{}, "
                        "{}], {} byte(s), {} generic user(s), is memspace "
-                       "bound: {}, used for output: {}",
+                       "bound: {}, used for output: {}, used as scratch "
+                       "input: {}",
                        asOperand(value), valueCtx.live.first,
                        valueCtx.live.last, asSeq(valueCtx.allocSize),
                        valueCtx.genericUsers.size(), valueCtx.isMemspaceBound,
-                       valueCtx.usedForOutput);
+                       valueCtx.usedForOutput, valueCtx.usedAsScratchInput);
       };
     }
 
@@ -917,6 +927,13 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
                 llvm::all_of(memrefCtx.allocSize,
                              [](auto size) { return size >= 0; })));
 
+      if (memrefCtx.usedAsScratchInput && memspace != MemorySpace::DeviceL1) {
+        funcOp.emitOpError()
+            << "scratch input memref must be in DeviceL1, got "
+            << ttcore::stringifyMemorySpace(memspace) << " for " << memref;
+        return failure();
+      }
+
       TT_debug(memrefCtx.varIndex < 0);
       memrefCtx.varIndex =
           problem.def([&, &memref = memref,
@@ -946,8 +963,11 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
                 memrefCtx.isMemspaceBound ||
                 (memrefCtx.usedForOutput && !allowL1OutputSpilling) ||
                 memrefCtx.genericUsers.empty();
+            const bool forceSpillToDram = forceSpillToDramIfLegal && !bound;
             if (bound) {
               b.bind(asPlannerSpace(memspace));
+            } else if (forceSpillToDram) {
+              b.bind(PlannerSpace::Spill);
             }
 
             // For each possible variable placement, add mem requests for L1
@@ -960,6 +980,10 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
               if (bound && placementMemspace != memspace) {
                 // A bound variable only needs its domain populated for its
                 // fixed (incoming) memspace.
+                continue;
+              }
+              if (forceSpillToDram && placement != PlannerSpace::Spill) {
+                // Forced-to-spill variables only populate the DRAM domain.
                 continue;
               }
 
