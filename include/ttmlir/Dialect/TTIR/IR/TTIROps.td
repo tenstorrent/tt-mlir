@@ -4837,7 +4837,7 @@ def TTIR_ScatterOp : TTIR_NamedOp<"scatter"> {
 //===----------------------------------------------------------------------===//
 
 class TTIR_CreationOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_Op<mnemonic, [Pure, TTCore_CreationOpTrait] # traits>;
+    TTIR_Op<mnemonic, [TTIR_CreationOpAllocTrait, TTCore_CreationOpTrait] # traits>;
 
 
 def TTIR_ArangeOp : TTIR_CreationOp<"arange"> {

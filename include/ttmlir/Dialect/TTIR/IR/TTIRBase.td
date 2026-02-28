@@ -76,6 +76,11 @@ def TTIR_GenericRegionDatamovementOpTrait : TTIR_Trait<"TTIRGenericRegionDatamov
 
 def TTIR_Broadcastable : TTIR_Trait<"Broadcastable">;
 
+// CreationOpAllocTrait models allocation semantics for creation ops.
+// Prevents CSE from merging identical creation ops while allowing DCE to
+// remove unused ones.
+def TTIR_CreationOpAllocTrait : TTIR_Trait<"CreationOpAllocTrait">;
+
 //===----------------------------------------------------------------------===//
 // TTIR common types.
 //===----------------------------------------------------------------------===//
