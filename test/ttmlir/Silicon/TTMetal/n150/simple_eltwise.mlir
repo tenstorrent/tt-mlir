@@ -221,8 +221,8 @@ func.func @logical_not(%arg0: tensor<64x128xbf16>) -> tensor<64x128xbf16> {
   // CHECK: emitc.call_opaque "init_sfpu"
   // CHECK: emitc.call_opaque "copy_tile_init"(%[[CB0:.+]]) :
   // CHECK-NEXT: emitc.call_opaque "copy_tile"(%[[CB0]], %{{.+}}, %{{.+}})
-  // CHECK: emitc.call_opaque "logical_not_unary_tile_init"
-  // CHECK-NEXT: emitc.call_opaque "logical_not_unary_tile"
+  // CHECK: emitc.call_opaque "logical_not_tile_init"
+  // CHECK-NEXT: emitc.call_opaque "logical_not_tile"
   %1 = "ttir.logical_not"(%arg0) : (tensor<64x128xbf16>) -> tensor<64x128xbf16>
   return %1 : tensor<64x128xbf16>
 }
@@ -231,8 +231,8 @@ func.func @logical_not_i32(%arg0: tensor<64x128xi32>) -> tensor<64x128xi32> {
   // CHECK: emitc.call_opaque "init_sfpu"
   // CHECK: emitc.call_opaque "copy_tile_init"(%[[CB0:.+]]) :
   // CHECK-NEXT: emitc.call_opaque "copy_tile"(%[[CB0]], %{{.+}}, %{{.+}})
-  // CHECK: emitc.call_opaque "logical_not_unary_tile_init"
-  // CHECK-NEXT: emitc.call_opaque "logical_not_unary_tile_int32"
+  // CHECK: emitc.call_opaque "logical_not_tile_init"
+  // CHECK-NEXT: emitc.call_opaque "logical_not_tile"
   %1 = "ttir.logical_not"(%arg0) : (tensor<64x128xi32>) -> tensor<64x128xi32>
   return %1 : tensor<64x128xi32>
 }

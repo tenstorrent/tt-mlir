@@ -38,8 +38,8 @@ module {
 func.func @test_lower_width_sharded_l1(
   %arg0: tensor<32x384xbf16, #ttnn_layout>) -> tensor<32x384xbf16, #ttnn_layout> {
 
-  // CHECK: %[[CAST0:.*]] = ttir.ttnn_metal_layout_cast %arg0 : tensor<32x384xbf16, #ttnn_layout> -> tensor<1x12x1x1x!ttcore.tile<32x32, bf16>, #layout{{.*}}>
-  // CHECK: %[[CAST1:.*]] = ttir.ttnn_metal_layout_cast %0 : tensor<32x384xbf16, #ttnn_layout> -> tensor<1x12x1x1x!ttcore.tile<32x32, bf16>, #layout{{.*}}>
+  // CHECK: %[[CAST0:.*]] = ttir.ttnn_metal_layout_cast %arg0{{.*}}: tensor<32x384xbf16, #ttnn_layout> -> tensor<1x12x1x1x!ttcore.tile<32x32, bf16>, #layout{{.*}}>
+  // CHECK: %[[CAST1:.*]] = ttir.ttnn_metal_layout_cast %0{{.*}}: tensor<32x384xbf16, #ttnn_layout> -> tensor<1x12x1x1x!ttcore.tile<32x32, bf16>, #layout{{.*}}>
   // CHECK: %[[RESULT:.*]] = d2m.generic
   // CHECK-SAME: grid = #ttcore.grid<1x12
   // CHECK: ins(%[[CAST0]] : tensor<1x12x1x1x!ttcore.tile<32x32, bf16>, #layout{{.*}}>)
@@ -56,8 +56,8 @@ func.func @test_lower_width_sharded_l1(
 func.func @test_lower_width_sharded_l1_1(
   %arg0: tensor<32x384xbf16, #ttnn_layout1>) -> tensor<32x384xbf16, #ttnn_layout1> {
 
-  // CHECK: %[[CAST0:.*]] = ttir.ttnn_metal_layout_cast %arg0 : tensor<32x384xbf16, #ttnn_layout1> -> tensor<1x12x1x1x!ttcore.tile<32x32, bf16>, #layout{{.*}}>
-  // CHECK: %[[CAST1:.*]] = ttir.ttnn_metal_layout_cast %0 : tensor<32x384xbf16, #ttnn_layout1> -> tensor<1x12x1x1x!ttcore.tile<32x32, bf16>, #layout{{.*}}>
+  // CHECK: %[[CAST0:.*]] = ttir.ttnn_metal_layout_cast %arg0{{.*}}: tensor<32x384xbf16, #ttnn_layout1> -> tensor<1x12x1x1x!ttcore.tile<32x32, bf16>, #layout{{.*}}>
+  // CHECK: %[[CAST1:.*]] = ttir.ttnn_metal_layout_cast %0{{.*}}: tensor<32x384xbf16, #ttnn_layout1> -> tensor<1x12x1x1x!ttcore.tile<32x32, bf16>, #layout{{.*}}>
   // CHECK: %[[RESULT:.*]] = d2m.generic
   // CHECK-SAME: grid = #ttcore.grid<1x12
   // CHECK: ins(%[[CAST0]] : tensor<1x12x1x1x!ttcore.tile<32x32, bf16>, #layout{{.*}}>)
@@ -73,8 +73,8 @@ func.func @test_lower_width_sharded_l1_1(
 func.func @test_lower_width_sharded_l1_2(
   %arg0: tensor<64x384xbf16, #ttnn_layout2>) -> tensor<64x384xbf16, #ttnn_layout2> {
 
-  // CHECK: %[[CAST0:.*]] = ttir.ttnn_metal_layout_cast %arg0 : tensor<64x384xbf16, #ttnn_layout2> -> tensor<1x12x2x1x!ttcore.tile<32x32, bf16>, #layout{{.*}}>
-  // CHECK: %[[CAST1:.*]] = ttir.ttnn_metal_layout_cast %0 : tensor<64x384xbf16, #ttnn_layout2> -> tensor<1x12x2x1x!ttcore.tile<32x32, bf16>, #layout{{.*}}>
+  // CHECK: %[[CAST0:.*]] = ttir.ttnn_metal_layout_cast %arg0{{.*}}: tensor<64x384xbf16, #ttnn_layout2> -> tensor<1x12x2x1x!ttcore.tile<32x32, bf16>, #layout{{.*}}>
+  // CHECK: %[[CAST1:.*]] = ttir.ttnn_metal_layout_cast %0{{.*}}: tensor<64x384xbf16, #ttnn_layout2> -> tensor<1x12x2x1x!ttcore.tile<32x32, bf16>, #layout{{.*}}>
   // CHECK: %[[RESULT:.*]] = d2m.generic
   // CHECK-SAME: grid = #ttcore.grid<1x12
   // CHECK: ins(%[[CAST0]] : tensor<1x12x2x1x!ttcore.tile<32x32, bf16>, #layout{{.*}}>)
@@ -91,8 +91,8 @@ func.func @test_lower_width_sharded_l1_3(
   %arg0: tensor<64x384xbf16, #ttnn_layout3>
 ) -> tensor<64x384xbf16, #ttnn_layout3> {
 
-  // CHECK: %[[CAST0:.*]] = ttir.ttnn_metal_layout_cast %arg0 : tensor<64x384xbf16, #ttnn_layout3> -> tensor<1x12x2x1x!ttcore.tile<32x32, bf16>, #layout{{.*}}>
-  // CHECK: %[[CAST1:.*]] = ttir.ttnn_metal_layout_cast %0 : tensor<64x384xbf16, #ttnn_layout3> -> tensor<1x12x2x1x!ttcore.tile<32x32, bf16>, #layout{{.*}}>
+  // CHECK: %[[CAST0:.*]] = ttir.ttnn_metal_layout_cast %arg0{{.*}}: tensor<64x384xbf16, #ttnn_layout3> -> tensor<1x12x2x1x!ttcore.tile<32x32, bf16>, #layout{{.*}}>
+  // CHECK: %[[CAST1:.*]] = ttir.ttnn_metal_layout_cast %0{{.*}}: tensor<64x384xbf16, #ttnn_layout3> -> tensor<1x12x2x1x!ttcore.tile<32x32, bf16>, #layout{{.*}}>
   // CHECK: %[[RESULT:.*]] = d2m.generic
   // CHECK-SAME: grid = #ttcore.grid<1x12
   // CHECK: ins(%[[CAST0]] : tensor<1x12x2x1x!ttcore.tile<32x32, bf16>, #layout{{.*}}>)
@@ -109,8 +109,8 @@ func.func @test_lower_width_sharded_l1_4(
   %arg0: tensor<2x32x384xbf16, #ttnn_layout4>
 ) -> tensor<2x32x384xbf16, #ttnn_layout4> {
 
-  // CHECK: %[[CAST0:.*]] = ttir.ttnn_metal_layout_cast %arg0 : tensor<2x32x384xbf16, #ttnn_layout4> -> tensor<1x12x2x1x!ttcore.tile<32x32, bf16>, #layout{{.*}}>
-  // CHECK: %[[CAST1:.*]] = ttir.ttnn_metal_layout_cast %0 : tensor<2x32x384xbf16, #ttnn_layout4> -> tensor<1x12x2x1x!ttcore.tile<32x32, bf16>, #layout{{.*}}>
+  // CHECK: %[[CAST0:.*]] = ttir.ttnn_metal_layout_cast %arg0{{.*}}: tensor<2x32x384xbf16, #ttnn_layout4> -> tensor<1x12x2x1x!ttcore.tile<32x32, bf16>, #layout{{.*}}>
+  // CHECK: %[[CAST1:.*]] = ttir.ttnn_metal_layout_cast %0{{.*}}: tensor<2x32x384xbf16, #ttnn_layout4> -> tensor<1x12x2x1x!ttcore.tile<32x32, bf16>, #layout{{.*}}>
   // CHECK: %[[RESULT:.*]] = d2m.generic
   // CHECK-SAME: grid = #ttcore.grid<1x12
   // CHECK: ins(%[[CAST0]] : tensor<1x12x2x1x!ttcore.tile<32x32, bf16>, #layout{{.*}}>)
@@ -126,8 +126,8 @@ func.func @test_lower_width_sharded_l1_4(
 func.func @test_lower_width_sharded_l1_5(
   %arg0: tensor<2x2x32x384xbf16, #ttnn_layout5>
 ) -> tensor<2x2x32x384xbf16, #ttnn_layout5> {
-  // CHECK: %[[CAST0:.*]] = ttir.ttnn_metal_layout_cast %arg0 : tensor<2x2x32x384xbf16, #ttnn_layout5> -> tensor<1x12x4x1x!ttcore.tile<32x32, bf16>, #layout{{.*}}>
-  // CHECK: %[[CAST1:.*]] = ttir.ttnn_metal_layout_cast %0 : tensor<2x2x32x384xbf16, #ttnn_layout5> -> tensor<1x12x4x1x!ttcore.tile<32x32, bf16>, #layout{{.*}}>
+  // CHECK: %[[CAST0:.*]] = ttir.ttnn_metal_layout_cast %arg0{{.*}}: tensor<2x2x32x384xbf16, #ttnn_layout5> -> tensor<1x12x4x1x!ttcore.tile<32x32, bf16>, #layout{{.*}}>
+  // CHECK: %[[CAST1:.*]] = ttir.ttnn_metal_layout_cast %0{{.*}}: tensor<2x2x32x384xbf16, #ttnn_layout5> -> tensor<1x12x4x1x!ttcore.tile<32x32, bf16>, #layout{{.*}}>
   // CHECK: %[[RESULT:.*]] = d2m.generic
   // CHECK-SAME: grid = #ttcore.grid<1x12
   // CHECK: ins(%[[CAST0]] : tensor<1x12x4x1x!ttcore.tile<32x32, bf16>, #layout{{.*}}>)
