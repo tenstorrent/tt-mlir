@@ -54,26 +54,23 @@ func.func public @test_sort_key_values(%arg0: tensor<1x4x64x64xf32>, %arg1: tens
   // CHECK-SAME: <{descending = false, dim = 3 : si32, stable = true}>
   // CHECK-SAME: (tensor<1x4x64x64xf32>)
   // CHECK-SAME: -> (tensor<1x4x64x64xf32>, tensor<1x4x64x64xi32>)
-  // CHECK: %[[INDICES_RESHAPE:[0-9]+]] = "ttir.reshape"(%[[INDICES]])
-  // CHECK-SAME: <{shape = [1 : i32, 4 : i32, 64 : i32, 64 : i32, 1 : i32]}>
-  // CHECK-SAME: (tensor<1x4x64x64xi32>) -> tensor<1x4x64x64x1xi32>
-  // CHECK: %[[ARANGE0:[0-9]+]] = "ttir.arange"()
-  // CHECK-SAME: <{arange_dimension = 0 : i64, end = 1 : si64, start = 0 : si64, step = 1 : si64}>
-  // CHECK-SAME: -> tensor<1x4x64x64x1xi32>
-  // CHECK: %[[ARANGE1:[0-9]+]] = "ttir.arange"()
-  // CHECK-SAME: <{arange_dimension = 1 : i64, end = 4 : si64, start = 0 : si64, step = 1 : si64}>
-  // CHECK-SAME: -> tensor<1x4x64x64x1xi32>
-  // CHECK: %[[ARANGE2:[0-9]+]] = "ttir.arange"()
-  // CHECK-SAME: <{arange_dimension = 2 : i64, end = 64 : si64, start = 0 : si64, step = 1 : si64}>
-  // CHECK-SAME: -> tensor<1x4x64x64x1xi32>
-  // CHECK: %[[REORDER_INDICES:[0-9]+]] = "ttir.concat"
-  // CHECK-SAME: (%[[ARANGE0]], %[[ARANGE1]], %[[ARANGE2]], %[[INDICES_RESHAPE]])
-  // CHECK-SAME: <{dim = 4 : si32}>
-  // CHECK-SAME: (tensor<1x4x64x64x1xi32>, tensor<1x4x64x64x1xi32>, tensor<1x4x64x64x1xi32>, tensor<1x4x64x64x1xi32>)
-  // CHECK-SAME: -> tensor<1x4x64x64x4xi32>
-  // CHECK: %{{.*}} = "ttir.gather"(%arg1, %[[REORDER_INDICES]])
-  // CHECK: %{{.*}} = "ttir.gather"(%arg2, %[[REORDER_INDICES]])
-  // CHECK: %{{.*}} = "ttir.gather"(%arg3, %[[REORDER_INDICES]])
+  // CHECK: %[[INDICES_2D:[0-9]+]] = "ttir.reshape"(%[[INDICES]])
+  // CHECK-SAME: <{shape = [256 : i32, 64 : i32]}>
+  // CHECK-SAME: (tensor<1x4x64x64xi32>) -> tensor<256x64xi32>
+  // CHECK: %[[OFFSETS:[0-9]+]] = "ttir.arange"()
+  // CHECK-SAME: <{arange_dimension = 0 : i64, end = 16384 : si64, start = 0 : si64, step = 64 : si64}>
+  // CHECK-SAME: -> tensor<256x64xi32>
+  // CHECK: %[[FLAT_IDX:[0-9]+]] = "ttir.add"(%[[OFFSETS]], %[[INDICES_2D]])
+  // CHECK-SAME: (tensor<256x64xi32>, tensor<256x64xi32>) -> tensor<256x64xi32>
+  // CHECK: %[[W1:[0-9]+]] = "ttir.reshape"(%arg1) <{shape = [16384 : i32, 1 : i32]}> : (tensor<1x4x64x64xi32>) -> tensor<16384x1xi32>
+  // CHECK: %[[E1:[0-9]+]] = "ttir.embedding"(%[[FLAT_IDX]], %[[W1]]) : (tensor<256x64xi32>, tensor<16384x1xi32>) -> tensor<256x64x1xi32>
+  // CHECK: %{{.*}} = "ttir.reshape"(%[[E1]]) <{shape = [1 : i32, 4 : i32, 64 : i32, 64 : i32]}> : (tensor<256x64x1xi32>) -> tensor<1x4x64x64xi32>
+  // CHECK: %[[W2:[0-9]+]] = "ttir.reshape"(%arg2) <{shape = [16384 : i32, 1 : i32]}> : (tensor<1x4x64x64xi32>) -> tensor<16384x1xi32>
+  // CHECK: %[[E2:[0-9]+]] = "ttir.embedding"(%[[FLAT_IDX]], %[[W2]]) : (tensor<256x64xi32>, tensor<16384x1xi32>) -> tensor<256x64x1xi32>
+  // CHECK: %{{.*}} = "ttir.reshape"(%[[E2]]) <{shape = [1 : i32, 4 : i32, 64 : i32, 64 : i32]}> : (tensor<256x64x1xi32>) -> tensor<1x4x64x64xi32>
+  // CHECK: %[[W3:[0-9]+]] = "ttir.reshape"(%arg3) <{shape = [16384 : i32, 1 : i32]}> : (tensor<1x4x64x64xi32>) -> tensor<16384x1xi32>
+  // CHECK: %[[E3:[0-9]+]] = "ttir.embedding"(%[[FLAT_IDX]], %[[W3]]) : (tensor<256x64xi32>, tensor<16384x1xi32>) -> tensor<256x64x1xi32>
+  // CHECK: %{{.*}} = "ttir.reshape"(%[[E3]]) <{shape = [1 : i32, 4 : i32, 64 : i32, 64 : i32]}> : (tensor<256x64x1xi32>) -> tensor<1x4x64x64xi32>
   %0:4 = "stablehlo.sort"(%arg0, %arg1, %arg2, %arg3) <{dimension = 3 : i64, is_stable = true}> ({
   ^bb0(%arg4: tensor<f32>, %arg5: tensor<f32>, %arg6: tensor<i32>, %arg7: tensor<i32>, %arg8: tensor<i32>, %arg9: tensor<i32>, %arg10: tensor<i32>, %arg11: tensor<i32>):
     %cst = stablehlo.constant dense<0.000000e+00> : tensor<f32>
