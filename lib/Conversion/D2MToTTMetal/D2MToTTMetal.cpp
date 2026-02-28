@@ -9,6 +9,7 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
+#include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOps.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -19,6 +20,17 @@
 namespace mlir::tt::ttmetal {
 
 namespace {
+
+// Returns true if the kernel function contains an op of type OpT.
+template <typename OpT>
+static bool kernelContainsOp(const SymbolTable &symbolTable,
+                             SymbolRefAttr kernelSymbol) {
+  auto kernelFunc =
+      symbolTable.lookup<func::FuncOp>(kernelSymbol.getRootReference());
+  return kernelFunc.walk([](OpT) { return WalkResult::interrupt(); })
+      .wasInterrupted();
+}
+
 class D2MGenericRewriter : public OpConversionPattern<d2m::GenericOp> {
 public:
   D2MGenericRewriter(MLIRContext *ctx, ttmetal::MathFidelity mathFidelity)
@@ -73,7 +85,14 @@ public:
         }
         // This must stay in-sync with ChipDescAttr::getDstLogicalSizeTiles().
         constexpr bool dstFullSyncEn = false;
-        std::vector<UnpackToDestMode> unpackModes{UnpackToDestMode::Default};
+        // Enable fp32 unpack mode for typecast kernels.
+        // TODO(ckaravasilisTT): Enable fp32 unpack mode in the general case.
+        bool isTypecast = kernelContainsOp<ttkernel::TypecastTileOp>(
+            symbolTable, thread.getKernelSymbol());
+        UnpackToDestMode mode = (fp32DestAccum && isTypecast)
+                                    ? UnpackToDestMode::Fp32
+                                    : UnpackToDestMode::Default;
+        std::vector<UnpackToDestMode> unpackModes{mode};
         kernelConfig = builder.getAttr<ttmetal::ComputeConfigAttr>(
             thread.getKernelSymbol(), coreRange, kernelArgs, mathFidelity,
             fp32DestAccum, dstFullSyncEn, unpackModes);

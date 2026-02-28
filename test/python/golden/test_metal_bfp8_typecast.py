@@ -26,10 +26,6 @@ pytestmark = pytest.mark.frontend("ttir")
 
 @pytest.mark.parametrize("shape", [(512, 512)])
 @pytest.mark.parametrize("target", ["ttmetal"])
-@pytest.mark.xfail(
-    reason="fp32->bf16 typecast fails due to LLK tiling issue. "
-    "See comment at: https://github.com/tenstorrent/tt-metal/issues/35302"
-)
 def test_triple_exp_f32(shape: Shape, target: str, request, device):
     pipeline_options = ["global-data-format-target=bfp_bf8"]
 
