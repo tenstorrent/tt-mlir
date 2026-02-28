@@ -12,6 +12,7 @@
 #include "ttmlir/Dialect/TTNN/Interfaces/OpModelError.h"
 #include "ttmlir/Dialect/TTNN/Interfaces/TTNNOpModelInterface.cpp.inc"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
+#include "ttmlir/Dialect/TTNN/Utils/D2MOpCostModel.h"
 #include "ttmlir/OpModel/TTNN/TTNNOpModel.h"
 #include "ttmlir/Utils.h"
 
@@ -4845,14 +4846,19 @@ D2MSubgraphOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 
     op_model::OpConstraints c(0, 0, 0, 0, {internalOpOutputLayout});
 
-    llvm::Expected<op_model::OpConstraints> expectedConstraints =
-        backend.getOpConstraints(internalOpInputLayouts, internalOpConfig);
-    if (expectedConstraints) {
-      c = *expectedConstraints;
+    auto estimated =
+        estimateOpConstraints(&op, internalOpInputLayouts, internalOpConfig);
+    if (estimated) {
+      c = *estimated;
     } else {
-      // Use default constraints so one failing internal op doesn't invalidate
-      // the whole D2M subgraph / model compilation.
-      llvm::consumeError(expectedConstraints.takeError());
+      llvm::consumeError(estimated.takeError());
+      llvm::Expected<op_model::OpConstraints> expectedConstraints =
+          backend.getOpConstraints(internalOpInputLayouts, internalOpConfig);
+      if (expectedConstraints) {
+        c = *expectedConstraints;
+      } else {
+        llvm::consumeError(expectedConstraints.takeError());
+      }
     }
 
     // Accumulate the constraints for this op into the total constraints for the
@@ -4899,14 +4905,19 @@ D2MSubgraphOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
     OpConfig internalOpConfig(valueToLayout.lookup(internalOp.getResult(0)));
 
     size_t runtime = 0;
-    llvm::Expected<size_t> internalOpRuntime =
-        backend.getOpRuntime(internalOpInputLayouts, internalOpConfig);
-    if (internalOpRuntime) {
-      runtime = *internalOpRuntime;
+    auto estimatedRuntime = estimateOpRuntime(
+        &internalOp, internalOpInputLayouts, internalOpConfig);
+    if (estimatedRuntime) {
+      runtime = *estimatedRuntime;
     } else {
-      // Use default runtime so one failing internal op doesn't invalidate the
-      // whole D2M subgraph / model compilation.
-      llvm::consumeError(internalOpRuntime.takeError());
+      llvm::consumeError(estimatedRuntime.takeError());
+      llvm::Expected<size_t> internalOpRuntime =
+          backend.getOpRuntime(internalOpInputLayouts, internalOpConfig);
+      if (internalOpRuntime) {
+        runtime = *internalOpRuntime;
+      } else {
+        llvm::consumeError(internalOpRuntime.takeError());
+      }
     }
     ret = d2m_subgraph_runtime_comp_fn(ret, runtime);
   }

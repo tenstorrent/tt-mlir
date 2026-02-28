@@ -4,6 +4,7 @@ add_mlir_library(MLIRTTNNInterfaces
   TTNNTensorSpecInterface.cpp
   TTNNWorkaroundInterface.cpp
   TTNNKernelInterface.cpp
+  D2MOpCostModel.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${PROJECT_SOURCE_DIR}/include/ttmlir
@@ -22,4 +23,5 @@ add_mlir_library(MLIRTTNNInterfaces
   PRIVATE
   MLIRTTCoreDialect
   TTNNOpModelLib
+  TTMLIRTTNNUtils
 )
