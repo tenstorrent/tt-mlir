@@ -958,12 +958,12 @@ llvm::Expected<OpConstraints> OpModel<SigmoidOp>::getOpConstraints(
   // Add default parameters
   int32_t vectorMode =
       static_cast<int32_t>(::ttnn::operations::unary::VecMode::RC);
-  bool approximateMode = false;
+  auto sigmoidMode = ::ttnn::operations::unary::Sigmoid::SigmoidMode::ACCURATE;
 
   // Create query closure
   auto query = [=]() {
     return ::ttnn::graph::query_op_constraints(
-        ::ttnn::sigmoid, device, inputSpec, vectorMode, approximateMode,
+        ::ttnn::sigmoid, device, inputSpec, vectorMode, sigmoidMode,
         detail::getNullableMemoryConfig(outputLayout));
   };
 
@@ -992,12 +992,12 @@ OpModel<SigmoidOp>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
   // Add default parameters
   int32_t vectorMode =
       static_cast<int32_t>(::ttnn::operations::unary::VecMode::RC);
-  bool approximateMode = false;
+  auto sigmoidMode = ::ttnn::operations::unary::Sigmoid::SigmoidMode::ACCURATE;
 
   // Create query closure
   auto query = [=]() {
     return ::ttnn::graph::query_op_runtime(
-        ::ttnn::sigmoid, device, inputSpec, vectorMode, approximateMode,
+        ::ttnn::sigmoid, device, inputSpec, vectorMode, sigmoidMode,
         detail::getNullableMemoryConfig(outputLayout));
   };
 

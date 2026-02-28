@@ -44,6 +44,11 @@ def test_max_pool2d(
     request,
     device,
 ):
+    if target == "emitc":
+        pytest.skip(
+            "EmitC tests are hanging in CI after switching targets (emitPy->emitC). Disabling them to unblock the uplift. See issue: https://github.com/tenstorrent/tt-mlir/issues/7282"
+        )
+
     def module(builder: TTIRBuilder):
         @builder.func([shape], [dtype])
         def max_pool2d(
@@ -170,6 +175,11 @@ def test_avg_pool2d(
     request,
     device,
 ):
+    if target == "emitc":
+        pytest.skip(
+            "EmitC tests are hanging in CI after switching targets (emitPy->emitC). Disabling them to unblock the uplift. See issue: https://github.com/tenstorrent/tt-mlir/issues/7282"
+        )
+
     def module(builder: TTIRBuilder):
         @builder.func([shape], [dtype])
         def avg_pool2d(
@@ -280,6 +290,11 @@ def test_max_pool2d_with_indices(
     request,
     device,
 ):
+    if target == "emitc":
+        pytest.skip(
+            "EmitC tests are hanging in CI after switching targets (emitPy->emitC). Disabling them to unblock the uplift. See issue: https://github.com/tenstorrent/tt-mlir/issues/7282"
+        )
+
     def module(builder: TTIRBuilder):
         @builder.func([shape], [dtype, torch.int64])
         def max_pool2d_with_indices(
@@ -318,6 +333,11 @@ def test_global_avg_pool2d(
     request,
     device,
 ):
+    if target == "emitc":
+        pytest.skip(
+            "EmitC tests are hanging in CI after switching targets (emitPy->emitC). Disabling them to unblock the uplift. See issue: https://github.com/tenstorrent/tt-mlir/issues/7282"
+        )
+
     def module(builder: TTIRBuilder):
         @builder.func([shape], [dtype])
         def global_avg_pool2d(

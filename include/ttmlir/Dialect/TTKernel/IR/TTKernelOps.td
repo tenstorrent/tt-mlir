@@ -1475,10 +1475,10 @@ def TTKernel_SignTileOp : TTKernel_SFPUOp<"sign_tile", [TTKernel_UnaryOpTrait]> 
     let assemblyFormat = [{ `(` $tile_index `)` attr-dict `:` functional-type(operands, results) }];
 }
 
-def TTKernel_LogicalNotUnaryTileInitOp : TTKernel_InitOp<"logical_not_unary_tile_init"> {
-    let summary = "Init function for logical_not_unary_tile(_int32) operation. Refer to documentation for any init function.";
+def TTKernel_LogicalNotTileInitOp : TTKernel_InitOp<"logical_not_tile_init"> {
+    let summary = "Init function for logical_not_tile operation. Refer to documentation for any init function.";
     let description = [{
-      Must be run before logical_not_unary_tile(_int32).
+      Must be run before logical_not_tile.
     }];
 
     let arguments = (ins);
@@ -1488,32 +1488,18 @@ def TTKernel_LogicalNotUnaryTileInitOp : TTKernel_InitOp<"logical_not_unary_tile
     }];
 }
 
-def TTKernel_LogicalNotUnaryTileOp : TTKernel_SFPUOp<"logical_not_unary_tile", [TTKernel_UnaryOpTrait]> {
+def TTKernel_LogicalNotTileOp : TTKernel_SFPUOp<"logical_not_tile", [TTKernel_UnaryOpTrait]> {
     let summary = "Logical negation tile in the DST at specified index.";
     let description = [{
       Performs element-wise computation of logical negation operation
       DST[dst0_index] <- !DST[dst0_index]
       on DST register operands. The DST register buffer must be in
       acquired state via *tile_regs_acquire* call.
+      The DataFormat template parameter specifies the data type.
     }];
 
-    let arguments = (ins IndexLike:$dst0_index);
-
-    let assemblyFormat = [{
-      `(` $dst0_index `)` attr-dict `:` functional-type(operands, results)
-    }];
-}
-
-def TTKernel_LogicalNotUnaryTileI32Op : TTKernel_SFPUOp<"logical_not_unary_tile_int32", [TTKernel_UnaryOpTrait]> {
-    let summary = "Logical negation tile in the DST at specified index.";
-    let description = [{
-      Performs element-wise computation of logical negation operation for the int32 data type
-      DST[dst0_index] <- !DST[dst0_index]
-      on DST register operands. The DST register buffer must be in
-      acquired state via *tile_regs_acquire* call.
-    }];
-
-    let arguments = (ins IndexLike:$dst0_index);
+    let arguments = (ins IndexLike:$dst0_index,
+                         TTCore_DataTypeAttr:$dtype);
 
     let assemblyFormat = [{
       `(` $dst0_index `)` attr-dict `:` functional-type(operands, results)
