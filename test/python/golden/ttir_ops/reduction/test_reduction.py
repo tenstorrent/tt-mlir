@@ -59,7 +59,7 @@ def test_reduction_ops(
 ):
     if target == "emitc":
         pytest.skip(
-            "EmitC tests are hanging in CI. Disabled temporarily for investigation."
+            "EmitC tests are hanging in CI after switching targets (emitPy->emitC). Disabling them to unblock the uplift. See issue: https://github.com/tenstorrent/tt-mlir/issues/7282"
         )
 
     if (
