@@ -11,7 +11,7 @@ on:
         description: 'Docker image for the build'
         required: false
         type: string
-        default: 'ghcr.io/tenstorrent/tt-mlir/tt-mlir-ci-ubuntu-22-04:latest'
+        default: 'ghcr.io/tenstorrent/tt-mlir/tt-mlir-ci-ubuntu-24-04:latest'
       runner:
         description: Runner machine
         required: false

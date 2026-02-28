@@ -1,6 +1,6 @@
 ARG FROM_TAG=latest
 
-FROM ghcr.io/tenstorrent/tt-mlir/tt-mlir-base-ubuntu-22-04:${FROM_TAG} AS ci-build
+FROM ghcr.io/tenstorrent/tt-mlir/tt-mlir-base-ubuntu-24-04:${FROM_TAG} AS ci-build
 SHELL ["/bin/bash", "-c"]
 
 # Create a directory for the build and toolchain
@@ -31,7 +31,7 @@ cmake --build env/build
 EOT
 
 # Final stage
-FROM ghcr.io/tenstorrent/tt-mlir/tt-mlir-base-ubuntu-22-04:${FROM_TAG} AS ci
+FROM ghcr.io/tenstorrent/tt-mlir/tt-mlir-base-ubuntu-24-04:${FROM_TAG} AS ci
 
 # Copy the TTMLIR_TOOLCHAIN_DIR from the previous stage
 ENV TTMLIR_TOOLCHAIN_DIR=/opt/ttmlir-toolchain

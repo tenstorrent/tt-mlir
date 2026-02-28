@@ -37,7 +37,7 @@ We should update our compiler LLVM dependencies at least once every three months
 
 2. Prepare the development environment using the base tt-mlir IRD Ubuntu image. This clean Docker image lacks prebuilt dependencies, enabling fresh builds for dependency updates and troubleshooting:
 ```
-ghcr.io/tenstorrent/tt-mlir/tt-mlir-base-ird-ubuntu-22-04:latest
+ghcr.io/tenstorrent/tt-mlir/tt-mlir-base-ird-ubuntu-24-04:latest
 ```
 
 3. Synchronize with the latest tt-mlir main branch:

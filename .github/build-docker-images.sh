@@ -16,10 +16,10 @@ CURRENT_TT_METAL_VERSION=$(grep 'set(TT_METAL_VERSION' third_party/CMakeLists.tx
 echo "Current tt-metal version: $CURRENT_TT_METAL_VERSION"
 
 REPO=tenstorrent/tt-mlir
-BASE_IMAGE_NAME=ghcr.io/$REPO/tt-mlir-base-ubuntu-22-04
-CI_IMAGE_NAME=ghcr.io/$REPO/tt-mlir-ci-ubuntu-22-04
-BASE_IRD_IMAGE_NAME=ghcr.io/$REPO/tt-mlir-base-ird-ubuntu-22-04
-IRD_IMAGE_NAME=ghcr.io/$REPO/tt-mlir-ird-ubuntu-22-04
+BASE_IMAGE_NAME=ghcr.io/$REPO/tt-mlir-base-ubuntu-24-04
+CI_IMAGE_NAME=ghcr.io/$REPO/tt-mlir-ci-ubuntu-24-04
+BASE_IRD_IMAGE_NAME=ghcr.io/$REPO/tt-mlir-base-ird-ubuntu-24-04
+IRD_IMAGE_NAME=ghcr.io/$REPO/tt-mlir-ird-ubuntu-24-04
 CIBW_IMAGE_NAME=ghcr.io/$REPO/tt-mlir-manylinux-2-34
 
 # Compute the hash of the Dockerfile
