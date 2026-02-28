@@ -1274,7 +1274,8 @@ public:
         rewriter
             .create<ttir::ArangeOp>( // perform arange on the last dimension to
                                      // match how ttnn behaves
-                op.getLoc(), arangeOutputType, start, end, step, 0)
+                op.getLoc(), arangeOutputType, start, end, step, 0,
+                outputType.getElementType())
             .getResult();
 
     std::vector<int64_t> outputShape = arangeOutputType.getShape().vec();
