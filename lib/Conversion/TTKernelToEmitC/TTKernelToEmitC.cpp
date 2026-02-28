@@ -369,6 +369,13 @@ public:
           builder, tileType.getDataType()));
       return ArrayAttr::get(op.getContext(), template_args);
     } else if constexpr (std::is_same_v<SourceOp,
+                                        ttkernel::PackUntilizeInitOp> ||
+                         std::is_same_v<SourceOp,
+                                        ttkernel::PackUntilizeBlockOp>) {
+      SmallVector<Attribute, 1> template_args;
+      template_args.push_back(emitc::OpaqueAttr::get(op.getContext(), "1"));
+      return ArrayAttr::get(op.getContext(), template_args);
+    } else if constexpr (std::is_same_v<SourceOp,
                                         ttkernel::ExperimentalTileFillOp>) {
       SmallVector<Attribute, 1> template_args;
       template_args.push_back(
@@ -1081,6 +1088,9 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::ExperimentalTilizeBlockOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::UntilizeBlockOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ExperimentalUntilizeBlockOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::PackUntilizeInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::PackUntilizeBlockOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::PackUntilizeUninitOp>,
 
         // Datamovement
         TTKernelToEmitCOpaqueRewriter<ttkernel::CopyTileInitOp>,

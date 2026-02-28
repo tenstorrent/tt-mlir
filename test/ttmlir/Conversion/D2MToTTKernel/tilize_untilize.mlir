@@ -18,8 +18,8 @@ module {
   // CHECK-LABEL: func.func @test_tile_untilize_block
   func.func @test_tile_untilize_block(%arg0: !d2m.cb<memref<4x6x!ttcore.tile<32x32, f32>, #l1_>>, %arg1: !d2m.cb<memref<128x192xf32, #l1_>>) -> () attributes {d2m.thread = #d2m.thread<compute>} {
     // CHECK-NOT: d2m.tile_untilize_block
-    // CHECK: ttkernel.untilize_init
-    // CHECK: ttkernel.experimental::untilize_block
+    // CHECK: ttkernel.pack_untilize_init
+    // CHECK: ttkernel.pack_untilize_block
     %in = d2m.wait %arg0 : !d2m.cb<memref<4x6x!ttcore.tile<32x32, f32>, #l1_>> -> memref<4x6x!ttcore.tile<32x32, f32>, #l1_>
     %out = d2m.reserve %arg1 : !d2m.cb<memref<128x192xf32, #l1_>> -> memref<128x192xf32, #l1_>
     %result = "d2m.tile_untilize_block"(%in, %out) : (memref<4x6x!ttcore.tile<32x32, f32>, #l1_>, memref<128x192xf32, #l1_>) -> memref<128x192xf32, #l1_>

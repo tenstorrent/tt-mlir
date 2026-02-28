@@ -150,6 +150,8 @@ public:
       builder->create<emitc::IncludeOp>(loc,
                                         "api/compute/eltwise_unary/clamp.h",
                                         /*isStandard=*/false);
+      builder->create<emitc::IncludeOp>(loc, "api/compute/pack_untilize.h",
+                                        /*isStandard=*/false);
       // Helper for float-to-uint32 bit reinterpretation (used by scalar tile
       // ops).
       builder->create<emitc::VerbatimOp>(

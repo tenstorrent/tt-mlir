@@ -1171,14 +1171,15 @@ public:
     if constexpr (std::is_same_v<BlockOp,
                                  ttkernel::ExperimentalTilizeBlockOp>) {
       rewriter.create<ttkernel::TilizeInitOp>(op->getLoc(), src, blockC, dst);
-    } else if constexpr (std::is_same_v<
-                             BlockOp, ttkernel::ExperimentalUntilizeBlockOp>) {
-      rewriter.create<ttkernel::UntilizeInitOp>(op->getLoc(), src);
+      rewriter.create<BlockOp>(op->getLoc(), src, dst, blockR, blockC);
+    } else if constexpr (std::is_same_v<BlockOp,
+                                        ttkernel::PackUntilizeBlockOp>) {
+      rewriter.create<ttkernel::PackUntilizeInitOp>(op->getLoc(), src, dst);
+      rewriter.create<ttkernel::PackUntilizeBlockOp>(op->getLoc(), src, blockR,
+                                                     dst);
     } else {
       llvm_unreachable("unsupported tilize/untilize op");
     }
-
-    rewriter.create<BlockOp>(op->getLoc(), src, dst, blockR, blockC);
 
     rewriter.eraseOp(op);
 
@@ -2096,7 +2097,7 @@ void populateD2MToTTKernelPatterns(
                ttkernel::D2MSFPUOpsRewriter<d2m::TileWhereOp>,
 
                ttkernel::D2MTilizeUntilizeRewriter<d2m::TileTilizeBlockOp, ttkernel::ExperimentalTilizeBlockOp>,
-               ttkernel::D2MTilizeUntilizeRewriter<d2m::TileUntilizeBlockOp, ttkernel::ExperimentalUntilizeBlockOp>,
+               ttkernel::D2MTilizeUntilizeRewriter<d2m::TileUntilizeBlockOp, ttkernel::PackUntilizeBlockOp>,
                ttkernel::D2MTileFillRewriter,
                ttkernel::D2MWriteRowMaskTileRewriter,
                ttkernel::D2MWriteColMaskTileRewriter,

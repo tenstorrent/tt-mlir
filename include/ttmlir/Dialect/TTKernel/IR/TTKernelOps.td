@@ -2212,6 +2212,54 @@ def TTKernel_ExperimentalUntilizeBlockOp : TTKernel_Op<"experimental::untilize_b
     }];
 }
 
+def TTKernel_PackUntilizeInitOp : TTKernel_Op<"pack_untilize_init"> {
+    let summary = "PackUntilizeInitOp call.";
+    let description = [{
+      Initializes UNPACK, MATH, and PACK threads for the pack untilize
+      operation with block_ct_dim=1.  Maps to the official tt-metal
+      `pack_untilize_init<1>(icb, ocb)` API.
+    }];
+
+    let arguments = (ins TTKernel_CB:$cbIn, TTKernel_CB:$cbOut);
+
+    let hasVerifier = 1;
+
+    let assemblyFormat = [{
+      `(` $cbIn `,` $cbOut `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_PackUntilizeBlockOp : TTKernel_Op<"pack_untilize_block"> {
+    let summary = "PackUntilizeBlockOp call.";
+    let description = [{
+      Performs the untilize operation on a block of tiles with block_ct_dim=1.
+      Maps to the official tt-metal
+      `pack_untilize_block<1>(icb, block_rt_dim, ocb)` API.
+    }];
+
+    let arguments = (ins TTKernel_CB:$cbIn, I32:$blockRtDim, TTKernel_CB:$cbOut);
+
+    let hasVerifier = 1;
+
+    let assemblyFormat = [{
+      `(` $cbIn `,` $blockRtDim `,` $cbOut `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_PackUntilizeUninitOp : TTKernel_Op<"pack_untilize_uninit"> {
+    let summary = "PackUntilizeUninitOp call.";
+    let description = [{
+      Uninitializes the pack untilize operation.  Maps to the official tt-metal
+      `pack_untilize_uninit(ocb)` API.
+    }];
+
+    let arguments = (ins TTKernel_CB:$cbOut);
+
+    let assemblyFormat = [{
+      `(` $cbOut `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
 def TTKernel_ExperimentalTileFillOp : TTKernel_SFPUOp<"experimental::tile_fill", [TTKernel_UnaryOpTrait]> {
     let summary = "Experimental Tile Fill Op";
     let description = [{

@@ -187,7 +187,6 @@ def test_concatenate_heads(
         concatenate_heads_module,
         target=target,
         device=device,
-        print_ir=True,
         **get_request_kwargs(request),
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '}}}",
     )
