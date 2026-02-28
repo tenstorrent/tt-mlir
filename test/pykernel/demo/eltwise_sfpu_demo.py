@@ -158,8 +158,6 @@ def main(device):
         dram_memory_config,
     )
 
-    io_tensors = [input_tensor, output_tensor]
-
     # Define Custom Generic Op
     eltwise_exp_op = EltwiseSFPUPyKernelOp()
 
