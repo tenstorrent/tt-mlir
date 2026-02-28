@@ -168,6 +168,7 @@ declare_mlir_python_sources(TTMLIRPythonCommon.Main
     compile_and_run_internal.py
     compile_and_run_utils.py
     compile_and_run.py
+    _flatbuffer_worker.py
 )
 
 ################################################################################

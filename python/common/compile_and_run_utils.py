@@ -5,12 +5,18 @@
 from __future__ import annotations
 
 import atexit
+import json
 import multiprocessing as mp
+import os
 import queue
+import subprocess
+import sys
+import tempfile
 from dataclasses import dataclass
 from enum import Enum
 from multiprocessing import queues
-from typing import Callable, Tuple
+from pathlib import Path
+from typing import Any, Callable, Dict, Tuple
 
 from ttmlir.dialects import stablehlo
 from ttmlir.ir import Context, Module, OpView
@@ -114,25 +120,8 @@ class TranslationProcessResult:
         return TranslationProcessResult(Status.ERROR, err=error)
 
 
-@dataclass
-class RunProcessResult:
-    """Result of a flatbuffer run process."""
-
-    status: Status
-    return_code: int = None
-    err: str = None
-
-    @staticmethod
-    def success(return_code: int) -> RunProcessResult:
-        return RunProcessResult(Status.SUCCESS, return_code=return_code)
-
-    @staticmethod
-    def error(error: str) -> RunProcessResult:
-        return RunProcessResult(Status.ERROR, err=error)
-
-
 # Convenience alias.
-Result = CompilationProcessResult | TranslationProcessResult | RunProcessResult
+Result = CompilationProcessResult | TranslationProcessResult
 
 
 @dataclass
@@ -182,22 +171,14 @@ def _persistent_worker(task_queue: queues.Queue, result_queue: queues.Queue):
 
 class ProcessManager:
     """
-    Ensures only one Process is spawned and reused across workers.
+    Manages compilation workers using multiprocessing for performance.
 
-    This one process is meant to wrap and isolate worker which can unexpectedly crash,
-    to protect the main parent process from such crashes.
+    Uses persistent worker processes with task queues. Processes exit via
+    os._exit() (intentionally bypasses destructors) to avoid issues with
+    inherited state from parent.
 
-    Its main public method `run` runs `worker_fn` in a separate process, returns
-    whatever worker returned through queue if no errors happened, otherwise raises
-    RuntimeError.
-
-    `forkserver` is chosen as start method for `multiprocessing`. The default `fork`
-    method encounters problems when used in multithreaded processes, such as with JAX
-    for example, and it will be deprecated as default method in the future releases of
-    python. See:
-    https://docs.python.org/3/library/multiprocessing.html#contexts-and-start-methods
-    https://docs.python.org/3/library/os.html#os.fork
-    https://discuss.python.org/t/concerns-regarding-deprecation-of-fork-with-alive-threads/33555
+    For hardware workers requiring clean shutdown, use run_subprocess_worker()
+    instead (defined at end of this module).
     """
 
     # ----- Public methods -----
@@ -297,3 +278,73 @@ def get_process_manager() -> ProcessManager:
         atexit.register(_process_manager.stop)
 
     return _process_manager
+
+
+# ---------- Subprocess worker execution ----------
+
+
+def run_subprocess_worker(
+    runner_script: str,
+    args: tuple,
+    timeout: float = 60.0,
+) -> Dict[str, Any]:
+    """
+    Execute worker script in subprocess with clean shutdown for hardware cleanup.
+
+    Subprocess exits normally (unlike multiprocessing which calls os._exit),
+    allowing C++ destructors to run.
+
+    Parameters
+    ----------
+    runner_script : str
+        Worker script name in common/ directory.
+    args : tuple
+        Arguments passed to the worker.
+    timeout : float
+        Timeout in seconds.
+
+    Returns
+    -------
+    dict
+        Result with "status" field ("success" or "error").
+    """
+    result_fd, result_path = tempfile.mkstemp(suffix=".json")
+    os.close(result_fd)
+
+    runner_path = Path(__file__).parent / runner_script
+    if not runner_path.exists():
+        raise FileNotFoundError(f"Worker script not found: {runner_path}")
+
+    try:
+        cmd = [sys.executable, str(runner_path)] + list(args) + [result_path]
+        proc = subprocess.run(
+            cmd, timeout=timeout, check=False, capture_output=True, text=True
+        )
+
+        if os.path.getsize(result_path) == 0:
+            raise RuntimeError(
+                f"Worker `{runner_script}` crashed without writing results. "
+                f"Exit code: {proc.returncode}. Stderr: {proc.stderr}"
+            )
+
+        with open(result_path) as f:
+            result = json.load(f)
+
+        result["stderr"] = proc.stderr
+
+    except subprocess.TimeoutExpired as e:
+        stderr = e.stderr.decode() if isinstance(e.stderr, bytes) else (e.stderr or "")
+        raise RuntimeError(
+            f"Worker `{runner_script}` timed out after {timeout}s. Stderr: {stderr}"
+        ) from e
+    except RuntimeError:
+        raise
+    except Exception as e:
+        raise RuntimeError(f"Worker `{runner_script}` failed: {e}") from e
+    finally:
+        try:
+            os.unlink(result_path)
+        except OSError:
+            pass
+
+    return result
