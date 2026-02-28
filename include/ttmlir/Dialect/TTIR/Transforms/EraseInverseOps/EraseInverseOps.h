@@ -300,6 +300,9 @@ extern void populateReduceCommutePatterns(MLIRContext *ctx,
 template <CommuteDirection commuteDirection>
 extern void populateRMSNormCommutePatterns(MLIRContext *ctx,
                                            RewritePatternSet &patterns);
+template <CommuteDirection commuteDirection>
+extern void populateSoftmaxCommutePatterns(MLIRContext *ctx,
+                                           RewritePatternSet &patterns);
 
 } // namespace mlir::tt::ttir
 
