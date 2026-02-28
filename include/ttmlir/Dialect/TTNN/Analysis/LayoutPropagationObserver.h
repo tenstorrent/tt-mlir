@@ -45,15 +45,13 @@ public:
             const OutputHints &hints, size_t crossProductSize) {}
 
   /// Each evaluation attempt (valid or failed). Hot path.
-  virtual void onEvaluation(Operation *op, const OpConfig &hint,
-                            size_t hintIdx,
+  virtual void onEvaluation(Operation *op, const OpConfig &hint, size_t hintIdx,
                             llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
                             bool valid, const BeamCandidate *candidate,
                             llvm::StringRef failureReason) {}
 
   /// After beam sort+trim for an op.
-  virtual void onBeamResult(Operation *op,
-                            llvm::ArrayRef<BeamCandidate> beam,
+  virtual void onBeamResult(Operation *op, llvm::ArrayRef<BeamCandidate> beam,
                             bool usedDramFallback) {}
 
   /// Fork resolution in backward pass.
