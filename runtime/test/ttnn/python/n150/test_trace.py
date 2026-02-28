@@ -39,7 +39,9 @@ def test_trace_matmul_multiply_no_consteval(helper: Helper, request, num_loops):
         description="Matmul multiply trace test",
     )
 
-    test_runner = ProgramTestRunner(test_config, helper.binary, 0)
+    test_runner = ProgramTestRunner(
+        test_config, helper.binary, 0, constant_input_indices=[0, 1]
+    )
 
     debug_stats = ttrt.runtime.DebugStats.get()
 
@@ -51,7 +53,7 @@ def test_trace_matmul_multiply_no_consteval(helper: Helper, request, num_loops):
             # First execute, should be a trace cache miss
             # Subsequent executes should be trace cache hit and execute trace
             inputs_runtime_with_layout, golden, _ = test_runner.get_inputs_and_golden(
-                device
+                device, regenerate_only_variable_inputs=True
             )
             test_runner.run_program_and_compare_golden(
                 device, inputs_runtime_with_layout, golden
@@ -79,7 +81,10 @@ def test_trace_matmul_multiply_with_consteval(helper: Helper, request, num_loops
         description="Matmul multiply trace test",
     )
 
-    test_runner = ProgramTestRunner(test_config, helper.binary, 0)
+    # For matmul_multiply_consteval: inputs 0 and 1 are constants/parameters, input 2 is variable
+    test_runner = ProgramTestRunner(
+        test_config, helper.binary, 0, constant_input_indices=[0, 1]
+    )
     debug_stats = ttrt.runtime.DebugStats.get()
 
     with DeviceContext(
@@ -106,14 +111,14 @@ def test_trace_matmul_multiply_with_consteval(helper: Helper, request, num_loops
 
         ttrt.runtime.DebugStats.get().clear()
 
+        # Regenerate only variable inputs (input 2), keep constants (inputs 0 and 1) the same
         inputs_runtime_with_layout, golden, _ = test_runner.get_inputs_and_golden(
-            device
+            device, regenerate_only_variable_inputs=True
         )
 
         for i in range(num_loops):
-            # First execute should be a consteval cache miss because we've updated the inputs
-            # Subsequent executes should be consteval cache hits
-            # Trace cache should not be affected
+            # First execute should copy new input to a device input trace slot.
+            # Trace cache should not be affected.
             test_runner.run_program_and_compare_golden(
                 device,
                 inputs_runtime_with_layout,
@@ -122,8 +127,8 @@ def test_trace_matmul_multiply_with_consteval(helper: Helper, request, num_loops
             assert debug_stats.get_stat("TraceCacheMiss") == 0
             assert debug_stats.get_stat("CapturedTrace") == 0
             assert debug_stats.get_stat("ExecutedTrace") == i + 1
-            assert debug_stats.get_stat("ConstEvalCacheMiss") == 1
-            assert debug_stats.get_stat("ConstEvalCacheHit") == i
+            assert debug_stats.get_stat("ConstEvalCacheMiss") == 0
+            assert debug_stats.get_stat("ConstEvalCacheHit") == i + 1
 
     ttrt.runtime.DebugStats.get().clear()
     helper.teardown()

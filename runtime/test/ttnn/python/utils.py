@@ -64,7 +64,13 @@ class ProgramTestConfig:
 
 
 class ProgramTestRunner:
-    def __init__(self, config: ProgramTestConfig, binary: Binary, program_index: int):
+    def __init__(
+        self,
+        config: ProgramTestConfig,
+        binary: Binary,
+        program_index: int,
+        constant_input_indices=None,
+    ):
 
         program = binary.get_program(program_index)
         assert not program.is_private()
@@ -75,26 +81,80 @@ class ProgramTestRunner:
         self.binary = binary
         self.program = program
         self.program_index = program_index
+        self.constant_input_indices = (
+            constant_input_indices if constant_input_indices else []
+        )
+        self.constant_inputs_torch_cache = None  # Cache for torch tensors
+        self.constant_inputs_runtime_cache = (
+            None  # Cache for runtime tensors with layout
+        )
 
-    def get_inputs_and_golden(self, device, borrow=True):
-        inputs_torch = get_torch_inputs(self.program)
-        storage_type = Storage.Borrowed if borrow else Storage.Owned
-        inputs_runtime = [
-            get_runtime_tensor_from_torch(torch_input, storage_type)
-            for torch_input in inputs_torch
-        ]
-        input_layouts = [
-            ttrt.runtime.get_layout(
-                executable=self.binary.fbb,
-                program_index=self.program_index,
-                input_index=i,
-            )
-            for i in range(len(inputs_runtime))
-        ]
-        inputs_runtime_with_layout = [
-            ttrt.runtime.to_layout(rt_input, device, layout, True)
-            for rt_input, layout in zip(inputs_runtime, input_layouts)
-        ]
+    def get_inputs_and_golden(
+        self, device, borrow=True, regenerate_only_variable_inputs=False
+    ):
+        inputs_torch = []
+        inputs_runtime_with_layout = []
+
+        if (
+            regenerate_only_variable_inputs
+            and self.constant_inputs_runtime_cache is not None
+        ):
+            # Use cached constant inputs and regenerate variable inputs
+            for i, program_input in enumerate(self.program.inputs):
+                if i in self.constant_input_indices:
+                    # Use cached constant torch tensor and runtime tensor
+                    inputs_torch.append(self.constant_inputs_torch_cache[i])
+                    inputs_runtime_with_layout.append(
+                        self.constant_inputs_runtime_cache[i]
+                    )
+                else:
+                    # Generate new variable input
+                    torch_tensor = torch.randn(
+                        program_input["desc"]["shape"],
+                        dtype=Binary.Program.from_data_type(
+                            program_input["desc"]["layout"]["memory_desc"]["data_type"]
+                        ),
+                    )
+                    inputs_torch.append(torch_tensor)
+
+                    # Create runtime tensor for variable input
+                    storage_type = Storage.Borrowed if borrow else Storage.Owned
+                    rt_input = get_runtime_tensor_from_torch(torch_tensor, storage_type)
+                    layout = ttrt.runtime.get_layout(
+                        executable=self.binary.fbb,
+                        program_index=self.program_index,
+                        input_index=i,
+                    )
+                    rt_input_with_layout = ttrt.runtime.to_layout(
+                        rt_input, device, layout, True
+                    )
+                    inputs_runtime_with_layout.append(rt_input_with_layout)
+        else:
+            # Generate all new inputs and cache constants
+            inputs_torch = get_torch_inputs(self.program)
+
+            # Initialize caches if needed
+            if self.constant_inputs_torch_cache is None:
+                self.constant_inputs_torch_cache = {}
+                self.constant_inputs_runtime_cache = {}
+
+            storage_type = Storage.Borrowed if borrow else Storage.Owned
+            for i, torch_input in enumerate(inputs_torch):
+                rt_input = get_runtime_tensor_from_torch(torch_input, storage_type)
+                layout = ttrt.runtime.get_layout(
+                    executable=self.binary.fbb,
+                    program_index=self.program_index,
+                    input_index=i,
+                )
+                rt_input_with_layout = ttrt.runtime.to_layout(
+                    rt_input, device, layout, True
+                )
+                inputs_runtime_with_layout.append(rt_input_with_layout)
+
+                # Cache constant inputs (both torch and runtime tensors)
+                if i in self.constant_input_indices:
+                    self.constant_inputs_torch_cache[i] = torch_input
+                    self.constant_inputs_runtime_cache[i] = rt_input_with_layout
 
         golden = None
         if self.config.compute_golden:
