@@ -358,11 +358,10 @@ public:
                   ConversionPatternRewriter &rewriter) const final {
     if (auto inner =
             op.getOperand().getDefiningOp<ttir::TTNNMetalLayoutCastOp>()) {
-      // Don't collapse back-to-back casts when either carries a VGM —
-      // the round-trip represents a meaningful shard strategy change.
-      if (!inner.getVirtualGridMapping() && !op.getVirtualGridMapping()) {
-        rewriter.replaceOp(op, inner.getOperand());
-      }
+      // At this point (D2M→TTNN conversion), the D2M pipeline has already
+      // materialized all data movement for VGMs. Back-to-back casts can
+      // be safely collapsed even when they carry VGM attributes.
+      rewriter.replaceOp(op, inner.getOperand());
     } else if (auto inner =
                    op.getOperand().getDefiningOp<d2m::StreamLayoutOp>()) {
       // Match the pattern cast(stream(cast(output_tensor))) and rewrite as just

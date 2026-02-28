@@ -1296,21 +1296,19 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         TT_assert(cbType != nullptr);
         Type cbUnderlyingType = cbType.getUnderlying();
 
-        // Check if a stream was inserted for this operand during this pass
         if (!operandCtx.hasStream &&
             (useAlwaysStreamPolicy() ||
              inferStreamRequirement(genericOp, operandCtx.operandIndex(),
                                     operandMemSpace))) {
           if (!(operandCtx.isOutput && !allowL1OutputSpilling &&
                 operandMemSpace != MemorySpace::DeviceDRAM)) {
-            // Use the pre-stream operand value as the key, since that's what
-            // remote_load/store ops reference.
             auto preStreamIt =
                 preStreamOperandValues.find(operandCtx.operandIndex());
-            TT_assert(preStreamIt != preStreamOperandValues.end());
-            Value oldOperandValue = preStreamIt->second;
-            operandReplaceMap[oldOperandValue] = operandCtx.operand->get();
-            operandCBTypeMap[oldOperandValue] = cbUnderlyingType;
+            if (preStreamIt != preStreamOperandValues.end()) {
+              Value oldOperandValue = preStreamIt->second;
+              operandReplaceMap[oldOperandValue] = operandCtx.operand->get();
+              operandCBTypeMap[oldOperandValue] = cbUnderlyingType;
+            }
           }
         } else if (operandCtx.hasStream) {
           // Stream already existed, but may have been

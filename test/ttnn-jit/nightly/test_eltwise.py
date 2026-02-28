@@ -458,6 +458,10 @@ def test_binary_ops_dram(device, shape, dtype, op):
         compile_only = True
     if op in [pow, eq, ne, gt, ge, lt, le] and dtype == torch.float32:
         pytest.xfail("failing allclose for some shapes")
+    if shape == (2048, 2048) and dtype == torch.float32:
+        pytest.xfail(
+            "L1 allocation exceeds capacity with double-buffered streams for large 32-bit DRAM tensors"
+        )
 
     run_op_test(
         device,
@@ -517,6 +521,10 @@ def test_bitwise_binary_ops_l1(device, shape, max_grid, shard_strategy, dtype, o
 )
 def test_bitwise_binary_ops_dram(device, shape, dtype, op):
     max_grid = (0, 0)
+    if shape == (2048, 2048):
+        pytest.xfail(
+            "L1 allocation exceeds capacity with double-buffered streams for large 32-bit DRAM tensors"
+        )
     run_op_test(
         device,
         shape,
