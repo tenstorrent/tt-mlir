@@ -43,8 +43,8 @@ public:
                           uint64_t newL1Usage) {}
 
   /// Belady eviction: victim tensor spilled to DRAM.
-  virtual void onEviction(Operation *victim, int64_t pos,
-                          uint64_t freedBytes) {}
+  virtual void onEviction(Operation *victim, int64_t pos, uint64_t freedBytes) {
+  }
 
   /// Op exceeds budget alone -- self-spill to DRAM.
   virtual void onSelfSpill(Operation *op, int64_t pos) {}
