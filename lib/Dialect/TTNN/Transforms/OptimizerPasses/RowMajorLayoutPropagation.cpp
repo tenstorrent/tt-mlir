@@ -373,11 +373,12 @@ private:
           "Stopping RM propagation", llvm::inconvertibleErrorCode());
     }
 
-    if (result.actualOutputLayout.isTiled()) {
+    auto actualFirstOutputLayout = result.checkAndGetFirstActualOutputLayout();
+    if (actualFirstOutputLayout.isTiled()) {
       TTMLIR_DEBUG(ttmlir::LogComponent::RMPropagation,
                    "Stopping RM propagation at op {} as it returns tile "
                    "layout,\n\t output layout: {}",
-                   ttmlir::opToString(op), result.actualOutputLayout);
+                   ttmlir::opToString(op), actualFirstOutputLayout);
       return llvm::make_error<llvm::StringError>(
           "Stopping RM propagation", llvm::inconvertibleErrorCode());
     }
@@ -386,9 +387,8 @@ private:
                  "Continuing RM propagation through op {} with RM layout on "
                  "operand {},\n\t input layout: {}, \n\t output layout: {}",
                  ttmlir::opToString(op), operandIdx, layoutAttr,
-                 result.actualOutputLayout);
-
-    return result.actualOutputLayout;
+                 actualFirstOutputLayout);
+    return actualFirstOutputLayout;
   }
 
   // Handles ReturnOp during propagation. Checks if actual layout matches

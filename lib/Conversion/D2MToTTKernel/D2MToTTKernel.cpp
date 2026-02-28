@@ -510,7 +510,7 @@ using ComputeOpMap = OpMap<
   std::pair<d2m::TileGeluOp,        std::pair<ttkernel::GeluTileInitOp,            ttkernel::GeluTileOp>>,
   std::pair<d2m::TileHardsigmoidOp, std::pair<ttkernel::HardsigmoidTileInitOp,     ttkernel::HardsigmoidTileOp>>,
   std::pair<d2m::TileLogOp,         std::pair<ttkernel::LogTileInitOp,             ttkernel::LogTileOp>>,
-  std::pair<d2m::TileLogicalNotOp,  std::pair<ttkernel::LogicalNotUnaryTileInitOp, ttkernel::LogicalNotUnaryTileOp>>,
+  std::pair<d2m::TileLogicalNotOp,  std::pair<ttkernel::LogicalNotTileInitOp,      ttkernel::LogicalNotTileOp>>,
   std::pair<d2m::TileNegativeOp,    std::pair<ttkernel::NegativeTileInitOp,        ttkernel::NegativeTileOp>>,
   std::pair<d2m::TileRecipOp,       std::pair<ttkernel::RecipTileInitOp,           ttkernel::RecipTileOp>>,
   std::pair<d2m::TileReluOp,        std::pair<ttkernel::ReluTileInitOp,            ttkernel::ReluTileOp>>,
@@ -819,9 +819,13 @@ public:
       rewriter.create<InitOp>(op->getLoc());
     }
 
-    if constexpr (std::is_same_v<SFPUOp, ttkernel::AbsTileOp> ||
-                  std::is_same_v<SFPUOp, ttkernel::LogicalNotUnaryTileOp> ||
-                  std::is_same_v<SFPUOp, ttkernel::ReluTileOp>) {
+    if constexpr (std::is_same_v<SFPUOp, ttkernel::LogicalNotTileOp>) {
+      const auto dtype =
+          mlir::cast<ttcore::TileType>(op.getInput().getType()).getDataType();
+      rewriter.create<ttkernel::LogicalNotTileOp>(op->getLoc(),
+                                                  adaptor.getInput(), dtype);
+    } else if constexpr (std::is_same_v<SFPUOp, ttkernel::AbsTileOp> ||
+                         std::is_same_v<SFPUOp, ttkernel::ReluTileOp>) {
       const auto elemType =
           mlir::cast<ttcore::TileType>(op.getInput().getType())
               .getElementType();
@@ -834,9 +838,6 @@ public:
         if (std::is_same_v<SFPUOp, ttkernel::AbsTileOp>) {
           rewriter.create<ttkernel::AbsTileI32Op>(op->getLoc(),
                                                   adaptor.getInput());
-        } else if (std::is_same_v<SFPUOp, ttkernel::LogicalNotUnaryTileOp>) {
-          rewriter.create<ttkernel::LogicalNotUnaryTileI32Op>(
-              op->getLoc(), adaptor.getInput());
         } else if (std::is_same_v<SFPUOp, ttkernel::ReluTileOp>) {
           rewriter.create<ttkernel::ReluTileI32Op>(op->getLoc(),
                                                    adaptor.getInput());

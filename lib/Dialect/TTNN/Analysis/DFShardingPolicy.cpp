@@ -1053,8 +1053,8 @@ static void resolveConcatChains(
     // Complete concat chain with the validated config
     // Use the actual output layout from backend validation if available,
     // otherwise use the selected config's output layout
-    if (result.actualOutputLayout) {
-      selectedConfig.outputLayout = result.actualOutputLayout;
+    if (result.getFirstActualOutputLayout()) {
+      selectedConfig.outputLayout = result.getFirstActualOutputLayout();
     }
 
     llvm::DenseMap<Operation *, OpConfig> selectedConfigs;
@@ -1263,10 +1263,10 @@ static bool validateOpWithInputLayout(Operation *op, size_t inputOperandIndex,
 
   // Verify the actual output layout matches the expected config layout.
   // This ensures the op will produce the layout we planned for.
-  if (result.actualOutputLayout != expectedLayout) {
+  if (result.getFirstActualOutputLayout() != expectedLayout) {
     TTMLIR_TRACE(ttmlir::LogComponent::DFShardingPolicy,
                  "  Op actual output {} != expected {}",
-                 result.actualOutputLayout, expectedLayout);
+                 result.getFirstActualOutputLayout(), expectedLayout);
     return false;
   }
 
