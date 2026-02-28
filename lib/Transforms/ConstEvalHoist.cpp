@@ -171,13 +171,6 @@ private:
       return;
     }
 
-    // Skip non-identity mesh shard ops.
-    if (auto meshShardOp = mlir::dyn_cast<mlir::tt::ttnn::MeshShardOp>(op)) {
-      if (meshShardOp.getShardType() != ttcore::MeshShardType::Identity) {
-        return;
-      }
-    }
-
     // Handle shared ops separately as well.
     if (isSharedOp(op)) {
       sharedOps.push_back(op);
