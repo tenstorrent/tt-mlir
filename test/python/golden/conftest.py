@@ -153,6 +153,19 @@ def _get_device_for_target(
     return _current_device
 
 
+def clear_device_cache():
+    """Clear the cached device so the next test will open a fresh device.
+    Call this after device.close() when a test explicitly closes the device
+    so that the next test does not receive a stale (closed) handle and can
+    open a new device (e.g. after compile with mock opmodel).
+    """
+    global _current_device, _current_device_target, _current_device_mesh_shape, _current_fabric_config
+    _current_device = None
+    _current_device_target = None
+    _current_device_mesh_shape = None
+    _current_fabric_config = None
+
+
 def _get_current_environment():
     if "TT_METAL_SIMULATOR" in os.environ:
         return "sim"
