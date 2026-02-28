@@ -113,15 +113,65 @@ module attributes {} {
 
 // -----
 
-// Verify scatter/all_gather use the last divisible dimension (dim 2 here).
+// Verify tiled-shape divisibility picks the last dimension (dim 3 here).
 module attributes {} {
-  // CHECK-LABEL: all_reduce_default_dims_last_divisible_dim2
-  func.func @all_reduce_default_dims_last_divisible_dim2(%arg0: tensor<1x1x32x255xbf16>) -> tensor<1x1x32x255xbf16> {
+  // CHECK-LABEL: all_reduce_default_dims_last_divisible_tiled_dim3
+  func.func @all_reduce_default_dims_last_divisible_tiled_dim3(%arg0: tensor<1x1x32x255xbf16>) -> tensor<1x1x32x255xbf16> {
     %1 = "ttir.all_reduce"(%arg0) <{cluster_axis = 1 : ui32, reduce_type = #ttcore.reduce_type<sum>}> : (tensor<1x1x32x255xbf16>) -> tensor<1x1x32x255xbf16>
+    // CHECK: "ttnn.reduce_scatter"
+    // CHECK-SAME: scatter_dim = 3 : si32
+    // CHECK: "ttnn.all_gather"
+    // CHECK-SAME: all_gather_dim = 3 : si32
+    return %1 : tensor<1x1x32x255xbf16>
+  }
+}
+
+// -----
+
+// Verify tiled-shape divisibility falls back to dim 2 when dim 3 is not
+// divisible by cluster device count.
+module attributes {} {
+  // CHECK-LABEL: all_reduce_default_dims_last_divisible_tiled_dim2
+  func.func @all_reduce_default_dims_last_divisible_tiled_dim2(%arg0: tensor<1x1x8192x784xbf16>) -> tensor<1x1x8192x784xbf16> {
+    %1 = "ttir.all_reduce"(%arg0) <{cluster_axis = 1 : ui32, reduce_type = #ttcore.reduce_type<sum>}> : (tensor<1x1x8192x784xbf16>) -> tensor<1x1x8192x784xbf16>
     // CHECK: "ttnn.reduce_scatter"
     // CHECK-SAME: scatter_dim = 2 : si32
     // CHECK: "ttnn.all_gather"
     // CHECK-SAME: all_gather_dim = 2 : si32
-    return %1 : tensor<1x1x32x255xbf16>
+    return %1 : tensor<1x1x8192x784xbf16>
+  }
+}
+
+// -----
+
+// Verify tiled-shape divisibility selected on dim 2 inserts pad/slice for
+// non-tile-multiple shape before/after reduce_scatter/all_gather.
+module attributes {} {
+  // CHECK-LABEL: all_reduce_default_dims_last_divisible_tiled_dim2_with_pad_slice
+  func.func @all_reduce_default_dims_last_divisible_tiled_dim2_with_pad_slice(%arg0: tensor<1x1x33x65xf32>) -> tensor<1x1x33x65xf32> {
+    %1 = "ttir.all_reduce"(%arg0) <{cluster_axis = 1 : ui32, reduce_type = #ttcore.reduce_type<sum>}> : (tensor<1x1x33x65xf32>) -> tensor<1x1x33x65xf32>
+    // CHECK: "ttnn.pad"
+    // CHECK-SAME: padding = array<i32: 0, 0, 0, 0, 0, 31, 0, 0>
+    // CHECK: "ttnn.reduce_scatter"
+    // CHECK-SAME: scatter_dim = 2 : si32
+    // CHECK: "ttnn.all_gather"
+    // CHECK-SAME: all_gather_dim = 2 : si32
+    // CHECK: "ttnn.slice_static"
+    return %1 : tensor<1x1x33x65xf32>
+  }
+}
+
+// -----
+
+// Verify selectedDim < 0 path: no tiled-count dimension is divisible by
+// cluster device count, so fallback uses all_gather + local sum.
+module attributes {} {
+  // CHECK-LABEL: all_reduce_default_dims_no_divisible_tiled_dim
+  func.func @all_reduce_default_dims_no_divisible_tiled_dim(%arg0: tensor<1x1x31x31xbf16>) -> tensor<1x1x31x31xbf16> {
+    %1 = "ttir.all_reduce"(%arg0) <{cluster_axis = 1 : ui32, reduce_type = #ttcore.reduce_type<sum>}> : (tensor<1x1x31x31xbf16>) -> tensor<1x1x31x31xbf16>
+    // CHECK-NOT: "ttnn.reduce_scatter"
+    // CHECK: "ttnn.all_gather"
+    // CHECK: "ttnn.sum"
+    return %1 : tensor<1x1x31x31xbf16>
   }
 }

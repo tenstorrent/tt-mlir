@@ -2062,7 +2062,7 @@ def test_all_gather(
         (64, 65),
         (65, 64),
         (32, 64),
-        (33, 65),  # This is a case where reduce_scatter + all_gather is not supported.
+        (33, 65),
         (1, 1, 1, 1, 1, 1, 32, 256, 256),
         (1, 1, 32, 256, 256),
     ],
