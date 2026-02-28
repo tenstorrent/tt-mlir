@@ -6,6 +6,7 @@
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
+#include "ttmlir/Dialect/TTNN/Analysis/CompileTimeStatsObserver.h"
 #include "ttmlir/Dialect/TTNN/Analysis/DecisionTrace.h"
 #include "ttmlir/Dialect/TTNN/Analysis/LayoutPropagation.h"
 #include "ttmlir/Dialect/TTNN/Analysis/LegalOpConfigAnalysis.h"
@@ -100,6 +101,7 @@ public:
     overrideConv2dConfig = std::move(options.overrideConv2dConfig);
     enableDecisionTrace = std::move(options.enableDecisionTrace);
     decisionTraceDir = std::move(options.decisionTraceDir);
+    enableCompileTimeStats = std::move(options.enableCompileTimeStats);
   }
 
 protected:
@@ -145,6 +147,10 @@ protected:
       *this, "decision-trace-dir",
       ::llvm::cl::desc("Directory for decision trace JSON output."),
       ::llvm::cl::init("ttrt-artifacts/decision_trace")};
+  ::mlir::Pass::Option<bool> enableCompileTimeStats{
+      *this, "enable-compile-time-stats",
+      ::llvm::cl::desc("Print per-op compile-time statistics at DEBUG level."),
+      ::llvm::cl::init(false)};
 
 private:
   friend std::unique_ptr<::mlir::Pass> createTTNNGreedyLayoutPropagation() {
@@ -263,22 +269,23 @@ public:
                    func.getName(), legalConfigs.size());
 
       std::unique_ptr<LayoutPropagationObserver> observer;
-      if (enableDecisionTrace) {
+      if (enableCompileTimeStats) {
+        observer = std::make_unique<CompileTimeStatsObserver>();
+      } else if (enableDecisionTrace) {
         observer = std::make_unique<DecisionTraceObserver>();
       }
 
-      LayoutPropagation propagation(func, deviceGrid, legalConfigs,
-                                    &tensorTypePossibleLayouts,
-                                    static_cast<size_t>(beamWidth),
-                                    std::move(observer));
+      LayoutPropagation propagation(
+          func, deviceGrid, legalConfigs, &tensorTypePossibleLayouts,
+          static_cast<size_t>(beamWidth), std::move(observer));
       propagation.run();
 
       // Write decision trace JSON if enabled.
       if (enableDecisionTrace) {
         if (const DecisionTrace *dt =
                 propagation.getObserver()->getDecisionTrace()) {
-          if (DecisionTrace::writeTraceForFunc(decisionTraceDir,
-                                               func.getName(), *dt)) {
+          if (DecisionTrace::writeTraceForFunc(decisionTraceDir, func.getName(),
+                                               *dt)) {
             TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
                          "Decision trace written to {0}/{1}", decisionTraceDir,
                          func.getName());

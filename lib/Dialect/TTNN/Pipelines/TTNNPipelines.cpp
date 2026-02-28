@@ -117,6 +117,8 @@ void createTTNNPipelineAnalysisPasses(
       propagationOptions.overrideConv2dConfig = options.overrideConv2dConfig;
       propagationOptions.enableDecisionTrace = options.enableDecisionTrace;
       propagationOptions.decisionTraceDir = options.decisionTraceDir;
+      propagationOptions.enableCompileTimeStats =
+          options.enableCompileTimeStats;
 
       TTNNGreedyL1SpillManagementOptions spillOptions;
       spillOptions.enableDecisionTrace = options.enableDecisionTrace;

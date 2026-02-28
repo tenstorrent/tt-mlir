@@ -440,6 +440,12 @@ struct TTIRToTTNNDevicePipelineOptions
       llvm::cl::desc("Output directory for decision trace JSON files."),
       llvm::cl::init("ttrt-artifacts/decision_trace")};
 
+  // Enable per-op compile-time statistics from the greedy optimizer.
+  Option<bool> enableCompileTimeStats{
+      *this, "enable-compile-time-stats",
+      llvm::cl::desc("Print per-op compile-time statistics at DEBUG level."),
+      llvm::cl::init(false)};
+
   // Resolve options controlled by optimization_level.
   void resolveOptimizationLevelOptions() const {
     // Validate optimization_level is in valid range.
