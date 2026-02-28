@@ -6709,7 +6709,7 @@ class StableHLOBuilder(Builder):
             if rank == 2:
                 output_golden = output_golden.squeeze(0).squeeze(0)
 
-                self._set_golden_tensor(result, output_golden)
+            self._set_golden_tensor(result, output_golden)
 
             return result
 
