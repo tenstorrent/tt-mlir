@@ -25,7 +25,7 @@ module attributes {ttcore.system_desc = #system_desc} {
     // Allocations for LHS (A matrix) and RHS (B matrix) for matmul
     %alloc = memref.alloc() : memref<1x64x1x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1>
     %alloc_2 = memref.alloc() : memref<8x8x16x8x!ttcore.tile<32x32, f32>, #ttcore.shard<32768x4096, 1>, #l1>
-    %alloc_4 = memref.alloc() : memref<1x64x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>
+    %alloc_4 = memref.alloc() {"d2m.virtualGridInverseMapping" = affine_map<(d0, d1) -> (0, 0, d0 * 8 + d1)>, "d2m.virtualGridForwardMapping" = affine_map<(d0, d1, d2, d3) -> (d1 floordiv 8, d1 mod 8, d2, d3)>} : memref<1x64x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>
 
     // Create views of the allocations - these will be replaced with streams
     %view_5 = d2m.view_layout %alloc remapping = #remap4 : memref<1x64x1x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1> -> memref<1x64x1x2x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1>

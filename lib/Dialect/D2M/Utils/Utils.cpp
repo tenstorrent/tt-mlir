@@ -191,27 +191,18 @@ SmallVector<int64_t> getPhysicalGridShape(Value tensorOrMemref) {
     return SmallVector<int64_t>(outputGridShape);
   }
 
-  // After the virtual-grid refactor, virtualization maps live on EmptyOp
-  // (virtualGridMapping attr) rather than on views or the layout attribute.
-  // Check for an explicit virtualGridMapping first.
-  if (auto vgm = utils::getVirtualGridMapping(tensorOrMemref)) {
-    ttcore::DeviceLayoutInterface layout =
-        ttcore::getDeviceLayout(tensorOrMemref);
-    TT_assert(layout);
-    SmallVector<int64_t> gridShape = to_vector(
-        layout.getGridShape(dyn_cast<ShapedType>(tensorOrMemref.getType())));
-    if (auto *definingOp = tensorOrMemref.getDefiningOp()) {
-      ttcore::DeviceAttr device = ttcore::lookupDevice(definingOp);
-      auto workerGridShape = device.getWorkerGrid().getShape();
-      // If the grid fits directly on the device, the physical grid shape
-      // equals the virtual grid shape — no volume factorization needed.
-      if (!ttmlir::d2m::utils::grids::requiresVirtualGrid(gridShape,
-                                                          workerGridShape)) {
-        return SmallVector<int64_t>(gridShape.begin(), gridShape.end());
-      }
-      return ttmlir::d2m::utils::grids::getPhysicalGridExtent(gridShape,
-                                                              workerGridShape);
-    }
+  // After the virtual-grid refactor, virtualization maps live on EmptyOp /
+  // TTNNMetalLayoutCastOp attrs rather than on the layout.  When a forward
+  // map is present, derive the physical grid from it directly (evalShape at
+  // the full shape gives physical grid + shard; take the grid prefix).
+  if (auto fwdMap = utils::getVirtualGridForwardMapping(tensorOrMemref)) {
+    auto shapedType = dyn_cast<ShapedType>(tensorOrMemref.getType());
+    TT_assert(shapedType);
+    auto fullShape = shapedType.getShape();
+    auto physShape = ttmlir::utils::evalShape(*fwdMap, fullShape);
+    unsigned gridRank = fullShape.size() / 2;
+    return SmallVector<int64_t>(physShape.begin(),
+                                physShape.begin() + gridRank);
   }
 
   // Check for a reblocking remapping on a view/stream op.
@@ -225,9 +216,9 @@ SmallVector<int64_t> getPhysicalGridShape(Value tensorOrMemref) {
     }
   }
 
-  // No virtualGridMapping and no reblocking remapping.  Derive the grid shape
-  // from the layout and, for grids that exceed the physical device bounds or
-  // are ND (> 2D), collapse to a valid 2D physical grid.
+  // No virtualGridInverseMapping and no reblocking remapping.  Derive the grid
+  // shape from the layout and, for grids that exceed the physical device bounds
+  // or are ND (> 2D), collapse to a valid 2D physical grid.
   ttcore::DeviceLayoutInterface layout =
       ttcore::getDeviceLayout(tensorOrMemref);
   TT_assert(layout);
@@ -249,12 +240,12 @@ SmallVector<int64_t> getPhysicalGridShape(Value tensorOrMemref) {
   return gridShape;
 }
 
-std::optional<AffineMap> getVirtualGridMapping(Value val) {
+std::optional<AffineMap> getVirtualGridInverseMapping(Value val) {
   // Direct check on the defining op.
   if (auto *defOp = val.getDefiningOp()) {
     // d2m.empty has a declared optional attribute.
     if (auto emptyOp = mlir::dyn_cast<EmptyOp>(defOp)) {
-      if (auto vgm = emptyOp.getVirtualGridMappingAttr()) {
+      if (auto vgm = emptyOp.getVirtualGridInverseMappingAttr()) {
         return vgm.getValue();
       }
       return std::nullopt;
@@ -262,7 +253,7 @@ std::optional<AffineMap> getVirtualGridMapping(Value val) {
 
     // Trace through d2m.to_layout to its output EmptyOp.
     if (auto toLayoutOp = mlir::dyn_cast<ToLayoutOp>(defOp)) {
-      return getVirtualGridMapping(toLayoutOp.getOutput());
+      return getVirtualGridInverseMapping(toLayoutOp.getOutput());
     }
 
     // Trace through d2m.generic results to the corresponding output operand.
@@ -273,25 +264,20 @@ std::optional<AffineMap> getVirtualGridMapping(Value val) {
       for (auto [idx, result] : llvm::enumerate(genericOp.getResults())) {
         if (result == val) {
           Value outputOperand = genericOp.getOutputs()[idx];
-          return getVirtualGridMapping(outputOperand);
+          return getVirtualGridInverseMapping(outputOperand);
         }
       }
       return std::nullopt;
     }
 
-    // Trace through d2m.view_layout to its input.
-    if (auto viewOp = mlir::dyn_cast<ViewLayoutOp>(defOp)) {
-      return getVirtualGridMapping(viewOp.getInput());
-    }
-
-    // Trace through d2m.stream_layout to its storage EmptyOp.
-    if (auto streamOp = mlir::dyn_cast<StreamLayoutOp>(defOp)) {
-      return getVirtualGridMapping(streamOp.getStorage());
+    // Trace through view/stream ops via ViewOpInterface.
+    if (auto viewOp = mlir::dyn_cast<ViewOpInterface>(defOp)) {
+      return getVirtualGridInverseMapping(viewOp.getInput());
     }
 
     // Trace through ttir.ttnn_metal_layout_cast to its declared VGM attr.
     if (auto castOp = mlir::dyn_cast<ttir::TTNNMetalLayoutCastOp>(defOp)) {
-      if (auto vgm = castOp.getVirtualGridMappingAttr()) {
+      if (auto vgm = castOp.getVirtualGridInverseMappingAttr()) {
         return vgm.getValue();
       }
       return std::nullopt;
@@ -299,9 +285,54 @@ std::optional<AffineMap> getVirtualGridMapping(Value val) {
 
     // For ops from other dialects (memref::AllocOp, ttmetal::CreateBufferOp),
     // check for a discardable attribute.
-    if (auto vgm =
-            defOp->getAttrOfType<AffineMapAttr>(kVirtualGridMappingAttr)) {
+    if (auto vgm = defOp->getAttrOfType<AffineMapAttr>(
+            kVirtualGridInverseMappingAttr)) {
       return vgm.getValue();
+    }
+  }
+  return std::nullopt;
+}
+
+std::optional<AffineMap> getVirtualGridForwardMapping(Value val) {
+  // Mirror of getVirtualGridInverseMapping but returns the forward map
+  // attribute.
+  if (auto *defOp = val.getDefiningOp()) {
+    if (auto emptyOp = mlir::dyn_cast<EmptyOp>(defOp)) {
+      if (auto fwd = emptyOp.getVirtualGridForwardMappingAttr()) {
+        return fwd.getValue();
+      }
+      return std::nullopt;
+    }
+
+    if (auto toLayoutOp = mlir::dyn_cast<ToLayoutOp>(defOp)) {
+      return getVirtualGridForwardMapping(toLayoutOp.getOutput());
+    }
+
+    if (auto genericOp = mlir::dyn_cast<GenericOp>(defOp)) {
+      for (auto [idx, result] : llvm::enumerate(genericOp.getResults())) {
+        if (result == val) {
+          Value outputOperand = genericOp.getOutputs()[idx];
+          return getVirtualGridForwardMapping(outputOperand);
+        }
+      }
+      return std::nullopt;
+    }
+
+    // Trace through view/stream ops via ViewOpInterface.
+    if (auto viewOp = mlir::dyn_cast<ViewOpInterface>(defOp)) {
+      return getVirtualGridForwardMapping(viewOp.getInput());
+    }
+
+    if (auto castOp = mlir::dyn_cast<ttir::TTNNMetalLayoutCastOp>(defOp)) {
+      if (auto fwd = castOp.getVirtualGridForwardMappingAttr()) {
+        return fwd.getValue();
+      }
+      return std::nullopt;
+    }
+
+    if (auto fwd = defOp->getAttrOfType<AffineMapAttr>(
+            kVirtualGridForwardMappingAttr)) {
+      return fwd.getValue();
     }
   }
   return std::nullopt;
@@ -335,9 +366,14 @@ AffineMap resolveEffectiveAffineMap(Value val, MemRefType memrefType) {
                                            memrefType.getContext());
 }
 
-AffineMap getMemoryMap(ttcore::DeviceAttr device, MemRefType memrefType,
-                       size_t pageSize, std::optional<AffineMap> view,
-                       size_t baseOffset) {
+// Core implementation of getMemoryMap. When storedForwardMap is provided, it
+// is used directly for core virtualization instead of re-deriving via
+// requiresVirtualGrid + createCoreVirtMaps.
+static AffineMap
+getMemoryMapImpl(ttcore::DeviceAttr device, MemRefType memrefType,
+                 size_t pageSize, std::optional<AffineMap> view,
+                 size_t baseOffset,
+                 std::optional<AffineMap> storedForwardMap = std::nullopt) {
   ttcore::MemorySpace memorySpace =
       mlir::cast<ttcore::MemorySpaceAttr>(memrefType.getMemorySpace())
           .getValue();
@@ -359,11 +395,13 @@ AffineMap getMemoryMap(ttcore::DeviceAttr device, MemRefType memrefType,
     auto gridShape = memrefType.getShape().take_front(gridRank);
     auto deviceGridShape = device.getWorkerGrid().getShape();
 
-    bool needsCoreVirtualization =
-        ttmlir::d2m::utils::grids::requiresVirtualGrid(gridShape,
-                                                       deviceGridShape);
-
-    if (needsCoreVirtualization) {
+    // Use stored forward map if available; otherwise fall back to
+    // requiresVirtualGrid for ND / oversized grids.
+    AffineMap coreVirtMap;
+    if (storedForwardMap) {
+      coreVirtMap = *storedForwardMap;
+    } else if (ttmlir::d2m::utils::grids::requiresVirtualGrid(
+                   gridShape, deviceGridShape)) {
       auto physicalGrid = ttmlir::d2m::utils::grids::getPhysicalGridExtent(
           llvm::SmallVector<int64_t>(gridShape.begin(), gridShape.end()),
           llvm::SmallVector<int64_t>(deviceGridShape.begin(),
@@ -374,9 +412,10 @@ AffineMap getMemoryMap(ttcore::DeviceAttr device, MemRefType memrefType,
               memrefType.getContext(),
               llvm::SmallVector<int64_t>(gridShape.begin(), gridShape.end()),
               physicalGrid);
+      coreVirtMap = forwardMap;
+    }
 
-      AffineMap coreVirtMap = forwardMap;
-
+    if (coreVirtMap) {
       if (affineMap.getNumDims() > coreVirtMap.getNumResults()) {
         auto dimsToRemove =
             affineMap.getNumDims() - coreVirtMap.getNumResults();
@@ -452,11 +491,41 @@ AffineMap getMemoryMap(ttcore::DeviceAttr device, MemRefType memrefType,
   }
 }
 
+AffineMap getMemoryMap(ttcore::DeviceAttr device, MemRefType memrefType,
+                       size_t pageSize, std::optional<AffineMap> view,
+                       size_t baseOffset) {
+  return getMemoryMapImpl(device, memrefType, pageSize, view, baseOffset);
+}
+
+AffineMap getMemoryMap(ttcore::DeviceAttr device, Value memrefValue,
+                       size_t pageSize, std::optional<AffineMap> view,
+                       size_t baseOffset) {
+  // Trace the stored forward map from the value's def-use chain.
+  auto storedForwardMap = getVirtualGridForwardMapping(memrefValue);
+
+  // Trace through views to get base memref type and composed view map.
+  MemRefType memrefType;
+  if (auto *defOp = memrefValue.getDefiningOp()) {
+    if (mlir::isa<d2m::ViewOpInterface>(defOp)) {
+      auto [baseMR, viewMap] = mlir::tt::d2m::applyViews(defOp);
+      memrefType = baseMR;
+      view = viewMap;
+    } else {
+      memrefType = mlir::cast<MemRefType>(memrefValue.getType());
+    }
+  } else {
+    memrefType = mlir::cast<MemRefType>(memrefValue.getType());
+  }
+
+  return getMemoryMapImpl(device, memrefType, pageSize, view, baseOffset,
+                          storedForwardMap);
+}
+
 AffineMap getMemoryMap(ttcore::DeviceAttr device,
                        std::pair<MemRefType, AffineMap> memrefAndView,
                        size_t pageSize, size_t baseOffset) {
-  return getMemoryMap(device, memrefAndView.first, pageSize,
-                      memrefAndView.second, baseOffset);
+  return getMemoryMapImpl(device, memrefAndView.first, pageSize,
+                          memrefAndView.second, baseOffset);
 }
 
 llvm::SmallVector<int64_t>
