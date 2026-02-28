@@ -5364,6 +5364,69 @@ def stablehlo_convolution_golden(
     return result.to(output_dtype)
 
 
+def stablehlo_uniform_dequantize_golden(
+    input_tensor: GoldenMapTensor,
+) -> GoldenMapTensor:
+    """
+    Golden function for stablehlo.uniform_dequantize operation.
+
+    Performs element-wise conversion of quantized tensor to a floating-point tensor
+    according to the quantization parameters defined by the input type.
+
+    Parameters
+    ----------
+    input_tensor : GoldenMapTensor
+        Input quantized tensor
+
+    Returns
+    -------
+    GoldenMapTensor
+        Dequantized floating-point tensor
+    """
+    return torch.dequantize(input_tensor)
+
+
+def stablehlo_uniform_quantize_golden(
+    input_tensor: GoldenMapTensor,
+    scale: float,
+    zero_point: int,
+    dtype: torch.dtype,
+) -> GoldenMapTensor:
+    """
+    Golden function for stablehlo.uniform_quantize operation.
+
+    Performs element-wise conversion of floating-point tensor or quantized tensor
+    to a quantized tensor according to the specified quantization parameters.
+
+    If input is float: result = quantize(operand, type(result))
+    If input is quantized: result = requantize(operand, type(result))
+
+    Parameters
+    ----------
+    input_tensor : GoldenMapTensor
+        Input floating-point or quantized tensor
+    scale : float
+        Scale factor for quantization
+    zero_point : int
+        Zero point for quantization
+    dtype : torch.dtype
+        Target quantized data type
+
+    Returns
+    -------
+    GoldenMapTensor
+        Quantized tensor as integer representation
+    """
+    # Check if input is already quantized (requantize case)
+    if hasattr(input_tensor, 'is_quantized') and input_tensor.is_quantized:
+        # Requantize: dequantize first, then quantize to new params
+        dequantized = torch.dequantize(input_tensor)
+        return torch.quantize_per_tensor(dequantized, scale, zero_point, dtype).int_repr()
+    else:
+        # Quantize from float
+        return torch.quantize_per_tensor(input_tensor, scale, zero_point, dtype).int_repr()
+
+
 ################ SDY Op Golden Functions ###############
 
 
@@ -6132,6 +6195,8 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     stablehlo.DynamicSliceOp: dynamic_slice_golden,
     stablehlo.DynamicUpdateSliceOp: stablehlo_dynamic_update_slice_golden,
     stablehlo.ConvolutionOp: stablehlo_convolution_golden,
+    stablehlo.UniformQuantizeOp: stablehlo_uniform_quantize_golden,
+    stablehlo.UniformDequantizeOp: stablehlo_uniform_dequantize_golden,
     stablehlo.SortOp: stablehlo_sort_golden,
     # StableHLO tensor manipulation operations
     stablehlo.TransposeOp: stablehlo_transpose_golden,
