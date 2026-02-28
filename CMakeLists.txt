@@ -36,6 +36,7 @@ option(TTMLIR_ENABLE_TTNN_JIT "Enable ttnn-jit" OFF)
 option(TTMLIR_ENABLE_TTRT "Enable ttrt" ON)
 option(TTMLIR_ENABLE_STABLEHLO "Enable StableHLO support" OFF)
 option(TTMLIR_ENABLE_TTIRTONVVM "Enable lowering TTIR to NVVM" OFF)
+option(TTMLIR_ENABLE_CUDA "Enable CUDA support" OFF)
 option(TTMLIR_ENABLE_OPMODEL "Enable OpModel support" OFF)
 option(TTMLIR_ENABLE_OPMODEL_TESTS "Enable OpModel tests" ON)
 option(TTMLIR_ENABLE_SHARED_LIB "Enable Shared lib building" ON)
@@ -74,6 +75,10 @@ endif()
 
 if (TTMLIR_ENABLE_TTIRTONVVM)
   add_compile_definitions(TTMLIR_ENABLE_TTIRTONVVM)
+endif()
+
+if (TTMLIR_ENABLE_CUDA)
+  add_compile_definitions(TTMLIR_ENABLE_CUDA)
 endif()
 
 set(CMAKE_BUILD_WITH_INSTALL_NAME_DIR ON)
