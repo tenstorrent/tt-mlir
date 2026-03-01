@@ -4788,6 +4788,103 @@ class TTNNBuilder(Builder):
                 golden_kwargs=golden_kwargs,
             )
 
+    ############### ttnn.AllGatherOp ###############
+
+    @tag(ttnn.AllGatherOp)
+    def all_gather(
+        self,
+        input: Operand,
+        all_gather_dim: int,
+        cluster_axis: int,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttnn_op = self.get_opview_from_method(TTNNBuilder.all_gather)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(input)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        all_gather_dim_attr = IntegerAttr.get(
+            IntegerType.get_signed(32), all_gather_dim
+        )
+        cluster_axis_attr = IntegerAttr.get(
+            IntegerType.get_unsigned(32), cluster_axis
+        )
+
+        input_shape = list(self.get_shape(input))
+        output_shape = list(input_shape)
+        output_shape[all_gather_dim] *= self._mesh_shape[cluster_axis]
+        result = self.create_ttnn_tensor(output_shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttnn_op(
+            result,
+            input,
+            all_gather_dim_attr,
+            cluster_axis_attr,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        input0 = self._get_golden_tensor(input)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(
+            input0, all_gather_dim_attr, cluster_axis_attr, mlir_output_type
+        )
+        self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(ttnn.AllGatherOp)
+    def all_gather_parser(
+        self,
+        old_op: ttnn.AllGatherOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttnn_op = self.get_opview_from_parser(TTNNBuilder.all_gather_parser)
+
+        in0 = global_dict[old_op.input]
+        result = old_op.result.type
+        all_gather_dim_attr = old_op.all_gather_dim
+        cluster_axis_attr = old_op.cluster_axis
+
+        new_op = ttnn_op(
+            result,
+            in0,
+            all_gather_dim_attr,
+            cluster_axis_attr,
+            sub_device_id=old_op.sub_device_id,
+            memory_config=old_op.memory_config,
+            num_links=old_op.num_links,
+            topology=old_op.topology,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            op_golden_function = get_golden_function(ttnn_op)
+            golden_output = op_golden_function(
+                input0,
+                all_gather_dim_attr,
+                cluster_axis_attr,
+                result.element_type,
+            )
+            self._set_golden_tensor(new_op_result, golden_output)
+
+        return new_op, {old_op.result: new_op_result}
+
     # ----- Parse ttnn module ----
 
     @staticmethod
