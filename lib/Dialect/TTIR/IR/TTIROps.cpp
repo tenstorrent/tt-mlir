@@ -159,6 +159,156 @@ void mlir::tt::ttir::BitwiseXorOp::getCanonicalizationPatterns(
 }
 
 //===----------------------------------------------------------------------===//
+// LessEqualOp
+//===----------------------------------------------------------------------===//
+
+// LessEqualOp canonicalization: le(a, b) -> ge(b, a)
+void mlir::tt::ttir::LessEqualOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
+  // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
+  patterns.add(
+      +[](mlir::tt::ttir::LessEqualOp op, mlir::PatternRewriter &rewriter) {
+        rewriter.replaceOpWithNewOp<mlir::tt::ttir::GreaterEqualOp>(
+            op, op.getResult().getType(), op.getRhs(), op.getLhs());
+        return mlir::success();
+      });
+  // NOLINTEND(clang-analyzer-core.StackAddressEscape)
+}
+
+//===----------------------------------------------------------------------===//
+// LessThanOp
+//===----------------------------------------------------------------------===//
+
+// LessThanOp canonicalization: lt(a, b) -> gt(b, a)
+void mlir::tt::ttir::LessThanOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
+  // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
+  patterns.add(
+      +[](mlir::tt::ttir::LessThanOp op, mlir::PatternRewriter &rewriter) {
+        rewriter.replaceOpWithNewOp<mlir::tt::ttir::GreaterThanOp>(
+            op, op.getResult().getType(), op.getRhs(), op.getLhs());
+        return mlir::success();
+      });
+  // NOLINTEND(clang-analyzer-core.StackAddressEscape)
+}
+
+//===----------------------------------------------------------------------===//
+// Constant value helpers
+//===----------------------------------------------------------------------===//
+
+// Helper to create a scalar attribute from an element type and a double value.
+static mlir::Attribute makeScalarAttr(mlir::Type elemType, double val) {
+  if (auto floatType = mlir::dyn_cast<mlir::FloatType>(elemType)) {
+    return mlir::FloatAttr::get(floatType, val);
+  }
+  if (auto intType = mlir::dyn_cast<mlir::IntegerType>(elemType)) {
+    return mlir::IntegerAttr::get(intType, static_cast<int64_t>(val));
+  }
+  return {};
+}
+
+// Extract constant fill value by looking through layout ops (broadcast,
+// reshape, typecast, repeat_interleave) to find a FullOp, ZerosOp, or OnesOp.
+static mlir::Attribute getConstantValue(mlir::Value value) {
+  mlir::Operation *op =
+      mlir::tt::ttir::utils::lookThroughLayoutOps(value).getDefiningOp();
+
+  if (auto fullOp = mlir::dyn_cast_if_present<mlir::tt::ttir::FullOp>(op)) {
+    return fullOp.getFillValueAttr();
+  }
+
+  if (mlir::isa_and_present<mlir::tt::ttir::ZerosOp>(op)) {
+    return makeScalarAttr(
+        mlir::cast<mlir::RankedTensorType>(op->getResult(0).getType())
+            .getElementType(),
+        0.0);
+  }
+  if (mlir::isa_and_present<mlir::tt::ttir::OnesOp>(op)) {
+    return makeScalarAttr(
+        mlir::cast<mlir::RankedTensorType>(op->getResult(0).getType())
+            .getElementType(),
+        1.0);
+  }
+
+  return {};
+}
+
+// Check if the attribute represents zero.
+static bool isZeroAttr(mlir::Attribute attr) {
+  if (auto floatAttr = mlir::dyn_cast<mlir::FloatAttr>(attr)) {
+    return floatAttr.getValue().isZero();
+  }
+  if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(attr)) {
+    return intAttr.getValue().isZero();
+  }
+  return false;
+}
+
+static bool isConstantZero(mlir::Value value) {
+  mlir::Attribute attr = getConstantValue(value);
+  return attr && isZeroAttr(attr);
+}
+
+static bool isConstantNonZero(mlir::Value value) {
+  mlir::Attribute attr = getConstantValue(value);
+  return attr && !isZeroAttr(attr);
+}
+
+//===----------------------------------------------------------------------===//
+// LogicalAndOp
+//===----------------------------------------------------------------------===//
+
+// LogicalAndOp fold:
+//   and(nonzero_const, x) -> x  (identity)
+//   and(zero_const, x)    -> 0  (absorbing)
+::mlir::OpFoldResult mlir::tt::ttir::LogicalAndOp::fold(FoldAdaptor adaptor) {
+  mlir::Type resultType = getResult().getType();
+  bool lhsTypeMatch = getLhs().getType() == resultType;
+  bool rhsTypeMatch = getRhs().getType() == resultType;
+
+  if (isConstantNonZero(getLhs()) && rhsTypeMatch) {
+    return getRhs();
+  }
+  if (isConstantNonZero(getRhs()) && lhsTypeMatch) {
+    return getLhs();
+  }
+  if (isConstantZero(getLhs()) && lhsTypeMatch) {
+    return getLhs();
+  }
+  if (isConstantZero(getRhs()) && rhsTypeMatch) {
+    return getRhs();
+  }
+  return {};
+}
+
+//===----------------------------------------------------------------------===//
+// LogicalOrOp
+//===----------------------------------------------------------------------===//
+
+// LogicalOrOp fold:
+//   or(zero_const, x)    -> x        (identity)
+//   or(nonzero_const, x) -> nonzero  (absorbing)
+::mlir::OpFoldResult mlir::tt::ttir::LogicalOrOp::fold(FoldAdaptor adaptor) {
+  mlir::Type resultType = getResult().getType();
+  bool lhsTypeMatch = getLhs().getType() == resultType;
+  bool rhsTypeMatch = getRhs().getType() == resultType;
+
+  if (isConstantZero(getLhs()) && rhsTypeMatch) {
+    return getRhs();
+  }
+  if (isConstantZero(getRhs()) && lhsTypeMatch) {
+    return getLhs();
+  }
+  if (isConstantNonZero(getLhs()) && lhsTypeMatch) {
+    return getLhs();
+  }
+  if (isConstantNonZero(getRhs()) && rhsTypeMatch) {
+    return getRhs();
+  }
+  return {};
+}
+
+//===----------------------------------------------------------------------===//
 // BroadcastOp
 //===----------------------------------------------------------------------===//
 
@@ -346,31 +496,6 @@ void mlir::tt::ttir::ClampScalarOp::getCanonicalizationPatterns(
   }
 
   return success();
-}
-
-// Helper function to extract constant value.
-static mlir::Attribute getConstantValue(mlir::Value value) {
-  mlir::Operation *op = value.getDefiningOp();
-  while (mlir::isa_and_present<mlir::tt::ttir::BroadcastOp,
-                               mlir::tt::ttir::ReshapeOp,
-                               mlir::tt::ttir::TypecastOp>(op)) {
-    op = op->getOperand(0).getDefiningOp();
-  }
-
-  auto fullOp = mlir::dyn_cast_if_present<mlir::tt::ttir::FullOp>(op);
-  if (!fullOp) {
-    return {};
-  }
-
-  mlir::Attribute fillValueAttr = fullOp.getFillValueAttr();
-
-  if (auto floatAttr = mlir::dyn_cast<mlir::FloatAttr>(fillValueAttr)) {
-    return floatAttr;
-  }
-  if (auto integerAttr = mlir::dyn_cast<mlir::IntegerAttr>(fillValueAttr)) {
-    return integerAttr;
-  }
-  return {};
 }
 
 // ClampTensorOp canonicalization

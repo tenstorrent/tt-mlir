@@ -49,7 +49,8 @@ module attributes {} {
 
   func.func @less_equal(%arg0: tensor<13x31xf32>, %arg1: tensor<13x31xf32>) -> tensor<13x31xf32> {
     %1 = "ttir.le"(%arg0, %arg1) : (tensor<13x31xf32>, tensor<13x31xf32>) -> tensor<13x31xf32>
-    // CHECK: "ttnn.le"
+    // Canonicalization of less_equal to greater_equal with swapped operands.
+    // CHECK: "ttnn.ge"
     // CHECK-SAME: tensor<13x31xf32
     // CHECK-SAME: tensor<13x31xf32
     // CHECK-SAME: -> tensor<13x31xf32
@@ -58,6 +59,7 @@ module attributes {} {
 
   func.func @less_than(%arg0: tensor<13x31xf32>, %arg1: tensor<13x31xf32>) -> tensor<13x31xf32> {
     %1 = "ttir.lt"(%arg0, %arg1) : (tensor<13x31xf32>, tensor<13x31xf32>) -> tensor<13x31xf32>
+    // Canonicalization of less_than to greater_than with swapped operands.
     // CHECK: "ttnn.lt"
     // CHECK-SAME: tensor<13x31xf32
     // CHECK-SAME: tensor<13x31xf32
