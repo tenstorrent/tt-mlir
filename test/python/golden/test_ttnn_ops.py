@@ -5,11 +5,12 @@
 import pytest
 import torch
 from conftest import get_request_kwargs
-from typing import Callable, List, Optional
+from typing import Callable, List, Optional, Tuple
+from collections import OrderedDict
 
 from builder.base.builder_utils import Operand, Shape
 from builder.ttnn.ttnn_builder import TTNNBuilder
-from builder.base.builder_apis import compile_and_execute_ttnn
+from builder.base.builder_apis import compile_and_execute_ttnn, build_module
 from test_utils import shape_str, shapes_list_str
 
 pytestmark = pytest.mark.frontend("ttnn")
@@ -216,4 +217,73 @@ def test_linear(
         **get_request_kwargs(request),
         target=target,
         device=device,
+    )
+
+
+@pytest.mark.parametrize(
+    "test_shape",
+    [
+        (1, 1, 32, 32),
+        (1, 32, 32, 32),
+        (32, 32, 1, 1),
+        (1, 1, 64, 128),
+    ],
+    ids=shape_str,
+)
+@pytest.mark.parametrize("mesh_shape", [(1, 2)], ids=shape_str)
+@pytest.mark.parametrize("all_gather_dim", range(4))
+@pytest.mark.parametrize("cluster_axis", [0, 1])
+@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32], ids=["bf16", "f32"])
+def test_all_gather(
+    test_shape: Shape,
+    mesh_shape: Tuple[int, int],
+    all_gather_dim: int,
+    cluster_axis: int,
+    dtype: torch.dtype,
+    request,
+    device,
+):
+    if all_gather_dim >= len(test_shape):
+        pytest.skip("all_gather_dim is out of range")
+    if mesh_shape[cluster_axis] == 1:
+        pytest.skip("all_gather across 1 device is meaningless")
+
+    mesh_dict = OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])])
+
+    expected_output_shape = list(test_shape)
+    expected_output_shape[all_gather_dim] *= mesh_shape[cluster_axis]
+
+    def module(builder: TTNNBuilder):
+        @builder.func([test_shape], [dtype])
+        def all_gather(
+            in0: Operand,
+            builder: TTNNBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.all_gather(
+                in0,
+                all_gather_dim=all_gather_dim,
+                cluster_axis=cluster_axis,
+                unit_attrs=unit_attrs,
+            )
+
+    mlir_module, builder = build_module(
+        module,
+        "ttnn",
+        mesh_name="mesh",
+        mesh_dict=mesh_dict,
+    )
+
+    module_str = str(mlir_module)
+    assert "ttnn.all_gather" in module_str
+    assert f"all_gather_dim = {all_gather_dim} : si32" in module_str
+    assert f"cluster_axis = {cluster_axis} : ui32" in module_str
+
+    input_shape_str = "x".join(str(d) for d in test_shape)
+    output_shape_str = "x".join(str(d) for d in expected_output_shape)
+    assert f"tensor<{input_shape_str}" in module_str, (
+        f"Expected input shape {input_shape_str} in IR"
+    )
+    assert f"tensor<{output_shape_str}" in module_str, (
+        f"Expected output shape {output_shape_str} in IR"
     )
