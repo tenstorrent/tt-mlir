@@ -5,7 +5,7 @@
 import pytest
 import torch
 from conftest import get_request_kwargs
-from typing import Callable, List, Optional, Tuple
+from typing import List, Optional, Tuple
 from collections import OrderedDict
 
 from builder.base.builder_utils import Operand, Shape
