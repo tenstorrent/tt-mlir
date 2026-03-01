@@ -2159,20 +2159,29 @@ public:
     auto maxIndicesType =
         RankedTensorType::get(reducedShape, rewriter.getI32Type());
 
-    // Initialize max values to -inf and max indices to 0.
-    auto negInfAttr = rewriter.getFloatAttr(
-        elementType,
-        APFloat::getInf(cast<FloatType>(elementType).getFloatSemantics(),
-                        /*Negative=*/true));
-    Value negInf =
-        rewriter.create<arith::ConstantOp>(loc, elementType, negInfAttr);
+    // Initialize max values to -inf (float) or INT_MIN (integer), and max
+    // indices to 0.
+    Value initMax;
+    if (isa<FloatType>(elementType)) {
+      auto negInfAttr = rewriter.getFloatAttr(
+          elementType,
+          APFloat::getInf(cast<FloatType>(elementType).getFloatSemantics(),
+                          /*Negative=*/true));
+      initMax =
+          rewriter.create<arith::ConstantOp>(loc, elementType, negInfAttr);
+    } else {
+      unsigned bitWidth = cast<IntegerType>(elementType).getWidth();
+      auto minAttr = rewriter.getIntegerAttr(
+          elementType, APInt::getSignedMinValue(bitWidth));
+      initMax = rewriter.create<arith::ConstantOp>(loc, elementType, minAttr);
+    }
     Value zero = rewriter.create<arith::ConstantOp>(
         loc, rewriter.getI32Type(), rewriter.getI32IntegerAttr(0));
 
     Value maxValuesFilled =
         rewriter
             .create<linalg::FillOp>(
-                loc, negInf,
+                loc, initMax,
                 rewriter.create<tensor::EmptyOp>(loc, reducedShape, elementType)
                     .getResult())
             .getResult(0);
@@ -2217,8 +2226,14 @@ public:
             }
           }
 
-          Value isGreater = b.create<arith::CmpFOp>(
-              loc, arith::CmpFPredicate::OGT, currentVal, currentMax);
+          Value isGreater =
+              isa<FloatType>(elementType)
+                  ? b.create<arith::CmpFOp>(loc, arith::CmpFPredicate::OGT,
+                                            currentVal, currentMax)
+                        .getResult()
+                  : b.create<arith::CmpIOp>(loc, arith::CmpIPredicate::sgt,
+                                            currentVal, currentMax)
+                        .getResult();
           Value newMax =
               b.create<arith::SelectOp>(loc, isGreater, currentVal, currentMax);
           Value newIdx =
