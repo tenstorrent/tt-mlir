@@ -54,11 +54,29 @@ static TTNNLayoutAttr getOutputLayoutForResult(const BeamCandidate &c,
   return c.configHint.outputLayout;
 }
 
-/// Returns true for ops that cannot consume sharded L1 inputs.
-/// These ops either hang or produce incorrect results with sharded input.
-/// See https://github.com/tenstorrent/tt-mlir/issues/7145
-static bool opForbidsShardedInputs(Operation *op) {
-  return isa<ConcatenateHeadsOp>(op);
+/// Returns an optional filter predicate that rejects invalid input layouts
+/// for a given op.  When the filter returns false, the candidate is removed.
+/// Returns nullptr when no filtering is needed (all layouts accepted).
+using LayoutFilterFn = std::function<bool(TTNNLayoutAttr)>;
+static LayoutFilterFn getInputLayoutFilter(Operation *op) {
+  static auto rejectAllSharded = [](TTNNLayoutAttr layout) {
+    auto ml = layout.getMemLayout();
+    return !(ml && isShardedMemoryLayout(ml.getValue()));
+  };
+  // Reshape/Permute: tt-metal accepts sharded inputs but for width-sharded
+  // tensors it round-trips through interleaved internally, which is slower
+  // than receiving interleaved directly.  Height/block sharding is fine —
+  // tt-metal a3ffa27bc4 ("Native reshape_tiled") handles those natively.
+  static auto rejectWidthSharded = [](TTNNLayoutAttr layout) {
+    auto ml = layout.getMemLayout();
+    return !(ml && ml.getValue() == TensorMemoryLayout::WidthSharded);
+  };
+  return llvm::TypeSwitch<Operation *, LayoutFilterFn>(op)
+      // ConcatenateHeads: cannot consume any sharded inputs.
+      // https://github.com/tenstorrent/tt-mlir/issues/7145
+      .Case<ConcatenateHeadsOp>([](auto) { return rejectAllSharded; })
+      .Case<ReshapeOp, PermuteOp>([](auto) { return rejectWidthSharded; })
+      .Default([](Operation *) { return nullptr; });
 }
 
 void LayoutPropagation::run() {
@@ -646,17 +664,17 @@ LayoutPropagation::getInputCandidateSets(Operation *op) {
       }
     }
 
-    // For ops that forbid sharded inputs, remove any sharded candidates
-    // that slipped through from the producer beam. Guarantee at least one
-    // interleaved candidate remains.
-    if (opForbidsShardedInputs(op)) {
+    // Per-op input layout filtering: remove candidates that the op cannot
+    // consume efficiently (e.g. width-sharded for reshape/permute, any
+    // sharded for concatenate_heads). Guarantee at least one interleaved
+    // candidate remains.
+    if (auto inputFilter = getInputLayoutFilter(op)) {
       candidatesForOperand.erase(
-          std::remove_if(
-              candidatesForOperand.begin(), candidatesForOperand.end(),
-              [](const InputCandidate &ic) {
-                auto memLayout = ic.layout.getMemLayout();
-                return memLayout && isShardedMemoryLayout(memLayout.getValue());
-              }),
+          std::remove_if(candidatesForOperand.begin(),
+                         candidatesForOperand.end(),
+                         [&](const InputCandidate &ic) {
+                           return !inputFilter(ic.layout);
+                         }),
           candidatesForOperand.end());
       if (candidatesForOperand.empty()) {
         InputCandidate ic;
