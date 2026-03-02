@@ -141,5 +141,5 @@ jobs:
         id: check-jobs
         uses: re-actors/alls-green@release/v1
         with:
-          allowed-skips: debug-build, lint, release-build, test, downstream-checks
+          allowed-skips: debug-build, lint, release-build, test, downstream-checks, ttsim-test
           jobs: ${{ toJSON(needs) }}
