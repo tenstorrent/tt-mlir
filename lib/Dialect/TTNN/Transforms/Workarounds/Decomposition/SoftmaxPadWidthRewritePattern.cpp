@@ -32,15 +32,13 @@ int64_t findMaxDivisor(int64_t val, int64_t startMaxDiv) {
   return 1;
 }
 
-bool isSoftmaxWidthSafe(int64_t widthTiles) {
-  int64_t blockFP32 = findMaxDivisor(widthTiles, 4);
-  int64_t blockFP16 = findMaxDivisor(widthTiles, 8);
-  return (LARGE_KERNEL_CB_LEN % blockFP32 == 0) &&
-         (LARGE_KERNEL_CB_LEN % blockFP16 == 0);
+bool isSoftmaxWidthSafe(int64_t widthTiles, int64_t divisor) {
+  int64_t block = findMaxDivisor(widthTiles, divisor);
+  return (LARGE_KERNEL_CB_LEN % block == 0);
 }
 
-int64_t findSafeWidthTiles(int64_t widthTiles) {
-  while (!isSoftmaxWidthSafe(widthTiles)) {
+int64_t findSafeWidthTiles(int64_t widthTiles, int64_t divisor) {
+  while (!isSoftmaxWidthSafe(widthTiles, divisor)) {
     ++widthTiles;
   }
   return widthTiles;
@@ -51,8 +49,10 @@ int64_t findSafeWidthTiles(int64_t widthTiles) {
 LogicalResult SoftmaxPadWidthRewritePattern::matchAndRewrite(
     ttnn::SoftmaxOp srcOp, PatternRewriter &rewriter) const {
 
-  auto inputType = mlir::dyn_cast<RankedTensorType>(srcOp.getInput().getType());
-  if (!inputType) {
+  auto inputType = srcOp.getInput().getType();
+  auto layoutAttr =
+      mlir::dyn_cast_or_null<ttnn::TTNNLayoutAttr>(inputType.getEncoding());
+  if (!layoutAttr || !layoutAttr.isTiled()) {
     return failure();
   }
 
@@ -72,11 +72,15 @@ LogicalResult SoftmaxPadWidthRewritePattern::matchAndRewrite(
   int64_t widthTiles =
       llvm::divideCeil(dimSize, static_cast<int64_t>(TILE_WIDTH));
 
-  if (isSoftmaxWidthSafe(widthTiles)) {
+  int64_t divisor =
+      inputType.getElementType() == mlir::Float32Type::get(srcOp.getContext())
+          ? 4
+          : 8;
+  if (isSoftmaxWidthSafe(widthTiles, divisor)) {
     return failure();
   }
 
-  int64_t safeWidthTiles = findSafeWidthTiles(widthTiles);
+  int64_t safeWidthTiles = findSafeWidthTiles(widthTiles, divisor);
   int64_t paddedDimSize = safeWidthTiles * TILE_WIDTH;
   int64_t padAmount = paddedDimSize - dimSize;
 
@@ -101,8 +105,7 @@ LogicalResult SoftmaxPadWidthRewritePattern::matchAndRewrite(
           .getResult();
 
   // Run softmax on the padded tensor.
-  auto resultType =
-      mlir::dyn_cast<RankedTensorType>(srcOp.getResult().getType());
+  auto resultType = srcOp.getResult().getType();
   auto paddedResultType =
       utils::RankedTensorTypeFactory::create(resultType, paddedShape);
 
@@ -115,16 +118,14 @@ LogicalResult SoftmaxPadWidthRewritePattern::matchAndRewrite(
 
   // Slice back to the original shape.
   SmallVector<int32_t> begins(rank, 0);
-  SmallVector<int32_t> ends;
-  for (int64_t s : inputType.getShape()) {
-    ends.push_back(static_cast<int32_t>(s));
-  }
+  SmallVector<int32_t> ends(resultType.getShape().begin(),
+                            resultType.getShape().end());
   SmallVector<int32_t> steps(rank, 1);
 
   Value sliced =
       rewriter
-          .create<SliceStaticOp>(srcOp.getLoc(), srcOp.getResult().getType(),
-                                 paddedResult, rewriter.getI32ArrayAttr(begins),
+          .create<SliceStaticOp>(srcOp.getLoc(), resultType, paddedResult,
+                                 rewriter.getI32ArrayAttr(begins),
                                  rewriter.getI32ArrayAttr(ends),
                                  rewriter.getI32ArrayAttr(steps))
           .getResult();
