@@ -86,13 +86,14 @@ static std::optional<int64_t> getMaxDstTilesForLinalgOp(linalg::GenericOp op) {
     return std::nullopt;
   }
 
-  Type elementType = outputShapedType.getElementType();
-  if (auto tileType = mlir::dyn_cast<ttcore::TileType>(elementType)) {
-    elementType = tileType.getElementType();
+  auto tileType =
+      mlir::dyn_cast<ttcore::TileType>(outputShapedType.getElementType());
+  if (!tileType) {
+    return std::nullopt;
   }
 
-  const bool isFp32 =
-      ttcore::getNumberOfBits(ttcore::elementTypeToDataType(elementType)) == 32;
+  const ttcore::DataType dataType = tileType.getDataType();
+  const bool isFp32 = dataType == ttcore::DataType::Float32;
 
   int64_t maxDstTiles =
       classifyLinalgExecutionClass(op) == DstExecutionClass::FPU ? 8 : 4;
