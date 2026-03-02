@@ -5,8 +5,6 @@
 #ifndef TTMLIR_DIALECT_D2M_UTILS_UTILS_H
 #define TTMLIR_DIALECT_D2M_UTILS_UTILS_H
 
-#include "ttmlir/Dialect/D2M/Utils/DstRegisterAnalysis.h"
-
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinTypes.h"
@@ -14,9 +12,6 @@
 namespace mlir::tt::ttcore {
 class DeviceAttr;
 } // namespace mlir::tt::ttcore
-namespace mlir::tt::d2m {
-class GenericOp;
-} // namespace mlir::tt::d2m
 
 namespace mlir::tt::d2m::utils {
 
