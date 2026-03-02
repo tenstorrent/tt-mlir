@@ -470,4 +470,89 @@ func.func @test(
   EXPECT_EQ(packing.numOuterLoopIters, 1);
 }
 
+TEST_F(GenericOpAnalysisTest,
+       CanAnalyzeGenericForDSTPackingShardSize15MixedOps) {
+  constexpr llvm::StringLiteral moduleText = R"mlir(
+func.func @test(
+    %in0: memref<1x1x15x!ttcore.tile<32x32, f32>>,
+    %in1: memref<1x1x15x!ttcore.tile<32x32, f32>>,
+    %out: memref<1x1x15x!ttcore.tile<32x32, f32>>) {
+  d2m.generic {block_factors = [], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<unified>]}
+    ins(%in0, %in1 : memref<1x1x15x!ttcore.tile<32x32, f32>>, memref<1x1x15x!ttcore.tile<32x32, f32>>)
+    outs(%out : memref<1x1x15x!ttcore.tile<32x32, f32>>) {
+  ^unified0(%cb0: !d2m.cb<memref<1x15x!ttcore.tile<32x32, f32>>>,
+            %cb1: !d2m.cb<memref<1x15x!ttcore.tile<32x32, f32>>>,
+            %cb2: !d2m.cb<memref<1x15x!ttcore.tile<32x32, f32>>>):
+    %in0_m = d2m.wait %cb0 : !d2m.cb<memref<1x15x!ttcore.tile<32x32, f32>>> -> memref<1x15x!ttcore.tile<32x32, f32>>
+    %in1_m = d2m.wait %cb1 : !d2m.cb<memref<1x15x!ttcore.tile<32x32, f32>>> -> memref<1x15x!ttcore.tile<32x32, f32>>
+    %out_m = d2m.reserve %cb2 : !d2m.cb<memref<1x15x!ttcore.tile<32x32, f32>>> -> memref<1x15x!ttcore.tile<32x32, f32>>
+    %out0_m = memref.cast %out_m : memref<1x15x!ttcore.tile<32x32, f32>> to memref<1x15x!ttcore.tile<32x32, f32>>
+    %out1_m = memref.cast %out_m : memref<1x15x!ttcore.tile<32x32, f32>> to memref<1x15x!ttcore.tile<32x32, f32>>
+    %out2_m = memref.cast %out_m : memref<1x15x!ttcore.tile<32x32, f32>> to memref<1x15x!ttcore.tile<32x32, f32>>
+    %out3_m = memref.cast %out_m : memref<1x15x!ttcore.tile<32x32, f32>> to memref<1x15x!ttcore.tile<32x32, f32>>
+    %c0 = arith.constant 0 : index
+    %c1 = arith.constant 1 : index
+    %c15 = arith.constant 15 : index
+    scf.for %i = %c0 to %c15 step %c1 {
+      linalg.generic {indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>], iterator_types = ["parallel", "parallel"]}
+        ins(%in0_m : memref<1x15x!ttcore.tile<32x32, f32>>)
+        outs(%out0_m : memref<1x15x!ttcore.tile<32x32, f32>>) {
+      ^bb0(%arg0: !ttcore.tile<32x32, f32>, %arg1: !ttcore.tile<32x32, f32>):
+        %abs = "d2m.tile_abs"(%arg0) : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
+        linalg.yield %abs : !ttcore.tile<32x32, f32>
+      }
+      linalg.generic {indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>], iterator_types = ["parallel", "parallel"]}
+        ins(%in0_m, %in1_m : memref<1x15x!ttcore.tile<32x32, f32>>, memref<1x15x!ttcore.tile<32x32, f32>>)
+        outs(%out1_m : memref<1x15x!ttcore.tile<32x32, f32>>) {
+      ^bb0(%arg0: !ttcore.tile<32x32, f32>, %arg1: !ttcore.tile<32x32, f32>, %arg2: !ttcore.tile<32x32, f32>):
+        %sum = "d2m.tile_add"(%arg0, %arg1) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
+        linalg.yield %sum : !ttcore.tile<32x32, f32>
+      }
+      linalg.generic {indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>], iterator_types = ["parallel", "parallel"]}
+        ins(%in0_m : memref<1x15x!ttcore.tile<32x32, f32>>)
+        outs(%out2_m : memref<1x15x!ttcore.tile<32x32, f32>>) {
+      ^bb0(%arg0: !ttcore.tile<32x32, f32>, %arg1: !ttcore.tile<32x32, f32>):
+        %cst = arith.constant 2.0 : f32
+        %mul = "d2m.tile_mul"(%arg0, %cst) : (!ttcore.tile<32x32, f32>, f32) -> !ttcore.tile<32x32, f32>
+        linalg.yield %mul : !ttcore.tile<32x32, f32>
+      }
+      linalg.generic {indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>], iterator_types = ["parallel", "parallel"]}
+        ins(%in0_m, %in1_m : memref<1x15x!ttcore.tile<32x32, f32>>, memref<1x15x!ttcore.tile<32x32, f32>>)
+        outs(%out3_m : memref<1x15x!ttcore.tile<32x32, f32>>) {
+      ^bb0(%arg0: !ttcore.tile<32x32, f32>, %arg1: !ttcore.tile<32x32, f32>, %arg2: !ttcore.tile<32x32, f32>):
+        %sub = "d2m.tile_sub"(%arg0, %arg1) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
+        linalg.yield %sub : !ttcore.tile<32x32, f32>
+      }
+    }
+  }
+  return
+}
+)mlir";
+
+  auto module = parseModule(moduleText);
+  ASSERT_TRUE(module);
+  d2m::GenericOp generic = getSingleGenericOp(*module);
+  ASSERT_TRUE(generic);
+  markAllForLoopsAsBlocking(generic);
+
+  auto packing = d2m::utils::analyzeGenericForDSTPacking(generic);
+  auto outputValues = getSingleOutputValuesFromLinalgOps(generic);
+  ASSERT_EQ(outputValues.size(), 4u);
+  ASSERT_EQ(packing.perResult.size(), 4u);
+  EXPECT_EQ(packing.perResult.lookup(outputValues[0]).numTilesPerFlip,
+            1); // tile_abs => SFPU fp32
+  EXPECT_EQ(packing.perResult.lookup(outputValues[1]).numTilesPerFlip,
+            1); // tile_add(tile,tile) => FPU fp32
+  EXPECT_EQ(packing.perResult.lookup(outputValues[2]).numTilesPerFlip,
+            1); // tile_mul(tile,scalar) => SFPU fp32
+  EXPECT_EQ(packing.perResult.lookup(outputValues[3]).numTilesPerFlip,
+            1); // tile_sub(tile,tile) => FPU fp32
+  EXPECT_EQ(packing.perResult.lookup(outputValues[0]).numDstFlips, 3);
+  EXPECT_EQ(packing.perResult.lookup(outputValues[1]).numDstFlips, 3);
+  EXPECT_EQ(packing.perResult.lookup(outputValues[2]).numDstFlips, 3);
+  EXPECT_EQ(packing.perResult.lookup(outputValues[3]).numDstFlips, 3);
+  EXPECT_EQ(packing.numTilesPerResult, 3);
+  EXPECT_EQ(packing.numOuterLoopIters, 5);
+}
+
 } // namespace mlir::tt::d2m
