@@ -84,16 +84,16 @@ PythonModelRunner::PythonModelRunner() {
       if (importlib == nullptr) {
         nb::raise_python_error();
       }
-      PyObject *spec = PyObject_CallMethod(
-          importlib, "spec_from_loader", "sO",
-          "_tt_alchemist_python_runner", Py_None);
+      PyObject *spec =
+          PyObject_CallMethod(importlib, "spec_from_loader", "sO",
+                              "_tt_alchemist_python_runner", Py_None);
       Py_DECREF(importlib);
       if (spec == nullptr) {
         nb::raise_python_error();
       }
 
-      PyObject *m = PyModule_FromDefAndSpec(
-          reinterpret_cast<PyModuleDef *>(def), spec);
+      PyObject *m =
+          PyModule_FromDefAndSpec(reinterpret_cast<PyModuleDef *>(def), spec);
       Py_DECREF(spec);
       if (m == nullptr) {
         nb::raise_python_error();
