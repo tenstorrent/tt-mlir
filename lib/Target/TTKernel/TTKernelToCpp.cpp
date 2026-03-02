@@ -123,7 +123,7 @@ public:
                                         "api/compute/eltwise_unary/erf_erfc.h",
                                         /*isStandard=*/false);
       builder->create<emitc::IncludeOp>(
-          loc, "api/compute/eltwise_unary/logical_not.h",
+          loc, "api/compute/eltwise_unary/logical_not_noti.h",
           /*isStandard=*/false);
       builder->create<emitc::IncludeOp>(loc, "api/compute/eltwise_unary/comp.h",
                                         /*isStandard=*/false);
