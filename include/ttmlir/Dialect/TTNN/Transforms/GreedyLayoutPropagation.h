@@ -13,40 +13,21 @@
 
 namespace mlir::tt::ttnn {
 
-struct TTIRToTTNNDevicePipelineOptions;
-
-//===----------------------------------------------------------------------===//
-// TTNNGreedyLayoutPropagation
-//===----------------------------------------------------------------------===//
-struct TTNNGreedyLayoutPropagationOptions {
+// Pipeline options: extends tablegen-generated Options with complex fields
+// that need custom CLI parsers (not supported by tablegen).
+struct TTNNGreedyLayoutPropagationPipelineOptions {
   int64_t maxLegalLayouts = 64;
   bool rowMajorEnabled = false;
   int64_t beamWidth = 8;
-  llvm::StringMap<InsertMemReconfigParams> insertMemReconfig =
-      llvm::StringMap<InsertMemReconfigParams>();
-  llvm::StringMap<OutputLayoutOverrideParams> overrideOutputLayout =
-      llvm::StringMap<OutputLayoutOverrideParams>();
-  llvm::StringMap<Conv2dConfigOverrideParams> overrideConv2dConfig =
-      llvm::StringMap<Conv2dConfigOverrideParams>();
+  llvm::StringMap<OutputLayoutOverrideParams> overrideOutputLayout;
+  llvm::StringMap<Conv2dConfigOverrideParams> overrideConv2dConfig;
   bool enableDecisionTrace = false;
   std::string decisionTraceDir = "ttrt-artifacts/decision_trace";
   bool enableCompileTimeStats = false;
-
-  TTNNGreedyLayoutPropagationOptions() = default;
 };
 
-std::unique_ptr<::mlir::Pass> createTTNNGreedyLayoutPropagation();
-std::unique_ptr<::mlir::Pass>
-createTTNNGreedyLayoutPropagation(TTNNGreedyLayoutPropagationOptions options);
-
-//===----------------------------------------------------------------------===//
-// TTNNGreedyLayoutPropagation Registration
-//===----------------------------------------------------------------------===//
-inline void registerTTNNGreedyLayoutPropagation() {
-  ::mlir::registerPass([]() -> std::unique_ptr<::mlir::Pass> {
-    return createTTNNGreedyLayoutPropagation();
-  });
-}
+std::unique_ptr<::mlir::Pass> createTTNNGreedyLayoutPropagation(
+    TTNNGreedyLayoutPropagationPipelineOptions options);
 
 } // namespace mlir::tt::ttnn
 
