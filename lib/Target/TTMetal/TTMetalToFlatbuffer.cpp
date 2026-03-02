@@ -620,7 +620,7 @@ toFlatbuffer(FlatbufferObjectCache &cache, KernelArgAttr kernelArg) {
               .Union();
     break;
   }
-  case ttkernel::ArgType::Semaphore: {
+  case ttkernel::ArgType::LocalSemaphore: {
     argType = target::metal::KernelArgType::KernelArgSemaphore;
     arg = target::metal::CreateKernelArgSemaphore(*cache.fbb).Union();
     break;
@@ -634,6 +634,13 @@ toFlatbuffer(FlatbufferObjectCache &cache, KernelArgAttr kernelArg) {
     argType = target::metal::KernelArgType::KernelArgGlobalSemaphore;
     arg = target::metal::CreateKernelArgGlobalSemaphore(
               *cache.fbb, kernelArg.getOperandIndex())
+              .Union();
+    break;
+  }
+  case ttkernel::ArgType::Scalar: {
+    argType = target::metal::KernelArgType::KernelArgScalar;
+    arg = target::metal::CreateKernelArgScalar(*cache.fbb,
+                                               kernelArg.getOperandIndex())
               .Union();
     break;
   }
@@ -849,6 +856,9 @@ std::shared_ptr<void> translateTTMetalToFlatbuffer(
 
     cqBuilder.inputs.reserve(entry.getBody().getArguments().size());
     for (auto &input : entry.getBody().getArguments()) {
+      if (!mlir::isa<MemRefType>(input.getType())) {
+        continue;
+      }
       cqBuilder.inputs.push_back(
           cache.getOrCreate(input, bufferValueToFlatbuffer, systemDesc, 0));
       tensorInputs.push_back(tensorValueToFlatbuffer(cache, input));
@@ -1032,7 +1042,6 @@ std::shared_ptr<void> translateTTMetalToFlatbuffer(
         } else {
           llvm_unreachable("unhandled mesh_shard type");
         }
-
         cqBuilder.appendCommand(
             target::metal::CreateMeshShardCommand(
                 fbb, cache.at<target::metal::BufferRef>(meshShardOp.getInput()),

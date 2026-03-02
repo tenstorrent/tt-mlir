@@ -22,8 +22,8 @@ void populateTTKernelModule(nb::module_ &m) {
         return mlir::cast<tt::ttkernel::CBType>(unwrap(ty));
       });
 
-  tt_type_class<tt::ttkernel::SemaphoreType>(m, "SemaphoreType")
-      .def_static("get", &ttmlirTTKernelSemaphoreTypeGet);
+  tt_type_class<tt::ttkernel::LocalSemaphoreType>(m, "SemaphoreType")
+      .def_static("get", &ttmlirTTKernelLocalSemaphoreTypeGet);
 
   tt_type_class<tt::ttkernel::NocAddrType>(m, "NocAddrType")
       .def_static("get", &ttmlirTTKernelNocAddrTypeGet);

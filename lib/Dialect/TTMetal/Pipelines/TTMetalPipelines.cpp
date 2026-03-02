@@ -230,6 +230,9 @@ void createTTIRToTTMetalMiddleendPipeline(
   pm.addPass(d2m::createD2MScheduleDMA());
   pm.addPass(d2m::createD2MLowerLoadStoreOpsToDMA());
 
+  // Argument cleanup pass to move any remaining additional arguments into the thread argument list, so that the D2MToTTKernel lowering pass can uniformly treat all arguments.
+  pm.addPass(d2m::createD2MCaptureAdditionalArgsInThreads());
+
   pm.addPass(createCanonicalizerPassWithOptions(options));
   createOptimizationPasses(pm, options);
 

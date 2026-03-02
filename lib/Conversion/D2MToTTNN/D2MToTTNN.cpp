@@ -66,7 +66,7 @@ public:
       return builder.getAttr<ttnn::KernelArgCBBufferIndexAttr>(
           arg.getOperandIndex());
     }
-    case ttkernel::ArgType::Semaphore: {
+    case ttkernel::ArgType::LocalSemaphore: {
       return builder.getAttr<ttnn::KernelArgSemaphoreAtAttr>(
           arg.getOperandIndex());
     }
@@ -77,6 +77,9 @@ public:
     case ttkernel::ArgType::GlobalSemaphore: {
       return builder.getAttr<ttnn::KernelArgGlobalSemaphoreAttr>(
           arg.getOperandIndex());
+    }
+    case ttkernel::ArgType::Scalar: {
+      return builder.getAttr<ttnn::KernelArgScalarAttr>(arg.getOperandIndex());
     }
     }
   }
@@ -102,7 +105,7 @@ public:
       }
 
       for (auto ctArg : kernelSpec.getCtArgs()) {
-        if (ctArg.getArgType() == ttkernel::ArgType::Semaphore) {
+        if (ctArg.getArgType() == ttkernel::ArgType::LocalSemaphore) {
           seenSemaphoreIndices.insert(ctArg.getOperandIndex());
         }
       }

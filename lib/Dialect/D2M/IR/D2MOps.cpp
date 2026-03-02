@@ -1902,9 +1902,10 @@ MutableArrayRef<OpOperand> d2m::GenericOp::getInputsAndOutputsMutable() {
     // CB block args are materialized by the explicit CB form pass;
     // semaphore block args are added by PreallocateMcastSemaphores.
     for (BlockArgument arg : region.getArguments()) {
-      if (!mlir::isa<d2m::SemaphoreType, d2m::CBType>(arg.getType())) {
-        return emitOpError(
-            "region block arguments must be of 'semaphore' or 'cb' type");
+      if (!mlir::isa<d2m::CBType, d2m::LocalSemaphoreType, d2m::ScalarType,
+                     d2m::GlobalSemaphoreType>(arg.getType())) {
+        return emitOpError("all regions must either be cb, semaphore or scalar "
+                           "block argument type");
       }
 
       if (arg.getType() !=
@@ -1955,7 +1956,7 @@ MutableArrayRef<OpOperand> d2m::GenericOp::getInputsAndOutputsMutable() {
       auto additionalArguments =
           region.getArguments().drop_front(inputOutputOperandTypes.size());
       for (BlockArgument arg : additionalArguments) {
-        if (!mlir::isa<SemaphoreType>(arg.getType())) {
+        if (!mlir::isa<LocalSemaphoreType>(arg.getType())) {
           return emitOpError(
               "additional region arguments must be of 'semaphore' type");
         }
@@ -2409,11 +2410,19 @@ void d2m::GenericOp::getAsmBlockArgumentNames(
     Region &region, function_ref<void(Value, StringRef)> setNameFn) {
   int cbIndex = 0;
   int semIndex = 0;
+  int scalarIndex = 0;
+  int globalSemIndex = 0;
   for (BlockArgument arg : region.getArguments()) {
     if (mlir::isa<CBType>(arg.getType())) {
       setNameFn(arg, "cb" + std::to_string(cbIndex++));
-    } else if (mlir::isa<SemaphoreType>(arg.getType())) {
+    } else if (mlir::isa<LocalSemaphoreType>(arg.getType())) {
       setNameFn(arg, "sem" + std::to_string(semIndex++));
+    } else if (mlir::isa<GlobalSemaphoreType>(arg.getType())) {
+      setNameFn(arg, "gsem" + std::to_string(globalSemIndex++));
+    } else if (mlir::isa<ScalarType>(arg.getType())) {
+      setNameFn(arg, "scalar" + std::to_string(scalarIndex++));
+    } else {
+      llvm_unreachable("Unexpected region argument type");
     }
   }
 }

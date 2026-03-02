@@ -461,6 +461,11 @@ std::vector<std::uint32_t> processKernelArgs(
           target::BufferType::L1));
       break;
     }
+    case target::metal::KernelArgType::KernelArgScalar: {
+      const auto *arg = kernelArg->arg_as_KernelArgScalar();
+      argsVec.push_back(arg->value());
+      break;
+    }
     case target::metal::KernelArgType::NONE:
       LOG_FATAL("Unsupported runtime arg type");
     }

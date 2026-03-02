@@ -17,15 +17,15 @@ module {
     return %alloc  : memref<8x8x1x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>
   }
 
-  func.func private @datamovement_kernel0(%arg0: memref<1x3x!ttcore.tile<32x32, f32>, #l1_>, %arg1: memref<3x4x!ttcore.tile<32x32, f32>, #l1_>, %arg2: memref<1x4x!ttcore.tile<32x32, f32>, #l1_>, %arg3: !d2m.semaphore, %arg4: !d2m.semaphore, %arg5: !d2m.semaphore, %arg6: !d2m.semaphore) attributes {d2m.thread = #d2m.thread<datamovement>} {
+  func.func private @datamovement_kernel0(%arg0: memref<1x3x!ttcore.tile<32x32, f32>, #l1_>, %arg1: memref<3x4x!ttcore.tile<32x32, f32>, #l1_>, %arg2: memref<1x4x!ttcore.tile<32x32, f32>, #l1_>, %arg3: !d2m.local_semaphore, %arg4: !d2m.local_semaphore, %arg5: !d2m.local_semaphore, %arg6: !d2m.local_semaphore) attributes {d2m.thread = #d2m.thread<datamovement>} {
     return
   }
 
-  func.func private @datamovement_kernel1(%arg0: memref<1x3x!ttcore.tile<32x32, f32>, #l1_>, %arg1: memref<3x4x!ttcore.tile<32x32, f32>, #l1_>, %arg2: memref<1x4x!ttcore.tile<32x32, f32>, #l1_>, %arg3: !d2m.semaphore, %arg4: !d2m.semaphore, %arg5: !d2m.semaphore, %arg6: !d2m.semaphore) attributes {d2m.thread = #d2m.thread<datamovement>} {
+  func.func private @datamovement_kernel1(%arg0: memref<1x3x!ttcore.tile<32x32, f32>, #l1_>, %arg1: memref<3x4x!ttcore.tile<32x32, f32>, #l1_>, %arg2: memref<1x4x!ttcore.tile<32x32, f32>, #l1_>, %arg3: !d2m.local_semaphore, %arg4: !d2m.local_semaphore, %arg5: !d2m.local_semaphore, %arg6: !d2m.local_semaphore) attributes {d2m.thread = #d2m.thread<datamovement>} {
     return
   }
 
-  func.func private @compute_kernel2(%arg0: memref<1x3x!ttcore.tile<32x32, f32>, #l1_>, %arg1: memref<3x4x!ttcore.tile<32x32, f32>, #l1_>, %arg2: memref<1x4x!ttcore.tile<32x32, f32>, #l1_>, %arg3: !d2m.semaphore, %arg4: !d2m.semaphore, %arg5: !d2m.semaphore, %arg6: !d2m.semaphore) attributes {d2m.thread = #d2m.thread<compute>} {
+  func.func private @compute_kernel2(%arg0: memref<1x3x!ttcore.tile<32x32, f32>, #l1_>, %arg1: memref<3x4x!ttcore.tile<32x32, f32>, #l1_>, %arg2: memref<1x4x!ttcore.tile<32x32, f32>, #l1_>, %arg3: !d2m.local_semaphore, %arg4: !d2m.local_semaphore, %arg5: !d2m.local_semaphore, %arg6: !d2m.local_semaphore) attributes {d2m.thread = #d2m.thread<compute>} {
     return
   }
 }
