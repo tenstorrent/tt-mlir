@@ -649,6 +649,17 @@ void mlir::tt::ttir::ClampTensorOp::getCanonicalizationPatterns(
 // EmptyOp
 //===----------------------------------------------------------------------===//
 
+// EmptyOp models allocation semantics: each empty() is a distinct allocation
+// that gets written into (e.g. DPS output buffer for ttir.ToLayoutOp). The
+// Allocate effect prevents CSE from merging identical empty ops while still
+// allowing DCE to remove unused ones.
+void EmptyOp::getEffects(
+    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
+        &effects) {
+  effects.emplace_back(MemoryEffects::Allocate::get(),
+                       cast<OpResult>(getResult()));
+}
+
 //===----------------------------------------------------------------------===//
 // RandOp
 //===----------------------------------------------------------------------===//

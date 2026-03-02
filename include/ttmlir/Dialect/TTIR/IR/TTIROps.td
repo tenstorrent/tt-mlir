@@ -4845,7 +4845,7 @@ def TTIR_ScatterOp : TTIR_NamedOp<"scatter"> {
 //===----------------------------------------------------------------------===//
 
 class TTIR_CreationOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_Op<mnemonic, [TTIR_CreationOpAllocTrait, TTCore_CreationOpTrait] # traits>;
+    TTIR_Op<mnemonic, [Pure, TTCore_CreationOpTrait] # traits>;
 
 
 def TTIR_ArangeOp : TTIR_CreationOp<"arange"> {
@@ -5120,7 +5120,7 @@ def TTIR_OnesOp : TTIR_NamedFullOp<"ones"> {
   }];
 }
 
-def TTIR_EmptyOp : TTIR_CreationOp<"empty", [TTCore_NonCacheableTrait]> {
+def TTIR_EmptyOp : TTIR_Op<"empty", [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>, TTCore_CreationOpTrait, TTCore_NonCacheableTrait]> {
     let summary = "Empty tensor allocation operation.";
     let description = [{
       The `empty` operation creates an uninitialized tensor with the specified shape and element type.
