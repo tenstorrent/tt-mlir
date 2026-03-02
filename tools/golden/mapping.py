@@ -6411,6 +6411,24 @@ def ttnn_mish_golden(
     return torch.nn.functional.mish(input_tensor).to(output_dtype)
 
 
+def ttnn_mesh_shard_golden(
+    input: GoldenMapTensor,
+    shard_type_attr: ttcore.ir.MeshShardTypeAttr,
+    shard_direction_attr: ttcore.ir.MeshShardDirectionAttr,
+    shard_shape_attr: DenseI64ArrayAttr,
+    shard_dims_attr: DenseI64ArrayAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    return ttir_mesh_shard_golden(
+        input,
+        shard_type_attr,
+        shard_direction_attr,
+        shard_shape_attr,
+        shard_dims_attr,
+        output_type_mlir,
+    )
+
+
 def ttnn_all_gather_golden(
     input: GoldenMapTensor,
     all_gather_dim_attr: IntegerAttr,
@@ -6765,6 +6783,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttnn.ClampScalarOp: ttnn_clamp_scalar_golden,
     ttnn.ClampTensorOp: ttnn_clamp_tensor_golden,
     # CCL (Collective Communication Library) operations
+    ttnn.MeshShardOp: ttnn_mesh_shard_golden,
     ttnn.AllGatherOp: ttnn_all_gather_golden,
     # ----- DEBUG OPS -----
     debug.AnnotateOp: debug_annotate_golden,
