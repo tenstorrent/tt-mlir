@@ -1456,50 +1456,44 @@ void d2m::GenericOp::build(
   auto inputOutputOperands = llvm::SmallVector<Value>(
       state.operands.begin(),
       state.operands.begin() + inputs.size() + outputs.size());
-  llvm::SmallVector<Type> blockTypes =
-      llvm::map_to_vector(TypeRange(inputOutputOperands), [&](Type t) -> Type {
-        mlir::RankedTensorType tensorType = mlir::cast<RankedTensorType>(t);
-        auto layout = mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
-            tensorType.getEncoding());
 
-        // If the operand is a view/stream, get the layout from its source.
-        if (!layout) {
-          for (auto operand : inputOutputOperands) {
-            if (operand.getType() != t) {
-              continue;
-            }
-            if (auto streamOp = operand.getDefiningOp<d2m::StreamLayoutOp>()) {
-              auto storageType =
-                  mlir::cast<RankedTensorType>(streamOp.getStorage().getType());
-              layout = mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
-                  storageType.getEncoding());
-              break;
-            }
-            if (auto viewOp = operand.getDefiningOp<d2m::ViewLayoutOp>()) {
-              auto inputType =
-                  mlir::cast<RankedTensorType>(viewOp.getInput().getType());
-              layout = mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
-                  inputType.getEncoding());
-              break;
-            }
-          }
-        }
+  // Create an empty block (no block arguments) and populate it with
+  // tensor.empty ops for each operand's shard shape. The region builder
+  // callback receives these tensor.empty values instead of CB block args.
+  Region &region = *state.regions.front().get();
+  OpBuilder::InsertionGuard guard(builder);
+  builder.createBlock(&region, region.end());
+
+  llvm::SmallVector<Value> tensorEmpties;
+  for (Value operand : inputOutputOperands) {
+    auto tensorType = mlir::cast<RankedTensorType>(operand.getType());
+    auto layout = mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
+        tensorType.getEncoding());
+
+    // If the operand is a view/stream, get the layout from its source.
+    if (!layout) {
+      if (auto streamOp = operand.getDefiningOp<d2m::StreamLayoutOp>()) {
+        auto storageType =
+            mlir::cast<RankedTensorType>(streamOp.getStorage().getType());
+        layout = mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
+            storageType.getEncoding());
+      } else if (auto viewOp = operand.getDefiningOp<d2m::ViewLayoutOp>()) {
+        auto inputType =
+            mlir::cast<RankedTensorType>(viewOp.getInput().getType());
+        layout = mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
+            inputType.getEncoding());
       }
     }
 
-        assert(
-            layout &&
-            "Expected MetalLayoutAttr or ViewLayoutAttr with StreamLayoutOp");
-        auto shardShape = layout.getShardShape(tensorType);
-        return d2m::CBType::get(mlir::RankedTensorType::get(
-            shardShape, tensorType.getElementType()));
-      });
-  Region &region = *state.regions.front().get();
-  llvm::SmallVector<mlir::Location> locs(inputOutputOperands.size(),
-                                         state.location);
-  OpBuilder::InsertionGuard guard(builder);
-  Block *block = builder.createBlock(&region, region.end(), blockTypes, locs);
-  singleThreadRegionBuilder(builder, state.location, block->getArguments());
+    assert(layout &&
+           "Expected MetalLayoutAttr or ViewLayoutAttr with StreamLayoutOp");
+    auto shardShape = layout.getShardShape(tensorType);
+    auto emptyOp = builder.create<mlir::tensor::EmptyOp>(
+        state.location, shardShape, tensorType.getElementType());
+    tensorEmpties.push_back(emptyOp.getResult());
+  }
+
+  singleThreadRegionBuilder(builder, state.location, tensorEmpties);
 }
 
 void d2m::GenericOp::build(
@@ -1883,7 +1877,18 @@ MutableArrayRef<OpOperand> d2m::GenericOp::getInputsAndOutputsMutable() {
       return emitOpError("region must have a single block");
     }
 
-    if (region.getNumArguments() < inputOutputOperandTypes.size()) {
+    // Count CB block arguments.
+    unsigned numCBArgs = 0;
+    for (BlockArgument arg : region.getArguments()) {
+      if (mlir::isa<d2m::CBType>(arg.getType())) {
+        ++numCBArgs;
+      }
+    }
+
+    // If CB block args exist (old form), they must cover all operands.
+    // If there are 0 CB block args (new tensor.empty form), that's valid.
+    if (numCBArgs > 0 &&
+        region.getNumArguments() < inputOutputOperandTypes.size()) {
       return emitOpError("region must have at least as many "
                          "arguments as the number of top-level operands");
     }
@@ -1921,35 +1926,39 @@ MutableArrayRef<OpOperand> d2m::GenericOp::getInputsAndOutputsMutable() {
           "and iterator_types are empty)");
     }
 
-    auto valueArguments =
-        region.getArguments().take_front(inputOutputOperandTypes.size());
-    for (BlockArgument arg : valueArguments) {
-      mlir::ShapedType operandType = mlir::cast<mlir::ShapedType>(
-          inputOutputOperandTypes[arg.getArgNumber()]);
-      ttcore::DeviceLayoutInterface layout =
-          ttcore::getDeviceLayout(operandType);
-      if (!layout) {
-        continue;
+    // Validate CB block arg shapes against operand shard shapes (old form
+    // only). In the new form, CBs are tensor.empty/memref.alloc ops inside
+    // the region body.
+    if (numCBArgs > 0) {
+      auto valueArguments =
+          region.getArguments().take_front(inputOutputOperandTypes.size());
+      for (BlockArgument arg : valueArguments) {
+        mlir::ShapedType operandType = mlir::cast<mlir::ShapedType>(
+            inputOutputOperandTypes[arg.getArgNumber()]);
+        ttcore::DeviceLayoutInterface layout =
+            ttcore::getDeviceLayout(operandType);
+        if (!layout) {
+          continue;
+        }
+
+        mlir::ShapedType blockArgType =
+            mlir::cast<mlir::ShapedType>(arg.getType());
+
+        ArrayRef<int64_t> expectedShardShape =
+            layout.getShardShape(operandType);
+        if (expectedShardShape != blockArgType.getShape()) {
+          return emitOpError("region argument shape must match the "
+                             "shape of the corresponding operand");
+        }
       }
 
-      mlir::ShapedType blockArgType =
-          mlir::cast<mlir::ShapedType>(arg.getType());
-
-      ArrayRef<int64_t> expectedShardShape = layout.getShardShape(operandType);
-      if (expectedShardShape != blockArgType.getShape()) {
-        return emitOpError("region argument shape must match the "
-                           "shape of the corresponding operand");
-      }
-    }
-
-    auto additionalArguments =
-        region.getArguments().drop_front(inputOutputOperandTypes.size());
-    ;
-    for (BlockArgument arg : additionalArguments) {
-      bool supportedType = mlir::isa<SemaphoreType>(arg.getType());
-      if (!supportedType) {
-        return emitOpError(
-            "additional region arguments must be of 'semaphore' type");
+      auto additionalArguments =
+          region.getArguments().drop_front(inputOutputOperandTypes.size());
+      for (BlockArgument arg : additionalArguments) {
+        if (!mlir::isa<SemaphoreType>(arg.getType())) {
+          return emitOpError(
+              "additional region arguments must be of 'semaphore' type");
+        }
       }
     }
   }
@@ -2742,6 +2751,20 @@ Value d2m::GenericOp::getOperandTensorEmpty(Region &region,
     }
   };
   scanBlock(region.front());
+
+  // Fall back to CB block arguments (old form) if no tensor.empty was found.
+  if (!result) {
+    unsigned cbIdx = 0;
+    for (BlockArgument arg : region.front().getArguments()) {
+      if (mlir::isa<d2m::CBType>(arg.getType())) {
+        if (cbIdx == operandIndex) {
+          return arg;
+        }
+        ++cbIdx;
+      }
+    }
+  }
+
   return result;
 }
 
