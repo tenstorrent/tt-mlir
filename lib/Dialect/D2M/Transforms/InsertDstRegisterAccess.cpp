@@ -860,7 +860,9 @@ public:
     return {copyInfos, dstIntermediates};
   }
 
-  static BlockArgument lookThroughSubView(Value memref) {
+  // Look through subview/wait/reserve to find the associated CB or
+  // tensor.empty/memref.alloc value for a given memref.
+  static Value lookThroughSubView(Value memref) {
     if (!memref) {
       return nullptr;
     }
@@ -874,17 +876,22 @@ public:
       } else if (auto allocOp = mlir::dyn_cast<memref::AllocOp>(definingOp)) {
         Value assocOperand = GenericOp::findAssocOperand(allocOp);
         if (!assocOperand) {
-          return std::nullopt;
-        }
-        Value cb = GenericOp::findAssocCBByOperand(allocOp.getOperation(),
-                                                   assocOperand);
-        if (!cb) {
           return nullptr;
         }
-        return mlir::dyn_cast_or_null<BlockArgument>(cb);
+        return GenericOp::findAssocCBByOperand(allocOp.getOperation(),
+                                               assocOperand);
       }
     }
-    return mlir::dyn_cast_or_null<BlockArgument>(memref);
+    // Accept block args (CB type) or tensor.empty/memref.alloc results.
+    if (mlir::isa<BlockArgument>(memref)) {
+      return memref;
+    }
+    if (auto *defOp = memref.getDefiningOp()) {
+      if (mlir::isa<mlir::tensor::EmptyOp, memref::AllocOp>(defOp)) {
+        return memref;
+      }
+    }
+    return nullptr;
   }
 
   // Collect a single load or store and determine its loop guard.
@@ -899,11 +906,10 @@ public:
     }
 
     auto [iter, _] = copyInfos.try_emplace(outermostInnerComputeLoop);
-    auto operandIndex =
-        lookThroughSubViewToOperandIndex(gOp, loadOrStore.getMemRef());
+    Value assocCB = lookThroughSubView(loadOrStore.getMemRef());
 
     SmallVector<Value> guardIVs;
-    if (blockArg) {
+    if (assocCB) {
       guardIVs = getGuardLoopIVs(loadOrStore, outermostInnerComputeLoop);
     }
 
@@ -923,11 +929,10 @@ public:
     }
 
     auto [iter, _] = copyInfos.try_emplace(outermostInnerComputeLoop);
-    auto operandIndex =
-        lookThroughSubViewToOperandIndex(gOp, loadOp.getMemRef());
+    Value assocCB = lookThroughSubView(loadOp.getMemRef());
 
     SmallVector<Value> guardIVs;
-    if (blockArg) {
+    if (assocCB) {
       guardIVs = getGuardLoopIVs(loadOp, outermostInnerComputeLoop);
     }
 

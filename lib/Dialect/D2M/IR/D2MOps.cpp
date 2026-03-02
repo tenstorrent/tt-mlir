@@ -2715,17 +2715,31 @@ Value d2m::GenericOp::getOperandTensorEmpty(Region &region,
     return Value();
   }
 
-  Block &block = region.front();
+  // Walk the region looking for tensor.empty/memref.alloc ops, stepping into
+  // blocking loops (affine.for with d2m.blocking_loop) but NOT into compute
+  // regions (linalg.generic, scf.for without blocking_loop, etc.).
+  Value result;
   unsigned idx = 0;
-  for (Operation &op : block) {
-    if (mlir::isa<mlir::tensor::EmptyOp, memref::AllocOp>(&op)) {
-      if (idx == operandIndex) {
-        return op.getResult(0);
+  std::function<void(Block &)> scanBlock = [&](Block &block) {
+    for (Operation &op : block) {
+      if (result) {
+        return;
       }
-      ++idx;
+      if (mlir::isa<mlir::tensor::EmptyOp, memref::AllocOp>(&op)) {
+        if (idx == operandIndex) {
+          result = op.getResult(0);
+          return;
+        }
+        ++idx;
+      } else if (auto forOp = mlir::dyn_cast<mlir::affine::AffineForOp>(&op)) {
+        if (forOp->hasAttr("d2m.blocking_loop")) {
+          scanBlock(*forOp.getBody());
+        }
+      }
     }
-  }
-  return Value();
+  };
+  scanBlock(region.front());
+  return result;
 }
 
 SmallVector<Value>
