@@ -2,8 +2,6 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-# TODO(#CB-removal): Fix LowerLoadStoreOpsToExplicitCBForm for remote_store conversion.
-# XFAIL: *
 # RUN: %python %s | FileCheck %s
 # REQUIRES: ttnn-jit
 
