@@ -834,6 +834,58 @@ static FailureOr<std::string> buildExpressionString(ExpressionOp expressionOp,
   return builder.buildExpression(yieldValue);
 }
 
+static LogicalResult printOperation(PythonEmitter &emitter, IfOp ifOp) {
+  raw_indented_ostream &os = emitter.ostream();
+
+  os << "if ";
+
+  auto items = ifOp.parseFormatString();
+  if (failed(items)) {
+    return failure();
+  }
+
+  size_t idx = 0;
+  for (auto &item : *items) {
+    if (auto *str = std::get_if<StringRef>(&item)) {
+      os << *str;
+    } else {
+      if (failed(emitter.emitOperand(ifOp.getCondArgs()[idx++], ""))) {
+        return failure();
+      }
+    }
+  }
+
+  os << ":\n";
+
+  os.indent();
+  for (Operation &bodyOp : ifOp.getThenRegion().front().getOperations()) {
+    if (failed(emitter.emitOperation(bodyOp))) {
+      return failure();
+    }
+  }
+  os.unindent();
+
+  if (!ifOp.getElseRegion().empty()) {
+    Block &elseBlock = ifOp.getElseRegion().front();
+    auto *firstOp = &elseBlock.front();
+    if (auto nestedIf = dyn_cast<IfOp>(firstOp);
+        nestedIf && elseBlock.getOperations().size() == 1) {
+      os << "el";
+      return printOperation(emitter, nestedIf);
+    }
+    os << "else:\n";
+    os.indent();
+    for (Operation &bodyOp : elseBlock.getOperations()) {
+      if (failed(emitter.emitOperation(bodyOp))) {
+        return failure();
+      }
+    }
+    os.unindent();
+  }
+
+  return success();
+}
+
 static LogicalResult printOperation(PythonEmitter &emitter,
                                     ExpressionOp expressionOp) {
 
@@ -911,7 +963,7 @@ LogicalResult PythonEmitter::emitOperation(Operation &op) {
           .Case<CallOpaqueOp, ImportOp, AssignOp, GetAttrOp, SetAttrOp,
                 ConstantOp, SubscriptOp, ClassOp, GlobalOp, AssignGlobalOp,
                 GlobalStatementOp, CreateDictOp, SetValueForDictKeyOp,
-                GetValueForDictKeyOp, ExpressionOp, YieldOp, FileOp>(
+                GetValueForDictKeyOp, IfOp, ExpressionOp, YieldOp, FileOp>(
               [&](auto op) { return printOperation(*this, op); })
           .Case<LiteralOp>([&](auto op) {
             registerDeferredValue(op.getResult(), op.getValue());
