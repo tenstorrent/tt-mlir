@@ -31,8 +31,6 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         TTNNWeightBFP8Conversion.cpp
         Workarounds/Decomposition/AllGatherOpRewritePattern.cpp
         Workarounds/Decomposition/ArgMaxOpRewritePattern.cpp
-        Workarounds/Decomposition/PagedUpdateCacheOpRewritePattern.cpp
-        Workarounds/Decomposition/ConcatOpDecompositionRewritePattern.cpp
         Workarounds/Decomposition/ConcatenateHeadsOpRewritePattern.cpp
         Workarounds/Decomposition/PagedUpdateCacheOpRewritePattern.cpp
         Workarounds/Decomposition/PointToPointOpRewritePattern.cpp
