@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TTNN/Transforms/GreedyLayoutPropagation.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
@@ -36,142 +36,8 @@
 
 namespace mlir::tt::ttnn {
 
-namespace impl {
-
-std::unique_ptr<::mlir::Pass> createTTNNGreedyLayoutPropagation();
-std::unique_ptr<::mlir::Pass>
-createTTNNGreedyLayoutPropagation(TTNNGreedyLayoutPropagationOptions options);
-
-template <typename DerivedT>
-class TTNNGreedyLayoutPropagationBase
-    : public ::mlir::OperationPass<::mlir::ModuleOp> {
-public:
-  using Base = TTNNGreedyLayoutPropagationBase;
-
-  TTNNGreedyLayoutPropagationBase()
-      : ::mlir::OperationPass<::mlir::ModuleOp>(
-            ::mlir::TypeID::get<DerivedT>()) {}
-  TTNNGreedyLayoutPropagationBase(const TTNNGreedyLayoutPropagationBase &other)
-      : ::mlir::OperationPass<::mlir::ModuleOp>(other) {}
-  TTNNGreedyLayoutPropagationBase &
-  operator=(const TTNNGreedyLayoutPropagationBase &) = delete;
-  TTNNGreedyLayoutPropagationBase(TTNNGreedyLayoutPropagationBase &&) = delete;
-  TTNNGreedyLayoutPropagationBase &
-  operator=(TTNNGreedyLayoutPropagationBase &&) = delete;
-  ~TTNNGreedyLayoutPropagationBase() override = default;
-
-  static constexpr ::llvm::StringLiteral getArgumentName() {
-    return ::llvm::StringLiteral("ttnn-greedy-layout-propagation");
-  }
-  ::llvm::StringRef getArgument() const override {
-    return "ttnn-greedy-layout-propagation";
-  }
-
-  ::llvm::StringRef getDescription() const override {
-    return "Greedy edge-based layout propagation for all operands.";
-  }
-
-  static constexpr ::llvm::StringLiteral getPassName() {
-    return ::llvm::StringLiteral("TTNNGreedyLayoutPropagation");
-  }
-  ::llvm::StringRef getName() const override {
-    return "TTNNGreedyLayoutPropagation";
-  }
-
-  static bool classof(const ::mlir::Pass *pass) {
-    return pass->getTypeID() == ::mlir::TypeID::get<DerivedT>();
-  }
-
-  std::unique_ptr<::mlir::Pass> clonePass() const override {
-    return std::make_unique<DerivedT>(*static_cast<const DerivedT *>(this));
-  }
-
-  void getDependentDialects(::mlir::DialectRegistry &registry) const override {}
-
-  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(
-      TTNNGreedyLayoutPropagationBase<DerivedT>)
-
-  TTNNGreedyLayoutPropagationBase(TTNNGreedyLayoutPropagationOptions options)
-      : TTNNGreedyLayoutPropagationBase() {
-    maxLegalLayouts = std::move(options.maxLegalLayouts);
-    rowMajorEnabled = std::move(options.rowMajorEnabled);
-    beamWidth = std::move(options.beamWidth);
-    insertMemReconfig = std::move(options.insertMemReconfig);
-    overrideOutputLayout = std::move(options.overrideOutputLayout);
-    overrideConv2dConfig = std::move(options.overrideConv2dConfig);
-    enableDecisionTrace = std::move(options.enableDecisionTrace);
-    decisionTraceDir = std::move(options.decisionTraceDir);
-    enableCompileTimeStats = std::move(options.enableCompileTimeStats);
-  }
-
-protected:
-  ::mlir::Pass::Option<int64_t> maxLegalLayouts{
-      *this, OptionNames::maxLegalLayouts,
-      ::llvm::cl::desc("Override maximum number of sharded layouts for legal "
-                       "layout analysis."),
-      ::llvm::cl::init(64)};
-  ::mlir::Pass::Option<bool> rowMajorEnabled{
-      *this, "row-major-enabled",
-      ::llvm::cl::desc(
-          "Enable row major layout generation in legal layout analysis."),
-      ::llvm::cl::init(false)};
-  ::mlir::Pass::Option<int64_t> beamWidth{
-      *this, "beam-width",
-      ::llvm::cl::desc(
-          "Beam width for layout propagation (1=greedy, >1=beam search)."),
-      ::llvm::cl::init(8)};
-  ::mlir::Pass::Option<llvm::StringMap<InsertMemReconfigParams>,
-                       mlir::tt::ttnn::InsertMemReconfigParser>
-      insertMemReconfig{
-          *this, OptionNames::insertMemReconfig,
-          ::llvm::cl::desc(
-              "Manually insert memory reconfig op for specific op's operand."),
-          ::llvm::cl::init(llvm::StringMap<InsertMemReconfigParams>())};
-  ::mlir::Pass::Option<llvm::StringMap<OutputLayoutOverrideParams>,
-                       mlir::tt::ttnn::OutputLayoutOverrideParser>
-      overrideOutputLayout{
-          *this, OptionNames::overrideOutputLayout,
-          ::llvm::cl::desc("Override output tensor layout for specific ops."),
-          ::llvm::cl::init(llvm::StringMap<OutputLayoutOverrideParams>())};
-  ::mlir::Pass::Option<llvm::StringMap<Conv2dConfigOverrideParams>,
-                       mlir::tt::ttnn::Conv2dConfigOverrideParser>
-      overrideConv2dConfig{
-          *this, OptionNames::overrideConv2dConfig,
-          ::llvm::cl::desc("Override Conv2d configuration for specific ops."),
-          ::llvm::cl::init(llvm::StringMap<Conv2dConfigOverrideParams>())};
-  ::mlir::Pass::Option<bool> enableDecisionTrace{
-      *this, "enable-decision-trace",
-      ::llvm::cl::desc("Enable decision trace JSON output."),
-      ::llvm::cl::init(false)};
-  ::mlir::Pass::Option<std::string> decisionTraceDir{
-      *this, "decision-trace-dir",
-      ::llvm::cl::desc("Directory for decision trace JSON output."),
-      ::llvm::cl::init("ttrt-artifacts/decision_trace")};
-  ::mlir::Pass::Option<bool> enableCompileTimeStats{
-      *this, "enable-compile-time-stats",
-      ::llvm::cl::desc("Print per-op compile-time statistics at DEBUG level."),
-      ::llvm::cl::init(false)};
-
-private:
-  friend std::unique_ptr<::mlir::Pass> createTTNNGreedyLayoutPropagation() {
-    return std::make_unique<DerivedT>();
-  }
-
-  friend std::unique_ptr<::mlir::Pass> createTTNNGreedyLayoutPropagation(
-      TTNNGreedyLayoutPropagationOptions options) {
-    return std::make_unique<DerivedT>(std::move(options));
-  }
-};
-} // namespace impl
-
-std::unique_ptr<::mlir::Pass> createTTNNGreedyLayoutPropagation() {
-  return impl::createTTNNGreedyLayoutPropagation();
-}
-
-std::unique_ptr<::mlir::Pass>
-createTTNNGreedyLayoutPropagation(TTNNGreedyLayoutPropagationOptions options) {
-  return impl::createTTNNGreedyLayoutPropagation(std::move(options));
-}
+#define GEN_PASS_DEF_TTNNGREEDYLAYOUTPROPAGATION
+#include "ttmlir/Dialect/TTNN/Transforms/Passes.h.inc"
 
 class TTNNGreedyLayoutPropagation
     : public impl::TTNNGreedyLayoutPropagationBase<
@@ -179,6 +45,24 @@ class TTNNGreedyLayoutPropagation
 public:
   using impl::TTNNGreedyLayoutPropagationBase<
       TTNNGreedyLayoutPropagation>::TTNNGreedyLayoutPropagationBase;
+
+  // Custom copy constructor: Pass::Option members are non-copyable, so we
+  // delegate to the base copy constructor and default-initialize them.
+  TTNNGreedyLayoutPropagation(const TTNNGreedyLayoutPropagation &other)
+      : TTNNGreedyLayoutPropagationBase(other) {}
+
+  // Pipeline constructor: accepts complex options beyond what tablegen handles.
+  TTNNGreedyLayoutPropagation(TTNNGreedyLayoutPropagationPipelineOptions opts)
+      : TTNNGreedyLayoutPropagationBase() {
+    maxLegalLayouts = opts.maxLegalLayouts;
+    rowMajorEnabled = opts.rowMajorEnabled;
+    beamWidth = opts.beamWidth;
+    enableDecisionTrace = opts.enableDecisionTrace;
+    decisionTraceDir = std::move(opts.decisionTraceDir);
+    enableCompileTimeStats = opts.enableCompileTimeStats;
+    overrideOutputLayout = std::move(opts.overrideOutputLayout);
+    overrideConv2dConfig = std::move(opts.overrideConv2dConfig);
+  }
 
   void runOnOperation() final {
 #ifndef TTMLIR_ENABLE_OPMODEL
@@ -295,6 +179,26 @@ public:
     });
 #endif
   }
+
+protected:
+  ::mlir::Pass::Option<llvm::StringMap<OutputLayoutOverrideParams>,
+                       OutputLayoutOverrideParser>
+      overrideOutputLayout{
+          *this, OptionNames::overrideOutputLayout,
+          ::llvm::cl::desc("Override output tensor layout for specific ops."),
+          ::llvm::cl::init(llvm::StringMap<OutputLayoutOverrideParams>())};
+  ::mlir::Pass::Option<llvm::StringMap<Conv2dConfigOverrideParams>,
+                       Conv2dConfigOverrideParser>
+      overrideConv2dConfig{
+          *this, OptionNames::overrideConv2dConfig,
+          ::llvm::cl::desc("Override Conv2d configuration for specific ops."),
+          ::llvm::cl::init(llvm::StringMap<Conv2dConfigOverrideParams>())};
 };
+
+// Pipeline create function.
+std::unique_ptr<::mlir::Pass> createTTNNGreedyLayoutPropagation(
+    TTNNGreedyLayoutPropagationPipelineOptions options) {
+  return std::make_unique<TTNNGreedyLayoutPropagation>(std::move(options));
+}
 
 } // namespace mlir::tt::ttnn

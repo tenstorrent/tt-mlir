@@ -577,4 +577,42 @@ def TTNNMemoryManagement : Pass<"ttnn-memory-management", "::mlir::ModuleOp"> {
   }];
 }
 
+def TTNNGreedyL1SpillManagement : Pass<"ttnn-greedy-l1-spill-management", "::mlir::ModuleOp"> {
+  let summary = "Belady's algorithm for L1 budget enforcement.";
+  let description = [{
+    This pass uses Belady's optimal page replacement algorithm to enforce L1
+    memory budgets by spilling tensors to DRAM when necessary.
+  }];
+  let options = [
+    Option<"enableDecisionTrace", "enable-decision-trace", "bool", "false",
+           "Enable decision trace JSON output.">,
+    Option<"decisionTraceDir", "decision-trace-dir", "std::string",
+           "\"ttrt-artifacts/decision_trace\"",
+           "Directory for decision trace JSON output.">,
+  ];
+}
+
+def TTNNGreedyLayoutPropagation : Pass<"ttnn-greedy-layout-propagation", "::mlir::ModuleOp"> {
+  let summary = "Greedy edge-based layout propagation for all operands.";
+  let description = [{
+    This pass performs edge-based layout propagation using a greedy algorithm
+    or beam search to find optimal tensor layouts across the module.
+  }];
+  let options = [
+    Option<"maxLegalLayouts", "max-legal-layouts", "int64_t", "64",
+           "Override maximum number of sharded layouts for legal layout analysis.">,
+    Option<"rowMajorEnabled", "row-major-enabled", "bool", "false",
+           "Enable row major layout generation in legal layout analysis.">,
+    Option<"beamWidth", "beam-width", "int64_t", "8",
+           "Beam width for layout propagation (1=greedy, >1=beam search).">,
+    Option<"enableDecisionTrace", "enable-decision-trace", "bool", "false",
+           "Enable decision trace JSON output.">,
+    Option<"decisionTraceDir", "decision-trace-dir", "std::string",
+           "\"ttrt-artifacts/decision_trace\"",
+           "Directory for decision trace JSON output.">,
+    Option<"enableCompileTimeStats", "enable-compile-time-stats", "bool", "false",
+           "Print per-op compile-time statistics at DEBUG level.">,
+  ];
+}
+
 #endif
