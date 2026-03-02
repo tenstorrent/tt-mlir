@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TTNN/Transforms/GreedyL1SpillManagement.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
@@ -21,97 +21,8 @@
 
 namespace mlir::tt::ttnn {
 
-namespace impl {
-
-std::unique_ptr<::mlir::Pass> createTTNNGreedyL1SpillManagement();
-std::unique_ptr<::mlir::Pass>
-createTTNNGreedyL1SpillManagement(TTNNGreedyL1SpillManagementOptions options);
-
-template <typename DerivedT>
-class TTNNGreedyL1SpillManagementBase
-    : public ::mlir::OperationPass<::mlir::ModuleOp> {
-public:
-  using Base = TTNNGreedyL1SpillManagementBase;
-
-  TTNNGreedyL1SpillManagementBase()
-      : ::mlir::OperationPass<::mlir::ModuleOp>(
-            ::mlir::TypeID::get<DerivedT>()) {}
-  TTNNGreedyL1SpillManagementBase(const TTNNGreedyL1SpillManagementBase &other)
-      : ::mlir::OperationPass<::mlir::ModuleOp>(other) {}
-  TTNNGreedyL1SpillManagementBase &
-  operator=(const TTNNGreedyL1SpillManagementBase &) = delete;
-  TTNNGreedyL1SpillManagementBase(TTNNGreedyL1SpillManagementBase &&) = delete;
-  TTNNGreedyL1SpillManagementBase &
-  operator=(TTNNGreedyL1SpillManagementBase &&) = delete;
-  ~TTNNGreedyL1SpillManagementBase() override = default;
-
-  static constexpr ::llvm::StringLiteral getArgumentName() {
-    return ::llvm::StringLiteral("ttnn-greedy-l1-spill-management");
-  }
-  ::llvm::StringRef getArgument() const override {
-    return "ttnn-greedy-l1-spill-management";
-  }
-
-  ::llvm::StringRef getDescription() const override {
-    return "Belady's algorithm for L1 budget enforcement.";
-  }
-
-  static constexpr ::llvm::StringLiteral getPassName() {
-    return ::llvm::StringLiteral("TTNNGreedyL1SpillManagement");
-  }
-  ::llvm::StringRef getName() const override {
-    return "TTNNGreedyL1SpillManagement";
-  }
-
-  static bool classof(const ::mlir::Pass *pass) {
-    return pass->getTypeID() == ::mlir::TypeID::get<DerivedT>();
-  }
-
-  std::unique_ptr<::mlir::Pass> clonePass() const override {
-    return std::make_unique<DerivedT>(*static_cast<const DerivedT *>(this));
-  }
-
-  void getDependentDialects(::mlir::DialectRegistry &registry) const override {}
-
-  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(
-      TTNNGreedyL1SpillManagementBase<DerivedT>)
-
-  TTNNGreedyL1SpillManagementBase(TTNNGreedyL1SpillManagementOptions options)
-      : TTNNGreedyL1SpillManagementBase() {
-    enableDecisionTrace = std::move(options.enableDecisionTrace);
-    decisionTraceDir = std::move(options.decisionTraceDir);
-  }
-
-protected:
-  ::mlir::Pass::Option<bool> enableDecisionTrace{
-      *this, "enable-decision-trace",
-      ::llvm::cl::desc("Enable decision trace JSON output."),
-      ::llvm::cl::init(false)};
-  ::mlir::Pass::Option<std::string> decisionTraceDir{
-      *this, "decision-trace-dir",
-      ::llvm::cl::desc("Directory for decision trace JSON output."),
-      ::llvm::cl::init("ttrt-artifacts/decision_trace")};
-
-private:
-  friend std::unique_ptr<::mlir::Pass> createTTNNGreedyL1SpillManagement() {
-    return std::make_unique<DerivedT>();
-  }
-
-  friend std::unique_ptr<::mlir::Pass> createTTNNGreedyL1SpillManagement(
-      TTNNGreedyL1SpillManagementOptions options) {
-    return std::make_unique<DerivedT>(std::move(options));
-  }
-};
-} // namespace impl
-
-std::unique_ptr<::mlir::Pass> createTTNNGreedyL1SpillManagement() {
-  return impl::createTTNNGreedyL1SpillManagement();
-}
-
-std::unique_ptr<::mlir::Pass>
-createTTNNGreedyL1SpillManagement(TTNNGreedyL1SpillManagementOptions options) {
-  return impl::createTTNNGreedyL1SpillManagement(std::move(options));
-}
+#define GEN_PASS_DEF_TTNNGREEDYL1SPILLMANAGEMENT
+#include "ttmlir/Dialect/TTNN/Transforms/Passes.h.inc"
 
 class TTNNGreedyL1SpillManagement
     : public impl::TTNNGreedyL1SpillManagementBase<

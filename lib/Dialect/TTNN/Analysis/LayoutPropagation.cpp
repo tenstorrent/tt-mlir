@@ -669,13 +669,13 @@ LayoutPropagation::getInputCandidateSets(Operation *op) {
     // sharded for concatenate_heads). Guarantee at least one interleaved
     // candidate remains.
     if (auto inputFilter = getInputLayoutFilter(op)) {
-      candidatesForOperand.erase(
-          std::remove_if(candidatesForOperand.begin(),
-                         candidatesForOperand.end(),
-                         [&](const InputCandidate &ic) {
-                           return !inputFilter(ic.layout);
-                         }),
-          candidatesForOperand.end());
+      candidatesForOperand.erase(std::remove_if(candidatesForOperand.begin(),
+                                                candidatesForOperand.end(),
+                                                [&](const InputCandidate &ic) {
+                                                  return !inputFilter(
+                                                      ic.layout);
+                                                }),
+                                 candidatesForOperand.end());
       if (candidatesForOperand.empty()) {
         InputCandidate ic;
         ic.layout = currentLayout.withBufferType(BufferType::DRAM)
