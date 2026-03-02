@@ -3368,7 +3368,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            GeluBackwardOpConversionPattern,
            DropoutOpConversionPattern,
            DebugOpConversionPattern<debug::DumpOp, ttnn::DumpTensorOp>,
-           TopKOpConversionPattern
+           TopKOpConversionPattern,
            ComplexOpConversionPattern,
            RealOpConversionPattern,
            ImagOpConversionPattern
