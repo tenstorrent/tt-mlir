@@ -453,6 +453,8 @@ def generate_ir(func_ast, grid, tensor_metadata, debug=False):
                 # Create function signature
                 input_types = []
                 output_types = []
+                input_metal_types = []
+                output_metal_types = []
                 
                 inputs = []
                 outputs = []
@@ -461,78 +463,63 @@ def generate_ir(func_ast, grid, tensor_metadata, debug=False):
                     shape = meta["shape"]
                     # Hardcode types for now to get skeletal structure
                     f32 = F32Type.get()
-                    tile_type = Type.parse("!ttcore.tile<32x32, f32>", context=ctx)
-                    dram_space = Attribute.parse("#ttcore.memory_space<dram>", context=ctx)
                     h = shape[2] if len(shape) > 2 else shape[0]
                     w = shape[3] if len(shape) > 3 else shape[1] if len(shape) > 1 else shape[0]
                     
                     grid_attr = Attribute.parse(f"#ttcore.grid<{grid[0]}x{grid[1]}>", context=ctx)
-                    # Create logical shape, etc
-                    t_shape = [1, 1, h // 32, w // 32]
-                    logical_shape_str = f"logical_shape={t_shape[0]}x{t_shape[1]}x{h}x{w}"
-                    dim_alignments_str = f"dim_alignments=1x1x32x32"
                     
-                    # collapsed_intervals is a DenseIntElementsAttr. We can probably just leave it as empty array or default if possible, wait, assembly format requires it.
-                    # Let's use #ttcore.layout instead of memory space for memref layout
-                    layout_attr = Attribute.parse(f"#ttcore.metal_layout<{logical_shape_str}, {dim_alignments_str}, collapsed_intervals=dense<> : tensor<0x2xi64>, undef, dram, sharded, index_map = (d0, d1, d2, d3, d4, d5) -> (0, 0, d2, d3, d4, d5)>", context=ctx)
+                    # Create ttnn.ttnn_layout tensor type for function signature
+                    rank = len(shape)
+                    dims = ", ".join([f"d{i}" for i in range(rank)])
+                    affine_map_str = f"({dims}) -> ({dims})"
                     
-                    # The layout is actually #ttcore.layout inside the layout field, but because it doesn't implement MemRefLayoutAttrInterface directly in MLIR terms, we must build it using Type.parse and wait!
-                    # Actually, if we use Type.parse, it will correctly parse it as a MemRefType!
-                    # BUT `dram_space` is `memory_space`. Let's just create a `MemRefType` using `Type.parse("memref<2x2x...x!ttcore.tile<32x32, f32>, #layout, #dram>")`
+                    memref_shape = list(shape)
+                    memref_shape[-2] = memref_shape[-2] // 32
+                    memref_shape[-1] = memref_shape[-1] // 32
+                    memref_shape_str = "x".join(map(str, memref_shape))
                     
+                    ttnn_layout_str = f"#ttnn.ttnn_layout<{affine_map_str}, <1x1>, memref<{memref_shape_str}x!ttcore.tile<32x32, f32>, #ttnn.buffer_type<dram>>, <interleaved>>"
+                    shape_str = "x".join(map(str, shape))
+                    func_arg_type_str = f"tensor<{shape_str}xf32, {ttnn_layout_str}>"
+                    func_arg_type = Type.parse(func_arg_type_str, context=ctx)
+                    
+                    # Prepare ttcore.metal_layout memref type for d2m.generic
                     t_shape = [1, 1, h // 32, w // 32]
                     logical_shape_str = f"logical_shape={grid[0]}x{grid[1]}x{t_shape[0]}x{t_shape[1]}x{h}x{w}"
                     dim_alignments_str = f"dim_alignments=1x1x1x1x32x32"
                     
-                    t_type_str = f"memref<{grid[0]}x{grid[1]}x1x1x{h // 32}x{w // 32}x!ttcore.tile<32x32, f32>, #ttcore.metal_layout<{logical_shape_str}, {dim_alignments_str}, collapsed_intervals=dense<> : tensor<0x2xi64>, undef, dram, sharded, index_map = (d0, d1, d2, d3, d4, d5) -> (0, 0, d2, d3, d4, d5)>>"
-                    # But MLIR parse as memorySpace if only 2 parameters. We need layout to be layout, and memory space to be dram_space.
-                    # Wait, can we provide a `#ttcore.metal_layout` as layout?
-                    # The syntax for MemRef with layout and memory space: memref<shape, layout, memory_space>
-                    # Let's try: `memref<..., #ttcore.metal_layout<...>, #ttcore.memory_space<dram>>`
-                    # In our python binding string:
-                    # Let's change the function argument types to tensor type instead of memref type!
-                    # Wait, no. The memory space and layout issues are purely because `memref` uses a different layout syntax from `tensor`.
-                    # For `tensor`, the layout is simply the `encoding` parameter: `tensor<shape, type, #layout>`!
-                    # And `tensor.getEncoding()` returns the layout.
-                    # Wait! In our generated MLIR, we used `memref` for all operands because we were generating bufferized code.
-                    # If we use `memref`, we must pass `#ttcore.metal_layout` as the memory space? NO!
-                    # In my test dump: `memref<2x2x1x1x8x8x!ttcore.tile<32x32, f32>, #layout>`
-                    # When we printed `d2m.matmul` dump earlier:
-                    # `func.func private @d2m_matmul(%arg0: tensor<1x1x4x3x!ttcore.tile<32x32, f32>, #layout>, %arg1: tensor<1x1x3x2x!ttcore.tile<32x32, f32>, #layout1>) -> tensor<1x1x4x2x!ttcore.tile<32x32, f32>, #layout2>`
-                    # OH! The real compiler uses `tensor` for the top-level generic arguments!!!
-                    # Not `memref`!
-                    # Let's check `d2m.generic` definition! Does it take tensor or memref?
-                    # "Inputs and outputs are variadic and can be either tensors or memrefs."
-                    # If we use `tensor`, the layout `#ttcore.metal_layout` is simply the `encoding` parameter, which is standard MLIR!
-                    # So `#ttcore.metal_layout` implements `DeviceLayoutInterface` but NOT `MemRefLayoutAttrInterface`!
-                    # This means it can ONLY be used as a tensor encoding, NOT as a memref layout!
-                    # But if we use it on a `memref`, MLIR parses it as the `memorySpace` (since it's the first attribute and doesn't implement layout interface).
-                    # Then C++ `getDeviceLayout` tries to call `memref.getLayout()` and gets `nullptr`!
-                    # Aha!!! This explains everything!
-                    # So we MUST use `tensor` for the function arguments and `d2m.generic` operands!
-                    # Wait, our MLIR currently generated `memref` for local buffers too!
-                    # `memref.alloc()` -> `memref<...>`
-                    # `d2m.remote_load` -> `memref<...>`? NO! The dump shows `remote_load` returns `tensor`!
-                    # `d2m.remote_load %10 %2... : tensor<...>, tensor<...>` -> `tensor<...>`
-                    # WAIT! `remote_load` takes a `localBuffer`! In the dump, what is `%10`?
-                    
-                    t_type_str = f"tensor<{grid[0]}x{grid[1]}x1x1x{h // 32}x{w // 32}x!ttcore.tile<32x32, f32>, #ttcore.metal_layout<{logical_shape_str}, {dim_alignments_str}, collapsed_intervals=dense<> : tensor<0x2xi64>, undef, dram, sharded, index_map = (d0, d1, d2, d3, d4, d5) -> (d0, d1, d2, d3, d4, d5)>>"
-                    t_type = Type.parse(t_type_str, context=ctx)
+                    # Create tensor with metal layout
+                    metal_type_str = f"tensor<{grid[0]}x{grid[1]}x1x1x{h // 32}x{w // 32}x!ttcore.tile<32x32, f32>, #ttcore.metal_layout<{logical_shape_str}, {dim_alignments_str}, collapsed_intervals=dense<> : tensor<0x2xi64>, undef, dram, sharded, index_map = (d0, d1, d2, d3, d4, d5) -> (d0, d1, d2, d3, d4, d5)>>"
+                    metal_type = Type.parse(metal_type_str, context=ctx)
                     
                     if meta["is_output"]:
-                        output_types.append(t_type)
+                        output_types.append(func_arg_type)
+                        output_metal_types.append(metal_type)
                     else:
-                        input_types.append(t_type)
+                        input_types.append(func_arg_type)
+                        input_metal_types.append(metal_type)
                         
                 func_type = FunctionType.get(input_types + output_types, [])
                 func_op = func.FuncOp(func_ast.name, func_type, loc=Location.unknown(ctx))
                 func_bb = func_op.add_entry_block()
                 
                 with InsertionPoint(func_bb):
-                    for i in range(len(input_types)):
-                        inputs.append(func_bb.arguments[i])
-                    for i in range(len(output_types)):
-                        outputs.append(func_bb.arguments[len(input_types) + i])
+                    # Insert ttir.ttnn_metal_layout_cast for inputs and outputs
+                    all_metal_types = input_metal_types + output_metal_types
+                    for i in range(len(input_types) + len(output_types)):
+                        arg = func_bb.arguments[i]
+                        metal_type = all_metal_types[i]
+                        cast_op = Operation.create(
+                            "ttir.ttnn_metal_layout_cast",
+                            results=[metal_type],
+                            operands=[arg],
+                            loc=Location.unknown(ctx)
+                        )
+                        if i < len(input_types):
+                            inputs.append(cast_op.result)
+                        else:
+                            outputs.append(cast_op.result)
+                        
                         
                     grid_attr = Attribute.parse(f"#ttcore.grid<{grid[0]}x{grid[1]}>", context=ctx)
                     block_factors = ArrayAttr.get([])
