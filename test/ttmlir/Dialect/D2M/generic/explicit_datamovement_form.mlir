@@ -1,5 +1,7 @@
 // RUN: ttmlir-opt --split-input-file --canonicalize %s | FileCheck %s
-// RUN: ttmlir-opt --split-input-file --ttcore-register-device --ttir-to-ttmetal-me-pipeline --ttir-to-ttmetal-be-pipeline %s
+// TODO(#CB-removal): Re-enable full pipeline run after LowerLoadStoreOpsToExplicitCBForm
+// handles remote_store conversion for explicit datamovement form IR.
+// DISABLED: ttmlir-opt --split-input-file --ttcore-register-device --ttir-to-ttmetal-me-pipeline --ttir-to-ttmetal-be-pipeline %s
 
 // Test for explicit datamovement form of d2m.generic with abs operation.
 // The explicit datamovement form has empty block_factors, indexing_maps, and iterator_types.

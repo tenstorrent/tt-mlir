@@ -18,6 +18,7 @@
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/BuiltinAttributes.h"
@@ -2751,6 +2752,8 @@ Value d2m::GenericOp::getOperandTensorEmpty(Region &region,
         if (forOp->hasAttr("d2m.blocking_loop")) {
           scanBlock(*forOp.getBody());
         }
+      } else if (auto scfFor = mlir::dyn_cast<mlir::scf::ForOp>(&op)) {
+        scanBlock(*scfFor.getBody());
       }
     }
   };
