@@ -5666,4 +5666,204 @@ mlir::tt::ttir::PagedScaledDotProductAttentionDecodeOp::verify() {
   return success();
 }
 
+//===----------------------------------------------------------------------===//
+// SparseMatmulOp
+//===----------------------------------------------------------------------===//
+
+// SparseMatmulOp verification
+::mlir::LogicalResult mlir::tt::ttir::SparseMatmulOp::verify() {
+  ::mlir::RankedTensorType inputAType = getA().getType();
+  ::mlir::RankedTensorType inputBType = getB().getType();
+  ::mlir::RankedTensorType sparsityType = getSparsity().getType();
+  ::mlir::RankedTensorType outputType = getType();
+
+  // Verify that input A is at least 4D tensor
+  if (inputAType.getRank() < 4) {
+    return emitOpError("Input A must be at least a 4D tensor");
+  }
+
+  // Verify that input B is exactly 4D tensor [1, E, K, N]
+  if (inputBType.getRank() != 4) {
+    return emitOpError("Input B must be a 4D tensor [1, E, K, N]");
+  }
+
+  // Verify that sparsity is a 4D tensor
+  if (sparsityType.getRank() != 4) {
+    return emitOpError("Sparsity tensor must be a 4D tensor");
+  }
+
+  bool isInputASparse = getIsInputASparse();
+  bool isInputBSparse = getIsInputBSparse();
+
+  // Verify that at least one input is sparse
+  if (!isInputASparse && !isInputBSparse) {
+    return emitOpError("At least one of is_input_a_sparse or is_input_b_sparse "
+                       "must be true");
+  }
+
+  // Get dimensions
+  int64_t numExperts = inputBType.getShape()[1];
+  int64_t K = inputBType.getShape()[2];
+  (void)inputBType.getShape()[3]; // N - used for output shape validation
+
+  // Verify input B first dimension is 1
+  if (inputBType.getShape()[0] != 1) {
+    return emitOpError("Input B first dimension must be 1");
+  }
+
+  // Verify inner dimensions match
+  if (inputAType.getShape()[inputAType.getRank() - 1] != K) {
+    return emitOpError(
+        "Input A inner dimension must match Input B K dimension");
+  }
+
+  // Verify sparsity tensor has correct number of experts
+  if (sparsityType.getShape()[sparsityType.getRank() - 1] != numExperts) {
+    return emitOpError("Sparsity tensor last dimension must match number of "
+                       "experts in Input B");
+  }
+
+  // Verify output shape based on sparse mode
+  llvm::ArrayRef<int64_t> outputShape = outputType.getShape();
+
+  if (isInputASparse && isInputBSparse) {
+    // [1, E, M, K] @ [1, E, K, N] -> [1, E, M, N]
+    if (outputShape.size() != 4) {
+      return emitOpError("Output must be 4D for sparse-sparse mode");
+    }
+  } else if (!isInputASparse && isInputBSparse) {
+    // [A, B, M, K] @ [1, E, K, N] -> [A, B, 1, E, M, N]
+    if (outputShape.size() != 6) {
+      return emitOpError("Output must be 6D for dense-sparse mode");
+    }
+  } else if (isInputASparse && !isInputBSparse) {
+    // [A, E, M, K] @ [1, E, K, N] -> [A, E, M, N]
+    if (outputShape.size() != 4) {
+      return emitOpError("Output must be 4D for sparse-dense mode");
+    }
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// AllToAllDispatchOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttir::AllToAllDispatchOp::verify() {
+  ::mlir::RankedTensorType inputType = getInputTensor().getType();
+  ::mlir::RankedTensorType indicesType = getExpertIndices().getType();
+  ::mlir::RankedTensorType mappingType = getExpertMapping().getType();
+  ::mlir::RankedTensorType dispatchedType = getDispatched().getType();
+  ::mlir::RankedTensorType metadataType = getMetadata().getType();
+
+  // All tensors must be 4D
+  if (inputType.getRank() != 4) {
+    return emitOpError("input_tensor must be a 4D tensor [B, S, 1, H]");
+  }
+  if (indicesType.getRank() != 4) {
+    return emitOpError("expert_indices must be a 4D tensor [B, S, 1, K]");
+  }
+  if (mappingType.getRank() != 4) {
+    return emitOpError("expert_mapping must be a 4D tensor [1, 1, E, D]");
+  }
+  if (dispatchedType.getRank() != 4) {
+    return emitOpError("dispatched output must be a 4D tensor [1, B*D, S, H]");
+  }
+  if (metadataType.getRank() != 4) {
+    return emitOpError("metadata output must be a 4D tensor [1, B*D, S, K]");
+  }
+
+  // Verify num_devices > 0
+  if (getNumDevices() <= 0) {
+    return emitOpError("num_devices must be positive");
+  }
+
+  // Verify cluster_axis is 0 or 1.
+  int64_t clusterAxis = static_cast<int64_t>(getClusterAxis());
+  if (clusterAxis < 0 || clusterAxis > 1) {
+    return emitOpError("cluster_axis must be 0 or 1");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// AllToAllCombineOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttir::AllToAllCombineOp::verify() {
+  ::mlir::RankedTensorType inputType = getInputTensor().getType();
+  ::mlir::RankedTensorType metadataType = getExpertMetadata().getType();
+  ::mlir::RankedTensorType mappingType = getExpertMapping().getType();
+  ::mlir::RankedTensorType resultType = getResult().getType();
+
+  // All tensors must be 4D
+  if (inputType.getRank() != 4) {
+    return emitOpError("input_tensor must be a 4D tensor [E_local, B*D, S, H]");
+  }
+  if (metadataType.getRank() != 4) {
+    return emitOpError("expert_metadata must be a 4D tensor [1, B*D, S, K]");
+  }
+  if (mappingType.getRank() != 4) {
+    return emitOpError("expert_mapping must be a 4D tensor [1, 1, E, D]");
+  }
+  if (resultType.getRank() != 4) {
+    return emitOpError("result must be a 4D tensor [K, B, S, H]");
+  }
+
+  // Verify num_devices > 0
+  if (getNumDevices() <= 0) {
+    return emitOpError("num_devices must be positive");
+  }
+
+  // Verify cluster_axis is 0 or 1.
+  int64_t clusterAxis = static_cast<int64_t>(getClusterAxis());
+  if (clusterAxis < 0 || clusterAxis > 1) {
+    return emitOpError("cluster_axis must be 0 or 1");
+  }
+
+  // Verify num_experts_per_tok > 0
+  if (getNumExpertsPerTok() <= 0) {
+    return emitOpError("num_experts_per_tok must be positive");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// MoeExpertTokenRemapOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttir::MoeExpertTokenRemapOp::verify() {
+  ::mlir::RankedTensorType topkType = getTopkTensor().getType();
+  ::mlir::RankedTensorType mappingInputType = getExpertMapping().getType();
+  ::mlir::RankedTensorType metadataType = getExpertMetadata().getType();
+  ::mlir::RankedTensorType mappingOutputType = getMapping().getType();
+  ::mlir::RankedTensorType reducedType = getReduced().getType();
+
+  if (topkType.getRank() != 4) {
+    return emitOpError("topk_tensor must be a 4D tensor [D, B, S, E]");
+  }
+  if (mappingInputType.getRank() != 4) {
+    return emitOpError("expert_mapping must be a 4D tensor [1, 1, E, D]");
+  }
+  if (metadataType.getRank() != 4) {
+    return emitOpError("expert_metadata must be a 4D tensor [D, B, S, K]");
+  }
+  if (mappingOutputType.getRank() != 4) {
+    return emitOpError("mapping output must be a 4D tensor [1, B, S, E_local]");
+  }
+  if (reducedType.getRank() != 4) {
+    return emitOpError(
+        "reduced output must be a 4D tensor [1, 1, ceil(B*S/R), E_local]");
+  }
+
+  if (getReductionSize() <= 0) {
+    return emitOpError("reduction_size must be positive");
+  }
+
+  return success();
+}
+
 } // namespace mlir::tt::ttir
