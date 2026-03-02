@@ -109,9 +109,10 @@ namespace {
 // Helper functions for building GenericOp regions with RemoteLoad/RemoteStore
 // ============================================================================
 
-// Extract the shard type from a tensor.empty value (previously CB block arg).
-static Type getShardTypeFromCB(Value tensorEmpty) {
-  return tensorEmpty.getType();
+// Extract the shard type from an operand allocation value (tensor.empty or
+// memref.alloc, or CB block arg in old form).
+static Type getShardTypeFromCB(Value operandAlloc) {
+  return operandAlloc.getType();
 }
 
 // Build identity grid indices for a given grid rank

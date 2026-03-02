@@ -1480,7 +1480,7 @@ void d2m::GenericOp::build(
   OpBuilder::InsertionGuard guard(builder);
   builder.createBlock(&region, region.end());
 
-  llvm::SmallVector<Value> tensorEmpties;
+  llvm::SmallVector<Value> operandAllocs;
   for (Value operand : inputOutputOperands) {
     auto tensorType = mlir::cast<RankedTensorType>(operand.getType());
     auto layout = mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
@@ -1506,10 +1506,10 @@ void d2m::GenericOp::build(
     auto shardShape = layout.getShardShape(tensorType);
     auto emptyOp = builder.create<mlir::tensor::EmptyOp>(
         state.location, shardShape, tensorType.getElementType());
-    tensorEmpties.push_back(emptyOp.getResult());
+    operandAllocs.push_back(emptyOp.getResult());
   }
 
-  singleThreadRegionBuilder(builder, state.location, tensorEmpties);
+  singleThreadRegionBuilder(builder, state.location, operandAllocs);
 }
 
 void d2m::GenericOp::build(
@@ -2056,7 +2056,7 @@ void GenericOp::getCanonicalizationPatterns(mlir::RewritePatternSet &patterns,
           if (static_cast<unsigned>(dpsIOBoundary) < region.getNumArguments()) {
             outputCb = region.getArgument(dpsIOBoundary);
           } else {
-            outputCb = GenericOp::getOperandTensorEmpty(region, dpsIOBoundary);
+            outputCb = GenericOp::getOperandAlloc(region, dpsIOBoundary);
           }
 
           if (!outputCb || outputCb.use_empty()) {
@@ -2710,7 +2710,7 @@ Value d2m::GenericOp::findAssocCBByOperandIndex(Operation *op,
     return Value();
   }
 
-  return getOperandTensorEmpty(*genericRegion, operandIndex);
+  return getOperandAlloc(*genericRegion, operandIndex);
 }
 
 Value d2m::GenericOp::findAssocCBByOperand(Operation *op, Value operand) {
@@ -2735,8 +2735,7 @@ Value d2m::GenericOp::findAssocCBByOperand(Operation *op, Value operand) {
   return findAssocCBByOperandIndex(op, operandIndex);
 }
 
-Value d2m::GenericOp::getOperandTensorEmpty(Region &region,
-                                            unsigned operandIndex) {
+Value d2m::GenericOp::getOperandAlloc(Region &region, unsigned operandIndex) {
   if (region.empty()) {
     return Value();
   }
@@ -2784,8 +2783,8 @@ Value d2m::GenericOp::getOperandTensorEmpty(Region &region,
   return result;
 }
 
-SmallVector<Value>
-d2m::GenericOp::getOperandTensorEmpties(Region &region, unsigned numOperands) {
+SmallVector<Value> d2m::GenericOp::getOperandAllocs(Region &region,
+                                                    unsigned numOperands) {
   SmallVector<Value> result;
   if (region.empty()) {
     return result;
