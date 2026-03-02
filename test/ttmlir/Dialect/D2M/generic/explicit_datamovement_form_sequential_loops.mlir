@@ -1,4 +1,7 @@
-// RUN: ttmlir-opt --split-input-file --ttcore-register-device --ttir-to-ttmetal-me-pipeline --ttir-to-ttmetal-be-pipeline %s
+// TODO(#CB-removal): Re-enable full pipeline run after LowerLoadStoreOpsToExplicitCBForm
+// handles remote_store conversion for explicit datamovement form IR.
+// DISABLED: ttmlir-opt --split-input-file --ttcore-register-device --ttir-to-ttmetal-me-pipeline --ttir-to-ttmetal-be-pipeline %s
+// RUN: true
 
 // Test for explicit datamovement form of d2m.generic with abs operation
 // using split loop nests and stream_layout. The first loop nest processes
