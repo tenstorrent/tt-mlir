@@ -37,7 +37,10 @@ static bool isRemoteOperand(Value operand, Operation *op) {
 // are introduced. Returns the CB block arg for the given operand index.
 static void materializeCBBlockArgs(GenericOp generic, Region &region) {
   Block &block = region.front();
-  unsigned numOperands = generic->getNumOperands();
+  // Only count inputs + outputs, not additionalArgs (which may not be
+  // ShapedType, e.g., global semaphores).
+  unsigned numOperands =
+      generic.getInputs().size() + generic.getOutputs().size();
 
   // Check if CB block args already exist (idempotent).
   unsigned numExistingCBArgs = 0;
