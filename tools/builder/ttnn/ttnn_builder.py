@@ -13,6 +13,7 @@ from ttmlir.dialects import ttnn, ttcore, func
 
 from builder.base.builder import *
 from builder.base.builder_utils import *
+from builder.base.builder_enums import *
 
 from golden import *
 
@@ -4787,6 +4788,127 @@ class TTNNBuilder(Builder):
                 unit_attrs=unit_attrs,
                 golden_kwargs=golden_kwargs,
             )
+
+    ############### ttnn.MeshShardOp ###############
+
+    def _get_or_create_device(self) -> OpResult:
+        if not hasattr(self, "_cached_device") or self._cached_device is None:
+            mesh_shape_attr = ttnn.ir.MeshShapeAttr.get(
+                self._ctx, self._mesh_shape[0], self._mesh_shape[1]
+            )
+            device_op = ttnn.GetDeviceOp(mesh_shape=mesh_shape_attr)
+            self._cached_device = device_op.device
+        return self._cached_device
+
+    @tag(ttnn.MeshShardOp)
+    def mesh_shard(
+        self,
+        input: Operand,
+        shard_type: int,
+        shard_direction: int,
+        shard_shape: List[int],
+        shard_dims: List[int],
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttnn_op = self.get_opview_from_method(TTNNBuilder.mesh_shard)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(input)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        input0 = self._get_golden_tensor(input)
+        shard_type_attr = ttcore.ir.MeshShardTypeAttr.get(self._ctx, shard_type)
+        shard_direction_attr = ttcore.ir.MeshShardDirectionAttr.get(
+            self._ctx, shard_direction
+        )
+        shard_shape_attr = DenseI64ArrayAttr.get(shard_shape)
+        shard_dims_attr = DenseI64ArrayAttr.get(shard_dims)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(
+            input0,
+            shard_type_attr,
+            shard_direction_attr,
+            shard_shape_attr,
+            shard_dims_attr,
+            mlir_output_type,
+        )
+        result = self.create_ttnn_tensor(golden_output.shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        device = self._get_or_create_device()
+
+        op = ttnn_op(
+            result,
+            input,
+            device,
+            shard_direction_attr,
+            shard_type_attr,
+            shard_shape_attr,
+            shard_dims_attr,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(ttnn.MeshShardOp)
+    def mesh_shard_parser(
+        self,
+        old_op: ttnn.MeshShardOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttnn_op = self.get_opview_from_parser(TTNNBuilder.mesh_shard_parser)
+
+        in0 = global_dict[old_op.input]
+        result = old_op.result.type
+        device = global_dict[old_op.device]
+        shard_type_attr = old_op.shard_type
+        shard_direction_attr = old_op.shard_direction
+        shard_shape_attr = old_op.shard_shape
+        shard_dims_attr = old_op.shard_dims
+
+        new_op = ttnn_op(
+            result,
+            in0,
+            device,
+            shard_direction_attr,
+            shard_type_attr,
+            shard_shape_attr,
+            shard_dims_attr,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            op_golden_function = get_golden_function(ttnn_op)
+            golden_output = op_golden_function(
+                input0,
+                shard_type_attr,
+                shard_direction_attr,
+                shard_shape_attr,
+                shard_dims_attr,
+                result.element_type,
+            )
+            self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
 
     ############### ttnn.AllGatherOp ###############
 
