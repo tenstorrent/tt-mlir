@@ -119,7 +119,8 @@ ToLayoutOp createToLayoutOp(Operation *op,
       outputMemConfigAttr);
 }
 
-ToLayoutOp createHeightShardedToLayout(Value input, RankedTensorType inputType,
+ToLayoutOp createHeightShardedToLayout(Operation *op, Value input,
+                                       RankedTensorType inputType,
                                        int64_t batchSize,
                                        RewriterBase &rewriter, Location loc) {
   auto inputElementType = inputType.getElementType();
@@ -127,9 +128,8 @@ ToLayoutOp createHeightShardedToLayout(Value input, RankedTensorType inputType,
     inputElementType = tileType.getElementType();
   }
 
-  auto physicalGrid = ttcore::getCurrentScopeSystemDesc(input.getDefiningOp())
-                          .getChipDescs()[0]
-                          .getGrid();
+  auto physicalGrid =
+      ttcore::getCurrentScopeSystemDesc(op).getChipDescs()[0].getGrid();
 
   auto affineMap =
       optimizer_utils::createSingleDeviceVirtualToPhysicalAffineMap(

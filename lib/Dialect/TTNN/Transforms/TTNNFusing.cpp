@@ -1162,21 +1162,21 @@ public:
   mlir::LogicalResult
   matchAndRewrite(ReshapeOp reshapeOp,
                   mlir::PatternRewriter &rewriter) const override {
-    // Step 1: Skip through transparent ops to find the permute.
+    // Skip through transparent ops to find the permute.
     Value reshapeInput = skipTransparent(reshapeOp.getInput());
     auto permuteOp = reshapeInput.getDefiningOp<PermuteOp>();
     if (!permuteOp) {
       return failure();
     }
 
-    // Step 2: Check permutation is [1, 2, 0, 3].
+    // Check permutation is [1, 2, 0, 3].
     auto permutation = permuteOp.getPermutation();
     if (!llvm::equal(permutation,
                      ArrayRef<int64_t>(kConcatHeadsDecodePermutation))) {
       return failure();
     }
 
-    // Step 3: Validate permute input is a 4D tensor.
+    // Validate permute input is a 4D tensor.
     Value input = permuteOp.getInput();
     auto inputType = mlir::cast<RankedTensorType>(input.getType());
     if (inputType.getRank() != 4) {
@@ -1194,21 +1194,21 @@ public:
       return failure();
     }
 
-    // Step 4: Construct the NLPConcatHeadsDecodeOp output type.
+    // Construct the NLPConcatHeadsDecodeOp output type.
     // Output shape: [S, 1, B, num_heads * head_dim].
     SmallVector<int64_t> concatHeadsOutputShape = {seqLen, 1, batchSize,
                                                    numHeads * headDim};
     auto concatHeadsResultType = utils::RankedTensorTypeFactory::create(
         inputType, concatHeadsOutputShape);
 
-    // Step 5: Validate with op constraints using height-sharded input.
+    // Validate with op constraints using height-sharded input.
     // The op requires height-sharded L1 input, but the workaround pass
     // handles inserting the actual ToLayoutOp later. Create a temporary
     // sharded version just for validation, then discard it.
     op_model::ScopedSingletonDeviceGuard deviceGuard(reshapeOp);
 
     auto shardedInputOp = utils::createHeightShardedToLayout(
-        input, inputType, batchSize, rewriter, reshapeOp.getLoc());
+        reshapeOp, input, inputType, batchSize, rewriter, reshapeOp.getLoc());
     auto shardedInputType =
         mlir::cast<RankedTensorType>(shardedInputOp.getType());
     auto shardedResultType = utils::RankedTensorTypeFactory::create(
@@ -1233,13 +1233,13 @@ public:
       return failure();
     }
 
-    // Step 6: Create the actual fused op (without sharded input).
+    // Create the actual fused op (without sharded input).
     auto nlpConcatHeadsDecodeOp = rewriter.create<NLPConcatHeadsDecodeOp>(
         reshapeOp.getLoc(), concatHeadsResultType, input,
         rewriter.getUI32IntegerAttr(static_cast<uint32_t>(numHeads)),
         /*memory_config=*/MemoryConfigAttr());
 
-    // Step 7: Create a new reshape from 4D fused output to original output
+    // Create a new reshape from 4D fused output to original output
     // shape. The old permute and transparent ops become dead code and are
     // eliminated by DCE.
     auto newReshapeOp = rewriter.create<ReshapeOp>(

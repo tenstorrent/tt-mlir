@@ -31,7 +31,7 @@ ToLayoutOp createToLayoutOp(mlir::Operation *op,
 // Creates a ToLayoutOp that converts input to height-sharded L1 Tile layout
 // with virtual grid [batchSize, 1]. Required by NLPConcatHeadsDecodeOp which
 // expects each batch element assigned to its own row of cores.
-ToLayoutOp createHeightShardedToLayout(mlir::Value input,
+ToLayoutOp createHeightShardedToLayout(mlir::Operation *op, mlir::Value input,
                                        RankedTensorType inputType,
                                        int64_t batchSize,
                                        RewriterBase &rewriter,
