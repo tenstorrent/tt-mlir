@@ -1291,10 +1291,10 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         TT_assert(!genericOp->getRegions().empty());
         Region &region = genericOp->getRegions().front();
         TT_assert(region.hasOneBlock());
-        Value tensorEmpty =
-            d2m::GenericOp::getOperandTensorEmpty(region, operandIndex);
-        TT_assert(tensorEmpty);
-        Type cbUnderlyingType = tensorEmpty.getType();
+        Value operandAlloc =
+            d2m::GenericOp::getOperandAlloc(region, operandIndex);
+        TT_assert(operandAlloc);
+        Type cbUnderlyingType = operandAlloc.getType();
 
         if (!operandCtx.hasStream &&
             (useAlwaysStreamPolicy() ||
@@ -1457,8 +1457,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         TT_assert(region.hasOneBlock());
 
         const auto operandIndex = operandCtx.operand->getOperandNumber();
-        Value oldTensor =
-            d2m::GenericOp::getOperandTensorEmpty(region, operandIndex);
+        Value oldTensor = d2m::GenericOp::getOperandAlloc(region, operandIndex);
         if (oldTensor && oldTensor.getDefiningOp()) {
           // Create a replacement with the updated shard shape, preserving
           // the type category (tensor.empty vs memref.alloc).
