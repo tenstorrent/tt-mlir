@@ -88,3 +88,81 @@ func.func public @test_sort_key_values(%arg0: tensor<1x4x64x64xf32>, %arg1: tens
   }) : (tensor<1x4x64x64xf32>, tensor<1x4x64x64xi32>, tensor<1x4x64x64xi32>, tensor<1x4x64x64xi32>) -> (tensor<1x4x64x64xf32>, tensor<1x4x64x64xi32>, tensor<1x4x64x64xi32>, tensor<1x4x64x64xi32>)
   return %0#0, %0#1, %0#2, %0#3 : tensor<1x4x64x64xf32>, tensor<1x4x64x64xi32>, tensor<1x4x64x64xi32>, tensor<1x4x64x64xi32>
 }
+
+// KeyValue sort along dim=0 (first dim). sortDim != rank-1, so permute path is taken.
+// Shape [4x3]: perm=[1,0], prePost=3, dSort=4, total=12.
+// Indices permuted [4x3] → [3x4], reshaped to [3x4].
+// ArangeOp(step=4): row offsets [0,4,8] broadcast to [3x4].
+// Per value tensor: permute [4x3]→[3x4], flatten to [12x1], embedding, reshape [3x4], permute back [4x3].
+func.func public @test_sort_key_values_dim0(%arg0: tensor<4x3xf32>, %arg1: tensor<4x3xi32>) -> (tensor<4x3xf32>, tensor<4x3xi32>) {
+  // CHECK-LABEL: @test_sort_key_values_dim0
+  // CHECK: %{{.*}}, %[[INDICES:.*]] = "ttir.sort"(%arg0)
+  // CHECK-SAME: <{descending = false, dim = 0 : si32, stable = true}>
+  // CHECK-SAME: (tensor<4x3xf32>)
+  // CHECK-SAME: -> (tensor<4x3xf32>, tensor<4x3xi32>)
+  // CHECK: %[[PERM_IDX:.*]] = "ttir.permute"(%[[INDICES]])
+  // CHECK-SAME: <{permutation = array<i64: 1, 0>}>
+  // CHECK-SAME: (tensor<4x3xi32>) -> tensor<3x4xi32>
+  // CHECK: %[[INDICES_2D:.*]] = "ttir.reshape"(%[[PERM_IDX]])
+  // CHECK-SAME: <{shape = [3 : i32, 4 : i32]}>
+  // CHECK-SAME: (tensor<3x4xi32>) -> tensor<3x4xi32>
+  // CHECK: %[[OFFSETS:.*]] = "ttir.arange"()
+  // CHECK-SAME: <{arange_dimension = 0 : i64, end = 12 : si64, start = 0 : si64, step = 4 : si64}>
+  // CHECK-SAME: -> tensor<3x4xi32>
+  // CHECK: %[[FLAT_IDX:.*]] = "ttir.add"(%[[OFFSETS]], %[[INDICES_2D]])
+  // CHECK-SAME: (tensor<3x4xi32>, tensor<3x4xi32>) -> tensor<3x4xi32>
+  // CHECK: %[[PERM_V1:.*]] = "ttir.permute"(%arg1)
+  // CHECK-SAME: <{permutation = array<i64: 1, 0>}>
+  // CHECK-SAME: (tensor<4x3xi32>) -> tensor<3x4xi32>
+  // CHECK: %[[W1:.*]] = "ttir.reshape"(%[[PERM_V1]]) <{shape = [12 : i32, 1 : i32]}> : (tensor<3x4xi32>) -> tensor<12x1xi32>
+  // CHECK: %[[E1:.*]] = "ttir.embedding"(%[[FLAT_IDX]], %[[W1]]) : (tensor<3x4xi32>, tensor<12x1xi32>) -> tensor<3x4x1xi32>
+  // CHECK: %[[R1:.*]] = "ttir.reshape"(%[[E1]]) <{shape = [3 : i32, 4 : i32]}> : (tensor<3x4x1xi32>) -> tensor<3x4xi32>
+  // CHECK: %{{.*}} = "ttir.permute"(%[[R1]])
+  // CHECK-SAME: <{permutation = array<i64: 1, 0>}>
+  // CHECK-SAME: (tensor<3x4xi32>) -> tensor<4x3xi32>
+  %0:2 = "stablehlo.sort"(%arg0, %arg1) <{dimension = 0 : i64, is_stable = true}> ({
+  ^bb0(%arg2: tensor<f32>, %arg3: tensor<f32>, %arg4: tensor<i32>, %arg5: tensor<i32>):
+    %1 = stablehlo.compare LT, %arg2, %arg3, TOTALORDER : (tensor<f32>, tensor<f32>) -> tensor<i1>
+    stablehlo.return %1 : tensor<i1>
+  }) : (tensor<4x3xf32>, tensor<4x3xi32>) -> (tensor<4x3xf32>, tensor<4x3xi32>)
+  return %0#0, %0#1 : tensor<4x3xf32>, tensor<4x3xi32>
+}
+
+// KeyValue sort along dim=1 (middle dim of 3D tensor). sortDim != rank-1, so permute path is taken.
+// Shape [2x4x3]: perm=[0,2,1], prePost=6, dSort=4, total=24.
+// Indices permuted [2x4x3] → [2x3x4], reshaped to [6x4].
+// ArangeOp(step=4): row offsets [0,4,8,12,16,20] broadcast to [6x4].
+// Per value tensor: permute [2x4x3]→[2x3x4], flatten to [24x1], embedding, reshape [2x3x4], permute back [2x4x3].
+func.func public @test_sort_key_values_middle_dim(%arg0: tensor<2x4x3xf32>, %arg1: tensor<2x4x3xi32>) -> (tensor<2x4x3xf32>, tensor<2x4x3xi32>) {
+  // CHECK-LABEL: @test_sort_key_values_middle_dim
+  // CHECK: %{{.*}}, %[[INDICES:.*]] = "ttir.sort"(%arg0)
+  // CHECK-SAME: <{descending = false, dim = 1 : si32, stable = true}>
+  // CHECK-SAME: (tensor<2x4x3xf32>)
+  // CHECK-SAME: -> (tensor<2x4x3xf32>, tensor<2x4x3xi32>)
+  // CHECK: %[[PERM_IDX:.*]] = "ttir.permute"(%[[INDICES]])
+  // CHECK-SAME: <{permutation = array<i64: 0, 2, 1>}>
+  // CHECK-SAME: (tensor<2x4x3xi32>) -> tensor<2x3x4xi32>
+  // CHECK: %[[INDICES_2D:.*]] = "ttir.reshape"(%[[PERM_IDX]])
+  // CHECK-SAME: <{shape = [6 : i32, 4 : i32]}>
+  // CHECK-SAME: (tensor<2x3x4xi32>) -> tensor<6x4xi32>
+  // CHECK: %[[OFFSETS:.*]] = "ttir.arange"()
+  // CHECK-SAME: <{arange_dimension = 0 : i64, end = 24 : si64, start = 0 : si64, step = 4 : si64}>
+  // CHECK-SAME: -> tensor<6x4xi32>
+  // CHECK: %[[FLAT_IDX:.*]] = "ttir.add"(%[[OFFSETS]], %[[INDICES_2D]])
+  // CHECK-SAME: (tensor<6x4xi32>, tensor<6x4xi32>) -> tensor<6x4xi32>
+  // CHECK: %[[PERM_V1:.*]] = "ttir.permute"(%arg1)
+  // CHECK-SAME: <{permutation = array<i64: 0, 2, 1>}>
+  // CHECK-SAME: (tensor<2x4x3xi32>) -> tensor<2x3x4xi32>
+  // CHECK: %[[W1:.*]] = "ttir.reshape"(%[[PERM_V1]]) <{shape = [24 : i32, 1 : i32]}> : (tensor<2x3x4xi32>) -> tensor<24x1xi32>
+  // CHECK: %[[E1:.*]] = "ttir.embedding"(%[[FLAT_IDX]], %[[W1]]) : (tensor<6x4xi32>, tensor<24x1xi32>) -> tensor<6x4x1xi32>
+  // CHECK: %[[R1:.*]] = "ttir.reshape"(%[[E1]]) <{shape = [2 : i32, 3 : i32, 4 : i32]}> : (tensor<6x4x1xi32>) -> tensor<2x3x4xi32>
+  // CHECK: %{{.*}} = "ttir.permute"(%[[R1]])
+  // CHECK-SAME: <{permutation = array<i64: 0, 2, 1>}>
+  // CHECK-SAME: (tensor<2x3x4xi32>) -> tensor<2x4x3xi32>
+  %0:2 = "stablehlo.sort"(%arg0, %arg1) <{dimension = 1 : i64, is_stable = true}> ({
+  ^bb0(%arg2: tensor<f32>, %arg3: tensor<f32>, %arg4: tensor<i32>, %arg5: tensor<i32>):
+    %1 = stablehlo.compare LT, %arg2, %arg3, TOTALORDER : (tensor<f32>, tensor<f32>) -> tensor<i1>
+    stablehlo.return %1 : tensor<i1>
+  }) : (tensor<2x4x3xf32>, tensor<2x4x3xi32>) -> (tensor<2x4x3xf32>, tensor<2x4x3xi32>)
+  return %0#0, %0#1 : tensor<2x4x3xf32>, tensor<2x4x3xi32>
+}
