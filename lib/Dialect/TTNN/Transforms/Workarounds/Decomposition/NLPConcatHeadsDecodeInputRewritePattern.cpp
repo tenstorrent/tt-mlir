@@ -25,7 +25,7 @@ LogicalResult NLPConcatHeadsDecodeInputRewritePattern::matchAndRewrite(
 
   rewriter.setInsertionPoint(op);
   auto shardedInput = utils::createHeightShardedToLayout(
-      op.getInput(), inputType, batchSize, rewriter, op.getLoc());
+      op, op.getInput(), inputType, batchSize, rewriter, op.getLoc());
 
   rewriter.modifyOpInPlace(
       op, [&]() { op.getInputMutable().assign(shardedInput); });
