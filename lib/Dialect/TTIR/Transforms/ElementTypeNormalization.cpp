@@ -28,6 +28,7 @@ public:
           }
 
           // Skip complex types - don't modify them.
+          // TODO(@ddilbazTT): Convert f64 to f32.
           if (mlir::isa<mlir::ComplexType>(elementType)) {
             return type;
           }

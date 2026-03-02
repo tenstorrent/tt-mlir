@@ -3,6 +3,7 @@ add_subdirectory(HoistCPUOps)
 add_mlir_dialect_library(MLIRTTIRTransforms
         Broadcast.cpp
         DecomposeComplexPermute.cpp
+        ComplexDataTypeConversion.cpp
         DecomposeComplexReshape.cpp
         GlobalDataFormatConversion.cpp
         ExplicateTMs.cpp
