@@ -2873,4 +2873,10 @@ bool d2m::SpatialOp::hasTensorSemantics() {
   }
   return any_of(getOperandTypes(), isaTensor);
 }
+
+void d2m::SpatialOp::getEffects(
+    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
+        &effects) {
+  d2m::getDpsEffects(*this, effects);
+}
 } // namespace mlir::tt::d2m
