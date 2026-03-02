@@ -4807,6 +4807,7 @@ class TTNNBuilder(Builder):
         else:
             mlir_output_type = self._get_type_from_torch_dtype(output_type)
 
+        input0 = self._get_golden_tensor(input)
         all_gather_dim_attr = IntegerAttr.get(
             IntegerType.get_signed(32), all_gather_dim
         )
@@ -4814,10 +4815,11 @@ class TTNNBuilder(Builder):
             IntegerType.get_unsigned(32), cluster_axis
         )
 
-        input_shape = list(self.get_shape(input))
-        output_shape = list(input_shape)
-        output_shape[all_gather_dim] *= self._mesh_shape[cluster_axis]
-        result = self.create_ttnn_tensor(output_shape, mlir_output_type)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(
+            input0, all_gather_dim_attr, cluster_axis_attr, mlir_output_type
+        )
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
 
         if loc is None:
             loc = self._get_location()
@@ -4831,20 +4833,16 @@ class TTNNBuilder(Builder):
             cluster_axis_attr,
             loc=loc,
         )
-        op_result = op.result
+        new_op_result = op.result
 
         if unit_attrs is not None:
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        input0 = self._get_golden_tensor(input)
-        op_golden_function = get_golden_function(ttnn_op)
-        golden_output = op_golden_function(
-            input0, all_gather_dim_attr, cluster_axis_attr, mlir_output_type
-        )
-        self._set_golden_tensor(op_result, golden_output)
+        if not self._disable_golden_check:
+            self._set_golden_tensor(new_op_result, golden_output)
 
-        return op_result
+        return new_op_result
 
     @parse(ttnn.AllGatherOp)
     def all_gather_parser(
@@ -4883,7 +4881,9 @@ class TTNNBuilder(Builder):
             )
             self._set_golden_tensor(new_op_result, golden_output)
 
-        return new_op, {old_op.result: new_op_result}
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
 
     # ----- Parse ttnn module ----
 

@@ -5911,9 +5911,6 @@ def ttnn_mish_golden(
     return torch.nn.functional.mish(input_tensor).to(output_dtype)
 
 
-################ TTNN CCL Op Golden Functions ###############
-
-
 def ttnn_all_gather_golden(
     input: GoldenMapTensor,
     all_gather_dim_attr: IntegerAttr,
