@@ -110,13 +110,40 @@ class D2MASTVisitor(ast.NodeVisitor):
 
         # out_type is the res_type inferred. We just use out_val
         rank = len(lhs.type.shape)
-        identity_map = AffineMap.get_identity(rank)
-        indexing_maps = ArrayAttr.get([
-            AffineMapAttr.get(identity_map),
-            AffineMapAttr.get(identity_map),
-            AffineMapAttr.get(identity_map),
-        ])
-        iterator_types = ArrayAttr.get([StringAttr.get("parallel") for _ in range(rank)])
+        
+        from ttmlir.ir import AffineMap, AffineMapAttr, StringAttr, ArrayAttr
+
+        if op_name == "matmul":
+            from ttmlir.ir import AffineExpr
+            
+            iter_rank = rank + 1
+            batch_rank = rank - 2
+
+            exprs = [AffineExpr.get_dim(i) for i in range(batch_rank)]
+            m = AffineExpr.get_dim(batch_rank)
+            n = AffineExpr.get_dim(batch_rank + 1)
+            k = AffineExpr.get_dim(batch_rank + 2)
+
+            lhs_map = AffineMap.get(iter_rank, 0, exprs + [m, k])
+            rhs_map = AffineMap.get(iter_rank, 0, exprs + [k, n])
+            out_map = AffineMap.get(iter_rank, 0, exprs + [m, n])
+
+            indexing_maps = ArrayAttr.get([
+                AffineMapAttr.get(lhs_map),
+                AffineMapAttr.get(rhs_map),
+                AffineMapAttr.get(out_map),
+            ])
+
+            iterator_types_list = ["parallel"] * batch_rank + ["parallel", "parallel", "reduction"]
+            iterator_types = ArrayAttr.get([StringAttr.get(t) for t in iterator_types_list])
+        else:
+            identity_map = AffineMap.get_identity(rank)
+            indexing_maps = ArrayAttr.get([
+                AffineMapAttr.get(identity_map),
+                AffineMapAttr.get(identity_map),
+                AffineMapAttr.get(identity_map),
+            ])
+            iterator_types = ArrayAttr.get([StringAttr.get("parallel") for _ in range(rank)])
 
         # Tensor type requires creating the operation differently?
         import ttmlir.dialects.linalg as linalg
