@@ -610,10 +610,11 @@ optimizeTTNNMetalLayoutCastOpGrid(ttir::TTNNMetalLayoutCastOp castOp,
                "device grid {}",
                ttmlir::utils::formatIterable(optimalGrid, "x"),
                ttmlir::utils::formatIterable(config.targetSquareGridShape, "x"));
-    auto [_, inverseMap] =
+    auto [forwardMap, _] =
         ttmlir::d2m::utils::grids::createCoreVirtMaps(
             builder.getContext(), optimalGrid, physicalGridShape);
-    gridRemapping = AffineMapAttr::get(inverseMap);
+        
+    gridRemapping = AffineMapAttr::get(forwardMap);
   } else {
     gridRemapping = AffineMapAttr::get(ttmlir::utils::calculateReblockMap(
       outputType.getShape(), newTensorType.getShape(), builder.getContext()));
