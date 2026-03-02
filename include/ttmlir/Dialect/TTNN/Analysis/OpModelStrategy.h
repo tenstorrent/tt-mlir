@@ -97,8 +97,10 @@ struct LayoutScore {
 /// search). Contains back pointers to support the backward pass for fork
 /// consolidation.
 struct BeamCandidate {
-  /// Final config (actualOutputLayout from backend + opSpecificAttrs).
-  OpConfig config;
+  /// Output hint + op-specific attrs (Conv2dConfig, MatmulProgramConfig, etc.).
+  /// configHint.outputLayout is the hint passed to the backend (may be NULL for
+  /// default ops). The actual per-result output layouts are in outputLayouts.
+  OpConfig configHint;
 
   /// Quality score for this candidate.
   LayoutScore score;
@@ -116,6 +118,12 @@ struct BeamCandidate {
 
   /// Per-operand reshard targets (empty entry = no reshard for that operand).
   llvm::DenseMap<size_t, TTNNLayoutAttr> reshardLayouts;
+
+  /// Actual per-result output layouts returned by backend validation.
+  /// outputLayouts[i] = layout for op->getResult(i).
+  /// For single-output ops, has one element. For multi-output ops (e.g.
+  /// SplitQueryKeyValueAndSplitHeads), has one layout per tensor result.
+  llvm::SmallVector<TTNNLayoutAttr> outputLayouts;
 };
 
 /// Score a backend validation result. Per-op customization via TypeSwitch.

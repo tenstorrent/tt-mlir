@@ -96,6 +96,9 @@ struct EdgeRecord {
   size_t producerOpIndex = 0;
   size_t consumerOpIndex = 0;
   size_t operandIndex = 0;
+  /// Which result of the producer op this edge comes from (0 for single-output
+  /// ops, 0/1/2 for multi-output ops like SplitQueryKeyValueAndSplitHeads).
+  size_t producerResultIndex = 0;
   bool hasReshard = false;
   std::string reshardLayout;
 };
@@ -209,7 +212,8 @@ public:
   void onForkResolved(Operation *producer, size_t chosenIdx,
                       llvm::ArrayRef<Operation *> consumers) override;
   void onEdge(Operation *producer, Operation *consumer, size_t operandIdx,
-              bool hasReshard, TTNNLayoutAttr reshardLayout) override;
+              size_t producerResultIdx, bool hasReshard,
+              TTNNLayoutAttr reshardLayout) override;
   void onFinalChoice(Operation *op, size_t opIndex,
                      const BeamCandidate &chosen) override;
   void onEnd(size_t totalOps) override;

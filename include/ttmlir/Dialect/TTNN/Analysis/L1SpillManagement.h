@@ -21,23 +21,23 @@
 
 namespace mlir::tt::ttnn {
 
-/// Simple sum-based L1 memory tracker. Tracks total L1 as sum of per-tensor
-/// sizes. Validates by passing the sum as additionalL1Usage to
-/// validateOperation.
+/// Simple sum-based L1 memory tracker. Tracks total L1 as sum of per-result
+/// tensor sizes (keyed by Value). For multi-output ops, each result is tracked
+/// independently, enabling precise L1 reclamation when individual results die.
 struct SumL1MemoryTracker {
   op_constraint_validation::ValidationResult
   validate(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
            const OpConfig &config) const;
 
   uint64_t getOccupiedL1() const;
-  void addTensor(Operation *op, uint64_t l1SizePerCore);
-  void removeTensor(Operation *op);
-  bool hasTensor(Operation *op) const;
-  uint64_t getTensorSize(Operation *op) const;
+  void addTensor(Value result, uint64_t l1SizePerCore);
+  void removeTensor(Value result);
+  bool hasTensor(Value result) const;
+  uint64_t getTensorSize(Value result) const;
 
 private:
   uint64_t currentOccupied = 0;
-  llvm::DenseMap<Operation *, uint64_t> tensorSizes;
+  llvm::DenseMap<Value, uint64_t> tensorSizes;
 };
 
 /// L1SpillManagement enforces L1 budget constraints using Belady's optimal
@@ -78,17 +78,24 @@ private:
   /// Pluggable memory state tracker.
   MemoryTracker memoryTracker;
 
-  /// Belady eviction ordering: max-heap by lastUsePosition.
-  using LiveEntry = std::pair<int64_t, Operation *>;
-  std::priority_queue<LiveEntry> liveSet;
-  llvm::DenseSet<Operation *> liveOps;
+  /// Belady eviction ordering: max-heap by lastUsePosition, keyed by Value.
+  using LiveEntry = std::pair<int64_t, Value>;
+  struct LiveEntryCompare {
+    bool operator()(const LiveEntry &a, const LiveEntry &b) const {
+      return a.first < b.first; // max-heap: higher lastUse = higher priority
+    }
+  };
+  std::priority_queue<LiveEntry, std::vector<LiveEntry>, LiveEntryCompare>
+      liveSet;
+  llvm::DenseSet<Value> liveValues;
 
   /// Extract OpConfig from op's current IR state (result type + op-specific
   /// attrs like Conv2dConfig, MatmulProgramConfig).
   static OpConfig extractOpConfigFromIR(Operation *op);
 
-  /// Evict one tensor (farthest last-use). Returns evicted op, or null.
-  Operation *evictFarthestUse();
+  /// Evict one result tensor (farthest last-use). Returns evicted Value, or
+  /// null.
+  Value evictFarthestUse();
 
   /// Build L1 interleaved OpConfig from op's current config.
   static OpConfig makeL1InterleavedConfig(Operation *op);
@@ -106,13 +113,14 @@ private:
   revalidateConsumers(Operation *changedOp, int64_t currentPos,
                       const llvm::DenseMap<Operation *, int64_t> &positionMap);
 
-  /// For each op output that has an L1 usage annotation, compute the schedule
-  /// position of its last consumer.
-  llvm::DenseMap<Operation *, int64_t>
+  /// For each tensor result of ops in the schedule, compute the schedule
+  /// position of its last consumer (per-result granularity).
+  llvm::DenseMap<Value, int64_t>
   computeLastUsePositions(const llvm::SmallVector<Operation *> &schedule);
 
-  /// Insert ToMemoryConfigOp to spill a tensor to DRAM interleaved.
-  void spillToDram(Operation *op);
+  /// Insert ToMemoryConfigOp to spill a single result value to DRAM
+  /// interleaved.
+  void spillToDram(Value result);
 
   /// Remove all "ttnn.output_l1_usage" attributes from ops in the function.
   void cleanupL1UsageAttrs();
