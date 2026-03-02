@@ -930,6 +930,14 @@ def D2MConvertLocalLoadStoreOpsToAliasedCBs : Pass<"d2m-convert-local-load-store
   let dependentDialects = ["::mlir::tt::d2m::D2MDialect"];
 }
 
+def D2MCaptureAdditionalArgsInThreads : Pass<"capture-additional-args-in-threads", "::mlir::ModuleOp"> {
+  let summary = "This pass captures additional arguments into threads.";
+  let description = [{
+    This pass captures additional arguments into thread argument list.
+  }];
+  let dependentDialects = ["::mlir::tt::d2m::D2MDialect"];
+}
+
 def D2MLowerScratchAllocate : Pass<"d2m-lower-scratch-allocate", "::mlir::ModuleOp"> {
   let summary = "Lower d2m.scratch_allocate ops to memref.subview of the scratch buffer.";
   let description = [{

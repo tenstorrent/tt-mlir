@@ -1588,7 +1588,7 @@ class D2M_SemaphoreUpdateOp<string mnemonic> : D2M_GenericRegionOp<mnemonic,
       ```
     }];
 
-    let arguments = (ins AnyTypeOf<[D2M_Semaphore, D2M_GlobalSemaphore]>:$semaphore, Index:$value,
+    let arguments = (ins AnyTypeOf<[D2M_LocalSemaphore, D2M_GlobalSemaphore]>:$semaphore, Index:$value,
                          Variadic<Index>:$dstCoreIndex, Variadic<Index>:$mcastShape);
 
     let assemblyFormat = [{ $semaphore `,` $value (`,` `core` `[` $dstCoreIndex^ `]`)? (`mcast` `[` $mcastShape^ `]`)? attr-dict `:` type($semaphore) }];
@@ -1623,7 +1623,7 @@ def D2M_SemaphoreWaitOp : D2M_GenericRegionOp<"semaphore_wait", [MemoryEffects<[
       ```
     }];
 
-    let arguments = (ins AnyTypeOf<[D2M_Semaphore, D2M_GlobalSemaphore]>:$semaphore, Index:$value, Optional<Index>:$resetValue);
+    let arguments = (ins AnyTypeOf<[D2M_LocalSemaphore, D2M_GlobalSemaphore]>:$semaphore, Index:$value, Optional<Index>:$resetValue);
 
     let assemblyFormat = [{ $semaphore `,` $value (`reset` $resetValue^)? attr-dict `:` type($semaphore) }];
 
@@ -2354,4 +2354,32 @@ def D2M_ArangeBlockOp : D2M_GenericRegionComputeOp<"arange_block",
 
   let hasVerifier = 1;
 }
+
+def D2M_PrintArg : D2M_GenericRegionOp<"print_arg", [MemoryEffects<[MemRead, MemWrite]>]> {
+    let summary = "Print a kernel argument";
+    let description = [{
+        This op prints a kernel argument with an optional label prefix.
+        Example:
+        ```
+        d2m.print_arg "my label" %arg0 : !d2m.scalar<ui32>
+        d2m.print_arg %arg0 : !d2m.scalar<ui32>
+        ```
+    }];
+
+    let arguments = (ins OptionalAttr<StrAttr>:$fmt,
+                        AnyTypeOf<[D2M_LocalSemaphore, D2M_CB, D2M_GlobalSemaphore, D2M_Scalar]>:$value);
+    let assemblyFormat = "($fmt^)? $value attr-dict `:` type($value)";
+}
+
+def D2M_ReinterpretCastOp : D2M_GenericRegionOp<"reinterpret_cast", [Pure]> {
+    let summary = "Reinterpret cast a scalar to another scalar type";
+    let description = [{
+        Reinterprets the bits of a scalar value as another scalar type.
+    }];
+
+    let arguments = (ins D2M_Scalar:$input);
+    let results = (outs D2M_Scalar:$result);
+    let assemblyFormat = "$input attr-dict `:` qualified(type($input)) `to` qualified(type($result))";
+}
+
 #endif // TTMLIR_TTMLIR_DIALECT_D2M_D2MGENERICREGIONOPS_TD

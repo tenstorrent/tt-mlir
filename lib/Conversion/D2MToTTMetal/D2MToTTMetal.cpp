@@ -155,16 +155,7 @@ public:
     // Add additional args that are not ins or outs in the generic op.
     for (unsigned i = 0; i < op.getAdditionalArgs().size(); ++i) {
       auto operand = adaptor.getOperands()[op.getInputsAndOutputs().size() + i];
-      if (mlir::isa<ttmetal::GlobalSemaphoreType>(operand.getType())) {
-        args.push_back(operand);
-      } else if (mlir::isa<MemRefType>(operand.getType())) {
-        args.push_back(operand);
-      } else {
-        op.emitOpError(
-            "unexpected operand type in d2m.generic's additionalArgs: ")
-            << operand.getType();
-        return failure();
-      }
+      args.push_back(operand);
     }
 
     ArrayAttr threads = op.getThreads();
@@ -336,6 +327,24 @@ public:
 } // namespace
 
 namespace {
+class D2MCreateLocalSemaphoreRewriter
+    : public OpConversionPattern<d2m::CreateLocalSemaphoreOp> {
+public:
+  using OpConversionPattern<d2m::CreateLocalSemaphoreOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::CreateLocalSemaphoreOp op,
+                  d2m::CreateLocalSemaphoreOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    rewriter.replaceOpWithNewOp<ttmetal::CreateLocalSemaphoreOp>(
+        op, ttmetal::LocalSemaphoreType::get(rewriter.getContext()),
+        adaptor.getInitialValueAttr());
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class D2MCreateGlobalSemaphoreRewriter
     : public OpConversionPattern<d2m::CreateGlobalSemaphoreOp> {
 public:
@@ -397,6 +406,7 @@ void populateD2MToTTMetalPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   patterns.add<ttmetal::MemrefAllocRewriter, ttmetal::MemrefDeallocRewriter,
                ttmetal::D2MToDeviceRewriter, ttmetal::D2MToHostRewriter,
                ttmetal::D2MMeshShardRewriter,
+               ttmetal::D2MCreateLocalSemaphoreRewriter,
                ttmetal::D2MCreateGlobalSemaphoreRewriter,
                ttmetal::D2MResetGlobalSemaphoreRewriter>(ctx);
   patterns.add<ttmetal::D2MGenericRewriter>(ctx, mathFidelity);

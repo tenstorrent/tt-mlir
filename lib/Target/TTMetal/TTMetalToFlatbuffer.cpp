@@ -620,9 +620,9 @@ toFlatbuffer(FlatbufferObjectCache &cache, KernelArgAttr kernelArg) {
               .Union();
     break;
   }
-  case ttkernel::ArgType::Semaphore: {
-    argType = target::metal::KernelArgType::KernelArgSemaphore;
-    arg = target::metal::CreateKernelArgSemaphore(*cache.fbb).Union();
+  case ttkernel::ArgType::LocalSemaphore: {
+    argType = target::metal::KernelArgType::KernelArgLocalSemaphore;
+    arg = target::metal::CreateKernelArgLocalSemaphore(*cache.fbb).Union();
     break;
   }
   case ttkernel::ArgType::NamedArgument: {
@@ -634,6 +634,13 @@ toFlatbuffer(FlatbufferObjectCache &cache, KernelArgAttr kernelArg) {
     argType = target::metal::KernelArgType::KernelArgGlobalSemaphore;
     arg = target::metal::CreateKernelArgGlobalSemaphore(
               *cache.fbb, kernelArg.getOperandIndex())
+              .Union();
+    break;
+  }
+  case ttkernel::ArgType::Scalar: {
+    argType = target::metal::KernelArgType::KernelArgScalar;
+    arg = target::metal::CreateKernelArgScalar(*cache.fbb,
+                                               kernelArg.getOperandIndex())
               .Union();
     break;
   }
@@ -688,6 +695,36 @@ fabricConnectionConfigToFlatbuffer(
       toFlatbuffer(fabricConnectionConfig.getRoutingMode()),
       fabricConnectionConfig.getNumLinks());
 }
+
+/*
+table KernelConfig {
+  kernel: Kernel;
+  core_range_set: [Dim2dRange];
+  args: KernelArgs;
+  type: KernelConfigType;
+  debug_info: string;
+  symbol: string;
+  loc: string;
+}
+
+table KernelArgs {
+  rt_args: [KernelArg];
+  ct_args: [KernelArg];
+}
+
+union KernelArgType {
+  KernelArgCBPort,
+  KernelArgBufferAddress,
+  KernelArgLocalSemaphore,
+  KernelArgNamedArgument,
+  KernelArgGlobalSemaphore,
+  KernelArgScalar,
+}
+
+table KernelArg {
+  arg: KernelArgType;
+}
+*/
 
 static flatbuffers::Offset<target::metal::KernelConfig>
 kernelConfigToFlatbuffer(FlatbufferObjectCache &cache,
@@ -849,6 +886,9 @@ std::shared_ptr<void> translateTTMetalToFlatbuffer(
 
     cqBuilder.inputs.reserve(entry.getBody().getArguments().size());
     for (auto &input : entry.getBody().getArguments()) {
+      if (!mlir::isa<MemRefType>(input.getType())) {
+        continue;
+      }
       cqBuilder.inputs.push_back(
           cache.getOrCreate(input, bufferValueToFlatbuffer, systemDesc, 0));
       tensorInputs.push_back(tensorValueToFlatbuffer(cache, input));
@@ -862,13 +902,18 @@ std::shared_ptr<void> translateTTMetalToFlatbuffer(
                 fbb, cache.getOrCreate(allocOp.getResult(),
                                        bufferValueToFlatbuffer, systemDesc, 0)),
             op);
-      } else if (auto enqueueProgramOp =
+      } 
+      
+      else if (auto enqueueProgramOp =
                      dyn_cast_if_present<tt::ttmetal::EnqueueProgramOp>(op);
                  enqueueProgramOp) {
+
+
         std::vector<target::metal::ArgRef> argTypes;
         std::vector<flatbuffers::Offset<void>> args;
         argTypes.reserve(enqueueProgramOp.getArgs().size());
         args.reserve(enqueueProgramOp.getArgs().size());
+
         for (auto arg : enqueueProgramOp.getArgs()) {
           if (mlir::isa<MemRefType>(arg.getType())) {
             argTypes.push_back(target::metal::ArgRef::BufferRef);
@@ -1032,7 +1077,6 @@ std::shared_ptr<void> translateTTMetalToFlatbuffer(
         } else {
           llvm_unreachable("unhandled mesh_shard type");
         }
-
         cqBuilder.appendCommand(
             target::metal::CreateMeshShardCommand(
                 fbb, cache.at<target::metal::BufferRef>(meshShardOp.getInput()),

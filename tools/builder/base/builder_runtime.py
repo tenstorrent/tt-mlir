@@ -629,7 +629,7 @@ def convert_golden_input_output_to_torch(
 
 def execute_fb(
     compiled_bin,
-    input_output_goldens: Dict[int, Dict[str, Dict[int, GoldenMapTensor]]] = None,
+    input_output_goldens: Dict[int, Dict[str, Dict[int, GoldenMapTensor]]],
     intermediate_goldens: Dict[str, Dict[int, GoldenMapTensor]] = None,
     pcc: float = 0.99,
     atol: float = 1e-08,
@@ -688,14 +688,25 @@ def execute_fb(
     Tuple[Dict[str, Dict], Dict[str, Dict]]
         golden_report, output_tensors
     """
-    fbb = tt_runtime.binary.load_binary_from_capsule(compiled_bin)
+    fbb = None
+    if type(compiled_bin).__name__ == "PyCapsule":
+        fbb = tt_runtime.binary.load_binary_from_capsule(compiled_bin)
+    elif isinstance(compiled_bin, tt_runtime.binary.Binary):
+        fbb = compiled_bin
+    else:
+        raise ValueError(f"Unsupported compiled_bin type: {type(compiled_bin)}, expected PyCapsule or Binary.")
+
     program_indices = range(fbb.get_num_programs())
     golden_input_output_tensors = convert_golden_input_output_to_torch(
         input_output_goldens
     )
-    golden_intermediate_torch_tensors = convert_golden_intermediates_to_torch(
-        intermediate_goldens
-    )
+
+    golden_intermediate_torch_tensors = {}
+    if intermediate_goldens is not None:
+        golden_intermediate_torch_tensors = convert_golden_intermediates_to_torch(
+            intermediate_goldens
+        )
+        
     output_tensors = {}
     golden_report = {}
     if bypass_ops is None:

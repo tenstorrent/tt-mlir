@@ -2420,7 +2420,7 @@ def TTKernel_GetNocAddrOp : TTKernel_Op<"get_noc_addr"> {
       GetNocAddr api including core coordinates
     }];
 
-    let arguments = (ins IndexLike:$x, IndexLike:$y, AnyTypeOf<[I32, TTKernel_L1Addr, TTKernel_Semaphore]>:$l1Address);
+    let arguments = (ins IndexLike:$x, IndexLike:$y, AnyTypeOf<[I32, TTKernel_L1Addr, TTKernel_LocalSemaphore]>:$l1Address);
     let results = (outs TTKernel_NocAddr:$nocAddr);
 
     let assemblyFormat = [{
@@ -2689,7 +2689,7 @@ def TTKernel_GetSemaphoreOp : TTKernel_Op<"get_semaphore"> {
     }];
 
     let arguments = (ins IndexLike:$semaphore);
-    let results = (outs TTKernel_Semaphore:$sem_addr);
+    let results = (outs TTKernel_LocalSemaphore:$sem_addr);
 
     let assemblyFormat = [{
       `(` $semaphore `)` attr-dict `:` functional-type(operands, results)
@@ -2778,7 +2778,7 @@ def TTKernel_NocSemaphoreSetMulticastOp : TTKernel_Op<"noc_semaphore_set_multica
       *noc_semaphore_set_multicast_loopback_src* can be used.
     }];
 
-    let arguments = (ins AnyTypeOf<[TTKernel_L1Addr, TTKernel_Semaphore]>:$src_local_l1_addr,
+    let arguments = (ins AnyTypeOf<[TTKernel_L1Addr, TTKernel_LocalSemaphore]>:$src_local_l1_addr,
                          TTKernel_NocAddr:$dst_noc_addr_multicast,
                          I32:$num_dests,
                          OptionalAttr<BoolAttr>:$linked,
@@ -2807,7 +2807,7 @@ def TTKernel_NocSemaphoreSetMulticastLoopbackOp : TTKernel_Op<"noc_semaphore_set
       regular non multicast operations such as *noc_async_write* in this case.
     }];
 
-    let arguments = (ins AnyTypeOf<[TTKernel_L1Addr, TTKernel_Semaphore]>:$src_local_l1_addr,
+    let arguments = (ins AnyTypeOf<[TTKernel_L1Addr, TTKernel_LocalSemaphore]>:$src_local_l1_addr,
                          TTKernel_NocAddr:$dst_noc_addr_multicast,
                          I32:$num_dests,
                          OptionalAttr<BoolAttr>:$linked);
@@ -2821,7 +2821,7 @@ def TTKernel_NocSemaphoreSetMulticastLoopbackOp : TTKernel_Op<"noc_semaphore_set
 // TTKernel Compile and runtime arguments operations
 //===----------------------------------------------------------------------===//
 
-def TTKernel_ArgResultType : AnyTypeOf<[I32, TTKernel_CB, TTKernel_L1Addr]>;
+def TTKernel_ArgResultType : AnyTypeOf<[I32, TTKernel_CB, TTKernel_L1Addr, TTKernel_Scalar, TTKernel_LocalSemaphore, TTKernel_GlobalSemaphore]>;
 
 def TTKernel_GetArgValOp : TTKernel_Op<"get_arg_val", [Pure]> {
     let summary = "Get runtime arg value.";
@@ -2879,7 +2879,7 @@ def TTKernel_CastToL1PtrOp : TTKernel_Op<"reinterpret_cast<volatile tt_l1_ptr ui
       Cast specified addr to L1 pointer.
     }];
 
-    let arguments = (ins AnyTypeOf<[I32, TTKernel_L1Addr, TTKernel_Semaphore]>:$addr);
+    let arguments = (ins AnyTypeOf<[I32, TTKernel_L1Addr, TTKernel_LocalSemaphore, TTKernel_GlobalSemaphore]>:$addr);
 
     let results = (outs TTKernel_L1AddrPtr:$l1_ptr);
 
@@ -3173,7 +3173,7 @@ def TTKernel_GetNocMulticastAddrOp : TTKernel_Op<"get_noc_multicast_addr"> {
     Default tt-metal get_noc_multicast_addr
   }];
 
-  let arguments = (ins IndexLike:$noc_x_start, IndexLike:$noc_y_start, IndexLike:$noc_x_end, IndexLike:$noc_y_end, AnyTypeOf<[I32, TTKernel_L1Addr, TTKernel_Semaphore]>:$addr, Optional<I8>:$noc);
+  let arguments = (ins IndexLike:$noc_x_start, IndexLike:$noc_y_start, IndexLike:$noc_x_end, IndexLike:$noc_y_end, AnyTypeOf<[I32, TTKernel_L1Addr, TTKernel_LocalSemaphore]>:$addr, Optional<I8>:$noc);
   let results = (outs TTKernel_NocAddr:$mcastNocAddr);
 
     let assemblyFormat = [{
@@ -3187,7 +3187,7 @@ def TTKernel_ExperimentalGetNocMulticastAddrOp : TTKernel_Op<"experimental::get_
     Default tt-metal get_noc_multicast_addr, but flips mcast start and end coordinates on NOC1.
   }];
 
-  let arguments = (ins IndexLike:$noc_x_start, IndexLike:$noc_y_start, IndexLike:$noc_x_end, IndexLike:$noc_y_end, AnyTypeOf<[I32, TTKernel_L1Addr, TTKernel_Semaphore]>:$addr, Optional<I8>:$noc);
+  let arguments = (ins IndexLike:$noc_x_start, IndexLike:$noc_y_start, IndexLike:$noc_x_end, IndexLike:$noc_y_end, AnyTypeOf<[I32, TTKernel_L1Addr, TTKernel_LocalSemaphore]>:$addr, Optional<I8>:$noc);
   let results = (outs TTKernel_NocAddr:$mcastNocAddr);
 
     let assemblyFormat = [{
@@ -3535,6 +3535,17 @@ def TTKernel_DPrintOp : TTKernel_Op<"dprint", [MemoryEffects<[MemRead, MemWrite]
         return build(odsBuilder, odsState, StringRef(fmt), ValueRange{std::forward<Args>(argv)...});
       }
     }];
+}
+
+def TTKernel_ReinterpretCastOp : TTKernel_Op<"reinterpret_cast", [Pure]> {
+    let summary = "Reinterpret cast a scalar to another scalar type";
+    let description = [{
+        Reinterprets the bits of a scalar value as another scalar type.
+    }];
+
+    let arguments = (ins TTKernel_Scalar:$input);
+    let results = (outs TTKernel_Scalar:$result);
+    let assemblyFormat = "$input attr-dict `:` qualified(type($input)) `to` qualified(type($result))";
 }
 
 #endif
