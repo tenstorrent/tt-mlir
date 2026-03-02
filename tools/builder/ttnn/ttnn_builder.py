@@ -13,7 +13,6 @@ from ttmlir.dialects import ttnn, ttcore, func
 
 from builder.base.builder import *
 from builder.base.builder_utils import *
-from builder.base.builder_enums import *
 
 from golden import *
 
