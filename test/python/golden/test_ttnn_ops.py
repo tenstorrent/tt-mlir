@@ -11,7 +11,6 @@ from collections import OrderedDict
 from builder.base.builder_utils import Operand, Shape
 from builder.ttnn.ttnn_builder import TTNNBuilder
 from builder.base.builder_apis import compile_and_execute_ttnn, build_module
-from builder.base.builder_enums import MeshShardDirection, MeshShardType
 from test_utils import shape_str, shapes_list_str, make_shard_shape
 
 pytestmark = pytest.mark.frontend("ttnn")
@@ -276,12 +275,10 @@ def test_all_gather(
     def module(builder: TTNNBuilder):
         @builder.func([full_input_shape], [dtype])
         def all_gather(in0: Operand, builder: TTNNBuilder):
-            in_shard = builder.mesh_shard(
+            in_shard = builder.distribute_tensor(
                 in0,
-                shard_direction=MeshShardDirection.FullToShard.value,
-                shard_type=MeshShardType.Devices.value,
-                shard_shape=shard_shape,
                 shard_dims=shard_dims,
+                shard_shape=shard_shape,
             )
 
             all_gather0 = builder.all_gather(
@@ -290,12 +287,10 @@ def test_all_gather(
                 cluster_axis=cluster_axis,
             )
 
-            return builder.mesh_shard(
+            return builder.aggregate_tensor(
                 all_gather0,
-                shard_direction=MeshShardDirection.ShardToFull.value,
-                shard_type=MeshShardType.Devices.value,
-                shard_shape=shard_shape,
                 shard_dims=shard_dims,
+                shard_shape=shard_shape,
             )
 
     # TODO: compile_and_execute_ttnn does not yet support CCL ops because the
