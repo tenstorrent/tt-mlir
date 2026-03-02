@@ -2,6 +2,7 @@ add_subdirectory(EraseInverseOps)
 add_subdirectory(HoistCPUOps)
 add_mlir_dialect_library(MLIRTTIRTransforms
         Broadcast.cpp
+        ComplexDataTypeConversion.cpp
         DecomposeComplexReshape.cpp
         ExplicateTMs.cpp
         FlattenSlidingWindow.cpp
