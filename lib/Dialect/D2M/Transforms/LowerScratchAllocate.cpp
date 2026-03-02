@@ -104,7 +104,7 @@ private:
     int64_t scratchInputIdx = scratchInputsAttr[0];
     Block &block = region.front();
     Value scratchValue =
-        d2m::GenericOp::getOperandTensorEmpty(region, scratchInputIdx);
+        d2m::GenericOp::getOperandAlloc(region, scratchInputIdx);
 
     OpBuilder builder(&block, block.begin());
     Value scratchMemRef;

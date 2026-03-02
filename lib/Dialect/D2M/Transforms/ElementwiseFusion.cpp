@@ -295,10 +295,9 @@ static GenericOp createFusedGeneric(OpOperand *fusedOperand, GenericOp producer,
     argSources.emplace_back(op, operandNumber);
     Region &srcRegion = (op == producer.getOperation()) ? producer.getRegion(0)
                                                         : consumer.getRegion(0);
-    Value tensorEmpty =
-        GenericOp::getOperandTensorEmpty(srcRegion, operandNumber);
-    assert(tensorEmpty && "Expected tensor.empty op for operand in region");
-    fusedEmptyTypes.push_back(tensorEmpty.getType());
+    Value operandAlloc = GenericOp::getOperandAlloc(srcRegion, operandNumber);
+    assert(operandAlloc && "Expected alloc op for operand in region");
+    fusedEmptyTypes.push_back(operandAlloc.getType());
   };
 
   auto inputs = consumer.getInputs();
@@ -338,21 +337,21 @@ static GenericOp createFusedGeneric(OpOperand *fusedOperand, GenericOp producer,
     sourceToFusedIdx[it.value()] = static_cast<unsigned>(it.index());
   }
 
-  // Map consumer tensor.empty values to fused tensor.empty values
+  // Map consumer tensor.empty values to fused tensor.empty values.
   auto mapConsRegionEmpties = [&](GenericOp generic, Block &orig) {
     for (unsigned i = 0; i < generic->getNumOperands(); ++i) {
-      Value origEmpty = GenericOp::getOperandTensorEmpty(*orig.getParent(), i);
+      Value origEmpty = GenericOp::getOperandAlloc(*orig.getParent(), i);
       unsigned fusedIndex = sourceToFusedIdx[{generic.getOperation(), i}];
       irMap.map(origEmpty, fusedTensorEmpties[fusedIndex]);
     }
   };
 
-  // Map all of producer's tensor.empty values to fused values
+  // Map all of producer's tensor.empty values to fused values.
   auto mapProdRegionEmpties = [&](GenericOp prodGeneric, Block &orig) {
     unsigned prodInitArgNum =
         prodGeneric.getDpsInitOperand(0)->getOperandNumber();
     for (unsigned i = 0; i < prodGeneric->getNumOperands(); ++i) {
-      Value origEmpty = GenericOp::getOperandTensorEmpty(*orig.getParent(), i);
+      Value origEmpty = GenericOp::getOperandAlloc(*orig.getParent(), i);
       if (i != prodInitArgNum) {
         unsigned fusedIndex = sourceToFusedIdx[{prodGeneric.getOperation(), i}];
         irMap.map(origEmpty, fusedTensorEmpties[fusedIndex]);
@@ -364,7 +363,7 @@ static GenericOp createFusedGeneric(OpOperand *fusedOperand, GenericOp producer,
     // the producer that reference it can be cloned properly. Map it to the
     // consumer's first output tensor.empty.
     Value prodOutputEmpty =
-        GenericOp::getOperandTensorEmpty(*orig.getParent(), prodInitArgNum);
+        GenericOp::getOperandAlloc(*orig.getParent(), prodInitArgNum);
     unsigned consumerFirstOutputArgNum =
         consumer.getDpsInitOperand(0)->getOperandNumber();
     unsigned consumerOutputFusedIdx =
@@ -474,7 +473,7 @@ static GenericOp createFusedGeneric(OpOperand *fusedOperand, GenericOp producer,
     if (auto reserveOp = dyn_cast<d2m::ReserveOp>(&op)) {
       Value originalCB = reserveOp.getCb();
       Value mappedCB = irMap.lookupOrDefault(originalCB);
-      // Check if this is a reserve on an operand-associated value
+      // Check if this is a reserve on an operand-associated value.
       if (isOperandAssociatedValue(mappedCB)) {
         // Check if we've already reserved this output buffer (from producer or
         // earlier in consumer)
