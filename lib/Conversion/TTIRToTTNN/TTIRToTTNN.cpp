@@ -3100,7 +3100,6 @@ public:
 };
 } // namespace
 
-
 namespace {
 // ComplexOp: interleave real and imag into a trailing-2 tensor.
 //   tensor<...xfN>, tensor<...xfN> → tensor<...x2xfN>
