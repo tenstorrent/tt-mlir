@@ -187,6 +187,7 @@ install(
   FILES_MATCHING
   REGEX "third_party/tt_llk/tt_llk_blackhole/"
   REGEX "third_party/tt_llk/tt_llk_wormhole_b0/"
+  REGEX "third_party/tt_llk/common"
   REGEX "third_party/umd/"
 )
 
