@@ -20,7 +20,7 @@ using namespace mlir::tt::emitpy;
 
 /// Parse a format string and return a list of its parts.
 /// A part is either a StringRef that has to be printed as-is, or
-/// a Placeholder which requires printing the next operand of the VerbatimOp.
+/// a Placeholder which requires printing the next argument.
 /// In the format string, all `{}` are replaced by Placeholders, except if the
 /// `{` is escaped by `{{` - then it doesn't start a placeholder.
 template <class ArgType>
@@ -597,6 +597,47 @@ LogicalResult VerbatimOp::verify() {
 FailureOr<SmallVector<ReplacementItem>> VerbatimOp::parseFormatString() {
   // Error checking is done in verify.
   return ::parseFormatString(getValue(), getFmtArgs());
+}
+
+//===----------------------------------------------------------------------===//
+// IfOp
+//===----------------------------------------------------------------------===//
+
+LogicalResult IfOp::verify() {
+  if (getCondition().empty()) {
+    return emitOpError() << "condition string must not be empty";
+  }
+
+  if (getThenRegion().empty()) {
+    return emitOpError() << "requires a non-empty then region";
+  }
+
+  if (!getElseRegion().empty() && !llvm::hasSingleElement(getElseRegion())) {
+    return emitOpError() << "else region must have exactly one block";
+  }
+
+  auto errorCallback = [&]() -> InFlightDiagnostic {
+    return this->emitOpError();
+  };
+  FailureOr<SmallVector<ReplacementItem>> fmt =
+      ::parseFormatString(getCondition(), getCondArgs(), errorCallback);
+  if (failed(fmt)) {
+    return failure();
+  }
+  size_t numPlaceholders = llvm::count_if(*fmt, [](ReplacementItem &item) {
+    return std::holds_alternative<Placeholder>(item);
+  });
+
+  if (numPlaceholders != getCondArgs().size()) {
+    return emitOpError()
+           << "requires operands for each placeholder in the condition string";
+  }
+  return success();
+}
+
+FailureOr<SmallVector<ReplacementItem>> IfOp::parseFormatString() {
+  // Error checking is done in verify.
+  return ::parseFormatString(getCondition(), getCondArgs());
 }
 
 //===----------------------------------------------------------------------===//
