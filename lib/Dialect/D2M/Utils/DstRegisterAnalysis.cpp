@@ -22,26 +22,6 @@ namespace {
 
 enum class DstExecutionClass { FPU, SFPU };
 
-static Region *getUnifiedRegionOrEmitError(d2m::GenericOp generic) {
-  Region *unifiedRegion = nullptr;
-  for (unsigned regionIndex = 0; regionIndex < generic.getNumRegions();
-       ++regionIndex) {
-    if (generic.getRegionThreadType(regionIndex) != ThreadType::Unified) {
-      continue;
-    }
-    if (unifiedRegion != nullptr) {
-      generic.emitOpError("expected at most one unified region");
-      return nullptr;
-    }
-    unifiedRegion = &generic.getRegion(regionIndex);
-  }
-
-  if (unifiedRegion == nullptr) {
-    generic.emitOpError("expected a unified region for DST packing analysis");
-  }
-  return unifiedRegion;
-}
-
 static scf::ForOp getImmediateParentBlockingLoop(linalg::GenericOp op) {
   Operation *parentOp = op->getParentOp();
   if (parentOp == nullptr) {
@@ -175,19 +155,19 @@ struct PendingDSTPackingResult {
 
 } // namespace
 
-SmallVector<DSTPackingResult>
-analyzeGenericForDSTPacking(d2m::GenericOp generic) {
-  SmallVector<DSTPackingResult> results;
+DSTPackingResultsMap analyzeGenericForDSTPacking(d2m::GenericOp generic) {
+  DSTPackingResultsMap results;
   SmallVector<PendingDSTPackingResult> pendingResults;
   SmallVector<int64_t> numDstFlipsPerOp;
 
-  Region *unifiedRegion = getUnifiedRegionOrEmitError(generic);
-  if (unifiedRegion == nullptr) {
-    return {};
+  if (!generic.isUnifiedForm()) {
+    generic.emitOpError("expected unified form for DST packing analysis");
+    return DSTPackingResultsMap();
   }
+  Region &unifiedRegion = generic.getRegion(0);
 
   SmallVector<linalg::GenericOp> linalgOps;
-  unifiedRegion->walk([&](linalg::GenericOp op) { linalgOps.push_back(op); });
+  unifiedRegion.walk([&](linalg::GenericOp op) { linalgOps.push_back(op); });
 
   scf::ForOp commonImmediateParentBlockingLoop = nullptr;
   for (linalg::GenericOp linalgOp : linalgOps) {
@@ -196,7 +176,7 @@ analyzeGenericForDSTPacking(d2m::GenericOp generic) {
     if (immediateParentBlockingLoop == nullptr) {
       linalgOp.emitOpError(
           "expected immediate parent to be an scf.for with d2m.blocking_loop");
-      return {};
+      return DSTPackingResultsMap();
     }
 
     if (commonImmediateParentBlockingLoop == nullptr) {
@@ -206,12 +186,12 @@ analyzeGenericForDSTPacking(d2m::GenericOp generic) {
       linalgOp.emitOpError(
           "expected all linalg.generic ops to have the same immediate parent "
           "scf.for blocking loop");
-      return {};
+      return DSTPackingResultsMap();
     }
 
     if (linalgOp.getOutputs().size() != 1u) {
       linalgOp.emitOpError("expected exactly one output");
-      return {};
+      return DSTPackingResultsMap();
     }
 
     Value outputValue = linalgOp.getOutputs().front();
@@ -219,7 +199,7 @@ analyzeGenericForDSTPacking(d2m::GenericOp generic) {
     if (!outputShapedType || !outputShapedType.hasStaticShape()) {
       linalgOp.emitOpError(
           "expected static shaped output to compute shard size");
-      return {};
+      return DSTPackingResultsMap();
     }
     int64_t shardSizeTiles =
         ttmlir::utils::volume<int64_t>(outputShapedType.getShape());
@@ -227,24 +207,24 @@ analyzeGenericForDSTPacking(d2m::GenericOp generic) {
     std::optional<int64_t> maxDstTiles = getMaxDstTilesForLinalgOp(linalgOp);
     if (!maxDstTiles) {
       linalgOp.emitOpError("failed to compute max DST tile capacity");
-      return {};
+      return DSTPackingResultsMap();
     }
 
     std::optional<int64_t> numTilesPerFlip =
         getLargestLegalChunkSize(shardSizeTiles, *maxDstTiles);
     if (!numTilesPerFlip) {
       linalgOp.emitOpError("failed to find legal tiles per DST flip");
-      return {};
+      return DSTPackingResultsMap();
     }
 
     int64_t numDstFlips = shardSizeTiles / *numTilesPerFlip;
     if (numDstFlips <= 0) {
       linalgOp.emitOpError("expected positive DST flip count");
-      return {};
+      return DSTPackingResultsMap();
     }
     if (numDstFlips < 2) {
       linalgOp.emitOpError("failed to satisfy num_dst_flips >= 2");
-      return {};
+      return DSTPackingResultsMap();
     }
 
     pendingResults.push_back(
@@ -253,7 +233,7 @@ analyzeGenericForDSTPacking(d2m::GenericOp generic) {
   }
 
   if (pendingResults.empty()) {
-    return {};
+    return DSTPackingResultsMap();
   }
 
   std::optional<int64_t> commonNumOuterLoopIters =
@@ -263,7 +243,7 @@ analyzeGenericForDSTPacking(d2m::GenericOp generic) {
         "failed to infer common num_outer_loop_iters with num_dst_flips >= 2 "
         "for all "
         "linalg.generic ops");
-    return {};
+    return DSTPackingResultsMap();
   }
 
   for (const PendingDSTPackingResult &pending : pendingResults) {
@@ -272,11 +252,16 @@ analyzeGenericForDSTPacking(d2m::GenericOp generic) {
         numDstFlips < 2) {
       generic.emitOpError("failed to satisfy common num_outer_loop_iters and "
                           "num_dst_flips >= 2");
-      return {};
+      return DSTPackingResultsMap();
     }
-    results.push_back({pending.outputValue,
-                       DSTPackingInfo{pending.numTilesPerFlip, numDstFlips,
-                                      *commonNumOuterLoopIters}});
+    if (!results
+             .try_emplace(pending.outputValue,
+                          DSTPackingInfo{pending.numTilesPerFlip, numDstFlips,
+                                         *commonNumOuterLoopIters})
+             .second) {
+      generic.emitOpError("expected unique linalg.generic output values");
+      return DSTPackingResultsMap();
+    }
   }
 
   return results;

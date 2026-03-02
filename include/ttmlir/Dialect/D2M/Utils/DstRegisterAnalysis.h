@@ -6,6 +6,7 @@
 #define TTMLIR_DIALECT_D2M_UTILS_DSTREGISTERANALYSIS_H
 
 #include "mlir/IR/BuiltinTypes.h"
+#include "llvm/ADT/DenseMap.h"
 
 namespace mlir::tt::d2m {
 class GenericOp;
@@ -19,12 +20,12 @@ struct DSTPackingInfo {
   int64_t num_outer_loop_iters = 0;
 };
 
-using DSTPackingResult = std::pair<Value, DSTPackingInfo>;
+using DSTPackingResult = DSTPackingInfo;
+using DSTPackingResultsMap = llvm::SmallDenseMap<Value, DSTPackingResult>;
 
 // Analyze linalg.generic ops in a unified d2m.generic region and compute the
 // maximal legal number of tiles per DST flip per op destination.
-SmallVector<DSTPackingResult>
-analyzeGenericForDSTPacking(d2m::GenericOp generic);
+DSTPackingResultsMap analyzeGenericForDSTPacking(d2m::GenericOp generic);
 
 } // namespace mlir::tt::d2m::utils
 

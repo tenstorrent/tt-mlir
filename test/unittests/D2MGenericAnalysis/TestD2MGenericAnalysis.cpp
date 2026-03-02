@@ -89,6 +89,17 @@ protected:
       forOp->setAttr("d2m.blocking_loop", mlir::UnitAttr::get(&context));
     });
   }
+
+  mlir::SmallVector<mlir::Value>
+  getSingleOutputValuesFromLinalgOps(d2m::GenericOp genericOp) {
+    mlir::SmallVector<mlir::Value> outputValues;
+    genericOp->walk([&](mlir::linalg::GenericOp linalgOp) {
+      if (linalgOp.getOutputs().size() == 1u) {
+        outputValues.push_back(linalgOp.getOutputs().front());
+      }
+    });
+    return outputValues;
+  }
 };
 
 TEST_F(GenericOpAnalysisTest, CanAnalyzeDimConstraintsEltwise) {
@@ -182,10 +193,14 @@ func.func @test(
   markAllForLoopsAsBlocking(generic);
 
   auto packing = d2m::utils::analyzeGenericForDSTPacking(generic);
+  auto outputValues = getSingleOutputValuesFromLinalgOps(generic);
+  ASSERT_EQ(outputValues.size(), 1u);
+  auto it = packing.find(outputValues.front());
+  ASSERT_NE(it, packing.end());
   ASSERT_EQ(packing.size(), 1u);
-  EXPECT_EQ(packing.front().second.num_tiles_per_flip, 2);
-  EXPECT_EQ(packing.front().second.num_dst_flips, 2);
-  EXPECT_EQ(packing.front().second.num_outer_loop_iters, 2);
+  EXPECT_EQ(it->second.num_tiles_per_flip, 2);
+  EXPECT_EQ(it->second.num_dst_flips, 2);
+  EXPECT_EQ(it->second.num_outer_loop_iters, 2);
 }
 
 TEST_F(GenericOpAnalysisTest, CanAnalyzeGenericForDSTPackingFPU) {
@@ -227,10 +242,14 @@ func.func @test(
   markAllForLoopsAsBlocking(generic);
 
   auto packing = d2m::utils::analyzeGenericForDSTPacking(generic);
+  auto outputValues = getSingleOutputValuesFromLinalgOps(generic);
+  ASSERT_EQ(outputValues.size(), 1u);
+  auto it = packing.find(outputValues.front());
+  ASSERT_NE(it, packing.end());
   ASSERT_EQ(packing.size(), 1u);
-  EXPECT_EQ(packing.front().second.num_tiles_per_flip, 4);
-  EXPECT_EQ(packing.front().second.num_dst_flips, 2);
-  EXPECT_EQ(packing.front().second.num_outer_loop_iters, 1);
+  EXPECT_EQ(it->second.num_tiles_per_flip, 4);
+  EXPECT_EQ(it->second.num_dst_flips, 2);
+  EXPECT_EQ(it->second.num_outer_loop_iters, 1);
 }
 
 TEST_F(GenericOpAnalysisTest, RejectsDifferentImmediateParentBlockingLoops) {
@@ -296,27 +315,31 @@ func.func @test(
     %in0_m = d2m.wait %cb0 : !d2m.cb<memref<1x8x!ttcore.tile<32x32, f32>>> -> memref<1x8x!ttcore.tile<32x32, f32>>
     %in1_m = d2m.wait %cb1 : !d2m.cb<memref<1x8x!ttcore.tile<32x32, f32>>> -> memref<1x8x!ttcore.tile<32x32, f32>>
     %out_m = d2m.reserve %cb2 : !d2m.cb<memref<1x8x!ttcore.tile<32x32, f32>>> -> memref<1x8x!ttcore.tile<32x32, f32>>
+    %out0_m = memref.cast %out_m : memref<1x8x!ttcore.tile<32x32, f32>> to memref<1x8x!ttcore.tile<32x32, f32>>
+    %out1_m = memref.cast %out_m : memref<1x8x!ttcore.tile<32x32, f32>> to memref<1x8x!ttcore.tile<32x32, f32>>
+    %out2_m = memref.cast %out_m : memref<1x8x!ttcore.tile<32x32, f32>> to memref<1x8x!ttcore.tile<32x32, f32>>
+    %out3_m = memref.cast %out_m : memref<1x8x!ttcore.tile<32x32, f32>> to memref<1x8x!ttcore.tile<32x32, f32>>
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
     %c8 = arith.constant 8 : index
     scf.for %i = %c0 to %c8 step %c1 {
       linalg.generic {indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>], iterator_types = ["parallel", "parallel"]}
         ins(%in0_m : memref<1x8x!ttcore.tile<32x32, f32>>)
-        outs(%out_m : memref<1x8x!ttcore.tile<32x32, f32>>) {
+        outs(%out0_m : memref<1x8x!ttcore.tile<32x32, f32>>) {
       ^bb0(%arg0: !ttcore.tile<32x32, f32>, %arg1: !ttcore.tile<32x32, f32>):
         %abs = "d2m.tile_abs"(%arg0) : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
         linalg.yield %abs : !ttcore.tile<32x32, f32>
       }
       linalg.generic {indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>], iterator_types = ["parallel", "parallel"]}
         ins(%in0_m, %in1_m : memref<1x8x!ttcore.tile<32x32, f32>>, memref<1x8x!ttcore.tile<32x32, f32>>)
-        outs(%out_m : memref<1x8x!ttcore.tile<32x32, f32>>) {
+        outs(%out1_m : memref<1x8x!ttcore.tile<32x32, f32>>) {
       ^bb0(%arg0: !ttcore.tile<32x32, f32>, %arg1: !ttcore.tile<32x32, f32>, %arg2: !ttcore.tile<32x32, f32>):
         %sum = "d2m.tile_add"(%arg0, %arg1) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
         linalg.yield %sum : !ttcore.tile<32x32, f32>
       }
       linalg.generic {indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>], iterator_types = ["parallel", "parallel"]}
         ins(%in0_m : memref<1x8x!ttcore.tile<32x32, f32>>)
-        outs(%out_m : memref<1x8x!ttcore.tile<32x32, f32>>) {
+        outs(%out2_m : memref<1x8x!ttcore.tile<32x32, f32>>) {
       ^bb0(%arg0: !ttcore.tile<32x32, f32>, %arg1: !ttcore.tile<32x32, f32>):
         %cst = arith.constant 2.0 : f32
         %mul = "d2m.tile_mul"(%arg0, %cst) : (!ttcore.tile<32x32, f32>, f32) -> !ttcore.tile<32x32, f32>
@@ -324,7 +347,7 @@ func.func @test(
       }
       linalg.generic {indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>], iterator_types = ["parallel", "parallel"]}
         ins(%in0_m, %in1_m : memref<1x8x!ttcore.tile<32x32, f32>>, memref<1x8x!ttcore.tile<32x32, f32>>)
-        outs(%out_m : memref<1x8x!ttcore.tile<32x32, f32>>) {
+        outs(%out3_m : memref<1x8x!ttcore.tile<32x32, f32>>) {
       ^bb0(%arg0: !ttcore.tile<32x32, f32>, %arg1: !ttcore.tile<32x32, f32>, %arg2: !ttcore.tile<32x32, f32>):
         %sub = "d2m.tile_sub"(%arg0, %arg1) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
         linalg.yield %sub : !ttcore.tile<32x32, f32>
@@ -342,22 +365,25 @@ func.func @test(
   markAllForLoopsAsBlocking(generic);
 
   auto packing = d2m::utils::analyzeGenericForDSTPacking(generic);
+  auto outputValues = getSingleOutputValuesFromLinalgOps(generic);
+  ASSERT_EQ(outputValues.size(), 4u);
   ASSERT_EQ(packing.size(), 4u);
-  EXPECT_EQ(packing[0].second.num_tiles_per_flip, 2); // tile_abs => SFPU fp32
-  EXPECT_EQ(packing[1].second.num_tiles_per_flip,
+  EXPECT_EQ(packing.lookup(outputValues[0]).num_tiles_per_flip,
+            2); // tile_abs => SFPU fp32
+  EXPECT_EQ(packing.lookup(outputValues[1]).num_tiles_per_flip,
             4); // tile_add(tile,tile) => FPU fp32
-  EXPECT_EQ(packing[2].second.num_tiles_per_flip,
+  EXPECT_EQ(packing.lookup(outputValues[2]).num_tiles_per_flip,
             2); // tile_mul(tile,scalar) => SFPU fp32
-  EXPECT_EQ(packing[3].second.num_tiles_per_flip,
+  EXPECT_EQ(packing.lookup(outputValues[3]).num_tiles_per_flip,
             4); // tile_sub(tile,tile) => FPU fp32
-  EXPECT_EQ(packing[0].second.num_dst_flips, 4);
-  EXPECT_EQ(packing[1].second.num_dst_flips, 2);
-  EXPECT_EQ(packing[2].second.num_dst_flips, 4);
-  EXPECT_EQ(packing[3].second.num_dst_flips, 2);
-  EXPECT_EQ(packing[0].second.num_outer_loop_iters, 1);
-  EXPECT_EQ(packing[1].second.num_outer_loop_iters, 1);
-  EXPECT_EQ(packing[2].second.num_outer_loop_iters, 1);
-  EXPECT_EQ(packing[3].second.num_outer_loop_iters, 1);
+  EXPECT_EQ(packing.lookup(outputValues[0]).num_dst_flips, 4);
+  EXPECT_EQ(packing.lookup(outputValues[1]).num_dst_flips, 2);
+  EXPECT_EQ(packing.lookup(outputValues[2]).num_dst_flips, 4);
+  EXPECT_EQ(packing.lookup(outputValues[3]).num_dst_flips, 2);
+  EXPECT_EQ(packing.lookup(outputValues[0]).num_outer_loop_iters, 1);
+  EXPECT_EQ(packing.lookup(outputValues[1]).num_outer_loop_iters, 1);
+  EXPECT_EQ(packing.lookup(outputValues[2]).num_outer_loop_iters, 1);
+  EXPECT_EQ(packing.lookup(outputValues[3]).num_outer_loop_iters, 1);
 }
 
 TEST_F(GenericOpAnalysisTest, CanAnalyzeGenericForDSTPackingPrimeShardShapes) {
@@ -375,27 +401,31 @@ func.func @test(
     %in0_m = d2m.wait %cb0 : !d2m.cb<memref<1x7x!ttcore.tile<32x32, f32>>> -> memref<1x7x!ttcore.tile<32x32, f32>>
     %in1_m = d2m.wait %cb1 : !d2m.cb<memref<1x7x!ttcore.tile<32x32, f32>>> -> memref<1x7x!ttcore.tile<32x32, f32>>
     %out_m = d2m.reserve %cb2 : !d2m.cb<memref<1x7x!ttcore.tile<32x32, f32>>> -> memref<1x7x!ttcore.tile<32x32, f32>>
+    %out0_m = memref.cast %out_m : memref<1x7x!ttcore.tile<32x32, f32>> to memref<1x7x!ttcore.tile<32x32, f32>>
+    %out1_m = memref.cast %out_m : memref<1x7x!ttcore.tile<32x32, f32>> to memref<1x7x!ttcore.tile<32x32, f32>>
+    %out2_m = memref.cast %out_m : memref<1x7x!ttcore.tile<32x32, f32>> to memref<1x7x!ttcore.tile<32x32, f32>>
+    %out3_m = memref.cast %out_m : memref<1x7x!ttcore.tile<32x32, f32>> to memref<1x7x!ttcore.tile<32x32, f32>>
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
     %c7 = arith.constant 7 : index
     scf.for %i = %c0 to %c7 step %c1 {
       linalg.generic {indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>], iterator_types = ["parallel", "parallel"]}
         ins(%in0_m : memref<1x7x!ttcore.tile<32x32, f32>>)
-        outs(%out_m : memref<1x7x!ttcore.tile<32x32, f32>>) {
+        outs(%out0_m : memref<1x7x!ttcore.tile<32x32, f32>>) {
       ^bb0(%arg0: !ttcore.tile<32x32, f32>, %arg1: !ttcore.tile<32x32, f32>):
         %abs = "d2m.tile_abs"(%arg0) : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
         linalg.yield %abs : !ttcore.tile<32x32, f32>
       }
       linalg.generic {indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>], iterator_types = ["parallel", "parallel"]}
         ins(%in0_m, %in1_m : memref<1x7x!ttcore.tile<32x32, f32>>, memref<1x7x!ttcore.tile<32x32, f32>>)
-        outs(%out_m : memref<1x7x!ttcore.tile<32x32, f32>>) {
+        outs(%out1_m : memref<1x7x!ttcore.tile<32x32, f32>>) {
       ^bb0(%arg0: !ttcore.tile<32x32, f32>, %arg1: !ttcore.tile<32x32, f32>, %arg2: !ttcore.tile<32x32, f32>):
         %sum = "d2m.tile_add"(%arg0, %arg1) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
         linalg.yield %sum : !ttcore.tile<32x32, f32>
       }
       linalg.generic {indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>], iterator_types = ["parallel", "parallel"]}
         ins(%in0_m : memref<1x7x!ttcore.tile<32x32, f32>>)
-        outs(%out_m : memref<1x7x!ttcore.tile<32x32, f32>>) {
+        outs(%out2_m : memref<1x7x!ttcore.tile<32x32, f32>>) {
       ^bb0(%arg0: !ttcore.tile<32x32, f32>, %arg1: !ttcore.tile<32x32, f32>):
         %cst = arith.constant 3.0 : f32
         %mul = "d2m.tile_mul"(%arg0, %cst) : (!ttcore.tile<32x32, f32>, f32) -> !ttcore.tile<32x32, f32>
@@ -403,7 +433,7 @@ func.func @test(
       }
       linalg.generic {indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>], iterator_types = ["parallel", "parallel"]}
         ins(%in0_m, %in1_m : memref<1x7x!ttcore.tile<32x32, f32>>, memref<1x7x!ttcore.tile<32x32, f32>>)
-        outs(%out_m : memref<1x7x!ttcore.tile<32x32, f32>>) {
+        outs(%out3_m : memref<1x7x!ttcore.tile<32x32, f32>>) {
       ^bb0(%arg0: !ttcore.tile<32x32, f32>, %arg1: !ttcore.tile<32x32, f32>, %arg2: !ttcore.tile<32x32, f32>):
         %sub = "d2m.tile_sub"(%arg0, %arg1) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
         linalg.yield %sub : !ttcore.tile<32x32, f32>
@@ -421,19 +451,25 @@ func.func @test(
   markAllForLoopsAsBlocking(generic);
 
   auto packing = d2m::utils::analyzeGenericForDSTPacking(generic);
+  auto outputValues = getSingleOutputValuesFromLinalgOps(generic);
+  ASSERT_EQ(outputValues.size(), 4u);
   ASSERT_EQ(packing.size(), 4u);
-  EXPECT_EQ(packing[0].second.num_tiles_per_flip, 1); // prime shard, SFPU fp32
-  EXPECT_EQ(packing[1].second.num_tiles_per_flip, 1); // prime shard, FPU fp32
-  EXPECT_EQ(packing[2].second.num_tiles_per_flip, 1); // prime shard, SFPU fp32
-  EXPECT_EQ(packing[3].second.num_tiles_per_flip, 1); // prime shard, FPU fp32
-  EXPECT_EQ(packing[0].second.num_dst_flips, 7);
-  EXPECT_EQ(packing[1].second.num_dst_flips, 7);
-  EXPECT_EQ(packing[2].second.num_dst_flips, 7);
-  EXPECT_EQ(packing[3].second.num_dst_flips, 7);
-  EXPECT_EQ(packing[0].second.num_outer_loop_iters, 1);
-  EXPECT_EQ(packing[1].second.num_outer_loop_iters, 1);
-  EXPECT_EQ(packing[2].second.num_outer_loop_iters, 1);
-  EXPECT_EQ(packing[3].second.num_outer_loop_iters, 1);
+  EXPECT_EQ(packing.lookup(outputValues[0]).num_tiles_per_flip,
+            1); // prime shard, SFPU fp32
+  EXPECT_EQ(packing.lookup(outputValues[1]).num_tiles_per_flip,
+            1); // prime shard, FPU fp32
+  EXPECT_EQ(packing.lookup(outputValues[2]).num_tiles_per_flip,
+            1); // prime shard, SFPU fp32
+  EXPECT_EQ(packing.lookup(outputValues[3]).num_tiles_per_flip,
+            1); // prime shard, FPU fp32
+  EXPECT_EQ(packing.lookup(outputValues[0]).num_dst_flips, 7);
+  EXPECT_EQ(packing.lookup(outputValues[1]).num_dst_flips, 7);
+  EXPECT_EQ(packing.lookup(outputValues[2]).num_dst_flips, 7);
+  EXPECT_EQ(packing.lookup(outputValues[3]).num_dst_flips, 7);
+  EXPECT_EQ(packing.lookup(outputValues[0]).num_outer_loop_iters, 1);
+  EXPECT_EQ(packing.lookup(outputValues[1]).num_outer_loop_iters, 1);
+  EXPECT_EQ(packing.lookup(outputValues[2]).num_outer_loop_iters, 1);
+  EXPECT_EQ(packing.lookup(outputValues[3]).num_outer_loop_iters, 1);
 }
 
 } // namespace mlir::tt::d2m
