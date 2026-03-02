@@ -736,7 +736,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
 
       Value operandValue = operandCtx.operand->get();
 
-      if (isOperandExemptFromStreaming(operandCtx)) {
+      if (isOperandExemptFromStreaming(operandCtx, ttcore::getMemorySpace(memrefType))) {
         // For now, disabled `allow-l1-output-spilling` also means
         // "don't insert streams but allow them in the incoming IR".
       } else {
@@ -1002,7 +1002,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
                   // DRAM outputs always need streams to write data back from
                   // L1 circular buffers to DRAM.
 
-                  if (isOperandExemptFromStreaming(operandCtx)) {
+                  if (isOperandExemptFromStreaming(operandCtx, memspace)) {
                     continue;
                   }
 
@@ -1011,7 +1011,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
                   }
 
                   if (useAlwaysStreamPolicy() ||
-                      inferStreamRequirement(user, operandCtx.operandIndex(),
+                      inferStreamRequirement(user, operandCtx,
                                              placementMemspace)) {
                     TT_debug(operandCtx.bufferType != nullptr);
                     const AllocSizeT bufferSize = ttmlir::utils::alignUp(
@@ -1207,7 +1207,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
               });
         }
 
-        if (isOperandExemptFromStreaming(operandCtx)) {
+        if (isOperandExemptFromStreaming(operandCtx, remappedMemSpace)) {
           continue;
         }
 
@@ -1218,7 +1218,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
 
         if (!operandCtx.hasStream &&
             (useAlwaysStreamPolicy() ||
-             inferStreamRequirement(genericOp, operandCtx.operandIndex(),
+             inferStreamRequirement(genericOp, operandCtx,
                                     remappedMemSpace))) {
 
           // Save the old operand value before stream insertion so we can map
@@ -1296,7 +1296,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
             (useAlwaysStreamPolicy() ||
              inferStreamRequirement(genericOp, operandCtx,
                                     operandMemSpace))) {
-          if (!isOperandExemptFromStreaming(operandCtx)) {
+          if (!isOperandExemptFromStreaming(operandCtx, operandMemSpace)) {
             auto preStreamIt =
                 preStreamOperandValues.find(operandCtx.operandIndex());
             if (preStreamIt != preStreamOperandValues.end()) {
@@ -1500,12 +1500,11 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
   /// @return `true` if `operandCtx` is an output that is exempt from stream
   /// insertion. Currently, this is true for outputs when L1 output spilling is
   /// disabled and the output is not a non-trivial view.
-  bool isOperandExemptFromStreaming(const OperandContext &operandCtx) {
+  bool isOperandExemptFromStreaming(const OperandContext &operandCtx, MemorySpace memspace) {
     if (isNonTrivialView(operandCtx)) {
       return false;
     }
-    return operandCtx.isOutput && !allowL1OutputSpilling  &&
-    ttcore::getMemorySpace(operandCtx.bufferType) != ttcore::MemorySpace::DeviceDRAM;
+    return operandCtx.isOutput && !allowL1OutputSpilling  && memspace != MemorySpace::DeviceDRAM;
   }
 
   /// @return `true` if `genericOp` requires a stream

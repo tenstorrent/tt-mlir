@@ -87,7 +87,7 @@ static ttnn::TTNNLayoutAttr getTTNNLayoutFromDeviceLayout(MLIRContext *ctx,
     grid = ttcore::GridAttr::get(ctx, SmallVector<int64_t>(2, 1));
     memLayoutEnum = ttnn::TensorMemoryLayout::Interleaved;
   } else {
-    auto virtMap = d2m::utils::getVirtualGridMapping(memrefValue);
+    auto virtMap = d2m::utils::getVirtualGridForwardMapping(memrefValue);
 
     if (!virtMap) {
       grid = ttcore::GridAttr::get(ctx, gridShape);
