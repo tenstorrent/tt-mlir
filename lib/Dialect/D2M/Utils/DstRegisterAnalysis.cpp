@@ -9,11 +9,12 @@
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOpsInterfaces.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 
-#include <limits>
+#include <numeric>
 
 namespace mlir::tt::d2m::utils {
 
@@ -53,19 +54,6 @@ static scf::ForOp getImmediateParentBlockingLoop(linalg::GenericOp op) {
     }
   }
   return nullptr;
-}
-
-static std::optional<int64_t> getShardSizeInTiles(Value outputValue) {
-  auto shapedType = mlir::dyn_cast<ShapedType>(outputValue.getType());
-  if (!shapedType || !shapedType.hasStaticShape()) {
-    return std::nullopt;
-  }
-
-  int64_t shardSizeTiles = 1;
-  for (int64_t dim : shapedType.getShape()) {
-    shardSizeTiles *= dim;
-  }
-  return shardSizeTiles;
 }
 
 static DstExecutionClass classifyComputeOp(Operation *op) {
@@ -151,40 +139,29 @@ static std::optional<int64_t> getLargestLegalChunkSize(int64_t shardSizeTiles,
 }
 
 static std::optional<int64_t>
-getMinimalNumDstFlipsForOuterLoopFactorization(int64_t numDstFlips) {
-  if (numDstFlips < 2) {
-    return std::nullopt;
-  }
-  for (int64_t candidate = 2; candidate <= numDstFlips; ++candidate) {
-    if ((numDstFlips % candidate) == 0) {
-      return candidate;
-    }
-  }
-  return std::nullopt;
-}
-
-static std::optional<int64_t>
 getLargestCommonNumOuterLoopIters(ArrayRef<int64_t> numDstFlipsPerOp) {
   if (numDstFlipsPerOp.empty()) {
     return std::nullopt;
   }
 
-  int64_t maxCandidate = std::numeric_limits<int64_t>::max();
-  for (int64_t numDstFlips : numDstFlipsPerOp) {
+  int64_t maxCandidate = numDstFlipsPerOp.front() / 2;
+  int64_t gcdNumDstFlips = numDstFlipsPerOp.front();
+  for (int64_t numDstFlips : numDstFlipsPerOp.drop_front()) {
     // Enforce num_dst_flips >= 2, i.e.
     // num_outer_loop_iters <= num_dst_flips / 2.
     maxCandidate = std::min(maxCandidate, numDstFlips / 2);
+    gcdNumDstFlips = std::gcd(gcdNumDstFlips, numDstFlips);
   }
   if (maxCandidate < 1) {
     return std::nullopt;
   }
 
-  for (int64_t candidate = maxCandidate; candidate >= 1; --candidate) {
-    bool dividesAll = llvm::all_of(numDstFlipsPerOp, [&](int64_t numDstFlips) {
-      return (numDstFlips % candidate) == 0;
-    });
-    if (dividesAll) {
-      return candidate;
+  // Pick the largest factor of gcd(num_dst_flips_per_op) that still satisfies
+  // num_outer_loop_iters <= min(num_dst_flips / 2) across ops.
+  for (int64_t factor :
+       llvm::reverse(ttmlir::utils::getFactors(gcdNumDstFlips))) {
+    if (factor <= maxCandidate) {
+      return factor;
     }
   }
   return std::nullopt;
@@ -238,13 +215,14 @@ analyzeGenericForDSTPacking(d2m::GenericOp generic) {
     }
 
     Value outputValue = linalgOp.getOutputs().front();
-
-    std::optional<int64_t> shardSizeTiles = getShardSizeInTiles(outputValue);
-    if (!shardSizeTiles) {
+    auto outputShapedType = mlir::dyn_cast<ShapedType>(outputValue.getType());
+    if (!outputShapedType || !outputShapedType.hasStaticShape()) {
       linalgOp.emitOpError(
           "expected static shaped output to compute shard size");
       return {};
     }
+    int64_t shardSizeTiles =
+        ttmlir::utils::volume<int64_t>(outputShapedType.getShape());
 
     std::optional<int64_t> maxDstTiles = getMaxDstTilesForLinalgOp(linalgOp);
     if (!maxDstTiles) {
@@ -253,20 +231,18 @@ analyzeGenericForDSTPacking(d2m::GenericOp generic) {
     }
 
     std::optional<int64_t> numTilesPerFlip =
-        getLargestLegalChunkSize(*shardSizeTiles, *maxDstTiles);
+        getLargestLegalChunkSize(shardSizeTiles, *maxDstTiles);
     if (!numTilesPerFlip) {
       linalgOp.emitOpError("failed to find legal tiles per DST flip");
       return {};
     }
 
-    int64_t numDstFlips = *shardSizeTiles / *numTilesPerFlip;
+    int64_t numDstFlips = shardSizeTiles / *numTilesPerFlip;
     if (numDstFlips <= 0) {
       linalgOp.emitOpError("expected positive DST flip count");
       return {};
     }
-    std::optional<int64_t> minNumDstFlips =
-        getMinimalNumDstFlipsForOuterLoopFactorization(numDstFlips);
-    if (!minNumDstFlips) {
+    if (numDstFlips < 2) {
       linalgOp.emitOpError("failed to satisfy num_dst_flips >= 2");
       return {};
     }
