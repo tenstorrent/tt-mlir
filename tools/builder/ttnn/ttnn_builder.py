@@ -4662,6 +4662,19 @@ class TTNNBuilder(Builder):
                 golden_kwargs=golden_kwargs,
             )
 
+    ############### ttnn.GetDeviceOp ###############
+
+    @parse(ttnn.GetDeviceOp)
+    def get_device_parser(
+        self,
+        old_op: ttnn.GetDeviceOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttnn_op = self.get_opview_from_parser(TTNNBuilder.get_device_parser)
+        mesh_shape_attr = old_op.mesh_shape
+        new_op = ttnn_op(mesh_shape=mesh_shape_attr)
+        return new_op, {old_op.device: new_op.device}
+
     ############### ttnn.MeshShardOp ###############
 
     def _get_or_create_device(self) -> OpResult:
