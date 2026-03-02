@@ -321,7 +321,7 @@ def run_subprocess_worker(
             cmd, timeout=timeout, check=False, capture_output=True, text=True
         )
 
-        if os.path.getsize(result_path) == 0:
+        if not os.path.exists(result_path) or os.path.getsize(result_path) == 0:
             raise RuntimeError(
                 f"Worker `{runner_script}` crashed without writing results. "
                 f"Exit code: {proc.returncode}. Stderr: {proc.stderr}"
