@@ -1083,16 +1083,10 @@ createOp(FlatbufferObjectCache &cache, ReduceScatterOp op) {
   auto numLinks = toFlatbuffer(cache, op.getNumLinks());
   auto topology = toFlatbuffer(cache, op.getTopology());
 
-  ::flatbuffers::Offset<::tt::target::ttnn::DeviceComputeKernelConfig>
-      computeConfig = 0;
-  if (op.getComputeConfig().has_value()) {
-    computeConfig = toFlatbuffer(cache, op.getComputeConfig().value());
-  }
-
   return ::tt::target::ttnn::CreateReduceScatterOp(
       *cache.fbb, input, output, op.getScatterDim(),
       static_cast<uint32_t>(op.getReduceType()), op.getClusterAxis(),
-      subDeviceId, memoryConfig, numLinks, topology, computeConfig);
+      subDeviceId, memoryConfig, numLinks, topology);
 }
 
 // Convert ttcore::ReduceType to tt::target::ttnn::ScatterReduceType

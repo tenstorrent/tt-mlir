@@ -75,8 +75,7 @@ static void runEltwiseUnaryWithFastAndApproximateModeOp(
 static void runEltwiseUnaryWithVectorAndFastAndApproximateModeOp(
     const ::tt::target::ttnn::EltwiseUnaryOp *op, ProgramTensorPool &tensorPool,
     const std::function<
-        ::ttnn::Tensor(const ::ttnn::Tensor &, const int,
-                       const ::ttnn::operations::unary::Sigmoid::SigmoidMode,
+        ::ttnn::Tensor(const ::ttnn::Tensor &, const int, const bool,
                        const std::optional<::ttnn::MemoryConfig> &,
                        const std::optional<::ttnn::Tensor> &)> &ttnnOp) {
 
@@ -88,10 +87,9 @@ static void runEltwiseUnaryWithVectorAndFastAndApproximateModeOp(
                  outputMemoryConfig.has_value(),
              "Memory config must exist for device tensors");
 
-  auto sigmoidMode = ::ttnn::operations::unary::Sigmoid::SigmoidMode::ACCURATE;
   ::ttnn::Tensor out =
       ttnnOp(in, static_cast<int>(::ttnn::operations::unary::VecMode::RC),
-             sigmoidMode, outputMemoryConfig, std::nullopt);
+             /*parameter=*/false, outputMemoryConfig, std::nullopt);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
