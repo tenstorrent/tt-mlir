@@ -198,9 +198,9 @@ func.func @test(
   auto it = packing.find(outputValues.front());
   ASSERT_NE(it, packing.end());
   ASSERT_EQ(packing.size(), 1u);
-  EXPECT_EQ(it->second.num_tiles_per_flip, 2);
+  EXPECT_EQ(it->second.num_tiles_per_flip, 1);
   EXPECT_EQ(it->second.num_dst_flips, 2);
-  EXPECT_EQ(it->second.num_outer_loop_iters, 2);
+  EXPECT_EQ(it->second.num_outer_loop_iters, 4);
 }
 
 TEST_F(GenericOpAnalysisTest, CanAnalyzeGenericForDSTPackingFPU) {
@@ -247,9 +247,9 @@ func.func @test(
   auto it = packing.find(outputValues.front());
   ASSERT_NE(it, packing.end());
   ASSERT_EQ(packing.size(), 1u);
-  EXPECT_EQ(it->second.num_tiles_per_flip, 4);
+  EXPECT_EQ(it->second.num_tiles_per_flip, 1);
   EXPECT_EQ(it->second.num_dst_flips, 2);
-  EXPECT_EQ(it->second.num_outer_loop_iters, 1);
+  EXPECT_EQ(it->second.num_outer_loop_iters, 4);
 }
 
 TEST_F(GenericOpAnalysisTest, RejectsDifferentImmediateParentBlockingLoops) {
@@ -369,21 +369,21 @@ func.func @test(
   ASSERT_EQ(outputValues.size(), 4u);
   ASSERT_EQ(packing.size(), 4u);
   EXPECT_EQ(packing.lookup(outputValues[0]).num_tiles_per_flip,
-            2); // tile_abs => SFPU fp32
+            1); // tile_abs => SFPU fp32
   EXPECT_EQ(packing.lookup(outputValues[1]).num_tiles_per_flip,
-            4); // tile_add(tile,tile) => FPU fp32
+            1); // tile_add(tile,tile) => FPU fp32
   EXPECT_EQ(packing.lookup(outputValues[2]).num_tiles_per_flip,
-            2); // tile_mul(tile,scalar) => SFPU fp32
+            1); // tile_mul(tile,scalar) => SFPU fp32
   EXPECT_EQ(packing.lookup(outputValues[3]).num_tiles_per_flip,
-            4); // tile_sub(tile,tile) => FPU fp32
-  EXPECT_EQ(packing.lookup(outputValues[0]).num_dst_flips, 4);
+            1); // tile_sub(tile,tile) => FPU fp32
+  EXPECT_EQ(packing.lookup(outputValues[0]).num_dst_flips, 2);
   EXPECT_EQ(packing.lookup(outputValues[1]).num_dst_flips, 2);
-  EXPECT_EQ(packing.lookup(outputValues[2]).num_dst_flips, 4);
+  EXPECT_EQ(packing.lookup(outputValues[2]).num_dst_flips, 2);
   EXPECT_EQ(packing.lookup(outputValues[3]).num_dst_flips, 2);
-  EXPECT_EQ(packing.lookup(outputValues[0]).num_outer_loop_iters, 1);
-  EXPECT_EQ(packing.lookup(outputValues[1]).num_outer_loop_iters, 1);
-  EXPECT_EQ(packing.lookup(outputValues[2]).num_outer_loop_iters, 1);
-  EXPECT_EQ(packing.lookup(outputValues[3]).num_outer_loop_iters, 1);
+  EXPECT_EQ(packing.lookup(outputValues[0]).num_outer_loop_iters, 4);
+  EXPECT_EQ(packing.lookup(outputValues[1]).num_outer_loop_iters, 4);
+  EXPECT_EQ(packing.lookup(outputValues[2]).num_outer_loop_iters, 4);
+  EXPECT_EQ(packing.lookup(outputValues[3]).num_outer_loop_iters, 4);
 }
 
 TEST_F(GenericOpAnalysisTest, CanAnalyzeGenericForDSTPackingPrimeShardShapes) {

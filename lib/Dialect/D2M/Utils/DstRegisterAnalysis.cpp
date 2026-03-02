@@ -103,11 +103,11 @@ static std::optional<int64_t> getMaxDstTilesForLinalgOp(linalg::GenericOp op) {
   return maxDstTiles;
 }
 
-static std::optional<int64_t> getLargestLegalChunkSize(int64_t shardSizeTiles,
-                                                       int64_t maxDstTiles) {
+static std::optional<int64_t> getSmallestLegalChunkSize(int64_t shardSizeTiles,
+                                                        int64_t maxDstTiles) {
   int64_t largestCandidate = std::min(maxDstTiles, shardSizeTiles / 2);
-  for (int64_t numTilesPerFlip = largestCandidate; numTilesPerFlip >= 1;
-       --numTilesPerFlip) {
+  for (int64_t numTilesPerFlip = 1; numTilesPerFlip <= largestCandidate;
+       ++numTilesPerFlip) {
     if ((2 * numTilesPerFlip) > shardSizeTiles) {
       continue;
     }
@@ -133,12 +133,10 @@ getLargestCommonNumOuterLoopIters(ArrayRef<int64_t> numDstFlipsPerOp) {
     maxCandidate = std::min(maxCandidate, numDstFlips / 2);
     gcdNumDstFlips = std::gcd(gcdNumDstFlips, numDstFlips);
   }
-  if (maxCandidate < 1) {
-    return std::nullopt;
-  }
+  TT_assert(maxCandidate >= 1 && "maxCandidate must be >= 1");
 
-  // Pick the largest factor of gcd(num_dst_flips_per_op) that still satisfies
-  // num_outer_loop_iters <= min(num_dst_flips / 2) across ops.
+  // Pick the largest legal factor so the common outer loop iteration count is
+  // maximized.
   for (int64_t factor :
        llvm::reverse(ttmlir::utils::getFactors(gcdNumDstFlips))) {
     if (factor <= maxCandidate) {
@@ -212,7 +210,7 @@ DSTPackingResultsMap analyzeGenericForDSTPacking(d2m::GenericOp generic) {
     }
 
     std::optional<int64_t> numTilesPerFlip =
-        getLargestLegalChunkSize(shardSizeTiles, *maxDstTiles);
+        getSmallestLegalChunkSize(shardSizeTiles, *maxDstTiles);
     if (!numTilesPerFlip) {
       linalgOp.emitOpError("failed to find legal tiles per DST flip");
       return DSTPackingResultsMap();

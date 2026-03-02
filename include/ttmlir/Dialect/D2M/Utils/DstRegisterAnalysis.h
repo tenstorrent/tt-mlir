@@ -23,8 +23,8 @@ struct DSTPackingInfo {
 using DSTPackingResult = DSTPackingInfo;
 using DSTPackingResultsMap = llvm::SmallDenseMap<Value, DSTPackingResult>;
 
-// Analyze linalg.generic ops in a unified d2m.generic region and compute the
-// maximal legal number of tiles per DST flip per op destination.
+// Analyze linalg.generic ops in a unified d2m.generic region and compute legal
+// DST packing values that maximize common outer loop iterations.
 DSTPackingResultsMap analyzeGenericForDSTPacking(d2m::GenericOp generic);
 
 } // namespace mlir::tt::d2m::utils
