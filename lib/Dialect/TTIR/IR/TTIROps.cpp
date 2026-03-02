@@ -3618,12 +3618,19 @@ void mlir::tt::ttir::MatmulOp::getCanonicalizationPatterns(
       return mlir::failure();
     }
 
-    // For >= 2D inputs, matmul output rank == max(rankA, rankB) because batch
-    // dims are broadcast-padded with leading 1s. The inner dims and batch
-    // values are guaranteed compatible by the existing valid matmul (squeeze
-    // only removes leading 1s). So a rank check is sufficient.
-    if (std::max(newAType.getRank(), newBType.getRank()) !=
-        unsqueezeOp.getType().getRank()) {
+    // Bail out if the transformed inputs would have different ranks.
+    // When only one input had a leading squeeze, absorbing it promotes that
+    // input to a higher rank while the other stays unchanged, producing a
+    // matmul with mismatched input ranks (e.g. rank 3 vs rank 4) that TTNN
+    // rejects at runtime.
+    if (newAType.getRank() != newBType.getRank()) {
+      return mlir::failure();
+    }
+
+    // For same-rank >= 2D inputs, verify the rank matches the unsqueeze output.
+    // The inner dims and batch values are guaranteed compatible by the existing
+    // valid matmul (squeeze only removes leading 1s).
+    if (newAType.getRank() != unsqueezeOp.getType().getRank()) {
       return mlir::failure();
     }
 
