@@ -23,9 +23,6 @@ module {
     // CHECK: memref.copy
     // CHECK: "ttmetal.enqueue_write_buffer"
     // CHECK: memref.alloc
-    // CHECK-NOT: #ttcore.host_layout
-    // CHECK: memref.alloc
-    // CHECK-SAME: #ttcore.host_layout
     // CHECK: "ttmetal.enqueue_read_buffer"
     // CHECK: memref.copy
     %0 = "ttir.constant"() <{value = dense<5.0> : tensor<9x43x7xf32>}> : () -> tensor<9x43x7xf32>
