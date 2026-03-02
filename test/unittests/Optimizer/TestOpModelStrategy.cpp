@@ -362,7 +362,7 @@ TEST_F(OpModelStrategyTest, ScoreCandidateL1ShardedResult) {
 
   op_constraint_validation::ValidationResult result;
   result.status = op_constraint_validation::ValidationStatus::Success;
-  result.actualOutputLayout = l1ShardedLayout;
+  result.actualOutputLayouts = {l1ShardedLayout};
   result.outputL1Usage = 1024;
 
   LayoutScore score = scoreCandidate(addOp, config, result, false);
@@ -382,7 +382,7 @@ TEST_F(OpModelStrategyTest, ScoreCandidateDRAMResult) {
 
   op_constraint_validation::ValidationResult result;
   result.status = op_constraint_validation::ValidationStatus::Success;
-  result.actualOutputLayout = dramLayout;
+  result.actualOutputLayouts = {dramLayout};
   result.outputL1Usage = 0;
 
   LayoutScore score = scoreCandidate(addOp, config, result, false);
@@ -399,7 +399,7 @@ TEST_F(OpModelStrategyTest, ScoreCandidateWithReshard) {
 
   op_constraint_validation::ValidationResult result;
   result.status = op_constraint_validation::ValidationStatus::Success;
-  result.actualOutputLayout = layout;
+  result.actualOutputLayouts = {layout};
   result.outputL1Usage = 512;
 
   LayoutScore withReshard = scoreCandidate(addOp, config, result, true);

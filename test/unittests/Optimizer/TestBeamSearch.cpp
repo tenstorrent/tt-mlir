@@ -473,8 +473,9 @@ TEST_F(BeamSearchTest, NoValidCandidate_FallbackToDRAM) {
   if (it != beamState.end() && !it->second.empty()) {
     // Fallback candidate should be DRAM.
     const auto &fallback = it->second[0];
-    if (fallback.config.outputLayout) {
-      EXPECT_EQ(fallback.config.outputLayout.getBufferType(), BufferType::DRAM)
+    if (fallback.configHint.outputLayout) {
+      EXPECT_EQ(fallback.configHint.outputLayout.getBufferType(),
+                BufferType::DRAM)
           << "Fallback should be DRAM interleaved";
     }
   }
