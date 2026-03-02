@@ -878,18 +878,18 @@ public:
         if (!assocOperand) {
           return nullptr;
         }
-        return GenericOp::findAssocCBByOperand(allocOp.getOperation(),
-                                               assocOperand);
+        Value cb = GenericOp::findAssocCBByOperand(allocOp.getOperation(),
+                                                   assocOperand);
+        // Only return CB block args, not tensor.empty/memref.alloc results.
+        // Returning non-CB values changes DST register insertion behavior.
+        if (cb && mlir::isa<BlockArgument>(cb)) {
+          return cb;
+        }
+        return nullptr;
       }
     }
-    // Accept block args (CB type) or tensor.empty/memref.alloc results.
     if (mlir::isa<BlockArgument>(memref)) {
       return memref;
-    }
-    if (auto *defOp = memref.getDefiningOp()) {
-      if (mlir::isa<mlir::tensor::EmptyOp, memref::AllocOp>(defOp)) {
-        return memref;
-      }
     }
     return nullptr;
   }
