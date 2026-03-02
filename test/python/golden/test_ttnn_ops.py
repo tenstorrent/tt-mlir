@@ -5,13 +5,14 @@
 import pytest
 import torch
 from conftest import get_request_kwargs
-from typing import Callable, List, Optional, Tuple
+from typing import List, Optional, Tuple
 from collections import OrderedDict
 
 from builder.base.builder_utils import Operand, Shape
 from builder.ttnn.ttnn_builder import TTNNBuilder
 from builder.base.builder_apis import compile_and_execute_ttnn
-from test_utils import shape_str, shapes_list_str
+from builder.base.builder_enums import MeshShardDirection, MeshShardType
+from test_utils import shape_str, shapes_list_str, make_shard_shape
 
 pytestmark = pytest.mark.frontend("ttnn")
 
@@ -257,18 +258,46 @@ def test_all_gather(
     if mesh_shape[cluster_axis] == 1:
         pytest.skip("all_gather across 1 device is meaningless")
 
+    rank_in = len(test_shape)
+    rank_mesh = len(mesh_shape)
+
+    if rank_mesh > rank_in:
+        raise ValueError(
+            f"Mesh shape {mesh_shape} has {rank_mesh} dimensions, but test shape "
+            f"{test_shape} only has {rank_in} dimensions. Cannot shard more "
+            f"dimensions than exist in the tensor."
+        )
+
+    shard_dims = list(range(rank_in - rank_mesh, rank_in))
+    shard_shape = make_shard_shape(rank_in, shard_dims, mesh_shape)
+
+    full_input_shape = list(test_shape)
+    for d, factor in zip(shard_dims, mesh_shape):
+        full_input_shape[d] *= factor
+
     def module(builder: TTNNBuilder):
-        @builder.func([test_shape], [dtype])
-        def all_gather(
-            in0: Operand,
-            builder: TTNNBuilder,
-            unit_attrs: Optional[List[str]] = None,
-        ):
-            return builder.all_gather(
+        @builder.func([full_input_shape], [dtype])
+        def all_gather(in0: Operand, builder: TTNNBuilder):
+            in_shard = builder.mesh_shard(
                 in0,
+                shard_direction=MeshShardDirection.FullToShard.value,
+                shard_type=MeshShardType.Devices.value,
+                shard_shape=shard_shape,
+                shard_dims=shard_dims,
+            )
+
+            all_gather0 = builder.all_gather(
+                in_shard,
                 all_gather_dim=all_gather_dim,
                 cluster_axis=cluster_axis,
-                unit_attrs=unit_attrs,
+            )
+
+            return builder.mesh_shard(
+                all_gather0,
+                shard_direction=MeshShardDirection.ShardToFull.value,
+                shard_type=MeshShardType.Devices.value,
+                shard_shape=shard_shape,
+                shard_dims=shard_dims,
             )
 
     compile_and_execute_ttnn(
