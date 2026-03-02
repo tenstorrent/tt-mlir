@@ -5,7 +5,7 @@
 import pytest
 import torch
 from conftest import get_request_kwargs
-from typing import List, Optional, Tuple
+from typing import Callable, List, Optional, Tuple
 from collections import OrderedDict
 
 from builder.base.builder_utils import Operand, Shape
@@ -223,14 +223,21 @@ def test_linear(
 @pytest.mark.parametrize(
     "test_shape",
     [
-        (1, 1, 32, 32),
         (1, 32, 32, 32),
+        (1, 32, 32, 1),
         (32, 32, 1, 1),
-        (1, 1, 64, 128),
+        (1, 32, 32),
+        (32, 32),
+        (32, 40),
+        (40, 32),
+        (1, 1, 32, 32, 32),
+        (1, 1, 1, 1, 1, 1, 32, 32, 32),
     ],
     ids=shape_str,
 )
-@pytest.mark.parametrize("mesh_shape", [(1, 2)], ids=shape_str)
+@pytest.mark.parametrize(
+    "mesh_shape", [(2, 4), (1, 8), (1, 2), (1, 32), (8, 4)], ids=shape_str
+)
 @pytest.mark.parametrize("all_gather_dim", range(4))
 @pytest.mark.parametrize("cluster_axis", [0, 1])
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32], ids=["bf16", "f32"])
