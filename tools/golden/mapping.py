@@ -6439,15 +6439,6 @@ def ttnn_all_gather_golden(
     cluster_axis = unpack_mlir_attr(cluster_axis_attr)
     output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
 
-    # When called from the builder's @tag method, function inputs only have a
-    # single shard (key 0). Replicate it across all devices so that
-    # group_by_axis has a complete shard map to work with.
-    num_devices = input.mesh_shape[0] * input.mesh_shape[1]
-    if len(input.shard_map) < num_devices:
-        base_tensor = input.shard_map[0]
-        full_shard_map = {i: base_tensor.clone() for i in range(num_devices)}
-        input = GoldenMapTensor(full_shard_map, input.mesh_shape)
-
     output_shards = [None] * len(input.shard_map)
     grouped_shards = input.group_by_axis(cluster_axis)
     for group in grouped_shards:
