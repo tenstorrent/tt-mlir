@@ -133,7 +133,7 @@ getLargestCommonNumOuterLoopIters(ArrayRef<int64_t> numDstFlipsPerOp) {
     maxCandidate = std::min(maxCandidate, numDstFlips / 2);
     gcdNumDstFlips = std::gcd(gcdNumDstFlips, numDstFlips);
   }
-  TT_assert(maxCandidate >= 1 && "maxCandidate must be >= 1");
+  TT_assertv(maxCandidate >= 1, "maxCandidate must be >= 1");
 
   // Pick the largest legal factor so the common outer loop iteration count is
   // maximized.
@@ -154,14 +154,14 @@ struct PendingDSTPackingResult {
 
 } // namespace
 
-DSTPackingResultsMap analyzeGenericForDSTPacking(d2m::GenericOp generic) {
-  DSTPackingResultsMap results;
+DSTPackingInfo analyzeGenericForDSTPacking(d2m::GenericOp generic) {
+  DSTPackingInfo results;
   SmallVector<PendingDSTPackingResult> pendingResults;
   SmallVector<int64_t> numDstFlipsPerOp;
 
   if (!generic.isUnifiedForm()) {
     generic.emitOpError("expected unified form for DST packing analysis");
-    return DSTPackingResultsMap();
+    return DSTPackingInfo();
   }
   Region &unifiedRegion = generic.getRegion(0);
 
@@ -175,7 +175,7 @@ DSTPackingResultsMap analyzeGenericForDSTPacking(d2m::GenericOp generic) {
     if (immediateParentBlockingLoop == nullptr) {
       linalgOp.emitOpError(
           "expected immediate parent to be an scf.for with d2m.blocking_loop");
-      return DSTPackingResultsMap();
+      return DSTPackingInfo();
     }
 
     if (commonImmediateParentBlockingLoop == nullptr) {
@@ -185,12 +185,12 @@ DSTPackingResultsMap analyzeGenericForDSTPacking(d2m::GenericOp generic) {
       linalgOp.emitOpError(
           "expected all linalg.generic ops to have the same immediate parent "
           "scf.for blocking loop");
-      return DSTPackingResultsMap();
+      return DSTPackingInfo();
     }
 
     if (linalgOp.getOutputs().size() != 1u) {
       linalgOp.emitOpError("expected exactly one output");
-      return DSTPackingResultsMap();
+      return DSTPackingInfo();
     }
 
     Value outputValue = linalgOp.getOutputs().front();
@@ -198,7 +198,7 @@ DSTPackingResultsMap analyzeGenericForDSTPacking(d2m::GenericOp generic) {
     if (!outputShapedType || !outputShapedType.hasStaticShape()) {
       linalgOp.emitOpError(
           "expected static shaped output to compute shard size");
-      return DSTPackingResultsMap();
+      return DSTPackingInfo();
     }
     int64_t shardSizeTiles =
         ttmlir::utils::volume<int64_t>(outputShapedType.getShape());
@@ -206,24 +206,24 @@ DSTPackingResultsMap analyzeGenericForDSTPacking(d2m::GenericOp generic) {
     std::optional<int64_t> maxDstTiles = getMaxDstTilesForLinalgOp(linalgOp);
     if (!maxDstTiles) {
       linalgOp.emitOpError("failed to compute max DST tile capacity");
-      return DSTPackingResultsMap();
+      return DSTPackingInfo();
     }
 
     std::optional<int64_t> numTilesPerFlip =
         getSmallestLegalChunkSize(shardSizeTiles, *maxDstTiles);
     if (!numTilesPerFlip) {
       linalgOp.emitOpError("failed to find legal tiles per DST flip");
-      return DSTPackingResultsMap();
+      return DSTPackingInfo();
     }
 
     int64_t numDstFlips = shardSizeTiles / *numTilesPerFlip;
     if (numDstFlips <= 0) {
       linalgOp.emitOpError("expected positive DST flip count");
-      return DSTPackingResultsMap();
+      return DSTPackingInfo();
     }
     if (numDstFlips < 2) {
       linalgOp.emitOpError("failed to satisfy num_dst_flips >= 2");
-      return DSTPackingResultsMap();
+      return DSTPackingInfo();
     }
 
     pendingResults.push_back(
@@ -232,7 +232,7 @@ DSTPackingResultsMap analyzeGenericForDSTPacking(d2m::GenericOp generic) {
   }
 
   if (pendingResults.empty()) {
-    return DSTPackingResultsMap();
+    return DSTPackingInfo();
   }
 
   std::optional<int64_t> commonNumOuterLoopIters =
@@ -242,26 +242,45 @@ DSTPackingResultsMap analyzeGenericForDSTPacking(d2m::GenericOp generic) {
         "failed to infer common num_outer_loop_iters with num_dst_flips >= 2 "
         "for all "
         "linalg.generic ops");
-    return DSTPackingResultsMap();
+    return DSTPackingInfo();
   }
 
+  std::optional<int64_t> commonNumTilesPerResult;
   for (const PendingDSTPackingResult &pending : pendingResults) {
     int64_t numDstFlips = pending.numDstFlips / *commonNumOuterLoopIters;
     if ((pending.numDstFlips % *commonNumOuterLoopIters) != 0 ||
         numDstFlips < 2) {
       generic.emitOpError("failed to satisfy common num_outer_loop_iters and "
                           "num_dst_flips >= 2");
-      return DSTPackingResultsMap();
+      return DSTPackingInfo();
     }
-    if (!results
-             .try_emplace(pending.outputValue,
-                          DSTPackingInfo{pending.numTilesPerFlip, numDstFlips,
-                                         *commonNumOuterLoopIters})
+
+    int64_t numTilesPerResult = numDstFlips * pending.numTilesPerFlip;
+    if (!commonNumTilesPerResult) {
+      commonNumTilesPerResult = numTilesPerResult;
+    }
+    if (*commonNumTilesPerResult != numTilesPerResult) {
+      generic.emitOpError(
+          "expected identical num tiles per result for all linalg.generic "
+          "outputs");
+      return DSTPackingInfo();
+    }
+
+    if (!results.perResult
+             .try_emplace(
+                 pending.outputValue,
+                 DSTPackingPerResultInfo{numDstFlips, pending.numTilesPerFlip})
              .second) {
       generic.emitOpError("expected unique linalg.generic output values");
-      return DSTPackingResultsMap();
+      return DSTPackingInfo();
     }
   }
+
+  TT_assertv(commonNumTilesPerResult.has_value(),
+             "expected num tiles per result when pending results are "
+             "non-empty");
+  results.numTilesPerResult = *commonNumTilesPerResult;
+  results.numOuterLoopIters = *commonNumOuterLoopIters;
 
   return results;
 }

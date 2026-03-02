@@ -195,12 +195,13 @@ func.func @test(
   auto packing = d2m::utils::analyzeGenericForDSTPacking(generic);
   auto outputValues = getSingleOutputValuesFromLinalgOps(generic);
   ASSERT_EQ(outputValues.size(), 1u);
-  auto it = packing.find(outputValues.front());
-  ASSERT_NE(it, packing.end());
-  ASSERT_EQ(packing.size(), 1u);
-  EXPECT_EQ(it->second.num_tiles_per_flip, 1);
-  EXPECT_EQ(it->second.num_dst_flips, 2);
-  EXPECT_EQ(it->second.num_outer_loop_iters, 4);
+  auto it = packing.perResult.find(outputValues.front());
+  ASSERT_NE(it, packing.perResult.end());
+  ASSERT_EQ(packing.perResult.size(), 1u);
+  EXPECT_EQ(it->second.numTilesPerFlip, 1);
+  EXPECT_EQ(it->second.numDstFlips, 2);
+  EXPECT_EQ(packing.numTilesPerResult, 2);
+  EXPECT_EQ(packing.numOuterLoopIters, 4);
 }
 
 TEST_F(GenericOpAnalysisTest, CanAnalyzeGenericForDSTPackingFPU) {
@@ -244,12 +245,13 @@ func.func @test(
   auto packing = d2m::utils::analyzeGenericForDSTPacking(generic);
   auto outputValues = getSingleOutputValuesFromLinalgOps(generic);
   ASSERT_EQ(outputValues.size(), 1u);
-  auto it = packing.find(outputValues.front());
-  ASSERT_NE(it, packing.end());
-  ASSERT_EQ(packing.size(), 1u);
-  EXPECT_EQ(it->second.num_tiles_per_flip, 1);
-  EXPECT_EQ(it->second.num_dst_flips, 2);
-  EXPECT_EQ(it->second.num_outer_loop_iters, 4);
+  auto it = packing.perResult.find(outputValues.front());
+  ASSERT_NE(it, packing.perResult.end());
+  ASSERT_EQ(packing.perResult.size(), 1u);
+  EXPECT_EQ(it->second.numTilesPerFlip, 1);
+  EXPECT_EQ(it->second.numDstFlips, 2);
+  EXPECT_EQ(packing.numTilesPerResult, 2);
+  EXPECT_EQ(packing.numOuterLoopIters, 4);
 }
 
 TEST_F(GenericOpAnalysisTest, RejectsDifferentImmediateParentBlockingLoops) {
@@ -297,7 +299,7 @@ func.func @test(
   markAllForLoopsAsBlocking(generic);
 
   auto packing = d2m::utils::analyzeGenericForDSTPacking(generic);
-  EXPECT_TRUE(packing.empty());
+  EXPECT_TRUE(packing.perResult.empty());
 }
 
 TEST_F(GenericOpAnalysisTest, CanAnalyzeGenericForDSTPackingManyMixedOps) {
@@ -367,23 +369,21 @@ func.func @test(
   auto packing = d2m::utils::analyzeGenericForDSTPacking(generic);
   auto outputValues = getSingleOutputValuesFromLinalgOps(generic);
   ASSERT_EQ(outputValues.size(), 4u);
-  ASSERT_EQ(packing.size(), 4u);
-  EXPECT_EQ(packing.lookup(outputValues[0]).num_tiles_per_flip,
+  ASSERT_EQ(packing.perResult.size(), 4u);
+  EXPECT_EQ(packing.perResult.lookup(outputValues[0]).numTilesPerFlip,
             1); // tile_abs => SFPU fp32
-  EXPECT_EQ(packing.lookup(outputValues[1]).num_tiles_per_flip,
+  EXPECT_EQ(packing.perResult.lookup(outputValues[1]).numTilesPerFlip,
             1); // tile_add(tile,tile) => FPU fp32
-  EXPECT_EQ(packing.lookup(outputValues[2]).num_tiles_per_flip,
+  EXPECT_EQ(packing.perResult.lookup(outputValues[2]).numTilesPerFlip,
             1); // tile_mul(tile,scalar) => SFPU fp32
-  EXPECT_EQ(packing.lookup(outputValues[3]).num_tiles_per_flip,
+  EXPECT_EQ(packing.perResult.lookup(outputValues[3]).numTilesPerFlip,
             1); // tile_sub(tile,tile) => FPU fp32
-  EXPECT_EQ(packing.lookup(outputValues[0]).num_dst_flips, 2);
-  EXPECT_EQ(packing.lookup(outputValues[1]).num_dst_flips, 2);
-  EXPECT_EQ(packing.lookup(outputValues[2]).num_dst_flips, 2);
-  EXPECT_EQ(packing.lookup(outputValues[3]).num_dst_flips, 2);
-  EXPECT_EQ(packing.lookup(outputValues[0]).num_outer_loop_iters, 4);
-  EXPECT_EQ(packing.lookup(outputValues[1]).num_outer_loop_iters, 4);
-  EXPECT_EQ(packing.lookup(outputValues[2]).num_outer_loop_iters, 4);
-  EXPECT_EQ(packing.lookup(outputValues[3]).num_outer_loop_iters, 4);
+  EXPECT_EQ(packing.perResult.lookup(outputValues[0]).numDstFlips, 2);
+  EXPECT_EQ(packing.perResult.lookup(outputValues[1]).numDstFlips, 2);
+  EXPECT_EQ(packing.perResult.lookup(outputValues[2]).numDstFlips, 2);
+  EXPECT_EQ(packing.perResult.lookup(outputValues[3]).numDstFlips, 2);
+  EXPECT_EQ(packing.numTilesPerResult, 2);
+  EXPECT_EQ(packing.numOuterLoopIters, 4);
 }
 
 TEST_F(GenericOpAnalysisTest, CanAnalyzeGenericForDSTPackingPrimeShardShapes) {
@@ -453,23 +453,21 @@ func.func @test(
   auto packing = d2m::utils::analyzeGenericForDSTPacking(generic);
   auto outputValues = getSingleOutputValuesFromLinalgOps(generic);
   ASSERT_EQ(outputValues.size(), 4u);
-  ASSERT_EQ(packing.size(), 4u);
-  EXPECT_EQ(packing.lookup(outputValues[0]).num_tiles_per_flip,
+  ASSERT_EQ(packing.perResult.size(), 4u);
+  EXPECT_EQ(packing.perResult.lookup(outputValues[0]).numTilesPerFlip,
             1); // prime shard, SFPU fp32
-  EXPECT_EQ(packing.lookup(outputValues[1]).num_tiles_per_flip,
+  EXPECT_EQ(packing.perResult.lookup(outputValues[1]).numTilesPerFlip,
             1); // prime shard, FPU fp32
-  EXPECT_EQ(packing.lookup(outputValues[2]).num_tiles_per_flip,
+  EXPECT_EQ(packing.perResult.lookup(outputValues[2]).numTilesPerFlip,
             1); // prime shard, SFPU fp32
-  EXPECT_EQ(packing.lookup(outputValues[3]).num_tiles_per_flip,
+  EXPECT_EQ(packing.perResult.lookup(outputValues[3]).numTilesPerFlip,
             1); // prime shard, FPU fp32
-  EXPECT_EQ(packing.lookup(outputValues[0]).num_dst_flips, 7);
-  EXPECT_EQ(packing.lookup(outputValues[1]).num_dst_flips, 7);
-  EXPECT_EQ(packing.lookup(outputValues[2]).num_dst_flips, 7);
-  EXPECT_EQ(packing.lookup(outputValues[3]).num_dst_flips, 7);
-  EXPECT_EQ(packing.lookup(outputValues[0]).num_outer_loop_iters, 1);
-  EXPECT_EQ(packing.lookup(outputValues[1]).num_outer_loop_iters, 1);
-  EXPECT_EQ(packing.lookup(outputValues[2]).num_outer_loop_iters, 1);
-  EXPECT_EQ(packing.lookup(outputValues[3]).num_outer_loop_iters, 1);
+  EXPECT_EQ(packing.perResult.lookup(outputValues[0]).numDstFlips, 7);
+  EXPECT_EQ(packing.perResult.lookup(outputValues[1]).numDstFlips, 7);
+  EXPECT_EQ(packing.perResult.lookup(outputValues[2]).numDstFlips, 7);
+  EXPECT_EQ(packing.perResult.lookup(outputValues[3]).numDstFlips, 7);
+  EXPECT_EQ(packing.numTilesPerResult, 7);
+  EXPECT_EQ(packing.numOuterLoopIters, 1);
 }
 
 } // namespace mlir::tt::d2m
