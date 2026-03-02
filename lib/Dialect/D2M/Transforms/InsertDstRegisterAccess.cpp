@@ -882,7 +882,7 @@ public:
                                                    assocOperand);
         // Only return CB block args, not tensor.empty/memref.alloc results.
         // Returning non-CB values changes DST register insertion behavior.
-        if (cb && mlir::isa<BlockArgument>(cb)) {
+        if (llvm::isa_and_nonnull<mlir::BlockArgument>(cb)) {
           return cb;
         }
         return nullptr;
