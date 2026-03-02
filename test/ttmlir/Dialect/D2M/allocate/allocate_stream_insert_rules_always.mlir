@@ -38,7 +38,7 @@ module {
     d2m.generic {block_factors = [1, 1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#mapL, #mapR, #mapO], iterator_types = [#parallel, #parallel, #reduction], threads = [#d2m.thread<unified>]}
         ins(%lhs, %rhs : memref<1x1x2x3x!ttcore.tile<32x32, f32>, #ttcore.shard<12288x4096, 1>, #l1>, memref<1x1x3x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)
         outs(%r : memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)  {
-    ^unified0(%cb0: !d2m.cb<memref<2x3x!ttcore.tile<32x32, f32>, #l1>>, %cb1: !d2m.cb<memref<3x4x!ttcore.tile<32x32, f32>, #l1>>, %cb2: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>):
+    ^unified0():
       %bf0 = d2m.get_block_factor(0) : index
       %bf1 = d2m.get_block_factor(1) : index
       %bf2 = d2m.get_block_factor(2) : index
@@ -74,7 +74,7 @@ module {
     d2m.generic {block_factors = [1, 1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#mapL, #mapR, #mapO], iterator_types = [#parallel, #parallel, #reduction], threads = [#d2m.thread<unified>]}
         ins(%stream_lhs, %rhs : memref<1x1x2x3x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1>, memref<1x1x3x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)
         outs(%r : memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)  {
-    ^unified0(%cb0: !d2m.cb<memref<2x3x!ttcore.tile<32x32, f32>, #l1>>, %cb1: !d2m.cb<memref<3x4x!ttcore.tile<32x32, f32>, #l1>>, %cb2: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>):
+    ^unified0():
       %bf0 = d2m.get_block_factor(0) : index
       %bf1 = d2m.get_block_factor(1) : index
       %bf2 = d2m.get_block_factor(2) : index
@@ -104,8 +104,8 @@ module {
     d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>], iterator_types = [#ttcore.iterator_type<parallel>, #ttcore.iterator_type<parallel>], threads = [#d2m.thread<datamovement>]}
         ins(%view_arg0 : memref<1x1x32x32xf32, #ttcore.view<4>, #ttcore.memory_space<dram>>)
         outs(%out : memref<1x1x32x32xf32, #ttcore.shard<128x4, 1>, #ttcore.memory_space<l1>>)  {
-    ^datamovement0(%cb0: !d2m.cb<memref<32x32xf32, #ttcore.memory_space<dram>>>, %cb1: !d2m.cb<memref<32x32xf32, #ttcore.memory_space<l1>>>):
-      %buf = d2m.reserve %cb1 : !d2m.cb<memref<32x32xf32, #ttcore.memory_space<l1>>> -> memref<32x32xf32, #ttcore.memory_space<l1>>
+    ^datamovement0():
+      %buf = memref.alloc() : memref<32x32xf32, #ttcore.memory_space<l1>>
     }
     return
   }
@@ -124,7 +124,7 @@ module {
     d2m.generic {block_factors = [], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<unified>]}
         ins(%stream_in : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>)
         outs(%arg_out : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>) {
-    ^unified0(%cb0: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #dram>>, %cb1: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1>>):
+    ^unified0():
       %c0 = arith.constant 0 : index
       %buffer_in = memref.alloc() : memref<1x1x!ttcore.tile<32x32, f32>, #dram>
       %val = d2m.remote_load %buffer_in %stream_in[%c0, %c0] : memref<1x1x!ttcore.tile<32x32, f32>, #dram>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram> -> memref<1x1x!ttcore.tile<32x32, f32>, #dram>
@@ -148,24 +148,19 @@ module {
     d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<unified>]}
         ins(%arg0_cast : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #dram>)
         outs(%arg1_cast : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>)  {
-    ^unified0(%cb0: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1>>, %cb1: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1>>):
+    ^unified0():
       %bf0 = d2m.get_block_factor(0) : index
       %bf1 = d2m.get_block_factor(1) : index
       affine.for %i = 0 to %bf0 {
         affine.for %j = 0 to %bf1 {
           %c0 = arith.constant 0 : index
-          %in = d2m.wait %cb0 : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1>> -> memref<1x1x!ttcore.tile<32x32, f32>, #l1>
-          %out = d2m.reserve %cb1 : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1>> -> memref<1x1x!ttcore.tile<32x32, f32>, #l1>
-          %subview_in = memref.subview %in[%c0, %c0] [1, 1] [1, 1] : memref<1x1x!ttcore.tile<32x32, f32>, #l1> to memref<1x1x!ttcore.tile<32x32, f32>, strided<[1, 1], offset: ?>, #l1>
-          %subview_out = memref.subview %out[%c0, %c0] [1, 1] [1, 1] : memref<1x1x!ttcore.tile<32x32, f32>, #l1> to memref<1x1x!ttcore.tile<32x32, f32>, strided<[1, 1], offset: ?>, #l1>
-          // must use a linalg.generic here to avoid this op being classified as "DMA-only", forcing stream inference OFF
-          linalg.generic {indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>], iterator_types = ["parallel", "parallel"]}
-              ins(%subview_in : memref<1x1x!ttcore.tile<32x32, f32>, strided<[1, 1], offset: ?>, #l1>)
-              outs(%subview_out : memref<1x1x!ttcore.tile<32x32, f32>, strided<[1, 1], offset: ?>, #l1>) {
-          ^bb0(%in_tile: !ttcore.tile<32x32, f32>, %out_tile: !ttcore.tile<32x32, f32>):
-            %0 = "d2m.tile_exp"(%in_tile) : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
-            linalg.yield %0 : !ttcore.tile<32x32, f32>
-          }
+          %in = memref.alloc() : memref<1x1x!ttcore.tile<32x32, f32>, #l1>
+          %out = memref.alloc() : memref<1x1x!ttcore.tile<32x32, f32>, #l1>
+          // Use a D2M compute op that accepts AnyRankedTensorOrMemRef to avoid
+          // mixed tensor/memref issues after stream insertion converts input CBs
+          // to tensor.empty. This ensures the generic is not classified as "DMA-only".
+          %cst = arith.constant 0.0 : f32
+          %tile = "d2m.tile_fill"(%cst) : (f32) -> !ttcore.tile<32x32, f32>
         } {d2m.blocking_loop = 1}
       } {d2m.blocking_loop = 0}
     }

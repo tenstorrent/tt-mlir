@@ -100,17 +100,23 @@ private:
       currentOffset += info.numElements;
     }
 
-    // Get the scratch CB block argument and create get_scratch_from_cb.
+    // Get the scratch operand value (CB block arg or memref.alloc).
     int64_t scratchInputIdx = scratchInputsAttr[0];
     Block &block = region.front();
-    Value scratchCBArg =
+    Value scratchValue =
         d2m::GenericOp::getOperandTensorEmpty(region, scratchInputIdx);
 
     OpBuilder builder(&block, block.begin());
-    auto scratchFromCBOp =
-        builder.create<GetScratchFromCBOp>(genericOp.getLoc(), scratchCBArg);
-
-    Value scratchMemRef = scratchFromCBOp.getResult();
+    Value scratchMemRef;
+    if (mlir::isa<d2m::CBType>(scratchValue.getType())) {
+      // CB form: unwrap via get_scratch_from_cb.
+      auto scratchFromCBOp =
+          builder.create<GetScratchFromCBOp>(genericOp.getLoc(), scratchValue);
+      scratchMemRef = scratchFromCBOp.getResult();
+    } else {
+      // New form: memref.alloc is already the scratch buffer.
+      scratchMemRef = scratchValue;
+    }
     auto scratchMemRefType = mlir::cast<MemRefType>(scratchMemRef.getType());
 
     // Verify allocations fit in the scratch buffer.
