@@ -4686,7 +4686,6 @@ class TTNNBuilder(Builder):
             self._cached_device = device_op.device
         return self._cached_device
 
-    @tag(ttnn.MeshShardOp)
     def mesh_shard(
         self,
         input: Operand,
@@ -4698,8 +4697,6 @@ class TTNNBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
-        ttnn_op = self.get_opview_from_method(TTNNBuilder.mesh_shard)
-
         if output_type is None:
             mlir_output_type = self.get_type(input)
         else:
@@ -4712,8 +4709,8 @@ class TTNNBuilder(Builder):
         )
         shard_shape_attr = DenseI64ArrayAttr.get(shard_shape)
         shard_dims_attr = DenseI64ArrayAttr.get(shard_dims)
-        op_golden_function = get_golden_function(ttnn_op)
-        golden_output = op_golden_function(
+        golden_function = get_golden_function(ttnn.MeshShardOp)
+        golden_output = golden_function(
             input0,
             shard_type_attr,
             shard_direction_attr,
@@ -4730,26 +4727,116 @@ class TTNNBuilder(Builder):
 
         device = self._get_or_create_device()
 
-        op = ttnn_op(
-            result,
-            input,
-            device,
-            shard_direction_attr,
-            shard_type_attr,
-            shard_shape_attr,
-            shard_dims_attr,
-            loc=loc,
-        )
-        op_result = op.result
+        shard_type_enum = ttcore.ir.MeshShardType(shard_type)
+        shard_direction_enum = ttcore.ir.MeshShardDirection(shard_direction)
+
+        if shard_type_enum == ttcore.ir.MeshShardType.Devices:
+            if shard_direction_enum == ttcore.ir.MeshShardDirection.FullToShard:
+                op_result = self._create_distribute_tensor_op(
+                    result, input, device, shard_dims, loc,
+                )
+            else:
+                op_result = self._create_aggregate_tensor_op(
+                    result, input, device, shard_dims, loc,
+                )
+        else:
+            op = ttnn.MeshShardOp(
+                result,
+                input,
+                device,
+                shard_direction_attr,
+                shard_type_attr,
+                shard_shape_attr,
+                shard_dims_attr,
+                loc=loc,
+            )
+            op_result = op.result
 
         if unit_attrs is not None:
-            for attr_name in unit_attrs:
-                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+            op_result.owner.attributes[
+                next(iter(unit_attrs))
+            ] = UnitAttr.get(self._ctx)
 
         if not self._disable_golden_check:
             self._set_golden_tensor(op_result, golden_output)
 
         return op_result
+
+    def _create_distribute_tensor_op(
+        self,
+        result_type,
+        input: Operand,
+        device: OpResult,
+        shard_dims: List[int],
+        loc,
+    ) -> OpResult:
+        placements = []
+        for dim in shard_dims:
+            if dim >= 0:
+                placements.append(f"<shard, {dim} : i64>")
+            else:
+                placements.append(f"<replicate>")
+        placements_str = ", ".join(placements)
+
+        mesh_y, mesh_x = self._mesh_shape[1], self._mesh_shape[0]
+        config_str = (
+            f"#ttnn.mesh_mapper_config<placements = [{placements_str}], "
+            f"mesh_shape_override = [{mesh_y} : ui32, {mesh_x} : ui32]>"
+        )
+        config_attr = Attribute.parse(config_str)
+
+        op = ttnn.DistributeTensorOp(
+            result_type, input, config_attr, device, loc=loc,
+        )
+        return op.result
+
+    def _create_aggregate_tensor_op(
+        self,
+        result_type,
+        input: Operand,
+        device: OpResult,
+        shard_dims: List[int],
+        loc,
+    ) -> OpResult:
+        input_type = input.type
+        input_rank = len(input_type.shape)
+        mesh_y, mesh_x = self._mesh_shape[1], self._mesh_shape[0]
+        full_mesh_shape = [mesh_y, mesh_x]
+
+        composer_dims = []
+        target_mesh_shape = []
+        for dim_idx, dim in enumerate(shard_dims):
+            if dim >= 0:
+                composer_dims.append(dim)
+                target_mesh_shape.append(full_mesh_shape[dim_idx])
+            else:
+                non_overlapping = self._find_non_overlapping_dim(
+                    input_rank, shard_dims, composer_dims
+                )
+                composer_dims.append(non_overlapping)
+                target_mesh_shape.append(1)
+
+        dims_str = ", ".join(f"{d} : i32" for d in composer_dims)
+        mesh_str = ", ".join(f"{s} : ui32" for s in target_mesh_shape)
+        config_str = (
+            f"#ttnn.mesh_composer_config<dims = [{dims_str}], "
+            f"mesh_shape_override = [{mesh_str}]>"
+        )
+        config_attr = Attribute.parse(config_str)
+
+        op = ttnn.AggregateTensorOp(
+            result_type, input, config_attr, device, loc=loc,
+        )
+        return op.result
+
+    @staticmethod
+    def _find_non_overlapping_dim(
+        input_rank: int, shard_dims: List[int], composer_dims: List[int]
+    ) -> int:
+        for d in range(input_rank - 1, -1, -1):
+            if d not in shard_dims and d not in composer_dims:
+                return d
+        return -1
 
     @parse(ttnn.MeshShardOp)
     def mesh_shard_parser(
@@ -4827,7 +4914,7 @@ class TTNNBuilder(Builder):
         golden_output = op_golden_function(
             input0, all_gather_dim_attr, cluster_axis_attr, mlir_output_type
         )
-        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
+        result = self.create_ttnn_tensor(golden_output.shape, mlir_output_type)
 
         if loc is None:
             loc = self._get_location()
