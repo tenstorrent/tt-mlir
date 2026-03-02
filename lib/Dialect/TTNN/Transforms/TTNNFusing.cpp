@@ -1145,11 +1145,12 @@ class NLPConcatHeadsDecodeFusing : public mlir::OpRewritePattern<ReshapeOp> {
   static constexpr std::array<int64_t, 4> kConcatHeadsDecodePermutation = {
       1, 2, 0, 3};
 
-  // Skip through transparent ops (typecast, layout changes) that don't alter
-  // the semantic meaning of the data.
+  // Skip through transparent ops (typecast) that don't alter the semantic
+  // meaning of the data. Note: ToLayoutOp and ToMemoryConfigOp are not expected
+  // in the graph at this point since the optimizer pass hasn't run yet.
   static Value skipTransparent(Value v) {
     while (Operation *defOp = v.getDefiningOp()) {
-      if (!isa<TypecastOp, ToLayoutOp, ToMemoryConfigOp>(defOp)) {
+      if (!isa<TypecastOp>(defOp)) {
         break;
       }
       v = defOp->getOperand(0);
@@ -1193,41 +1194,50 @@ public:
       return failure();
     }
 
-    // Step 4: Insert a ToLayoutOp to convert input to height-sharded L1
-    // layout. The metal op requires sharded input.
-    Value shardedInput = utils::createHeightShardedToLayout(
-        input, inputType, batchSize, rewriter, reshapeOp.getLoc());
-    auto shardedInputType =
-        mlir::cast<RankedTensorType>(shardedInput.getType());
-
-    // Step 5: Construct the NLPConcatHeadsDecodeOp output type.
+    // Step 4: Construct the NLPConcatHeadsDecodeOp output type.
     // Output shape: [S, 1, B, num_heads * head_dim].
     SmallVector<int64_t> concatHeadsOutputShape = {seqLen, 1, batchSize,
                                                    numHeads * headDim};
     auto concatHeadsResultType = utils::RankedTensorTypeFactory::create(
-        shardedInputType, concatHeadsOutputShape);
+        inputType, concatHeadsOutputShape);
 
-    // Step 6: Create the fused op and validate with op constraints.
+    // Step 5: Validate with op constraints using height-sharded input.
+    // The op requires height-sharded L1 input, but the workaround pass
+    // handles inserting the actual ToLayoutOp later. Create a temporary
+    // sharded version just for validation, then discard it.
     op_model::ScopedSingletonDeviceGuard deviceGuard(reshapeOp);
 
-    auto nlpConcatHeadsDecodeOp = rewriter.create<NLPConcatHeadsDecodeOp>(
-        reshapeOp.getLoc(), concatHeadsResultType, shardedInput,
+    auto shardedInputOp = utils::createHeightShardedToLayout(
+        input, inputType, batchSize, rewriter, reshapeOp.getLoc());
+    auto shardedInputType =
+        mlir::cast<RankedTensorType>(shardedInputOp.getType());
+    auto shardedResultType = utils::RankedTensorTypeFactory::create(
+        shardedInputType, concatHeadsOutputShape);
+
+    auto validationOp = rewriter.create<NLPConcatHeadsDecodeOp>(
+        reshapeOp.getLoc(), shardedResultType, shardedInputOp.getResult(),
         rewriter.getUI32IntegerAttr(static_cast<uint32_t>(numHeads)),
         /*memory_config=*/MemoryConfigAttr());
 
     std::vector<TTNNLayoutAttr> inputLayouts =
-        utils::extractInputLayouts(nlpConcatHeadsDecodeOp.getOperation());
-
+        utils::extractInputLayouts(validationOp.getOperation());
     OpConfig config(
-        mlir::cast<TTNNLayoutAttr>(concatHeadsResultType.getEncoding()));
-    auto result = op_constraint_validation::validateOperation(
-        nlpConcatHeadsDecodeOp.getOperation(), inputLayouts, config);
+        mlir::cast<TTNNLayoutAttr>(shardedResultType.getEncoding()));
+    auto validationResult = op_constraint_validation::validateOperation(
+        validationOp.getOperation(), inputLayouts, config);
 
-    if (!result.isSuccess()) {
-      rewriter.eraseOp(nlpConcatHeadsDecodeOp);
-      rewriter.eraseOp(shardedInput.getDefiningOp());
+    rewriter.eraseOp(validationOp);
+    rewriter.eraseOp(shardedInputOp);
+
+    if (!validationResult.isSuccess()) {
       return failure();
     }
+
+    // Step 6: Create the actual fused op (without sharded input).
+    auto nlpConcatHeadsDecodeOp = rewriter.create<NLPConcatHeadsDecodeOp>(
+        reshapeOp.getLoc(), concatHeadsResultType, input,
+        rewriter.getUI32IntegerAttr(static_cast<uint32_t>(numHeads)),
+        /*memory_config=*/MemoryConfigAttr());
 
     // Step 7: Create a new reshape from 4D fused output to original output
     // shape. The old permute and transparent ops become dead code and are
