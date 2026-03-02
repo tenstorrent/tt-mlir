@@ -27,6 +27,11 @@ public:
             return type;
           }
 
+          // Skip complex types - don't modify them.
+          if (mlir::isa<mlir::ComplexType>(elementType)) {
+            return type;
+          }
+
           elementType =
               mlir::tt::ttcore::toTTMLIRSupportedDataType(elementType);
           if (!elementType) {
