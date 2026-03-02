@@ -2170,9 +2170,15 @@ public:
       initMax =
           rewriter.create<arith::ConstantOp>(loc, elementType, negInfAttr);
     } else {
-      unsigned bitWidth = cast<IntegerType>(elementType).getWidth();
-      auto minAttr = rewriter.getIntegerAttr(
-          elementType, APInt::getSignedMinValue(bitWidth));
+      auto intType = cast<IntegerType>(elementType);
+      unsigned bitWidth = intType.getWidth();
+      // For unsigned integers (including i1), use 0 as the initial minimum.
+      // For signed/signless integers, use the signed minimum value.
+      APInt minValue(bitWidth, /*val=*/0, /*isSigned=*/false);
+      if (!intType.isUnsignedInteger()) {
+        minValue = APInt::getSignedMinValue(bitWidth);
+      }
+      auto minAttr = rewriter.getIntegerAttr(elementType, minValue);
       initMax = rewriter.create<arith::ConstantOp>(loc, elementType, minAttr);
     }
     Value zero = rewriter.create<arith::ConstantOp>(
@@ -2226,14 +2232,20 @@ public:
             }
           }
 
-          Value isGreater =
-              isa<FloatType>(elementType)
-                  ? b.create<arith::CmpFOp>(loc, arith::CmpFPredicate::OGT,
-                                            currentVal, currentMax)
-                        .getResult()
-                  : b.create<arith::CmpIOp>(loc, arith::CmpIPredicate::sgt,
-                                            currentVal, currentMax)
-                        .getResult();
+          Value isGreater;
+          if (isa<FloatType>(elementType)) {
+            isGreater = b.create<arith::CmpFOp>(loc, arith::CmpFPredicate::OGT,
+                                                currentVal, currentMax)
+                            .getResult();
+          } else {
+            auto intType = cast<IntegerType>(elementType);
+            arith::CmpIPredicate pred = intType.isUnsignedInteger()
+                                            ? arith::CmpIPredicate::ugt
+                                            : arith::CmpIPredicate::sgt;
+            isGreater =
+                b.create<arith::CmpIOp>(loc, pred, currentVal, currentMax)
+                    .getResult();
+          }
           Value newMax =
               b.create<arith::SelectOp>(loc, isGreater, currentVal, currentMax);
           Value newIdx =
@@ -3024,6 +3036,25 @@ public:
     auto resultType = dyn_cast<RankedTensorType>(
         this->getTypeConverter()->convertType(op.getResult().getType()));
     assert(resultType && "Result type must be a ranked tensor type.");
+
+    auto inputElementType = inputType.getElementType();
+    auto resultElementType = resultType.getElementType();
+    if (isa<IntegerType>(inputElementType) &&
+        isa<FloatType>(resultElementType)) {
+      auto floatInputType =
+          RankedTensorType::get(inputType.getShape(), resultElementType);
+      auto intType = cast<IntegerType>(inputElementType);
+      const bool useUnsignedCast =
+          intType.isUnsigned() || intType.getWidth() == 1;
+      if (useUnsignedCast) {
+        input = rewriter.create<arith::UIToFPOp>(op.getLoc(), floatInputType,
+                                                 input);
+      } else {
+        input = rewriter.create<arith::SIToFPOp>(op.getLoc(), floatInputType,
+                                                 input);
+      }
+      inputType = cast<RankedTensorType>(input.getType());
+    }
 
     SmallVector<int64_t> dims = getDimsFromAttribute(op, rank);
     for (size_t i = 0; i < dims.size(); i++) {
