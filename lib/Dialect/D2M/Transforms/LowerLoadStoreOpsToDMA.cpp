@@ -536,7 +536,12 @@ public:
           remoteLoad, "remote operand must be a memref, not a tensor");
     }
 
-    CBType cbType = remoteLoad.getCbType();
+    Value loadCb = remoteLoad.getCb();
+    if (!loadCb || !mlir::isa<CBType>(loadCb.getType())) {
+      return rewriter.notifyMatchFailure(
+          remoteLoad, "remote_load must be in explicit CB form");
+    }
+    CBType cbType = mlir::cast<CBType>(loadCb.getType());
     MemRefType localMemrefType = cbType.getUnderlyingAs<MemRefType>();
 
     if (!localMemrefType) {
@@ -732,7 +737,12 @@ public:
           remoteStore, "remote operand must be a memref, not a tensor");
     }
 
-    CBType cbType = remoteStore.getCbType();
+    Value storeCb = remoteStore.getCb();
+    if (!storeCb || !mlir::isa<CBType>(storeCb.getType())) {
+      return rewriter.notifyMatchFailure(
+          remoteStore, "remote_store must be in explicit CB form");
+    }
+    CBType cbType = mlir::cast<CBType>(storeCb.getType());
     MemRefType localMemrefType = cbType.getUnderlyingAs<MemRefType>();
 
     if (!localMemrefType) {

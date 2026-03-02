@@ -1293,17 +1293,8 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         TT_assert(region.hasOneBlock());
         Value tensorEmpty =
             d2m::GenericOp::getOperandTensorEmpty(region, operandIndex);
-        Type cbUnderlyingType;
-        if (tensorEmpty) {
-          cbUnderlyingType = tensorEmpty.getType();
-        } else if (operandIndex < region.getNumArguments()) {
-          // Fallback for explicit CB form: get type from CB block arg.
-          if (auto cbType = mlir::dyn_cast<d2m::CBType>(
-                  region.getArgument(operandIndex).getType())) {
-            cbUnderlyingType = cbType.getUnderlying();
-          }
-        }
-        TT_assert(cbUnderlyingType);
+        TT_assert(tensorEmpty);
+        Type cbUnderlyingType = tensorEmpty.getType();
 
         if (!operandCtx.hasStream &&
             (useAlwaysStreamPolicy() ||
@@ -1459,18 +1450,12 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     {
       operand.assign(streamOp.getResult());
 
-<<<<<<< HEAD
       auto streamShape = streamType.getShape();
       TT_assert((streamShape.size() % 2) == 0ul);
       auto shardShape = streamShape.drop_front(streamShape.size() / 2);
       const MemRefType newArgMemRefType = MemRefType::get(
           shardShape, streamType.getElementType(), nullptr, L1Attr);
       const CBType newCBArgType = d2m::CBType::get(newArgMemRefType);
-=======
-      auto newShardShape =
-          mlir::cast<ttcore::DeviceLayoutInterface>(streamType.getLayout())
-              .getShardShape(streamType);
->>>>>>> dd3634f6b (wip)
 
       for (Region &region : op->getRegions()) {
         TT_assert(region.hasOneBlock());
@@ -1479,12 +1464,26 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         Value oldTensor =
             d2m::GenericOp::getOperandTensorEmpty(region, operandIndex);
         if (oldTensor) {
-          // Create a new tensor.empty with the updated shard shape.
+          // Create a replacement with the updated shard shape, preserving
+          // the type category (tensor.empty vs memref.alloc).
           OpBuilder::InsertionGuard guard(rewriter);
           rewriter.setInsertionPoint(oldTensor.getDefiningOp());
-          auto newEmptyOp = rewriter.create<mlir::tensor::EmptyOp>(
-              oldTensor.getLoc(), newShardShape, streamType.getElementType());
-          rewriter.replaceAllUsesWith(oldTensor, newEmptyOp.getResult());
+          Value newValue;
+          if (mlir::isa<memref::AllocOp>(oldTensor.getDefiningOp())) {
+            // Preserve memory space from the old memref type.
+            auto oldMemRefType = mlir::cast<MemRefType>(oldTensor.getType());
+            auto newAllocOp = rewriter.create<memref::AllocOp>(
+                oldTensor.getLoc(),
+                MemRefType::get(newShardShape, streamType.getElementType(),
+                                /*layout=*/MemRefLayoutAttrInterface{},
+                                oldMemRefType.getMemorySpace()));
+            newValue = newAllocOp.getResult();
+          } else {
+            auto newEmptyOp = rewriter.create<mlir::tensor::EmptyOp>(
+                oldTensor.getLoc(), newShardShape, streamType.getElementType());
+            newValue = newEmptyOp.getResult();
+          }
+          rewriter.replaceAllUsesWith(oldTensor, newValue);
           rewriter.eraseOp(oldTensor.getDefiningOp());
         }
       }
