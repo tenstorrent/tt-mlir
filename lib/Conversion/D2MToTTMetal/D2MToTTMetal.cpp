@@ -155,13 +155,7 @@ public:
     // Add additional args that are not ins or outs in the generic op.
     for (unsigned i = 0; i < op.getAdditionalArgs().size(); ++i) {
       auto operand = adaptor.getOperands()[op.getInputsAndOutputs().size() + i];
-      if (mlir::isa<ttmetal::GlobalSemaphoreType>(operand.getType())) {
-        args.push_back(operand);
-      } else {
-        op.emitOpError("unexpected capture operand type: ")
-            << operand.getType();
-        return failure();
-      }
+      args.push_back(operand);
     }
 
     ArrayAttr threads = op.getThreads();

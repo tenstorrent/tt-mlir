@@ -142,6 +142,10 @@ struct ConvertD2MToTTKernel
     typeConverter.addConversion([](d2m::GlobalSemaphoreType globalSemaphore) {
       return ttkernel::L1AddrType::get(globalSemaphore.getContext());
     });
+    typeConverter.addConversion([](d2m::ScalarType scalar) {
+      return ttkernel::ScalarType::get(scalar.getContext(),
+                                       scalar.getUnderlying());
+    });
 
     d2m::AssociatedDMAWaits associatedDMAWaits =
         getAnalysis<d2m::AssociatedDMAWaits>();

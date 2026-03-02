@@ -107,4 +107,19 @@ def D2M_GlobalSemaphore : D2M_Type<"GlobalSemaphore", "global_semaphore"> {
     let description = "Global semaphore type used with semaphore wait/set ops to synchronize cores.";
 }
 
+def D2M_Scalar : D2M_Type<"Scalar", "scalar"> {
+    let summary = "D2M scalar type.";
+    let description = "Used for passing scalar values into kernels.";
+    let parameters = (ins "Type":$underlying);
+    let assemblyFormat = "`<` $underlying `>`";
+    let genVerifyDecl = 1;
+
+    let extraClassDeclaration = [{
+        template <typename T>
+        T getUnderlyingAs() {
+          return mlir::cast<T>(getUnderlying());
+        }
+    }];
+}
+
 #endif  // TTMLIR_D2M_DIALECT_D2M_IR_D2MOPSTYPES_TD

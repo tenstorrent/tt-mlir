@@ -637,6 +637,13 @@ toFlatbuffer(FlatbufferObjectCache &cache, KernelArgAttr kernelArg) {
               .Union();
     break;
   }
+  case ttkernel::ArgType::Scalar: {
+    argType = target::metal::KernelArgType::KernelArgScalar;
+    arg = target::metal::CreateKernelArgScalar(*cache.fbb,
+                                               kernelArg.getOperandIndex())
+              .Union();
+    break;
+  }
   }
 
   return target::metal::CreateKernelArg(*cache.fbb, argType, arg);
@@ -849,6 +856,9 @@ std::shared_ptr<void> translateTTMetalToFlatbuffer(
 
     cqBuilder.inputs.reserve(entry.getBody().getArguments().size());
     for (auto &input : entry.getBody().getArguments()) {
+      if (!mlir::isa<MemRefType>(input.getType())) {
+        continue;
+      }
       cqBuilder.inputs.push_back(
           cache.getOrCreate(input, bufferValueToFlatbuffer, systemDesc, 0));
       tensorInputs.push_back(tensorValueToFlatbuffer(cache, input));
@@ -1032,7 +1042,6 @@ std::shared_ptr<void> translateTTMetalToFlatbuffer(
         } else {
           llvm_unreachable("unhandled mesh_shard type");
         }
-
         cqBuilder.appendCommand(
             target::metal::CreateMeshShardCommand(
                 fbb, cache.at<target::metal::BufferRef>(meshShardOp.getInput()),

@@ -167,6 +167,9 @@ public:
           return emitc::OpaqueType::get(
               ctx, "experimental::FabricConnectionManager");
         });
+    addConversion([ctx](mlir::tt::ttkernel::ScalarType type) -> Type {
+      return emitc::OpaqueType::get(ctx, "uint32_t");
+    });
   }
 };
 } // namespace

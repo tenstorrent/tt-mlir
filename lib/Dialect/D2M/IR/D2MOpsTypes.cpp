@@ -20,3 +20,13 @@ void D2MDialect::registerTypes() {
 #include "ttmlir/Dialect/D2M/IR/D2MOpsTypeDefs.cpp.inc"
       >();
 }
+
+mlir::LogicalResult mlir::tt::d2m::ScalarType::verify(
+    llvm::function_ref<mlir::InFlightDiagnostic()> emitError,
+    mlir::Type underlying) {
+  auto intTy = mlir::dyn_cast<mlir::IntegerType>(underlying);
+  if (!intTy || intTy.getWidth() != 32 || !intTy.isUnsigned()) {
+    return emitError() << "expected uint32 type, got " << underlying;
+  }
+  return success();
+}

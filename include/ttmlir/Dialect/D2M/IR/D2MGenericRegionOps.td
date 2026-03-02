@@ -2297,4 +2297,15 @@ def D2M_ArangeBlockOp : D2M_GenericRegionComputeOp<"arange_block",
 
   let hasVerifier = 1;
 }
+
+def D2M_PrintArg : D2M_GenericRegionOp<"print_arg", [MemoryEffects<[MemRead, MemWrite]>]> {
+    let summary = "Print a kernel argument";
+    let description = [{
+        This op prints a kernel argument.
+    }];
+
+    let arguments = (ins AnyTypeOf<[D2M_Semaphore, D2M_CB, D2M_GlobalSemaphore, D2M_Scalar]>:$value);
+    let assemblyFormat = "$value attr-dict `:` type($value)";
+}
+
 #endif // TTMLIR_TTMLIR_DIALECT_D2M_D2MGENERICREGIONOPS_TD

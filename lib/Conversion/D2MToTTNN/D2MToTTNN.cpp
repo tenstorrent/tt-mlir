@@ -78,6 +78,9 @@ public:
       return builder.getAttr<ttnn::KernelArgGlobalSemaphoreAttr>(
           arg.getOperandIndex());
     }
+    case ttkernel::ArgType::Scalar: {
+      return builder.getAttr<ttnn::KernelArgScalarAttr>(arg.getOperandIndex());
+    }
     }
   }
 

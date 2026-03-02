@@ -67,6 +67,7 @@ def TTKernel_ArgTypeBufferAddress : I32EnumAttrCase<"BufferAddress", 1, "buffer_
 def TTKernel_ArgTypeSemaphore : I32EnumAttrCase<"Semaphore", 2, "semaphore">;
 def TTKernel_ArgTypeNamedArgument : I32EnumAttrCase<"NamedArgument", 3, "named_argument">;
 def TTKernel_ArgTypeGlobalSemaphore : I32EnumAttrCase<"GlobalSemaphore", 4, "global_semaphore">;
+def TTKernel_ArgTypeScalar : I32EnumAttrCase<"Scalar", 5, "scalar">;
 
 def TTKernel_ArgType : I32EnumAttr<"ArgType", "TTKernel Argument Types",
                          [
@@ -74,7 +75,8 @@ def TTKernel_ArgType : I32EnumAttr<"ArgType", "TTKernel Argument Types",
                            TTKernel_ArgTypeBufferAddress,
                            TTKernel_ArgTypeSemaphore,
                            TTKernel_ArgTypeNamedArgument,
-                           TTKernel_ArgTypeGlobalSemaphore
+                           TTKernel_ArgTypeGlobalSemaphore,
+                           TTKernel_ArgTypeScalar
                          ]> {
   let genSpecializedAttr = 0;
   let cppNamespace = "::mlir::tt::ttkernel";

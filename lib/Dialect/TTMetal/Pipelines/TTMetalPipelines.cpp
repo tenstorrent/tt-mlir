@@ -216,6 +216,7 @@ void createTTIRToTTMetalMiddleendPipeline(
   // threads.
   pm.addPass(d2m::createD2MConvertLocalLoadStoreOpsToAliasedCBs());
   pm.addPass(d2m::createD2MLowerLoadStoreOpsToExplicitCBForm());
+  pm.addPass(d2m::createD2MCaptureAdditionalArgsInThreads());
   pm.addPass(d2m::createD2MSplitUnifiedThread());
 
   // Backend of DMA lowering pipeline; generic ops are now

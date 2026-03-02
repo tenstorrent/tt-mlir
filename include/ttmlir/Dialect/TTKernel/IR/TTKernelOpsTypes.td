@@ -43,6 +43,13 @@ def TTKernel_Semaphore : TTKernel_Type<"Semaphore", "semaphore"> {
   let description = "Semaphore type in TTKernel dialect";
 }
 
+def TTKernel_Scalar : TTKernel_Type<"Scalar", "scalar"> {
+  let summary = "TTKernel scalar";
+  let description = "Scalar type in TTKernel dialect";
+  let parameters = (ins "Type":$value);
+  let assemblyFormat = "`<` $value `>`";
+}
+
 def TTKernel_NocAddr : TTKernel_Type<"NocAddr", "noc_addr"> {
     let summary = "TTKernel noc address";
     let description = "Noc address type in TTKernel dialect";

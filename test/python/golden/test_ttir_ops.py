@@ -165,6 +165,7 @@ def test_div(shape: Shape, dtype: torch.dtype, target: str, request, device):
         **get_request_kwargs(request),
         target=target,
         device=device,
+        print_ir=True,
     )
 
 
