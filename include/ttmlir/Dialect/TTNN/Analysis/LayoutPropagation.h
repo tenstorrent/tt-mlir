@@ -122,9 +122,12 @@ private:
 
   /// Validate that a reshard (ToMemoryConfigOp) from producerOutputLayout to
   /// reshardLayout is feasible via backend constraint validation.
+  /// producerResultIdx specifies which result of the producer to use for the
+  /// input shape (relevant for multi-output producers).
   bool validateReshard(Operation *consumerOp, Operation *producerOp,
                        TTNNLayoutAttr producerOutputLayout,
-                       TTNNLayoutAttr reshardLayout);
+                       TTNNLayoutAttr reshardLayout,
+                       size_t producerResultIdx = 0);
 
   /// Map from tensor-operand index (used in producerCandidateIndices) back to
   /// the actual defining op. Skips non-tensor operands.

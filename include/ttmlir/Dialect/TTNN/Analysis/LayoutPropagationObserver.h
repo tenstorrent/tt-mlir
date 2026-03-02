@@ -59,9 +59,11 @@ public:
                               llvm::ArrayRef<Operation *> consumers) {}
 
   /// Producer->consumer edge after final choices.
+  /// producerResultIdx identifies which result of the producer op feeds this
+  /// edge (relevant for multi-output ops like SplitQueryKeyValueAndSplitHeads).
   virtual void onEdge(Operation *producer, Operation *consumer,
-                      size_t operandIdx, bool hasReshard,
-                      TTNNLayoutAttr reshardLayout) {}
+                      size_t operandIdx, size_t producerResultIdx,
+                      bool hasReshard, TTNNLayoutAttr reshardLayout) {}
 
   /// Final chosen candidate per op.
   virtual void onFinalChoice(Operation *op, size_t opIndex,

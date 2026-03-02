@@ -163,6 +163,7 @@ static llvm::json::Value edgeToJSON(const EdgeRecord &e) {
   obj["producerOpIndex"] = static_cast<int64_t>(e.producerOpIndex);
   obj["consumerOpIndex"] = static_cast<int64_t>(e.consumerOpIndex);
   obj["operandIndex"] = static_cast<int64_t>(e.operandIndex);
+  obj["producerResultIndex"] = static_cast<int64_t>(e.producerResultIndex);
   obj["hasReshard"] = e.hasReshard;
   if (e.hasReshard) {
     obj["reshardLayout"] = e.reshardLayout;
@@ -436,7 +437,7 @@ void DecisionTraceObserver::onEvaluation(
     eval.requiresReshard = candidate->score.requiresReshard;
     eval.coreCount = candidate->score.coreCount;
     eval.outputL1Usage = candidate->score.outputL1Usage;
-    eval.output = layoutToString(candidate->config.outputLayout);
+    eval.output = layoutToString(candidate->configHint.outputLayout);
   } else {
     eval.failureReason = failureReason.str();
   }
@@ -456,7 +457,7 @@ void DecisionTraceObserver::onBeamResult(Operation *op,
     const auto &c = beam[ci];
     BeamEntryRecord be;
     be.rank = ci;
-    be.outputLayout = layoutToString(c.config.outputLayout);
+    be.outputLayout = layoutToString(c.configHint.outputLayout);
     be.isL1 = c.score.isL1;
     be.isSharded = c.score.isSharded;
     be.inputDramBytes = c.score.inputDramBytes;
@@ -506,7 +507,8 @@ void DecisionTraceObserver::onForkResolved(
 }
 
 void DecisionTraceObserver::onEdge(Operation *producer, Operation *consumer,
-                                   size_t operandIdx, bool hasReshard,
+                                   size_t operandIdx, size_t producerResultIdx,
+                                   bool hasReshard,
                                    TTNNLayoutAttr reshardLayout) {
   EdgeRecord edge;
   auto pit = opToTraceIndex.find(producer);
@@ -518,6 +520,7 @@ void DecisionTraceObserver::onEdge(Operation *producer, Operation *consumer,
     edge.consumerOpIndex = cit->second;
   }
   edge.operandIndex = operandIdx;
+  edge.producerResultIndex = producerResultIdx;
   edge.hasReshard = hasReshard;
   if (hasReshard) {
     edge.reshardLayout = layoutToString(reshardLayout);
@@ -530,7 +533,7 @@ void DecisionTraceObserver::onFinalChoice(Operation *op, size_t opIndex,
   FinalChoiceRecord fc;
   fc.opIndex = opIndex;
   fc.opName = op->getName().getStringRef().str();
-  fc.chosenLayout = layoutToString(chosen.config.outputLayout);
+  fc.chosenLayout = layoutToString(chosen.configHint.outputLayout);
   trace.finalChoices.push_back(std::move(fc));
 }
 
