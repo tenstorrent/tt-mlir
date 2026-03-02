@@ -3149,24 +3149,33 @@ public:
   }
 };
 
-class RealOpConversionPattern : public OpConversionPattern<ttir::RealOp> {
+template <typename TTIROpTy>
+class RealImagOpConversionPattern : public OpConversionPattern<TTIROpTy> {
 public:
-  using OpConversionPattern<ttir::RealOp>::OpConversionPattern;
+  using OpConversionPattern<TTIROpTy>::OpConversionPattern;
+  using OpAdaptor = typename TTIROpTy::Adaptor;
+
+  static_assert(std::is_same_v<TTIROpTy, ttir::RealOp> ||
+                    std::is_same_v<TTIROpTy, ttir::ImagOp>,
+                "RealImagOpConversionPattern only supports ttir::RealOp and "
+                "ttir::ImagOp");
 
   LogicalResult
-  matchAndRewrite(ttir::RealOp op, OpAdaptor adaptor,
+  matchAndRewrite(TTIROpTy op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    constexpr int sliceIndex = std::is_same_v<TTIROpTy, ttir::RealOp> ? 0 : 1;
+
     auto inputType = mlir::cast<RankedTensorType>(adaptor.getInput().getType());
     auto inputShape = inputType.getShape();
     int64_t rank = inputType.getRank();
 
-    // Build begins/ends/steps covering all dims; slice index 0 on last dim.
     llvm::SmallVector<int32_t> begins(rank, 0);
     llvm::SmallVector<int32_t> ends(inputShape.begin(), inputShape.end());
     llvm::SmallVector<int32_t> steps(rank, 1);
-    ends[rank - 1] = 1; // take only the first element of last dim (real part)
 
-    // Slice result: same as input but last dim = 1
+    begins[rank - 1] = sliceIndex;
+    ends[rank - 1] = sliceIndex + 1;
+
     llvm::SmallVector<int64_t> sliceShape(inputShape.begin(), inputShape.end());
     sliceShape[rank - 1] = 1;
     auto sliceType =
@@ -3177,49 +3186,6 @@ public:
         rewriter.getI32ArrayAttr(begins), rewriter.getI32ArrayAttr(ends),
         rewriter.getI32ArrayAttr(steps));
 
-    // Reshape: drop the trailing dim of 1 → converted output type
-    auto outputType = this->getTypeConverter()->convertType(op.getType());
-    llvm::SmallVector<int32_t> outputShape(inputShape.begin(),
-                                           inputShape.end() - 1);
-    auto reshapeOp = rewriter.create<ttnn::ReshapeOp>(
-        op.getLoc(), outputType, sliceOp.getResult(),
-        rewriter.getI32ArrayAttr(outputShape), /*memory_config=*/nullptr);
-
-    rewriter.replaceOp(op, reshapeOp.getResult());
-    return success();
-  }
-};
-
-class ImagOpConversionPattern : public OpConversionPattern<ttir::ImagOp> {
-public:
-  using OpConversionPattern<ttir::ImagOp>::OpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(ttir::ImagOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    auto inputType = mlir::cast<RankedTensorType>(adaptor.getInput().getType());
-    auto inputShape = inputType.getShape();
-    int64_t rank = inputType.getRank();
-
-    // Build begins/ends/steps covering all dims; slice index 1 on last dim.
-    llvm::SmallVector<int32_t> begins(rank, 0);
-    llvm::SmallVector<int32_t> ends(inputShape.begin(), inputShape.end());
-    llvm::SmallVector<int32_t> steps(rank, 1);
-    begins[rank - 1] =
-        1; // take only the second element of last dim (imag part)
-
-    // Slice result: same as input but last dim = 1
-    llvm::SmallVector<int64_t> sliceShape(inputShape.begin(), inputShape.end());
-    sliceShape[rank - 1] = 1;
-    auto sliceType =
-        ttnn::utils::RankedTensorTypeFactory::create(inputType, sliceShape);
-
-    auto sliceOp = rewriter.create<ttnn::SliceStaticOp>(
-        op.getLoc(), sliceType, adaptor.getInput(),
-        rewriter.getI32ArrayAttr(begins), rewriter.getI32ArrayAttr(ends),
-        rewriter.getI32ArrayAttr(steps));
-
-    // Reshape: drop the trailing dim of 1 → converted output type
     auto outputType = this->getTypeConverter()->convertType(op.getType());
     llvm::SmallVector<int32_t> outputShape(inputShape.begin(),
                                            inputShape.end() - 1);
@@ -3369,8 +3335,8 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            DebugOpConversionPattern<debug::DumpOp, ttnn::DumpTensorOp>,
            TopKOpConversionPattern,
            ComplexOpConversionPattern,
-           RealOpConversionPattern,
-           ImagOpConversionPattern
+           RealImagOpConversionPattern<ttir::RealOp>,
+           RealImagOpConversionPattern<ttir::ImagOp>
            >(typeConverter, ctx);
   // ANCHOR_END: op_rewriter_pattern_set
   // clang-format on

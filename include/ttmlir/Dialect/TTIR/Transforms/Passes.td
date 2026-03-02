@@ -248,9 +248,8 @@ def TTIRComplexDataTypeConversionPass : Pass<"ttir-complex-data-type-conversion"
     dimension stores [real, imag] components.
 
     Concretely, the pass handles:
-      - ttir.stablehlo_complex -> ttir.complex -> unsqueeze + concat
+      - ttir.stablehlo_complex -> ttir.complex
       - ttir.stablehlo_real / ttir.stablehlo_imag -> ttir.real / ttir.imag
-        -> slice + squeeze
       - ttir.constant with complex element type -> float-pair constant
       - func signatures and return ops with complex types
   }];
