@@ -85,7 +85,7 @@ private:
     }
 
     bias = mlir::cast<mlir::TypedValue<mlir::RankedTensorType>>(
-        utils::lookThrough<BroadcastOp>(bias));
+        ttmlir::utils::lookThrough<BroadcastOp>(bias));
     auto biasShape = bias.getType().getShape();
     auto outputShape =
         mlir::cast<mlir::RankedTensorType>(convOp.getType()).getShape();
@@ -234,7 +234,7 @@ public:
     // eliminated.
     BroadcastOp broadcastOp = denominator.getDefiningOp<BroadcastOp>();
     // Check that we have a sum reduce operation with keep_dim=true.
-    auto sumOp = utils::findOpThrough<SumOp, BroadcastOp>(denominator);
+    auto sumOp = ttmlir::utils::findOpThrough<SumOp, BroadcastOp>(denominator);
     if (!sumOp || !sumOp.getKeepDim()) {
       return mlir::failure();
     }
@@ -316,7 +316,8 @@ public:
     // If broadcast folding has occurred, the broadcast may be eliminated.
     BroadcastOp broadcastOp = subtractedValue.getDefiningOp<BroadcastOp>();
     // Check if we have a max operation.
-    auto maxOp = utils::findOpThrough<MaxOp, BroadcastOp>(subtractedValue);
+    auto maxOp =
+        ttmlir::utils::findOpThrough<MaxOp, BroadcastOp>(subtractedValue);
     if (!maxOp) {
       return mlir::failure();
     }
@@ -532,8 +533,10 @@ public:
   mlir::LogicalResult
   matchAndRewrite(MultiplyOp multiplyOp,
                   mlir::PatternRewriter &rewriter) const final {
-    mlir::Value lhs = utils::lookThrough<TypecastOp>(multiplyOp.getLhs());
-    mlir::Value rhs = utils::lookThrough<TypecastOp>(multiplyOp.getRhs());
+    mlir::Value lhs =
+        ttmlir::utils::lookThrough<TypecastOp>(multiplyOp.getLhs());
+    mlir::Value rhs =
+        ttmlir::utils::lookThrough<TypecastOp>(multiplyOp.getRhs());
 
     SigmoidOp sigmoidOp = nullptr;
     mlir::Value otherOperand;
@@ -551,7 +554,7 @@ public:
     }
 
     mlir::Value sigmoidInput =
-        utils::lookThrough<TypecastOp>(sigmoidOp.getInput());
+        ttmlir::utils::lookThrough<TypecastOp>(sigmoidOp.getInput());
     if (sigmoidInput != otherOperand) {
       return mlir::failure();
     }
@@ -621,8 +624,10 @@ public:
   mlir::LogicalResult
   matchAndRewrite(MultiplyOp multiplyOp,
                   mlir::PatternRewriter &rewriter) const final {
-    mlir::Value lhs = utils::lookThrough<TypecastOp>(multiplyOp.getLhs());
-    mlir::Value rhs = utils::lookThrough<TypecastOp>(multiplyOp.getRhs());
+    mlir::Value lhs =
+        ttmlir::utils::lookThrough<TypecastOp>(multiplyOp.getLhs());
+    mlir::Value rhs =
+        ttmlir::utils::lookThrough<TypecastOp>(multiplyOp.getRhs());
 
     // Match multiply(x, tanh(softplus(x))) and
     // multiply(tanh(softplus(x)), x)
@@ -3103,11 +3108,11 @@ public:
     };
 
     MultiplyOp innerMul =
-        utils::findOpThrough<MultiplyOp, TypecastOp>(outerMul.getLhs());
+        ttmlir::utils::findOpThrough<MultiplyOp, TypecastOp>(outerMul.getLhs());
     mlir::Value gammaRaw = outerMul.getRhs();
     if (!innerMul) {
-      innerMul =
-          utils::findOpThrough<MultiplyOp, TypecastOp>(outerMul.getRhs());
+      innerMul = ttmlir::utils::findOpThrough<MultiplyOp, TypecastOp>(
+          outerMul.getRhs());
       gammaRaw = outerMul.getLhs();
     }
     if (!innerMul) {
