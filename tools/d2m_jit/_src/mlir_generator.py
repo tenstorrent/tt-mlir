@@ -687,11 +687,11 @@ def generate_ir(func_ast, grid, tensor_metadata, debug=False):
                     dim_alignments_str = f"dim_alignments=1x1x1x1x32x32"
                     
                     # Create tensor with metal layout
-                    metal_type_str = f"tensor<{grid[0]}x{grid[1]}x1x1x{layout_dims['tile_h']}x{layout_dims['tile_w']}x!ttcore.tile<32x32, f32>, #ttcore.metal_layout<{logical_shape_str}, {dim_alignments_str}, collapsed_intervals=dense<> : tensor<0x2xi64>, undef, dram, sharded, index_map = (d0, d1, d2, d3, d4, d5) -> (d0, d1, d2, d3, d4, d5)>>"
+                    metal_type_str = f"tensor<{grid[0]}x{grid[1]}x1x1x{layout_dims['tile_h']}x{layout_dims['tile_w']}x!ttcore.tile<32x32, f32>, #ttcore.metal_layout<{logical_shape_str}, {dim_alignments_str}, collapsed_intervals=dense<> : tensor<0x2xi64>, undef, dram, sharded>>"
                     metal_type = Type.parse(metal_type_str, context=ctx)
-                    
+
                     # Create memref with metal layout
-                    memref_type_str = f"memref<{grid[0]}x{grid[1]}x1x1x{layout_dims['tile_h']}x{layout_dims['tile_w']}x!ttcore.tile<32x32, f32>, #ttcore.metal_layout<{logical_shape_str}, {dim_alignments_str}, collapsed_intervals=dense<> : tensor<0x2xi64>, undef, dram, sharded, index_map = (d0, d1, d2, d3, d4, d5) -> (d0, d1, d2, d3, d4, d5)>>"
+                    memref_type_str = f"memref<{grid[0]}x{grid[1]}x1x1x{layout_dims['tile_h']}x{layout_dims['tile_w']}x!ttcore.tile<32x32, f32>, #ttcore.metal_layout<{logical_shape_str}, {dim_alignments_str}, collapsed_intervals=dense<> : tensor<0x2xi64>, undef, dram, sharded>>"
                     memref_type = Type.parse(memref_type_str, context=ctx)
                     
                     if meta["is_output"]:
@@ -735,19 +735,20 @@ def generate_ir(func_ast, grid, tensor_metadata, debug=False):
                     iterator_types = ArrayAttr.get([])
                     threads = ArrayAttr.get([Attribute.parse("#d2m.thread<unified>", context=ctx)])
                     
-                    generic_op = Operation.create(
-                        "d2m.generic",
-                        results=[],
-                        operands=inputs + outputs,
-                        attributes={
-                            "grid": grid_attr,
-                            "block_factors": block_factors,
-                            "indexing_maps": indexing_maps,
-                            "iterator_types": iterator_types,
-                            "threads": threads,
-                            "operandSegmentSizes": DenseI32ArrayAttr.get([len(inputs), len(outputs)])
-                        },
-                        regions=1
+                    import ttmlir.dialects.d2m as d2m_dialect
+                    generic_op = d2m_dialect.GenericOp(
+                        [],       # results_
+                        inputs,
+                        outputs,
+                        [],       # additionalArgs
+                        grid_attr,
+                        block_factors,
+                        indexing_maps,
+                        iterator_types,
+                        threads,
+                        1,        # num_regions
+                        loc=Location.unknown(ctx),
+                        ip=InsertionPoint(func_bb),
                     )
                     
                     region = generic_op.regions[0]
