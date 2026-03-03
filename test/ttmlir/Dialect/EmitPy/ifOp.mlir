@@ -102,7 +102,7 @@ module {
       emitpy.assign_global @_cached = %arg2 : !emitpy.opaque<"dict">
     } else {
       emitpy.if "{} > 0" args %arg1 : (!emitpy.opaque<"int">) {
-        emitpy.call_opaque "refresh"(%arg2) : (!emitpy.opaque<"dict">) -> ()
+        emitpy.call_opaque "refresh"(%arg1) : (!emitpy.opaque<"int">) -> ()
       }
     }
     return
@@ -130,7 +130,7 @@ module {
       emitpy.assign_global @_cached = %arg2 : !emitpy.opaque<"dict">
     } else {
       emitpy.if "{} > 0" args %arg1 : (!emitpy.opaque<"int">) {
-        emitpy.call_opaque "refresh"(%arg2) : (!emitpy.opaque<"dict">) -> ()
+        emitpy.call_opaque "refresh"(%arg1) : (!emitpy.opaque<"int">) -> ()
       } else {
         emitpy.call_opaque "fallback"() : () -> ()
       }

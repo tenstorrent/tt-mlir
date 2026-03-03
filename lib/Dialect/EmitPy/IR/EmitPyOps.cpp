@@ -608,12 +608,18 @@ LogicalResult IfOp::verify() {
     return emitOpError() << "condition string must not be empty";
   }
 
-  if (getThenRegion().empty()) {
-    return emitOpError() << "requires a non-empty then region";
+  if (getThenRegion().front().empty()) {
+    return emitOpError() << "then block must contain at least one operation";
   }
 
-  if (!getElseRegion().empty() && !llvm::hasSingleElement(getElseRegion())) {
-    return emitOpError() << "else region must have exactly one block";
+  if (!getElseRegion().empty()) {
+    if (!llvm::hasSingleElement(getElseRegion())) {
+      return emitOpError() << "else region must have exactly one block";
+    }
+    if (getElseRegion().front().empty()) {
+      return emitOpError()
+             << "else block must contain at least one operation if present";
+    }
   }
 
   auto errorCallback = [&]() -> InFlightDiagnostic {
