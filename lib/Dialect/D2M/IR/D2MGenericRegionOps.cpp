@@ -1801,11 +1801,9 @@ mlir::LogicalResult YieldOp::verify() {
 }
 mlir::LogicalResult SpatialYieldOp::verify() {
   auto spatial = getOperation()->getParentOfType<SpatialOp>();
-  if (!spatial
-      //|| !generic.hasPureTensorSemantics()
-  ) {
+  if (!spatial || !spatial.hasPureTensorSemantics()) {
     return emitOpError()
-           << "used outside of generic op with pure tensor semantics";
+           << "used outside of spatial op with pure tensor semantics";
   }
 
   return ::mlir::success();
