@@ -124,8 +124,6 @@ ProgramExecutor::ProgramExecutor(
     programInputIds.push_back(input->global_id());
   }
 
-  GlobalSemaphoreMap liveGlobalSemaphores;
-
   std::vector<uint32_t> programOutputIds;
   for (const ::tt::target::ttnn::TensorRef *output : *program->outputs()) {
     programOutputIds.push_back(output->global_id());
@@ -133,7 +131,7 @@ ProgramExecutor::ProgramExecutor(
 
   context = std::make_unique<ProgramContext>(
       programInputIds, programOutputIds, std::move(liveTensors),
-      std::move(liveGlobalSemaphores), common::DylibManager(program->dylibs()),
+      GlobalSemaphoreMap(), common::DylibManager(program->dylibs()),
       std::move(deviceHandle), executableHandle, programIndex);
 }
 

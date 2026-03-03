@@ -1200,8 +1200,6 @@ def test_ttnn_generic_unicast_2x4_line(
         )
         pm.run(module.operation)
 
-    print(f"module: {module}")
-
     _, output_tensors = execute_fb(
         ttnn_to_flatbuffer_bin(module),
         golden_input_output_tensors,
@@ -1313,8 +1311,6 @@ def test_ttnn_generic_unicast_sem_inc_2x4_line(
             f"builtin.module(ttcore-register-device{{system-desc-path={system_desc_path} mesh-shape={mesh_shape_str}}})"
         )
         pm.run(module.operation)
-
-    print(f"module: {module}")
 
     _, output_tensors = execute_fb(
         ttnn_to_flatbuffer_bin(module),

@@ -799,7 +799,7 @@ public:
         allocOp &&
         "No memref alloc found for CreateGlobalSemaphoreOp's input, failing.");
 
-    // get core range from memref shape
+    // Get core range from memref shape.
     auto gridShape = ttcore::getGridShape(op.getInput());
     auto coreRange = ttnn::CoreRangeAttr::get(
         rewriter.getContext(),
@@ -808,13 +808,11 @@ public:
                                  gridShape[1] - 1));
     rewriter.replaceOpWithNewOp<ttnn::CreateGlobalSemaphoreOp>(
         op, adaptor.getValueAttr(), coreRange);
-    // erase the memref alloc and dealloc since ttnn creates global semaphore
-    // itself
+    // Erase the memref alloc and dealloc since ttnn creates the global
+    // semaphore itself.
     rewriter.eraseOp(allocOp);
-    auto users = op.getInput().getUsers();
-    // search specifically for memrefdealloc and replace with a
-    // deallocate_global_semaphore
-    for (Operation *user : users) {
+    for (Operation *user :
+         llvm::make_early_inc_range(op.getInput().getUsers())) {
       if (user != op) {
         rewriter.eraseOp(user);
       }
