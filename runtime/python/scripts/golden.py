@@ -37,7 +37,10 @@ def post_op_callback(callback_runtime_config, binary, program_context, op_contex
     print("POST OP CALLBACK CALLED")
     # In the future, make a specific binary nanobind func for op name
     debug_str = ttrt.runtime.get_op_debug_str(op_context)
+    print(debug_str)
     parts = debug_str.split('"')
+    print(parts)
+    print("(((((((((((())))))))))))")
     op_function_str = parts[1] if len(parts) >= 2 else ""
 
     golden_fn = golden.get_golden_by_op_function_str(op_function_str)

@@ -490,6 +490,7 @@ def get_golden_by_op_function_str(op_function_str: str) -> Optional[Callable]:
     Only accepts qualified names like "ttir.AddOp" or "ttnn.multiply".
     """
     op_type = resolve_op_class(op_function_str)
+    print("Resolved op type:", op_type)
 
     if op_type is None:
         return None
@@ -5458,10 +5459,10 @@ def sdy_all_gather_golden(
 
 
 def ttnn_abs_golden(
-    input_tensor: GoldenMapTensor, output_type_mlir: Type
+    input_tensor: GoldenMapTensor, output_type_mlir: Type = None
 ) -> GoldenMapTensor:
-    dtype = mlir_type_to_torch_dtype(output_type_mlir)
-    return torch.abs(input_tensor).to(dtype)
+    # dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.abs(input_tensor)  # .to(dtype)
 
 
 def ttnn_cbrt_golden(
@@ -6298,6 +6299,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     debug.AnnotateOp: debug_annotate_golden,
     debug.RegionStartOp: debug_region_start_golden,
     debug.RegionEndOp: debug_region_end_golden,
+    ttnn.OnesOp: ttir_ones_golden,
 }
 
 

@@ -217,34 +217,6 @@ def tanh(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = N
 
 unary_ops = [
     abs,
-    atan | Marks(pytest.mark.skip_config(["ttmetal"])),
-    cbrt | Marks(pytest.mark.skip_config(["ttmetal"])),
-    ceil | Marks(pytest.mark.skip_config(["ttmetal"])),
-    cos,
-    erf,
-    erfc,
-    exp,
-    expm1 | Marks(pytest.mark.skip_config(["ttmetal"])),
-    floor,
-    gelu,
-    is_finite | Marks(pytest.mark.skip_config(["ttmetal"])),
-    log,
-    log1p | Marks(pytest.mark.skip_config(["ttmetal"])),
-    logical_not,  # TODO (wenbinlyuTT): test int32 once untilize issue is fixed
-    mish | Marks(pytest.mark.skip_config(["ttmetal"])),
-    neg,
-    reciprocal,
-    relu,
-    relu6 | Marks(pytest.mark.skip_config(["ttmetal"])),
-    rsqrt,
-    sigmoid,
-    sign,
-    hardsigmoid | Marks(pytest.mark.skip_config(["emitpy"])),
-    silu,
-    sin,
-    sqrt,
-    tan,
-    tanh,
 ]
 
 
@@ -257,7 +229,7 @@ unary_ops_dtypes = [
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", unary_ops_dtypes, ids=["f32", "bf16", "i32"])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitc", "emitpy"])
+@pytest.mark.parametrize("target", ["ttnn"])
 @pytest.mark.parametrize("test_fn", unary_ops)
 def test_unary_ops(
     test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request, device

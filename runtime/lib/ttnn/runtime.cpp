@@ -1978,93 +1978,95 @@ submit(Device deviceHandle, Binary executableHandle, std::uint32_t programIndex,
 #endif
 
   return outputTensors;
+}
 
-  std::optional<Tensor> retrieveTensorFromPool(
-      CallbackContext programContextHandle, tt::runtime::TensorRef tensorRef,
-      bool untilize) {
-    const auto &programContext =
-        programContextHandle.as<tt::runtime::ttnn::ProgramContext>(
-            DeviceRuntime::TTNN);
-    const ttnn::ProgramTensorPool &tensorPool = programContext.getTensorPool();
+std::optional<Tensor>
+retrieveTensorFromPool(::tt::runtime::CallbackContext programContextHandle,
+                       ::tt::runtime::TensorRef tensorRef, bool untilize) {
+  const auto &programContext =
+      programContextHandle.as<tt::runtime::ttnn::ProgramContext>(
+          DeviceRuntime::TTNN);
+  const tt::runtime::ttnn::ProgramTensorPool &tensorPool =
+      programContext.getTensorPool();
 
-    const auto *tensorRefPtr =
-        &tensorRef.as<tt::target::ttnn::TensorRef>(DeviceRuntime::TTNN);
+  const auto *tensorRefPtr =
+      &tensorRef.as<tt::target::ttnn::TensorRef>(DeviceRuntime::TTNN);
 
-    if (!tensorRefPtr) {
-      LOG_WARNING("Tensor ref pointer is null when retrieving tensor");
-      return std::nullopt;
-    }
-
-    if (!tensorPool.contains(tensorRefPtr)) {
-      LOG_WARNING("Tensor not found in tensor pool when retrieving tensor");
-      return std::nullopt;
-    }
-
-    ::tt::runtime::Tensor outTensor = utils::createRuntimeTensorFromTTNN(
-        tensorPool.getTTNNTensorAndValidate(tensorRefPtr));
-
-    std::vector<tt::runtime::Tensor> hostTensors =
-        ::tt::runtime::ttnn::toHost(outTensor, untilize);
-
-    if (hostTensors.empty()) {
-      LOG_WARNING("Failed to get host tensor when retrieving tensor");
-      return std::nullopt;
-    }
-
-    if (hostTensors.size() != 1) {
-      LOG_FATAL("Multi device tensor not supported when retrieving tensor");
-    }
-
-    return hostTensors[0];
+  if (!tensorRefPtr) {
+    LOG_WARNING("Tensor ref pointer is null when retrieving tensor");
+    return std::nullopt;
   }
 
-  void updateTensorInPool(CallbackContext programContextHandle,
-                          TensorRef tensorRef, Tensor tensor) {
-    auto &programContext =
-        programContextHandle.as<tt::runtime::ttnn::ProgramContext>(
-            DeviceRuntime::TTNN);
-    ttnn::ProgramTensorPool &tensorPool = programContext.getTensorPool();
-    const auto *tensorRefPtr =
-        &tensorRef.as<tt::target::ttnn::TensorRef>(DeviceRuntime::TTNN);
-
-    if (!tensorRefPtr) {
-      LOG_WARNING("Tensor ref pointer is null when updating tensor");
-      return;
-    }
-    if (!tensorPool.contains(tensorRefPtr)) {
-      LOG_WARNING("Tensor not found in tensor pool when updating tensor");
-      return;
-    }
-
-    ::ttnn::Tensor &srcTensor = utils::getTTNNTensorFromRuntimeTensor(tensor);
-    ::ttnn::Tensor &dstTensor =
-        tensorPool.getTTNNTensorAndValidate(tensorRefPtr);
-    srcTensor = ::ttnn::to_layout(srcTensor, dstTensor.layout());
-    if (utils::isOnDevice(dstTensor.storage_type())) {
-      srcTensor = ::ttnn::to_device(srcTensor, dstTensor.device(),
-                                    dstTensor.memory_config());
-    }
-    tensorPool.insertTTNNTensorAndValidate(tensorRefPtr, srcTensor);
+  if (!tensorPool.contains(tensorRefPtr)) {
+    LOG_WARNING("Tensor not found in tensor pool when retrieving tensor");
+    return std::nullopt;
   }
 
-  void dumpTensor(::tt::runtime::Tensor tensor, const std::string &filePath) {
-    ::ttnn::Tensor ttnnTensor = utils::getTTNNTensorFromRuntimeTensor(tensor);
-    ::tt::tt_metal::dump_tensor_flatbuffer(filePath, ttnnTensor);
+  ::tt::runtime::Tensor outTensor = utils::createRuntimeTensorFromTTNN(
+      tensorPool.getTTNNTensorAndValidate(tensorRefPtr));
+
+  std::vector<tt::runtime::Tensor> hostTensors =
+      ::tt::runtime::ttnn::toHost(outTensor, untilize);
+
+  if (hostTensors.empty()) {
+    LOG_WARNING("Failed to get host tensor when retrieving tensor");
+    return std::nullopt;
   }
 
-  ::tt::runtime::Tensor loadTensor(const std::string &filePath,
-                                   std::optional<Device> device) {
-
-    ::ttnn::MeshDevice *devicePtr = nullptr;
-    if (device.has_value()) {
-      devicePtr = &device->as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
-    }
-
-    ::ttnn::Tensor metalTensor =
-        ::tt::tt_metal::load_tensor_flatbuffer(filePath, devicePtr);
-
-    auto tensor = utils::createRuntimeTensorFromTTNN(metalTensor);
-
-    return tensor;
+  if (hostTensors.size() != 1) {
+    LOG_FATAL("Multi device tensor not supported when retrieving tensor");
   }
+
+  return hostTensors[0];
+}
+
+void updateTensorInPool(::tt::runtime::CallbackContext programContextHandle,
+                        ::tt::runtime::TensorRef tensorRef,
+                        ::tt::runtime::Tensor tensor) {
+  auto &programContext =
+      programContextHandle.as<tt::runtime::ttnn::ProgramContext>(
+          DeviceRuntime::TTNN);
+  tt::runtime::ttnn::ProgramTensorPool &tensorPool =
+      programContext.getTensorPool();
+  const auto *tensorRefPtr =
+      &tensorRef.as<tt::target::ttnn::TensorRef>(DeviceRuntime::TTNN);
+
+  if (!tensorRefPtr) {
+    LOG_WARNING("Tensor ref pointer is null when updating tensor");
+    return;
+  }
+  if (!tensorPool.contains(tensorRefPtr)) {
+    LOG_WARNING("Tensor not found in tensor pool when updating tensor");
+    return;
+  }
+
+  ::ttnn::Tensor &srcTensor = utils::getTTNNTensorFromRuntimeTensor(tensor);
+  ::ttnn::Tensor &dstTensor = tensorPool.getTTNNTensorAndValidate(tensorRefPtr);
+  srcTensor = ::ttnn::to_layout(srcTensor, dstTensor.layout());
+  if (utils::isOnDevice(dstTensor.storage_type())) {
+    srcTensor = ::ttnn::to_device(srcTensor, dstTensor.device(),
+                                  dstTensor.memory_config());
+  }
+  tensorPool.insertTTNNTensorAndValidate(tensorRefPtr, srcTensor);
+}
+
+void dumpTensor(::tt::runtime::Tensor tensor, const std::string &filePath) {
+  ::ttnn::Tensor ttnnTensor = utils::getTTNNTensorFromRuntimeTensor(tensor);
+  ::tt::tt_metal::dump_tensor_flatbuffer(filePath, ttnnTensor);
+}
+
+::tt::runtime::Tensor loadTensor(const std::string &filePath,
+                                 std::optional<::tt::runtime::Device> device) {
+  ::ttnn::MeshDevice *devicePtr = nullptr;
+  if (device.has_value()) {
+    devicePtr = &device->as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
+  }
+
+  ::ttnn::Tensor metalTensor =
+      ::tt::tt_metal::load_tensor_flatbuffer(filePath, devicePtr);
+
+  auto tensor = utils::createRuntimeTensorFromTTNN(metalTensor);
+
+  return tensor;
+}
 } // namespace tt::runtime::ttnn
