@@ -7,6 +7,7 @@
 
 #define FMT_HEADER_ONLY
 #include "hostdevcommon/common_values.hpp"
+#include "tt-metalium/experimental/forge_backdoor/global_semaphore.hpp"
 #include "tt-metalium/hal.hpp"
 #include "tt-metalium/host_api.hpp"
 #include "tt-metalium/host_buffer.hpp"
@@ -15,7 +16,6 @@
 #include "tt-metalium/program_cache.hpp"
 #include "ttnn/device.hpp"
 #include "ttnn/events.hpp"
-#include "ttnn/global_semaphore.hpp"
 #include "ttnn/operations/conv/conv2d/conv2d.hpp"
 #include "ttnn/operations/copy/typecast/typecast.hpp"
 #include "ttnn/operations/core/core.hpp"

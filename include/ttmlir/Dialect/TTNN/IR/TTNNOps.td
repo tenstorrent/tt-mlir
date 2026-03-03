@@ -3017,7 +3017,7 @@ def TTNN_GenericOp : TTNN_Op<"generic", [AttrSizedOperandSegments, TTNN_MemoryCo
     }];
 
     let arguments = (ins Variadic<AnyRankedTensor>:$inputs_and_outputs,
-                         Variadic<TTNN_GlobalSemaphore>:$global_semaphores,
+                         Variadic<AnyType>:$additional_args,
                          TTNN_GenericProgramAttr:$program,
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 

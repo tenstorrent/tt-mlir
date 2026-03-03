@@ -9,6 +9,7 @@
 #include "tt/runtime/detail/ttnn/types/program_desc_cache.h"
 #include "tt/runtime/detail/ttnn/utils.h"
 #include "ttmlir/Target/TTNN/operations/generic_op_generated.h"
+#include "ttmlir/Target/TTNN/types_generated.h"
 
 #include <tt-metalium/experimental/fabric/fabric.hpp>
 #include <tt-metalium/experimental/mesh_program_descriptor.hpp>
@@ -16,6 +17,7 @@
 #include <tt-metalium/program_descriptors.hpp>
 
 #include <unordered_map>
+#include <vector>
 
 namespace tt::runtime::ttnn::operations::generic_op {
 
@@ -145,13 +147,11 @@ createKernelConfigDescriptor(
   }
 }
 
-static std::vector<uint32_t> createKernelArgs(
-    const ::tt::target::ttnn::KernelCoreArgs &args,
-    std::optional<std::reference_wrapper<const std::vector<::ttnn::Tensor>>>
-        ioTensors = std::nullopt,
-    std::optional<
-        std::reference_wrapper<const std::vector<::ttnn::GlobalSemaphore *>>>
-        globalSemaphores = std::nullopt) {
+static std::vector<uint32_t>
+createKernelArgs(const ::tt::target::ttnn::KernelCoreArgs &args,
+                 std::vector<const void *> &argRefs,
+                 const ProgramTensorPool &tensorPool,
+                 ProgramGlobalSemaphorePool &globalSemaphorePool) {
   auto size = args.args()->size();
   std::vector<uint32_t> coreArgs(size);
   for (unsigned int i = 0; i < size; i++) {
@@ -166,12 +166,14 @@ static std::vector<uint32_t> createKernelArgs(
       break;
     }
     case ::tt::target::ttnn::KernelArgType::KernelArgBufferAddressOfTensor: {
-      LOG_ASSERT(
-          ioTensors.has_value(),
-          "IO tensors must be provided for KernelArgBufferAddressOfTensor");
-      uint32_t tensorIdx =
-          kernelArg->arg_as_KernelArgBufferAddressOfTensor()->tensor_index();
-      coreArgs[i] = ioTensors->get()[tensorIdx].buffer()->address();
+      uint32_t operandIndex =
+          kernelArg->arg_as_KernelArgBufferAddressOfTensor()->operand_index();
+      coreArgs[i] = tensorPool
+                        .getTTNNTensorAndValidate(
+                            reinterpret_cast<const target::ttnn::TensorRef *>(
+                                argRefs[operandIndex]))
+                        .buffer()
+                        ->address();
       break;
     }
     case ::tt::target::ttnn::KernelArgType::KernelArgSemaphoreAt: {
@@ -183,13 +185,14 @@ static std::vector<uint32_t> createKernelArgs(
       break;
     }
     case ::tt::target::ttnn::KernelArgType::KernelArgGlobalSemaphore: {
-      LOG_ASSERT(
-          globalSemaphores.has_value(),
-          "Global semaphores must be provided for KernelArgGlobalSemaphore");
-      uint32_t globalSemaphoreIndex =
-          kernelArg->arg_as_KernelArgGlobalSemaphore()
-              ->global_semaphore_index();
-      coreArgs[i] = globalSemaphores->get()[globalSemaphoreIndex]->address();
+      uint32_t operandIndex =
+          kernelArg->arg_as_KernelArgGlobalSemaphore()->operand_index();
+      coreArgs[i] =
+          globalSemaphorePool
+              .getTTNNGlobalSemaphoreAndValidate(
+                  reinterpret_cast<const target::ttnn::GlobalSemaphoreRef *>(
+                      argRefs[operandIndex]))
+              .address();
       break;
     }
     default: {
@@ -203,35 +206,38 @@ static std::vector<uint32_t> createKernelArgs(
 static ::tt::tt_metal::KernelDescriptor::RuntimeArgs createRuntimeArgs(
     const flatbuffers::Vector<
         flatbuffers::Offset<::tt::target::ttnn::CoreRuntimeArgs>> *rtArgs,
-    const std::vector<::ttnn::Tensor> &ioTensors,
-    const std::vector<::ttnn::GlobalSemaphore *> &globalSemaphores) {
+    std::vector<const void *> &argRefs, ProgramTensorPool &tensorPool,
+    ProgramGlobalSemaphorePool &globalSemaphorePool) {
   ::tt::tt_metal::KernelDescriptor::RuntimeArgs runtimeArgs;
   if (rtArgs) {
     for (const auto *coreRtArgs : *rtArgs) {
       const auto *coreCoord = coreRtArgs->core_coord();
       ::tt::tt_metal::CoreCoord coord(coreCoord->x(), coreCoord->y());
       ::tt::tt_metal::KernelDescriptor::CoreRuntimeArgs coreArgs =
-          createKernelArgs(*coreRtArgs->args(), ioTensors, globalSemaphores);
+          createKernelArgs(*coreRtArgs->args(), argRefs, tensorPool,
+                           globalSemaphorePool);
       runtimeArgs.emplace_back(coord, std::move(coreArgs));
     }
   }
   return runtimeArgs;
 }
 
-static ::tt::tt_metal::KernelDescriptor createKernelDescriptor(
-    const ::tt::target::ttnn::KernelDescriptor &kernelDesc,
-    const std::vector<::ttnn::Tensor> &ioTensors,
-    const std::vector<::ttnn::GlobalSemaphore *> &globalSemaphores) {
+static ::tt::tt_metal::KernelDescriptor
+createKernelDescriptor(const ::tt::target::ttnn::KernelDescriptor &kernelDesc,
+                       std::vector<const void *> &argRefs,
+                       ProgramTensorPool &tensorPool,
+                       ProgramGlobalSemaphorePool &globalSemaphorePool) {
   std::string kernelSource = kernelDesc.source()->str();
   tt::tt_metal::CoreRangeSet coreRanges =
       tt::runtime::ttnn::utils::toTTNNCoreRangeSet(*kernelDesc.core_ranges());
   ::tt::tt_metal::KernelDescriptor::CommonRuntimeArgs commonRuntimeArgs =
-      createKernelArgs(*kernelDesc.common_rt_args(), ioTensors,
-                       globalSemaphores);
+      createKernelArgs(*kernelDesc.common_rt_args(), argRefs, tensorPool,
+                       globalSemaphorePool);
   ::tt::tt_metal::KernelDescriptor::CompileTimeArgs compileTimeArgs =
-      createKernelArgs(*kernelDesc.ct_args());
-  ::tt::tt_metal::KernelDescriptor::RuntimeArgs runtimeArgs =
-      createRuntimeArgs(kernelDesc.rt_args(), ioTensors, globalSemaphores);
+      createKernelArgs(*kernelDesc.ct_args(), argRefs, tensorPool,
+                       globalSemaphorePool);
+  ::tt::tt_metal::KernelDescriptor::RuntimeArgs runtimeArgs = createRuntimeArgs(
+      kernelDesc.rt_args(), argRefs, tensorPool, globalSemaphorePool);
 
   ::tt::tt_metal::KernelDescriptor kernelDescriptor = {
       .kernel_source = kernelSource,
@@ -251,13 +257,14 @@ static std::shared_ptr<::tt::tt_metal::ProgramDescriptor>
 createProgramDescriptor(
     const ::tt::target::ttnn::ProgramDescriptor *programDesc,
     const std::vector<::ttnn::Tensor> &ioTensors,
-    const std::vector<::ttnn::GlobalSemaphore *> &globalSemaphores) {
+    std::vector<const void *> &argRefs, ProgramTensorPool &tensorPool,
+    ProgramGlobalSemaphorePool &globalSemaphorePool) {
   auto programDescriptor =
       std::make_shared<::tt::tt_metal::ProgramDescriptor>();
   for (const tt::target::ttnn::KernelDescriptor *kernelDesc :
        *programDesc->kernels()) {
-    programDescriptor->kernels.push_back(
-        createKernelDescriptor(*kernelDesc, ioTensors, globalSemaphores));
+    programDescriptor->kernels.push_back(createKernelDescriptor(
+        *kernelDesc, argRefs, tensorPool, globalSemaphorePool));
   }
   for (const tt::target::ttnn::KernelCBDescriptor *cbDesc :
        *programDesc->cbs()) {
@@ -275,7 +282,8 @@ static std::shared_ptr<::tt::tt_metal::experimental::MeshProgramDescriptor>
 createMeshProgramDescriptor(
     const ::tt::target::ttnn::MeshProgramDescriptor *meshProgramDesc,
     const std::vector<::ttnn::Tensor> &ioTensors,
-    const std::vector<::ttnn::GlobalSemaphore *> &globalSemaphores) {
+    std::vector<const void *> &argRefs, ProgramTensorPool &tensorPool,
+    ProgramGlobalSemaphorePool &globalSemaphorePool) {
   ::ttnn::MeshDevice *meshDevice = ioTensors[0].device();
   LOG_ASSERT(meshDevice, "Tensor must be on a mesh device");
 
@@ -302,8 +310,9 @@ createMeshProgramDescriptor(
     // ProgramDescriptor for each with device-specific fabric connection args
     for (const auto &deviceCoord : meshCoordinateRange) {
       // Create a fresh copy of the program descriptor for this device
-      auto programDescriptor = createProgramDescriptor(
-          meshProgram->program(), ioTensors, globalSemaphores);
+      auto programDescriptor =
+          createProgramDescriptor(meshProgram->program(), ioTensors, argRefs,
+                                  tensorPool, globalSemaphorePool);
 
       // Append fabric connection args for all kernels using the common helper
       for (size_t kernelIdx = 0; kernelIdx < programDescriptor->kernels.size();
@@ -365,16 +374,19 @@ createMeshProgramDescriptor(
 void overrideArgs(
     const ::tt::target::ttnn::ProgramDescriptor *programDesc,
     const std::vector<::ttnn::Tensor> &ioTensors,
-    const std::vector<::ttnn::GlobalSemaphore *> &globalSemaphores,
+    std::vector<const void *> &argRefs, ProgramTensorPool &tensorPool,
+    ProgramGlobalSemaphorePool &globalSemaphorePool,
     std::shared_ptr<::tt::tt_metal::ProgramDescriptor> programDescriptor) {
   for (size_t i = 0; i < programDescriptor->kernels.size(); ++i) {
     const auto *kernelDesc = programDesc->kernels()->Get(i);
     auto &kernel = programDescriptor->kernels[i];
-    kernel.compile_time_args = createKernelArgs(*kernelDesc->ct_args());
-    kernel.common_runtime_args = createKernelArgs(*kernelDesc->common_rt_args(),
-                                                  ioTensors, globalSemaphores);
-    kernel.runtime_args =
-        createRuntimeArgs(kernelDesc->rt_args(), ioTensors, globalSemaphores);
+    kernel.compile_time_args = createKernelArgs(
+        *kernelDesc->ct_args(), argRefs, tensorPool, globalSemaphorePool);
+    kernel.common_runtime_args =
+        createKernelArgs(*kernelDesc->common_rt_args(), argRefs, tensorPool,
+                         globalSemaphorePool);
+    kernel.runtime_args = createRuntimeArgs(kernelDesc->rt_args(), argRefs,
+                                            tensorPool, globalSemaphorePool);
   }
   for (size_t i = 0; i < programDescriptor->cbs.size(); ++i) {
     const auto *cbDesc = programDesc->cbs()->Get(i);
@@ -389,21 +401,19 @@ void overrideArgs(
 
 void run(const ::tt::target::ttnn::GenericOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
+  ProgramGlobalSemaphorePool &globalSemaphorePool =
+      context.getGlobalSemaphorePool();
   auto ioTensorsSize = op->io_tensors()->size();
   std::vector<::ttnn::Tensor> ioTensors(ioTensorsSize);
+  std::vector<const void *> argRefs;
   for (unsigned int i = 0; i < ioTensorsSize; i++) {
     ioTensors[i] =
         tensorPool.getTTNNTensorAndValidate(op->io_tensors()->Get(i));
+    argRefs.push_back(op->io_tensors()->Get(i));
   }
 
-  ProgramGlobalSemaphorePool &globalSemaphorePool =
-      context.getGlobalSemaphorePool();
-  std::vector<::ttnn::GlobalSemaphore *> globalSemaphores(
-      op->global_semaphores()->size());
-  for (unsigned int i = 0; i < op->global_semaphores()->size(); i++) {
-    globalSemaphores[i] =
-        &globalSemaphorePool.getTTNNGlobalSemaphoreAndValidate(
-            op->global_semaphores()->Get(i));
+  for (unsigned int i = 0; i < op->additional_args()->size(); i++) {
+    argRefs.push_back(op->additional_args()->Get(i));
   }
 
   std::shared_ptr<::tt::runtime::ProgramDescCache> programDescCache =
@@ -415,7 +425,7 @@ void run(const ::tt::target::ttnn::GenericOp *op, ProgramContext &context) {
         op->program_as_ProgramDescriptor();
 
     std::size_t hash = ttsl::hash::hash_objects_with_default_seed(
-        programDesc, programDescCache, ioTensors, globalSemaphores);
+        programDesc, programDescCache, ioTensors);
     std::shared_ptr<void> cachedPtr = programDescCache->get(hash);
 
     std::shared_ptr<::tt::tt_metal::ProgramDescriptor> programDescriptor;
@@ -423,10 +433,11 @@ void run(const ::tt::target::ttnn::GenericOp *op, ProgramContext &context) {
       programDescriptor =
           std::static_pointer_cast<::tt::tt_metal::ProgramDescriptor>(
               cachedPtr);
-      overrideArgs(programDesc, ioTensors, globalSemaphores, programDescriptor);
+      overrideArgs(programDesc, ioTensors, argRefs, tensorPool,
+                   globalSemaphorePool, programDescriptor);
     } else {
-      programDescriptor =
-          createProgramDescriptor(programDesc, ioTensors, globalSemaphores);
+      programDescriptor = createProgramDescriptor(
+          programDesc, ioTensors, argRefs, tensorPool, globalSemaphorePool);
       programDescriptor->custom_program_hash =
           reinterpret_cast<ttsl::hash::hash_t>(hash);
       programDescCache->insert(
@@ -445,8 +456,9 @@ void run(const ::tt::target::ttnn::GenericOp *op, ProgramContext &context) {
     const tt::target::ttnn::MeshProgramDescriptor *meshProgramDesc =
         op->program_as_MeshProgramDescriptor();
     std::shared_ptr<::tt::tt_metal::experimental::MeshProgramDescriptor>
-        meshProgramDescriptor = createMeshProgramDescriptor(
-            meshProgramDesc, ioTensors, globalSemaphores);
+        meshProgramDescriptor =
+            createMeshProgramDescriptor(meshProgramDesc, ioTensors, argRefs,
+                                        tensorPool, globalSemaphorePool);
 
     ::ttnn::Tensor outputTensor =
         ::ttnn::generic_op(ioTensors, *meshProgramDescriptor);

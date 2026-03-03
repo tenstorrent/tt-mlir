@@ -3181,12 +3181,19 @@ createOp(FlatbufferObjectCache &cache, GenericOp op) {
         getOperandThroughDPSOps(operand)));
   }
 
-  std::vector<::flatbuffers::Offset<::tt::target::ttnn::GlobalSemaphoreRef>>
-      global_semaphores;
-  for (auto operand : op.getGlobalSemaphores()) {
-    global_semaphores.push_back(
-        cache.at<::tt::target::ttnn::GlobalSemaphoreRef>(
-            getOperandThroughDPSOps(operand)));
+  std::vector<target::ttnn::ArgRef> additional_args_types;
+  std::vector<flatbuffers::Offset<void>> additional_args;
+  additional_args_types.reserve(op.getAdditionalArgs().size());
+  additional_args.reserve(op.getAdditionalArgs().size());
+  for (auto arg : op.getAdditionalArgs()) {
+    if (mlir::isa<MemRefType>(arg.getType())) {
+      additional_args_types.push_back(target::ttnn::ArgRef::BufferRef);
+      additional_args.push_back(cache.at<target::ttnn::BufferRef>(arg).Union());
+    } else if (mlir::isa<GlobalSemaphoreType>(arg.getType())) {
+      additional_args_types.push_back(target::ttnn::ArgRef::GlobalSemaphoreRef);
+      additional_args.push_back(
+          cache.at<target::ttnn::GlobalSemaphoreRef>(arg).Union());
+    }
   }
 
   ModuleOp moduleOp = dyn_cast<ModuleOp>(op->getParentOp()->getParentOp());
@@ -3198,7 +3205,7 @@ createOp(FlatbufferObjectCache &cache, GenericOp op) {
     auto meshProgramDesc =
         createMeshProgramDescriptor(cache, meshProgramDescAttr, moduleOp);
     return ::tt::target::ttnn::CreateGenericOpDirect(
-        *cache.fbb, &ios, &global_semaphores,
+        *cache.fbb, &ios, &additional_args_types, &additional_args,
         ::tt::target::ttnn::ProgramType::MeshProgramDescriptor,
         meshProgramDesc.Union());
   }
@@ -3208,7 +3215,7 @@ createOp(FlatbufferObjectCache &cache, GenericOp op) {
   auto program = createProgramDescriptor(cache, programAttr, moduleOp);
 
   return ::tt::target::ttnn::CreateGenericOpDirect(
-      *cache.fbb, &ios, &global_semaphores,
+      *cache.fbb, &ios, &additional_args_types, &additional_args,
       ::tt::target::ttnn::ProgramType::ProgramDescriptor, program.Union());
 }
 
