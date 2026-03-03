@@ -331,7 +331,7 @@ public:
 
       // This is brittle. Ideally we should specifically identify outputs and
       // handle them separately from inputs, but that will require a larger
-      // refactor of this pass.
+      // refactor of this pass. Issue #7158
       bool isAliasedOutput =
           mlir::dyn_cast_if_present<memref::AllocOp>(cb.getDefiningOp()) &&
           llvm::none_of(cb.getUsers(), [](Operation *user) {
