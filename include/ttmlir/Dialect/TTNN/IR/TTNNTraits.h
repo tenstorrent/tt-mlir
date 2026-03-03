@@ -11,11 +11,6 @@
 #include "mlir/IR/OpDefinition.h"
 
 namespace mlir::tt::ttnn {
-template <typename ConcreteType>
-class ExplicateOperandBroadcastsTrait
-    : public mlir::OpTrait::TraitBase<ConcreteType,
-                                      ExplicateOperandBroadcastsTrait> {};
-
 // bfp8_b is tile type so we need some way to check if op which returns
 // it has correct layout information in encoding.
 template <typename ConcreteType>
