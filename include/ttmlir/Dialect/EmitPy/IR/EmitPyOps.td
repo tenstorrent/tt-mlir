@@ -305,7 +305,7 @@ def EmitPy_AssignOp : EmitPy_Op<"assign",
     // Subscript assignment (wrap subscript and assign in expression op)
     %dict = emitpy.create_dict "dict" {literal_expr = "{}"} : () -> !emitpy.dict
     %key = emitpy.literal "5" : index
-    emitpy.expression(%dict, %key, %value) : (!emitpy.dict, index, !emitpy.opaque<"[ttnn.Tensor]">) -> !emitpy.opaque<"None"> {
+    %res = emitpy.expression(%dict, %key, %value) : (!emitpy.dict, index, !emitpy.opaque<"[ttnn.Tensor]">) -> !emitpy.opaque<"None"> {
     ^bb0(%d: !emitpy.dict, %k: index, %v: !emitpy.opaque<"[ttnn.Tensor]">):
       %sub = emitpy.subscript %d[%k] : (!emitpy.dict, index) -> !emitpy.opaque<"[ttnn.Tensor]">
       emitpy.assign %sub = %v : (!emitpy.opaque<"[ttnn.Tensor]">, !emitpy.opaque<"[ttnn.Tensor]">)
@@ -431,7 +431,6 @@ def EmitPy_ConstantOp : EmitPy_Op<"constant", [ConstantLike]> {
 
   let hasVerifier = 1;
 }
-
 
 def EmitPy_GlobalOp : EmitPy_Op<"global", [Symbol]> {
   let summary = "A global variable";
