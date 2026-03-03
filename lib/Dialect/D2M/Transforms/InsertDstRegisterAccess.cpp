@@ -880,9 +880,7 @@ public:
         }
         Value cb = GenericOp::findAssocCBByOperand(allocOp.getOperation(),
                                                    assocOperand);
-        // Only return CB block args, not tensor.empty/memref.alloc results.
-        // Returning non-CB values changes DST register insertion behavior.
-        if (llvm::isa_and_nonnull<mlir::BlockArgument>(cb)) {
+        if (cb) {
           return cb;
         }
         return nullptr;
