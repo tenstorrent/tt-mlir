@@ -296,6 +296,9 @@ def check_outputs(
                 raise TTBuilderGoldenException(
                     f"Failed: program-level output golden comparison failed, actual_pcc={cal_pcc} < expected_pcc={pcc}"
                 )
+                print(golden_tensor.shape, output_tensor.shape)
+                print(golden_tensor)
+                print(output_tensor)
             else:
                 print(f"Program level golden for {tensor_name} matched. pcc={cal_pcc}")
 

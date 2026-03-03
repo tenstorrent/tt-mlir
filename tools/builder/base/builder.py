@@ -858,8 +858,8 @@ class Builder(metaclass=BuilderMeta):
         # Build the _operand_deallocations mapping
         # Map each operand to a list containing its last use operation
         for operand, last_op in operand_last_use.items():
-            print(last_op)
-            print(operand)
+            # print(last_op)
+            # print(operand)
             if operand not in self._operand_deallocations:
                 self._operand_deallocations[operand] = []
             self._operand_deallocations[operand].append(last_op)
@@ -874,6 +874,7 @@ class Builder(metaclass=BuilderMeta):
     def parse_root_module(
         self, parsed_root_module: Module, golden_inputs: Dict[str, [List[torch.tensor]]]
     ):
+        print("Parsing root module")
         found_cpu_module = False
 
         for entry in parsed_root_module.body.operations:
@@ -919,7 +920,7 @@ class Builder(metaclass=BuilderMeta):
                 self._cpu_module_insertion_point = cloned_op.regions[0].blocks[0]
 
             for entry in parsed_root_module.body.operations:
-                print("parse_root_module ENTRY:", entry)
+                # print("parse_root_module ENTRY:", entry)
                 if self._split_on_demand:
                     self.read_module(parsed_root_module)
 
@@ -948,6 +949,7 @@ class Builder(metaclass=BuilderMeta):
         parsed_builtin_module: Module,
         golden_inputs: Dict[str, [List[torch.tensor]]],
     ):
+        print("Parsing builtin module")
         new_builtin_module = Module.create()
         cloned_op = new_builtin_module.operation.clone()
         self._current_module_insertion_point = cloned_op.regions[0].blocks[0]
@@ -957,13 +959,17 @@ class Builder(metaclass=BuilderMeta):
                 if isinstance(entry, func.FuncOp):
                     if entry.name.value in self._nested_funcs:
                         continue
-                    new_func = self.parse_func(entry, golden_inputs)
+                    if not self._split_on_demand:
+                        new_func = self.parse_func(entry, golden_inputs)
+                    else:
+                        new_func = self.parse_and_split_func(entry, golden_inputs)
 
         return cloned_op
 
     def parse_func(
         self, parsed_func: func.FuncOp, golden_inputs: Dict[str, [List[torch.tensor]]]
     ):
+        print("Opening parse_func:  ", parsed_func.name.value)
         fn_input_types = self.get_input_types(parsed_func)
 
         parsed_func_golden_inputs = []
@@ -1048,6 +1054,7 @@ class Builder(metaclass=BuilderMeta):
     def parse_and_split_func(
         self, parsed_func: func.FuncOp, golden_inputs: Dict[str, [List[torch.tensor]]]
     ):
+        print("Opening parse_and_split_func :", parsed_func.name.value)
         fn_input_types = self.get_input_types(parsed_func)
 
         parsed_func_golden_inputs = []
@@ -1111,7 +1118,8 @@ class Builder(metaclass=BuilderMeta):
                             op_golden_dictionary,
                         ) = self._build_op_from_parsed_op(op, global_dict)
                         global_dict.update(op_golden_dictionary)
-                        print(global_dict, op_golden_dictionary)
+                        print("After processing op:         ", parsed_op)
+                        # print(global_dict, op_golden_dictionary)
 
                         if self._split_on_demand:
                             # Check if this operation has operands to deallocate
@@ -1133,7 +1141,7 @@ class Builder(metaclass=BuilderMeta):
                                         self._deallocated_goldens_dir, filename
                                     )
 
-                                    print("Deallocating operand:", operand)
+                                    # print("Deallocating operand:", operand)
                                     golden = self._get_golden_tensor(new_operand)
                                     golden.deallocate(filepath)
 
@@ -1196,6 +1204,7 @@ class Builder(metaclass=BuilderMeta):
     def parse_nested_func(
         self, parsed_func: func.FuncOp, golden_inputs: List[GoldenMapTensor]
     ):
+        print("Opening parse_nested_func :", parsed_func.name.value)
         fn_input_types = self.get_input_types(parsed_func)
 
         ordered_inputs = []
@@ -1253,6 +1262,7 @@ class Builder(metaclass=BuilderMeta):
         parsed_op: func.CallOp,
         global_dict: Dict[Operand, Operand],
     ) -> Tuple[Operation, Dict[Operand, GoldenMapTensor]]:
+        print("Parsing call op: ", parsed_op)
         is_hoisted = False
         parsed_op_attributes = parsed_op.attributes
         parsed_op_callee_value = parsed_op.callee.value

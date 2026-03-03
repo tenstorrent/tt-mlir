@@ -122,9 +122,12 @@ class GoldenMapTensor:
             return torch.float32
 
     def deallocate(self, filepath: str):
+        import os
+
         for device_id, shard in self._shard_map.items():
-            print("FOUND!!")
             filename = f"{filepath}_device{device_id}.pt"
+            if os.path.exists(filename):
+                print("WARNING: Found existing file at deallocation path: ", filename)
             torch.save(shard, filename)
             self._shard_map[device_id] = filename
             print(f"Deallocated shard for device {device_id} saved to {filename}.")
