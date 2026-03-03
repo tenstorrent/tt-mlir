@@ -132,7 +132,7 @@ public:
                           const SymbolTable &symbolTable,
                           ttmetal::MathFidelity mathFidelity) {
     SmallVector<mlir::Attribute> kernelConfigs(threads.size());
-    int nocIndex = 0;
+    int unassignedNocCounter = 0;
     for (const auto [i, thread] : llvm::enumerate(threads)) {
       const d2m::ThreadAttr threadAttr = mlir::cast<d2m::ThreadAttr>(thread);
 
@@ -174,18 +174,19 @@ public:
             /*math_approx_mode*/ false, kernelCRTArgs, kernelCTArgs);
         break;
       }
-      // TODO (vtangTT) #5033: fix this assumption that order is
-      // read->write->compute; nocIndex == 0 for read, nocIndex == 1 for write.
       case d2m::ThreadType::Datamovement: {
-        TT_assert(nocIndex < 2);
-        if (nocIndex == 0) {
-          kernelConfigs[i] = builder.getAttr<ttnn::ReadKernelAttr>(
-              kernelSymbol, coreRangeSet, kernelCRTArgs, kernelCTArgs);
-        } else {
-          kernelConfigs[i] = builder.getAttr<ttnn::WriteKernelAttr>(
-              kernelSymbol, coreRangeSet, kernelCRTArgs, kernelCTArgs);
+        int32_t nocIdx = threadAttr.getNocIndex();
+        // For unassigned NOCs, alternate between NOC0 and NOC1.
+        if (nocIdx < 0) {
+          nocIdx = unassignedNocCounter++ % 2;
         }
-        nocIndex++;
+        auto nocIndex =
+            nocIdx == 0 ? ttnn::NocIndex::Noc0 : ttnn::NocIndex::Noc1;
+        auto processor = nocIdx == 0 ? ttnn::DataMovementProcessor::RiscV1
+                                     : ttnn::DataMovementProcessor::RiscV0;
+        kernelConfigs[i] = builder.getAttr<ttnn::DataMovementKernelAttr>(
+            kernelSymbol, coreRangeSet, processor, nocIndex,
+            ttnn::NocMode::DedicatedNoc, kernelCRTArgs, kernelCTArgs);
         break;
       }
       case d2m::ThreadType::Unified: {

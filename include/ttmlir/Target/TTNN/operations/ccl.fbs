@@ -1,5 +1,6 @@
 include "ttmlir/Target/Common/types.fbs";
 include "ttmlir/Target/TTNN/types.fbs";
+include "ttmlir/Target/TTNN/operations/configs.fbs";
 
 namespace tt.target.ttnn;
 
@@ -45,6 +46,7 @@ table ReduceScatterOp {
   memory_config: tt.target.ttnn.MemoryConfig;
   num_links: uint32 = null;
   topology: tt.target.Topology = null;
+  compute_config: tt.target.ttnn.DeviceComputeKernelConfig;
 }
 
 table PointToPointOp {
