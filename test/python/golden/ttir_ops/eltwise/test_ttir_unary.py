@@ -262,6 +262,7 @@ unary_ops_dtypes = [
 def test_unary_ops(
     test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request, device
 ):
+    print("OPENING TEST")
     if dtype == torch.int32 and test_fn not in [
         abs,
         neg,
@@ -276,6 +277,7 @@ def test_unary_ops(
             builder: TTIRBuilder,
             unit_attrs: Optional[List[str]] = None,
         ):
+            print("OPENING MODULE")
             return test_fn(in0, builder, unit_attrs=unit_attrs)
 
     pipeline_options = []
