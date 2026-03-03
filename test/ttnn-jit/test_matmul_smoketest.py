@@ -1,14 +1,14 @@
 # SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
+
 import ttnn_jit
 import ttnn
 import torch
-import itertools
 
+import math
 import pytest
 
-from ttnn_jit._src.utils import get_maximal_block_sharding_grid
 from utils import (
     create_sharded_tile_tensor,
     create_dram_tensor,
@@ -25,15 +25,15 @@ def matmul_composite(input0, input1):
 
 
 MATMUL_SHAPES = [
-    ((512, 512, 512)),
-    ((512, 1024, 1024)),
-    ((512, 1024, 2048)),
-    ((1024, 1024, 1024)),
-    ((1024, 1024, 2048)),
-    ((1024, 2048, 2048)),
-    ((2048, 2048, 2048)),
-    ((2048, 32, 2048)),
-    ((32, 2048, 32)),
+    ((64, 64, 64)),
+    ((64, 128, 128)),
+    ((64, 128, 256)),
+    ((128, 128, 128)),
+    ((128, 128, 256)),
+    ((128, 256, 256)),
+    ((256, 256, 256)),
+    ((256, 4, 256)),
+    ((4, 256, 4)),
 ]
 
 INPUT_LAYOUTS = [
@@ -65,21 +65,26 @@ INPUT_LAYOUTS = [
 )
 def test_matmul_composite(device, shapes, input_layouts, dtype, ttnn_dtype):
     # Skip large matmuls for float32
-    if dtype == torch.float32 and shapes in [(2048, 2048, 2048), (1024, 2048, 2048)]:
+    if dtype == torch.float32 and shapes in [(256, 256, 256), (128, 256, 256)]:
         pytest.skip("Skipping large matmul for float32")
+
+    # Always square grid.
+    core_grid = get_core_grid_from_device(device)
+    grid_size = math.lcm(core_grid[0] + 1, core_grid[1] + 1)
+    m = shapes[0] * grid_size
+    k = shapes[1] * grid_size
+    n = shapes[2] * grid_size
+
     # input is (m, k, n)
-    shapes = [(shapes[0], shapes[1]), (shapes[1], shapes[2])]
+    shapes = [(m, k), (k, n)]
     input_tensors = []
     for shape, layout in zip(shapes, input_layouts):
         if layout == ttnn.TensorMemoryLayout.BLOCK_SHARDED:
-            grid = get_maximal_block_sharding_grid(
-                shape, get_core_grid_from_device(device)
-            )
             input_tensors.append(
                 create_sharded_tile_tensor(
                     device,
                     shape,
-                    grid,
+                    core_grid,
                     dtype,
                     shard_strategy=ttnn.ShardStrategy.BLOCK,
                     ttnn_dtype=ttnn_dtype,

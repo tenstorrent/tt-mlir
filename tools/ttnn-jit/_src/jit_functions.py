@@ -413,7 +413,7 @@ class ReductionOpHandler(BaseOpHandler):
 
 class MatmulOpHandler(BaseOpHandler):
     """Handler for matrix multiplication operation."""
-
+    # Use create_output_tensor which handles matmul output layout inference.
     def _infer_result_type(self, lhs_type, rhs_type):
         """Infer result type for matmul using create_output_tensor."""
         return create_output_tensor(
@@ -421,7 +421,6 @@ class MatmulOpHandler(BaseOpHandler):
             "matmul",
             [lhs_type, rhs_type],
             CREATE_INTERMEDIATE_LAYOUT,
-            core_grid=self.jit_ctx.core_grid,
         )
 
     def create_operation(self, *args, **kwargs):

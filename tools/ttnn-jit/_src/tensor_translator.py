@@ -399,7 +399,7 @@ def _get_output_memory_space_and_layout(op_name, input_layouts):
 
 
 def create_output_tensor(
-    ctx, op_name, input_types, create_encoding=True, core_grid=None
+    ctx, op_name, input_types, create_encoding=True
 ):
     if op_name not in OUTPUT_TENSOR_DERIVATION_REQUIRED:
         return input_types[0]
@@ -407,6 +407,7 @@ def create_output_tensor(
     input_layouts = [
         ttnn.ir.TTNNLayoutAttr.maybe_downcast(tensor.encoding) for tensor in input_types
     ]
+    core_grid = ctx.core_grid
     shape = _get_output_shape(op_name, [tensor.shape for tensor in input_types])
     grid_shape = _get_output_grid_shape(op_name, shape, input_layouts, core_grid)
     mem_space, memory_layout = _get_output_memory_space_and_layout(
