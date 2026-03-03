@@ -87,13 +87,13 @@ protected:
     EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
     if (expectedLegal) {
       const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
-                  outputLayoutReadBack] = constraintsExp.get();
+                  outputLayoutReadBacks] = constraintsExp.get();
 
       EXPECT_GE(cbSize, 0);
       EXPECT_GE(l1PeakSize, 0);
       EXPECT_GE(totalPeakSize, 0);
       EXPECT_GE(outputSize, 0);
-      ExpectLayoutsEQ(outputLayout, outputLayoutReadBack);
+      ExpectLayoutsEQ(outputLayout, outputLayoutReadBacks[0]);
     } else {
       // Must clean up the error
       llvm::consumeError(constraintsExp.takeError());
@@ -129,13 +129,13 @@ protected:
     EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
     if (expectedLegal) {
       const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
-                  outputLayoutReadBack] = constraintsExp.get();
+                  outputLayoutReadBacks] = constraintsExp.get();
 
       EXPECT_GE(cbSize, 0);
       EXPECT_GE(l1PeakSize, 0);
       EXPECT_GE(totalPeakSize, 0);
       EXPECT_GE(outputSize, 0);
-      ExpectLayoutsEQ(outputLayout, outputLayoutReadBack);
+      ExpectLayoutsEQ(outputLayout, outputLayoutReadBacks[0]);
     } else {
       // Must clean up the error
       llvm::consumeError(constraintsExp.takeError());
@@ -414,7 +414,7 @@ protected:
     EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
     if (expectedLegal) {
       const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
-                  outputLayoutReadBack] = constraintsExp.get();
+                  outputLayoutReadBacks] = constraintsExp.get();
       EXPECT_GE(cbSize, 0);
       EXPECT_GE(l1PeakSize, 0);
       EXPECT_GE(totalPeakSize, 0);
@@ -591,7 +591,7 @@ TEST_F(OpModelTest, SoftmaxInterleaved) {
       CreateWorkerGrid(), tensorShape, inputLayout_dram, -1, false,
       inputLayout_dram);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
-  auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayoutReadBack] =
+  auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayoutReadBacks] =
       constraintsExp.get();
   EXPECT_GT(cbSize, 0);
   EXPECT_EQ(outputSize, 0);
@@ -846,7 +846,7 @@ TEST_F(OpModelTest, ToLayout) {
   EXPECT_GT(opCstr.cbL1PeakSize, 0);
   EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
   EXPECT_EQ(opCstr.outputL1BufferSize, 0);
-  ExpectLayoutsEQ(layoutDRAMRowMajor, opCstr.outputLayout);
+  ExpectLayoutsEQ(layoutDRAMRowMajor, opCstr.outputLayouts[0]);
 
   auto runtimeExp = OpModel<ToLayoutOp>::getOpRuntime(
       tensorShape, layoutDRAMTiled, std::nullopt, layoutDRAMRowMajor);
@@ -872,7 +872,7 @@ TEST_F(OpModelTest, ToLayout) {
   EXPECT_GT(opCstr.cbL1PeakSize, 0);
   EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
   EXPECT_EQ(opCstr.outputL1BufferSize, 0);
-  ExpectLayoutsEQ(layoutDRAMRowMajor, opCstr.outputLayout);
+  ExpectLayoutsEQ(layoutDRAMRowMajor, opCstr.outputLayouts[0]);
 
   runtimeExp = OpModel<ToLayoutOp>::getOpRuntime(
       tensorShape, layoutDRAMTiled, std::nullopt, layoutDRAMRowMajor);
@@ -1090,13 +1090,13 @@ protected:
     EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
 
     if (expectedLegal) {
-      auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayoutResult] =
-          constraintsExp.get();
+      auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
+            outputLayoutResults] = constraintsExp.get();
       EXPECT_GE(cbSize, 0);
       EXPECT_GE(l1PeakSize, 0);
       EXPECT_GE(totalPeakSize, 0);
       EXPECT_GE(outputSize, 0);
-      EXPECT_TRUE(outputLayoutResult != nullptr);
+      EXPECT_TRUE(outputLayoutResults.size());
     } else {
       llvm::consumeError(constraintsExp.takeError());
     }
@@ -1234,13 +1234,13 @@ protected:
     EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
 
     if (expectedLegal) {
-      auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayoutResult] =
-          constraintsExp.get();
+      auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
+            outputLayoutResults] = constraintsExp.get();
       EXPECT_GE(cbSize, 0);
       EXPECT_GE(l1PeakSize, 0);
       EXPECT_GE(totalPeakSize, 0);
       EXPECT_GE(outputSize, 0);
-      EXPECT_TRUE(outputLayoutResult != nullptr);
+      EXPECT_TRUE(outputLayoutResults.size());
     } else {
       llvm::consumeError(constraintsExp.takeError());
     }
@@ -1537,6 +1537,8 @@ TEST_F(OpModelTest, Sort) {
   EXPECT_GT(opCstr.cbL1PeakSize, 0);
   EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
   EXPECT_EQ(opCstr.outputL1BufferSize, 0);
+  // Sort has two outputs: values and indices.
+  ASSERT_EQ(opCstr.outputLayouts.size(), 2);
 
   auto runtimeExp = op_model::OpModel<SortOp>::getOpRuntime(
       tensorShape, layoutDRAM, 0, false, false, layoutDRAM);
@@ -1551,6 +1553,8 @@ TEST_F(OpModelTest, Sort) {
   EXPECT_GT(opCstr.cbL1PeakSize, 0);
   EXPECT_GT(opCstr.tensorL1PeakSize, 0);
   EXPECT_EQ(opCstr.outputL1BufferSize, 0);
+  // Sort has two outputs: values and indices.
+  ASSERT_EQ(opCstr.outputLayouts.size(), 2);
 
   runtimeExp = op_model::OpModel<SortOp>::getOpRuntime(
       tensorShape, layoutDRAM, 0, false, false, layoutL1Interleaved);
@@ -1567,6 +1571,45 @@ TEST_F(OpModelTest, Sort) {
       tensorShape, layoutL1Interleaved, 0, false, false, layoutL1WSharded);
   EXPECT_FALSE(static_cast<bool>(runtimeExp));
   llvm::consumeError(runtimeExp.takeError());
+}
+
+TEST_F(OpModelTest, TopK) {
+  const llvm::SmallVector<int64_t> tensorShape = {workerCoresN300,
+                                                  workerCoresN300};
+  const auto workerGrid = CreateWorkerGrid(gridShapeHwN300);
+  const TTNNLayoutAttr layoutDRAM = CreateTiledLayout(
+      tensorShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr layoutL1Interleaved = CreateTiledLayout(
+      tensorShape, BufferType::L1, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr layoutL1WSharded = CreateTiledLayout(
+      tensorShape, BufferType::L1, TensorMemoryLayout::WidthSharded);
+
+  auto legalExp = Device::getDeviceConstraints(workerGrid);
+  EXPECT_TRUE(static_cast<bool>(legalExp));
+
+  auto constraintsExp = op_model::OpModel<TopKOp>::getOpConstraints(
+      CreateWorkerGrid(), tensorShape, layoutDRAM, 4, -1, true, true,
+      layoutDRAM);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  OpConstraints &opCstr = constraintsExp.get();
+  EXPECT_GT(opCstr.cbL1PeakSize, 0);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 0);
+
+  constraintsExp = op_model::OpModel<TopKOp>::getOpConstraints(
+      CreateWorkerGrid(), tensorShape, layoutDRAM, 4, -1, true, true,
+      layoutL1Interleaved);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  opCstr = constraintsExp.get();
+  EXPECT_GT(opCstr.cbL1PeakSize, 0);
+  EXPECT_GT(opCstr.tensorL1PeakSize, 0);
+  EXPECT_GT(opCstr.outputL1BufferSize, 0);
+
+  constraintsExp = op_model::OpModel<TopKOp>::getOpConstraints(
+      CreateWorkerGrid(), tensorShape, layoutL1Interleaved, 4, -1, true, true,
+      layoutL1WSharded);
+  EXPECT_FALSE(static_cast<bool>(constraintsExp));
+  llvm::consumeError(constraintsExp.takeError());
 }
 
 TEST_F(OpModelTest, MaxPool2dWithIndices) {
@@ -1761,13 +1804,13 @@ protected:
     EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
     if (expectedLegal) {
       const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
-                  outputLayoutReadBack] = constraintsExp.get();
+                  outputLayoutReadBacks] = constraintsExp.get();
 
       EXPECT_GE(cbSize, 0);
       EXPECT_GE(l1PeakSize, 0);
       EXPECT_GE(totalPeakSize, 0);
       EXPECT_GE(outputSize, 0);
-      ExpectLayoutsEQ(outputLayout, outputLayoutReadBack);
+      ExpectLayoutsEQ(outputLayout, outputLayoutReadBacks[0]);
     } else {
       // Must clean up the error
       llvm::consumeError(constraintsExp.takeError());
@@ -1807,13 +1850,13 @@ protected:
     EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
     if (expectedLegal) {
       const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
-                  outputLayoutReadBack] = constraintsExp.get();
+                  outputLayoutReadBacks] = constraintsExp.get();
 
       EXPECT_GE(cbSize, 0);
       EXPECT_GE(l1PeakSize, 0);
       EXPECT_GE(totalPeakSize, 0);
       EXPECT_GE(outputSize, 0);
-      ExpectLayoutsEQ(outputLayout, outputLayoutReadBack);
+      ExpectLayoutsEQ(outputLayout, outputLayoutReadBacks[0]);
     } else {
       // Must clean up the error
       llvm::consumeError(constraintsExp.takeError());
@@ -1865,12 +1908,12 @@ protected:
     EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
     if (expectedLegal) {
       const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
-                  outputLayoutReadBack] = constraintsExp.get();
+                  outputLayoutReadBacks] = constraintsExp.get();
       EXPECT_GE(cbSize, 0);
       EXPECT_GE(l1PeakSize, 0);
       EXPECT_GE(totalPeakSize, 0);
       EXPECT_GE(outputSize, 0);
-      ExpectLayoutsEQ(outputLayout, outputLayoutReadBack);
+      ExpectLayoutsEQ(outputLayout, outputLayoutReadBacks[0]);
     } else {
       llvm::consumeError(constraintsExp.takeError());
     }
@@ -2205,7 +2248,7 @@ TEST_P(OpModelPowScalarParam, PowScalarParam) {
 
   if (constraintsExp) {
     const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
-                outputLayoutReadBack] = constraintsExp.get();
+                outputLayoutReadBacks] = constraintsExp.get();
 
     EXPECT_GE(cbSize, 0);
     EXPECT_GE(l1PeakSize, 0);
@@ -2288,7 +2331,7 @@ TEST_P(OpModelLinearParam, LinearParam) {
   EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
   if (expectedLegal) {
     const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
-                outputLayoutReadBack] = constraintsExp.get();
+                outputLayoutReadBacks] = constraintsExp.get();
     EXPECT_GE(cbSize, 0);
     EXPECT_GE(l1PeakSize, 0);
     EXPECT_GE(totalPeakSize, 0);
@@ -2509,7 +2552,7 @@ TEST_P(OpModelMatmulParam, MatmulParam) {
   EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
   if (expectedLegal) {
     const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
-                outputLayoutReadBack] = constraintsExp.get();
+                outputLayoutReadBacks] = constraintsExp.get();
     EXPECT_GE(cbSize, 0);
     EXPECT_GE(l1PeakSize, 0);
     EXPECT_GE(totalPeakSize, 0);
@@ -2742,7 +2785,7 @@ TEST_P(OpModelConv2dParam, Conv2d) {
   EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
   if (constraintsExp) {
     const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
-                outputLayoutReadBack] = constraintsExp.get();
+                outputLayoutReadBacks] = constraintsExp.get();
     EXPECT_GT(cbSize, 0);
     EXPECT_GT(l1PeakSize, 0);
     EXPECT_GT(totalPeakSize, 0);
@@ -2862,7 +2905,7 @@ TEST_P(OpModelConvTranspose2dParam, ConvTranspose2d) {
   EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
   if (constraintsExp) {
     const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
-                outputLayoutReadBack] = constraintsExp.get();
+                outputLayoutReadBacks] = constraintsExp.get();
     EXPECT_GT(cbSize, 0);
     EXPECT_GT(l1PeakSize, 0);
     EXPECT_GT(totalPeakSize, 0);
@@ -2972,7 +3015,7 @@ TEST_P(OpModelConv3dParam, Conv3d) {
   EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
   if (constraintsExp) {
     const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
-                outputLayoutReadBack] = constraintsExp.get();
+                outputLayoutReadBacks] = constraintsExp.get();
     // Conv3d (experimental) ignores the requested L1 output memory config and
     // forces output to DRAM (copies input's memory config). Therefore:
     // - outputSize (l1_output_buffer_per_core) = 0 (output is in DRAM, not L1)
@@ -3076,7 +3119,7 @@ protected:
 
     if (constraintsExp) {
       const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
-                  outputLayoutReadBack] = constraintsExp.get();
+                  outputLayoutReadBacks] = constraintsExp.get();
       EXPECT_GT(cbSize, 0);
       EXPECT_GT(l1PeakSize, 0);
       EXPECT_EQ(outputSize, 0);
@@ -3181,12 +3224,12 @@ protected:
     EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
     if (expectedLegal) {
       const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
-                  outputLayoutReadBack] = constraintsExp.get();
+                  outputLayoutReadBacks] = constraintsExp.get();
       EXPECT_GE(cbSize, 0);
       EXPECT_GE(l1PeakSize, 0);
       EXPECT_GE(totalPeakSize, 0);
       EXPECT_GE(outputSize, 0);
-      ExpectLayoutsEQ(outputLayout, outputLayoutReadBack);
+      ExpectLayoutsEQ(outputLayout, outputLayoutReadBacks[0]);
     } else {
       llvm::consumeError(constraintsExp.takeError());
     }
@@ -3296,7 +3339,7 @@ TEST_P(OpModelLeakyReluParam, LeakyReluParam) {
 
   if (constraintsExp) {
     const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
-                outputLayoutReadBack] = constraintsExp.get();
+                outputLayoutReadBacks] = constraintsExp.get();
     EXPECT_GT(cbSize, 0);
     EXPECT_GT(l1PeakSize, 0);
     EXPECT_GT(outputSize, 0);
@@ -3360,7 +3403,7 @@ TEST_P(OpModelClampScalarParam, ClampScalarParam) {
 
   if (constraintsExp) {
     const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
-                outputLayoutReadBack] = constraintsExp.get();
+                outputLayoutReadBacks] = constraintsExp.get();
     EXPECT_GT(cbSize, 0);
     EXPECT_GT(l1PeakSize, 0);
     EXPECT_GT(outputSize, 0);
@@ -3430,7 +3473,7 @@ TEST_P(OpModelClampTensorParam, ClampTensorParam) {
 
   if (constraintsExp) {
     const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
-                outputLayoutReadBack] = constraintsExp.get();
+                outputLayoutReadBacks] = constraintsExp.get();
     EXPECT_GT(cbSize, 0);
     EXPECT_GT(l1PeakSize, 0);
     EXPECT_GT(outputSize, 0);
@@ -3502,7 +3545,7 @@ TEST_P(OpModelPermuteParam, PermuteParam) {
 
   if (constraintsExp) {
     const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
-                outputLayoutReadBack] = constraintsExp.get();
+                outputLayoutReadBacks] = constraintsExp.get();
     EXPECT_GT(cbSize, 0);
     EXPECT_GT(l1PeakSize, 0);
     EXPECT_GT(outputSize, 0);
@@ -3584,7 +3627,7 @@ TEST_P(OpModelUpsampleParam, UpsampleParam) {
 
   if (constraintsExp) {
     const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
-                outputLayoutReadBack] = constraintsExp.get();
+                outputLayoutReadBacks] = constraintsExp.get();
     EXPECT_GT(cbSize, 0);
     EXPECT_EQ(l1PeakSize, 0);
     EXPECT_EQ(outputSize, 0);
@@ -3642,12 +3685,12 @@ protected:
     EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
     if (expectedLegal) {
       const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
-                  outputLayoutReadBack] = constraintsExp.get();
+                  outputLayoutReadBacks] = constraintsExp.get();
       EXPECT_GE(cbSize, 0);
       EXPECT_GE(l1PeakSize, 0);
       EXPECT_GE(totalPeakSize, 0);
       EXPECT_GE(outputSize, 0);
-      ExpectLayoutsEQ(outputTiledLayout, outputLayoutReadBack);
+      ExpectLayoutsEQ(outputTiledLayout, outputLayoutReadBacks[0]);
     } else {
       llvm::consumeError(constraintsExp.takeError());
     }
@@ -3707,7 +3750,7 @@ TEST_F(OpModelTest, EmbeddingBackwardOp) {
       CreateWorkerGrid(), inputShape, inputLayout, weightShape, weightLayout,
       inGradientShape, inGradientLayout, outputLayout);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
-  auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayoutReadBack] =
+  auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayoutReadBacks] =
       constraintsExp.get();
   EXPECT_GT(cbSize, 0);
   EXPECT_GT(l1PeakSize, 0);
@@ -3732,7 +3775,7 @@ TEST_F(OpModelTest, Where) {
       CreateWorkerGrid(), inputTensorShape, inputLayout, inputTensorShape,
       inputLayout, inputTensorShape, inputLayout, outputLayout);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
-  auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayoutReadBack] =
+  auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayoutReadBacks] =
       constraintsExp.get();
   EXPECT_GT(cbSize, 0);
   EXPECT_GT(l1PeakSize, 0);
@@ -3767,7 +3810,7 @@ TEST_F(OpModelTest, EmptyOp) {
           CreateWorkerGrid(), inputTensorShape, dtype, layout, memoryConfig,
           outputLayout);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
-  auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayoutReadBack] =
+  auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayoutReadBacks] =
       constraintsExp.get();
   EXPECT_EQ(cbSize, 0);
   EXPECT_GT(l1PeakSize, 0);
@@ -3801,7 +3844,7 @@ TEST_F(OpModelTest, ArangeOp) {
           CreateWorkerGrid(), startAttr, endAttr, stepAttr, dtype, memConfig,
           nullptr);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
-  auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayoutReadBack] =
+  auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayoutReadBacks] =
       constraintsExp.get();
   // Basic assertions to verify the op constraints are computed
   EXPECT_EQ(cbSize, 0);
@@ -3834,7 +3877,7 @@ protected:
     EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
     if (expectedLegal) {
       auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
-            outputLayoutReadBack] = constraintsExp.get();
+            outputLayoutReadBacks] = constraintsExp.get();
       EXPECT_GE(cbSize, 0);
       EXPECT_GE(l1PeakSize, 0);
       EXPECT_GE(totalPeakSize, 0);
@@ -3868,7 +3911,7 @@ TEST_F(OpModelTest, FullOp) {
           CreateWorkerGrid(), shapeAttr, builder.getI32IntegerAttr(0),
           std::nullopt, std::nullopt, std::nullopt, outputLayout);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
-  auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayoutReadBack] =
+  auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayoutReadBacks] =
       constraintsExp.get();
   EXPECT_EQ(cbSize, 0);
   EXPECT_EQ(l1PeakSize, 0);
@@ -3939,7 +3982,7 @@ TEST_P(OpModelPrepareConv2dWeightsParam, PrepareConv2dWeights) {
 
   EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
   const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
-              outputLayoutReadBack] = constraintsExp.get();
+              outputLayoutReadBacks] = constraintsExp.get();
   EXPECT_GE(cbSize, 0);
   EXPECT_EQ(l1PeakSize, 0);
   EXPECT_EQ(totalPeakSize, 0);
@@ -4031,7 +4074,7 @@ TEST_P(OpModelPrepareConv2dBiasParam, PrepareConv2dBias) {
 
   EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
   const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
-              outputLayoutReadBack] = constraintsExp.get();
+              outputLayoutReadBacks] = constraintsExp.get();
   EXPECT_GE(cbSize, 0);
   EXPECT_EQ(l1PeakSize, 0);
   EXPECT_EQ(totalPeakSize, 0);
@@ -4148,7 +4191,7 @@ TEST_P(OpModelBatchNormParam, BatchNormParam) {
   EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
   if (constraintsExp) {
     const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
-                outputLayoutReadBack] = constraintsExp.get();
+                outputLayoutReadBacks] = constraintsExp.get();
     EXPECT_GE(cbSize, 0);
     EXPECT_GE(l1PeakSize, 0);
     EXPECT_GE(totalPeakSize, 0);
@@ -4318,7 +4361,7 @@ TEST_P(OpModelRMSNormParam, RMSNormParam) {
   EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
   if (constraintsExp) {
     const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
-                outputLayoutReadBack] = constraintsExp.get();
+                outputLayoutReadBacks] = constraintsExp.get();
     EXPECT_GE(cbSize, 0);
     EXPECT_GE(l1PeakSize, 0);
     EXPECT_GE(totalPeakSize, 0);
@@ -4453,7 +4496,7 @@ TEST_P(OpModelLayerNormParam, LayerNormParam) {
   EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
   if (constraintsExp) {
     const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
-                outputLayoutReadBack] = constraintsExp.get();
+                outputLayoutReadBacks] = constraintsExp.get();
     EXPECT_GE(cbSize, 0);
     EXPECT_GE(l1PeakSize, 0);
     EXPECT_GE(totalPeakSize, 0);
@@ -4585,7 +4628,7 @@ protected:
     EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
     if (expectedLegal) {
       auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
-            outputLayoutReadBack] = constraintsExp.get();
+            outputLayoutReadBacks] = constraintsExp.get();
       EXPECT_GE(cbSize, 0);
       EXPECT_GE(l1PeakSize, 0);
       EXPECT_GE(totalPeakSize, 0);
@@ -4790,6 +4833,8 @@ TEST_F(OpModelTest, FillCacheOp) {
     EXPECT_GT(opCstr.cbL1PeakSize, 0);
     EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
     EXPECT_EQ(opCstr.outputL1BufferSize, 0);
+    // Captures updated cache, even though it is in place update
+    EXPECT_EQ(opCstr.outputLayouts.size(), 1);
   }
 
   // Test with L1 output layout
@@ -4863,6 +4908,8 @@ TEST_F(OpModelTest, UpdateCacheOp) {
     EXPECT_GT(opCstr.cbL1PeakSize, 0);
     EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
     EXPECT_EQ(opCstr.outputL1BufferSize, 0);
+    // Captures updated cache, even though it is in place update
+    EXPECT_EQ(opCstr.outputLayouts.size(), 1);
   }
 
   // Test with L1 output layout
@@ -4934,6 +4981,8 @@ TEST_F(OpModelTest, PagedUpdateCacheOp) {
     EXPECT_GE(opCstr.tensorL1PeakSize, 0);
     EXPECT_EQ(opCstr.outputL1BufferSize, 0);
     EXPECT_GE(opCstr.peakL1MemorySize, 0);
+    // Captures updated cache, even though it is in place update
+    EXPECT_EQ(opCstr.outputLayouts.size(), 1);
   }
 }
 
@@ -4966,6 +5015,8 @@ TEST_F(OpModelTest, PagedUpdateCacheOpWithoutPageTable) {
     EXPECT_GE(opCstr.tensorL1PeakSize, 0);
     EXPECT_EQ(opCstr.outputL1BufferSize, 0);
     EXPECT_GE(opCstr.peakL1MemorySize, 0);
+    // Captures updated cache, even though it is in place update
+    EXPECT_EQ(opCstr.outputLayouts.size(), 1);
   }
 
   auto runtimeExp = OpModel<PagedUpdateCacheOp>::getOpRuntime(
@@ -5007,6 +5058,8 @@ TEST_F(OpModelTest, PagedFillCacheOp) {
     EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
     EXPECT_EQ(opCstr.outputL1BufferSize, 0);
     EXPECT_GT(opCstr.peakL1MemorySize, 0);
+    // Captures updated cache, even though it is in place update
+    EXPECT_EQ(opCstr.outputLayouts.size(), 1);
   }
 
   auto runtimeExp = OpModel<PagedFillCacheOp>::getOpRuntime(
@@ -5066,12 +5119,12 @@ protected:
     EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
     if (expectedLegal) {
       const auto [cbSize, l1PeakSize, totalPeakSize, outputSizeResult,
-                  outputLayoutReadBack] = constraintsExp.get();
+                  outputLayoutReadBacks] = constraintsExp.get();
       EXPECT_GE(cbSize, 0);
       EXPECT_GE(l1PeakSize, 0);
       EXPECT_GE(totalPeakSize, 0);
       EXPECT_GE(outputSizeResult, 0);
-      ExpectLayoutsEQ(outputLayout, outputLayoutReadBack);
+      ExpectLayoutsEQ(outputLayout, outputLayoutReadBacks[0]);
     } else {
       llvm::consumeError(constraintsExp.takeError());
     }
@@ -5220,12 +5273,12 @@ protected:
     EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
     if (expectedLegal) {
       const auto [cbSize, l1PeakSize, totalPeakSize, outputSizeResult,
-                  outputLayoutReadBack] = constraintsExp.get();
+                  outputLayoutReadBacks] = constraintsExp.get();
       EXPECT_GE(cbSize, 0);
       EXPECT_GE(l1PeakSize, 0);
       EXPECT_GE(totalPeakSize, 0);
       EXPECT_GE(outputSizeResult, 0);
-      ExpectLayoutsEQ(outputLayout, outputLayoutReadBack);
+      ExpectLayoutsEQ(outputLayout, outputLayoutReadBacks[0]);
     } else {
       llvm::consumeError(constraintsExp.takeError());
     }
@@ -5376,12 +5429,12 @@ protected:
     EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
     if (expectedLegal) {
       const auto [cbSize, l1PeakSize, totalPeakSize, outputSizeResult,
-                  outputLayoutReadBack] = constraintsExp.get();
+                  outputLayoutReadBacks] = constraintsExp.get();
       EXPECT_GE(cbSize, 0);
       EXPECT_GE(l1PeakSize, 0);
       EXPECT_GE(totalPeakSize, 0);
       EXPECT_GE(outputSizeResult, 0);
-      ExpectLayoutsEQ(outputLayout, outputLayoutReadBack);
+      ExpectLayoutsEQ(outputLayout, outputLayoutReadBacks[0]);
     } else {
       llvm::consumeError(constraintsExp.takeError());
     }
@@ -5601,12 +5654,12 @@ protected:
     EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
     if (expectedLegal) {
       const auto [cbSize, l1PeakSize, totalPeakSize, outputSizeResult,
-                  outputLayoutReadBack] = constraintsExp.get();
+                  outputLayoutReadBacks] = constraintsExp.get();
       EXPECT_GE(cbSize, 0);
       EXPECT_GE(l1PeakSize, 0);
       EXPECT_GE(totalPeakSize, 0);
       EXPECT_GE(outputSizeResult, 0);
-      ExpectLayoutsEQ(outputLayout, outputLayoutReadBack);
+      ExpectLayoutsEQ(outputLayout, outputLayoutReadBacks[0]);
     } else {
       llvm::consumeError(constraintsExp.takeError());
     }
@@ -5918,7 +5971,7 @@ protected:
     EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
     if (expectedLegal) {
       const auto [cbSize, l1PeakSize, totalPeakSize, outputSizeResult,
-                  outputLayoutReadBack] = constraintsExp.get();
+                  outputLayoutReadBacks] = constraintsExp.get();
       EXPECT_GE(cbSize, 0);
       EXPECT_GE(l1PeakSize, 0);
       EXPECT_GE(totalPeakSize, 0);
@@ -6039,12 +6092,12 @@ protected:
     EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
     if (expectedLegal) {
       const auto [cbSize, l1PeakSize, totalPeakSize, outputSizeResult,
-                  outputLayoutReadBack] = constraintsExp.get();
+                  outputLayoutReadBacks] = constraintsExp.get();
       EXPECT_GE(cbSize, 0);
       EXPECT_GE(l1PeakSize, 0);
       EXPECT_GE(totalPeakSize, 0);
       EXPECT_GE(outputSizeResult, 0);
-      ExpectLayoutsEQ(outputLayout, outputLayoutReadBack);
+      ExpectLayoutsEQ(outputLayout, outputLayoutReadBacks[0]);
     } else {
       llvm::consumeError(constraintsExp.takeError());
     }

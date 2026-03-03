@@ -2069,6 +2069,12 @@ public:
     llvm_unreachable("Invalid operand range");
   }
 
+  mlir::Attribute emitExpression(llvm::StringRef expression,
+                                 std::string attrName = "") {
+    addKeywordArgument(attrName);
+    return rewriter.getAttr<emitpy::OpaqueAttr>(expression);
+  }
+
   mlir::Attribute emitMeshCoordinate(const mlir::ArrayRef<int64_t> &coords,
                                      std::string attrName = "") {
     std::string code = "ttnn.MeshCoordinate((";

@@ -130,6 +130,7 @@ union OpType {
   MemorySnapshotOp,
   RegionStartOp,
   RegionEndOp,
+  TopKOp,
 }
 
 table Operation {

@@ -11,12 +11,6 @@ include "mlir/IR/OpBase.td"
 // TTNN traits definition.
 //===----------------------------------------------------------------------===//
 
-// Trait for ops that don't support implicit broadcast on operands.
-def ExplicateOperandBroadcastsTrait : NativeOpTrait<"ExplicateOperandBroadcastsTrait">
-{
-  let cppNamespace = "::mlir::tt::ttnn";
-}
-
 // bfp8_b is tile type so we need some way to check if op which returns
 // it has correct layout information in encoding.
 def CheckBFloat8BTrait : NativeOpTrait<"CheckBFloat8BTrait">
