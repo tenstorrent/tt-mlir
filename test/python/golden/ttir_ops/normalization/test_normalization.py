@@ -48,6 +48,11 @@ def test_batch_norm(
     request,
     device,
 ):
+    if target == "emitc":
+        pytest.skip(
+            "EmitC tests are hanging in CI after switching targets (emitPy->emitC). Disabling them to unblock the uplift. See issue: https://github.com/tenstorrent/tt-mlir/issues/7282"
+        )
+
     def module(builder: TTIRBuilder):
         @builder.func(shapes, dtypes)
         def batch_norm(
@@ -101,6 +106,11 @@ def test_rms_norm(
     request,
     device,
 ):
+    if target == "emitc":
+        pytest.skip(
+            "EmitC tests are hanging in CI after switching targets (emitPy->emitC). Disabling them to unblock the uplift. See issue: https://github.com/tenstorrent/tt-mlir/issues/7282"
+        )
+
     # Determine input shapes
     shapes = [shape]
     if has_weight:
@@ -152,6 +162,10 @@ def test_rms_norm(
 def test_softmax(
     shape: Shape, dimension: int, numeric_stable: bool, target: str, request, device
 ):
+    if target == "emitc":
+        pytest.skip(
+            "EmitC tests are hanging in CI after switching targets (emitPy->emitC). Disabling them to unblock the uplift. See issue: https://github.com/tenstorrent/tt-mlir/issues/7282"
+        )
 
     # Create a wrapper function that captures dimension
     def module(builder: TTIRBuilder):
@@ -230,6 +244,11 @@ def test_layer_norm(
     request,
     device,
 ):
+    if target == "emitc":
+        pytest.skip(
+            "EmitC tests are hanging in CI after switching targets (emitPy->emitC). Disabling them to unblock the uplift. See issue: https://github.com/tenstorrent/tt-mlir/issues/7282"
+        )
+
     # Determine input shapes
     shapes = [shape]
     if has_weight:

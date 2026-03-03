@@ -1083,10 +1083,16 @@ createOp(FlatbufferObjectCache &cache, ReduceScatterOp op) {
   auto numLinks = toFlatbuffer(cache, op.getNumLinks());
   auto topology = toFlatbuffer(cache, op.getTopology());
 
+  ::flatbuffers::Offset<::tt::target::ttnn::DeviceComputeKernelConfig>
+      computeConfig = 0;
+  if (op.getComputeConfig().has_value()) {
+    computeConfig = toFlatbuffer(cache, op.getComputeConfig().value());
+  }
+
   return ::tt::target::ttnn::CreateReduceScatterOp(
       *cache.fbb, input, output, op.getScatterDim(),
       static_cast<uint32_t>(op.getReduceType()), op.getClusterAxis(),
-      subDeviceId, memoryConfig, numLinks, topology);
+      subDeviceId, memoryConfig, numLinks, topology, computeConfig);
 }
 
 // Convert ttcore::ReduceType to tt::target::ttnn::ScatterReduceType
@@ -2985,6 +2991,18 @@ createProgramDescriptor(FlatbufferObjectCache &cache, ProgramAttr programAttr,
                    computeKernelAttr.getBfp8PackPrecise(),
                    computeKernelAttr.getMathApproxMode())
                    .Union();
+    } else if (auto dmKernelAttr =
+                   llvm::dyn_cast<DataMovementKernelAttr>(kernelAttr);
+               dmKernelAttr) {
+      auto processor = static_cast<::tt::target::ttnn::DataMovementType>(
+          dmKernelAttr.getProcessor());
+      auto noc = toFlatbuffer(cache, dmKernelAttr.getNocIndex());
+      auto nocMode =
+          static_cast<::tt::target::ttnn::NocMode>(dmKernelAttr.getNocMode());
+      configType = ::tt::target::ttnn::KernelConfig::DataMovementKernelConfig;
+      config = ::tt::target::ttnn::CreateDataMovementKernelConfig(
+                   *cache.fbb, processor, noc, nocMode)
+                   .Union();
     } else if (auto readKernelAttr = llvm::dyn_cast<ReadKernelAttr>(kernelAttr);
                readKernelAttr) {
       configType = ::tt::target::ttnn::KernelConfig::ReaderKernelConfig;
@@ -3392,26 +3410,79 @@ createOp(FlatbufferObjectCache &cache, debug::AnnotateOp op) {
 createOp(FlatbufferObjectCache &cache, debug::BreakpointOp op) {
   auto operand = cache.at<::tt::target::ttnn::TensorRef>(
       getOperandThroughDPSOps(op.getOperand()));
-  auto result =
-      cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
 
-                                  /*local_shape*/ std::nullopt);
+  return ::tt::target::ttnn::CreateBreakpointOp(*cache.fbb, operand);
+}
 
-  return ::tt::target::ttnn::CreateBreakpointOp(*cache.fbb, operand, result);
+::flatbuffers::Offset<::tt::target::ttnn::PrintOp>
+createOp(FlatbufferObjectCache &cache, debug::PrintOp op) {
+  auto operand = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getOperand()));
+  auto message = toFlatbuffer(cache, op.getMessage());
+
+  return ::tt::target::ttnn::CreatePrintOp(*cache.fbb, operand, message);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::MemorySnapshotOp>
 createOp(FlatbufferObjectCache &cache, debug::MemorySnapshotOp op) {
   auto operand = cache.at<::tt::target::ttnn::TensorRef>(
       getOperandThroughDPSOps(op.getOperand()));
+  auto filePath = toFlatbuffer(cache, op.getFilePath());
+
+  return ::tt::target::ttnn::CreateMemorySnapshotOp(*cache.fbb, operand,
+                                                    filePath);
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::RegionStartOp>
+createOp(FlatbufferObjectCache &cache, debug::RegionStartOp op) {
+  auto operand = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getOperand()));
   auto result =
       cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
 
                                   /*local_shape*/ std::nullopt);
-  auto filePath = toFlatbuffer(cache, op.getFilePath());
+  auto regionId = toFlatbuffer(cache, op.getRegionId());
 
-  return ::tt::target::ttnn::CreateMemorySnapshotOp(*cache.fbb, operand, result,
-                                                    filePath);
+  return ::tt::target::ttnn::CreateRegionStartOp(*cache.fbb, operand, result,
+                                                 regionId);
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::RegionEndOp>
+createOp(FlatbufferObjectCache &cache, debug::RegionEndOp op) {
+  auto operand = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getOperand()));
+  auto result =
+      cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
+
+                                  /*local_shape*/ std::nullopt);
+  auto regionId = toFlatbuffer(cache, op.getRegionId());
+
+  return ::tt::target::ttnn::CreateRegionEndOp(*cache.fbb, operand, result,
+                                               regionId);
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::TopKOp>
+createOp(FlatbufferObjectCache &cache, TopKOp op) {
+  auto in = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInputTensor()));
+
+  // Collect output tensors
+  std::vector<::flatbuffers::Offset<::tt::target::ttnn::TensorRef>> outputs;
+  for (auto result : op.getResults()) {
+    outputs.push_back(cache.getOrCreateNoSharding(
+        result, tensorValueToFlatbuffer, /*local_shape*/ std::nullopt));
+  }
+
+  int32_t k = op.getK();
+  int32_t dim = op.getDim();
+  bool largest = op.getLargest();
+  bool sorted = op.getSorted();
+  std::optional<mlir::tt::ttnn::MemoryConfigAttr> memoryConfig =
+      op.getMemoryConfig();
+
+  return ::tt::target::ttnn::CreateTopKOpDirect(
+      *cache.fbb, in, k, dim, largest, sorted,
+      (memoryConfig ? toFlatbuffer(cache, memoryConfig.value()) : 0), &outputs);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::Operation>
@@ -4098,10 +4169,26 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createOp(cache, breakpointOp), debugString,
                            locInfo);
   }
+  if (auto printOp = dyn_cast<debug::PrintOp>(op); printOp) {
+    return createOperation(cache, createOp(cache, printOp), debugString,
+                           locInfo);
+  }
   if (auto memorySnapshotOp = dyn_cast<debug::MemorySnapshotOp>(op);
       memorySnapshotOp) {
     return createOperation(cache, createOp(cache, memorySnapshotOp),
                            debugString, locInfo);
+  }
+  if (auto regionStartOp = dyn_cast<debug::RegionStartOp>(op); regionStartOp) {
+    return createOperation(cache, createOp(cache, regionStartOp), debugString,
+                           locInfo);
+  }
+  if (auto regionEndOp = dyn_cast<debug::RegionEndOp>(op); regionEndOp) {
+    return createOperation(cache, createOp(cache, regionEndOp), debugString,
+                           locInfo);
+  }
+  if (auto topKOp = dyn_cast<TopKOp>(op); topKOp) {
+    return createOperation(cache, createOp(cache, topKOp), debugString,
+                           locInfo);
   }
 
   llvm_unreachable("unhandled op in emitTTNNOperation");

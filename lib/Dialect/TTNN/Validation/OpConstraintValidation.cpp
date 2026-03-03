@@ -70,15 +70,19 @@ validateWithMultipleAttributes(Operation *op,
       continue;
     }
 
-    TTNNLayoutAttr actualOutput = constraintResult.actualOutputLayout;
+    // TODO(bmalesevic, #7108): propagate all output layouts once multi-output
+    // matching is supported.
+    const auto firstActualOutputLayout =
+        constraintResult.checkAndGetFirstActualOutputLayout();
 
     // 2. Search referenceConfigs for matching (outputLayout + opSpecificAttr).
     if (!referenceConfigs.empty()) {
       bool foundMatch = false;
       for (size_t i = 0; i < referenceConfigs.size(); ++i) {
-        if (referenceConfigs[i].outputLayout == actualOutput &&
+        if (referenceConfigs[i].outputLayout == firstActualOutputLayout &&
             referenceConfigs[i].opSpecificAttrs == testConfig.opSpecificAttrs) {
-          results.push_back(ValidationResult::success(i, actualOutput));
+          results.push_back(
+              ValidationResult::success(i, firstActualOutputLayout));
           foundMatch = true;
           break;
         }
@@ -90,7 +94,7 @@ validateWithMultipleAttributes(Operation *op,
       }
     } else {
       // No reference configs to search - consider validation success as match.
-      results.push_back(ValidationResult::success(0, actualOutput));
+      results.push_back(ValidationResult::success(0, firstActualOutputLayout));
     }
   }
 
@@ -161,12 +165,16 @@ validateConstraints(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
   }
 
   auto [cbPeakUsage, l1BuffersPeakUsage, overallPeakL1Usage,
-        outputTensorUsagePerCore, outputLayout] = l1UsageExp.get();
+        outputTensorUsagePerCore, outputLayouts] = l1UsageExp.get();
 
-  TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
-               "Backend returned output layout: {}, layout={}, dtype={}",
-               outputLayout, static_cast<int>(outputLayout.getLayout()),
-               static_cast<int>(outputLayout.getDataType()));
+  TTMLIR_DEBUG(
+      ttmlir::LogComponent::OpValidation,
+      "Backend returned {} output layouts, first one: {}, layout={}, dtype={}",
+      outputLayouts.size(), outputLayouts.empty() ? nullptr : outputLayouts[0],
+      outputLayouts.empty() ? 0
+                            : static_cast<int>(outputLayouts[0].getLayout()),
+      outputLayouts.empty() ? 0
+                            : static_cast<int>(outputLayouts[0].getDataType()));
 
   // Get usable L1 cache size from device.
   ttcore::SystemDescAttr systemDesc = mlir::cast<ttcore::SystemDescAttr>(
@@ -190,13 +198,15 @@ validateConstraints(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
   }
 
   TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
-               "OpModel constraints valid. Op: {}\nOutputLayout: {}\n"
+               "OpModel constraints valid. Op: {}\nFirstOutputLayout: {}\n"
                "L1 usage: overallPeakL1Usage={}, cbPeakUsage={}, "
                "l1BuffersPeakUsage={}, outputTensorUsagePerCore={}",
-               ttmlir::opToString(op), outputLayout, overallPeakL1Usage,
-               cbPeakUsage, l1BuffersPeakUsage, outputTensorUsagePerCore);
+               ttmlir::opToString(op),
+               outputLayouts.empty() ? nullptr : outputLayouts[0],
+               overallPeakL1Usage, cbPeakUsage, l1BuffersPeakUsage,
+               outputTensorUsagePerCore);
 
-  return ValidationResult::success(0, outputLayout, outputTensorUsagePerCore);
+  return ValidationResult::success(0, outputLayouts, outputTensorUsagePerCore);
 }
 
 } // namespace op_constraint_validation

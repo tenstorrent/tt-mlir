@@ -3074,18 +3074,18 @@ void mlir::tt::ttir::TTNNMetalLayoutCastOp::getAsmResultNames(
 
 void mlir::tt::ttir::TTNNMetalLayoutCastOp::getCanonicalizationPatterns(
     mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
-  // Eliminate back-to-back casts of the same tensor.
-
-  // Because of the verifier, we are guaranteed that casts are always
-  // ttnn->metal or metal->ttnn. Therefore, if the producer of the input is a
-  // cast, we necessarily have one of:
-  //   1. metal_0->ttnn->metal_1
-  //   2. ttnn_0->metal->ttnn_1
-  // The cast is purely representational and no layout change is performed.
-  // At op creation time it is guaranteed that the input and output are the same
-  // tensor in the same underlying layout. Therefore we can be sure that:
-  //   metal_0 == metal_1 in 1
-  //   ttnn_0 == ttnn_1 in 2
+  // Eliminate back-to-back casts that form a no-op round-trip.
+  //
+  // Casts are always ttnn->metal or metal->ttnn (enforced by the verifier).
+  // If the producer of the input is also a cast, we have one of:
+  //   1. metal_0 -> ttnn -> metal_1
+  //   2. ttnn_0  -> metal -> ttnn_1
+  //
+  // We can only fold when the outer types match (metal_0 == metal_1 or
+  // ttnn_0 == ttnn_1).  Different TTNN shard strategies (e.g. height_sharded
+  // vs block_sharded) can map to the same MetalLayoutAttr, so an intervening
+  // d2m.to_layout that was folded away may leave back-to-back casts whose
+  // outer types differ.
 
   patterns.add(+[](TTNNMetalLayoutCastOp op, mlir::PatternRewriter &rewriter) {
     TTNNMetalLayoutCastOp producerOp =
@@ -3107,6 +3107,15 @@ void mlir::tt::ttir::TTNNMetalLayoutCastOp::getCanonicalizationPatterns(
 
     if (!producerInputTensor || !producerOutputTensor || !consumerInputTensor ||
         !consumerOutputTensor) {
+      return failure();
+    }
+
+    // Don't fold when either cast carries a virtualGridInverseMapping.
+    // Different TTNN shard strategies (e.g. height_sharded vs block_sharded)
+    // can map to the same MetalLayoutAttr, so a cast with a VGM represents
+    // a meaningful shard strategy that must be preserved.
+    if (producerOp.getVirtualGridInverseMapping() ||
+        op.getVirtualGridInverseMapping()) {
       return failure();
     }
 
@@ -3145,8 +3154,9 @@ mlir::LogicalResult mlir::tt::ttir::TTNNMetalLayoutCastOp::bufferize(
     if (failed(maybeInputBuf)) {
       return maybeInputBuf;
     }
-    rewriter.replaceOpWithNewOp<TTNNMetalLayoutCastOp>(*this, outputTensor,
-                                                       *maybeInputBuf);
+    rewriter.replaceOpWithNewOp<TTNNMetalLayoutCastOp>(
+        *this, outputTensor, *maybeInputBuf, getVirtualGridInverseMappingAttr(),
+        getVirtualGridForwardMappingAttr());
   } else if (mlir::isa<mlir::tt::ttcore::MetalLayoutAttr>(outputEncoding)) {
     // ttnn_layout -> metal_layout becomes ttnn_layout -> memref
     bool isTTNNLayout =
@@ -3161,7 +3171,8 @@ mlir::LogicalResult mlir::tt::ttir::TTNNMetalLayoutCastOp::bufferize(
     }
     MemRefType outputMemrefType = mlir::cast<mlir::MemRefType>(*bufferType);
     mlir::bufferization::replaceOpWithNewBufferizedOp<TTNNMetalLayoutCastOp>(
-        rewriter, *this, outputMemrefType, getInput());
+        rewriter, *this, outputMemrefType, getInput(),
+        getVirtualGridInverseMappingAttr(), getVirtualGridForwardMappingAttr());
 
   } else {
     return emitOpError("Neither input or output uses metal_layout");
@@ -4850,6 +4861,34 @@ verifyReduceOp(llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
 ::mlir::LogicalResult mlir::tt::ttir::ArgMaxOp::verify() {
   return verifyReduceOp([&]() { return emitOpError(); }, getInput().getType(),
                         getDimArg(), getKeepDim(), getType().getShape());
+}
+
+//===----------------------------------------------------------------------===//
+// TopKOp
+//===----------------------------------------------------------------------===//
+
+// TopKOp verification
+::mlir::LogicalResult mlir::tt::ttir::TopKOp::verify() {
+  RankedTensorType inputType = getInputTensor().getType();
+  int64_t inputRank = inputType.getRank();
+  int32_t dim = getDim();
+  int32_t K = getK();
+
+  // Normalize dim to check if it's effectively the last dimension
+  int normalizedDim = dim < 0 ? dim + inputRank : dim;
+  if (normalizedDim < 0 || normalizedDim >= inputRank) {
+    return emitOpError() << "specified dimension should be between "
+                         << -inputRank << " and " << (inputRank - 1)
+                         << ", but got: " << dim;
+  }
+
+  if (K <= 0 || K > inputType.getDimSize(normalizedDim)) {
+    return emitOpError() << "K should be between 1 and the size of the "
+                            "specified dimension ("
+                         << normalizedDim << "), but got: " << K;
+  }
+
+  return success();
 }
 
 //===----------------------------------------------------------------------===//

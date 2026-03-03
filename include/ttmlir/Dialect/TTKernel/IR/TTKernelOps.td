@@ -1475,10 +1475,10 @@ def TTKernel_SignTileOp : TTKernel_SFPUOp<"sign_tile", [TTKernel_UnaryOpTrait]> 
     let assemblyFormat = [{ `(` $tile_index `)` attr-dict `:` functional-type(operands, results) }];
 }
 
-def TTKernel_LogicalNotUnaryTileInitOp : TTKernel_InitOp<"logical_not_unary_tile_init"> {
-    let summary = "Init function for logical_not_unary_tile(_int32) operation. Refer to documentation for any init function.";
+def TTKernel_LogicalNotTileInitOp : TTKernel_InitOp<"logical_not_tile_init"> {
+    let summary = "Init function for logical_not_tile operation. Refer to documentation for any init function.";
     let description = [{
-      Must be run before logical_not_unary_tile(_int32).
+      Must be run before logical_not_tile.
     }];
 
     let arguments = (ins);
@@ -1488,32 +1488,18 @@ def TTKernel_LogicalNotUnaryTileInitOp : TTKernel_InitOp<"logical_not_unary_tile
     }];
 }
 
-def TTKernel_LogicalNotUnaryTileOp : TTKernel_SFPUOp<"logical_not_unary_tile", [TTKernel_UnaryOpTrait]> {
+def TTKernel_LogicalNotTileOp : TTKernel_SFPUOp<"logical_not_tile", [TTKernel_UnaryOpTrait]> {
     let summary = "Logical negation tile in the DST at specified index.";
     let description = [{
       Performs element-wise computation of logical negation operation
       DST[dst0_index] <- !DST[dst0_index]
       on DST register operands. The DST register buffer must be in
       acquired state via *tile_regs_acquire* call.
+      The DataFormat template parameter specifies the data type.
     }];
 
-    let arguments = (ins IndexLike:$dst0_index);
-
-    let assemblyFormat = [{
-      `(` $dst0_index `)` attr-dict `:` functional-type(operands, results)
-    }];
-}
-
-def TTKernel_LogicalNotUnaryTileI32Op : TTKernel_SFPUOp<"logical_not_unary_tile_int32", [TTKernel_UnaryOpTrait]> {
-    let summary = "Logical negation tile in the DST at specified index.";
-    let description = [{
-      Performs element-wise computation of logical negation operation for the int32 data type
-      DST[dst0_index] <- !DST[dst0_index]
-      on DST register operands. The DST register buffer must be in
-      acquired state via *tile_regs_acquire* call.
-    }];
-
-    let arguments = (ins IndexLike:$dst0_index);
+    let arguments = (ins IndexLike:$dst0_index,
+                         TTCore_DataTypeAttr:$dtype);
 
     let assemblyFormat = [{
       `(` $dst0_index `)` attr-dict `:` functional-type(operands, results)
@@ -2221,7 +2207,7 @@ def TTKernel_ExperimentalTileFillOp : TTKernel_SFPUOp<"experimental::tile_fill",
       blocking and is only available on the compute engine.
     }];
 
-    let arguments = (ins IndexLike:$dst_index, F32:$value);
+    let arguments = (ins IndexLike:$dst_index, AnyFloat:$value);
 
     let assemblyFormat = [{
       `(` $dst_index `,` $value `)` attr-dict `:` functional-type(operands, results)
@@ -2723,7 +2709,7 @@ def TTKernel_NocSemaphoreSetMulticastOp : TTKernel_Op<"noc_semaphore_set_multica
       *noc_semaphore_set_multicast_loopback_src* can be used.
     }];
 
-    let arguments = (ins TTKernel_Semaphore:$src_local_l1_addr,
+    let arguments = (ins AnyTypeOf<[TTKernel_L1Addr, TTKernel_Semaphore]>:$src_local_l1_addr,
                          TTKernel_NocAddr:$dst_noc_addr_multicast,
                          I32:$num_dests,
                          OptionalAttr<BoolAttr>:$linked,
@@ -2752,7 +2738,7 @@ def TTKernel_NocSemaphoreSetMulticastLoopbackOp : TTKernel_Op<"noc_semaphore_set
       regular non multicast operations such as *noc_async_write* in this case.
     }];
 
-    let arguments = (ins TTKernel_Semaphore:$src_local_l1_addr,
+    let arguments = (ins AnyTypeOf<[TTKernel_L1Addr, TTKernel_Semaphore]>:$src_local_l1_addr,
                          TTKernel_NocAddr:$dst_noc_addr_multicast,
                          I32:$num_dests,
                          OptionalAttr<BoolAttr>:$linked);
@@ -3003,6 +2989,21 @@ def TTKernel_FabricMulticastWriteOp : TTKernel_Op<"experimental::fabric_mcast_fa
 
   let assemblyFormat = [{
     `(` $fabric_connection_manager `,` $dst_mesh_id `,` $dst_dev_id_start `,` $dst_dev_id_end `,` $dst_addr `,` $src_addr `,` $len_bytes `)` attr-dict `:` functional-type(operands, results)
+  }];
+}
+
+def TTKernel_FabricSemIncOp : TTKernel_Op<"experimental::fabric_sem_inc"> {
+
+  let summary = "FabricSemIncOp";
+  let description = [{
+    FabricSemIncOp. This operation increments a semaphore on a remote device.
+  }];
+
+  let arguments = (ins TTKernel_FabricConnectionManager:$fabric_connection_manager, I16:$dst_mesh_id, I16:$dst_dev_id, TTKernel_NocAddr:$semaphore_addr, IndexLike:$incr);
+  let results = (outs);
+
+  let assemblyFormat = [{
+    `(` $fabric_connection_manager `,` $dst_mesh_id `,` $dst_dev_id `,` $semaphore_addr `,` $incr `)` attr-dict `:` functional-type(operands, results)
   }];
 }
 

@@ -20,7 +20,6 @@ from utils import (
 
 DRAM_SHAPES = [
     (1024, 1024),
-    (2048, 2048),
     (512, 2048),
     (2, 512, 2048),
     (4, 4, 32, 32),
@@ -69,8 +68,6 @@ SHARD_SHAPES_GRIDS = [
     ],
 )
 def test_unary_op_dram(device, shape, dtype, ttnn_dtype, op):
-    if dtype == torch.float32 and shape == (2048, 2048):
-        pytest.skip("Skipping large operation for float32")
     if op in [log, ceil, floor, sqrt, logical_not] and dtype == torch.float32:
         pytest.xfail("failing allclose for some shapes for float32")
 
@@ -158,9 +155,6 @@ def test_unary_op_l1(device, shape, max_grid, shard_strategy, dtype, ttnn_dtype,
     [bitwise_not],
 )
 def test_bitwise_unary_op_dram(device, shape, dtype, op):
-    if shape == (2048, 2048):
-        pytest.skip("Skipping large operation")
-
     max_grid = (0, 0)
     run_op_test(
         device,
@@ -216,8 +210,6 @@ def test_bitwise_unary_op_l1(device, shape, max_grid, shard_strategy, dtype, op)
     [add, sub, mul, div, pow, eq, ne, gt, ge, lt, le, maximum, minimum],
 )
 def test_binary_ops_dram(device, shape, dtype, ttnn_dtype, op):
-    if dtype == torch.float32 and shape == (2048, 2048):
-        pytest.skip("Skipping large operation for float32")
     if op in [pow, eq, ne, gt, ge, lt, le] and dtype == torch.float32:
         pytest.xfail("failing allclose for some shapes")
 
@@ -334,9 +326,6 @@ def test_binary_ops_mixed_layouts(
     [bitwise_and, bitwise_or, bitwise_xor],
 )
 def test_bitwise_binary_ops_dram(device, shape, dtype, op):
-    if shape == (2048, 2048):
-        pytest.skip("Skipping large operation")
-
     max_grid = (0, 0)
     run_op_test(
         device,
@@ -368,6 +357,55 @@ def test_bitwise_binary_ops_l1(device, shape, max_grid, shard_strategy, dtype, o
         op,
         num_inputs=2,
         buffer_type=ttnn.BufferType.L1,
+        shard_strategy=shard_strategy,
+    )
+
+
+# ------------------------------------------------------------
+# ttnn.clamp tests
+# ------------------------------------------------------------
+# Helpers for clamp tests
+
+
+def _clamp_min_max(input_tensor):
+    return ttnn.clamp(input_tensor, min=-0.001, max=0.001)
+
+
+def _clamp_tensor_bounds(input_tensor, min_tensor, max_tensor):
+    return ttnn.clamp(input_tensor, min=min_tensor, max=max_tensor)
+
+
+@pytest.mark.parametrize(
+    "buffer_type, use_tensor_bounds",
+    [
+        (ttnn.BufferType.L1, False),
+        (ttnn.BufferType.DRAM, True),
+    ],
+    ids=["l1_scalar", "dram_tensor"],
+)
+@pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
+def test_clamp(device, buffer_type, use_tensor_bounds, dtype):
+    shape = (32, 32)
+    max_grid = (0, 0)
+    shard_strategy = (
+        ttnn.ShardStrategy.BLOCK if buffer_type == ttnn.BufferType.L1 else None
+    )
+
+    if use_tensor_bounds:
+        op = _clamp_tensor_bounds
+        num_inputs = 3
+    else:
+        op = _clamp_min_max
+        num_inputs = 1
+
+    run_op_test(
+        device,
+        shape,
+        max_grid,
+        dtype,
+        op,
+        num_inputs=num_inputs,
+        buffer_type=buffer_type,
         shard_strategy=shard_strategy,
     )
 

@@ -1866,12 +1866,47 @@ for optimal_module in optimal_modules:
 
 ```python
 def module0(builder: TTIRBuilder):
+    @builder.func([(32, 32), (32, 32)], [torch.float32, torch.float32])
+    def debug_breakpoint(
+        in0: Operand,
+        in1: Operand,
+        builder: TTIRBuilder,
+    ):
+        add0 = builder.add(in0, in1)
+        builder.breakpoint(add0)
+        sigmoid0 = builder.sigmoid(add0)
+        return sigmoid0
 
-  @builder.func([(32, 32)], [torch.float32])
-  def modela(in0: Operand, builder: TTIRBuilder):
-      sigmoid0 = builder.sigmoid(in0)
-      breakpoint0 = builder.breakpoint(sigmoid0)
-      return breakpoint0
+import _ttmlir_runtime as tt_runtime
+
+tt_runtime.runtime.set_current_device_runtime(tt_runtime.runtime.DeviceRuntime.TTNN)
+mesh_options = tt_runtime.runtime.MeshDeviceOptions()
+mesh_options.dispatch_core_type = tt_runtime.runtime.DispatchCoreType.ETH
+mesh_options.mesh_shape = (1, 2)
+device = tt_runtime.runtime.open_mesh_device(mesh_options)
+
+compile_and_execute_ttir(
+    module0,
+    device=device,
+)
+
+tt_runtime.runtime.close_mesh_device(device)
+```
+
+## debug dialect print
+
+```python
+def module0(builder: TTIRBuilder):
+    @builder.func([(32, 32), (32, 32)], [torch.float32, torch.float32])
+    def debug_print(
+        in0: Operand,
+        in1: Operand,
+        builder: TTIRBuilder,
+    ):
+        add0 = builder.add(in0, in1)
+        builder.print(add0, "execution has reached here")
+        sigmoid0 = builder.sigmoid(add0)
+        return sigmoid0
 
 import _ttmlir_runtime as tt_runtime
 
@@ -1893,12 +1928,47 @@ tt_runtime.runtime.close_mesh_device(device)
 
 ```python
 def module0(builder: TTIRBuilder):
+    @builder.func([(32, 32), (32, 32)], [torch.float32, torch.float32])
+    def debug_memory_snapshot(
+        in0: Operand,
+        in1: Operand,
+        builder: TTIRBuilder,
+    ):
+        add0 = builder.add(in0, in1)
+        builder.memory_snapshot(add0, "memory_dump.txt")
+        sigmoid0 = builder.sigmoid(add0)
+        return sigmoid0
 
-  @builder.func([(32, 32)], [torch.float32])
-  def modela(in0: Operand, builder: TTIRBuilder):
-      sigmoid0 = builder.sigmoid(in0)
-      memory0 = builder.memory_snapshot(sigmoid0, "sigmoid_memory_snapshot.json")
-      return memory0
+import _ttmlir_runtime as tt_runtime
+
+tt_runtime.runtime.set_current_device_runtime(tt_runtime.runtime.DeviceRuntime.TTNN)
+mesh_options = tt_runtime.runtime.MeshDeviceOptions()
+mesh_options.dispatch_core_type = tt_runtime.runtime.DispatchCoreType.ETH
+mesh_options.mesh_shape = (1, 2)
+device = tt_runtime.runtime.open_mesh_device(mesh_options)
+
+compile_and_execute_ttir(
+    module0,
+    device=device,
+)
+
+tt_runtime.runtime.close_mesh_device(device)
+```
+
+## debug dialect dump tensor
+
+```python
+def module0(builder: TTIRBuilder):
+    @builder.func([(32, 32), (32, 32)], [torch.float32, torch.float32])
+    def debug_dump(
+        in0: Operand,
+        in1: Operand,
+        builder: TTIRBuilder,
+    ):
+        add0 = builder.add(in0, in1)
+        builder.dump(add0, "add0_dump.tensorbin")
+        sigmoid0 = builder.sigmoid(add0)
+        return sigmoid0
 
 import _ttmlir_runtime as tt_runtime
 

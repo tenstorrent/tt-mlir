@@ -11,4 +11,5 @@ add_mlir_translation_library(TTMetalTargetFlatbuffer
     MLIRTTIRDialect
     MLIRTTCoreDialect
     TTMLIRTTKernelToEmitC
+    MLIRD2MUtils
 )

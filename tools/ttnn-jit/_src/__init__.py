@@ -9,7 +9,6 @@ from ttnn_jit._ttmlir_runtime.runtime import (
     set_compatible_device_runtime,
     get_current_device_runtime,
     get_current_system_desc,
-    DispatchCoreType,
 )
 from ttnn_jit._ttmlir_runtime.binary import (
     load_binary_from_path,

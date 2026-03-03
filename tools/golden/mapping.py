@@ -4357,6 +4357,27 @@ def ttir_concatenate_heads_golden(
     return permuted.reshape(batch, seq_len, num_heads * head_dim)
 
 
+def ttir_topk_golden(
+    input_tensor: GoldenMapTensor,
+    k_attr: IntegerAttr,
+    dim_attr: IntegerAttr,
+    largest_attr: BoolAttr,
+    sorted_attr: BoolAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    k = unpack_mlir_attr(k_attr)
+    dim = unpack_mlir_attr(dim_attr)
+    largest = unpack_mlir_attr(largest_attr)
+    sorted = unpack_mlir_attr(sorted_attr)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+
+    values, indices = torch.topk(
+        input_tensor, k=k, dim=dim, largest=largest, sorted=sorted
+    )
+
+    return values.to(output_dtype), indices.to(torch.uint16)
+
+
 ################ StableHLO Op Golden Functions ###############
 
 
@@ -5900,15 +5921,16 @@ def debug_annotate_golden(
     return input_tensor.clone()
 
 
-def debug_breakpoint_golden(
+def debug_region_start_golden(
     input_tensor: GoldenMapTensor,
+    region_id_attr: StringAttr,
 ) -> GoldenMapTensor:
     return input_tensor.clone()
 
 
-def debug_memory_snapshot_golden(
+def debug_region_end_golden(
     input_tensor: GoldenMapTensor,
-    file_path_attr: StringAttr,
+    region_id_attr: StringAttr,
 ) -> GoldenMapTensor:
     return input_tensor.clone()
 
@@ -5984,6 +6006,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.ProdOp: prod_golden,
     ttir.ReduceAndOp: ttir_reduce_and_golden,
     ttir.ReduceOrOp: ttir_reduce_or_golden,
+    ttir.TopKOp: ttir_topk_golden,
     # Tensor manipulation
     ttir.SortOp: ttir_sort_golden,
     ttir.TransposeOp: transpose_golden,
@@ -6202,8 +6225,8 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttnn.ClampTensorOp: ttnn_clamp_tensor_golden,
     # ----- DEBUG OPS -----
     debug.AnnotateOp: debug_annotate_golden,
-    debug.BreakpointOp: debug_breakpoint_golden,
-    debug.MemorySnapshotOp: debug_memory_snapshot_golden,
+    debug.RegionStartOp: debug_region_start_golden,
+    debug.RegionEndOp: debug_region_end_golden,
 }
 
 

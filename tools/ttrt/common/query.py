@@ -118,13 +118,13 @@ class Query:
         import ttrt.runtime
 
         try:
-            dispatch_core_type = ttrt.runtime.DispatchCoreType.ETH
-
-            if self["--disable-eth-dispatch"]:
-                dispatch_core_type = ttrt.runtime.DispatchCoreType.WORKER
-
             self.logging.debug(f"getting system descriptor")
-            self.system_desc = ttrt.runtime.get_current_system_desc(dispatch_core_type)
+            if self["--disable-eth-dispatch"]:
+                self.system_desc = ttrt.runtime.get_current_system_desc(
+                    ttrt.runtime.DispatchCoreType.WORKER
+                )
+            else:
+                self.system_desc = ttrt.runtime.get_current_system_desc()
             self.device_ids = list(range(ttrt.runtime.get_num_available_devices()))
 
             if not self["--quiet"]:

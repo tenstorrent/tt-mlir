@@ -82,8 +82,9 @@ target_include_directories(TTRuntimeContext
     ${PROJECT_SOURCE_DIR}/runtime/include
     ${PROJECT_BINARY_DIR}/runtime/include
 )
+target_include_directories(TTRuntimeContext SYSTEM PUBLIC "$<BUILD_INTERFACE:${TTMETAL_INCLUDE_DIRS}>")
+add_dependencies(TTRuntimeContext tt-metal RUNTIME_FBS_GENERATION)
 target_link_libraries(TTRuntimeContext PUBLIC coverage_config)
-add_dependencies(TTRuntimeContext RUNTIME_FBS_GENERATION)
 
 add_library(TTRuntimeSocket STATIC socket.cpp)
 set_property(TARGET TTRuntimeSocket PROPERTY CXX_STANDARD 20)

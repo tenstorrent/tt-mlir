@@ -97,6 +97,17 @@ datatypeToDataformatEnumNameOpaqueAttr(Builder &builder,
   return builder.getType<emitc::OpaqueAttr>(expression.c_str());
 }
 
+static emitc::OpaqueAttr floatTypeToDataformatOpaqueAttr(Builder &builder,
+                                                         Type type) {
+  if (type.isF32()) {
+    return builder.getType<emitc::OpaqueAttr>("DataFormat::Float32");
+  }
+  if (type.isBF16()) {
+    return builder.getType<emitc::OpaqueAttr>("DataFormat::Float16_b");
+  }
+  llvm_unreachable("Unsupported float type for DataFormat conversion");
+}
+
 static emitc::OpaqueAttr
 datatypeToDataformatEnumValueOpaqueAttr(Builder &builder,
                                         ttcore::DataType dtype) {
@@ -112,6 +123,8 @@ class TTKernelToEmitCTypeConverter : public TypeConverter {
 public:
   TTKernelToEmitCTypeConverter(MLIRContext *ctx) {
     addConversion([](Type type) { return type; });
+    addConversion(
+        [ctx](BFloat16Type type) -> Type { return Float32Type::get(ctx); });
     addConversion([ctx](mlir::tt::ttkernel::NocAddrType type) -> Type {
       return Builder(ctx).getI64Type();
     });
@@ -154,6 +167,27 @@ public:
           return emitc::OpaqueType::get(
               ctx, "experimental::FabricConnectionManager");
         });
+  }
+};
+} // namespace
+
+namespace {
+class ArithConstantBF16ToF32Rewriter
+    : public OpConversionPattern<arith::ConstantOp> {
+public:
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(arith::ConstantOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    auto floatAttr = dyn_cast<FloatAttr>(op.getValue());
+    if (!floatAttr || !floatAttr.getType().isBF16()) {
+      return rewriter.notifyMatchFailure(op, "not a bf16 float constant");
+    }
+    double val = floatAttr.getValueAsDouble();
+    auto f32Attr = rewriter.getF32FloatAttr(static_cast<float>(val));
+    rewriter.replaceOpWithNewOp<arith::ConstantOp>(op, f32Attr);
+    return success();
   }
 };
 } // namespace
@@ -320,10 +354,26 @@ public:
                          std::is_same_v<SourceOp,
                                         ttkernel::BitwiseOrBinaryTilesOp> ||
                          std::is_same_v<SourceOp,
-                                        ttkernel::BitwiseXorBinaryTilesOp>) {
+                                        ttkernel::BitwiseXorBinaryTilesOp> ||
+                         std::is_same_v<SourceOp, ttkernel::LogicalNotTileOp>) {
       SmallVector<Attribute, 1> template_args;
       template_args.push_back(
           datatypeToDataformatEnumNameOpaqueAttr(builder, op.getDtype()));
+      return ArrayAttr::get(op.getContext(), template_args);
+    } else if constexpr (
+        std::is_same_v<SourceOp, ttkernel::ExperimentalWriteRowMaskTileOp> ||
+        std::is_same_v<SourceOp, ttkernel::ExperimentalWriteColMaskTileOp>) {
+      auto cbType = mlir::cast<ttkernel::CBType>(op.getCb().getType());
+      auto tileType = mlir::cast<ttcore::TileType>(cbType.getElementType());
+      SmallVector<Attribute, 1> template_args;
+      template_args.push_back(datatypeToDataformatEnumNameOpaqueAttr(
+          builder, tileType.getDataType()));
+      return ArrayAttr::get(op.getContext(), template_args);
+    } else if constexpr (std::is_same_v<SourceOp,
+                                        ttkernel::ExperimentalTileFillOp>) {
+      SmallVector<Attribute, 1> template_args;
+      template_args.push_back(
+          floatTypeToDataformatOpaqueAttr(builder, op.getValue().getType()));
       return ArrayAttr::get(op.getContext(), template_args);
     }
     return ArrayAttr();
@@ -988,6 +1038,9 @@ public:
     TTKernelToEmitCTypeConverter typeConverter(funcOp.getContext());
     RewritePatternSet patterns(funcOp.getContext());
 
+    patterns.add<ArithConstantBF16ToF32Rewriter>(typeConverter,
+                                                 funcOp.getContext(),
+                                                 /*benefit=*/2);
     populateArithToEmitCPatterns(typeConverter, patterns);
     populateSCFToEmitCConversionPatterns(patterns, typeConverter);
     populateMemRefToEmitCTypeConversion(typeConverter);
@@ -1098,9 +1151,8 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::HardsigmoidTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::LogTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::LogTileOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::LogicalNotUnaryTileInitOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::LogicalNotUnaryTileOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::LogicalNotUnaryTileI32Op>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::LogicalNotTileInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::LogicalNotTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::EqzTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::EqzTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::EqzTileI32Op>,
@@ -1204,6 +1256,7 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetMyDeviceIdOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::FabricWriteOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::FabricMulticastWriteOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::FabricSemIncOp>,
         TTKernelToEmitCOpaqueRewriter<
             ttkernel::CreateFabricConnectionManagerOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::SetupFabricConnectionsOp>,

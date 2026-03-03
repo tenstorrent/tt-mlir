@@ -678,98 +678,6 @@ private:
 };
 } // namespace
 
-//===----------------------------------------------------------------------===//
-// Embedding to Gather Pattern
-//===----------------------------------------------------------------------===//
-
-namespace {
-// Converts ttir.embedding to ttir.gather for CPU fallback path.
-// This allows us not to use tensor.gather which lacks bufferization support in
-// upstream MLIR.
-struct EmbeddingToGatherConversionPattern
-    : public OpConversionPattern<ttir::EmbeddingOp> {
-  using OpConversionPattern<ttir::EmbeddingOp>::OpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(ttir::EmbeddingOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    Value input = adaptor.getInput();
-    Value weight = adaptor.getWeight();
-
-    auto inputType = mlir::cast<RankedTensorType>(input.getType());
-    auto weightType = mlir::cast<RankedTensorType>(weight.getType());
-    auto resultType = mlir::cast<RankedTensorType>(
-        getTypeConverter()->convertType(op.getResult().getType()));
-
-    // Cast indices to integer type if needed (gather requires integer indices).
-    if (!inputType.getElementType().isIntOrIndex()) {
-      auto newInputType =
-          RankedTensorType::get(inputType.getShape(), rewriter.getI64Type());
-      input =
-          rewriter.create<ttir::TypecastOp>(op.getLoc(), newInputType, input);
-      inputType = mlir::cast<RankedTensorType>(input.getType());
-    }
-
-    auto indicesShape = inputType.getShape();
-    int64_t indicesRank = indicesShape.size();
-    auto weightShape = weightType.getShape();
-    int64_t weightRank = weightType.getRank();
-
-    // Weight is "effectively 2D" with shape (1, 1, ..., 1, vocab_size,
-    // embedding_dim). The embedding dimension is always the last dimension.
-    int64_t embeddingDim = weightShape[weightRank - 1];
-    int64_t vocabDimIndex = weightRank - 2;
-
-    // Add trailing dimension of size 1 to indices for index_vector_dim.
-    SmallVector<int64_t> newIndicesShape(indicesShape.begin(),
-                                         indicesShape.end());
-    newIndicesShape.push_back(1);
-    auto reshapedIndicesType =
-        RankedTensorType::get(newIndicesShape, inputType.getElementType());
-
-    SmallVector<int32_t> newIndicesShapeI32(newIndicesShape.begin(),
-                                            newIndicesShape.end());
-    Value reshapedIndices = rewriter.create<ttir::ReshapeOp>(
-        op.getLoc(), reshapedIndicesType, input,
-        rewriter.getI32ArrayAttr(newIndicesShapeI32));
-
-    // Build gather attributes:
-    // - offset_dims: the embedding dimension appears at position indicesRank
-    // - collapsed_slice_dims: all dimensions except the last (embedding dim)
-    // - start_index_map: points to the vocab dimension (second-to-last)
-    // - index_vector_dim: indicesRank (the trailing singleton dimension)
-    // - slice_sizes: [1, 1, ..., 1, embedding_dim] matching weight rank
-    SmallVector<int64_t> offsetDims{indicesRank};
-    SmallVector<int64_t> collapsedSliceDims;
-    for (int64_t i = 0; i < weightRank - 1; ++i) {
-      collapsedSliceDims.push_back(i);
-    }
-    SmallVector<int64_t> operandBatchingDims{};
-    SmallVector<int64_t> startIndicesBatchingDims{};
-    SmallVector<int64_t> startIndexMap{vocabDimIndex};
-    int64_t indexVectorDim = indicesRank;
-    SmallVector<int64_t> sliceSizes(weightRank, 1);
-    sliceSizes[weightRank - 1] = embeddingDim;
-
-    auto gatherOp = rewriter.create<ttir::GatherOp>(
-        op.getLoc(), resultType,
-        /*input=*/weight,
-        /*start_indices=*/reshapedIndices,
-        /*offset_dims=*/offsetDims,
-        /*collapsed_slice_dims=*/collapsedSliceDims,
-        /*operand_batching_dims=*/operandBatchingDims,
-        /*start_indices_batching_dims=*/startIndicesBatchingDims,
-        /*start_index_map=*/startIndexMap,
-        /*index_vector_dim=*/indexVectorDim,
-        /*slice_sizes=*/sliceSizes,
-        /*indices_are_sorted=*/false);
-
-    rewriter.replaceOp(op, gatherOp);
-    return success();
-  }
-};
-} // namespace
-
 namespace {
 
 // Pattern detection - Analyze gather indices to detect replicate padding:
@@ -1572,7 +1480,19 @@ normalizeToNCHW(mlir::Value input, uint64_t featureIndex,
   } else if (rank < 4) {
     llvm::SmallVector<int64_t> reshapedShape(currentShape.begin(),
                                              currentShape.end());
-    reshapedShape.append(4 - rank, 1);
+    // For rank-3 tensors [N, C, S], if S is tile-aligned (according to the
+    // default tile width), split it into [N, C, S/tileWidth, tileWidth]
+    // rather than appending a trailing 1 ([N, C, S, 1]) to maintain a
+    // fully-packed tile layout.
+    auto defaultTileShape = ttcore::TileType::getDefaultShape();
+    int64_t tileWidth = defaultTileShape[1];
+    if (rank == 3 && tileWidth != 0 && reshapedShape.back() % tileWidth == 0) {
+      int64_t S = reshapedShape.back();
+      reshapedShape.back() = S / tileWidth;
+      reshapedShape.push_back(tileWidth);
+    } else {
+      reshapedShape.append(4 - rank, 1);
+    }
     llvm::SmallVector<int32_t> reshapedShapeI32(reshapedShape.begin(),
                                                 reshapedShape.end());
     newInput = rewriter.create<mlir::tt::ttir::ReshapeOp>(
@@ -2664,7 +2584,6 @@ void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
   patterns.add<ReductionProdPattern>(typeConverter, ctx);
   patterns.add<ReverseOpConversionPattern>(typeConverter, ctx);
   patterns.add<ArgMaxPattern>(typeConverter, ctx);
-  patterns.add<EmbeddingToGatherConversionPattern>(typeConverter, ctx);
   patterns.add<SplitQueryKeyValueAndSplitHeadsDecompositionPattern>(
       typeConverter, ctx);
   patterns.add<NegativePadOpDecompositionPattern>(typeConverter, ctx);

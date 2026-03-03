@@ -104,18 +104,9 @@ def _get_device_for_target(
 
     else:
         mesh_options = tt_runtime.runtime.MeshDeviceOptions()
-        system_desc = fbb_as_dict(
-            tt_runtime.binary.load_system_desc_from_path(pytestconfig.option.sys_desc)
-        )["system_desc"]
-        board_id = get_board_id(system_desc)
 
-        if pytestconfig.getoption("--disable-eth-dispatch") or board_id in [
-            "p150",
-            "p300",
-        ]:
+        if pytestconfig.getoption("--disable-eth-dispatch"):
             mesh_options.dispatch_core_type = tt_runtime.runtime.DispatchCoreType.WORKER
-        else:
-            mesh_options.dispatch_core_type = tt_runtime.runtime.DispatchCoreType.ETH
 
         # Start with a small mesh shape that should work for most tests
         # Tests requiring larger meshes will be handled appropriately
@@ -148,6 +139,20 @@ def _get_device_for_target(
     _current_device_mesh_shape = mesh_shape
     _current_fabric_config = fabric_config
     return _current_device
+
+
+def clear_device_cache():
+    """Clear the cached device so the next test will open a fresh device.
+
+    Call this after device.close() when a test explicitly closes the device
+    so that the next test does not receive a stale (closed) handle and can
+    open a new device (e.g. after compile with mock opmodel).
+    """
+    global _current_device, _current_device_target, _current_device_mesh_shape, _current_fabric_config
+    _current_device = None
+    _current_device_target = None
+    _current_device_mesh_shape = None
+    _current_fabric_config = None
 
 
 def _get_current_environment():
@@ -286,7 +291,7 @@ def pytest_addoption(parser):
     parser.addoption(
         "--disable-eth-dispatch",
         action="store_true",
-        help="disable putting dispatch on ethernet cores - place it on worker cores instead; necessary on blackhole",
+        help="disable putting dispatch on ethernet cores - place it on worker cores instead",
     )
     parser.addoption(
         "--dump-kernels",

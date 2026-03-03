@@ -74,6 +74,10 @@ public:
       return builder.getAttr<ttnn::KernelArgNamedArgAttr>(
           arg.getArgumentName(), arg.getOperandIndex());
     }
+    case ttkernel::ArgType::GlobalSemaphore: {
+      return builder.getAttr<ttnn::KernelArgGlobalSemaphoreAttr>(
+          arg.getOperandIndex());
+    }
     }
   }
 
@@ -128,7 +132,7 @@ public:
                           const SymbolTable &symbolTable,
                           ttmetal::MathFidelity mathFidelity) {
     SmallVector<mlir::Attribute> kernelConfigs(threads.size());
-    int nocIndex = 0;
+    int unassignedNocCounter = 0;
     for (const auto [i, thread] : llvm::enumerate(threads)) {
       const d2m::ThreadAttr threadAttr = mlir::cast<d2m::ThreadAttr>(thread);
 
@@ -170,18 +174,19 @@ public:
             /*math_approx_mode*/ false, kernelCRTArgs, kernelCTArgs);
         break;
       }
-      // TODO (vtangTT) #5033: fix this assumption that order is
-      // read->write->compute; nocIndex == 0 for read, nocIndex == 1 for write.
       case d2m::ThreadType::Datamovement: {
-        TT_assert(nocIndex < 2);
-        if (nocIndex == 0) {
-          kernelConfigs[i] = builder.getAttr<ttnn::ReadKernelAttr>(
-              kernelSymbol, coreRangeSet, kernelCRTArgs, kernelCTArgs);
-        } else {
-          kernelConfigs[i] = builder.getAttr<ttnn::WriteKernelAttr>(
-              kernelSymbol, coreRangeSet, kernelCRTArgs, kernelCTArgs);
+        int32_t nocIdx = threadAttr.getNocIndex();
+        // For unassigned NOCs, alternate between NOC0 and NOC1.
+        if (nocIdx < 0) {
+          nocIdx = unassignedNocCounter++ % 2;
         }
-        nocIndex++;
+        auto nocIndex =
+            nocIdx == 0 ? ttnn::NocIndex::Noc0 : ttnn::NocIndex::Noc1;
+        auto processor = nocIdx == 0 ? ttnn::DataMovementProcessor::RiscV1
+                                     : ttnn::DataMovementProcessor::RiscV0;
+        kernelConfigs[i] = builder.getAttr<ttnn::DataMovementKernelAttr>(
+            kernelSymbol, coreRangeSet, processor, nocIndex,
+            ttnn::NocMode::DedicatedNoc, kernelCRTArgs, kernelCTArgs);
         break;
       }
       case d2m::ThreadType::Unified: {
@@ -212,24 +217,21 @@ public:
       ttcore::DataType dtype =
           ttcore::elementTypeToDataType(cb_memref.getElementType());
       size_t pageSize = device.getMemrefCBPageSizeBytes(cb_memref);
-      size_t numPages = device.getMemrefCBNumPages(cb_memref);
+      size_t totalSize = device.getMemrefSizeBytes(cb_memref, pageSize, true);
 
       ttnn::KernelCBFormatAttr cbFormat =
           ttnn::KernelCBFormatAttr::get(ctx, i, dtype, pageSize);
 
       ttnn::KernelCBGlobalBufferAddressOfTensorAttr globalCBIndexOfTensor;
-      if (auto castOp = mlir::dyn_cast_if_present<ttir::TTNNMetalLayoutCastOp>(
-              cb.getDefiningOp())) {
-        // Input is not streamed, thus buffer must be aliased.
-        TT_assertv(ttcore::getMemorySpace(cb_memref) ==
-                       ttcore::MemorySpace::DeviceL1,
-                   "Can only alias L1 buffers.");
+      if (mlir::isa_and_present<ttir::TTNNMetalLayoutCastOp>(
+              cb.getDefiningOp()) &&
+          ttcore::getMemorySpace(cb_memref) !=
+              ttcore::MemorySpace::DeviceDRAM) {
         globalCBIndexOfTensor =
             ttnn::KernelCBGlobalBufferAddressOfTensorAttr::get(ctx, i);
       }
-      cbDescriptors[i] =
-          ttnn::KernelCBAttr::get(ctx, numPages * pageSize, coreRangeSet,
-                                  {cbFormat}, globalCBIndexOfTensor);
+      cbDescriptors[i] = ttnn::KernelCBAttr::get(
+          ctx, totalSize, coreRangeSet, {cbFormat}, globalCBIndexOfTensor);
     }
 
     return cbDescriptors;
@@ -357,6 +359,9 @@ public:
                   ConversionPatternRewriter &rewriter) const final {
     if (auto inner =
             op.getOperand().getDefiningOp<ttir::TTNNMetalLayoutCastOp>()) {
+      // At this point (D2M→TTNN conversion), the D2M pipeline has already
+      // materialized all data movement for VGMs. Back-to-back casts can
+      // be safely collapsed even when they carry VGM attributes.
       rewriter.replaceOp(op, inner.getOperand());
     } else if (auto inner =
                    op.getOperand().getDefiningOp<d2m::StreamLayoutOp>()) {

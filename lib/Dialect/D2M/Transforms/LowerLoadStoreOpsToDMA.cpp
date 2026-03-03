@@ -9,6 +9,7 @@
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOpsInterfaces.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
+#include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Support/Logger.h"
 #include "ttmlir/Utils.h"
@@ -115,21 +116,9 @@ static AffineMap canonicalStridedMap(MLIRContext *context,
 static AffineMap getMemoryMap(ttcore::DeviceAttr device, Value input,
                               bool isRemote) {
   if (isRemote) {
-    Operation *definingOp = input.getDefiningOp();
-    if (!definingOp) {
-      // If there's no defining op (e.g., block argument), use the memref type
-      // directly
-      MemRefType memrefType = mlir::cast<MemRefType>(input.getType());
-      return device.getMemoryMap(
-          std::make_pair(memrefType,
-                         AffineMap::getMultiDimIdentityMap(
-                             memrefType.getRank(), memrefType.getContext())),
-          0 /* use default page size*/);
-    }
-    std::pair<MemRefType, AffineMap> underlyingMemrefAndView =
-        mlir::tt::d2m::applyViews(definingOp);
-    return device.getMemoryMap(underlyingMemrefAndView,
-                               0 /* use default page size*/);
+    // The Value overload in d2m::utils handles view tracing (applyViews) and
+    // VGM lookup (getVirtualGridForwardMapping) internally.
+    return d2m::utils::getMemoryMap(device, input, /*pageSize=*/0);
   }
 
   // For local memrefs (including CB values), get the underlying memref type
@@ -139,9 +128,9 @@ static AffineMap getMemoryMap(ttcore::DeviceAttr device, Value input,
   } else {
     inputType = mlir::cast<MemRefType>(input.getType());
   }
+  auto layoutMap = d2m::utils::resolveEffectiveAffineMap(input, inputType);
   return canonicalStridedMap(device.getContext(), inputType.getShape(),
-                             inputType.getElementType(),
-                             inputType.getLayout().getAffineMap());
+                             inputType.getElementType(), layoutMap);
 }
 
 template <typename Builder>

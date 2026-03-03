@@ -123,7 +123,7 @@ public:
                                         "api/compute/eltwise_unary/erf_erfc.h",
                                         /*isStandard=*/false);
       builder->create<emitc::IncludeOp>(
-          loc, "api/compute/eltwise_unary/logical_not_noti.h",
+          loc, "api/compute/eltwise_unary/logical_not.h",
           /*isStandard=*/false);
       builder->create<emitc::IncludeOp>(loc, "api/compute/eltwise_unary/comp.h",
                                         /*isStandard=*/false);
@@ -271,6 +271,7 @@ void dprint(Arg &&arg, ArgV&&... argv) {
         hasCall("experimental::get_my_device_id") ||
         hasCall("experimental::fabric_fast_write_any_len") ||
         hasCall("experimental::fabric_mcast_fast_write_any_len") ||
+        hasCall("experimental::fabric_sem_inc") ||
         hasCall("experimental::get_logical_mesh_position") ||
         hasCall("experimental::get_device_id_from_logical_mesh_position")) {
       // Emit in order: topology_info → routing → api
