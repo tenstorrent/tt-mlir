@@ -958,7 +958,7 @@ class StableHLOBuilder(Builder):
                     input0 = self._get_golden_tensor(old_op.lhs)
                     input1 = self._get_golden_tensor(old_op.rhs)
                     add_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
+                        new_op_result, self._get_golden_tensor(old_op.result)
                     )
                     add_builder._set_golden_tensor(lhs, input0)
                     add_builder._set_golden_tensor(rhs, input1)
@@ -1072,7 +1072,7 @@ class StableHLOBuilder(Builder):
                     input0 = self._get_golden_tensor(old_op.lhs)
                     input1 = self._get_golden_tensor(old_op.rhs)
                     and_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
+                        new_op_result, self._get_golden_tensor(old_op.result)
                     )
                     and_builder._set_golden_tensor(lhs, input0)
                     and_builder._set_golden_tensor(rhs, input1)
@@ -1174,7 +1174,7 @@ class StableHLOBuilder(Builder):
                     new_op_result = new_op.result
 
                     abs_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
+                        new_op_result, self._get_golden_tensor(old_op.result)
                     )
                     input0 = self._get_golden_tensor(old_op.operand)
                     abs_builder._set_golden_tensor(operand, input0)
@@ -1644,7 +1644,7 @@ class StableHLOBuilder(Builder):
 
                     input0 = self._get_golden_tensor(old_op.operand)
                     ceil_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
+                        new_op_result, self._get_golden_tensor(old_op.result)
                     )
                     ceil_builder._set_golden_tensor(operand, input0)
                     ordered_inputs.append(operand)
@@ -1757,7 +1757,7 @@ class StableHLOBuilder(Builder):
                     input0 = self._get_golden_tensor(old_op.lhs)
                     input1 = self._get_golden_tensor(old_op.rhs)
                     divide_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
+                        new_op_result, self._get_golden_tensor(old_op.result)
                     )
                     divide_builder._set_golden_tensor(lhs, input0)
                     divide_builder._set_golden_tensor(rhs, input1)
@@ -1860,7 +1860,7 @@ class StableHLOBuilder(Builder):
 
                     input0 = self._get_golden_tensor(old_op.operand)
                     cosine_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
+                        new_op_result, self._get_golden_tensor(old_op.result)
                     )
                     cosine_builder._set_golden_tensor(operand, input0)
                     ordered_inputs.append(operand)
@@ -1962,7 +1962,7 @@ class StableHLOBuilder(Builder):
 
                     input0 = self._get_golden_tensor(old_op.operand)
                     exp_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
+                        new_op_result, self._get_golden_tensor(old_op.result)
                     )
                     exp_builder._set_golden_tensor(operand, input0)
                     ordered_inputs.append(operand)
@@ -2064,7 +2064,7 @@ class StableHLOBuilder(Builder):
 
                     input0 = self._get_golden_tensor(old_op.operand)
                     floor_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
+                        new_op_result, self._get_golden_tensor(old_op.result)
                     )
                     floor_builder._set_golden_tensor(operand, input0)
                     ordered_inputs.append(operand)
@@ -2231,7 +2231,7 @@ class StableHLOBuilder(Builder):
 
                     input0 = self._get_golden_tensor(old_op.operand)
                     log_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
+                        new_op_result, self._get_golden_tensor(old_op.result)
                     )
                     log_builder._set_golden_tensor(in0, input0)
                     ordered_inputs.append(in0)
@@ -2343,7 +2343,7 @@ class StableHLOBuilder(Builder):
 
                     input0 = self._get_golden_tensor(old_op.operand)
                     neg_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
+                        new_op_result, self._get_golden_tensor(old_op.result)
                     )
                     neg_builder._set_golden_tensor(in0, input0)
                     ordered_inputs.append(in0)
@@ -2455,7 +2455,7 @@ class StableHLOBuilder(Builder):
 
                     input0 = self._get_golden_tensor(old_op.operand)
                     rsqrt_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
+                        new_op_result, self._get_golden_tensor(old_op.result)
                     )
                     rsqrt_builder._set_golden_tensor(in0, input0)
                     ordered_inputs.append(in0)
@@ -2566,7 +2566,7 @@ class StableHLOBuilder(Builder):
 
                     input0 = self._get_golden_tensor(old_op.operand)
                     sine_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
+                        new_op_result, self._get_golden_tensor(old_op.result)
                     )
                     sine_builder._set_golden_tensor(in0, input0)
                     ordered_inputs.append(in0)
@@ -2678,7 +2678,7 @@ class StableHLOBuilder(Builder):
 
                     input0 = self._get_golden_tensor(old_op.operand)
                     sqrt_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
+                        new_op_result, self._get_golden_tensor(old_op.result)
                     )
                     sqrt_builder._set_golden_tensor(in0, input0)
                     ordered_inputs.append(in0)
@@ -2784,7 +2784,7 @@ class StableHLOBuilder(Builder):
 
                     input0 = self._get_golden_tensor(old_op.operand)
                     tan_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
+                        new_op_result, self._get_golden_tensor(old_op.result)
                     )
                     tan_builder._set_golden_tensor(in0, input0)
                     ordered_inputs.append(in0)
@@ -2896,7 +2896,7 @@ class StableHLOBuilder(Builder):
 
                     input0 = self._get_golden_tensor(old_op.operand)
                     tanh_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
+                        new_op_result, self._get_golden_tensor(old_op.result)
                     )
                     tanh_builder._set_golden_tensor(in0, input0)
                     ordered_inputs.append(in0)
@@ -3008,7 +3008,7 @@ class StableHLOBuilder(Builder):
 
                     input0 = self._get_golden_tensor(old_op.operand)
                     log1p_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
+                        new_op_result, self._get_golden_tensor(old_op.result)
                     )
                     log1p_builder._set_golden_tensor(in0, input0)
                     ordered_inputs.append(in0)
@@ -3120,7 +3120,7 @@ class StableHLOBuilder(Builder):
 
                     input0 = self._get_golden_tensor(old_op.operand)
                     logistic_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
+                        new_op_result, self._get_golden_tensor(old_op.result)
                     )
                     logistic_builder._set_golden_tensor(in0, input0)
                     ordered_inputs.append(in0)
@@ -3268,7 +3268,7 @@ class StableHLOBuilder(Builder):
 
                     input0 = self._get_golden_tensor(old_op.operand)
                     slice_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
+                        new_op_result, self._get_golden_tensor(old_op.result)
                     )
                     slice_builder._set_golden_tensor(in0, input0)
                     ordered_inputs.append(in0)
@@ -3561,7 +3561,7 @@ class StableHLOBuilder(Builder):
 
                     input0 = self._get_golden_tensor(old_op.operand)
                     transpose_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
+                        new_op_result, self._get_golden_tensor(old_op.result)
                     )
                     transpose_builder._set_golden_tensor(in0, input0)
                     ordered_inputs.append(in0)
@@ -3720,7 +3720,7 @@ class StableHLOBuilder(Builder):
                     input0 = self._get_golden_tensor(old_op.operand)
                     padding_value_golden = self._get_golden_tensor(old_op.padding_value)
                     pad_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
+                        new_op_result, self._get_golden_tensor(old_op.result)
                     )
                     pad_builder._set_golden_tensor(in0, input0)
                     pad_builder._set_golden_tensor(padding_value, padding_value_golden)
@@ -3840,7 +3840,7 @@ class StableHLOBuilder(Builder):
 
                     input0 = self._get_golden_tensor(old_op.operand)
                     reshape_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
+                        new_op_result, self._get_golden_tensor(old_op.result)
                     )
                     reshape_builder._set_golden_tensor(in0, input0)
                     ordered_inputs.append(in0)
@@ -3964,7 +3964,7 @@ class StableHLOBuilder(Builder):
                     input0 = self._get_golden_tensor(old_op.lhs)
                     input1 = self._get_golden_tensor(old_op.rhs)
                     max_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
+                        new_op_result, self._get_golden_tensor(old_op.result)
                     )
                     max_builder._set_golden_tensor(lhs, input0)
                     max_builder._set_golden_tensor(rhs, input1)
@@ -4089,7 +4089,7 @@ class StableHLOBuilder(Builder):
                     input0 = self._get_golden_tensor(old_op.lhs)
                     input1 = self._get_golden_tensor(old_op.rhs)
                     min_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
+                        new_op_result, self._get_golden_tensor(old_op.result)
                     )
                     min_builder._set_golden_tensor(lhs, input0)
                     min_builder._set_golden_tensor(rhs, input1)
@@ -4214,7 +4214,7 @@ class StableHLOBuilder(Builder):
                     input0 = self._get_golden_tensor(old_op.lhs)
                     input1 = self._get_golden_tensor(old_op.rhs)
                     mul_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
+                        new_op_result, self._get_golden_tensor(old_op.result)
                     )
                     mul_builder._set_golden_tensor(lhs, input0)
                     mul_builder._set_golden_tensor(rhs, input1)
@@ -4339,7 +4339,7 @@ class StableHLOBuilder(Builder):
                     input0 = self._get_golden_tensor(old_op.lhs)
                     input1 = self._get_golden_tensor(old_op.rhs)
                     sub_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
+                        new_op_result, self._get_golden_tensor(old_op.result)
                     )
                     sub_builder._set_golden_tensor(lhs, input0)
                     sub_builder._set_golden_tensor(rhs, input1)
@@ -4464,7 +4464,7 @@ class StableHLOBuilder(Builder):
                     input0 = self._get_golden_tensor(old_op.lhs)
                     input1 = self._get_golden_tensor(old_op.rhs)
                     pow_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
+                        new_op_result, self._get_golden_tensor(old_op.result)
                     )
                     pow_builder._set_golden_tensor(lhs, input0)
                     pow_builder._set_golden_tensor(rhs, input1)
@@ -4593,7 +4593,7 @@ class StableHLOBuilder(Builder):
                     input0 = self._get_golden_tensor(old_op.lhs)
                     input1 = self._get_golden_tensor(old_op.rhs)
                     srl_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
+                        new_op_result, self._get_golden_tensor(old_op.result)
                     )
                     srl_builder._set_golden_tensor(lhs, input0)
                     srl_builder._set_golden_tensor(rhs, input1)
@@ -4718,7 +4718,7 @@ class StableHLOBuilder(Builder):
 
                     input0 = self._get_golden_tensor(old_op.operand)
                     reverse_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
+                        new_op_result, self._get_golden_tensor(old_op.result)
                     )
                     reverse_builder._set_golden_tensor(in0, input0)
                     ordered_inputs.append(in0)
@@ -4850,7 +4850,7 @@ class StableHLOBuilder(Builder):
                     true_g = self._get_golden_tensor(old_op.on_true)
                     false_g = self._get_golden_tensor(old_op.on_false)
                     sel_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
+                        new_op_result, self._get_golden_tensor(old_op.result)
                     )
                     sel_builder._set_golden_tensor(pred, pred_g)
                     sel_builder._set_golden_tensor(on_true, true_g)
@@ -4972,7 +4972,7 @@ class StableHLOBuilder(Builder):
                     operand_golden = self._get_golden_tensor(old_op.operand)
                     max_golden = self._get_golden_tensor(old_op.max)
                     clamp_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
+                        new_op_result, self._get_golden_tensor(old_op.result)
                     )
                     clamp_builder._set_golden_tensor(min_val, min_golden)
                     clamp_builder._set_golden_tensor(operand, operand_golden)
@@ -5087,7 +5087,7 @@ class StableHLOBuilder(Builder):
                         self._get_golden_tensor(inp) for inp in old_op.inputs
                     )
                     concatenate_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
+                        new_op_result, self._get_golden_tensor(old_op.result)
                     )
                     for i, inp in enumerate(inputs):
                         concatenate_builder._set_golden_tensor(inp, input_goldens[i])
@@ -5188,7 +5188,7 @@ class StableHLOBuilder(Builder):
                     new_op_result = new_op.result
 
                     constant_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
+                        new_op_result, self._get_golden_tensor(old_op.result)
                     )
                     ordered_outputs.append(new_op_result)
 
@@ -5313,7 +5313,7 @@ class StableHLOBuilder(Builder):
                     new_op_result = new_op.result
 
                     iota_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
+                        new_op_result, self._get_golden_tensor(old_op.result)
                     )
                     ordered_outputs.append(new_op_result)
 
@@ -7249,7 +7249,7 @@ class StableHLOBuilder(Builder):
                     input0 = self._get_golden_tensor(old_op.lhs)
                     weight0 = self._get_golden_tensor(old_op.rhs)
                     convolution_builder._set_golden_tensor(
-                        new_op_result, self._goldens[old_op.result]
+                        new_op_result, self._get_golden_tensor(old_op.result)
                     )
                     convolution_builder._set_golden_tensor(in0, input0)
                     convolution_builder._set_golden_tensor(weight, weight0)
