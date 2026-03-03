@@ -26,7 +26,7 @@
 #include <limits>
 
 namespace mlir::tt::stablehlo {
-#define GEN_PASS_DEF_SHARDINGSEARCHPASS
+#define GEN_PASS_DEF_AUTOSHARDINGPASS
 #include "ttmlir/Dialect/StableHLO/Transforms/Passes.h.inc"
 
 namespace {
@@ -92,7 +92,7 @@ static llvm::SmallVector<ShardingConfig> enumerateShardingConfigs(ModuleOp& modu
   }
 
   if (totalDims > 20) {
-    llvm::errs() << "ShardingSearch: totalDims=" << totalDims
+    llvm::errs() << "AutoSharding: totalDims=" << totalDims
                 << " too large, capping at first 1024 configs\n";
   }
 
@@ -172,7 +172,7 @@ static void applyShardingHints(ModuleOp module, const ShardingConfig &config,
 
 
 // Build a sub-pipeline with the remaining StableHLO passes (everything that
-// normally runs after ShardingSearch in the stablehlo-pipeline).
+// normally runs after AutoSharding in the stablehlo-pipeline).
 static void addRemainingStableHLOPasses(OpPassManager &pm) {
   pm.addPass(createDecoupleConstFanoutPass());
   pm.addPass(createFlattenCompositePass());
@@ -275,10 +275,10 @@ static std::string createDumpRoot(StringRef baseDir) {
   } else {
     path = baseDir;
   }
-  llvm::sys::path::append(path, llvm::Twine("sharding_search_") + buf);
+  llvm::sys::path::append(path, llvm::Twine("auto_sharding_") + buf);
 
   if (auto ec = llvm::sys::fs::create_directories(path)) {
-    llvm::errs() << "ShardingSearch: failed to create dump directory " << path
+    llvm::errs() << "AutoSharding: failed to create dump directory " << path
                  << ": " << ec.message() << "\n";
     return "";
   }
@@ -290,7 +290,7 @@ static bool dumpModuleToFile(ModuleOp module, StringRef filePath) {
   std::error_code ec;
   llvm::raw_fd_ostream fos(filePath, ec);
   if (ec) {
-    llvm::errs() << "ShardingSearch: failed to write " << filePath << ": "
+    llvm::errs() << "AutoSharding: failed to write " << filePath << ": "
                  << ec.message() << "\n";
     return false;
   }
@@ -300,10 +300,10 @@ static bool dumpModuleToFile(ModuleOp module, StringRef filePath) {
 }
 
 
-class ShardingSearchPass
-    : public impl::ShardingSearchPassBase<ShardingSearchPass> {
+class AutoShardingPass
+    : public impl::AutoShardingPassBase<AutoShardingPass> {
 public:
-  using impl::ShardingSearchPassBase<ShardingSearchPass>::ShardingSearchPassBase;
+  using impl::AutoShardingPassBase<AutoShardingPass>::AutoShardingPassBase;
 
   void runOnOperation() final {
     ModuleOp rootModule = getOperation();
@@ -320,7 +320,7 @@ public:
     auto meshInfoOpt = extractMeshInfo(rootModule);
     if (!meshInfoOpt) {
       rootModule.emitWarning(
-          "ShardingSearch: no mesh found in module, skipping");
+          "AutoSharding: no mesh found in module, skipping");
       return;
     }
     const MeshInfo &meshInfo = *meshInfoOpt;
@@ -328,25 +328,25 @@ public:
     // Find axes worth sharding on (size > 1).
     auto shardableAxes = meshInfo.getShardableAxes();
     if (shardableAxes.empty()) {
-      llvm::errs() << "ShardingSearch: no shardable axes (all size 1), "
+      llvm::errs() << "AutoSharding: no shardable axes (all size 1), "
                    << "applying all-replicated config\n";
       return;
     }
 
     // Phase 0: use only the first shardable axis.
     StringRef shardAxisName = shardableAxes[0];
-    llvm::errs() << "ShardingSearch: mesh='" << meshInfo.meshName
+    llvm::errs() << "AutoSharding: mesh='" << meshInfo.meshName
                  << "', sharding axis='" << shardAxisName << "'\n";
 
     // 1. Enumerate sharding configs.
     auto configs = enumerateShardingConfigs(rootModule);
     if (configs.empty()) {
       rootModule.emitWarning(
-          "ShardingSearch: no configs enumerated, skipping");
+          "AutoSharding: no configs enumerated, skipping");
       return;
     }
 
-    llvm::errs() << "ShardingSearch: evaluating " << configs.size()
+    llvm::errs() << "AutoSharding: evaluating " << configs.size()
                  << " sharding configurations\n";
 
     // Set up dump directory if requested.
@@ -354,7 +354,7 @@ public:
     if (dumpVariants) {
       dumpRoot = createDumpRoot(dumpDir);
       if (!dumpRoot.empty()) {
-        llvm::errs() << "ShardingSearch: dumping variants to " << dumpRoot
+        llvm::errs() << "AutoSharding: dumping variants to " << dumpRoot
                      << "\n";
       }
     }
@@ -367,7 +367,7 @@ public:
 
     if (!ttirPipeline || !ttnnPipeline) {
       rootModule.emitError(
-          "ShardingSearch: cannot find required pipelines "
+          "AutoSharding: cannot find required pipelines "
           "(stablehlo-to-ttir-pipeline / ttir-to-ttnn-backend-pipeline)");
       signalPassFailure();
       return;
@@ -438,7 +438,7 @@ public:
       addRemainingStableHLOPasses(pm);
 
       if (failed(ttirPipeline->addToPipeline(pm, "", errHandler))) {
-        llvm::errs() << "ShardingSearch: failed to build ttir pipeline\n";
+        llvm::errs() << "AutoSharding: failed to build ttir pipeline\n";
         if (collectResults) {
           results.push_back(
               {i, formatConfig(configs[i]), false, 0.0});
@@ -447,7 +447,7 @@ public:
       }
 
       if (failed(ttnnPipeline->addToPipeline(pm, ttnnOptions, errHandler))) {
-        llvm::errs() << "ShardingSearch: failed to build ttnn pipeline\n";
+        llvm::errs() << "AutoSharding: failed to build ttnn pipeline\n";
         if (collectResults) {
           results.push_back(
               {i, formatConfig(configs[i]), false, 0.0});
@@ -456,7 +456,7 @@ public:
       }
 
       if (failed(pm.run(clonedModule))) {
-        llvm::errs() << "ShardingSearch: config " << i << " "
+        llvm::errs() << "AutoSharding: config " << i << " "
                      << formatConfig(configs[i]) << " failed to lower\n";
         if (collectResults) {
           results.push_back(
@@ -475,7 +475,7 @@ public:
 
       // 5. Evaluate cost.
       double cost = evaluateCost(clonedModule);
-      llvm::errs() << "ShardingSearch: config " << i << " "
+      llvm::errs() << "AutoSharding: config " << i << " "
                    << formatConfig(configs[i]) << " cost=" << cost << "\n";
 
       if (collectResults) {
@@ -490,13 +490,13 @@ public:
 
     if (!anySucceeded) {
       rootModule.emitError(
-          "ShardingSearch: all sharding configurations failed to lower");
+          "AutoSharding: all sharding configurations failed to lower");
       signalPassFailure();
       return;
     }
 
     // 6. Apply the winning config to the original module.
-    llvm::errs() << "ShardingSearch: selected config " << bestIdx << " "
+    llvm::errs() << "AutoSharding: selected config " << bestIdx << " "
                  << formatConfig(configs[bestIdx])
                  << " with cost=" << bestCost << "\n";
     applyShardingHints(rootModule, configs[bestIdx], meshInfo.meshName,
@@ -509,7 +509,7 @@ public:
       std::error_code ec;
       llvm::raw_fd_ostream fos(summaryPath, ec);
       if (!ec) {
-        fos << "Sharding Search Summary\n";
+        fos << "Auto Sharding Summary\n";
         fos << "=======================\n";
         fos << "Mesh: " << meshInfo.meshName << "\n";
         fos << "Sharding axis: " << shardAxisName << "\n";
