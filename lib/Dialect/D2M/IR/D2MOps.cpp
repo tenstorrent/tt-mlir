@@ -2790,15 +2790,25 @@ SmallVector<Value> d2m::GenericOp::getOperandAllocs(Region &region,
     return result;
   }
 
-  Block &block = region.front();
-  for (Operation &op : block) {
-    if (mlir::isa<mlir::tensor::EmptyOp, memref::AllocOp>(&op)) {
-      result.push_back(op.getResult(0));
+  // Walk the region looking for tensor.empty/memref.alloc ops, stepping into
+  // nested loops (same traversal as getOperandAlloc).
+  std::function<void(Block &)> scanBlock = [&](Block &block) {
+    for (Operation &op : block) {
       if (result.size() == numOperands) {
-        break;
+        return;
+      }
+      if (mlir::isa<mlir::tensor::EmptyOp, memref::AllocOp>(&op)) {
+        result.push_back(op.getResult(0));
+      } else if (auto forOp = mlir::dyn_cast<mlir::affine::AffineForOp>(&op)) {
+        if (forOp->hasAttr("d2m.blocking_loop")) {
+          scanBlock(*forOp.getBody());
+        }
+      } else if (auto scfFor = mlir::dyn_cast<mlir::scf::ForOp>(&op)) {
+        scanBlock(*scfFor.getBody());
       }
     }
-  }
+  };
+  scanBlock(region.front());
   return result;
 }
 
