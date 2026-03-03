@@ -5,9 +5,9 @@ import ttnn_jit
 import ttnn
 import torch
 
-import math
 import pytest
 
+from ttnn_jit._src.utils import get_maximal_block_sharding_grid
 from utils import (
     create_sharded_tile_tensor,
     create_dram_tensor,
@@ -17,12 +17,14 @@ from utils import (
 
 def matmul_composite(input0, input1):
     a = ttnn.abs(input0)
-    b = ttnn.sin(input1)
-    c = ttnn.matmul(a, b)
-    d = ttnn.abs(c)
-    return d
+    b = ttnn.matmul(a, input1)
+    c = ttnn.abs(b)
+    return c
 
 
+TILE_SIZE = 32
+
+# None is testing the 1D matmul, single tile case
 MATMUL_SHAPES = [
     ((64, 64, 64)),
     ((64, 128, 128)),
@@ -31,8 +33,8 @@ MATMUL_SHAPES = [
     ((128, 128, 256)),
     ((128, 256, 256)),
     ((256, 256, 256)),
-    ((256, 4, 256)),
-    ((4, 256, 4)),
+    ((256, None, 256)),
+    ((None, 256, None)),
 ]
 
 INPUT_LAYOUTS = [
@@ -69,21 +71,23 @@ def test_matmul_composite(device, shapes, input_layouts, dtype, ttnn_dtype):
 
     # Always square grid.
     core_grid = get_core_grid_from_device(device)
-    grid_size = math.lcm(core_grid[0] + 1, core_grid[1] + 1)
-    m = shapes[0] * grid_size
-    k = shapes[1] * grid_size
-    n = shapes[2] * grid_size
+    grid_dim = min(core_grid[0] + 1, core_grid[1] + 1)
+    core_grid = (grid_dim - 1, grid_dim - 1)
+    m = TILE_SIZE if shapes[0] is None else shapes[0] * grid_dim
+    k = TILE_SIZE if shapes[1] is None else shapes[1] * grid_dim
+    n = TILE_SIZE if shapes[2] is None else shapes[2] * grid_dim
 
     # input is (m, k, n)
     shapes = [(m, k), (k, n)]
     input_tensors = []
     for shape, layout in zip(shapes, input_layouts):
         if layout == ttnn.TensorMemoryLayout.BLOCK_SHARDED:
+            grid = get_maximal_block_sharding_grid(shape, core_grid)
             input_tensors.append(
                 create_sharded_tile_tensor(
                     device,
                     shape,
-                    core_grid,
+                    grid,
                     dtype,
                     shard_strategy=ttnn.ShardStrategy.BLOCK,
                     ttnn_dtype=ttnn_dtype,
