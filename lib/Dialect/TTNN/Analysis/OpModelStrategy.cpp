@@ -87,7 +87,11 @@ OutputHints getOutputHints(Operation *op,
       // since it only checks sharding constraints when the input is
       // already sharded. Until tt-metal fixes this, forbid sharded
       // output hints for PadOp.
-      .Case<ReshapeOp, PermuteOp, ConcatenateHeadsOp, PadOp>([&](auto) {
+      // Disabling Slice ops due to
+      // https://github.com/tenstorrent/tt-metal/issues/38016
+      // TODO(rpavlovicTT): re-enable slice ops.
+      .Case<ReshapeOp, PermuteOp, ConcatenateHeadsOp, PadOp, SliceStaticOp,
+            SliceDynamicOp>([&](auto) {
         auto nonShardedConfigs = filterNonSharded(legalConfigs);
         return OutputHints{nonShardedConfigs, {}, /*attemptL1Sharding=*/false};
       })
