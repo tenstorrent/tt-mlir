@@ -631,6 +631,7 @@ def execute_fb(
     save_artifacts: bool = False,
     artifact_dir: str = ".",
     dump_memory: bool = False,
+    return_perf: bool = False,
 ):
     """
     Execute a flatbuffer binary on device and compare device outputs against goldens.
@@ -669,11 +670,15 @@ def execute_fb(
         Root directory for artifacts.
     dump_memory : bool
         Dump a per-op memory report into the artifact_dir.
+    return_perf : bool
+        When True, include a structured runtime perf report in the return tuple.
 
     Returns
     -------
     Tuple[Dict[str, Dict], Dict[str, Dict]]
         golden_report, output_tensors
+    Tuple[Dict[str, Dict], Dict[str, Dict], Dict[str, Any]]
+        golden_report, output_tensors, perf_report (if return_perf=True)
     """
     fbb = tt_runtime.binary.load_binary_from_capsule(compiled_bin)
     program_indices = range(fbb.get_num_programs())
@@ -685,6 +690,14 @@ def execute_fb(
     )
     output_tensors = {}
     golden_report = {}
+    perf_report = {
+        "programs": {},
+        "totals": {
+            "submit_ns": 0,
+            "to_host_ns": 0,
+            "runtime_ns": 0,
+        },
+    }
     if bypass_ops is None:
         bypass_ops = []
     verify_intermediates = enable_intermediate_verification or len(bypass_ops) > 0
@@ -870,6 +883,20 @@ def execute_fb(
             golden_report[f"program_{program_index}"] = program_golden_report
             output_tensors[f"program_{program_index}"] = program_output_tensors
 
+        perf_report["programs"][f"program_{program_index}"] = {
+            "submit_ns": e2e_duration_nanoseconds_submit,
+            "to_host_ns": e2e_duration_nanoseconds_output,
+            "runtime_ns": e2e_duration_nanoseconds_submit
+            + e2e_duration_nanoseconds_output,
+        }
+        perf_report["totals"]["submit_ns"] += e2e_duration_nanoseconds_submit
+        perf_report["totals"]["to_host_ns"] += e2e_duration_nanoseconds_output
+        perf_report["totals"]["runtime_ns"] += (
+            e2e_duration_nanoseconds_submit + e2e_duration_nanoseconds_output
+        )
+
+    if return_perf:
+        return golden_report, output_tensors, perf_report
     return golden_report, output_tensors
 
 

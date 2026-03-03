@@ -359,6 +359,40 @@ def pytest_addoption(parser):
         action="store_true",
         help="Dump device memory to disk after execution.",
     )
+    parser.addoption(
+        "--sort",
+        action="store",
+        default="snippet",
+        help=(
+            "Sort mode for test_snippets.py summary: snippet, time, "
+            "ratio, time:<compile|exec>, ratio:<compile|exec>, keyword, "
+            "keyword:<term>, or keyword=<term>. Any other value is treated "
+            "as a keyword shorthand. For time/ratio, default metric is exec."
+        ),
+    )
+    parser.addoption(
+        "--mark-ttmetal-faster",
+        action="store_true",
+        help=(
+            "Add a divider in test_snippets.py summary before rows where "
+            "ttmetal becomes faster (negative delta on the active metric)."
+        ),
+    )
+    parser.addoption(
+        "--show-exec-times",
+        action="store_true",
+        help=(
+            "Show per-target exec times (ttmetal/ttnn) for each summary row "
+            "in test_snippets.py."
+        ),
+    )
+    parser.addoption(
+        "--time-unit",
+        action="store",
+        default="ms",
+        choices=["ms", "us"],
+        help="Time display unit for test_snippets.py output (ms or us).",
+    )
 
 
 @pytest.fixture(scope="session", autouse=True)
