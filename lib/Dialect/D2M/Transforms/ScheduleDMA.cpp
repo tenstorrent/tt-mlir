@@ -28,6 +28,9 @@ struct DMAThreadAssignment {
 
   // Estimated workload for this thread (number of DMA ops).
   size_t workload = 0;
+
+  // Assigned NoC index for this thread (0 = DRAM reader, 1 = DRAM writer).
+  int32_t nocIndex = -1;
 };
 
 // Collect all remote_load and remote_store operations from a block,
@@ -54,6 +57,67 @@ collectDMAOps(Block *block,
       }
     }
   }
+}
+
+// Score for deciding which thread gets which NoC.
+// Priority is given to the thread that has the larger mcast shards.
+// Unicast reads take priority over unicast writes.
+struct NocScore {
+  int64_t mcastShardSize = 0;
+  int64_t unicastBias = 0;
+
+  bool operator>(const NocScore &other) const {
+    if (mcastShardSize != other.mcastShardSize) {
+      return mcastShardSize > other.mcastShardSize;
+    }
+    return unicastBias > other.unicastBias;
+  }
+};
+
+// The thread with the higher NocScore gets NoC0.
+// Default is thread0 gets NoC0, thread1 gets NoC1.
+static void assignNocIndices(
+    SmallVectorImpl<DMAThreadAssignment> &assignments,
+    const SmallVectorImpl<std::pair<Operation *, unsigned>> &dmaOps) {
+  TT_assertv(int(assignments.size()) == 2, "Expect exactly 2 DM threads");
+  auto deviceAttr = ttcore::lookupDevice(dmaOps.front().first);
+
+  NocScore scores[2];
+  for (const auto &[op, cbIdx] : dmaOps) {
+    for (int t = 0; t < 2; ++t) {
+      if (!assignments[t].assignedCBs.contains(cbIdx)) {
+        continue;
+      }
+
+      if (auto load = mlir::dyn_cast_or_null<RemoteLoadOp>(op)) {
+        if (ttcore::getMemorySpace(load.getMemref()) !=
+            ttcore::MemorySpace::DeviceDRAM) {
+          continue;
+        }
+        if (load.isMcast()) {
+          TT_assertv(scores[t].mcastShardSize == 0,
+                     "There can only be one mcast load per thread.");
+          auto layout = ttcore::getDeviceLayout(load.getMemref());
+          if (layout) {
+            auto memrefType =
+                mlir::cast<MemRefType>(load.getMemref().getType());
+            scores[t].mcastShardSize =
+                deviceAttr.getShardSizeInBytes(memrefType, 1, false);
+          }
+        } else {
+          scores[t].unicastBias += 2;
+        }
+      } else if (auto store = mlir::dyn_cast_or_null<RemoteStoreOp>(op)) {
+        if (ttcore::getMemorySpace(store.getMemref()) ==
+            ttcore::MemorySpace::DeviceDRAM) {
+          scores[t].unicastBias -= 1;
+        }
+      }
+    }
+  }
+  bool swap = scores[1] > scores[0];
+  assignments[0].nocIndex = swap ? 1 : 0;
+  assignments[1].nocIndex = swap ? 0 : 1;
 }
 
 // Assign CBs to threads to balance workload.
@@ -194,17 +258,23 @@ public:
       cbWorkloads[cbIdx]++;
     }
 
-    // If only one CB has work, no need to split.
-    if (cbWorkloads.size() <= 1) {
-      return failure();
-    }
-
     // Determine number of threads to use.
     unsigned numThreadsToUse = std::min(
         static_cast<unsigned>(cbWorkloads.size()), numDatamovementThreads);
 
-    // If we'd only have one thread, no split needed.
-    if (numThreadsToUse <= 1) {
+    // Not enough CBs to warrant splitting but still need to assign nocIndex on
+    // the existing single DM thread before returning failure.
+    if (numThreadsToUse <= 1 || cbWorkloads.size() <= 1) {
+      bool writesDRAM = llvm::any_of(dmaOps, [](const auto &entry) {
+        auto store = mlir::dyn_cast_or_null<RemoteStoreOp>(entry.first);
+        return store && ttcore::getMemorySpace(store.getMemref()) ==
+                            ttcore::MemorySpace::DeviceDRAM;
+      });
+      int nocIndex = writesDRAM ? 1 : 0;
+      generic.setThreadsAttr(rewriter.getArrayAttr(
+          {rewriter.getAttr<ThreadAttr>(ThreadType::Datamovement, nullptr,
+                                        nocIndex),
+           generic.getThreadsAttr().getValue()[1]}));
       return failure();
     }
 
@@ -212,10 +282,14 @@ public:
     SmallVector<DMAThreadAssignment> assignments =
         assignCBsToThreads(cbWorkloads, numThreadsToUse);
 
+    assignNocIndices(assignments, dmaOps);
+
     // Create new thread attributes: N datamovement threads + 1 compute thread.
     SmallVector<Attribute> threads;
     for (unsigned i = 0; i < numThreadsToUse; ++i) {
-      threads.push_back(rewriter.getAttr<ThreadAttr>(ThreadType::Datamovement));
+      threads.push_back(rewriter.getAttr<ThreadAttr>(ThreadType::Datamovement,
+                                                     /*kernelSymbol=*/nullptr,
+                                                     assignments[i].nocIndex));
     }
     threads.push_back(rewriter.getAttr<ThreadAttr>(ThreadType::Compute));
 
