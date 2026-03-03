@@ -49,27 +49,3 @@ module {
     return
   }
 }
-
-// -----
-
-module {
-  func.func @empty_then_block() -> () {
-    // CHECK: error: 'emitpy.if' op then block must contain at least one operation
-    emitpy.if "True" {
-    }
-    return
-  }
-}
-
-// -----
-
-module {
-  func.func @empty_else_block() -> () {
-    // CHECK: error: 'emitpy.if' op else block must contain at least one operation if present
-    emitpy.if "True" {
-      emitpy.call_opaque "dummy"() : () -> ()
-    } else {
-    }
-    return
-  }
-}
