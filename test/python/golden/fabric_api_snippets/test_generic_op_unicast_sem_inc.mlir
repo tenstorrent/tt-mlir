@@ -33,7 +33,7 @@ module attributes {} {
                 symbol_ref = @datamovement_kernel0,
                 core_ranges = <[#ttnn.core_range<(0,0), (0,0)>]>,
                 ct_args = [#ttnn.kernel_arg_cb_buffer_index<0>, #ttnn.kernel_arg_cb_buffer_index<1>],
-                common_rt_args = [#ttnn.kernel_arg_global_semaphore<0>],
+                common_rt_args = [#ttnn.kernel_arg_global_semaphore<2>],
                 rt_args = []>
             ],
             cbs = [
@@ -48,8 +48,7 @@ module attributes {} {
             ],
             semaphores = []>
         >
-      ],
-      fabric_connection_config = #ttnn.fabric_connection_config<noc_index = noc0, topology = linear, cluster_axis = 1, routing_mode = bidir_line_mesh, num_links = 1>>,
+      ], fabric_connection_config = #ttnn.fabric_connection_config<noc_index = noc0, topology = insert_topology, cluster_axis = insert_cluster_axis, routing_mode = insert_routing_mode, num_links = 1>>,
       operandSegmentSizes = array<i32: 2, 1>
     }> : (tensor<32x32xbf16, #ttnn_layout_device_tile_sharded>, tensor<32x32xbf16, #ttnn_layout_device_tile_sharded>, !ttnn.global_semaphore) -> ()
 
@@ -69,9 +68,9 @@ module attributes {} {
 
     // Constants
     %len_bytes = "emitc.constant"() <{value = 2048 : i32}> : () -> i32
-    %src_dev_id = "emitc.constant"() <{value = 0 : i16}> : () -> i16
+    %src_dev_id = "emitc.constant"() <{value = insert_src_dev_id : i16}> : () -> i16
     %dst_mesh_id = "emitc.constant"() <{value = 0 : i16}> : () -> i16
-    %dst_dev_id = "emitc.constant"() <{value = 1 : i16}> : () -> i16
+    %dst_dev_id = "emitc.constant"() <{value = insert_dst_dev_id : i16}> : () -> i16
 
     // Get logical coordinates of current core and convert logical coords to translated coords
     %my_x = "emitc.constant"() <{value = #emitc.opaque<"get_absolute_logical_x()">}> : () -> !emitc.size_t
@@ -85,12 +84,9 @@ module attributes {} {
     %cb1 = emitc.literal "get_compile_time_arg_val(1)" : !emitc.opaque<"::tt::CB">
     %dst_ptr = emitc.call_opaque "get_write_ptr"(%cb1) : (!emitc.opaque<"::tt::CB">) -> i32
 
-    // Get NOC address
-    %noc_addr = emitc.call_opaque "get_noc_addr"(%translated_x, %translated_y, %dst_ptr) : (!emitc.size_t, !emitc.size_t, i32) -> i64
-
     // Get noc address
-    %c2 = "emitc.constant"() <{value = 0 : index}> : () -> !emitc.size_t
-    %global_semaphore = emitc.call_opaque "get_common_arg_val"(%c2) {template_args = [#emitc.opaque<"uint32_t">]} : (!emitc.size_t) -> i32
+    %global_semaphore_arg_idx = "emitc.constant"() <{value = 0 : index}> : () -> !emitc.size_t
+    %global_semaphore = emitc.call_opaque "get_common_arg_val"(%global_semaphore_arg_idx) {template_args = [#emitc.opaque<"uint32_t">]} : (!emitc.size_t) -> i32
     %global_semaphore_ptr = emitc.call_opaque "reinterpret_cast<volatile tt_l1_ptr uint32_t*>"(%global_semaphore) : (i32) -> !emitc.ptr<!emitc.opaque<"volatile tt_l1_ptr uint32_t">>
     %global_semaphore_noc_addr = emitc.call_opaque "get_noc_addr"(%translated_x, %translated_y, %global_semaphore) : (!emitc.size_t, !emitc.size_t, i32) -> i64
     %incr = "emitc.constant"() <{value = 1 : i32}> : () -> i32
@@ -108,7 +104,6 @@ module attributes {} {
     emitc.if %is_dst_device {
       emitc.call_opaque "noc_semaphore_wait"(%global_semaphore_ptr, %incr) : (!emitc.ptr<!emitc.opaque<"volatile tt_l1_ptr uint32_t">>, i32) -> ()
     }
-
     emitc.call_opaque "experimental::close_fabric_connections"(%fabric_connection_manager) : (!emitc.opaque<"experimental::FabricConnectionManager">) -> ()
     return
   }

@@ -1211,3 +1211,117 @@ def test_ttnn_generic_unicast_2x4_line(
         check_atol=True,
         check_rtol=True,
     )
+
+
+@pytest.mark.frontend("ttnn")
+@pytest.mark.parametrize(
+    "fabric_config",
+    [
+        tt_runtime.runtime.FabricConfig.FABRIC_1D,
+        tt_runtime.runtime.FabricConfig.FABRIC_1D_RING,
+        # Line topology not supported on 2d fabric for now
+        # tt_runtime.runtime.FabricConfig.FABRIC_2D,
+    ],
+)
+@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.parametrize("mesh_shape", [(2, 4)])
+@pytest.mark.parametrize(
+    "topology, cluster_axis, routing_mode", [("linear", 1, "bidir_line_mesh")]
+)
+@pytest.mark.parametrize("src_coord, dst_coord", [((0, 0), (0, 1))])
+def test_ttnn_generic_unicast_sem_inc_2x4_line(
+    target: str,
+    request,
+    mesh_shape,
+    fabric_config,
+    device,
+    topology,
+    cluster_axis,
+    routing_mode,
+    src_coord,
+    dst_coord,
+):
+    shard_shape = (32, 32)
+    full_shape = (shard_shape[0] * mesh_shape[0], shard_shape[1] * mesh_shape[1])
+
+    with open(
+        os.path.join(
+            os.path.dirname(__file__),
+            "fabric_api_snippets/test_generic_op_unicast_sem_inc.mlir",
+        ),
+        "r",
+        encoding="utf-8",
+    ) as f:
+        mlir_text = f.read()
+
+    # Replace params in snippet
+    mlir_text = (
+        mlir_text.replace(
+            "insert_src_dev_id",
+            f"{get_device_id_t3k_2d_mesh_shape(src_coord)}",
+        )
+        .replace(
+            "insert_dst_dev_id",
+            f"{get_device_id_t3k_2d_mesh_shape(dst_coord)}",
+        )
+        .replace(
+            "insert_topology",
+            f"{topology}",
+        )
+        .replace(
+            "insert_cluster_axis",
+            f"{cluster_axis}",
+        )
+        .replace(
+            "insert_routing_mode",
+            f"{routing_mode}",
+        )
+    )
+
+    ctx = Context()
+    loc = Location.unknown(ctx)
+
+    with ctx, loc:
+        module = Module.parse(mlir_text)
+        print("Module:", module)
+
+    full_shape = (64, 128)
+
+    input_tensor = torch.zeros(full_shape, dtype=torch.bfloat16)
+    for i in range(0, mesh_shape[0]):
+        for j in range(0, mesh_shape[1]):
+            start_y = i * shard_shape[0]
+            start_x = j * shard_shape[1]
+            input_tensor[
+                start_y : start_y + shard_shape[0], start_x : start_x + shard_shape[1]
+            ] = (i * mesh_shape[1] + j + 1.0)
+
+    output_preallocated = input_tensor.clone()
+
+    golden_input_output_tensors = {}
+    golden_input_output_tensors[0] = {
+        "input_0": GoldenMapTensor({0: input_tensor}, (1, 1)),
+        "input_1": GoldenMapTensor({0: output_preallocated}, (1, 1)),
+        "output_0": GoldenMapTensor({0: output_preallocated}, (1, 1)),
+    }
+
+    # Register device (add system_desc) before flatbuffer conversion.
+    system_desc_path = request.config.getoption("--sys-desc")
+    mesh_shape_str = f"{mesh_shape[0]},{mesh_shape[1]}"
+    with module.context:
+        pm = PassManager.parse(
+            f"builtin.module(ttcore-register-device{{system-desc-path={system_desc_path} mesh-shape={mesh_shape_str}}})"
+        )
+        pm.run(module.operation)
+
+    print(f"module: {module}")
+
+    _, output_tensors = execute_fb(
+        ttnn_to_flatbuffer_bin(module),
+        golden_input_output_tensors,
+        {},
+        device=device,
+        check_pcc=True,
+        check_atol=True,
+        check_rtol=True,
+    )
