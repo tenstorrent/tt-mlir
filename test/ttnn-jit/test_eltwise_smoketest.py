@@ -27,6 +27,7 @@ DRAM_SHAPES = [
 
 SHARD_SHAPES_GRIDS = [
     ((1024, 1024), (7, 7), ttnn.ShardStrategy.BLOCK),
+    ((96, 576), (5, 0), ttnn.ShardStrategy.BLOCK),
     ((2048, 32), (7, 7), ttnn.ShardStrategy.HEIGHT),
     ((32, 2048), (7, 7), ttnn.ShardStrategy.WIDTH),
 ]
