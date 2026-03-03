@@ -111,7 +111,7 @@ class D2MASTVisitor(ast.NodeVisitor):
         # out_type is the res_type inferred. We just use out_val
         rank = len(lhs.type.shape)
         
-        from ttmlir.ir import AffineMap, AffineMapAttr, StringAttr, ArrayAttr
+        from ttmlir.ir import AffineMap, AffineMapAttr, ArrayAttr, Attribute
 
         if op_name == "matmul":
             from ttmlir.ir import AffineExpr
@@ -135,7 +135,12 @@ class D2MASTVisitor(ast.NodeVisitor):
             ])
 
             iterator_types_list = ["parallel"] * batch_rank + ["parallel", "parallel", "reduction"]
-            iterator_types = ArrayAttr.get([StringAttr.get(t) for t in iterator_types_list])
+            iterator_types = ArrayAttr.get(
+                [
+                    Attribute.parse(f"#linalg.iterator_type<{t}>", context=self.ctx)
+                    for t in iterator_types_list
+                ]
+            )
         else:
             identity_map = AffineMap.get_identity(rank)
             indexing_maps = ArrayAttr.get([
@@ -143,7 +148,12 @@ class D2MASTVisitor(ast.NodeVisitor):
                 AffineMapAttr.get(identity_map),
                 AffineMapAttr.get(identity_map),
             ])
-            iterator_types = ArrayAttr.get([StringAttr.get("parallel") for _ in range(rank)])
+            iterator_types = ArrayAttr.get(
+                [
+                    Attribute.parse("#linalg.iterator_type<parallel>", context=self.ctx)
+                    for _ in range(rank)
+                ]
+            )
 
         # Tensor type requires creating the operation differently?
         import ttmlir.dialects.linalg as linalg
@@ -547,7 +557,7 @@ def generate_ir(func_ast, grid, tensor_metadata, debug=False):
                             loc=Location.unknown(ctx)
                         )
                         to_memref_op = Operation.create(
-                            "bufferization.to_memref",
+                            "builtin.unrealized_conversion_cast",
                             results=[memref_type],
                             operands=[cast_op.result],
                             loc=Location.unknown(ctx)
