@@ -147,7 +147,6 @@ def EmitPy_SubscriptOp : EmitPy_Op<"subscript", [Pure, PyExpressionInterface]> {
   let assemblyFormat = "$value `[` $index `]` attr-dict `:` functional-type(operands, results)";
 }
 
-
 def EmitPy_GetAttrOp : EmitPy_Op<"get_attr", [Pure, PyExpressionInterface]> {
   let summary = "Get attribute from an object";
   let description = [{
@@ -267,7 +266,7 @@ def EmitPy_CreateDictOp : EmitPy_Op<"create_dict", [Pure]> {
     ```
 
     ```python
-    // Code emitted for the operations above:
+    # Code emitted for the operations above:
     my_dict = {}
     cache = {0: None}
     _CONST_EVAL_CACHE = {i: None for i in range(133)}
@@ -316,7 +315,7 @@ def EmitPy_AssignOp : EmitPy_Op<"assign",
     ```
 
     ```python
-    // Code emitted:
+    # Code emitted:
     target = value
     ...
     dict[5] = value
@@ -358,14 +357,14 @@ def EmitPy_IfOp : EmitPy_Op<"if", [NoTerminator]> {
     }
     ```
     ```python
-    // Code emitted:
+    # Code emitted:
     if not dict:
-        // then body
+        # then body
 
     if a > b:
-        // then body
+        # then body
     else:
-        // else body
+        # else body
     ```
   }];
 
