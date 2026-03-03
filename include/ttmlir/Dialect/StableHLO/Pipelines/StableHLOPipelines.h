@@ -43,9 +43,9 @@ struct StableHLOPipelineOptions
       *this, OptionNames::enableAggressiveSimplification,
       llvm::cl::desc("Run StableHLO aggressive simplification pass.")};
 
-  Option<bool> enableShardingSearch{
-      *this, OptionNames::enableShardingSearch,
-      llvm::cl::desc("Enable sharding search for optimal CCL cost."),
+  Option<bool> enableAutoSharding{
+      *this, OptionNames::enableAutoSharding,
+      llvm::cl::desc("Enable auto-sharding for optimal CCL cost."),
       llvm::cl::init(false)};
 
   Option<std::string> systemDescPath{
