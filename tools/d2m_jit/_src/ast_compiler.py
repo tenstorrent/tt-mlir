@@ -74,6 +74,7 @@ class AstCompiler:
         print(module)
         
         pass_pipeline = [
+            "ttir-bufferization-pipeline{ttnn-mode=true}",
             "d2m-linalg-to-affine",
             "d2m-insert-dst-register-access",
         ]
