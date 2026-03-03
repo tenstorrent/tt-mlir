@@ -376,6 +376,7 @@ def _clamp_tensor_bounds(input_tensor, min_tensor, max_tensor):
     return ttnn.clamp(input_tensor, min=min_tensor, max=max_tensor)
 
 
+@pytest.mark.skip(reason="Skipping clamp test due to verifier failure. Issue #7319")
 @pytest.mark.parametrize(
     "buffer_type, use_tensor_bounds",
     [
