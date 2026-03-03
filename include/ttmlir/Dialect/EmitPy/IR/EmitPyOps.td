@@ -115,7 +115,7 @@ def EmitPy_SubscriptOp : EmitPy_Op<"subscript", [Pure, PyExpressionInterface]> {
     The `emitpy.subscript` operation represents Python subscript access.
     This is the read counterpart to `emitpy.assign`.
 
-    Supports reading from any subscriptable object (arrays, dicts, etc.)
+    Supports reading from any subscriptable object (e.g. arrays, dicts)
     with integer or string keys.
 
     Example:
@@ -292,34 +292,39 @@ def EmitPy_AssignOp : EmitPy_Op<"assign",
     [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
   let summary = "Assign operation";
   let description = [{
-    The `emitpy.assign` operation represents Python assignment.
-    It supports both simple variable assignment and subscript assignment.
+    The `emitpy.assign` operation represents Python variable assignment.
 
-    When index is provided, it represents subscript assignment (write counterpart to `emitpy.subscript`).
-    When index is not provided, it represents simple variable assignment.
+    For subscript assignment (e.g., `dict[5] = value`), wrap both the subscript
+    and assign operations inside an `emitpy.expression` block.
 
     Examples:
 
     ```mlir
-    // Subscript assignment
-    %dict = emitpy.create_dict "dict" {literal_expr = "{}"} : () -> !emitpy.dict
-    %key = emitpy.literal "5" : index
-    emitpy.assign %dict[%key] = %value : (!emitpy.dict, index, !emitpy.opaque<"[ttnn.Tensor]">)
-
     // Simple assignment
     emitpy.assign %target = %value : (!emitpy.opaque<"int">, !emitpy.opaque<"int">)
+    ...
+    // Subscript assignment (wrap subscript and assign in expression op)
+    %dict = emitpy.create_dict "dict" {literal_expr = "{}"} : () -> !emitpy.dict
+    %key = emitpy.literal "5" : index
+    emitpy.expression(%dict, %key, %value) : (!emitpy.dict, index, !emitpy.opaque<"[ttnn.Tensor]">) -> !emitpy.opaque<"None"> {
+    ^bb0(%d: !emitpy.dict, %k: index, %v: !emitpy.opaque<"[ttnn.Tensor]">):
+      %sub = emitpy.subscript %d[%k] : (!emitpy.dict, index) -> !emitpy.opaque<"[ttnn.Tensor]">
+      emitpy.assign %sub = %v : (!emitpy.opaque<"[ttnn.Tensor]">, !emitpy.opaque<"[ttnn.Tensor]">)
+      %none = "emitpy.constant"() <{value = #emitpy.opaque<"None">}> : () -> !emitpy.opaque<"None">
+      emitpy.yield %none : !emitpy.opaque<"None">
+    }
     ```
 
     ```python
     // Code emitted:
-    dict[5] = value
     target = value
+    ...
+    dict[5] = value
     ```
   }];
 
   let arguments = (ins
     Arg<EmitPy_Type, "target">:$target,
-    Optional<AnyTypeOf<[Index, EmitPy_StringType]>>:$index,
     Arg<EmitPy_Type, "value to set">:$value
   );
 

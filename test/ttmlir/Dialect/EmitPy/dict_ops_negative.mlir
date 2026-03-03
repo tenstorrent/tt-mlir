@@ -123,11 +123,12 @@ module {
 // AssignOp negative tests
 //===----------------------------------------------------------------------===//
 
-// Test cannot use string index on non-dict type (subscript assignment)
+// Test that direct subscript assignment is not allowed
 module {
-  func.func @test_assign_string_on_non_dict(%arr: !emitpy.opaque<"[int]">, %key: !emitpy.str, %value: !emitpy.opaque<"int">) {
-    // CHECK: error: 'emitpy.assign' op cannot use string index on non-dict type '!emitpy.opaque<"[int]">'
-    emitpy.assign %arr[%key] = %value : (!emitpy.opaque<"[int]">, !emitpy.str, !emitpy.opaque<"int">)
+  func.func @test_assign_subscript_directly(%dict: !emitpy.dict, %key: index, %value: !emitpy.opaque<"[ttnn.Tensor]">) {
+    %sub = emitpy.subscript %dict[%key] : (!emitpy.dict, index) -> !emitpy.opaque<"[ttnn.Tensor]">
+    // CHECK: error: 'emitpy.assign' op subscript assignment (e.g., dict[key] = value) must be wrapped in emitpy.expression.
+    emitpy.assign %sub = %value : (!emitpy.opaque<"[ttnn.Tensor]">, !emitpy.opaque<"[ttnn.Tensor]">)
     return
   }
 }

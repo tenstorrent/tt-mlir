@@ -742,17 +742,28 @@ static LogicalResult printOperation(PythonEmitter &emitter,
 static LogicalResult printOperation(PythonEmitter &emitter, AssignOp op) {
   raw_indented_ostream &os = emitter.ostream();
 
-  if (failed(emitter.emitOperand(op.getTarget(), "target"))) {
-    return failure();
-  }
+  Value target = op.getTarget();
+  Operation *targetDefOp = target.getDefiningOp();
 
-  // If index is present, emit subscript assignment: target[index] = value
-  if (op.getIndex()) {
+  if (auto subscriptOp = dyn_cast_or_null<SubscriptOp>(targetDefOp)) {
+    // Subscript assignment: dict[key] = value.
+    if (failed(
+            emitter.emitOperand(subscriptOp.getValue(), "subscript_target"))) {
+      return failure();
+    }
+
     os << "[";
-    if (failed(emitter.emitOperand(op.getIndex(), "index"))) {
+    if (failed(
+            emitter.emitOperand(subscriptOp.getIndex(), "subscript_index"))) {
       return failure();
     }
     os << "]";
+
+  } else {
+    // Regular assignment: target = value.
+    if (failed(emitter.emitOperand(target, "target"))) {
+      return failure();
+    }
   }
 
   os << " = ";
@@ -848,6 +859,40 @@ static LogicalResult printOperation(PythonEmitter &emitter, IfOp ifOp) {
 static LogicalResult printOperation(PythonEmitter &emitter,
                                     ExpressionOp expressionOp) {
 
+  // Check if this expression contains a subscript assignment.
+  Block *bodyBlock = expressionOp.getBodyBlock();
+  bool isSubscriptAssignment = false;
+  AssignOp assignOp = nullptr;
+
+  for (Operation &bodyOp : bodyBlock->getOperations()) {
+    if (auto asgOp = dyn_cast<AssignOp>(&bodyOp)) {
+      if (dyn_cast_or_null<SubscriptOp>(asgOp.getTarget().getDefiningOp())) {
+        isSubscriptAssignment = true;
+        assignOp = asgOp;
+        break;
+      }
+    }
+  }
+
+  // Handle subscript assignment.
+  if (isSubscriptAssignment && assignOp) {
+    raw_indented_ostream &os = emitter.ostream();
+
+    for (auto [blockArg, operand] :
+         llvm::zip(bodyBlock->getArguments(), expressionOp.getOperands())) {
+      emitter.registerDeferredValue(
+          blockArg, emitter.getOrCreateName(operand, "expr_arg"));
+    }
+
+    if (failed(printOperation(emitter, assignOp))) {
+      return failure();
+    }
+
+    os << "\n";
+
+    return success();
+  }
+
   // Check if we should emit inline or not
   bool shouldInline = !expressionOp.getDoNotInline();
 
@@ -868,7 +913,6 @@ static LogicalResult printOperation(PythonEmitter &emitter,
     PythonEmitter::Scope scope(emitter);
 
     // Map block arguments to operands
-    Block *bodyBlock = expressionOp.getBodyBlock();
     for (auto [blockArg, operand] :
          llvm::zip(bodyBlock->getArguments(), expressionOp.getOperands())) {
       emitter.registerDeferredValue(

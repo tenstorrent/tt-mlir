@@ -844,14 +844,21 @@ void AssignOp::getEffects(
 }
 
 LogicalResult AssignOp::verify() {
-  // If index is provided, verify it's compatible with target type
-  if (getIndex()) {
-    Type targetType = getTarget().getType();
-    Type indexType = getIndex().getType();
-
-    if (!isa<DictType>(targetType) && isa<StringType>(indexType)) {
-      return emitOpError() << "cannot use string index on non-dict type "
-                           << targetType;
+  // Check if the target is a subscript operation
+  Operation *definingOp = getTarget().getDefiningOp();
+  if (definingOp && isa<SubscriptOp>(definingOp)) {
+    // Allow subscript assignment inside an expression block
+    if (!isa_and_nonnull<ExpressionOp>(getOperation()->getParentOp())) {
+      return emitOpError()
+             << "subscript assignment (e.g., dict[key] = value) must be "
+                "wrapped in emitpy.expression. "
+             << "Example: emitpy.expression(%dict, %key, %value) : "
+                "(!emitpy.dict, index, T) -> !emitpy.opaque<\"None\"> { "
+                "^bb0(%d: !emitpy.dict, %k: index, %v: T): "
+                "%sub = emitpy.subscript %d[%k] : (!emitpy.dict, index) -> T; "
+                "emitpy.assign %sub = %v : (T, T); "
+                "%none = emitpy.constant ... : !emitpy.opaque<\"None\">; "
+                "emitpy.yield %none : !emitpy.opaque<\"None\"> }";
     }
   }
 
@@ -860,61 +867,31 @@ LogicalResult AssignOp::verify() {
 
 void AssignOp::print(OpAsmPrinter &p) {
   p << " " << getTarget();
-  if (getIndex()) {
-    p << "[" << getIndex() << "]";
-  }
   p << " = " << getValue() << " : (";
   p << getTarget().getType();
-  if (getIndex()) {
-    p << ", " << getIndex().getType();
-  }
   p << ", " << getValue().getType() << ")";
 }
 
 ParseResult AssignOp::parse(OpAsmParser &parser, OperationState &result) {
-  OpAsmParser::UnresolvedOperand target, index, value;
-  Type targetType, indexType, valueType;
-  bool hasIndex = false;
+  OpAsmParser::UnresolvedOperand target, value;
+  Type targetType, valueType;
 
-  if (parser.parseOperand(target)) {
-    return parser.emitError(parser.getNameLoc(), "expected target operand");
+  // Parse: %target = %value : (target_type, value_type)
+  if (parser.parseOperand(target) || parser.parseEqual() ||
+      parser.parseOperand(value)) {
+    return parser.emitError(parser.getNameLoc(), "expected '%target = %value'");
   }
-  if (succeeded(parser.parseOptionalLSquare())) {
-    hasIndex = true;
-    if (parser.parseOperand(index) || parser.parseRSquare()) {
-      return parser.emitError(parser.getNameLoc(), "expected index operand");
-    }
-  }
-  if (parser.parseEqual() || parser.parseOperand(value)) {
-    return parser.emitError(parser.getNameLoc(),
-                            "expected '=' and value operand");
-  }
+
   if (parser.parseColon() || parser.parseLParen() ||
-      parser.parseType(targetType)) {
-    return parser.emitError(parser.getNameLoc(), "expected target type");
-  }
-  if (hasIndex) {
-    if (parser.parseComma() || parser.parseType(indexType)) {
-      return parser.emitError(parser.getNameLoc(), "expected index type");
-    }
-  }
-  if (parser.parseComma() || parser.parseType(valueType) ||
-      parser.parseRParen()) {
-    return parser.emitError(parser.getNameLoc(), "expected value type");
-  }
-  if (parser.resolveOperand(target, targetType, result.operands)) {
+      parser.parseType(targetType) || parser.parseComma() ||
+      parser.parseType(valueType) || parser.parseRParen()) {
     return parser.emitError(parser.getNameLoc(),
-                            "failed to resolve target operand");
+                            "expected ': (target_type, value_type)'");
   }
-  if (hasIndex) {
-    if (parser.resolveOperand(index, indexType, result.operands)) {
-      return parser.emitError(parser.getNameLoc(),
-                              "failed to resolve index operand");
-    }
-  }
-  if (parser.resolveOperand(value, valueType, result.operands)) {
-    return parser.emitError(parser.getNameLoc(),
-                            "failed to resolve value operand");
+
+  if (parser.resolveOperand(target, targetType, result.operands) ||
+      parser.resolveOperand(value, valueType, result.operands)) {
+    return parser.emitError(parser.getNameLoc(), "failed to resolve operands");
   }
 
   return success();
@@ -968,20 +945,53 @@ LogicalResult ExpressionOp::verify() {
     return emitOpError("requires yielded type to match return type");
   }
 
+  // Check if this is a subscript assignment pattern
+  bool isSubscriptAssignment = false;
+
   for (Operation &op : region.front().without_terminator()) {
-    auto expressionInterface = dyn_cast<PyExpressionInterface>(op);
-    // Ensure each operation implements the expression interface
-    if (!expressionInterface) {
-      return emitOpError("contains an unsupported operation");
+    if (auto assignOp = dyn_cast<AssignOp>(&op)) {
+      if (auto subscriptOp = dyn_cast_or_null<SubscriptOp>(
+              assignOp.getTarget().getDefiningOp())) {
+        isSubscriptAssignment = true;
+        break;
+      }
     }
-    // Ensure each operation has exactly one result
-    if (op.getNumResults() != 1) {
-      return emitOpError("requires exactly one result for each operation");
+  }
+
+  // For subscript assignment pattern, verify it contains exactly the expected
+  // ops: one SubscriptOp, one AssignOp targeting it, and one constant for the
+  // yield. The translator only emits the AssignOp, so any other operations
+  // would be silently dropped.
+  if (isSubscriptAssignment) {
+    unsigned nonTerminatorCount = 0;
+    for (Operation &op : region.front().without_terminator()) {
+      ++nonTerminatorCount;
+      if (!isa<SubscriptOp, AssignOp, ConstantOp>(op)) {
+        return emitOpError("subscript assignment expression must only contain "
+                           "subscript, assign, and constant operations");
+      }
     }
-    Value result = op.getResult(0);
-    // Ensure each operation's result is used at least once
-    if (result.use_empty()) {
-      return emitOpError("contains an unused operation");
+    if (nonTerminatorCount != 3) {
+      return emitOpError(
+          "subscript assignment expression must contain exactly three "
+          "operations (subscript, assign, constant) before the yield");
+    }
+  } else {
+    for (Operation &op : region.front().without_terminator()) {
+      auto expressionInterface = dyn_cast<PyExpressionInterface>(op);
+      // Ensure each operation implements the expression interface
+      if (!expressionInterface) {
+        return emitOpError("contains an unsupported operation");
+      }
+      // Ensure each operation has exactly one result
+      if (op.getNumResults() != 1) {
+        return emitOpError("requires exactly one result for each operation");
+      }
+      Value result = op.getResult(0);
+      // Ensure each operation's result is used at least once
+      if (result.use_empty()) {
+        return emitOpError("contains an unused operation");
+      }
     }
   }
 
