@@ -12,6 +12,7 @@
 #include "shardy/dialect/sdy/transforms/propagation/user_priority_propagation.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Pass/PassRegistry.h"
@@ -31,12 +32,27 @@ namespace mlir::tt::stablehlo {
 
 namespace {
 
-// For Dimentions
-struct ShardingConfig {
-  llvm::SmallVector<llvm::SmallVector<bool>> argDimSharded;
+// Tier 2: intermediate op result eligible for sdy.sharding_constraint.
+struct ConstraintCandidate {
+  size_t opIndex;
+  int64_t rank;
 };
 
-// For Axes
+struct ShardingConfig {
+  // Tier 1: per-arg per-dim sharding (true = sharded on the axis).
+  llvm::SmallVector<llvm::SmallVector<bool>> argDimSharded;
+
+  // Tier 2: per-constraint-candidate target sharding.
+  // std::nullopt = no constraint at this point.
+  // SmallVector<bool> = insert sdy.sharding_constraint with this target.
+  llvm::SmallVector<std::optional<llvm::SmallVector<bool>>> constraintTargets;
+
+  // When true, all shardings (arg + constraint) use is_closed=true, forcing
+  // Shardy to respect them exactly. When false, shardings are open and Shardy
+  // can adjust them during propagation.
+  bool closedShardings = true;
+};
+
 struct MeshInfo {
   llvm::StringRef meshName;
   llvm::SmallVector<std::pair<std::string, int64_t>> axes;
@@ -44,7 +60,6 @@ struct MeshInfo {
   llvm::SmallVector<std::string> getShardableAxes() const {
     llvm::SmallVector<std::string> results;
     for (const auto &[name, size] : axes) {
-      // Already checked in extractMeshInfo
       if (size > 1) {
         results.push_back(name);
       }
@@ -53,8 +68,9 @@ struct MeshInfo {
   }
 };
 
-static std::optional<MeshInfo> extractMeshInfo(ModuleOp& module) {
-  llvm::SmallVector<mlir::sdy::MeshOp> meshOps = shardy_utils::getMeshOps(module);
+static std::optional<MeshInfo> extractMeshInfo(ModuleOp &module) {
+  llvm::SmallVector<mlir::sdy::MeshOp> meshOps =
+      shardy_utils::getMeshOps(module);
   if (meshOps.empty()) {
     return std::nullopt;
   }
@@ -62,21 +78,71 @@ static std::optional<MeshInfo> extractMeshInfo(ModuleOp& module) {
   MeshInfo info;
   info.meshName = meshOps[0].getSymName();
   for (auto axisAttr : meshOps[0].getMeshAttr().getAxes()) {
-    if (axisAttr.getSize() > 1) { // What if there is no size argument? Could it be a case?
+    if (axisAttr.getSize() > 1) {
       info.axes.emplace_back(axisAttr.getName().str(), axisAttr.getSize());
     }
   }
   return info;
 }
 
-// Direct get value to apply to dims
-static llvm::SmallVector<ShardingConfig> enumerateShardingConfigs(ModuleOp& module) {
+// Collect tensor-typed op results in the function body that are eligible for
+// sdy.sharding_constraint insertion. Skips terminators and non-tensor results.
+static llvm::SmallVector<ConstraintCandidate>
+collectConstraintCandidates(ModuleOp &module, int64_t maxCandidates) {
+  llvm::SmallVector<ConstraintCandidate> candidates;
+  auto funcOps = module.getOps<func::FuncOp>();
+  if (funcOps.empty()) {
+    return candidates;
+  }
+  func::FuncOp funcOp = *funcOps.begin();
+
+  size_t opIdx = 0;
+  for (auto &op : funcOp.getBody().front()) {
+    if (op.hasTrait<OpTrait::IsTerminator>()) {
+      ++opIdx;
+      continue;
+    }
+    if (op.getNumResults() > 0) {
+      if (auto tensorType =
+              dyn_cast<RankedTensorType>(op.getResult(0).getType())) {
+        candidates.push_back({opIdx, tensorType.getRank()});
+        if (static_cast<int64_t>(candidates.size()) >= maxCandidates) {
+          break;
+        }
+      }
+    }
+    ++opIdx;
+  }
+  return candidates;
+}
+
+// Enumerate valid per-dim sharding options for a tensor of given rank.
+// With a single shardable axis, at most one dim can be sharded on it.
+// Returns: [all-replicated, dim0-sharded, dim1-sharded, ...].
+static llvm::SmallVector<llvm::SmallVector<bool>>
+enumerateValidDimShardings(int64_t rank) {
+  llvm::SmallVector<llvm::SmallVector<bool>> options;
+
+  options.push_back(llvm::SmallVector<bool>(rank, false));
+
+  for (int64_t d = 0; d < rank; ++d) {
+    llvm::SmallVector<bool> sharded(rank, false);
+    sharded[d] = true;
+    options.push_back(sharded);
+  }
+  return options;
+}
+
+// Tier 1: enumerate arg-level sharding configs.
+static llvm::SmallVector<ShardingConfig>
+enumerateTier1Configs(ModuleOp &module) {
   llvm::SmallVector<ShardingConfig> configs;
   auto funcOps = module.getOps<func::FuncOp>();
   if (funcOps.empty()) {
     return configs;
   }
   func::FuncOp funcOp = *funcOps.begin();
+
   llvm::SmallVector<int64_t> argRanks;
   for (auto arg : funcOp.getArguments()) {
     auto tensorType = dyn_cast<RankedTensorType>(arg.getType());
@@ -93,10 +159,9 @@ static llvm::SmallVector<ShardingConfig> enumerateShardingConfigs(ModuleOp& modu
 
   if (totalDims > 20) {
     llvm::errs() << "AutoSharding: totalDims=" << totalDims
-                << " too large, capping at first 1024 configs\n";
+                 << " too large, capping at first 1024 configs\n";
   }
 
-  // As each dimension can be sharded or not, there are 2^totalDims configs
   int64_t numConfigs = 1LL << std::min(totalDims, static_cast<int64_t>(20));
 
   for (int64_t bits = 0; bits < numConfigs; ++bits) {
@@ -104,18 +169,17 @@ static llvm::SmallVector<ShardingConfig> enumerateShardingConfigs(ModuleOp& modu
     int64_t bitIdx = 0;
     bool valid = true;
     for (size_t argIdx = 0; argIdx < argRanks.size(); ++argIdx) {
-      llvm::SmallVector<bool> dimChoices; // for that argument, which dimensions are sharded?
+      llvm::SmallVector<bool> dimChoices;
       int shardedCount = 0;
       for (int64_t d = 0; d < argRanks[argIdx]; ++d) {
-        bool sharded = (bits >> bitIdx) & 1; // ???
+        bool sharded = (bits >> bitIdx) & 1;
         dimChoices.push_back(sharded);
         if (sharded) {
           ++shardedCount;
         }
         ++bitIdx;
       }
-      // With a single shardable axis, at most one dim per tensor can be
-      // sharded on it. Skip configs that shard multiple dims on the same axis. ???
+      // With a single shardable axis, at most one dim per tensor can use it.
       if (shardedCount > 1) {
         valid = false;
         break;
@@ -126,14 +190,94 @@ static llvm::SmallVector<ShardingConfig> enumerateShardingConfigs(ModuleOp& modu
       configs.push_back(std::move(config));
     }
   }
-
   return configs;
-
 }
 
-// Apply sharding hints to a module's function arguments based on a config.
-static void applyShardingHints(ModuleOp module, const ShardingConfig &config,
-                               StringRef meshName, StringRef shardAxisName) {
+// Cross-product Tier 1 configs with Tier 2 constraint choices.
+// Per constraint candidate: absent OR each valid dim sharding.
+static llvm::SmallVector<ShardingConfig>
+expandWithConstraints(const llvm::SmallVector<ShardingConfig> &tier1Configs,
+                      const llvm::SmallVector<ConstraintCandidate> &candidates) {
+  if (candidates.empty()) {
+    return tier1Configs;
+  }
+
+  // Valid sharding options per candidate (not including "absent").
+  llvm::SmallVector<llvm::SmallVector<llvm::SmallVector<bool>>>
+      perCandidateOptions;
+  for (const auto &cand : candidates) {
+    perCandidateOptions.push_back(enumerateValidDimShardings(cand.rank));
+  }
+
+  // Total constraint combinations: product of (1 + numValidOptions) per
+  // candidate, where the +1 accounts for "absent" (no constraint).
+  size_t constraintCombinations = 1;
+  for (const auto &opts : perCandidateOptions) {
+    constraintCombinations *= (opts.size() + 1);
+  }
+
+  size_t totalConfigs = tier1Configs.size() * constraintCombinations;
+  constexpr size_t kMaxConfigs = 50000;
+  if (totalConfigs > kMaxConfigs) {
+    llvm::errs() << "AutoSharding: Tier1*Tier2 would produce " << totalConfigs
+                 << " configs (cap=" << kMaxConfigs
+                 << "), skipping Tier 2 constraints\n";
+    return tier1Configs;
+  }
+
+  llvm::errs() << "AutoSharding: Tier 2 expands " << tier1Configs.size()
+               << " Tier 1 configs x " << constraintCombinations
+               << " constraint combos = " << totalConfigs << " total\n";
+
+  llvm::SmallVector<ShardingConfig> combined;
+  combined.reserve(totalConfigs);
+
+  for (const auto &t1 : tier1Configs) {
+    for (size_t ci = 0; ci < constraintCombinations; ++ci) {
+      ShardingConfig config;
+      config.argDimSharded = t1.argDimSharded;
+
+      size_t remaining = ci;
+      for (size_t k = 0; k < candidates.size(); ++k) {
+        size_t numOptions = perCandidateOptions[k].size() + 1;
+        size_t choice = remaining % numOptions;
+        remaining /= numOptions;
+
+        if (choice == 0) {
+          config.constraintTargets.push_back(std::nullopt);
+        } else {
+          config.constraintTargets.push_back(
+              perCandidateOptions[k][choice - 1]);
+        }
+      }
+      combined.push_back(std::move(config));
+    }
+  }
+  return combined;
+}
+
+// Duplicate each config into an open variant and a closed variant.
+static llvm::SmallVector<ShardingConfig>
+expandWithClosedToggle(const llvm::SmallVector<ShardingConfig> &configs) {
+  llvm::SmallVector<ShardingConfig> expanded;
+  expanded.reserve(configs.size() * 2);
+  for (const auto &config : configs) {
+    ShardingConfig openCfg = config;
+    openCfg.closedShardings = false;
+    expanded.push_back(std::move(openCfg));
+
+    ShardingConfig closedCfg = config;
+    closedCfg.closedShardings = true;
+    expanded.push_back(std::move(closedCfg));
+  }
+  return expanded;
+}
+
+// Apply Tier 1 arg shardings and Tier 2 sharding constraints to a module.
+static void applyShardingHints(
+    ModuleOp module, const ShardingConfig &config, StringRef meshName,
+    StringRef shardAxisName,
+    const llvm::SmallVector<ConstraintCandidate> &candidates) {
   MLIRContext *context = module.getContext();
 
   auto funcOps = module.getOps<func::FuncOp>();
@@ -142,6 +286,8 @@ static void applyShardingHints(ModuleOp module, const ShardingConfig &config,
   }
   func::FuncOp funcOp = *funcOps.begin();
 
+  // --- Tier 1: set sdy.sharding on function arguments ---
+  const bool isClosed = config.closedShardings;
   for (size_t argIdx = 0; argIdx < config.argDimSharded.size(); ++argIdx) {
     llvm::SmallVector<mlir::sdy::DimensionShardingAttr> dimShardings;
 
@@ -149,10 +295,10 @@ static void applyShardingHints(ModuleOp module, const ShardingConfig &config,
       if (sharded) {
         auto axisRef = mlir::sdy::AxisRefAttr::get(context, shardAxisName);
         dimShardings.push_back(mlir::sdy::DimensionShardingAttr::get(
-            context, {axisRef}, /*isClosed=*/false));
+            context, {axisRef}, isClosed));
       } else {
         dimShardings.push_back(mlir::sdy::DimensionShardingAttr::get(
-            context, {}, /*isClosed=*/false));
+            context, {}, isClosed));
       }
     }
 
@@ -160,7 +306,6 @@ static void applyShardingHints(ModuleOp module, const ShardingConfig &config,
         context, meshName, dimShardings, /*replicatedAxes=*/{},
         /*unreducedAxes=*/{});
 
-    // Build new dict, guarding against null existing attrs.
     auto existingDict = funcOp.getArgAttrDict(argIdx);
     std::optional<mlir::DictionaryAttr> optDict =
         existingDict ? std::optional(existingDict) : std::nullopt;
@@ -168,8 +313,72 @@ static void applyShardingHints(ModuleOp module, const ShardingConfig &config,
         context, sharding, optDict);
     funcOp.setArgAttrs(argIdx, newDict);
   }
-}
 
+  // --- Tier 2: insert sdy.sharding_constraint on intermediates ---
+  if (config.constraintTargets.empty() || candidates.empty()) {
+    return;
+  }
+
+  // Snapshot body ops by index for positional lookup in the clone.
+  llvm::SmallVector<Operation *> bodyOps;
+  for (auto &op : funcOp.getBody().front()) {
+    bodyOps.push_back(&op);
+  }
+
+  OpBuilder builder(context);
+
+  for (size_t k = 0;
+       k < candidates.size() && k < config.constraintTargets.size(); ++k) {
+    if (!config.constraintTargets[k]) {
+      continue;
+    }
+
+    const auto &target = *config.constraintTargets[k];
+    size_t opIdx = candidates[k].opIndex;
+    if (opIdx >= bodyOps.size()) {
+      continue;
+    }
+
+    Operation *targetOp = bodyOps[opIdx];
+    if (targetOp->getNumResults() == 0) {
+      continue;
+    }
+
+    Value result = targetOp->getResult(0);
+
+    // Build TensorShardingAttr for the constraint target.
+    llvm::SmallVector<mlir::sdy::DimensionShardingAttr> dimShardings;
+    for (bool sharded : target) {
+      if (sharded) {
+        auto axisRef = mlir::sdy::AxisRefAttr::get(context, shardAxisName);
+        dimShardings.push_back(mlir::sdy::DimensionShardingAttr::get(
+            context, {axisRef}, isClosed));
+      } else {
+        dimShardings.push_back(mlir::sdy::DimensionShardingAttr::get(
+            context, {}, isClosed));
+      }
+    }
+
+    auto sharding = mlir::sdy::TensorShardingAttr::get(
+        context, meshName, dimShardings, /*replicatedAxes=*/{},
+        /*unreducedAxes=*/{});
+
+    // Snapshot existing uses before creating the constraint op, so we only
+    // redirect pre-existing uses (not the constraint's own operand).
+    llvm::SmallVector<OpOperand *> usesToReplace;
+    for (OpOperand &use : result.getUses()) {
+      usesToReplace.push_back(&use);
+    }
+
+    builder.setInsertionPointAfter(targetOp);
+    auto constraintOp = builder.create<mlir::sdy::ShardingConstraintOp>(
+        targetOp->getLoc(), result.getType(), result, sharding);
+
+    for (OpOperand *use : usesToReplace) {
+      use->set(constraintOp.getResult());
+    }
+  }
+}
 
 // Build a sub-pipeline with the remaining StableHLO passes (everything that
 // normally runs after AutoSharding in the stablehlo-pipeline).
@@ -202,7 +411,6 @@ static void addRemainingStableHLOPasses(OpPassManager &pm) {
 }
 
 // Evaluate cost of a lowered TTNN module by counting and weighting CCL ops.
-// Uses string-based op name matching to avoid compile-time dependency on TTNN.
 static double evaluateCost(ModuleOp module) {
   double totalCost = 0.0;
 
@@ -220,8 +428,6 @@ static double evaluateCost(ModuleOp module) {
   return totalCost;
 }
 
-
-// Format a ShardingConfig for log output.
 static std::string formatConfig(const ShardingConfig &config) {
   std::string result;
   llvm::raw_string_ostream os(result);
@@ -239,11 +445,26 @@ static std::string formatConfig(const ShardingConfig &config) {
     }
     os << "]";
   }
+  for (size_t c = 0; c < config.constraintTargets.size(); ++c) {
+    os << ", c" << c << ":";
+    if (!config.constraintTargets[c]) {
+      os << "none";
+    } else {
+      os << "[";
+      for (size_t d = 0; d < config.constraintTargets[c]->size(); ++d) {
+        if (d > 0) {
+          os << ",";
+        }
+        os << ((*config.constraintTargets[c])[d] ? "S" : "R");
+      }
+      os << "]";
+    }
+  }
+  os << ", " << (config.closedShardings ? "closed" : "open");
   os << "]";
   return result;
 }
 
-// Build a filesystem-friendly config name like "arg0-RR_arg1-SR".
 static std::string configDirName(size_t idx, const ShardingConfig &config) {
   std::string result;
   llvm::raw_string_ostream os(result);
@@ -254,12 +475,20 @@ static std::string configDirName(size_t idx, const ShardingConfig &config) {
       os << (s ? "S" : "R");
     }
   }
+  for (size_t c = 0; c < config.constraintTargets.size(); ++c) {
+    os << "_c" << c << "-";
+    if (!config.constraintTargets[c]) {
+      os << "none";
+    } else {
+      for (bool s : *config.constraintTargets[c]) {
+        os << (s ? "S" : "R");
+      }
+    }
+  }
+  os << (config.closedShardings ? "_closed" : "_open");
   return result;
 }
 
-
-// Create a timestamped dump directory and return its path.
-// Returns empty string on failure.
 static std::string createDumpRoot(StringRef baseDir) {
   auto now = std::chrono::system_clock::now();
   auto timeT = std::chrono::system_clock::to_time_t(now);
@@ -285,7 +514,6 @@ static std::string createDumpRoot(StringRef baseDir) {
   return path.str().str();
 }
 
-// Dump a module to a file. Returns true on success.
 static bool dumpModuleToFile(ModuleOp module, StringRef filePath) {
   std::error_code ec;
   llvm::raw_fd_ostream fos(filePath, ec);
@@ -299,7 +527,6 @@ static bool dumpModuleToFile(ModuleOp module, StringRef filePath) {
   return true;
 }
 
-
 class AutoShardingPass
     : public impl::AutoShardingPassBase<AutoShardingPass> {
 public:
@@ -309,14 +536,10 @@ public:
     ModuleOp rootModule = getOperation();
     MLIRContext *context = rootModule.getContext();
 
-    // The outer PassManager::run() holds a multi-threaded execution guard on
-    // the context. Inner PassManager::run() calls appendDialectRegistry which
-    // asserts single-threaded access. Temporarily exit the outer guard.
     context->exitMultiThreadedExecution();
     auto restoreGuard = llvm::make_scope_exit(
         [context] { context->enterMultiThreadedExecution(); });
 
-    // Extract mesh info from the module.
     auto meshInfoOpt = extractMeshInfo(rootModule);
     if (!meshInfoOpt) {
       rootModule.emitWarning(
@@ -325,7 +548,6 @@ public:
     }
     const MeshInfo &meshInfo = *meshInfoOpt;
 
-    // Find axes worth sharding on (size > 1).
     auto shardableAxes = meshInfo.getShardableAxes();
     if (shardableAxes.empty()) {
       llvm::errs() << "AutoSharding: no shardable axes (all size 1), "
@@ -333,21 +555,34 @@ public:
       return;
     }
 
-    // Phase 0: use only the first shardable axis.
     StringRef shardAxisName = shardableAxes[0];
     llvm::errs() << "AutoSharding: mesh='" << meshInfo.meshName
                  << "', sharding axis='" << shardAxisName << "'\n";
 
-    // 1. Enumerate sharding configs.
-    auto configs = enumerateShardingConfigs(rootModule);
-    if (configs.empty()) {
+    // 1. Enumerate Tier 1 configs (arg-level shardings).
+    auto tier1Configs = enumerateTier1Configs(rootModule);
+    if (tier1Configs.empty()) {
       rootModule.emitWarning(
           "AutoSharding: no configs enumerated, skipping");
       return;
     }
+    llvm::errs() << "AutoSharding: " << tier1Configs.size()
+                 << " Tier 1 configs\n";
+
+    // 2. Collect Tier 2 constraint candidates (intermediate op results).
+    auto candidates =
+        collectConstraintCandidates(rootModule, maxConstraintCandidates);
+    llvm::errs() << "AutoSharding: " << candidates.size()
+                 << " Tier 2 constraint candidate(s)\n";
+
+    // 3. Cross-product Tier 1 with Tier 2 constraint options.
+    auto configs = expandWithConstraints(tier1Configs, candidates);
+
+    // 4. Duplicate each config for open and closed shardings.
+    configs = expandWithClosedToggle(configs);
 
     llvm::errs() << "AutoSharding: evaluating " << configs.size()
-                 << " sharding configurations\n";
+                 << " total configurations (Tier 1 x Tier 2 x open/closed)\n";
 
     // Set up dump directory if requested.
     std::string dumpRoot;
@@ -359,7 +594,6 @@ public:
       }
     }
 
-    // Lookup the downstream pipelines (runtime, no compile-time dep on TTNN).
     const auto *ttirPipeline =
         PassPipelineInfo::lookup("stablehlo-to-ttir-pipeline");
     const auto *ttnnPipeline =
@@ -373,7 +607,6 @@ public:
       return;
     }
 
-    // Build ttnn pipeline options string.
     std::string ttnnOptions;
     if (!systemDescPath.empty()) {
       ttnnOptions = "system-desc-path=" + systemDescPath;
@@ -395,7 +628,6 @@ public:
     size_t bestIdx = 0;
     bool anySucceeded = false;
 
-
     struct VariantResult {
       size_t idx;
       std::string label;
@@ -409,16 +641,13 @@ public:
         [](const Twine &) { return failure(); };
 
     for (size_t i = 0; i < configs.size(); ++i) {
-      // 2. Clone the module.
       ModuleOp clonedModule = cast<ModuleOp>(rootModule->clone());
       auto cleanup =
           llvm::make_scope_exit([&clonedModule] { clonedModule->erase(); });
 
-      // 3. Apply sharding hints to the clone.
       applyShardingHints(clonedModule, configs[i], meshInfo.meshName,
-                         shardAxisName);
+                         shardAxisName, candidates);
 
-      // Dump the StableHLO IR with hints applied (before lowering).
       std::string variantDir;
       if (collectResults) {
         std::string varName = configDirName(i, configs[i]);
@@ -432,7 +661,6 @@ public:
         dumpModuleToFile(clonedModule, hloPath);
       }
 
-      // 4. Build and run the sub-pipeline on the clone.
       PassManager pm(context, ModuleOp::getOperationName(),
                      PassManager::Nesting::Implicit);
       addRemainingStableHLOPasses(pm);
@@ -440,8 +668,7 @@ public:
       if (failed(ttirPipeline->addToPipeline(pm, "", errHandler))) {
         llvm::errs() << "AutoSharding: failed to build ttir pipeline\n";
         if (collectResults) {
-          results.push_back(
-              {i, formatConfig(configs[i]), false, 0.0});
+          results.push_back({i, formatConfig(configs[i]), false, 0.0});
         }
         continue;
       }
@@ -449,8 +676,7 @@ public:
       if (failed(ttnnPipeline->addToPipeline(pm, ttnnOptions, errHandler))) {
         llvm::errs() << "AutoSharding: failed to build ttnn pipeline\n";
         if (collectResults) {
-          results.push_back(
-              {i, formatConfig(configs[i]), false, 0.0});
+          results.push_back({i, formatConfig(configs[i]), false, 0.0});
         }
         continue;
       }
@@ -459,21 +685,17 @@ public:
         llvm::errs() << "AutoSharding: config " << i << " "
                      << formatConfig(configs[i]) << " failed to lower\n";
         if (collectResults) {
-          results.push_back(
-              {i, formatConfig(configs[i]), false, 0.0});
+          results.push_back({i, formatConfig(configs[i]), false, 0.0});
         }
         continue;
       }
 
-      // Dump the lowered TTNN IR.
       if (!variantDir.empty()) {
         llvm::SmallString<256> ttnnPath(variantDir);
         llvm::sys::path::append(ttnnPath, "02_lowered_ttnn.mlir");
         dumpModuleToFile(clonedModule, ttnnPath);
       }
 
-
-      // 5. Evaluate cost.
       double cost = evaluateCost(clonedModule);
       llvm::errs() << "AutoSharding: config " << i << " "
                    << formatConfig(configs[i]) << " cost=" << cost << "\n";
@@ -495,12 +717,11 @@ public:
       return;
     }
 
-    // 6. Apply the winning config to the original module.
     llvm::errs() << "AutoSharding: selected config " << bestIdx << " "
                  << formatConfig(configs[bestIdx])
                  << " with cost=" << bestCost << "\n";
     applyShardingHints(rootModule, configs[bestIdx], meshInfo.meshName,
-                       shardAxisName);
+                       shardAxisName, candidates);
 
     // Write summary file.
     if (!dumpRoot.empty()) {
@@ -513,21 +734,19 @@ public:
         fos << "=======================\n";
         fos << "Mesh: " << meshInfo.meshName << "\n";
         fos << "Sharding axis: " << shardAxisName << "\n";
+        fos << "Tier 1 configs: " << tier1Configs.size() << "\n";
+        fos << "Tier 2 constraint candidates: " << candidates.size() << "\n";
         fos << "Total configs evaluated: " << configs.size() << "\n\n";
 
-        fos << "Config  Sharding                                 Status  Cost\n";
-        fos << std::string(72, '-') << "\n";
+        fos << "Config  Sharding"
+            << std::string(50, ' ') << "Status  Cost\n";
+        fos << std::string(90, '-') << "\n";
         for (const auto &r : results) {
-          fos << r.idx;
-          size_t idxLen = std::to_string(r.idx).size();
-          if (idxLen < 8) {
-            fos.indent(8 - idxLen);
-          }
+          fos << llvm::format("%-8zu", r.idx);
 
           fos << r.label;
-          size_t labelLen = r.label.size();
-          if (labelLen < 42) {
-            fos.indent(42 - labelLen);
+          if (r.label.size() < 58) {
+            fos.indent(58 - r.label.size());
           }
 
           if (r.succeeded) {
