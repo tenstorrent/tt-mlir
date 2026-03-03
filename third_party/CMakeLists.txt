@@ -276,7 +276,7 @@ install(
 install(
   DIRECTORY
     ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tests/scale_out
-  DESTINATION tt-metal/tests/scale_out
+  DESTINATION tt-metal/tests
   COMPONENT DistributedRuntime
   EXCLUDE_FROM_ALL
 )
