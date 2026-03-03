@@ -96,6 +96,31 @@ struct ConstantComplexConversionPattern
   }
 };
 
+struct ReshapeComplexConversionPattern
+    : public OpConversionPattern<ttir::ReshapeOp> {
+  using OpConversionPattern<ttir::ReshapeOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::ReshapeOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto resultType = mlir::cast<RankedTensorType>(op.getResult().getType());
+    if (!mlir::isa<mlir::ComplexType>(resultType.getElementType())) {
+      return rewriter.notifyMatchFailure(op, "not a complex element type");
+    }
+
+    auto newResultType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(resultType));
+
+    // Derive the new shape attr from the converted result type.
+    // The type converter appended a trailing '2' for [real, imag].
+    auto newShape = llvm::to_vector_of<int32_t>(newResultType.getShape());
+    rewriter.replaceOpWithNewOp<ttir::ReshapeOp>(
+        op, newResultType, adaptor.getInput(),
+        rewriter.getI32ArrayAttr(newShape));
+    return success();
+  }
+};
+
 struct TTIRComplexDataTypeConversionPass
     : public impl::TTIRComplexDataTypeConversionPassBase<
           TTIRComplexDataTypeConversionPass> {
@@ -118,6 +143,13 @@ struct TTIRComplexDataTypeConversionPass
     target.addIllegalOp<ttir::StablehloComplexOp>();
     target.addIllegalOp<ttir::StablehloRealOp>();
     target.addIllegalOp<ttir::StablehloImagOp>();
+
+    // Reshape ops that produce complex tensors must be converted to operate
+    // on the float-pair representation instead.
+    target.addDynamicallyLegalOp<ttir::ReshapeOp>([](ttir::ReshapeOp op) {
+      auto resultType = mlir::cast<RankedTensorType>(op.getResult().getType());
+      return !mlir::isa<mlir::ComplexType>(resultType.getElementType());
+    });
 
     TypeConverter typeConverter;
     // All types map 1:1.
@@ -148,6 +180,7 @@ struct TTIRComplexDataTypeConversionPass
                                                    &getContext());
     patterns.add<StablehloRealToRealPattern>(typeConverter, &getContext());
     patterns.add<StablehloImagToImagPattern>(typeConverter, &getContext());
+    patterns.add<ReshapeComplexConversionPattern>(typeConverter, &getContext());
 
     // Function type conversions: update func signatures and return ops so that
     // complex<fN> argument/result types become float-pair types.
