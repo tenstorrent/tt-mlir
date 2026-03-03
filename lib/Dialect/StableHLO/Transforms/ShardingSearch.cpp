@@ -4,7 +4,6 @@
 
 #include "ttmlir/Dialect/StableHLO/Transforms/Passes.h"
 #include "ttmlir/Dialect/StableHLO/Utils/ShardyUtils.h"
-#include "ttmlir/Dialect/StableHLO/Transforms/Passes.h.inc"
 
 #include "shardy/dialect/sdy/ir/dialect.h"
 #include "shardy/dialect/sdy/transforms/export/passes.h"
@@ -28,6 +27,7 @@
 
 namespace mlir::tt::stablehlo {
 #define GEN_PASS_DEF_SHARDINGSEARCHPASS
+#include "ttmlir/Dialect/StableHLO/Transforms/Passes.h.inc"
 
 namespace {
 
