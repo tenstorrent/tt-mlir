@@ -105,7 +105,7 @@ mlir::Operation *mlir::tt::ttir::AddOp::rewriteWithQuantizedInputs(
         quantElemQ, quantType.getEncoding());
 
     auto quantizedInput =
-        rewriter.create<ttir::QuantizeOp>(getLoc(), newType, dequantVal);
+        ttir::QuantizeOp::create(rewriter, getLoc(), newType, dequantVal);
 
     // Update operands.
     if (lhsElemQ) {
@@ -121,7 +121,8 @@ mlir::Operation *mlir::tt::ttir::AddOp::rewriteWithQuantizedInputs(
       oldType.getShape(), lhsElemQ, oldType.getEncoding());
 
   // Emit new AddOp with quantized types.
-  auto newAdd = rewriter.create<ttir::AddOp>(getLoc(), newResultType, lhs, rhs);
+  auto newAdd =
+      ttir::AddOp::create(rewriter, getLoc(), newResultType, lhs, rhs);
   return newAdd.getOperation();
 }
 
@@ -925,12 +926,12 @@ mlir::Operation *mlir::tt::ttir::Conv2dOp::rewriteWithQuantizedInputs(
     RankedTensorType quantBiasType = RankedTensorType::get(
         getBias().getType().getShape(), quantConvOutputType,
         getBias().getType().getEncoding());
-    quantBias = rewriter.create<mlir::tt::ttir::QuantizeOp>(
-        getLoc(), quantBiasType, quantBias);
+    quantBias = mlir::tt::ttir::QuantizeOp::create(rewriter, getLoc(),
+                                                   quantBiasType, quantBias);
   }
-  auto quantConv = rewriter.create<mlir::tt::ttir::Conv2dOp>(
-      getLoc(), newType, sourceOperands[0], sourceOperands[1], quantBias,
-      getStrideAttr(), getPaddingAttr(), getDilationAttr(),
+  auto quantConv = mlir::tt::ttir::Conv2dOp::create(
+      rewriter, getLoc(), newType, sourceOperands[0], sourceOperands[1],
+      quantBias, getStrideAttr(), getPaddingAttr(), getDilationAttr(),
       rewriter.getI32IntegerAttr(getGroups()), getBatchDimAttr(),
       getHeightDimAttr(), getWidthDimAttr(), getChannelDimAttr(),
       /*flattenedCompatInfo=*/nullptr);
@@ -1370,9 +1371,9 @@ mlir::Operation *mlir::tt::ttir::ConvTranspose2dOp::rewriteWithQuantizedInputs(
   RankedTensorType newType =
       RankedTensorType::get(oldConvOutputType.getShape(), quantConvOutputType,
                             oldConvOutputType.getEncoding());
-  auto quantConv = rewriter.create<mlir::tt::ttir::ConvTranspose2dOp>(
-      getLoc(), newType, sourceOperands[0], sourceOperands[1], getBias(),
-      getStrideAttr(), getPaddingAttr(), getOutputPaddingAttr(),
+  auto quantConv = mlir::tt::ttir::ConvTranspose2dOp::create(
+      rewriter, getLoc(), newType, sourceOperands[0], sourceOperands[1],
+      getBias(), getStrideAttr(), getPaddingAttr(), getOutputPaddingAttr(),
       getDilationAttr(), getGroupsAttr(), /*flattenedCompatInfo=*/nullptr);
 
   return quantConv.getOperation();
@@ -1708,10 +1709,11 @@ static mlir::LogicalResult verifyPooling2dOp(Pool2dOp *op) {
       mlir::cast<RankedTensorType>(input.getType()).getElementType(),
       outType.getEncoding());
 
-  return rewriter
-      .create<mlir::tt::ttir::MaxPool2dOp>(
-          getLoc(), newOutType, input, getKernelAttr(), getStrideAttr(),
-          getDilationAttr(), getPaddingAttr(), getCeilModeAttr())
+  return mlir::tt::ttir::MaxPool2dOp::create(
+             rewriter,
+
+             getLoc(), newOutType, input, getKernelAttr(), getStrideAttr(),
+             getDilationAttr(), getPaddingAttr(), getCeilModeAttr())
       .getOperation();
   // NOLINTEND(clang-analyzer-core.StackAddressEscape)
 }
@@ -4485,9 +4487,9 @@ void mlir::tt::ttir::UpdateCacheOp::getCanonicalizationPatterns(
           auto newInputType = RankedTensorType::get(
               newInputShape, newInput.getType().getElementType(),
               newInput.getType().getEncoding());
-          newInput = rewriter.create<PermuteOp>(
-              op.getLoc(), newInputType, newInput,
-              rewriter.getDenseI64ArrayAttr({0, 2, 1, 3}));
+          newInput =
+              PermuteOp::create(rewriter, op.getLoc(), newInputType, newInput,
+                                rewriter.getDenseI64ArrayAttr({0, 2, 1, 3}));
         }
 
         // If the update index shape is [1] then repeat to num users
@@ -4498,8 +4500,9 @@ void mlir::tt::ttir::UpdateCacheOp::getCanonicalizationPatterns(
               newUpdateIndexShape, newUpdateIndex.getType().getElementType(),
               newUpdateIndex.getType().getEncoding());
           auto repeatDims = rewriter.getDenseI64ArrayAttr({numUsers});
-          newUpdateIndex = rewriter.create<RepeatOp>(
-              op.getLoc(), newUpdateIndexType, newUpdateIndex, repeatDims);
+          newUpdateIndex =
+              RepeatOp::create(rewriter, op.getLoc(), newUpdateIndexType,
+                               newUpdateIndex, repeatDims);
         }
 
         rewriter.replaceOpWithNewOp<ttir::PagedUpdateCacheOp>(

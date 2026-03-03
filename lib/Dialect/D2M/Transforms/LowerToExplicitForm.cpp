@@ -133,9 +133,9 @@ static void lowerBlockOffsetOps(IRRewriter &rewriter, GenericOp generic,
     Value blockFactorConstant = arith::ConstantIndexOp::create(
         rewriter, op.getLoc(), blockFactors[dim]);
     Value coreIndex =
-        rewriter.create<CoreIndexOp>(op.getLoc(), gridDim, gridMapping);
-    Value blockOffset = rewriter.create<arith::MulIOp>(
-        op.getLoc(), blockFactorConstant, coreIndex);
+        CoreIndexOp::create(rewriter, op.getLoc(), gridDim, gridMapping);
+    Value blockOffset = arith::MulIOp::create(rewriter, op.getLoc(),
+                                              blockFactorConstant, coreIndex);
     rewriter.replaceOp(op, blockOffset);
   }
 }

@@ -287,8 +287,8 @@ private:
                        mlir::Value currentInput, Args &&...args) const {
 
     rewriter.setInsertionPoint(op);
-    return rewriter.create<OpType>(op.getLoc(), op.getType(), currentInput,
-                                   std::forward<Args>(args)...);
+    return OpType::create(rewriter, op.getLoc(), op.getType(), currentInput,
+                          std::forward<Args>(args)...);
   }
 
   template <typename OpType, typename... Args>
@@ -296,8 +296,8 @@ private:
                        RankedTensorType newResultType, mlir::Value currentInput,
                        Args &&...args) const {
     rewriter.setInsertionPoint(op);
-    return rewriter.create<OpType>(op.getLoc(), newResultType, currentInput,
-                                   std::forward<Args>(args)...);
+    return OpType::create(rewriter, op.getLoc(), newResultType, currentInput,
+                          std::forward<Args>(args)...);
   }
 
   mlir::Value createToDeviceOpIfNeeded(ttnn::ToLayoutOp op,

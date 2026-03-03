@@ -69,7 +69,7 @@ public:
     populatePipeline(nestedPm);
 
     // Ensure closeInstance() gets called and backtrace env is unset.
-    auto guard = llvm::make_scope_exit([]() noexcept {
+    auto guard = llvm::scope_exit([]() noexcept {
       op_model::SingletonDeviceContext::closeInstance();
       unsetenv("TT_METAL_DISABLE_BACKTRACE");
     });

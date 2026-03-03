@@ -231,8 +231,8 @@ private:
 
     // Create the function
     builder.setInsertionPoint(funcOp);
-    auto traceFuncOp = builder.create<func::FuncOp>(
-        funcOp.getLoc(), traceFuncName, traceFuncType);
+    auto traceFuncOp = func::FuncOp::create(builder, funcOp.getLoc(),
+                                            traceFuncName, traceFuncType);
     ttmlir::utils::setFunctionType(traceFuncOp,
                                    ttmlir::utils::FunctionType::TraceMain);
 
@@ -291,7 +291,7 @@ private:
             "Could not map output value in hoisted function");
       }
     }
-    builder.create<func::ReturnOp>(funcOp.getLoc(), returnValues);
+    func::ReturnOp::create(builder, funcOp.getLoc(), returnValues);
 
     return mlir::success();
   }
@@ -343,8 +343,8 @@ private:
         getCaptureTraceFuncName(funcOp, traceFuncIndex);
 
     builder.setInsertionPoint(funcOp);
-    auto runAndCaptureTraceFunc = builder.create<func::FuncOp>(
-        funcOp.getLoc(), runAndCaptureTraceFuncName,
+    auto runAndCaptureTraceFunc = func::FuncOp::create(
+        builder, funcOp.getLoc(), runAndCaptureTraceFuncName,
         runAndCaptureTraceFuncType);
     ttmlir::utils::setFunctionType(
         runAndCaptureTraceFunc,
@@ -390,8 +390,8 @@ private:
           utils::createShardSpecIfNeeded(ttnnLayoutAttr,
                                          device.getWorkerGrid()));
 
-      auto emptyOp = builder.create<ttnn::EmptyOp>(
-          runAndCaptureTraceFunc.getLoc(), inputTensorType, deviceOp,
+      auto emptyOp = ttnn::EmptyOp::create(
+          builder, runAndCaptureTraceFunc.getLoc(), inputTensorType, deviceOp,
           ttnn::ShapeAttr::get(context, inputTensorType.getShape()),
           ttcore::DataTypeAttr::get(context, ttnnLayoutAttr.getDataType()),
           ttnn::LayoutAttr::get(context, ttnnLayoutAttr.getLayout()),
@@ -412,30 +412,30 @@ private:
       RankedTensorType newResultType = utils::RankedTensorTypeFactory::create(
           currentInputType, ttnn::BufferType::SystemMemory);
 
-      auto fromDeviceOp = builder.create<ttnn::FromDeviceOp>(
-          runAndCaptureTraceFunc.getLoc(), newResultType, input);
+      auto fromDeviceOp = ttnn::FromDeviceOp::create(
+          builder, runAndCaptureTraceFunc.getLoc(), newResultType, input);
 
-      builder.create<ttnn::WriteTensorOp>(runAndCaptureTraceFunc.getLoc(),
-                                          fromDeviceOp, inputSlots[i],
-                                          /*blocking=*/false, /*cq_id=*/0);
+      ttnn::WriteTensorOp::create(builder, runAndCaptureTraceFunc.getLoc(),
+                                  fromDeviceOp, inputSlots[i],
+                                  /*blocking=*/false, /*cq_id=*/0);
     }
 
     // call the trace function on the input slots
-    auto traceFuncCall = builder.create<func::CallOp>(
-        runAndCaptureTraceFunc.getLoc(), traceFunc, inputSlots);
+    auto traceFuncCall = func::CallOp::create(
+        builder, runAndCaptureTraceFunc.getLoc(), traceFunc, inputSlots);
 
     // now, we can capture the trace
-    auto beginTraceCaptureOp = builder.create<ttnn::BeginTraceCaptureOp>(
-        runAndCaptureTraceFunc.getLoc(), utils::getTraceIdType(context),
-        deviceOp,
+    auto beginTraceCaptureOp = ttnn::BeginTraceCaptureOp::create(
+        builder, runAndCaptureTraceFunc.getLoc(),
+        utils::getTraceIdType(context), deviceOp,
         /*cq_id=*/0);
 
-    auto captureTraceCall = builder.create<func::CallOp>(
-        runAndCaptureTraceFunc.getLoc(), traceFunc, inputSlots);
+    auto captureTraceCall = func::CallOp::create(
+        builder, runAndCaptureTraceFunc.getLoc(), traceFunc, inputSlots);
 
-    builder.create<ttnn::EndTraceCaptureOp>(runAndCaptureTraceFunc.getLoc(),
-                                            deviceOp, beginTraceCaptureOp,
-                                            /*cq_id=*/0);
+    ttnn::EndTraceCaptureOp::create(builder, runAndCaptureTraceFunc.getLoc(),
+                                    deviceOp, beginTraceCaptureOp,
+                                    /*cq_id=*/0);
 
     // create the return op
     llvm::SmallVector<mlir::Value> returnValues;
@@ -451,8 +451,8 @@ private:
       returnValues.push_back(outputSlot);
     }
 
-    builder.create<func::ReturnOp>(runAndCaptureTraceFunc.getLoc(),
-                                   returnValues);
+    func::ReturnOp::create(builder, runAndCaptureTraceFunc.getLoc(),
+                           returnValues);
 
     return mlir::success();
   }
@@ -484,8 +484,8 @@ private:
         getExecuteTraceFuncName(funcOp, traceFuncIndex);
 
     builder.setInsertionPoint(funcOp);
-    auto executeTraceFunc = builder.create<func::FuncOp>(
-        funcOp.getLoc(), executeTraceFuncName, executeTraceFuncType);
+    auto executeTraceFunc = func::FuncOp::create(
+        builder, funcOp.getLoc(), executeTraceFuncName, executeTraceFuncType);
     ttmlir::utils::setFunctionType(executeTraceFunc,
                                    ttmlir::utils::FunctionType::TraceExecute);
     executeTraceFunc.setPrivate();
@@ -497,10 +497,10 @@ private:
     auto deviceOp =
         utils::getOrInsertDevice(rewriter, executeTraceFuncEntryBlock);
     mlir::Value traceId = executeTraceFunc.getArgument(0);
-    builder.create<ttnn::ExecuteTraceOp>(funcOp.getLoc(), deviceOp, traceId,
-                                         /*cq_id=*/0, /*blocking=*/false);
+    ttnn::ExecuteTraceOp::create(builder, funcOp.getLoc(), deviceOp, traceId,
+                                 /*cq_id=*/0, /*blocking=*/false);
 
-    builder.create<func::ReturnOp>(funcOp.getLoc());
+    func::ReturnOp::create(builder, funcOp.getLoc());
 
     return mlir::success();
   }
@@ -555,8 +555,8 @@ private:
 
     auto device = utils::getOrInsertDevice(rewriter, firstOp);
 
-    auto traceOp = builder.create<ttnn::CaptureOrExecuteTraceOp>(
-        funcOp.getLoc(), outputTypes, device, captureTraceSymbolAttr,
+    auto traceOp = ttnn::CaptureOrExecuteTraceOp::create(
+        builder, funcOp.getLoc(), outputTypes, device, captureTraceSymbolAttr,
         executeTraceSymbolAttr, inputs);
 
     // Replace uses of original outputs with the output of the trace op function
