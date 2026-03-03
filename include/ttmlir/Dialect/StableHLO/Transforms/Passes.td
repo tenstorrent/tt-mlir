@@ -244,6 +244,10 @@ def AutoShardingPass : Pass<"auto-sharding", "::mlir::ModuleOp"> {
     Option<"dumpDir", "dump-dir", "std::string",
            /*default=*/"\"\"",
            "Directory to dump variants into (default: current directory)">,
+    Option<"maxConstraintCandidates", "max-constraint-candidates", "int64_t",
+           /*default=*/"5",
+           "Maximum number of intermediate ops to consider for "
+           "Tier 2 sharding constraints (0 disables Tier 2)">,
   ];
 
   let dependentDialects = [
