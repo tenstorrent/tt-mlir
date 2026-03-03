@@ -2161,8 +2161,8 @@ MutableArrayRef<OpOperand> d2m::GenericOp::getInputsAndOutputsMutable() {
         // It's defined outside - check if it's one of our operands.
         bool isOurOperand = llvm::is_contained(getOperands(), operand);
         if (!isOurOperand) {
-          emitOpError("region uses value defined outside that is "
-                      "not an operand of this generic op: ")
+          emitOpError("region uses value defined outside that is not an "
+                      "operand of this generic op: ")
               << operand;
         }
       }
@@ -2189,6 +2189,63 @@ MutableArrayRef<OpOperand> d2m::GenericOp::getInputsAndOutputsMutable() {
     return emitOpError("number of CoreRanges (")
            << numCoreRanges << ") must match the number of Regions ("
            << numRegions << ")";
+  }
+
+  // Each region has exactly one generic op. Verify its grid (2D only) fits
+  // within the region: when mapping is empty, compare shape only; when
+  // mapping is present, require virtual grid contained in region's virtual
+  // bbox.
+  for (auto [region, coreRange] : llvm::zip(getRegions(), coreRanges)) {
+    utils::BoundingBox regionBox;
+    regionBox.start = {coreRange.getStartCoord().getY(),
+                       coreRange.getStartCoord().getX()};
+    regionBox.end = {coreRange.getEndCoord().getY(),
+                     coreRange.getEndCoord().getX()};
+    int64_t regionShapeY = regionBox.end[0] - regionBox.start[0] + 1;
+    int64_t regionShapeX = regionBox.end[1] - regionBox.start[1] + 1;
+
+    auto genericOps = llvm::to_vector(region.front().getOps<GenericOp>());
+    if (genericOps.size() != 1) {
+      return emitOpError(
+                 "each region must contain exactly one d2m.generic op, got ")
+             << genericOps.size();
+    }
+    GenericOp genericOp = genericOps.front();
+
+    auto grid = genericOp.getGrid();
+    llvm::ArrayRef<int64_t> gridShape = grid.getShape();
+
+    if (gridShape.size() != 2) {
+      return emitOpError("d2m.generic inside d2m.spatial: only 2D "
+                         "grid is considered for now, got ")
+             << gridShape.size() << "D";
+    }
+
+    if (grid.getMapping().isEmpty()) {
+      if (gridShape[0] > regionShapeY || gridShape[1] > regionShapeX) {
+        return emitOpError("generic op grid shape [")
+               << gridShape[0] << ", " << gridShape[1]
+               << "] exceeds region CoreRange shape [" << regionShapeY << ", "
+               << regionShapeX << "]";
+      }
+    } else {
+      AffineMap physicalToVirtual = grid.getMapping();
+      if (physicalToVirtual.getNumResults() == 3u) {
+        physicalToVirtual = physicalToVirtual.dropResult(0);
+      }
+      utils::BoundingBox regionVirtualBbox =
+          utils::getProjectedBoundingBox(regionBox, physicalToVirtual);
+      int64_t gridEndY = gridShape[0] - 1, gridEndX = gridShape[1] - 1;
+      if (regionVirtualBbox.start[0] > 0 ||
+          regionVirtualBbox.end[0] < gridEndY ||
+          regionVirtualBbox.start[1] > 0 ||
+          regionVirtualBbox.end[1] < gridEndX) {
+        return emitOpError(
+                   "generic op grid not contained in region grid_ranges [")
+               << regionBox.start[0] << ", " << regionBox.start[1] << "] to ["
+               << regionBox.end[0] << ", " << regionBox.end[1] << "]";
+      }
+    }
   }
 
   return success();
@@ -3320,9 +3377,11 @@ mlir::LogicalResult d2m::SpatialOp::bufferize(
     }
     bufferOutputs.push_back(*maybeValue);
   }
+  // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
   auto bufferSpatial = rewriter.create<d2m::SpatialOp>(
       getLoc(), ValueRange(), bufferInputs, bufferOutputs, getGridRanges(),
       getNumRegions());
+  // NOLINTEND(clang-analyzer-core.StackAddressEscape)
   for (mlir::Region &region : bufferSpatial.getRegions()) {
     region.takeBody(getRegion(region.getRegionNumber()));
   }
