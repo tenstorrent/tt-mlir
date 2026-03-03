@@ -10008,9 +10008,14 @@ class TTIRBuilder(Builder):
 
         return is_finite_module, is_finite_builder
 
+    @tag(ttir.BitwiseNotOp)
     def bitwise_not(
-        self, in0: Operand, unit_attrs: Optional[List[str]] = None
-    ) -> OpView:
+        self,
+        in0: Operand,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
         """
         Creates ``ttir.bitwise_not``.
 
@@ -10042,18 +10047,49 @@ class TTIRBuilder(Builder):
         ----------
         in0 : Operand
             Input tensor
+        output_type : *Optional[torch.dtype]*, optional
+            Output data type. If None, uses input type.
+        loc : *Optional[str]*, optional
+            Optional location name for the operation
         unit_attrs : *Optional[List[str]]*, optional
             Optional list of unit attributes
 
         Returns
         -------
-        (*OpView*)
+        (*OpResult*)
         """
-        return self._op_proxy(
-            ttir.BitwiseNotOp,
-            [in0],
-            unit_attrs,
+        ttir_op = self.get_opview_from_method(TTIRBuilder.bitwise_not)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(input0, mlir_output_type)
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir_op(
+            result,
+            in0,
+            loc=loc,
         )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
 
     def tan(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
         """
@@ -10613,9 +10649,15 @@ class TTIRBuilder(Builder):
             unit_attrs=unit_attrs,
         )
 
+    @tag(ttir.BitwiseOrOp)
     def bitwise_or(
-        self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
-    ) -> OpView:
+        self,
+        in0: Operand,
+        in1: Operand,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
         """
         Creates ``ttir.bitwise_or``.
 
@@ -10646,22 +10688,54 @@ class TTIRBuilder(Builder):
             First input tensor
         in1 : Operand
             Second input tensor
+        output_type : *Optional[torch.dtype]*, optional
+            Output data type. If None, uses input type.
+        loc : *Optional[str]*, optional
+            Optional location name for the operation
         unit_attrs : *Optional[List[str]]*, optional
             Optional list of unit attributes
 
         Returns
         -------
-        (*OpView*)
+        (*OpResult*)
         """
-        return self._op_proxy(
-            ttir.BitwiseOrOp,
-            [in0, in1],
-            unit_attrs=unit_attrs,
-        )
+        ttir_op = self.get_opview_from_method(TTIRBuilder.bitwise_or)
+        lhs = self._get_golden_tensor(in0)
+        rhs = self._get_golden_tensor(in1)
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(lhs, rhs, mlir_output_type)
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
 
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir_op(result, in0, in1, loc=loc)
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @tag(ttir.BitwiseXorOp)
     def bitwise_xor(
-        self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
-    ) -> OpView:
+        self,
+        in0: Operand,
+        in1: Operand,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
         """
         Creates ``ttir.bitwise_xor``.
 
@@ -10690,19 +10764,45 @@ class TTIRBuilder(Builder):
             First input tensor
         in1 : Operand
             Second input tensor
+        output_type : *Optional[torch.dtype]*, optional
+            Output data type. If None, uses input type.
+        loc : *Optional[str]*, optional
+            Optional location name for the operation
         unit_attrs : *Optional[List[str]]*, optional
             Optional list of unit attributes
 
         Returns
         -------
-        (*OpView*)
+        (*OpResult*)
             A tensor containing the bitwise XOR of corresponding elements
         """
-        return self._op_proxy(
-            ttir.BitwiseXorOp,
-            [in0, in1],
-            unit_attrs=unit_attrs,
-        )
+        ttir_op = self.get_opview_from_method(TTIRBuilder.bitwise_xor)
+        lhs = self._get_golden_tensor(in0)
+        rhs = self._get_golden_tensor(in1)
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(lhs, rhs, mlir_output_type)
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir_op(result, in0, in1, loc=loc)
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
 
     def remainder(
         self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
