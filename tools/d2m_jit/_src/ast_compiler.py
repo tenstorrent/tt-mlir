@@ -69,6 +69,33 @@ class AstCompiler:
                 
         # Generate MLIR
         module = generate_ir(tree.body[0], self.grid, tensor_metadata, self.debug)
+
+        print("--- Frontend Generated IR (Pre-Pipeline) ---")
+        print(module)
+        
+        pass_pipeline = [
+            "d2m-linalg-to-affine",
+            "d2m-insert-dst-register-access",
+        ]
+
+        try:
+            from ttmlir.passmanager import PassManager
+
+            for pass_name in pass_pipeline:
+                single_pass_pipeline = f"builtin.module({pass_name})"
+                try:
+                    pm = PassManager.parse(single_pass_pipeline, module.context)
+                    pm.run(module.operation)
+                    print(f"--- IR After Pass: {pass_name} ---")
+                    print(module)
+                except Exception as pass_error:
+                    print(f"--- IR After Pass (failed): {pass_name} ---")
+                    print(module)
+                    raise pass_error
+        except Exception as e:
+            if self.debug:
+                print(f"--- Lowering Pass Failed ---")
+                print(e)
         
         if self.debug:
             print("--- Generated MLIR ---")
