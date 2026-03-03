@@ -237,19 +237,20 @@ static LogicalResult addScratchToGeneric(GenericOp genericOp) {
     }
 
     if (!hasCBBlockArgs) {
-      // New form: clone tensor.empty ops, insert scratch, clone rest.
+      // New form: clone all ops up through the numOldInputs-th
+      // tensor.empty/memref.alloc, insert scratch, then clone the rest.
+      // Note: alloc ops may be interleaved with non-alloc ops (e.g.,
+      // remote_load), so we must not break on non-alloc ops.
       unsigned emptyIdx = 0;
       unsigned clonedUpTo = 0;
       for (unsigned i = 0; i < oldOps.size(); ++i) {
+        builder.clone(*oldOps[i], mapping);
+        clonedUpTo = i + 1;
         if (mlir::isa<mlir::tensor::EmptyOp, memref::AllocOp>(oldOps[i])) {
-          builder.clone(*oldOps[i], mapping);
-          clonedUpTo = i + 1;
           ++emptyIdx;
           if (emptyIdx == numOldInputs) {
             break;
           }
-        } else {
-          break;
         }
       }
 
