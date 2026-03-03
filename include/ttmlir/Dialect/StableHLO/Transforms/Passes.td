@@ -217,8 +217,8 @@ def AnalyzeMeshPass : Pass<"analyze-mesh", "::mlir::ModuleOp">
   ];
 }
 
-def ShardingSearchPass : Pass<"sharding-search", "::mlir::ModuleOp"> {
-  let summary = "Search for optimal sharding configuration by evaluating CCL costs";
+def AutoShardingPass : Pass<"auto-sharding", "::mlir::ModuleOp"> {
+  let summary = "Automatically search for optimal sharding configuration by evaluating CCL costs";
   let description = [{
     This pass enumerates possible sharding configurations for function arguments,
     lowers each variant through the full pipeline (StableHLO -> TTIR -> TTNN),

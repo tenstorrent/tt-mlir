@@ -43,13 +43,13 @@ void createStableHLOPipeline(OpPassManager &pm,
 
   // Optionally search for optimal sharding configuration by evaluating CCL
   // costs across all candidate shardings.
-  if (options.enableShardingSearch) {
-    ShardingSearchPassOptions searchOptions;
+  if (options.enableAutoSharding) {
+    AutoShardingPassOptions searchOptions;
     searchOptions.meshShape = llvm::to_vector(options.meshShape);
     searchOptions.systemDescPath = options.systemDescPath;
     searchOptions.dumpVariants = options.dumpVariants;
     searchOptions.dumpDir = options.dumpDir;
-    pm.addPass(createShardingSearchPass(searchOptions));
+    pm.addPass(createAutoShardingPass(searchOptions));
   }
 
   pm.addPass(createDecoupleConstFanoutPass());
