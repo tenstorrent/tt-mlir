@@ -742,6 +742,46 @@ public:
 } // namespace
 // ANCHOR_END: adding_an_op_matmul_op_rewriter_emitc
 
+// SparseMatmul op conversion pattern
+//
+namespace {
+class SparseMatmulOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::SparseMatmulOp> {
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::SparseMatmulOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::SparseMatmulOp srcOp,
+                  mlir::tt::ttnn::SparseMatmulOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::SparseMatmulOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getA()),
+        emitter.emit(srcOp.getB()),
+        emitter.emit(srcOp.getSparsity()),
+        emitter.emit(srcOp.getIsInputASparse()),
+        emitter.emit(srcOp.getIsInputBSparse()),
+        emitter.emit(srcOp.getNnz()),
+        /*program_config=*/emitter.emit(std::nullopt),
+        emitter.emit(srcOp.getMemoryConfig()),
+        emitter.emit(srcOp.getDtype()),
+        emitter.template emit<::ttnn::WormholeComputeKernelConfig>(
+            srcOp.getComputeConfig()),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // AvgPool2d op conversion pattern
 //
 namespace {
@@ -3538,6 +3578,100 @@ public:
 };
 } // namespace
 
+// AllToAllDispatchOp conversion pattern
+//
+namespace {
+class AllToAllDispatchOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::AllToAllDispatchOp> {
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::AllToAllDispatchOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::AllToAllDispatchOp srcOp,
+                  mlir::tt::ttnn::AllToAllDispatchOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::AllToAllDispatchOp> emitter(
+        srcOp, adaptor, rewriter);
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInputTensor()),
+        emitter.emit(srcOp.getExpertIndices()),
+        emitter.emit(srcOp.getExpertMapping()),
+        emitter.emit(srcOp.getNumDevices()),
+        emitter.emit(srcOp.getClusterAxis()),
+        emitter.emit(srcOp.getMemoryConfig()),
+    };
+
+    emitter.replaceOp(*this, args);
+    return success();
+  }
+};
+} // namespace
+
+// AllToAllCombineOp conversion pattern
+//
+namespace {
+class AllToAllCombineOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::AllToAllCombineOp> {
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::AllToAllCombineOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::AllToAllCombineOp srcOp,
+                  mlir::tt::ttnn::AllToAllCombineOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::AllToAllCombineOp> emitter(
+        srcOp, adaptor, rewriter);
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInputTensor()),
+        emitter.emit(srcOp.getExpertMetadata()),
+        emitter.emit(srcOp.getExpertMapping()),
+        emitter.emit(srcOp.getNumDevices()),
+        emitter.emit(srcOp.getClusterAxis()),
+        emitter.emit(srcOp.getNumExpertsPerTok()),
+        emitter.emit(srcOp.getMemoryConfig()),
+    };
+
+    emitter.replaceOp(*this, args);
+    return success();
+  }
+};
+} // namespace
+
+// MoeExpertTokenRemapOp conversion pattern
+//
+namespace {
+class MoeExpertTokenRemapOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::MoeExpertTokenRemapOp> {
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::MoeExpertTokenRemapOp>::
+      TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::MoeExpertTokenRemapOp srcOp,
+                  mlir::tt::ttnn::MoeExpertTokenRemapOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::MoeExpertTokenRemapOp>
+        emitter(srcOp, adaptor, rewriter);
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getTopkTensor()),
+        emitter.emit(srcOp.getExpertMapping()),
+        emitter.emit(srcOp.getExpertMetadata()),
+        emitter.emit(srcOp.getReductionSize()),
+        emitter.emit(srcOp.getMemoryConfig()),
+    };
+
+    emitter.replaceOp(*this, args);
+    return success();
+  }
+};
+} // namespace
+
 // ConcatenateHeadsOp conversion pattern
 //
 namespace {
@@ -4668,8 +4802,8 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
 
   // Matmul ops
   //
-  patterns.add<LinearOpConversionPattern, MatmulOpConversionPattern>(
-      typeConverter, ctx);
+  patterns.add<LinearOpConversionPattern, MatmulOpConversionPattern,
+               SparseMatmulOpConversionPattern>(typeConverter, ctx);
 
   // Reduction ops
   //
@@ -4719,6 +4853,9 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   patterns.add<DistributeTensorOpConversionPattern>(typeConverter, ctx);
   patterns.add<AggregateTensorOpConversionPattern>(typeConverter, ctx);
   patterns.add<PointToPointOpConversionPattern>(typeConverter, ctx);
+  patterns.add<AllToAllDispatchOpConversionPattern>(typeConverter, ctx);
+  patterns.add<AllToAllCombineOpConversionPattern>(typeConverter, ctx);
+  patterns.add<MoeExpertTokenRemapOpConversionPattern>(typeConverter, ctx);
 
   // KV Cache ops
   //
