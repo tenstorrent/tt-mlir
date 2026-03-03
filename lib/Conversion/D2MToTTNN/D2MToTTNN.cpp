@@ -339,8 +339,10 @@ public:
           });
 
       if ((mlir::dyn_cast_if_present<ttir::TTNNMetalLayoutCastOp>(
-              cb.getDefiningOp()) ||
-          isAliasedOutput) && ttcore::getMemorySpace(cb_memref) != ttcore::MemorySpace::DeviceDRAM) {
+               cb.getDefiningOp()) ||
+           isAliasedOutput) &&
+          ttcore::getMemorySpace(cb_memref) !=
+              ttcore::MemorySpace::DeviceDRAM) {
 
         globalCBIndexOfTensor =
             ttnn::KernelCBGlobalBufferAddressOfTensorAttr::get(ctx, i);
