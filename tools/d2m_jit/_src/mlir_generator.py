@@ -65,7 +65,7 @@ class D2MASTVisitor(ast.NodeVisitor):
         self.block = block
         self.tensor_metadata = tensor_metadata
         self.grid = grid
-        
+
         self.symbol_table = {}
         self.core_indices = {} # Tracks core_y, core_x
         self.scratch_slot = 0 # Tracks slot index for scratch_allocate
@@ -75,6 +75,12 @@ class D2MASTVisitor(ast.NodeVisitor):
             name: _get_validated_layout_dims(name, meta["shape"])
             for name, meta in tensor_metadata.items()
         }
+
+        # Compute per-core shard shape from the first tensor
+        first_layout = next(iter(self.tensor_layout_dims.values()))
+        self.per_core_tile_h = first_layout["tile_h"] // grid[0]
+        self.per_core_tile_w = first_layout["tile_w"] // grid[1]
+        self.shard_shape = list(first_layout["shape"][:-2]) + [self.per_core_tile_h, self.per_core_tile_w]
 
     def _require_compile_time_int(self, value, expr_name):
         if isinstance(value, bool) or not isinstance(value, Integral):
@@ -92,7 +98,7 @@ class D2MASTVisitor(ast.NodeVisitor):
         except ValueError:
             ranked = MemRefType(value_type)
             return list(ranked.shape), ranked.element_type, False, ranked.memory_space
-            
+
     def _resolve_slice(self, slice_node):
         """Resolves a python slice [start:end] to (offset, size)"""
         if isinstance(slice_node, ast.Slice):
@@ -100,7 +106,7 @@ class D2MASTVisitor(ast.NodeVisitor):
             start = self._eval_expr(slice_node.lower) if slice_node.lower else 0
             # Evaluate end
             end = self._eval_expr(slice_node.upper) if slice_node.upper else None
-            
+
             # Simple symbolic subtraction for size (e.g. core_y + 128 - core_y = 128)
             size = None
             if end is not None:
@@ -112,7 +118,7 @@ class D2MASTVisitor(ast.NodeVisitor):
                     size = f"({end}) - ({start})"
             return start, size
         return None, None
-        
+
     def _eval_expr(self, node):
         if isinstance(node, ast.Constant):
             return node.value
@@ -143,7 +149,7 @@ class D2MASTVisitor(ast.NodeVisitor):
             rhs = RankedTensorType(rhs_type)
         except ValueError:
             rhs = MemRefType(rhs_type)
-            
+
         if lhs.element_type != rhs.element_type:
             raise ValueError(
                 f"d2m.add requires matching element types, got {lhs.element_type} and {rhs.element_type}"
@@ -174,7 +180,7 @@ class D2MASTVisitor(ast.NodeVisitor):
             rhs = RankedTensorType(rhs_type)
         except ValueError:
             rhs = MemRefType(rhs_type)
-            
+
         if lhs.element_type != rhs.element_type:
             raise ValueError(
                 f"d2m.matmul requires matching element types, got {lhs.element_type} and {rhs.element_type}"
@@ -258,12 +264,18 @@ class D2MASTVisitor(ast.NodeVisitor):
                 raise ValueError(
                     f"d2m.matmul output buffer shape mismatch expected={expected_out}, got out_val={out_val_shape}"
                 )
-        
+
+        # When out_val is a placeholder (from alloc()), create a correctly-typed tensor.empty
+        # with the actual output shape so linalg.GenericOp gets the right init tensor.
+        if is_tensor and out_val_is_placeholder:
+            from ttmlir.dialects import tensor as tensor_dialect
+            out_val = tensor_dialect.EmptyOp(out_shape, out_type.element_type).result
+
         from ttmlir.ir import AffineMap, AffineMapAttr, ArrayAttr, Attribute
 
         if op_name == "matmul":
             from ttmlir.ir import AffineExpr
-            
+
             iter_rank = rank + 1
             batch_rank = rank - 2
 
@@ -305,12 +317,12 @@ class D2MASTVisitor(ast.NodeVisitor):
 
         # Tensor type requires creating the operation differently?
         import ttmlir.dialects.linalg as linalg
-        
+
         if is_tensor:
             op = linalg.GenericOp([out_type], [lhs, rhs], [out_val], indexing_maps, iterator_types)
         else:
             op = linalg.GenericOp([], [lhs, rhs], [out_val], indexing_maps, iterator_types)
-            
+
         op.attributes["indexing_maps"] = indexing_maps
         op.attributes["iterator_types"] = iterator_types
         op.attributes["operandSegmentSizes"] = DenseI32ArrayAttr.get([2, 1])
@@ -346,15 +358,15 @@ class D2MASTVisitor(ast.NodeVisitor):
             return op.result
         else:
             return None
-        
+
     def visit_Assign(self, node):
         target = node.targets[0]
         if not isinstance(target, ast.Name):
             return
-            
+
         name = target.id
         val = node.value
-        
+
         if isinstance(val, ast.Call):
             if isinstance(val.func, ast.Attribute) and val.func.value.id == "d2m" and val.func.attr == "core_idx":
                 idx = val.args[0].value
@@ -365,30 +377,28 @@ class D2MASTVisitor(ast.NodeVisitor):
                     import ttmlir.dialects.d2m as d2m
                     op = d2m.BlockIndexOp(IntegerAttr.get(IntegerType.get_signless(64), idx), results=[idx_type])
                     self.core_indices[name] = op.result
-                    
+
             elif isinstance(val.func, ast.Name) and val.func.id == "alloc":
-                # Handle alloc() -> memref.alloc
+                # Handle alloc() -> tensor.empty placeholder (pre-bufferized form)
+                # Use all-1s shape so _is_placeholder_shape returns True.
+                # The actual shape is determined when the buffer is used.
                 with Location.unknown(self.ctx), InsertionPoint(self.block):
-                    # Let's keep `memref` for local buffers for now.
-                    from ttmlir.ir import Type, F32Type, Attribute, MemRefType
-                    f32 = F32Type.get()
+                    from ttmlir.ir import Type
                     tile_type = Type.parse("!ttcore.tile<32x32, f32>", context=self.ctx)
-                    l1_space = Attribute.parse("#ttcore.memory_space<l1>", context=self.ctx)
-                    res_type = MemRefType.get([1, 1, 1, 1, 1, 1], tile_type, memory_space=l1_space)
-                    
-                    # Create memref.alloc operation directly
-                    import ttmlir.dialects.memref as memref
-                    op = memref.AllocOp(res_type, [], [])
+                    rank = len(self.shard_shape)
+                    placeholder_shape = [1] * rank
+                    from ttmlir.dialects import tensor as tensor_dialect
+                    op = tensor_dialect.EmptyOp(placeholder_shape, tile_type)
                     self.symbol_table[name] = op.result
-                    
+
     def visit_For(self, node):
         if not isinstance(node.iter, ast.Call) or node.iter.func.id != "range":
             raise NotImplementedError("Only range() loops are supported")
-            
+
         args = node.iter.args
         start_val = 0
         step_val = 1
-        
+
         if len(args) == 1:
             end_val = self._eval_expr(args[0])
         elif len(args) == 2:
@@ -398,9 +408,9 @@ class D2MASTVisitor(ast.NodeVisitor):
             start_val = self._eval_expr(args[0])
             end_val = self._eval_expr(args[1])
             step_val = self._eval_expr(args[2])
-            
+
         from ttmlir.dialects import affine
-        
+
         with Location.unknown(self.ctx), InsertionPoint(self.block):
             # AffineForOp takes integer bounds directly
             start_int = self._require_compile_time_int(start_val, "range start")
@@ -408,13 +418,13 @@ class D2MASTVisitor(ast.NodeVisitor):
             step_int = self._require_compile_time_int(step_val, "range step")
             if step_int == 0:
                 raise ValueError("range step must be non-zero")
-            
+
             loop = affine.AffineForOp(start_int, end_int, step_int)
-            
+
             # The induction variable is named node.target.id
             if isinstance(node.target, ast.Name):
                 self.symbol_table[node.target.id] = loop.induction_variable
-                
+
             # Visit the body inside the loop
             prev_block = self.block
             self.block = loop.body
@@ -422,41 +432,37 @@ class D2MASTVisitor(ast.NodeVisitor):
                 for stmt in node.body:
                     self.visit(stmt)
             self.block = prev_block
-            
+
     def visit_Call(self, node):
         if not isinstance(node.func, ast.Attribute):
             return
-            
+
         if node.func.value.id != "d2m":
             return
-            
+
         op_name = node.func.attr
-        
+
         with Location.unknown(self.ctx), InsertionPoint(self.block):
             if op_name == "remote_load":
                 dest_name = node.args[0].id
                 src_node = node.args[1]
-                
+
                 # Parse slices: src[y_slice][x_slice]
                 # In AST: Subscript(value=Subscript(value=Name, slice), slice)
                 x_slice = src_node.slice
                 y_slice = src_node.value.slice
                 src_name = src_node.value.value.id
-                
+
                 y_start, y_size = self._resolve_slice(y_slice)
                 x_start, x_size = self._resolve_slice(x_slice)
-                
-                # We need to map AST name node src_name to the MLIR variable
+
+                # Map src_name to the outer metal tensor
                 src_val = self.symbol_table[src_name]
-                dest_val = self.symbol_table[dest_name]
-                
-                from ttmlir.ir import Type, F32Type, Attribute, MemRefType
-                # Mock up memref type for now based on slice sizes
-                f32 = F32Type.get()
+
+                from ttmlir.ir import Type
                 tile_type = Type.parse("!ttcore.tile<32x32, f32>", context=self.ctx)
-                l1_space = Attribute.parse("#ttcore.memory_space<l1>", context=self.ctx)
-                
-                # Ensure sizes are evaluated if they are constants
+
+                # Compute slice dimensions in tiles
                 src_layout = self.tensor_layout_dims.get(src_name)
                 y_dim = src_layout["tile_h"] if src_layout else 1
                 x_dim = src_layout["tile_w"] if src_layout else 1
@@ -474,134 +480,46 @@ class D2MASTVisitor(ast.NodeVisitor):
                             f"remote_load x-slice size must be positive and divisible by {TILE_SIZE}, got {x_size_int}"
                         )
                     x_dim = max(1, x_size_int // TILE_SIZE)
-                
-                # Get the memref logical shape to match the shard shape!
-                # Since physical tensor is 6D, we make local buffer 6D. Wait, getDeviceLayout failed!
-                # Actually, the error is: `d2m.remote_load' op failed to get device layout from memref/tensor
-                # This means it couldn't find a DeviceLayoutInterface on the `memref`.
-                # We need to make sure the memory space or layout has it.
-                # Oh! Earlier I saw `DeviceLayoutInterface` is the `layout` attribute, but since `#ttcore.metal_layout` is in `memory_space`, it didn't find it!
-                # Wait, if I put it in `layout`, python bindings crash because `layout` doesn't accept it.
-                # How does `getDeviceLayout(MemRefType)` find it?
-                # It calls `memref.getLayout()`. Wait, if it checks `memref.getLayout()`, then the layout MUST be set on the memref type as the layout, not memory space.
-                # BUT when I printed a real dump, `#layout = ... : ... memref<2x2x... , #layout>` ! The `#layout` is the memory space! Wait!
-                # MemRefType format is `memref<shapexelement_type, layout, memory_space>`
-                # If there's only one attribute after element type, is it layout or memory space?
-                # If it's `#layout`, it's an attribute! In MLIR, if the attribute is a MemRefLayoutAttrInterface, it's layout.
-                # Is `#ttcore.metal_layout` a layout or a memory space?
-                # Let's check `include/ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.td`.
-                
-                # Let's keep `memref` for local buffers for now.
-                # Let's keep `memref` for local buffers for now.
-                from ttmlir.ir import Type, F32Type, Attribute, MemRefType
-                import ttmlir.dialects.memref as memref
-                l1_space = Attribute.parse("#ttcore.memory_space<l1>", context=self.ctx)
-                # Ensure the tile_type is defined
-                f32 = F32Type.get()
-                tile_type = Type.parse("!ttcore.tile<32x32, f32>", context=self.ctx)
-                res_type = MemRefType.get([1, 1, 1, 1, y_dim, x_dim], tile_type, memory_space=l1_space)
-                op = memref.AllocOp(res_type, [], [])
-                
-                # Generate d2m.remote_load
+
+                # Local buffer type: batch_dims + [y_dim, x_dim] tile tensor (no memory space)
+                batch_dims = list(src_layout["shape"][:-2]) if src_layout else [1, 1]
+                local_shape = batch_dims + [y_dim, x_dim]
+
+                # Create tensor.empty() as local buffer
+                from ttmlir.dialects import tensor as tensor_dialect
+                local_buf_op = tensor_dialect.EmptyOp(local_shape, tile_type)
+
+                # Generate d2m.remote_load (tensor form)
                 import ttmlir.dialects.d2m as d2m_dialect
-                # We need to unwrap the CB type and use wait/reserve ops to get the memref for d2m.generic
-                # Actually wait, `d2m.remote_load` DOES have an explicit CB form where the source is the generic op's argument.
-                # Look at `d2m.remote_load` usage in explicit CB form:
-                # `d2m.remote_load %generic_operand[%i, %j] into %cb`
-                # But wait, in `test_eltwise_add_chain.py`, the user does `d2m.remote_load(local_a, a[...])`.
-                # If `a` is a block argument with type `!d2m.cb<memref<...>>`, we can't pass it to `remote_load` as `$memref`.
-                # Wait, if `a` is the generic op operand (which is a global dram memref), it SHOULD NOT be a CB.
-                # The arguments to `d2m.generic` region are CBs *for local L1 usage*, but what if they are used for remote ops?
-                # Ah! In `test_eltwise_add_chain.mlir` previous dump:
-                # `^bb0(%arg4: memref<...dram...>, %arg5: memref<...dram...>)`
-                # If the generic op has `memref` region block arguments, `remote_load` works.
-                # BUT the compiler gave the error:
-                # `'d2m.generic' op all regions must either cb or semaphore block argument type`
-                # So we changed them to `!d2m.cb`.
-                # But if they are `!d2m.cb<memref<...dram...>>`, `remote_load` expects `memref<...dram...>` as its `memref` argument.
-                # Wait, how does `remote_load` work when block arguments MUST be CBs?
-                # Does `remote_load` take the CB as the `$cb` argument and NO `memref` argument?
-                # Let's look at `RemoteLoadOp` builders:
-                # `OpBuilder<(ins "Value":$memref, "ValueRange":$indices, "Value":$cb)`
-                # It requires BOTH `memref` AND `cb`?
-                # Wait, look at `getODSOperandIndexAndLength`: $localBuffer is optional.
-                # So `d2m.remote_load` is: `localBuffer`, `memref`, `indices`, `cb`, etc.
-                # If `$memref` MUST be a `memref`, where does this `memref` come from?
-                # In MLIR, if the block argument is `!d2m.cb`, you can't just pass it as `memref`.
-                # Wait, look at the error again:
-                # `'d2m.remote_load' op operand #1 must be ranked tensor of any type values or non-0-ranked.memref of any type values, but got '!d2m.cb<memref<...>>'`
-                # So it's passing `!d2m.cb` as operand #1 (`$memref`).
-                # If `a` is the global operand outside the `d2m.generic`, we could use it... but we're inside the region, so we can't use outer values.
-                # Wait! "Loads an _entire shard_ from remote or local GenericOp operand into a local L1 buffer. The memref/tensor argument _must_ be an operand of the GenericOp."
-                # Does it mean we pass the *outer* generic op's operand?
-                # YES. "The memref/tensor argument _must_ be an operand of the GenericOp."
-                # So inside the `d2m.generic` region, we should just use the outer operands directly!
-                # Wait, if we use the outer operands, they are implicitly captured in the region. Does `d2m.generic` allow implicitly captured operands?
-                # In standard MLIR, regions can implicitly capture values from the outer scope if `IsolatedFromAbove` is not specified.
-                # Let's check `D2M_GenericOp` definition. It has `OpTrait::VariadicRegions`, `OpTrait::VariadicResults`, `OpTrait::ZeroSuccessors`, `OpTrait::VariadicOperands`... no `IsolatedFromAbove`!
-                # So YES! We should just use the original outer operands instead of the block arguments!
-                # But wait, why did `d2m.generic` have block arguments at all then?
-                # In `d2m_insert_dst_dumps/insert_dst_register_access_eltwise.after.mlir`, the generic op region arguments are:
-                # `^unified0(%cb0: !d2m.cb<...l1...>, %cb1: !d2m.cb<...l1...>, %cb2: !d2m.cb<...l1...>):`
-                # And it does NOT do `remote_load`. It does `d2m.wait %cb0`.
-                # This is an explicit CB form where the data is ALREADY in L1 (managed by the pipeline)!
-                # But in our `d2m.jit` script, we are writing explicit data movement!
-                # So the `d2m.generic` is in "Unified Explicit form".
-                # In Unified Explicit form, the generic op has NO block arguments?
-                # Wait, if we don't put block arguments, the number of block arguments won't match the number of operands?
-                # Actually, does `d2m.generic` require block arguments to match operands?
-                # The error was: `'d2m.generic' op all regions must either cb or semaphore block argument type`
-                # If we have 0 block arguments, does it fail? "all regions must..." -> trivially true for 0 block arguments!
-                mcast_shape_attr = ArrayAttr.get([]) # Empty array for no mcast
-                mcast_dims_attr = ArrayAttr.get([]) # Empty array for no mcast
                 mcast_start_index = ArrayAttr.get([])
-                
-                # Unwrap the cb type for the memref type
-                import ttmlir.dialects.d2m as d2m_dialect
-                # Note: src_val is a block argument with type !d2m.cb<memref<...>>
-                # The remote_load should have the signature:
-                # d2m.remote_load localBuffer src_val[y, x] : memref<...>, !d2m.cb<memref<...>> -> memref<...>
-                # Wait, looking at the dump, remote_load doesn't have CB argument in tensor form, but in memref form it might.
-                # Actually, the error says:
-                # 'd2m.remote_load' op operand #1 must be ranked tensor of any type values or non-0-ranked.memref of any type values, but got '!d2m.cb<memref<...>>'
-                # This implies the operand #1 (which is `memref` argument) should be the raw memref, and `cb` is a separate optional argument?
-                # No, if the generic op's arguments are CBs, we might need to extract the underlying type for the result, or pass the CB directly.
-                # Ah! Wait. D2M_RemoteLoadOp allows `memref` to be `AnyRankedTensorOrMemRef`.
-                # If we pass CB, we must pass it to the `$cb` argument, NOT the `$memref` argument!
-                # Wait, if we pass it to `$cb`, what do we pass to `$memref`? 
-                # "The explicit CB form takes a CB block arg as additional input; the load is produced into the CB... In explicit CB form, no local buffer is required."
-                # Wait, that's if we are loading *into* a CB!
-                # "d2m.remote_load %generic_operand[%i, %j] into %cb" -> Here %generic_operand is the source, %cb is the destination.
-                # But in our case, we are loading FROM a generic operand (which is a block argument) INTO a local buffer!
-                # Wait, if the generic op's block argument is a CB, does that mean the generic op's operand is passed as a CB?
-                # Yes! In our generated MLIR:
-                # `^bb0(%arg4: !d2m.cb<memref<...>>, ...):`
-                # So the source is `%arg4`.
-                # But `remote_load` expects the source to be a memref. So how do we read from a CB?
-                # Wait, if `%arg4` is the block argument of `d2m.generic`, should it be a memref instead of CB?
-                # Let's check `test_eltwise_add_chain.mlir` dump:
-                # In the real dump, generic region block arguments are:
-                # `^bb0(%in: !ttcore.tile<32x32, f32>, ...)` -> Wait, that's `linalg.generic`!
-                # We don't have `d2m.generic` in that dump because `d2m_matmul_ir_pipeline_dump.mlir` doesn't use `d2m.generic`?
-                op = d2m_dialect.RemoteLoadOp(res_type, src_val, [self.core_indices["core_y"], self.core_indices["core_x"]], mcast_start_index, mcast_shape_attr, mcast_dims_attr, localBuffer=dest_val)
-                
-                # Store the loaded value in symbol table for destination variable
-                
-                # Store the loaded value in symbol table for destination variable
+                mcast_shape_attr = ArrayAttr.get([])
+                mcast_dims_attr = ArrayAttr.get([])
+
+                op = d2m_dialect.RemoteLoadOp(
+                    local_buf_op.result.type,
+                    src_val,
+                    [self.core_indices["core_y"], self.core_indices["core_x"]],
+                    mcast_start_index,
+                    mcast_shape_attr,
+                    mcast_dims_attr,
+                    localBuffer=local_buf_op.result,
+                )
+
+                # Store the loaded tensor value in symbol table
                 self.symbol_table[dest_name] = op.result
-                
+
             elif op_name == "remote_store":
                 dest_node = node.args[0]
                 src_name = node.args[1].id
-                
+
                 # Parse slices: out[y_slice][x_slice]
                 x_slice = dest_node.slice
                 y_slice = dest_node.value.slice
                 dest_name = dest_node.value.value.id
-                
+
                 y_start, y_size = self._resolve_slice(y_slice)
                 x_start, x_size = self._resolve_slice(x_slice)
-                
+
                 src_val = self.symbol_table[src_name]
                 dest_val = self.symbol_table[dest_name]
                 import ttmlir.dialects.d2m as d2m_dialect
@@ -618,12 +536,12 @@ class D2MASTVisitor(ast.NodeVisitor):
                 if dest_name in self.output_names:
                     out_idx = self.output_names.index(dest_name)
                     self.outputs[out_idx] = store_op.result
-                
+
             elif op_name in ["add", "mul", "max", "matmul"]:
                 in1 = node.args[0].id
                 in2 = node.args[1].id
                 out = node.args[2].id
-                
+
                 val1 = self.symbol_table[in1]
                 val2 = self.symbol_table[in2]
                 if op_name == "add":
@@ -650,94 +568,121 @@ def generate_ir(func_ast, grid, tensor_metadata, debug=False):
             module = Module.create()
             with InsertionPoint(module.body):
                 # Create function signature
-                input_types = []
-                output_types = []
-                input_metal_types = []
-                output_metal_types = []
-                
-                inputs = []
-                outputs = []
-                
+                func_arg_types = []      # ttnn tensor types for function signature
+                input_metal_types = []   # metal tensor types for inputs
+                output_metal_types = []  # metal tensor types for outputs
+                input_ttnn_types = []    # ttnn tensor types for inputs (same as func_arg_types)
+                output_ttnn_types = []   # ttnn tensor types for outputs
+                input_names = []
+                output_names = []
+
                 for name, meta in tensor_metadata.items():
                     layout_dims = _get_validated_layout_dims(name, meta["shape"])
                     shape = layout_dims["shape"]
-                    # Hardcode types for now to get skeletal structure
-                    f32 = F32Type.get()
+                    rank = layout_dims["rank"]
                     h = layout_dims["height"]
                     w = layout_dims["width"]
-                    
-                    grid_attr = Attribute.parse(f"#ttcore.grid<{grid[0]}x{grid[1]}>", context=ctx)
-                    
-                    # Create ttnn.ttnn_layout tensor type for function signature
-                    rank = layout_dims["rank"]
+                    tile_h = layout_dims["tile_h"]
+                    tile_w = layout_dims["tile_w"]
+
+                    # Per-core tile dimensions
+                    per_core_tile_h = tile_h // grid[0]
+                    per_core_tile_w = tile_w // grid[1]
+
+                    # ttnn layout for function boundary
                     dims = ", ".join([f"d{i}" for i in range(rank)])
                     affine_map_str = f"({dims}) -> ({dims})"
-                    
                     memref_shape = layout_dims["tiled_shape"]
                     memref_shape_str = "x".join(map(str, memref_shape))
-                    
                     ttnn_layout_str = f"#ttnn.ttnn_layout<{affine_map_str}, <1x1>, memref<{memref_shape_str}x!ttcore.tile<32x32, f32>, #ttnn.buffer_type<dram>>, <interleaved>>"
                     shape_str = "x".join(map(str, shape))
                     func_arg_type_str = f"tensor<{shape_str}xf32, {ttnn_layout_str}>"
                     func_arg_type = Type.parse(func_arg_type_str, context=ctx)
-                    
-                    # Prepare ttcore.metal_layout memref type for d2m.generic
-                    t_shape = [1, 1, layout_dims["tile_h"], layout_dims["tile_w"]]
-                    logical_shape_str = f"logical_shape={grid[0]}x{grid[1]}x{t_shape[0]}x{t_shape[1]}x{h}x{w}"
-                    dim_alignments_str = f"dim_alignments=1x1x1x1x32x32"
-                    
-                    # Create tensor with metal layout
-                    metal_type_str = f"tensor<{grid[0]}x{grid[1]}x1x1x{layout_dims['tile_h']}x{layout_dims['tile_w']}x!ttcore.tile<32x32, f32>, #ttcore.metal_layout<{logical_shape_str}, {dim_alignments_str}, collapsed_intervals=dense<> : tensor<0x2xi64>, undef, dram, sharded>>"
+
+                    # Metal layout: correct logical_shape (original shape, not grid-prefixed)
+                    # and rank-matched dim_alignments
+                    logical_shape_str = "x".join(map(str, shape))
+                    aligns = ["1"] * (rank - 2) + ["32", "32"]
+                    dim_alignments_str = "x".join(aligns)
+
+                    # Metal tensor shape: grid_y x grid_x x batch_dims x per_core_tile_h x per_core_tile_w
+                    metal_shape = [grid[0], grid[1]] + list(shape[:-2]) + [per_core_tile_h, per_core_tile_w]
+                    metal_shape_str = "x".join(map(str, metal_shape))
+
+                    metal_type_str = (
+                        f"tensor<{metal_shape_str}x!ttcore.tile<32x32, f32>, "
+                        f"#ttcore.metal_layout<logical_shape={logical_shape_str}, "
+                        f"dim_alignments={dim_alignments_str}, "
+                        f"collapsed_intervals=dense<[[0, -1]]> : tensor<1x2xi64>, "
+                        f"undef, dram, sharded>>"
+                    )
                     metal_type = Type.parse(metal_type_str, context=ctx)
 
-                    # Create memref with metal layout
-                    memref_type_str = f"memref<{grid[0]}x{grid[1]}x1x1x{layout_dims['tile_h']}x{layout_dims['tile_w']}x!ttcore.tile<32x32, f32>, #ttcore.metal_layout<{logical_shape_str}, {dim_alignments_str}, collapsed_intervals=dense<> : tensor<0x2xi64>, undef, dram, sharded>>"
-                    memref_type = Type.parse(memref_type_str, context=ctx)
-                    
+                    func_arg_types.append(func_arg_type)
                     if meta["is_output"]:
-                        output_types.append(func_arg_type)
-                        output_metal_types.append((metal_type, memref_type))
+                        output_metal_types.append(metal_type)
+                        output_ttnn_types.append(func_arg_type)
+                        output_names.append(name)
                     else:
-                        input_types.append(func_arg_type)
-                        input_metal_types.append((metal_type, memref_type))
-                        
-                func_type = FunctionType.get(input_types + output_types, [])
+                        input_metal_types.append(metal_type)
+                        input_ttnn_types.append(func_arg_type)
+                        input_names.append(name)
+
+                func_type = FunctionType.get(func_arg_types, [])
                 func_op = func.FuncOp(func_ast.name, func_type, loc=Location.unknown(ctx))
                 func_bb = func_op.add_entry_block()
-                
+
                 with InsertionPoint(func_bb):
-                    # Insert ttir.ttnn_metal_layout_cast for inputs and outputs
-                    all_metal_types = input_metal_types + output_metal_types
-                    for i in range(len(input_types) + len(output_types)):
+                    inputs = []   # metal tensor values for d2m.generic ins
+                    outputs = []  # metal tensor values for d2m.generic outs
+
+                    # Cast input func args from ttnn tensor to metal tensor
+                    n_inputs = len(input_metal_types)
+                    for i in range(n_inputs):
                         arg = func_bb.arguments[i]
-                        metal_type, memref_type = all_metal_types[i]
+                        metal_type = input_metal_types[i]
                         cast_op = Operation.create(
                             "ttir.ttnn_metal_layout_cast",
                             results=[metal_type],
                             operands=[arg],
                             loc=Location.unknown(ctx)
                         )
-                        to_memref_op = Operation.create(
-                            "builtin.unrealized_conversion_cast",
-                            results=[memref_type],
-                            operands=[cast_op.result],
+                        inputs.append(cast_op.result)
+
+                    # For outputs: create d2m.empty (ttnn type) then cast to metal tensor
+                    import ttmlir.dialects.d2m as d2m_dialect
+                    for i in range(len(output_metal_types)):
+                        ttnn_type = output_ttnn_types[i]
+                        metal_type = output_metal_types[i]
+                        empty_op = d2m_dialect.EmptyOp(ttnn_type)
+                        cast_op = Operation.create(
+                            "ttir.ttnn_metal_layout_cast",
+                            results=[metal_type],
+                            operands=[empty_op.result],
                             loc=Location.unknown(ctx)
                         )
-                        if i < len(input_types):
-                            inputs.append(to_memref_op.result)
-                        else:
-                            outputs.append(to_memref_op.result)
-                        
-                        
+                        outputs.append(cast_op.result)
+
                     grid_attr = Attribute.parse(f"#ttcore.grid<{grid[0]}x{grid[1]}>", context=ctx)
-                    block_factors = ArrayAttr.get([])
-                    indexing_maps = ArrayAttr.get([])
-                    iterator_types = ArrayAttr.get([])
+
+                    # Build d2m.generic attributes
+                    n_operands = len(inputs) + len(outputs)
+                    identity_2d = AffineMap.get_identity(2)
+                    indexing_maps = ArrayAttr.get(
+                        [AffineMapAttr.get(identity_2d) for _ in range(n_operands)]
+                    )
+                    iterator_types = ArrayAttr.get([
+                        Attribute.parse("#ttcore.iterator_type<parallel>", context=ctx)
+                        for _ in range(2)
+                    ])
+                    # block_factors: one entry per shard dimension (metal rank - grid rank)
+                    first_metal = (inputs + outputs)[0]
+                    shard_rank = len(RankedTensorType(first_metal.type).shape) - 2
+                    block_factors = DenseI64ArrayAttr.get([1] * shard_rank)
                     threads = ArrayAttr.get([Attribute.parse("#d2m.thread<unified>", context=ctx)])
-                    
-                    import ttmlir.dialects.d2m as d2m_dialect
+
                     generic_op = d2m_dialect.GenericOp(
-                        [],       # results_
+                        output_metal_types,  # results_ — one per output tensor
                         inputs,
                         outputs,
                         [],       # additionalArgs
@@ -750,34 +695,41 @@ def generate_ir(func_ast, grid, tensor_metadata, debug=False):
                         loc=Location.unknown(ctx),
                         ip=InsertionPoint(func_bb),
                     )
-                    
+
                     region = generic_op.regions[0]
-                    
+
+                    # CB block arg types: !d2m.cb<tensor<shard_shape x !ttcore.tile<32x32, f32>>>
+                    # Shard shape = metal tensor shape without the grid dims (first 2 dims)
                     block_arg_types = []
-                    for arg in inputs + outputs:
-                        # Oh wait, `!d2m.cb` might need to wrap `memref`, but if we use `tensor`, it wraps `tensor`?
-                        # Let's just wrap `arg.type` which is now a `tensor`.
-                        cb_type = Type.parse(f"!d2m.cb<{arg.type}>", context=ctx)
+                    for metal_val in inputs + outputs:
+                        metal_ranked = RankedTensorType(metal_val.type)
+                        metal_shape_list = list(metal_ranked.shape)
+                        inner_shard = metal_shape_list[2:]  # drop grid dims (first 2)
+                        shard_tensor_str = "x".join(map(str, inner_shard))
+                        cb_type = Type.parse(
+                            f"!d2m.cb<tensor<{shard_tensor_str}x!ttcore.tile<32x32, f32>>>",
+                            context=ctx
+                        )
                         block_arg_types.append(cb_type)
                     generic_bb = region.blocks.append(*block_arg_types)
-                    
+
                     visitor = D2MASTVisitor(ctx, generic_bb, tensor_metadata, grid)
-                    # We need to map AST name node src_name to the MLIR variable.
-                    # Since remote_load expects memref, not cb, and the arguments to the block are cbs,
-                    # we must use the outer operands of the d2m.generic op for the memref argument!
-                    for i, arg in enumerate(inputs + outputs):
-                        if i < len(inputs):
-                            name = list(tensor_metadata.keys())[i]
-                            visitor.symbol_table[name] = arg
-                        else:
-                            name = list(tensor_metadata.keys())[len(inputs) + (i - len(inputs))]
-                            visitor.symbol_table[name] = arg
-                            
+
+                    # Map tensor names to outer metal tensor Values (not CB block args)
+                    # remote_load/remote_store use these outer operands
+                    for i, name in enumerate(input_names):
+                        visitor.symbol_table[name] = inputs[i]
+                    for i, name in enumerate(output_names):
+                        visitor.symbol_table[name] = outputs[i]
+
                     visitor.visit(func_ast)
-                    
+
+                    # Add d2m.yield with the final output tensor value(s)
                     with InsertionPoint(generic_bb):
-                        pass
-                        
+                        yield_vals = [v for v in visitor.outputs if v is not None]
+                        if yield_vals:
+                            d2m_dialect.YieldOp(yield_vals)
+
                     func.ReturnOp([])
-                
+
     return module
